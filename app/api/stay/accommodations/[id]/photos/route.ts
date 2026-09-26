@@ -3,6 +3,8 @@ import { pool } from '@/lib/db-pool';
 import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
 import crypto from 'crypto';
 import { z } from 'zod';
+import { isOwnUploadUrl, mimeFromOwnUploadUrl } from '@/lib/storage/own-upload-url';
+import { logStayFailure } from '@/lib/stay/db-failure';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,13 +16,12 @@ export const dynamic = 'force-dynamic';
  * на витрине (листинг и детальная уже читают accommodation_assets).
  */
 
+// URL — только наш (S3 uploads/ или dev-фоллбэк /uploads/), см.
+// lib/storage/own-upload-url. MIME выводится из нашего же имени файла,
+// которое /api/upload дал по сигнатуре байт, — заявленному не верим.
 const AddPhotoSchema = z.object({
-  url: z.string().url('URL фотографии обязателен').or(
-    // dev-fallback /api/upload отдаёт относительный путь /uploads/...
-    z.string().regex(/^\/uploads\/[\w.-]+$/, 'URL фотографии обязателен')
-  ),
+  url: z.string().max(1000).refine(isOwnUploadUrl, 'Фото принимается только из загрузки платформы — загрузите файл через кнопку «Добавить фото»'),
   alt: z.string().max(255).optional(),
-  mimeType: z.string().max(100).optional(),
   size: z.number().int().min(0).optional(),
 });
 
@@ -48,7 +49,8 @@ export async function GET(
       success: true,
       data: { photos: rows.map(r => ({ id: r.id, url: r.url, alt: r.alt, createdAt: r.created_at })) },
     });
-  } catch {
+  } catch (error) {
+    logStayFailure('GET /api/stay/accommodations/[id]/photos', error);
     return NextResponse.json({ success: false, error: 'Ошибка при получении фотографий' }, { status: 500 });
   }
 }
@@ -75,7 +77,8 @@ export async function POST(
       { status: 400 }
     );
   }
-  const { url, alt, mimeType, size } = parsed.data;
+  const { url, alt, size } = parsed.data;
+  const mimeType = mimeFromOwnUploadUrl(url);
 
   try {
     // sha256 по URL — дедуп общих ассетов (как у тур-фото)
@@ -94,7 +97,7 @@ export async function POST(
         `INSERT INTO assets (url, mime_type, sha256, size, alt)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [url, mimeType ?? 'image/jpeg', sha256, size ?? 0, alt ?? '']
+        [url, mimeType, sha256, size ?? 0, alt ?? '']
       );
       assetId = inserted.rows[0].id;
     }
@@ -110,7 +113,8 @@ export async function POST(
       { success: true, data: { id: assetId, url }, message: 'Фотография добавлена' },
       { status: 201 }
     );
-  } catch {
+  } catch (error) {
+    logStayFailure('POST /api/stay/accommodations/[id]/photos', error);
     return NextResponse.json({ success: false, error: 'Ошибка при добавлении фотографии' }, { status: 500 });
   }
 }

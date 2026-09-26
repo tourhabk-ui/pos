@@ -10,7 +10,9 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
-import { verifyAccommodationOwnership } from '@/lib/auth/stay-helpers';
+import { verifyAccommodationOwnership, StayCheckUnavailableError, stayCheckUnavailableResponse } from '@/lib/auth/stay-helpers';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { logStayFailure } from '@/lib/stay/db-failure';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,8 +23,16 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    
-    // Получаем основную информацию
+    // Не-uuid — «такого объекта нет», а не 500 от 22P02.
+    if (!z.string().uuid().safeParse(id).success) {
+      return NextResponse.json(
+        { success: false, error: 'Объект размещения не найден' },
+        { status: 404 }
+      );
+    }
+
+    // Получаем основную информацию. Витрина — только одобренные
+    // администратором и не скрытые владельцем (миграция 1027).
     const accommodationResult = await query<{
       id: string; name: string; type: string; description: string; short_description: string;
       address: string; coordinates: unknown; location_zone: string; star_rating: unknown;
@@ -49,7 +59,7 @@ export async function GET(
         ) as images
       FROM accommodations a
       LEFT JOIN partners p ON a.partner_id = p.id
-      WHERE a.id = $1 AND a.is_active = true`,
+      WHERE a.id = $1 AND ${publicAccommodationSql('a')}`,
       [id]
     );
     
@@ -133,7 +143,7 @@ export async function GET(
       WHERE a.type = $1 
         AND a.location_zone = $2 
         AND a.id != $3 
-        AND a.is_active = true
+        AND ${publicAccommodationSql('a')}
       ORDER BY a.rating DESC
       LIMIT 4`,
       [accommodation.type, accommodation.location_zone, id]
@@ -303,6 +313,15 @@ export async function PATCH(
       idx++;
     }
 
+    // Отклонённый объект, исправленный ВЛАДЕЛЬЦЕМ, снова уходит на проверку:
+    // экран отказа обещает «после правки — снова на проверку». Только
+    // содержательная правка (не выключатель показа) и только от владельца —
+    // администратор решает через /api/admin/accommodations/[id].
+    const contentEdited = Object.keys(parsed.data).some(k => k !== 'isActive');
+    if (!isAdmin && contentEdited) {
+      setClauses.push(`moderation_status = CASE WHEN moderation_status = 'rejected' THEN 'pending' ELSE moderation_status END`);
+    }
+
     setClauses.push('updated_at = NOW()');
     values.push(accommodationId);
 
@@ -325,6 +344,8 @@ export async function PATCH(
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    if (error instanceof StayCheckUnavailableError) return stayCheckUnavailableResponse();
+    logStayFailure('PATCH /api/accommodations/[id]', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при обновлении объекта размещения' } as ApiResponse<null>,
       { status: 500 }

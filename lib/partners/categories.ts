@@ -32,6 +32,16 @@ export const PARTNER_CATEGORY_LABELS: Record<PartnerCategory, string> = {
 
 export const PARTNER_CATEGORIES: readonly PartnerCategory[] = PARTNER_ROLES;
 
+/**
+ * Рейтинг нового партнёра. Владелец жилья без отзывов — «не оценён»
+ * (NULL), а не 0: отзывы ставят от 1 до 5, ноль — это «не знаю»,
+ * записанное цифрой (§4.0, миграция 1027). Прочим категориям — прежний 0
+ * (умолчание колонки): их читатели рейтинга на NULL не сверены.
+ */
+export function initialPartnerRating(category: string): 0 | null {
+  return category === 'stay' ? null : 0;
+}
+
 export function isPartnerCategory(v: unknown): v is PartnerCategory {
   return typeof v === 'string' && (PARTNER_ROLES as readonly string[]).includes(v);
 }

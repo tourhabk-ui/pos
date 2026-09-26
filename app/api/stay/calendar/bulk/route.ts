@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -63,17 +64,18 @@ export async function POST(request: NextRequest) {
   const authOrResponse = await requireAccommodationAccess(request, accommodationId);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  if (roomId) {
-    const { rows } = await pool.query(
-      `SELECT 1 FROM accommodation_rooms WHERE id = $1 AND accommodation_id = $2`,
-      [roomId, accommodationId]
-    );
-    if (rows.length === 0) {
-      return NextResponse.json({ success: false, error: 'Номер не найден в этом объекте' }, { status: 404 });
-    }
-  }
-
   try {
+    // Номер должен принадлежать объекту — внутри try (см. calendar/route.ts).
+    if (roomId) {
+      const { rows } = await pool.query(
+        `SELECT 1 FROM accommodation_rooms WHERE id = $1 AND accommodation_id = $2`,
+        [roomId, accommodationId]
+      );
+      if (rows.length === 0) {
+        return NextResponse.json({ success: false, error: 'Номер не найден в этом объекте' }, { status: 404 });
+      }
+    }
+
     // Значения полей — параметрами; имена колонок — из фиксированного списка
     const params: unknown[] = [accommodationId, roomId ?? null, startDate, endDate];
     const insertCols = ['accommodation_id', 'room_id', 'date', ...provided.map(([c]) => c)];
@@ -108,7 +110,8 @@ export async function POST(request: NextRequest) {
       data: { daysAffected: rowCount ?? 0 },
       message: `Тариф применён к ${rowCount ?? 0} дн.`,
     });
-  } catch {
+  } catch (error) {
+    logStayFailure('POST /api/stay/calendar/bulk', error);
     return NextResponse.json({ success: false, error: 'Ошибка при массовом обновлении тарифов' }, { status: 500 });
   }
 }

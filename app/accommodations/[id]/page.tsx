@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import AccommodationDetailClient from './_AccommodationDetailClient';
 
 export const revalidate = 600;
@@ -14,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   try {
     const { rows } = await pool.query<{ name: string; short_description: string | null }>(
-      `SELECT name, short_description FROM accommodations WHERE id = $1 AND is_active = true`,
+      `SELECT name, short_description FROM accommodations WHERE id = $1 AND ${publicAccommodationSql('')}`,
       [id]
     );
     const acc = rows[0];

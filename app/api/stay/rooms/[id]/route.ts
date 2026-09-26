@@ -3,6 +3,7 @@ import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ROOM_TYPES } from '@/lib/stay/room-types';
 import { z } from 'zod';
+import { logStayFailure } from '@/lib/stay/db-failure';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,14 +44,29 @@ async function checkRoomAccess(request: NextRequest, roomId: string) {
   const authResult = await requireAuth(request);
   if (authResult instanceof NextResponse) return authResult;
 
-  const { rows } = await pool.query(
-    `SELECT r.id, r.accommodation_id, p.user_id
-     FROM accommodation_rooms r
-     JOIN accommodations a ON r.accommodation_id = a.id
-     JOIN partners p ON a.partner_id = p.id AND p.category = 'stay'
-     WHERE r.id = $1`,
-    [roomId]
-  );
+  // Не-uuid до базы: иначе 22P02 уходил необработанным 500.
+  if (!z.string().uuid().safeParse(roomId).success) {
+    return NextResponse.json({ success: false, error: 'Некорректный ID номера' }, { status: 400 });
+  }
+
+  let rows: { id: string; accommodation_id: string; user_id: string }[];
+  try {
+    ({ rows } = await pool.query<{ id: string; accommodation_id: string; user_id: string }>(
+      `SELECT r.id, r.accommodation_id, p.user_id
+       FROM accommodation_rooms r
+       JOIN accommodations a ON r.accommodation_id = a.id
+       JOIN partners p ON a.partner_id = p.id AND p.category = 'stay'
+       WHERE r.id = $1`,
+      [roomId]
+    ));
+  } catch (error) {
+    // Третий исход: не «номера нет», а «не смогли проверить» (§4.0).
+    logStayFailure('checkRoomAccess', error);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось проверить доступ к номеру — база не ответила. Попробуйте позже.' },
+      { status: 503 }
+    );
+  }
 
   const room = rows[0];
   if (!room || (room.user_id !== authResult.userId && authResult.role !== 'admin')) {
@@ -115,7 +131,8 @@ export async function PATCH(
     );
 
     return NextResponse.json({ success: true, data: rows[0], message: 'Номер обновлён' });
-  } catch {
+  } catch (error) {
+    logStayFailure('PATCH /api/stay/rooms/[id]', error);
     return NextResponse.json({ success: false, error: 'Ошибка при обновлении номера' }, { status: 500 });
   }
 }
@@ -170,7 +187,8 @@ export async function DELETE(
 
     await pool.query(`DELETE FROM accommodation_rooms WHERE id = $1`, [id]);
     return NextResponse.json({ success: true, data: { deleted: true }, message: 'Номер удалён' });
-  } catch {
+  } catch (error) {
+    logStayFailure('DELETE /api/stay/rooms/[id]', error);
     return NextResponse.json({ success: false, error: 'Ошибка при удалении номера' }, { status: 500 });
   }
 }

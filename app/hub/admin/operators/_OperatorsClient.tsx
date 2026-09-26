@@ -1338,6 +1338,11 @@ export default function OperatorsClient() {
           )}
         </div>
 
+        <p className="text-sm text-[var(--text-secondary)] mb-4">
+          Объекты владельцев жилья проверяются отдельно:{' '}
+          <a href="/hub/admin/accommodations" className="text-[var(--ocean)] hover:underline">Жильё: проверка</a>.
+        </p>
+
         {/* Ручное заведение партнёра — до импорта: чаще нужен один живой
             партнёр, а не пачка из внешнего источника. */}
         <CreatePartnerPanel onCreated={() => { void load(tab); void loadCounts(); }} />

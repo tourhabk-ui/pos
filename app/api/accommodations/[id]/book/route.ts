@@ -10,15 +10,24 @@
  * - children: количество детей
  * - specialRequests: специальные пожелания (optional)
  * - guestNotes: заметки гостя (optional)
+ *
+ * Оплата жилья — НА МЕСТЕ (решение владельца 26.09): гость бронирует,
+ * владелец подтверждает, гость платит владельцу при заселении. Платформа
+ * платёж по брони жилья не создаёт; онлайн-оплата — отдельный будущий шаг.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
 import { emailService } from '@/lib/notifications/email-service';
 import { requireAuth } from '@/lib/auth/middleware';
-import { getTokenFromRequest } from '@/lib/auth';
-import { notifyNewStayBooking } from '@/lib/notifications/stay-booking';
+import { notifyNewStayBooking, logStayFailure, STAY_PAY_ON_SITE } from '@/lib/notifications/stay-booking';
+import { escapeHtml, safeSubject } from '@/lib/text/escape-html';
+import {
+  roomNightsSql, firstUnsellableNight, type RoomNightRow,
+  PENDING_HOLD_INTERVAL_SQL, MAX_HOLDING_PENDING_PER_PROPERTY,
+} from '@/lib/stay/availability';
 
 // Валидация входных данных
 const bookingSchema = z.object({
@@ -27,8 +36,8 @@ const bookingSchema = z.object({
   checkOutDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Неверный формат даты'),
   adults: z.number().min(1, 'Минимум 1 взрослый').max(20, 'Максимум 20 взрослых'),
   children: z.number().min(0).max(10).optional().default(0),
-  specialRequests: z.string().optional(),
-  guestNotes: z.string().optional(),
+  specialRequests: z.string().max(2000, 'Пожелания — не длиннее 2000 символов').optional(),
+  guestNotes: z.string().max(2000, 'Заметки — не длиннее 2000 символов').optional(),
 });
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +54,12 @@ export async function POST(
   const userId = authResult.userId;
 
   try {
-    const { id: accommodationId } = await params;
+    const { id: rawAccommodationId } = await params;
+    const idCheck = z.string().uuid().safeParse(rawAccommodationId);
+    if (!idCheck.success) {
+      return NextResponse.json({ success: false, error: 'Некорректный ID объекта' }, { status: 400 });
+    }
+    const accommodationId = idCheck.data;
     const body = await request.json();
     
     // Валидация
@@ -117,7 +131,7 @@ export async function POST(
         a.is_active
       FROM accommodation_rooms r
       JOIN accommodations a ON r.accommodation_id = a.id
-      WHERE r.id = $1 AND a.id = $2 AND r.is_active = true AND a.is_active = true`,
+      WHERE r.id = $1 AND a.id = $2 AND r.is_active = true AND ${publicAccommodationSql('a')}`,
       [roomId, accommodationId]
     );
     
@@ -188,28 +202,41 @@ export async function POST(
     const pricePerNight = Math.round((totalPrice / nights) * 100) / 100;
 
     // Проверка занятости и INSERT — в одной транзакции под advisory-lock по
-    // номеру: раньше COUNT и INSERT шли отдельными запросами, и две
+    // ОБЪЕКТУ: раньше COUNT и INSERT шли отдельными запросами, и две
     // одновременные брони последнего номера проходили обе (гонка овербукинга).
-    // Lock снимается автоматически на COMMIT/ROLLBACK.
+    // Ключ — объект, а не номер: число владельца на дату уровня объекта
+    // ограничивает все номера сразу, и подтверждение заявки (PATCH) берёт тот
+    // же ключ. Lock снимается автоматически на COMMIT/ROLLBACK.
+    //
+    // Занятость — по НОЧАМ единой формулой (lib/stay/availability.ts): фонд
+    // номера, число владельца на дату, брони, которые держат номер. Прежний
+    // счёт «броней, пересекающих окно» занимал номер на всё окно бронью на
+    // одну его ночь.
     const bookingOutcome = await transaction(async (client) => {
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [roomId]);
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1::text))`, [accommodationId]);
 
-      const availabilityCheck = await client.query(
-        `SELECT COUNT(*) as bookings
-         FROM accommodation_bookings
-         WHERE room_id = $1
-           AND status NOT IN ('cancelled')
-           AND (
-             (check_in_date <= $2 AND check_out_date > $2)
-             OR (check_in_date < $3 AND check_out_date >= $3)
-             OR (check_in_date >= $2 AND check_out_date <= $3)
-           )`,
-        [roomId, checkInDate, checkOutDate]
+      // Заявки не стоят денег (оплата на месте), поэтому число одновременно
+      // висящих заявок одного гостя на объекте ограничено: иначе ими можно
+      // закрыть весь фонд. Считаются только те, что ещё держат номер.
+      const pendingResult = await client.query<{ holding: number }>(
+        `SELECT COUNT(*)::int AS holding
+           FROM accommodation_bookings b
+          WHERE b.user_id = $1 AND b.accommodation_id = $2
+            AND b.status = 'pending'
+            AND b.created_at > NOW() - ${PENDING_HOLD_INTERVAL_SQL}`,
+        [userId, accommodationId]
       );
+      if (Number(pendingResult.rows[0]?.holding ?? 0) >= MAX_HOLDING_PENDING_PER_PROPERTY) {
+        return { code: 'too_many_pending' as const };
+      }
 
-      const existingBookings = parseInt(String(availabilityCheck.rows[0]?.bookings ?? '0'), 10);
-      if (existingBookings >= room.available_rooms) {
-        return { conflict: true as const };
+      const nightsResult = await client.query<RoomNightRow>(
+        roomNightsSql({ accommodation: '$1::uuid', start: '$2::date', endExclusive: '$3::date', room: '$4' }),
+        [accommodationId, checkInDate, checkOutDate, roomId]
+      );
+      const unsellable = firstUnsellableNight(nightsResult.rows);
+      if (nightsResult.rows.length === 0 || unsellable) {
+        return { code: 'conflict' as const, night: unsellable?.night ?? null, reason: unsellable?.reason ?? 'full' };
       }
 
       const bookingResult = await client.query(
@@ -247,19 +274,32 @@ export async function POST(
           totalPrice,
           'RUB',
           'pending', // статус
-          'pending', // payment_status
+          'pending', // payment_status: оплата на месте, платформа её не принимает
           specialRequests || null,
           guestNotes || null,
         ]
       );
-      return { conflict: false as const, bookingId: bookingResult.rows[0].id as string };
+      return { code: 'created' as const, bookingId: bookingResult.rows[0].id as string };
     });
 
-    if (bookingOutcome.conflict) {
+    if (bookingOutcome.code === 'too_many_pending') {
       return NextResponse.json(
         {
           success: false,
-          error: 'К сожалению, на выбранные даты нет свободных номеров',
+          error: `У вас уже ${MAX_HOLDING_PENDING_PER_PROPERTY} заявки на этот объект, ожидающие подтверждения владельца. Дождитесь ответа или отмените лишние в разделе «Мои проживания».`,
+        },
+        { status: 429 }
+      );
+    }
+
+    if (bookingOutcome.code === 'conflict') {
+      const when = bookingOutcome.night ? ` на ${bookingOutcome.night.split('-').reverse().join('.')}` : '';
+      return NextResponse.json(
+        {
+          success: false,
+          error: bookingOutcome.reason === 'blocked'
+            ? `Владелец закрыл продажу${when} — выберите другие даты`
+            : `К сожалению, свободных номеров этого типа${when} нет — выберите другие даты или номер`,
         },
         { status: 409 }
       );
@@ -267,15 +307,23 @@ export async function POST(
 
     const bookingId = bookingOutcome.bookingId;
 
-    // Получаем email пользователя из базы
-    const userResult = await query<{ email: string; name: string; phone: string | null }>(
-      'SELECT email, name, phone FROM users WHERE id = $1', [userId]
-    );
-    const userEmail = userResult.rows[0]?.email ?? null;
-    const userName = userResult.rows[0]?.name || 'Гость';
-    const userPhone = userResult.rows[0]?.phone ?? null;
+    // Контакты гостя — для письма ему и уведомления владельцу. Сбой чтения
+    // не отменяет уже созданную бронь, но оставляет след (§4.0).
+    let userEmail: string | null = null;
+    let userName = 'Гость';
+    let userPhone: string | null = null;
+    try {
+      const userResult = await query<{ email: string | null; name: string | null; phone: string | null }>(
+        'SELECT email, name, phone FROM users WHERE id = $1', [userId]
+      );
+      userEmail = userResult.rows[0]?.email ?? null;
+      userName = userResult.rows[0]?.name || 'Гость';
+      userPhone = userResult.rows[0]?.phone ?? null;
+    } catch (err) {
+      logStayFailure('book: контакты гостя не прочитаны', err);
+    }
 
-    // Уведомляем владельца объекта (Telegram) — раньше о брони знал только
+    // Уведомляем владельца объекта (MAX/Telegram) — раньше о брони знал только
     // гость (email), владелец узнавал, лишь зайдя в кабинет. Non-fatal.
     try {
       const ownerResult = await query<{ telegram_chat_id: string | null; max_chat_id: string | null }>(
@@ -298,73 +346,41 @@ export async function POST(
         ownerTelegramChatId: ownerResult.rows[0]?.telegram_chat_id ?? null,
         ownerMaxChatId: ownerResult.rows[0]?.max_chat_id ?? null,
       });
-    } catch {
-      // Уведомление владельцу не должно ломать бронь
+    } catch (err) {
+      logStayFailure('book: уведомление владельцу', err);
     }
 
     // Email гостю. Письмо ЧЕСТНОЕ: бронь в статусе pending — владелец её ещё
-    // не подтвердил. Прежний текст объявлял бронь подтверждённой и врал
-    // гостю на первом же касании платформы.
+    // не подтвердил, и платит гость владельцу при заселении, а не платформе
+    // (решение владельца 26.09). Ссылки на оплату здесь нет и быть не может.
     if (userEmail) {
-    try {
-      await emailService.sendEmail({
-        to: userEmail,
-        subject: `Заявка на бронирование принята: ${room.accommodation_name}`,
-        html: `
+      try {
+        const sent = await emailService.sendEmail({
+          to: userEmail,
+          subject: safeSubject(`Заявка на бронирование принята: ${room.accommodation_name}`),
+          html: `
           <h2>Заявка на бронирование принята</h2>
           <p>Владелец объекта подтвердит её в ближайшее время — мы сообщим.</p>
-          <p><strong>Объект:</strong> ${room.accommodation_name}</p>
-          <p><strong>Номер:</strong> ${room.name}</p>
+          <p><strong>Объект:</strong> ${escapeHtml(room.accommodation_name)}</p>
+          <p><strong>Номер:</strong> ${escapeHtml(room.name)}</p>
           <p><strong>Заезд:</strong> ${checkInDate}</p>
           <p><strong>Выезд:</strong> ${checkOutDate}</p>
           <p><strong>Гости:</strong> ${adults} взрослых, ${children} детей</p>
           <p><strong>Итого:</strong> ${totalPrice.toLocaleString('ru-RU')} ₽</p>
+          <p><strong>${STAY_PAY_ON_SITE}.</strong> Платформа деньги за проживание не принимает.</p>
           <p><strong>ID заявки:</strong> ${bookingId}</p>
           <p>Статус можно смотреть в личном кабинете, раздел «Мои проживания».</p>
         `
-      });
-    } catch (_emailError) {
-      // Не прерываем выполнение при ошибке email
-    }
-    }
-
-    // Создаем платеж через CloudPayments (передаём токен из входящего запроса)
-    let paymentData = null;
-    try {
-      const authToken = getTokenFromRequest(request);
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      };
-      // URL платёжного роута — от текущего запроса: прежний localhost-фолбэк
-      // бил мимо прод-порта, и без env-переменной создание платежа молча
-      // падало на каждой брони (catch глотал).
-      const paymentResponse = await fetch(new URL('/api/payments/create', request.url), {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          bookingId,
-          bookingType: 'accommodation',
-          amount: totalPrice,
-          currency: 'RUB',
-          userEmail,
-          description: `Оплата размещения: ${room.accommodation_name}`,
-        }),
-      });
-
-      if (paymentResponse.ok) {
-        const paymentResult = await paymentResponse.json();
-        if (paymentResult.success) {
-          paymentData = paymentResult.data;
-        }
+        });
+        if (!sent.success) logStayFailure('book: письмо гостю не отправлено', sent.error);
+      } catch (err) {
+        logStayFailure('book: письмо гостю', err);
       }
-    } catch (paymentError) {
-      // Не прерываем выполнение при ошибке платежа
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Бронирование создано успешно!',
+      message: `Заявка отправлена владельцу. ${STAY_PAY_ON_SITE}.`,
       data: {
         bookingId,
         accommodationName: room.accommodation_name,
@@ -381,24 +397,20 @@ export async function POST(
           currency: 'RUB',
         },
         status: 'pending',
-        paymentStatus: 'pending',
-        paymentUrl: `/hub/stay/bookings/${bookingId}/payment`,
-        payment: paymentData ? {
-          paymentId: paymentData.paymentId,
-          amount: paymentData.amount,
-          currency: paymentData.currency,
-          description: paymentData.description,
-          invoiceId: paymentData.invoiceId,
-        } : null,
+        // Оплата на месте: онлайн-платежа по брони жилья нет, ссылки на
+        // оплату нет. Прежние paymentUrl (страница, которой не существовало)
+        // и payment (платёж в таблицу, которой нет на проде) сняты.
+        payment: 'on_site' as const,
+        paymentNote: STAY_PAY_ON_SITE,
       },
     });
     
   } catch (error) {
+    logStayFailure('book: бронь не создана', error);
     return NextResponse.json(
       {
         success: false,
         error: 'Ошибка при создании бронирования',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );

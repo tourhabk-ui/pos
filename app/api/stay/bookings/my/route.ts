@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
+import { logStayFailure } from '@/lib/notifications/stay-booking';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
          b.check_in_date::text AS check_in_date,
          b.check_out_date::text AS check_out_date,
          b.nights, b.adults, b.children, b.total_price, b.currency,
-         b.refund_amount, b.refund_percent,
+         b.refund_amount, b.refund_percent, b.cancellation_reason,
          b.created_at,
          a.id AS accommodation_id, a.name AS accommodation_name, a.address,
          a.cancellation_policy,
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
           JOIN assets ast ON aa.asset_id = ast.id
           WHERE aa.accommodation_id = a.id
           ORDER BY ast.created_at ASC LIMIT 1) AS image_url,
-         (b.check_in_date > CURRENT_DATE
+         (b.check_in_date > (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
           AND b.status IN ('pending', 'confirmed')) AS cancellable,
          (b.status = 'completed'
           AND NOT EXISTS (SELECT 1 FROM accommodation_reviews rv WHERE rv.booking_id = b.id)) AS reviewable
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
           currency: r.currency,
           refundAmount: r.refund_amount != null ? Number(r.refund_amount) : null,
           refundPercent: r.refund_percent,
+          cancellationReason: r.cancellation_reason ?? null,
           accommodationId: r.accommodation_id,
           accommodationName: r.accommodation_name,
           address: r.address,
@@ -70,7 +72,8 @@ export async function GET(request: NextRequest) {
         })),
       },
     });
-  } catch {
+  } catch (err) {
+    logStayFailure('my: брони гостя не прочитаны', err);
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении броней' },
       { status: 500 }

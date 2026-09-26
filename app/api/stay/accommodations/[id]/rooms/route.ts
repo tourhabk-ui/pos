@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 import { ROOM_TYPES } from '@/lib/stay/room-types';
 import { z } from 'zod';
 
@@ -66,7 +67,8 @@ export async function GET(
         })),
       },
     });
-  } catch {
+  } catch (error) {
+    logStayFailure('GET /api/stay/accommodations/[id]/rooms', error);
     return NextResponse.json({ success: false, error: 'Ошибка при получении номеров' }, { status: 500 });
   }
 }
@@ -114,7 +116,8 @@ export async function POST(
       { success: true, data: rows[0], message: 'Номер создан' },
       { status: 201 }
     );
-  } catch {
+  } catch (error) {
+    logStayFailure('POST /api/stay/accommodations/[id]/rooms', error);
     return NextResponse.json({ success: false, error: 'Ошибка при создании номера' }, { status: 500 });
   }
 }

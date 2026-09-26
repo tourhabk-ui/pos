@@ -107,9 +107,10 @@ export async function POST(request: NextRequest) {
         price_per_night_from, price_per_night_to, currency,
         amenities, languages,
         check_in_time, check_out_time, cancellation_policy,
-        is_active, created_at, updated_at
+        is_active, moderation_status, moderated_at, moderated_by, created_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+              'approved', NOW(), $20::uuid, NOW(), NOW())
       RETURNING id`,
       [
         partnerId,
@@ -131,6 +132,10 @@ export async function POST(request: NextRequest) {
         checkOutTime || '12:00',
         cancellationPolicy || 'Отмена за 24 часа до заезда - без штрафа',
         true, // is_active
+        // Заводит администратор — это и есть его решение (миграция 1027):
+        // объект сразу одобрен. Отметку «Проверено» это НЕ
+        // ставит — её даёт явное «Одобрить» в /hub/admin/accommodations.
+        /^[0-9a-f-]{36}$/i.test(authResult.userId) ? authResult.userId : null,
       ]
     );
 

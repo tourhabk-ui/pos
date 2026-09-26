@@ -9,6 +9,11 @@
  *   DELETE с активными бронями → 409, с историей → деактивация;
  * - публичный prices: override применяется, без override — базовая цена,
  *   выдуманных множителей (×1.2 по выходным) больше нет.
+ *
+ * Правка 26.09: book считает занятость по ночам единой формулой
+ * (lib/stay/availability.ts) и ограничивает число висящих заявок гостя —
+ * мок book-запросов отвечает на оба запроса (свободно, заявок 0); прежний
+ * «COUNT(*) as bookings» из кода ушёл.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -244,7 +249,7 @@ describe('GET /api/accommodations/[id]/prices — честные цены', () =
   it('override применяется, без override базовая цена, множителей нет', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('FROM accommodations')) {
-        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '8000', is_active: true }] });
+        return Promise.resolve({ rows: [{ id: ACC_ID, name: 'Дом', price_per_night_from: '8000', is_public: true }] });
       }
       if (sql.includes('generate_series')) {
         return Promise.resolve({ rows: [
@@ -287,8 +292,14 @@ describe('POST /api/accommodations/[id]/book — календарь владел
   function mockBookingQueries(rates: unknown[]) {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
+      if (sql.includes('AS holding')) return Promise.resolve({ rows: [{ holding: 0 }] });
+      if (sql.includes('CROSS JOIN generate_series')) {
+        return Promise.resolve({ rows: [
+          { night: '2099-08-01', blocked: false, free_units: 3 },
+          { night: '2099-08-02', blocked: false, free_units: 3 },
+        ] });
+      }
       if (sql.includes('FROM accommodation_rooms r')) return Promise.resolve({ rows: [ROOM_ROW] });
-      if (sql.includes('COUNT(*) as bookings')) return Promise.resolve({ rows: [{ bookings: '0' }] });
       if (sql.includes('FROM accommodation_availability')) return Promise.resolve({ rows: rates });
       if (sql.includes('INSERT INTO accommodation_bookings')) return Promise.resolve({ rows: [{ id: 'booking-1' }] });
       if (sql.includes('FROM users')) return Promise.resolve({ rows: [{ email: null, name: 'Гость' }] });

@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { getStayPartnerId, requireStayOwner } from '@/lib/auth/stay-helpers';
+import { getStayPartnerId, requireStayOwner, StayCheckUnavailableError, stayCheckUnavailableResponse } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/stay/stats - Статистика владельца жилья.
- * Выручка честно из payment_status='paid'; ожидаемая — активные неоплаченные брони.
+ *
+ * Денег платформа не видит: жильё оплачивается владельцу на месте при
+ * заселении (решение владельца 26.09). Поэтому здесь нет «оплачено» — до
+ * 26.09 карточка «Оплачено» суммировала payment_status='paid', который при
+ * оплате на месте не наступает никогда, и показывала владельцу вечный ноль
+ * как его выручку. Вместо неё — суммы броней по их статусу, названные тем,
+ * чем они являются:
+ *   atCheckIn — подтверждённые брони, заезд впереди или идёт: столько гости
+ *               должны заплатить вам при заселении (по цене брони);
+ *   completed — брони, где вы отметили «заезд состоялся».
  */
 export async function GET(request: NextRequest) {
   try {
@@ -34,9 +44,9 @@ export async function GET(request: NextRequest) {
         COUNT(b.id) FILTER (WHERE b.status = 'completed') AS completed_bookings,
         COUNT(b.id) FILTER (WHERE b.status = 'cancelled') AS cancelled_bookings,
         COUNT(b.id) FILTER (WHERE b.status = 'no_show') AS no_show_bookings,
-        COALESCE(SUM(b.total_price) FILTER (WHERE b.payment_status = 'paid' AND b.status <> 'cancelled'), 0) AS paid_revenue,
-        COALESCE(SUM(b.total_price) FILTER (WHERE b.payment_status = 'pending' AND b.status IN ('pending', 'confirmed')), 0) AS expected_revenue,
-        COUNT(b.id) FILTER (WHERE b.status = 'confirmed' AND b.check_in_date >= CURRENT_DATE) AS upcoming_checkins
+        COALESCE(SUM(b.total_price) FILTER (WHERE b.status = 'confirmed' AND b.check_out_date > (NOW() AT TIME ZONE 'Asia/Kamchatka')::date), 0) AS at_checkin_sum,
+        COALESCE(SUM(b.total_price) FILTER (WHERE b.status = 'completed'), 0) AS completed_sum,
+        COUNT(b.id) FILTER (WHERE b.status = 'confirmed' AND b.check_in_date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date) AS upcoming_checkins
       FROM accommodation_bookings b
       JOIN accommodations a ON b.accommodation_id = a.id
       WHERE a.partner_id = $1`,
@@ -61,14 +71,17 @@ export async function GET(request: NextRequest) {
           noShow: Number(row.no_show_bookings ?? 0),
           upcomingCheckins: Number(row.upcoming_checkins ?? 0),
         },
-        revenue: {
-          paid: Number(row.paid_revenue ?? 0),
-          expected: Number(row.expected_revenue ?? 0),
+        // Суммы броней, а не деньги: оплату на месте платформа не видит.
+        bookingSums: {
+          atCheckIn: Number(row.at_checkin_sum ?? 0),
+          completed: Number(row.completed_sum ?? 0),
         },
       }
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    if (error instanceof StayCheckUnavailableError) return stayCheckUnavailableResponse();
+    logStayFailure('GET /api/stay/stats', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении статистики' } as ApiResponse<null>,
       { status: 500 }

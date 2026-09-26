@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { query } from '@/lib/database';
 import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { initialPartnerRating } from '@/lib/partners/categories';
 
 // Валидация входных данных
 const registerSchema = z.object({
@@ -204,12 +205,13 @@ export async function POST(request: NextRequest) {
         roles,
         is_verified,
         is_public,
+        rating,
         profile_status,
         applied_at,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, false, false, 'pending', NOW(), NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, false, false, $11::numeric, 'pending', NOW(), NOW(), NOW())
       RETURNING id`,
       [
         user.id,
@@ -222,6 +224,8 @@ export async function POST(request: NextRequest) {
         JSON.stringify(consents),
         operatorInfo ? JSON.stringify(operatorInfo) : null,
         JSON.stringify(data.roles),
+        // lib/partners/categories: владельцу жилья — NULL, не 0.
+        initialPartnerRating(primaryRole),
       ]
     );
     const partnerId = partnerResult.rows[0].id;

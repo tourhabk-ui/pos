@@ -26,6 +26,10 @@ import toast from 'react-hot-toast';
 export interface StayDatePickerProps {
   // ID объекта размещения
   accommodationId: string;
+
+  // ID выбранного номера: занятость считается ПО НОМЕРУ. Без него календарь
+  // закрывает дату, только если занят весь объект (все номера).
+  roomId?: string;
   
   // Цена за ночь
   pricePerNight: number;
@@ -59,6 +63,7 @@ interface AvailabilityResponse {
 
 export const StayDatePicker: React.FC<StayDatePickerProps> = ({
   accommodationId,
+  roomId,
   pricePerNight,
   minNights = 1,
   onDatesChange,
@@ -80,7 +85,10 @@ export const StayDatePicker: React.FC<StayDatePickerProps> = ({
   // Загрузка заблокированных дат
   useEffect(() => {
     loadBlockedDates();
-  }, [accommodationId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accommodationId, roomId]);
+
+  const roomQuery = roomId ? `&roomId=${encodeURIComponent(roomId)}` : '';
 
   const loadBlockedDates = async () => {
     setLoading(true);
@@ -93,7 +101,7 @@ export const StayDatePicker: React.FC<StayDatePickerProps> = ({
       end.setFullYear(end.getFullYear() + 1);
       const response = await fetch(
         `/api/accommodations/${accommodationId}/blocked-dates?` +
-        `startDate=${formatAPIDate(start)}&endDate=${formatAPIDate(end)}`
+        `startDate=${formatAPIDate(start)}&endDate=${formatAPIDate(end)}${roomQuery}`
       );
 
       if (!response.ok) {
@@ -124,7 +132,7 @@ export const StayDatePicker: React.FC<StayDatePickerProps> = ({
         const response = await fetch(
           `/api/accommodations/${accommodationId}/availability?` +
           `checkIn=${formatAPIDate(checkInDate)}&` +
-          `checkOut=${formatAPIDate(checkOutDate)}`
+          `checkOut=${formatAPIDate(checkOutDate)}${roomQuery}`
         );
 
         if (!response.ok) {
@@ -148,7 +156,7 @@ export const StayDatePicker: React.FC<StayDatePickerProps> = ({
         setChecking(false);
       }
     }, 500),
-    [accommodationId, enableAvailabilityCheck, onDatesChange]
+    [accommodationId, roomQuery, enableAvailabilityCheck, onDatesChange]
   );
 
   // Обработка изменения дат

@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble, Image as ImageIcon } from 'lucide-react';
+import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble, Plus, Image as ImageIcon } from 'lucide-react';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
+import { ownerListingState, type OwnerListingState } from '@/lib/stay/moderation';
 
 /**
  * Объекты владельца жилья: список из GET /api/stay/accommodations
  * (включая снятые с публикации), редактирование и переключатель
  * публикации — через PATCH /api/accommodations/[id].
- * Создание — в онбординге (/hub/stay/onboarding, POST /api/stay/accommodations).
+ * Создание — /hub/stay/accommodations/new (та же форма, что в онбординге).
+ * Статус проверки (на проверке / опубликовано / отклонено: причина) —
+ * lib/stay/moderation.ts; «Проверено» ставит только администратор.
  */
 
 const TYPE_LABELS: Record<string, string> = ACCOMMODATION_TYPE_LABELS;
@@ -20,16 +23,18 @@ interface AccommodationRow {
   type: string;
   description: string | null;
   short_description: string | null;
-  address: string;
-  total_rooms: number;
+  address: string | null;
+  total_rooms: number | null;
   check_in_time: string | null;
   check_out_time: string | null;
-  price_per_night_from: string | number;
+  price_per_night_from: string | number | null;
   price_per_night_to: string | number | null;
   rating: string | number | null;
   review_count: number;
   is_active: boolean;
   is_verified: boolean;
+  moderation_status: string;
+  moderation_reason: string | null;
   rooms_count: string | number;
   pending_bookings: string | number;
 }
@@ -44,9 +49,20 @@ interface EditFormState {
   checkOutTime: string;
 }
 
-function formatMoney(v: string | number): string {
-  return new Intl.NumberFormat('ru-RU').format(Number(v)) + ' ₽';
+// null — «не указано», а не «0 ₽»: Number(null) равен нулю, и цена,
+// которую владелец не называл, читалась бы как бесплатная (§4.0, 1006).
+function formatMoney(v: string | number | null): string {
+  if (v === null || v === '') return 'не указано';
+  const n = Number(v);
+  return Number.isFinite(n) ? new Intl.NumberFormat('ru-RU').format(n) + ' ₽' : 'не указано';
 }
+
+const TONE_CLASS: Record<OwnerListingState['tone'], string> = {
+  muted: 'text-[var(--text-muted)]',
+  warning: 'text-[var(--warning)]',
+  danger: 'text-[var(--danger)]',
+  success: 'text-[var(--success)]',
+};
 
 // TIME из БД приходит как "14:00:00" — форме и API нужен формат ЧЧ:ММ
 function toHHMM(t: string | null): string {
@@ -91,7 +107,7 @@ export default function AccommodationsClient() {
       name: item.name,
       shortDescription: item.short_description ?? '',
       description: item.description ?? '',
-      pricePerNightFrom: String(Number(item.price_per_night_from)),
+      pricePerNightFrom: item.price_per_night_from != null ? String(Number(item.price_per_night_from)) : '',
       pricePerNightTo: item.price_per_night_to != null ? String(Number(item.price_per_night_to)) : '',
       checkInTime: toHHMM(item.check_in_time),
       checkOutTime: toHHMM(item.check_out_time),
@@ -124,10 +140,8 @@ export default function AccommodationsClient() {
 
   async function submitEdit() {
     if (!editingId) return;
-    const payload: Record<string, unknown> = {
-      name: form.name.trim(),
-      pricePerNightFrom: Number(form.pricePerNightFrom),
-    };
+    const payload: Record<string, unknown> = { name: form.name.trim() };
+    if (form.pricePerNightFrom !== '') payload.pricePerNightFrom = Number(form.pricePerNightFrom);
     if (form.shortDescription.trim()) payload.shortDescription = form.shortDescription.trim();
     if (form.description.trim()) payload.description = form.description.trim();
     payload.pricePerNightTo = form.pricePerNightTo ? Number(form.pricePerNightTo) : null;
@@ -138,13 +152,21 @@ export default function AccommodationsClient() {
     if (ok) setEditingId(null);
   }
 
-  const formValid = form.name.trim().length > 0 && Number(form.pricePerNightFrom) > 0;
+  const formValid = form.name.trim().length > 0 &&
+    (form.pricePerNightFrom === '' || Number(form.pricePerNightFrom) > 0);
 
   return (
     <div className="p-5 lg:p-6 space-y-4">
-      <div className="flex items-center gap-2.5">
-        <Home className="w-4 h-4 text-[var(--text-muted)]" />
-        <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Мои объекты</h1>
+      <div className="flex items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2.5">
+          <Home className="w-4 h-4 text-[var(--text-muted)]" />
+          <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Мои объекты</h1>
+        </div>
+        {items !== null && items.length > 0 && (
+          <Link href="/hub/stay/accommodations/new" className="ds-btn ds-btn-primary inline-flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Добавить объект
+          </Link>
+        )}
       </div>
 
       {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
@@ -171,30 +193,37 @@ export default function AccommodationsClient() {
           <p className="text-sm text-[var(--text-secondary)] mb-4">
             Объектов пока нет — добавьте первый, и он появится на витрине после проверки.
           </p>
-          <Link href="/hub/stay/onboarding" className="ds-btn ds-btn-primary">Добавить объект</Link>
+          <Link href="/hub/stay/accommodations/new" className="ds-btn ds-btn-primary">Добавить объект</Link>
         </div>
       )}
 
-      {items !== null && items.map(item => (
+      {items !== null && items.map(item => {
+        const state = ownerListingState(item);
+        return (
         <div key={item.id} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{item.name}</p>
-                {!item.is_active && (
-                  <span className="ds-badge text-[var(--text-muted)] border border-[var(--border)]">Скрыто</span>
-                )}
-                {item.is_verified && (
+                <span className={`ds-badge border border-[var(--border)] ${TONE_CLASS[state.tone]}`}>{state.label}</span>
+                {item.is_verified && item.moderation_status === 'approved' && (
                   <span className="ds-badge text-[var(--success)] border border-[var(--border)]">Проверено</span>
                 )}
               </div>
               <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                 {[TYPE_LABELS[item.type] ?? item.type, item.address].filter(Boolean).join(' · ')}
               </p>
+              {state.detail && (
+                <p className={`text-xs mt-1 ${state.tone === 'danger' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}`}>
+                  {state.detail}
+                </p>
+              )}
               <p className="text-xs text-[var(--text-secondary)] mt-1">
-                от {formatMoney(item.price_per_night_from)}/ночь
+                {item.price_per_night_from == null
+                  ? 'цена за ночь: не указано'
+                  : <>от {formatMoney(item.price_per_night_from)}/ночь</>}
                 {item.price_per_night_to != null && ` до ${formatMoney(item.price_per_night_to)}`}
-                {' · '}номеров: {item.total_rooms}
+                {' · '}номеров: {item.total_rooms == null ? 'не указано' : item.total_rooms}
                 {Number(item.pending_bookings) > 0 && (
                   <span className="text-[var(--warning)]"> · новых броней: {Number(item.pending_bookings)}</span>
                 )}
@@ -243,7 +272,7 @@ export default function AccommodationsClient() {
                 <input className="ds-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
               </div>
               <div>
-                <label className="ds-label">Цена от, ₽/ночь</label>
+                <label className="ds-label">Цена от, ₽/ночь (необязательно)</label>
                 <input className="ds-input" type="number" min="1" value={form.pricePerNightFrom} onChange={e => setForm({ ...form, pricePerNightFrom: e.target.value })} />
               </div>
               <div>
@@ -275,7 +304,8 @@ export default function AccommodationsClient() {
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

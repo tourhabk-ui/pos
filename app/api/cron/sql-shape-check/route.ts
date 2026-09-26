@@ -84,7 +84,7 @@ export const SHAPES: ShapeEntry[] = [
     source: 'app/api/auth/register/route.ts',
     sql: `INSERT INTO partners
              (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
-           SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, 0, 0, NOW(), NOW()
+           SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, CASE WHEN $3::varchar = 'stay' THEN NULL ELSE 0 END, 0, NOW(), NOW()
            WHERE NOT EXISTS (
              SELECT 1 FROM partners WHERE user_id = $1::uuid AND category = $3::varchar
            )`,
@@ -93,7 +93,7 @@ export const SHAPES: ShapeEntry[] = [
     name: 'профиль партнёра при входе',
     source: 'lib/auth/partner-profile.ts',
     sql: `INSERT INTO partners (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
-     SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, 0, 0, NOW(), NOW()
+     SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, CASE WHEN $3::varchar = 'stay' THEN NULL ELSE 0 END, 0, NOW(), NOW()
      WHERE NOT EXISTS (
        SELECT 1 FROM partners WHERE user_id = $1::uuid AND category = $3::varchar
      )
@@ -191,6 +191,24 @@ export const SHAPES: ShapeEntry[] = [
                     OR ($2::varchar IS NULL AND lower(company_name) = lower($1::varchar))
               )
              RETURNING id`,
+  },
+  {
+    // 26.09, аудит кабинета жилья. `status = $1` (varchar) и
+    // `CASE WHEN $1 = 'cancelled'` (text) — один параметр, два вывода, 42P08
+    // на каждом вызове: владелец не мог ни подтвердить, ни отменить ни одной
+    // брони. Форма не «вставь, если нет», но корень тот же — «один параметр,
+    // разное приведение», и PREPARE на проде ловит его так же.
+    name: 'смена статуса брони жилья',
+    source: 'lib/stay/booking-status-sql.ts',
+    sql: `UPDATE accommodation_bookings
+         SET status = $1::varchar,
+             cancelled_at = CASE WHEN $1::varchar = 'cancelled' THEN NOW() ELSE cancelled_at END,
+             cancellation_reason = CASE WHEN $1::varchar = 'cancelled' THEN $6 ELSE cancellation_reason END,
+             refund_amount = COALESCE($3, refund_amount),
+             refund_percent = COALESCE($4, refund_percent),
+             refund_reason = COALESCE($5, refund_reason),
+             updated_at = NOW()
+         WHERE id = $2 RETURNING *`,
   },
 ];
 

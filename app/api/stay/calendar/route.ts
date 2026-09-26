@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ const SetRateSchema = z.object({
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const accommodationId = searchParams.get('accommodationId');
-  if (!accommodationId || !/^[0-9a-f-]{36}$/i.test(accommodationId)) {
+  if (!accommodationId || !z.string().uuid().safeParse(accommodationId).success) {
     return NextResponse.json({ success: false, error: 'accommodationId обязателен' }, { status: 400 });
   }
 
@@ -90,7 +91,8 @@ export async function GET(request: NextRequest) {
         occupancy: bookingsResult.rows.map(r => ({ date: r.date, booked: r.booked })),
       },
     });
-  } catch {
+  } catch (error) {
+    logStayFailure('GET /api/stay/calendar', error);
     return NextResponse.json({ success: false, error: 'Ошибка при получении календаря' }, { status: 500 });
   }
 }
@@ -116,18 +118,19 @@ export async function POST(request: NextRequest) {
   const authOrResponse = await requireAccommodationAccess(request, accommodationId);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  // Номер должен принадлежать этому объекту
-  if (roomId) {
-    const { rows } = await pool.query(
-      `SELECT 1 FROM accommodation_rooms WHERE id = $1 AND accommodation_id = $2`,
-      [roomId, accommodationId]
-    );
-    if (rows.length === 0) {
-      return NextResponse.json({ success: false, error: 'Номер не найден в этом объекте' }, { status: 404 });
-    }
-  }
-
   try {
+    // Номер должен принадлежать этому объекту. Внутри try: отказ базы здесь —
+    // «не смогли проверить», а не необработанный 500 без строки в логе.
+    if (roomId) {
+      const { rows } = await pool.query(
+        `SELECT 1 FROM accommodation_rooms WHERE id = $1 AND accommodation_id = $2`,
+        [roomId, accommodationId]
+      );
+      if (rows.length === 0) {
+        return NextResponse.json({ success: false, error: 'Номер не найден в этом объекте' }, { status: 404 });
+      }
+    }
+
     // При конфликте обновляются ТОЛЬКО переданные поля — непереданные
     // (undefined) не затирают существующую строку NULL'ом. Имена колонок —
     // из фиксированного списка, значения — через параметры.
@@ -158,7 +161,8 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true, data: rows[0], message: 'Тариф обновлён' });
-  } catch {
+  } catch (error) {
+    logStayFailure('POST /api/stay/calendar', error);
     return NextResponse.json({ success: false, error: 'Ошибка при сохранении тарифа' }, { status: 500 });
   }
 }

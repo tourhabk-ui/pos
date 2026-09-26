@@ -9,6 +9,7 @@ import {
   PARTNER_CATEGORIES,
   LEGACY_CATEGORY_ALIASES,
   normalizePartnerCategory,
+  initialPartnerRating,
 } from '@/lib/partners/categories';
 
 async function notifyAdminTelegram(companyName: string, contactName: string, phone: string, email: string, partnerId: string) {
@@ -113,13 +114,13 @@ export async function POST(request: NextRequest) {
     const partnerResult = await client.query(
       `INSERT INTO partners (
          user_id, name, company_name, category, description, short_description,
-         contact, contacts, is_public, is_verified,
+         contact, contacts, is_public, is_verified, rating,
          profile_status, applied_at,
          created_at, updated_at
        )
-       VALUES ($1,$2,$2,$3,$4,$4,$5::jsonb,$5::jsonb,false,false,'pending',NOW(),NOW(),NOW())
+       VALUES ($1,$2,$2,$3,$4,$4,$5::jsonb,$5::jsonb,false,false,$6::numeric,'pending',NOW(),NOW(),NOW())
        RETURNING id, slug`,
-      [user.id, companyName, category, description || companyName, contact]
+      [user.id, companyName, category, description || companyName, contact, initialPartnerRating(category)]
     );
     const partner = partnerResult.rows[0];
 

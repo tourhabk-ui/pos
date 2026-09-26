@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
-import { getStayPartnerId } from '@/lib/auth/stay-helpers';
+import { getStayPartnerId, StayCheckUnavailableError, stayCheckUnavailableResponse } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { ACCOMMODATION_TYPES } from '@/lib/stay/accommodation-types';
 import { z } from 'zod';
@@ -55,7 +56,8 @@ export async function GET(request: NextRequest) {
         a.check_in_time, a.check_out_time,
         a.price_per_night_from, a.price_per_night_to, a.currency,
         a.amenities, a.rating, a.review_count,
-        a.is_active, a.is_verified, a.created_at, a.updated_at,
+        a.is_active, a.is_verified, a.moderation_status, a.moderation_reason, a.moderated_at,
+        a.created_at, a.updated_at,
         (SELECT COUNT(*) FROM accommodation_rooms r WHERE r.accommodation_id = a.id AND r.is_active = true) AS rooms_count,
         (SELECT COUNT(*) FROM accommodation_bookings b WHERE b.accommodation_id = a.id AND b.status = 'pending') AS pending_bookings
       FROM accommodations a
@@ -70,6 +72,8 @@ export async function GET(request: NextRequest) {
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    if (error instanceof StayCheckUnavailableError) return stayCheckUnavailableResponse();
+    logStayFailure('GET /api/stay/accommodations', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении объектов размещения' } as ApiResponse<null>,
       { status: 500 }
@@ -82,7 +86,10 @@ export async function GET(request: NextRequest) {
  * Раньше объекты создавал только админ (/api/accommodations/create) —
  * разрыв после регистрации по ролям (PR #361). Профиль партнёра при
  * отсутствии создаётся автоматически (ensurePartnerForRole).
- * Новый объект is_verified=false — верификация за платформой.
+ * Новый объект НЕ публикуется: moderation_status='pending' до решения
+ * администратора (решение владельца 26.09, миграция 1027). is_active=true
+ * здесь — выключатель владельца «показывать», а не публикация: витрина
+ * требует ещё и approved (lib/stay/moderation.ts).
  */
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request);
@@ -126,9 +133,9 @@ export async function POST(request: NextRequest) {
         partner_id, name, description, short_description, type, address, coordinates,
         total_rooms, price_per_night_from, price_per_night_to,
         check_in_time, check_out_time, amenities,
-        is_active, is_verified, created_at, updated_at
+        is_active, is_verified, moderation_status, created_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, false, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, false, 'pending', NOW(), NOW())
       RETURNING id`,
       [
         partnerId,
@@ -152,12 +159,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        data: { accommodationId: result.rows[0].id, name: d.name },
-        message: 'Объект создан. После проверки платформой он получит отметку «Проверено».',
+        data: { accommodationId: result.rows[0].id, name: d.name, moderationStatus: 'pending' },
+        message: 'Объект создан и отправлен на проверку. На витрине он появится после одобрения платформой.',
       } as ApiResponse<unknown>,
       { status: 201 }
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof StayCheckUnavailableError) return stayCheckUnavailableResponse();
+    logStayFailure('POST /api/stay/accommodations', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при создании объекта' } as ApiResponse<null>,
       { status: 500 }

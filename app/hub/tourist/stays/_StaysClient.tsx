@@ -4,10 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BedDouble, MapPin, CalendarDays, X, Star } from 'lucide-react';
 import StayReviewForm from './_StayReviewForm';
+import { STAY_PAY_ON_SITE, stayPaymentLabel } from '@/lib/stay/pay-on-site';
 
 /**
  * Брони жилья гостя (GET /api/stay/bookings/my). Отмена будущих
  * pending/confirmed — POST /api/stay/bookings/[id]/cancel.
+ *
+ * Оплата жилья — на месте, владельцу при заселении (решение владельца 26.09):
+ * кнопки «Оплатить» здесь нет, и возвращать при отмене нечего. Исключение —
+ * старые брони, оплаченные через платформу: их возврат оформляет
+ * администрация платформы, а не владелец объекта.
  */
 
 interface StayBooking {
@@ -27,6 +33,7 @@ interface StayBooking {
   refundAmount: number | null;
   refundPercent: number | null;
   cancellationPolicy: string | null;
+  cancellationReason?: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -43,13 +50,6 @@ const STATUS_COLOR: Record<string, string> = {
   completed: 'var(--text-secondary)',
   cancelled: 'var(--danger)',
   no_show: 'var(--danger)',
-};
-
-const PAYMENT_LABELS: Record<string, string> = {
-  pending: 'Не оплачено',
-  paid: 'Оплачено',
-  refunded: 'Возврат',
-  partially_refunded: 'Частичный возврат',
 };
 
 function formatMoney(v: number): string {
@@ -84,8 +84,8 @@ export default function StaysClient() {
     // Условия — те, что платформа исполняет (lib/stay/refund-policy.ts), а не
     // текст объекта, которого расчёт никогда не читал.
     const refundNote = booking.paymentStatus === 'paid'
-      ? '\n\nОплата вернётся полностью. Перевод выполняет владелец объекта вручную — это не мгновенно.'
-      : '';
+      ? '\n\nБронь была оплачена через платформу — оплата вернётся полностью. Возврат оформляет администрация платформы, это не мгновенно.'
+      : '\n\nПредоплаты не было — возвращать ничего не нужно.';
     if (!window.confirm(`Отменить бронь «${booking.accommodationName}»?${refundNote}`)) return;
     setBusyId(booking.id);
     setError(null);
@@ -103,7 +103,7 @@ export default function StaysClient() {
       const refund = d.data?.refundAmount ?? 0;
       setNotice(
         refund > 0
-          ? `Бронь отменена. К возврату ${formatMoney(refund)}. Перевод выполняет владелец объекта вручную — когда он отметит возврат, здесь появится «Возвращено».`
+          ? `Бронь отменена. К возврату ${formatMoney(refund)} — возврат оформляет администрация платформы; когда он будет выполнен, здесь появится «Возвращено».`
           : 'Бронь отменена.'
       );
       load();
@@ -161,7 +161,7 @@ export default function StaysClient() {
                   {STATUS_LABELS[b.status] ?? b.status}
                 </span>
                 <span className="ds-badge border border-[var(--border)] text-[var(--text-muted)]">
-                  {PAYMENT_LABELS[b.paymentStatus] ?? b.paymentStatus}
+                  {stayPaymentLabel(b.paymentStatus)}
                 </span>
                 {b.totalPrice != null && (
                   <span className="text-xs font-semibold text-[var(--text-primary)]">{formatMoney(b.totalPrice)}</span>
@@ -171,11 +171,21 @@ export default function StaysClient() {
                 <p className="text-xs text-[var(--text-secondary)] mt-2">
                   {b.paymentStatus === 'refunded'
                     ? `Возвращено: ${formatMoney(b.refundAmount)}`
-                    : `К возврату: ${formatMoney(b.refundAmount)} — ожидает перевода`}
+                    : `К возврату: ${formatMoney(b.refundAmount)} — оформляет администрация платформы`}
                 </p>
               )}
+              {b.status === 'cancelled' && b.cancellationReason && (
+                <p className="text-xs text-[var(--text-secondary)] mt-2">Причина отмены: {b.cancellationReason}</p>
+              )}
               {b.cancellable && b.paymentStatus === 'paid' && (
-                <p className="text-xs text-[var(--text-muted)] mt-2">При отмене оплата возвращается полностью.</p>
+                <p className="text-xs text-[var(--text-muted)] mt-2">
+                  Бронь оплачена через платформу. При отмене оплата возвращается полностью — возврат оформляет администрация платформы.
+                </p>
+              )}
+              {(b.status === 'pending' || b.status === 'confirmed') && b.paymentStatus === 'pending' && (
+                <p className="text-xs text-[var(--text-muted)] mt-2">
+                  {b.status === 'pending' ? 'Ждём подтверждения владельца. ' : ''}{STAY_PAY_ON_SITE}.
+                </p>
               )}
             </div>
             <div className="flex flex-col gap-2 shrink-0">
