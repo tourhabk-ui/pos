@@ -1501,6 +1501,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * ровно то, что соответствует моменту.
    */
   const hasRoute = waypoints.length > 0 || Boolean(activeRouteTitle);
+  /**
+   * Верхняя плашка свёрнута в одну строку (владелец 26.09, шаг 1 «как у
+   * основных навигаторов»): «карта сохранена · условия», подложка и покрытие
+   * — по тапу. Сбой карты (vedarDiag) и предупреждения видны всегда.
+   */
+  const [statusOpen, setStatusOpen] = useState(false);
 
   /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
   const status = useMemo((): { tone: 'warn' | 'info'; text: string; detail?: string; cta?: 'compass' } | null => {
@@ -3885,6 +3891,8 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                     : ''}`
                 : null}
               dataOk={Boolean(savedMap)}
+              expanded={statusOpen}
+              onToggle={() => setStatusOpen(o => !o)}
             />
           )}
 
@@ -3897,7 +3905,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               данных, а о самом себе.
               Показывается лишь когда хранилище настроено: пока своей карты
               нет ни у кого, эта строка была бы шумом на каждом экране. */}
-          {mapPackBaseUrl && fieldBaseMap.kind === 'leaflet' && (
+          {statusOpen && mapPackBaseUrl && fieldBaseMap.kind === 'leaflet' && (
             <p className="px-3 pb-1 text-[11px] leading-snug"
               style={{ color: 'var(--text-muted)' }}>
               Подложка OSM: {fieldBaseMap.reason}
@@ -3920,7 +3928,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
           {/* Чего в пакете НЕТ — словами из паспорта пакета, не тишиной.
               Цвет приглушённый, не тревожный: это факт о данных, не сбой. */}
-          {fieldBaseMap.kind === 'vedar' && coverageNote && (
+          {statusOpen && fieldBaseMap.kind === 'vedar' && coverageNote && (
             <p className="px-3 pb-1 text-[11px] leading-snug"
               style={{ color: 'var(--text-muted)' }}>
               {coverageNote}
@@ -3967,7 +3975,9 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         if (!unsaved && !warn) return null;
         const downloading = tileDl !== null && tileDl.total > 0;
         return (
-          <div className="mx-3 mt-1.5 rounded-xl px-3 py-2 flex flex-col gap-1.5 text-[13px] leading-tight"
+          // Тоньше, но по-прежнему НЕПРОЗРАЧНАЯ (§2: предупреждения не на
+          // стекле) — владелец 26.09, шаг 1 «как у основных навигаторов».
+          <div className="mx-3 mt-1 rounded-xl px-3 py-1.5 flex flex-col gap-1 text-[12px] leading-tight"
             style={{
               background: 'var(--bg-card)',
               border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)',

@@ -21,33 +21,59 @@ export interface FieldStatusStripProps {
   routeTitle: string | null;
   /** Счёт контрольных точек; null — точек меньше двух. */
   checkpoint: { current: number; total: number } | null;
-  /** Вторая строка: состояние данных. null — говорить нечего. */
+  /** Строка состояния данных. null — говорить нечего. */
   dataLine: string | null;
   dataOk: boolean;
+  /**
+   * Свёрнута ли строка данных (владелец 26.09: «как можно ещё сократить окна,
+   * чтоб маршрут работал как у основных навигаторов», шаг 1). Свёрнутая —
+   * одна строка прибора, а «карта сохранена · условия N ч назад» —
+   * галочкой в конце строки с полной фразой в подсказке; тап раскрывает.
+   * Не передан — прежний вид в две строки.
+   */
+  expanded?: boolean;
+  onToggle?: () => void;
 }
 
 export function FieldStatusStrip(p: FieldStatusStripProps) {
+  const collapsible = p.onToggle !== undefined;
+  const showData = p.dataLine && (!collapsible || p.expanded);
+  const row = (
+    <div className="flex items-center gap-2 px-4 py-1.5 text-xs">
+      <span className="w-2 h-2 rounded-full shrink-0"
+        style={{ background: p.fixLive ? 'var(--success)' : 'var(--warning)' }} />
+      <span className="shrink-0 tabular-nums" style={{ color: p.fixLive ? 'var(--success)' : 'var(--warning)' }}>
+        {p.fixLabel}
+      </span>
+      {p.routeTitle && (
+        <span className="flex-1 text-center truncate font-semibold px-1"
+          style={{ color: 'var(--text-primary)' }}>
+          {p.routeTitle}
+        </span>
+      )}
+      {p.checkpoint && (
+        <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+          {p.checkpoint.current} из {p.checkpoint.total}
+        </span>
+      )}
+      {collapsible && !p.expanded && p.dataLine && (
+        <span className="shrink-0" title={p.dataLine} aria-label={p.dataLine}
+          style={{ color: p.dataOk ? 'var(--success)' : 'var(--warning)' }}>
+          {p.dataOk ? <Check className="w-3.5 h-3.5" /> : <MapPin className="w-3.5 h-3.5" />}
+        </span>
+      )}
+    </div>
+  );
   return (
     <div style={{ borderBottom: '1px solid var(--border)' }}>
-      <div className="flex items-center gap-2 px-4 py-2 text-xs">
-        <span className="w-2 h-2 rounded-full shrink-0"
-          style={{ background: p.fixLive ? 'var(--success)' : 'var(--warning)' }} />
-        <span className="shrink-0 tabular-nums" style={{ color: p.fixLive ? 'var(--success)' : 'var(--warning)' }}>
-          {p.fixLabel}
-        </span>
-        {p.routeTitle && (
-          <span className="flex-1 text-center truncate font-semibold px-1"
-            style={{ color: 'var(--text-primary)' }}>
-            {p.routeTitle}
-          </span>
-        )}
-        {p.checkpoint && (
-          <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-            {p.checkpoint.current} из {p.checkpoint.total}
-          </span>
-        )}
-      </div>
-      {p.dataLine && (
+      {collapsible ? (
+        <button type="button" onClick={p.onToggle} aria-expanded={Boolean(p.expanded)}
+          title={p.expanded ? 'Свернуть' : 'Состояние карты и данных'}
+          className="w-full text-left">
+          {row}
+        </button>
+      ) : row}
+      {showData && (
         <div className="flex items-center justify-center gap-1.5 px-4 pb-1.5 text-[11px]"
           style={{ color: p.dataOk ? 'var(--success)' : 'var(--warning)' }}>
           {p.dataOk
