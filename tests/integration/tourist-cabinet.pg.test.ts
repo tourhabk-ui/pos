@@ -203,6 +203,41 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(recs.some((r) => String(r.id) === String(tourId))).toBe(false);
   });
 
+  it('отзыв о МЕСТЕ записывается: триггеры рейтинга из baseline сняты (обход 26.09)', async () => {
+    // Прогулка туристом 26.09: POST /api/places/<id>/reviews отвечал 500
+    // `record "new" has no field "operator_id"`. Падал не INSERT, а триггер
+    // `update_partner_rating_trigger` из baseline: функция читает
+    // NEW.operator_id, которой у `reviews` нет. Значит отзыв о месте не
+    // сохранялся НИ РАЗУ, а пустой блок отзывов читался как «никто не
+    // оценил» (§4.0). Миграция 1031 снимает оба легаси-триггера.
+    //
+    // Сторож стоит здесь, а не в юнитах, намеренно: поля записи PL/pgSQL
+    // проверяет на исполнении, статикой этого не видно — судит сервер.
+    const ark = '0f2d5c7a-1b44-4e9c-9a31-8c6e5d2f7b10';
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, is_visible)
+       VALUES ('place-review-probe', 'Место для отзыва', 53.1, 158.2, $1, 'volcano', TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [ark],
+    );
+    const ins = await pool.query(
+      `INSERT INTO reviews (place_id, rating, comment, author_name, is_verified)
+       VALUES ($1, 5, 'Тропа читается, на кромке сильный ветер.', 'Турист', FALSE)
+       RETURNING id`,
+      [ark],
+    );
+    expect(ins.rowCount).toBe(1);
+
+    const left = await pool.query<{ tgname: string }>(
+      `SELECT t.tgname FROM pg_trigger t
+        JOIN pg_proc p ON p.oid = t.tgfoid
+       WHERE t.tgrelid = 'reviews'::regclass
+         AND NOT t.tgisinternal
+         AND p.proname IN ('update_partner_rating', 'update_tour_rating')`,
+    );
+    expect(left.rows.map((r) => r.tgname)).toEqual([]);
+  });
+
   it('каталог инструментов: запрос категорий выполняется (#1773)', async () => {
     const r = await pool.query(
       `SELECT category, count(*)::text AS cnt FROM external_tools WHERE verified = TRUE GROUP BY category ORDER BY count(*) DESC`,

@@ -460,7 +460,19 @@ export async function GET(
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Ошибка базы данных';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    // Наружу — нейтральный текст, в лог — SQLSTATE и форма запроса. Турист не
+    // чинит нашу базу, а текст ошибки PostgreSQL на экране карточки места
+    // ничего ему не говорит и раскрывает устройство схемы (то же правило, что
+    // у публичного каталога: tests/unit/catalog-error-honesty.test.ts).
+    const e = err as { code?: string; message?: string };
+    console.error('[places/api] карточка места не собралась', {
+      placeRef: id,
+      sqlstate: e?.code,
+      message: e?.message,
+    });
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить место. Мы записали отказ.' },
+      { status: 500 },
+    );
   }
 }
