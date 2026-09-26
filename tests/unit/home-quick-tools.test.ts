@@ -116,6 +116,14 @@ describe('чипы интересов — один ряд (владелец 25.0
     expect(HOME).toMatch(/\.v7 \.hchip \.hc-l\{[^}]*white-space:nowrap/);
     expect(HOME).toContain('<span className="hc-l">{c.label}</span>');
   });
+
+  it('у каждого чипа свой цвет стихии — токеном, не серый (владелец 26.09: «посвети кнопки»)', async () => {
+    const { INTENT_CHIPS } = await import('@/lib/home/intent-chips');
+    const tones = /const CHIP_TONE: Record<string, string> = \{([\s\S]*?)\};/.exec(HOME)?.[1] ?? '';
+    for (const c of INTENT_CHIPS) expect(tones, c.key).toMatch(new RegExp(`${c.key}: 'var\\(--[a-z-]+\\)'`));
+    expect(HOME).toMatch(/\.v7 \.hchip svg\{color:var\(--hc,/);
+    expect(HOME).toMatch(/\.v7 \.hchip\{background:color-mix\(in srgb,var\(--hc,/);
+  });
 });
 
 describe('полевые инструменты — сеткой 2×2 (владелец 25.09: «место жалко на главной»)', () => {
