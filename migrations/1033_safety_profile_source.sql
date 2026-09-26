@@ -146,7 +146,7 @@ judged AS (
       )
     ) AS is_template
   FROM location_safety_profile lsp
-  JOIN k ON k.id = lsp.agent_route_id
+  JOIN k ON k.id::text = lsp.agent_route_id::text
 )
 UPDATE location_safety_profile lsp
    SET profile_source = CASE WHEN j.is_template THEN 'type_template' ELSE 'unknown' END,
