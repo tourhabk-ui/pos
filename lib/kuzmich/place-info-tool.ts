@@ -26,7 +26,7 @@
  * (то же решение, что у lib/kuzmich/place-advisory).
  */
 import { pool } from '@/lib/db-pool';
-import { placeNameSearchSql } from '@/lib/places/name-match';
+import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { gradeNameMatch } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
@@ -92,6 +92,11 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   if (!primary && own.length === 0) return null;
 
   const parts: string[] = [];
+  // Места нет, заметка есть (issue #2063): «Ключевской» отдавал одну
+  // легенду, и ответ выглядел полным. Отсутствие фактов называется словами.
+  if (!primary) {
+    parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности по этому названию неизвестны. Ниже только заметка Кузьмича; уточните точное название места.`);
+  }
   if (primary) {
     const cat = primary.category ? ` [${primary.category}]` : '';
     const district = primary.district ? ` (${primary.district})` : '';
@@ -123,7 +128,9 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
 export async function placeInfoForKuzmich(placeName: string): Promise<string | null> {
   // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» не содержится
   // подстрокой в «Вулкан Горелый».
-  const placeMatch = placeNameSearchSql('p.name', placeName, 1);
+  // И псевдонимы (issue #2063): «Ключевской вулкан» — записанное имя
+  // «Вулкан Ключевская сопка», а не подстрока его названия.
+  const placeMatch = placeNameOrAliasSearchSql('p', placeName, 1);
   const [pr, kr] = await Promise.all([
     pool.query<PlaceRow>(
       // Слитые дубли отсекаются — то же правило, что у getGuardianContext и
