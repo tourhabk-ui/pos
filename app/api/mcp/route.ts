@@ -434,12 +434,13 @@ export async function POST(request: NextRequest) {
             ? await issueMcpHandoff({ mcpInvocationId: invocationId, toolName, target })
             : null;
 
-          return NextResponse.json(jsonrpcSuccess(id, {
-            content: [{
-              type: 'text',
-              text: handoff ? `${text}\n\nПродолжить в Ведаре: ${handoff.url}` : text,
-            }],
-          }));
+          // Ссылка — отдельным элементом ответа, не хвостом текста (внешняя
+          // проверка MCP 26.09: «для чистого MCP-клиента — шум»). Клиент,
+          // показывающий всё подряд, увидит её как прежде; клиент, берущий
+          // первый элемент как ответ инструмента, получает чистые данные.
+          const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
+          if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
+          return NextResponse.json(jsonrpcSuccess(id, { content }));
         } catch (toolErr) {
           const msg = toolErr instanceof Error ? toolErr.message : 'Tool execution failed';
           logMcpToolCall({

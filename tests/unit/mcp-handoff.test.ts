@@ -106,6 +106,10 @@ describe('врезка в MCP-роут и приём лида', () => {
   it('ссылка добавляется только после успешного вызова, цели строит сервер', () => {
     expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs\)/);
     expect(MCP_ROUTE).toMatch(/Продолжить в Ведаре/);
+    // Ссылка — отдельный элемент content, данные инструмента — первым и чистыми.
+    expect(MCP_ROUTE).toMatch(/const content: Array<\{ type: 'text'; text: string \}> = \[\{ type: 'text', text \}\];/);
+    expect(MCP_ROUTE).toMatch(/if \(handoff\) content\.push\(\{ type: 'text', text: `Продолжить в Ведаре: \$\{handoff\.url\}` \}\)/);
+    expect(MCP_ROUTE).not.toMatch(/\$\{text\}\\n\\nПродолжить в Ведаре/);
     // В ветке ошибки handoff не выпускается.
     const catchBlock = MCP_ROUTE.slice(MCP_ROUTE.indexOf('} catch (toolErr)'));
     expect(catchBlock).not.toMatch(/issueMcpHandoff/);

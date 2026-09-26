@@ -13,12 +13,83 @@
  * Правило: первое (самое точное) место — целиком; остальные — только
  * названиями, с пометкой «спросите отдельно»; заметки — только те, чей
  * ЗАГОЛОВОК про это место (`gradeNameMatch`, то же правило, что у стража).
+ *
+ * Факты — впереди текста (26.09). Описание инструмента обещает «type,
+ * coordinates, hazards», а ответом было одно `places.description` — у
+ * Авачинского это рассказ от первого лица («Вчера поднялся…»), и внешняя
+ * проверка MCP справедливо приняла его за художественный текст вместо
+ * карточки. Теперь сначала строки фактов из `places` и
+ * `location_safety_profile` (JOIN по `agent_route_id = places.ark_id`, §9),
+ * потом «Описание:» — подписанным. Пустое поле — строки нет: ничего не
+ * выдумывается (§4.0). Неизвестный ключ опасности пропускается — ответ читает
+ * и Кузьмич вслух, а английское слово внутри русской фразы хуже пропуска
+ * (то же решение, что у lib/kuzmich/place-advisory).
  */
 import { pool } from '@/lib/db-pool';
-import { placeNameSearchSql } from '@/lib/places/name-match';
+import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { gradeNameMatch } from '@/lib/kuzmich/guardian-context';
+import { placeTypeLabel } from '@/lib/places/type-label';
+import { HAZARDS } from '@/lib/safety/hazard-labels';
+import { descriptionVoice } from '@/lib/places/description-voice';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 
-export interface PlaceRow { name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null }
+export interface PlaceRow {
+  name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null;
+  location_type?: string | null;
+  lat?: string | number | null; lng?: string | number | null;
+  altitude_m?: number | null;
+  hazard_types?: string[] | null;
+  profile_source?: string | null;
+  nearest_medical_km?: string | number | null;
+  sat_communicator_required?: boolean | null;
+  registration_required?: boolean | null;
+}
+
+/** Описание длиннее этого режется по концу предложения: карточка, не статья. */
+export const PLACE_DESCRIPTION_MAX = 700;
+
+function num(v: string | number | null | undefined): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function clipDescription(text: string): string {
+  const t = text.trim();
+  if (t.length <= PLACE_DESCRIPTION_MAX) return t;
+  const cut = t.slice(0, PLACE_DESCRIPTION_MAX);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  return (end > PLACE_DESCRIPTION_MAX / 2 ? cut.slice(0, end + 1) : cut.trimEnd()) + ' …';
+}
+
+/** Строки фактов о месте — только то, что записано. */
+export function placeFactLines(p: PlaceRow): string[] {
+  const lines: string[] = [];
+  const type = placeTypeLabel(p.location_type ?? p.category);
+  if (type) lines.push(`Тип: ${type.toLocaleLowerCase('ru-RU')}`);
+  const lat = num(p.lat), lng = num(p.lng);
+  if (lat != null && lng != null) lines.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  if (p.altitude_m != null && p.altitude_m > 0) lines.push(`Высота: ${p.altitude_m} м`);
+  // Опасности, выведенные шаблоном 070 из location_type, фактом не называются:
+  // правило одно на платформу (lib/safety/profile-source.ts, миграция 1033).
+  // Эта карточка уходит в MCP, то есть читает её чужой ИИ-клиент и повторяет
+  // как факт — тем опаснее, чем дальше от базы.
+  const hazards = honestSafetyFields(
+    {
+      hazardTypes: p.hazard_types ?? [],
+      capacityPerDay: null, optimalGroupSize: null, difficultyLevel: null, terrainType: null,
+    },
+    asProfileSource(p.profile_source ?? null),
+  ).hazardTypes
+    .map((h) => HAZARDS[h]?.label?.toLocaleLowerCase('ru-RU'))
+    .filter((h): h is string => Boolean(h));
+  if (hazards.length > 0) lines.push(`Опасности: ${[...new Set(hazards)].join(', ')}`);
+  const medical = num(p.nearest_medical_km);
+  if (medical != null) lines.push(`До медпомощи: ${Math.round(medical)} км`);
+  if (p.sat_communicator_required === true) lines.push('Спутниковая связь: нужна — сотовой может не быть');
+  if (p.registration_required === true) lines.push('Регистрация группы в МЧС: требуется');
+  return lines;
+}
 export interface NoteRow { title: string; compiled_truth: string }
 
 export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[]): string | null {
@@ -33,10 +104,30 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   if (!primary && own.length === 0) return null;
 
   const parts: string[] = [];
+  // Места нет, заметка есть (issue #2063): «Ключевской» отдавал одну
+  // легенду, и ответ выглядел полным. Отсутствие фактов называется словами.
+  if (!primary) {
+    parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности по этому названию неизвестны. Ниже только заметка Кузьмича; уточните точное название места.`);
+  }
   if (primary) {
     const cat = primary.category ? ` [${primary.category}]` : '';
     const district = primary.district ? ` (${primary.district})` : '';
-    parts.push(`${primary.name}${cat}${district}${primary.description ? ': ' + primary.description : ''}`);
+    const card = [`${primary.name}${cat}${district}`, ...placeFactLines(primary)];
+    if (primary.description?.trim()) {
+      // Голос описания (lib/places/description-voice): дневник — рассказ о
+      // поездке, которой не было, и его «вчера», «фумаролы работают» агент
+      // принял бы за наблюдение о сегодняшнем состоянии места. Не отдаём и
+      // говорим почему; ощущения отдаём, но подписанными.
+      const { voice } = descriptionVoice(primary.description);
+      if (voice === 'diary') {
+        card.push('Описание: не приводится — текст в базе написан как путевая заметка от первого лица и справкой не является; ориентируйтесь на факты выше.');
+      } else if (voice === 'impression') {
+        card.push(`Описание (впечатление, не наблюдение): ${clipDescription(primary.description)}`);
+      } else {
+        card.push(`Описание: ${clipDescription(primary.description)}`);
+      }
+    }
+    parts.push(card.join('\n'));
   }
   for (const n of own) parts.push(`Заметка Кузьмича «${n.title}»: ${n.compiled_truth}`);
   if (others.length > 0) {
@@ -49,16 +140,23 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
 export async function placeInfoForKuzmich(placeName: string): Promise<string | null> {
   // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» не содержится
   // подстрокой в «Вулкан Горелый».
-  const placeMatch = placeNameSearchSql('name', placeName, 1);
+  // И псевдонимы (issue #2063): «Ключевской вулкан» — записанное имя
+  // «Вулкан Ключевская сопка», а не подстрока его названия.
+  const placeMatch = placeNameOrAliasSearchSql('p', placeName, 1);
   const [pr, kr] = await Promise.all([
     pool.query<PlaceRow>(
       // Слитые дубли отсекаются — то же правило, что у getGuardianContext и
       // resolvePlaceForLink, и та же сортировка «кратчайшее имя первым».
       // is_visible не фильтруется намеренно: у стража это записанное решение
       // («может знать скрытое место, но ссылку на невидимую страницу не даём»).
-      `SELECT name, description, category, district, is_visible FROM places
-        WHERE merged_into_id IS NULL AND (${placeMatch.clause})
-        ORDER BY char_length(name) ASC
+      `SELECT p.name, p.description, p.category, p.district, p.is_visible,
+              p.location_type, p.lat, p.lng,
+              lsp.altitude_m, lsp.hazard_types, lsp.profile_source, lsp.nearest_medical_km,
+              lsp.sat_communicator_required, lsp.registration_required
+         FROM places p
+         LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
+        WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
+        ORDER BY char_length(p.name) ASC
         LIMIT 3`,
       placeMatch.params,
     ),

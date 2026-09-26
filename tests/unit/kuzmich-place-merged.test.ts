@@ -50,14 +50,14 @@ describe('get_place_info', () => {
   it('при нескольких совпадениях первой идёт запись с кратчайшим именем', () => {
     // То же правило, что у стража: «Шивелуч» вперёд «Каньона на Шивелуче».
     // Без ORDER BY порядок задаёт план запроса, то есть случай.
-    expect(placeInfoSql()).toMatch(/ORDER BY char_length\(name\) ASC/);
+    expect(placeInfoSql()).toMatch(/ORDER BY char_length\((p\.)?name\) ASC/);
   });
 });
 
 describe('паритет со стражем', () => {
   it('у стража то же правило слияния — оно не разъехалось', () => {
     expect(guardian).toContain('p.merged_into_id IS NULL');
-    expect(guardian).toMatch(/merged_into_id IS NULL AND is_visible = true/);
+    expect(guardian).toMatch(/merged_into_id IS NULL AND (p\.)?is_visible = true/);
   });
 
   it('скрытое место страж знать может: это записанное решение, а не упущение', () => {

@@ -1,14 +1,16 @@
 {
-  "note": "26.09, прогон 604. ТОЛЬКО ЧТЕНИЕ. Стекло поля (49d3814): новый класс листа и компаса в чанке /planning на проде.",
-  "run": 604,
-  "timeout": 60,
+  "note": "26.09, прогон 608. ТОЛЬКО ЧТЕНИЕ. Issue #2064: разметка текста статьи kamtoday со сводкой Минтура — где начинается и кончается articleBody, как разделены пункты.",
+  "run": 608,
+  "timeout": 40,
   "retries": 1,
-  "retryDelay": 10,
+  "retryDelay": 5,
   "allowStale": true,
   "bytes": 100,
-  "grep": ["fx-glass-dense fixed inset-x-0 bottom-0 z-10", "relative fx-glass-dense rounded-full", "fx-glass-dense mx-3 mt-1 rounded-xl"],
-  "count": ["fx-glass-dense"],
+  "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
+  "around": ["itemprop=\"articleBody\""],
+  "aroundLines": 70,
+  "aroundHits": 1,
   "urls": [
-    "https://vedarai.ru/_next/static/chunks/app/planning/page-d584b691b6d32d61.js"
+    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/"
   ]
 }

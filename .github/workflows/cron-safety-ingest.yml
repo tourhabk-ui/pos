@@ -43,25 +43,79 @@ jobs:
           # Тянем с раннера, а не с сервера: с Timeweb kamgov.ru не открывается,
           # и сервер каждый прогон писал «news feed unavailable: kamgov» при
           # живом фиде. У сайта несколько путей — берём все, дубли снимет разбор.
+          #
+          # Код ответа КАЖДОГО адреса уходит на сервер полем kamgov_fetch
+          # (#2064): 26.09 все три отвечали раннеру 403, XML не приходил, и
+          # отчёт прогона писал «источник ответил, постов нет». Отказ и
+          # пустая лента — разные состояния, и сервер должен их различать.
           : > /tmp/kamgov.json
+          : > /tmp/kamgov_fetch.jsonl
           for u in \
             "https://www.kamgov.ru/rss" \
             "https://www.kamgov.ru/mintur/rss" \
             "https://www.kamgov.ru/mintur/news/rss"; do
-            curl -sf --max-time 30 \
+            code=$(curl -s --max-time 30 -o /tmp/kamgov_one.xml -w "%{http_code}" \
               -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
               -H "Accept-Language: ru-RU,ru;q=0.9" \
-              "$u" > /tmp/kamgov_one.xml || continue
+              "$u" || true)
+            case "$code" in ''|*[!0-9]*) code=0 ;; esac
+            code=$((10#$code))  # «000» (нет соединения) → 0, валидное число для jq
+            rss=false
             # Не-RSS (гос-сайт на несуществующий путь отдаёт HTML) отбрасываем.
-            grep -qi "<rss\|<feed" /tmp/kamgov_one.xml || continue
-            jq -Rs . < /tmp/kamgov_one.xml >> /tmp/kamgov.json
+            if [ "$code" -ge 200 ] && [ "$code" -lt 300 ] && grep -qi "<rss\|<feed" /tmp/kamgov_one.xml; then
+              rss=true
+              jq -Rs . < /tmp/kamgov_one.xml >> /tmp/kamgov.json
+            fi
+            jq -nc --arg url "$u" --argjson http "$code" --argjson rss "$rss" \
+              '{url: $url, http: $http, rss: $rss}' >> /tmp/kamgov_fetch.jsonl
+            echo "kamgov $u -> HTTP $code, rss=$rss"
           done
           jq -s . /tmp/kamgov.json > /tmp/kamgov_xml.json 2>/dev/null || echo "[]" > /tmp/kamgov_xml.json
+          jq -s . /tmp/kamgov_fetch.jsonl > /tmp/kamgov_fetch.json 2>/dev/null || echo "[]" > /tmp/kamgov_fetch.json
 
           echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
           echo "minec:   $(wc -c < /tmp/minec.html) bytes"
           echo "kamgov:  $(jq 'length' /tmp/kamgov_xml.json) feeds"
+
+          # Сводка Минтура пересказом kamtoday.ru (#2064, решение владельца
+          # 26.09): kamgov.ru закрыт и раннеру. Лента — общие новости края,
+          # поэтому открываются ТОЛЬКО статьи с «Минтуриз…» в заголовке (до
+          # трёх); сервер разберёт лишь те, что окажутся сводкой. Что увидели в
+          # ленте — kamtoday_fetch: отказ ленты не должен читаться как «сводки нет».
+          kt_code=$(curl -s --max-time 30 -o /tmp/kamtoday_rss.xml -w "%{http_code}" \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://kamtoday.ru/rss/" || true)
+          case "$kt_code" in ''|*[!0-9]*) kt_code=0 ;; esac
+          kt_code=$((10#$kt_code))
+          [ -f /tmp/kamtoday_rss.xml ] || : > /tmp/kamtoday_rss.xml
+          KT_CODE="$kt_code" node -e '
+            const fs = require("fs");
+            const { execFileSync } = require("child_process");
+            const http = Number(process.env.KT_CODE) || 0;
+            const xml = http >= 200 && http < 300 ? fs.readFileSync("/tmp/kamtoday_rss.xml", "utf8") : "";
+            const tag = (block, name) => {
+              const m = block.match(new RegExp("<" + name + "[^>]*>([\\s\\S]*?)</" + name + ">", "i"));
+              return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+            };
+            const items = xml.split(/<item[\s>]/i).slice(1).map((b) => ({
+              title: tag(b, "title"), url: tag(b, "link"), pubDate: tag(b, "pubDate"),
+            }));
+            const matched = items.filter((i) => /минтуриз|министерств[а-я]* туризма/i.test(i.title) && /^https:\/\/kamtoday\.ru\//.test(i.url));
+            const articles = [];
+            for (const it of matched.slice(0, 3)) {
+              try {
+                const html = execFileSync("curl", ["-sf", "--max-time", "30",
+                  "-H", "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)", it.url],
+                  { encoding: "utf8", maxBuffer: 2e6 });
+                articles.push({ url: it.url, title: it.title, pubDate: it.pubDate, html: html.slice(0, 590000) });
+              } catch { /* не открылась — сервер увидит matched > принесено */ }
+            }
+            fs.writeFileSync("/tmp/kamtoday_articles.json", JSON.stringify(articles));
+            fs.writeFileSync("/tmp/kamtoday_fetch.json", JSON.stringify({ http, rss_items: items.length, matched: matched.length }));
+            console.log("kamtoday: HTTP " + http + ", items " + items.length + ", Минтур " + matched.length + ", принесено " + articles.length);
+          ' || echo "kamtoday: разбор ленты упал — поле не отправляется, приём остального не страдает"
 
       # Канал ГУ МЧС Камчатки в госмессенджере MAX (max.ru/id4101120929_gos).
       # Тот же поток оперативных сводок, что VK, но у MAX нет открытого read-API,
@@ -124,16 +178,27 @@ jobs:
           # добавляем только когда непустой (Zod допускает отсутствие).
           [ -s /tmp/max_items.json ] || echo "[]" > /tmp/max_items.json
           [ -s /tmp/kamgov_xml.json ] || echo "[]" > /tmp/kamgov_xml.json
+          [ -s /tmp/kamgov_fetch.json ] || echo "[]" > /tmp/kamgov_fetch.json
+          [ -s /tmp/kamtoday_articles.json ] || echo "[]" > /tmp/kamtoday_articles.json
+          # Нет файла — раннер ленту не разобрал: поля нет вовсе (сервер не
+          # судит), а не выдуманный «ответ 0».
+          [ -f /tmp/kamtoday_fetch.json ] || : > /tmp/kamtoday_fetch.json
           jq -n \
             --rawfile kbgsras_html /tmp/kbgsras.html \
             --rawfile eqkam_html   /tmp/eqkam.html \
             --rawfile minec_html   /tmp/minec.html \
             --slurpfile max_items  /tmp/max_items.json \
             --slurpfile kamgov_xml /tmp/kamgov_xml.json \
+            --slurpfile kamgov_fetch /tmp/kamgov_fetch.json \
+            --slurpfile kamtoday_articles /tmp/kamtoday_articles.json \
+            --slurpfile kamtoday_fetch /tmp/kamtoday_fetch.json \
             '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}
               + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)
               + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)
-              + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)' \
+              + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)
+              + (if (($kamgov_fetch[0] // []) | length) > 0 then {kamgov_fetch: $kamgov_fetch[0]} else {} end)
+              + (if (($kamtoday_articles[0] // []) | length) > 0 then {kamtoday_articles: $kamtoday_articles[0]} else {} end)
+              + (if ($kamtoday_fetch | length) > 0 then {kamtoday_fetch: $kamtoday_fetch[0]} else {} end)' \
             > /tmp/payload.json
 
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
