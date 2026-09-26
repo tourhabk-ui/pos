@@ -1,14 +1,12 @@
 {
-  "note": "26.09, прогон 600. ТОЛЬКО ЧТЕНИЕ. Радиус опасной зоны: текст бюллетеня KVERT, который прод уже хранит (volcano_status.summary). Мутновский по id; для Шивелуча и Ключевской — поиск маршрутов, чтобы взять id мест.",
-  "run": 600,
+  "note": "26.09, прогон 601. ТОЛЬКО ЧТЕНИЕ. Подъезд по дорогам: строит ли дорожный граф путь на машине от Петропавловска к Авачинскому перевалу (старт маршрута «Авачинский вулкан: путь на вершину»).",
+  "run": 601,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 9000,
+  "bytes": 900,
   "urls": [
-    "https://vedarai.ru/api/places/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9",
-    "https://vedarai.ru/api/routes/search?q=%D0%A8%D0%B8%D0%B2%D0%B5%D0%BB%D1%83%D1%87",
-    "https://vedarai.ru/api/routes/search?q=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA"
+    "https://vedarai.ru/api/routing/path?from_lat=53.02&from_lng=158.65&to_lat=53.245&to_lng=158.795&mode=car"
   ]
 }
