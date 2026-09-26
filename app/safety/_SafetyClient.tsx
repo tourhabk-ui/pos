@@ -8,6 +8,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { zoneName } from '@/lib/safety/zone-names';
 import { plural } from '@/lib/home/data-freshness';
+import { manualRefreshNote, type ManualRefreshOutcome } from '@/lib/safety/manual-refresh';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
 
@@ -242,7 +243,11 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
    * из вариантов: человек принял бы решение по вчерашней сейсмике.
    */
   const [refreshState, setRefreshState] = useState<'idle' | 'loading' | 'done' | 'failed' | 'offline'>('idle');
+  // Время, когда СБОР опрашивал источники (журнал приёма или сама кнопка).
+  // Погода сюда не подмешивается (владелец 26.09): она спрашивается отдельно,
+  // и её свежее время выдавало «проверено только что» за МЧС и сейсмику.
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -271,7 +276,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
         .then((d: { events?: SeismicEvent[]; source?: string; checkedAt?: string | null }) => {
           setSeismic(d.events ?? []);
           setSeismicSource(d.source ?? '');
-          if (d.checkedAt) setCheckedAt(new Date(d.checkedAt).getTime());
+          if (d.checkedAt) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checkedAt as string).getTime()));
         }).catch(() => {}),
       ok(fetch(`/api/safety/volcanic?fresh=${q}`).then(r => r.json()))
         .then((d: { events?: VolcanicEvent[]; statuses?: { elevated?: VolcanoStatusRow[] } }) => {
@@ -284,7 +289,6 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       ok(fetch(`/api/safety/weather?fresh=${q}`).then(r => r.json()))
         .then((d: WeatherData & { checked_at?: string }) => {
           setWeather(d.tempC ? d : null);
-          if (d.checked_at) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checked_at as string).getTime()));
         }).catch(() => {}),
     ]);
     return any;
@@ -304,8 +308,22 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       return;
     }
     setRefreshState('loading');
+    setRefreshNote(null);
+    // Сначала сбор — тот же, что супервизор зовёт каждые 5 минут (владелец
+    // 26.09: кнопка должна правда обходить источники). Потом перечитываем
+    // экран: сбор пишет в базу, экран читает из неё.
+    let outcome: ManualRefreshOutcome = 'failed';
+    try {
+      const r = await fetch('/api/safety/refresh', { method: 'POST' });
+      const d = (await r.json()) as { outcome?: ManualRefreshOutcome; checked_at?: string | null };
+      if (d.outcome) outcome = d.outcome;
+      if (d.checked_at) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checked_at as string).getTime()));
+    } catch {
+      outcome = 'failed';
+    }
+    setRefreshNote(manualRefreshNote(outcome));
     const any = await loadAll(true);
-    setRefreshState(any ? 'done' : 'failed');
+    setRefreshState(outcome === 'failed' && !any ? 'failed' : 'done');
   }, [loadAll, refreshState]);
 
   useEffect(() => {
@@ -597,7 +615,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           }}
         />
         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-          {refreshState === 'loading' ? 'Спрашиваем источники...' : 'Обновить данные'}
+          {refreshState === 'loading' ? 'Опрашиваем источники...' : 'Обновить данные'}
         </span>
         <span style={{ fontSize: 11, color: refreshState === 'failed' ? 'var(--warning)' : 'var(--text-muted)', textAlign: 'right' }}>
           {refreshState === 'offline'
@@ -605,8 +623,8 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
             : refreshState === 'failed'
               ? 'Источники не ответили'
               : checkedAt
-                ? `Проверено ${fmtAgo(new Date(checkedAt).toISOString())}`
-                : 'Проверка ещё не удавалась'}
+                ? `Источники опрошены ${fmtAgo(new Date(checkedAt).toISOString())}${refreshNote ? ` · ${refreshNote}` : ''}`
+                : refreshNote ?? 'Опрос источников ещё не удавался'}
         </span>
       </button>
 
