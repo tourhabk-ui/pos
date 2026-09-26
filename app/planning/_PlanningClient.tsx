@@ -8,7 +8,7 @@ import {
   Check, ChevronRight, ChevronUp, ChevronDown, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search,
+  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search, Plus,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -818,6 +818,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
   /**
+   * Пересказ вердикта о ведении: что ответил сервер на `?explain=1`.
+   *
+   * `text` пуст, когда модель не ответила или её ответ не прошёл проверку —
+   * тогда на экране остаются сухие причины, и это не ошибка, а исход.
+   */
+  const [navExplain, setNavExplain] = useState<
+    { routeId: string; loading: boolean; text: string | null } | null
+  >(null);
+  /**
    * ПРОВЕРКА этого заявления делом: сколько тайлов коридора Cache Storage
    * отдаёт на самом деле. Запись в localStorage и тайлы в кэше живут
    * порознь, и система вправе вычистить второе, не тронув первое, — тогда
@@ -1507,6 +1516,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * — по тапу. Сбой карты (vedarDiag) и предупреждения видны всегда.
    */
   const [statusOpen, setStatusOpen] = useState(false);
+  /**
+   * Меню действий свёрнутого листа (владелец 26.09, шаг 2 «как у основных
+   * навигаторов»): «Место / Трек / Наблюдение» — за одной кнопкой «+», а не
+   * тремя плитками под цифрой. Развёрнутый лист показывает панель как прежде.
+   */
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
   const status = useMemo((): { tone: 'warn' | 'info'; text: string; detail?: string; cta?: 'compass' } | null => {
@@ -3148,6 +3163,44 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                           {preview.navigability.reasons.map((why, i) => (
                             <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>
                           ))}
+                          {/* Пересказ вердикта человеческим языком.
+                              Спрашивается по нажатию, а не сам: за ним идёт
+                              вызов модели, и платить им за каждое открытие
+                              карточки незачем. Решение при этом принято выше
+                              и от пересказа не зависит — сухие причины
+                              остаются на месте в любом случае. */}
+                          {navExplain?.routeId === preview.id && navExplain.text ? (
+                            <p className="text-xs mt-2 pt-2" style={{
+                              color: 'var(--text-secondary)',
+                              borderTop: '1px solid var(--border)',
+                            }}>{navExplain.text}</p>
+                          ) : navExplain?.routeId === preview.id && !navExplain.loading ? (
+                            <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                              Объяснить сейчас не вышло — причины выше остаются в силе
+                            </p>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={navExplain?.routeId === preview.id && navExplain.loading}
+                              onClick={() => {
+                                const routeId = preview.id;
+                                setNavExplain({ routeId, loading: true, text: null });
+                                fetch(`/api/routes/${routeId}?explain=1`)
+                                  .then(r => r.json())
+                                  .then((d: { data?: { navigabilityExplanation?: { text?: unknown } | null } }) => {
+                                    const t = d?.data?.navigabilityExplanation?.text;
+                                    setNavExplain({ routeId, loading: false, text: typeof t === 'string' ? t : null });
+                                  })
+                                  .catch(() => setNavExplain({ routeId, loading: false, text: null }));
+                              }}
+                              className="text-xs mt-2 underline underline-offset-2 disabled:opacity-60"
+                              style={{ color: 'var(--ocean)' }}
+                            >
+                              {navExplain?.routeId === preview.id && navExplain.loading
+                                ? 'Объясняю'
+                                : 'Что это значит'}
+                            </button>
+                          )}
                         </div>
                       )}
                       <div className="flex gap-2">
@@ -3707,6 +3760,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     return list;
   }, [recorder, sendingTrack, stopAndSendTrack, activeRouteTitle, obsQueueLen, trackRefusal,
     hasRoute, mapPlan, savedMap, tileDl, saveMap]);
+  /** Те же действия для меню «+»: выбор закрывает меню (шаг 2, 26.09). */
+  const collapsedActions = useMemo<FieldAction[]>(
+    () => fieldActions.map(a => ({ ...a, onPress: () => { setActionsOpen(false); a.onPress(); } })),
+    [fieldActions],
+  );
 
   // Замер низа приборного ряда — потолок нижнего листа (см. instrumentBottom).
   // Ряд меняет высоту вместе с плашкой статуса над ним (предупреждения
@@ -3907,7 +3965,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               нет ни у кого, эта строка была бы шумом на каждом экране. */}
           {statusOpen && mapPackBaseUrl && fieldBaseMap.kind === 'leaflet' && (
             <p className="px-3 pb-1 text-[11px] leading-snug"
-              style={{ color: 'var(--text-muted)' }}>
+              style={{ color: 'var(--glass-fg-muted, var(--text-muted))' }}>
               Подложка OSM: {fieldBaseMap.reason}
             </p>
           )}
@@ -3930,7 +3988,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               Цвет приглушённый, не тревожный: это факт о данных, не сбой. */}
           {statusOpen && fieldBaseMap.kind === 'vedar' && coverageNote && (
             <p className="px-3 pb-1 text-[11px] leading-snug"
-              style={{ color: 'var(--text-muted)' }}>
+              style={{ color: 'var(--glass-fg-muted, var(--text-muted))' }}>
               {coverageNote}
             </p>
           )}
@@ -3951,7 +4009,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               className="flex items-center gap-2 px-4 py-2 text-xs"
               // Здесь только спокойные (info) строки: предупреждения ушли в
               // непрозрачную плашку ниже (макет 24.09).
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ color: 'var(--glass-fg-muted, var(--text-secondary))' }}
             >
               {isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
               <span className="flex-1">{status.text}</span>
@@ -4244,7 +4302,37 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               {/* Квадратной кнопки «развернуть» здесь больше нет (макет
                   24.09): у листа уже есть ручка, и две кнопки одного
                   действия справа и сверху читались как две разные. */}
+              {/* «+» — действия поля одной кнопкой (владелец 26.09, шаг 2).
+                  56 px под палец в перчатке. Идущая запись видна на самой
+                  кнопке — цветом и счётчиком, а не пропадает в меню. */}
+              {collapsedActions.length > 0 && (() => {
+                const running = collapsedActions.find(a => a.active);
+                return (
+                  <button type="button" onClick={() => setActionsOpen(o => !o)}
+                    aria-expanded={actionsOpen}
+                    aria-label={running ? `Действия поля: идёт «${running.label}»` : 'Действия поля: место, трек, наблюдение'}
+                    className="shrink-0 flex flex-col items-center justify-center rounded-full transition-all duration-200"
+                    style={{
+                      width: 56, height: 56,
+                      background: running ? 'var(--accent)' : 'var(--bg-card)',
+                      border: running ? 'none' : '1px solid var(--border)',
+                      color: running ? '#FFFFFF' : 'var(--text-primary)',
+                    }}>
+                    {actionsOpen ? <X className="w-6 h-6" /> : <Plus className="w-6 h-6" />}
+                    {running?.hint && !actionsOpen && (
+                      <span className="text-[9px] leading-none tabular-nums mt-0.5">{running.hint}</span>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
+            {/* Отказ действия не прячется вместе с панелью: «трек не ушёл»
+                обязан быть виден и в свёрнутом листе (§4.0). */}
+            {(fieldBarError ?? saveMapError) && !actionsOpen && (
+              <p className="text-xs leading-snug px-1" style={{ color: 'var(--warning)' }}>
+                {fieldBarError ?? saveMapError}
+              </p>
+            )}
           </div>
         ) : (
         <>
@@ -4879,7 +4967,17 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           прокрутку (форма, 02.09). SOS сюда не входит: он отдельным
           красным действием в сетке выше, красный цвет — только тревога
           (§7). Без маршрута панель стоит внутри экрана выбора цели. */}
-      {(hasRoute || isLoadingRoute) && (
+      {/* Свёрнутый лист: действия — меню над листом по кнопке «+» (шаг 2,
+          26.09). Те же плитки с подписями, что в развёрнутом, — «Наблюдение»
+          целиком, без «Наблюде…». Выбор действия закрывает меню. */}
+      {!sheetOpen && actionsOpen && collapsedActions.length > 0 && (
+        <div className="absolute bottom-full right-3 mb-2 rounded-2xl p-3 shadow-lg"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', width: 'min(92vw, 340px)' }}
+          role="menu" aria-label="Действия поля">
+          <FieldActionBar actions={collapsedActions} error={fieldBarError ?? saveMapError} />
+        </div>
+      )}
+      {(hasRoute || isLoadingRoute) && sheetOpen && (
         <div className={`shrink-0 px-4 max-w-sm mx-auto w-full ${sheetOpen ? 'pt-2 pb-2' : 'pt-1.5 pb-1.5'}`}
           style={{ borderTop: '1px solid var(--border)' }}>
           {/* Свёрнутый лист — без подписей под кнопками (владелец 07.09,

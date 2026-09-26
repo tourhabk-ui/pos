@@ -10,7 +10,10 @@ import { extractTrackpoints, decimateTrackWithScale } from '@/lib/routes/track';
 import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
-import { routeNavigability, MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
+import { MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
+import { routeCardNavigability, hasCoords, type WaypointRow } from '@/lib/routes/card-navigability';
+import { explainNavigability, type ExplainedDecision } from '@/lib/explain/navigability-explainer';
+import { z } from 'zod';
 import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
 import { trackEvidence } from '@/lib/routes/track-evidence';
 import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
@@ -47,11 +50,26 @@ function logQueryFailure(part: string, err: unknown, routeId: string): void {
   });
 }
 
+/**
+ * Объяснение вердикта спрашивается ЯВНО и стоит денег: за ним идёт вызов
+ * модели. На каждое открытие карточки его не просят — только когда человек
+ * нажал «Что это значит».
+ */
+const ExplainQuery = z.object({ explain: z.enum(['0', '1']).optional() });
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const queryParsed = ExplainQuery.safeParse({
+    explain: new URL(_req.url).searchParams.get('explain') ?? undefined,
+  });
+  if (!queryParsed.success) {
+    return NextResponse.json({ success: false, error: 'Некорректный параметр explain' }, { status: 400 });
+  }
+  const wantExplain = queryParsed.data.explain === '1';
 
   if (!id || !/^[0-9a-f-]{36}$/.test(id)) {
     return NextResponse.json({ success: false, error: 'Некорректный ID' }, { status: 400 });
@@ -326,19 +344,50 @@ export async function GET(
      * этапы. Два разбора одной геометрии рядом — это две линии, которые рано
      * или поздно разойдутся.
      */
-    const routeTrack = (() => {
-      const { points } = decimateTrackWithScale(extractTrackpoints(
-        r.geometry as { type?: string; coordinates?: number[][] } | null,
-        payload,
-      ));
-      return points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null;
-    })();
+    /**
+     * Строки путевых точек с координатами — их просят и черта, и этапы.
+     *
+     * Фильтр спрашивал `w.lat`/`w.lng`, а запрос отдаёт `place_lat`/
+     * `place_lng`: `undefined != null` — ложь, и с 01.09 до черты не доходило
+     * НИ ОДНОЙ точки. Каждый маршрут, сколько бы точек ему ни разметили,
+     * получал «линию не с чем сверить», а вычисленные этапы строились всегда,
+     * подменяя собой настоящую разметку.
+     *
+     * Тип на строке стоит затем, чтобы третьего раза не было: теперь чужое
+     * имя колонки не компилируется.
+     */
+    const wpRowsWithCoords = (waypointsResult.rows as unknown as WaypointRow[]).filter(hasCoords);
+    const wpLinkKinds = wpRowsWithCoords.map(w => asLinkKind(w.link_kind ?? null));
 
-    /** Строки путевых точек с координатами — их просят и черта, и этапы. */
-    const wpRowsWithCoords = waypointsResult.rows.filter(w => w.lat != null && w.lng != null);
-    const wpLinkKinds = wpRowsWithCoords.map(
-      w => asLinkKind((w as { link_kind?: string | null }).link_kind ?? null),
-    );
+    /**
+     * Линия и черта — одним вызовом, потому что читателей у вердикта стало
+     * двое: этот ответ и объяснение решения (`/explain`). Считай второй свой
+     * вердикт — разошлись бы молча (§12, lib/routes/card-navigability).
+     */
+    const { navigability: cardNavigability, track: routeTrack } = routeCardNavigability({
+      geometry: r.geometry,
+      payload,
+      waypointRows: wpRowsWithCoords,
+      title: (r.title as string | null) ?? null,
+      activityType: (r.activity_type as string | null) ?? null,
+    });
+
+    /**
+     * Пересказ вердикта человеческим языком — по запросу и поверх решения.
+     *
+     * Решает код, пересказывает модель, проверяет снова код
+     * (`lib/explain/no-invention`). Вердикт от этого не меняется: объяснение
+     * едет ОТДЕЛЬНЫМ полем, а `navigability` остаётся ровно тем, что вынесла
+     * черта. Модель молчит или противоречит фактам — поля просто нет, и
+     * человек видит сухие причины, как раньше.
+     */
+    let explanation: ExplainedDecision | null = null;
+    if (wantExplain) {
+      explanation = await explainNavigability(
+        cardNavigability,
+        wpRowsWithCoords.map(w => w.place_name ?? null),
+      );
+    }
 
     /**
      * Вычисленные этапы (Ф3 плана).
@@ -472,41 +521,9 @@ export async function GET(
          *
          * Правило одно на всю платформу — lib/routes/navigability.
          */
-        navigability: (() => {
-          const track = routeTrack;
-          const wpRows = wpRowsWithCoords;
-          const wps = wpRows.map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
-          // Рода нужны черте, чтобы не считать противоречием центроид парка.
-          const wpTypes = wpRows.map(w => (w as { location_type?: string | null }).location_type ?? null);
-          // Род связи: «рядом» не описывает путь и в суждении не участвует.
-          //
-          // Вычисленных этапов здесь НЕТ и быть не может: они получены из этой
-          // же линии, и поверка ими доказала бы сама себя.
-          const wpKinds = wpLinkKinds;
-          return routeNavigability({
-            // Улика считается по СЫРОЙ геометрии: высота лежит третьим числом,
-            // а разбор в пары его отбрасывает. Прореженная линия для улики не
-            // годится и по другой причине — прореживание выравнивает шаг,
-            // то есть стирает главный признак живой записи.
-            evidence: trackEvidence(r.geometry).verdict,
-            grade: buildRoutePassport({
-              track,
-              geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
-              // Паспорт считает ТОЧКИ ПУТИ: «рядом» линию не поверяет.
-              waypointsCount: wpKinds.filter(isPathPoint).length,
-              routeVersion: null, verifiedAt: null, updatedAt: null,
-              mchsRequired: false, mchsPhone: null, parkName: null,
-              parkApprovalUrl: null, officialPassportUrl: null,
-            }).grade,
-            track,
-            waypoints: wps,
-            waypointTypes: wpTypes,
-            waypointKinds: wpKinds,
-            // Способ передвижения: у облёта линию не проходят, и обещание
-            // ведения к нему не относится (lib/routes/travel-mode).
-            mode: detectTravelMode(r.title as string | null, r.activity_type as string | null),
-          });
-        })(),
+        navigability: cardNavigability,
+        /** Пересказ вердикта. `null` — не просили либо объяснения нет. */
+        navigabilityExplanation: explanation,
         /**
          * Происхождение линии — как ЗАПИСАНО в геометрии, без догадок.
          *

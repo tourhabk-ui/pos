@@ -47,12 +47,12 @@ export function FieldStatusStrip(p: FieldStatusStripProps) {
       </span>
       {p.routeTitle && (
         <span className="flex-1 text-center truncate font-semibold px-1"
-          style={{ color: 'var(--text-primary)' }}>
+          style={{ color: 'var(--glass-fg, var(--text-primary))' }}>
           {p.routeTitle}
         </span>
       )}
       {p.checkpoint && (
-        <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+        <span className="shrink-0 tabular-nums" style={{ color: 'var(--glass-fg-muted, var(--text-secondary))' }}>
           {p.checkpoint.current} из {p.checkpoint.total}
         </span>
       )}
