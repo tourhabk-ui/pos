@@ -75,3 +75,34 @@ export function placeNameSearchSql(
   }
   return nameContainsAllWordsSql(column, words, paramOffset);
 }
+
+/**
+ * То же условие по названию ИЛИ псевдониму места (issue #2063, 26.09).
+ *
+ * «Ключевской», «Ключевской вулкан», «Вулкан Ключевской» не находили
+ * «Вулкан Ключевская сопка»: окончание другое, слова «ключевской» в
+ * названии нет. Страж отдавал туристу только этнографическую заметку — без
+ * цвета, KVERT и опасностей — в дни извержения соседнего Шивелуча.
+ *
+ * Сравнивать по основе слова здесь НЕЛЬЗЯ, и это не осторожность ради
+ * осторожности: «Авачинский» по основе совпадает с «Авачинская бухта», а её
+ * имя короче «Вулкан Авачинский» — первой строкой стал бы залив, и данные
+ * залива ушли бы как данные вулкана. Разговорное имя — это решение о
+ * КОНКРЕТНОМ месте, и живёт оно в `place_aliases` (lib/places/aliases.ts),
+ * поимённо, а не в эвристике.
+ *
+ * `p` — псевдоним таблицы `places` в запросе. Слова те же, плейсхолдеры те
+ * же: параметры одни на обе ветки.
+ */
+export function placeNameOrAliasSearchSql(
+  p: string,
+  rawQuery: string,
+  paramOffset: number,
+): { clause: string; params: string[] } {
+  const name = placeNameSearchSql(`${p}.name`, rawQuery, paramOffset);
+  const alias = placeNameSearchSql('pa.alias', rawQuery, paramOffset);
+  return {
+    clause: `((${name.clause}) OR EXISTS (SELECT 1 FROM place_aliases pa WHERE pa.place_id = ${p}.id::text AND (${alias.clause})))`,
+    params: name.params,
+  };
+}

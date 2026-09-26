@@ -57,7 +57,7 @@ describe('get_place_info', () => {
 describe('паритет со стражем', () => {
   it('у стража то же правило слияния — оно не разъехалось', () => {
     expect(guardian).toContain('p.merged_into_id IS NULL');
-    expect(guardian).toMatch(/merged_into_id IS NULL AND is_visible = true/);
+    expect(guardian).toMatch(/merged_into_id IS NULL AND (p\.)?is_visible = true/);
   });
 
   it('скрытое место страж знать может: это записанное решение, а не упущение', () => {

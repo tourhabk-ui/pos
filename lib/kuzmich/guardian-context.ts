@@ -3,7 +3,7 @@ import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsPhrase, kfegsIsFresh, levelForColor, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
-import { placeNameSearchSql } from '@/lib/places/name-match';
+import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 
 interface GuardianPlaceRow {
   name: string;
@@ -35,6 +35,8 @@ interface GuardianPlaceRow {
   kfegs_seismicity: string | null;
   kfegs_date: string | null;
   linked_volcanoes: string | null;
+  /** Псевдонимы места (place_aliases) — разговорные имена того же объекта. */
+  aliases?: string[] | null;
 }
 
 /** Наблюдённый ACC вулкана (unassigned/отсутствие → null — без ложного «спокоен»). */
@@ -171,6 +173,17 @@ export function gradeNameMatch(query: string, candidate: string): 'high' | 'low'
 }
 
 /**
+ * Совпадение с местом — по названию ИЛИ по его псевдониму (issue #2063).
+ * «Ключевской» против «Вулкан Ключевская сопка» — слабое совпадение, и так
+ * должно оставаться (морфология рвёт префикс намеренно, см. тесты); но у
+ * места записан псевдоним «Ключевской вулкан», и против него запрос сильный.
+ * Псевдоним — поимённое решение о ЭТОМ месте, поэтому ему можно верить.
+ */
+export function gradePlaceMatch(query: string, name: string, aliases?: string[] | null): 'high' | 'low' {
+  return [name, ...(aliases ?? [])].some((n) => gradeNameMatch(query, n) === 'high') ? 'high' : 'low';
+}
+
+/**
  * Место для ПУБЛИЧНОЙ ссылки (handoff MCP, задача #60): id первой записи по
  * тому же правилу матчинга, что и основной запрос getGuardianContext ниже
  * (merged_into_id IS NULL, ILIKE, кратчайшее имя первым) — чтобы ссылка вела
@@ -183,11 +196,11 @@ export async function resolvePlaceForLink(placeNameRaw: string): Promise<string 
   try {
     // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» и «Вулкан
     // Горелый» — один и тот же порядок для человека, разный для ILIKE '%…%'.
-    const { clause, params } = placeNameSearchSql('name', q, 1);
+    const { clause, params } = placeNameOrAliasSearchSql('p', q, 1);
     const { rows } = await pool.query<{ id: string }>(
-      `SELECT id FROM places
-        WHERE merged_into_id IS NULL AND is_visible = true AND (${clause})
-        ORDER BY char_length(name) ASC
+      `SELECT p.id FROM places p
+        WHERE p.merged_into_id IS NULL AND p.is_visible = true AND (${clause})
+        ORDER BY char_length(p.name) ASC
         LIMIT 1`,
       params,
     );
@@ -209,7 +222,9 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   // вулкан%' не находит «Вулкан Мутновский» (обратный порядок) и вместо
   // отказа молча подставляет случайную запись, СОДЕРЖАЩУЮ ту же подстроку
   // («Скитур на Мутновский вулкан») — без KVERT-строки канонической точки.
-  const placeMatch = placeNameSearchSql('p.name', placeName, 1);
+  // Сверх слов — псевдонимы места (issue #2063): «Ключевской вулкан» не
+  // содержится в «Вулкан Ключевская сопка» ни в каком порядке слов.
+  const placeMatch = placeNameOrAliasSearchSql('p', placeName, 1);
 
   const [placesRes, alertsRes, knowledgeRes] = await Promise.all([
     pool.query<GuardianPlaceRow>(
@@ -234,7 +249,10 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
          (SELECT string_agg(v.name, ', ' ORDER BY v.name)
             FROM place_volcano_links l
             JOIN places v ON v.id::text = l.volcano_place_id
-           WHERE l.place_id = p.id::text) AS linked_volcanoes
+           WHERE l.place_id = p.id::text) AS linked_volcanoes,
+         (SELECT array_agg(pa.alias ORDER BY pa.alias)
+            FROM place_aliases pa
+           WHERE pa.place_id = p.id::text) AS aliases
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
@@ -285,6 +303,18 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
 
   const parts: string[] = [];
 
+  // Места по этому названию нет, а заметки или алерты с ним есть (issue
+  // #2063): без этой строки ответ из одной этнографии читался как полный —
+  // турист не видел, что статуса, KVERT и опасностей в нём нет вовсе. «Не
+  // знаю» говорится словами (§4.0), а не подменяется тем, что нашлось.
+  if (placesRes.rows.length === 0) {
+    parts.push(
+      `Места «${placeName}» в справочнике не нашлось — статуса, кодов KVERT и КФ ЕГС ` +
+      `и опасностей по этому названию нет. Ниже только то, где название упомянуто; ` +
+      `уточни точное название места, прежде чем говорить о его безопасности.`,
+    );
+  }
+
   // Дедуп алертов между записями: зонные/общерегиональные алерты приходят в
   // active_alerts КАЖДОГО совпавшего места (safety-ingest, зона без координат),
   // и один и тот же список печатался трижды подряд, раздувая контекст втрое
@@ -316,7 +346,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       parts.push(`Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС.`);
     }
 
-    if (gradeNameMatch(placeName, p.name) === 'low') {
+    if (gradePlaceMatch(placeName, p.name, p.aliases) === 'low') {
       // Слабое совпадение по названию (в т.ч. из-за русской морфологии —
       // "Авачинский" vs "Авачинская сопка" рвёт префиксное сравнение) — не
       // факт что это то же место, которое спросил пользователь. Высоту,
