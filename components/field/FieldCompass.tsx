@@ -111,11 +111,16 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
 
   return (
     <div className="relative mx-auto flex flex-col items-center" style={{ width: badge ? size + 8 : size }}>
-    <div className="relative" style={{ width: size, height: size }}>
+    {/* Стеклянный корпус (решение владельца 26.09: «сделай всё-таки стекло
+        прозрачное, я решил изменить правила»): прибор поверх карты — стекло,
+        карта просвечивает. Размытие даёт круглая подложка fx-glass-dense,
+        SVG рисует поверх полупрозрачные кольца. Без поддержки размытия или
+        при prefers-reduced-transparency подложка сплошная (globals.css). */}
+    <div className="relative fx-glass-dense rounded-full" style={{ width: size, height: size, border: 'none' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
-        {/* Корпус прибора: непрозрачный, с фаской по краю */}
-        <circle cx={c} cy={c} r={rOuter} fill="#12181f" stroke="rgba(255,255,255,0.14)" strokeWidth={2 * k} />
-        <circle cx={c} cy={c} r={rOuter - 10 * k} fill="#0c1116" stroke="rgba(255,255,255,0.07)" strokeWidth={1 * k} />
+        {/* Корпус прибора: полупрозрачный, с фаской по краю */}
+        <circle cx={c} cy={c} r={rOuter} fill="rgba(18,24,31,0.35)" stroke="rgba(255,255,255,0.18)" strokeWidth={2 * k} />
+        <circle cx={c} cy={c} r={rOuter - 10 * k} fill="rgba(12,17,22,0.25)" stroke="rgba(255,255,255,0.08)" strokeWidth={1 * k} />
 
         {/* Шкала — вращается только с подтверждённым азимутом */}
         <g transform={`rotate(${ringRotation} ${c} ${c})`}
@@ -189,12 +194,12 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
         // короткая родословная курса строкой под ним. Прежняя плашка была
         // шириной в полприбора и в три строки («На точку:», число, «азимут —
         // магнитный датчик»). Смысл тот же: полная формулировка — в title.
-        // Непрозрачная (§2: критичные приборы не блюрятся).
-        <div className="mt-1 flex flex-col items-center rounded-lg px-2.5 py-1"
+        // Стекло (решение владельца 26.09 — приборы поверх карты стеклом).
+        <div className="mt-1 flex flex-col items-center rounded-lg px-2.5 py-1 fx-glass-dense"
           title={trusted
             ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
             : 'стрелка скрыта: азимут не подтверждён'}
-          style={{ background: 'rgba(10,14,18,0.92)', border: '1px solid rgba(255,255,255,0.12)' }}>
+          >
           <span className="font-bold tabular-nums leading-none"
             style={{ color: trusted ? 'var(--success)' : 'var(--text-muted)', fontSize: 20 }}>
             {formatBearing(targetBearing)}
@@ -212,10 +217,10 @@ export function FieldCompass({ heading, state, targetBearing, size = 300, headin
           {/* Плашка под числом. Раньше подписи лежали прямо на засечках и на
               стрелке — на 110 пикселях это каша, а число азимута и есть
               главный ответ прибора, когда стрелки нет вовсе (правило 21.08).
-              Непрозрачная, не стеклянная: §2 — критичные приборы не блюрятся. */}
-          <div className="flex flex-col items-center rounded-lg"
+              Стекло — решение владельца 26.09 (приборы поверх карты). */}
+          <div className="flex flex-col items-center rounded-lg fx-glass-dense"
             style={{
-              background: 'rgba(10,14,18,0.88)',
+              border: 'none',
               padding: `${Math.max(2, 4 * k)}px ${Math.max(6, 10 * k)}px`,
             }}>
             <span style={{

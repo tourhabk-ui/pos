@@ -4039,12 +4039,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         if (!unsaved && !mapGap && !warn) return null;
         const downloading = tileDl !== null && tileDl.total > 0;
         return (
-          // Тоньше, но по-прежнему НЕПРОЗРАЧНАЯ (§2: предупреждения не на
-          // стекле) — владелец 26.09, шаг 1 «как у основных навигаторов».
-          <div className="mx-3 mt-1 rounded-xl px-3 py-1.5 flex flex-col gap-1 text-[12px] leading-tight"
+          // Стекло (решение владельца 26.09: «сделай всё-таки стекло
+          // прозрачное, я решил изменить правила»). data-theme="dark" —
+          // текст и кнопка берут цвета тёмной темы: стекло тёмное в обеих.
+          // Кромка цветом предупреждения — предупреждение узнаётся по ней.
+          <div data-theme="dark" className="fx-glass-dense mx-3 mt-1 rounded-xl px-3 py-1.5 flex flex-col gap-1 text-[12px] leading-tight"
             style={{
-              background: 'var(--bg-card)',
-              border: '1px solid color-mix(in srgb, var(--warning) 45%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--warning) 55%, transparent)',
               color: 'var(--warning)',
             }}>
             {unsaved && (
@@ -4170,7 +4171,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           несли каждая свою рамку. Непрозрачность законна: здесь главная
           цифра навигации и действия поля (§2: «критичные приборы и
           действия — всегда непрозрачные»). */}
-      <div className={`fixed inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl ${sheetOpen ? 'max-h-[60vh]' : 'max-h-[32vh]'}`}
+      {/* Лист — стекло (решение владельца 26.09, «как у основных
+          навигаторов»: карта просвечивает под приборами). data-theme="dark"
+          — всё внутри берёт цвета тёмной темы, стекло тёмное в обеих темах.
+          SOS внутри остаётся непрозрачным: у EmergencyAction своя сплошная
+          заливка --danger. */}
+      <div data-theme="dark" className={`fx-glass-dense fixed inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl ${sheetOpen ? 'max-h-[60vh]' : 'max-h-[32vh]'}`}
         style={{
           // Потолок по низу приборного ряда (см. instrumentBottom): класс
           // выше задаёт прежний предел, а замер не пускает лист выше ряда.
@@ -4179,7 +4185,6 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           ...(instrumentBottom !== null && !showMap
             ? { maxHeight: `min(${sheetOpen ? 60 : 32}vh, max(200px, calc(100dvh - ${Math.round(instrumentBottom) + 8}px)))` }
             : {}),
-          background: 'var(--bg-card)',
           borderTop: '1px solid var(--border)',
           boxShadow: '0 -8px 24px rgba(0,0,0,0.35)',
           paddingBottom: 'env(safe-area-inset-bottom)',

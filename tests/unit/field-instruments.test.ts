@@ -68,8 +68,11 @@ describe('компас — шкала, а не кружок', () => {
     expect(COMPASS).toMatch(/На точку:/);
   });
 
-  it('прибор непрозрачный — стекла на приборах нет', () => {
-    expect(COMPASS).not.toMatch(/backdrop-filter|backdrop-blur|fx-glass/);
+  // Решение владельца 26.09: «сделай всё-таки стекло прозрачное, я решил
+  // изменить правила» — приборы поверх карты стеклом, кроме SOS.
+  it('прибор — стекло поверх карты (решение 26.09), с запасом без размытия', () => {
+    expect(COMPASS).toMatch(/className="relative fx-glass-dense rounded-full"/);
+    expect(COMPASS).not.toMatch(/fill="#12181f"/);
   });
 });
 

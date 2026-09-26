@@ -31,8 +31,8 @@ describe('верхняя плашка поля — одна строка', () =>
     expect(SCREEN).not.toContain("{statusOpen && fieldBaseMap.kind === 'vedar' && vedarDiag && (");
   });
 
-  it('предупреждение — тоньше, но непрозрачное', () => {
-    expect(SCREEN).toMatch(/mx-3 mt-1 rounded-xl px-3 py-1\.5 flex flex-col gap-1 text-\[12px\] leading-tight"\s*style=\{\{\s*background: 'var\(--bg-card\)'/);
+  it('предупреждение — тоньше; стекло с кромкой цвета предупреждения (решение 26.09)', () => {
+    expect(SCREEN).toMatch(/fx-glass-dense mx-3 mt-1 rounded-xl px-3 py-1\.5 flex flex-col gap-1 text-\[12px\] leading-tight/);
   });
 });
 
@@ -67,5 +67,17 @@ describe('с экрана «На маршруте» есть выход домо
   it('в полосе вкладок — ссылка на главную, 44 px', () => {
     expect(SCREEN).toMatch(/\{tab === 'trail' && \(\s*<Link href="\/" aria-label="На главную"/);
     expect(SCREEN).toMatch(/style=\{\{ width: 44, height: 44, color: 'var\(--text-secondary\)' \}\}/);
+  });
+});
+
+/**
+ * Решение владельца 26.09: «сделай всё-таки стекло прозрачное, я решил
+ * изменить правила» — ответ на уточнение: всё, кроме SOS. SOS и окна
+ * подтверждения остаются непрозрачными.
+ */
+describe('SOS остаётся непрозрачным', () => {
+  it('у кнопки SOS нет стекла', () => {
+    const sos = readFileSync(join(process.cwd(), 'components/shared/EmergencyAction.tsx'), 'utf8');
+    expect(sos).not.toMatch(/fx-glass|backdrop-blur|backdrop-filter/);
   });
 });

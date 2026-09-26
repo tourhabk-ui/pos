@@ -78,12 +78,13 @@ describe('масштаб и действия не вылезают за свои
 });
 
 describe('макет владельца 24.09 («делай по макету»)', () => {
-  it('предупреждения — непрозрачной плашкой, по строке, с кнопкой «Сохранить»', () => {
+  it('предупреждения — плашкой стекла с кромкой цвета предупреждения, по строке, с кнопкой «Сохранить»', () => {
     expect(CLIENT).toMatch(/Карта не сохранена — офлайн не откроется/);
     const at = CLIENT.indexOf('Предупреждения — отдельной НЕПРОЗРАЧНОЙ плашкой');
-    const block = CLIENT.slice(at, at + 3000);
-    expect(block).toMatch(/background: 'var\(--bg-card\)'/);
-    expect(block).not.toMatch(/fx-glass|backdrop/);
+    const block = CLIENT.slice(at, at + 3600);
+    // Решение владельца 26.09: предупреждения поверх карты — стекло.
+    expect(block).toMatch(/data-theme="dark" className="fx-glass-dense mx-3/);
+    expect(block).toMatch(/border: '1px solid color-mix\(in srgb, var\(--warning\) 55%, transparent\)'/);
     expect(block).toMatch(/void saveMap\(id\)/);
     expect(block.match(/truncate/g)?.length).toBeGreaterThanOrEqual(2);
   });

@@ -63,9 +63,10 @@ describe('нижний лист «На маршруте» свёрнут по у
 });
 
 describe('форма листа (02.09 08:18)', () => {
-  it('лист — непрозрачная поверхность из трёх частей: ручка, тело с прокруткой, панель', () => {
+  it('лист — стекло (решение 26.09) из трёх частей: ручка, тело с прокруткой, панель', () => {
     expect(sheetAt).toBeGreaterThan(0);
-    expect(SHEET).toMatch(/background: 'var\(--bg-card\)',\s*borderTop: '1px solid var\(--border\)'/);
+    expect(SRC).toMatch(/data-theme="dark" className=\{`fx-glass-dense fixed inset-x-0 bottom-0 z-10/);
+    expect(SHEET).toMatch(/borderTop: '1px solid var\(--border\)'/);
     expect(SHEET).toContain('paddingBottom: \'env(safe-area-inset-bottom)\'');
     expect(SHEET).toContain('className="flex-1 min-h-0 overflow-y-auto overscroll-contain"');
     // Прокрутка — только у тела, не у всего листа.
