@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { generatePlaceCardPDF } from '@/lib/pdf/place-card-generator';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,7 @@ export async function GET(
          sp.altitude_m,
          sp.difficulty_level,
          sp.hazard_types,
+         sp.profile_source,
          sp.required_gear,
          sp.open_from_date,
          sp.open_to_date,
@@ -56,6 +58,17 @@ export async function GET(
 
     const r = result.rows[0];
 
+    const honestPdf = honestSafetyFields(
+      {
+        hazardTypes: Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [],
+        capacityPerDay: null,
+        optimalGroupSize: null,
+        difficultyLevel: r.difficulty_level != null ? Number(r.difficulty_level) : null,
+        terrainType: null,
+      },
+      asProfileSource(r.profile_source),
+    );
+
     const pdfBuffer = await generatePlaceCardPDF({
       id:                     r.id as string,
       name:                   r.name as string,
@@ -64,8 +77,11 @@ export async function GET(
       lng:                    Number(r.lng),
       zone:                   r.zone as string | null,
       altitudeM:              r.altitude_m != null ? Number(r.altitude_m) : null,
-      difficultyLevel:        r.difficulty_level as string | null,
-      hazardTypes:            r.hazard_types as string[] | null,
+      // PDF человек берёт в поле, где проверить утверждение нечем: опасности и
+      // сложность, выведенные шаблоном 070 из location_type, в него не попадают
+      // (lib/safety/profile-source.ts, миграция 1032).
+      difficultyLevel:        honestPdf.difficultyLevel != null ? String(honestPdf.difficultyLevel) : null,
+      hazardTypes:            honestPdf.hazardTypes,
       requiredGear:           r.required_gear as string[] | null,
       openFromDate:           r.open_from_date as string | null,
       openToDate:             r.open_to_date as string | null,

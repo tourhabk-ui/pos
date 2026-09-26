@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle, XCircle, AlertOctagon, Users } from 'lucide-react';
 import type { PlaceRealtime } from './types';
+import { crowdsOnScale } from '@/lib/safety/profile-source';
 
 interface Props {
   realtime: PlaceRealtime;
@@ -91,7 +92,11 @@ export default function PlaceRealtimeStatus({ realtime }: Props) {
   // сообщили» (§4.0), а не «всё в порядке».
   const reason = realtime.alertMessage?.trim() || cfg.calm;
 
-  const crowds = realtime.currentCrowds;
+  // Шкала одна и читается одним правилом: ноль и всё вне 1-5 — «не измеряли»,
+  // а не «свободно» (lib/safety/profile-source.ts). До 26.09 у ВСЕХ мест здесь
+  // стоял дефолтный ноль, и карточка показывала зелёное «Свободно» рядом со
+  // временем последней проверки тревог — выдумка выглядела измерением.
+  const crowds = crowdsOnScale(realtime.currentCrowds);
   const crowdsLabel =
     crowds == null ? null :
     crowds <= 2    ? 'Свободно' :

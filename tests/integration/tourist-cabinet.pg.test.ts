@@ -27,6 +27,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -236,6 +237,63 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
          AND p.proname IN ('update_partner_rating', 'update_tour_rating')`,
     );
     expect(left.rows.map((r) => r.tgname)).toEqual([]);
+  });
+
+  it('миграция 1032 узнаёт шаблон 070 и не трогает то, чего не доказала', async () => {
+    // Обход 26.09: опасности, лимит и сложность у мест выведены миграцией 070
+    // из location_type, а карточка печатала их как факты. Прятать можно только
+    // ДОКАЗАННУЮ выдумку, поэтому 1032 сверяет отпечаток по пяти полям сразу.
+    //
+    // Тест исполняет СОБСТВЕННЫЙ запрос миграции, а не его пересказ: правило,
+    // написанное дважды, — это два правила, и они расходятся (§12).
+    const sql = readFileSync(
+      join(process.cwd(), 'migrations/1032_safety_profile_source.sql'),
+      'utf-8',
+    );
+    const start = sql.indexOf('WITH k AS (');
+    const end = sql.indexOf('AND lsp.profile_source IS NULL;', start);
+    expect(start, 'в миграции 1032 не найден запрос разметки').toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const classify = sql.slice(start, end + 'AND lsp.profile_source IS NULL;'.length);
+
+    const templ = 'a1a1a1a1-0000-4000-8000-000000000001';
+    const hand = 'a1a1a1a1-0000-4000-8000-000000000002';
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, is_visible)
+       VALUES ('place-template-probe', 'Вулкан шаблонный', 53.2, 158.3, $1, 'volcano', TRUE),
+              ('place-hand-probe',     'Озеро с записью',  53.3, 158.4, $2, 'lake',    TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [templ, hand],
+    );
+    // Ровно то, что писал шаблон 070 для вулкана.
+    await pool.query(
+      `INSERT INTO location_safety_profile
+         (agent_route_id, capacity_per_day, optimal_group_size, difficulty_level, terrain_type, hazard_types)
+       VALUES ($1, 30, 6, 4, 'mountain', ARRAY['avalanche','rockfall','thermal','altitude']::TEXT[])`,
+      [templ],
+    );
+    // Тронуто человеком: одно поле отличается от шаблона для типа lake.
+    await pool.query(
+      `INSERT INTO location_safety_profile
+         (agent_route_id, capacity_per_day, optimal_group_size, difficulty_level, terrain_type, hazard_types)
+       VALUES ($1, 12, 8, 2, 'forest', ARRAY['bears']::TEXT[])`,
+      [hand],
+    );
+    await pool.query(
+      `UPDATE location_safety_profile SET profile_source = NULL WHERE agent_route_id IN ($1, $2)`,
+      [templ, hand],
+    );
+
+    await pool.query(classify);
+
+    const got = await pool.query<{ agent_route_id: string; profile_source: string | null }>(
+      `SELECT agent_route_id::text AS agent_route_id, profile_source
+         FROM location_safety_profile WHERE agent_route_id IN ($1, $2)`,
+      [templ, hand],
+    );
+    const bySource = new Map(got.rows.map((r) => [r.agent_route_id, r.profile_source]));
+    expect(bySource.get(templ)).toBe('type_template');
+    expect(bySource.get(hand)).toBe('unknown');
   });
 
   it('каталог инструментов: запрос категорий выполняется (#1773)', async () => {

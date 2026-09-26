@@ -1,5 +1,13 @@
 import type { DescriptionSource } from '@/lib/text/description-source';
+import type { SafetyProfileSource } from '@/lib/safety/profile-source';
 export interface PlaceSafety {
+  /**
+   * Откуда взялся профиль: `type_template` — выведено из location_type
+   * миграцией 070/0645 и не измерено (такие значения API не отдаёт вовсе),
+   * `manual` — записал человек, `unknown`/`null` — не установлено.
+   * Правило показа — lib/safety/profile-source.ts.
+   */
+  source: SafetyProfileSource | null;
   difficultyLevel: number | null;
   altitudeM: number | null;
   altitudeDiffM: number | null;
