@@ -76,7 +76,7 @@ describe('форма листа (02.09 08:18)', () => {
     const footerAt = SHEET.lastIndexOf('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError ?? saveMapError} />');
     expect(footerAt).toBeGreaterThan(0);
     const tail = SHEET.slice(SHEET.indexOf('{/* Конец тела листа. */}'));
-    expect(tail).toContain('shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full');
+    expect(tail).toContain("shrink-0 px-4 max-w-sm mx-auto w-full ${sheetOpen ? 'pt-2 pb-2' : 'pt-1.5 pb-1.5'}");
     expect(tail).toContain('<FieldActionBar actions={fieldActions} compact={!sheetOpen} error={fieldBarError ?? saveMapError} />');
     // Внутри тела при маршруте панели нет: только в ветке без маршрута
     // (экран выбора цели) и в прибитом низу.
@@ -91,15 +91,19 @@ describe('форма листа (02.09 08:18)', () => {
    * палец в перчатке) остаётся тем же размером в обоих видах — сторож
    * ловит именно это: экономия идёт за счёт текста, не за счёт цели.
    */
-  it('панель действий сжимается вместе со свёрнутым листом, кружок-кнопка не меняется', () => {
+  it('панель действий сжимается вместе со свёрнутым листом, цель под палец — не меньше TAP', () => {
     expect(SHEET).toContain('compact={!sheetOpen}');
     const BAR = readFileSync(join(process.cwd(), 'components/field/FieldActionBar.tsx'), 'utf-8');
     expect(BAR).toMatch(/compact\?: boolean;/);
-    expect(BAR).toMatch(/\{!compact && \(/);
-    expect(BAR).toContain('aria-label={compact ? a.label : undefined}');
-    // Кружок задан TAP БЕЗУСЛОВНО — ни одного тернарника от compact рядом
-    // с его width/height: сжатие листа не имеет права тронуть размер цели.
+    // Владелец 26.09: «место, трек, наблюдение меньше, чтоб не закрывало
+    // свёрнутый километраж». В свёрнутом листе иконка и слово — в одну
+    // строку внутри плитки высотой ровно TAP; подписи под плиткой нет.
+    // Цель под перчатку не уменьшается ни в каком виде: развёрнутая —
+    // TAP+8, свёрнутая — TAP; экономия за счёт раскладки, а не пальца.
+    expect(BAR).toMatch(/if \(compact\) \{[\s\S]*?height: TAP \}/);
+    expect(BAR).toMatch(/aria-label=\{a\.label\}/);
     expect(BAR).toContain('width: TAP + 8,\n                height: TAP + 8,');
+    expect(BAR).not.toMatch(/height: TAP - /);
   });
 
   it('геройская цифра — на поверхности листа, без своей рамки; не крупнее 64px', () => {

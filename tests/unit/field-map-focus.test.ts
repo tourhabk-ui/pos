@@ -29,11 +29,22 @@ const screen = readFileSync(join(ROOT, 'app/planning/_PlanningClient.tsx'), 'utf
 const button = readFileSync(join(ROOT, 'components/field/PlacesLayerButton.tsx'), 'utf-8');
 
 describe('карта поля: слой всех мест не включён сам собой', () => {
-  it('placesUrl уходит в карту через тумблер, а не напрямую из пакета', () => {
-    // Прямая передача — ровно тот код, что был до 13.09: реестр района
-    // ложился поверх маршрута всегда и выключить его было нечем.
-    expect(screen).not.toMatch(/placesUrl:\s*fieldBaseMap\.source\.placesUrl\s*,/);
-    expect(screen).toMatch(/placesUrl:\s*showAllPlaces\s*\?\s*fieldBaseMap\.source\.placesUrl\s*:\s*null/);
+  it('тумблер управляет ВИДИМОСТЬЮ слоя, а не адресом (26.09)', () => {
+    // До 26.09 тумблер менял адрес слоя, а карта пересоздаётся только при
+    // смене темы и рельефа — смену адреса она не замечала, соседние районы и
+    // обзор рисовали места всегда. Владелец: «кнопка места не работает».
+    expect(screen).not.toMatch(/placesUrl:\s*showAllPlaces\s*\?/);
+    expect(screen).toMatch(/placesVisible=\{showAllPlaces\}/);
+  });
+
+  it('карта прячет места у ВСЕХ районов, в том числе у соседей, подложенных позже', () => {
+    const map = readFileSync(join(ROOT, 'components/shared/VedarMap.tsx'), 'utf-8');
+    expect(map).toMatch(/function applyPlacesVisibility\(map: MLMap, visible: boolean\)/);
+    expect(map).toMatch(/setLayoutProperty\(l\.id, 'visibility', visible \? 'visible' : 'none'\)/);
+    // Свой эффект — срабатывает сразу, не со следующим перемещением карты.
+    expect(map).toMatch(/applyPlacesVisibility\(map, placesVisible\);\n  \}, \[ready, placesVisible\]\);/);
+    // Соседу — действующее значение сразу при подкладке.
+    expect(map).toMatch(/applyPlacesVisibility\(map, placesVisibleRef\.current\)/);
   });
 
   it('по умолчанию слой ВЫКЛЮЧЕН', () => {

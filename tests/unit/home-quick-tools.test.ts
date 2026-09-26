@@ -61,13 +61,13 @@ describe('плитки на главной', () => {
     expect(HOME).not.toMatch(/className="planline"|<section className="live">/);
   });
 
-  it('планировщик ведёт в /planner, радар раскрывает сводку со ссылкой на /safety#radar', () => {
+  it('планировщик ведёт в /planner, радар — прямо на радар /safety#radar (владелец 26.09, вечер)', () => {
     expect(tools).toMatch(/href="\/planner" className="qt qt-plan"/);
-    // Владелец 26.09: радар интерактивный — вариант 1, раскрытие по тапу.
-    expect(tools).toMatch(/<button\s+type="button"\s+className="qt qt-radar"\s+aria-expanded=\{radarOpen\}\s+aria-controls="radar-panel"/);
-    expect(tools).toContain('onClick={() => setRadarOpen((o) => !o)}');
-    const panel = HOME.slice(HOME.indexOf('id="radar-panel"'), HOME.indexOf('</div>\n        )}', HOME.indexOf('id="radar-panel"')));
-    expect(panel).toContain('href="/safety#radar"');
+    // Утром 26.09 плитка раскрывала сводку (вариант 1), вечером владелец:
+    // «по кнопке радар должен открываться наш радар» и «сводка и
+    // безопасность дублируется?». Плитка — ссылка, раскрывашки и сводки нет.
+    expect(tools).toMatch(/<Link\s+href="\/safety#radar"\s+className="qt qt-radar"/);
+    expect(HOME).not.toMatch(/radarOpen|id="radar-panel"|radarAlertsLine|radarVolcanoLine/);
   });
 
   it('полная строка приборов — в aria-label радара, а не только сокращение', () => {
@@ -95,37 +95,11 @@ describe('радар зелёный, но цвет не выдаёт себя з
   });
 });
 
-describe('сводка радара: у каждой строки есть «не знаем» (владелец 26.09, вариант 1)', async () => {
-  const { radarAlertsLine, radarVolcanoLine, alertsCountLabel, HOME_ALERTS_LIMIT } = await import('@/lib/home/radar-summary');
-  const ACC = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
-
-  it('предупреждения: число, важность; упавшая сводка — «не знаем», а не «нет»', () => {
-    expect(radarAlertsLine({ activeCount: 2, maxSeverity: 2 })).toBe('2 предупреждения, есть высокой важности');
-    expect(radarAlertsLine({ activeCount: 1, maxSeverity: 1 })).toBe('1 предупреждение, средней важности');
-    expect(radarAlertsLine({ activeCount: 0, maxSeverity: 0 })).toBe('действующих нет');
-    expect(radarAlertsLine({ activeCount: 0, maxSeverity: 0, degraded: true })).toBe('сводка недоступна — не знаем');
-  });
-
-  it('потолок выборки — «и больше», а не точный счёт', () => {
+describe('счёт предупреждений на главной', async () => {
+  const { alertsCountLabel, HOME_ALERTS_LIMIT } = await import('@/lib/home/radar-summary');
+  it('на потолке выборки — «N и больше», а не ровно N', () => {
     expect(alertsCountLabel(HOME_ALERTS_LIMIT)).toBe(`${HOME_ALERTS_LIMIT} и больше`);
-    expect(alertsCountLabel(3)).toBe('3');
-    expect(radarAlertsLine({ activeCount: HOME_ALERTS_LIMIT, maxSeverity: 0 })).toContain('и больше');
-    expect(DATA).toContain('LIMIT ${HOME_ALERTS_LIMIT}');
-  });
-
-  it('вулканы: коды KVERT; пусто — «нет повышенных»; упало — «не знаем»', () => {
-    expect(radarVolcanoLine([{ name: 'Шивелуч', acc: 'orange' }], false, ACC)).toBe('Шивелуч — оранжевый');
-    expect(radarVolcanoLine([], false, ACC)).toBe('повышенных кодов KVERT нет');
-    expect(radarVolcanoLine([], true, ACC)).toBe('не знаем — сводка недоступна');
-  });
-
-  it('сводка собрана из тех же приборов, что плитка, — своего запроса нет', () => {
-    const panel = HOME.slice(HOME.indexOf('id="radar-panel"'), HOME.indexOf('</div>\n        )}', HOME.indexOf('id="radar-panel"')));
-    expect(panel).toContain('{fresh.label}');
-    expect(panel).toContain('{coverage.label}');
-    expect(panel).toContain('radarAlertsLine(safety)');
-    expect(panel).toContain('radarVolcanoLine(safety.volcanoes, safety.degraded, ACC_LABEL)');
-    expect(HOME).not.toMatch(/fetch\([^)]*radar/);
+    expect(alertsCountLabel(2)).toBe('2');
   });
 });
 

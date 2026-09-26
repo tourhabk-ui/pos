@@ -22,9 +22,13 @@ export {
 import {
   createPlannerCache, fetchRealToursForZone, fetchAvailabilityForTour,
   fetchZoneCapacity, fetchContingencyAlternatives, fetchReviewSignals,
-  fetchActivitiesBookableInMonth,
+  fetchActivitiesBookableInMonth, fetchSelfSafety,
   type PlannerCache, type RealTour,
 } from '@/lib/planner/data';
+import {
+  activitySelfBlocker, routeSelfBlocker, fitRestDays, restSpacing, SELF_SAFETY_UNKNOWN,
+  type TravelStyle, type PreferenceNote, type TripPreferences,
+} from '@/lib/planner/travel-style';
 import {
   fetchForecastDays, tripForecastWindow, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
@@ -53,6 +57,14 @@ export interface TripProfile {
   riskMode?: 'safe_only' | 'adventure' | 'available'; // default: safe_only
   healthNotes?: string;         // free text: injuries, allergies, conditions
   mobilityLevel?: 'full' | 'limited' | 'wheelchair';
+  /**
+   * Стиль поездки (владелец 26.09). Нет или `mixed` — прежнее поведение
+   * движка без единого отличия; правила `self`/`operator` — в
+   * lib/planner/travel-style.
+   */
+  travelStyle?: TravelStyle;
+  /** Сколько дней отдыха поставить; режется сроком поездки. */
+  restDays?: number;
 }
 
 export interface DayPlan {
@@ -154,6 +166,12 @@ export interface TripRecommendation {
    * что в октябре рыбалка не сезон, — два голоса об одном (§10.09).
    */
   catalogueOpen: string[] | null;
+  /**
+   * Что человек попросил стилем и днями отдыха и что из этого вышло.
+   * Есть только когда просьба была (стиль или дни отдыха переданы): без неё
+   * ответ движка прежний.
+   */
+  preferences?: TripPreferences;
 }
 
 // ─── Knowledge base ──────────────────────────────────────────────────────────
@@ -533,6 +551,15 @@ function budgetIndex(tier: BudgetTier): 0 | 1 | 2 {
 
 // ── Warnings collector ──────────────────────────────────────────────────────
 
+/**
+ * Предупреждения, выведенные из данных о здоровье (подвижность, заметки о
+ * здоровье). Сведения о здоровье — особая категория ПД; модели у нас
+ * зарубежные, значит в промпт они не уходят ни текстом, ни пересказом
+ * (решение владельца 26.09, §8). Человеку они показываются как прежде —
+ * метка живёт вне объекта и в ответ API не попадает.
+ */
+const HEALTH_DERIVED = new WeakSet<TripWarning>();
+
 function collectWarnings(
   profile: TripProfile,
   zones: ZoneRecommendation[],
@@ -698,16 +725,23 @@ function collectWarnings(
   }
 
   // Health / mobility warnings
+  //
+  // Выведены из данных о здоровье — и потому помечаются: в промпт модели
+  // (зарубежной, §8 / 152-ФЗ) они не уходят. См. HEALTH_DERIVED.
   if (profile.mobilityLevel === 'wheelchair') {
-    warnings.push({
+    const w: TripWarning = {
       type: 'safety', severity: 'critical',
       message: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру. Доступные варианты: термальные источники Паратунки, обзорные вертолётные экскурсии.',
-    });
+    };
+    HEALTH_DERIVED.add(w);
+    warnings.push(w);
   } else if (profile.mobilityLevel === 'limited') {
-    warnings.push({
+    const w: TripWarning = {
       type: 'fitness', severity: 'important',
       message: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.',
-    });
+    };
+    HEALTH_DERIVED.add(w);
+    warnings.push(w);
   }
 
   // Large group advisory
@@ -815,7 +849,31 @@ interface DayPlanResult {
   tooLong: string[];
   /** Места, не предложенные из-за природоохранного лимита на даты поездки. */
   overLimit: string[];
+  /** Как исполнены стиль и дни отдыха; пусто, если просьбы не было. */
+  preferenceNotes: PreferenceNote[];
+  /** Маршруты, не поставленные днём «сам», — с причиной (любой стиль). */
+  selfSkipped: string[];
+  /** Проверка безопасности мест не выполнилась хотя бы раз. */
+  selfSafetyUnchecked: boolean;
 }
+
+/** День отдыха по просьбе человека (не автоматический после тяжёлого дня). */
+function requestedRestDay(day: number, zone: ZoneId): DayPlan {
+  return {
+    day, type: 'rest', zone,
+    title: 'День отдыха',
+    description: 'Вы просили день без активностей: выспаться, горячие источники, прогулка рядом с жильём.',
+    activityType: 'hot_spring',
+    priceFrom: 0, priceTo: 5000,
+    coords: zone === 'avachinsky' ? PKC_COORDS : ZONE_COORDS[zone],
+    defaultTransport: 'walking', allowedTransports: ['walking'],
+    difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
+  };
+}
+
+/** Метка на дне, который в стиле «С оператором» остался без тура. */
+const NO_OPERATOR_TOUR_NOTE =
+  'Тура оператора на этот день в ваши даты не нашли — поставили без тура. Уточните у оператора или спросите Кузьмича.';
 
 async function generateDayPlans(
   profile: TripProfile,
@@ -826,7 +884,7 @@ async function generateDayPlans(
   catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [] };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -857,11 +915,32 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [] };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
 
   // ── Active days budget ──
   const departureDays = 1;
   const activeBudget = tripDays - 1 - departureDays; // minus arrival, minus departure
+
+  // ── Стиль поездки и дни отдыха (владелец 26.09, lib/planner/travel-style) ──
+  //
+  // `mixed` и отсутствие стиля — прежний движок без единого отличия: все
+  // ветки ниже включаются только при `style !== 'mixed'` или `restPlan > 0`.
+  const style: TravelStyle = profile.travelStyle ?? 'mixed';
+  const restRequested = Math.max(0, Math.floor(profile.restDays ?? 0));
+  const restPlan = fitRestDays(restRequested, activeBudget);
+  /** Бюджет активных дней за вычетом отдыха по просьбе. */
+  const activityBudget = activeBudget - restPlan;
+  const restEvery = restSpacing(activityBudget, restPlan);
+  let restLeft = restPlan;
+  let activeSinceRest = 0;
+  /** Активности, которые в стиле «Сам» не ставятся, — с причиной. */
+  const selfBlockedActivities = new Map<string, string>();
+  /** Маршруты и места, не поставленные самостоятельным днём, — с причиной. */
+  const selfSkipped = new Set<string>();
+  /** Проверка безопасности мест не выполнилась хотя бы раз. */
+  let selfSafetyUnchecked = false;
+  /** Туры, у которых в даты поездки нет свободных мест (стиль «С оператором»). */
+  const noSlotTours = new Set<string>();
 
   // Determine zone allocation
   const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number }> = [];
@@ -873,18 +952,18 @@ async function generateDayPlans(
       return c?.bestZones.includes(z.zone) && inSeason(i, month, catalogueOpen);
     });
     if (zoneInterests.length === 0) continue;
-    const rawDays = Math.max(1, Math.round((z.score / totalScore) * activeBudget));
+    const rawDays = Math.max(1, Math.round((z.score / totalScore) * activityBudget));
     zoneBlocks.push({ zone: z.zone, interests: zoneInterests, activeDays: rawDays });
   }
 
   // Normalize to active budget
   let totalAllocated = zoneBlocks.reduce((s, b) => s + b.activeDays, 0);
-  while (totalAllocated > activeBudget && zoneBlocks.length > 1) {
+  while (totalAllocated > activityBudget && zoneBlocks.length > 1) {
     const last = zoneBlocks[zoneBlocks.length - 1];
     if (last.activeDays > 1) { last.activeDays--; totalAllocated--; }
     else { zoneBlocks.pop(); totalAllocated--; }
   }
-  while (totalAllocated < activeBudget && zoneBlocks[0]) {
+  while (totalAllocated < activityBudget && zoneBlocks[0]) {
     zoneBlocks[0].activeDays++;
     totalAllocated++;
   }
@@ -909,6 +988,19 @@ async function generateDayPlans(
   for (let bi = 0; bi < zoneBlocks.length; bi++) {
     const block = zoneBlocks[bi];
 
+    // «Сам»: активности, куда без гида нельзя по нашим же данным, из блока
+    // убираются — с причиной, которую увидит человек. Блок, где не осталось
+    // ничего, не собирается вовсе (и переезд в него не нужен).
+    if (style === 'self') {
+      const allowed = block.interests.filter((i) => {
+        const reason = activitySelfBlocker(i);
+        if (reason) selfBlockedActivities.set(i, reason);
+        return !reason;
+      });
+      if (allowed.length === 0) continue;
+      block.interests = allowed;
+    }
+
     // Travel day if zone changes
     if (block.zone !== prevZone && dayNum <= tripDays - departureDays) {
       const edge = ZONE_GRAPH[prevZone]?.[block.zone];
@@ -931,13 +1023,50 @@ async function generateDayPlans(
 
     // Fetch real operator tours (sorted by rating) + DB routes as fallback
     const primaryInterest = block.interests[0];
-    const toursOrNull = await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
-    const realTours = toursOrNull ?? [];
+    // «Сам» туров не берёт вовсе: ни одного дня с оператором.
+    const toursOrNull = style === 'self'
+      ? []
+      : await fetchRealToursForZone(block.zone, primaryInterest, block.activeDays + 2, cache);
+    let realTours = toursOrNull ?? [];
 
+    // «С оператором»: тур без свободных мест на даты поездки не ставится —
+    // честная занятость (lib/planner/data), а не витрина. Туры, где мест
+    // хватает на всю группу, идут первыми.
+    if (style === 'operator' && realTours.length > 0 && profile.arrivalDate && profile.departureDate) {
+      const fits: RealTour[] = [];
+      const tight: RealTour[] = [];
+      for (const t of realTours) {
+        const slots = await fetchAvailabilityForTour(t.tourId, profile.arrivalDate, profile.departureDate, cache);
+        if (slots.length === 0) { noSlotTours.add(t.title); continue; }
+        (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
+      }
+      realTours = [...fits, ...tight];
+    }
+
+    // Кандидатов в самостоятельный день берём с запасом: часть отсеет
+    // проверка безопасности ниже.
+    const routeSpare = 6;
     const routesOrNull = realTours.length >= block.activeDays
       ? []
-      : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + 2);
+      : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + routeSpare);
     let dbRoutes = routesOrNull ?? [];
+
+    // Самостоятельный день ставится только там, где наши данные это
+    // позволяют (lib/planner/travel-style) — в любом стиле. До 26.09
+    // «Вперемешку» (и план без выбора: Кузьмич, MCP) ставил днём «сам»
+    // маршрут с обязательной регистрацией МЧС; решение владельца — та же
+    // проверка, что у «Сам». Туры операторов она не трогает.
+    if (dbRoutes.length > 0) {
+      const activityReason = activitySelfBlocker(primaryInterest);
+      const safety = activityReason ? new Map() : await fetchSelfSafety(dbRoutes.map((r) => r.id), cache);
+      if (safety === null) selfSafetyUnchecked = true;
+      dbRoutes = dbRoutes.filter((r) => {
+        const reason = activityReason
+          ?? (safety === null ? SELF_SAFETY_UNKNOWN : routeSelfBlocker(safety.get(r.id)));
+        if (reason) selfSkipped.add(`${r.title} — ${reason}`);
+        return !reason;
+      });
+    }
 
     // Распределение потока (владелец 25.09: «всех туристов нельзя в один
     // поток — 500 человек на одну локацию с природоохранными
@@ -1043,6 +1172,15 @@ async function generateDayPlans(
       const tourOver = realTour && tourLoads ? firstOverLimit(tourLoads.get(realTour.tourId) ?? [], group) : null;
       if (tourOver) {
         dayWarnings.unshift(`Природоохранный лимит в ваши даты: ${overLimitText(tourOver)}. Уточните у оператора другую дату.`);
+      }
+      // «С оператором», а тура на день нет — говорим на самом дне, а не
+      // подменяем молча самостоятельным выходом.
+      if (style === 'operator' && !realTour) dayWarnings.unshift(NO_OPERATOR_TOUR_NOTE);
+      // Общий день (ни тура, ни маршрута) по активности, куда без гида
+      // нельзя, — не приглашение идти самому: говорим это на самом дне.
+      if (style === 'mixed' && !realTour && !route) {
+        const guideOnly = activitySelfBlocker(interest);
+        if (guideOnly) dayWarnings.unshift(`Только с гидом: ${guideOnly}. Ищите тур оператора.`);
       }
 
       // Health compatibility check
@@ -1188,6 +1326,7 @@ async function generateDayPlans(
 
       used += span;
       d++;
+      activeSinceRest += span;
 
       // Insert rest day after hard activities (if budget allows)
       if (c.difficulty === 'hard' && used < block.activeDays && dayNum <= tripDays - departureDays - 1) {
@@ -1201,7 +1340,17 @@ async function generateDayPlans(
           defaultTransport: 'walking', allowedTransports: ['walking'],
           difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
         });
-        used += 1;
+        // Отдых после тяжёлого дня засчитывается в просьбу человека: он
+        // просил дни отдыха, а не отдых сверх необходимого восстановления.
+        if (restLeft > 0) { restLeft--; activeSinceRest = 0; }
+        else used += 1;
+      }
+
+      // Отдых по просьбе — ровно между активными днями, а не хвостом.
+      if (restLeft > 0 && activeSinceRest >= restEvery && dayNum <= tripDays - departureDays) {
+        days.push(requestedRestDay(dayNum++, block.zone));
+        restLeft--;
+        activeSinceRest = 0;
       }
     }
 
@@ -1241,6 +1390,13 @@ async function generateDayPlans(
     }
   }
 
+  // ── Отдых по просьбе, не вставший между активными днями ──
+  // (блоки кончились раньше, чем подошла его очередь). Сверх срока — нет.
+  while (restLeft > 0 && dayNum <= tripDays - departureDays) {
+    days.push(requestedRestDay(dayNum++, 'avachinsky'));
+    restLeft--;
+  }
+
   // ── Один свободный день, если бюджет остался ──
   //
   // Раньше здесь стоял `while`, добивавший остаток поездки копиями одной и
@@ -1256,7 +1412,8 @@ async function generateDayPlans(
       activityType: 'hot_spring', priceFrom: 0, priceTo: 5000,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
-      childFriendly: true, minChildAge: 0, dayWarnings: [],
+      childFriendly: true, minChildAge: 0,
+      dayWarnings: style === 'operator' ? ['Свободный день: тур оператора на него не ставили.'] : [],
       // Город пешком — самостоятельный день, тура за ним нет.
       activityMode: 'self',
     });
@@ -1284,7 +1441,119 @@ async function generateDayPlans(
     });
   }
 
-  return { days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit] };
+  const preferenceNotes = describePreferences({
+    style, restRequested, days, tripDays,
+    selfBlockedActivities, selfSkipped, selfSafetyUnchecked, noSlotTours,
+  });
+
+  return {
+    days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes,
+    selfSkipped: [...selfSkipped], selfSafetyUnchecked,
+  };
+}
+
+/** Короткий список: до трёх пунктов и «ещё N». */
+function listShort(items: string[]): string {
+  return items.slice(0, 3).join('; ') + (items.length > 3 ? ` и ещё ${items.length - 3}` : '');
+}
+
+/**
+ * Заметки «что попросили — что вышло». Просьба не выполнена — говорится
+ * словами и с причиной; молча выполненная наполовину просьба читалась бы как
+ * выполненная целиком (§4.0).
+ */
+function describePreferences(input: {
+  style: TravelStyle;
+  restRequested: number;
+  days: DayPlan[];
+  tripDays: number;
+  selfBlockedActivities: Map<string, string>;
+  selfSkipped: Set<string>;
+  selfSafetyUnchecked: boolean;
+  noSlotTours: Set<string>;
+}): PreferenceNote[] {
+  const notes: PreferenceNote[] = [];
+  const { style, days } = input;
+  const active = days.filter((d) => d.type === 'activity');
+
+  if (style === 'self') {
+    const blocked = [...input.selfBlockedActivities.values()];
+    const skipped = [...input.selfSkipped];
+    if (blocked.length > 0) {
+      notes.push({
+        topic: 'travel_style', status: 'partial',
+        message: `Самостоятельно не ставим: ${listShort(blocked)}. Эти дни — только с гидом: выберите «С оператором» или «Вперемешку».`,
+      });
+    }
+    if (input.selfSafetyUnchecked) {
+      notes.push({
+        topic: 'travel_style', status: 'partial',
+        message: 'Не удалось проверить безопасность мест — самостоятельные выходы по ним не ставили. Попробуйте собрать маршрут ещё раз.',
+      });
+    } else if (skipped.length > 0) {
+      notes.push({
+        topic: 'travel_style', status: 'partial',
+        message: `Не ставим без гида: ${listShort(skipped)}.`,
+      });
+    }
+    if (notes.length === 0 && active.length === 0) {
+      // Пустой план — не «исполнено»: исполнять было нечем.
+      notes.push({
+        topic: 'travel_style', status: 'not_honoured',
+        message: 'Самостоятельных дней под ваши интересы и даты не нашлось.',
+      });
+    } else if (notes.length === 0) {
+      notes.push({
+        topic: 'travel_style', status: 'honoured',
+        message: 'Все активные дни — самостоятельные: туры операторов не ставили.',
+      });
+    }
+  }
+
+  if (style === 'operator') {
+    const withTour = active.filter((d) => d.activityMode === 'operator').length;
+    const without = active.length - withTour;
+    if (input.noSlotTours.size > 0) {
+      notes.push({
+        topic: 'travel_style', status: 'partial',
+        message: `В ваши даты нет свободных мест: ${listShort([...input.noSlotTours])} — эти туры не ставили.`,
+      });
+    }
+    if (withTour === 0) {
+      notes.push({
+        topic: 'travel_style', status: 'not_honoured',
+        message: 'Туров операторов под ваши даты и интересы не нашли. Дни плана — без тура; сдвиньте даты или добавьте интересы.',
+      });
+    } else if (without > 0) {
+      notes.push({
+        topic: 'travel_style', status: 'partial',
+        message: `С оператором — ${withTour} ${pluralDays(withTour)} из ${active.length}. На остальные тура в ваши даты нет — это отмечено на самих днях.`,
+      });
+    } else {
+      notes.push({
+        topic: 'travel_style', status: 'honoured',
+        message: `Все активные дни — туры операторов со свободными местами на ваши даты.`,
+      });
+    }
+  }
+
+  if (input.restRequested > 0) {
+    const planned = days.filter((d) => d.type === 'rest').length;
+    if (planned >= input.restRequested) {
+      notes.push({
+        topic: 'rest_days', status: 'honoured',
+        message: `Дней отдыха в плане: ${planned}.`,
+      });
+    } else {
+      notes.push({
+        topic: 'rest_days', status: planned > 0 ? 'partial' : 'not_honoured',
+        message: `Отдыха поместилось ${planned} ${pluralDays(planned)} из ${input.restRequested}: в поездке ${input.tripDays} ${pluralDays(input.tripDays)}, `
+          + 'и место нужно прилёту, вылету и хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.',
+      });
+    }
+  }
+
+  return notes;
 }
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
@@ -1359,6 +1628,7 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
   }).join('\n');
 
   const warningsSummary = warnings
+    .filter(w => !HEALTH_DERIVED.has(w))
     .filter(w => w.severity === 'critical' || w.severity === 'important')
     .map(w => `- ${w.message}`)
     .join('\n');
@@ -1450,7 +1720,27 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked, spanUnknown, tooLong, overLimit } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+
+  // «Вперемешку» и план без выбора стиля (Кузьмич, MCP): что не поставлено
+  // самостоятельным днём и почему — предупреждением, которое доходит до
+  // всех поверхностей. У «Сам» и «С оператором» это говорят заметки
+  // пожеланий, второй раз не повторяем.
+  if ((profile.travelStyle ?? 'mixed') === 'mixed') {
+    if (selfSafetyUnchecked) {
+      warnings.push({
+        type: 'safety', severity: 'important',
+        message: 'Не удалось проверить безопасность мест — самостоятельные выходы по ним в план не ставили. Попробуйте собрать маршрут ещё раз.',
+      });
+    } else if (selfSkipped.length > 0) {
+      warnings.push({
+        type: 'safety', severity: 'important',
+        message: `Без гида не ставим: ${selfSkipped.slice(0, 3).join('; ')}`
+          + (selfSkipped.length > 3 ? ` и ещё ${selfSkipped.length - 3}` : '')
+          + '. Туда — только с оператором.',
+      });
+    }
+  }
 
   // Место не предложено из-за природоохранного лимита — говорим, какое и
   // чья норма. Молча подменить место другим значило бы спрятать причину.
@@ -1599,9 +1889,22 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     // fallback already set
   }
 
+  // Просьба была — ответ о ней обязателен, даже если заметок нет. Просьбы
+  // не было — ответ движка прежний, без нового поля.
+  const preferences: TripPreferences | undefined =
+    profile.travelStyle !== undefined || profile.restDays !== undefined
+      ? {
+        travelStyle: profile.travelStyle ?? 'mixed',
+        restDaysRequested: Math.max(0, Math.floor(profile.restDays ?? 0)),
+        restDaysPlanned: days.filter((d) => d.type === 'rest').length,
+        notes: preferenceNotes,
+      }
+      : undefined;
+
   return {
     zones, days, warnings, priceBreakdown, itinerary,
     catalogueOpen: catalogueOpen ? [...catalogueOpen] : null,
+    ...(preferences ? { preferences } : {}),
   };
 }
 

@@ -53,6 +53,13 @@ export interface Recommendation {
   warnings: TripWarning[];
   priceBreakdown: PriceBreakdown;
   itinerary: string;
+  /** Как исполнены стиль поездки и дни отдыха (движок, lib/planner/travel-style). */
+  preferences?: {
+    travelStyle: 'self' | 'operator' | 'mixed';
+    restDaysRequested: number;
+    restDaysPlanned: number;
+    notes: Array<{ topic: 'travel_style' | 'rest_days'; status: 'honoured' | 'partial' | 'not_honoured'; message: string }>;
+  };
 }
 
 export interface RoutePoint {

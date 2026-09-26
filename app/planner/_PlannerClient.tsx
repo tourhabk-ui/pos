@@ -21,8 +21,12 @@ import {
   ArrowLeftRight, Coffee, CloudOff,
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy, UserCheck, Compass,
+  ArrowLeft, Minus, CalendarDays, Accessibility, HeartPulse,
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
+import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, type TravelStyle } from '@/lib/planner/travel-style';
+import { PAGE_ACTION_BAR_VAR } from '@/components/shared/StickyLeadButton';
+import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE } from './planner-layout';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { funnelBeacon } from '@/lib/funnel/beacon';
@@ -183,6 +187,62 @@ function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
     minChildAge: 0,
     dayWarnings: [],
   };
+}
+
+// ─── Анкета по шагам ──────────────────────────────────────────────────────────
+
+type PlannerStep = 1 | 2 | 3 | 4;
+
+/** Порядок шагов — решение владельца 26.09; сторож tests/unit/planner-steps.test.ts. */
+const PLANNER_STEPS: ReadonlyArray<{ n: PlannerStep; title: string; lead: string }> = [
+  { n: 1, title: 'Когда', lead: 'Даты и время рейсов — от них считаются дни на Камчатке.' },
+  { n: 2, title: 'Кто едет', lead: 'Состав группы и то, что важно учесть в пути.' },
+  { n: 3, title: 'Как хотите ехать', lead: 'Сами, с оператором или вперемешку, и сколько дней отдыхать.' },
+  { n: 4, title: 'Что интересно', lead: 'Места и занятия — из них соберём дни.' },
+];
+
+/** Потолок заметки о здоровье — тот же, что проверяет /api/planner/recommend. */
+const HEALTH_NOTES_MAX = 300;
+
+/** «5 авг.» — дата сводки анкеты. */
+function shortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+
+/** «1 день / 2 дня / 5 дней». */
+function pluralDaysRu(n: number): string {
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 14) return 'дней';
+  const m10 = n % 10;
+  if (m10 === 1) return 'день';
+  if (m10 >= 2 && m10 <= 4) return 'дня';
+  return 'дней';
+}
+
+/** Сегментированный выбор: одна строка, крупные цели касания. */
+function Segmented<T extends string>({ label, value, onChange, options }: {
+  label: string; value: T; onChange: (v: T) => void; options: ReadonlyArray<{ value: T; label: string }>;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label}
+      className="grid gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-1"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button key={o.value} type="button" role="radio" aria-checked={active} onClick={() => onChange(o.value)}
+            className={`min-h-[44px] rounded-md px-2 text-sm font-medium leading-tight transition-colors duration-200 motion-reduce:transition-none ${
+              active
+                ? 'bg-[var(--accent)] text-[var(--on-accent)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+            }`}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -998,6 +1058,20 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [budgetTier, setBudgetTier] = useState<BudgetTier>('comfort');
   const [seasickness, setSeasickness] = useState(false);
   const [riskMode, setRiskMode] = useState<'safe_only' | 'adventure' | 'available'>('safe_only');
+  // Здоровье — только в /api/planner/recommend (наш движок). Не в чат, не в
+  // заявку, не в сохранённый маршрут, не в модель — сторож planner-health-stays-local.
+  const [healthNotes, setHealthNotes] = useState('');
+  const [mobilityLevel, setMobilityLevel] = useState<'full' | 'limited' | 'wheelchair'>('full');
+  const [travelStyle, setTravelStyle] = useState<TravelStyle>('mixed');
+  const [restDays, setRestDays] = useState(0);
+
+  // Анкета по шагам
+  const [step, setStep] = useState<PlannerStep>(1);
+  const [formOpen, setFormOpen] = useState(true);
+  const [stepError, setStepError] = useState('');
+  const [chatNote, setChatNote] = useState('');
+  const stepBarRef = useRef<HTMLDivElement>(null);
+  const planScrollRef = useRef<HTMLDivElement>(null);
 
   // Trip persistence
   const [tripId, setTripId]         = useState<string | null>(null);
@@ -1075,6 +1149,31 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     plannerStartedRef.current = true;
     funnelBeacon('planner_started');
   }, [places, activities, arrival, departure]);
+
+  // Нижняя панель шагов говорит, сколько места занимает: глобальная кнопка
+  // «Подобрать тур» поднимается над ней, а не ложится на «Дальше».
+  const stepBarShown = formOpen || !recommendation;
+  useEffect(() => {
+    const el = stepBarRef.current;
+    const root = document.documentElement;
+    if (!el) { root.style.removeProperty(PAGE_ACTION_BAR_VAR); return; }
+    const publish = () => root.style.setProperty(PAGE_ACTION_BAR_VAR, `${el.offsetHeight}px`);
+    publish();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publish) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', publish);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', publish);
+      root.style.removeProperty(PAGE_ACTION_BAR_VAR);
+    };
+  }, [stepBarShown, mobileTab]);
+
+  // Новый шаг и переход к результату начинаются сверху, а не с середины
+  // прежнего экрана.
+  useEffect(() => {
+    if (planScrollRef.current) planScrollRef.current.scrollTop = 0;
+  }, [step, formOpen]);
 
   // Editing day info for banner
   const editingDayInfo = useMemo(() => {
@@ -1462,8 +1561,23 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
     setSelectedRoute(null);
   }
 
-  async function getRecommendation() {
-    if (allInterests.length === 0) { setError('Выберите место или активность'); return; }
+  /**
+   * Сборка маршрута. `over` — значения, только что разобранные из фразы:
+   * состояние React к этому моменту ещё не обновилось, и без них сборка
+   * видела бы прежние интересы и даты (так и было до 26.09 — setTimeout на
+   * старом замыкании собирал пустой выбор).
+   */
+  async function getRecommendation(over: {
+    interests?: string[]; arrival?: string; departure?: string;
+    travelStyle?: TravelStyle; restDays?: number;
+  } = {}) {
+    const interests = over.interests ?? allInterests;
+    const arr = over.arrival ?? arrival;
+    const dep = over.departure ?? departure;
+    const span = calcDays(arr, dep);
+    const restCap = span != null && span > 0 ? Math.max(0, span - 3) : 0;
+    const rest = Math.min(over.restDays ?? restDays, restCap);
+    if (interests.length === 0) { setError('Выберите место или активность'); return; }
     setError('');
     setLoading(true);
     try {
@@ -1471,9 +1585,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          interests: allInterests,
-          arrivalDate: arrival || undefined,
-          departureDate: departure || undefined,
+          interests,
+          arrivalDate: arr || undefined,
+          departureDate: dep || undefined,
           flightArrivalTime: flightArrivalTime || undefined,
           flightDepartureTime: flightDepartureTime || undefined,
           adults,
@@ -1482,10 +1596,16 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           budgetTier,
           seasickness,
           riskMode,
+          healthNotes: healthNotes.trim() || undefined,
+          mobilityLevel,
+          travelStyle: over.travelStyle ?? travelStyle,
+          restDays: rest,
         }),
       });
       const data = await res.json();
       if (data.success) {
+        setFormOpen(false);
+        setStepError('');
         setRecommendation(data.data);
         setDays(data.data.days ?? []);
         setTransportByDay({});
@@ -1561,142 +1681,454 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         arrival?: string | null;
         departure?: string | null;
         auto_recommend?: boolean;
+        travel_style?: TravelStyle | null;
+        rest_days?: number | null;
+        error?: string;
       } = await res.json();
-      if (!data.success) return;
-      if (data.places && data.places.length > 0)     setPlaces(data.places);
-      if (data.activities && data.activities.length > 0) setActivities(data.activities);
+      if (!data.success) {
+        setChatNote(data.error ?? 'Не получилось разобрать описание — заполните шаги ниже.');
+        return;
+      }
+      const nextPlaces = data.places && data.places.length > 0 ? data.places : places;
+      const nextActivities = data.activities && data.activities.length > 0 ? data.activities : activities;
+      setPlaces(nextPlaces);
+      setActivities(nextActivities);
       if (data.arrival)   setArrival(data.arrival);
       if (data.departure) setDeparture(data.departure);
+      if (data.travel_style) setTravelStyle(data.travel_style);
+      if (typeof data.rest_days === 'number') setRestDays(data.rest_days);
       setChatInput('');
-      if (data.auto_recommend) setTimeout(getRecommendation, 0);
-    } catch { /* silent */ }
+      const nextArrival = data.arrival || arrival;
+      const nextDeparture = data.departure || departure;
+      const hasDates = Boolean(nextArrival && nextDeparture && nextDeparture > nextArrival);
+      if (data.auto_recommend && hasDates) {
+        setChatNote('');
+        void getRecommendation({
+          interests: [...new Set([...nextPlaces, ...nextActivities])],
+          arrival: nextArrival,
+          departure: nextDeparture,
+          travelStyle: data.travel_style ?? undefined,
+          restDays: typeof data.rest_days === 'number' ? data.rest_days : undefined,
+        });
+      } else if (!hasDates) {
+        // Даты не названы — их не выдумываем: остаёмся на шаге «Когда».
+        setChatNote('Поняли, что вам интересно. Осталось выбрать даты прилёта и отъезда.');
+        setStep(1);
+      } else {
+        // Разобрали, но собирать рано — показываем заполненный выбор.
+        setChatNote('');
+        setStep(4);
+      }
+    } catch {
+      setChatNote('Нет соединения — заполните шаги вручную.');
+    }
     finally { setChatLoading(false); }
   }
 
   // ── Plan panel content ─────────────────────────────────────────────────────
 
-  const planPanel = (
-    <div className="p-4 space-y-4">
-      {/* Header */}
-      <div>
-        <h1 className="font-playfair text-xl font-bold text-[var(--text-primary)]">
-          Маршрут по Камчатке
-        </h1>
-        <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-          Дни сам, дни с оператором и отдых — на всё время на Камчатке
-        </p>
+  // Заявка на подробное предложение — одна форма для результата и для
+  // «не знаю, что выбрать» на шаге 4 (раньше там кнопка открывала форму,
+  // которая рисовалась только под готовым маршрутом, то есть нигде).
+  const contactBlock = (
+    <>
+    {!showContact ? (
+      <button onClick={() => setShowContact(true)} className="w-full ds-btn ds-btn-primary py-2.5 font-semibold">
+        Запросить подробное предложение
+      </button>
+    ) : (
+      <div className="space-y-3 pt-1 border-t border-[var(--border)]">
+        <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Контакты</p>
+        <input type="text" value={contactName} onChange={e => setContactName(e.target.value)}
+          placeholder="Ваше имя" className="ds-input w-full text-sm" />
+        <input type="tel" value={contactPhone} onChange={e => setContactPhone(e.target.value)}
+          placeholder="+7 900 000-00-00" className="ds-input w-full text-sm" />
+        <textarea value={contactComment} onChange={e => setContactComment(e.target.value)}
+          placeholder="Пожелания, вопросы, особые требования..."
+          rows={3}
+          className="ds-input w-full text-sm resize-none" />
+        {contactError && (
+          <div className="flex items-center gap-2 p-2 bg-[var(--danger)]/10 rounded-lg">
+            <AlertTriangle className="w-3.5 h-3.5 text-[var(--danger)] shrink-0" />
+            <p className="text-xs text-[var(--danger)]">{contactError}</p>
+          </div>
+        )}
+        <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-planner" />
+        <button onClick={submitLead} disabled={submitting || !pdConsent}
+          className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50">
+          {submitting ? 'Отправляем...' : 'Отправить заявку'}
+        </button>
       </div>
+    )}
+    </>
+  );
 
-      {/* Interests */}
-      <div className="space-y-1">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Опишите поездку</p>
+  // ── Анкета: четыре коротких шага (решение владельца 26.09) ─────────────────
+  //
+  // На телефоне — один шаг на экран, прогресс «Шаг N из 4» и нижняя панель
+  // «Назад» / «Дальше»; последний шаг — «Собрать маршрут». На компьютере те
+  // же шаги в колонке справа: компонент один. Порядок шагов держит сторож
+  // tests/unit/planner-steps.test.ts.
+
+  /** Потолок дней отдыха на форме — то же правило, что у движка (fitRestDays). */
+  const maxRestDays = tripDays != null && tripDays > 0 ? Math.max(0, tripDays - 3) : 0;
+  const restDaysToSend = Math.min(restDays, maxRestDays);
+
+  function goNext() {
+    setStepError('');
+    if (step === 1) {
+      // Без обеих дат движок не может разложить поездку по дням (getTripDays
+      // даёт 0) — пускать дальше значило бы собрать пустой план.
+      if (!arrival || !departure) {
+        setStepError('Укажите даты прилёта и отъезда: без них маршрут по дням не собрать.');
+        return;
+      }
+      if (departure <= arrival) {
+        setStepError('Дата отъезда должна быть позже даты прилёта.');
+        return;
+      }
+    }
+    if (step < 4) { setStep((s) => (s + 1) as PlannerStep); return; }
+    buildRoute();
+  }
+
+  function goBack() {
+    setStepError('');
+    if (step > 1) setStep((s) => (s - 1) as PlannerStep);
+  }
+
+  function buildRoute() {
+    if (allInterests.length === 0) {
+      setStepError('Выберите хотя бы одно место или занятие.');
+      return;
+    }
+    if (!arrival || !departure || departure <= arrival) {
+      setStep(1);
+      setStepError('Укажите даты прилёта и отъезда: без них маршрут по дням не собрать.');
+      return;
+    }
+    void getRecommendation();
+  }
+
+  const stepHeader = (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-xs font-medium text-[var(--text-secondary)]" aria-live="polite">
+          Шаг {step} из 4
+        </p>
+        {recommendation && (
+          <button type="button" onClick={() => { setFormOpen(false); setStepError(''); }}
+            className="text-xs font-medium text-[var(--ocean)] min-h-[44px] px-1 transition-colors duration-200 motion-reduce:transition-none">
+            К маршруту
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-4 gap-1.5" aria-hidden="true">
+        {PLANNER_STEPS.map((s) => (
+          <span key={s.n}
+            className={`h-1 rounded-full transition-colors duration-200 motion-reduce:transition-none ${
+              s.n <= step ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
+            }`} />
+        ))}
+      </div>
+      <h1 className="font-playfair text-3xl font-bold leading-tight text-[var(--text-primary)] text-balance">
+        {PLANNER_STEPS[step - 1].title}
+      </h1>
+      <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{PLANNER_STEPS[step - 1].lead}</p>
+    </div>
+  );
+
+  const stepWhen = (
+    <div className="space-y-6" data-step="when">
+      {/* Быстрый путь — сверху, как было: одна фраза заполняет все шаги. */}
+      <div className="space-y-2">
+        <label htmlFor="planner-quick" className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-[var(--accent)]" />
+          Опишите поездку одной фразой
+        </label>
         <div className="flex gap-2">
           <input
+            id="planner-quick"
             type="text"
             value={chatInput}
             onChange={e => setChatInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !chatLoading) void handleChatFill(); }}
-            placeholder="вулканы и рыбалка, 7 дней в июне"
+            placeholder="вулканы и рыбалка, 7 дней в июле, сами"
+            maxLength={500}
             className="ds-input flex-1 text-sm"
           />
           <button
             type="button"
             onClick={() => void handleChatFill()}
             disabled={chatLoading || !chatInput.trim()}
-            className="ds-btn ds-btn-primary px-3 py-2 flex items-center gap-1.5 text-sm disabled:opacity-50"
+            aria-label="Разобрать описание"
+            className="ds-btn ds-btn-primary min-w-[44px] px-3 disabled:opacity-50"
           >
-            {chatLoading
-              ? <Loader className="w-4 h-4 animate-spin" />
-              : <Send className="w-4 h-4" />}
+            {chatLoading ? <Loader className="w-4 h-4 animate-spin motion-reduce:animate-none" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
+        <p className="text-xs text-[var(--text-secondary)]">Заполним шаги за вас — всё можно поправить.</p>
+        {chatNote && <p className="text-xs text-[var(--text-secondary)]" role="status">{chatNote}</p>}
       </div>
 
-      <SelectGroup title="Места" items={PLACES} selected={places}
-        onToggle={id => setPlaces(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />
-      <SelectGroup title="Активности" items={ACTIVITIES} selected={activities}
-        onToggle={id => setActivities(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="flex-1 h-px bg-[var(--border)]" />
+        <span className="text-xs text-[var(--text-muted)]">или по шагам</span>
+        <span className="flex-1 h-px bg-[var(--border)]" />
+      </div>
 
-      {/* Group profile */}
-      <div className="space-y-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Группа</p>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-              <Users className="w-3 h-3" />Взрослых
-            </label>
-            <select value={adults} onChange={e => setAdults(Number(e.target.value))} className="ds-input w-full text-sm">
-              {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-              <Baby className="w-3 h-3" />Дети
-            </label>
-            <select value={childAges.length} onChange={e => {
-              const count = Number(e.target.value);
-              setChildAges(prev => {
-                if (count > prev.length) return [...prev, ...Array(count - prev.length).fill(10) as number[]];
-                return prev.slice(0, count);
-              });
-            }} className="ds-input w-full text-sm">
-              {[0,1,2,3,4].map(n => <option key={n} value={n}>{n === 0 ? 'Нет' : n}</option>)}
-            </select>
-          </div>
+      <fieldset className="space-y-3">
+        <legend className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] mb-2">
+          <PlaneLanding className="w-4 h-4 text-[var(--ocean)]" />Прилёт
+        </legend>
+        <div className="grid grid-cols-[1.4fr_1fr] gap-2">
+          <input type="date" aria-label="Дата прилёта" value={arrival} min={today()} max={maxDate()}
+            onChange={e => { setStepError(''); setArrival(e.target.value); if (departure && departure <= e.target.value) setDeparture(''); }}
+            className="ds-input w-full text-sm" />
+          <input type="time" aria-label="Время прилёта" value={flightArrivalTime}
+            onChange={e => setFlightArrivalTime(e.target.value)}
+            className="ds-input w-full text-sm" />
         </div>
-        {childAges.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {childAges.map((age, i) => (
-              <div key={i} className="flex items-center gap-1">
-                <span className="text-[10px] text-[var(--text-muted)]">Возраст:</span>
-                <select value={age} onChange={e => {
-                  const newAge = Number(e.target.value);
-                  setChildAges(prev => prev.map((a, j) => j === i ? newAge : a));
-                }} className="ds-input py-0.5 px-1.5 text-xs w-16">
-                  {Array.from({ length: 18 }, (_, k) => <option key={k} value={k}>{k} {k === 0 ? 'мес+' : ''}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
+      </fieldset>
+
+      <fieldset className="space-y-3">
+        <legend className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] mb-2">
+          <PlaneTakeoff className="w-4 h-4 text-[var(--ocean)]" />Отъезд
+        </legend>
+        <div className="grid grid-cols-[1.4fr_1fr] gap-2">
+          <input type="date" aria-label="Дата отъезда" value={departure} min={arrival || today()} max={maxDate()}
+            onChange={e => { setStepError(''); setDeparture(e.target.value); }}
+            className="ds-input w-full text-sm" />
+          <input type="time" aria-label="Время вылета" value={flightDepartureTime}
+            onChange={e => setFlightDepartureTime(e.target.value)}
+            className="ds-input w-full text-sm" />
+        </div>
+      </fieldset>
+
+      <p className="text-sm font-medium flex items-center gap-2 min-h-[1.5rem]" aria-live="polite">
+        {tripDays != null && tripDays > 0 ? (
+          <>
+            <CalendarDays className="w-4 h-4 text-[var(--success)]" />
+            <span className="text-[var(--text-primary)]">
+              {tripDays} {pluralDaysRu(tripDays)} на Камчатке
+            </span>
+          </>
+        ) : (
+          <span className="text-[var(--text-muted)]">Выберите обе даты — посчитаем дни</span>
         )}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-              <Dumbbell className="w-3 h-3" />Подготовка
-            </label>
-            <select value={fitnessLevel} onChange={e => setFitnessLevel(e.target.value as FitnessLevel)} className="ds-input w-full text-sm">
-              <option value="beginner">Первый раз</option>
-              <option value="moderate">Активный турист</option>
-              <option value="active">Опытный</option>
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-              <Wallet className="w-3 h-3" />Бюджет
-            </label>
-            <select value={budgetTier} onChange={e => setBudgetTier(e.target.value as BudgetTier)} className="ds-input w-full text-sm">
-              <option value="economy">Эконом</option>
-              <option value="comfort">Комфорт</option>
-              <option value="premium">Премиум</option>
-            </select>
-          </div>
-        </div>
+      </p>
 
-        {/* Seasickness toggle */}
-        <label className="flex items-center gap-2.5 cursor-pointer select-none mt-1">
-          <input
-            type="checkbox"
-            checked={seasickness}
-            onChange={e => setSeasickness(e.target.checked)}
-            className="w-4 h-4 rounded accent-[var(--accent)]"
-          />
-          <span className="text-xs text-[var(--text-secondary)]">
-            Морская болезнь — избегать катеров и морских выходов
+      <details className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+        <summary className="flex items-center justify-between gap-2 px-4 min-h-[44px] cursor-pointer text-sm text-[var(--text-secondary)] list-none">
+          Номера рейсов и встреча в аэропорту
+          <ChevronDown className="w-4 h-4 transition-transform duration-200 motion-reduce:transition-none group-open:rotate-180" />
+        </summary>
+        <div className="px-4 pb-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" aria-label="Рейс прилёта" value={flightArrival}
+              onChange={e => setFlightArrival(e.target.value.toUpperCase())}
+              placeholder="Рейс прилёта" maxLength={20}
+              className="ds-input w-full text-sm" />
+            <input type="text" aria-label="Рейс вылета" value={flightDeparture}
+              onChange={e => setFlightDeparture(e.target.value.toUpperCase())}
+              placeholder="Рейс вылета" maxLength={20}
+              className="ds-input w-full text-sm" />
+          </div>
+          <label className="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+            <input type="checkbox" checked={needsAirportTransfer}
+              onChange={e => setNeedsAirportTransfer(e.target.checked)}
+              className="w-5 h-5 rounded accent-[var(--accent)]" />
+            <span className="text-sm text-[var(--text-secondary)]">
+              Встреча в аэропорту и трансфер (~2 500 ₽ в одну сторону)
+            </span>
+          </label>
+        </div>
+      </details>
+    </div>
+  );
+
+  const stepWho = (
+    <div className="space-y-6" data-step="who">
+      <div className="grid grid-cols-2 gap-3">
+        <label className="space-y-1.5">
+          <span className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+            <Users className="w-4 h-4 text-[var(--ocean)]" />Взрослых
           </span>
+          <select value={adults} onChange={e => setAdults(Number(e.target.value))} className="ds-input w-full text-sm">
+            {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+            <Baby className="w-4 h-4 text-[var(--ocean)]" />Детей
+          </span>
+          <select value={childAges.length} onChange={e => {
+            const count = Number(e.target.value);
+            setChildAges(prev => {
+              if (count > prev.length) return [...prev, ...Array(count - prev.length).fill(10) as number[]];
+              return prev.slice(0, count);
+            });
+          }} className="ds-input w-full text-sm">
+            {[0,1,2,3,4].map(n => <option key={n} value={n}>{n === 0 ? 'Нет' : n}</option>)}
+          </select>
         </label>
       </div>
+      {childAges.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-sm text-[var(--text-secondary)]">Возраст детей</p>
+          <div className="flex flex-wrap gap-2">
+            {childAges.map((age, i) => (
+              <select key={i} aria-label={`Возраст ребёнка ${i + 1}`} value={age} onChange={e => {
+                const newAge = Number(e.target.value);
+                setChildAges(prev => prev.map((a, j) => j === i ? newAge : a));
+              }} className="ds-input text-sm w-24">
+                {Array.from({ length: 18 }, (_, k) => <option key={k} value={k}>{k === 0 ? 'до года' : `${k} ${k === 1 ? 'год' : k < 5 ? 'года' : 'лет'}`}</option>)}
+              </select>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* Risk Mode */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Dumbbell className="w-4 h-4 text-[var(--ocean)]" />Подготовка
+        </p>
+        <Segmented
+          label="Подготовка"
+          value={fitnessLevel}
+          onChange={setFitnessLevel}
+          options={[
+            { value: 'beginner', label: 'Первый раз' },
+            { value: 'moderate', label: 'Хожу в походы' },
+            { value: 'active', label: 'Опытный' },
+          ]}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Accessibility className="w-4 h-4 text-[var(--ocean)]" />Подвижность
+        </p>
+        <Segmented
+          label="Подвижность"
+          value={mobilityLevel}
+          onChange={setMobilityLevel}
+          options={[
+            { value: 'full', label: 'Полная' },
+            { value: 'limited', label: 'Ограниченная' },
+            { value: 'wheelchair', label: 'На коляске' },
+          ]}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="planner-health" className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <HeartPulse className="w-4 h-4 text-[var(--ocean)]" />Ограничения по здоровью
+          <span className="text-xs font-normal text-[var(--text-muted)]">необязательно</span>
+        </label>
+        <textarea
+          id="planner-health"
+          value={healthNotes}
+          onChange={e => setHealthNotes(e.target.value.slice(0, HEALTH_NOTES_MAX))}
+          placeholder="Например: колено, астма"
+          rows={2}
+          maxLength={HEALTH_NOTES_MAX}
+          className="ds-input w-full text-sm resize-none"
+        />
+        <p className="text-xs text-[var(--text-secondary)] flex items-start gap-1.5">
+          <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          Только для подбора маршрута: не сохраняем и не отправляем в нейросети.
+        </p>
+      </div>
+
+      <label className="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={seasickness}
+          onChange={e => setSeasickness(e.target.checked)}
+          className="w-5 h-5 rounded accent-[var(--accent)]"
+        />
+        <span className="text-sm text-[var(--text-secondary)]">
+          Укачивает на воде — обойтись без катеров, где можно
+        </span>
+      </label>
+    </div>
+  );
+
+  const stepHow = (
+    <div className="space-y-6" data-step="how">
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Compass className="w-4 h-4 text-[var(--ocean)]" />Как ехать
+        </p>
+        <div role="radiogroup" aria-label="Как ехать" className="grid gap-2">
+          {TRAVEL_STYLES.map((s) => {
+            const active = travelStyle === s;
+            return (
+              <button key={s} type="button" role="radio" aria-checked={active}
+                onClick={() => setTravelStyle(s)}
+                className={`text-left rounded-lg border px-4 py-3 min-h-[44px] transition-colors duration-200 motion-reduce:transition-none ${
+                  active
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)]'
+                    : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-strong)]'
+                }`}>
+                <span className={`block text-sm font-semibold ${active ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
+                  {TRAVEL_STYLE_LABEL[s].label}
+                </span>
+                <span className="block text-xs text-[var(--text-secondary)] mt-0.5 leading-snug">
+                  {TRAVEL_STYLE_LABEL[s].hint}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Coffee className="w-4 h-4 text-[var(--ocean)]" />Дни отдыха
+        </p>
+        <div className="flex items-center gap-3">
+          <button type="button" aria-label="Меньше дней отдыха"
+            onClick={() => setRestDays((n) => Math.max(0, Math.min(n, maxRestDays) - 1))}
+            disabled={restDaysToSend <= 0}
+            className="ds-btn ds-btn-secondary w-11 h-11 p-0 disabled:opacity-40">
+            <Minus className="w-4 h-4" />
+          </button>
+          <output className="min-w-[3ch] text-center font-playfair text-2xl font-bold text-[var(--text-primary)]" aria-live="polite">
+            {restDaysToSend}
+          </output>
+          <button type="button" aria-label="Больше дней отдыха"
+            onClick={() => setRestDays((n) => Math.min(maxRestDays, n + 1))}
+            disabled={restDaysToSend >= maxRestDays}
+            className="ds-btn ds-btn-secondary w-11 h-11 p-0 disabled:opacity-40">
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-xs text-[var(--text-secondary)]">
+          {maxRestDays > 0
+            ? `До ${maxRestDays} при ${tripDays} ${pluralDaysRu(tripDays ?? 0)} поездки. Резерв на нелётную погоду добавим сами, если он нужен.`
+            : 'Поездка короткая: место нужно прилёту, вылету и хотя бы одному дню на маршруте.'}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Wallet className="w-4 h-4 text-[var(--ocean)]" />Бюджет
+        </p>
+        <Segmented
+          label="Бюджет"
+          value={budgetTier}
+          onChange={setBudgetTier}
+          options={[
+            { value: 'economy', label: 'Эконом' },
+            { value: 'comfort', label: 'Комфорт' },
+            { value: 'premium', label: 'Премиум' },
+          ]}
+        />
+      </div>
+
+      {/* Risk Mode — как было (решение владельца 26.09: блок не переименовывать) */}
       <div className="space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] flex items-center gap-1">
           <ShieldAlert className="w-3 h-3" />Режим маршрутов
@@ -1712,7 +2144,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
               type="button"
               onClick={() => setRiskMode(m.value)}
               title={m.desc}
-              className={`px-2 py-2 rounded text-xs font-medium transition-all border ${
+              className={`px-2 py-2 min-h-[44px] rounded text-xs font-medium transition-all border ${
                 riskMode === m.value
                   ? m.value === 'adventure'
                     ? 'bg-[var(--warning)] bg-opacity-20 border-[var(--warning)] text-[var(--warning)]'
@@ -1731,106 +2163,116 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           </p>
         )}
       </div>
+    </div>
+  );
 
-      {/* Dates */}
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Даты</p>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)]">Прилёт</label>
-            <input type="date" value={arrival} min={today()} max={maxDate()}
-              onChange={e => { setArrival(e.target.value); if (departure && departure < e.target.value) setDeparture(''); }}
-              className="ds-input w-full text-sm" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)]">Отъезд</label>
-            <input type="date" value={departure} min={arrival || today()} max={maxDate()}
-              onChange={e => setDeparture(e.target.value)}
-              className="ds-input w-full text-sm" />
-          </div>
-        </div>
-        {tripDays != null && tripDays > 0 && (
-          <p className="text-xs text-[var(--success)] font-medium flex items-center gap-1.5">
-            <Check className="w-3.5 h-3.5" />
-            {tripDays} {tripDays === 1 ? 'день' : tripDays < 5 ? 'дня' : 'дней'}
-          </p>
-        )}
-        {/* Flight numbers */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-              <PlaneLanding className="w-3 h-3" />
-              Рейс прилёта
-            </label>
-            <input type="text" value={flightArrival}
-              onChange={e => setFlightArrival(e.target.value.toUpperCase())}
-              placeholder="SU 1234" maxLength={20}
-              className="ds-input w-full text-sm" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-              <PlaneTakeoff className="w-3 h-3" />
-              Рейс вылета
-            </label>
-            <input type="text" value={flightDeparture}
-              onChange={e => setFlightDeparture(e.target.value.toUpperCase())}
-              placeholder="S7 456" maxLength={20}
-              className="ds-input w-full text-sm" />
-          </div>
-        </div>
-        {/* Flight times */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)]">Время прилёта</label>
-            <input type="time" value={flightArrivalTime}
-              onChange={e => setFlightArrivalTime(e.target.value)}
-              className="ds-input w-full text-sm" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)]">Время вылета</label>
-            <input type="time" value={flightDepartureTime}
-              onChange={e => setFlightDepartureTime(e.target.value)}
-              className="ds-input w-full text-sm" />
-          </div>
-        </div>
-        {/* Airport transfer */}
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input type="checkbox" checked={needsAirportTransfer}
-            onChange={e => setNeedsAirportTransfer(e.target.checked)}
-            className="w-4 h-4 rounded accent-[var(--accent)]" />
-          <span className="text-xs text-[var(--text-muted)]">
-            Нужна встреча в аэропорту и трансфер (~2 500 ₽/сторона)
-          </span>
-        </label>
-      </div>
-
-      {error && (
-        <div className="flex items-start gap-2 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-lg">
-          <AlertTriangle className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
-          <p className="text-sm text-[var(--danger)]">{error}</p>
-        </div>
-      )}
-
-      {allInterests.length === 0 ? (
+  const stepWhat = (
+    <div className="space-y-6" data-step="what">
+      <SelectGroup title="Места" items={PLACES} selected={places}
+        onToggle={id => setPlaces(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />
+      <SelectGroup title="Активности" items={ACTIVITIES} selected={activities}
+        onToggle={id => setActivities(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} />
+      {allInterests.length === 0 && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 space-y-2">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">Готовый пакетный тур</p>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Не знаете, что выбрать?</p>
           <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-            Не знаете с чего начать? Оставьте заявку — мы подберём готовый пакет под ваши даты и бюджет, включая размещение, трансфер и программу.
+            Оставьте заявку — подберём готовый пакет под ваши даты и бюджет: размещение, трансфер и программу.
           </p>
-          <button onClick={() => setShowContact(true)}
-            className="w-full ds-btn ds-btn-primary py-2.5 font-semibold flex items-center justify-center gap-2">
-            <Sparkles className="w-4 h-4" />
-            Запросить пакетный тур
-          </button>
+          {contactBlock}
         </div>
-      ) : (
-        <button onClick={getRecommendation} disabled={loading}
-          className="w-full ds-btn ds-btn-primary py-3 font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
-          {loading
-            ? <><Loader className="w-4 h-4 animate-spin" />Генерирую маршрут...</>
-            : <><Sparkles className="w-4 h-4" />Получить рекомендацию</>}
-        </button>
       )}
+    </div>
+  );
+
+  const STEP_VIEWS: Record<PlannerStep, React.ReactNode> = { 1: stepWhen, 2: stepWho, 3: stepHow, 4: stepWhat };
+
+  const stepsView = (
+    <div className="px-4 pt-5 space-y-6" style={{ paddingBottom: CONTENT_BOTTOM_CLEARANCE }}>
+      {stepHeader}
+      {STEP_VIEWS[step]}
+    </div>
+  );
+
+  /** Короткая сводка анкеты над результатом: каждая строка открывает свой шаг. */
+  const summaryRows: Array<{ n: PlannerStep; label: string; value: string }> = [
+    { n: 1, label: 'Когда', value: tripDays ? `${shortDate(arrival)} — ${shortDate(departure)}, ${tripDays} ${pluralDaysRu(tripDays)}` : 'даты не выбраны' },
+    { n: 2, label: 'Кто едет', value: `${adults} взр.${childAges.length > 0 ? `, детей ${childAges.length}` : ''}` },
+    { n: 3, label: 'Как', value: `${TRAVEL_STYLE_LABEL[travelStyle].label}${restDaysToSend > 0 ? `, отдых ${restDaysToSend}` : ''}` },
+    { n: 4, label: 'Что', value: allInterests.map((i) => ACTIVITY_LABEL[i] ?? i).join(', ') || 'не выбрано' },
+  ];
+
+  const summaryCard = (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] divide-y divide-[var(--border)]">
+      {summaryRows.map((r) => (
+        <button key={r.n} type="button" onClick={() => { setStep(r.n); setFormOpen(true); }}
+          className="w-full flex items-center gap-3 px-4 min-h-[44px] py-2 text-left transition-colors duration-200 motion-reduce:transition-none hover:bg-[var(--bg-hover)]">
+          <span className="w-20 shrink-0 text-xs text-[var(--text-muted)]">{r.label}</span>
+          <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] truncate">{r.value}</span>
+          <Pencil className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
+        </button>
+      ))}
+    </div>
+  );
+
+  /** Что попросили стилем и отдыхом — и что из этого вышло (от движка). */
+  const preferenceNotesBlock = recommendation?.preferences && recommendation.preferences.notes.length > 0 ? (
+    <section className="space-y-2" aria-label="Ваши пожелания">
+      <p className="text-sm font-medium text-[var(--text-primary)]">Ваши пожелания</p>
+      <ul className="space-y-1.5">
+        {recommendation.preferences.notes.map((n, i) => (
+          <li key={`${n.topic}-${i}`}
+            className="flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm leading-snug text-[var(--text-primary)]"
+            style={{
+              background: `color-mix(in srgb, var(${n.status === 'honoured' ? '--success' : '--warning'}) 10%, var(--bg-card))`,
+              borderColor: `color-mix(in srgb, var(${n.status === 'honoured' ? '--success' : '--warning'}) 35%, transparent)`,
+            }}>
+            {n.status === 'honoured'
+              ? <Check className="w-4 h-4 mt-0.5 shrink-0 text-[var(--success)]" />
+              : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--warning)]" />}
+            <span>{n.message}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ) : null;
+
+  const stepBar = (
+    <div ref={stepBarRef}
+      className="shrink-0 border-t border-[var(--border)] bg-[var(--bg-card)] px-4 pt-3"
+      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+      {stepError && (
+        <p role="alert" className="mb-2 text-sm text-[var(--danger)] flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{stepError}
+        </p>
+      )}
+      {error && !stepError && (
+        <p role="alert" className="mb-2 text-sm text-[var(--danger)] flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{error}
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={goBack} disabled={step === 1}
+          className="ds-btn ds-btn-secondary px-4 disabled:opacity-40">
+          <ArrowLeft className="w-4 h-4" />Назад
+        </button>
+        <button type="button" onClick={goNext} disabled={loading}
+          className="ds-btn ds-btn-primary flex-1 font-semibold disabled:opacity-60">
+          {step < 4 ? (
+            <>Дальше<ArrowRight className="w-4 h-4" /></>
+          ) : loading ? (
+            <><Loader className="w-4 h-4 animate-spin motion-reduce:animate-none" />Собираем маршрут</>
+          ) : (
+            <><Sparkles className="w-4 h-4" />Собрать маршрут</>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
+  const resultsView = (
+    <div className="p-4 space-y-4" style={{ paddingBottom: CONTENT_BOTTOM_CLEARANCE }}>
+      {summaryCard}
+      {preferenceNotesBlock}
 
       {/* Results */}
       {recommendation && (
@@ -2150,37 +2592,18 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             </div>
           )}
 
-          {/* Contact form */}
-          {!showContact ? (
-            <button onClick={() => setShowContact(true)} className="w-full ds-btn ds-btn-primary py-2.5 font-semibold">
-              Запросить подробное предложение
-            </button>
-          ) : (
-            <div className="space-y-3 pt-1 border-t border-[var(--border)]">
-              <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Контакты</p>
-              <input type="text" value={contactName} onChange={e => setContactName(e.target.value)}
-                placeholder="Ваше имя" className="ds-input w-full text-sm" />
-              <input type="tel" value={contactPhone} onChange={e => setContactPhone(e.target.value)}
-                placeholder="+7 900 000-00-00" className="ds-input w-full text-sm" />
-              <textarea value={contactComment} onChange={e => setContactComment(e.target.value)}
-                placeholder="Пожелания, вопросы, особые требования..."
-                rows={3}
-                className="ds-input w-full text-sm resize-none" />
-              {contactError && (
-                <div className="flex items-center gap-2 p-2 bg-[var(--danger)]/10 rounded-lg">
-                  <AlertTriangle className="w-3.5 h-3.5 text-[var(--danger)] shrink-0" />
-                  <p className="text-xs text-[var(--danger)]">{contactError}</p>
-                </div>
-              )}
-              <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-planner" />
-              <button onClick={submitLead} disabled={submitting || !pdConsent}
-                className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50">
-                {submitting ? 'Отправляем...' : 'Отправить заявку'}
-              </button>
-            </div>
-          )}
+          {contactBlock}
         </>
       )}
+    </div>
+  );
+
+  const planPanel = (
+    <div className="flex flex-col h-full min-h-0">
+      <div ref={planScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        {formOpen || !recommendation ? stepsView : resultsView}
+      </div>
+      {(formOpen || !recommendation) && stepBar}
     </div>
   );
 
@@ -2266,7 +2689,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
   if (done) {
     return (
-      <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 64px)' }}>
+      <div className="flex items-center justify-center" style={{ minHeight: '100dvh', paddingTop: PLANNER_HEADER_OFFSET, boxSizing: 'border-box' }}>
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-10 md:p-16 text-center max-w-md mx-4">
           <div className="w-12 h-12 rounded-full bg-[var(--success)]/15 flex items-center justify-center mx-auto mb-4">
             <Check className="w-6 h-6 text-[var(--success)]" />
@@ -2279,7 +2702,11 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)', minHeight: 500 }}>
+    // Корень экрана начинается ПОД фиксированной шапкой сайта (planner-layout):
+    // до 26.09 он стоял с верхнего края окна, и полоса «План / Карта» на
+    // телефоне ложилась поверх иконок шапки — поиска, темы, SOS, профиля.
+    <div data-planner-root className="flex flex-col"
+      style={{ height: '100dvh', minHeight: 500, paddingTop: PLANNER_HEADER_OFFSET, boxSizing: 'border-box' }}>
 
       {/* Mobile tab bar */}
       <MobileTabBar
@@ -2297,9 +2724,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         </div>
 
         {/* Plan panel (right on desktop, shown when plan tab active on mobile) */}
-        <div className={`w-full lg:w-[400px] shrink-0 overflow-y-auto lg:border-l border-[var(--border)] bg-[var(--bg-primary)] ${
-          mobileTab === 'plan' ? 'block' : 'hidden'
-        } lg:block`}>
+        <div className={`w-full lg:w-[420px] shrink-0 min-h-0 flex-col lg:border-l border-[var(--border)] bg-[var(--bg-primary)] ${
+          mobileTab === 'plan' ? 'flex' : 'hidden'
+        } lg:flex`}>
           {planPanel}
         </div>
       </div>

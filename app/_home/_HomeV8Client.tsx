@@ -25,7 +25,7 @@ export { alertStamp, clip } from '@/components/safety/LiveStatus';
 // Те же подписи и та же обрезка, что в ленте на /safety: две поверхности об
 // одном предупреждении обязаны говорить одинаково.
 import { AlertsTicker, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
-import { radarAlertsLine, radarVolcanoLine, alertsCountLabel } from '@/lib/home/radar-summary';
+import { alertsCountLabel } from '@/lib/home/radar-summary';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
@@ -97,7 +97,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [err, setErr] = useState<string | null>(null);
   const [plateIdx, setPlateIdx] = useState(0);
   const [sosOpen, setSosOpen] = useState(false);
-  const [radarOpen, setRadarOpen] = useState(false);
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
 
@@ -413,17 +412,15 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
           </Link>
-          {/* Радар раскрывается по тапу (владелец 26.09, вариант 1 из трёх):
-              сводка встаёт под рядом, повторный тап сворачивает. Переход на
-              /safety#radar — ссылкой внутри сводки. */}
-          <button
-            type="button"
+          {/* Радар — дверь на сам радар (владелец 26.09, вечер: «по кнопке
+              радар должен открываться наш радар»). Утром того же дня плитка
+              раскрывала сводку, а на радар вела ссылка внутри сводки — лишний
+              шаг до того, ради чего жмут. Тот же адрес, что у пилюли шапки. */}
+          <Link
+            href="/safety#radar"
             className="qt qt-radar"
-            aria-expanded={radarOpen}
-            aria-controls="radar-panel"
             aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
             title={`${fresh.label}. ${coverage.label}`}
-            onClick={() => setRadarOpen((o) => !o)}
           >
             <span className="qt-ic">
               <Radar size={19} strokeWidth={1.8} aria-hidden />
@@ -446,20 +443,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 {coverageShort(coverage)}
               </span>
             </span>
-            <ChevronDown className="qt-chev" size={15} strokeWidth={2} aria-hidden />
-          </button>
+          </Link>
         </nav>
-        {radarOpen && (
-          <div id="radar-panel" className="radar-panel" role="region" aria-label="Сводка радара">
-            <dl>
-              <div><dt>Сводка</dt><dd>{fresh.label}</dd></div>
-              <div><dt>Предупреждения</dt><dd>{radarAlertsLine(safety)}</dd></div>
-              <div><dt>Вулканы</dt><dd>{radarVolcanoLine(safety.volcanoes, safety.degraded, ACC_LABEL)}</dd></div>
-              <div><dt>Офлайн-карта</dt><dd>{coverage.label}</dd></div>
-            </dl>
-            <Link className="an-go" href="/safety#radar">Открыть радар →</Link>
-          </div>
-        )}
 
         {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09); первый
             тур с ценой по-прежнему в первом экране (решение владельца 24.09, П4б).
@@ -609,7 +594,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               не можем. */}
           {safety.alerts.length > 0 && (
             <div className="alerts-now" role="region" aria-label="Действующие предупреждения">
-              {/* Бегущая лента на 4 строки (владелец 26.09: «блок безопасности
+              {/* Бегущая лента, окно на две новости целиком (владелец 26.09,
+                  вечер: «новость целиком, поднималась наверх, в 2 строчки»).
+                  Прежде — 4 строки с обрезкой (владелец 26.09: «блок безопасности
                   был интерактивный, новости снизу вверх писались; уменьши, пусть
                   он будет 4 строчки, но интерактивные — развернуть и свернуть»).
                   Та же лента, что на /safety, а не вторая копия: у копий уже
@@ -618,10 +605,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   описаниями. Стоит при prefers-reduced-motion. */}
               <div className="kh-live">
                 <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
-                <AlertsTicker alerts={safety.alerts} lines={4} />
+                <AlertsTicker alerts={safety.alerts} lines={2} />
               </div>
               <Link className="an-go" href="/safety">
-                {safety.alerts.length > 4
+                {safety.alerts.length > 2
                   ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
                   : 'Подробности →'}
               </Link>
@@ -1112,14 +1099,7 @@ const CSS = `
 .v7 .qt-ic{position:relative;flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ocean);background:color-mix(in srgb,var(--ocean) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ocean) 18%,transparent)}
 .v7 button.qt{font:inherit;color:inherit;text-align:left;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .v7 .qt-radar{position:relative}
-.v7 .qt-chev{position:absolute;top:8px;right:8px;color:var(--text-secondary);transition:transform .2s ease}
-.v7 .qt-radar[aria-expanded="true"] .qt-chev{transform:rotate(180deg)}
 /* Сводка радара — непрозрачная карточка под рядом: это прибор, не стекло (§2). */
-.v7 .radar-panel{position:relative;z-index:2;margin:8px 0 0;padding:10px 14px 4px;background:var(--bg-card);border:1px solid color-mix(in srgb,var(--success) 32%,transparent);border-radius:16px}
-.v7 .radar-panel dl{margin:0;display:grid;gap:10px}
-.v7 .radar-panel dl > div{display:grid;gap:2px}
-.v7 .radar-panel dt{font:600 10.5px/1.3 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary)}
-.v7 .radar-panel dd{margin:0;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 /* Радар — зелёный (владелец 26.09: «радар сделай зелёным»). Зелёный здесь —
    цвет прибора, как тёплая подложка у МЧС, а НЕ состояние: свежесть и доля
    линий по-прежнему говорят свои точки (жёлтая — устарело, без точки — нет
@@ -1145,7 +1125,7 @@ const CSS = `
    должно. Левая линия цветом опасности: она же отличает эту карточку от
    соседних, когда цвет точки в глаза не бросается. */
 .v7 .alerts-now{margin:-14px 0 26px;padding:12px 14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--danger);border-radius:16px}
-.v7 .alerts-now .an-go,.v7 .radar-panel .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
+.v7 .alerts-now .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
 /* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
    теряется, а без него человек с клавиатурой или switch-control не понимает,
    где находится. Не снимаем outline без замены. */

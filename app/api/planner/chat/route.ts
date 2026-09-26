@@ -6,7 +6,15 @@
  * planner data. Falls back to keyword matching if LLM is unavailable.
  *
  * Response format (unchanged):
- *   { success, places[], activities[], arrival, departure, interpreted, auto_recommend }
+ *   { success, places[], activities[], arrival, departure, interpreted, auto_recommend,
+ *     travel_style, rest_days }
+ *
+ * `travel_style` и `rest_days` разбираются словами, без модели
+ * (lib/planner/travel-style-words): `null` — в тексте не сказано.
+ *
+ * Здоровье сюда не приходит и приходить не должно: текст уходит в
+ * зарубежную модель (§8). Поля здоровья формы идут только в
+ * /api/planner/recommend — сторож planner-health-stays-local.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,6 +23,7 @@ import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { parseInterestsFromText } from '@/lib/planner/interests';
+import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
@@ -207,6 +216,7 @@ export async function POST(req: NextRequest) {
   const interpreted = parts.length > 0 ? parts.join(' | ') : null;
 
   const hasEnoughData = (places.length > 0 || activities.length > 0);
+  const prefs = parseTravelPreferences(message);
 
   // Bridge demand signal to agent system (fire-and-forget)
   if (hasEnoughData) {
@@ -229,5 +239,7 @@ export async function POST(req: NextRequest) {
     departure,
     interpreted,
     auto_recommend: hasEnoughData,
+    travel_style: prefs.travelStyle,
+    rest_days: prefs.restDays,
   });
 }

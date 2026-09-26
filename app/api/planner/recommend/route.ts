@@ -9,6 +9,10 @@ import { z } from 'zod';
 import { recommendTrip } from '@/lib/planner/engine';
 import { verifyAuth } from '@/lib/auth';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
+import { MAX_REST_DAYS } from '@/lib/planner/travel-style';
+
+/** Потолок заметки о здоровье: коротко, «колено, астма», а не история болезни. */
+const HEALTH_NOTES_MAX = 300;
 
 interface SavedPrefs {
   interests?: string[];
@@ -29,6 +33,14 @@ const RecommendSchema = z.object({
   budgetTier: z.enum(['economy', 'comfort', 'premium']).default('comfort'),
   seasickness: z.boolean().default(false),
   riskMode: z.enum(['safe_only', 'adventure', 'available']).default('safe_only'),
+  // Здоровье — особая категория ПД. Приходит ТОЛЬКО сюда, в наш движок: в
+  // модель (зарубежную, §8) не уходит, в память предпочтений не пишется, в
+  // лог не попадает. Сторож: tests/unit/planner-health-stays-local.test.ts.
+  healthNotes: z.string().trim().max(HEALTH_NOTES_MAX).optional(),
+  mobilityLevel: z.enum(['full', 'limited', 'wheelchair']).optional(),
+  // Стиль поездки и дни отдыха (владелец 26.09, lib/planner/travel-style).
+  travelStyle: z.enum(['self', 'operator', 'mixed']).optional(),
+  restDays: z.number().int().min(0).max(MAX_REST_DAYS).optional(),
 });
 
 export async function POST(req: NextRequest) {

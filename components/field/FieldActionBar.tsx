@@ -65,69 +65,90 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-3 overflow-x-auto pb-1"
+      <div className={`flex overflow-x-auto ${compact ? 'gap-2' : 'gap-3 pb-1'}`}
         style={{ scrollbarWidth: 'none' }}>
-        {actions.map(a => (
+        {actions.map(a => {
+          const badge = a.badge !== null && a.badge !== undefined && a.badge > 0 && (
+            <span
+              className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
+              style={{
+                minWidth: 20, height: 20, padding: '0 5px',
+                background: 'var(--danger)', color: '#FFFFFF',
+              }}
+            >
+              {a.badge}
+            </span>
+          );
+          const tile = {
+            background: a.active ? 'var(--accent)' : 'var(--bg-card)',
+            border: a.active ? 'none' : '1px solid var(--border)',
+            color: a.active ? '#FFFFFF' : 'var(--text-primary)',
+            opacity: a.busy ? 0.6 : 1,
+          };
+          // Свёрнутый лист (владелец 26.09: «место, трек, наблюдение меньше,
+          // чтоб не закрывало свёрнутый километраж»): иконка и слово В ОДНУ
+          // СТРОКУ внутри плитки высотой ровно TAP. Было — плитка TAP+8 и
+          // подпись под ней, ~80 px; стало 56. Цель под перчатку не меньше
+          // TAP ни в каком виде: экономия за счёт раскладки, не за счёт пальца.
+          // Иконка в строке — 20 px, зазор 4 px: при 24 px и 6 px «Наблюдение»
+          // резалось до «Наблюд…» на телефоне шириной 410 px (скрин 26.09).
+          if (compact) {
+            return (
+              <button
+                key={a.id}
+                onClick={a.onPress}
+                disabled={a.busy}
+                aria-pressed={a.active ? true : undefined}
+                aria-label={a.label}
+                className="relative flex items-center justify-center gap-1 shrink-0 rounded-2xl px-1 [&_svg]:w-5 [&_svg]:h-5 [&_svg]:shrink-0"
+                style={{ ...tile, flex: '1 1 0', minWidth: 0, height: TAP }}
+              >
+                {a.icon}
+                <span className="text-[11.5px] font-semibold leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+                  {a.short ?? a.label}
+                </span>
+                {badge}
+              </button>
+            );
+          }
+          return (
           <button
             key={a.id}
             onClick={a.onPress}
             disabled={a.busy}
             aria-pressed={a.active ? true : undefined}
-            aria-label={compact ? a.label : undefined}
-            className={`flex flex-col items-center shrink-0 ${compact ? 'gap-1' : 'gap-1.5'}`}
+            className="flex flex-col items-center shrink-0 gap-1.5"
             // Развёрнутая панель делит ширину поровну (24.09, скрин владельца
             // «похож на помойку»): при четырёх действиях 4×84 px с зазорами
             // шире листа, и «Наблюдение» резалось краем экрана до «Наблк».
             // Кружок под палец (TAP) не меняется, делится только ширина под
             // подписью; прокрутка остаётся запасом, если действий станет пять.
-            style={{ flex: '1 1 0', minWidth: compact ? 60 : 72, maxWidth: 96 }}
+            style={{ flex: '1 1 0', minWidth: 72, maxWidth: 96 }}
           >
             <span
               className="relative flex items-center justify-center rounded-2xl"
               style={{
                 width: TAP + 8,
                 height: TAP + 8,
-                background: a.active ? 'var(--accent)' : 'var(--bg-card)',
-                border: a.active ? 'none' : '1px solid var(--border)',
-                color: a.active ? '#FFFFFF' : 'var(--text-primary)',
-                opacity: a.busy ? 0.6 : 1,
+                ...tile,
               }}
             >
               {a.icon}
-              {a.badge !== null && a.badge !== undefined && a.badge > 0 && (
-                <span
-                  className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
-                  style={{
-                    minWidth: 20, height: 20, padding: '0 5px',
-                    background: 'var(--danger)', color: '#FFFFFF',
-                  }}
-                >
-                  {a.badge}
-                </span>
-              )}
+              {badge}
             </span>
-            {/* Свёрнутый лист — короткое слово (макет 24.09), развёрнутый —
-                полное имя и строка состояния. */}
-            {compact && (
-              <span className="text-[11px] leading-none text-center whitespace-nowrap"
-                style={{ color: a.active ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                {a.short ?? a.label}
-              </span>
-            )}
-            {!compact && (
-              <span className="text-[11.5px] leading-tight text-center"
-                style={{ color: 'var(--text-secondary)' }}>
-                {a.label}
-              </span>
-            )}
-            {!compact && a.hint && (
+            <span className="text-[11.5px] leading-tight text-center"
+              style={{ color: 'var(--text-secondary)' }}>
+              {a.label}
+            </span>
+            {a.hint && (
               <span className="text-[11px] leading-tight text-center tabular-nums"
                 style={{ color: a.active ? 'var(--accent)' : 'var(--text-muted)' }}>
                 {a.hint}
               </span>
             )}
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* Отказ говорится словами. Пустое место здесь честнее, чем кнопка,

@@ -1989,7 +1989,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     }
     if (name === 'make_trip_plan') {
       const { makeTripPlanForKuzmich } = await import('@/lib/kuzmich/trip-plan-tool');
-      return await makeTripPlanForKuzmich({ days: args.days, interests: args.interests, when: args.when });
+      return await makeTripPlanForKuzmich({
+        days: args.days, interests: args.interests, when: args.when,
+        travel_style: args.travel_style, rest_days: args.rest_days,
+      });
     }
     if (name === 'get_tour_availability') {
       const { getTourAvailabilityForKuzmich } = await import('@/lib/kuzmich/tour-availability-tool');

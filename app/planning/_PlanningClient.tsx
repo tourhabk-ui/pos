@@ -63,6 +63,7 @@ import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/nav
 import { groupRoutesByDestination, type Destination, type DestinationOption, type RouteOption } from '@/lib/on-route/destination';
 import { originLabel, type Origin } from '@/lib/on-route/origin';
 import { httpRouteBuilder, type RouteBuildResult, type RouteBuildMode } from '@/lib/on-route/route-build';
+import { wantsRoadApproach, roadApproachKey, displayableRoadApproach, trailheadGap } from '@/lib/on-route/road-approach';
 
 /** Вердикт черты в том виде, в каком он приходит с сервера. */
 interface PreviewNavigability {
@@ -1696,15 +1697,70 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const coarseLng = coords ? Math.round(coords.lng * 1e4) : null;
   const joinLat = approach ? Math.round(approach.joinAt.lat * 1e4) : null;
   const joinLng = approach ? Math.round(approach.joinAt.lng * 1e4) : null;
+  /**
+   * Подъезд по дорогам общего пользования (владелец 26.09: «мы же решили, что
+   * трек по дороге общего пользования»). Правило и пороги — в
+   * lib/on-route/road-approach. Путь просится у того же роутера, что строит
+   * путь к точке (httpRouteBuilder → roadGraphCarProvider), до СТАРТА
+   * маршрута, и ложится на карту тем же каналом рассчитанного автопути
+   * (mapCalculated ниже) — третьего способа рисовать не заводим.
+   */
+  const trackStartLat = track && track.length > 1 ? track[0][0] : null;
+  const trackStartLng = track && track.length > 1 ? track[0][1] : null;
+  const roadKey = coarseLat !== null && coarseLng !== null && trackStartLat !== null && trackStartLng !== null
+    ? roadApproachKey(`${trackStartLat},${trackStartLng}`, coarseLat / 1e4, coarseLng / 1e4)
+    : null;
+  const [roadApproach, setRoadApproach] = useState<{ key: string; route: CalculatedCarRoute | null } | null>(null);
+  const wantRoad = wantsRoadApproach({
+    offTrack: offTrackNow,
+    approachKm: approach?.approachKm ?? null,
+    offline: isOffline,
+    hasStart: trackStartLat !== null,
+  });
+  useEffect(() => {
+    if (!wantRoad || !roadKey || trackStartLat === null || trackStartLng === null || coarseLat === null || coarseLng === null) return;
+    if (roadApproach?.key === roadKey) return;
+    let cancelled = false;
+    httpRouteBuilder
+      .build({
+        origin: { kind: 'current', lat: coarseLat / 1e4, lon: coarseLng / 1e4 },
+        destination: { kind: 'coordinate', lat: trackStartLat, lon: trackStartLng, title: 'Старт маршрута' },
+        mode: 'car',
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const calc = res.status === 'found' ? res.options.find(o => o.calculated)?.calculated ?? null : null;
+        // Отказ роутера не глушится: причина — в лог, на карте остаётся
+        // прямая по азимуту с подписью «по прямой» (третье состояние).
+        if (!calc) console.error('[road-approach] подъезд по дорогам не построен:', res.status, 'reason' in res ? res.reason : 'message' in res ? res.message : '');
+        setRoadApproach({ key: roadKey, route: calc });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        console.error('[road-approach] запрос подъезда упал:', err);
+        setRoadApproach({ key: roadKey, route: null });
+      });
+    return () => { cancelled = true; };
+    // roadApproach намеренно вне зависимостей: он — результат этого эффекта.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantRoad, roadKey]);
+  /** Путь по дорогам для карты и подписи; сменился ключ — прежний держится до ответа. */
+  const roadRoute = wantRoad ? displayableRoadApproach(roadApproach?.route) : null;
+
   const approachLine = useMemo(() => {
     if (!offTrackNow || coarseLat === null || coarseLng === null || joinLat === null || joinLng === null) {
       return null;
+    }
+    // Есть путь по дорогам — пунктир остаётся только на отрезке, где дорога
+    // до старта не дотягивает; прямая через хребты не рисуется.
+    if (roadRoute && trackStartLat !== null && trackStartLng !== null) {
+      return trailheadGap(roadRoute, [trackStartLat, trackStartLng]);
     }
     return {
       from: [coarseLat / 1e4, coarseLng / 1e4] as [number, number],
       to: [joinLat / 1e4, joinLng / 1e4] as [number, number],
     };
-  }, [offTrackNow, coarseLat, coarseLng, joinLat, joinLng]);
+  }, [offTrackNow, coarseLat, coarseLng, joinLat, joinLng, roadRoute, trackStartLat, trackStartLng]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     // Линия маршрута — общая функция с backgroundMapMarkers (ниже), не
@@ -1869,7 +1925,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   }, [buildPhase]);
 
   /** Что рисовать на фоновой карте: выбранное человеком превью важнее авто-линии. */
-  const mapCalculated = calculatedPreview?.route ?? autoBuiltRoute;
+  const mapCalculated = calculatedPreview?.route ?? autoBuiltRoute ?? roadRoute;
 
   const vedarLines: VedarMapLine[] = useMemo(() => {
     if (fieldBaseMap.kind !== 'vedar') return [];
@@ -2300,14 +2356,19 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     : waypoints.length > 1 ? 'до следующей точки' : 'до точки';
 
   /** Почему цифра такая и почему нет времени — словами, рядом с числом. */
+  const roadKm = roadRoute ? roadRoute.distanceM / 1000 : null;
   const offRouteNote = offRoute === null
     ? null
+    : roadRoute && roadKm !== null
+      ? `Вы ещё не на маршруте: до старта по дорогам ${fmtKm(roadKm)}, на машине ~${formatEta(roadRoute.durationS / 3600)}. Путь рассчитан по дорожной сети — это не снятый трек.`
     : offRoute.approachKm !== null
       ? `Вы ещё не на маршруте: до линии ${fmtKm(offRoute.approachKm)} по прямой. Пешее время не считаем — так этот путь не проходят.`
       : 'Вы ещё не на маршруте: до точки дальше, чем весь маршрут целиком. Пешее время не считаем — сначала нужно добраться до места старта.';
   /** То же для свёрнутого листа — в одну строку (макет владельца 24.09). */
   const offRouteShort = offRoute === null
     ? null
+    : roadRoute && roadKm !== null
+      ? `Вы не на маршруте · ${fmtKm(roadKm)} до старта по дорогам`
     : offRoute.approachKm !== null
       ? `Вы не на маршруте · ${fmtKm(offRoute.approachKm)} до линии по прямой`
       : 'Вы не на маршруте · до точки дальше, чем весь маршрут';
@@ -3700,11 +3761,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               vectorUrl: fieldBaseMap.source.vectorUrl,
               // Места платформы (05.09): свой слой поверх OSM, по реестру
               // PLACES_BUILT; null — слоя нет, и карта его не просит.
-              // По умолчанию НЕ просит и здесь (13.09, showAllPlaces): на
-              // экране маршрута реестр района закрывал сам маршрут. Тот же
-              // null, что и при отсутствии пакета, — карта уже умеет его
-              // читать как «слоя нет», отдельного режима заводить не нужно.
-              placesUrl: showAllPlaces ? fieldBaseMap.source.placesUrl : null,
+              // Слой грузится всегда, а видимость решает тумблер «Места»
+              // (placesVisible ниже; по умолчанию выключен — решение 13.09,
+              // на экране маршрута реестр района закрывал сам маршрут). До
+              // 26.09 тумблер менял здесь адрес, а карта смену адреса не
+              // замечает — «кнопка места не работает».
+              placesUrl: fieldBaseMap.source.placesUrl,
               // Океан обзора (05.09): у пакета поля его нет (null), он у обзора.
               oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
@@ -3715,6 +3777,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             showUserLocation
             lines={vedarLines}
             onDiagnostic={setVedarDiag}
+            placesVisible={showAllPlaces}
             packs={regionPacks}
             baseRegion={fieldBaseMap.region}
             // В режиме «Карта» приборный столбец скрыт — тогда кнопки
@@ -4807,7 +4870,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           красным действием в сетке выше, красный цвет — только тревога
           (§7). Без маршрута панель стоит внутри экрана выбора цели. */}
       {(hasRoute || isLoadingRoute) && (
-        <div className="shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full"
+        <div className={`shrink-0 px-4 max-w-sm mx-auto w-full ${sheetOpen ? 'pt-2 pb-2' : 'pt-1.5 pb-1.5'}`}
           style={{ borderTop: '1px solid var(--border)' }}>
           {/* Свёрнутый лист — без подписей под кнопками (владелец 07.09,
               «занимает очень много места карты»): кружки те же 56px под

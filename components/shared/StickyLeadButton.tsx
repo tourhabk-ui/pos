@@ -9,10 +9,19 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 type State = 'idle' | 'form' | 'sending' | 'done' | 'error';
 
 /**
- * Отступ кнопки снизу: высота таб-бара (переменная, которую выставляет
- * BottomNav; где бара нет — 0px) либо safe-area, плюс 16px воздуха.
+ * Высота нижней панели действий САМОЙ страницы (например, «Назад / Дальше»
+ * анкеты /planner). Страница выставляет её сама, как BottomNav — свою; где
+ * панели нет — переменной нет, и срабатывает запас 0px. Кнопку не прячем:
+ * владелец оставил её и на планировщике (26.09), она поднимается над панелью.
  */
-const FAB_BOTTOM = 'calc(max(var(--bottom-nav-h, 0px), env(safe-area-inset-bottom, 0px)) + 16px)';
+export const PAGE_ACTION_BAR_VAR = '--page-action-bar-h';
+
+/**
+ * Отступ кнопки снизу: высота таб-бара (переменная, которую выставляет
+ * BottomNav; где бара нет — 0px) либо safe-area, плюс панель действий
+ * страницы, если она есть, плюс 16px воздуха.
+ */
+const FAB_BOTTOM = `calc(max(var(--bottom-nav-h, 0px), env(safe-area-inset-bottom, 0px)) + var(${PAGE_ACTION_BAR_VAR}, 0px) + 16px)`;
 
 /**
  * Глобальная sticky-кнопка "Хочу тур" — видна на всех страницах.

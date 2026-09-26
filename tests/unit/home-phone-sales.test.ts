@@ -66,10 +66,10 @@ describe('тур с ценой — на первом экране', () => {
     expect(JSX).not.toMatch(/<h2>Радар обстановки<\/h2>/);
     // С 25.09 дверь радара — плитка в ряду инструментов (владелец: «экономить
     // место на мобильной»); строка-дубль в секции #radar снята.
-    // С 26.09 плитка радара раскрывает сводку (вариант 1 владельца), переход
-    // на /safety#radar — ссылкой внутри сводки.
-    expect(JSX).toMatch(/className="qt qt-radar"\s+aria-expanded=\{radarOpen\}/);
-    expect(JSX).toMatch(/id="radar-panel"[\s\S]{0,900}href="\/safety#radar"/);
+    // Вечер 26.09: плитка радара — прямо дверь на /safety#radar (владелец:
+    // «по кнопке радар должен открываться наш радар»), без раскрытой сводки.
+    expect(JSX).toMatch(/href="\/safety#radar"\s+className="qt qt-radar"/);
+    expect(JSX).not.toMatch(/id="radar-panel"/);
     const radar = JSX.slice(pos('id="radar"'), JSX.indexOf('</section>', pos('id="radar"')));
     expect(radar).not.toContain('radarline');
   });
