@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 
@@ -40,8 +41,8 @@ export async function GET(
       } as ApiResponse<null>, { status: 400 });
     }
 
-    const accommResult = await query<{ id: string; name: string; price_per_night_from: string; is_active: boolean }>(
-      `SELECT id, name, price_per_night_from, is_active
+    const accommResult = await query<{ id: string; name: string; price_per_night_from: string; is_public: boolean }>(
+      `SELECT id, name, price_per_night_from, ${publicAccommodationSql('')} AS is_public
        FROM accommodations
        WHERE id = $1`,
       [id]
@@ -56,7 +57,7 @@ export async function GET(
 
     const accommodation = accommResult.rows[0];
 
-    if (!accommodation.is_active) {
+    if (!accommodation.is_public) {
       return NextResponse.json({
         success: false,
         error: 'Объект размещения не активен'

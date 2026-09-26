@@ -85,6 +85,12 @@ describe('условие витрины', () => {
       'lib/kuzmich/accommodation-search.ts',
       'lib/seo/sitemap-entries.ts',
       'app/api/cron/planner-material-census/route.ts',
+      // Бронь, свободные даты, закрытые даты и цены — тот же объект с другой
+      // стороны: неодобренный объект не бронируется и не отвечает датами.
+      'app/api/accommodations/[id]/book/route.ts',
+      'app/api/accommodations/[id]/availability/route.ts',
+      'app/api/accommodations/[id]/blocked-dates/route.ts',
+      'app/api/accommodations/[id]/prices/route.ts',
     ];
     for (const f of readers) {
       expect(read(f), f).toContain('publicAccommodationSql(');
