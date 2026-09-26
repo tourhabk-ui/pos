@@ -56,3 +56,35 @@ describe('дата наблюдения KVERT у Кузьмича — по Ка�
     expect(g).toMatch(/volcano_observed_at\)\.toLocaleDateString\('ru-RU', \{ timeZone: 'Asia\/Kamchatka' \}\)/);
   });
 });
+
+/**
+ * Места у вулкана — поимённая привязка (миграция 1029, «да» владельца 26.09).
+ * Проверено на PostgreSQL 16: «Скитур на Мутновский» жёлтый вслед за
+ * Мутновским, посторонняя точка зелёная, повторный прогон миграции — no-op.
+ */
+describe('место у вулкана получает его уровень', () => {
+  const MIG = read('migrations/1029_place_volcano_links.sql');
+
+  it('статус спрашивает шкалы и своего вулкана, и привязанного', () => {
+    expect(FN).toMatch(/volc_arks AS \(/);
+    expect(FN).toMatch(/JOIN place_volcano_links l ON l\.place_id = p\.id::text/);
+    expect(FN).toMatch(/FROM volc_arks va\s+GROUP BY va\.lrs_id/);
+  });
+
+  it('радиуса в правиле нет — числа с источником у вулканологов не нашлось', () => {
+    expect(FN).not.toMatch(/radius|радиус_км|distanceKm/);
+  });
+
+  it('миграция кладёт привязку, только если совпали и id, и название — и причину словами', () => {
+    expect(MIG).toMatch(/JOIN places p ON p\.id::text = w\.place_id AND p\.name = w\.place_name/);
+    expect(MIG).toMatch(/JOIN places v ON v\.id::text = w\.volcano_place_id AND v\.name = w\.volcano_name/);
+    expect(MIG).toMatch(/reason\s+TEXT NOT NULL CHECK \(length\(trim\(reason\)\) > 0\)/);
+    expect(MIG).toMatch(/ON CONFLICT \(place_id, volcano_place_id\) DO NOTHING/);
+  });
+
+  it('Кузьмич называет вулкан, по которому поднят статус места', () => {
+    const g = read('lib/kuzmich/guardian-context.ts');
+    expect(g).toContain('AS linked_volcanoes');
+    expect(g).toContain('Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС.');
+  });
+});

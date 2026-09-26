@@ -34,6 +34,7 @@ interface GuardianPlaceRow {
   kfegs_raw: string | null;
   kfegs_seismicity: string | null;
   kfegs_date: string | null;
+  linked_volcanoes: string | null;
 }
 
 /** Наблюдённый ACC вулкана (unassigned/отсутствие → null — без ложного «спокоен»). */
@@ -226,7 +227,14 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
          kb.color               AS kfegs_color,
          kb.color_raw           AS kfegs_raw,
          kb.seismicity          AS kfegs_seismicity,
-         kb.observed_date::text AS kfegs_date
+         kb.observed_date::text AS kfegs_date,
+         -- Вулкан, к которому место привязано поимённо (1029): статус места
+         -- поднят по его шкалам, и сказать это надо словами, иначе жёлтый у
+         -- водопада читается как сбой.
+         (SELECT string_agg(v.name, ', ' ORDER BY v.name)
+            FROM place_volcano_links l
+            JOIN places v ON v.id::text = l.volcano_place_id
+           WHERE l.place_id = p.id::text) AS linked_volcanoes
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
@@ -304,6 +312,9 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       ? `${nameWithKind} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
       : nameWithKind;
     parts.push(header);
+    if (p.linked_volcanoes) {
+      parts.push(`Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС.`);
+    }
 
     if (gradeNameMatch(placeName, p.name) === 'low') {
       // Слабое совпадение по названию (в т.ч. из-за русской морфологии —

@@ -352,6 +352,23 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         FROM dedup
         GROUP BY lrs_id
       ),
+      volc_arks AS (
+        -- Чьи вулканические шкалы спрашивать у точки: её собственные (сама
+        -- точка — вулкан) и вулкана, к которому она привязана поимённо
+        -- (place_volcano_links, миграция 1029, решение владельца 26.09:
+        -- «Скитур на Мутновский» зелёный при жёлтом Мутновском). Радиуса
+        -- здесь нет намеренно: числа у вулканологов в открытых источниках
+        -- не нашлось, а придуманное число — выдумка (§4.0).
+        SELECT lrs.id AS lrs_id, lrs.agent_route_id AS ark
+          FROM location_real_time_status lrs
+        UNION
+        SELECT lrs.id, v.ark_id
+          FROM location_real_time_status lrs
+          JOIN places p ON p.ark_id = lrs.agent_route_id
+          JOIN place_volcano_links l ON l.place_id = p.id::text
+          JOIN places v ON v.id::text = l.volcano_place_id
+         WHERE v.ark_id IS NOT NULL
+      ),
       volc AS (
         -- ВУЛКАНИЧЕСКИЙ УРОВЕНЬ ТОЧКИ (26.09). До этого статус считался
         -- только по алертам и загрузке, и Шивелуч под KVERT ОРАНЖЕВЫМ (пепел
@@ -365,26 +382,27 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         -- старше kfegsIsFresh — это «не знаем», а не «спокойно» и не
         -- «опасно» (§4.0); о давности говорят сами строки шкал.
         SELECT
-          lrs.id AS lrs_id,
-          GREATEST(
+          va.lrs_id,
+          MAX(GREATEST(
             COALESCE((
               SELECT MAX(CASE vs.aviation_color_code
                            WHEN 'red' THEN 2 WHEN 'orange' THEN 2 WHEN 'yellow' THEN 1 ELSE 0 END)
                 FROM volcano_status vs
-               WHERE vs.place_ark_id = lrs.agent_route_id
+               WHERE vs.place_ark_id = va.ark
                  AND vs.observed_at > NOW() - INTERVAL '1 day' * $1::int
             ), 0),
             COALESCE((
               SELECT CASE b.color
                        WHEN 'red' THEN 2 WHEN 'orange' THEN 2 WHEN 'yellow' THEN 1 ELSE 0 END
                 FROM volcano_bulletin_kfegs b
-               WHERE b.place_ark_id = lrs.agent_route_id
+               WHERE b.place_ark_id = va.ark
                  AND (b.observed_date::timestamp AT TIME ZONE 'UTC') >= NOW() - INTERVAL '1 day' * $2::int
                ORDER BY b.observed_date DESC
                LIMIT 1
             ), 0)
-          ) AS level
-        FROM location_real_time_status lrs
+          )) AS level
+        FROM volc_arks va
+        GROUP BY va.lrs_id
       )
       UPDATE location_real_time_status lrs
       SET
