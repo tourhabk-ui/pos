@@ -1,20 +1,21 @@
 {
-  "note": "26.09, прогон 606. ТОЛЬКО ЧТЕНИЕ. Issue #2064: kamgov.ru закрыт и для раннера (403, проба 605). Ищем, откуда ещё читать сводку Минтура: kamtoday.ru (там её нашёл дайджест) — открывается ли раннеру, есть ли RSS и видны ли публикации Минтуризма.",
-  "run": 606,
+  "note": "26.09, прогон 607. ТОЛЬКО ЧТЕНИЕ. Issue #2064, решение владельца: сводку Минтура брать с kamtoday.ru. Смотрим образцы: как в RSS выглядит анонс сводки и как размечен текст статьи (где пункты «закрыт», «не рекомендуется»).",
+  "run": 607,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 200,
+  "bytes": 100,
   "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
-  "grep": ["<rss", "<item>", "Минтуризма"],
-  "count": ["<item>", "Минтуризма", "не рекомендуется"],
-  "around": ["Минтуризма"],
-  "aroundLines": 0,
-  "aroundHits": 6,
+  "grep": ["оперативн", "доступност", "detail-text", "itemprop=\"articleBody\"", "news-detail"],
+  "count": ["не рекомендуется", "закрыт", "<p>"],
+  "around": ["не рекомендуется", "articleBody", "detail-text", "<title>", "<item>"],
+  "aroundBefore": 1,
+  "aroundLines": 3,
+  "aroundHits": 4,
   "urls": [
-    "https://kamtoday.ru/rss/",
-    "https://kamtoday.ru/news/poluostrov/",
-    "https://kamtoday.ru/search/?q=%D0%9C%D0%B8%D0%BD%D1%82%D1%83%D1%80%D0%B8%D0%B7%D0%BC%D0%B0"
+    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-predupredilo-o-zakrytykh-marshrutakh-i-opasnosti-na-vulkanakh/",
+    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/",
+    "https://kamtoday.ru/rss/"
   ]
 }
