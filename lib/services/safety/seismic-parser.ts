@@ -706,12 +706,20 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     });
 
     const result = await query(
+      // volcano_name — имя вулкана, как его назвал источник (миграция 1044).
+      // До 27.09 оно терялось при записи: разобранное событие KVERT его
+      // несло, а колонки не было, и вулканическое предупреждение оставалось
+      // только с ЗОНОЙ. Северная зона — это Шивелуч, Ключевской, Безымянный,
+      // Толбачик разом, и одно извержение красило их все: замер с прода
+      // 27.09 показал Ключевской [КРАСНЫЙ] с алертом про пепел Шивелуча при
+      // собственном жёлтом KVERT. Точку каталога по этому имени находит
+      // проход привязки в safety-ingest — здесь только факт источника.
       `INSERT INTO external_alerts (
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at,
         source_url, external_id,
-        magnitude, lat, lng
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        magnitude, lat, lng, volcano_name
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
       [
@@ -727,6 +735,7 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
         event.magnitude ?? null,
         event.lat ?? null,
         event.lng ?? null,
+        event.volcano_name ?? null,
       ]
     );
 

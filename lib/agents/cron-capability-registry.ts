@@ -39,6 +39,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'abandoned-bookings': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'ai-channel-check': ['net_out', 'telegram', 'pd_direct'],
   'ai-models': ['db_read', 'db_write', 'net_out', 'ai'],
+  'alert-scope-census': ['db_read'],
   'alerts-census': ['db_read', 'db_write', 'net_out'],
   'anthropic-path-probe': ['net_out'],
   'backfill-partner-profile': ['db_read', 'db_write'],
