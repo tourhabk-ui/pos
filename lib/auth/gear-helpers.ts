@@ -4,6 +4,7 @@
  */
 
 import { query } from '@/lib/database';
+import { publicGearSql } from '@/lib/gear/moderation';
 
 /**
  * Get partner ID for a gear rental user
@@ -77,40 +78,6 @@ export async function getGearPartnerByUserId(userId: string): Promise<Record<str
 /**
  * Create gear partner record for user if doesn't exist
  */
-export async function ensureGearPartnerExists(userId: string, userName: string, userEmail: string): Promise<string> {
-  try {
-    // Check if partner exists
-    const existing = await query(
-      `SELECT id FROM partners WHERE user_id = $1 AND category = 'gear' LIMIT 1`,
-      [userId]
-    );
-    
-    if (existing.rows.length > 0) {
-      return existing.rows[0].id as string;
-    }
-    
-    // Create new partner record
-    const result = await query(
-      `INSERT INTO partners (user_id, name, category, contact, is_verified, rating, review_count)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        userId,
-        userName,
-        'gear',
-        JSON.stringify({ email: userEmail, phone: '' }),
-        false,
-        0.0,
-        0
-      ]
-    );
-    
-    return result.rows[0].id as string;
-  } catch (error) {
-    throw error;
-  }
-}
-
 /**
  * Verify user owns a gear item
  */
@@ -296,7 +263,7 @@ export async function findAvailableGear(
         p.rating as partner_rating
       FROM gear_items gi
       JOIN partners p ON gi.partner_id = p.id
-      WHERE gi.is_active = true
+      WHERE ${publicGearSql('gi')}
         AND gi.available_quantity > 0
     `;
     

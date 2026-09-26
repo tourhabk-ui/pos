@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { getGearPartnerByUserId, ensureGearPartnerExists, getGearStats } from '@/lib/auth/gear-helpers';
+import { getGearPartnerByUserId, getGearStats } from '@/lib/auth/gear-helpers';
 import { requireAuth } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
@@ -37,10 +37,22 @@ export async function GET(request: NextRequest) {
 
     const user = userResult.rows[0];
 
-    let partner = await getGearPartnerByUserId(userId);
+    /**
+     * Профиль прокатчика здесь НЕ создаётся (решение владельца 26.09).
+     *
+     * До этого дня GET заводил партнёра `category='gear'` любому вошедшему —
+     * то есть читающий запрос выдавал роль и писал в базу. Дальше
+     * `POST /api/gear/items` пропускал: профиль-то уже есть.
+     *
+     * Профиль заводит регистрация партнёра или администратор. Нет профиля —
+     * честный 404 с объяснением, а не тихое превращение туриста в прокатчика.
+     */
+    const partner = await getGearPartnerByUserId(userId);
     if (!partner) {
-      const partnerId = await ensureGearPartnerExists(userId, user.name, user.email);
-      partner = await getGearPartnerByUserId(userId);
+      return NextResponse.json({
+        success: false,
+        error: 'Профиль прокатчика не найден. Зарегистрируйтесь как партнёр или напишите в поддержку',
+      } as ApiResponse<null>, { status: 404 });
     }
 
     const stats = await getGearStats(userId);
@@ -91,11 +103,13 @@ export async function PUT(request: NextRequest) {
       await query('UPDATE users SET name = $1 WHERE id = $2', [name, userId]);
     }
 
-    let partner = await getGearPartnerByUserId(userId);
+    // Тот же довод, что в GET: правка профиля не заводит роль.
+    const partner = await getGearPartnerByUserId(userId);
     if (!partner) {
-      const userResult = await query<{ name: string; email: string }>('SELECT name, email FROM users WHERE id = $1', [userId]);
-      await ensureGearPartnerExists(userId, userResult.rows[0].name, userResult.rows[0].email);
-      partner = await getGearPartnerByUserId(userId);
+      return NextResponse.json({
+        success: false,
+        error: 'Профиль прокатчика не найден. Зарегистрируйтесь как партнёр или напишите в поддержку',
+      } as ApiResponse<null>, { status: 404 });
     }
 
     const updateFields = [];
