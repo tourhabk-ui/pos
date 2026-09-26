@@ -1,12 +1,15 @@
 {
-  "note": "26.09, прогон 598. ТОЛЬКО ЧТЕНИЕ. Наследование уровня вулкана местами на маршруте: какие маршруты ведут к Мутновскому и есть ли на них «Скитур» и «Смотровая (точка А)» путевыми точками.",
-  "run": 598,
+  "note": "26.09, прогон 599. ТОЛЬКО ЧТЕНИЕ. Путевые точки маршрутов к Мутновскому (род связи): кто на маршруте к вулкану.",
+  "run": 599,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 12000,
+  "bytes": 14000,
   "urls": [
-    "https://vedarai.ru/api/routes/search?q=%D0%9C%D1%83%D1%82%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9"
+    "https://vedarai.ru/api/routes/874283be-6572-40c6-ac4e-7210f090b7a1",
+    "https://vedarai.ru/api/routes/6bcc46a1-7d82-40a6-a286-e236039c10b5",
+    "https://vedarai.ru/api/routes/206a94d3-3cc2-4c89-b5b0-25ad844fe1d6",
+    "https://vedarai.ru/api/routes/a8078ea8-8278-4f38-a4ed-7be10055cffc"
   ]
 }
