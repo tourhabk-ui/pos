@@ -594,7 +594,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               не можем. */}
           {safety.alerts.length > 0 && (
             <div className="alerts-now" role="region" aria-label="Действующие предупреждения">
-              {/* Бегущая лента на 4 строки (владелец 26.09: «блок безопасности
+              {/* Бегущая лента, окно на две новости целиком (владелец 26.09,
+                  вечер: «новость целиком, поднималась наверх, в 2 строчки»).
+                  Прежде — 4 строки с обрезкой (владелец 26.09: «блок безопасности
                   был интерактивный, новости снизу вверх писались; уменьши, пусть
                   он будет 4 строчки, но интерактивные — развернуть и свернуть»).
                   Та же лента, что на /safety, а не вторая копия: у копий уже
@@ -603,10 +605,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   описаниями. Стоит при prefers-reduced-motion. */}
               <div className="kh-live">
                 <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
-                <AlertsTicker alerts={safety.alerts} lines={4} />
+                <AlertsTicker alerts={safety.alerts} lines={2} />
               </div>
               <Link className="an-go" href="/safety">
-                {safety.alerts.length > 4
+                {safety.alerts.length > 2
                   ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
                   : 'Подробности →'}
               </Link>

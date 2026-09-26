@@ -503,9 +503,9 @@ interface PulseQuake { magnitude: number; place: string; time: number; depth: nu
  * блока уже расходились (подписи, пороги цвета).
  *
  * `lines` — компактный режим главной (владелец 26.09: «блок безопасности был
- * интерактивный, новости снизу вверх писались; уменьши, пусть он будет 4
- * строчки, но интерактивные — развернуть и свернуть»): окно ровно на `lines`
- * строк, предупреждение в строку, описание — только в развёрнутом. Раскрывашка
+ * интерактивный, новости снизу вверх писались; уменьши, но интерактивные —
+ * развернуть и свернуть»; вечером: «новость целиком, в 2 строчки»): окно на
+ * `lines` новостей, заголовок целиком, дата и описание — в развёрнутом. Раскрывашка
  * есть всегда, даже когда лента стоит: в строку не влезает деталь, ради которой
  * и разворачивают.
  */
@@ -782,18 +782,20 @@ export const LIVE_STATUS_CSS = `
    Полный текст — в раскрытом состоянии (тап), как и было. */
 .kh-live .ticker.scroll:not(.open) .adesc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 8px)}
 .kh-live .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--text-muted);white-space:nowrap}
-/* Компактная лента главной: строка фиксированной высоты, предупреждение в
-   одну строку, описание только в развёрнутой. Окно — ровно --tk-rows строк;
-   справа место под раскрывашку, чтобы шеврон не ложился на текст. */
-.kh-live .ticker.compact:not(.open) .alerts li{height:32px;padding:0;align-items:center;padding-right:40px}
-.kh-live .ticker.compact:not(.open) .alerts .atx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.kh-live .ticker.compact:not(.open) .alerts .adesc{display:none}
-.kh-live .ticker.compact.scroll:not(.open){height:calc(var(--tk-rows) * 32px)}
+/* Компактная лента главной (владелец 26.09, вечер: «новость целиком и
+   поднималась наверх, в 2 строчки для экономии места»): заголовок целиком,
+   без обрезки многоточием; окно — на --tk-rows новостей по две строки
+   текста; дата и описание — только в развёрнутой ленте, в свёрнутой они
+   отнимали ширину у самой новости. Справа место под раскрывашку. */
+.kh-live .ticker.compact:not(.open) .alerts li{padding:6px 40px 6px 0;align-items:flex-start}
+.kh-live .ticker.compact:not(.open) .alerts li i{align-self:flex-start;margin-top:6px}
+.kh-live .ticker.compact:not(.open) .alerts .adesc,.kh-live .ticker.compact:not(.open) .alerts .ago{display:none}
+.kh-live .ticker.compact.scroll:not(.open){height:calc(var(--tk-rows) * 46px)}
 .kh-live .ticker.compact:not(.scroll) .ticker-toggle:not(.open){bottom:auto;top:-6px}
 @media (prefers-reduced-motion:reduce){.kh-live .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.kh-live .ticker.scroll .ticker-track{animation:none}}
 /* Без анимации окно компактной ленты остаётся на --tk-rows строк: остальное —
    раскрывашкой, а не простынёй из двадцати строк на главной. */
-@media (prefers-reduced-motion:reduce){.kh-live .ticker.compact.scroll:not(.open){height:calc(var(--tk-rows) * 32px)}}
+@media (prefers-reduced-motion:reduce){.kh-live .ticker.compact.scroll:not(.open){height:calc(var(--tk-rows) * 46px)}}
 .kh-live .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);font:400 8.5px/1.4 var(--fm);color:var(--text-muted)}
 .kh-live .pulse{margin-top:12px;border:1px solid var(--border);border-radius:14px;padding:13px 14px;background:color-mix(in srgb,var(--bg-hover) 45%,transparent)}
 .kh-live .pulse .phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}

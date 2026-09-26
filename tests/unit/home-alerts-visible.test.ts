@@ -71,15 +71,15 @@ describe('важность видна цветом по правилу плат�
  * возможностью развернуть и свернуть». Сменило решение 25.09 («на 3 строчки,
  * с раскрытием каждой строки»).
  */
-describe('лента на главной: 4 строки, бежит снизу вверх, разворачивается', () => {
-  it('главная просит компактную ленту на четыре строки', () => {
-    expect(HOME).toMatch(/<AlertsTicker alerts=\{safety\.alerts\} lines=\{4\} \/>/);
+describe('лента на главной: две новости целиком, бежит снизу вверх, разворачивается', () => {
+  it('главная просит окно на две новости (владелец 26.09, вечер)', () => {
+    expect(HOME).toMatch(/<AlertsTicker alerts=\{safety\.alerts\} lines=\{2\} \/>/);
   });
 
-  it('свёрнутое окно — ровно lines строк, предупреждение в строку, описание спрятано', () => {
-    expect(LIVE).toMatch(/\.ticker\.compact\.scroll:not\(\.open\)\{height:calc\(var\(--tk-rows\) \* 32px\)\}/);
-    expect(LIVE).toMatch(/\.ticker\.compact:not\(\.open\) \.alerts \.atx\{white-space:nowrap/);
-    expect(LIVE).toMatch(/\.ticker\.compact:not\(\.open\) \.alerts \.adesc\{display:none\}/);
+  it('новость целиком: без обрезки многоточием; дата и описание — только в развёрнутой', () => {
+    expect(LIVE).toMatch(/\.ticker\.compact\.scroll:not\(\.open\)\{height:calc\(var\(--tk-rows\) \* 46px\)\}/);
+    expect(LIVE).not.toMatch(/\.ticker\.compact:not\(\.open\) \.alerts \.atx\{white-space:nowrap/);
+    expect(LIVE).toMatch(/\.ticker\.compact:not\(\.open\) \.alerts \.adesc,\.kh-live \.ticker\.compact:not\(\.open\) \.alerts \.ago\{display:none\}/);
   });
 
   it('бег снизу вверх — только в свёрнутой длинной ленте', () => {
