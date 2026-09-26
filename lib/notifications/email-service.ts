@@ -3,7 +3,7 @@
  * Использует Nodemailer для SMTP
  */
 
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { stripTags } from '@/lib/html/text';
 
@@ -48,7 +48,7 @@ export interface BookingConfirmationData {
 }
 
 class EmailService {
-  private transporter: nodemailer.Transporter | null = null;
+  private transporter: Transporter | null = null;
 
   private initTransporter() {
     if (this.transporter) return this.transporter;

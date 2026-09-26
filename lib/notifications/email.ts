@@ -5,7 +5,7 @@
 
 import { escapeHtml as e, telHref, safeSubject } from '@/lib/text/escape-html';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 
 interface EmailMessage {
   to: string | string[];
@@ -26,7 +26,7 @@ interface EmailResponse {
 }
 
 export class EmailNotificationService {
-  private transporter: nodemailer.Transporter;
+  private transporter: Transporter;
   /**
    * Имена незаданных переменных — не значения. Пусто = почта настроена.
    *
