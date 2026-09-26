@@ -56,10 +56,9 @@ describe('при схлопывании ничего не потерялось',
     expect(CODE).toMatch(/ELEMENT_ICON/);
   });
 
-  it('разделы платформы на месте', () => {
-    expect(CODE).toMatch(/className="hubline"/);
-    expect(CODE).toMatch(/href="\/gear"/);
-    expect(CODE).toMatch(/href="\/accommodations"/);
+  it('ряда разделов внизу нет (владелец 26.09: «подвал не то и не работает, убрать»)', () => {
+    expect(CODE).not.toMatch(/className="hubline"/);
+    expect(SRC).not.toMatch(/\.v7 \.hubline/);
   });
 
   it('лид-форма и её POST не тронуты, якорь #lead жив', () => {
