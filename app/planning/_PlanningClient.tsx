@@ -8,7 +8,7 @@ import {
   Check, ChevronRight, ChevronUp, ChevronDown, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search, Plus,
+  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search, Plus, Home,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -5842,7 +5842,17 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
       {/* Tab bar */}
       <div ref={tabBarRef} className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
         style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
-        <div className="max-w-2xl mx-auto px-4 flex gap-0">
+        <div className={`max-w-2xl mx-auto flex gap-0 ${tab === 'trail' ? 'pl-1 pr-4' : 'px-4'}`}>
+          {/* Домой (владелец 26.09: «маленький косячок — нет домой»). На
+              «На маршруте» нет ни общей шапки, ни нижнего меню — выйти с
+              экрана было некуда, кроме кнопки браузера. Цель 44 px. */}
+          {tab === 'trail' && (
+            <Link href="/" aria-label="На главную" title="На главную"
+              className="self-center shrink-0 flex items-center justify-center rounded-lg transition-colors duration-200"
+              style={{ width: 44, height: 44, color: 'var(--text-secondary)' }}>
+              <Home className="w-5 h-5" />
+            </Link>
+          )}
           <button
             onClick={() => switchTab('planning')}
             className={`flex items-center gap-2 px-3 min-[440px]:px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${

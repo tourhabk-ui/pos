@@ -62,3 +62,10 @@ describe('свёрнутый лист — цифра и «+»', () => {
     expect(SCREEN).toMatch(/\{\(fieldBarError \?\? saveMapError\) && !actionsOpen && \(/);
   });
 });
+
+describe('с экрана «На маршруте» есть выход домой (владелец 26.09)', () => {
+  it('в полосе вкладок — ссылка на главную, 44 px', () => {
+    expect(SCREEN).toMatch(/\{tab === 'trail' && \(\s*<Link href="\/" aria-label="На главную"/);
+    expect(SCREEN).toMatch(/style=\{\{ width: 44, height: 44, color: 'var\(--text-secondary\)' \}\}/);
+  });
+});
