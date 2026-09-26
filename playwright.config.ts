@@ -5,6 +5,9 @@ import { defineConfig, devices } from '@playwright/test';
 // Без BASE_URL или на localhost — как раньше: playwright сам стартует `npm run dev`.
 const baseURL = process.env.BASE_URL || 'http://localhost:3000';
 const isRemoteTarget = !!process.env.BASE_URL && !/localhost|127\.0\.0\.1/.test(process.env.BASE_URL);
+// E2E_EXTERNAL_SERVER=1 — сервер уже поднят рядом (CI: `next start` после сборки
+// в job `ci`), свой dev-сервер не запускаем, даже если адрес локальный.
+const serverIsExternal = isRemoteTarget || process.env.E2E_EXTERNAL_SERVER === '1';
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -43,7 +46,7 @@ export default defineConfig({
     },
   ],
 
-  webServer: isRemoteTarget
+  webServer: serverIsExternal
     ? undefined
     : {
         command: 'npm run dev',
