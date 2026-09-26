@@ -50,7 +50,7 @@ describe('get_place_info', () => {
   it('при нескольких совпадениях первой идёт запись с кратчайшим именем', () => {
     // То же правило, что у стража: «Шивелуч» вперёд «Каньона на Шивелуче».
     // Без ORDER BY порядок задаёт план запроса, то есть случай.
-    expect(placeInfoSql()).toMatch(/ORDER BY char_length\(name\) ASC/);
+    expect(placeInfoSql()).toMatch(/ORDER BY char_length\((p\.)?name\) ASC/);
   });
 });
 
