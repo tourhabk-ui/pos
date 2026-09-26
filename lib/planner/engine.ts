@@ -851,6 +851,10 @@ interface DayPlanResult {
   overLimit: string[];
   /** Как исполнены стиль и дни отдыха; пусто, если просьбы не было. */
   preferenceNotes: PreferenceNote[];
+  /** Маршруты, не поставленные днём «сам», — с причиной (любой стиль). */
+  selfSkipped: string[];
+  /** Проверка безопасности мест не выполнилась хотя бы раз. */
+  selfSafetyUnchecked: boolean;
 }
 
 /** День отдыха по просьбе человека (не автоматический после тяжёлого дня). */
@@ -880,7 +884,7 @@ async function generateDayPlans(
   catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [] };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -911,7 +915,7 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [] };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
 
   // ── Active days budget ──
   const departureDays = 1;
@@ -1039,17 +1043,20 @@ async function generateDayPlans(
       realTours = [...fits, ...tight];
     }
 
-    // Кандидатов в самостоятельный день в «Сам» и «С оператором» берём с
-    // запасом: часть отсеет проверка безопасности ниже.
-    const routeSpare = style === 'mixed' ? 2 : 6;
+    // Кандидатов в самостоятельный день берём с запасом: часть отсеет
+    // проверка безопасности ниже.
+    const routeSpare = 6;
     const routesOrNull = realTours.length >= block.activeDays
       ? []
       : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + routeSpare);
     let dbRoutes = routesOrNull ?? [];
 
     // Самостоятельный день ставится только там, где наши данные это
-    // позволяют (lib/planner/travel-style). В «Вперемешку» — прежний движок.
-    if (style !== 'mixed' && dbRoutes.length > 0) {
+    // позволяют (lib/planner/travel-style) — в любом стиле. До 26.09
+    // «Вперемешку» (и план без выбора: Кузьмич, MCP) ставил днём «сам»
+    // маршрут с обязательной регистрацией МЧС; решение владельца — та же
+    // проверка, что у «Сам». Туры операторов она не трогает.
+    if (dbRoutes.length > 0) {
       const activityReason = activitySelfBlocker(primaryInterest);
       const safety = activityReason ? new Map() : await fetchSelfSafety(dbRoutes.map((r) => r.id), cache);
       if (safety === null) selfSafetyUnchecked = true;
@@ -1169,6 +1176,12 @@ async function generateDayPlans(
       // «С оператором», а тура на день нет — говорим на самом дне, а не
       // подменяем молча самостоятельным выходом.
       if (style === 'operator' && !realTour) dayWarnings.unshift(NO_OPERATOR_TOUR_NOTE);
+      // Общий день (ни тура, ни маршрута) по активности, куда без гида
+      // нельзя, — не приглашение идти самому: говорим это на самом дне.
+      if (style === 'mixed' && !realTour && !route) {
+        const guideOnly = activitySelfBlocker(interest);
+        if (guideOnly) dayWarnings.unshift(`Только с гидом: ${guideOnly}. Ищите тур оператора.`);
+      }
 
       // Health compatibility check
       const healthCheck = assessHealthCompatibility(
@@ -1433,7 +1446,10 @@ async function generateDayPlans(
     selfBlockedActivities, selfSkipped, selfSafetyUnchecked, noSlotTours,
   });
 
-  return { days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes };
+  return {
+    days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes,
+    selfSkipped: [...selfSkipped], selfSafetyUnchecked,
+  };
 }
 
 /** Короткий список: до трёх пунктов и «ещё N». */
@@ -1704,7 +1720,27 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+
+  // «Вперемешку» и план без выбора стиля (Кузьмич, MCP): что не поставлено
+  // самостоятельным днём и почему — предупреждением, которое доходит до
+  // всех поверхностей. У «Сам» и «С оператором» это говорят заметки
+  // пожеланий, второй раз не повторяем.
+  if ((profile.travelStyle ?? 'mixed') === 'mixed') {
+    if (selfSafetyUnchecked) {
+      warnings.push({
+        type: 'safety', severity: 'important',
+        message: 'Не удалось проверить безопасность мест — самостоятельные выходы по ним в план не ставили. Попробуйте собрать маршрут ещё раз.',
+      });
+    } else if (selfSkipped.length > 0) {
+      warnings.push({
+        type: 'safety', severity: 'important',
+        message: `Без гида не ставим: ${selfSkipped.slice(0, 3).join('; ')}`
+          + (selfSkipped.length > 3 ? ` и ещё ${selfSkipped.length - 3}` : '')
+          + '. Туда — только с оператором.',
+      });
+    }
+  }
 
   // Место не предложено из-за природоохранного лимита — говорим, какое и
   // чья норма. Молча подменить место другим значило бы спрятать причину.

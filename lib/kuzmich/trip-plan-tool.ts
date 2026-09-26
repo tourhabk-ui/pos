@@ -19,6 +19,28 @@ import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
 // клиент планировщика, а сюда тянется `pool` (см. шапку interest-words).
 import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
+import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
+import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
+
+/**
+ * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
+ * русские слова («сам», «с гидом», «вперемешку»). Не понял — undefined, то
+ * есть «вперемешку», как без поля: выдумать выбор туриста нельзя.
+ */
+export function readTravelStyle(raw: string | undefined): TravelStyle | undefined {
+  const t = (raw ?? '').trim().toLowerCase();
+  if (!t) return undefined;
+  if (t === 'self' || t === 'operator' || t === 'mixed') return t;
+  return parseTravelPreferences(t).travelStyle ?? undefined;
+}
+
+/** Дни отдыха: целое 0..MAX_REST_DAYS, иначе поля нет. */
+export function readRestDays(raw: string | undefined): number | undefined {
+  const t = (raw ?? '').trim();
+  if (!/^\d{1,2}$/.test(t)) return undefined;
+  const n = Number(t);
+  return n <= MAX_REST_DAYS ? n : undefined;
+}
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -281,7 +303,7 @@ export function formatTripPlanForChat(
 
 /** Обработчик инструмента: собрать план и отдать текст с ссылками. */
 export async function makeTripPlanForKuzmich(
-  args: { days?: string; interests?: string; when?: string },
+  args: { days?: string; interests?: string; when?: string; travel_style?: string; rest_days?: string },
 ): Promise<string> {
   const daysNum = Math.min(21, Math.max(3, Number(args.days) || 7));
   const interests = parseChatInterests(args.interests ?? '');
@@ -299,6 +321,8 @@ export async function makeTripPlanForKuzmich(
     fitnessLevel: 'moderate',
     budgetTier: 'comfort',
     riskMode: 'safe_only',
+    travelStyle: readTravelStyle(args.travel_style),
+    restDays: readRestDays(args.rest_days),
   });
 
   const month = arrival.getUTCMonth() + 1;
@@ -306,7 +330,12 @@ export async function makeTripPlanForKuzmich(
 
   const text = formatTripPlanForChat(
     rec.days,
-    rec.warnings.filter((w) => w.severity !== 'info').map((w) => w.message),
+    [
+      // Что вышло из просьбы «как ехать / дни отдыха» — первым: турист об
+      // этом просил, и частичное исполнение не должно читаться как полное.
+      ...(rec.preferences?.notes ?? []).filter((n) => n.status !== 'honoured').map((n) => n.message),
+      ...rec.warnings.filter((w) => w.severity !== 'info').map((w) => w.message),
+    ],
     matchPreset(daysNum, interests),
     { refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor },
   );
