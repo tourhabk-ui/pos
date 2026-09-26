@@ -1,18 +1,12 @@
 {
-  "note": "26.09, прогон 597. ТОЛЬКО ЧТЕНИЕ. Зона опасности у вулканов, второй заход: KVERT на новом домене (с 01.08 kvert.febras.net), новости МЧС края.",
-  "run": 597,
+  "note": "26.09, прогон 598. ТОЛЬКО ЧТЕНИЕ. Наследование уровня вулкана местами на маршруте: какие маршруты ведут к Мутновскому и есть ли на них «Скитур» и «Смотровая (точка А)» путевыми точками.",
+  "run": 598,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 800,
-  "around": ["км от", "не приближ", "радиус", "ближе", "km from", "radius", "zone", "hazard"],
-  "aroundLines": 2,
-  "aroundHits": 15,
+  "bytes": 12000,
   "urls": [
-    "https://kvert.febras.net/",
-    "https://kvert.febras.net/van/index.php?type=3",
-    "https://41.mchs.gov.ru/deyatelnost/press-centr/novosti",
-    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/pravila_bezopasnosti/"
+    "https://vedarai.ru/api/routes/search?q=%D0%9C%D1%83%D1%82%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9"
   ]
 }
