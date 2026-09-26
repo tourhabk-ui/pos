@@ -90,6 +90,8 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
           // СТРОКУ внутри плитки высотой ровно TAP. Было — плитка TAP+8 и
           // подпись под ней, ~80 px; стало 56. Цель под перчатку не меньше
           // TAP ни в каком виде: экономия за счёт раскладки, не за счёт пальца.
+          // Иконка в строке — 20 px, зазор 4 px: при 24 px и 6 px «Наблюдение»
+          // резалось до «Наблюд…» на телефоне шириной 410 px (скрин 26.09).
           if (compact) {
             return (
               <button
@@ -98,7 +100,7 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
                 disabled={a.busy}
                 aria-pressed={a.active ? true : undefined}
                 aria-label={a.label}
-                className="relative flex items-center justify-center gap-1.5 shrink-0 rounded-2xl px-1.5"
+                className="relative flex items-center justify-center gap-1 shrink-0 rounded-2xl px-1 [&_svg]:w-5 [&_svg]:h-5 [&_svg]:shrink-0"
                 style={{ ...tile, flex: '1 1 0', minWidth: 0, height: TAP }}
               >
                 {a.icon}
