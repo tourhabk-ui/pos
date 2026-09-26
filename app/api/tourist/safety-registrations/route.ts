@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
     [auth.userId],
     ));
   } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tourist/safety-registrations] отказ', { sqlstate: e?.code, message: e?.message });
     // Отказ — не «регистраций нет» (§4.0): экран обязан сказать, что не знает.
     console.error('[tourist/safety-registrations] не прочитано:', err);
     return NextResponse.json(

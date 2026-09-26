@@ -49,6 +49,8 @@ export async function GET(req: Request) {
       },
     });
   } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tourist/summary] отказ', { sqlstate: e?.code, message: e?.message });
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }

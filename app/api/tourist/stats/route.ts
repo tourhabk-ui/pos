@@ -38,7 +38,13 @@ export async function GET(request: NextRequest) {
 
     // Эко — из реестра, а не из tourist_profiles.loyalty_points: витрина
     // обязана показывать то же число, что кошелёк (/api/eco/wallet).
-    const ecoBalance = await getBalance(userId).catch(() => 0);
+    //
+    // Без своего catch намеренно. Пустой счёт реестр отдаёт нулём сам, а
+    // `.catch(() => 0)` накрывал ещё и НАСТОЯЩИЙ отказ базы: человек с живым
+    // балансом при обрыве соединения видел честный ноль вместо «не смогли
+    // посчитать» (§4.0). Отказ уходит в общий catch роута, который отвечает
+    // 500 — так же, как это уже сделано в /api/eco/wallet.
+    const ecoBalance = await getBalance(userId);
 
     return NextResponse.json({
       success: true,

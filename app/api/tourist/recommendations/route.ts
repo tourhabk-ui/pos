@@ -61,6 +61,8 @@ export async function GET(request: NextRequest) {
       meta: { cached: false, count: recommendations.length, category: category ?? null },
     });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[tourist/recommendations] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
       { success: false, error: 'Ошибка получения рекомендаций' },
       { status: 500 }
