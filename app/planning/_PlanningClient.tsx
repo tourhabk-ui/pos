@@ -818,6 +818,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
   /**
+   * Пересказ вердикта о ведении: что ответил сервер на `?explain=1`.
+   *
+   * `text` пуст, когда модель не ответила или её ответ не прошёл проверку —
+   * тогда на экране остаются сухие причины, и это не ошибка, а исход.
+   */
+  const [navExplain, setNavExplain] = useState<
+    { routeId: string; loading: boolean; text: string | null } | null
+  >(null);
+  /**
    * ПРОВЕРКА этого заявления делом: сколько тайлов коридора Cache Storage
    * отдаёт на самом деле. Запись в localStorage и тайлы в кэше живут
    * порознь, и система вправе вычистить второе, не тронув первое, — тогда
@@ -3154,6 +3163,44 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                           {preview.navigability.reasons.map((why, i) => (
                             <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>
                           ))}
+                          {/* Пересказ вердикта человеческим языком.
+                              Спрашивается по нажатию, а не сам: за ним идёт
+                              вызов модели, и платить им за каждое открытие
+                              карточки незачем. Решение при этом принято выше
+                              и от пересказа не зависит — сухие причины
+                              остаются на месте в любом случае. */}
+                          {navExplain?.routeId === preview.id && navExplain.text ? (
+                            <p className="text-xs mt-2 pt-2" style={{
+                              color: 'var(--text-secondary)',
+                              borderTop: '1px solid var(--border)',
+                            }}>{navExplain.text}</p>
+                          ) : navExplain?.routeId === preview.id && !navExplain.loading ? (
+                            <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                              Объяснить сейчас не вышло — причины выше остаются в силе
+                            </p>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={navExplain?.routeId === preview.id && navExplain.loading}
+                              onClick={() => {
+                                const routeId = preview.id;
+                                setNavExplain({ routeId, loading: true, text: null });
+                                fetch(`/api/routes/${routeId}?explain=1`)
+                                  .then(r => r.json())
+                                  .then((d: { data?: { navigabilityExplanation?: { text?: unknown } | null } }) => {
+                                    const t = d?.data?.navigabilityExplanation?.text;
+                                    setNavExplain({ routeId, loading: false, text: typeof t === 'string' ? t : null });
+                                  })
+                                  .catch(() => setNavExplain({ routeId, loading: false, text: null }));
+                              }}
+                              className="text-xs mt-2 underline underline-offset-2 disabled:opacity-60"
+                              style={{ color: 'var(--ocean)' }}
+                            >
+                              {navExplain?.routeId === preview.id && navExplain.loading
+                                ? 'Объясняю'
+                                : 'Что это значит'}
+                            </button>
+                          )}
                         </div>
                       )}
                       <div className="flex gap-2">
