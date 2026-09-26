@@ -35,3 +35,30 @@ describe('верхняя плашка поля — одна строка', () =>
     expect(SCREEN).toMatch(/mx-3 mt-1 rounded-xl px-3 py-1\.5 flex flex-col gap-1 text-\[12px\] leading-tight"\s*style=\{\{\s*background: 'var\(--bg-card\)'/);
   });
 });
+
+/**
+ * Шаг 2 (владелец 26.09, «как у основных навигаторов»): свёрнутый лист — одна
+ * строка с цифрой и кнопкой «+»; «Место / Трек / Наблюдение» — меню над
+ * листом. Развёрнутый лист показывает панель как прежде.
+ */
+describe('свёрнутый лист — цифра и «+»', () => {
+  it('панель под листом — только в развёрнутом', () => {
+    expect(SCREEN).toContain('{(hasRoute || isLoadingRoute) && sheetOpen && (');
+  });
+
+  it('«+» — 56 px под палец, идущая запись видна на самой кнопке', () => {
+    expect(SCREEN).toMatch(/onClick=\{\(\) => setActionsOpen\(o => !o\)\}/);
+    expect(SCREEN).toMatch(/width: 56, height: 56/);
+    expect(SCREEN).toMatch(/const running = collapsedActions\.find\(a => a\.active\)/);
+    expect(SCREEN).toMatch(/\{running\?\.hint && !actionsOpen && \(/);
+  });
+
+  it('меню — те же действия, выбор закрывает меню, отказ виден', () => {
+    expect(SCREEN).toMatch(/onPress: \(\) => \{ setActionsOpen\(false\); a\.onPress\(\); \}/);
+    expect(SCREEN).toContain('<FieldActionBar actions={collapsedActions} error={fieldBarError ?? saveMapError} />');
+  });
+
+  it('отказ действия виден и в свёрнутом листе, без меню', () => {
+    expect(SCREEN).toMatch(/\{\(fieldBarError \?\? saveMapError\) && !actionsOpen && \(/);
+  });
+});

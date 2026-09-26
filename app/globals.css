@@ -648,13 +648,21 @@ body {
    платят за красоту контрастом.
    prefers-reduced-transparency / отсутствие backdrop-filter → фолбэк на
    сплошной var(--bg-card): смысл и layout от эффекта не зависят. */
+/* Текст на стекле — свой цвет, меняющийся ВМЕСТЕ с подложкой (26.09): стекло
+   тёмное в обеих темах, а текст брал --text-primary светлой темы, и название
+   маршрута в строке поля было тёмным на тёмном (скрин владельца). В запасе
+   без размытия подложка — сплошной --bg-card, и там текст снова тематический. */
 .fx-glass {
+  --glass-fg: rgba(255, 255, 255, 0.94);
+  --glass-fg-muted: rgba(255, 255, 255, 0.72);
   background: rgba(0, 0, 0, 0.4);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 .fx-glass-dense {
+  --glass-fg: rgba(255, 255, 255, 0.94);
+  --glass-fg-muted: rgba(255, 255, 255, 0.72);
   background: rgba(0, 0, 0, 0.68);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
@@ -663,6 +671,8 @@ body {
 @media (prefers-reduced-transparency: reduce) {
   .fx-glass,
   .fx-glass-dense {
+    --glass-fg: var(--text-primary);
+    --glass-fg-muted: var(--text-secondary);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: var(--bg-card);
