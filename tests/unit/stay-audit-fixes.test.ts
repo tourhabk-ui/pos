@@ -60,7 +60,9 @@ describe('платёжный URL — от текущего запроса', () =
 
 describe('листинг: колонки с префиксом, JOIN не даёт ambiguous', () => {
   it('условия и сортировка — через a.', () => {
-    expect(LIST).toContain('a.is_active = true');
+    // Витрина — is_active И одобрение администратора (миграция 1027): одно
+    // условие из lib/stay/moderation, с префиксом a.
+    expect(LIST).toContain("publicAccommodationSql('a')");
     expect(LIST).toContain('a.name ILIKE');
     expect(LIST).toContain('a.rating >=');
     // Проверяется ПРЕФИКС, ради которого сторож и писался (без него JOIN

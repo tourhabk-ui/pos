@@ -17,6 +17,13 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...args: unknown[]) => poolQueryMock(...args) },
 }));
 
+// Хранилище «настроено» с публичной базой https://s3.example.com — адреса
+// под ней/uploads/ считаются нашими (lib/storage/own-upload-url).
+vi.mock('@/lib/storage/s3', () => ({
+  isS3Configured: true,
+  s3PublicBase: () => 'https://s3.example.com',
+}));
+
 const requireAuthMock = vi.fn();
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: (...args: unknown[]) => requireAuthMock(...args),
@@ -114,6 +121,40 @@ describe('POST /api/stay/accommodations/[id]/photos', () => {
       { params: Promise.resolve({ id: ACC_ID }) }
     );
     expect(bad.status).toBe(400);
+  });
+
+  it('чужой внешний адрес — 400, ничего не пишется (фото только из нашей загрузки)', async () => {
+    for (const url of [
+      'https://evil.example.org/uploads/x.jpg',
+      'https://s3.example.com.evil.org/uploads/x.jpg',
+      'https://s3.example.com/other/x.jpg',
+      'https://s3.example.com/uploads/x.svg',
+      '/uploads/../../etc/passwd',
+    ]) {
+      const res = await postPhoto(
+        jsonReq(`http://localhost/api/stay/accommodations/${ACC_ID}/photos`, 'POST', { url }),
+        { params: Promise.resolve({ id: ACC_ID }) }
+      );
+      expect(res.status, url).toBe(400);
+    }
+    expect(poolQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('MIME ассета — из нашего имени файла, а не из тела запроса', async () => {
+    poolQueryMock.mockImplementation((sql: string) => {
+      if (sql.includes('SELECT id FROM assets')) return Promise.resolve({ rows: [] });
+      if (sql.includes('INSERT INTO assets')) return Promise.resolve({ rows: [{ id: ASSET_ID }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const res = await postPhoto(
+      jsonReq(`http://localhost/api/stay/accommodations/${ACC_ID}/photos`, 'POST', {
+        url: 'https://s3.example.com/uploads/1-abc.png', mimeType: 'image/svg+xml',
+      }),
+      { params: Promise.resolve({ id: ACC_ID }) }
+    );
+    expect(res.status).toBe(201);
+    const insert = poolQueryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO assets'))!;
+    expect((insert[1] as unknown[])[1]).toBe('image/png');
   });
 
   it('чужой объект → 404, ничего не пишется', async () => {

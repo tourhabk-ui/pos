@@ -114,7 +114,7 @@ export default function PhotosClient({ accommodationId }: { accommodationId: str
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           multiple
           className="hidden"
           onChange={e => handleFiles(e.target.files)}

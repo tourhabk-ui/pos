@@ -38,6 +38,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 // Зоны и активности берутся из движка, а не переписываются здесь: свой
 // список разошёлся бы с тем, по которому движок действительно ищет, и
 // перепись отвечала бы про несуществующую платформу.
@@ -97,7 +98,7 @@ const DEFINITIONS: PlannerMaterialCensus['definitions'] = {
   routes:
     'agent_route_knowledge: zone и activity_type точно равны, is_visible, lat и lng не NULL',
   empty_pairs: 'пары, где и туров, и маршрутов ноль — день по ним собирается общим, без конкретики',
-  stays: 'accommodations: total — все строки, active — is_active = true (только их видят турист, Кузьмич и MCP), '
+  stays: 'accommodations: total — все строки, active — is_active и moderation_status = approved (только их видят турист, Кузьмич и MCP; миграция 1027), '
     + 'hidden — заведённые и невидимые. by_zone — location_zone как записан, без перевода в зоны движка',
   pairs_total: 'число рассмотренных пар: зоны движка × активности с сезонным окном',
 };
@@ -186,7 +187,7 @@ export async function GET(request: NextRequest) {
     const { rows } = await pool.query<{ zone: string | null; total: number; active: number }>(
       `SELECT location_zone AS zone,
               COUNT(*)::int                                AS total,
-              COUNT(*) FILTER (WHERE is_active = TRUE)::int AS active
+              COUNT(*) FILTER (WHERE ${publicAccommodationSql('')})::int AS active
          FROM accommodations
         GROUP BY 1`,
     );

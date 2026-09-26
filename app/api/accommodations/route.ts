@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { z } from 'zod';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 
 export const dynamic = 'force-dynamic';
 
@@ -138,7 +139,9 @@ export async function GET(request: NextRequest) {
     // джойнит partners, а у partners есть свои name/rating/is_verified —
     // без префикса фильтры search и rating_min падали «column reference
     // is ambiguous» (500 на живом каталоге).
-    const conditions: string[] = ['a.is_active = true'];
+    // Витрина — только одобренные администратором и не скрытые владельцем
+    // (решение владельца 26.09, миграция 1027).
+    const conditions: string[] = [publicAccommodationSql('a')];
     const params: unknown[] = [];
     let paramIndex = 1;
 

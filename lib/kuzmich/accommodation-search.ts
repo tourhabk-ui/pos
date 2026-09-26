@@ -4,10 +4,11 @@
  * Реализация инструмента Кузьмича search_accommodations. Вынесена в отдельный
  * модуль (как guardian-context / taaft-search) — executeTool подгружает её
  * лениво, а юнит-тест зовёт напрямую. Прямой параметризованный SELECT из
- * accommodations (master витрины жилья), только is_active.
+ * accommodations (master витрины жилья), только опубликованные (is_active и одобрены администратором, миграция 1027).
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export interface AccommodationSearchArgs {
@@ -29,7 +30,8 @@ interface AccommodationRow {
 const appBase = getPublicBaseUrl;
 
 export async function searchAccommodationsForKuzmich(args: AccommodationSearchArgs): Promise<string> {
-  const conds: string[] = ['is_active = true'];
+  // Витрина — только одобренные администратором (миграция 1027).
+  const conds: string[] = [publicAccommodationSql('')];
   const params: unknown[] = [];
 
   if (args.zone) { params.push(`%${args.zone}%`); conds.push(`location_zone ILIKE $${params.length}`); }
@@ -78,7 +80,7 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
     let anyActive = false;
     try {
       const probe = await pool.query<{ one: number }>(
-        'SELECT 1 AS one FROM accommodations WHERE is_active = true LIMIT 1',
+        `SELECT 1 AS one FROM accommodations WHERE ${publicAccommodationSql('')} LIMIT 1`,
       );
       anyActive = probe.rows.length > 0;
     } catch (err) {

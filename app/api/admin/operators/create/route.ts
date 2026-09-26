@@ -31,7 +31,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { hashPassword } from '@/lib/auth/password';
 import { slugify } from '@/lib/text/slugify';
-import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
+import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS, initialPartnerRating } from '@/lib/partners/categories';
 import type { PartnerCategory } from '@/lib/partners/categories';
 
 export const dynamic = 'force-dynamic';
@@ -147,11 +147,11 @@ export async function POST(request: NextRequest) {
         `INSERT INTO partners (
            user_id, name, company_name, category, description, contact, contacts,
            legal_info, slug, is_verified, is_public, profile_status,
-           external_source, created_at, updated_at
+           external_source, rating, created_at, updated_at
          )
          VALUES ($1, $2, $2, $3, $4, $5::jsonb, $5::jsonb,
                  $6::jsonb, $7, false, false, 'pending',
-                 'admin', NOW(), NOW())
+                 'admin', $8::numeric, NOW(), NOW())
          RETURNING id`,
         [
           userId,
@@ -161,6 +161,7 @@ export async function POST(request: NextRequest) {
           JSON.stringify(contact),
           JSON.stringify({ businessType }),
           `${slugify(name)}-${category}`,
+          initialPartnerRating(category),
         ],
       );
       createdPartners.push({

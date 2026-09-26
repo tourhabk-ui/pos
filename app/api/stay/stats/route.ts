@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { getStayPartnerId, requireStayOwner } from '@/lib/auth/stay-helpers';
+import { getStayPartnerId, requireStayOwner, StayCheckUnavailableError, stayCheckUnavailableResponse } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,6 +70,8 @@ export async function GET(request: NextRequest) {
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    if (error instanceof StayCheckUnavailableError) return stayCheckUnavailableResponse();
+    logStayFailure('GET /api/stay/stats', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении статистики' } as ApiResponse<null>,
       { status: 500 }

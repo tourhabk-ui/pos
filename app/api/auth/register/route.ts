@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
           // (/api/cron/sql-shape-check), а не глазами.
           `INSERT INTO partners
              (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
-           SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, 0, 0, NOW(), NOW()
+           SELECT $1::uuid, $2, $3::varchar, $4::jsonb, false, CASE WHEN $3::varchar = 'stay' THEN NULL ELSE 0 END, 0, NOW(), NOW()
            WHERE NOT EXISTS (
              SELECT 1 FROM partners WHERE user_id = $1::uuid AND category = $3::varchar
            )`,

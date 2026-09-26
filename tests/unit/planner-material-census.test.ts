@@ -129,7 +129,9 @@ describe('жильё: видно ли заведённое', () => {
   });
 
   it('заведённое и видимое — разные числа, и разница названа', () => {
-    expect(ROUTE).toMatch(/COUNT\(\*\) FILTER \(WHERE is_active = TRUE\)/);
+    // «Видимое» — то же условие, что у витрины: is_active И одобрение
+    // администратора (миграция 1027, lib/stay/moderation).
+    expect(ROUTE).toMatch(/COUNT\(\*\) FILTER \(WHERE \$\{publicAccommodationSql\(''\)\}\)/);
     expect(ROUTE).toMatch(/hidden: total - active/);
   });
 

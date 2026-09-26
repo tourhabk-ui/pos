@@ -9,6 +9,7 @@
  */
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plans/presets';
 
@@ -191,7 +192,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   try {
     const { rows } = await pool.query<{ id: string; updated_at: Date }>(
       `SELECT id, updated_at FROM accommodations
-       WHERE is_active = true
+       WHERE ${publicAccommodationSql('')}
        ORDER BY updated_at DESC LIMIT 500`
     );
     accommodationPages = rows.map(row => ({

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
+import { logStayFailure } from '@/lib/stay/db-failure';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +16,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string; assetId: string }> }
 ) {
   const { id, assetId } = await context.params;
-  if (!/^[0-9a-f-]{36}$/i.test(assetId)) {
+  if (!z.string().uuid().safeParse(assetId).success) {
     return NextResponse.json({ success: false, error: 'Некорректный id фотографии' }, { status: 400 });
   }
 
@@ -33,7 +35,8 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true, message: 'Фотография удалена' });
-  } catch {
+  } catch (error) {
+    logStayFailure('DELETE /api/stay/accommodations/[id]/photos/[assetId]', error);
     return NextResponse.json({ success: false, error: 'Ошибка при удалении фотографии' }, { status: 500 });
   }
 }

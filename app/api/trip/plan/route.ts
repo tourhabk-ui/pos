@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { callAIWaterfallOrNull } from '@/lib/ai/providers';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { config } from '@/lib/config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
@@ -333,7 +334,7 @@ async function selectAccommodations(
         a.coordinates
       FROM accommodations a
       WHERE 
-        a.is_active = true
+        ${publicAccommodationSql('a')}
         -- Бюджет: объект без объявленной цены НЕ выбрасывается. NULL <= $1
         -- в SQL — «неизвестно», то есть строка молча выпадала бы, а «цену не
         -- назвали» не значит «дорого» (§4.0).

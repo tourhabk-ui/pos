@@ -23,6 +23,8 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/leads', label: 'CRM — Лиды', icon: ClipboardList, section: 'Продажи' },
   { href: '/hub/admin/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи' },
   { href: '/hub/admin/operators', label: 'Операторы', icon: UserCheck, section: 'Продажи' },
+  // Объекты жилья выходят на витрину только после одобрения (26.09, миграция 1027).
+  { href: '/hub/admin/accommodations', label: 'Жильё: проверка', icon: Building2, section: 'Продажи' },
   { href: '/hub/admin/outreach', label: 'Аутрич', icon: Send, section: 'Продажи' },
   { href: '/hub/admin/promo-codes', label: 'Промокоды', icon: Tag, section: 'Продажи' },
   { href: '/hub/admin/pricing', label: 'Динамические цены', icon: TrendingUp, section: 'Продажи' },
