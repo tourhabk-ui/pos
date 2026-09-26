@@ -4029,8 +4029,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           кнопка: говорить о беде и не давать лекарства рядом — полдела. */}
       {(() => {
         const unsaved = hasRoute && !savedMap;
+        // Карта сохранялась, но в телефоне её нет целиком (проба Cache
+        // Storage). До 26.09 это стояло тремя строками в свёрнутом листе под
+        // цифрой (скрин владельца, шаг 2 «как у навигаторов»); здесь — одной
+        // строкой с лекарством рядом, как у «не сохранена».
+        const mapGap = hasRoute && !!savedMap && !tileDl
+          && (mapCoverage?.state === 'none' || mapCoverage?.state === 'partial');
         const warn = status && status.tone === 'warn' && !(hasRoute && recovery.kind === 'stale_fix') ? status : null;
-        if (!unsaved && !warn) return null;
+        if (!unsaved && !mapGap && !warn) return null;
         const downloading = tileDl !== null && tileDl.total > 0;
         return (
           // Тоньше, но по-прежнему НЕПРОЗРАЧНАЯ (§2: предупреждения не на
@@ -4051,6 +4057,22 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                     className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
                     style={{ background: 'var(--warning)', color: 'var(--bg-primary)', opacity: downloading ? 0.7 : 1 }}>
                     {downloading ? `${tileDl!.done}/${tileDl!.total} ${tileDl!.unit}` : 'Сохранить'}
+                  </button>
+                )}
+              </div>
+            )}
+            {mapGap && (
+              <div className="flex items-center gap-2 min-h-[28px]">
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="flex-1 min-w-0 truncate">
+                  {mapCoverage?.state === 'none' ? 'Сохранённой карты в телефоне нет' : 'Карта в телефоне не целиком'}
+                </span>
+                {mapPlan && (
+                  <button type="button"
+                    onClick={() => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }}
+                    className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                    style={{ background: 'var(--warning)', color: 'var(--bg-primary)' }}>
+                    Докачать
                   </button>
                 )}
               </div>
@@ -4744,7 +4766,6 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       {hasRoute && (tileDl || savedMap || mapPlan || mapPlanError) && (
         sheetOpen
         || (!mapPlan && !!mapPlanError && !tileDl)
-        || (!!savedMap && !tileDl && (mapCoverage?.state === 'none' || mapCoverage?.state === 'partial'))
       ) && (
         <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid #21262d' }}>
           {tileDl && tileDl.total > 0 ? (
