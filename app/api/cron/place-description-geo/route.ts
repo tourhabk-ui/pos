@@ -40,6 +40,7 @@ import {
   WORD_SHARE_MAX,
   type Landmark,
 } from '@/lib/places/description-geo';
+import { descriptionVoice } from '@/lib/places/description-voice';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -158,6 +159,24 @@ export async function GET(req: NextRequest) {
 
     evidence.sort((a, b) => b.worst_km - a.worst_km);
 
+    // ── Голос описания (26.09) ──────────────────────────────────────────────
+    //
+    // Вторая улика сочинённого текста, из той же выборки: путевая заметка от
+    // первого лица вместо справки (Авачинский, «Вчера поднялся…»). Судит
+    // lib/places/description-voice — приметы, а не приговор; переписывает
+    // человек, партиями. Пустое описание — свой счёт, а не «справочный голос».
+    const voiceItems: Array<{ place: string; place_id: string; voice: string; markers: string[]; quote: string }> = [];
+    let voicePlain = 0;
+    let voiceEmpty = 0;
+    for (const r of rows) {
+      const descr = (r.description ?? '').trim();
+      if (descr === '') { voiceEmpty++; continue; }
+      const v = descriptionVoice(descr);
+      if (v.voice === 'plain') { voicePlain++; continue; }
+      voiceItems.push({ place: r.name, place_id: r.id, voice: v.voice, markers: v.markers, quote: descr.slice(0, 160) });
+    }
+    voiceItems.sort((a, b) => (a.voice === b.voice ? a.place.localeCompare(b.place, 'ru') : a.voice === 'diary' ? -1 : 1));
+
     return NextResponse.json({
       ok: true,
       probe: 'place_description_geo_v2',
@@ -178,6 +197,14 @@ export async function GET(req: NextRequest) {
       // законная форма, в улики не идёт.
       stated_distance_only: statedDistanceOnly,
       items: evidence.slice(0, limit),
+      voice: {
+        diary: voiceItems.filter(v => v.voice === 'diary').length,
+        impression: voiceItems.filter(v => v.voice === 'impression').length,
+        plain: voicePlain,
+        empty: voiceEmpty,
+        items: voiceItems.slice(0, MAX_ITEMS),
+        note: 'diary — рассказ от первого лица, MCP и Кузьмич его как справку не отдают; impression — ощущения, отдаются подписанными. Приметы, не приговор',
+      },
       // Ноль улик при пустом справочнике — отказ, а не чистота (§4.0).
       // Пустым он может стать и после снятия слов: если порог снёс ВСЕ имена,
       // сравнивать не с чем, и молчание такой переписи ничего не значит.
