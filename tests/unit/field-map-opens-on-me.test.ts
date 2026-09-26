@@ -51,6 +51,22 @@ describe('полевой экран и карта держат это прави
     expect(src).not.toMatch(/center=\{mapCenter \?\? regionCenter/);
   });
 
+  it('маршрут, с которым пришли, не забирает кадр, если известно, где человек', () => {
+    const src = read('app/planning/_PlanningClient.tsx');
+    // Ключ «пришёл с ним» — тот, что экран читает при монтировании.
+    expect(src).toMatch(/const routeId = localStorage\.getItem\('active_trail_route_id'\);\s*arrivalRouteRef\.current = routeId;/);
+    expect(src).toContain('personKnownRef.current = Boolean(coords || lastFix);');
+    const fx = src.slice(src.indexOf('const personKnownRef'), src.indexOf('mapCtl.fitLine(line.map'));
+    expect(fx).toMatch(/if \(key !== null && key === arrivalRouteRef\.current && personKnownRef\.current\) return;/);
+  });
+
+  it('подъезд по дороге (строится сам) кадр не двигает — только попрошенный путь', () => {
+    const src = read('app/planning/_PlanningClient.tsx');
+    expect(src).toContain('const requestedCalculated = calculatedPreview?.route ?? autoBuiltRoute;');
+    expect(src).toMatch(/const calc = requestedCalculated;\s*if \(!mapCtl \|\| !calc \|\| !calc\.mayDisplay\) return;\s*mapCtl\.fitLine\(calc\.geometry\.coordinates\);/);
+    expect(src).not.toMatch(/const calc = mapCalculated;\s*if \(!mapCtl/);
+  });
+
   it('каждая новая карта снова центрируется на первом фиксе', () => {
     const src = read('components/shared/VedarMap.tsx');
     const init = src.slice(src.indexOf('// ── Жизненный цикл карты'), src.indexOf('let cancelled = false;'));

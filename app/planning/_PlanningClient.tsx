@@ -514,6 +514,8 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    */
   const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
   const lastRouteIdRef = useRef<string | null>(null);
+  /** Маршрут, с которым человек пришёл на экран (ключ при монтировании) — см. подвод кадра к маршруту. */
+  const arrivalRouteRef = useRef<string | null>(null);
   /**
    * Последняя известная точка с диска (lib/offline/last-fix.ts). Нужна одному
    * решению — какую подложку открыть ПЕРВОЙ, пока нет ни фикса, ни маршрута.
@@ -1243,6 +1245,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // Load active route on mount
   useEffect(() => {
     const routeId = localStorage.getItem('active_trail_route_id');
+    arrivalRouteRef.current = routeId;
     if (!routeId) return;
     // Свой след поднимаем ДО первого фикса: он про уже пройденное, и ждать
     // спутников, чтобы показать вчерашний путь, незачем.
@@ -1991,11 +1994,28 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   }, [fieldBaseMap.kind, mapCalculated]);
   // Новый автопуть — в кадр целиком, один раз на путь: дальше человек
   // двигает карту сам, и дёргать её обратно нельзя.
+  //
+  // Только путь, который человек ПОПРОСИЛ (превью, «Проложить сюда», выбор
+  // цели). Подъезд по дороге до начала тропы (roadRoute) строится сам при
+  // входе на экран — и забирал кадр: владелец 26.09, «при переходе карта
+  // должна открываться на моём нахождении, а она открывает вулкан
+  // Авачинский» — в кадре была дорога на 40 км до тропы, а не он.
+  const requestedCalculated = calculatedPreview?.route ?? autoBuiltRoute;
   useEffect(() => {
-    const calc = mapCalculated;
+    const calc = requestedCalculated;
     if (!mapCtl || !calc || !calc.mayDisplay) return;
     mapCtl.fitLine(calc.geometry.coordinates);
-  }, [mapCtl, mapCalculated]);
+  }, [mapCtl, requestedCalculated]);
+  /**
+   * Маршрут, с которым человек ПРИШЁЛ на экран, кадр не забирает, если
+   * известно, где человек (живой фикс или последняя точка с диска): экран
+   * открывается на нём, как у любого навигатора (владелец 26.09). Кадр
+   * подводится к маршруту, когда его СМЕНИЛИ на экране (08.09, «Авачинский
+   * перевал»: выбрал — и на карте ничего). Не известно, где человек, —
+   * маршрут в кадр, как прежде: это лучше центра района.
+   */
+  const personKnownRef = useRef(false);
+  personKnownRef.current = Boolean(coords || lastFix);
   // Новый КАТАЛОЖНЫЙ маршрут — тем же приёмом, что и автопуть выше: линия
   // рисуется корректно (mapMarkers/vedarLines), но без подведения кадра
   // оставалась там, где стоял человек. Владелец 08.09, «Авачинский перевал»:
@@ -2010,6 +2030,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       : waypoints.length >= 2 ? waypoints.map(w => [w.lat, w.lng] as [number, number])
       : null;
     if (!line) return;
+    const key = lastRouteIdRef.current;
+    if (key !== null && key === arrivalRouteRef.current && personKnownRef.current) return;
+    // Сменили маршрут на экране — «пришёл с ним» больше не про него: вернётся
+    // к прежнему — кадр подведётся и к нему.
+    if (key !== arrivalRouteRef.current) arrivalRouteRef.current = null;
     mapCtl.fitLine(line.map(([lat, lng]) => [lng, lat]));
   }, [mapCtl, track, waypoints]);
   /**
