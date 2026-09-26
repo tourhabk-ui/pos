@@ -153,6 +153,22 @@ jobs:
           BASE_URL=http://localhost:3311 node scripts/token-gate.mjs
           kill $SERVER_PID
 
+      # Экран «На маршруте» в настоящем браузере (26.09): открывается, SOS
+      # виден, без сети уводит на /emergency из кэша. Полевой экран — один файл
+      # на ~5 900 строк, его стерегли только тесты по тексту файла; сломайся
+      # рендер — первым узнал бы турист. Без базы, как в поле без данных.
+      # Сервер поднимается свой, как у шага выше: пересекаться им не с чем.
+      - name: Field screen e2e (SOS)
+        timeout-minutes: 8
+        run: |
+          npx next start -p 3312 &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do curl -sf "http://localhost:3312/planning?mode=trail" >/dev/null && break; sleep 1; done
+          STATUS=0
+          BASE_URL=http://localhost:3312 E2E_EXTERNAL_SERVER=1 npx playwright test test/e2e/field-screen.spec.ts --project=chromium --reporter=line || STATUS=$?
+          kill $SERVER_PID
+          exit $STATUS
+
       - name: Run tests
         run: npx vitest run
 

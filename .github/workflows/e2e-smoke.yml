@@ -128,7 +128,7 @@ jobs:
       # не может в принципе. Браузер по проду уже поднимается тут — значит
       # и место проверки тут, и гоняется она каждую ночь, а не однажды.
       - name: Run smoke (chromium, read-only, против прода)
-        run: npx playwright test test/e2e/smoke.spec.ts test/e2e/consent-gate.spec.ts --project=chromium
+        run: npx playwright test test/e2e/smoke.spec.ts test/e2e/consent-gate.spec.ts test/e2e/field-screen.spec.ts --project=chromium
 
       # ── Три спеки, которые не гонялись НИГДЕ ────────────────────────────
       #
