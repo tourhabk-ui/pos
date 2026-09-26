@@ -43,20 +43,35 @@ jobs:
           # Тянем с раннера, а не с сервера: с Timeweb kamgov.ru не открывается,
           # и сервер каждый прогон писал «news feed unavailable: kamgov» при
           # живом фиде. У сайта несколько путей — берём все, дубли снимет разбор.
+          #
+          # Код ответа КАЖДОГО адреса уходит на сервер полем kamgov_fetch
+          # (#2064): 26.09 все три отвечали раннеру 403, XML не приходил, и
+          # отчёт прогона писал «источник ответил, постов нет». Отказ и
+          # пустая лента — разные состояния, и сервер должен их различать.
           : > /tmp/kamgov.json
+          : > /tmp/kamgov_fetch.jsonl
           for u in \
             "https://www.kamgov.ru/rss" \
             "https://www.kamgov.ru/mintur/rss" \
             "https://www.kamgov.ru/mintur/news/rss"; do
-            curl -sf --max-time 30 \
+            code=$(curl -s --max-time 30 -o /tmp/kamgov_one.xml -w "%{http_code}" \
               -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
               -H "Accept-Language: ru-RU,ru;q=0.9" \
-              "$u" > /tmp/kamgov_one.xml || continue
+              "$u" || true)
+            case "$code" in ''|*[!0-9]*) code=0 ;; esac
+            code=$((10#$code))  # «000» (нет соединения) → 0, валидное число для jq
+            rss=false
             # Не-RSS (гос-сайт на несуществующий путь отдаёт HTML) отбрасываем.
-            grep -qi "<rss\|<feed" /tmp/kamgov_one.xml || continue
-            jq -Rs . < /tmp/kamgov_one.xml >> /tmp/kamgov.json
+            if [ "$code" -ge 200 ] && [ "$code" -lt 300 ] && grep -qi "<rss\|<feed" /tmp/kamgov_one.xml; then
+              rss=true
+              jq -Rs . < /tmp/kamgov_one.xml >> /tmp/kamgov.json
+            fi
+            jq -nc --arg url "$u" --argjson http "$code" --argjson rss "$rss" \
+              '{url: $url, http: $http, rss: $rss}' >> /tmp/kamgov_fetch.jsonl
+            echo "kamgov $u -> HTTP $code, rss=$rss"
           done
           jq -s . /tmp/kamgov.json > /tmp/kamgov_xml.json 2>/dev/null || echo "[]" > /tmp/kamgov_xml.json
+          jq -s . /tmp/kamgov_fetch.jsonl > /tmp/kamgov_fetch.json 2>/dev/null || echo "[]" > /tmp/kamgov_fetch.json
 
           echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
@@ -124,16 +139,19 @@ jobs:
           # добавляем только когда непустой (Zod допускает отсутствие).
           [ -s /tmp/max_items.json ] || echo "[]" > /tmp/max_items.json
           [ -s /tmp/kamgov_xml.json ] || echo "[]" > /tmp/kamgov_xml.json
+          [ -s /tmp/kamgov_fetch.json ] || echo "[]" > /tmp/kamgov_fetch.json
           jq -n \
             --rawfile kbgsras_html /tmp/kbgsras.html \
             --rawfile eqkam_html   /tmp/eqkam.html \
             --rawfile minec_html   /tmp/minec.html \
             --slurpfile max_items  /tmp/max_items.json \
             --slurpfile kamgov_xml /tmp/kamgov_xml.json \
+            --slurpfile kamgov_fetch /tmp/kamgov_fetch.json \
             '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}
               + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)
               + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)
-              + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)' \
+              + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)
+              + (if (($kamgov_fetch[0] // []) | length) > 0 then {kamgov_fetch: $kamgov_fetch[0]} else {} end)' \
             > /tmp/payload.json
 
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \

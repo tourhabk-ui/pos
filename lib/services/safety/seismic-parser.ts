@@ -2116,10 +2116,15 @@ export async function ingestNewsFeeds(skipPrefixes: string[] = []): Promise<Pars
  * external_alerts наравне с остальными источниками.
  */
 export async function ingestNewsFeedXmls(xmls: string[], prefix: string): Promise<ParseResult> {
-  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  // rawItems — сырых постов в лентах до классификации (#2064): без счётчика
+  // живая лента без угроз была неотличима от пустой, и здоровье источника
+  // kamgov судило бы «молчит» там, где сайт отвечает каждый прогон.
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [], rawItems: 0 };
   // Разные пути гос-сайта бывают алиасами одного фида — дедуп по содержимому.
   for (const xml of [...new Set(xmls.filter((x) => x && x.trim().length > 0))]) {
-    for (const it of parseMchsItems(xml)) {
+    const items = parseMchsItems(xml);
+    result.rawItems = (result.rawItems ?? 0) + items.length;
+    for (const it of items) {
       // Множественная форма: именно этим путём (раннер → kamgov XML) приходит
       // сводка Минтура — одиночная форма схлопывала её в один info (07.08).
       for (const event of classifyMchsItems(it.id, it.title, it.desc, it.pubDate, it.link, prefix)) {

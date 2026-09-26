@@ -3,6 +3,7 @@ import { fetchTelegramPreview } from '@/lib/services/safety/telegram-source';
 import type { FetchVia } from '@/lib/agents/scout-relay';
 import { fetchEmsdPage } from '@/lib/services/safety/emsd-fetch';
 import { EMSD_QUAKES_URL } from '@/lib/services/safety/emsd-quakes';
+import { kamgovUnreachable } from '@/lib/services/safety/kamgov-fetch';
 import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
@@ -1104,6 +1105,18 @@ const HtmlBodySchema = z.object({
    * Массив — у сайта несколько путей (/rss, /mintur/rss), дубли снимает разбор.
    */
   kamgov_xml: z.array(z.string().max(600_000)).max(5).optional(),
+  /**
+   * Что ответил раннеру КАЖДЫЙ адрес kamgov.ru (#2064). Без этого поля
+   * «раннер не принёс XML» было неотличимо от «лента пуста»: 26.09 все
+   * адреса отвечали 403, а отчёт писал «источник ответил, постов нет».
+   * Присылает только раннер; реле Cloudflare kamgov не тянет и поля не шлёт —
+   * его POST'ы здоровье kamgov не трогают.
+   */
+  kamgov_fetch: z.array(z.object({
+    url: z.string().max(300),
+    http: z.number().int(),
+    rss: z.boolean(),
+  })).max(5).optional(),
   // Канал ГУ МЧС Камчатки в MAX (max.ru/id4101120929_gos). У MAX нет открытого
   // read-API, поэтому раннер сам читает канал и присылает уже готовые посты
   // массивом. Сервер прогоняет каждый через classifyMchsItem — она и есть
@@ -1155,6 +1168,7 @@ export async function POST(req: Request) {
   const t0 = Date.now();
   const startedAt = new Date(t0);
   const kamgovXmls = (parsed.data.kamgov_xml ?? []).filter((x) => x.trim().length > 0);
+  const kamgovFetch = parsed.data.kamgov_fetch;
   // #883 (B): POST больше НЕ тянет то, что сервер достаёт сам, — VK API, USGS,
   // МЧС RSS и FIRMS обслуживает heartbeat (start.js -> GET каждые 5 минут;
   // его смерть ловит отдельная watchdog-проверка checkSeismicCronDead).
@@ -1173,7 +1187,9 @@ export async function POST(req: Request) {
     ingestNewsFeeds(['kamgov']),
     kamgovXmls.length > 0
       ? ingestNewsFeedXmls(kamgovXmls, 'kamgov')
-      : Promise.resolve(undefined),
+      // Раннер ходил, а RSS не отдал ни один адрес — это отказ, а не пустая
+      // лента (§4.0): коды ответов уходят в ошибки и в здоровье источника.
+      : Promise.resolve(kamgovFetch && kamgovFetch.length > 0 ? kamgovUnreachable(kamgovFetch) : undefined),
     parsed.data.minec_html
       ? ingestTelegramNewsHtml(parsed.data.minec_html)
       : Promise.resolve(undefined),
@@ -1246,6 +1262,12 @@ export async function POST(req: Request) {
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
     // MAX не делегирован: его умеет читать только раннер, heartbeat не покрывает.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
+    // kamgov — только когда раннер сообщил, что ходил (kamgov_fetch): POST'ы
+    // реле Cloudflare его не тянут, и «не ходили» не должно читаться как
+    // «молчит» (тот же приём, что с делегированными выше).
+    ...(kamgovFetch && kamgovFetch.length > 0
+      ? [entryFor('kamgov', 'kamgov.ru — сводки Минтура', kamgovResult)]
+      : []),
   ]));
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
