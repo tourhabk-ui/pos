@@ -61,7 +61,11 @@ const NEEDS_REVIEW_FROZEN = [
   '/api/kamchatka-routes',
   '/api/meta/catalog',
   '/api/safety/alerts',
-  '/api/safety/visit',
+  // '/api/safety/visit' — вычеркнут 26.09 вместе с удалением роута: трекер
+  // визитов хаба безопасности был объявлен «для Rescue агента», но в реестре
+  // публичных не значился (Edge отвечал анониму 401 на ПУБЛИЧНОЙ странице),
+  // вызов глушился .catch, а записи safety_hub_visit не читал никто. Разбор
+  // случая — удаление, а не проверка прав (§10.09).
   '/api/trip/plan',
 ] as const;
 
