@@ -7,11 +7,13 @@ import { StatusBadge } from '../../admin/shared/StatusBadge';
 
 interface UpcomingBooking {
   id: string;
-  clientName: string;
+  clientName: string | null;
   tourName: string;
-  tourDate: Date;
-  totalPrice: number;
-  commission: number;
+  tourDate: string;
+  /** null — сумма брони не записана. */
+  totalPrice: number | null;
+  /** null — бронь не оплачена или ставка агента не назначена. */
+  commission: number | null;
 }
 
 interface UpcomingBookingsTableProps {
@@ -45,7 +47,7 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
     }
   };
 
-  const getDaysUntilTour = (tourDate: Date) => {
+  const getDaysUntilTour = (tourDate: string) => {
     const today = new Date();
     const tour = new Date(tourDate);
     const diffTime = tour.getTime() - today.getTime();
@@ -131,7 +133,7 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
                     <div className="text-sm font-medium text-[var(--text-primary)]">{booking.tourName}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-[var(--text-primary)]">{booking.clientName}</div>
+                    <div className="text-sm text-[var(--text-primary)]">{booking.clientName ?? '—'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-[var(--text-primary)]">
@@ -142,10 +144,10 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--accent)] font-medium">
-                    {booking.totalPrice.toLocaleString('ru-RU')} ₽
+                    {booking.totalPrice === null ? '—' : `${booking.totalPrice.toLocaleString('ru-RU')} ₽`}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--success)] font-medium">
-                    {booking.commission.toLocaleString('ru-RU')} ₽
+                    {booking.commission === null ? '—' : `${booking.commission.toLocaleString('ru-RU')} ₽`}
                   </td>
                 </tr>
               );

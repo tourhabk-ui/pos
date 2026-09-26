@@ -1,106 +1,67 @@
+/**
+ * GET /api/agent/commissions — вознаграждение агента: ставка, продажи, итоги.
+ *
+ * Всё считает единственная функция денег агента
+ * (lib/payments/agent-commission.ts): продажи — брони оператора с
+ * agent_user_id = агент; начисляется только с оплаченной и не отменённой;
+ * к выплате — после конца тура + 36 ч. Ставку назначает владелец; пока её
+ * нет, суммы приходят null («ставка не назначена»), а не нулём.
+ *
+ * Прежде роут отдавал строки agent_commissions — их писал только старый
+ * POST брони агента с зашитыми 10% и ссылкой на agent_bookings. Такие строки
+ * деньгами не являются и здесь больше не читаются.
+ *
+ * Смотреть свои деньги может и неодобренный агент; запросить выплату — нет
+ * (request-payout, requireApprovedAgent).
+ */
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
-import { ApiResponse, AgentCommission, CommissionPayout } from '@/types';
+import { z } from 'zod';
 import { requireAgent } from '@/lib/auth/middleware';
+import { pool } from '@/lib/db-pool';
+import { AGENT_MONEY_SQL, loadAgentMoney, logAgentMoneyFailure, sqlstateOf } from '@/lib/payments/agent-commission';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * GET /api/agent/commissions - Получить комиссионные агента
- */
+const QuerySchema = z.object({
+  state: z.enum(['all', 'cancelled', 'unpaid', 'waiting', 'payable', 'requested', 'paid_out']).default('all'),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
 export async function GET(request: NextRequest) {
+  const auth = await requireAgent(request);
+  if (auth instanceof NextResponse) return auth;
+
+  const sp = new URL(request.url).searchParams;
+  const parsed = QuerySchema.safeParse({
+    state: sp.get('state') ?? undefined,
+    limit: sp.get('limit') ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: 'Некорректные параметры запроса' }, { status: 400 });
+  }
+  const { state, limit } = parsed.data;
+
   try {
-    const userOrResponse = await requireAgent(request);
-    if (userOrResponse instanceof NextResponse) return userOrResponse;
-    
-    const agentId = userOrResponse.userId;
-
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status') || 'all'; // all, pending, paid, cancelled
-    const limit = parseInt(searchParams.get('limit') || '50');
-
-    let whereClause = 'WHERE agent_id = $1';
-    const params: (string | number)[] = [agentId];
-
-    if (status !== 'all') {
-      whereClause += ` AND status = $${params.length + 1}`;
-      params.push(status);
-    }
-
-    const commissionsQuery = `
-      SELECT
-        id,
-        agent_id,
-        booking_id,
-        amount,
-        rate,
-        status,
-        paid_at,
-        payout_reference,
-        notes,
-        created_at,
-        updated_at
-      FROM agent_commissions
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${params.length + 1}
-    `;
-
-    params.push(limit);
-    const commissionsResult = await query<{
-      id: string; agent_id: string; booking_id: string;
-      amount: string; rate: string; status: string;
-      paid_at: unknown; payout_reference: unknown; notes: unknown;
-      created_at: unknown; updated_at: unknown;
-    }>(commissionsQuery, params);
-
-    const commissions: AgentCommission[] = commissionsResult.rows.map(row => ({
-      id: row.id,
-      agentId: row.agent_id,
-      bookingId: row.booking_id,
-      amount: parseFloat(row.amount),
-      rate: parseFloat(row.rate),
-      status: row.status,
-      paidAt: row.paid_at,
-      payoutReference: row.payout_reference,
-      notes: row.notes,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
-
-    // Получаем общую статистику комиссий
-    const statsQuery = `
-      SELECT
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN amount END), 0) as total_paid,
-        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount END), 0) as total_pending,
-        COALESCE(SUM(amount), 0) as total_all
-      FROM agent_commissions
-      WHERE agent_id = $1
-    `;
-
-    const statsResult = await query<{ total_paid: string; total_pending: string; total_all: string }>(statsQuery, [agentId]);
-    const stats = statsResult.rows[0];
+    const money = await loadAgentMoney(pool, auth.userId);
+    const payouts = await pool.query(AGENT_MONEY_SQL.agentPayouts, [auth.userId, 20]);
+    const sales = (state === 'all' ? money.sales : money.sales.filter((s) => s.state === state)).slice(0, limit);
 
     return NextResponse.json({
       success: true,
       data: {
-        commissions,
-        stats: {
-          totalPaid: parseFloat(stats.total_paid),
-          totalPending: parseFloat(stats.total_pending),
-          totalAll: parseFloat(stats.total_all)
-        },
-        total: commissions.length
-      }
-    } as ApiResponse<unknown>);
-
-  } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Ошибка при получении комиссионных'
-    } as ApiResponse<null>, { status: 500 });
+        rate: money.rate,
+        rateSetAt: money.profile?.rate_set_at ?? null,
+        profileStatus: money.profile?.profile_status ?? null,
+        summary: money.summary,
+        sales,
+        payouts: payouts.rows,
+      },
+    });
+  } catch (err) {
+    logAgentMoneyFailure('GET /api/agent/commissions', err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось получить вознаграждение', sqlstate: sqlstateOf(err) },
+      { status: 503 },
+    );
   }
 }
-
-// TODO: Переместить GET_PAYOUTS и POST_REQUEST_PAYOUT в отдельные API роуты
-// /api/agent/commissions/payouts и /api/agent/commissions/request-payout

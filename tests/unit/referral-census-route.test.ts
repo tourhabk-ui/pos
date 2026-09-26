@@ -86,10 +86,15 @@ describe('ставка «не назначена» — не ноль', () => {
 });
 
 describe('обещанная сумма считается тем же, чем её показывают', () => {
-  it('выражение переписи совпадает с выражением кабинета агента', () => {
-    // В кабинете: SUM(final_price) * rl.commission_rate / 100 по оплаченным.
-    expect(CABINET).toMatch(/commission_rate\s*\/\s*100/);
-    expect(codeOnly(ROUTE)).toMatch(/commission_rate\s*\/\s*100/);
+  it('выражение переписи повторяет правило денег агента', () => {
+    // С 26.09 кабинет считает деньги единственной функцией денег агента:
+    // ставка АГЕНТА, только оплаченные и не отменённые. Перепись обязана
+    // мерить то же, а не прежнее «ставка ссылки × все оплаченные».
+    expect(CABINET).toMatch(/loadAgentMoney\(pool, auth\.userId\)/);
+    const code = codeOnly(ROUTE);
+    expect(code).toMatch(/final_price \* p\.agent_commission_rate \/ 100/);
+    expect(code).toMatch(/NOT \(ob\.booking_status = ANY\(\$1::text\[\]\)\)/);
+    expect(code).toMatch(/CANCELLED_STATUS_PARAM/);
   });
 
   it('обещанное считается только по ОПЛАЧЕННЫМ броням', () => {

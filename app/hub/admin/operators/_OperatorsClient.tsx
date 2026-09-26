@@ -61,6 +61,7 @@ function formatDate(d: string | null) {
 const CATEGORY_LABELS: Record<string, string> = {
   operator: 'Туроператор',
   guide:    'Гид',
+  agent:    'Турагент',
   transfer: 'Трансфер',
   hotel:    'Отель',
   rent:     'Аренда',

@@ -23,6 +23,14 @@ import { Link2, MousePointerClick, TrendingUp, Wallet, Plus, Copy, Check, Loader
  * Поэтому пустое показывается словами, а не числом, и рядом с итогом стоит,
  * сколько ссылок в счёт не вошло: «заработано 0 ₽» не должно читаться как
  * «вы ничего не заработали», когда верный ответ — «считать пока нечем».
+ *
+ * ── Ставка одна на агента, рубли — из одной функции (26.09) ──────────────
+ *
+ * С 26.09 ставку владелец назначает агенту, а не ссылке: у брони за клиента
+ * ссылки нет. Ссылка показывает воронку (клики, брони), а «начислено» —
+ * сумму оплаченных и НЕ отменённых продаж по ней из единственной функции
+ * денег агента (lib/payments/agent-commission.ts). Нет ставки — сумма null,
+ * и на экране слова «ставка не назначена», а не «0 ₽».
  */
 
 interface ReferralLink {
@@ -32,8 +40,10 @@ interface ReferralLink {
   tour_title: string | null;
   clicks: number;
   conversions: number;
-  commission_rate: string | null;
-  earned_total: string | null;
+  /** Оплаченных и не отменённых продаж по ссылке. */
+  paid_sales: number;
+  /** Начислено по ссылке; null — ставка агента не назначена. */
+  earned_total: number | null;
   is_active: boolean;
   created_at: string;
 }
@@ -41,9 +51,10 @@ interface ReferralLink {
 interface Stats {
   totalClicks: number;
   totalConversions: number;
-  totalEarned: number;
-  /** Сколько ссылок не вошло в итог: у них ставки нет. */
-  linksWithoutRate: number;
+  /** null — ставка агента не назначена: считать нечем, это не ноль. */
+  totalEarned: number | null;
+  /** Ставка агента, %; null — не назначена. */
+  rate: number | null;
 }
 
 function money(v: number): string {
@@ -56,6 +67,7 @@ export default function ReferralClient() {
   const [failed, setFailed] = useState(false);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch('/api/hub/agent/referral')
@@ -64,13 +76,17 @@ export default function ReferralClient() {
         if (d?.success && Array.isArray(d.data)) { setLinks(d.data); setStats(d.stats ?? null); }
         else setFailed(true);
       })
-      .catch(() => setFailed(true));
+      .catch((err: unknown) => {
+        console.error('[agent/referral] ссылки не загружены', err);
+        setFailed(true);
+      });
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function createLink() {
     setCreating(true);
+    setActionError(null);
     try {
       const res = await fetch('/api/hub/agent/referral', {
         method: 'POST',
@@ -79,19 +95,33 @@ export default function ReferralClient() {
         // отклоняет. Прежде здесь стояло жёсткое `commissionRate: 10`.
         body: JSON.stringify({}),
       });
-      if (res.ok) load();
-    } catch {
-      // ignore
+      if (res.ok) {
+        load();
+      } else {
+        // 403 — кабинет ещё не одобрен администратором; сервер говорит это словами.
+        const d: unknown = await res.json().catch(() => null);
+        const msg = typeof d === 'object' && d !== null && typeof (d as { error?: unknown }).error === 'string'
+          ? (d as { error: string }).error
+          : 'Не удалось создать ссылку';
+        setActionError(msg);
+      }
+    } catch (err) {
+      console.error('[agent/referral] ссылка не создана', err);
+      setActionError('Не удалось создать ссылку — проверьте соединение');
     } finally {
       setCreating(false);
     }
   }
 
+  /**
+   * Делимся КОРОТКОЙ ссылкой /r/<код>: клик засчитывается на сервере (там же
+   * решается, вести на тур или на главную), код едет дальше в адресе и
+   * запоминается на 30 дней. Прямой `?ref=` клика не считал вовсе — в
+   * кабинете стоял ноль при живых переходах.
+   */
   function shareUrl(link: ReferralLink): string {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return link.tour_id
-      ? `${origin}/marketplace/tours/${link.tour_id}?ref=${link.code}`
-      : `${origin}/?ref=${link.code}`;
+    return `${origin}/r/${link.code}`;
   }
 
   async function copy(link: ReferralLink) {
@@ -99,8 +129,9 @@ export default function ReferralClient() {
       await navigator.clipboard.writeText(shareUrl(link));
       setCopied(link.id);
       setTimeout(() => setCopied(c => (c === link.id ? null : c)), 2000);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('[agent/referral] ссылка не скопирована', err);
+      setActionError(`Не удалось скопировать — ссылка: ${shareUrl(link)}`);
     }
   }
 
@@ -123,12 +154,10 @@ export default function ReferralClient() {
             { icon: TrendingUp, label: 'Конверсии', value: String(stats.totalConversions) },
             {
               icon: Wallet,
-              label: 'Заработано',
-              // Итог считается только по ссылкам со ставкой. Если ставки нет
-              // НИ У ОДНОЙ — показывать «0 ₽» нельзя: это ответ на другой
-              // вопрос. Ноль рублей значит «не заработали», а правда здесь —
-              // «считать нечем».
-              value: stats.linksWithoutRate > 0 && stats.totalEarned === 0
+              label: 'Начислено',
+              // Без ставки «0 ₽» показывать нельзя: ноль рублей значит «не
+              // заработали», а правда здесь — «считать нечем».
+              value: stats.totalEarned === null
                 ? 'ставка не назначена'
                 : money(stats.totalEarned),
             },
@@ -145,6 +174,7 @@ export default function ReferralClient() {
       )}
 
       {failed && <p className="text-sm text-[var(--danger)]">Не удалось загрузить ссылки. Обновите страницу.</p>}
+      {actionError && <p role="alert" className="text-sm text-[var(--danger)]">{actionError}</p>}
 
       {links === null && !failed && (
         <div className="space-y-2">
@@ -152,10 +182,11 @@ export default function ReferralClient() {
         </div>
       )}
 
-      {stats && stats.linksWithoutRate > 0 && (
+      {stats && (
         <p className="text-xs text-[var(--text-secondary)]">
-          Ставка не назначена у {stats.linksWithoutRate} из {links?.length ?? stats.linksWithoutRate} ссылок —
-          по ним заработок не считается. Ставку назначает владелец платформы.
+          {stats.rate === null
+            ? 'Ставка вознаграждения не назначена — начисления не считаются. Ставку назначает владелец платформы.'
+            : `Ваша ставка: ${stats.rate}% от оплаченных и не отменённых продаж. Выплата — в разделе «Комиссии».`}
         </p>
       )}
 
@@ -173,18 +204,15 @@ export default function ReferralClient() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-sm font-semibold text-[var(--text-primary)]">{link.code}</span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  {link.tour_title ?? 'Все туры'} ·{' '}
-                  {link.commission_rate === null
-                    ? 'ставка не назначена'
-                    : `${Number(link.commission_rate)}%`}
+                  {link.tour_title ?? 'Все туры'}
                 </span>
                 {!link.is_active && <span className="ds-badge border border-[var(--border)] text-[var(--danger)]">неактивна</span>}
               </div>
               <p className="text-xs text-[var(--text-secondary)] mt-1.5">
-                {link.clicks} кликов · {link.conversions} бронь(и) ·{' '}
+                {link.clicks} кликов · {link.conversions} бронь(и), оплачено {link.paid_sales} ·{' '}
                 {link.earned_total === null
                   ? 'заработок не считается: ставка не назначена'
-                  : `заработано ${money(Number(link.earned_total))}`}
+                  : `начислено ${money(link.earned_total)}`}
               </p>
             </div>
             <button onClick={() => copy(link)} className="ds-btn ds-btn-secondary text-xs shrink-0">

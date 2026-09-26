@@ -127,7 +127,6 @@ const RATE_TOUCHERS: Record<string, 'fallback_sql' | 'fallback_ts' | 'display_on
   'app/api/hub/operator/reports/route.ts': 'fallback_sql',
   // Строку tour_payments пишет общая дверь (25.09); приёмник ставку не читает.
   'lib/payments/hold-tour-payment.ts': 'fallback_sql',
-  'app/api/bookings/tour/route.ts': 'fallback_ts',
   'app/api/hub/operator/payouts/route.ts': 'fallback_ts',
 
   // Показывают ставку человеку или перечисляют её в переписи — денег из неё
@@ -137,9 +136,6 @@ const RATE_TOUCHERS: Record<string, 'fallback_sql' | 'fallback_ts' | 'display_on
   'app/api/cron/sql-shape-check/route.ts': 'display_only',
   'app/api/cron/payouts/route.ts': 'display_only',
   'app/api/admin/finance/payouts/route.ts': 'display_only',
-  // Агентская комиссия — СВОИ 10% от суммы брони, к ставке оператора
-  // отношения не имеет; колонка тут только в списке SELECT под чужим алиасом.
-  'app/api/agent/bookings/route.ts': 'display_only',
   'app/api/payments/webhook/route.ts': 'display_only',
 
   // Пишут ставку новым партнёрам. Сегодня пишут НОЛЬ — то есть «комиссии

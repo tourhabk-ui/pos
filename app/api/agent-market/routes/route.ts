@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,11 +109,27 @@ async function fetchRoutes(query: string, limit: number): Promise<RouteRow[]> {
   return rows;
 }
 
+const QuerySchema = z.object({
+  query: z.string().trim().max(200).default(''),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  payment_id: z.string().uuid('payment_id должен быть UUID из ответа 402').optional(),
+});
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
-  const query = searchParams.get('query') ?? '';
-  const limit = Math.min(parseInt(searchParams.get('limit') ?? '10', 10), 50);
-  const paymentId = searchParams.get('payment_id');
+  const parsed = QuerySchema.safeParse({
+    query: searchParams.get('query') ?? undefined,
+    limit: searchParams.get('limit') ?? undefined,
+    payment_id: searchParams.get('payment_id') ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? 'Некорректные параметры' },
+      { status: 400 },
+    );
+  }
+  const { query, limit } = parsed.data;
+  const paymentId = parsed.data.payment_id ?? null;
 
   void expireStale();
 
@@ -143,7 +160,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // confirmed — return data
+    // Данные отдаются ТОЛЬКО по подтверждённому платежу. Прежде сюда
+    // проваливался любой статус, кроме pending/expired, — то есть данные
+    // открывались и там, где подтверждения не было (белый список, 26.09).
+    if (payment.status !== 'confirmed') {
+      return NextResponse.json(
+        { payment_required: true, status: payment.status, payment_id: paymentId, message: 'Платёж не подтверждён.' },
+        { status: 402 },
+      );
+    }
+
     const params = payment.query_params as { query?: string; limit?: number };
     const routes = await fetchRoutes(params.query ?? query, params.limit ?? limit);
     return NextResponse.json({

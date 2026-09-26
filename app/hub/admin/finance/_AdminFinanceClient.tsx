@@ -4,10 +4,11 @@ import React, { useState } from 'react';
 import { FinanceMetricsGrid } from '@/components/admin/Finance/FinanceMetricsGrid';
 import { RevenueChart } from '@/components/admin/Finance/RevenueChart';
 import { PayoutsManager } from '@/components/admin/Finance/PayoutsManager';
-import { DollarSign, BarChart, Banknote } from 'lucide-react';
+import { DollarSign, BarChart, Banknote, Handshake } from 'lucide-react';
 import { BinanceCard } from '@/components/admin/Finance/BinanceCard';
+import { AgentPayoutsPanel } from '@/components/admin/Finance/AgentPayoutsPanel';
 
-type TabType = 'overview' | 'payouts';
+type TabType = 'overview' | 'payouts' | 'agents';
 
 export default function AdminFinanceClient() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -16,6 +17,8 @@ export default function AdminFinanceClient() {
   const tabs = [
     { id: 'overview' as TabType, name: 'Обзор', icon: BarChart },
     { id: 'payouts' as TabType, name: 'Выплаты', icon: Banknote },
+    // Ставки и выплаты агентам (решение владельца 26.09).
+    { id: 'agents' as TabType, name: 'Агенты', icon: Handshake },
   ];
 
   return (
@@ -75,6 +78,8 @@ export default function AdminFinanceClient() {
           <PayoutsManager />
         </div>
       )}
+
+      {activeTab === 'agents' && <AgentPayoutsPanel />}
     </div>
   );
 }

@@ -53,12 +53,15 @@ const PatchSchema = z.object({
   telegram:            z.string().max(100).optional(),
   website:             z.string().max(500).optional().or(z.literal('')),
   complete_onboarding: z.boolean().optional(),
+  // Повторная подача на проверку после отказа — только агент (у гида своя
+  // рука в /api/guide/profile).
+  submit_for_review:   z.boolean().optional(),
 });
 
 async function resolvePartner(userId: string, role: string) {
   const r = await query(
     `SELECT id, name, category, description, short_description, contact,
-            profile_status, onboarding_completed, is_verified
+            profile_status, profile_review_comment, onboarding_completed, is_verified
      FROM partners
      WHERE user_id = $1 AND category = $2
      LIMIT 1`,
@@ -114,7 +117,7 @@ export async function PATCH(request: NextRequest) {
       { status: 400 }
     );
   }
-  const { name, description, short_description, phone, telegram, website, complete_onboarding } = parsed.data;
+  const { name, description, short_description, phone, telegram, website, complete_onboarding, submit_for_review } = parsed.data;
 
   try {
     let partner = await resolvePartner(authResult.userId, role);
@@ -159,10 +162,33 @@ export async function PATCH(request: NextRequest) {
       // (lib/guides/visibility.ts). Прежде гид оставался в 'none' и в
       // очередь администратора не попадал вовсе — одобрять было некого.
       // Одобренного или уже ждущего повторное завершение не трогает.
-      if (partner.category === 'guide') {
+      //
+      // Агент — так же (решение владельца 26.09): агент работает только после
+      // одобрения администратором; до него кабинет и профиль открыты, а
+      // продажи и деньги закрыты (lib/auth/agent-approval.ts). Без перевода в
+      // 'pending' агента не было бы в очереди /hub/admin/operators.
+      if (partner.category === 'guide' || partner.category === 'agent') {
         sets.push(`applied_at = CASE WHEN profile_status = 'none' THEN NOW() ELSE applied_at END`);
         sets.push(`profile_status = CASE WHEN profile_status = 'none' THEN 'pending' ELSE profile_status END`);
       }
+    }
+
+    if (submit_for_review) {
+      if (partner.category !== 'agent') {
+        return NextResponse.json(
+          { success: false, error: 'Повторная подача здесь доступна только агенту' },
+          { status: 400 },
+        );
+      }
+      if (partner.profile_status === 'approved' || partner.profile_status === 'pending') {
+        return NextResponse.json(
+          { success: false, error: partner.profile_status === 'approved' ? 'Профиль уже одобрен' : 'Профиль уже на проверке' },
+          { status: 409 },
+        );
+      }
+      sets.push(`applied_at = NOW()`);
+      sets.push(`profile_status = 'pending'`);
+      sets.push(`profile_review_comment = NULL`);
     }
 
     params.push(partner.id);

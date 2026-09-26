@@ -2,7 +2,7 @@
  * tests/unit/honesty-small-fixes.test.ts
  *
  * Мелкие фиксы честности данных:
- * 1. Агентский дашборд: период применяется к дате БРОНИ (b.created_at),
+ * 1. Агентский дашборд: период применяется к дате БРОНИ (ob.created_at),
  *    а не к дате регистрации клиента — брони/выручка старых клиентов
  *    больше не выпадают из тоталов за «7/30/90 дней».
  * 2. guide-agency: запросы расписания/групп/заработка переписаны с
@@ -46,20 +46,23 @@ beforeEach(() => {
 });
 
 describe('agent/dashboard — период по дате брони', () => {
-  it('фильтр периода стоит на JOIN броней, клиенты считаются отдельным CASE', async () => {
-    queryMock.mockResolvedValue({ rows: [{}] });
+  it('фильтр периода стоит на дате брони, клиенты за период — отдельным подзапросом', async () => {
+    // С 26.09 обзор считается по броням оператора с agent_user_id (1022),
+    // а не по agent_bookings; суть проверки прежняя: период — на брони.
+    poolQueryMock.mockResolvedValue({ rows: [] });
 
     await agentDashboard(req('http://localhost/api/agent/dashboard?period=30'));
 
-    const metricsCall = queryMock.mock.calls.find(([sql]) =>
-      String(sql).includes('agent_clients')) as [string];
+    const metricsCall = poolQueryMock.mock.calls.find(([sql]) =>
+      String(sql).includes('agent_clients')) as [string, unknown[]];
     expect(metricsCall).toBeTruthy();
-    const [sql] = metricsCall;
-    // период на бронях (в JOIN), не в WHERE по клиентам
-    expect(sql).toMatch(/JOIN agent_bookings b[\s\S]*b\.created_at >= NOW\(\)/);
-    expect(sql).not.toMatch(/WHERE[\s\S]*c\.created_at >= NOW\(\)/);
-    // клиенты за период — CASE, семантика сохранена
-    expect(sql).toContain('CASE WHEN c.created_at >= NOW()');
+    const [sql, params] = metricsCall;
+    expect(sql).toMatch(/FROM operator_bookings ob[\s\S]*ob\.created_at >= NOW\(\) - \(\$2::int/);
+    expect(sql).toMatch(/ob\.agent_user_id = \$1::uuid/);
+    // клиенты за период — по дате заведения клиента, отдельно от броней
+    expect(sql).toContain("c.created_at >= NOW() - ($2::int * INTERVAL '1 day')");
+    expect(sql).not.toContain('agent_bookings');
+    expect(params[1]).toBe(30);
   });
 });
 

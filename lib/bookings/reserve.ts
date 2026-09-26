@@ -1,14 +1,14 @@
 /**
- * Место, где заводится ГОСТЕВАЯ бронь тура — из веб-формы и из чата Кузьмича.
+ * Место, где заводится бронь тура — из веб-формы, из чата Кузьмича и из
+ * кабинета агента (бронь за клиента).
  *
- * Заголовок уточнён 14.09. До этого здесь стояло «единственное место, где
- * заводится бронь тура», и это было неправдой: `app/api/bookings/tour`
- * делает свой `INSERT INTO operator_bookings` напрямую, мимо этой функции.
- * Тот путь живёт под `requireAuth` — бронирует вошедший пользователь, чьё
- * согласие на обработку ПД записано при регистрации, — и потому в разговоре
- * про гостевые ПД он не участвует. Но «единственное» он опровергает, а
- * докстрока, обещающая путь, которого нет, — дефект кода (правило 10.09):
- * читающий поверил бы, что согласие теперь несут ВСЕ брони.
+ * С 26.09 это снова ЕДИНСТВЕННАЯ дверь. До этого `app/api/bookings/tour`
+ * делал свой `INSERT INTO operator_bookings` мимо этой функции и вдобавок
+ * списывал деньги картой ДО подтверждения оператором; роут удалён, его
+ * модалка (`TourPaymentModal`) бронирует через ту же форму, что карточка тура.
+ * Вместе с ним сюда переехала атрибуция агентской ссылки: код ссылки
+ * разрешается здесь, в транзакции брони, и пишет `referral_link_id` и
+ * `agent_user_id` (миграция 1022) — «чья продажа».
  *
  * ── Что было (аудит Fable 5.1, 08.09) ─────────────────────────────────────
  *
@@ -55,14 +55,17 @@
  *
  * ── Чего функция НЕ делает ────────────────────────────────────────────────
  *
- * Не шлёт уведомлений, не пишет в аналитику, не выдаёт ссылок. У двух
- * вызывающих эти шаги разные (письмо и U-ON против сообщения в чат), и
- * сводить их сюда значило бы завести третью развилку внутри общего кода.
+ * Не шлёт уведомлений и не выдаёт ссылок. У вызывающих эти шаги разные
+ * (письмо и U-ON, сообщение в чат, ссылка агенту), и сводить их сюда значило
+ * бы завести развилку внутри общего кода. Единственная «аналитика» здесь —
+ * журнал агентской ссылки (событие 'booking' и счётчик), и то после коммита:
+ * она принадлежит атрибуции, которая решается именно здесь.
  */
 
 import type { PoolClient } from 'pg';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { transaction } from '@/lib/database';
+import { pool } from '@/lib/db-pool';
 import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
 
 /** Причины отказа. Текст решает вызывающий: у чата и формы он разный. */
@@ -108,6 +111,23 @@ export interface ReserveInput {
    * состояние хранится как NULL в четырёх колонках и видно запросом.
    */
   pdConsent?: import('@/lib/legal/pd-consent').PdConsentRecord | null;
+  /**
+   * Код агентской ссылки (`KH-AGT-...`), с которым турист пришёл. Живость
+   * кода решается ЗДЕСЬ, внутри транзакции брони: активная и не истёкшая
+   * ссылка даёт `referral_link_id` и `agent_user_id` (владелец ссылки).
+   *
+   * Плохой код — не причина отказать туристу: бронь заводится без
+   * атрибуции, а почему — пишется в лог. Турист не виноват в том, что
+   * ссылка погашена, и починить это не может.
+   */
+  referralCode?: string | null;
+  /**
+   * Агент, оформивший бронь ЗА СВОЕГО КЛИЕНТА (`users.id` с ролью agent).
+   * Сильнее кода ссылки: продажу сделал он сам, и чужой код в памяти
+   * браузера её не переписывает. Туристу аккаунт агента НЕ приписывается —
+   * `user_id` остаётся тем, что передал вызывающий (обычно null).
+   */
+  agentUserId?: string | null;
 }
 
 export interface Reserved {
@@ -117,6 +137,15 @@ export interface Reserved {
   totalPrice: number;
   operatorId: string;
   tourTitle: string;
+  /** Чья продажа: `operator_bookings.agent_user_id`. null — продажа без агента. */
+  agentUserId: string | null;
+  /** Ссылка, по которой пришёл турист; null — без ссылки или код не принят. */
+  referralLinkId: string | null;
+}
+
+/** Почему код ссылки не дал атрибуции — для лога, не для туриста. */
+function describeRejectedCode(code: string): string {
+  return `код ${code} не найден, выключен или истёк — бронь без атрибуции`;
 }
 
 /**
@@ -144,7 +173,7 @@ export const NEW_BOOKING_STATUS = 'new';
  * одновременных туриста прочитают одну и ту же занятость и оба пройдут.
  */
 export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
-  return transaction(async (client: PoolClient) => {
+  const reserved = await transaction(async (client: PoolClient): Promise<Reserved> => {
     const tourResult = await client.query<{
       operator_id: string;
       title: string;
@@ -266,14 +295,42 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       duration: tour,
     });
 
+    /**
+     * Чья продажа. Бронь за клиента агента — его, без вопросов. Иначе —
+     * владелец активной ссылки, если турист пришёл с её кодом. Код
+     * разрешается ВНУТРИ транзакции брони: ссылка, погашенная между кликом и
+     * бронью, атрибуции не даёт.
+     */
+    let agentUserId: string | null = input.agentUserId ?? null;
+    let referralLinkId: string | null = null;
+    const code = input.referralCode?.trim().toUpperCase() || null;
+    if (!agentUserId && code) {
+      const link = await client.query<{ id: string; agent_id: string }>(
+        `SELECT id, agent_id
+           FROM agent_referral_links
+          WHERE code = $1 AND is_active = true
+            AND (expires_at IS NULL OR expires_at > NOW())
+          LIMIT 1`,
+        [code],
+      );
+      const row = link.rows[0];
+      if (row) {
+        referralLinkId = row.id;
+        agentUserId = row.agent_id;
+      } else {
+        console.warn('[reserve] ' + describeRejectedCode(code));
+      }
+    }
+
     const inserted = await client.query<{ id: number; access_token: string }>(
       `INSERT INTO operator_bookings (
          operator_tour_id, tourist_name, tourist_email, tourist_phone,
          participants, booking_date, end_date, duration_days,
          special_requests, booking_status,
          base_total_price, final_price, created_via, user_id, metadata,
-         pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14::jsonb,$15,$16,$17,$18)
+         pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version,
+         referral_link_id, agent_user_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20)
        RETURNING id, access_token::text AS access_token`,
       [
         input.tourId,
@@ -301,7 +358,7 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
          * личном кабинете». Проверка показала дефект: ЛК туриста
          * (`/api/bookings`), отмена брони и вся админка ищут человека по
          * `metadata->>'user_id'`, а экспорт ПД и вся операторская сторона — по
-         * колонке `user_id`. `app/api/bookings/tour` пишет обе (там это сделано
+         * колонке `user_id`. `app/api/bookings/tour` (удалён 26.09) писал обе (там это было сделано
          * явно, с комментарием и ссылкой на PR #321), а сюда, при переезде
          * создания броней в общий модуль, переехала только колонка.
          *
@@ -330,6 +387,8 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
         input.pdConsent?.ip ?? null,
         input.pdConsent?.source ?? null,
         input.pdConsent?.version ?? null,
+        referralLinkId,
+        agentUserId,
       ],
     );
 
@@ -339,6 +398,33 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       totalPrice,
       operatorId: tour.operator_id,
       tourTitle: tour.title,
+      agentUserId,
+      referralLinkId,
     };
   });
+
+  // Журнал ссылки и её счётчик — ПОСЛЕ коммита: источник истины для продажи
+  // уже записан в самой брони (referral_link_id, agent_user_id), а это
+  // аналитика кабинета. Отказ не валит бронь, но и не глушится (§4.0).
+  if (reserved.referralLinkId) {
+    try {
+      await pool.query(
+        `INSERT INTO agent_referral_events (link_id, event_type, booking_id)
+         VALUES ($1, 'booking', $2)`,
+        [reserved.referralLinkId, reserved.bookingId],
+      );
+      await pool.query(
+        `UPDATE agent_referral_links SET conversions = COALESCE(conversions, 0) + 1 WHERE id = $1`,
+        [reserved.referralLinkId],
+      );
+    } catch (err) {
+      const sqlstate = (err as { code?: string }).code ?? 'нет SQLSTATE';
+      console.error(
+        `[reserve] событие брони по ссылке не записано (бронь ${reserved.bookingId}), SQLSTATE ${sqlstate}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return reserved;
 }

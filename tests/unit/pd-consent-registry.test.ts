@@ -105,7 +105,6 @@ const CONSENT_FORMS = [
   'app/planner/_PlannerClient.tsx',
   'app/request/_RequestClient.tsx',
   'app/widget/lead-form/[slug]/page.tsx',
-  'components/booking/TourPaymentModal.tsx',
   'components/routes/LeadModal.tsx',
   'components/shared/StickyLeadButton.tsx',
   'components/marketplace/BookingFormClient.tsx',
@@ -134,7 +133,6 @@ const KNOWN_LITERAL_CONSENT = new Set([
   'app/planner/_PlannerClient.tsx',
   'app/request/_RequestClient.tsx',
   'app/widget/lead-form/[slug]/page.tsx',
-  'components/booking/TourPaymentModal.tsx',
   'components/routes/LeadModal.tsx',
   'components/shared/StickyLeadButton.tsx',
 ]);

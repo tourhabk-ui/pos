@@ -106,7 +106,7 @@ describe('реферальный код отличается от агентск
 
   it('чужой код не принимается', () => {
     // `?ref=` на платформе занят дважды: кроме users.referral_code есть
-    // agent_referral_links (читаются в /api/tours/[id]/price). Это разные
+    // agent_referral_links (разрешаются при брони, lib/bookings/reserve.ts). Это разные
     // сущности с разными выплатами, путать их нельзя.
     expect(isUserReferralCode('PARTNER2026')).toBe(false);
     expect(isUserReferralCode('KH-ZZZZZZ')).toBe(false);

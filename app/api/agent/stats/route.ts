@@ -1,88 +1,72 @@
 /**
- * GET /api/agent/stats
- * Статистика агента: комиссии по месяцам, удержание клиентов, топ туры.
+ * GET /api/agent/stats — статистика агента: начисления по месяцам тура,
+ * удержание клиентов, лучшие туры.
+ *
+ * Прежде роут суммировал agent_commissions (строки без оплаченной брони
+ * оператора за ними), считал брони agent_bookings вместе с неоплаченными и
+ * не имел try/catch: отказ базы уходил необработанным, а экран показывал
+ * «0K ₽». Теперь продажи — брони оператора с agent_user_id; начисления — из
+ * единственной функции денег агента; только оплаченные и не отменённые.
+ * Ставки нет — суммы null («ставка не назначена»), клиентов нет — удержание
+ * null, а не «0%».
  */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
 import { requireAgent } from '@/lib/auth/middleware';
+import { pool } from '@/lib/db-pool';
+import { CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
+import { STATS_SQL } from '@/lib/agent-cabinet/queries';
+import {
+  loadAgentMoney, logAgentMoneyFailure, sqlstateOf, type SaleState,
+} from '@/lib/payments/agent-commission';
 
 export const dynamic = 'force-dynamic';
 
+/** Начислено: оплачено и не отменено. */
+const EARNED: ReadonlySet<SaleState> = new Set<SaleState>(['waiting', 'payable', 'requested', 'paid_out']);
+
 export async function GET(request: NextRequest) {
-  const userOrResponse = await requireAgent(request);
-  if (userOrResponse instanceof NextResponse) return userOrResponse;
+  const auth = await requireAgent(request);
+  if (auth instanceof NextResponse) return auth;
 
-  const agentId = userOrResponse.userId;
-
-  const [commissionsResult, retentionResult, topToursResult, repeatClientsResult] =
-    await Promise.all([
-      // Комиссии по месяцам за 6 месяцев
-      query<{ month: string; amount: string }>(
-        `SELECT
-           TO_CHAR(DATE_TRUNC('month', created_at), 'Mon') AS month,
-           COALESCE(SUM(amount), 0)::text                  AS amount
-         FROM agent_commissions
-         WHERE agent_id = $1
-           AND created_at >= NOW() - INTERVAL '6 months'
-         GROUP BY DATE_TRUNC('month', created_at)
-         ORDER BY DATE_TRUNC('month', created_at) ASC`,
-        [agentId]
-      ),
-
-      // Удержание: клиенты с > 1 бронью / всего клиентов
-      query<{ total: string; repeat: string }>(
-        `SELECT
-           COUNT(*)::text                                            AS total,
-           COUNT(*) FILTER (WHERE total_bookings > 1)::text         AS repeat
-         FROM agent_clients
-         WHERE agent_id = $1`,
-        [agentId]
-      ),
-
-      // Топ-5 туров по числу бронирований
-      query<{ name: string; bookings: string }>(
-        `SELECT
-           t.title       AS name,
-           COUNT(b.id)::text AS bookings
-         FROM agent_bookings b
-         JOIN operator_tours t ON t.id = b.tour_id
-         WHERE b.agent_id = $1
-           AND b.status IN ('confirmed', 'completed')
-         GROUP BY t.id, t.title
-         ORDER BY COUNT(b.id) DESC
-         LIMIT 5`,
-        [agentId]
-      ),
-
-      // Число повторных клиентов
-      query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count
-         FROM agent_clients
-         WHERE agent_id = $1 AND total_bookings > 1`,
-        [agentId]
-      ),
+  try {
+    const [money, retentionRes, topRes] = await Promise.all([
+      loadAgentMoney(pool, auth.userId),
+      pool.query<{ clients: number; repeat_clients: number }>(STATS_SQL.retention, [auth.userId, CANCELLED_STATUS_PARAM]),
+      pool.query<{ name: string; bookings: number }>(STATS_SQL.topTours, [auth.userId, CANCELLED_STATUS_PARAM]),
     ]);
 
-  const totalClients  = parseInt(retentionResult.rows[0]?.total  ?? '0', 10);
-  const repeatClients = parseInt(retentionResult.rows[0]?.repeat ?? '0', 10);
-  const retention = totalClients > 0
-    ? Math.round((repeatClients / totalClients) * 100)
-    : 0;
+    // Начисления по месяцу ТУРА (booking_date): вознаграждение привязано к
+    // поездке, а не к дню, когда нажали «забронировать».
+    const byMonth = new Map<string, number>();
+    for (const s of money.sales) {
+      if (!EARNED.has(s.state) || s.bookingDate === null) continue;
+      const month = s.bookingDate.slice(0, 7);
+      byMonth.set(month, (byMonth.get(month) ?? 0) + (s.amount ?? 0));
+    }
+    const months = [...byMonth.keys()].sort().slice(-6);
 
-  return NextResponse.json({
-    success: true,
-    data: {
-      commissions: commissionsResult.rows.map(r => ({
-        month:  r.month,
-        amount: parseFloat(r.amount),
-      })),
-      retention,
-      repeatClients: parseInt(repeatClientsResult.rows[0]?.count ?? '0', 10),
-      topTours: topToursResult.rows.map(r => ({
-        name:     r.name,
-        bookings: parseInt(r.bookings, 10),
-      })),
-    },
-  });
+    const clients = retentionRes.rows[0]?.clients ?? 0;
+    const repeat = retentionRes.rows[0]?.repeat_clients ?? 0;
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        rate: money.rate,
+        commissions: months.map((m) => ({
+          month: m,
+          amount: money.rate === null ? null : Math.round((byMonth.get(m) ?? 0) * 100) / 100,
+        })),
+        clients,
+        retention: clients > 0 ? Math.round((repeat / clients) * 100) : null,
+        repeatClients: repeat,
+        topTours: topRes.rows,
+      },
+    });
+  } catch (err) {
+    logAgentMoneyFailure('GET /api/agent/stats', err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить статистику', sqlstate: sqlstateOf(err) },
+      { status: 503 },
+    );
+  }
 }

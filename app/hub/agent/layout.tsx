@@ -3,12 +3,14 @@
 import { ReactNode } from 'react';
 import {
   LayoutDashboard, Search, Users, Handshake, CreditCard, User, Link2,
-  Ticket, TrendingUp,
+  TrendingUp,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 
-// Ваучеры и Статистика — живые страницы кабинета, но в меню их не было:
-// добраться можно было только прямой ссылкой (осиротевшие разделы).
+// Статистика — живая страница кабинета, но в меню её не было:
+// добраться можно было только прямой ссылкой. Ваучеры удалены 26.09:
+// таблицы vouchers в базе нет, страница отвечала 500, а код ваучера нигде
+// не применялся к брони.
 //
 // Пункты сгруппированы по section: на мобиле HubSidebar тогда рендерит
 // сворачиваемую сетку иконок по разделам (как в админке) вместо горизонтальной
@@ -22,7 +24,6 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/agent/bookings',    label: 'Сделки',     icon: Handshake,  section: 'Продажи' },
 
   { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard, section: 'Финансы' },
-  { href: '/hub/agent/vouchers',    label: 'Ваучеры',    icon: Ticket,     section: 'Финансы' },
   { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2,      section: 'Финансы' },
 
   { href: '/hub/agent/stats',       label: 'Статистика', icon: TrendingUp, section: 'Кабинет' },

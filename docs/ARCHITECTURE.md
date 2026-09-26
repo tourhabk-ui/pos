@@ -75,7 +75,7 @@ Guard-тест `tests/unit/platform-counts.test.ts` не даёт разнобо
 | `intelligence/` | page-links |
 | `relief/` | dem-backfill |
 | `scout/` | source-health |
-| корень (core/platform) | payment.service, search.service, rag.service, analytics.service, intelligence-monitor.service, travelpayouts, profanity-filter, query-expansion-health, data-inventory, data-repair, offline-readiness, `_helpers`, `_errors`, `index` |
+| корень (core/platform) | search.service, rag.service, analytics.service, intelligence-monitor.service, travelpayouts, profanity-filter, query-expansion-health, data-inventory, data-repair, offline-readiness, `_helpers`, `_errors`, `index` |
 
 Баррел `lib/services/index.ts` реэкспортит доменные сервисы по новым путям.
 

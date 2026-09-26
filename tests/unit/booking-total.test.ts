@@ -40,12 +40,12 @@ describe('bookingTotal', () => {
 describe('все двери считают одной функцией', () => {
   const DOORS: Array<[string, string]> = [
     ['lib/bookings/reserve.ts', 'форма заявки, корзина, Кузьмич'],
-    ['app/api/bookings/tour/route.ts', 'оплата картой'],
-    ['app/api/agent/bookings/route.ts', 'агентская бронь'],
+    // 26.09: /api/bookings/tour удалён, агентская бронь и модалка брони
+    // заводятся через reserveBooking / BookingFormClient (сторож agent-pack-a).
+    ['app/hub/agent/bookings/_AgentBookingsPageClient.tsx', 'сумма в заявке агента'],
     ['app/api/hub/operator/bookings/route.ts', 'ручная бронь оператора'],
     ['lib/bookings/booking.service.ts', 'перенос на другой тур'],
     ['components/marketplace/BookingFormClient.tsx', 'сумма в форме тура'],
-    ['components/booking/TourPaymentModal.tsx', 'сумма на кнопке оплаты'],
     ['app/hub/tourist/cart/checkout/_CheckoutClient.tsx', 'итог корзины'],
     ['app/kuzmich/_KuzmichClient.tsx', 'сумма в чате'],
   ];

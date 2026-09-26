@@ -24,8 +24,10 @@ export { bookingService, availabilityService } from './tours/booking.service';
 // Partner (operators)
 export { partnerService } from './operators/partner.service';
 
-// Payment / Commission / Payout
-export { commissionService, payoutService } from './payment.service';
+// Payment / Commission / Payout — payment.service снят 26.09: соединялся с
+// несуществующей таблицей agents, писал выдуманный статус 'processed' и
+// ставку 0.1 по умолчанию, а звал его никто. Деньги агента — единственная
+// функция lib/payments/agent-commission.ts.
 
 // RAG / Knowledge Base
 export { knowledgeBaseService } from './rag.service';
