@@ -32,6 +32,11 @@ export interface DayPlan {
   dayWarnings: string[];
   /** Род активного дня — производит движок (lib/planner/day-mode). */
   activityMode?: 'operator' | 'self' | 'open';
+  /**
+   * Тур дня от движка. Здесь — только то, что читает экран подбора жилья:
+   * включено ли проживание (true / false / null — не знаем).
+   */
+  realTour?: { lodgingIncluded: boolean | null };
 }
 
 export interface TripWarning {
@@ -95,4 +100,54 @@ export interface TourPreview {
 export interface ValidationResult {
   valid: boolean;
   message: string;
+}
+
+/** Что ещё нужно к поездке — ответ /api/planner/trip-extras. */
+export type ExtrasOutcome<T> =
+  | { state: 'ok'; items: T[] }
+  | { state: 'empty' }
+  | { state: 'unavailable' };
+
+export interface LodgingOptionView {
+  id: string;
+  name: string;
+  type: string;
+  priceFrom: number | null;
+  rating: number | null;
+  reviewCount: number;
+  isVerified: boolean;
+}
+
+export interface LodgingStayView {
+  zone: string;
+  zoneName: string;
+  checkIn: string;
+  checkOut: string;
+  nights: number;
+  result: ExtrasOutcome<LodgingOptionView>;
+}
+
+export interface TransferOptionView {
+  id: string;
+  tripDate: string;
+  departureNote: string | null;
+  fromText: string;
+  toText: string;
+  seatsFree: number;
+  seatsTotal: number;
+  pricePerSeat: number | null;
+  vehicleKind: string;
+  vehicleTitle: string;
+  partnerName: string;
+}
+
+export interface TripExtrasData {
+  lodging?:
+    | { state: 'no_dates' }
+    | { state: 'checked'; stays: LodgingStayView[]; nightsInTours: number; unzonedCount: number | null };
+  transfer?:
+    | { state: 'no_dates' }
+    | { state: 'window_too_long'; window: { from: string; to: string; seats: number }; maxDays: number }
+    | (ExtrasOutcome<TransferOptionView> & { window: { from: string; to: string; seats: number } });
+  car?: { state: 'not_offered'; message: string; hint: string };
 }

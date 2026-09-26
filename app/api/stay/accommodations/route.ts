@@ -6,6 +6,7 @@ import { getStayPartnerId, StayCheckUnavailableError, stayCheckUnavailableRespon
 import { logStayFailure } from '@/lib/stay/db-failure';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { ACCOMMODATION_TYPES } from '@/lib/stay/accommodation-types';
+import { ZONE_IDS } from '@/lib/planner/constants';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,11 @@ const CreateAccommodationSchema = z.object({
   checkInTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   checkOutTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   amenities: z.array(z.string().max(100)).max(50).optional(),
+  // Зона планера (решение владельца 26.09, миграция 1030): обязательна у
+  // нового объекта — по ней планер предлагает жильё на ночи плана. База
+  // NULL допускает (старые и заведённые администратором объекты), форма
+  // владельца — нет: владелец свою зону знает, угадывать её некому.
+  plannerZone: z.enum(ZONE_IDS, { message: 'Выберите зону для планера поездок' }),
 });
 
 /**
@@ -52,7 +58,7 @@ export async function GET(request: NextRequest) {
     const result = await query(
       `SELECT
         a.id, a.name, a.type, a.description, a.short_description, a.address,
-        a.location_zone, a.star_rating, a.total_rooms,
+        a.location_zone, a.planner_zone, a.star_rating, a.total_rooms,
         a.check_in_time, a.check_out_time,
         a.price_per_night_from, a.price_per_night_to, a.currency,
         a.amenities, a.rating, a.review_count,
@@ -132,10 +138,10 @@ export async function POST(request: NextRequest) {
       `INSERT INTO accommodations (
         partner_id, name, description, short_description, type, address, coordinates,
         total_rooms, price_per_night_from, price_per_night_to,
-        check_in_time, check_out_time, amenities,
+        check_in_time, check_out_time, amenities, planner_zone,
         is_active, is_verified, moderation_status, created_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, false, 'pending', NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, false, 'pending', NOW(), NOW())
       RETURNING id`,
       [
         partnerId,
@@ -153,6 +159,7 @@ export async function POST(request: NextRequest) {
         d.checkInTime ?? '14:00',
         d.checkOutTime ?? '12:00',
         JSON.stringify(d.amenities ?? []),
+        d.plannerZone,
       ]
     );
 

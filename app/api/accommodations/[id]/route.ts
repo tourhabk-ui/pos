@@ -13,6 +13,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { verifyAccommodationOwnership, StayCheckUnavailableError, stayCheckUnavailableResponse } from '@/lib/auth/stay-helpers';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { logStayFailure } from '@/lib/stay/db-failure';
+import { ZONE_IDS } from '@/lib/planner/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -247,6 +248,9 @@ const UpdateAccommodationSchema = z.object({
   checkInTime: z.string().regex(/^\d{2}:\d{2}$/, 'Формат времени — ЧЧ:ММ').optional(),
   checkOutTime: z.string().regex(/^\d{2}:\d{2}$/, 'Формат времени — ЧЧ:ММ').optional(),
   isActive: z.boolean().optional(),
+  // Зона планера (миграция 1030). Снять разметку (null) владелец не может —
+  // только поменять; «не размечено» остаётся у старых объектов до решения.
+  plannerZone: z.enum(ZONE_IDS, { message: 'Выберите зону для планера поездок' }).optional(),
 }).refine(data => Object.keys(data).length > 0, { message: 'Нет полей для обновления' });
 
 // PATCH /api/accommodations/[id] — владелец редактирует свой объект, admin — любой
@@ -299,6 +303,7 @@ export async function PATCH(
       checkInTime: { column: 'check_in_time' },
       checkOutTime: { column: 'check_out_time' },
       isActive: { column: 'is_active' },
+      plannerZone: { column: 'planner_zone' },
     };
 
     const setClauses: string[] = [];

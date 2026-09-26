@@ -85,6 +85,8 @@ describe('условие витрины', () => {
       'lib/kuzmich/accommodation-search.ts',
       'lib/seo/sitemap-entries.ts',
       'app/api/cron/planner-material-census/route.ts',
+      // Планер: жильё на ночи плана (решение владельца 26.09).
+      'lib/planner/trip-extras-data.ts',
       // Бронь, свободные даты, закрытые даты и цены — тот же объект с другой
       // стороны: неодобренный объект не бронируется и не отвечает датами.
       'app/api/accommodations/[id]/book/route.ts',
@@ -108,6 +110,8 @@ describe('владелец создаёт объект — на проверке
     const res = await createAccommodation(req('http://localhost/api/stay/accommodations', 'POST', {
       name: 'Дом у вулкана', description: 'Тёплый дом у подножия', type: 'guesthouse',
       coordinates: { lat: 53, lng: 158 },
+      // Зона планера обязательна у нового объекта (миграция 1030).
+      plannerZone: 'avachinsky',
     }));
     expect(res.status).toBe(201);
     const insert = String(queryMock.mock.calls.find(([s]) => String(s).includes('INSERT INTO accommodations'))![0]);
@@ -161,7 +165,9 @@ describe('решение администратора', () => {
     expect(res.status).toBe(200);
     const [sql, params] = poolQueryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/moderated_at\s+= NOW\(\)/);
-    expect(params).toEqual([ACC_ID, 'approved', null, true, ADMIN_ID]);
+    // Шестой — зона планера (миграция 1030): не передана — null, и
+    // COALESCE в SQL оставляет прежнюю.
+    expect(params).toEqual([ACC_ID, 'approved', null, true, ADMIN_ID, null]);
   });
 
   it('отказ без причины — 400, в базу не идёт', async () => {
@@ -178,7 +184,7 @@ describe('решение администратора', () => {
       { params: Promise.resolve({ id: ACC_ID }) });
     expect(res.status).toBe(200);
     const params = poolQueryMock.mock.calls[0][1] as unknown[];
-    expect(params).toEqual([ACC_ID, 'rejected', 'Нет ни одного фото объекта', false, ADMIN_ID]);
+    expect(params).toEqual([ACC_ID, 'rejected', 'Нет ни одного фото объекта', false, ADMIN_ID, null]);
   });
 
   it('не админ — отказ гейта, в базу не идёт', async () => {

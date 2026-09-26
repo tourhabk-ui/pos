@@ -12,7 +12,7 @@ import { pool } from '@/lib/db-pool';
 // ни один прежний читатель `@/lib/planner/engine` не был тронут.
 import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
-  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, ZONE_SLEEPS_IN, sleepZoneOf,
 } from '@/lib/planner/constants';
 
 export {
@@ -299,7 +299,7 @@ const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
     note: 'Однодневная экскурсия, ночёвка в Авачинской зоне',
     // Приписка выше теперь не только для чтения: ночь считается по той
     // зоне, где её реально проводят.
-    sleepsIn: 'avachinsky',
+    sleepsIn: ZONE_SLEEPS_IN.northern,
   },
 };
 
@@ -1584,7 +1584,7 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
     if (day.type === 'departure') continue;
     if (day.realTour?.lodgingIncluded === true) continue;
     // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
-    const sleepZone = ZONE_ACCOMMODATION[day.zone].sleepsIn ?? day.zone;
+    const sleepZone = sleepZoneOf(day.zone);
     const acc = ZONE_ACCOMMODATION[sleepZone];
     const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
     accFrom += Math.round(nightPrice * 0.8);

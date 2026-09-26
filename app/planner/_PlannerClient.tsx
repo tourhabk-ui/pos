@@ -22,6 +22,7 @@ import {
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy, UserCheck, Compass,
   ArrowLeft, Minus, CalendarDays, Accessibility, HeartPulse,
+  BedDouble, Bus, Car,
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
@@ -32,10 +33,11 @@ import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
+import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
-  RoutePoint, Partner, TourPreview, ValidationResult, MobileTab,
+  RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -1049,7 +1051,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [flightDeparture, setFlightDeparture] = useState('');
   const [flightArrivalTime, setFlightArrivalTime]       = useState('');
   const [flightDepartureTime, setFlightDepartureTime]   = useState('');
+  // «Что ещё нужно» (шаг 3, решение владельца 26.09). Трансфер — тот же
+  // флаг, что уходит в сохранённую поездку и заявку: один переключатель на
+  // одно желание, а не два расходящихся.
   const [needsAirportTransfer, setNeedsAirportTransfer] = useState(false);
+  const [needsLodging, setNeedsLodging] = useState(false);
+  const [needsCar, setNeedsCar] = useState(false);
 
   // Group profile
   const [adults, setAdults] = useState(2);
@@ -1138,6 +1145,53 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [confirmedDays, setConfirmedDays] = useState<Set<number>>(new Set());
 
   const allInterests = [...new Set([...places, ...activities])];
+
+  // «Что ещё нужно» — настоящие варианты к ТЕКУЩЕМУ плану. Отдельный запрос
+  // после плана, а не поле recommend: дни на экране переставляют и удаляют,
+  // и жильё обязано считаться по тем ночам, что видит человек. Номер дня —
+  // позиция в плане (после перестановки `day` у карточки прежний).
+  const extrasBody = useMemo(() => {
+    if (!recommendation || !(needsLodging || needsAirportTransfer || needsCar)) return null;
+    return JSON.stringify({
+      needs: { lodging: needsLodging, transfer: needsAirportTransfer, car: needsCar },
+      arrivalDate: arrival || undefined,
+      departureDate: departure || undefined,
+      adults,
+      children: childAges,
+      days: days.map((d, i) => ({
+        day: i + 1, type: d.type, zone: d.zone,
+        lodgingIncluded: d.realTour?.lodgingIncluded ?? null,
+      })),
+    });
+  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, childAges, days]);
+  // Ответ привязан к телу запроса: пока ответа на ТЕКУЩЕЕ тело нет — «ищем»,
+  // без синхронного setState в эффекте.
+  const [extrasResult, setExtrasResult] = useState<{ key: string; load: ExtrasLoad } | null>(null);
+  const extras: ExtrasLoad | null = extrasBody === null
+    ? null
+    : extrasResult?.key === extrasBody ? extrasResult.load : { status: 'loading' };
+  useEffect(() => {
+    if (!extrasBody) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetch('/api/planner/trip-extras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: extrasBody,
+      })
+        .then(async (res) => {
+          const j = await res.json() as { success?: boolean; data?: TripExtrasData };
+          if (cancelled) return;
+          // Отказ сервера — «не смогли проверить», а не «вариантов нет».
+          setExtrasResult({
+            key: extrasBody,
+            load: res.ok && j.success && j.data ? { status: 'ready', data: j.data } : { status: 'error' },
+          });
+        })
+        .catch(() => { if (!cancelled) setExtrasResult({ key: extrasBody, load: { status: 'error' } }); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [extrasBody]);
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
 
   // planner_started — первое осмысленное действие в анкете, один раз за сессию
@@ -1497,9 +1551,10 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
   ${d.dayWarnings.map(w => `<div class="day-warn">${w}</div>`).join('')}
 </div>`).join('\n')}
 ${pb ? `<div class="footer">
+  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Оценка стоимости — ориентир по средним ценам, не предложения</div>
   <div class="price-row"><span>Активности</span><span>${fmt(pb.activities[0])} — ${fmt(pb.activities[1])} ₽</span></div>
-  <div class="price-row"><span>Размещение</span><span>${fmt(pb.accommodation[0])} — ${fmt(pb.accommodation[1])} ₽</span></div>
-  <div class="price-row"><span>Транспорт</span><span>${fmt(pb.transport[0])} — ${fmt(pb.transport[1])} ₽</span></div>
+  <div class="price-row"><span>Размещение, оценка</span><span>${fmt(pb.accommodation[0])} — ${fmt(pb.accommodation[1])} ₽</span></div>
+  <div class="price-row"><span>Транспорт, оценка</span><span>${fmt(pb.transport[0])} — ${fmt(pb.transport[1])} ₽</span></div>
   <div class="price-total"><span>Итого на человека</span><span>${fmt(pb.perPersonTotal[0])} — ${fmt(pb.perPersonTotal[1])} ₽</span></div>
   <div style="font-size:11px;color:#9a9590;margin-top:6px">Без авиабилетов Москва — Камчатка</div>
 </div>` : ''}
@@ -1923,7 +1978,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
       <details className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
         <summary className="flex items-center justify-between gap-2 px-4 min-h-[44px] cursor-pointer text-sm text-[var(--text-secondary)] list-none">
-          Номера рейсов и встреча в аэропорту
+          Номера рейсов
           <ChevronDown className="w-4 h-4 transition-transform duration-200 motion-reduce:transition-none group-open:rotate-180" />
         </summary>
         <div className="px-4 pb-4 space-y-3">
@@ -1937,14 +1992,6 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
               placeholder="Рейс вылета" maxLength={20}
               className="ds-input w-full text-sm" />
           </div>
-          <label className="flex items-center gap-3 min-h-[44px] cursor-pointer select-none">
-            <input type="checkbox" checked={needsAirportTransfer}
-              onChange={e => setNeedsAirportTransfer(e.target.checked)}
-              className="w-5 h-5 rounded accent-[var(--accent)]" />
-            <span className="text-sm text-[var(--text-secondary)]">
-              Встреча в аэропорту и трансфер (~2 500 ₽ в одну сторону)
-            </span>
-          </label>
         </div>
       </details>
     </div>
@@ -2171,6 +2218,41 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             Включены маршруты с предупреждениями МЧС. Требуется опыт и снаряжение.
           </p>
         )}
+      </div>
+
+      {/* Что ещё нужно (решение владельца 26.09): в результате — настоящие
+          варианты с платформы, а не оценка. */}
+      <div className="space-y-2" data-testid="needs-block">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Plus className="w-4 h-4 text-[var(--ocean)]" />Что ещё нужно
+        </p>
+        <div className="grid gap-2">
+          {([
+            { key: 'lodging', label: 'Жильё', hint: 'Покажем свободные объекты платформы на ночи плана', Icon: BedDouble, on: needsLodging, set: setNeedsLodging },
+            { key: 'transfer', label: 'Трансфер из аэропорта', hint: 'Покажем поездки перевозчиков на ваши даты с местами на всю группу', Icon: Bus, on: needsAirportTransfer, set: setNeedsAirportTransfer },
+            { key: 'car', label: 'Машина напрокат', hint: 'Скажем честно, есть ли прокат на платформе', Icon: Car, on: needsCar, set: setNeedsCar },
+          ] as const).map(({ key, label, hint, Icon, on, set }) => (
+            <button key={key} type="button" aria-pressed={on} data-need={key}
+              onClick={() => set(!on)}
+              className={`flex items-start gap-3 text-left rounded-lg border px-4 py-3 min-h-[44px] transition-colors duration-200 motion-reduce:transition-none ${
+                on
+                  ? 'border-[var(--accent)] bg-[var(--accent-muted)]'
+                  : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-strong)]'
+              }`}>
+              <Icon className={`w-5 h-5 mt-0.5 shrink-0 ${on ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`} />
+              <span className="min-w-0 flex-1">
+                <span className={`block text-sm font-semibold ${on ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>{label}</span>
+                <span className="block text-xs text-[var(--text-secondary)] mt-0.5 leading-snug">{hint}</span>
+              </span>
+              <span aria-hidden="true"
+                className={`mt-0.5 w-5 h-5 shrink-0 rounded border flex items-center justify-center ${
+                  on ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-strong)]'
+                }`}>
+                {on && <Check className="w-3.5 h-3.5 text-[var(--bg-card)]" />}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -2451,7 +2533,10 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
               {/* Price breakdown */}
               {recommendation.priceBreakdown && (
-                <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1">
+                <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1" data-testid="price-estimate">
+                  {/* Оценка по средним ценам движка (константы), а не предложения:
+                      настоящие варианты — в «Что ещё нужно» (§4.0). */}
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] px-1">Оценка стоимости</p>
                   <div className="flex items-center justify-between px-1">
                     <span className="text-[10px] text-[var(--text-muted)]">Активности</span>
                     <span className="text-[10px] text-[var(--text-secondary)]">
@@ -2459,13 +2544,13 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                     </span>
                   </div>
                   <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] text-[var(--text-muted)]">Размещение</span>
+                    <span className="text-[10px] text-[var(--text-muted)]">Размещение, оценка</span>
                     <span className="text-[10px] text-[var(--text-secondary)]">
                       {fmt(recommendation.priceBreakdown.accommodation[0])} — {fmt(recommendation.priceBreakdown.accommodation[1])} ₽
                     </span>
                   </div>
                   <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] text-[var(--text-muted)]">Транспорт</span>
+                    <span className="text-[10px] text-[var(--text-muted)]">Транспорт, оценка</span>
                     <span className="text-[10px] text-[var(--text-secondary)]">
                       {fmt(recommendation.priceBreakdown.transport[0])} — {fmt(recommendation.priceBreakdown.transport[1])} ₽
                     </span>
@@ -2476,11 +2561,13 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                       {fmt(recommendation.priceBreakdown.perPersonTotal[0])} — {fmt(recommendation.priceBreakdown.perPersonTotal[1])} ₽
                     </span>
                   </div>
-                  <p className="text-[9px] text-[var(--text-muted)] px-1">Без авиабилетов Москва — Камчатка (25 000-60 000 ₽)</p>
+                  <p className="text-[9px] text-[var(--text-muted)] px-1">Ориентир по средним ценам, не предложения. Без авиабилетов Москва — Камчатка (25 000-60 000 ₽)</p>
                 </div>
               )}
             </div>
           )}
+
+          {extras && <TripExtrasSection load={extras} arrival={arrival} departure={departure} />}
 
           {/* AI itinerary */}
           {recommendation.itinerary && (

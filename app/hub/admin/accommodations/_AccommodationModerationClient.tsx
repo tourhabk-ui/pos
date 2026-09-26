@@ -6,12 +6,17 @@ import { Home, Loader2, CheckCircle2, XCircle, Clock, Mail, ExternalLink } from 
 import { Protected } from '@/components/auth/Protected';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
+import { ZONE_IDS, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
 
 /**
  * Проверка объектов жилья (решение владельца 26.09, миграция 1027):
  * объект выходит на витрину только после одобрения здесь, и только отсюда
  * ставится отметка «Проверено». Соседняя очередь — /hub/admin/operators
  * (там одобряется сам владелец как партнёр, здесь — его объекты).
+ *
+ * Зона планера (миграция 1030): по ней планер поездки предлагает объект на
+ * ночи плана. NULL — «не размечена», такой объект планер не предлагает.
+ * Администратор ставит зону при одобрении или отдельно («Сохранить зону»).
  */
 
 type Tab = 'pending' | 'approved' | 'rejected' | 'all';
@@ -29,6 +34,7 @@ interface Row {
   isVerified: boolean;
   moderationStatus: string;
   moderationReason: string | null;
+  plannerZone: string | null;
   moderatedAt: string | null;
   createdAt: string;
   partnerName: string | null;
@@ -52,6 +58,15 @@ function isRowList(v: unknown): v is { success: true; data: { accommodations: Ro
   return typeof d === 'object' && d !== null && Array.isArray((d as { accommodations?: unknown }).accommodations);
 }
 
+function isZoneId(v: string): v is ZoneId {
+  return (ZONE_IDS as readonly string[]).includes(v);
+}
+
+function zoneLabel(z: string | null): string {
+  if (z === null) return 'не размечена — планер объект не предлагает';
+  return isZoneId(z) ? ZONE_NAMES[z] : `неизвестная зона «${z}»`;
+}
+
 function statusNote(r: Row): string {
   if (r.moderationStatus === 'approved') {
     if (!r.moderatedAt) return 'Одобрен до введения проверки (26.09) — решения администратора не было';
@@ -70,6 +85,12 @@ export default function AccommodationModerationClient() {
   const [rejecting, setRejecting] = useState<Row | null>(null);
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  // Черновик зоны по объекту: '' — «не размечена». Нет ключа — как в базе.
+  const [zoneDraft, setZoneDraft] = useState<Record<string, string>>({});
+
+  function draftZone(r: Row): string {
+    return zoneDraft[r.id] ?? r.plannerZone ?? '';
+  }
 
   const load = useCallback(async (t: Tab) => {
     setRows(null);
@@ -98,7 +119,9 @@ export default function AccommodationModerationClient() {
       const res = await fetch(`/api/admin/accommodations/${row.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action === 'approve' ? { action } : { action, reason: why }),
+        body: JSON.stringify(action === 'approve'
+          ? (isZoneId(draftZone(row)) ? { action, plannerZone: draftZone(row) } : { action })
+          : { action, reason: why }),
       });
       const j = await res.json() as { success?: boolean; error?: string; message?: string };
       if (!res.ok || !j.success) {
@@ -111,6 +134,31 @@ export default function AccommodationModerationClient() {
       void load(tab);
     } catch {
       setNotice('Сетевая ошибка — решение не сохранено');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function saveZone(row: Row) {
+    const z = draftZone(row);
+    setActing(row.id);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/accommodations/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_zone', plannerZone: isZoneId(z) ? z : null }),
+      });
+      const j = await res.json() as { success?: boolean; error?: string; message?: string };
+      if (!res.ok || !j.success) {
+        setNotice(j.error ?? 'Зона не сохранена');
+        return;
+      }
+      setNotice(j.message ?? 'Зона сохранена');
+      setZoneDraft(d => { const n = { ...d }; delete n[row.id]; return n; });
+      void load(tab);
+    } catch {
+      setNotice('Сетевая ошибка — зона не сохранена');
     } finally {
       setActing(null);
     }
@@ -239,6 +287,30 @@ export default function AccommodationModerationClient() {
                       <p className="text-xs text-[var(--text-muted)] mt-2 line-clamp-3">{r.shortDescription || r.description}</p>
                     )}
                     <p className="text-xs text-[var(--text-secondary)] mt-2">{statusNote(r)}</p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-1" data-testid="planner-zone">
+                      Зона для планера: {zoneLabel(r.plannerZone)}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <label className="sr-only" htmlFor={`zone-${r.id}`}>Зона для планера</label>
+                      <select
+                        id={`zone-${r.id}`}
+                        className="ds-input w-auto min-h-[44px] text-sm"
+                        value={draftZone(r)}
+                        onChange={e => setZoneDraft(d => ({ ...d, [r.id]: e.target.value }))}
+                      >
+                        <option value="">Зона не размечена</option>
+                        {ZONE_IDS.map(z => <option key={z} value={z}>{ZONE_NAMES[z]}</option>)}
+                      </select>
+                      {draftZone(r) !== (r.plannerZone ?? '') && (
+                        <button
+                          className="ds-btn ds-btn-secondary"
+                          disabled={acting === r.id}
+                          onClick={() => saveZone(r)}
+                        >
+                          Сохранить зону
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {r.moderationStatus === 'approved' && r.isActive && (

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble, Plus, Image as ImageIcon } from 'lucide-react';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 import { ownerListingState, type OwnerListingState } from '@/lib/stay/moderation';
+import { ZONE_IDS, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
 
 /**
  * Объекты владельца жилья: список из GET /api/stay/accommodations
@@ -35,6 +36,8 @@ interface AccommodationRow {
   is_verified: boolean;
   moderation_status: string;
   moderation_reason: string | null;
+  /** Зона планера (миграция 1030); null — не размечена. */
+  planner_zone: string | null;
   rooms_count: string | number;
   pending_bookings: string | number;
 }
@@ -47,6 +50,8 @@ interface EditFormState {
   pricePerNightTo: string;
   checkInTime: string;
   checkOutTime: string;
+  /** '' — не размечена (старые объекты); снять разметку владелец не может. */
+  plannerZone: ZoneId | '';
 }
 
 // null — «не указано», а не «0 ₽»: Number(null) равен нулю, и цена,
@@ -65,6 +70,10 @@ const TONE_CLASS: Record<OwnerListingState['tone'], string> = {
 };
 
 // TIME из БД приходит как "14:00:00" — форме и API нужен формат ЧЧ:ММ
+function isZoneId(v: string | null): v is ZoneId {
+  return v !== null && (ZONE_IDS as readonly string[]).includes(v);
+}
+
 function toHHMM(t: string | null): string {
   return t ? t.slice(0, 5) : '';
 }
@@ -80,6 +89,7 @@ export default function AccommodationsClient() {
   const [form, setForm] = useState<EditFormState>({
     name: '', shortDescription: '', description: '',
     pricePerNightFrom: '', pricePerNightTo: '', checkInTime: '', checkOutTime: '',
+    plannerZone: '',
   });
 
   const load = useCallback(() => {
@@ -111,6 +121,7 @@ export default function AccommodationsClient() {
       pricePerNightTo: item.price_per_night_to != null ? String(Number(item.price_per_night_to)) : '',
       checkInTime: toHHMM(item.check_in_time),
       checkOutTime: toHHMM(item.check_out_time),
+      plannerZone: isZoneId(item.planner_zone) ? item.planner_zone : '',
     });
   }
 
@@ -147,6 +158,7 @@ export default function AccommodationsClient() {
     payload.pricePerNightTo = form.pricePerNightTo ? Number(form.pricePerNightTo) : null;
     if (form.checkInTime) payload.checkInTime = form.checkInTime;
     if (form.checkOutTime) payload.checkOutTime = form.checkOutTime;
+    if (form.plannerZone) payload.plannerZone = form.plannerZone;
 
     const ok = await patchAccommodation(editingId, payload, 'Не удалось сохранить изменения');
     if (ok) setEditingId(null);
@@ -224,6 +236,9 @@ export default function AccommodationsClient() {
                   : <>от {formatMoney(item.price_per_night_from)}/ночь</>}
                 {item.price_per_night_to != null && ` до ${formatMoney(item.price_per_night_to)}`}
                 {' · '}номеров: {item.total_rooms == null ? 'не указано' : item.total_rooms}
+                {' · '}зона для планера: {isZoneId(item.planner_zone)
+                  ? ZONE_NAMES[item.planner_zone]
+                  : <span className="text-[var(--warning)]">не указана — планер объект не предлагает</span>}
                 {Number(item.pending_bookings) > 0 && (
                   <span className="text-[var(--warning)]"> · новых броней: {Number(item.pending_bookings)}</span>
                 )}
@@ -278,6 +293,14 @@ export default function AccommodationsClient() {
               <div>
                 <label className="ds-label">Цена до, ₽/ночь (необязательно)</label>
                 <input className="ds-input" type="number" min="1" value={form.pricePerNightTo} onChange={e => setForm({ ...form, pricePerNightTo: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="ds-label" htmlFor={`zone-${item.id}`}>Зона для планера</label>
+                <select id={`zone-${item.id}`} className="ds-input" value={form.plannerZone}
+                  onChange={e => setForm({ ...form, plannerZone: isZoneId(e.target.value) ? e.target.value : '' })}>
+                  {form.plannerZone === '' && <option value="">Не указана — выберите зону</option>}
+                  {ZONE_IDS.map(z => <option key={z} value={z}>{ZONE_NAMES[z]}</option>)}
+                </select>
               </div>
               <div>
                 <label className="ds-label">Заезд с</label>

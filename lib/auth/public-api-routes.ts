@@ -76,6 +76,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/planner/tours-for-day':  ['GET'],  // marketplace tours per activity
   '/api/planner/validate':       ['POST'], // AI route sequence validation
   '/api/planner/companion':      ['POST'], // AI trip companion chat
+  '/api/planner/trip-extras':    ['POST'], // жильё/трансфер/машина к плану (лимитер внутри)
   '/api/routing/path':           ['GET'],  // роутер по OSM-дорогам — гость планирует подъезд
   '/api/support/knowledge-base': ['GET'], // База знаний (публичная)
   '/api/faq': ['GET'],              // FAQ (публичная)
