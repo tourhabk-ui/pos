@@ -77,14 +77,16 @@ describe('сервер различает отказ и пустоту', () => {
   });
 });
 
-describe('мёртвый kamgov судится порогом тишины и не принят молчащим', () => {
+describe('мёртвый kamgov судится порогом тишины', () => {
   const exp = SAFETY_SOURCE_EXPECTATIONS.find((e) => e.key === 'kamgov');
 
   it('в реестре ожиданий, 48 ч', () => {
     expect(exp?.maxSilenceHours).toBe(48);
   });
 
-  it('knownDormant нет: принять его молчание — решение владельца, не кода', () => {
-    expect(exp?.knownDormant).toBeUndefined();
+  it('молчание принято только решением владельца — и оно записано словами', () => {
+    // 26.09 владелец выбрал другой путь к сводке (kamtoday.ru), и тем принял
+    // молчание kamgov. Без записанного решения отметки быть не должно.
+    expect(exp?.knownDormant?.reason).toContain('решение владельца 26.09');
   });
 });

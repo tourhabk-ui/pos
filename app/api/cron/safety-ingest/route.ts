@@ -4,6 +4,7 @@ import type { FetchVia } from '@/lib/agents/scout-relay';
 import { fetchEmsdPage } from '@/lib/services/safety/emsd-fetch';
 import { EMSD_QUAKES_URL } from '@/lib/services/safety/emsd-quakes';
 import { kamgovUnreachable } from '@/lib/services/safety/kamgov-fetch';
+import { ingestKamtodayArticles } from '@/lib/services/safety/kamtoday';
 import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
@@ -1117,6 +1118,23 @@ const HtmlBodySchema = z.object({
     http: z.number().int(),
     rss: z.boolean(),
   })).max(5).optional(),
+  /**
+   * Сводка Минтура пересказом kamtoday.ru (#2064, решение владельца 26.09):
+   * kamgov.ru закрыт. Раннер открывает только статьи с «Минтуризма» в
+   * заголовке; сервер разбирает лишь те, что проходят isMinturBulletin.
+   */
+  kamtoday_articles: z.array(z.object({
+    url: z.string().max(500),
+    title: z.string().max(500),
+    pubDate: z.string().max(100),
+    html: z.string().max(600_000),
+  })).max(3).optional(),
+  /** Что раннер увидел в ленте: код, постов, из них статей Минтура. */
+  kamtoday_fetch: z.object({
+    http: z.number().int(),
+    rss_items: z.number().int().min(0),
+    matched: z.number().int().min(0),
+  }).optional(),
   // Канал ГУ МЧС Камчатки в MAX (max.ru/id4101120929_gos). У MAX нет открытого
   // read-API, поэтому раннер сам читает канал и присылает уже готовые посты
   // массивом. Сервер прогоняет каждый через classifyMchsItem — она и есть
@@ -1169,6 +1187,7 @@ export async function POST(req: Request) {
   const startedAt = new Date(t0);
   const kamgovXmls = (parsed.data.kamgov_xml ?? []).filter((x) => x.trim().length > 0);
   const kamgovFetch = parsed.data.kamgov_fetch;
+  const kamtodayFetch = parsed.data.kamtoday_fetch;
   // #883 (B): POST больше НЕ тянет то, что сервер достаёт сам, — VK API, USGS,
   // МЧС RSS и FIRMS обслуживает heartbeat (start.js -> GET каждые 5 минут;
   // его смерть ловит отдельная watchdog-проверка checkSeismicCronDead).
@@ -1176,7 +1195,7 @@ export async function POST(req: Request) {
   // t.me-HTML, kamgov-XML, minec-HTML и посты MAX, принесённые раннером.
   // Двойная работа снята: у VK API лимиты, и лишний поход туда каждые ~час
   // бесплатным не был.
-  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult] = await Promise.all([
+  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult, kamtodayResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     // kamgov с сервера не тянется НИКОГДА (гео-блок с Timeweb): его приносит
     // раннер XML'ом ниже. Прежнее условие «тянуть, если раннер не принёс»
@@ -1196,10 +1215,14 @@ export async function POST(req: Request) {
     parsed.data.max_items && parsed.data.max_items.length > 0
       ? ingestMaxItems(parsed.data.max_items)
       : Promise.resolve(undefined),
+    // Раннер не ходил (реле Cloudflare, старый workflow) — undefined, не «пусто».
+    kamtodayFetch
+      ? ingestKamtodayArticles(parsed.data.kamtoday_articles ?? [], kamtodayFetch)
+      : Promise.resolve(undefined),
   ]);
   // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
   // это по-прежнему один блок `news`.
-  const newsResult = mergeParseResults(newsFeedResult, kamgovResult);
+  const newsResult = mergeParseResults(mergeParseResults(newsFeedResult, kamgovResult), kamtodayResult);
   // #883 (A): делегированные источники в ответе POST не показываются числами —
   // «inserted: 0» после того, как heartbeat уже забрал те же посты, читалось
   // как «канал ничего не приносит» и стоило целого разбора. Вместо цифр —
@@ -1267,6 +1290,9 @@ export async function POST(req: Request) {
     // «молчит» (тот же приём, что с делегированными выше).
     ...(kamgovFetch && kamgovFetch.length > 0
       ? [entryFor('kamgov', 'kamgov.ru — сводки Минтура', kamgovResult)]
+      : []),
+    ...(kamtodayFetch
+      ? [entryFor('kamtoday', 'kamtoday.ru — пересказ сводки Минтура', kamtodayResult)]
       : []),
   ]));
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
