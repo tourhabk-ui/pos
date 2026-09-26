@@ -110,7 +110,7 @@ describe('владелец создаёт объект — на проверке
     const res = await createAccommodation(req('http://localhost/api/stay/accommodations', 'POST', {
       name: 'Дом у вулкана', description: 'Тёплый дом у подножия', type: 'guesthouse',
       coordinates: { lat: 53, lng: 158 },
-      // Зона планера обязательна у нового объекта (миграция 1030).
+      // Зона планера обязательна у нового объекта (миграция 1031).
       plannerZone: 'avachinsky',
     }));
     expect(res.status).toBe(201);
@@ -165,7 +165,7 @@ describe('решение администратора', () => {
     expect(res.status).toBe(200);
     const [sql, params] = poolQueryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/moderated_at\s+= NOW\(\)/);
-    // Шестой — зона планера (миграция 1030): не передана — null, и
+    // Шестой — зона планера (миграция 1031): не передана — null, и
     // COALESCE в SQL оставляет прежнюю.
     expect(params).toEqual([ACC_ID, 'approved', null, true, ADMIN_ID, null]);
   });

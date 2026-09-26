@@ -1,4 +1,4 @@
--- 1030: зона планера у объекта жилья.
+-- 1031: зона планера у объекта жилья.
 --
 -- ── Решение владельца 26.09 ───────────────────────────────────────────────
 --
@@ -53,4 +53,4 @@ CREATE INDEX IF NOT EXISTS idx_accommodations_planner_zone
   WHERE planner_zone IS NOT NULL;
 
 COMMENT ON COLUMN accommodations.planner_zone IS
-  'Зона планера (ZoneId: avachinsky/western/eastern/northern). NULL — зона не размечена, планер объект не предлагает. Миграция 1030.';
+  'Зона планера (ZoneId: avachinsky/western/eastern/northern). NULL — зона не размечена, планер объект не предлагает. Миграция 1031.';

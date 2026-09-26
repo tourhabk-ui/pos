@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
           isVerified: r.is_verified,
           moderationStatus: r.moderation_status,
           moderationReason: r.moderation_reason,
-          // null — зона не размечена: планер объект не предлагает (миграция 1030).
+          // null — зона не размечена: планер объект не предлагает (миграция 1031).
           plannerZone: r.planner_zone,
           moderatedAt: r.moderated_at,
           createdAt: r.created_at,

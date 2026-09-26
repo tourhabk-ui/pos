@@ -34,7 +34,7 @@ export const ZONE_NAMES: Record<ZoneId, string> = {
 
 /**
  * Все зоны движка списком — для Zod-схем и выпадающих списков (зона объекта
- * жилья, миграция 1030: тот же набор держит CHECK в базе).
+ * жилья, миграция 1031: тот же набор держит CHECK в базе).
  */
 export const ZONE_IDS = ['avachinsky', 'western', 'eastern', 'northern'] as const satisfies readonly ZoneId[];
 

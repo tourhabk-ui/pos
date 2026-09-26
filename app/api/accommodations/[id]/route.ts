@@ -248,7 +248,7 @@ const UpdateAccommodationSchema = z.object({
   checkInTime: z.string().regex(/^\d{2}:\d{2}$/, 'Формат времени — ЧЧ:ММ').optional(),
   checkOutTime: z.string().regex(/^\d{2}:\d{2}$/, 'Формат времени — ЧЧ:ММ').optional(),
   isActive: z.boolean().optional(),
-  // Зона планера (миграция 1030). Снять разметку (null) владелец не может —
+  // Зона планера (миграция 1031). Снять разметку (null) владелец не может —
   // только поменять; «не размечено» остаётся у старых объектов до решения.
   plannerZone: z.enum(ZONE_IDS, { message: 'Выберите зону для планера поездок' }).optional(),
 }).refine(data => Object.keys(data).length > 0, { message: 'Нет полей для обновления' });

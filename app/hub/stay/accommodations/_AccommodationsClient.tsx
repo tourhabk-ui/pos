@@ -36,7 +36,7 @@ interface AccommodationRow {
   is_verified: boolean;
   moderation_status: string;
   moderation_reason: string | null;
-  /** Зона планера (миграция 1030); null — не размечена. */
+  /** Зона планера (миграция 1031); null — не размечена. */
   planner_zone: string | null;
   rooms_count: string | number;
   pending_bookings: string | number;
