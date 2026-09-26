@@ -1,14 +1,18 @@
 {
-  "note": "26.09, прогон 604. ТОЛЬКО ЧТЕНИЕ. Стекло поля (49d3814): новый класс листа и компаса в чанке /planning на проде.",
-  "run": 604,
-  "timeout": 60,
+  "note": "26.09, прогон 605. ТОЛЬКО ЧТЕНИЕ. Issue #2064: раннер в cron-safety-ingest получает «kamgov: 0 feeds» — ни один из трёх адресов kamgov.ru не отдал RSS. Смотрим код ответа, заголовки и начало тела каждого адреса.",
+  "run": 605,
+  "timeout": 40,
   "retries": 1,
-  "retryDelay": 10,
+  "retryDelay": 5,
   "allowStale": true,
-  "bytes": 100,
-  "grep": ["fx-glass-dense fixed inset-x-0 bottom-0 z-10", "relative fx-glass-dense rounded-full", "fx-glass-dense mx-3 mt-1 rounded-xl"],
-  "count": ["fx-glass-dense"],
+  "bytes": 400,
+  "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
+  "grep": ["<rss", "<feed", "<item>"],
+  "count": ["<item>"],
   "urls": [
-    "https://vedarai.ru/_next/static/chunks/app/planning/page-d584b691b6d32d61.js"
+    "https://www.kamgov.ru/rss",
+    "https://www.kamgov.ru/mintur/rss",
+    "https://www.kamgov.ru/mintur/news/rss",
+    "https://www.kamgov.ru/mintur/news"
   ]
 }
