@@ -1,21 +1,16 @@
 {
-  "note": "26.09, прогон 607. ТОЛЬКО ЧТЕНИЕ. Issue #2064, решение владельца: сводку Минтура брать с kamtoday.ru. Смотрим образцы: как в RSS выглядит анонс сводки и как размечен текст статьи (где пункты «закрыт», «не рекомендуется»).",
-  "run": 607,
+  "note": "26.09, прогон 608. ТОЛЬКО ЧТЕНИЕ. Issue #2064: разметка текста статьи kamtoday со сводкой Минтура — где начинается и кончается articleBody, как разделены пункты.",
+  "run": 608,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
   "bytes": 100,
   "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
-  "grep": ["оперативн", "доступност", "detail-text", "itemprop=\"articleBody\"", "news-detail"],
-  "count": ["не рекомендуется", "закрыт", "<p>"],
-  "around": ["не рекомендуется", "articleBody", "detail-text", "<title>", "<item>"],
-  "aroundBefore": 1,
-  "aroundLines": 3,
-  "aroundHits": 4,
+  "around": ["itemprop=\"articleBody\""],
+  "aroundLines": 70,
+  "aroundHits": 1,
   "urls": [
-    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-predupredilo-o-zakrytykh-marshrutakh-i-opasnosti-na-vulkanakh/",
-    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/",
-    "https://kamtoday.ru/rss/"
+    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/"
   ]
 }
