@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
     // Опасности и сложность, выведенные шаблоном 070 из location_type, не
     // произносятся как факты и не участвуют в оценке риска: выдуманная
     // лавинная опасность повышала бы риск городского парка
-    // (lib/safety/profile-source.ts, миграция 1032).
+    // (lib/safety/profile-source.ts, миграция 1033).
     const honest = honestSafetyFields(
       {
         hazardTypes: Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [],

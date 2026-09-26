@@ -58,7 +58,12 @@ const REVIEW_ROW = {
   rating: 5,
   comment: 'Отличный маршрут',
   created_at: '2026-06-01',
-  author_name: 'Иван',
+  // Полное имя аккаунта: на публичную страницу оно уходить не должно —
+  // сокращается правилом публичного имени (lib/reviews/public-name.ts), тем
+  // же, что у отзывов о жилье. До 26.09 здесь стоял COALESCE(u.name, 'Турист')
+  // и печаталось имя целиком.
+  author_full_name: 'Иван Петров',
+  author_own_name: null,
 };
 
 function req(): NextRequest {
@@ -94,7 +99,7 @@ describe('GET /api/routes/[id] — reviews + pdfUrl (объединение ка
     expect(json.data.parkSlug).toBe('nalychevo');
     expect(json.data.reviews).toEqual([{
       id: '5', rating: 5, comment: 'Отличный маршрут',
-      authorName: 'Иван', createdAt: '2026-06-01',
+      authorName: 'Иван П.', createdAt: '2026-06-01',
     }]);
 
     const reviewsCall = queryMock.mock.calls.find(([sql]) =>

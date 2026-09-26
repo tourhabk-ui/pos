@@ -371,7 +371,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     // location_type, а не измерены. Проводник произносит их предложениями
     // («Есть лавинная опасность»), то есть звучит увереннее любого бейджа —
     // поэтому доказанный шаблон он не произносит вовсе
-    // (lib/safety/profile-source.ts, миграция 1032).
+    // (lib/safety/profile-source.ts, миграция 1033).
     const honest = honestSafetyFields(
       {
         hazardTypes: p.hazard_types ?? [],

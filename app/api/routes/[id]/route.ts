@@ -21,6 +21,7 @@ import type { CoordSource } from '@/lib/places/coord-source';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 export const dynamic = 'force-dynamic';
 
@@ -325,7 +326,7 @@ export async function GET(
     // (карточка B, объединена с этой). Привязка через legacy ark_id.
     const reviewsResult = await query(
       `SELECT rv.id, rv.rating, rv.comment, rv.created_at,
-         COALESCE(u.name, 'Турист') AS author_name
+         u.name AS author_full_name, rv.author_name AS author_own_name
        FROM reviews rv
        LEFT JOIN users u ON u.id = rv.user_id
        WHERE rv.tour_id::text = $1
@@ -602,7 +603,12 @@ export async function GET(
           id:         String(rv.id),
           rating:     rv.rating != null ? Number(rv.rating) : null,
           comment:    (rv.comment as string | null) ?? null,
-          authorName: rv.author_name as string,
+          // Полное имя аккаунта на публичную страницу не уходит: имя
+          // сокращается тем же правилом, что у отзывов о жилье
+          // (lib/reviews/public-name.ts). Было `COALESCE(u.name, 'Турист')`.
+          authorName: publicReviewerName(
+            (rv.author_own_name as string | null) ?? (rv.author_full_name as string | null),
+          ),
           createdAt:  rv.created_at as string,
         })),
         createdAt:   r.created_at as string,
@@ -623,7 +629,7 @@ export async function GET(
           altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
           // Опасности точки, выведенные шаблоном 070 из location_type, не
           // уходят на карточку маршрута: иначе маршрут через любой вулкан
-          // обещает лавины (lib/safety/profile-source.ts, миграция 1032).
+          // обещает лавины (lib/safety/profile-source.ts, миграция 1033).
           hazardTypes:  honestSafetyFields(
             {
               hazardTypes: Array.isArray(w.hazard_types) ? (w.hazard_types as string[]) : [],

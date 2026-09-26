@@ -208,4 +208,29 @@ describe('каталог миграций на диске', () => {
     // виден, а не раствориться в списке.
     expect(unnumberedMigrations(files)).toEqual([]);
   });
+
+  it('две миграции не делят один номер', () => {
+    // Случай 26.09: работа шла от main с максимумом 1030, и пока она шла, в
+    // main влилась 1031_accommodation_planner_zone. Вторая 1031 в ветке дала
+    // каталог, где номер больше не называет порядок однозначно, — а Postgres
+    // применяет обе, и какая первой, решает сортировка имён, не автор.
+    // Конфликта в git при этом НЕТ: файлы разные, слияние проходит молча.
+    //
+    // Сравнивается префикс ЦЕЛИКОМ, до первого подчёркивания: `144a` и `144b`
+    // лежат в каталоге законно (у обеих число 144), а вот два `1031` — нет.
+    const files: string[] = require('node:fs').readdirSync(join(ROOT, 'migrations'))
+      .filter((f: string) => f.endsWith('.sql'));
+    const byPrefix = new Map<string, string[]>();
+    for (const f of files) {
+      const prefix = f.split('_')[0];
+      byPrefix.set(prefix, [...(byPrefix.get(prefix) ?? []), f]);
+    }
+    const collisions = [...byPrefix.entries()]
+      .filter(([, list]) => list.length > 1)
+      .map(([prefix, list]) => `${prefix}: ${list.join(', ')}`);
+    expect(
+      collisions,
+      `номер занят дважды — возьмите следующий свободный (max + 1):\n${collisions.join('\n')}`,
+    ).toEqual([]);
+  });
 });

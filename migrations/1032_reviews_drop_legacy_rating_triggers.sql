@@ -1,4 +1,4 @@
--- 1031_reviews_drop_legacy_rating_triggers.sql
+-- 1032_reviews_drop_legacy_rating_triggers.sql
 --
 -- Турист не мог оставить отзыв о месте НИ ОДНОГО РАЗА.
 --
