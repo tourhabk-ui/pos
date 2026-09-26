@@ -163,14 +163,19 @@ beforeEach(() => {
 });
 
 /**
- * Снимок плана, снятый с движка ДО правки 26.09 на этой же подмене.
- * «Вперемешку» обязано давать его без единого отличия.
+ * Снимки плана «Вперемешку» / без стиля. До 26.09 здесь стоял снимок движка
+ * ДО правки («Вперемешку» обязано было не меняться). Решение владельца 26.09
+ * («согласен»): самостоятельный день и в «Вперемешку» — только проверенный,
+ * как в «Сам». Отличия от прежнего снимка ровно такие:
+ *   - «Подход к Козельскому» (выход на вулкан без гида) больше не день «сам»;
+ *   - «Перевал с регистрацией» (МЧС), «Траверс хребта» (extreme) и «Место без
+ *     профиля» (данных нет) — тоже; на их месте общие дни, туры не тронуты.
  */
 const GOLDEN_MIXED: string[] = [
   'arrival|-|avachinsky|Прилёт днём. Размещение, акклиматизация. Прогулка по городу',
   'activity|operator|avachinsky|Восхождение на Авачинский',
   'rest|-|avachinsky|День отдыха. Термальные источники',
-  'activity|self|avachinsky|Подход к Козельскому',
+  'activity|open|avachinsky|треккинг — Авачинская зона',
   'activity|open|avachinsky|рыбалка — Авачинская зона',
   'travel|-|avachinsky|Переезд: Авачинская зона → Восточная зона',
   'activity|open|eastern|треккинг — Восточная зона',
@@ -183,17 +188,17 @@ const TREK: TripProfile = { ...BASE, interests: ['trekking', 'hot_spring'] };
 const GOLDEN_TREK: string[] = [
   'arrival|-|avachinsky|Прилёт днём. Размещение, акклиматизация. Прогулка по городу',
   'activity|self|avachinsky|Тропа к Сухой речке',
-  'activity|self|avachinsky|Перевал с регистрацией',
-  'activity|self|avachinsky|Траверс хребта',
-  'activity|self|avachinsky|Место без профиля',
+  'activity|open|avachinsky|горячие источники — Авачинская зона',
+  'activity|open|avachinsky|треккинг — Авачинская зона',
   'travel|-|avachinsky|Переезд: Авачинская зона → Восточная зона',
   'activity|open|eastern|треккинг — Восточная зона',
   'activity|open|eastern|горячие источники — Восточная зона',
+  'travel|-|avachinsky|Возвращение: Восточная зона → Петропавловск',
   'departure|-|avachinsky|Сборы утром. Трансфер в аэропорт, вылет днём',
 ];
 
-describe('«Вперемешку» — прежний план', () => {
-  it('без стиля план совпадает со снимком до правки', async () => {
+describe('«Вперемешку» — туры как прежде, «сам» только проверенное (26.09)', () => {
+  it('без стиля план совпадает со снимком', async () => {
     const rec = await recommendTrip(BASE);
     expect(shape(rec.days)).toEqual(GOLDEN_MIXED);
   });
@@ -201,6 +206,42 @@ describe('«Вперемешку» — прежний план', () => {
   it('второй снимок тоже', async () => {
     const rec = await recommendTrip(TREK);
     expect(shape(rec.days)).toEqual(GOLDEN_TREK);
+  });
+
+  it('тур оператора остаётся; маршрут, требующий гида, МЧС или без данных, днём «сам» не встаёт', async () => {
+    const base = await recommendTrip(BASE);
+    expect(base.days.some((d) => d.activityMode === 'operator' && d.title === 'Восхождение на Авачинский')).toBe(true);
+    expect(base.days.map((d) => d.title)).not.toContain('Подход к Козельскому');
+    const trek = await recommendTrip(TREK);
+    const titles = trek.days.map((d) => d.title);
+    expect(titles).toContain('Тропа к Сухой речке');
+    for (const t of ['Перевал с регистрацией', 'Траверс хребта', 'Место без профиля']) expect(titles).not.toContain(t);
+  });
+
+  it('исключённое названо предупреждением — оно доходит до Кузьмича и MCP', async () => {
+    const trek = await recommendTrip(TREK);
+    const w = trek.warnings.find((x) => x.message.startsWith('Без гида не ставим'));
+    expect(w?.type).toBe('safety');
+    expect(w?.severity).toBe('important');
+    expect(w?.message).toContain('Перевал с регистрацией');
+    expect(w?.message).toContain('МЧС');
+    // У «Сам» то же говорят заметки пожеланий — второй раз не повторяем.
+    const self = await recommendTrip({ ...TREK, travelStyle: 'self' });
+    expect(self.warnings.some((x) => x.message.startsWith('Без гида не ставим'))).toBe(false);
+  });
+
+  it('общий день по активности «только с гидом» говорит это на самом дне', async () => {
+    const rec = await recommendTrip({ ...BASE, interests: ['volcano'], arrivalDate: '2027-08-01', departureDate: '2027-08-12' });
+    const generic = rec.days.find((d) => d.activityMode === 'open' && d.activityType === 'volcano');
+    expect(generic?.dayWarnings[0]).toMatch(/^Только с гидом: .*Ищите тур оператора\.$/);
+  });
+
+  it('не прочиталась безопасность мест — самостоятельных маршрутов нет, и это сказано', async () => {
+    safetyFails = true;
+    const rec = await recommendTrip(TREK);
+    const routeTitles = new Set(ROUTES.map((r) => r.title));
+    expect(rec.days.some((d) => routeTitles.has(d.title))).toBe(false);
+    expect(rec.warnings.some((w) => w.message.startsWith('Не удалось проверить безопасность мест'))).toBe(true);
   });
 });
 
