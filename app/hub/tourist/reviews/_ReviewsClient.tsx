@@ -32,9 +32,19 @@ interface TourOption {
   name: string;
 }
 
-interface ToursApiData {
-  tours: TourOption[];
-  pagination: unknown;
+/**
+ * Список туров для формы отзыва — из СВОИХ поездок, а не из витрины.
+ *
+ * До 26.09 экран брал `/api/tours`, то есть каталог: форма предлагала любой
+ * тур платформы, хотя `POST /api/reviews/tour/[id]` принимает отзыв только по
+ * ЗАВЕРШЁННОЙ брони этого человека. Выбор из витрины обещал то, чего сервер
+ * не разрешит, а после появления шлюза публикации (lib/tours/public-visibility)
+ * сломался бы и обратный случай: тур, снятый оператором с витрины, пропадал бы
+ * из списка — и отзыв о поездке, которая состоялась, оставить стало бы нечем.
+ * Источник один и правильный: `/api/bookings/my`.
+ */
+interface BookingsApiData {
+  bookings: Array<{ status?: string; tour?: { id?: string; name?: string } }>;
 }
 
 interface FormState {
@@ -49,8 +59,19 @@ function transformReviews(d: ReviewsApiData): Review[] {
   return (d?.reviews ?? []).map((r) => ({ ...r, comment: r.comment ?? '' }));
 }
 
-function transformTours(d: ToursApiData): TourOption[] {
-  return (d?.tours ?? []).map((t) => ({ id: t.id, name: t.name }));
+/** Свои поездки → варианты для отзыва: завершённые, без повторов. */
+function transformTours(d: BookingsApiData): TourOption[] {
+  const seen = new Set<string>();
+  const out: TourOption[] = [];
+  for (const b of d?.bookings ?? []) {
+    if (b?.status !== 'completed') continue;
+    const id = b.tour?.id;
+    const name = b.tour?.name;
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name });
+  }
+  return out;
 }
 
 function StarRating({ rating }: { rating: number }) {
@@ -137,10 +158,10 @@ function ReviewsContent() {
     data: tours,
     loading: toursLoading,
     refetch: fetchTours,
-  } = useApiFetch<ToursApiData, TourOption[]>(
-    '/api/tours',
+  } = useApiFetch<BookingsApiData, TourOption[]>(
+    '/api/bookings/my',
     transformTours,
-    { errorMessage: 'Не удалось загрузить список туров', skip: true },
+    { errorMessage: 'Не удалось загрузить ваши поездки', skip: true },
   );
 
   useEffect(() => {
@@ -279,8 +300,16 @@ function ReviewsContent() {
                 {toursLoading ? (
                   <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Загрузка списка туров...
+                    Загрузка ваших поездок...
                   </div>
+                ) : (tours ?? []).length === 0 ? (
+                  /* Пустой список — состояние, а не пустое место: отзыв
+                     принимается только по завершённой поездке, и сказать это
+                     надо словами, иначе селект без вариантов читается как
+                     поломка (§4.0). */
+                  <p className="text-sm text-[var(--text-muted)]">
+                    Отзыв можно оставить о завершённой поездке. Завершённых поездок у вас пока нет.
+                  </p>
                 ) : (
                   <select
                     id="review-tour"
