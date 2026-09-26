@@ -185,7 +185,7 @@ describe('один поток, а не две двери (владелец 25.09
   it('планировщик и радар над «Турами сезона», затем первый тур, затем чипы (владелец 26.09)', () => {
     const tools = HOME.indexOf('<nav className="qtools qt-top" aria-label="Инструменты поездки">');
     const first = HOME.indexOf('className="firstpick"');
-    const chips = HOME.indexOf('<div className="hero-chips">');
+    const chips = HOME.indexOf('{intentChips}');
     expect(tools).toBeGreaterThan(-1);
     expect(first).toBeGreaterThan(tools);
     expect(chips).toBeGreaterThan(first);

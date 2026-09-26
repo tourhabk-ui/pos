@@ -50,7 +50,7 @@ describe('тур с ценой — на первом экране', () => {
     const first = pos('className="firstpick"');
     expect(block).toBeGreaterThan(tools);
     expect(first).toBeGreaterThan(block);
-    for (const later of ['<div className="hero-chips">', 'className="alerts-now"']) {
+    for (const later of ['{intentChips}', 'className="alerts-now"']) {
       expect(pos(later), `${later} снова выше первого тура`).toBeGreaterThan(first);
     }
   });
@@ -184,10 +184,14 @@ describe('два направления и безопасность одним �
     expect(JSX).not.toMatch(/\{plates\.map\(\(p, i\) =>/);
   });
 
-  it('лента туров — внутри «Туров сезона», до чипов и до «Перед выходом»', () => {
+  it('лента туров — внутри «Туров сезона»; направления — между первым туром и лентой (владелец 26.09)', () => {
     const fp = pos('<h2>Туры сезона</h2>');
-    expect(fp).toBeLessThan(pos('className="plates more-tours"'));
-    expect(pos('className="plates more-tours"')).toBeLessThan(pos('<div className="hero-chips">'));
+    expect(fp).toBeLessThan(pos('className="firstpick"'));
+    expect(pos('className="firstpick"')).toBeLessThan(pos('{intentChips}'));
+    expect(pos('{intentChips}')).toBeLessThan(pos('className="plates more-tours"'));
+    expect(pos('className="plates more-tours"')).toBeLessThan(pos('id="radar"'));
+    // Пустая витрина не прячет входы в места: ряд остаётся без первого тура.
+    expect(JSX).toMatch(/\{!plates\[0\] && intentChips\}/);
   });
 
   it('«Перед выходом»: предупреждения и полевые инструменты в одной секции #radar', () => {

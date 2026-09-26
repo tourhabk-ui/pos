@@ -242,6 +242,23 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
   const heroImg = theme === 'dark' ? '/images/hero/hero-dark.jpeg' : '/images/hero/hero-light.jpeg';
 
+  // Ряд направлений. Стоит внутри «Туров сезона», между первым туром и лентой
+  // (владелец 26.09); пустая витрина его не прячет — тогда он на прежнем
+  // месте под секцией, иначе вместе с турами пропали бы и входы в места.
+  const intentChips = (
+    <div className="hero-chips">
+      {INTENT_CHIPS.map((c) => {
+        const Ic = CHIP_ICON[c.key];
+        return (
+          <Link key={c.key} href={c.href} className="hchip">
+            {Ic && <Ic size={17} strokeWidth={2} aria-hidden />}
+            <span className="hc-l">{c.label}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="v7 v8" id="v8root">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -486,6 +503,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   <span className="fp-cta">{fp.kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
                 </div>
               </Link>
+              {/* Направления — между первым туром и лентой остальных (владелец
+                  26.09: «между турами сезона и просто турами вставь иконки
+                  мест»). */}
+              {intentChips}
               {/* Остальные туры — лентой под первым, в той же секции. До 25.09
                   они жили ниже под заголовком «Исследовать» и начинались с того
                   же первого тура: одна карточка дважды на одном экране. */}
@@ -533,17 +554,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </section>
           );
         })()}
-        <div className="hero-chips">
-          {INTENT_CHIPS.map((c) => {
-            const Ic = CHIP_ICON[c.key];
-            return (
-              <Link key={c.key} href={c.href} className="hchip">
-                {Ic && <Ic size={17} strokeWidth={2} aria-hidden />}
-                <span className="hc-l">{c.label}</span>
-              </Link>
-            );
-          })}
-        </div>
+        {!plates[0] && intentChips}
 
 
 

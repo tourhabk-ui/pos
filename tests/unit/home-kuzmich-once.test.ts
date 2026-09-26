@@ -17,7 +17,7 @@ describe('Кузьмич на первом экране — один раз', ()
   it('на первом экране над таб-баром нет ни медведя, ни портрета', () => {
     // Строки поиска, где стоял медведь, с 25.09 нет вовсе (владелец: «поиск
     // лишний»). Первый экран — герой и «Туры сезона».
-    const first = HOME.slice(HOME.indexOf('<div className="wrap">'), HOME.indexOf('<div className="hero-chips">'));
+    const first = HOME.slice(HOME.indexOf('<div className="wrap">'), HOME.indexOf('{intentChips}'));
     expect(first.length).toBeGreaterThan(0);
     expect(first).not.toMatch(/brand\/bear|kuzmich\/portrait/);
   });
