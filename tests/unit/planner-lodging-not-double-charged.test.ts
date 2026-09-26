@@ -31,6 +31,7 @@ import { lodgingIncluded } from '@/lib/planner/lodging-included';
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
+const CONSTANTS = readFileSync(join(ROOT, 'lib/planner/constants.ts'), 'utf8');
 const DATA = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf8');
 
 describe('разбор состава тура', () => {
@@ -114,7 +115,11 @@ describe('ночь считается там, где её проводят', () 
     // не по данным.
     const at = ENGINE.indexOf("note: 'Однодневная экскурсия, ночёвка в Авачинской зоне'");
     expect(at, 'северная зона не нашлась').toBeGreaterThan(0);
-    expect(ENGINE.slice(at, at + 200)).toMatch(/sleepsIn: 'avachinsky'/);
+    // С 26.09 правило «где ночуют» живёт одной картой в constants
+    // (ZONE_SLEEPS_IN): его же читает подбор настоящего жилья планера
+    // (lib/planner/trip-extras). Две копии правила разошлись бы.
+    expect(ENGINE.slice(at, at + 260)).toMatch(/sleepsIn: ZONE_SLEEPS_IN\.northern/);
+    expect(CONSTANTS).toMatch(/ZONE_SLEEPS_IN[^=]*=\s*\{\s*northern: 'avachinsky'/);
   });
 
   it('смета читает это поле, а не только приписку', () => {
@@ -122,7 +127,8 @@ describe('ночь считается там, где её проводят', () 
     // (§10.09): выглядело бы починкой, не будучи ею.
     const at = ENGINE.indexOf('let accFrom = 0;');
     const block = ENGINE.slice(at, at + 700);
-    expect(block).toMatch(/ZONE_ACCOMMODATION\[day\.zone\]\.sleepsIn \?\? day\.zone/);
+    expect(block).toMatch(/const sleepZone = sleepZoneOf\(day\.zone\)/);
+    expect(CONSTANTS).toMatch(/return ZONE_SLEEPS_IN\[zone\] \?\? zone/);
     expect(block).toMatch(/const acc = ZONE_ACCOMMODATION\[sleepZone\]/);
   });
 

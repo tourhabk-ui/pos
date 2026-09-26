@@ -32,6 +32,27 @@ export const ZONE_NAMES: Record<ZoneId, string> = {
   northern:   'Северная зона',
 };
 
+/**
+ * Все зоны движка списком — для Zod-схем и выпадающих списков (зона объекта
+ * жилья, миграция 1031: тот же набор держит CHECK в базе).
+ */
+export const ZONE_IDS = ['avachinsky', 'western', 'eastern', 'northern'] as const satisfies readonly ZoneId[];
+
+/**
+ * Где на самом деле ночуют, когда день плана в зоне, где не ночуют.
+ * Северная зона — однодневная экскурсия, ночь в Авачинской. Читают двое:
+ * оценка проживания движка (ZONE_ACCOMMODATION) и подбор настоящего жилья
+ * на ночи плана (lib/planner/trip-extras) — одно правило, не два.
+ */
+export const ZONE_SLEEPS_IN: Partial<Record<ZoneId, ZoneId>> = {
+  northern: 'avachinsky',
+};
+
+/** Зона, в которой ночуют, если день плана проходит в `zone`. */
+export function sleepZoneOf(zone: ZoneId): ZoneId {
+  return ZONE_SLEEPS_IN[zone] ?? zone;
+}
+
 export interface ActivityConstraints {
   allowedTransports: TransportType[];
   requiredTransport?: TransportType;      // hard requirement

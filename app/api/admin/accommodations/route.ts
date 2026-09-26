@@ -34,6 +34,7 @@ interface AdminAccommodationRow {
   is_verified: boolean;
   moderation_status: string;
   moderation_reason: string | null;
+  planner_zone: string | null;
   moderated_at: string | null;
   created_at: string;
   partner_name: string | null;
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
               a.coordinates, a.total_rooms, a.price_per_night_from,
               a.is_active, a.is_verified,
               a.moderation_status, a.moderation_reason, a.moderated_at, a.created_at,
+              a.planner_zone,
               p.name AS partner_name,
               u.email AS owner_email,
               (SELECT COUNT(*)::int FROM accommodation_rooms r WHERE r.accommodation_id = a.id AND r.is_active = true) AS rooms_count,
@@ -97,6 +99,8 @@ export async function GET(request: NextRequest) {
           isVerified: r.is_verified,
           moderationStatus: r.moderation_status,
           moderationReason: r.moderation_reason,
+          // null — зона не размечена: планер объект не предлагает (миграция 1031).
+          plannerZone: r.planner_zone,
           moderatedAt: r.moderated_at,
           createdAt: r.created_at,
           partnerName: r.partner_name,

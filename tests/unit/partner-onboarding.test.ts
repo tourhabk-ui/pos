@@ -177,6 +177,8 @@ describe('POST /api/stay/accommodations — owner-create', () => {
     coordinates: { lat: 52.96, lng: 158.25 },
     totalRooms: 3,
     pricePerNightFrom: 5000,
+    // Зона планера обязательна у нового объекта владельца (миграция 1031).
+    plannerZone: 'avachinsky',
   };
 
   it('роль gear → 403', async () => {

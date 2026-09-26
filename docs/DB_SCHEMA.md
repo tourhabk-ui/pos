@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-26 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1030_gear_moderation.sql`.
+> Снято 2026-09-26 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1031_accommodation_planner_zone.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 249 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3316 |
+| Колонок | 3317 |
 | Внешних ключей | 281 |
 | Таблиц без единого FK в обе стороны | 73 |
 
@@ -837,9 +837,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `accommodation_id uuid` `name varchar!` `room_type varchar!` `description text` `size_sqm integer` `max_guests integer!` `beds_configuration jsonb` `amenities jsonb=` `view varchar` `available_rooms integer!` `price_per_night numeric!` `is_active boolean=` `created_at timestamptz=` `updated_at timestamptz=`
 
-**accommodations** · 29 кол. · PK id · moderated_by → users.id, partner_id → partners.id · на неё ссылаются: accommodation_assets, accommodation_availability, accommodation_bookings, accommodation_reviews, accommodation_rooms · индексов 8 · триггеры: trg_accommodations_updated_at
+**accommodations** · 30 кол. · PK id · moderated_by → users.id, partner_id → partners.id · на неё ссылаются: accommodation_assets, accommodation_availability, accommodation_bookings, accommodation_reviews, accommodation_rooms · индексов 9 · триггеры: trg_accommodations_updated_at
 
-`id uuid!=` `partner_id uuid` `name varchar!` `type varchar!` `description text` `short_description varchar` `address varchar` `coordinates jsonb!` `location_zone varchar` `star_rating integer` `total_rooms integer` `check_in_time time without time zone=` `check_out_time time without time zone=` `amenities jsonb=` `languages jsonb=` `price_per_night_from numeric` `price_per_night_to numeric` `currency varchar=` `rating numeric` `review_count integer=` `is_active boolean=` `is_verified boolean=` `created_at timestamptz=` `updated_at timestamptz=` `cancellation_policy text` `moderation_status varchar!=` `moderation_reason text` `moderated_at timestamptz` `moderated_by uuid`
+`id uuid!=` `partner_id uuid` `name varchar!` `type varchar!` `description text` `short_description varchar` `address varchar` `coordinates jsonb!` `location_zone varchar` `star_rating integer` `total_rooms integer` `check_in_time time without time zone=` `check_out_time time without time zone=` `amenities jsonb=` `languages jsonb=` `price_per_night_from numeric` `price_per_night_to numeric` `currency varchar=` `rating numeric` `review_count integer=` `is_active boolean=` `is_verified boolean=` `created_at timestamptz=` `updated_at timestamptz=` `cancellation_policy text` `moderation_status varchar!=` `moderation_reason text` `moderated_at timestamptz` `moderated_by uuid` `planner_zone varchar`
 
 **driver_documents** · 13 кол. · PK id · driver_id → drivers.id · индексов 4
 

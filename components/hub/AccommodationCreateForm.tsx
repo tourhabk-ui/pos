@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import { ACCOMMODATION_TYPES, ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
+import { ZONE_IDS, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
 
 /**
  * Форма нового объекта жилья — одна на онбординг и на «Добавить объект»
@@ -16,6 +17,10 @@ import { ACCOMMODATION_TYPES, ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accom
  * Координаты обязательны по схеме (coordinates NOT NULL) — спрашиваем
  * честно, не подставляем выдуманные. Адрес, число номеров и цена «от» —
  * необязательны, как и на сервере (миграция 1006): «не знаю» лучше выдумки.
+ *
+ * Зона для планера обязательна (решение владельца 26.09, миграция 1031):
+ * по ней планер поездки предлагает объект на ночи плана. Выбирает владелец —
+ * он знает, где стоит его дом; по тексту адреса зону не угадываем.
  */
 
 interface Props {
@@ -34,6 +39,7 @@ export default function AccommodationCreateForm({ onCreated, secondary, submitLa
   const [lng, setLng] = useState('');
   const [totalRooms, setTotalRooms] = useState('');
   const [priceFrom, setPriceFrom] = useState('');
+  const [plannerZone, setPlannerZone] = useState<ZoneId | ''>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -49,7 +55,7 @@ export default function AccommodationCreateForm({ onCreated, secondary, submitLa
     description.trim().length >= 10 &&
     lat !== '' && Number.isFinite(latNum) && latNum >= -90 && latNum <= 90 &&
     lng !== '' && Number.isFinite(lngNum) && lngNum >= -180 && lngNum <= 180 &&
-    addressOk && roomsOk && priceOk;
+    addressOk && roomsOk && priceOk && plannerZone !== '';
 
   async function create() {
     setSaving(true);
@@ -60,6 +66,7 @@ export default function AccommodationCreateForm({ onCreated, secondary, submitLa
         type,
         description: description.trim(),
         coordinates: { lat: latNum, lng: lngNum },
+        plannerZone,
       };
       if (address.trim()) payload.address = address.trim();
       if (totalRooms !== '') payload.totalRooms = Number(totalRooms);
@@ -126,6 +133,22 @@ export default function AccommodationCreateForm({ onCreated, secondary, submitLa
           <input id="acc-lng" className="ds-input" type="number" step="any" value={lng} placeholder="158.2465"
             onChange={e => setLng(e.target.value)} />
         </div>
+      </div>
+      <div>
+        <label className="ds-label" htmlFor="acc-planner-zone">
+          Зона для планера <span className="text-[var(--danger)]">*</span>
+        </label>
+        <select id="acc-planner-zone" className="ds-input" value={plannerZone} required
+          onChange={e => {
+            const v = e.target.value;
+            setPlannerZone((ZONE_IDS as readonly string[]).includes(v) ? v as ZoneId : '');
+          }}>
+          <option value="">Выберите зону</option>
+          {ZONE_IDS.map(z => <option key={z} value={z}>{ZONE_NAMES[z]}</option>)}
+        </select>
+        <p className="text-xs text-[var(--text-muted)] mt-1">
+          По зоне планер поездок предложит ваш объект туристу, который ночует в этом районе.
+        </p>
       </div>
       <p className="text-xs text-[var(--text-muted)]">
         Координаты можно скопировать из Яндекс.Карт или Organic Maps — правый клик по точке.
