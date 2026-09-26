@@ -49,7 +49,7 @@ upd AS (
      SET description = 'Озеро в долине среди сопок, берега заросли берёзовым лесом. К озеру ведёт асфальтированная дорога. На берегу стоит база отдыха «Голубая лагуна» с причалом и бассейном; у причала — лодки и водные велосипеды. К воде ведёт галечный спуск.',
          updated_at = NOW()
     FROM old
-   WHERE p.id = old.id
+   WHERE p.id::text = old.id::text
   RETURNING p.ark_id, p.name, p.description, old.prev_chars
 )
 INSERT INTO description_provenance
