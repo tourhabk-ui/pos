@@ -35,7 +35,7 @@ import {
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
-import { builtRegionPacks, chooseFieldBaseMap, regionCenter } from '@/lib/map/field-base-map';
+import { builtRegionPacks, chooseFieldBaseMap, fieldMapStartCenter } from '@/lib/map/field-base-map';
 import type { PackFile } from '@/lib/offline/pack-files';
 import { planRouteMap, saveRouteMap } from '@/lib/offline/route-map-save';
 import { coverageNotice, parsePackManifest } from '@/lib/map/pack-manifest';
@@ -3835,7 +3835,16 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
             }}
-            center={mapCenter ?? regionCenter(fieldBaseMap.region)}
+            // Старт — там, где человек, а не центр района (26.09: центр
+            // Авачинской группы — сам вулкан). Своя карта читает center
+            // только при создании, так что живой фикс здесь не пересоздаёт её.
+            center={fieldMapStartCenter({
+              explicit: mapCenter,
+              fix: coords,
+              lastFix,
+              route: track && track.length > 0 ? { lat: track[0][0], lng: track[0][1] }
+                : waypoints[0] ? { lat: waypoints[0].lat, lng: waypoints[0].lng } : null,
+            }, fieldBaseMap.region)}
             zoom={12}
             height="100dvh"
             showUserLocation

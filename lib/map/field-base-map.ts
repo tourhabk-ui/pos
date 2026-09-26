@@ -100,7 +100,36 @@ export function chooseFieldBaseMap(
   };
 }
 
-/** Центр района — начальный вид своей карты, когда фикса ещё нет. */
+/**
+ * Где открывается полевая карта — как у любого навигатора: там, где человек
+ * (владелец 26.09: «при переходе карта должна открываться на моём
+ * нахождении, а она открывает вулкан Авачинский»).
+ *
+ * До этого дня стартом был центр РАЙОНА пакета, а у Авачинской группы центр
+ * лежит на самом вулкане. Район при этом уже выбирался по точке человека —
+ * то есть экран знал, где он, и всё равно показывал вулкан, пока GPS не
+ * даст первый фикс (в помещении — десятки секунд, а бывает и никогда).
+ *
+ * По убыванию правоты: явное действие (кнопка «Карта») → живой фикс →
+ * последняя известная точка с диска → начало маршрута → центр района.
+ * Центр района — только когда не известно ничего.
+ */
+export function fieldMapStartCenter(
+  known: {
+    explicit?: [number, number] | null;
+    fix?: { lat: number; lng: number } | null;
+    lastFix?: { lat: number; lng: number } | null;
+    route?: { lat: number; lng: number } | null;
+  },
+  region: PackRegionId,
+): [number, number] {
+  if (known.explicit) return known.explicit;
+  const p = known.fix ?? known.lastFix ?? known.route;
+  if (p) return [p.lat, p.lng];
+  return regionCenter(region);
+}
+
+/** Центр района — начальный вид своей карты, когда не известно ничего. */
 export function regionCenter(region: PackRegionId): [number, number] {
   const c = packRegionCenter(region);
   if (!c) throw new Error(`Района или клетки «${region}» в реестре нет`);
