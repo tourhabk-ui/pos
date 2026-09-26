@@ -374,6 +374,22 @@ export function SafetyClient() {
               )}
             </div>
 
+            {/* Опасности не найдены — это состояние, а не пустое место.
+                У большинства мест набор опасностей был выведен шаблоном 070 из
+                типа места и с 26.09 не показывается как факт
+                (lib/safety/profile-source.ts); молчание здесь читалось бы как
+                «опасностей нет» (§4.0). */}
+            {result.hazards.length === 0 && (
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--text-muted)] font-bold mb-3">
+                  Опасности
+                </p>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  У нас не записаны. Это не значит, что их нет: спросите МЧС и оператора перед выходом.
+                </p>
+              </div>
+            )}
+
             {/* Hazard badges */}
             {result.hazards.length > 0 && (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
