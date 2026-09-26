@@ -1,16 +1,15 @@
 {
-  "note": "26.09, прогон 602. ТОЛЬКО ЧТЕНИЕ. Радиус опасной зоны вулкана: ищем число с источником в действующих предупреждениях (МЧС, KVERT), которые платформа уже хранит.",
-  "run": 602,
+  "note": "26.09, прогон 603. ТОЛЬКО ЧТЕНИЕ. Стекло поля (49d3814): имя чанка страницы /planning на проде, чтобы вторым шагом найти в нём новый класс листа.",
+  "run": 603,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 300,
-  "around": ["км от", "ближе", "радиус", "зон", "не приближ", "километров"],
-  "aroundLines": 1,
-  "aroundHits": 12,
+  "bytes": 200,
+  "around": ["app/planning/page-"],
+  "aroundLines": 0,
+  "aroundHits": 3,
   "urls": [
-    "https://vedarai.ru/api/safety/volcanic",
-    "https://vedarai.ru/api/safety/alerts"
+    "https://vedarai.ru/planning"
   ]
 }
