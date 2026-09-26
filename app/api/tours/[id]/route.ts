@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicRating } from '@/lib/reviews/public-rating';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,8 @@ export async function GET(
         kr.source_url  AS route_source_url,
         p.id           AS partner_id_val,
         p.name         AS partner_name,
-        p.rating       AS partner_rating
+        p.rating       AS partner_rating,
+        p.review_count AS partner_review_count
        FROM operator_tours t
        LEFT JOIN kamchatka_routes kr ON t.route_id = kr.id
        LEFT JOIN partners p ON t.operator_id = p.id
@@ -103,7 +105,8 @@ export async function GET(
         notIncluded: [],
         maxGroupSize: typeof payload.max_group === 'number' ? payload.max_group : 20,
         minGroupSize: 1,
-        rating: typeof payload.rating === 'number' ? payload.rating : 0,
+        // «Не оценивали» — null, а не ноль (§4.0): ноль читается как оценка.
+        rating: publicRating(payload.rating, payload.review_count),
         reviewCount: typeof payload.review_count === 'number' ? payload.review_count : 0,
         isActive: true,
         images,
@@ -160,7 +163,11 @@ export async function GET(
       notIncluded:      parseJsonField(row.notIncluded || row.not_included) as string[],
       maxGroupSize:     parseInt(String(row.maxGroupSize || row.max_group_size || 20)),
       minGroupSize:     parseInt(String(row.minGroupSize || row.min_group_size || 1)),
-      rating:           parseFloat(String(row.rating || 0)),
+      // Оценки нет — null. `row.rating || 0` превращал «никто не оценивал» в
+      // «нуль звёзд» (§4.0); каноническое чтение карточки держит
+      // `rating: string | null` (lib/tours/tour-detail-query.ts). Правило одно
+      // на все выдачи — lib/reviews/public-rating.
+      rating:           publicRating(row.rating, row.review_count ?? row.reviewCount),
       reviewCount:      parseInt(String(row.review_count || row.reviewCount || 0)),
       isActive:         (row.is_active ?? true) as boolean,
       images,
@@ -184,7 +191,8 @@ export async function GET(
       operator: row.partner_id_val ? {
         id:     row.partner_id_val as string,
         name:   (row.partner_name || '') as string,
-        rating: parseFloat(String(row.partner_rating || 0)),
+        // То же и у оператора: «его никто не оценивал» — не «нуль».
+        rating: publicRating(row.partner_rating, row.partner_review_count),
       } : null,
     };
 

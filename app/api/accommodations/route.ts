@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { publicRating } from '@/lib/reviews/public-rating';
 import { roomNightsSql } from '@/lib/stay/availability';
 
 export const dynamic = 'force-dynamic';
@@ -295,7 +296,8 @@ export async function GET(request: NextRequest) {
       // «Не оценён» отдаётся как null, а не как ноль. Ноль читается экраном
       // и планером как ОЦЕНКА, и планер по ней отсеивал объект навсегда:
       // условие было «rating >= 3.5», а ноль меньше (правка в trip/plan).
-      rating: row.rating === null ? null : parseFloat(row.rating),
+      // Правило одно на все выдачи — lib/reviews/public-rating.
+      rating: publicRating(row.rating, row.review_count),
       reviewCount: row.review_count || 0,
       isVerified: row.is_verified,
       partnerName: row.partner_name,

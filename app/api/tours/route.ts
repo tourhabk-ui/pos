@@ -6,6 +6,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { TotalRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicRating } from '@/lib/reviews/public-rating';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,12 @@ interface TourResponse {
   notIncluded: string[];
   maxGroupSize: number;
   minGroupSize: number;
-  rating: number;
+  /**
+   * `null` — тур никто не оценивал. Тип обязан допускать отсутствие (§4.0):
+   * объявленный `number` принуждал бы выдумать число, а ноль читается экраном
+   * и планером как ОЦЕНКА «нуль звёзд».
+   */
+  rating: number | null;
   reviewCount: number;
   isActive: boolean;
   images: string[];
@@ -186,7 +192,11 @@ export async function GET(request: NextRequest) {
         notIncluded,
         maxGroupSize: typeof row.max_participants === 'number' ? row.max_participants : 20,
         minGroupSize: typeof row.min_participants === 'number' ? row.min_participants : 1,
-        rating: typeof row.rating === 'string' ? parseFloat(row.rating as string) : (row.rating as number),
+        // «Не оценивали» — null, а не ноль (§4.0). Правило одно на все выдачи
+        // (lib/reviews/public-rating): оценка отдаётся, только когда её
+        // подтверждает непустой счёт отзывов — колонка rating у туров стоит
+        // с DEFAULT 0, и пропуска одного NULL тут не хватает.
+        rating: publicRating(row.rating, row.reviews_count),
         reviewCount: typeof row.reviews_count === 'number' ? row.reviews_count : 0,
         isActive: row.is_active === true,
         images: (() => {

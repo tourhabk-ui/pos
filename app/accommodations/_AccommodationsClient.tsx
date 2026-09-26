@@ -18,7 +18,9 @@ interface Accommodation {
   starRating: number | null;
   pricePerNight: { from: number; to: number | null; currency: string };
   amenities: string[];
-  rating: number;
+  /** null — объект никто не оценивал (§4.0). API отдаёт именно null, а карточка
+   *  это признаёт (components/stay/AccommodationCard) — тип обязан позволять. */
+  rating: number | null;
   reviewCount: number;
   isVerified: boolean;
   images: Array<{ url: string; alt?: string }>;
