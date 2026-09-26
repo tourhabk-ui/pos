@@ -1,20 +1,18 @@
 {
-  "note": "26.09, прогон 596. ТОЛЬКО ЧТЕНИЕ. Владелец: «посмотри на сайте вулканологов, они точно в курсе радиуса» — в каком радиусе от вулкана опасная зона. Ищем формулировки зон у KVERT, КФ ЕГС, Госуслуг-41 и парка.",
-  "run": 596,
+  "note": "26.09, прогон 597. ТОЛЬКО ЧТЕНИЕ. Зона опасности у вулканов, второй заход: KVERT на новом домене (с 01.08 kvert.febras.net), новости МЧС края.",
+  "run": 597,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 1500,
-  "around": ["радиус", "км от", "не приближ", "опасн", "зон", "km from", "radius", "exclusion"],
-  "aroundLines": 3,
-  "aroundHits": 12,
+  "bytes": 800,
+  "around": ["км от", "не приближ", "радиус", "ближе", "km from", "radius", "zone", "hazard"],
+  "aroundLines": 2,
+  "aroundHits": 15,
   "urls": [
-    "https://gosuslugi41.ru/pgu/volcano_info.htm",
-    "https://www.kscnet.ru/ivs/kvert/",
-    "https://www.kscnet.ru/ivs/kvert/van/rss.php",
-    "https://www.emsd.ru/vmon/",
-    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/usloviya_poseweniya/",
-    "https://www.vulcanikamchatki.ru/novosti/operativnaya_svodka_o_dostupnosti_turisticheskih_obektov14082030/"
+    "https://kvert.febras.net/",
+    "https://kvert.febras.net/van/index.php?type=3",
+    "https://41.mchs.gov.ru/deyatelnost/press-centr/novosti",
+    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/pravila_bezopasnosti/"
   ]
 }
