@@ -62,7 +62,7 @@ describe('тур с ценой — на первом экране', () => {
   });
 
   it('карусель туров стоит перед секцией радара; сам радар — плитка, без заголовка и без дубля', () => {
-    expect(pos('className="plates"')).toBeLessThan(pos('id="radar"'));
+    expect(pos('className="plates more-tours"')).toBeLessThan(pos('id="radar"'));
     expect(JSX).not.toMatch(/<h2>Радар обстановки<\/h2>/);
     // С 25.09 дверь радара — плитка в ряду инструментов (владелец: «экономить
     // место на мобильной»); строка-дубль в секции #radar снята.
@@ -101,7 +101,9 @@ describe('карусель', () => {
 
   it('точки озвучены «Тур N из M», а не «Плата N»', () => {
     expect(CODE).not.toMatch(/aria-label=\{`Плата/);
-    expect(CODE).toMatch(/aria-label=\{`Тур \$\{i \+ 1\} из \$\{plates\.length\}`\}/);
+    // Лента начинается со второго тура (первый — крупной карточкой выше),
+    // поэтому номер i + 2, а знаменатель — все туры витрины.
+    expect(CODE).toMatch(/aria-label=\{`Тур \$\{i \+ 2\} из \$\{plates\.length\}`\}/);
   });
 
   it('CTA — кнопка не ниже 44px и не мельче 13px', () => {
@@ -149,10 +151,13 @@ describe('мелочи с видимой ценой', () => {
     expect(CSS).toMatch(/@media \(max-width:480px\)\{[^@]*\.v7 \.dataline\{[^}]*flex-wrap:wrap/);
   });
 
-  it('«Весь каталог» над каруселью туров ведёт в витрину туров', () => {
-    const explore = JSX.slice(JSX.indexOf('<h2>Исследовать</h2>'), JSX.indexOf('className="plates"'));
-    expect(explore).toContain('href="/catalog"');
-    expect(explore).not.toContain('href="/routes"');
+  it('«Все туры» над турами ведёт в витрину туров, «Все места» — в каталог мест', () => {
+    const tours = JSX.slice(JSX.indexOf('<h2>Туры сезона</h2>'), JSX.indexOf('className="firstpick"'));
+    expect(tours).toContain('href="/catalog"');
+    expect(tours).not.toContain('href="/routes');
+    const explore = JSX.slice(JSX.indexOf('<h2>Исследовать</h2>'), JSX.indexOf('className="plates explore"'));
+    expect(explore).toContain('href="/routes?kind=place"');
+    expect(explore).not.toContain('href="/catalog"');
   });
 
   it('МЧС-строка не красная: --danger только у SOS и ошибок', () => {
@@ -169,5 +174,36 @@ describe('мелочи с видимой ценой', () => {
     for (const body of textColors) expect(body, body).not.toMatch(/color:\s*var\(--warning\)/);
     expect(JSX).toMatch(/className="avail"><CalendarX aria-hidden/);
     expect(JSX).toMatch(/className="fp-avail"><CalendarX aria-hidden/);
+  });
+});
+
+describe('два направления и безопасность одним местом (владелец 25.09)', () => {
+  it('первый тур не повторяется: лента под ним начинается со второго', () => {
+    expect(CODE).toMatch(/const more = plates\.slice\(1\)/);
+    expect(JSX).toMatch(/\{more\.map\(\(p, i\) =>/);
+    expect(JSX).not.toMatch(/\{plates\.map\(\(p, i\) =>/);
+  });
+
+  it('лента туров — внутри «Туров сезона», до чипов и до «Перед выходом»', () => {
+    const fp = pos('<h2>Туры сезона</h2>');
+    expect(fp).toBeLessThan(pos('className="plates more-tours"'));
+    expect(pos('className="plates more-tours"')).toBeLessThan(pos('<div className="hero-chips">'));
+  });
+
+  it('«Перед выходом»: предупреждения и полевые инструменты в одной секции #radar', () => {
+    const at = pos('id="radar"');
+    const radar = JSX.slice(at, JSX.indexOf('</section>', at));
+    expect(radar).toContain('<h2>Перед выходом</h2>');
+    expect(radar).toContain('className="alerts-now"');
+    expect(radar).toContain('<nav className="qtools stools"');
+    expect(radar.indexOf('className="alerts-now"')).toBeLessThan(radar.indexOf('<nav className="qtools stools"'));
+  });
+
+  it('«Исследовать» — места после «Перед выходом»: без цены и без брони (§9)', () => {
+    expect(pos('id="radar"')).toBeLessThan(pos('<h2>Исследовать</h2>'));
+    const at = pos('className="plates explore"');
+    const explore = JSX.slice(at, JSX.indexOf('</section>', at));
+    expect(explore).toContain('href={`/places/${pl.id}`}');
+    expect(explore).not.toMatch(/price|buy-cta|Забронировать|marketplace/);
   });
 });

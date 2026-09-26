@@ -84,7 +84,10 @@ interface ActiveTrip {
 }
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, radar, plates, feed, stats, elements, geometry } = data;
+  const { safety, seismic, radar, plates, explore, feed, stats, elements, geometry } = data;
+  // Лента под первой карточкой — остальные туры, без повтора первого
+  // (владелец 25.09: первый тур показывался дважды — крупно и в карусели).
+  const more = plates.slice(1);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -165,7 +168,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   };
   useEffect(() => {
     const c = platesRef.current;
-    if (!c || plates.length < 2) return;
+    if (!c || more.length < 2) return;
     let t: ReturnType<typeof setTimeout>;
     const onScroll = () => {
       clearTimeout(t);
@@ -180,7 +183,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     };
     c.addEventListener('scroll', onScroll, { passive: true });
     return () => { clearTimeout(t); c.removeEventListener('scroll', onScroll); };
-  }, [plates.length]);
+  }, [more.length]);
 
   const goPlate = (i: number) => {
     const c = platesRef.current;
@@ -483,6 +486,50 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   <span className="fp-cta">{fp.kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
                 </div>
               </Link>
+              {/* Остальные туры — лентой под первым, в той же секции. До 25.09
+                  они жили ниже под заголовком «Исследовать» и начинались с того
+                  же первого тура: одна карточка дважды на одном экране. */}
+              {more.length > 0 && (
+                <>
+                  <div className="plates more-tours" ref={platesRef}>
+                    {more.map((p, i) => {
+                      const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
+                      const pf = plateFacts(p);
+                      const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
+                      return (
+                        <figure className="plate" key={p.id} role="group" aria-label={`Тур ${i + 2} из ${plates.length}`}>
+                          <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
+                            {!p.imageUrl && <span className="noimg" />}
+                          </div></Link>
+                          <div className="row"><b>{p.title}</b></div>
+                          {p.description && <div className="cap">{p.description}</div>}
+                          <div className="facts">
+                            {pf.price ? <span className="price">{pf.price}</span> : <span className="price muted">Цена по запросу</span>}
+                            {meta && <span className="meta">{meta}</span>}
+                          </div>
+                          {/* Условия отмены — дословно из поля тура (решение владельца
+                              24.09 п.3): своей сетки сроков и процентов здесь нет. */}
+                          {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
+                          {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
+                          <div className="buy">
+                            <Link className="buy-cta" href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
+                          </div>
+                        </figure>
+                      );
+                    })}
+                  </div>
+                  {more.length > 1 && (
+                    <div className="pl-dots">
+                      {more.map((_, i) => (
+                        <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 2} из ${plates.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              {feed.length > 0 && (
+                <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
+              )}
             </section>
           );
         })()}
@@ -500,57 +547,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
 
 
-        {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
-            СОСТОЯНИЕ — цветную точку и одно слово. Содержания опасности на
-            главной не было вовсе: сама лента предупреждений жила только на
-            /safety, за переходом. Владелец открыл сайт при девятнадцати
-            действующих предупреждениях, из них одно важности 2, и сказал: «ни
-            слова об опасности». Он прочитал ровно то, что было написано.
-
-            Здесь — текст. Не больше двух строк: главная не подменяет /safety,
-            но и не молчит о том, что там ждёт. Блока нет, когда предупреждений
-            нет: пустая рамка «всё спокойно» — это обещание, которого мы дать
-            не можем. */}
-        {safety.alerts.length > 0 && (
-          <section className="alerts-now" aria-label="Действующие предупреждения">
-            {/* Строка — кнопка-раскрытие (владелец 25.09: «на 3 строчки,
-                интерактивные, с раскрытием при тапе и закрытием»). Свёрнутая —
-                заголовок до трёх строк CSS-обрезкой, а не clip(…, 90): обрезка
-                по символам съедала хвост на середине слова («в районе села
-                Соболево до…») и прятала именно срок и место. Раскрытая —
-                заголовок целиком и описание: в description лежит деталь
-                (объезд, окна проезда), ради которой человек и нажал. */}
-            <ul>
-              {safety.alerts.slice(0, 2).map((a, i) => {
-                const open = openAlert === i;
-                const body = alertBody(a);
-                return (
-                  <li key={`${a.title}-${i}`}>
-                    <button
-                      type="button"
-                      className="an-row"
-                      aria-expanded={open}
-                      onClick={() => setOpenAlert(open ? null : i)}
-                    >
-                      <i className={a.severity >= 2 ? 'sev-hi' : a.severity === 1 ? 'sev-mid' : 'sev-lo'} />
-                      <span className="an-tx">
-                        <span className={open ? 'an-t' : 'an-t an-clamp'}>{open && body.replacesTitle ? body.text : a.title}</span>
-                        {open && body.text && !body.replacesTitle && <span className="an-d">{body.text}</span>}
-                        <span className="an-st">{stampAlert(a)}</span>
-                      </span>
-                      <ChevronDown className="an-chev" size={16} strokeWidth={2} aria-hidden />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            <Link className="an-go" href="/safety">
-              {safety.alerts.length > 2
-                ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
-                : 'Подробности →'}
-            </Link>
-          </section>
-        )}
 
         {/* АКТИВНАЯ ПОЕЗДКА — только при подтверждённом режиме (см. выше).
             Заголовок и день живут в герое; здесь — плитки-входы. Только
@@ -581,70 +577,68 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </section>
         )}
 
-        {/* ИССЛЕДОВАТЬ — одна дверь вместо трёх.
-            Было: «Куда сегодня», «Стихии» и «Разделы» — три самостоятельные
-            секции, ведущие в один и тот же каталог. Это не богатство выбора, а
-            нерешительность: человеку предлагали выбрать между тремя входами в
-            одну комнату. Теперь один вход и три глубины: конкретные карточки →
-            выбор по стихии → разделы платформы.
-            Стоит ПЕРЕД радаром (П4б, 24.09): раньше между первым туром и
-            остальными семью лежал радар из пяти плиток. «Весь каталог» ведёт
-            в витрину туров /catalog — ту же, что «Туры» в таб-баре: над
-            каруселью туров ссылка вела в /routes, где туров нет (#123). */}
-        {plates.length > 0 && (
-          <section>
-            <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/catalog">Весь каталог</Link></div>
-            <div className="plates" ref={platesRef}>
-              {plates.map((p, i) => {
-                const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
-                const f = plateFacts(p);
-                const meta = [f.duration, f.operator].filter(Boolean).join(' · ');
-                return (
-                  <figure className="plate" key={p.id} role="group" aria-label={`Тур ${i + 1} из ${plates.length}`}>
-                    <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
-                      {!p.imageUrl && <span className="noimg" />}
-                    </div></Link>
-                    <div className="row"><b>{p.title}</b></div>
-                    {p.description && <div className="cap">{p.description}</div>}
-                    <div className="facts">
-                      {f.price ? <span className="price">{f.price}</span> : <span className="price muted">Цена по запросу</span>}
-                      {meta && <span className="meta">{meta}</span>}
-                    </div>
-                    {/* Условия отмены — дословно из поля тура (решение владельца
-                        24.09 п.3): своей сетки сроков и процентов здесь нет. */}
-                    {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
-                    {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
-                    <div className="buy">
-                      <Link className="buy-cta" href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
-                    </div>
-                  </figure>
-                );
-              })}
-            </div>
-            {plates.length > 1 && (
-              <div className="pl-dots">
-                {plates.map((_, i) => (
-                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 1} из ${plates.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
-                ))}
-              </div>
-            )}
-            {feed.length > 0 && (
-              <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
-            )}
-          </section>
-        )}
 
-        {/* РАДАР — с 25.09 плиткой в ряду инструментов выше (владелец: «радар
-            модной иконкой, экономить место»); своя строка-ссылка здесь снята
-            как дубль той же двери. Секция и якорь #radar остались.
-            Прежде — одной строкой-ссылкой (пакет П4б, решение владельца 24.09).
-            Раньше здесь стояла секция с заголовком и пятью плитками между
-            первым туром и остальными семью. Подробности радара живут на
-            /safety#radar; якорь #radar оставлен — на него ведёт пилюля шапки.
-            Полевые инструменты безопасности (МЧС, «что делать при ЧП»,
-            навигатор, наблюдение) не удалены — они ниже тем же столбиком,
-            просто без заголовка-двери. */}
+        {/* ПЕРЕД ВЫХОДОМ — вся безопасность одним местом (владелец 25.09:
+            «блок „Перед выходом“: вся безопасность в одном месте»). Прежде
+            предупреждения стояли под турами отдельной рамкой, а полевые
+            инструменты — ниже карусели, без заголовка. Теперь одна секция:
+            сначала что случилось, потом что сделать до выхода и в поле.
+            Якорь #radar остался — на него ведёт пилюля шапки; сводка радара
+            раскрывается плиткой в ряду инструментов наверху. */}
         <section id="radar" className="sub radar-sec">
+          <div className="shead"><h2>Перед выходом</h2><span className="line" /><Link className="all" href="/safety">Безопасность</Link></div>
+          {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
+              СОСТОЯНИЕ — цветную точку и одно слово. Содержания опасности на
+              главной не было вовсе: сама лента предупреждений жила только на
+              /safety, за переходом. Владелец открыл сайт при девятнадцати
+              действующих предупреждениях, из них одно важности 2, и сказал: «ни
+              слова об опасности». Он прочитал ровно то, что было написано.
+
+              Здесь — текст. Не больше двух строк: главная не подменяет /safety,
+              но и не молчит о том, что там ждёт. Блока нет, когда предупреждений
+              нет: пустая рамка «всё спокойно» — это обещание, которого мы дать
+              не можем. */}
+          {safety.alerts.length > 0 && (
+            <div className="alerts-now" role="region" aria-label="Действующие предупреждения">
+              {/* Строка — кнопка-раскрытие (владелец 25.09: «на 3 строчки,
+                  интерактивные, с раскрытием при тапе и закрытием»). Свёрнутая —
+                  заголовок до трёх строк CSS-обрезкой, а не clip(…, 90): обрезка
+                  по символам съедала хвост на середине слова («в районе села
+                  Соболево до…») и прятала именно срок и место. Раскрытая —
+                  заголовок целиком и описание: в description лежит деталь
+                  (объезд, окна проезда), ради которой человек и нажал. */}
+              <ul>
+                {safety.alerts.slice(0, 2).map((a, i) => {
+                  const open = openAlert === i;
+                  const body = alertBody(a);
+                  return (
+                    <li key={`${a.title}-${i}`}>
+                      <button
+                        type="button"
+                        className="an-row"
+                        aria-expanded={open}
+                        onClick={() => setOpenAlert(open ? null : i)}
+                      >
+                        <i className={a.severity >= 2 ? 'sev-hi' : a.severity === 1 ? 'sev-mid' : 'sev-lo'} />
+                        <span className="an-tx">
+                          <span className={open ? 'an-t' : 'an-t an-clamp'}>{open && body.replacesTitle ? body.text : a.title}</span>
+                          {open && body.text && !body.replacesTitle && <span className="an-d">{body.text}</span>}
+                          <span className="an-st">{stampAlert(a)}</span>
+                        </span>
+                        <ChevronDown className="an-chev" size={16} strokeWidth={2} aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <Link className="an-go" href="/safety">
+                {safety.alerts.length > 2
+                  ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
+                  : 'Подробности →'}
+              </Link>
+            </div>
+          )}
+
           {/* Четыре полевых инструмента — сеткой 2×2 тех же плиток, что
               «Планировщик» и «Радар» выше (владелец 25.09: «место жалко на
               главной»). Было четыре полноширинные строки с подписью в две
@@ -705,6 +699,29 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </nav>
 
         </section>
+
+        {/* ИССЛЕДОВАТЬ — направление «сам» (владелец 25.09: «это же 2 разных
+            направления, и они объединяются в планировщике»). Туры — выше, в
+            «Турах сезона»; здесь места: географический факт без цены и брони
+            (§9). Та же выдача и тот же порядок, что в каталоге мест
+            (/routes?kind=place): со снимком впереди, без снимка — в конце. */}
+        {explore.length > 0 && (
+          <section className="explore-sec">
+            <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes?kind=place">Все места</Link></div>
+            <div className="plates explore">
+              {explore.map((pl, i) => (
+                <Link key={pl.id} href={`/places/${pl.id}`} className="plate place" aria-label={`${pl.title}, место ${i + 1} из ${explore.length}`}>
+                  <div className="img" style={pl.imageUrl ? { backgroundImage: `url('${photoSrc(pl.imageUrl, 640)}')` } : undefined}>
+                    {!pl.imageUrl && <span className="noimg" />}
+                  </div>
+                  <span className="kind">{pl.typeLabel}</span>
+                  <div className="row"><b>{pl.title}</b></div>
+                  {pl.description && <div className="cap">{pl.description}</div>}
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* III. КУЗЬМИЧ */}
         <section>
@@ -1205,6 +1222,13 @@ const CSS = `
 /* Секция #radar (якорь пилюли шапки): с 25.09 — полевые инструменты сеткой 2×2
    тех же плиток .qt, что ряд «Планировщик / Радар» выше. */
 .v7 .radar-sec{margin-top:28px}
+.v7 .radar-sec .alerts-now{margin:0 0 12px}
+.v7 .fp-sec .more-tours{margin-top:14px}
+.v7 .explore-sec{margin-top:32px}
+.v7 .plates.explore .plate{width:62%;max-width:240px;padding-bottom:12px;color:inherit;text-decoration:none}
+.v7 .plate.place .kind{display:block;padding:10px 12px 0;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .plate.place .row{padding-top:5px}
+.v7 .plate.place .cap{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .v7 .stools{margin:0}
 /* Регистрация в МЧС — тёплая подложка (--warning): просьба, не тревога (--danger только SOS). */
 .v7 .mchsline{background:color-mix(in srgb,var(--warning) 10%,var(--bg-card));border-color:color-mix(in srgb,var(--warning) 30%,transparent)}
