@@ -7,6 +7,7 @@ import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
 import type { ZoneId } from '@/lib/planner/engine';
 import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
+import type { SelfSafetyRow } from '@/lib/planner/travel-style';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 
@@ -462,6 +463,76 @@ export async function fetchActivitiesBookableInMonth(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[planner] каталог за месяц ${month} не прочитался:`, message);
+      return null;
+    }
+  });
+}
+
+/**
+ * Данные безопасности кандидатов в самостоятельный день (стиль «Сам» и
+ * подмена тура в стиле «С оператором»; правила — `lib/planner/travel-style`).
+ *
+ * Кандидаты приходят из `agent_route_knowledge`, где id маршрута — это
+ * `COALESCE(ark_id, id)`, а id места — `places.ark_id`. Поэтому ищем по
+ * обеим таблицам сразу: маршрут — в `kamchatka_routes`, место — его
+ * профиль в `location_safety_profile` (`agent_route_id = places.ark_id`).
+ *
+ * `null` — спросить не вышло. Вызывающий обязан считать это «не знаем» и
+ * НЕ ставить самостоятельный день (§4.0): отказ запроса здесь — не повод
+ * разрешить человеку идти одному. Id без строки в ответе — тоже «не знаем».
+ */
+export async function fetchSelfSafety(
+  ids: string[],
+  cache: PlannerCache,
+): Promise<Map<string, SelfSafetyRow> | null> {
+  if (ids.length === 0) return new Map();
+  const key = `self-safety:${[...ids].sort().join(',')}`;
+  return cached(cache, key, async () => {
+    try {
+      const { rows } = await pool.query<{
+        id: string;
+        is_route: boolean;
+        route_difficulty: string | null;
+        mchs_registration_required: boolean | null;
+        route_registration_required: boolean | null;
+        has_profile: boolean;
+        sat_communicator_required: boolean | null;
+        place_registration_required: boolean | null;
+      }>(
+        `SELECT ids.id::text                         AS id,
+                (r.id IS NOT NULL)                   AS is_route,
+                r.difficulty                         AS route_difficulty,
+                r.mchs_registration_required,
+                r.registration_required              AS route_registration_required,
+                (lsp.id IS NOT NULL)                 AS has_profile,
+                lsp.sat_communicator_required,
+                lsp.registration_required            AS place_registration_required
+           FROM unnest($1::uuid[]) AS ids(id)
+           LEFT JOIN kamchatka_routes r
+             ON COALESCE(r.ark_id, r.id) = ids.id AND r.merged_into_id IS NULL
+           LEFT JOIN location_safety_profile lsp
+             ON lsp.agent_route_id = ids.id`,
+        [ids],
+      );
+      const out = new Map<string, SelfSafetyRow>();
+      for (const r of rows) {
+        const prev = out.get(r.id);
+        // Две строки маршрута на один id (дубль ark_id) сводятся строже:
+        // запрет любой из них — запрет.
+        out.set(r.id, {
+          isRoute: (prev?.isRoute ?? false) || r.is_route,
+          routeDifficulty: r.route_difficulty ?? prev?.routeDifficulty ?? null,
+          mchsRegistrationRequired: prev?.mchsRegistrationRequired === true ? true : r.mchs_registration_required,
+          routeRegistrationRequired: prev?.routeRegistrationRequired === true ? true : r.route_registration_required,
+          hasProfile: (prev?.hasProfile ?? false) || r.has_profile,
+          satCommunicatorRequired: prev?.satCommunicatorRequired === true ? true : r.sat_communicator_required,
+          placeRegistrationRequired: prev?.placeRegistrationRequired === true ? true : r.place_registration_required,
+        });
+      }
+      return out;
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code ?? 'unknown';
+      console.error(`[planner] данные безопасности мест не прочитаны, SQLSTATE ${code} — самостоятельные дни не ставим`);
       return null;
     }
   });
