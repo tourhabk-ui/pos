@@ -8,6 +8,13 @@
  *   невалидный → 422, чужая бронь → 404;
  * - фикс-эндпоинты витрины используют реальные колонки:
  *   check_in_date/check_out_date, price_per_night_from, accommodation_reviews.
+ *
+ * Правка 26.09: no_show/completed разрешены только с дня заезда (по
+ * Камчатке) — строка брони в моке несёт checkin_reached; availability и
+ * blocked-dates считают занятость по номерам единой формулой
+ * (lib/stay/availability.ts) — сторож колонок проверяет её текст
+ * (b.check_in_date / b.check_out_date), а цену берёт из номеров, а не из
+ * price_per_night_from объекта (там пустота давала NaN).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -157,7 +164,7 @@ describe('PATCH /api/stay/bookings/[id]', () => {
   function mockBookingRow(status: string | null) {
     clientQueryMock.mockImplementation((sql: string) => {
       if (sql.includes('FOR UPDATE')) {
-        return Promise.resolve({ rows: status ? [{ id: BOOKING_ID, status }] : [] });
+        return Promise.resolve({ rows: status ? [{ id: BOOKING_ID, status, checkin_reached: true }] : [] });
       }
       if (sql.includes('UPDATE accommodation_bookings')) return Promise.resolve({ rows: [{ id: BOOKING_ID }] });
       throw new Error('unexpected SQL: ' + sql);
@@ -223,10 +230,10 @@ describe('фиксы битой публичной витрины', () => {
     price_per_night_from: '5000', is_active: true,
   };
 
-  it('availability читает check_in_date/check_out_date и price_per_night_from', async () => {
+  it('availability читает check_in_date/check_out_date и цены номеров', async () => {
     queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('WITH rn AS')) return Promise.resolve({ rows: [] });
       if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [ACC_ROW] });
-      if (sql.includes('date_series')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
 
@@ -237,9 +244,9 @@ describe('фиксы битой публичной витрины', () => {
     expect(res.status).toBe(200);
 
     const allSql = queryMock.mock.calls.map(([sql]) => String(sql)).join('\n');
-    expect(allSql).toContain('ab.check_in_date');
-    expect(allSql).toContain('ab.check_out_date');
-    expect(allSql).toContain('price_per_night_from');
+    expect(allSql).toContain('b.check_in_date');
+    expect(allSql).toContain('b.check_out_date');
+    expect(allSql).toContain('r.price_per_night');
     expect(allSql).not.toContain('DATE(ab.check_in)');
   });
 
@@ -263,8 +270,8 @@ describe('фиксы битой публичной витрины', () => {
 
   it('blocked-dates читает check_in_date/check_out_date', async () => {
     queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('WITH rn AS')) return Promise.resolve({ rows: [] });
       if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [ACC_ROW] });
-      if (sql.includes('date_series')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
 
@@ -275,7 +282,7 @@ describe('фиксы битой публичной витрины', () => {
     expect(res.status).toBe(200);
 
     const allSql = queryMock.mock.calls.map(([sql]) => String(sql)).join('\n');
-    expect(allSql).toContain('ab.check_in_date');
+    expect(allSql).toContain('b.check_in_date');
     expect(allSql).not.toContain('DATE(ab.check_in)');
   });
 });

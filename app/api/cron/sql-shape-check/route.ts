@@ -192,6 +192,24 @@ export const SHAPES: ShapeEntry[] = [
               )
              RETURNING id`,
   },
+  {
+    // 26.09, аудит кабинета жилья. `status = $1` (varchar) и
+    // `CASE WHEN $1 = 'cancelled'` (text) — один параметр, два вывода, 42P08
+    // на каждом вызове: владелец не мог ни подтвердить, ни отменить ни одной
+    // брони. Форма не «вставь, если нет», но корень тот же — «один параметр,
+    // разное приведение», и PREPARE на проде ловит его так же.
+    name: 'смена статуса брони жилья',
+    source: 'lib/stay/booking-status-sql.ts',
+    sql: `UPDATE accommodation_bookings
+         SET status = $1::varchar,
+             cancelled_at = CASE WHEN $1::varchar = 'cancelled' THEN NOW() ELSE cancelled_at END,
+             cancellation_reason = CASE WHEN $1::varchar = 'cancelled' THEN $6 ELSE cancellation_reason END,
+             refund_amount = COALESCE($3, refund_amount),
+             refund_percent = COALESCE($4, refund_percent),
+             refund_reason = COALESCE($5, refund_reason),
+             updated_at = NOW()
+         WHERE id = $2 RETURNING *`,
+  },
 ];
 
 export interface ShapeResult {

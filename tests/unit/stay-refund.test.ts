@@ -5,9 +5,19 @@
  * жилья честной»):
  * - возврат всегда 100% (как у туров, 11.09) — лестницы 100/50/0 больше нет;
  * - отмена НЕ ставит payment_status=refunded: денег она не возвращает;
- * - «возвращено» ставит владелец/админ отдельным действием refund_done;
  * - неоплаченной (pending) → без суммы.
  * Физический возврат по CloudPayments — офлайн (в коде не эмулируется).
+ *
+ * Правка 26.09 (решение владельца: жильё оплачивается владельцу НА МЕСТЕ при
+ * заселении, платформа денег за жильё не принимает):
+ * - у новых броней предоплаты нет — возвращать нечего; сумма к возврату
+ *   бывает только у СТАРОЙ брони, оплаченной через платформу;
+ * - «возвращено» (refund_done) ставит ТОЛЬКО администратор: деньги по такой
+ *   брони у платформы, у владельца их нет. Владелец получает 403 с
+ *   объяснением — прежде он мог отметить «возврат выполнен» за деньги,
+ *   которых не держал (§7);
+ * - запрос смены статуса несёт шестой параметр — причину отмены словами
+ *   владельца (миграция 1028), поэтому длина параметров 6, а не 5.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -53,8 +63,11 @@ vi.mock('@/lib/auth/stay-helpers', () => ({
 }));
 
 const notifyCancelMock = vi.fn();
+const notifyGuestMock = vi.fn();
 vi.mock('@/lib/notifications/stay-booking', () => ({
   notifyStayBookingCancelled: (...args: unknown[]) => notifyCancelMock(...args),
+  notifyStayGuestStatus: (...args: unknown[]) => notifyGuestMock(...args),
+  logStayFailure: vi.fn(),
 }));
 
 import { POST as cancelBooking } from '@/app/api/stay/bookings/[id]/cancel/route';
@@ -150,10 +163,10 @@ describe('PATCH /[id] — отмена владельцем оплаченной
     expect(res.status).toBe(200);
 
     const updateCall = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('UPDATE accommodation_bookings'))!;
-    // params: [nextStatus, id, refund_amount, refund_percent, refund_reason]
+    // params: [nextStatus, id, refund_amount, refund_percent, refund_reason, cancellation_reason]
     expect(updateCall[1][2]).toBe(15000);
     expect(updateCall[1][3]).toBe(100);
-    expect(updateCall[1]).toHaveLength(5);
+    expect(updateCall[1]).toHaveLength(6);
     expect(String(updateCall[0])).not.toMatch(/payment_status/);
 
     expect(notifyCancelMock).toHaveBeenCalledTimes(1);
@@ -162,9 +175,21 @@ describe('PATCH /[id] — отмена владельцем оплаченной
   });
 });
 
-describe('PATCH /[id] refund_done — «деньги переведены»', () => {
-  it('ставит refunded только у отменённой оплаченной брони своего объекта', async () => {
-    requireAuthMock.mockResolvedValue({ userId: 'owner-1', role: 'tourist' });
+describe('PATCH /[id] refund_done — «деньги переведены» (только администрация)', () => {
+  it('владелец объекта — 403: денег по брони у него нет, запрос в базу не уходит', async () => {
+    requireAuthMock.mockResolvedValue({ userId: 'owner-1', role: 'stay' });
+    clientQueryMock.mockImplementation(() => Promise.resolve({ rowCount: 1, rows: [{ id: BOOKING_ID }] }));
+    const res = await ownerPatch(
+      req(`http://localhost/api/stay/bookings/${BOOKING_ID}`, 'PATCH', { refund_done: true }),
+      routeParams(BOOKING_ID)
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/администрация платформы/);
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('администратор ставит refunded только у отменённой оплаченной брони', async () => {
+    requireAuthMock.mockResolvedValue({ userId: 'admin-1', role: 'admin' });
     clientQueryMock.mockImplementation(() => Promise.resolve({ rowCount: 1, rows: [{ id: BOOKING_ID }] }));
     const res = await ownerPatch(
       req(`http://localhost/api/stay/bookings/${BOOKING_ID}`, 'PATCH', { refund_done: true }),
@@ -174,11 +199,11 @@ describe('PATCH /[id] refund_done — «деньги переведены»', ()
     const [sql, params] = clientQueryMock.mock.calls[0];
     expect(String(sql)).toMatch(/SET payment_status = 'refunded'/);
     expect(String(sql)).toMatch(/b\.status = 'cancelled' AND b\.payment_status = 'paid'/);
-    expect(String(sql)).toMatch(/AND a\.partner_id = \$2/);
-    expect(params).toEqual([BOOKING_ID, 'partner-1']);
+    expect(params).toEqual([BOOKING_ID]);
   });
 
   it('нечего отмечать — 422, а не молчаливый успех', async () => {
+    requireAuthMock.mockResolvedValue({ userId: 'admin-1', role: 'admin' });
     clientQueryMock.mockImplementation(() => Promise.resolve({ rowCount: 0, rows: [] }));
     const res = await ownerPatch(
       req(`http://localhost/api/stay/bookings/${BOOKING_ID}`, 'PATCH', { refund_done: true }),

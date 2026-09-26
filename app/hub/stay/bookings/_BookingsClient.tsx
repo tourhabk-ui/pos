@@ -3,11 +3,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ClipboardList } from 'lucide-react';
+import { STAY_PAY_ON_SITE, stayPaymentLabel } from '@/lib/stay/pay-on-site';
 
 /**
  * Входящие брони владельца жилья: список из GET /api/stay/bookings
  * (только свои объекты), смена статуса по жизненному циклу через
  * PATCH /api/stay/bookings/[id].
+ *
+ * Оплата жилья — на месте: гость платит владельцу при заселении (решение
+ * владельца 26.09). Платформа денег не принимает, поэтому у владельца здесь
+ * нет ни «оплачено», ни «возврат выполнен»: возвращать ему нечего. Старые
+ * брони, оплаченные через платформу, возвращает администрация платформы.
  */
 
 const STATUS_LABELS: Record<string, string> = {
@@ -24,13 +30,6 @@ const STATUS_BADGE: Record<string, string> = {
   completed: 'text-[var(--success)]',
   cancelled: 'text-[var(--danger)]',
   no_show: 'text-[var(--danger)]',
-};
-
-const PAYMENT_LABELS: Record<string, string> = {
-  pending: 'не оплачено',
-  paid: 'оплачено',
-  refunded: 'возврат',
-  partially_refunded: 'частичный возврат',
 };
 
 // Кнопки переходов по текущему статусу (см. ALLOWED_TRANSITIONS на бэкенде)
@@ -104,34 +103,21 @@ export default function BookingsClient() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function markRefunded(booking: BookingRow) {
-    if (!window.confirm(`Подтвердите: ${formatMoney(booking.refund_amount ?? 0)} переведены гостю? Гость увидит «Возвращено».`)) return;
-    setBusyId(booking.id);
-    setError(null);
-    try {
-      const res = await fetch(`/api/stay/bookings/${booking.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refund_done: true }),
-      });
-      const d = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || !d.success) setError(d.error || 'Не удалось отметить возврат');
-      else load();
-    } catch {
-      setError('Не удалось отметить возврат');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function changeStatus(booking: BookingRow, next: string) {
+    // Отмена уходит гостю письмом — причину можно назвать словами (необязательно).
+    let reason: string | undefined;
+    if (next === 'cancelled') {
+      const answer = window.prompt('Отменить бронь? Гость получит уведомление. Причина (необязательно):', '');
+      if (answer === null) return;
+      reason = answer.trim().slice(0, 500) || undefined;
+    }
     setBusyId(booking.id);
     setError(null);
     try {
       const res = await fetch(`/api/stay/bookings/${booking.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify(reason ? { status: next, reason } : { status: next }),
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || !d.success) {
@@ -208,27 +194,18 @@ export default function BookingsClient() {
               <p className="text-xs text-[var(--text-secondary)] mt-1">
                 {formatDate(booking.check_in_date)} — {formatDate(booking.check_out_date)} · {booking.nights} ноч. ·{' '}
                 {booking.adults} взр.{booking.children > 0 && ` + ${booking.children} дет.`} ·{' '}
-                {formatMoney(booking.total_price)} ({PAYMENT_LABELS[booking.payment_status] ?? booking.payment_status})
+                {formatMoney(booking.total_price)} ({stayPaymentLabel(booking.payment_status)})
               </p>
               <p className="text-xs text-[var(--text-secondary)] mt-1">
                 {[booking.guest_name, booking.guest_email].filter(Boolean).join(' · ') || 'Гость не указан'}
               </p>
-              {booking.status === 'cancelled' && booking.refund_amount != null && Number(booking.refund_amount) > 0 && (
-                booking.payment_status === 'refunded' ? (
-                  <p className="text-xs font-medium text-[var(--text-secondary)] mt-1">
-                    Возвращено гостю: {formatMoney(booking.refund_amount)}
-                  </p>
-                ) : (
-                  <div className="flex items-center gap-2 flex-wrap mt-1">
-                    <p className="text-xs font-medium text-[var(--danger)]">
-                      К возврату гостю: {formatMoney(booking.refund_amount)} — переведите и отметьте
-                    </p>
-                    <button type="button" onClick={() => markRefunded(booking)} disabled={busyId === booking.id}
-                      className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--text-primary)] disabled:opacity-60">
-                      Возврат выполнен
-                    </button>
-                  </div>
-                )
+              {booking.status === 'cancelled' && booking.payment_status === 'paid' && (
+                <p className="text-xs text-[var(--text-secondary)] mt-1">
+                  Бронь была оплачена через платформу — возврат гостю оформляет администрация платформы, от вас действий не требуется.
+                </p>
+              )}
+              {(booking.status === 'pending' || booking.status === 'confirmed') && booking.payment_status === 'pending' && (
+                <p className="text-xs text-[var(--text-muted)] mt-1">{STAY_PAY_ON_SITE}.</p>
               )}
               {booking.special_requests && (
                 <p className="text-xs text-[var(--text-muted)] mt-1">{booking.special_requests}</p>

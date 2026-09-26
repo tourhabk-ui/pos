@@ -19,7 +19,8 @@ interface StayStats {
     completed: number; cancelled: number; noShow: number;
     upcomingCheckins: number;
   };
-  revenue: { paid: number; expected: number };
+  /** Суммы броней по статусу — не деньги: оплату на месте платформа не видит */
+  bookingSums: { atCheckIn: number; completed: number };
 }
 
 function formatMoney(v: number): string {
@@ -95,7 +96,9 @@ export default function StayDashboardClient() {
     // Хинт про заезды — про заезды: подтверждённые брони, из которых они и берутся
     // (раньше здесь показывалось «завершено» — другая метрика в чужой карточке).
     { label: 'Ближайшие заезды', value: String(stats.bookings.upcomingCheckins), hint: `подтверждено: ${stats.bookings.confirmed}`, icon: CalendarCheck },
-    { label: 'Оплачено', value: formatMoney(stats.revenue.paid), hint: `ожидается: ${formatMoney(stats.revenue.expected)}`, icon: Wallet },
+    // Жильё оплачивается владельцу на месте — платформа денег не видит и
+    // «оплачено» не показывает. Это сумма подтверждённых броней по их цене.
+    { label: 'К оплате при заселении', value: formatMoney(stats.bookingSums.atCheckIn), hint: `по подтверждённым броням; состоявшиеся заезды: ${formatMoney(stats.bookingSums.completed)}`, icon: Wallet },
   ];
 
   // Остальные счётчики API приходили, но нигде не показывались — выносим честной

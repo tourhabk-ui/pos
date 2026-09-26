@@ -19,6 +19,7 @@ export type FundSourceType =
   | 'booking_operator'
   | 'booking_tour'
   | 'booking_transfer'
+  | 'booking_stay'
   | 'manual_topup';
 
 const CONTRIBUTION_RATE = 0.01; // 1% от суммы бронирования

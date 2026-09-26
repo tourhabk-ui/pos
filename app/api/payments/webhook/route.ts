@@ -126,10 +126,18 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
         `;
         break;
       case 'accommodation':
+        // Жильё с 26.09 оплачивается на месте, новых платежей по нему
+        // платформа не создаёт (book-роут и /api/payments/create). Ветка
+        // оставлена для старых счетов и сделана безопасной:
+        // - оплата НЕ подтверждает бронь: подтверждает владелец, а платёж
+        //   не равен согласию владельца (прежде здесь стояло
+        //   status = 'confirmed');
+        // - поздний вебхук не трогает отменённую/завершённую бронь —
+        //   без условия на статус он «оплачивал» отменённую.
         updateBookingQuery = `
           UPDATE accommodation_bookings
-          SET payment_status = 'paid', status = 'confirmed', updated_at = NOW()
-          WHERE id = $1
+          SET payment_status = 'paid', updated_at = NOW()
+          WHERE id = $1 AND status IN ('pending', 'confirmed')
         `;
         break;
       case 'transfer':
@@ -147,7 +155,10 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
 
     // 1% от суммы → фонд AI-вычислений (fire-and-forget, не блокирует платёж)
     void addBookingContribution(
-      payment.booking_type === 'transfer' ? 'booking_transfer' : 'booking_tour',
+      // Жильё писалось в журнал как booking_tour — метка по типу брони.
+      payment.booking_type === 'transfer' ? 'booking_transfer'
+        : payment.booking_type === 'accommodation' ? 'booking_stay'
+        : 'booking_tour',
       String(payment.booking_id),
       webhook.Amount,
       `${payment.booking_type} confirmed`,
@@ -205,7 +216,7 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
               <p><strong>Гости:</strong> ${bookingDetails.adults} взрослых, ${bookingDetails.children} детей</p>
               <p><strong>Сумма оплаты:</strong> ${webhook.Amount.toLocaleString('ru-RU')} ₽</p>
               <p><strong>ID транзакции:</strong> ${transactionId}</p>
-              <p>Бронирование подтверждено. Адрес и инструкции по заселению будут отправлены дополнительно.</p>
+              <p>Оплата получена. Бронь подтверждает владелец объекта — о его решении сообщим отдельно.</p>
             `;
           }
           break;

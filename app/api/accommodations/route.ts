@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { roomNightsSql } from '@/lib/stay/availability';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +83,10 @@ export async function GET(request: NextRequest) {
       amenities: paramOrUndefined(searchParams, 'amenities'),
       location_zone: paramOrUndefined(searchParams, 'location_zone'),
       search: paramOrUndefined(searchParams, 'search'),
+      // До 26.09 даты в разбор не передавались: схема их знала, фильтр ниже
+      // был написан, а до него не доходило — каталог отвечал без учёта дат.
+      check_in: paramOrUndefined(searchParams, 'check_in'),
+      check_out: paramOrUndefined(searchParams, 'check_out'),
       sort: paramOrUndefined(searchParams, 'sort'),
     });
 
@@ -196,36 +201,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Доступность на даты: есть активный номер, у которого (1) ни одна ночь
-    // окна не закрыта календарём владельца (блок уровня объекта или номера) и
-    // (2) ни в одну ночь окна пересекающиеся брони не выбирают весь его сток.
-    // Та же семантика, что в book-роуте, — каталог не обещает того, что бронь
-    // потом отклонит.
+    // Доступность на даты: есть активный номер, который можно продать на
+    // КАЖДУЮ ночь окна — не закрыт календарём владельца (блок объекта или
+    // номера) и со свободным местом с учётом числа владельца на дату и броней,
+    // которые держат номер. Формула одна с book-роутом
+    // (lib/stay/availability.ts) — каталог не обещает того, что бронь потом
+    // отклонит.
     if (checkIn && checkOut) {
       const ci = `$${paramIndex++}`;
       const co = `$${paramIndex++}`;
       params.push(checkIn, checkOut);
       conditions.push(`EXISTS (
-        SELECT 1 FROM accommodation_rooms r
-        WHERE r.accommodation_id = a.id AND r.is_active = true
-          AND NOT EXISTS (
-            SELECT 1 FROM accommodation_availability av
-            WHERE av.accommodation_id = a.id
-              AND (av.room_id IS NULL OR av.room_id = r.id)
-              AND av.is_blocked
-              AND av.date >= ${ci}::date AND av.date < ${co}::date
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM generate_series(${ci}::date, ${co}::date - 1, '1 day') AS d(day)
-            JOIN accommodation_bookings b
-              ON b.room_id = r.id
-             AND b.status NOT IN ('cancelled')
-             AND b.check_in_date <= d.day
-             AND b.check_out_date > d.day
-            GROUP BY d.day
-            HAVING COUNT(*) >= r.available_rooms
-          )
+        SELECT 1 FROM (${roomNightsSql({ accommodation: 'a.id', start: `${ci}::date`, endExclusive: `${co}::date` })}) rn
+        GROUP BY rn.room_id
+        HAVING bool_and(NOT rn.blocked AND rn.free_units > 0)
       )`);
     }
 

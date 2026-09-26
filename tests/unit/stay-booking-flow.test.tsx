@@ -8,6 +8,14 @@
  *   базовая цена номера;
  * - RTL: выбор номера уходит в POST .../book как roomId, сумма — из
  *   реальных цен по ночам.
+ *
+ * Правка 26.09 (оплата жилья на месте, решение владельца): после брони
+ * форма НЕ показывает виджет оплаты ни при каком ответе сервера — даже если
+ * старый сервер прислал бы payment. Вместо него — статус «ожидает
+ * подтверждения» и текст об оплате владельцу при заселении. Сам виджет
+ * CloudPayments удалён: форма жилья была его единственным импортёром
+ * (сторож reachability-frozen). Отсутствие кнопки «Оплатить» проверяется
+ * по тексту экрана.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -30,11 +38,6 @@ import { GET as getPrices } from '@/app/api/accommodations/[id]/prices/route';
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', email: 'g@x.ru' } }),
-}));
-
-vi.mock('@/components/payments/CloudPaymentsWidget', () => ({
-  CloudPaymentsWidget: (props: { amount: number; invoiceId: string }) =>
-    React.createElement('div', { 'data-testid': 'payment-widget' }, `pay:${props.amount}:${props.invoiceId}`),
 }));
 
 vi.mock('@/components/booking/ui/GuestSelector', () => ({
@@ -191,8 +194,8 @@ describe('StayBookingForm', () => {
               bookingId: 'b1',
               nights: 2,
               priceBreakdown: { totalPrice: 21000 },
-              // Контракт вебхука: invoiceId = payments.id, НЕ bookingId
-              payment: { paymentId: 'pay-1', invoiceId: 'invoice-77', amount: 21000 },
+              status: 'pending',
+              payment: 'on_site',
             },
           }),
         });
@@ -217,7 +220,7 @@ describe('StayBookingForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Забронировать' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Бронирование создано')).toBeInTheDocument();
+      expect(screen.getByText('Заявка отправлена владельцу')).toBeInTheDocument();
     });
 
     const bookCall = calls.find(c => c.url.includes('/book'))!;
@@ -225,17 +228,22 @@ describe('StayBookingForm', () => {
     expect(payload.roomId).toBe(ROOM_A); // выбран первый номер по умолчанию
     expect(payload.checkInDate).toBe('2099-08-01');
     expect(payload.checkOutDate).toBe('2099-08-03');
-    // Сумма к оплате — серверная; invoiceId — payments.id из ответа book
-    // (вебхук CloudPayments сверяет только по нему), НЕ bookingId
-    expect(screen.getByTestId('payment-widget')).toHaveTextContent('pay:21000:invoice-77');
+    // Оплата на месте: ни виджета, ни кнопки «Оплатить»
+    expect(screen.queryByTestId('payment-widget')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Оплатить/)).not.toBeInTheDocument();
+    expect(screen.getByText('Ожидает подтверждения')).toBeInTheDocument();
+    expect(screen.getByText(/Оплата — владельцу при заселении/)).toBeInTheDocument();
   });
 
-  it('book без payment (создание платежа упало) → виджета нет, честное сообщение', async () => {
+  it('даже если сервер прислал бы платёж — виджета нет: жильё платится на месте', async () => {
     stubFetch({
       status: 200,
       body: {
         success: true,
-        data: { bookingId: 'b2', nights: 2, priceBreakdown: { totalPrice: 21000 }, payment: null },
+        data: {
+          bookingId: 'b2', nights: 2, priceBreakdown: { totalPrice: 21000 },
+          payment: { paymentId: 'pay-1', invoiceId: 'invoice-77', amount: 21000 },
+        },
       },
     });
     render(<StayBookingForm accommodationId={ACC_ID} accommodationName="Дом" rooms={ROOMS} />);
@@ -245,10 +253,10 @@ describe('StayBookingForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Забронировать' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Бронирование создано')).toBeInTheDocument();
+      expect(screen.getByText('Заявка отправлена владельцу')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('payment-widget')).not.toBeInTheDocument();
-    expect(screen.getByText(/ссылка на оплату придёт после подтверждения/)).toBeInTheDocument();
+    expect(screen.queryByText(/ссылка на оплату/)).not.toBeInTheDocument();
   });
 
   it('смена номера меняет roomId в prices-запросе', async () => {
@@ -274,7 +282,7 @@ describe('StayBookingForm', () => {
     await waitFor(() => {
       expect(screen.getByText(/войдите в аккаунт/)).toBeInTheDocument();
     });
-    expect(screen.queryByText('Бронирование создано')).not.toBeInTheDocument();
+    expect(screen.queryByText('Заявка отправлена владельцу')).not.toBeInTheDocument();
   });
 
   it('без номеров — честное сообщение вместо формы', () => {

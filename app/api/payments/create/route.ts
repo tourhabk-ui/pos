@@ -52,6 +52,16 @@ export async function POST(request: NextRequest) {
     }
 
     const { bookingId, bookingType, amount, currency, description, userEmail: bodyEmail } = parsed.data;
+
+    // Жильё оплачивается владельцу на месте при заселении (решение владельца
+    // 26.09). Онлайн-платёж по брони жилья платформа не принимает — ни
+    // ссылки, ни виджета, ни возврата. Появится оплата — отдельным шагом.
+    if (bookingType === 'accommodation') {
+      return NextResponse.json({
+        success: false,
+        error: 'Жильё оплачивается владельцу при заселении — онлайн-оплаты брони жилья на платформе нет',
+      } as ApiResponse<null>, { status: 409 });
+    }
     const userId = auth.userId;
     const userEmail = auth.email || bodyEmail || '';
 
@@ -60,9 +70,6 @@ export async function POST(request: NextRequest) {
     switch (bookingType) {
       case 'tour':
         bookingQuery = 'SELECT id, total_price, booking_status AS status, user_id FROM operator_bookings WHERE id = $1';
-        break;
-      case 'accommodation':
-        bookingQuery = 'SELECT id, total_price, status, user_id FROM accommodation_bookings WHERE id = $1';
         break;
       case 'transfer':
         bookingQuery = 'SELECT id, total_price, status, user_id FROM transfer_bookings WHERE id = $1';

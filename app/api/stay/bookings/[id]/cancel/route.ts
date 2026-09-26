@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { transaction } from '@/lib/database';
 import { requireAuth } from '@/lib/auth/middleware';
-import { notifyStayBookingCancelled } from '@/lib/notifications/stay-booking';
+import { notifyStayBookingCancelled, logStayFailure } from '@/lib/notifications/stay-booking';
 import { calculateStayRefund } from '@/lib/stay/refund-policy';
 import { z } from 'zod';
 
@@ -33,7 +33,7 @@ export async function POST(
       // Строго своя бронь; данные владельца — для уведомления
       const bookingResult = await client.query(
         `SELECT b.id, b.status, b.payment_status, b.total_price,
-                b.check_in_date > CURRENT_DATE AS is_future,
+                b.check_in_date > (NOW() AT TIME ZONE 'Asia/Kamchatka')::date AS is_future,
                 b.check_in_date::text AS check_in_date,
                 b.check_out_date::text AS check_out_date,
                 a.name AS accommodation_name,
@@ -60,7 +60,9 @@ export async function POST(
         return { code: 422 as const, status: b.status, isFuture: b.is_future };
       }
 
-      // Возврат считаем только по оплаченной брони (офлайн-исполнение).
+      // Оплата жилья — на месте (26.09): у новых броней предоплаты нет, и
+      // возвращать нечего. Сумма считается только у старой брони, оплаченной
+      // через платформу, — её возврат оформляет администрация платформы.
       const wasPaid = b.payment_status === 'paid';
       const refund = wasPaid
         ? calculateStayRefund(Number(b.total_price ?? 0), new Date(b.check_in_date), false)
@@ -69,7 +71,7 @@ export async function POST(
       // payment_status НЕ трогаем: отмена денег не возвращает. До 24.09 здесь
       // сразу ставилось refunded — в базе деньги числились возвращёнными, а
       // гостю писали «поступит на карту», хотя переводить их было некому.
-      // Отметку ставит владелец/админ, когда перевёл (refund_done).
+      // Отметку ставит администрация, когда перевела (refund_done, только admin).
 
       await client.query(
         `UPDATE accommodation_bookings
@@ -124,8 +126,9 @@ export async function POST(
         refundPercent: outcome.refundPercent,
         refundReason: outcome.refundReason,
       });
-    } catch {
-      // уведомление не критично
+    } catch (err) {
+      // уведомление не критично, но не молча
+      logStayFailure('cancel: уведомление владельцу/админу', err);
     }
 
     return NextResponse.json({
@@ -138,7 +141,7 @@ export async function POST(
       },
     });
   } catch (err) {
-    console.error('[stay/cancel] отмена не записана:', err);
+    logStayFailure('cancel: отмена не записана', err);
     return NextResponse.json({ success: false, error: 'Ошибка при отмене брони' }, { status: 500 });
   }
 }

@@ -4,18 +4,21 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { StayDatePicker } from './calendars/StayDatePicker';
 import { GuestSelector } from './ui/GuestSelector';
-import { CloudPaymentsWidget } from '@/components/payments/CloudPaymentsWidget';
-import { useAuth } from '@/contexts/AuthContext';
 import { computeStayTotal, NightPrice } from '@/lib/booking/stay-price';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
+import { STAY_PAY_ON_SITE } from '@/lib/stay/pay-on-site';
 
 /**
  * Форма бронирования жилья с выбором номера. Расчёт суммы зеркалит
  * серверный book-роут: сумма реальных цен по ночам из
  * /prices?roomId= (override номера > объекта > базовая цена номера),
  * БЕЗ множителей на гостей и выдуманных сборов. Гости — только
- * валидация вместимости номера. Бронь создаёт POST .../book,
- * оплата — виджетом на сумму из ответа сервера.
+ * валидация вместимости номера. Бронь создаёт POST .../book.
+ *
+ * Оплаты на платформе НЕТ (решение владельца 26.09): гость платит владельцу
+ * при заселении, после подтверждения брони. До 26.09 здесь стоял виджет
+ * CloudPayments на платёж, который book-роут создать не мог (таблицы
+ * payments на проде нет), и гостю предлагали «Оплатить» до подтверждения.
  */
 
 export interface BookableRoom {
@@ -36,13 +39,6 @@ interface BookingSuccess {
   bookingId: string;
   totalPrice: number;
   nights: number;
-  /**
-   * invoiceId = payments.id из /api/payments/create (создаётся book-роутом).
-   * Вебхук CloudPayments сверяет платёж ТОЛЬКО по нему — bookingId сюда
-   * подставлять нельзя (оплата не привяжется к брони).
-   */
-  paymentInvoiceId: string | null;
-  paymentAmount: number | null;
 }
 
 function formatMoney(v: number): string {
@@ -54,7 +50,6 @@ function ymd(d: Date): string {
 }
 
 export function StayBookingForm({ accommodationId, accommodationName, rooms }: StayBookingFormProps) {
-  const { user } = useAuth();
   const [roomId, setRoomId] = useState<string>(rooms[0]?.id ?? '');
   const [checkIn, setCheckIn] = useState<Date | null>(null);
   const [checkOut, setCheckOut] = useState<Date | null>(null);
@@ -151,7 +146,6 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
           bookingId: string;
           nights: number;
           priceBreakdown?: { totalPrice: number };
-          payment?: { paymentId: string; invoiceId: string; amount: number } | null;
         };
       };
       if (!res.ok || !d.success || !d.data) {
@@ -161,11 +155,9 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
 
       setSuccess({
         bookingId: d.data.bookingId,
-        // Сумма к оплате — СЕРВЕРНАЯ, не клиентский расчёт
+        // Сумма — СЕРВЕРНАЯ, не клиентский расчёт
         totalPrice: d.data.priceBreakdown?.totalPrice ?? totals?.total ?? 0,
         nights: d.data.nights,
-        paymentInvoiceId: d.data.payment?.invoiceId ?? null,
-        paymentAmount: d.data.payment?.amount ?? null,
       });
     } catch {
       setError('Сетевая ошибка — попробуйте ещё раз');
@@ -187,33 +179,18 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
   if (success) {
     return (
       <div className="ds-card p-6 space-y-4" aria-live="polite">
-        <p className="text-base font-semibold text-[var(--success)]">Бронирование создано</p>
+        <p className="text-base font-semibold text-[var(--text-primary)]">Заявка отправлена владельцу</p>
         <p className="text-sm text-[var(--text-secondary)]">
           {accommodationName} · {room?.name} · {success.nights} ноч. ·{' '}
           <span className="font-semibold text-[var(--text-primary)]">{formatMoney(success.totalPrice)} ₽</span>
         </p>
-        {success.paymentInvoiceId && (success.paymentAmount ?? 0) > 0 ? (
-          <>
-            <p className="text-xs text-[var(--text-muted)]">
-              Бронь ожидает подтверждения владельцем. Оплатить можно сейчас:
-            </p>
-            <CloudPaymentsWidget
-              amount={success.paymentAmount ?? success.totalPrice}
-              currency="RUB"
-              description={`Оплата размещения: ${accommodationName}`}
-              invoiceId={success.paymentInvoiceId}
-              accountId={user?.id ?? ''}
-              email={user?.email ?? ''}
-              onSuccess={() => {}}
-              onFail={(reason: string) => setError(`Ошибка оплаты: ${reason}`)}
-              buttonText={`Оплатить ${formatMoney(success.paymentAmount ?? success.totalPrice)} ₽`}
-            />
-          </>
-        ) : (
-          <p className="text-xs text-[var(--text-muted)]">
-            Бронь ожидает подтверждения владельцем — ссылка на оплату придёт после подтверждения.
-          </p>
-        )}
+        <p className="text-sm text-[var(--text-secondary)]">
+          <span className="ds-badge border border-[var(--border)] text-[var(--warning)]">Ожидает подтверждения</span>
+        </p>
+        <p className="text-xs text-[var(--text-muted)]">
+          {STAY_PAY_ON_SITE}. Платформа деньги за проживание не принимает. О решении владельца сообщим письмом;
+          статус — в разделе <Link href="/hub/tourist/stays" className="underline text-[var(--ocean)]">«Мои проживания»</Link>.
+        </p>
         {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       </div>
     );
@@ -261,6 +238,7 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Даты проживания</h3>
         <StayDatePicker
           accommodationId={accommodationId}
+          roomId={roomId || undefined}
           pricePerNight={room?.pricePerNight ?? 0}
           showPriceBreakdown={false}
           onDatesChange={(inDate, outDate) => {
@@ -311,7 +289,7 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
             </span>
           </div>
           <p className="text-[10px] text-[var(--text-muted)]">
-            Сумма реальных цен по ночам (тарифы владельца учтены). Без скрытых сборов.
+            Сумма реальных цен по ночам (тарифы владельца учтены). Без скрытых сборов. {STAY_PAY_ON_SITE}.
           </p>
           {totals.blockedDate && (
             <p className="text-xs text-[var(--danger)] mt-2">

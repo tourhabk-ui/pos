@@ -152,14 +152,17 @@ export default function StayCalendarClient() {
   const [bulkStart, setBulkStart] = useState('');
   const [bulkEnd, setBulkEnd] = useState('');
   const [bulkPrice, setBulkPrice] = useState('');
-  const [bulkBlocked, setBulkBlocked] = useState(false);
+  // Продажа на диапазоне: '' — НЕ МЕНЯТЬ (по умолчанию), иначе закрыть/открыть.
+  // До 26.09 здесь был флажок, и массовая смена цены всегда слала
+  // isBlocked: false — молча открывала даты, закрытые владельцем раньше.
+  const [bulkSale, setBulkSale] = useState<'' | 'close' | 'open'>('');
   // EXTRACT(DOW): 0=вс..6=сб; пустой набор — все дни
   const [bulkWeekdays, setBulkWeekdays] = useState<number[]>([]);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
   const bulkValid =
     bulkStart !== '' && bulkEnd !== '' && bulkEnd >= bulkStart &&
-    (bulkPrice !== '' || bulkBlocked);
+    (bulkPrice !== '' || bulkSale !== '');
 
   async function saveBulk() {
     if (!selectedId || !bulkValid) return;
@@ -177,7 +180,8 @@ export default function StayCalendarClient() {
           endDate: bulkEnd,
           ...(bulkWeekdays.length > 0 && bulkWeekdays.length < 7 ? { weekdays: bulkWeekdays } : {}),
           ...(bulkPrice !== '' ? { priceOverride: Number(bulkPrice) } : {}),
-          isBlocked: bulkBlocked,
+          // isBlocked уходит, ТОЛЬКО если владелец выбрал действие с продажей
+          ...(bulkSale !== '' ? { isBlocked: bulkSale === 'close' } : {}),
         }),
       });
       const d = await res.json() as { success?: boolean; error?: string; message?: string };
@@ -320,11 +324,15 @@ export default function StayCalendarClient() {
                   <input className="ds-input" type="number" min="0" value={bulkPrice}
                     placeholder="Не менять" onChange={e => setBulkPrice(e.target.value)} />
                 </div>
-                <label className="flex items-center gap-2 text-sm text-[var(--text-primary)] pb-2.5">
-                  <input type="checkbox" checked={bulkBlocked}
-                    onChange={e => setBulkBlocked(e.target.checked)} />
-                  Закрыть продажу
-                </label>
+                <div>
+                  <label className="ds-label" htmlFor="bulk-sale">Продажа</label>
+                  <select id="bulk-sale" className="ds-input" value={bulkSale}
+                    onChange={e => setBulkSale(e.target.value as '' | 'close' | 'open')}>
+                    <option value="">Не менять</option>
+                    <option value="close">Закрыть продажу</option>
+                    <option value="open">Открыть продажу</option>
+                  </select>
+                </div>
                 <div className="sm:col-span-2 lg:col-span-3">
                   <p className="ds-label mb-1.5">Дни недели (пусто — все)</p>
                   <div className="flex flex-wrap gap-1.5">
