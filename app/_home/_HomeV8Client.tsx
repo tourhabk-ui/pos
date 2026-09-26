@@ -24,8 +24,7 @@ import BottomNav from '@/components/shared/BottomNav';
 export { alertStamp, clip } from '@/components/safety/LiveStatus';
 // Те же подписи и та же обрезка, что в ленте на /safety: две поверхности об
 // одном предупреждении обязаны говорить одинаково.
-import { alertStamp as stampAlert } from '@/components/safety/LiveStatus';
-import { alertBody } from '@/lib/home/alert-body';
+import { AlertsTicker, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
 import { radarAlertsLine, radarVolcanoLine, alertsCountLabel } from '@/lib/home/radar-summary';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
@@ -98,7 +97,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [err, setErr] = useState<string | null>(null);
   const [plateIdx, setPlateIdx] = useState(0);
   const [sosOpen, setSosOpen] = useState(false);
-  const [openAlert, setOpenAlert] = useState<number | null>(null);
   const [radarOpen, setRadarOpen] = useState(false);
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
@@ -611,39 +609,19 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               не можем. */}
           {safety.alerts.length > 0 && (
             <div className="alerts-now" role="region" aria-label="Действующие предупреждения">
-              {/* Строка — кнопка-раскрытие (владелец 25.09: «на 3 строчки,
-                  интерактивные, с раскрытием при тапе и закрытием»). Свёрнутая —
-                  заголовок до трёх строк CSS-обрезкой, а не clip(…, 90): обрезка
-                  по символам съедала хвост на середине слова («в районе села
-                  Соболево до…») и прятала именно срок и место. Раскрытая —
-                  заголовок целиком и описание: в description лежит деталь
-                  (объезд, окна проезда), ради которой человек и нажал. */}
-              <ul>
-                {safety.alerts.slice(0, 2).map((a, i) => {
-                  const open = openAlert === i;
-                  const body = alertBody(a);
-                  return (
-                    <li key={`${a.title}-${i}`}>
-                      <button
-                        type="button"
-                        className="an-row"
-                        aria-expanded={open}
-                        onClick={() => setOpenAlert(open ? null : i)}
-                      >
-                        <i className={a.severity >= 2 ? 'sev-hi' : a.severity === 1 ? 'sev-mid' : 'sev-lo'} />
-                        <span className="an-tx">
-                          <span className={open ? 'an-t' : 'an-t an-clamp'}>{open && body.replacesTitle ? body.text : a.title}</span>
-                          {open && body.text && !body.replacesTitle && <span className="an-d">{body.text}</span>}
-                          <span className="an-st">{stampAlert(a)}</span>
-                        </span>
-                        <ChevronDown className="an-chev" size={16} strokeWidth={2} aria-hidden />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              {/* Бегущая лента на 4 строки (владелец 26.09: «блок безопасности
+                  был интерактивный, новости снизу вверх писались; уменьши, пусть
+                  он будет 4 строчки, но интерактивные — развернуть и свернуть»).
+                  Та же лента, что на /safety, а не вторая копия: у копий уже
+                  расходились подписи и пороги цвета. Свёрнутая — предупреждение
+                  в строку и бег снизу вверх; развёрнутая — весь список с
+                  описаниями. Стоит при prefers-reduced-motion. */}
+              <div className="kh-live">
+                <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
+                <AlertsTicker alerts={safety.alerts} lines={4} />
+              </div>
               <Link className="an-go" href="/safety">
-                {safety.alerts.length > 2
+                {safety.alerts.length > 4
                   ? `Все предупреждения (${alertsCountLabel(safety.alerts.length)}) →`
                   : 'Подробности →'}
               </Link>
@@ -1172,20 +1150,6 @@ const CSS = `
    должно. Левая линия цветом опасности: она же отличает эту карточку от
    соседних, когда цвет точки в глаза не бросается. */
 .v7 .alerts-now{margin:-14px 0 26px;padding:12px 14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--danger);border-radius:16px}
-.v7 .alerts-now ul{list-style:none;margin:0;padding:0}
-.v7 .alerts-now li+li{border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
-.v7 .alerts-now .an-row{display:flex;align-items:flex-start;gap:10px;width:100%;min-height:44px;padding:8px 0;border:0;background:none;color:inherit;text-align:left;cursor:pointer;font:inherit;-webkit-tap-highlight-color:transparent}
-.v7 .alerts-now li i{width:6px;height:6px;border-radius:50%;flex:none;margin-top:7px}
-.v7 .alerts-now .an-t{display:block}
-.v7 .alerts-now .an-clamp{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.v7 .alerts-now .an-d{display:block;margin-top:6px;font-weight:400;color:var(--text-secondary);white-space:pre-line}
-.v7 .alerts-now .an-chev{flex:none;margin-top:1px;color:var(--text-muted);transition:transform .2s ease}
-.v7 .alerts-now .an-row[aria-expanded="true"] .an-chev{transform:rotate(180deg)}
-.v7 .alerts-now i.sev-hi{background:var(--danger)}
-.v7 .alerts-now i.sev-mid{background:var(--warning)}
-.v7 .alerts-now i.sev-lo{background:var(--ocean)}
-.v7 .alerts-now .an-tx{flex:1;font:500 12.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
-.v7 .alerts-now .an-st{display:block;margin-top:2px;font:400 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
 .v7 .alerts-now .an-go,.v7 .radar-panel .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
 /* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
    теряется, а без него человек с клавиатурой или switch-control не понимает,

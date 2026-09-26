@@ -20,7 +20,7 @@ import {
   isVolcanoObservationStale, type AccColor,
 } from '@/lib/services/safety/kvert-vona';
 import { coastPaths } from '@/lib/geo/coastline';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
@@ -497,13 +497,30 @@ interface PulseQuake { magnitude: number; place: string; time: number; depth: nu
  * замирала на середине, не раскрываясь (фидбэк владельца). Теперь развёрнутое
  * состояние — статичный скроллящийся список без маски и без бегущей анимации.
  */
-export function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
-  const scroll = alerts.length > 2;
+/**
+ * Лента предупреждений: свёрнутая — бегущая снизу вверх, развёрнутая — весь
+ * список с описаниями. Одна реализация на /safety и главную: две копии одного
+ * блока уже расходились (подписи, пороги цвета).
+ *
+ * `lines` — компактный режим главной (владелец 26.09: «блок безопасности был
+ * интерактивный, новости снизу вверх писались; уменьши, пусть он будет 4
+ * строчки, но интерактивные — развернуть и свернуть»): окно ровно на `lines`
+ * строк, предупреждение в строку, описание — только в развёрнутом. Раскрывашка
+ * есть всегда, даже когда лента стоит: в строку не влезает деталь, ради которой
+ * и разворачивают.
+ */
+export function AlertsTicker({ alerts, lines }: { alerts: SafetyAlert[]; lines?: number }) {
+  const compact = lines != null && lines > 0;
+  const scroll = alerts.length > (compact ? lines : 2);
   const [open, setOpen] = useState(false);
   const animate = scroll && !open; // бегущая строка только в свёрнутом длинном списке
   const row = (a: SafetyAlert, i: number, dup: boolean) => (
     <li key={`${dup ? 'd' : 'a'}-${i}`} aria-hidden={dup || undefined}>
-      <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
+      {/* Порог цвета — правило платформы: важность 2+ — опасность (как у
+          пилюли шапки, push-рассылки и статуса мест). До 26.09 лента красила
+          красным только с 3, и паводок важности 2 был красным на главной и
+          жёлтым на /safety. */}
+      <i className={a.severity >= 2 ? 'sev-hi' : a.severity === 1 ? 'sev-mid' : 'sev-lo'} />
       <span className="atx">
         {a.title}
         {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
@@ -511,8 +528,9 @@ export function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
       <span className="ago">{alertStamp(a)}</span>
     </li>
   );
+  const cls = `ticker${scroll ? ' scroll' : ''}${open ? ' open' : ''}${compact ? ' compact' : ''}`;
   return (
-    <div className={`ticker${scroll ? ' scroll' : ''}${open ? ' open' : ''}`}>
+    <div className={cls} style={compact ? ({ '--tk-rows': lines } as CSSProperties) : undefined}>
       <ul
         className="alerts ticker-track"
         style={animate ? { animationDuration: `${Math.max(16, alerts.length * 5)}s` } : undefined}
@@ -520,12 +538,12 @@ export function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
         {alerts.map((a, i) => row(a, i, false))}
         {animate && alerts.map((a, i) => row(a, i, true))}
       </ul>
-      {scroll && (
+      {(scroll || compact) && (
         <button
           type="button"
           className={`ticker-toggle${open ? ' open' : ''}`}
           aria-expanded={open}
-          aria-label={open ? 'Свернуть ленту предупреждений' : 'Показать все предупреждения'}
+          aria-label={open ? 'Свернуть ленту предупреждений' : 'Развернуть все предупреждения'}
           onClick={() => setOpen((o) => !o)}
         >
           <ChevronDown className="tchev" size={16} strokeWidth={2.2} />
@@ -747,7 +765,7 @@ export const LIVE_STATUS_CSS = `
 .kh-live .ticker-toggle{position:absolute;border:0;cursor:pointer;color:var(--text-muted);display:flex;align-items:center;justify-content:center;z-index:2;
   width:44px;height:44px;border-radius:999px;background:transparent}
 .kh-live .ticker-toggle:not(.open){right:0;bottom:0}
-.kh-live .ticker-toggle.open{top:2px;right:2px;width:32px;height:32px;background:var(--card);border:1px solid var(--border)}
+.kh-live .ticker-toggle.open{top:2px;right:2px;width:32px;height:32px;background:var(--bg-card);border:1px solid var(--border)}
 .kh-live .ticker-toggle .tchev{transition:transform .2s ease;opacity:.7}
 .kh-live .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
 @keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
@@ -764,7 +782,18 @@ export const LIVE_STATUS_CSS = `
    Полный текст — в раскрытом состоянии (тап), как и было. */
 .kh-live .ticker.scroll:not(.open) .adesc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 8px)}
 .kh-live .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--text-muted);white-space:nowrap}
+/* Компактная лента главной: строка фиксированной высоты, предупреждение в
+   одну строку, описание только в развёрнутой. Окно — ровно --tk-rows строк;
+   справа место под раскрывашку, чтобы шеврон не ложился на текст. */
+.kh-live .ticker.compact:not(.open) .alerts li{height:32px;padding:0;align-items:center;padding-right:40px}
+.kh-live .ticker.compact:not(.open) .alerts .atx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.kh-live .ticker.compact:not(.open) .alerts .adesc{display:none}
+.kh-live .ticker.compact.scroll:not(.open){height:calc(var(--tk-rows) * 32px)}
+.kh-live .ticker.compact:not(.scroll) .ticker-toggle:not(.open){bottom:auto;top:-6px}
 @media (prefers-reduced-motion:reduce){.kh-live .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.kh-live .ticker.scroll .ticker-track{animation:none}}
+/* Без анимации окно компактной ленты остаётся на --tk-rows строк: остальное —
+   раскрывашкой, а не простынёй из двадцати строк на главной. */
+@media (prefers-reduced-motion:reduce){.kh-live .ticker.compact.scroll:not(.open){height:calc(var(--tk-rows) * 32px)}}
 .kh-live .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);font:400 8.5px/1.4 var(--fm);color:var(--text-muted)}
 .kh-live .pulse{margin-top:12px;border:1px solid var(--border);border-radius:14px;padding:13px 14px;background:color-mix(in srgb,var(--bg-hover) 45%,transparent)}
 .kh-live .pulse .phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}

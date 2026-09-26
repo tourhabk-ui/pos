@@ -18,13 +18,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const HOME = readFileSync(join(process.cwd(), 'app/_home/_HomeV8Client.tsx'), 'utf-8');
-const BODY = readFileSync(join(process.cwd(), 'lib/home/alert-body.ts'), 'utf-8');
+const LIVE = readFileSync(join(process.cwd(), 'components/safety/LiveStatus.tsx'), 'utf-8');
 
 describe('на главной есть текст предупреждения', () => {
   it('заголовки алертов рендерятся, а не только считаются', () => {
-    // `safety.alerts` приходил в клиент и не использовался ни разу.
-    expect(HOME).toMatch(/safety\.alerts\s*\.\s*slice|safety\.alerts\.slice/);
-    expect(HOME).toContain('a.title');
+    // `safety.alerts` приходил в клиент и не использовался ни разу. С 26.09
+    // заголовки печатает общая лента (AlertsTicker) — ей и отдаётся список.
+    expect(HOME).toMatch(/<AlertsTicker alerts=\{safety\.alerts\}/);
+    expect(LIVE).toContain('{a.title}');
   });
 
   it('блок скрыт, когда предупреждений нет', () => {
@@ -39,82 +40,59 @@ describe('на главной есть текст предупреждения',
   });
 });
 
-describe('главная и /safety говорят об одном предупреждении одинаково', () => {
-  it('подпись и обрезка берутся из общего модуля, а не пишутся заново', () => {
-    // Две копии одной подписи неизбежно разойдутся — так уже было с SOS-кнопкой
-    // и с карточкой тура. Импорт из LiveStatus — единственный источник.
-    expect(HOME).toMatch(/import \{[^}]*alertStamp[^}]*\} from '@\/components\/safety\/LiveStatus'/);
-    // Обрезка раскрытого текста — через alertBody, а он — через тот же clip.
-    expect(HOME).toMatch(/import \{ alertBody \} from '@\/lib\/home\/alert-body'/);
-    expect(BODY).toMatch(/import \{ clip \} from '@\/components\/safety\/LiveStatus'/);
+describe('главная и /safety — одна лента, а не две копии (26.09)', () => {
+  it('главная рендерит ту же AlertsTicker из LiveStatus', () => {
+    expect(HOME).toMatch(/import \{[^}]*AlertsTicker[^}]*\} from '@\/components\/safety\/LiveStatus'/);
+    expect(HOME).toMatch(/<style dangerouslySetInnerHTML=\{\{ __html: LIVE_STATUS_CSS \}\} \/>/);
   });
 
-  it('своей функции подписи на главной не заведено', () => {
+  it('своей подписи, обрезки и списка на главной не заведено', () => {
     expect(HOME).not.toMatch(/function\s+alertStamp\s*\(/);
     expect(HOME).not.toMatch(/function\s+clip\s*\(/);
+    expect(HOME).not.toMatch(/className="an-row"/);
   });
 });
 
-describe('важность видна цветом, а не только порядком', () => {
-  it('у строки есть класс уровня', () => {
-    expect(HOME).toContain('sev-hi');
-    expect(HOME).toContain('sev-mid');
+describe('важность видна цветом по правилу платформы', () => {
+  it('у строки есть класс уровня, порог красного — 2, как у пилюли и статуса мест', () => {
+    expect(LIVE).toMatch(/a\.severity >= 2 \? 'sev-hi' : a\.severity === 1 \? 'sev-mid' : 'sev-lo'/);
   });
 
   it('цвета — токены, без хардкода', () => {
-    const css = HOME.slice(HOME.indexOf('.v7 .alerts-now'), HOME.indexOf('.v7 .alerts-now') + 1200);
+    const css = LIVE.slice(LIVE.indexOf('.kh-live .alerts i.sev-hi'), LIVE.indexOf('.kh-live .alerts i.sev-hi') + 300);
     expect(css).toContain('var(--danger)');
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,6}/);
   });
 });
 
 /**
- * Владелец 25.09: строки обрезались по 90 символам посреди фразы — «в районе
- * села Соболево до…» — и срок с местом пропадали. Просьба: «на 3 строчки,
- * интерактивные, с раскрытием при тапе и закрытием».
+ * Владелец 26.09: «блок безопасности был интерактивный, новости снизу вверх
+ * писались; уменьши сам блок, пусть он будет 4 строчки, но интерактивные — с
+ * возможностью развернуть и свернуть». Сменило решение 25.09 («на 3 строчки,
+ * с раскрытием каждой строки»).
  */
-describe('строка предупреждения раскрывается и закрывается тапом', () => {
-  const block = HOME.slice(HOME.indexOf('<div className="alerts-now"'), HOME.indexOf('</div>', HOME.indexOf('<div className="alerts-now"')));
-
-  it('строка — кнопка с aria-expanded, повторный тап закрывает', () => {
-    expect(block).toMatch(/<button\s+type="button"\s+className="an-row"\s+aria-expanded=\{open\}/);
-    expect(block).toContain('setOpenAlert(open ? null : i)');
+describe('лента на главной: 4 строки, бежит снизу вверх, разворачивается', () => {
+  it('главная просит компактную ленту на четыре строки', () => {
+    expect(HOME).toMatch(/<AlertsTicker alerts=\{safety\.alerts\} lines=\{4\} \/>/);
   });
 
-  it('свёрнутая — три строки CSS-обрезкой, а не clip по символам', () => {
-    expect(block).not.toMatch(/clipText\(a\.title/);
-    expect(HOME).toMatch(/\.an-clamp\{[^}]*-webkit-line-clamp:3/);
+  it('свёрнутое окно — ровно lines строк, предупреждение в строку, описание спрятано', () => {
+    expect(LIVE).toMatch(/\.ticker\.compact\.scroll:not\(\.open\)\{height:calc\(var\(--tk-rows\) \* 32px\)\}/);
+    expect(LIVE).toMatch(/\.ticker\.compact:not\(\.open\) \.alerts \.atx\{white-space:nowrap/);
+    expect(LIVE).toMatch(/\.ticker\.compact:not\(\.open\) \.alerts \.adesc\{display:none\}/);
   });
 
-  it('раскрытая — заголовок целиком и деталь из описания', () => {
-    expect(block).toContain('alertBody(a)');
-    expect(block).toMatch(/open && body\.text/);
-  });
-});
-
-describe('alertBody: деталь без повтора и без выдумки', async () => {
-  const { alertBody } = await import('@/lib/home/alert-body');
-  const TITLE = 'Прогнозировался подъём уровня воды в реке Большой Воровской в районе села Соболево до…';
-
-  it('описание продолжает заголовок — печатается вместо него', () => {
-    const b = alertBody({ title: TITLE, description: 'Прогнозировался подъём уровня воды в реке Большой Воровской в районе села Соболево до отметки опасного явления. Сплавы исключить.' });
-    expect(b.replacesTitle).toBe(true);
-    expect(b.text).toContain('Сплавы исключить');
+  it('бег снизу вверх — только в свёрнутой длинной ленте', () => {
+    expect(LIVE).toMatch(/const animate = scroll && !open/);
+    expect(LIVE).toMatch(/@keyframes v7-ticker\{from\{transform:translateY\(0\)\}to\{transform:translateY\(-50%\)\}\}/);
   });
 
-  it('другое описание — под заголовком', () => {
-    const b = alertBody({ title: 'Перекрыта дорога на Мутновский', description: 'Объезд через Вилючинск, проезд по пропускам с 9 до 18.' });
-    expect(b).toEqual({ text: 'Объезд через Вилючинск, проезд по пропускам с 9 до 18.', replacesTitle: false });
+  it('раскрывашка в компактной ленте есть всегда — деталь в строку не влезает', () => {
+    expect(LIVE).toMatch(/\{\(scroll \|\| compact\) && \(/);
+    expect(LIVE).toMatch(/aria-expanded=\{open\}/);
   });
 
-  it('нет описания или оно равно заголовку — детали нет', () => {
-    expect(alertBody({ title: TITLE, description: null }).text).toBeNull();
-    expect(alertBody({ title: 'Медведи у Елизово', description: '  ' }).text).toBeNull();
-    expect(alertBody({ title: 'Медведи у Елизово', description: 'Медведи у Елизово.' }).text).toBeNull();
-  });
-
-  it('длинное описание обрезается потолком', () => {
-    const b = alertBody({ title: 'x', description: 'слово '.repeat(400) });
-    expect((b.text ?? '').length).toBeLessThanOrEqual(601);
+  it('без анимации окно не растягивается во весь список', () => {
+    expect(LIVE).toMatch(/prefers-reduced-motion:reduce\)\{\.kh-live \.ticker\.compact\.scroll:not\(\.open\)\{height:calc/);
   });
 });
