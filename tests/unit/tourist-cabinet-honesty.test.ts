@@ -63,7 +63,9 @@ describe('роуты кабинета не глушат отказ', () => {
         // Блочный catch, а не `.catch(() => ...)`: у второго своё назначение
         // (разбор тела запроса, необязательные шаги) и свои правила.
         if (!/\}\s*catch\s*(\(\s*\w+\s*\))?\s*\{\s*$/.test(line.trim())) return;
-        const window = lines.slice(i + 1, i + 6).join('\n');
+        // Окно с запасом: перед логом часто стоит объяснение причины
+        // комментарием — это не повод считать отказ проглоченным.
+        const window = lines.slice(i + 1, i + 12).join('\n');
         const logs = /console\.(error|warn)/.test(window);
         const namesSqlstate = /sqlstate/i.test(window);
         if (!logs || !namesSqlstate) silent.push(`${i + 1}: ${line.trim()}`);

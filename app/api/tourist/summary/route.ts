@@ -1,25 +1,39 @@
+/**
+ * GET /api/tourist/summary — числа на «Моей Камчатке».
+ *
+ * ── Считается по ВОШЕДШЕМУ, а не по строке из чужой формы ─────────────────
+ *
+ * Прежде брони отбирались `WHERE tourist_email = $1` — по email из JWT. Но
+ * `tourist_email` пишет ФОРМА брони (`/api/hub/bookings/create`), и гостевую
+ * бронь она принимает без авторизации. То есть любой мог оформить бронь на
+ * чужой адрес, и хозяин адреса увидел бы в своём кабинете чужую поездку и
+ * чужую сумму. Обратная ошибка та же: свою бронь, оформленную на другой
+ * адрес, человек не видел вовсе.
+ *
+ * Скоуп кабинета один — `operator_bookings.user_id`, и живёт он в
+ * `lib/tourist/cabinet.ts` (тот же источник кормит `/api/tourist/stats` и
+ * `/api/tourist/profile`). Своего третьего способа считать здесь нет
+ * намеренно: три способа — это три разных числа на трёх экранах об одном
+ * человеке.
+ *
+ * Сторож: `tests/unit/tourist-summary-scope.test.ts`.
+ */
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { touristTravelStats } from '@/lib/tourist/cabinet';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const auth = await requireAuth(req as never);
   if (auth instanceof NextResponse) return auth;
-  const { userId, email } = auth;
+  const { userId } = auth;
 
   try {
-    const [bookingsRes, ecoRes] = await Promise.all([
-      pool.query<{ count: string; completed: string; total_spent: string }>(
-        `SELECT
-           COUNT(*)::text AS count,
-           COUNT(*) FILTER (WHERE booking_status = 'completed')::text AS completed,
-           COALESCE(SUM(CASE WHEN booking_status = 'completed' THEN final_price ELSE 0 END), 0)::text AS total_spent
-         FROM operator_bookings
-         WHERE tourist_email = $1 AND deleted_at IS NULL`,
-        [email],
-      ),
+    const [travel, ecoRes] = await Promise.all([
+      // Брони, завершённые поездки и потраченное — общий счёт кабинета.
+      touristTravelStats(userId, null),
       // Реестр эко — единственный источник. Раньше здесь читалась таблица
       // user_eco_points, которую не создаёт ни одна миграция (она есть только
       // в неприменяемом lib/database/schema.sql). Запрос стоял в Promise.all,
@@ -34,24 +48,28 @@ export async function GET(req: Request) {
       ),
     ]);
 
-    const bookings = bookingsRes.rows[0] ?? { count: '0', completed: '0', total_spent: '0' };
     const eco = ecoRes.rows[0] ?? { utility: '0', contribution: '0' };
 
     return NextResponse.json({
       ok: true,
       data: {
-        bookings_count: parseInt(bookings.count),
-        bookings_completed: parseInt(bookings.completed),
-        total_spent: parseFloat(bookings.total_spent),
+        bookings_count: travel.total_trips,
+        bookings_completed: travel.completed_trips,
+        total_spent: travel.total_spent,
         // Два слоя раздельно (docs/ECO.md): вклад не тратится, польза тратится.
         eco_utility: Number(eco.utility),
         eco_contribution: Number(eco.contribution),
       },
     });
   } catch (err) {
-    const e = err as { code?: string; message?: string };
-    console.error('[tourist/summary] отказ', { sqlstate: e?.code, message: e?.message });
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    // Отказ не глушится и не пересказывается туристу: имя проверки и SQLSTATE
+    // — в лог, наружу род отказа. Прежде сообщение PostgreSQL уходило прямо в
+    // браузер (§4.0 про лог, §7 про то, что наружу не отдают схему).
+    const code = (err as { code?: unknown } | null)?.code;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[tourist/summary] отказ чтения сводки${typeof code === 'string' ? ` SQLSTATE ${code}` : ''} — ${message}`,
+    );
+    return NextResponse.json({ ok: false, error: 'Не удалось загрузить сводку' }, { status: 500 });
   }
 }
