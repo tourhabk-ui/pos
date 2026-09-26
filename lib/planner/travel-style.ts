@@ -120,6 +120,21 @@ export function fitRestDays(requested: number | undefined, activeBudget: number)
   return Math.min(want, activeBudget - 1);
 }
 
+/**
+ * Сколько дней отдыха предложить по датам, пока человек не поправил сам
+ * (владелец 26.09: «дни отдыха должны считаться от дат прилёта и отлёта, но
+ * с возможностью корректировки»). Правило: один день отдыха на каждые пять
+ * дней поездки; короче пяти — без отдыха. Потолок — тот же, что у формы:
+ * прилёт, вылет и хотя бы один день на маршруте.
+ */
+export const REST_EVERY_DAYS = 5;
+
+export function suggestRestDays(tripDays: number | null | undefined): number {
+  if (tripDays == null || !Number.isFinite(tripDays) || tripDays < REST_EVERY_DAYS) return 0;
+  const cap = Math.max(0, Math.floor(tripDays) - 3);
+  return Math.min(Math.floor(tripDays / REST_EVERY_DAYS), cap);
+}
+
 /** Раз в сколько активных дней ставить отдых, чтобы разложить его ровно. */
 export function restSpacing(activityBudget: number, restDays: number): number {
   if (restDays <= 0) return Number.POSITIVE_INFINITY;

@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { INTERESTS_MAX, describeRecommendError } from '@/lib/planner/recommend-errors';
 import { recommendTrip } from '@/lib/planner/engine';
 import { verifyAuth } from '@/lib/auth';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
@@ -13,6 +14,7 @@ import { MAX_REST_DAYS } from '@/lib/planner/travel-style';
 
 /** Потолок заметки о здоровье: коротко, «колено, астма», а не история болезни. */
 const HEALTH_NOTES_MAX = 300;
+
 
 interface SavedPrefs {
   interests?: string[];
@@ -22,7 +24,9 @@ interface SavedPrefs {
 }
 
 const RecommendSchema = z.object({
-  interests: z.array(z.string()).min(1).max(12),
+  // Потолок с запасом над числом чипов формы (14): прежние 12 отвергали
+  // человека, отметившего почти всё (снимок владельца 26.09).
+  interests: z.array(z.string().max(40)).min(1).max(INTERESTS_MAX),
   arrivalDate: z.string().date().optional(),
   departureDate: z.string().date().optional(),
   flightArrivalTime: z.string().max(5).optional(),
@@ -110,7 +114,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json(
-        { success: false, error: 'Некорректные параметры', details: err.issues },
+        { success: false, error: describeRecommendError(err.issues), details: err.issues },
         { status: 400 },
       );
     }

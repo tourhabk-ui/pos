@@ -24,7 +24,7 @@ import {
   ArrowLeft, Minus, CalendarDays, Accessibility, HeartPulse,
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
-import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, type TravelStyle } from '@/lib/planner/travel-style';
+import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { PAGE_ACTION_BAR_VAR } from '@/components/shared/StickyLeadButton';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE } from './planner-layout';
 import type { MapMarker } from '@/components/shared/leaflet-types';
@@ -1064,6 +1064,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [mobilityLevel, setMobilityLevel] = useState<'full' | 'limited' | 'wheelchair'>('full');
   const [travelStyle, setTravelStyle] = useState<TravelStyle>('mixed');
   const [restDays, setRestDays] = useState(0);
+  // Пока человек не трогал счётчик, дни отдыха считаются от дат (suggestRestDays).
+  const [restManual, setRestManual] = useState(false);
 
   // Анкета по шагам
   const [step, setStep] = useState<PlannerStep>(1);
@@ -1576,7 +1578,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
     const dep = over.departure ?? departure;
     const span = calcDays(arr, dep);
     const restCap = span != null && span > 0 ? Math.max(0, span - 3) : 0;
-    const rest = Math.min(over.restDays ?? restDays, restCap);
+    const rest = Math.min(over.restDays ?? (restManual ? restDays : suggestRestDays(span)), restCap);
     if (interests.length === 0) { setError('Выберите место или активность'); return; }
     setError('');
     setLoading(true);
@@ -1696,7 +1698,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       if (data.arrival)   setArrival(data.arrival);
       if (data.departure) setDeparture(data.departure);
       if (data.travel_style) setTravelStyle(data.travel_style);
-      if (typeof data.rest_days === 'number') setRestDays(data.rest_days);
+      if (typeof data.rest_days === 'number') { setRestDays(data.rest_days); setRestManual(true); }
       setChatInput('');
       const nextArrival = data.arrival || arrival;
       const nextDeparture = data.departure || departure;
@@ -1772,7 +1774,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
   /** Потолок дней отдыха на форме — то же правило, что у движка (fitRestDays). */
   const maxRestDays = tripDays != null && tripDays > 0 ? Math.max(0, tripDays - 3) : 0;
-  const restDaysToSend = Math.min(restDays, maxRestDays);
+  const restSuggested = suggestRestDays(tripDays);
+  const restDaysToSend = Math.min(restManual ? restDays : restSuggested, maxRestDays);
 
   function goNext() {
     setStepError('');
@@ -2090,7 +2093,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         </p>
         <div className="flex items-center gap-3">
           <button type="button" aria-label="Меньше дней отдыха"
-            onClick={() => setRestDays((n) => Math.max(0, Math.min(n, maxRestDays) - 1))}
+            onClick={() => { setRestManual(true); setRestDays(Math.max(0, restDaysToSend - 1)); }}
             disabled={restDaysToSend <= 0}
             className="ds-btn ds-btn-secondary w-11 h-11 p-0 disabled:opacity-40">
             <Minus className="w-4 h-4" />
@@ -2099,7 +2102,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             {restDaysToSend}
           </output>
           <button type="button" aria-label="Больше дней отдыха"
-            onClick={() => setRestDays((n) => Math.min(maxRestDays, n + 1))}
+            onClick={() => { setRestManual(true); setRestDays(Math.min(maxRestDays, restDaysToSend + 1)); }}
             disabled={restDaysToSend >= maxRestDays}
             className="ds-btn ds-btn-secondary w-11 h-11 p-0 disabled:opacity-40">
             <Plus className="w-4 h-4" />
@@ -2107,9 +2110,15 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         </div>
         <p className="text-xs text-[var(--text-secondary)]">
           {maxRestDays > 0
-            ? `До ${maxRestDays} при ${tripDays} ${pluralDaysRu(tripDays ?? 0)} поездки. Резерв на нелётную погоду добавим сами, если он нужен.`
+            ? `${restManual ? 'Поставили вы' : `Посчитали по датам: день отдыха на каждые ${REST_EVERY_DAYS} дней поездки`}. До ${maxRestDays} при ${tripDays} ${pluralDaysRu(tripDays ?? 0)}. Резерв на нелётную погоду добавим сами, если он нужен.`
             : 'Поездка короткая: место нужно прилёту, вылету и хотя бы одному дню на маршруте.'}
         </p>
+        {restManual && maxRestDays > 0 && restDaysToSend !== Math.min(restSuggested, maxRestDays) && (
+          <button type="button" onClick={() => setRestManual(false)}
+            className="text-xs text-[var(--ocean)] underline underline-offset-2 min-h-[44px]">
+            Вернуть по датам ({Math.min(restSuggested, maxRestDays)})
+          </button>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -2147,8 +2156,8 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
               className={`px-2 py-2 min-h-[44px] rounded text-xs font-medium transition-all border ${
                 riskMode === m.value
                   ? m.value === 'adventure'
-                    ? 'bg-[var(--warning)] bg-opacity-20 border-[var(--warning)] text-[var(--warning)]'
-                    : 'bg-[var(--accent)] bg-opacity-20 border-[var(--accent)] text-[var(--accent)]'
+                    ? 'bg-[color-mix(in_srgb,var(--warning)_16%,var(--bg-card))] border-[var(--warning)] text-[var(--warning)]'
+                    : 'bg-[color-mix(in_srgb,var(--accent)_16%,var(--bg-card))] border-[var(--accent)] text-[var(--accent)]'
                   : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]'
               }`}
             >
