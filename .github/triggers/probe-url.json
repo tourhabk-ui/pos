@@ -1,17 +1,23 @@
 {
-  "note": "26.09, прогон 609. ТОЛЬКО ЧТЕНИЕ. Сайт базы отдыха «Голубая лагуна» (озеро Микижа) — владелец прислал ссылку, из контейнера сайт закрыт. Нужно: что за услуги (бассейн — термальный ли), контакты, цены, адрес; sitemap — какие есть страницы. Для записи в partner_prospects (миграция 1035) и описания озера.",
+  "note": "26.09, прогон 609. ТОЛЬКО ЧТЕНИЕ. Сайт базы отдыха «Голубая лагуна» (озеро Микижа) — владелец прислал ссылку, из контейнера сайт закрыт. Главный вопрос владельца: КАКАЯ У НИХ СИСТЕМА БРОНИРОВАНИЯ (TravelLine/Exely, Bnovo, RealtyCalendar, Shelter, Контур.Отель, OtelMS, YCLIENTS, своя форма или только телефон). Ищем скрипты и iframe виджетов, ссылки «забронировать»; sitemap — какие есть страницы.",
   "run": 609,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 12000,
+  "bytes": 3000,
   "ua": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36",
-  "grep": ["бассейн", "термал", "Микиж", "Паратунк", "+7", "руб", "₽"],
-  "around": ["бассейн", "термал", "Микиж", "+7"],
-  "aroundLines": 6,
+  "grep": [
+    "tlintegration", "travelline", "exely",
+    "bnovo", "reservationsteps",
+    "realtycalendar", "shelter", "kontur", "otelms", "yclients", "wubook", "cloudbeds", "hotellab", "bronevik",
+    "iframe", "бронир", "Заброниров", "wa.me", "t.me", "tel:", "tilda", "bitrix", "wordpress"
+  ],
+  "count": ["бронир", "iframe", "<script"],
+  "around": ["tlintegration", "reservationsteps", "bnovo", "realtycalendar", "iframe", "бронир", "tel:"],
+  "aroundLines": 4,
   "aroundBefore": 2,
-  "aroundHits": 3,
+  "aroundHits": 2,
   "urls": [
     "https://bluelagoon.su/",
     "https://bluelagoon.su/sitemap.xml"
