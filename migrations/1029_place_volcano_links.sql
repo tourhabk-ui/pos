@@ -66,8 +66,8 @@ WITH wanted(place_id, place_name, volcano_place_id, volcano_name, reason) AS (
 INSERT INTO place_volcano_links (place_id, volcano_place_id, reason)
 SELECT w.place_id, w.volcano_place_id, w.reason
   FROM wanted w
-  JOIN places p ON p.id::text = w.place_id AND p.name = w.place_name
-  JOIN places v ON v.id::text = w.volcano_place_id AND v.name = w.volcano_name
+  JOIN places p ON p.id::text = w.place_id::text AND p.name = w.place_name
+  JOIN places v ON v.id::text = w.volcano_place_id::text AND v.name = w.volcano_name
 ON CONFLICT (place_id, volcano_place_id) DO NOTHING;
 
 -- Не легла строка — не молчим: имя сменилось или записи нет (§4.0).

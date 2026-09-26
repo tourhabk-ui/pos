@@ -76,8 +76,8 @@ describe('место у вулкана получает его уровень', 
   });
 
   it('миграция кладёт привязку, только если совпали и id, и название — и причину словами', () => {
-    expect(MIG).toMatch(/JOIN places p ON p\.id::text = w\.place_id AND p\.name = w\.place_name/);
-    expect(MIG).toMatch(/JOIN places v ON v\.id::text = w\.volcano_place_id AND v\.name = w\.volcano_name/);
+    expect(MIG).toMatch(/JOIN places p ON p\.id::text = w\.place_id::text AND p\.name = w\.place_name/);
+    expect(MIG).toMatch(/JOIN places v ON v\.id::text = w\.volcano_place_id::text AND v\.name = w\.volcano_name/);
     expect(MIG).toMatch(/reason\s+TEXT NOT NULL CHECK \(length\(trim\(reason\)\) > 0\)/);
     expect(MIG).toMatch(/ON CONFLICT \(place_id, volcano_place_id\) DO NOTHING/);
   });
