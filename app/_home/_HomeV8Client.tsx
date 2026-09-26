@@ -52,6 +52,12 @@ const CHIP_ICON: Record<string, LucideIcon> = {
   volcano: Mountain, thermal: Droplets, easy: Footprints, days: CalendarDays, fishing: Fish,
 };
 
+// Цвет чипа — стихия направления, только токенами (владелец 26.09: «посвети
+// кнопки» — серые иконки на плоской карточке терялись под фото тура).
+const CHIP_TONE: Record<string, string> = {
+  volcano: 'var(--accent)', thermal: 'var(--warning)', easy: 'var(--success)', fishing: 'var(--ocean)',
+};
+
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 /** «6–9 августа» из ISO-дат поездки. Обе даты обязательны — иначе null и кикер без дат. */
@@ -247,7 +253,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
       {INTENT_CHIPS.map((c) => {
         const Ic = CHIP_ICON[c.key];
         return (
-          <Link key={c.key} href={c.href} className="hchip">
+          <Link key={c.key} href={c.href} className="hchip"
+            style={CHIP_TONE[c.key] ? ({ '--hc': CHIP_TONE[c.key] } as React.CSSProperties) : undefined}>
             {Ic && <Ic size={17} strokeWidth={2} aria-hidden />}
             <span className="hc-l">{c.label}</span>
           </Link>
@@ -1091,7 +1098,8 @@ const CSS = `
 .v7 .hero-chips{margin-top:10px;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
 .v7 .hchip{min-height:56px;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:6px 2px;border-radius:14px;text-decoration:none;color:var(--text-primary);font:600 10.5px/1.15 var(--font-outfit),system-ui,sans-serif;text-align:center;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .hchip .hc-l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .hchip svg{color:var(--text-secondary)}
+.v7 .hchip{background:color-mix(in srgb,var(--hc,var(--text-secondary)) 14%,var(--bg-card));border-color:color-mix(in srgb,var(--hc,var(--text-secondary)) 45%,transparent)}
+.v7 .hchip svg{color:var(--hc,var(--text-secondary))}
 .v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .qt:hover{background:var(--bg-hover)}
@@ -1117,7 +1125,7 @@ const CSS = `
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
 @media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}
 .v7 .hchip:active{transform:scale(.96)}
-.v7 .hchip:hover{background:var(--bg-hover)}
+.v7 .hchip:hover{background:color-mix(in srgb,var(--hc,var(--text-secondary)) 24%,var(--bg-card))}
 /* секции */
 .v7 section{margin-top:40px}
 /* ЧТО именно случилось — текстом, не только цветом. Полоса появляется только
