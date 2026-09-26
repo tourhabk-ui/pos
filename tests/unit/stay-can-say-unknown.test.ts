@@ -36,6 +36,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { publicRating } from '@/lib/reviews/public-rating';
 
 const ROOT = process.cwd();
 const MIGRATION = readFileSync(join(ROOT, 'migrations/1006_stay_can_say_unknown.sql'), 'utf-8');
@@ -131,7 +132,15 @@ describe('пустота не превращается в число', () => {
   it('каталог отдаёт null ценой и null оценкой, а не ноль', () => {
     const code = codeOnly(CATALOG);
     expect(code).toMatch(/row\.price_per_night_from === null \? null : parseFloat/);
-    expect(code).toMatch(/row\.rating === null \? null : parseFloat/);
+    // Оценка: правило переехало в общий `publicRating`
+    // (lib/reviews/public-rating.ts). Своей формы у каталога больше нет
+    // намеренно: у карточки того же объекта она была другой и отдавала ноль, а
+    // колонка rating у туров и партнёров вообще стоит с DEFAULT 0 — пропуска
+    // одного NULL не хватало. Сторож спрашивает ВЫЗОВ правила и отдельно —
+    // само правило (иначе зеленел бы при выпотрошенном, §10.09).
+    expect(code).toMatch(/rating: publicRating\(row\.rating, row\.review_count\)/);
+    expect(publicRating('0.00', 0), 'оценки нет — не ноль').toBeNull();
+    expect(publicRating('4.50', 2), 'оценка есть — приезжает').toBe(4.5);
     // Прежняя форма превращала «не оценён» в ноль — и планер по этому нулю
     // отсеивал объект навсегда.
     expect(code).not.toMatch(/row\.rating \? parseFloat\(row\.rating\) : 0/);
