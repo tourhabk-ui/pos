@@ -29,18 +29,46 @@ function getJWTSecret(): Uint8Array {
 // Protected routes that require authentication
 const PROTECTED_ROUTES = ['/hub', '/profile'];
 
-// Public sub-paths inside protected prefixes (no auth needed)
-const PUBLIC_HUB_PATHS = ['/hub/safety', '/hub/fishing', '/hub/transfer'];
+/**
+ * Public sub-paths inside protected prefixes (no auth needed).
+ *
+ * ── Чистка 26.09 (слово владельца по §7) ──────────────────────────────────
+ *
+ * Здесь стоял '/hub/transfer'. Каталога `app/hub/transfer` не существует:
+ * кабинет перевозчика назван `/hub/carrier` (02.09, вместе с удалением
+ * мёртвого модуля). Пока рядом жил `app/hub/transfer-operator`, эта запись
+ * делала ВЕСЬ кабинет перевозчика публичным на Edge — сверка ниже шла простым
+ * `startsWith` без разделителя, и '/hub/transfer' накрывал
+ * '/hub/transfer-operator'.
+ *
+ * Сегодня накрывать нечего, но запись оставалась заряженной: заведи кто-нибудь
+ * снова путь, начинающийся на '/hub/transfer', — он открылся бы анониму молча.
+ * Поэтому запись убрана, а сверка переведена на сегментную (`isPathMatch`):
+ * '/hub/safety' больше не откроет гипотетический '/hub/safety-drafts'.
+ *
+ * Сторож: tests/unit/hub-role-gates.test.ts.
+ */
+const PUBLIC_HUB_PATHS = ['/hub/safety', '/hub/fishing'];
 
-type AuthRole = 'tourist' | 'operator' | 'guide' | 'transfer_operator' | 'transfer' | 'agent' | 'admin';
+type AuthRole =
+  | 'tourist' | 'operator' | 'guide'
+  | 'transfer_operator' | 'transfer'
+  | 'agent'
+  // stay и gear — живые роли с 715/1005, но в этом типе их не было: на Edge
+  // они не значились ни в одном правиле, и потому `normalizeRole` отвечал о
+  // них null. Молчание читалось как «роли нет» (§4.0).
+  | 'stay' | 'gear'
+  | 'admin';
 
 const API_ROLE_REQUIREMENTS: Record<string, AuthRole> = {
   '/api/tourist': 'tourist',
   '/api/operator': 'operator',
   '/api/admin': 'admin',
   '/api/guide': 'guide',
-  '/api/transfer-operator': 'transfer_operator',
-  '/api/transfer': 'transfer_operator',
+  // '/api/transfer-operator' и '/api/transfer' убраны 26.09: таких роутов в
+  // репозитории нет ни одного (модуль удалён 02.09, API перевозчика живёт по
+  // '/api/hub/carrier/*' и проверяет роль сам — requireCarrier). Правило,
+  // нацеленное в пустоту, не защищает ничего и заставляет думать, что защищает.
   '/api/agent': 'agent',
   '/api/agents/operator': 'operator',
 };
@@ -57,6 +85,8 @@ function normalizeRole(role: string | null | undefined): AuthRole | null {
     'transfer_operator',
     'transfer',
     'agent',
+    'stay',
+    'gear',
     'admin',
   ]);
 
@@ -188,7 +218,8 @@ export async function middleware(request: NextRequest) {
 
   // Check if route requires authentication
   const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname.startsWith(route))
-    && !PUBLIC_HUB_PATHS.some(p => pathname.startsWith(p));
+    // Сегментная сверка, а не startsWith: см. разбор у PUBLIC_HUB_PATHS.
+    && !PUBLIC_HUB_PATHS.some(p => isPathMatch(pathname, p));
   const isPublicApiRoute = isPublicApiPath(pathname, method);
   const isApiRoute = pathname.startsWith('/api');
 

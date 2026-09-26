@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { gearListingState } from '@/lib/gear/moderation';
 import { Backpack, Plus, Pencil, EyeOff, Eye, X } from 'lucide-react';
 
 /**
@@ -37,6 +38,9 @@ interface GearItemRow {
   deposit_amount: string | number | null;
   condition: string;
   is_active: boolean;
+  /** Шлюз каталога (миграция 1030). Старый ответ поля не несёт — см. gearListingState. */
+  moderation_status?: string;
+  moderation_reason?: string | null;
 }
 
 interface ItemFormState {
@@ -295,9 +299,26 @@ export default function InventoryClient() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{item.name}</p>
-                {!item.is_active && (
-                  <span className="ds-badge text-[var(--text-muted)] border border-[var(--border)]">Скрыто</span>
-                )}
+                {/* Что с позицией — одним словом и с пояснением.
+                    Раньше бейдж был один, «Скрыто», и партнёр не мог узнать,
+                    почему позиции нет в каталоге: проверки не существовало
+                    вовсе (26.09, миграция 1030). Слова берём из общего
+                    справочника, чтобы кабинет и админка не расходились. */}
+                {(() => {
+                  const st = gearListingState({
+                    is_active: item.is_active,
+                    moderation_status: item.moderation_status ?? 'approved',
+                    moderation_reason: item.moderation_reason ?? null,
+                  });
+                  if (st.public) return null;
+                  return (
+                    <span className="ds-badge border" style={{
+                      color: st.tone === 'danger' ? 'var(--danger)'
+                        : st.tone === 'warning' ? 'var(--warning)' : 'var(--text-muted)',
+                      borderColor: 'var(--border)',
+                    }}>{st.label}</span>
+                  );
+                })()}
               </div>
               <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                 {[CATEGORY_LABELS[item.category] ?? item.category, item.brand].filter(Boolean).join(' · ')}
@@ -305,6 +326,19 @@ export default function InventoryClient() {
               <p className="text-xs text-[var(--text-secondary)] mt-1">
                 {formatMoney(item.price_per_day)}/день · доступно {item.available_quantity} из {item.quantity}
               </p>
+              {(() => {
+                const st = gearListingState({
+                  is_active: item.is_active,
+                  moderation_status: item.moderation_status ?? 'approved',
+                  moderation_reason: item.moderation_reason ?? null,
+                });
+                if (!st.detail) return null;
+                return (
+                  <p className="text-xs mt-1" style={{
+                    color: st.tone === 'danger' ? 'var(--danger)' : 'var(--text-secondary)',
+                  }}>{st.detail}</p>
+                );
+              })()}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <button
