@@ -3700,11 +3700,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
               vectorUrl: fieldBaseMap.source.vectorUrl,
               // Места платформы (05.09): свой слой поверх OSM, по реестру
               // PLACES_BUILT; null — слоя нет, и карта его не просит.
-              // По умолчанию НЕ просит и здесь (13.09, showAllPlaces): на
-              // экране маршрута реестр района закрывал сам маршрут. Тот же
-              // null, что и при отсутствии пакета, — карта уже умеет его
-              // читать как «слоя нет», отдельного режима заводить не нужно.
-              placesUrl: showAllPlaces ? fieldBaseMap.source.placesUrl : null,
+              // Слой грузится всегда, а видимость решает тумблер «Места»
+              // (placesVisible ниже; по умолчанию выключен — решение 13.09,
+              // на экране маршрута реестр района закрывал сам маршрут). До
+              // 26.09 тумблер менял здесь адрес, а карта смену адреса не
+              // замечает — «кнопка места не работает».
+              placesUrl: fieldBaseMap.source.placesUrl,
               // Океан обзора (05.09): у пакета поля его нет (null), он у обзора.
               oceanUrl: fieldBaseMap.source.oceanUrl,
               attribution: '© Copernicus DEM (ESA)',
@@ -3715,6 +3716,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             showUserLocation
             lines={vedarLines}
             onDiagnostic={setVedarDiag}
+            placesVisible={showAllPlaces}
             packs={regionPacks}
             baseRegion={fieldBaseMap.region}
             // В режиме «Карта» приборный столбец скрыт — тогда кнопки

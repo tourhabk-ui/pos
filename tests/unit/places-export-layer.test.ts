@@ -253,7 +253,9 @@ describe('слой мест в стиле карты', () => {
     // слой всех мест выключен по умолчанию (решение владельца, сторож
     // tests/unit/field-map-focus.test.ts). Источник адреса при этом тот же,
     // и подмена его хардкодом здесь по-прежнему покраснеет.
-    expect(planning).toMatch(/placesUrl: showAllPlaces \? fieldBaseMap\.source\.placesUrl : null/);
+    // С 26.09 адрес передаётся всегда, а тумблер решает видимость
+    // (placesVisible) — сторож tests/unit/field-map-focus.test.ts.
+    expect(planning).toMatch(/placesUrl: fieldBaseMap\.source\.placesUrl,/);
     expect(vedarMap).toMatch(/placesUrl: pack\.source\.placesUrl/);
   });
 });

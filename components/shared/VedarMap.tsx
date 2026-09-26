@@ -174,6 +174,12 @@ interface VedarMapProps {
    * базовый слой и на все подложенные соседей, включая ещё не загруженные.
    */
   placesFilter?: string | null;
+  /**
+   * Показывать ли слой мест платформы (у своего района и у соседей). По
+   * умолчанию — да: прежние потребители карты этого поля не знают. Полевой
+   * экран передаёт сюда тумблер «Места» (PlacesLayerButton).
+   */
+  placesVisible?: boolean;
   /** Ручка управления наружу — для кнопок масштаба вне карты. null при размонтировании. */
   onControls?: (handle: VedarMapHandle | null) => void;
 }
@@ -208,6 +214,24 @@ function applyPlacesFilter(map: MLMap, filter: string | null | undefined): void 
   for (const l of layers) {
     if (!l.id.includes('vedar-place')) continue;
     try { map.setFilter(l.id, expr as never); } catch { /* слоя ещё нет в эту миллисекунду — следующий вызов подхватит */ }
+  }
+}
+
+/**
+ * Видимость слоя мест — у ВСЕХ районов разом (26.09).
+ *
+ * Владелец на экране «На маршруте»: «кнопка места не работает». Кнопка меняла
+ * адрес слоя мест у своего района, а карта пересоздаётся только при смене
+ * темы и рельефа — новый адрес она не замечала. Соседние районы и обзор,
+ * подложенные при отдалении, брали слой мест прямо из пакета и кнопку не
+ * спрашивали вовсе. Теперь слой грузится всегда, а кнопка переключает его
+ * видимость — мгновенно, без перезагрузки карты и у каждого района.
+ */
+function applyPlacesVisibility(map: MLMap, visible: boolean): void {
+  const layers = map.getStyle()?.layers ?? [];
+  for (const l of layers) {
+    if (!l.id.includes('vedar-place')) continue;
+    try { map.setLayoutProperty(l.id, 'visibility', visible ? 'visible' : 'none'); } catch { /* слоя ещё нет в эту миллисекунду — следующий вызов подхватит */ }
   }
 }
 
@@ -505,6 +529,7 @@ export default function VedarMap({
   onPlaceClick,
   pin = null,
   placesFilter = null,
+  placesVisible = true,
   onControls,
 }: VedarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -516,6 +541,8 @@ export default function VedarMap({
   onPlaceClickRef.current = onPlaceClick;
   const placesFilterRef = useRef(placesFilter);
   placesFilterRef.current = placesFilter;
+  const placesVisibleRef = useRef(placesVisible);
+  placesVisibleRef.current = placesVisible;
   const mapRef = useRef<MLMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const autoCenterDoneRef = useRef(false);
@@ -968,6 +995,14 @@ export default function VedarMap({
     applyPlacesFilter(map, placesFilter);
   }, [ready, placesFilter]);
 
+  // Видимость мест — отдельным эффектом по той же причине: тумблер «Места»
+  // обязан сработать сразу, а не со следующим перемещением карты.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    applyPlacesVisibility(map, placesVisible);
+  }, [ready, placesVisible]);
+
   // ── Соседние районы — по видимой области ────────────────────────────────
   // Скрин владельца 02.09 08:21: при отдалении виден один пакет, остальные
   // девять — чёрное поле. Стиль описывает район точки; соседей карта
@@ -1058,6 +1093,7 @@ export default function VedarMap({
             // экране применяется сразу, а не только со следующей сменой
             // фильтра (владелец 06.09, «нет точек мест»).
             applyPlacesFilter(map, placesFilterRef.current);
+            applyPlacesVisibility(map, placesVisibleRef.current);
           } catch (err) {
             // Не молчим: район, который не подложился, — это «не смог», а не
             // «соседей нет» (§4.0). Карта основного района при этом цела.
