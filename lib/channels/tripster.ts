@@ -48,6 +48,10 @@ const MOVEMENT_TYPE: Record<string, string> = {
 export const tripsterAdapter: ChannelAdapter = {
   name: 'tripster' as ChannelName,
 
+  isConfigured(): boolean {
+    return Boolean(process.env.TRIPSTER_TOKEN && process.env.TRIPSTER_PARTNER_NAME);
+  },
+
   /**
    * Регистрирует бронирование с vedarai.ru в Tripster
    * Требует: tour.tripster_experience_id должен быть заполнен
@@ -107,7 +111,8 @@ export const tripsterAdapter: ChannelAdapter = {
       { headers: headers(token) }
     );
 
-    if (!res.ok) return [];
+    // Отказ API — не «заказов нет»: бросаем, channel-manager запишет причину.
+    if (!res.ok) throw new Error(`Tripster: заказы не получены, HTTP ${res.status}`);
 
     const data = await res.json() as { results?: unknown[] };
     const results = data.results ?? [];
