@@ -152,7 +152,10 @@ describe('новое доходит до движка', () => {
     expect(body.healthNotes).toBe('колено, астма');
     expect(body.mobilityLevel).toBe('limited');
     expect(body.travelStyle).toBe('self');
-    expect(body.restDays).toBe(1);
+    // 3–12 августа: по датам 1 день отдыха (lib/planner/travel-style,
+    // suggestRestDays), плюс один нажатием «+» — 2 (владелец 26.09: «от дат,
+    // с возможностью корректировки»).
+    expect(body.restDays).toBe(2);
     expect(body.interests).toEqual(['volcano']);
 
     // Заметки движка — на экране результата.
