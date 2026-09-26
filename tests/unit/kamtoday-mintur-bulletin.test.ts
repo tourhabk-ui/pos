@@ -7,6 +7,7 @@
  * новость края тревогой не становится.
  *
  * Формулировки пунктов ниже — дословные цитаты сводки из issue #2064.
+ * Проверен мутацией: без фильтра isMinturBulletin сторож краснеет.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
