@@ -807,15 +807,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* Третий слой: разделы платформы. Тоже был отдельной дверью в каталог. */}
-        <section className="sub">
-          <div className="hubline">
-            <Link href="/routes">Туристам</Link><Link href="/routes?activity_type=fishing">Рыбалка</Link>
-            <Link href="/hub">Операторам</Link><Link href="/guides">Гидам</Link>
-            <Link href="/accommodations">Жильё</Link><Link href="/gear">Снаряжение</Link>
-          </div>
-        </section>
-
+        {/* Ряда разделов («Туристам», «Рыбалка», «Операторам», «Гидам»,
+            «Жильё», «Снаряжение») внизу больше нет — владелец 26.09: «подвал
+            вообще не то и не работает, убрать». Разделы доступны из таб-бара
+            (Туры, Карта), из ЛК в шапке и из самих страниц. */}
       </div>
 
       {/* Шторки наблюдения здесь больше нет: создание переехало на экран
@@ -1370,9 +1365,6 @@ const CSS = `
 .v7 .lead.sent .ok{display:block}
 .v7 .lead.sent .field2,.v7 .lead.sent .chips,.v7 .lead.sent .fine,.v7 .lead.sent .err{display:none}
 /* хабы */
-.v7 .hubline{display:flex;flex-wrap:wrap;gap:0 24px}
-.v7 .hubline a{display:inline-flex;align-items:center;min-height:44px;font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);border-bottom:1px solid transparent}
-.v7 .hubline a:active{color:var(--text-primary);border-bottom-color:var(--text-primary)}
 .v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--border);font:400 9px/1.7 var(--fm);color:var(--text-muted)}
 /* навигация */
    padding кнопок: тач-зона заезжала в полосу системного жеста, и вкладка
@@ -1440,8 +1432,7 @@ const CSS = `
   .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}
   .v7 .lead .field2>input{flex:1;min-width:200px}
   .v7 .lead .field{flex:2;min-width:260px}
-  .v7 .hubline{justify-content:center}
-  /* Сетки используют ширину: стихии в 3 колонки (5 плиток ложатся без дыры —
+    /* Сетки используют ширину: стихии в 3 колонки (5 плиток ложатся без дыры —
      последняя span 2), платы показывают по три, цифры по центру */
   .v7 .elements{grid-template-columns:repeat(3,1fr)}
   .v7 .plate{width:320px}
