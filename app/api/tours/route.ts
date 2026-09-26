@@ -5,6 +5,7 @@ import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { TotalRow } from '@/lib/types/db-rows';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +75,11 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
     const offset = Math.max(parseInt(searchParams.get('offset') || '0'), 0);
 
-    const whereConditions: string[] = ['t.is_active = true'];
+    // Шлюз витрины — один на все публичные чтения туров
+    // (`lib/tours/public-visibility.ts`). Прежде здесь стояло только
+    // `t.is_active = true`, и черновик оператора (`is_published = false`)
+    // выезжал в каталог наравне с живым туром.
+    const whereConditions: string[] = [publicTourSql('t')];
     const queryParams: (string | number)[] = [];
     let paramIndex = 1;
 
@@ -140,7 +145,7 @@ export async function GET(request: NextRequest) {
         p.hero_image as partner_hero_image
       FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
-      ${whereClause} AND t.deleted_at IS NULL
+      ${whereClause}
       ORDER BY t.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
@@ -149,7 +154,7 @@ export async function GET(request: NextRequest) {
     const result = await query(selectSql, queryParams);
 
     const countResult = await query<TotalRow>(
-      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause} AND t.deleted_at IS NULL`,
+      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause}`,
       queryParams.slice(0, -2),
     );
     const total = parseInt(countResult.rows[0]?.total ?? '0');

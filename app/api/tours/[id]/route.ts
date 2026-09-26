@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +45,10 @@ export async function GET(
        FROM operator_tours t
        LEFT JOIN kamchatka_routes kr ON t.route_id = kr.id
        LEFT JOIN partners p ON t.operator_id = p.id
-       WHERE t.id = $1 AND t.is_active = TRUE AND t.deleted_at IS NULL`,
+       -- Шлюз витрины один на все публичные чтения тура
+       -- (lib/tours/public-visibility.ts). Без is_published карточка
+       -- открывалась по прямой ссылке на снятый с витрины черновик.
+       WHERE t.id = $1 AND ${publicTourSql('t')}`,
       [id]
     );
 
