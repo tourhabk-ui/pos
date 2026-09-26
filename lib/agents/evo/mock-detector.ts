@@ -38,6 +38,21 @@ const RECEIVES_SERVER_PROPS = /\}\s*:\s*\{[^{}]*\}\s*\)\s*\{/;
 /** Кнопки, которые НЕ должны мутировать БД по своей природе. */
 const NON_MUTATING_UI = /navigator\.clipboard|router\.(push|replace|back)|window\.open|scrollTo|setOpen|setExpanded|setCopied/;
 
+/** Действия, которые обязаны что-то менять на сервере. */
+const ACTION_WORDS = /(подтверд|отклон|отмен|принять|одобр|approve|confirm|reject|accept)/i;
+
+/**
+ * Текст, по которому видно, ЧТО делает кнопка: подписи `<button>`/`<Button>`
+ * и выражения их `onClick`. Комментарии и обычный текст экрана сюда не
+ * попадают — «оператор подтвердит дату» в подписи кнопкой не является.
+ */
+export function buttonActionText(content: string): string {
+  const parts: string[] = [];
+  for (const m of content.matchAll(/<(?:button|Button)\b[^>]*>([\s\S]*?)<\/(?:button|Button)>/g)) parts.push(m[1]);
+  for (const m of content.matchAll(/onClick=\{([^}]*)\}/g)) parts.push(m[1]);
+  return parts.join('\n');
+}
+
 /** JSX-атрибут placeholder — подсказка в поле ввода, а не заглушка в данных. */
 function stripPlaceholderAttrs(src: string): string {
   return src.replace(/placeholder\s*=\s*(?:"[^"]*"|'[^']*'|\{[^}]*\})/g, 'placeholder=""');
@@ -86,7 +101,14 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
 
   // 2) Кнопка-пустышка: есть действие подтвердить/отменить/принять, но файл не
   //    делает ни одной мутации (fetch/POST) — кнопка меняет только локальный стейт.
-  const hasActionWords = /(подтверд|отклон|отмен|принять|одобр|approve|confirm|reject|accept)/i.test(content);
+  //
+  // Слово действия ищется НА КНОПКЕ — в её тексте и в обработчике onClick, —
+  // а не во всём файле. 26.09 объектив заклеймил TourPaymentModal: слова
+  // «подтвердит дату» стояли в шапке-комментарии и в подписи «оплата — после
+  // того, как оператор подтвердит дату», а единственная кнопка там —
+  // «Закрыть»; бронь отправляет вложенная форма BookingFormClient. Находка
+  // ушла бы в Issues как «кнопки-пустышки на денежном пути».
+  const hasActionWords = ACTION_WORDS.test(buttonActionText(content));
   const hasMutation = /fetch\s*\([^)]*\{[\s\S]{0,120}?method\s*:\s*['"](POST|PUT|PATCH|DELETE)/i.test(content)
     || /method\s*:\s*['"](POST|PUT|PATCH|DELETE)/i.test(content);
   // Кнопки копирования/навигации/раскрытия мутаций не делают по замыслу, а
