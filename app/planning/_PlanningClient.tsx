@@ -4809,7 +4809,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           красным действием в сетке выше, красный цвет — только тревога
           (§7). Без маршрута панель стоит внутри экрана выбора цели. */}
       {(hasRoute || isLoadingRoute) && (
-        <div className="shrink-0 px-4 pt-2 pb-2 max-w-sm mx-auto w-full"
+        <div className={`shrink-0 px-4 max-w-sm mx-auto w-full ${sheetOpen ? 'pt-2 pb-2' : 'pt-1.5 pb-1.5'}`}
           style={{ borderTop: '1px solid var(--border)' }}>
           {/* Свёрнутый лист — без подписей под кнопками (владелец 07.09,
               «занимает очень много места карты»): кружки те же 56px под
