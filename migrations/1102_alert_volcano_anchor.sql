@@ -1,4 +1,4 @@
--- 1044_alert_volcano_anchor.sql
+-- 1102_alert_volcano_anchor.sql
 --
 -- Пепел Шивелуча красил Ключевской. Алерту нужен вулкан, а не зона.
 --

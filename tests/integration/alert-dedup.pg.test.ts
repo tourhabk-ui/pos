@@ -78,7 +78,7 @@ function externalAlertsDdl(): string {
   const block = m070.match(/CREATE TABLE IF NOT EXISTS external_alerts \([\s\S]*?\);/);
   if (!block) throw new Error('в миграции 070 не найден CREATE TABLE external_alerts');
   const m687 = readFileSync(join(process.cwd(), 'migrations', '687_external_alerts_coords.sql'), 'utf-8');
-  const m1044 = readFileSync(join(process.cwd(), 'migrations', '1044_alert_volcano_anchor.sql'), 'utf-8');
+  const m1044 = readFileSync(join(process.cwd(), 'migrations', '1102_alert_volcano_anchor.sql'), 'utf-8');
   return `${block[0]}\n${m687}\n${m1044}`;
 }
 
