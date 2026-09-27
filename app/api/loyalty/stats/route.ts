@@ -41,6 +41,8 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[loyalty/stats] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка получения статистики лояльности'

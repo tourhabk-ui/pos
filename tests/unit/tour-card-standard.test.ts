@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 const CARD = join(process.cwd(), 'app/marketplace/tours/[id]/_TourDetailClient.tsx');
 const src = readFileSync(CARD, 'utf-8');
@@ -67,7 +68,14 @@ describe('стандарт карточки тура — безопасност�
     // 837: демо-туры, чужие партнёры, несезонные окна), is_active при этом
     // часто остаётся true. До 27.08 карточка и бронь проверяли только
     // is_active — спрятанный тур жил по прямому URL и принимал брони.
-    expect(query).toMatch(/ot\.is_published = true/);
+    // Условие переехало в общий шлюз витрины (lib/tours/public-visibility.ts):
+    // копия в карточке была верной, а три публичных роута /api/tours её не
+    // знали вовсе и отдавали черновики. Поэтому сторож спрашивает ВЫЗОВ шлюза
+    // и отдельно — что сам шлюз держит флаг (проверять только вызов значило бы
+    // зеленеть при выпотрошенном шлюзе, §10.09).
+    expect(query).toMatch(/publicTourSql\('ot'\)/);
+    expect(publicTourSql('ot')).toMatch(/ot\.is_published = true/);
+    expect(publicTourSql('ot')).toMatch(/ot\.deleted_at IS NULL/);
     // С 26.09 бронь заводит только reserveBooking (/api/bookings/tour удалён).
     const booking = readFileSync(
       join(process.cwd(), 'lib/bookings/reserve.ts'), 'utf-8');

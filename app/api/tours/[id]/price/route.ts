@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { calculateDynamicPrice } from '@/lib/services/tours/dynamic-pricing';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,8 +47,11 @@ export async function GET(
 
   // Получаем базовую цену тура
   const { rows } = await pool.query<{ base_price: string; title: string }>(
+    // Шлюз витрины общий (lib/tours/public-visibility). Здесь он заодно
+    // добавил is_active: цену выключенного тура роут отдавал, хотя ни
+    // карточка, ни бронь его уже не видят.
     `SELECT base_price, title FROM operator_tours
-     WHERE id = $1 AND is_published = TRUE AND deleted_at IS NULL`,
+     WHERE id = $1 AND ${publicTourSql('')}`,
     [id]
   );
 

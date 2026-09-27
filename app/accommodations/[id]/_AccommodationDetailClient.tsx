@@ -44,7 +44,8 @@ interface SimilarItem {
   type: string;
   address: string;
   pricePerNight: number;
-  rating: number;
+  /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
+  rating: number | null;
   image: string | null;
 }
 
@@ -59,7 +60,8 @@ interface AccommodationDetail {
   checkOutTime: string | null;
   pricePerNight: { from: number; to: number | null };
   amenities: string[];
-  rating: number;
+  /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
+  rating: number | null;
   reviewCount: number;
   isVerified: boolean;
   images: { url: string; alt: string | null }[];
@@ -176,7 +178,11 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
             <span className="inline-flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5" /> {data.address}
             </span>
-            {data.reviewCount > 0 && (
+            {/* Оценка — только когда она есть. Прежде строка рисовалась по
+                числу отзывов и звала .toFixed у рейтинга: с честным null
+                (API отдаёт его, когда объект не оценивали) это уронило бы
+                весь экран. */}
+            {data.rating !== null && data.reviewCount > 0 && (
               <span className="inline-flex items-center gap-1">
                 <Star className="w-3.5 h-3.5 text-[var(--warning)]" />
                 {data.rating.toFixed(1)} · {data.reviewCount} отзывов

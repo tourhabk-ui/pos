@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-27 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1041_malki_steam_frame.sql`.
+> Снято 2026-09-27 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1101_reviews_drop_legacy_rating_triggers.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 249 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3317 |
+| Колонок | 3319 |
 | Внешних ключей | 281 |
 | Таблиц без единого FK в обе стороны | 73 |
 
@@ -439,11 +439,11 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 **location_real_time_status** · 14 кол. · PK id · agent_route_id → places.ark_id · индексов 3
 
-`id bigint!=` `agent_route_id uuid` `is_open boolean=` `current_crowds integer=` `current_weather jsonb` `active_alerts text[]=` `alert_severity integer=` `alert_message varchar` `alert_source varchar` `alert_expires_at timestamp` `tourists_today integer=` `tourists_hour integer=` `recommender_status varchar=` `updated_at timestamp=`
+`id bigint!=` `agent_route_id uuid` `is_open boolean=` `current_crowds integer` `current_weather jsonb` `active_alerts text[]=` `alert_severity integer=` `alert_message varchar` `alert_source varchar` `alert_expires_at timestamp` `tourists_today integer` `tourists_hour integer` `recommender_status varchar=` `updated_at timestamp=`
 
-**location_safety_profile** · 28 кол. · PK id · agent_route_id → places.ark_id · индексов 2
+**location_safety_profile** · 30 кол. · PK id · agent_route_id → places.ark_id · индексов 2
 
-`id bigint!=` `agent_route_id uuid` `capacity_per_day integer=` `capacity_per_hour integer=` `optimal_group_size integer=` `open_from_date date` `open_to_date date` `closed_reason varchar` `hazard_types text[]=` `difficulty_level integer=` `altitude_m integer` `terrain_type varchar` `road_type varchar=` `road_accessibility integer=` `altitude_diff_m integer` `distance_km numeric` `nearest_medical_km numeric` `emergency_access text` `phone_ranger_mches varchar` `sat_communicator_required boolean=` `rules_required text` `weather_threshold jsonb` `updated_at timestamp=` `required_gear text[]` `connectivity jsonb` `registration_required boolean!=` `medical_info text` `tsunami_risk boolean!=`
+`id bigint!=` `agent_route_id uuid` `capacity_per_day integer=` `capacity_per_hour integer=` `optimal_group_size integer=` `open_from_date date` `open_to_date date` `closed_reason varchar` `hazard_types text[]=` `difficulty_level integer=` `altitude_m integer` `terrain_type varchar` `road_type varchar=` `road_accessibility integer=` `altitude_diff_m integer` `distance_km numeric` `nearest_medical_km numeric` `emergency_access text` `phone_ranger_mches varchar` `sat_communicator_required boolean=` `rules_required text` `weather_threshold jsonb` `updated_at timestamp=` `required_gear text[]` `connectivity jsonb` `registration_required boolean!=` `medical_info text` `tsunami_risk boolean!=` `profile_source varchar` `profile_source_at timestamptz`
 
 **parks** · 16 кол. · PK id · индексов 2
 
@@ -1259,7 +1259,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `review_id uuid!` `asset_id uuid!`
 
-**reviews** · 12 кол. · PK id · place_id → places.ark_id, tour_id → tours.id, user_id → users.id · на неё ссылаются: review_assets · индексов 4 · триггеры: update_partner_rating_trigger, update_reviews_updated_at, update_tour_rating_trigger
+**reviews** · 12 кол. · PK id · place_id → places.ark_id, tour_id → tours.id, user_id → users.id · на неё ссылаются: review_assets · индексов 4 · триггеры: update_reviews_updated_at
 
 `id uuid!=` `user_id uuid` `tour_id uuid` `rating integer!` `comment text` `is_verified boolean=` `operator_reply text` `operator_reply_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `place_id uuid` `author_name varchar`
 

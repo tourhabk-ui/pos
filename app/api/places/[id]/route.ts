@@ -9,6 +9,7 @@ import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,7 @@ export async function GET(
          p.eco_permit_url,
          p.indigenous_info,
          sp.difficulty_level,
+         sp.profile_source,
          sp.altitude_m,
          sp.altitude_diff_m,
          sp.distance_km,
@@ -252,7 +254,21 @@ export async function GET(
       [r.place_pk]
     );
 
-    const hazardTypes = Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [];
+    // Шаблон 070/0645 выдумал опасности, лимит, сложность и рельеф по
+    // location_type. Доказанный шаблон не произносится как факт — правило одно
+    // на платформу (lib/safety/profile-source.ts).
+    const profileSource = asProfileSource(r.profile_source);
+    const templated = honestSafetyFields(
+      {
+        hazardTypes: Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [],
+        capacityPerDay: r.capacity_per_day != null ? Number(r.capacity_per_day) : null,
+        optimalGroupSize: r.optimal_group_size != null ? Number(r.optimal_group_size) : null,
+        difficultyLevel: r.difficulty_level != null ? Number(r.difficulty_level) : null,
+        terrainType: (r.terrain_type as string | null) ?? null,
+      },
+      profileSource,
+    );
+    const hazardTypes = templated.hazardTypes;
     const requiredGear = Array.isArray(r.required_gear) ? (r.required_gear as string[]) : [];
 
     return NextResponse.json({
@@ -378,11 +394,12 @@ export async function GET(
         })(),
 
         safety: {
-          difficultyLevel: r.difficulty_level != null ? Number(r.difficulty_level) : null,
+          source: profileSource,
+          difficultyLevel: templated.difficultyLevel,
           altitudeM: r.altitude_m != null ? Number(r.altitude_m) : null,
           altitudeDiffM: r.altitude_diff_m != null ? Number(r.altitude_diff_m) : null,
           distanceKm: r.distance_km != null ? Number(r.distance_km) : null,
-          terrainType: r.terrain_type as string | null,
+          terrainType: templated.terrainType,
           roadType: r.road_type as string | null,
           roadAccessibility: r.road_accessibility != null ? Number(r.road_accessibility) : null,
           nearestMedicalKm: r.nearest_medical_km != null ? Number(r.nearest_medical_km) : null,
@@ -392,8 +409,8 @@ export async function GET(
           rulesRequired: r.rules_required as string | null,
           weatherThreshold: r.weather_threshold as Record<string, unknown> | null,
           hazardTypes,
-          capacityPerDay: r.capacity_per_day != null ? Number(r.capacity_per_day) : null,
-          optimalGroupSize: r.optimal_group_size != null ? Number(r.optimal_group_size) : null,
+          capacityPerDay: templated.capacityPerDay,
+          optimalGroupSize: templated.optimalGroupSize,
           openFromDate: r.open_from_date as string | null,
           openToDate: r.open_to_date as string | null,
           requiredGear,
@@ -412,7 +429,7 @@ export async function GET(
 
         realtime: r.is_open !== null || r.alert_severity !== null ? {
           isOpen: r.is_open as boolean | null,
-          currentCrowds: r.current_crowds != null ? Number(r.current_crowds) : null,
+          currentCrowds: crowdsOnScale(r.current_crowds),
           currentWeather: r.current_weather as Record<string, unknown> | null,
           activeAlerts: r.active_alerts as string[] | null,
           alertSeverity: r.alert_severity != null ? Number(r.alert_severity) : null,
@@ -460,7 +477,19 @@ export async function GET(
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Ошибка базы данных';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    // Наружу — нейтральный текст, в лог — SQLSTATE и форма запроса. Турист не
+    // чинит нашу базу, а текст ошибки PostgreSQL на экране карточки места
+    // ничего ему не говорит и раскрывает устройство схемы (то же правило, что
+    // у публичного каталога: tests/unit/catalog-error-honesty.test.ts).
+    const e = err as { code?: string; message?: string };
+    console.error('[places/api] карточка места не собралась', {
+      placeRef: id,
+      sqlstate: e?.code,
+      message: e?.message,
+    });
+    return NextResponse.json(
+      { success: false, error: 'Не удалось загрузить место. Мы записали отказ.' },
+      { status: 500 },
+    );
   }
 }

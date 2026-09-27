@@ -27,6 +27,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -201,6 +202,98 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(recs.some((r) => String(r.id) === String(secondTourId))).toBe(true);
     // Ни одна стратегия не должна вернуть уже забронированный тур.
     expect(recs.some((r) => String(r.id) === String(tourId))).toBe(false);
+  });
+
+  it('отзыв о МЕСТЕ записывается: триггеры рейтинга из baseline сняты (обход 26.09)', async () => {
+    // Прогулка туристом 26.09: POST /api/places/<id>/reviews отвечал 500
+    // `record "new" has no field "operator_id"`. Падал не INSERT, а триггер
+    // `update_partner_rating_trigger` из baseline: функция читает
+    // NEW.operator_id, которой у `reviews` нет. Значит отзыв о месте не
+    // сохранялся НИ РАЗУ, а пустой блок отзывов читался как «никто не
+    // оценил» (§4.0). Миграция 1037 снимает оба легаси-триггера.
+    //
+    // Сторож стоит здесь, а не в юнитах, намеренно: поля записи PL/pgSQL
+    // проверяет на исполнении, статикой этого не видно — судит сервер.
+    const ark = '0f2d5c7a-1b44-4e9c-9a31-8c6e5d2f7b10';
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, is_visible)
+       VALUES ('place-review-probe', 'Место для отзыва', 53.1, 158.2, $1, 'volcano', TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [ark],
+    );
+    const ins = await pool.query(
+      `INSERT INTO reviews (place_id, rating, comment, author_name, is_verified)
+       VALUES ($1, 5, 'Тропа читается, на кромке сильный ветер.', 'Турист', FALSE)
+       RETURNING id`,
+      [ark],
+    );
+    expect(ins.rowCount).toBe(1);
+
+    const left = await pool.query<{ tgname: string }>(
+      `SELECT t.tgname FROM pg_trigger t
+        JOIN pg_proc p ON p.oid = t.tgfoid
+       WHERE t.tgrelid = 'reviews'::regclass
+         AND NOT t.tgisinternal
+         AND p.proname IN ('update_partner_rating', 'update_tour_rating')`,
+    );
+    expect(left.rows.map((r) => r.tgname)).toEqual([]);
+  });
+
+  it('миграция 1100 узнаёт шаблон 070 и не трогает то, чего не доказала', async () => {
+    // Обход 26.09: опасности, лимит и сложность у мест выведены миграцией 070
+    // из location_type, а карточка печатала их как факты. Прятать можно только
+    // ДОКАЗАННУЮ выдумку, поэтому 1033 сверяет отпечаток по пяти полям сразу.
+    //
+    // Тест исполняет СОБСТВЕННЫЙ запрос миграции, а не его пересказ: правило,
+    // написанное дважды, — это два правила, и они расходятся (§12).
+    const sql = readFileSync(
+      join(process.cwd(), 'migrations/1100_safety_profile_source.sql'),
+      'utf-8',
+    );
+    const start = sql.indexOf('WITH k AS (');
+    const end = sql.indexOf('AND lsp.profile_source IS NULL;', start);
+    expect(start, 'в миграции 1100 не найден запрос разметки').toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const classify = sql.slice(start, end + 'AND lsp.profile_source IS NULL;'.length);
+
+    const templ = 'a1a1a1a1-0000-4000-8000-000000000001';
+    const hand = 'a1a1a1a1-0000-4000-8000-000000000002';
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, is_visible)
+       VALUES ('place-template-probe', 'Вулкан шаблонный', 53.2, 158.3, $1, 'volcano', TRUE),
+              ('place-hand-probe',     'Озеро с записью',  53.3, 158.4, $2, 'lake',    TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [templ, hand],
+    );
+    // Ровно то, что писал шаблон 070 для вулкана.
+    await pool.query(
+      `INSERT INTO location_safety_profile
+         (agent_route_id, capacity_per_day, optimal_group_size, difficulty_level, terrain_type, hazard_types)
+       VALUES ($1, 30, 6, 4, 'mountain', ARRAY['avalanche','rockfall','thermal','altitude']::TEXT[])`,
+      [templ],
+    );
+    // Тронуто человеком: одно поле отличается от шаблона для типа lake.
+    await pool.query(
+      `INSERT INTO location_safety_profile
+         (agent_route_id, capacity_per_day, optimal_group_size, difficulty_level, terrain_type, hazard_types)
+       VALUES ($1, 12, 8, 2, 'forest', ARRAY['bears']::TEXT[])`,
+      [hand],
+    );
+    await pool.query(
+      `UPDATE location_safety_profile SET profile_source = NULL WHERE agent_route_id IN ($1, $2)`,
+      [templ, hand],
+    );
+
+    await pool.query(classify);
+
+    const got = await pool.query<{ agent_route_id: string; profile_source: string | null }>(
+      `SELECT agent_route_id::text AS agent_route_id, profile_source
+         FROM location_safety_profile WHERE agent_route_id IN ($1, $2)`,
+      [templ, hand],
+    );
+    const bySource = new Map(got.rows.map((r) => [r.agent_route_id, r.profile_source]));
+    expect(bySource.get(templ)).toBe('type_template');
+    expect(bySource.get(hand)).toBe('unknown');
   });
 
   it('каталог инструментов: запрос категорий выполняется (#1773)', async () => {

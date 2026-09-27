@@ -88,6 +88,8 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[notifications/send] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Failed to send email',

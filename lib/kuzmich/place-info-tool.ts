@@ -31,6 +31,7 @@ import { gradeNameMatch } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { descriptionVoice } from '@/lib/places/description-voice';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 
 export interface PlaceRow {
   name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null;
@@ -38,6 +39,7 @@ export interface PlaceRow {
   lat?: string | number | null; lng?: string | number | null;
   altitude_m?: number | null;
   hazard_types?: string[] | null;
+  profile_source?: string | null;
   nearest_medical_km?: string | number | null;
   sat_communicator_required?: boolean | null;
   registration_required?: boolean | null;
@@ -68,7 +70,17 @@ export function placeFactLines(p: PlaceRow): string[] {
   const lat = num(p.lat), lng = num(p.lng);
   if (lat != null && lng != null) lines.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   if (p.altitude_m != null && p.altitude_m > 0) lines.push(`Высота: ${p.altitude_m} м`);
-  const hazards = (p.hazard_types ?? [])
+  // Опасности, выведенные шаблоном 070 из location_type, фактом не называются:
+  // правило одно на платформу (lib/safety/profile-source.ts, миграция 1100).
+  // Эта карточка уходит в MCP, то есть читает её чужой ИИ-клиент и повторяет
+  // как факт — тем опаснее, чем дальше от базы.
+  const hazards = honestSafetyFields(
+    {
+      hazardTypes: p.hazard_types ?? [],
+      capacityPerDay: null, optimalGroupSize: null, difficultyLevel: null, terrainType: null,
+    },
+    asProfileSource(p.profile_source ?? null),
+  ).hazardTypes
     .map((h) => HAZARDS[h]?.label?.toLocaleLowerCase('ru-RU'))
     .filter((h): h is string => Boolean(h));
   if (hazards.length > 0) lines.push(`Опасности: ${[...new Set(hazards)].join(', ')}`);
@@ -139,7 +151,7 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
       // («может знать скрытое место, но ссылку на невидимую страницу не даём»).
       `SELECT p.name, p.description, p.category, p.district, p.is_visible,
               p.location_type, p.lat, p.lng,
-              lsp.altitude_m, lsp.hazard_types, lsp.nearest_medical_km,
+              lsp.altitude_m, lsp.hazard_types, lsp.profile_source, lsp.nearest_medical_km,
               lsp.sat_communicator_required, lsp.registration_required
          FROM places p
          LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id

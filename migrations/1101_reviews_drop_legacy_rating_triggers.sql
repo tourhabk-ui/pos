@@ -1,0 +1,62 @@
+-- 1101_reviews_drop_legacy_rating_triggers.sql
+--
+-- Турист не мог оставить отзыв о месте НИ ОДНОГО РАЗА.
+--
+-- ── Что происходило ──────────────────────────────────────────────────────
+--
+-- Живой запрос с сессией туриста (обход экранов 26.09, локальное приложение
+-- на схеме из baseline прода + все миграции):
+--
+--   POST /api/places/44444444-.../reviews  {"rating":5,"comment":"..."}
+--   HTTP 500
+--   {"success":false,"error":"record \"new\" has no field \"operator_id\""}
+--
+-- Отказ давал не сам INSERT, а триггер `update_partner_rating_trigger` на
+-- таблице `reviews`: функция обращается к `NEW.operator_id` и `NEW.guide_id`,
+-- а таких колонок у `reviews` НЕТ и никогда не было (её колонки: id, user_id,
+-- tour_id, rating, comment, is_verified, operator_reply, operator_reply_at,
+-- created_at, updated_at, place_id, author_name). PL/pgSQL проверяет поля
+-- записи на исполнении, поэтому падала КАЖДАЯ вставка — не иногда, не под
+-- нагрузкой. Проверено `BEGIN; INSERT ...; ROLLBACK` на настоящем
+-- PostgreSQL: с включённым триггером `record "new" has no field
+-- "operator_id"`, с выключенным — `INSERT 0 1`.
+--
+-- Отсюда два следствия, которые видит турист:
+--   • форма «Оставить отзыв» на карточке места (§9, блок 10) отвечает 500;
+--   • блок отзывов у места и у маршрута пуст ВСЕГДА, и пустота читается как
+--     «никто не оценил» вместо «записать было нечем» (§4.0).
+--
+-- ── Почему триггеры удаляются, а не правятся ─────────────────────────────
+--
+-- Оба триггера на `reviews` пришли из baseline и оба обслуживают мёртвую
+-- схему:
+--
+--   update_partner_rating()  — считает AVG по `reviews r JOIN tours t`
+--                              и пишет в `partners.rating`;
+--   update_tour_rating()     — пишет в `tours.rating` / `tours.review_count`.
+--
+-- `FROM tours` запрещён правилами платформы (§4): живые туры — в
+-- `operator_tours`, и живые отзывы о туре — в `operator_tour_reviews`, куда
+-- пишет `/api/reviews/tour/[tourId]` со своим пересчётом рейтинга. То есть
+-- починить эти функции значило бы оживить путь к таблице, которой в платформе
+-- больше нет.
+--
+-- Вторая причина — сам способ счёта: `COALESCE(AVG(rating), 0)` записывает
+-- «0» там, где отзывов нет. Это ровно тот выдуманный рейтинг, который §4.0
+-- называет своим первым примером: «rating: 4.5 у перевозчика, которого никто
+-- не оценивал». Ноль — не пустота, и ставить его вместо «не оценивали»
+-- нельзя.
+--
+-- Удаление не меняет ни одного значения в `partners` и `tours`: функции не
+-- выполнялись успешно ни разу (любая вставка в `reviews` падала до них), а
+-- на DELETE и UPDATE `reviews` они падали бы так же. Пересчёт рейтинга
+-- партнёра по отзывам — отдельное решение владельца; появится оно — появится
+-- вместе с производителем и сторожем, а не как забытый триггер из baseline.
+--
+-- Идемпотентно: IF EXISTS на каждом объекте.
+
+DROP TRIGGER IF EXISTS update_partner_rating_trigger ON reviews;
+DROP TRIGGER IF EXISTS update_tour_rating_trigger ON reviews;
+
+DROP FUNCTION IF EXISTS update_partner_rating();
+DROP FUNCTION IF EXISTS update_tour_rating();

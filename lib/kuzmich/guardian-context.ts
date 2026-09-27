@@ -3,6 +3,7 @@ import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsPhrase, kfegsIsFresh, levelForColor, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 
 interface GuardianPlaceRow {
@@ -12,6 +13,7 @@ interface GuardianPlaceRow {
   lat: number | null;
   lng: number | null;
   hazard_types: string[] | null;
+  profile_source: string | null;
   difficulty_level: number | null;
   altitude_m: number | null;
   nearest_medical_km: number | null;
@@ -230,7 +232,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     pool.query<GuardianPlaceRow>(
       `SELECT
          p.name, p.description, p.location_type, p.lat, p.lng,
-         lsp.hazard_types, lsp.difficulty_level, lsp.altitude_m,
+         lsp.hazard_types, lsp.difficulty_level, lsp.altitude_m, lsp.profile_source,
          lsp.nearest_medical_km, lsp.sat_communicator_required,
          lsp.capacity_per_day, lsp.open_from_date, lsp.open_to_date,
          lrs.is_open, lrs.current_crowds, lrs.active_alerts,
@@ -395,8 +397,24 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     const kfegs = kfegsLine(p);
     if (kfegs) parts.push(kfegs);
 
-    if (p.tourists_today !== null && p.capacity_per_day) {
-      parts.push(`Сегодня посетило: ${p.tourists_today} чел. (норма ${p.capacity_per_day}/день).`);
+    // Опасности, лимит и сложность у большинства мест выведены шаблоном 070 из
+    // location_type, а не измерены. Проводник произносит их предложениями
+    // («Есть лавинная опасность»), то есть звучит увереннее любого бейджа —
+    // поэтому доказанный шаблон он не произносит вовсе
+    // (lib/safety/profile-source.ts, миграция 1100).
+    const honest = honestSafetyFields(
+      {
+        hazardTypes: p.hazard_types ?? [],
+        capacityPerDay: p.capacity_per_day,
+        optimalGroupSize: null,
+        difficultyLevel: p.difficulty_level,
+        terrainType: null,
+      },
+      asProfileSource(p.profile_source),
+    );
+
+    if (p.tourists_today !== null && honest.capacityPerDay) {
+      parts.push(`Сегодня посетило: ${p.tourists_today} чел. (норма ${honest.capacityPerDay}/день).`);
     }
 
     if (p.altitude_m) parts.push(`Высота ${p.altitude_m} м.`);
@@ -409,8 +427,8 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       parts.push('Требуется спутниковый коммуникатор.');
     }
 
-    if (p.hazard_types?.length) {
-      const hazards = p.hazard_types.map((h) => hazardLabelLower(h)).join(', ');
+    if (honest.hazardTypes.length) {
+      const hazards = honest.hazardTypes.map((h) => hazardLabelLower(h)).join(', ');
       parts.push(`Опасности: ${hazards}.`);
     } else if (!p.altitude_m && !p.nearest_medical_km && !p.sat_communicator_required) {
       parts.push('Профиль безопасности для этого места не оцифрован.');

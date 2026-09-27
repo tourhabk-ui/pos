@@ -1,6 +1,8 @@
 /**
  * GET /api/tours/[id]/slots
- * Публичный. Возвращает ближайшие доступные даты из tour_availability для operator_tour_id.
+ * Публичный. Возвращает ближайшие доступные даты из tour_availability для
+ * operator_tour_id — но только если сам тур на витрине (`publicTourSql`);
+ * иначе 404, а не пустой список.
  *
  * Занятость считается из operator_bookings (та же логика, что у гейткипера
  * /api/hub/bookings/create), а НЕ из счётчика booked_slots: счётчик
@@ -11,6 +13,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +27,22 @@ export async function GET(
     const { id } = await params;
     const tourId = parseInt(id, 10);
     if (!tourId) return NextResponse.json({ success: false, error: 'Invalid id' }, { status: 400 });
+
+    // Сам тур обязан быть на витрине. До этой правки даты отдавались по ЛЮБОМУ
+    // id — черновик оператора, снятый с витрины тур, удалённый, — и календарь
+    // обещал свободные места там, где тура для туриста нет. Шлюз витрины один
+    // на все публичные чтения туров (lib/tours/public-visibility.ts).
+    //
+    // Отдельным запросом, а не условием в JOIN, намеренно: пустой список дат
+    // значит «свободных дат нет», и подменять им «такого тура нет» — выдавать
+    // одно состояние за другое (§4.0). Разные ответы — разные исходы.
+    const visible = await pool.query(
+      `SELECT 1 FROM operator_tours ot WHERE ot.id = $1 AND ${publicTourSql('ot')}`,
+      [tourId],
+    );
+    if (visible.rowCount === 0) {
+      return NextResponse.json({ success: false, error: 'Тур не найден' }, { status: 404 });
+    }
 
     const { rows } = await pool.query(
       `SELECT

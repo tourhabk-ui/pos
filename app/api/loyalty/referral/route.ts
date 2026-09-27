@@ -30,7 +30,9 @@ export async function GET(request: NextRequest) {
         },
       },
     });
-  } catch {
+  } catch (error) {
+   const e = error as { code?: string; message?: string };
+   console.error('[loyalty/referral] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({ success: false, error: 'Ошибка загрузки реферальных данных' }, { status: 500 });
   }
 }
@@ -54,7 +56,9 @@ export async function POST(request: NextRequest) {
         shareUrl: withReferral(getPublicBaseUrl(), code),
       },
     });
-  } catch {
+  } catch (error) {
+   const e = error as { code?: string; message?: string };
+   console.error('[loyalty/referral] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({ success: false, error: 'Ошибка генерации кода' }, { status: 500 });
   }
 }

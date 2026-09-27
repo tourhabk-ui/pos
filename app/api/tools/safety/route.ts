@@ -8,6 +8,7 @@ import { query } from '@/lib/database';
 import { callAIFast } from '@/lib/ai/providers';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { hazardLabel } from '@/lib/safety/hazard-labels';
+import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
           [data.routeId],
         ),
         query(
-          `SELECT p.name, sp.hazard_types, sp.difficulty_level, sp.altitude_m,
+          `SELECT p.name, sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
                   sp.nearest_medical_km, sp.sat_communicator_required,
                   sp.registration_required,
                   rs.alert_severity, rs.alert_message
@@ -91,12 +92,27 @@ export async function POST(request: NextRequest) {
       const r = routeRes.rows[0];
       const wps = wpRes.rows;
 
-      // Агрегация опасностей по всем точкам маршрута
+      // Агрегация опасностей по всем точкам маршрута. Из точек берём только
+      // то, что не выдумал шаблон 070 (lib/safety/profile-source.ts): иначе
+      // маршрут через любой вулкан получал лавины, а через источник — химию.
+      // Опасности самого маршрута (kamchatka_routes.hazards) шаблон не
+      // заполнял — они идут как есть.
+      const honestWps = wps.map(wp => ({
+        ...wp,
+        ...honestSafetyFields(
+          {
+            hazardTypes: Array.isArray(wp.hazard_types) ? (wp.hazard_types as string[]) : [],
+            capacityPerDay: null,
+            optimalGroupSize: null,
+            difficultyLevel: wp.difficulty_level != null ? Number(wp.difficulty_level) : null,
+            terrainType: null,
+          },
+          asProfileSource(wp.profile_source),
+        ),
+      }));
       const allHazards = new Set<string>();
       (Array.isArray(r.hazards) ? (r.hazards as string[]) : []).forEach(h => allHazards.add(h));
-      wps.forEach(wp => {
-        if (Array.isArray(wp.hazard_types)) (wp.hazard_types as string[]).forEach(h => allHazards.add(h));
-      });
+      honestWps.forEach(wp => { wp.hazardTypes.forEach(h => allHazards.add(h)); });
       const hazards = Array.from(allHazards);
 
       const maxAlertSeverity = wps.reduce((m: number | null, wp) => {
@@ -105,8 +121,8 @@ export async function POST(request: NextRequest) {
         return m == null ? s : Math.max(m, s);
       }, null);
 
-      const maxDifficulty = wps.reduce((m: number | null, wp) => {
-        const d = wp.difficulty_level != null ? Number(wp.difficulty_level) : null;
+      const maxDifficulty = honestWps.reduce((m: number | null, wp) => {
+        const d = wp.difficultyLevel;
         if (d == null) return m;
         return m == null ? d : Math.max(m, d);
       }, r.difficulty != null ? Number(r.difficulty) : null);
@@ -211,7 +227,7 @@ export async function POST(request: NextRequest) {
       ? `SELECT
            p.id, p.name, p.location_type, p.description,
            p.lat, p.lng,
-           sp.hazard_types, sp.difficulty_level, sp.altitude_m,
+           sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
            sp.nearest_medical_km, sp.sat_communicator_required,
            sp.registration_required,
            rs.is_open, rs.current_crowds, rs.alert_severity,
@@ -224,7 +240,7 @@ export async function POST(request: NextRequest) {
       : `SELECT
            p.id, p.name, p.location_type, p.description,
            p.lat, p.lng,
-           sp.hazard_types, sp.difficulty_level, sp.altitude_m,
+           sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
            sp.nearest_medical_km, sp.sat_communicator_required,
            sp.registration_required,
            rs.is_open, rs.current_crowds, rs.alert_severity,
@@ -243,9 +259,23 @@ export async function POST(request: NextRequest) {
     }
 
     const r = result.rows[0];
-    const hazards: string[] = Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [];
+    // Опасности и сложность, выведенные шаблоном 070 из location_type, не
+    // произносятся как факты и не участвуют в оценке риска: выдуманная
+    // лавинная опасность повышала бы риск городского парка
+    // (lib/safety/profile-source.ts, миграция 1100).
+    const honest = honestSafetyFields(
+      {
+        hazardTypes: Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [],
+        capacityPerDay: null,
+        optimalGroupSize: null,
+        difficultyLevel: r.difficulty_level != null ? Number(r.difficulty_level) : null,
+        terrainType: null,
+      },
+      asProfileSource(r.profile_source),
+    );
+    const hazards: string[] = honest.hazardTypes;
     const alertSeverity = r.alert_severity != null ? Number(r.alert_severity) : null;
-    const difficultyLevel = r.difficulty_level != null ? Number(r.difficulty_level) : null;
+    const difficultyLevel = honest.difficultyLevel;
     const riskScore = computeRiskScore(hazards, alertSeverity, difficultyLevel);
 
     const contextParts: string[] = [
@@ -305,7 +335,7 @@ export async function POST(request: NextRequest) {
           isOpen:        r.is_open as boolean | null,
           alertSeverity,
           alertMessage:  (r.alert_message as string | null) ?? null,
-          currentCrowds: r.current_crowds != null ? Number(r.current_crowds) : null,
+          currentCrowds: crowdsOnScale(r.current_crowds),
           activeAlerts:  (r.active_alerts as string[] | null) ?? null,
         } : null,
         riskScore,
