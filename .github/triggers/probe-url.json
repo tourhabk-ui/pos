@@ -1,17 +1,17 @@
 {
-  "note": "27.09, прогон 612. ТОЛЬКО ЧТЕНИЕ. Вулкан Вилючинский: есть ли герой (photoCount, автор/модель снимка) — решаем, герой или галерея для снимка владельца.",
-  "run": 612,
+  "note": "27.09, прогон 613. ТОЛЬКО ЧТЕНИЕ. Миграция 1037: снимок владельца «вид с озера Микижа» в галерее Вилючинского вулкана — есть ли place-gallery в карточке и сколько снимков.",
+  "run": 613,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
   "bytes": 100,
+  "count": [
+    "place-gallery/"
+  ],
   "around": [
     "\"photoCount\"",
-    "\"photoModel\"",
-    "\"photoAuthor\"",
-    "\"images\"",
-    "\"ark"
+    "place-gallery/"
   ],
   "aroundLines": 0,
   "aroundHits": 2,
