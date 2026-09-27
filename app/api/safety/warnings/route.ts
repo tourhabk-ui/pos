@@ -138,7 +138,7 @@ export async function GET(req: Request) {
       activity_type: routeInfo.activity_type ?? undefined,
       // Опасности шаблона 070 (выведены из location_type, не измерены) в
       // предупреждения не идут: правило одно на платформу
-      // (lib/safety/profile-source.ts, миграция 1036).
+      // (lib/safety/profile-source.ts, миграция 1038).
       hazard_types: honestHazards(routeInfo) ?? undefined,
       zone: routeInfo.zone ?? undefined,
       operator_tour: operatorTour,
@@ -150,7 +150,7 @@ export async function GET(req: Request) {
       activity_type: routeInfo.activity_type ?? undefined,
       // Опасности шаблона 070 (выведены из location_type, не измерены) в
       // предупреждения не идут: правило одно на платформу
-      // (lib/safety/profile-source.ts, миграция 1036).
+      // (lib/safety/profile-source.ts, миграция 1038).
       hazard_types: honestHazards(routeInfo) ?? undefined,
       zone: routeInfo.zone ?? undefined,
       operator_tour: operatorTour,

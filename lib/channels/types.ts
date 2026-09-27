@@ -65,6 +65,12 @@ export interface PushBookingResult {
 
 export interface ChannelAdapter {
   name: ChannelName;
+  /**
+   * Заданы ли ключи канала. Отдельный вопрос, а не пустой список заказов:
+   * «не настроен» и «заказов нет» — разные состояния (§4.0), и до 26.09 крон
+   * отвечал на оба одинаково — нулём.
+   */
+  isConfigured(): boolean;
   pushBooking(input: PushBookingInput): Promise<PushBookingResult>;
   pollOrders(since: Date): Promise<ChannelBooking[]>;
 }

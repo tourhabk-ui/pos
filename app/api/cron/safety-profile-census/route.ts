@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
       checked_at: new Date().toISOString(),
       profiles_total: total,
       by_source: counts,
-      /** Строк, которым миграция 1036 источник не присвоила: места нет в agent_route_knowledge. */
+      /** Строк, которым миграция 1038 источник не присвоила: места нет в agent_route_knowledge. */
       source_not_recorded: sourceNotRecorded,
       template_hazard_sets: byHazardSet.rows.map((r) => ({
         hazards: r.hazard_set === '' ? null : r.hazard_set,

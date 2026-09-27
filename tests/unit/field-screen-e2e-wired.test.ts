@@ -21,7 +21,7 @@ describe('e2e экрана «На маршруте» подключён', () => 
 
   it('job ci гоняет её после сборки на своём сервере', () => {
     const ci = read('.github/workflows/ci.yml');
-    const build = ci.indexOf('run: npm run build');
+    const build = ci.indexOf('- name: Build (Next.js)');
     const run = ci.indexOf('test/e2e/field-screen.spec.ts');
     expect(build).toBeGreaterThan(-1);
     expect(run).toBeGreaterThan(build);

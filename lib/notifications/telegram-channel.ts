@@ -6,6 +6,7 @@
  *   Б — уведомления: новые лиды и брони (в TELEGRAM_CHAT_ID, admin-группа)
  */
 
+import { channelHeadline, channelKicker, channelFacts, channelPost, escHtml } from '@/lib/notifications/channel-style';
 import { query } from '@/lib/database';
 import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
 import { ruThousands } from '@/lib/text/digest-polish';
@@ -517,26 +518,16 @@ export async function postRouteToChannel(routeId: string, photoUrl?: string): Pr
   const desc = r.description ? r.description.slice(0, 200).trimEnd() + (r.description.length > 200 ? '…' : '') : '';
   const appUrl = getPublicBaseUrl();
 
-  const lines: string[] = [];
-  lines.push(`🌋 <b>${esc(r.title)}</b>`);
-  lines.push('');
-  if (desc) lines.push(esc(desc));
-  lines.push('');
-
-  const tags: string[] = [];
-  if (locLabel)  tags.push(`📍 ${esc(locLabel)}`);
-  if (actLabel)  tags.push(`🥾 ${esc(actLabel)}`);
-  if (tags.length) lines.push(tags.join('  ·  '));
-
+  // Стандарт постов канала (lib/notifications/channel-style, 27.09):
+  // заголовок-ссылка, подзаголовок курсивом, факты плашкой, без эмодзи.
   const meta: string[] = [];
   if (r.duration_days) meta.push(`${r.duration_days} дн.`);
   if (r.price_from)    meta.push(`от ${r.price_from.toLocaleString('ru-RU')} ₽`);
-  if (meta.length) lines.push(`💰 ${meta.join('  ·  ')}`);
-
-  lines.push('');
-  lines.push(`<a href="${appUrl}/routes/${r.id}">Смотреть маршрут →</a>`);
-
-  const text = lines.join('\n');
+  const text = channelPost([
+    [channelHeadline(r.title, `${appUrl}/routes/${r.id}`), channelKicker([locLabel, actLabel])],
+    desc ? escHtml(desc) : null,
+    channelFacts([meta.length > 0 ? meta.join(' · ') : null]),
+  ]);
   return postToAllChannels({ channelId, postType: 'route', text, photoUrl });
 }
 
@@ -569,15 +560,12 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
   const desc = p.description ? p.description.slice(0, 250).trimEnd() + (p.description.length > 250 ? '…' : '') : '';
   const appUrl = getPublicBaseUrl();
 
-  const lines: string[] = [];
-  lines.push(`🏔 <b>${esc(p.name)}</b> — партнёр TourHab`);
-  lines.push('');
-  if (desc) lines.push(esc(desc));
-  if (p.location) lines.push(`\n📍 ${esc(p.location)}`);
-  lines.push('');
-  lines.push(`<a href="${appUrl}/operators/${p.slug}">Профиль оператора →</a>`);
-
-  const text = lines.join('\n');
+  // Стандарт постов канала (channel-style, 27.09). Прежняя подпись несла
+  // старое имя бренда; платформа называется Ведар.
+  const text = channelPost([
+    [channelHeadline(p.name, `${appUrl}/operators/${p.slug}`), channelKicker(['Оператор-партнёр Ведара', p.location])],
+    desc ? escHtml(desc) : null,
+  ]);
   const photo = photoUrl ?? p.hero_image ?? undefined;
   return postToAllChannels({ channelId, postType: 'operator', text, photoUrl: photo });
 }

@@ -19,6 +19,7 @@
  * workflow не задваивает пост в канале.
  */
 
+import { channelHeadline, channelKicker, channelFacts, channelLink, channelPost } from '@/lib/notifications/channel-style';
 import { createHash } from 'node:crypto';
 import { query } from '@/lib/database';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -67,45 +68,35 @@ function durationLine(row: TourPostRow): string | null {
  * Ни одного слова «от себя» — см. заголовок файла.
  */
 export function buildTourPostText(row: TourPostRow, baseUrl: string): string {
-  const lines: string[] = [];
-
+  // Стандарт постов канала (lib/notifications/channel-style, 27.09): заголовок
+  // сам ведёт на тур, «что и где» — курсивом, факты и цена — плашкой. Прежняя
+  // строка КАПСОМ над заголовком ушла в подзаголовок.
+  const url = `${baseUrl.replace(/\/$/, '')}/catalog/tours/${row.id}`;
   const kind = activityLabel(row.activity_type, true);
-  if (kind) lines.push(escapeHtml(kind.toUpperCase()));
-
-  lines.push(`<b>${escapeHtml(row.title)}</b>`);
-
-  if (row.short_description) {
-    lines.push('');
-    lines.push(escapeHtml(row.short_description));
-  }
 
   const facts: string[] = [];
-  if (row.location) facts.push(escapeHtml(row.location));
   const dur = durationLine(row);
   if (dur) facts.push(dur);
   if (row.max_participants) facts.push(`до ${row.max_participants} чел.`);
   const diff = difficultyLabel(row.difficulty, true);
   if (row.difficulty && diff) facts.push(escapeHtml(diff));
-  if (facts.length > 0) {
-    lines.push('');
-    lines.push(facts.join(' · '));
-  }
 
   const price = row.base_price == null ? null : Number(row.base_price);
-  if (price && price > 0) {
-    const unit = priceUnitLabel(row.price_unit, true);
-    lines.push('');
-    lines.push(`<b>${price.toLocaleString('ru-RU')} ₽</b>${unit ? ` ${escapeHtml(unit)}` : ''}`);
-  }
+  const unit = priceUnitLabel(row.price_unit, true);
+  const priceLine = price && price > 0
+    ? `<b>${price.toLocaleString('ru-RU')} ₽</b>${unit ? ` ${escapeHtml(unit)}` : ''}`
+    : null;
 
-  if (row.operator_name) {
-    lines.push(`Оператор: ${escapeHtml(row.operator_name)}`);
-  }
-
-  lines.push('');
-  lines.push(`<a href="${baseUrl.replace(/\/$/, '')}/catalog/tours/${row.id}">Подробности и бронирование</a>`);
-
-  return lines.join('\n').slice(0, CAPTION_LIMIT);
+  return channelPost([
+    [channelHeadline(row.title, url), channelKicker([kind, row.location])],
+    row.short_description ? escapeHtml(row.short_description) : null,
+    channelFacts([
+      facts.length > 0 ? facts.join(' · ') : null,
+      priceLine,
+      row.operator_name ? `Оператор: ${escapeHtml(row.operator_name)}` : null,
+    ]),
+    channelLink('Подробности и бронирование', url),
+  ]).slice(0, CAPTION_LIMIT);
 }
 
 export function tourPostHash(text: string): string {

@@ -758,7 +758,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // Везде judgeClaims, у которого исход именной.
 import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
-import { aiPostTooThin, aiPostButtons, aiPostMaterials, kamchatkaDate } from '@/lib/notifications/ai-post-shape';
+import { aiPostTooThin, aiPostMaterials, kamchatkaDate, toJournalLayout } from '@/lib/notifications/ai-post-shape';
 
 /**
  * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
@@ -1394,20 +1394,19 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
 <b>AI-дайджест · ${today}</b>
 
-<b>[Цепляющий заголовок — суть в 5-8 слов]</b>
+<b><a href="URL">[Цепляющий заголовок — суть в 5-8 слов]</a></b>
 [2 предложения: что сделали, конкретика — версии/цифры/инструмент]
-<b>Почему важно:</b> [1-2 предложения: практический вывод для строителя агентов]
-<a href="URL">Читать →</a>
+<blockquote><b>Почему важно:</b> [1-2 предложения: практический вывод для строителя агентов]</blockquote>
 
-<b>[Второй заголовок]</b>
+<b><a href="URL">[Второй заголовок]</a></b>
 [2 предложения конкретики]
-<b>Почему важно:</b> [практический вывод]
-<a href="URL">Читать →</a>
+<blockquote><b>Почему важно:</b> [практический вывод]</blockquote>
 
 <blockquote expandable>[Необязательный третий материал или глубокий нюанс — что меняется в практике]</blockquote>
 
 ПРАВИЛА:
-- <a href="URL"> только если URL реально был в сигнале
+- Заголовок материала — ссылка на его статью; <a href="URL"> только если URL реально был в сигнале
+- Строк «Читать →» нет: ссылка уже в заголовке
 - Без буллитов (•) и нумерации, без «интересно/важно отметить»
 - Технический, уверенный тон. Как пишет инженер инженерам, а не SMM
 - Пиши по-русски (даже если источник английский — синтезируй русский инсайт)`,
@@ -1512,10 +1511,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
       }
 
       if (aiDigest) {
-        // Кнопки — на материалы САМОГО поста, его русскими заголовками. До
-        // 26.09 они строились из первых трёх сигналов ленты: английские
-        // заголовки, и один вёл на материал, которого в посте не было.
-        const buttons = aiPostButtons(aiDigest);
+        // Вёрстка «Журнал» (владелец 27.09): заголовок — ссылка на статью,
+        // «Почему важно» — плашкой цитаты. Приводится детерминированно, после
+        // фактчека: разметка меняется, утверждения и ссылки — нет. Кнопок под
+        // постом больше нет — они повторяли бы заголовки-ссылки.
+        aiDigest = toJournalLayout(aiDigest);
         // Над постом — превью ПЕРВОЙ статьи выпуска (решение владельца 26.09,
         // вариант «а»). Своя карточка-обложка 24.09 повторяла заголовок,
         // стоящий прямо под ней, и читалась шаблоном («полный кринж»); сцена
@@ -1527,7 +1527,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         const coverUrl = aiPostMaterials(aiDigest)[0]?.url;
         // Подвал с реферальными ссылками владельца — после фактчека.
         const aiPost = withAiChannelFooter(aiDigest, TELEGRAM_TEXT_LIMIT, repairTelegramHtml);
-        aiSent = await tgSendRich(aiChannelId, aiPost, buttons.length > 0 ? buttons : undefined, coverUrl, (reason) => { aiSkipDetail = reason; });
+        aiSent = await tgSendRich(aiChannelId, aiPost, undefined, coverUrl, (reason) => { aiSkipDetail = reason; });
         aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }

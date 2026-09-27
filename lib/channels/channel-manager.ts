@@ -7,7 +7,13 @@
  * Алгоритм:
  * 1. Для каждого активного канала → pollOrders(since)
  * 2. Новые заказы → upsert в channel_orders
- * 3. Для каждого нового заказа → создаём operator_booking + уведомление
+ *
+ * Создания operator_booking и уведомления из заказа канала НЕТ: заказы
+ * копятся в channel_orders. Прежняя строка шапки обещала этот шаг, а кода
+ * под ней не было — докстрока, обещающая путь, которого нет (§10.09).
+ *
+ * Три исхода на канал, а не два (§4.0): synced, not_configured (ключей нет —
+ * это не «ноль заказов»), failed (ключи есть, опрос не удался).
  */
 
 import { pool } from '@/lib/db-pool';
@@ -17,8 +23,11 @@ import type { ChannelBooking, ChannelName } from './types';
 
 const ADAPTERS = [tripsterAdapter, avitoAdapter];
 
+export type ChannelSyncState = 'synced' | 'not_configured' | 'failed';
+
 export interface SyncResult {
   channel: ChannelName;
+  state: ChannelSyncState;
   new_orders: number;
   errors: string[];
 }
@@ -28,7 +37,13 @@ export async function syncAllChannels(since?: Date): Promise<SyncResult[]> {
   const results: SyncResult[] = [];
 
   for (const adapter of ADAPTERS) {
-    const result: SyncResult = { channel: adapter.name, new_orders: 0, errors: [] };
+    const result: SyncResult = { channel: adapter.name, state: 'synced', new_orders: 0, errors: [] };
+
+    if (!adapter.isConfigured()) {
+      result.state = 'not_configured';
+      results.push(result);
+      continue;
+    }
 
     try {
       const orders = await adapter.pollOrders(sinceDate);
@@ -42,7 +57,9 @@ export async function syncAllChannels(since?: Date): Promise<SyncResult[]> {
         }
       }
     } catch (e) {
+      result.state = 'failed';
       result.errors.push((e as Error).message);
+      console.error(`[channel-sync] ${adapter.name}: опрос не удался:`, (e as Error).message);
     }
 
     results.push(result);

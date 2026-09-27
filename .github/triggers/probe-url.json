@@ -1,16 +1,21 @@
 {
-  "note": "26.09, прогон 608. ТОЛЬКО ЧТЕНИЕ. Issue #2064: разметка текста статьи kamtoday со сводкой Минтура — где начинается и кончается articleBody, как разделены пункты.",
-  "run": 608,
+  "note": "27.09, прогон 612. ТОЛЬКО ЧТЕНИЕ. Вулкан Вилючинский: есть ли герой (photoCount, автор/модель снимка) — решаем, герой или галерея для снимка владельца.",
+  "run": 612,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
   "bytes": 100,
-  "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
-  "around": ["itemprop=\"articleBody\""],
-  "aroundLines": 70,
-  "aroundHits": 1,
+  "around": [
+    "\"photoCount\"",
+    "\"photoModel\"",
+    "\"photoAuthor\"",
+    "\"images\"",
+    "\"ark"
+  ],
+  "aroundLines": 0,
+  "aroundHits": 2,
   "urls": [
-    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/"
+    "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933"
   ]
 }

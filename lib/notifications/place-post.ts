@@ -1,3 +1,4 @@
+import { channelHeadline, channelKicker, channelLink, channelPost } from '@/lib/notifications/channel-style';
 /**
  * Пост о месте для канала — из данных, без модели.
  *
@@ -45,8 +46,8 @@ export const PLACE_POST_MAX_DESCRIPTION = 700;
  * «маршрут» не звучат вовсе: promisesRouteOrTrack ловит их как обещание.
  */
 export const PLACE_LINK_LINE = {
-  track:   'GPS-трек и карта — на странице места:',
-  noTrack: 'Описание и точка на карте — на странице места:',
+  track:   'GPS-трек и карта — на странице места',
+  noTrack: 'Описание и точка на карте — на странице места',
 } as const;
 
 function escHtml(s: string): string {
@@ -75,14 +76,12 @@ export function composePlacePost(src: PlacePostSource, opts: PlacePostOptions): 
   const description = src.description?.trim();
   if (!description) return null;
 
-  const labels = [opts.locLabel, opts.actLabel].filter((s): s is string => !!s && s.trim().length > 0);
-  const lines: string[] = [];
-  lines.push(`<b>${escHtml(src.title.trim())}</b>`);
-  if (labels.length > 0) lines.push(`<i>${escHtml(labels.join(' · '))}</i>`);
-  lines.push('');
-  lines.push(escHtml(clipToSentence(description, opts.maxDescription ?? PLACE_POST_MAX_DESCRIPTION)));
-  lines.push('');
-  lines.push(src.has_track ? PLACE_LINK_LINE.track : PLACE_LINK_LINE.noTrack);
-  lines.push(`${opts.appUrl.replace(/\/+$/, '')}/routes/${src.id}`);
-  return lines.join('\n');
+  // Стандарт постов канала (channel-style, 27.09): заголовок ведёт на
+  // страницу, подпись про страницу — сама ссылка, а не голый адрес строкой.
+  const url = `${opts.appUrl.replace(/\/+$/, '')}/routes/${src.id}`;
+  return channelPost([
+    [channelHeadline(src.title, url), channelKicker([opts.locLabel, opts.actLabel])],
+    escHtml(clipToSentence(description, opts.maxDescription ?? PLACE_POST_MAX_DESCRIPTION)),
+    channelLink(src.has_track ? PLACE_LINK_LINE.track : PLACE_LINK_LINE.noTrack, url),
+  ]);
 }
