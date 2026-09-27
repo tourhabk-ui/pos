@@ -86,7 +86,10 @@ export async function POST(req: NextRequest) {
 
     const parsed = RecommendSchema.parse(mergedBody);
 
-    if (parsed.arrivalDate && parsed.departureDate && parsed.departureDate <= parsed.arrivalDate) {
+    // Равные даты допустимы: это поездка на ОДИН день. Форма их и так
+    // позволяет (`min={arrival}`), а сервер отвергал — и житель края,
+    // собравший однодневный выход, получал отказ на том, что форма разрешила.
+    if (parsed.arrivalDate && parsed.departureDate && parsed.departureDate < parsed.arrivalDate) {
       return NextResponse.json(
         // Нейтрально: у местного прилёта нет, а даты те же самые — первый и
         // последний день поездки (lib/planner/trip-origin).

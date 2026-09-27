@@ -44,7 +44,7 @@ import {
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { tourDaySpan } from '@/lib/planner/tour-span';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
-import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, type PlaceLoad } from '@/lib/planner/flow-balance';
+import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -173,7 +173,12 @@ interface ZoneRecommendation {
   score: number;
   reason: string;
   bestMonths: number[];
-  crowdScore?: number;          // 0-100: how crowded this zone is during trip dates
+  /**
+   * Занятость зоны на даты поездки, 0-100. `null` — НЕ ИЗМЕРЕНА: слотов на
+   * эти даты нет вовсе либо запрос не выполнился. Ноль значит «свободно» и
+   * только это.
+   */
+  crowdScore?: number | null;
 }
 
 export interface TripRecommendation {
@@ -519,10 +524,33 @@ function pluralDays(n: number): string {
   }
 }
 
+/**
+ * Сколько КАЛЕНДАРНЫХ ДНЕЙ в поездке, считая и первый, и последний.
+ *
+ * ── Что было до 27.09 ─────────────────────────────────────────────────────
+ *
+ * Возвращалась разница дат, то есть число НОЧЕЙ, а называлось днями. Прогон
+ * на 10-17 июля давал семь дней, и последним днём плана — днём с подписью
+ * «Сборы утром. Трансфер в аэропорт, вылет днём» — оказывалось 16 июля. Рейс
+ * у человека 17-го.
+ *
+ * Цена этой ошибки считается по-разному в трёх местах:
+ *
+ *   • последняя строка плана читается как день рейса и указывала НЕ НА ТУ
+ *     дату — ровно тот же сорт неправды, что и день прилёта в плане жителя
+ *     края;
+ *   • последний календарный день поездки не планировался вовсе: человек
+ *     терял один день из каждой поездки;
+ *   • `trip_days` уходит в лид оператору (`source_data`), и оператор читал
+ *     «7 дней» о восьмидневной поездке.
+ *
+ * Равные даты — это ОДИН день, а не ноль: житель края выезжает утром и
+ * возвращается вечером, и такая поездка законна (решение владельца 27.09 про
+ * местных туристов).
+ */
 function getTripDays(profile: TripProfile): number {
   if (!profile.arrivalDate || !profile.departureDate) return 0;
-  const diff = new Date(profile.departureDate).getTime() - new Date(profile.arrivalDate).getTime();
-  return Math.max(0, Math.round(diff / 86400000));
+  return tripCalendarDays(profile.arrivalDate, profile.departureDate);
 }
 
 function hasYoungChildren(profile: TripProfile): boolean {
@@ -634,7 +662,10 @@ function collectWarnings(
   // него значит другое — погода на Камчатке переносит выход, и запаса дней
   // нет. Читать про «перелёт 8-9 часов из Москвы» жителю Петропавловска —
   // ровно тот же сорт неправды, что день прилёта в его плане (27.09).
-  if (tripDays > 0 && tripDays < 5) {
+  // Порог в КАЛЕНДАРНЫХ днях. Прежние `< 5` считались по ночам, то есть
+  // срабатывали на поездке короче шести календарных дней; `< 6` — тот же
+  // рубеж в новых единицах, а не новое решение о длине поездки.
+  if (tripDays > 0 && tripDays < 6) {
     warnings.push({
       type: 'duration', severity: 'important',
       message: asTripOrigin(profile.tripOrigin) === 'local'
@@ -795,6 +826,8 @@ async function scoreZones(
 ): Promise<ZoneRecommendation[]> {
   const month = getMonth(profile);
   const scores: Record<string, number> = {};
+  /** Занятость зоны на даты поездки; `null` — не измерена (§4.0). */
+  const crowd: Partial<Record<ZoneId, number | null>> = {};
 
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
@@ -838,10 +871,20 @@ async function scoreZones(
         scores[zone] = (scores[zone] ?? 0) + 5;
       }
     }
-    // Capacity check: penalize overloaded zones
+    // Capacity check: penalize overloaded zones.
+    //
+    // Занятость запоминается и уходит наружу меткой зоны (`crowdScore`):
+    // до 27.09 она считалась здесь, штрафовала оценку и терялась, а на экран
+    // шёл захардкоженный ноль — метка «загружено / умеренно» не могла
+    // зажечься ни при какой заполненности (§10.09: потребитель на экране был,
+    // производителя не было).
+    //
+    // `null` — не измерено, и штрафовать за него нельзя: «слотов на эти даты
+    // нет» не то же, что «зона переполнена».
     if (profile.arrivalDate && profile.departureDate) {
       const cap = await fetchZoneCapacity(zone, profile.arrivalDate, profile.departureDate, cache);
-      if (cap.utilizationPercent > 80) {
+      crowd[zone] = cap.utilizationPercent;
+      if (cap.utilizationPercent !== null && cap.utilizationPercent > 80) {
         scores[zone] = Math.max(0, (scores[zone] ?? 0) - 10);
       }
     }
@@ -856,7 +899,8 @@ async function scoreZones(
       score: Math.min(100, score),
       reason: `${profile.interests.filter(i => ACTIVITY_CONSTRAINTS[i]?.bestZones.includes(zone as ZoneId)).join(', ')}`,
       bestMonths: ZONE_BEST_MONTHS[zone as ZoneId] ?? [],
-      crowdScore: 0,
+      // Настоящая занятость зоны из реальных броней; `null` — не измерена.
+      crowdScore: crowd[zone as ZoneId] ?? null,
     }));
 }
 
@@ -1667,8 +1711,15 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   const origin = asTripOrigin(profile.tripOrigin);
   let accFrom = 0;
   let accTo = 0;
+  /**
+   * У ПОСЛЕДНЕГО дня поездки ночи нет — человек либо улетает, либо едет
+   * домой. Правило одно на оба случая: раньше пропускался только день с
+   * типом `departure`, и у местного (у которого такого дня нет вовсе) ночей
+   * выходило на одну больше, чем он проводит вне дома.
+   */
+  const lastDayNum = days.length > 0 ? days[days.length - 1]!.day : 0;
   for (const day of days) {
-    if (day.type === 'departure') continue;
+    if (day.type === 'departure' || day.day === lastDayNum) continue;
     if (day.realTour?.lodgingIncluded === true) continue;
     // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
     const sleepZone = sleepZoneOf(day.zone);

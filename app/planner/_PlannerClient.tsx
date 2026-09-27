@@ -2461,8 +2461,14 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   <div className="w-2 h-2 rounded-full" style={{ background: ZONE_COLORS[z.zone] ?? 'var(--accent)' }} />
                   <span className="text-xs font-medium text-[var(--text-primary)]">{ZONE_LABELS[z.zone] ?? z.zone}</span>
                   <span className="text-[10px] text-[var(--text-muted)]">{z.score}%</span>
-                  {z.crowdScore !== undefined && z.crowdScore > 50 && (
-                    <span className={`text-[10px] font-medium ${z.crowdScore > 70 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}`}>
+                  {/* Загрузка зоны — из реальных броней на даты поездки
+                      (27.09). До этого движок отдавал захардкоженный ноль, и
+                      метка не зажигалась ни при какой заполненности.
+                      `null` — не измерено (слотов на даты нет либо запрос не
+                      выполнился): тогда метки нет вовсе. Молчание честнее
+                      «свободно», которое мы не проверяли. */}
+                  {typeof z.crowdScore === 'number' && z.crowdScore > 50 && (
+                    <span className={`text-[10px] font-medium ${z.crowdScore > 70 ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}>
                       {z.crowdScore > 70 ? 'загружено' : 'умеренно'}
                     </span>
                   )}
