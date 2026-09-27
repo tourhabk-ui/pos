@@ -1,21 +1,12 @@
 {
-  "note": "27.09, прогон 613. ТОЛЬКО ЧТЕНИЕ. Миграция 1037: снимок владельца «вид с озера Микижа» в галерее Вилючинского вулкана — есть ли place-gallery в карточке и сколько снимков.",
-  "run": 613,
+  "note": "27.09, прогон 614. ТОЛЬКО ЧТЕНИЕ. Владелец: «Малкинские горячие источники — проверь описание». Читаем описание и факты записи 284c862f с прода.",
+  "run": 614,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 100,
-  "count": [
-    "place-gallery/"
-  ],
-  "around": [
-    "\"photoCount\"",
-    "place-gallery/"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 2,
+  "bytes": 6000,
   "urls": [
-    "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933"
+    "https://vedarai.ru/api/places/284c862f-a339-409d-988a-da4107324b60"
   ]
 }
