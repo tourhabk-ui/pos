@@ -16,6 +16,11 @@ import {
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
+import {
+  asTripOrigin, framingDays, activeBudget as framedActiveBudget,
+  arrivalDayText, departureDayText, nightIsAtHome, paysAirportTransfers,
+  HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, type TripOrigin,
+} from '@/lib/planner/trip-origin';
 export { ZONE_GRAPH };
 export type { ZoneEdge };
 
@@ -69,6 +74,12 @@ export interface TripProfile {
   travelStyle?: TravelStyle;
   /** Сколько дней отдыха поставить; режется сроком поездки. */
   restDays?: number;
+  /**
+   * Прилетает человек или живёт в крае (владелец 27.09). Нет или `visitor` —
+   * прежнее поведение движка без единого отличия; правило — в
+   * lib/planner/trip-origin.
+   */
+  tripOrigin?: TripOrigin;
 }
 
 export interface DayPlan {
@@ -139,8 +150,13 @@ export interface TripWarning {
    * (переезд + день там + возвращение) либо план кончился не в той зоне.
    * Заведён 27.09 вместе с производителем, иначе это был бы объявленный тип
    * без источника (§10.09).
+   *
+   * `home_nights` — про допущение в счёте: у местного ночи в Авачинской зоне
+   * не посчитаны, потому что план считает их ночами у себя дома. Адреса
+   * платформа не знает, поэтому допущение говорится вслух, а не прячется в
+   * цифре (§4.0).
    */
-  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days';
+  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights';
   severity: 'critical' | 'important' | 'info';
   message: string;
 }
@@ -611,10 +627,19 @@ function collectWarnings(
   }
 
   // Min trip duration
+  //
+  // Довод про короткую поездку у приезжего и у местного РАЗНЫЙ, а не один с
+  // поправкой. Приезжему мало пяти дней, потому что два из них съедает
+  // самолёт и джетлаг; местному эти два дня никто не отнимает, и «мало» у
+  // него значит другое — погода на Камчатке переносит выход, и запаса дней
+  // нет. Читать про «перелёт 8-9 часов из Москвы» жителю Петропавловска —
+  // ровно тот же сорт неправды, что день прилёта в его плане (27.09).
   if (tripDays > 0 && tripDays < 5) {
     warnings.push({
       type: 'duration', severity: 'important',
-      message: `${tripDays} дня — очень мало для Камчатки. Перелёт 8-9 часов из Москвы + джетлаг (UTC+12). Рекомендуем минимум 7 дней.`,
+      message: asTripOrigin(profile.tripOrigin) === 'local'
+        ? `${tripDays} ${pluralDays(tripDays)} — короткая поездка: погода на Камчатке переносит выходы, и запасного дня в плане нет. Если выход сорвётся, заменить его будет нечем.`
+        : `${tripDays} дня — очень мало для Камчатки. Перелёт 8-9 часов из Москвы + джетлаг (UTC+12). Рекомендуем минимум 7 дней.`,
     });
   }
 
@@ -906,35 +931,31 @@ async function generateDayPlans(
   const days: DayPlan[] = [];
   let dayNum = 1;
 
-  // ── Day 1: Arrival ──
-  const arrHour = profile.flightArrivalTime
-    ? parseInt(profile.flightArrivalTime.split(':')[0], 10)
-    : 14;
-
-  let arrivalTitle: string;
-  if (arrHour < 12) {
-    arrivalTitle = 'Прилёт утром. Размещение, отдых. Вечер: термальные источники Паратунки';
-  } else if (arrHour < 17) {
-    arrivalTitle = 'Прилёт днём. Размещение, акклиматизация. Прогулка по городу';
-  } else {
-    arrivalTitle = 'Прилёт вечером. Размещение, ужин, отдых с дороги';
+  // ── День прибытия — только у прилетающего (lib/planner/trip-origin) ──
+  //
+  // У жителя края дня прилёта нет вовсе: он не летит, не акклиматизируется и
+  // не теряет на это день. До 27.09 этот день ставился безусловно, вместе с
+  // описанием про перелёт 8-9 часов и разницу с Москвой.
+  const origin = asTripOrigin(profile.tripOrigin);
+  const framing = framingDays(origin);
+  const arrivalDay = arrivalDayText(origin, profile.flightArrivalTime);
+  if (arrivalDay) {
+    days.push({
+      day: dayNum++, type: 'arrival', zone: 'avachinsky',
+      title: arrivalDay.title,
+      description: arrivalDay.description,
+      activityType: 'hot_spring', priceFrom: 0, priceTo: 3000,
+      coords: PKC_COORDS, defaultTransport: 'walking',
+      allowedTransports: ['walking'], difficulty: 'easy',
+      childFriendly: true, minChildAge: 0, dayWarnings: [],
+    });
   }
-
-  days.push({
-    day: dayNum++, type: 'arrival', zone: 'avachinsky',
-    title: arrivalTitle,
-    description: 'Перелёт 8-9 часов. Разница с Москвой +9 часов. Акклиматизация обязательна.',
-    activityType: 'hot_spring', priceFrom: 0, priceTo: 3000,
-    coords: PKC_COORDS, defaultTransport: 'walking',
-    allowedTransports: ['walking'], difficulty: 'easy',
-    childFriendly: true, minChildAge: 0, dayWarnings: [],
-  });
 
   if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
 
   // ── Active days budget ──
-  const departureDays = 1;
-  const activeBudget = tripDays - 1 - departureDays; // minus arrival, minus departure
+  const departureDays = framing.departure;
+  const activeBudget = framedActiveBudget(tripDays, origin);
 
   // ── Стиль поездки и дни отдыха (владелец 26.09, lib/planner/travel-style) ──
   //
@@ -1481,20 +1502,16 @@ async function generateDayPlans(
   // читает последнюю строку плана как день своего рейса — и получал не ту дату.
   // Про сам недобор говорит отдельное предупреждение «наполнили N из M», и
   // разрыв в нумерации теперь ему соответствует.
-  if (dayNum <= tripDays) {
-    const depHour = profile.flightDepartureTime
-      ? parseInt(profile.flightDepartureTime.split(':')[0], 10)
-      : 12;
-    const depTitle = depHour >= 17
-      ? 'Утро свободно. Лёгкая прогулка. Трансфер в аэропорт, вылет вечером'
-      : depHour >= 12
-        ? 'Сборы утром. Трансфер в аэропорт, вылет днём'
-        : 'Ранний подъём. Трансфер в аэропорт, вылет утром';
-
+  //
+  // У жителя края этого дня нет: `departureDayText` возвращает `null`, и
+  // последний день поездки остаётся рабочим. Раньше он получал «Сборы утром.
+  // Трансфер в аэропорт» — строку про рейс, которого нет.
+  const departureDay = departureDayText(origin, profile.flightDepartureTime);
+  if (departureDay && dayNum <= tripDays) {
     days.push({
       day: tripDays, type: 'departure', zone: 'avachinsky',
-      title: depTitle,
-      description: 'Аэропорт Елизово (PKC). Трансфер 30 мин из Петропавловска.',
+      title: departureDay.title,
+      description: departureDay.description,
       activityType: 'departure', priceFrom: 0, priceTo: 2500,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking'], difficulty: 'easy',
@@ -1503,7 +1520,7 @@ async function generateDayPlans(
   }
 
   const preferenceNotes = describePreferences({
-    style, restRequested, days, tripDays,
+    style, restRequested, days, tripDays, origin,
     selfBlockedActivities, selfSkipped, selfSafetyUnchecked, noSlotTours,
   });
 
@@ -1532,6 +1549,8 @@ function describePreferences(input: {
   selfSkipped: Set<string>;
   selfSafetyUnchecked: boolean;
   noSlotTours: Set<string>;
+  /** Прилетает или живёт в крае: у местного служебных дней нет. */
+  origin: TripOrigin;
 }): PreferenceNote[] {
   const notes: PreferenceNote[] = [];
   const { style, days } = input;
@@ -1609,7 +1628,9 @@ function describePreferences(input: {
       notes.push({
         topic: 'rest_days', status: planned > 0 ? 'partial' : 'not_honoured',
         message: `Отдыха поместилось ${planned} ${pluralDays(planned)} из ${input.restRequested}: в поездке ${input.tripDays} ${pluralDays(input.tripDays)}, `
-          + 'и место нужно прилёту, вылету и хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.',
+          + (input.origin === 'local'
+            ? 'и место нужно хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.'
+            : 'и место нужно прилёту, вылету и хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.'),
       });
     }
   }
@@ -1639,6 +1660,11 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   // `null` (не разобрали состав) считается как «платит»: занижать счёт на
   // догадке хуже, чем завысить и сказать об этом вслух — предупреждение
   // ставит `recommendTrip`.
+  //
+  // У местного ночь в своей зоне не считается вовсе (lib/planner/trip-origin):
+  // он ночует у себя. Допущение о доме названо словами в предупреждениях —
+  // молча занижать счёт на догадке об адресе нельзя.
+  const origin = asTripOrigin(profile.tripOrigin);
   let accFrom = 0;
   let accTo = 0;
   for (const day of days) {
@@ -1646,6 +1672,7 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
     if (day.realTour?.lodgingIncluded === true) continue;
     // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
     const sleepZone = sleepZoneOf(day.zone);
+    if (nightIsAtHome(origin, sleepZone)) continue;
     const acc = ZONE_ACCOMMODATION[sleepZone];
     const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
     accFrom += Math.round(nightPrice * 0.8);
@@ -1654,9 +1681,12 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   if (nightCount === 0) { accFrom = 0; accTo = 0; }
 
   // Transport — travel days + transfers
+  // Трансферы аэропорта — только у прилетающего: местный туда не едет.
   const travelDays = days.filter(d => d.type === 'travel');
-  const transFrom = travelDays.reduce((s, d) => s + d.priceFrom, 0) + 2500; // arrival transfer
-  const transTo   = travelDays.reduce((s, d) => s + d.priceTo, 0) + 5000;   // both transfers
+  const transferFrom = paysAirportTransfers(origin) ? 2500 : 0;
+  const transferTo = paysAirportTransfers(origin) ? 5000 : 0;
+  const transFrom = travelDays.reduce((s, d) => s + d.priceFrom, 0) + transferFrom;
+  const transTo   = travelDays.reduce((s, d) => s + d.priceTo, 0) + transferTo;
 
   return {
     activities: [actFrom, actTo],
@@ -1808,6 +1838,13 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
     });
   }
 
+  // Допущение о доме местного — словами рядом со счётом, а не молча в цифре.
+  // Условие узкое намеренно: если план вообще не ночует в Авачинской зоне,
+  // допущение ни на что не повлияло, и говорить о нём нечего.
+  if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE)) {
+    warnings.push({ type: 'home_nights', severity: 'info', message: HOME_NIGHTS_ASSUMPTION });
+  }
+
   // Самопроверка: план кончился в чужой зоне без дня на возвращение. По
   // построению невозможно — поэтому если это случилось, говорим громко, а не
   // отдаём человеку невыполнимый план, как было до 27.09.
@@ -1816,7 +1853,9 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       type: 'zone_days',
       severity: 'critical',
       message: `План кончается в ${ZONE_NAMES[returnLegMissing] ?? returnLegMissing}, а дня на возвращение в Петропавловск в нём нет — `
-        + 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.',
+        + (asTripOrigin(profile.tripOrigin) === 'local'
+          ? 'вернуться в город в тот же день не выйдет. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'
+          : 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'),
     });
   }
 

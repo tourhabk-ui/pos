@@ -18,7 +18,7 @@ import {
   ArrowRight, ExternalLink, Map as MapIcon, List, Pencil,
   Save, BookmarkCheck, PlaneLanding, PlaneTakeoff, Lock,
   Send, ShieldAlert, Info, Baby, Dumbbell, Wallet,
-  ArrowLeftRight, Coffee, CloudOff,
+  ArrowLeftRight, Coffee, CloudOff, Home,
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy, UserCheck, Compass,
   ArrowLeft, Minus, CalendarDays, Accessibility, HeartPulse,
@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
+import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PAGE_ACTION_BAR_VAR } from '@/components/shared/StickyLeadButton';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE } from './planner-layout';
 import type { MapMarker } from '@/components/shared/leaflet-types';
@@ -197,7 +198,9 @@ type PlannerStep = 1 | 2 | 3 | 4;
 
 /** Порядок шагов — решение владельца 26.09; сторож tests/unit/planner-steps.test.ts. */
 const PLANNER_STEPS: ReadonlyArray<{ n: PlannerStep; title: string; lead: string }> = [
-  { n: 1, title: 'Когда', lead: 'Даты и время рейсов — от них считаются дни на Камчатке.' },
+  // «Время рейсов» ушло из подписи 27.09: у жителя края рейса нет, а даты те
+  // же самые (lib/planner/trip-origin).
+  { n: 1, title: 'Когда', lead: 'Откуда едете и даты — от них считаются дни на Камчатке.' },
   { n: 2, title: 'Кто едет', lead: 'Состав группы и то, что важно учесть в пути.' },
   { n: 3, title: 'Как хотите ехать', lead: 'Сами, с оператором или вперемешку, и сколько дней отдыхать.' },
   { n: 4, title: 'Что интересно', lead: 'Места и занятия — из них соберём дни.' },
@@ -1070,6 +1073,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [healthNotes, setHealthNotes] = useState('');
   const [mobilityLevel, setMobilityLevel] = useState<'full' | 'limited' | 'wheelchair'>('full');
   const [travelStyle, setTravelStyle] = useState<TravelStyle>('mixed');
+  /**
+   * Прилетает человек или живёт в крае (владелец 27.09: «есть же туристы,
+   * живущие на Камчатке, им не нужна привязка к рейсу»). Спрашивается явно —
+   * догадка по часовому поясу отняла бы у местного два дня молча.
+   */
+  const [tripOrigin, setTripOrigin] = useState<TripOrigin>('visitor');
+  const isLocal = tripOrigin === 'local';
   const [restDays, setRestDays] = useState(0);
   // Пока человек не трогал счётчик, дни отдыха считаются от дат (suggestRestDays).
   const [restManual, setRestManual] = useState(false);
@@ -1632,7 +1642,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
     const arr = over.arrival ?? arrival;
     const dep = over.departure ?? departure;
     const span = calcDays(arr, dep);
-    const restCap = span != null && span > 0 ? Math.max(0, span - 3) : 0;
+    // Потолок отдыха — из того же правила, что и бюджет дней у движка: у
+    // прилетающего два дня уходят на самолёт, у местного ни одного.
+    const restCap = span != null && span > 0 ? Math.max(0, activeBudget(span, tripOrigin) - 1) : 0;
     const rest = Math.min(over.restDays ?? (restManual ? restDays : suggestRestDays(span)), restCap);
     if (interests.length === 0) { setError('Выберите место или активность'); return; }
     setError('');
@@ -1656,6 +1668,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           healthNotes: healthNotes.trim() || undefined,
           mobilityLevel,
           travelStyle: over.travelStyle ?? travelStyle,
+          tripOrigin,
           restDays: rest,
         }),
       });
@@ -1935,31 +1948,67 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         <span className="flex-1 h-px bg-[var(--border)]" />
       </div>
 
+      {/*
+        Откуда человек едет. Спрашивается ДО дат: от ответа зависит и то, нужно
+        ли время рейса, и сколько дней поездки останется на дела
+        (lib/planner/trip-origin).
+      */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
+          <Home className="w-4 h-4 text-[var(--ocean)]" />Откуда едете
+        </p>
+        <div role="radiogroup" aria-label="Откуда едете" className="grid grid-cols-2 gap-2">
+          {TRIP_ORIGINS.map((o) => {
+            const active = tripOrigin === o;
+            return (
+              <button key={o} type="button" role="radio" aria-checked={active}
+                onClick={() => setTripOrigin(o)}
+                className={`text-left rounded-lg border px-4 py-3 min-h-[44px] transition-colors duration-200 motion-reduce:transition-none ${
+                  active
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)]'
+                    : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-strong)]'
+                }`}>
+                <span className={`block text-sm font-semibold ${active ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
+                  {TRIP_ORIGIN_LABEL[o].label}
+                </span>
+                <span className="block text-xs text-[var(--text-secondary)] mt-0.5 leading-snug">
+                  {TRIP_ORIGIN_LABEL[o].hint}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <fieldset className="space-y-3">
         <legend className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] mb-2">
-          <PlaneLanding className="w-4 h-4 text-[var(--ocean)]" />Прилёт
+          <PlaneLanding className="w-4 h-4 text-[var(--ocean)]" />{isLocal ? 'Первый день' : 'Прилёт'}
         </legend>
-        <div className="grid grid-cols-[1.4fr_1fr] gap-2">
-          <input type="date" aria-label="Дата прилёта" value={arrival} min={today()} max={maxDate()}
+        <div className={isLocal ? 'grid gap-2' : 'grid grid-cols-[1.4fr_1fr] gap-2'}>
+          <input type="date" aria-label={isLocal ? 'Первый день поездки' : 'Дата прилёта'} value={arrival} min={today()} max={maxDate()}
             onChange={e => { setStepError(''); setArrival(e.target.value); if (departure && departure <= e.target.value) setDeparture(''); }}
             className="ds-input w-full text-sm" />
-          <input type="time" aria-label="Время прилёта" value={flightArrivalTime}
-            onChange={e => setFlightArrivalTime(e.target.value)}
-            className="ds-input w-full text-sm" />
+          {!isLocal && (
+            <input type="time" aria-label="Время прилёта" value={flightArrivalTime}
+              onChange={e => setFlightArrivalTime(e.target.value)}
+              className="ds-input w-full text-sm" />
+          )}
         </div>
       </fieldset>
 
       <fieldset className="space-y-3">
         <legend className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] mb-2">
-          <PlaneTakeoff className="w-4 h-4 text-[var(--ocean)]" />Отъезд
+          <PlaneTakeoff className="w-4 h-4 text-[var(--ocean)]" />{isLocal ? 'Последний день' : 'Отъезд'}
         </legend>
-        <div className="grid grid-cols-[1.4fr_1fr] gap-2">
-          <input type="date" aria-label="Дата отъезда" value={departure} min={arrival || today()} max={maxDate()}
+        <div className={isLocal ? 'grid gap-2' : 'grid grid-cols-[1.4fr_1fr] gap-2'}>
+          <input type="date" aria-label={isLocal ? 'Последний день поездки' : 'Дата отъезда'} value={departure} min={arrival || today()} max={maxDate()}
             onChange={e => { setStepError(''); setDeparture(e.target.value); }}
             className="ds-input w-full text-sm" />
-          <input type="time" aria-label="Время вылета" value={flightDepartureTime}
-            onChange={e => setFlightDepartureTime(e.target.value)}
-            className="ds-input w-full text-sm" />
+          {!isLocal && (
+            <input type="time" aria-label="Время вылета" value={flightDepartureTime}
+              onChange={e => setFlightDepartureTime(e.target.value)}
+              className="ds-input w-full text-sm" />
+          )}
         </div>
       </fieldset>
 
@@ -2286,7 +2335,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
 
   /** Короткая сводка анкеты над результатом: каждая строка открывает свой шаг. */
   const summaryRows: Array<{ n: PlannerStep; label: string; value: string }> = [
-    { n: 1, label: 'Когда', value: tripDays ? `${shortDate(arrival)} — ${shortDate(departure)}, ${tripDays} ${pluralDaysRu(tripDays)}` : 'даты не выбраны' },
+    { n: 1, label: 'Когда', value: tripDays
+      ? `${TRIP_ORIGIN_LABEL[tripOrigin].label}, ${shortDate(arrival)} — ${shortDate(departure)}, ${tripDays} ${pluralDaysRu(tripDays)}`
+      : 'даты не выбраны' },
     { n: 2, label: 'Кто едет', value: `${adults} взр.${childAges.length > 0 ? `, детей ${childAges.length}` : ''}` },
     { n: 3, label: 'Как', value: `${TRAVEL_STYLE_LABEL[travelStyle].label}${restDaysToSend > 0 ? `, отдых ${restDaysToSend}` : ''}` },
     { n: 4, label: 'Что', value: allInterests.map((i) => ACTIVITY_LABEL[i] ?? i).join(', ') || 'не выбрано' },
