@@ -14,6 +14,10 @@ import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
   ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, ZONE_SLEEPS_IN, sleepZoneOf,
 } from '@/lib/planner/constants';
+import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
+import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
+export { ZONE_GRAPH };
+export type { ZoneEdge };
 
 export {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
@@ -130,7 +134,13 @@ export interface DayPlan {
 }
 
 export interface TripWarning {
-  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs';
+  /**
+   * `zone_days` — про арифметику календаря: дальняя зона не влезла связкой
+   * (переезд + день там + возвращение) либо план кончился не в той зоне.
+   * Заведён 27.09 вместе с производителем, иначе это был бы объявленный тип
+   * без источника (§10.09).
+   */
+  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days';
   severity: 'critical' | 'important' | 'info';
   message: string;
 }
@@ -191,39 +201,6 @@ const ZONE_BEST_MONTHS: Record<ZoneId, number[]> = {
   western:    [5, 6, 7, 8, 9],
   eastern:    [7, 8, 9],
   northern:   [6, 7, 8, 9, 10],
-};
-
-// ── Zone travel graph ────────────────────────────────────────────────────────
-
-export interface ZoneEdge {
-  distanceKm: number;
-  travelHours: number | null;   // null = no road, helicopter only
-  transports: TransportType[];
-  costPerPerson: [number, number];  // [economy, comfort]
-  needsTravelDay: boolean;
-}
-
-export const ZONE_GRAPH: Record<ZoneId, Partial<Record<ZoneId, ZoneEdge>>> = {
-  avachinsky: {
-    western:  { distanceKm: 300, travelHours: 7,    transports: ['jeep'],       costPerPerson: [5000, 8000],   needsTravelDay: true },
-    eastern:  { distanceKm: 250, travelHours: 5,    transports: ['jeep', 'helicopter'], costPerPerson: [5000, 15000], needsTravelDay: true },
-    northern: { distanceKm: 400, travelHours: null,  transports: ['helicopter'], costPerPerson: [0, 0],         needsTravelDay: false },
-  },
-  western: {
-    avachinsky: { distanceKm: 300, travelHours: 7,   transports: ['jeep'],       costPerPerson: [5000, 8000],   needsTravelDay: true },
-    eastern:    { distanceKm: 500, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0],         needsTravelDay: true },
-    northern:   { distanceKm: 600, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0],         needsTravelDay: true },
-  },
-  eastern: {
-    avachinsky: { distanceKm: 250, travelHours: 5,   transports: ['jeep', 'helicopter'], costPerPerson: [5000, 15000], needsTravelDay: true },
-    western:    { distanceKm: 500, travelHours: null, transports: ['helicopter'],         costPerPerson: [0, 0],        needsTravelDay: true },
-    northern:   { distanceKm: 200, travelHours: null, transports: ['helicopter'],         costPerPerson: [0, 0],        needsTravelDay: false },
-  },
-  northern: {
-    avachinsky: { distanceKm: 400, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0], needsTravelDay: false },
-    eastern:    { distanceKm: 200, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0], needsTravelDay: false },
-    western:    { distanceKm: 600, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0], needsTravelDay: true },
-  },
 };
 
 // ── Zone transport constraints ──────────────────────────────────────────────
@@ -568,6 +545,12 @@ function collectWarnings(
   alerts: SafetyAlert[] = [],
   /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
   catalogueOpen: Set<string> | null,
+  /**
+   * Зоны ГОТОВОГО плана. Требования (разрешения, удалённость) относятся к ним,
+   * а не к зонам-кандидатам: человек не должен читать «нужна погранзона ФСБ за
+   * 30 дней» про зону, куда поездка не идёт.
+   */
+  plannedZones: Set<ZoneId>,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const month = getMonth(profile);
@@ -675,16 +658,35 @@ function collectWarnings(
     }
   }
 
-  // Permits
-  for (const zr of zones) {
-    const permits = ZONE_PERMITS[zr.zone];
+  // ── Разрешения: критично — только для зон ПЛАНА ──
+  for (const zone of plannedZones) {
+    const permits = ZONE_PERMITS[zone];
     if (!permits) continue;
     for (const p of permits) {
       warnings.push({
         type: 'permit', severity: 'critical',
-        message: `${ZONE_NAMES[zr.zone]}: требуется ${p.name}. Оформление за ${p.advanceDays} дней. ${p.note}`,
+        message: `${ZONE_NAMES[zone]}: требуется ${p.name}. Оформление за ${p.advanceDays} дней. ${p.note}`,
       });
     }
+  }
+
+  // ── Требования зон, которые в план НЕ вошли ──
+  //
+  // Решение владельца 27.09: показать, но без веса «critical» и одной справочной
+  // строкой. Совсем молчать нельзя: человек может добавить такую зону руками
+  // или спросить оператора, и тогда тридцать дней на погранзону — новость,
+  // которую лучше узнать сейчас. Но и пугать требованиями к поездке, которой
+  // нет, нельзя: критическое предупреждение не по делу обесценивает все
+  // остальные.
+  const notPlanned = [...new Set(zones.map((z) => z.zone))].filter((z) => !plannedZones.has(z));
+  const extraPermits = notPlanned.flatMap((zone) =>
+    (ZONE_PERMITS[zone] ?? []).map((p) => `${ZONE_NAMES[zone]} — ${p.name} (за ${p.advanceDays} дней)`),
+  );
+  if (extraPermits.length > 0) {
+    warnings.push({
+      type: 'permit', severity: 'info',
+      message: `Если захотите добавить зоны, которых нет в этом плане, им нужны свои разрешения: ${extraPermits.join('; ')}.`,
+    });
   }
 
   // Fishing license
@@ -708,7 +710,9 @@ function collectWarnings(
   }
 
   // Safety for remote areas
-  const remoteZones = zones.filter(z => z.zone !== 'avachinsky');
+  // Удалённость — свойство зон ПЛАНА: предупреждать об отсутствии связи там,
+  // куда человек не едет, значит приучать пропускать это предупреждение.
+  const remoteZones = [...plannedZones].filter(z => z !== 'avachinsky');
   if (remoteZones.length > 0) {
     warnings.push({
       type: 'safety', severity: 'info',
@@ -855,6 +859,17 @@ interface DayPlanResult {
   selfSkipped: string[];
   /** Проверка безопасности мест не выполнилась хотя бы раз. */
   selfSafetyUnchecked: boolean;
+  /**
+   * Зоны, не вошедшие в план: связка «переезд + день там + возвращение» не
+   * влезла в остаток дней. С числами, чтобы предупреждение было проверяемым.
+   */
+  skippedLegs: Array<{ zone: ZoneId; cost: ZoneLegCost; daysLeft: number; interests: string[] }>;
+  /**
+   * План кончился в чужой зоне, а дня на возвращение не нашлось. По
+   * построению не должно случаться (день зарезервирован при входе) — поэтому
+   * это самопроверка, а не штатный исход: молчание здесь и было дефектом.
+   */
+  returnLegMissing: ZoneId | null;
 }
 
 /** День отдыха по просьбе человека (не автоматический после тяжёлого дня). */
@@ -884,7 +899,7 @@ async function generateDayPlans(
   catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -915,7 +930,7 @@ async function generateDayPlans(
     childFriendly: true, minChildAge: 0, dayWarnings: [],
   });
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
 
   // ── Active days budget ──
   const departureDays = 1;
@@ -941,6 +956,12 @@ async function generateDayPlans(
   let selfSafetyUnchecked = false;
   /** Туры, у которых в даты поездки нет свободных мест (стиль «С оператором»). */
   const noSlotTours = new Set<string>();
+  /**
+   * Зоны, не вошедшие в план: связка (переезд + день там + возвращение) не
+   * влезла в остаток дней. Хранится ПРИЧИНА с числами — иначе интерес
+   * человека исчезает из плана молча (§4.0, решение владельца 27.09).
+   */
+  const skippedLegs: Array<{ zone: ZoneId; cost: ZoneLegCost; daysLeft: number; interests: string[] }> = [];
 
   // Determine zone allocation
   const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number }> = [];
@@ -1001,8 +1022,29 @@ async function generateDayPlans(
       block.interests = allowed;
     }
 
-    // Travel day if zone changes
-    if (block.zone !== prevZone && dayNum <= tripDays - departureDays) {
+    // ── Заход в чужую зону: решается СВЯЗКОЙ, а не одним днём (27.09) ──
+    //
+    // Раньше проверка «хватает ли дней» стояла ПОСЛЕ того, как день переезда
+    // уже добавлен, и отката не было. Отсюда два невыполнимых плана, снятых с
+    // живого движка: поездка 5-6 дней получала день переезда в зону, где нет
+    // ни одного дня; поездка 7 дней уезжала в Западную зону и вылетала из
+    // Петропавловска, не возвращаясь. Правило и причина отказа —
+    // lib/planner/zone-leg.ts.
+    if (block.zone !== prevZone) {
+      const daysLeft = tripDays - departureDays - (dayNum - 1);
+      const cost = zoneLegCost(prevZone, block.zone);
+      if (!legFits(cost, daysLeft)) {
+        // Зона не берётся ВОВСЕ — ни дня переезда, ни дня в ней. Молчать
+        // нельзя: интерес человека иначе исчезает из плана без объяснения
+        // (§4.0). Причину собираем и отдаём предупреждением ниже.
+        skippedLegs.push({
+          zone: block.zone,
+          cost,
+          daysLeft,
+          interests: block.interests.slice(),
+        });
+        continue;
+      }
       const edge = ZONE_GRAPH[prevZone]?.[block.zone];
       if (edge?.needsTravelDay) {
         const transportLabel = edge.transports.includes('jeep')
@@ -1017,7 +1059,6 @@ async function generateDayPlans(
           allowedTransports: edge.transports, difficulty: 'easy',
           childFriendly: true, minChildAge: 0, dayWarnings: [],
         });
-        if (dayNum > tripDays - departureDays) break;
       }
     }
 
@@ -1372,7 +1413,14 @@ async function generateDayPlans(
     });
   }
 
-  // ── Travel back to Avachinsky if last zone was not avachinsky ──
+  // ── Возвращение в Авачинскую зону, если последняя зона не она ──
+  //
+  // День возвращения зарезервирован ещё при входе в зону (zone-leg.ts), так что
+  // место под него есть по построению. Самопроверка ниже всё равно стоит: если
+  // резерв когда-нибудь разойдётся с раскладкой, план не должен УМОЛЧАТЬ об
+  // этом — до 27.09 он именно умалчивал, и человек улетал из Петропавловска,
+  // ночуя в Западной зоне.
+  let returnLegMissing: ZoneId | null = null;
   if (prevZone !== 'avachinsky' && dayNum <= tripDays - departureDays) {
     const backEdge = ZONE_GRAPH[prevZone]?.['avachinsky'];
     if (backEdge) {
@@ -1387,7 +1435,12 @@ async function generateDayPlans(
         allowedTransports: backEdge.transports, difficulty: 'easy',
         childFriendly: true, minChildAge: 0, dayWarnings: [],
       });
+      prevZone = 'avachinsky';
+    } else {
+      returnLegMissing = prevZone;
     }
+  } else if (prevZone !== 'avachinsky') {
+    returnLegMissing = prevZone;
   }
 
   // ── Отдых по просьбе, не вставший между активными днями ──
@@ -1419,7 +1472,15 @@ async function generateDayPlans(
     });
   }
 
-  // ── Last day: Departure ──
+  // ── Последний день: вылет ──
+  //
+  // Номер дня вылета — ДАТА ОТЪЕЗДА, а не счётчик заполненных дней (правка
+  // 27.09). Раньше день вылета получал `dayNum`, то есть съезжал вперёд ровно
+  // на столько, сколько дней движок не смог наполнить: поездка 10.07-17.07
+  // показывала «Сборы утром. Трансфер в аэропорт» шестым днём из семи. Человек
+  // читает последнюю строку плана как день своего рейса — и получал не ту дату.
+  // Про сам недобор говорит отдельное предупреждение «наполнили N из M», и
+  // разрыв в нумерации теперь ему соответствует.
   if (dayNum <= tripDays) {
     const depHour = profile.flightDepartureTime
       ? parseInt(profile.flightDepartureTime.split(':')[0], 10)
@@ -1431,7 +1492,7 @@ async function generateDayPlans(
         : 'Ранний подъём. Трансфер в аэропорт, вылет утром';
 
     days.push({
-      day: dayNum, type: 'departure', zone: 'avachinsky',
+      day: tripDays, type: 'departure', zone: 'avachinsky',
       title: depTitle,
       description: 'Аэропорт Елизово (PKC). Трансфер 30 мин из Петропавловска.',
       activityType: 'departure', priceFrom: 0, priceTo: 2500,
@@ -1448,7 +1509,7 @@ async function generateDayPlans(
 
   return {
     days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes,
-    selfSkipped: [...selfSkipped], selfSafetyUnchecked,
+    selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing,
   };
 }
 
@@ -1682,7 +1743,16 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
   const catalogueOpen = await fetchActivitiesBookableInMonth(getMonth(profile), cache);
 
   const zones = await scoreZones(profile, cache, catalogueOpen);
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen);
+  // Дни собираются ДО предупреждений (27.09): предупреждения о разрешениях и
+  // удалённых зонах должны считаться по зонам ГОТОВОГО плана, а не по
+  // зонам-кандидатам. До этой правки человек с планом по Авачинской и
+  // Западной читал два КРИТИЧЕСКИХ требования про Восточную зону (заказник
+  // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
+  // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
+  // «Раздолье»).
+  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
+  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
 
   // Каталог открыл то, что зашитая таблица считает закрытым. Промолчать
   // нельзя ни в одну сторону: отказать — значит не продать то, что оператор
@@ -1720,7 +1790,35 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+
+  // ── Зона, на которую не хватило дней, называется словами (27.09) ──
+  //
+  // Решение владельца: не ездить и сказать. Молчание читалось бы как «этого
+  // интереса у нас нет», хотя причина — арифметика календаря (§4.0).
+  for (const leg of skippedLegs) {
+    warnings.push({
+      type: 'zone_days',
+      severity: 'info',
+      message: legShortfallMessage(
+        leg.zone,
+        leg.cost,
+        leg.daysLeft,
+        leg.interests.map((i) => ACTIVITY_NAMES[i] ?? i),
+      ),
+    });
+  }
+
+  // Самопроверка: план кончился в чужой зоне без дня на возвращение. По
+  // построению невозможно — поэтому если это случилось, говорим громко, а не
+  // отдаём человеку невыполнимый план, как было до 27.09.
+  if (returnLegMissing) {
+    warnings.push({
+      type: 'zone_days',
+      severity: 'critical',
+      message: `План кончается в ${ZONE_NAMES[returnLegMissing] ?? returnLegMissing}, а дня на возвращение в Петропавловск в нём нет — `
+        + 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.',
+    });
+  }
 
   // «Вперемешку» и план без выбора стиля (Кузьмич, MCP): что не поставлено
   // самостоятельным днём и почему — предупреждением, которое доходит до
