@@ -73,6 +73,8 @@ interface TourFull {
   pickup_type: string | null;
   pickup_details: string | null;
   cancellation_policy: string | null;
+  cancellation_free_days?: number | null;
+  cancellation_late_refund_percent?: number | null;
   tour_image: string | null;
   photos: string[] | null;
   max_participants: number;
@@ -1128,6 +1130,10 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 <div id="booking" ref={bookingRef} className="scroll-mt-24">
                   <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
                     priceUnit={tour.price_unit}
+                    cancellationTerms={{
+                      freeDays: tour.cancellation_free_days ?? null,
+                      lateRefundPercent: tour.cancellation_late_refund_percent ?? null,
+                    }}
                     duration={{ multi_day_count: tour.multi_day_count, duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours) }} />
                 </div>
               </div>

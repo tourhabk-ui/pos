@@ -39,6 +39,9 @@ export interface TourCardRow {
   pickup_details: string | null;
   /** Условия отмены и возврата от оператора. NULL — не записано, а не «без условий» (931). */
   cancellation_policy: string | null;
+  /** Числа условий отмены (1012): по ним считается возврат. NULL — не записаны. */
+  cancellation_free_days: number | null;
+  cancellation_late_refund_percent: number | null;
   tour_image: string | null;
   photos: string[] | null;
   max_participants: number;
@@ -141,6 +144,7 @@ function buildSql(withOptional: boolean): string {
       ot.pickup_type,
       ot.pickup_details,
       ot.cancellation_policy,
+      ot.cancellation_free_days, ot.cancellation_late_refund_percent,
       ot.tour_image, ot.photos,
       ot.max_participants, ot.min_participants,
       ot.duration_hours, ot.duration_type, ot.multi_day_count,

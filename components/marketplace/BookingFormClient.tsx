@@ -10,6 +10,7 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
+import { cancellationTermsLine, type TourRefundTerms } from '@/lib/payments/tour-refund';
 
 interface BookingFormProps {
   tourId: number;
@@ -26,6 +27,12 @@ interface BookingFormProps {
    * значение.
    */
   initialDate?: string | null;
+  /**
+   * Условия отмены тура (1012). Не переданы — строки нет: форма стоит и там,
+   * где тура с условиями под рукой нет (модалка). Переданы с NULL — это
+   * «не записаны», и строка честно говорит о полном возврате.
+   */
+  cancellationTerms?: TourRefundTerms | null;
 }
 
 /** Неразрывный пробел перед ₽: «52 000 / ₽» на двух строках — аудит 24.09. */
@@ -51,7 +58,7 @@ interface FormError {
   kind: 'validation' | 'send';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate, cancellationTerms }: BookingFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
@@ -410,6 +417,13 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           <p className="text-2xl font-bold whitespace-nowrap text-[var(--text-primary)]">
             {formatPrice(totalPrice)}
           </p>
+          {/* Условия отмены до отправки — как у тарифа в модуле отеля. Тем же
+              правилом, что и настоящий возврат (computeTourRefund). */}
+          {cancellationTerms && (
+            <p className="mt-1.5 text-xs text-[var(--text-secondary)] leading-snug" data-cancellation-terms>
+              {cancellationTermsLine(cancellationTerms, formData.booking_date || null)}
+            </p>
+          )}
         </div>
         {/* Без даты кнопка выключена — и обязана ВЫГЛЯДЕТЬ выключенной и
             говорить почему: прогулка 10.09 нашла её оранжевой и молчащей
