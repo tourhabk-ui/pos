@@ -146,13 +146,35 @@ const TOUR = {
   duration_hours: null,
 };
 
-/** Ответы клиента по порядку: тур → дни → вставка. */
+/**
+ * Ответы клиента по порядку: тур → дни → правила цены → занятость → вставка.
+ *
+ * Два запроса цены появились 27.09 (lib/tours/honest-price): бронь считает
+ * цену правилами `tour_pricing_rules` и занятостью даты, читая их клиентом ТОЙ
+ * ЖЕ транзакции. Пустые ответы значат «правил нет» — цена остаётся ценой
+ * оператора, и этот тест по-прежнему про длительность, а не про цену.
+ */
 function wire(days: Array<{ date: string; occupied: string; available_slots: number | null; is_cancelled: boolean | null }>) {
   clientQueryMock.mockReset();
   clientQueryMock
     .mockResolvedValueOnce({ rows: [TOUR] })
     .mockResolvedValueOnce({ rows: days })
+    .mockResolvedValueOnce({ rows: [] })
+    .mockResolvedValueOnce({ rows: [] })
     .mockResolvedValueOnce({ rows: [{ id: 77, access_token: 'tok' }] });
+}
+
+/**
+ * Аргументы запроса, найденного ПО SQL, а не по номеру вызова.
+ *
+ * Номер ломается от любого нового запроса в транзакции: 27.09 бронь начала
+ * читать правила цены, и `calls[2]` перестал быть вставкой. Порядок вызовов —
+ * не то, что проверяет этот файл; он про длительность.
+ */
+function argsOf(needle: string): unknown[] {
+  const call = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes(needle));
+  if (!call) throw new Error(`запроса с «${needle}» не было вовсе`);
+  return call[1] as unknown[];
 }
 
 const INPUT = {
@@ -177,11 +199,11 @@ describe('многодневная бронь', () => {
     expect(res.bookingId).toBe(77);
 
     // Гейт спрошен именно про пять дней, а не про один.
-    const gateArgs = clientQueryMock.mock.calls[1]![1] as unknown[];
+    const gateArgs = argsOf('generate_series');
     expect(gateArgs).toEqual([1, '2026-09-14', '2026-09-18']);
 
     // И записан тот же интервал.
-    const insertArgs = clientQueryMock.mock.calls[2]![1] as unknown[];
+    const insertArgs = argsOf('INSERT INTO operator_bookings');
     expect(insertArgs).toContain('2026-09-18');
     expect(insertArgs).toContain(5);
   });
@@ -221,10 +243,13 @@ describe('многодневная бронь', () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [{ ...TOUR, multi_day_count: null, duration_hours: 8 }] })
       .mockResolvedValueOnce({ rows: [freeDay('2026-09-14')] })
+      // Правила цены и занятость даты — пусто: цена оператора (см. wire).
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 78, access_token: 'tok' }] });
 
     await reserveBooking(INPUT);
-    const gateArgs = clientQueryMock.mock.calls[1]![1] as unknown[];
+    const gateArgs = argsOf('generate_series');
     // Конец равен старту — включительная граница, лишнего дня не занимаем.
     expect(gateArgs).toEqual([1, '2026-09-14', '2026-09-14']);
   });

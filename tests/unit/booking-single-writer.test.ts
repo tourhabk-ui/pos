@@ -97,6 +97,12 @@ function mockDb(opts: { calendar?: Array<{ available_slots: number; is_cancelled
     }] });
     if (s.includes('INSERT INTO operator_bookings'))
       return Promise.resolve({ rows: [{ id: 101, access_token: '11111111-2222-3333-4444-555555555555' }] });
+    // Цена брони считается правилами `tour_pricing_rules` (27.09,
+    // lib/tours/honest-price): бронь читает их и занятость даты клиентом ТОЙ
+    // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
+    // то есть прежнее поведение этих проверок.
+    if (s.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    if (s.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + s);
   });
   poolQueryMock.mockImplementation((sql: string) => {

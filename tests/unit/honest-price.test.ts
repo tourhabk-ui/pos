@@ -206,11 +206,25 @@ describe('правило живёт в одном месте', () => {
     expect(DYNAMIC, 'своё окно сезона вернулось в dynamic-pricing').not.toMatch(/getMonth\(\) \* 100/);
   });
 
-  it('оба расчёта берут занятость из реальных броней, а не из счётчика', () => {
-    const occ = DYNAMIC.match(/v_tour_daily_occupancy/g) ?? [];
-    expect(occ.length, 'занятость из VIEW не у обоих расчётов').toBeGreaterThanOrEqual(2);
-    expect(DYNAMIC, 'счётчик booked_slots вернулся в источник занятости')
-      .not.toMatch(/COALESCE\(booked_slots, 0\)/);
+  it('оба живых расчёта берут занятость из реальных броней, а не из счётчика', () => {
+    // Живых путей два, и они в РАЗНЫХ файлах: одиночная цена — honest-price
+    // (её зовут эндпоинт и бронь), список дат — bulkDynamicPrices (её зовёт
+    // /api/octo/availability). До 27.09 второй читал счётчик booked_slots,
+    // который видит только оплаченных, и чужой канал получал другую цену.
+    expect(HONEST, 'одиночный расчёт не читает занятость из VIEW').toMatch(/v_tour_daily_occupancy/);
+    expect(DYNAMIC, 'bulk не читает занятость из VIEW').toMatch(/v_tour_daily_occupancy/);
+    for (const [name, src] of [['honest-price', HONEST], ['dynamic-pricing', DYNAMIC]] as const) {
+      expect(src, `${name}: счётчик booked_slots вернулся в источник занятости`)
+        .not.toMatch(/COALESCE\(booked_slots, 0\)/);
+    }
+  });
+
+  it('второго способа получить цену за единицу не осталось', () => {
+    // calculateDynamicPrice удалён: он отдавал цену за единицу, а умножать её
+    // на людей решал вызывающий — то есть был вторым способом посчитать то,
+    // что теперь считает одно правило вместе с bookingTotal.
+    expect(DYNAMIC, 'calculateDynamicPrice вернулся рядом с honestTourPrice')
+      .not.toMatch(/export async function calculateDynamicPrice/);
   });
 
   it('honest-price не заводит своего перебора правил', () => {

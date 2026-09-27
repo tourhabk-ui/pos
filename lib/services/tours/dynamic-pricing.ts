@@ -24,68 +24,29 @@
 import { pool } from '@/lib/db-pool';
 import { matchPricingRules, finalUnitPrice, type PricingRule } from '@/lib/tours/pricing-rule-match';
 
-interface PriceCalcInput {
-  tourId:    number | string;
-  tourDate:  string;          // YYYY-MM-DD
-  guests:    number;
-  basePrice: number;
-}
-
 interface PriceCalcResult {
   basePrice:      number;
   finalPrice:     number;
-  discount:       number;   // < 0 = скидка, > 0 = надбавка (в рублях)
-  multiplier:     number;   // итоговый множитель (1.15 = +15%)
-  appliedRules:   string[]; // список сработавших правил
+  discount:       number;
+  multiplier:     number;
+  appliedRules:   string[];
 }
 
-export async function calculateDynamicPrice(input: PriceCalcInput): Promise<PriceCalcResult> {
-  const { tourId, tourDate, guests, basePrice } = input;
-
-  // Загружаем активные правила для тура
-  const { rows: rules } = await pool.query<PricingRule>(
-    `SELECT rule_type, date_from, date_to, days_before_min, days_before_max,
-            occupancy_min, guests_min, multiplier
-     FROM tour_pricing_rules
-     WHERE operator_tour_id = $1 AND is_active = TRUE`,
-    [tourId]
-  );
-
-  if (rules.length === 0) {
-    return { basePrice, finalPrice: basePrice, discount: 0, multiplier: 1, appliedRules: [] };
-  }
-
-  // Загружаем текущую загрузку слота (если есть). Занятость — из реальных
-  // броней (v_tour_daily_occupancy), не из счётчика booked_slots: счётчик
-  // видит только оплаченных, и occupancy-сюрдж недо-срабатывал, пока
-  // неоплаченные заявки заполняли даты.
-  const { rows: slotRows } = await pool.query<{ available_slots: number | null; booked_slots: number }>(
-    `SELECT ta.available_slots, COALESCE(occ.occupied, 0)::int AS booked_slots
-     FROM tour_availability ta
-     LEFT JOIN v_tour_daily_occupancy occ
-       ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
-     WHERE ta.operator_tour_id = $1 AND ta.date = $2 AND ta.is_cancelled = FALSE`,
-    [tourId, tourDate]
-  );
-
-  let occupancyPct = 0;
-  if (slotRows.length > 0 && slotRows[0].available_slots) {
-    const total = slotRows[0].available_slots;
-    const booked = slotRows[0].booked_slots;
-    occupancyPct = total > 0 ? Math.round((booked / total) * 100) : 0;
-  }
-
-  const { multiplier, appliedRules } = matchPricingRules(rules, { tourDate, guests, occupancyPct });
-  const finalPrice = finalUnitPrice(basePrice, multiplier);
-
-  return {
-    basePrice,
-    finalPrice,
-    discount: finalPrice - basePrice,
-    multiplier,
-    appliedRules,
-  };
-}
+/**
+ * `calculateDynamicPrice` УДАЛЁН 27.09 — его заменил `honestTourPrice`
+ * (`lib/tours/honest-price.ts`).
+ *
+ * Разница не в имени. Старая функция отдавала цену ЗА ЕДИНИЦУ, и вызывающий
+ * дальше сам решал, умножать её на людей или нет; новая композирует правила с
+ * `bookingTotal` — тем же правилом единицы цены, которым считают все двери
+ * брони, — и потому её ответ годится и для экрана, и для счёта. Оставлять
+ * рядом обе значило бы завести второй способ получить цену: ровно то, из-за
+ * чего цикл сопоставления правил в этом файле разошёлся сам с собой.
+ *
+ * Нашёл смерть функции не человек, а перепись экспортов
+ * (`tests/unit/export-census-frozen.test.ts`): после переезда эндпоинта на
+ * новое правило она осталась экспортированной и никому не нужной.
+ */
 
 /**
  * Bulk расчёт для списка дат (для календаря доступности).

@@ -466,15 +466,21 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
               ? `${formatPrice(basePrice)} × ${participants} чел. × ${days} дн.`
               : `${formatPrice(basePrice)} × ${participants} чел.`}
           </p>
-          <p className="flex items-baseline gap-2">
+          {/* `whitespace-nowrap` на строке целиком: «52 000 ₽» не может
+              порваться на «52 000 / ₽» (сторож booking-form-p2). `flex-wrap`
+              при этом оставлен — сами суммы могут разойтись по строкам на
+              узком экране, а числа внутри них нет. */}
+          <p className="flex flex-wrap items-baseline gap-2 whitespace-nowrap">
             {/* Прежняя сумма зачёркнутой — иначе скидка это просто другое
-                число, и человек не поймёт, почему оно не как в каталоге. */}
+                число, и человек не поймёт, почему оно не как в каталоге.
+                `--text-secondary`, не `--text-muted`: muted в этой форме
+                запрещён, он для плейсхолдеров (сторож booking-form-p2). */}
             {struckTotal !== null && (
-              <span className="text-base text-[var(--text-muted)] line-through whitespace-nowrap">
+              <span className="text-base text-[var(--text-secondary)] line-through">
                 {formatPrice(struckTotal)}
               </span>
             )}
-            <span className="text-2xl font-bold whitespace-nowrap text-[var(--text-primary)]">
+            <span className="text-2xl font-bold text-[var(--text-primary)]">
               {formatPrice(totalPrice)}
             </span>
           </p>
