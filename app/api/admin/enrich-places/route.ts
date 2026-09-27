@@ -47,6 +47,7 @@ import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { z } from 'zod';
 import { stripTags } from '@/lib/html/text';
+import { notOwnerDecidedSql } from '@/lib/places/owner-decided';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -169,9 +170,13 @@ export async function POST(req: NextRequest) {
           WHERE dp.entity_id = p.ark_id AND dp.written_by = '${WRITER}'
        )`;
 
+  // Текст по решению владельца не берётся никогда, даже с force: короткий
+  // ответ человека — не заготовка для модели (lib/places/owner-decided.ts).
+  const ownerKept = notOwnerDecidedSql('p.ark_id');
+
   const condition = force
-    ? 'is_visible = true'
-    : `is_visible = true AND ${written} AND (
+    ? `is_visible = true AND ${ownerKept}`
+    : `is_visible = true AND ${written} AND ${ownerKept} AND (
          description IS NULL
          OR length(description) < 250
          OR description ILIKE '%idilesom%'

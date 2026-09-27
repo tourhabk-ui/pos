@@ -135,8 +135,10 @@ describe('отбор не заставляет дописывать честно
     expect(SRC).toMatch(/FROM places p\b/);
   });
 
-  it('force остаётся способом переписать заново', () => {
-    expect(SRC).toMatch(/force\s*\n?\s*\?\s*'is_visible = true'/);
+  it('force остаётся способом переписать заново — кроме текста владельца', () => {
+    // 27.09: force снимает все ограничения очереди, но не решение владельца
+    // (lib/places/owner-decided.ts, случай Микижи).
+    expect(SRC).toMatch(/force\s*\n?\s*\?\s*`is_visible = true AND \$\{ownerKept\}`/);
   });
 });
 

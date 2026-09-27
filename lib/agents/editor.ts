@@ -11,6 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { notOwnerDecidedSql } from '@/lib/places/owner-decided';
 import { callAIQualityOrNull, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -179,7 +180,10 @@ export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
     LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
     LEFT JOIN kamchatka_routes        kr  ON kr.ark_id = ark.id
     WHERE ark.description IS NULL
-       OR (LENGTH(ark.description) < $1 AND ark.updated_at < NOW() - make_interval(days => $3))
+       OR (LENGTH(ark.description) < $1 AND ark.updated_at < NOW() - make_interval(days => $3)
+           -- Короткий текст по решению владельца — ответ, а не недоработка
+           -- (lib/places/owner-decided.ts, случай Микижи 27.09).
+           AND ${notOwnerDecidedSql('ark.id')})
     ORDER BY (ark.description IS NULL) DESC, RANDOM()
     LIMIT $2
   `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE, REATTEMPT_REST_DAYS]);

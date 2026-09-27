@@ -1,13 +1,12 @@
 {
-  "note": "27.09, прогон 619. ТОЛЬКО ЧТЕНИЕ. Кадр Вилючинского с Микижи после 1039: ждём 216343 байта в обеих галереях.",
-  "run": 619,
+  "note": "27.09, прогон 620. ТОЛЬКО ЧТЕНИЕ. Кадр «пар над купелью» Малкинских источников после 1041: ждём 60700 байт на позиции 2.",
+  "run": 620,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 200,
+  "bytes": 100,
   "urls": [
-    "https://vedarai.ru/api/images/place-gallery/164f612c-32da-4f0f-b261-c45c09dc2933/1",
-    "https://vedarai.ru/api/images/place-gallery/b7693d96-9118-422e-ba7c-1c00c82651d6/3"
+    "https://vedarai.ru/api/images/place-gallery/284c862f-a339-409d-988a-da4107324b60/2"
   ]
 }
