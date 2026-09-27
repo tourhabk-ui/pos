@@ -1,12 +1,13 @@
 {
-  "note": "27.09, прогон 614. ТОЛЬКО ЧТЕНИЕ. Владелец: «Малкинские горячие источники — проверь описание». Читаем описание и факты записи 284c862f с прода.",
-  "run": 614,
+  "note": "27.09, прогон 615. ТОЛЬКО ЧТЕНИЕ. Владелец прислал три кадра «Халатырское озеро». Ищем запись места на проде.",
+  "run": 615,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 6000,
+  "bytes": 8000,
   "urls": [
-    "https://vedarai.ru/api/places/284c862f-a339-409d-988a-da4107324b60"
+    "https://vedarai.ru/api/places?q=%D0%A5%D0%B0%D0%BB%D0%B0%D0%BA%D1%82%D1%8B%D1%80&limit=20",
+    "https://vedarai.ru/api/places?q=%D0%BB%D0%B5%D0%B1%D0%B5%D0%B4&limit=20&type=lake"
   ]
 }
