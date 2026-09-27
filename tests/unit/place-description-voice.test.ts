@@ -25,6 +25,16 @@ describe('descriptionVoice', () => {
     expect(descriptionVoice('Здесь я впервые увидел медведя.').voice).toBe('diary');
   });
 
+  it('рассказчик без «я» — глагол первого лица (Малкинские источники 27.09)', () => {
+    // Дословно с карточки на проде (проба 614): ни «я», ни «вчера», а голос —
+    // тот же дневник.
+    const v = descriptionVoice('Сижу по горло в горячем, смотрю на зелёные сопки, река шумит рядом.');
+    expect(v.voice).toBe('diary');
+    expect(v.markers).toEqual(expect.arrayContaining(['сижу', 'смотрю']));
+    // «Вышел» и «стоял» в справке бывают у лавы и острога — не ловятся.
+    expect(descriptionVoice('Поток лавы вышел к реке. На мысу стоял острог.').voice).toBe('plain');
+  });
+
   it('ощущения без рассказчика — impression (Ключевская 19.09)', () => {
     const v = descriptionVoice(KLYUCH);
     expect(v.voice).toBe('impression');
