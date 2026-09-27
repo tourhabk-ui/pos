@@ -239,7 +239,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(left.rows.map((r) => r.tgname)).toEqual([]);
   });
 
-  it('миграция 1042 узнаёт шаблон 070 и не трогает то, чего не доказала', async () => {
+  it('миграция 1100 узнаёт шаблон 070 и не трогает то, чего не доказала', async () => {
     // Обход 26.09: опасности, лимит и сложность у мест выведены миграцией 070
     // из location_type, а карточка печатала их как факты. Прятать можно только
     // ДОКАЗАННУЮ выдумку, поэтому 1033 сверяет отпечаток по пяти полям сразу.
@@ -247,12 +247,12 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     // Тест исполняет СОБСТВЕННЫЙ запрос миграции, а не его пересказ: правило,
     // написанное дважды, — это два правила, и они расходятся (§12).
     const sql = readFileSync(
-      join(process.cwd(), 'migrations/1042_safety_profile_source.sql'),
+      join(process.cwd(), 'migrations/1100_safety_profile_source.sql'),
       'utf-8',
     );
     const start = sql.indexOf('WITH k AS (');
     const end = sql.indexOf('AND lsp.profile_source IS NULL;', start);
-    expect(start, 'в миграции 1042 не найден запрос разметки').toBeGreaterThan(0);
+    expect(start, 'в миграции 1100 не найден запрос разметки').toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
     const classify = sql.slice(start, end + 'AND lsp.profile_source IS NULL;'.length);
 
