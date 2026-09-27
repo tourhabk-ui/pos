@@ -1,16 +1,21 @@
 {
-  "note": "26.09, прогон 608. ТОЛЬКО ЧТЕНИЕ. Issue #2064: разметка текста статьи kamtoday со сводкой Минтура — где начинается и кончается articleBody, как разделены пункты.",
-  "run": 608,
+  "note": "26.09, прогон 610. ТОЛЬКО ЧТЕНИЕ. TravelLine Partner API для канала продаж: владелец отправил заявку на partner_ota@travelline.ru. Нужны условия (стоимость, комиссия канала), способы оплаты (оплата на месте, предоплата — кто принимает деньги гостя), шаги сертификации и устройство бронирования. Сайт TravelLine из контейнера закрыт.",
+  "run": 610,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 100,
-  "ua": "Mozilla/5.0 (compatible; KamchatourBot/1.0)",
-  "around": ["itemprop=\"articleBody\""],
-  "aroundLines": 70,
-  "aroundHits": 1,
+  "bytes": 200,
+  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
+  "grep": ["комисс", "оплат", "стоимост", "бесплатн", "сертификац", "договор", "на месте", "предоплат"],
+  "around": ["комисс", "оплат", "стоимост", "сертификац", "на месте"],
+  "aroundLines": 8,
+  "aroundBefore": 2,
+  "aroundHits": 3,
   "urls": [
-    "https://kamtoday.ru/news/poluostrov/minturizma-kamchatki-gde-otkryty-marshruty-a-k-kakim-vulkanam-luchshe-ne-priblizhatsya/"
+    "https://www.travelline.ru/support/knowledge-base/partner-api-faq/",
+    "https://www.travelline.ru/support/knowledge-base/kak-kanalu-prodazh-podklyuchit-partner-api/",
+    "https://www.travelline.ru/support/knowledge-base/usloviya-sotrudnichestva/",
+    "https://www.travelline.ru/support/knowledge-base/reservation-api-bronirovanie/"
   ]
 }

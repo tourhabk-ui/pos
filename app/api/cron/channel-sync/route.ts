@@ -26,15 +26,26 @@ export async function GET(req: Request) {
     const results = await syncAllChannels();
     const totalNew = results.reduce((s, r) => s + r.new_orders, 0);
     const allErrors = results.flatMap(r => r.errors);
+    const configured = results.filter(r => r.state !== 'not_configured');
+    const failed = results.filter(r => r.state === 'failed');
 
-    recordCronRun('channel-sync', started, 'success', { items: totalNew });
+    // Все настроенные каналы упали — прогон не удался, а не «0 заказов».
+    // Ни одного настроенного — известное состояние: работать нечем, и это
+    // говорится полем not_configured, а не выдаётся за пустой улов (§4.0).
+    const allFailed = configured.length > 0 && failed.length === configured.length;
+    recordCronRun('channel-sync', started, allFailed ? 'failed' : 'success', {
+      items: totalNew,
+      ...(allFailed ? { error: allErrors.join('; ').slice(0, 300) } : {}),
+    });
     return Response.json({
-      success: true,
+      success: !allFailed,
       duration_ms: Date.now() - started,
       total_new_orders: totalNew,
+      channels_configured: configured.length,
+      not_configured: results.filter(r => r.state === 'not_configured').map(r => r.channel),
       channels: results,
       errors: allErrors.length ? allErrors : undefined,
-    });
+    }, { status: allFailed ? 502 : 200 });
   } catch (e) {
     const msg = (e as Error).message;
     console.error('[channel-sync] прогон не удался:', msg);

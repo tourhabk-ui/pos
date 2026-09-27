@@ -219,7 +219,7 @@ export async function fetchAvitoLeads(userId: string): Promise<ChannelBooking[]>
     { headers: { 'Authorization': `Bearer ${token}` } }
   );
 
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(`Авито: чаты не получены, HTTP ${res.status}`);
 
   const data = await res.json() as { chats?: unknown[] };
   const chats = data.chats ?? [];
@@ -252,6 +252,12 @@ export async function fetchAvitoLeads(userId: string): Promise<ChannelBooking[]>
 export const avitoAdapter: ChannelAdapter = {
   name: 'avito' as ChannelName,
 
+  isConfigured(): boolean {
+    return Boolean(
+      process.env.AVITO_USER_ID && process.env.AVITO_CLIENT_ID && process.env.AVITO_CLIENT_SECRET,
+    );
+  },
+
   async pushBooking(_input: PushBookingInput): Promise<PushBookingResult> {
     // Авито — доска объявлений, не маркетплейс.
     // Бронирование происходит на vedarai.ru — ссылка зашита в описание тура.
@@ -259,14 +265,12 @@ export const avitoAdapter: ChannelAdapter = {
     return { success: false, error: 'Авито не поддерживает прямое бронирование — пользователи направляются на vedarai.ru' };
   },
 
+  // Отказ не глушится: прежде и «ключей нет», и «API ответил ошибкой», и
+  // исключение возвращали [] — крон показывал «0 новых заказов» на все три.
+  // Настроенность спрашивает channel-manager через isConfigured().
   async pollOrders(_since: Date): Promise<ChannelBooking[]> {
     const userId = process.env.AVITO_USER_ID;
-    if (!userId || !process.env.AVITO_CLIENT_ID) return [];  // не настроен
-
-    try {
-      return await fetchAvitoLeads(userId);
-    } catch {
-      return [];
-    }
+    if (!userId) throw new Error('Авито: AVITO_USER_ID не настроен');
+    return fetchAvitoLeads(userId);
   },
 };

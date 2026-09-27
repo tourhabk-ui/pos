@@ -118,8 +118,23 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
 
+      # Повтор ТОЛЬКО на сбое загрузки шрифта Google (26.09). next/font
+      # скачивает шрифты при сборке, и на раннере этот запрос то и дело
+      # падает `An error occurred in next/font` — красный CI без единой
+      # ошибки в коде: #2015, #2021, #2023, коммит 24cccaa4 и дважды за
+      # 26.09 (#2067, #2069). Перезапуск job интеграции закрыт (403), и
+      # единственным обходом оставался пустой коммит — запрещённый.
+      #
+      # Любая другая ошибка сборки валит шаг сразу: повторять её — значит
+      # прятать поломку. Второй сбой шрифта подряд тоже валит.
       - name: Build (Next.js)
-        run: npm run build
+        run: |
+          set -o pipefail
+          if npm run build 2>&1 | tee /tmp/build-1.log; then exit 0; fi
+          if ! grep -q 'An error occurred in `next/font`' /tmp/build-1.log; then exit 1; fi
+          echo "::warning::Сборка упала на загрузке шрифта Google (next/font), не на коде — один повтор через 20 с"
+          sleep 20
+          npm run build
 
       # Token gate — семантика каскада из computed styles (редизайн 31.07):
       # после редизайна базовая линия нарушений равна нулю и обязана такой
