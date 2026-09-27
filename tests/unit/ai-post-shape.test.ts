@@ -1,12 +1,12 @@
 /**
- * Сторож: в AI-канал уходит выпуск, а не обрывок; кнопки — про материалы
- * поста; дата — по Камчатке (26.09, «полный кринж для канала 6.8К»).
+ * Сторож: в AI-канал уходит выпуск, а не обрывок; вёрстка «Журнал»
+ * (27.09); дата — по Камчатке (26.09, «полный кринж для канала 6.8К»).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  aiPostMaterials, aiPostTooThin, aiPostButtons, buttonLabel, kamchatkaDate, AI_BUTTON_LABEL_MAX,
+  aiPostMaterials, aiPostTooThin, kamchatkaDate, toJournalLayout,
 } from '@/lib/notifications/ai-post-shape';
 
 /** Пост 26.09 в том виде, в каком он ушёл (без подвала). */
@@ -51,18 +51,31 @@ describe('материалы поста', () => {
   });
 });
 
-describe('кнопки', () => {
-  it('только на материалы поста и их русскими заголовками', () => {
-    const b = aiPostButtons(GOOD).flat();
-    expect(b.map((x) => x.url)).toEqual(['https://simonwillison.net/2026/Sep/25/gruber/', 'https://example.com/a?x=1&y=2']);
-    for (const x of b) expect(x.text).toMatch(/[а-яё]/i);
+describe('вёрстка «Журнал» (выбор владельца 27.09)', () => {
+  const J = toJournalLayout(GOOD);
+
+  it('заголовок материала — ссылка на статью, строк «Читать →» нет', () => {
+    expect(J).toContain('<b><a href="https://simonwillison.net/2026/Sep/25/gruber/">Muse даёт каждому пользователю свою Linux VM</a></b>');
+    expect(J).toContain('<b><a href="https://example.com/a?x=1&amp;y=2">Altar-1: открытая security-модель из GLM-5.3</a></b>');
+    expect(J).not.toMatch(/Читать/);
   });
 
-  it('подпись режется по слову, а не посреди него', () => {
-    const l = buttonLabel('Muse даёт каждому пользователю свою постоянную Linux VM в облаке');
-    expect(l.length).toBeLessThanOrEqual(AI_BUTTON_LABEL_MAX);
-    expect(l.endsWith('…')).toBe(true);
-    expect(l).toBe('Muse даёт каждому пользователю свою…');
+  it('«Почему важно» — плашкой цитаты', () => {
+    expect(J).toContain('<blockquote><b>Почему важно:</b> агент с состоянием меняет модель угроз.</blockquote>');
+  });
+
+  it('шапка и хвостовая цитата не тронуты', () => {
+    expect(J.startsWith('<b>AI-дайджест · 26 сентября</b>\n\n')).toBe(true);
+    expect(J).toContain('<blockquote expandable>Третий нюанс без ссылки.</blockquote>');
+  });
+
+  it('материалы, ссылки и порог выпуска после вёрстки те же', () => {
+    expect(aiPostMaterials(J)).toEqual(aiPostMaterials(GOOD));
+    expect(aiPostTooThin(J)).toBeNull();
+  });
+
+  it('уже свёрстанный пост не меняется (повторный проход — no-op)', () => {
+    expect(toJournalLayout(J)).toBe(J);
   });
 });
 
@@ -83,8 +96,11 @@ describe('разведчик пользуется этим', () => {
     expect(src).toMatch(/aiSkip = 'ai_post_too_thin'/);
   });
 
-  it('кнопки — из поста, а не из ленты сигналов', () => {
-    expect(src).toContain('aiPostButtons(aiDigest)');
+  it('вёрстка — после фактчека и до отправки; кнопок под постом нет', () => {
+    const layout = src.indexOf('aiDigest = toJournalLayout(aiDigest);');
+    expect(layout).toBeGreaterThan(src.indexOf('aiPostTooThin(aiDigest)'));
+    expect(layout).toBeLessThan(src.indexOf('await tgSendRich(aiChannelId'));
+    expect(src).toContain('await tgSendRich(aiChannelId, aiPost, undefined, coverUrl,');
     expect(src).not.toMatch(/aiItems\s*\.filter\(i => i\.url\)\s*\.slice\(0, 3\)/);
   });
 

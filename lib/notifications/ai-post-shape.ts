@@ -15,7 +15,8 @@
  *  - выпуск — это минимум два материала. Один материал — не дайджест, а
  *    случайная новость под шапкой «дайджест»; такой день канал пропускает;
  *  - кнопки — только на материалы поста, подписанные его же русским
- *    заголовком.
+ *    заголовком. С 27.09 кнопок нет вовсе: в вёрстке «Журнал» ссылкой
+ *    служит сам заголовок материала (toJournalLayout).
  */
 
 import { stripTags } from '@/lib/html/text';
@@ -28,9 +29,6 @@ export interface AiMaterial {
 
 /** Минимум материалов в выпуске. */
 export const AI_POST_MIN_MATERIALS = 2;
-
-/** Потолок подписи кнопки: длиннее Telegram режет сам, и режет некрасиво. */
-export const AI_BUTTON_LABEL_MAX = 40;
 
 /**
  * Материалы поста по порядку. Блоки разделены пустой строкой; шапка
@@ -50,25 +48,48 @@ export function aiPostMaterials(html: string): AiMaterial[] {
   return out;
 }
 
+/**
+ * Вёрстка «Журнал» (решение владельца 27.09, выбор из трёх вариантов).
+ *
+ * Заголовок материала — сам ссылка на статью, вывод «Почему важно» — плашкой
+ * цитаты, строк «Читать →» нет. Кнопок под постом тоже нет: они повторяли бы
+ * заголовки, которые и так ведут на статью.
+ *
+ * Шаблон в промпте — просьба, а вид канала не должен зависеть от того,
+ * послушалась ли модель (§8: гард, а не абзац). Поэтому вёрстка приводится
+ * здесь, детерминированно, из любого из двух видов ответа — старого
+ * («Читать →» отдельной строкой) и нового. Смысл, факты и ссылки не
+ * меняются: переставляется только разметка, и счёт материалов
+ * (aiPostMaterials) до и после одинаков.
+ */
+export function toJournalLayout(html: string): string {
+  return html.split(/(\n\s*\n)/).map((block) => {
+    if (/^\s*$/.test(block)) return block;
+    let b = block;
+    // «Читать →» отдельной строкой → ссылкой становится заголовок материала.
+    const read = b.match(/^[ \t]*<a\s+href="([^"]+)"[^>]*>\s*Читать[^<]*<\/a>[ \t]*$/m);
+    if (read) {
+      const href = read[1];
+      const title = [...b.matchAll(/<b>([\s\S]*?)<\/b>/g)]
+        .find((m) => !/^\s*(AI-дайджест|Почему важно)/i.test(m[1]) && !/<a\s/i.test(m[1]));
+      if (title && title.index !== undefined) {
+        b = b.slice(0, title.index) + `<b><a href="${href}">${title[1]}</a></b>` + b.slice(title.index + title[0].length);
+        b = b.replace(read[0], '').replace(/\n{2,}/g, '\n').replace(/\n+$/, '');
+      }
+    }
+    // «Почему важно» — плашкой цитаты. Строка, уже начатая <blockquote>,
+    // этим шаблоном не ловится (он требует <b> в начале строки).
+    b = b.replace(/^([ \t]*)(<b>\s*Почему важно.*)$/m, (_line, pad: string, rest: string) =>
+      /<\/blockquote>\s*$/i.test(rest) ? `${pad}${rest}` : `${pad}<blockquote>${rest}</blockquote>`);
+    return b;
+  }).join('');
+}
+
 /** null — пост дотягивает до выпуска; строка — почему нет. */
 export function aiPostTooThin(html: string): string | null {
   const n = aiPostMaterials(html).length;
   if (n >= AI_POST_MIN_MATERIALS) return null;
   return `в посте ${n} полных материалов (заголовок, «Почему важно», ссылка) из ${AI_POST_MIN_MATERIALS} нужных`;
-}
-
-/** Подпись кнопки: целыми словами, с многоточием, если не влезло. */
-export function buttonLabel(title: string, max = AI_BUTTON_LABEL_MAX): string {
-  const t = title.replace(/\s+/g, ' ').trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max - 1);
-  const space = cut.lastIndexOf(' ');
-  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,.:;—-]+$/, '')}…`;
-}
-
-/** Кнопки под постом — по материалам самого поста, не больше трёх. */
-export function aiPostButtons(html: string): Array<Array<{ text: string; url: string }>> {
-  return aiPostMaterials(html).slice(0, 3).map((m) => [{ text: buttonLabel(m.title), url: m.url }]);
 }
 
 /**
