@@ -50,6 +50,9 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 /** Код без комментариев: в них старая форма описана — и должна быть. */
 const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const RESERVE = code(read('lib/bookings/reserve.ts'));
+const FORM = read('components/marketplace/BookingFormClient.tsx');
+/** Без комментариев: в шапке поля правила названы по имени — и должны быть. */
+const FORM_CODE = code(FORM);
 const DYNAMIC = code(read('lib/services/tours/dynamic-pricing.ts'));
 const HONEST = code(read('lib/tours/honest-price.ts'));
 
@@ -247,5 +250,43 @@ describe('бронь считает ту же цену, что показана'
     const at = RESERVE.indexOf('price.changePercent');
     expect(at).toBeGreaterThan(0);
     expect(RESERVE.slice(at, at + 120)).toMatch(/< 0/);
+  });
+});
+
+describe('форма брони показывает цену выбранной даты', () => {
+  it('спрашивает цену у сервера, а не считает правила сама', () => {
+    // Правила живут в базе, и считать их в браузере значило бы завести второе
+    // правило — с ним расходится счёт.
+    expect(FORM).toMatch(/\/api\/tours\/\$\{tourId\}\/price/);
+    expect(FORM_CODE, 'форма сама перебирает рода правил').not.toMatch(/last_minute/);
+  });
+
+  it('у цены три исхода, и «не сверили» не выдаётся за «скидки нет»', () => {
+    // Проверено в браузере 27.09 всеми тремя ветками: без даты 18 500;
+    // с датой 18 500 зачёркнуто и 15 700 с подписью «−15%, последние места»;
+    // при оборванном запросе — строка о том, что сверить не удалось.
+    expect(FORM).toMatch(/'base' \| 'checked' \| 'unchecked'/);
+    expect(FORM).toMatch(/Цену на эту дату сверить не удалось/);
+  });
+
+  it('без даты правил не существует — показывается цена оператора', () => {
+    // last_minute и сезон считаются ОТ ДАТЫ; до её выбора «скидка» была бы
+    // выдумкой.
+    const at = FORM.indexOf('if (!chosenDate)');
+    expect(at).toBeGreaterThan(0);
+    expect(FORM.slice(at, at + 200)).toMatch(/status: 'base'/);
+  });
+
+  it('прежняя сумма зачёркивается только когда она БОЛЬШЕ новой', () => {
+    // Иначе надбавка нарисовалась бы как скидка.
+    expect(FORM).toMatch(/priced\.baseTotal > priced\.total/);
+  });
+
+  it('запрос отменяется при смене даты или числа людей', () => {
+    // Иначе ответ на прежнюю дату мог бы прийти последним и показать цену
+    // не той даты.
+    expect(FORM).toMatch(/new AbortController\(\)/);
+    expect(FORM).toMatch(/ctrl\.abort\(\)/);
+    expect(FORM).toMatch(/AbortError/);
   });
 });
