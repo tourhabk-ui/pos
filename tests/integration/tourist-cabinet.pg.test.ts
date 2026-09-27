@@ -210,7 +210,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     // `update_partner_rating_trigger` из baseline: функция читает
     // NEW.operator_id, которой у `reviews` нет. Значит отзыв о месте не
     // сохранялся НИ РАЗУ, а пустой блок отзывов читался как «никто не
-    // оценил» (§4.0). Миграция 1034 снимает оба легаси-триггера.
+    // оценил» (§4.0). Миграция 1037 снимает оба легаси-триггера.
     //
     // Сторож стоит здесь, а не в юнитах, намеренно: поля записи PL/pgSQL
     // проверяет на исполнении, статикой этого не видно — судит сервер.
@@ -239,7 +239,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(left.rows.map((r) => r.tgname)).toEqual([]);
   });
 
-  it('миграция 1033 узнаёт шаблон 070 и не трогает то, чего не доказала', async () => {
+  it('миграция 1036 узнаёт шаблон 070 и не трогает то, чего не доказала', async () => {
     // Обход 26.09: опасности, лимит и сложность у мест выведены миграцией 070
     // из location_type, а карточка печатала их как факты. Прятать можно только
     // ДОКАЗАННУЮ выдумку, поэтому 1033 сверяет отпечаток по пяти полям сразу.
@@ -247,12 +247,12 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     // Тест исполняет СОБСТВЕННЫЙ запрос миграции, а не его пересказ: правило,
     // написанное дважды, — это два правила, и они расходятся (§12).
     const sql = readFileSync(
-      join(process.cwd(), 'migrations/1033_safety_profile_source.sql'),
+      join(process.cwd(), 'migrations/1036_safety_profile_source.sql'),
       'utf-8',
     );
     const start = sql.indexOf('WITH k AS (');
     const end = sql.indexOf('AND lsp.profile_source IS NULL;', start);
-    expect(start, 'в миграции 1033 не найден запрос разметки').toBeGreaterThan(0);
+    expect(start, 'в миграции 1036 не найден запрос разметки').toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
     const classify = sql.slice(start, end + 'AND lsp.profile_source IS NULL;'.length);
 

@@ -629,7 +629,7 @@ export async function GET(
           altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
           // Опасности точки, выведенные шаблоном 070 из location_type, не
           // уходят на карточку маршрута: иначе маршрут через любой вулкан
-          // обещает лавины (lib/safety/profile-source.ts, миграция 1033).
+          // обещает лавины (lib/safety/profile-source.ts, миграция 1036).
           hazardTypes:  honestSafetyFields(
             {
               hazardTypes: Array.isArray(w.hazard_types) ? (w.hazard_types as string[]) : [],
