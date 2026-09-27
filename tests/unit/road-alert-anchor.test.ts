@@ -90,16 +90,35 @@ describe('словари родовых слов не сливаются', () =>
 
 describe('радиус доезжает до SQL', () => {
   const route = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf8');
+  /**
+   * Предикат сопоставления алерта с местом переехал 27.09 из крон-роута в
+   * `lib/services/safety/alert-place-scope.ts`: пока он жил внутри роута,
+   * проверить его можно было только вместе с походами за сводками, и его не
+   * проверял никто — так дожили до прода и пепел Шивелуча на Ключевском, и
+   * «Вилючинский перевал» за 500 км.
+   *
+   * Сторож идёт за правилом, а не остаётся у прежнего адреса: смысл проверок
+   * тот же — радиус не потерян и род с точным местом не судится зоной.
+   */
+  const scope = readFileSync(join(process.cwd(), 'lib/services/safety/alert-place-scope.ts'), 'utf8');
 
   it('road_closure судится радиусом, а не зоной', () => {
-    expect(route).toMatch(/alert_type IN \('fire_danger', 'road_closure'\)/);
+    expect(scope).toMatch(/alert_type IN \('fire_danger', 'road_closure'\)/);
   });
 
   it('радиус берётся из константы, а не вписан числом в запрос', () => {
     // Второе значение радиуса в SQL — это второе правило, и оно разойдётся
     // с первым при следующей правке.
-    expect(route).toContain('${ROAD_ALERT_RADIUS_KM}');
+    expect(scope).toContain('${ROAD_ALERT_RADIUS_KM}');
+    expect(scope).toContain("from '@/lib/safety/alert-anchor'");
     expect(ROAD_ALERT_RADIUS_KM).toBe(30);
+  });
+
+  it('крон-роут зовёт вынесенное правило, а не держит своё', () => {
+    // Иначе переезд правила оставил бы в роуте вторую копию предиката.
+    expect(route).toContain("from '@/lib/services/safety/alert-place-scope'");
+    expect(route, 'в роуте снова свой предикат сопоставления')
+      .not.toMatch(/alert_type IN \('fire_danger', 'road_closure'\)/);
   });
 
   it('привязка идёт ДО раскладки тревог по точкам', () => {
