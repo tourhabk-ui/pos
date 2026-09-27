@@ -7,7 +7,14 @@
  * неоплаченные брони невидимы). Занятость тура — LATERAL из
  * operator_bookings (статусы NOT IN cancelled/rejected, как у гейткипера)
  * с клампом по max_participants; занятость зоны — v_tour_daily_occupancy
- * (многодневный разворот). Фолбэк при ошибке БД — прежний тихий.
+ * (многодневный разворот).
+ *
+ * Фолбэк при ошибке БД БОЛЬШЕ НЕ ТИХИЙ (27.09). Он был «прежним тихим» по
+ * наследству: занятость зоны штрафовала оценку, и нули при отказе означали
+ * лишь «штрафа не будет». С 27.09 это число идёт НА ЭКРАН меткой загрузки
+ * зоны, и ноль там читается как «свободно» — обещание, которого никто не
+ * проверял. Теперь отказ даёт `utilizationPercent: null` и строку в лог
+ * (§4.0: «не смог» не равно «хорошо»).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -79,12 +86,36 @@ describe('fetchZoneCapacity — занятость зоны из v_tour_daily_oc
     expect(sql).not.toContain('booked_slots');
   });
 
-  it('ошибка БД → прежний тихий фолбэк (нули)', async () => {
+  it('ошибка БД → занятость null и строка в лог, а не нулевая занятость', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     poolQueryMock.mockRejectedValue(new Error('db down'));
     const cap = await fetchZoneCapacity(
       'avachinsky' as Parameters<typeof fetchZoneCapacity>[0],
       '2026-08-01', '2026-08-05', freshCache()
     );
-    expect(cap).toEqual({ tourCount: 0, totalSlots: 0, totalBooked: 0, utilizationPercent: 0 });
+    expect(cap).toEqual({ tourCount: 0, totalSlots: 0, totalBooked: 0, utilizationPercent: null });
+    expect(spy).toHaveBeenCalled();
+    expect(String(spy.mock.calls[0]?.[0])).toContain('занятость зоны');
+    spy.mockRestore();
+  });
+
+  it('нет слотов на даты → тоже null: делить не на что', async () => {
+    // Ноль значит «свободно». «Слотов нет вовсе» — другое состояние, и
+    // выдавать его за свободу нельзя: метка на экране обещает свободные места.
+    poolQueryMock.mockResolvedValue({ rows: [{ tour_count: '0', total_slots: '0', total_booked: '0' }] });
+    const cap = await fetchZoneCapacity(
+      'avachinsky' as Parameters<typeof fetchZoneCapacity>[0],
+      '2026-08-01', '2026-08-05', freshCache()
+    );
+    expect(cap.utilizationPercent).toBeNull();
+  });
+
+  it('слоты есть → честный процент', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{ tour_count: '2', total_slots: '10', total_booked: '4' }] });
+    const cap = await fetchZoneCapacity(
+      'avachinsky' as Parameters<typeof fetchZoneCapacity>[0],
+      '2026-08-01', '2026-08-05', freshCache()
+    );
+    expect(cap.utilizationPercent).toBe(40);
   });
 });

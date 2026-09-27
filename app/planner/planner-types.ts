@@ -53,7 +53,7 @@ export interface PriceBreakdown {
 }
 
 export interface Recommendation {
-  zones: Array<{ zone: string; score: number; reason: string; crowdScore?: number }>;
+  zones: Array<{ zone: string; score: number; reason: string; crowdScore?: number | null }>;
   days: DayPlan[];
   warnings: TripWarning[];
   priceBreakdown: PriceBreakdown;

@@ -70,6 +70,12 @@ function mockHappyPathQueries() {
     if (sql.includes('INSERT INTO operator_bookings')) {
       return Promise.resolve({ rows: [{ id: 42, access_token: 'test-access-token-abc' }] });
     }
+    // Цена брони считается правилами `tour_pricing_rules` (27.09,
+    // lib/tours/honest-price): бронь читает их и занятость даты клиентом ТОЙ
+    // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
+    // то есть прежнее поведение этих проверок.
+    if (sql.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    if (sql.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
   });
   poolQueryMock.mockResolvedValue({ rows: [{ name: 'Operator', telegram_chat_id: null, max_chat_id: null, uon_api_key: null }] });

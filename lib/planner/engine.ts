@@ -14,6 +14,15 @@ import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
   ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, ZONE_SLEEPS_IN, sleepZoneOf,
 } from '@/lib/planner/constants';
+import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
+import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
+import {
+  asTripOrigin, framingDays, activeBudget as framedActiveBudget,
+  arrivalDayText, departureDayText, nightIsAtHome, paysAirportTransfers,
+  HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, type TripOrigin,
+} from '@/lib/planner/trip-origin';
+export { ZONE_GRAPH };
+export type { ZoneEdge };
 
 export {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
@@ -35,7 +44,7 @@ import {
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { tourDaySpan } from '@/lib/planner/tour-span';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
-import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, type PlaceLoad } from '@/lib/planner/flow-balance';
+import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -65,6 +74,12 @@ export interface TripProfile {
   travelStyle?: TravelStyle;
   /** Сколько дней отдыха поставить; режется сроком поездки. */
   restDays?: number;
+  /**
+   * Прилетает человек или живёт в крае (владелец 27.09). Нет или `visitor` —
+   * прежнее поведение движка без единого отличия; правило — в
+   * lib/planner/trip-origin.
+   */
+  tripOrigin?: TripOrigin;
 }
 
 export interface DayPlan {
@@ -130,7 +145,18 @@ export interface DayPlan {
 }
 
 export interface TripWarning {
-  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs';
+  /**
+   * `zone_days` — про арифметику календаря: дальняя зона не влезла связкой
+   * (переезд + день там + возвращение) либо план кончился не в той зоне.
+   * Заведён 27.09 вместе с производителем, иначе это был бы объявленный тип
+   * без источника (§10.09).
+   *
+   * `home_nights` — про допущение в счёте: у местного ночи в Авачинской зоне
+   * не посчитаны, потому что план считает их ночами у себя дома. Адреса
+   * платформа не знает, поэтому допущение говорится вслух, а не прячется в
+   * цифре (§4.0).
+   */
+  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights';
   severity: 'critical' | 'important' | 'info';
   message: string;
 }
@@ -147,7 +173,12 @@ interface ZoneRecommendation {
   score: number;
   reason: string;
   bestMonths: number[];
-  crowdScore?: number;          // 0-100: how crowded this zone is during trip dates
+  /**
+   * Занятость зоны на даты поездки, 0-100. `null` — НЕ ИЗМЕРЕНА: слотов на
+   * эти даты нет вовсе либо запрос не выполнился. Ноль значит «свободно» и
+   * только это.
+   */
+  crowdScore?: number | null;
 }
 
 export interface TripRecommendation {
@@ -191,39 +222,6 @@ const ZONE_BEST_MONTHS: Record<ZoneId, number[]> = {
   western:    [5, 6, 7, 8, 9],
   eastern:    [7, 8, 9],
   northern:   [6, 7, 8, 9, 10],
-};
-
-// ── Zone travel graph ────────────────────────────────────────────────────────
-
-export interface ZoneEdge {
-  distanceKm: number;
-  travelHours: number | null;   // null = no road, helicopter only
-  transports: TransportType[];
-  costPerPerson: [number, number];  // [economy, comfort]
-  needsTravelDay: boolean;
-}
-
-export const ZONE_GRAPH: Record<ZoneId, Partial<Record<ZoneId, ZoneEdge>>> = {
-  avachinsky: {
-    western:  { distanceKm: 300, travelHours: 7,    transports: ['jeep'],       costPerPerson: [5000, 8000],   needsTravelDay: true },
-    eastern:  { distanceKm: 250, travelHours: 5,    transports: ['jeep', 'helicopter'], costPerPerson: [5000, 15000], needsTravelDay: true },
-    northern: { distanceKm: 400, travelHours: null,  transports: ['helicopter'], costPerPerson: [0, 0],         needsTravelDay: false },
-  },
-  western: {
-    avachinsky: { distanceKm: 300, travelHours: 7,   transports: ['jeep'],       costPerPerson: [5000, 8000],   needsTravelDay: true },
-    eastern:    { distanceKm: 500, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0],         needsTravelDay: true },
-    northern:   { distanceKm: 600, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0],         needsTravelDay: true },
-  },
-  eastern: {
-    avachinsky: { distanceKm: 250, travelHours: 5,   transports: ['jeep', 'helicopter'], costPerPerson: [5000, 15000], needsTravelDay: true },
-    western:    { distanceKm: 500, travelHours: null, transports: ['helicopter'],         costPerPerson: [0, 0],        needsTravelDay: true },
-    northern:   { distanceKm: 200, travelHours: null, transports: ['helicopter'],         costPerPerson: [0, 0],        needsTravelDay: false },
-  },
-  northern: {
-    avachinsky: { distanceKm: 400, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0], needsTravelDay: false },
-    eastern:    { distanceKm: 200, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0], needsTravelDay: false },
-    western:    { distanceKm: 600, travelHours: null, transports: ['helicopter'], costPerPerson: [0, 0], needsTravelDay: true },
-  },
 };
 
 // ── Zone transport constraints ──────────────────────────────────────────────
@@ -526,10 +524,33 @@ function pluralDays(n: number): string {
   }
 }
 
+/**
+ * Сколько КАЛЕНДАРНЫХ ДНЕЙ в поездке, считая и первый, и последний.
+ *
+ * ── Что было до 27.09 ─────────────────────────────────────────────────────
+ *
+ * Возвращалась разница дат, то есть число НОЧЕЙ, а называлось днями. Прогон
+ * на 10-17 июля давал семь дней, и последним днём плана — днём с подписью
+ * «Сборы утром. Трансфер в аэропорт, вылет днём» — оказывалось 16 июля. Рейс
+ * у человека 17-го.
+ *
+ * Цена этой ошибки считается по-разному в трёх местах:
+ *
+ *   • последняя строка плана читается как день рейса и указывала НЕ НА ТУ
+ *     дату — ровно тот же сорт неправды, что и день прилёта в плане жителя
+ *     края;
+ *   • последний календарный день поездки не планировался вовсе: человек
+ *     терял один день из каждой поездки;
+ *   • `trip_days` уходит в лид оператору (`source_data`), и оператор читал
+ *     «7 дней» о восьмидневной поездке.
+ *
+ * Равные даты — это ОДИН день, а не ноль: житель края выезжает утром и
+ * возвращается вечером, и такая поездка законна (решение владельца 27.09 про
+ * местных туристов).
+ */
 function getTripDays(profile: TripProfile): number {
   if (!profile.arrivalDate || !profile.departureDate) return 0;
-  const diff = new Date(profile.departureDate).getTime() - new Date(profile.arrivalDate).getTime();
-  return Math.max(0, Math.round(diff / 86400000));
+  return tripCalendarDays(profile.arrivalDate, profile.departureDate);
 }
 
 function hasYoungChildren(profile: TripProfile): boolean {
@@ -568,6 +589,12 @@ function collectWarnings(
   alerts: SafetyAlert[] = [],
   /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
   catalogueOpen: Set<string> | null,
+  /**
+   * Зоны ГОТОВОГО плана. Требования (разрешения, удалённость) относятся к ним,
+   * а не к зонам-кандидатам: человек не должен читать «нужна погранзона ФСБ за
+   * 30 дней» про зону, куда поездка не идёт.
+   */
+  plannedZones: Set<ZoneId>,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const month = getMonth(profile);
@@ -628,10 +655,22 @@ function collectWarnings(
   }
 
   // Min trip duration
-  if (tripDays > 0 && tripDays < 5) {
+  //
+  // Довод про короткую поездку у приезжего и у местного РАЗНЫЙ, а не один с
+  // поправкой. Приезжему мало пяти дней, потому что два из них съедает
+  // самолёт и джетлаг; местному эти два дня никто не отнимает, и «мало» у
+  // него значит другое — погода на Камчатке переносит выход, и запаса дней
+  // нет. Читать про «перелёт 8-9 часов из Москвы» жителю Петропавловска —
+  // ровно тот же сорт неправды, что день прилёта в его плане (27.09).
+  // Порог в КАЛЕНДАРНЫХ днях. Прежние `< 5` считались по ночам, то есть
+  // срабатывали на поездке короче шести календарных дней; `< 6` — тот же
+  // рубеж в новых единицах, а не новое решение о длине поездки.
+  if (tripDays > 0 && tripDays < 6) {
     warnings.push({
       type: 'duration', severity: 'important',
-      message: `${tripDays} дня — очень мало для Камчатки. Перелёт 8-9 часов из Москвы + джетлаг (UTC+12). Рекомендуем минимум 7 дней.`,
+      message: asTripOrigin(profile.tripOrigin) === 'local'
+        ? `${tripDays} ${pluralDays(tripDays)} — короткая поездка: погода на Камчатке переносит выходы, и запасного дня в плане нет. Если выход сорвётся, заменить его будет нечем.`
+        : `${tripDays} дня — очень мало для Камчатки. Перелёт 8-9 часов из Москвы + джетлаг (UTC+12). Рекомендуем минимум 7 дней.`,
     });
   }
 
@@ -675,16 +714,35 @@ function collectWarnings(
     }
   }
 
-  // Permits
-  for (const zr of zones) {
-    const permits = ZONE_PERMITS[zr.zone];
+  // ── Разрешения: критично — только для зон ПЛАНА ──
+  for (const zone of plannedZones) {
+    const permits = ZONE_PERMITS[zone];
     if (!permits) continue;
     for (const p of permits) {
       warnings.push({
         type: 'permit', severity: 'critical',
-        message: `${ZONE_NAMES[zr.zone]}: требуется ${p.name}. Оформление за ${p.advanceDays} дней. ${p.note}`,
+        message: `${ZONE_NAMES[zone]}: требуется ${p.name}. Оформление за ${p.advanceDays} дней. ${p.note}`,
       });
     }
+  }
+
+  // ── Требования зон, которые в план НЕ вошли ──
+  //
+  // Решение владельца 27.09: показать, но без веса «critical» и одной справочной
+  // строкой. Совсем молчать нельзя: человек может добавить такую зону руками
+  // или спросить оператора, и тогда тридцать дней на погранзону — новость,
+  // которую лучше узнать сейчас. Но и пугать требованиями к поездке, которой
+  // нет, нельзя: критическое предупреждение не по делу обесценивает все
+  // остальные.
+  const notPlanned = [...new Set(zones.map((z) => z.zone))].filter((z) => !plannedZones.has(z));
+  const extraPermits = notPlanned.flatMap((zone) =>
+    (ZONE_PERMITS[zone] ?? []).map((p) => `${ZONE_NAMES[zone]} — ${p.name} (за ${p.advanceDays} дней)`),
+  );
+  if (extraPermits.length > 0) {
+    warnings.push({
+      type: 'permit', severity: 'info',
+      message: `Если захотите добавить зоны, которых нет в этом плане, им нужны свои разрешения: ${extraPermits.join('; ')}.`,
+    });
   }
 
   // Fishing license
@@ -708,7 +766,9 @@ function collectWarnings(
   }
 
   // Safety for remote areas
-  const remoteZones = zones.filter(z => z.zone !== 'avachinsky');
+  // Удалённость — свойство зон ПЛАНА: предупреждать об отсутствии связи там,
+  // куда человек не едет, значит приучать пропускать это предупреждение.
+  const remoteZones = [...plannedZones].filter(z => z !== 'avachinsky');
   if (remoteZones.length > 0) {
     warnings.push({
       type: 'safety', severity: 'info',
@@ -766,6 +826,8 @@ async function scoreZones(
 ): Promise<ZoneRecommendation[]> {
   const month = getMonth(profile);
   const scores: Record<string, number> = {};
+  /** Занятость зоны на даты поездки; `null` — не измерена (§4.0). */
+  const crowd: Partial<Record<ZoneId, number | null>> = {};
 
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
@@ -809,10 +871,20 @@ async function scoreZones(
         scores[zone] = (scores[zone] ?? 0) + 5;
       }
     }
-    // Capacity check: penalize overloaded zones
+    // Capacity check: penalize overloaded zones.
+    //
+    // Занятость запоминается и уходит наружу меткой зоны (`crowdScore`):
+    // до 27.09 она считалась здесь, штрафовала оценку и терялась, а на экран
+    // шёл захардкоженный ноль — метка «загружено / умеренно» не могла
+    // зажечься ни при какой заполненности (§10.09: потребитель на экране был,
+    // производителя не было).
+    //
+    // `null` — не измерено, и штрафовать за него нельзя: «слотов на эти даты
+    // нет» не то же, что «зона переполнена».
     if (profile.arrivalDate && profile.departureDate) {
       const cap = await fetchZoneCapacity(zone, profile.arrivalDate, profile.departureDate, cache);
-      if (cap.utilizationPercent > 80) {
+      crowd[zone] = cap.utilizationPercent;
+      if (cap.utilizationPercent !== null && cap.utilizationPercent > 80) {
         scores[zone] = Math.max(0, (scores[zone] ?? 0) - 10);
       }
     }
@@ -827,7 +899,8 @@ async function scoreZones(
       score: Math.min(100, score),
       reason: `${profile.interests.filter(i => ACTIVITY_CONSTRAINTS[i]?.bestZones.includes(zone as ZoneId)).join(', ')}`,
       bestMonths: ZONE_BEST_MONTHS[zone as ZoneId] ?? [],
-      crowdScore: 0,
+      // Настоящая занятость зоны из реальных броней; `null` — не измерена.
+      crowdScore: crowd[zone as ZoneId] ?? null,
     }));
 }
 
@@ -855,6 +928,17 @@ interface DayPlanResult {
   selfSkipped: string[];
   /** Проверка безопасности мест не выполнилась хотя бы раз. */
   selfSafetyUnchecked: boolean;
+  /**
+   * Зоны, не вошедшие в план: связка «переезд + день там + возвращение» не
+   * влезла в остаток дней. С числами, чтобы предупреждение было проверяемым.
+   */
+  skippedLegs: Array<{ zone: ZoneId; cost: ZoneLegCost; daysLeft: number; interests: string[] }>;
+  /**
+   * План кончился в чужой зоне, а дня на возвращение не нашлось. По
+   * построению не должно случаться (день зарезервирован при входе) — поэтому
+   * это самопроверка, а не штатный исход: молчание здесь и было дефектом.
+   */
+  returnLegMissing: ZoneId | null;
 }
 
 /** День отдыха по просьбе человека (не автоматический после тяжёлого дня). */
@@ -884,42 +968,38 @@ async function generateDayPlans(
   catalogueOpen: Set<string> | null,
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
   const days: DayPlan[] = [];
   let dayNum = 1;
 
-  // ── Day 1: Arrival ──
-  const arrHour = profile.flightArrivalTime
-    ? parseInt(profile.flightArrivalTime.split(':')[0], 10)
-    : 14;
-
-  let arrivalTitle: string;
-  if (arrHour < 12) {
-    arrivalTitle = 'Прилёт утром. Размещение, отдых. Вечер: термальные источники Паратунки';
-  } else if (arrHour < 17) {
-    arrivalTitle = 'Прилёт днём. Размещение, акклиматизация. Прогулка по городу';
-  } else {
-    arrivalTitle = 'Прилёт вечером. Размещение, ужин, отдых с дороги';
+  // ── День прибытия — только у прилетающего (lib/planner/trip-origin) ──
+  //
+  // У жителя края дня прилёта нет вовсе: он не летит, не акклиматизируется и
+  // не теряет на это день. До 27.09 этот день ставился безусловно, вместе с
+  // описанием про перелёт 8-9 часов и разницу с Москвой.
+  const origin = asTripOrigin(profile.tripOrigin);
+  const framing = framingDays(origin);
+  const arrivalDay = arrivalDayText(origin, profile.flightArrivalTime);
+  if (arrivalDay) {
+    days.push({
+      day: dayNum++, type: 'arrival', zone: 'avachinsky',
+      title: arrivalDay.title,
+      description: arrivalDay.description,
+      activityType: 'hot_spring', priceFrom: 0, priceTo: 3000,
+      coords: PKC_COORDS, defaultTransport: 'walking',
+      allowedTransports: ['walking'], difficulty: 'easy',
+      childFriendly: true, minChildAge: 0, dayWarnings: [],
+    });
   }
 
-  days.push({
-    day: dayNum++, type: 'arrival', zone: 'avachinsky',
-    title: arrivalTitle,
-    description: 'Перелёт 8-9 часов. Разница с Москвой +9 часов. Акклиматизация обязательна.',
-    activityType: 'hot_spring', priceFrom: 0, priceTo: 3000,
-    coords: PKC_COORDS, defaultTransport: 'walking',
-    allowedTransports: ['walking'], difficulty: 'easy',
-    childFriendly: true, minChildAge: 0, dayWarnings: [],
-  });
-
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
 
   // ── Active days budget ──
-  const departureDays = 1;
-  const activeBudget = tripDays - 1 - departureDays; // minus arrival, minus departure
+  const departureDays = framing.departure;
+  const activeBudget = framedActiveBudget(tripDays, origin);
 
   // ── Стиль поездки и дни отдыха (владелец 26.09, lib/planner/travel-style) ──
   //
@@ -941,6 +1021,12 @@ async function generateDayPlans(
   let selfSafetyUnchecked = false;
   /** Туры, у которых в даты поездки нет свободных мест (стиль «С оператором»). */
   const noSlotTours = new Set<string>();
+  /**
+   * Зоны, не вошедшие в план: связка (переезд + день там + возвращение) не
+   * влезла в остаток дней. Хранится ПРИЧИНА с числами — иначе интерес
+   * человека исчезает из плана молча (§4.0, решение владельца 27.09).
+   */
+  const skippedLegs: Array<{ zone: ZoneId; cost: ZoneLegCost; daysLeft: number; interests: string[] }> = [];
 
   // Determine zone allocation
   const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number }> = [];
@@ -1001,8 +1087,29 @@ async function generateDayPlans(
       block.interests = allowed;
     }
 
-    // Travel day if zone changes
-    if (block.zone !== prevZone && dayNum <= tripDays - departureDays) {
+    // ── Заход в чужую зону: решается СВЯЗКОЙ, а не одним днём (27.09) ──
+    //
+    // Раньше проверка «хватает ли дней» стояла ПОСЛЕ того, как день переезда
+    // уже добавлен, и отката не было. Отсюда два невыполнимых плана, снятых с
+    // живого движка: поездка 5-6 дней получала день переезда в зону, где нет
+    // ни одного дня; поездка 7 дней уезжала в Западную зону и вылетала из
+    // Петропавловска, не возвращаясь. Правило и причина отказа —
+    // lib/planner/zone-leg.ts.
+    if (block.zone !== prevZone) {
+      const daysLeft = tripDays - departureDays - (dayNum - 1);
+      const cost = zoneLegCost(prevZone, block.zone);
+      if (!legFits(cost, daysLeft)) {
+        // Зона не берётся ВОВСЕ — ни дня переезда, ни дня в ней. Молчать
+        // нельзя: интерес человека иначе исчезает из плана без объяснения
+        // (§4.0). Причину собираем и отдаём предупреждением ниже.
+        skippedLegs.push({
+          zone: block.zone,
+          cost,
+          daysLeft,
+          interests: block.interests.slice(),
+        });
+        continue;
+      }
       const edge = ZONE_GRAPH[prevZone]?.[block.zone];
       if (edge?.needsTravelDay) {
         const transportLabel = edge.transports.includes('jeep')
@@ -1017,7 +1124,6 @@ async function generateDayPlans(
           allowedTransports: edge.transports, difficulty: 'easy',
           childFriendly: true, minChildAge: 0, dayWarnings: [],
         });
-        if (dayNum > tripDays - departureDays) break;
       }
     }
 
@@ -1372,7 +1478,14 @@ async function generateDayPlans(
     });
   }
 
-  // ── Travel back to Avachinsky if last zone was not avachinsky ──
+  // ── Возвращение в Авачинскую зону, если последняя зона не она ──
+  //
+  // День возвращения зарезервирован ещё при входе в зону (zone-leg.ts), так что
+  // место под него есть по построению. Самопроверка ниже всё равно стоит: если
+  // резерв когда-нибудь разойдётся с раскладкой, план не должен УМОЛЧАТЬ об
+  // этом — до 27.09 он именно умалчивал, и человек улетал из Петропавловска,
+  // ночуя в Западной зоне.
+  let returnLegMissing: ZoneId | null = null;
   if (prevZone !== 'avachinsky' && dayNum <= tripDays - departureDays) {
     const backEdge = ZONE_GRAPH[prevZone]?.['avachinsky'];
     if (backEdge) {
@@ -1387,7 +1500,12 @@ async function generateDayPlans(
         allowedTransports: backEdge.transports, difficulty: 'easy',
         childFriendly: true, minChildAge: 0, dayWarnings: [],
       });
+      prevZone = 'avachinsky';
+    } else {
+      returnLegMissing = prevZone;
     }
+  } else if (prevZone !== 'avachinsky') {
+    returnLegMissing = prevZone;
   }
 
   // ── Отдых по просьбе, не вставший между активными днями ──
@@ -1419,21 +1537,25 @@ async function generateDayPlans(
     });
   }
 
-  // ── Last day: Departure ──
-  if (dayNum <= tripDays) {
-    const depHour = profile.flightDepartureTime
-      ? parseInt(profile.flightDepartureTime.split(':')[0], 10)
-      : 12;
-    const depTitle = depHour >= 17
-      ? 'Утро свободно. Лёгкая прогулка. Трансфер в аэропорт, вылет вечером'
-      : depHour >= 12
-        ? 'Сборы утром. Трансфер в аэропорт, вылет днём'
-        : 'Ранний подъём. Трансфер в аэропорт, вылет утром';
-
+  // ── Последний день: вылет ──
+  //
+  // Номер дня вылета — ДАТА ОТЪЕЗДА, а не счётчик заполненных дней (правка
+  // 27.09). Раньше день вылета получал `dayNum`, то есть съезжал вперёд ровно
+  // на столько, сколько дней движок не смог наполнить: поездка 10.07-17.07
+  // показывала «Сборы утром. Трансфер в аэропорт» шестым днём из семи. Человек
+  // читает последнюю строку плана как день своего рейса — и получал не ту дату.
+  // Про сам недобор говорит отдельное предупреждение «наполнили N из M», и
+  // разрыв в нумерации теперь ему соответствует.
+  //
+  // У жителя края этого дня нет: `departureDayText` возвращает `null`, и
+  // последний день поездки остаётся рабочим. Раньше он получал «Сборы утром.
+  // Трансфер в аэропорт» — строку про рейс, которого нет.
+  const departureDay = departureDayText(origin, profile.flightDepartureTime);
+  if (departureDay && dayNum <= tripDays) {
     days.push({
-      day: dayNum, type: 'departure', zone: 'avachinsky',
-      title: depTitle,
-      description: 'Аэропорт Елизово (PKC). Трансфер 30 мин из Петропавловска.',
+      day: tripDays, type: 'departure', zone: 'avachinsky',
+      title: departureDay.title,
+      description: departureDay.description,
       activityType: 'departure', priceFrom: 0, priceTo: 2500,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking'], difficulty: 'easy',
@@ -1442,13 +1564,13 @@ async function generateDayPlans(
   }
 
   const preferenceNotes = describePreferences({
-    style, restRequested, days, tripDays,
+    style, restRequested, days, tripDays, origin,
     selfBlockedActivities, selfSkipped, selfSafetyUnchecked, noSlotTours,
   });
 
   return {
     days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes,
-    selfSkipped: [...selfSkipped], selfSafetyUnchecked,
+    selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing,
   };
 }
 
@@ -1471,6 +1593,8 @@ function describePreferences(input: {
   selfSkipped: Set<string>;
   selfSafetyUnchecked: boolean;
   noSlotTours: Set<string>;
+  /** Прилетает или живёт в крае: у местного служебных дней нет. */
+  origin: TripOrigin;
 }): PreferenceNote[] {
   const notes: PreferenceNote[] = [];
   const { style, days } = input;
@@ -1548,7 +1672,9 @@ function describePreferences(input: {
       notes.push({
         topic: 'rest_days', status: planned > 0 ? 'partial' : 'not_honoured',
         message: `Отдыха поместилось ${planned} ${pluralDays(planned)} из ${input.restRequested}: в поездке ${input.tripDays} ${pluralDays(input.tripDays)}, `
-          + 'и место нужно прилёту, вылету и хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.',
+          + (input.origin === 'local'
+            ? 'и место нужно хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.'
+            : 'и место нужно прилёту, вылету и хотя бы одному активному дню. Добавьте дней, и отдыха станет больше.'),
       });
     }
   }
@@ -1578,13 +1704,26 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   // `null` (не разобрали состав) считается как «платит»: занижать счёт на
   // догадке хуже, чем завысить и сказать об этом вслух — предупреждение
   // ставит `recommendTrip`.
+  //
+  // У местного ночь в своей зоне не считается вовсе (lib/planner/trip-origin):
+  // он ночует у себя. Допущение о доме названо словами в предупреждениях —
+  // молча занижать счёт на догадке об адресе нельзя.
+  const origin = asTripOrigin(profile.tripOrigin);
   let accFrom = 0;
   let accTo = 0;
+  /**
+   * У ПОСЛЕДНЕГО дня поездки ночи нет — человек либо улетает, либо едет
+   * домой. Правило одно на оба случая: раньше пропускался только день с
+   * типом `departure`, и у местного (у которого такого дня нет вовсе) ночей
+   * выходило на одну больше, чем он проводит вне дома.
+   */
+  const lastDayNum = days.length > 0 ? days[days.length - 1]!.day : 0;
   for (const day of days) {
-    if (day.type === 'departure') continue;
+    if (day.type === 'departure' || day.day === lastDayNum) continue;
     if (day.realTour?.lodgingIncluded === true) continue;
     // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
     const sleepZone = sleepZoneOf(day.zone);
+    if (nightIsAtHome(origin, sleepZone)) continue;
     const acc = ZONE_ACCOMMODATION[sleepZone];
     const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
     accFrom += Math.round(nightPrice * 0.8);
@@ -1593,9 +1732,12 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   if (nightCount === 0) { accFrom = 0; accTo = 0; }
 
   // Transport — travel days + transfers
+  // Трансферы аэропорта — только у прилетающего: местный туда не едет.
   const travelDays = days.filter(d => d.type === 'travel');
-  const transFrom = travelDays.reduce((s, d) => s + d.priceFrom, 0) + 2500; // arrival transfer
-  const transTo   = travelDays.reduce((s, d) => s + d.priceTo, 0) + 5000;   // both transfers
+  const transferFrom = paysAirportTransfers(origin) ? 2500 : 0;
+  const transferTo = paysAirportTransfers(origin) ? 5000 : 0;
+  const transFrom = travelDays.reduce((s, d) => s + d.priceFrom, 0) + transferFrom;
+  const transTo   = travelDays.reduce((s, d) => s + d.priceTo, 0) + transferTo;
 
   return {
     activities: [actFrom, actTo],
@@ -1682,7 +1824,16 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
   const catalogueOpen = await fetchActivitiesBookableInMonth(getMonth(profile), cache);
 
   const zones = await scoreZones(profile, cache, catalogueOpen);
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen);
+  // Дни собираются ДО предупреждений (27.09): предупреждения о разрешениях и
+  // удалённых зонах должны считаться по зонам ГОТОВОГО плана, а не по
+  // зонам-кандидатам. До этой правки человек с планом по Авачинской и
+  // Западной читал два КРИТИЧЕСКИХ требования про Восточную зону (заказник
+  // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
+  // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
+  // «Раздолье»).
+  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
+  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
 
   // Каталог открыл то, что зашитая таблица считает закрытым. Промолчать
   // нельзя ни в одну сторону: отказать — значит не продать то, что оператор
@@ -1720,7 +1871,44 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
       message: 'Вы выбрали режим Приключение. Маршруты могут содержать активные предупреждения МЧС, лавинную или вулканическую опасность. Убедитесь в наличии правильного снаряжения и гидa.',
     });
   }
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+
+  // ── Зона, на которую не хватило дней, называется словами (27.09) ──
+  //
+  // Решение владельца: не ездить и сказать. Молчание читалось бы как «этого
+  // интереса у нас нет», хотя причина — арифметика календаря (§4.0).
+  for (const leg of skippedLegs) {
+    warnings.push({
+      type: 'zone_days',
+      severity: 'info',
+      message: legShortfallMessage(
+        leg.zone,
+        leg.cost,
+        leg.daysLeft,
+        leg.interests.map((i) => ACTIVITY_NAMES[i] ?? i),
+      ),
+    });
+  }
+
+  // Допущение о доме местного — словами рядом со счётом, а не молча в цифре.
+  // Условие узкое намеренно: если план вообще не ночует в Авачинской зоне,
+  // допущение ни на что не повлияло, и говорить о нём нечего.
+  if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE)) {
+    warnings.push({ type: 'home_nights', severity: 'info', message: HOME_NIGHTS_ASSUMPTION });
+  }
+
+  // Самопроверка: план кончился в чужой зоне без дня на возвращение. По
+  // построению невозможно — поэтому если это случилось, говорим громко, а не
+  // отдаём человеку невыполнимый план, как было до 27.09.
+  if (returnLegMissing) {
+    warnings.push({
+      type: 'zone_days',
+      severity: 'critical',
+      message: `План кончается в ${ZONE_NAMES[returnLegMissing] ?? returnLegMissing}, а дня на возвращение в Петропавловск в нём нет — `
+        + (asTripOrigin(profile.tripOrigin) === 'local'
+          ? 'вернуться в город в тот же день не выйдет. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'
+          : 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'),
+    });
+  }
 
   // «Вперемешку» и план без выбора стиля (Кузьмич, MCP): что не поставлено
   // самостоятельным днём и почему — предупреждением, которое доходит до

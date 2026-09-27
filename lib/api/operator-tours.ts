@@ -107,9 +107,23 @@ export const AddAvailabilitySchema = z.object({
   ).min(1).max(365),
 });
 
+/**
+ * Постраничность списка.
+ *
+ * `searchParams.get()` отдаёт `null`, когда параметра нет, а `.default()`
+ * срабатывает только на `undefined`. `z.coerce.number()` при этом превращает
+ * `null` в НОЛЬ — и запрос без `?limit=` падал на `.min(1)`, отвечая 500
+ * (27.09, список броней оператора). Тот же «Number(null) = 0», что стоил
+ * платформе нулевой комиссии в разборе денежного пути 11.09.
+ *
+ * `preprocess` приводит отсутствие к `undefined` ДО приведения типа — тогда
+ * умолчание работает, а мусорная строка по-прежнему отвергается.
+ */
+const absentAsUndefined = (v: unknown) => (v === null || v === '' ? undefined : v);
+
 export const PaginationSchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(20),
-  offset: z.coerce.number().min(0).default(0),
+  limit: z.preprocess(absentAsUndefined, z.coerce.number().min(1).max(100).default(20)),
+  offset: z.preprocess(absentAsUndefined, z.coerce.number().min(0).default(0)),
 });
 
 // ============================================================================

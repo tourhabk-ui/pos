@@ -104,11 +104,70 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const [pdConsent, setPdConsent] = useState(false);
 
   const participants = parseInt(formData.participants_count) || 1;
-  // Та же функция, что считает сумму заявки на сервере (reserve.ts): сумма
-  // на экране и в заявке совпадают, и тур «за группу» не множится на людей.
-  const totalPrice = bookingTotal({ basePrice, priceUnit, participants, duration });
   const unit = normalizePriceUnit(priceUnit);
   const days = unit === 'per_day_per_person' && duration ? tourDurationDays(duration) : 1;
+
+  /**
+   * Цена на ВЫБРАННУЮ дату — с правилами оператора (27.09).
+   *
+   * Без даты правил не существует: `last_minute` и сезон считаются ОТ ДАТЫ, и
+   * до её выбора показывается цена оператора — она же и запишется, если правил
+   * нет. Считает сервер (`GET /api/tours/[id]/price`, то же правило
+   * `lib/tours/honest-price`, которым считает бронь): цену от клиента
+   * `reserveBooking` не принимает и не примет.
+   *
+   * `status` — три исхода (§4.0). `checked` — сверено с датой; `base` — даты
+   * ещё нет; `unchecked` — сверить не удалось, и об этом сказано вслух. Молча
+   * показать базовую цену вместо непроверенной нельзя: у правила бывает
+   * НАДБАВКА (высокий сезон, заполненная дата), и тогда человек увидел бы
+   * сумму меньше той, что придёт в заявке.
+   */
+  const [priced, setPriced] = useState<{
+    status: 'base' | 'checked' | 'unchecked';
+    total: number;
+    baseTotal: number;
+    label: string | null;
+  }>({ status: 'base', total: 0, baseTotal: 0, label: null });
+
+  const chosenDate = formData.booking_date;
+  useEffect(() => {
+    if (!chosenDate) {
+      setPriced({ status: 'base', total: 0, baseTotal: 0, label: null });
+      return;
+    }
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/tours/${tourId}/price?date=${encodeURIComponent(chosenDate)}&guests=${participants}`,
+          { signal: ctrl.signal },
+        );
+        const data = await res.json() as {
+          success?: boolean; total?: number; baseTotal?: number; label?: string | null;
+        };
+        if (!res.ok || data.success !== true || typeof data.total !== 'number') {
+          setPriced({ status: 'unchecked', total: 0, baseTotal: 0, label: null });
+          return;
+        }
+        setPriced({
+          status: 'checked',
+          total: data.total,
+          baseTotal: typeof data.baseTotal === 'number' ? data.baseTotal : data.total,
+          label: data.label ?? null,
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setPriced({ status: 'unchecked', total: 0, baseTotal: 0, label: null });
+      }
+    })();
+    return () => ctrl.abort();
+  }, [tourId, chosenDate, participants]);
+
+  // Та же функция, что считает сумму заявки на сервере (reserve.ts): сумма
+  // на экране и в заявке совпадают, и тур «за группу» не множится на людей.
+  const basePriceTotal = bookingTotal({ basePrice, priceUnit, participants, duration });
+  const totalPrice = priced.status === 'checked' ? priced.total : basePriceTotal;
+  const struckTotal = priced.status === 'checked' && priced.baseTotal > priced.total ? priced.baseTotal : null;
 
   // Человек начал править — прежний отказ больше не про то, что на экране.
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -407,9 +466,36 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
               ? `${formatPrice(basePrice)} × ${participants} чел. × ${days} дн.`
               : `${formatPrice(basePrice)} × ${participants} чел.`}
           </p>
-          <p className="text-2xl font-bold whitespace-nowrap text-[var(--text-primary)]">
-            {formatPrice(totalPrice)}
+          {/* `whitespace-nowrap` на строке целиком: «52 000 ₽» не может
+              порваться на «52 000 / ₽» (сторож booking-form-p2). `flex-wrap`
+              при этом оставлен — сами суммы могут разойтись по строкам на
+              узком экране, а числа внутри них нет. */}
+          <p className="flex flex-wrap items-baseline gap-2 whitespace-nowrap">
+            {/* Прежняя сумма зачёркнутой — иначе скидка это просто другое
+                число, и человек не поймёт, почему оно не как в каталоге.
+                `--text-secondary`, не `--text-muted`: muted в этой форме
+                запрещён, он для плейсхолдеров (сторож booking-form-p2). */}
+            {struckTotal !== null && (
+              <span className="text-base text-[var(--text-secondary)] line-through">
+                {formatPrice(struckTotal)}
+              </span>
+            )}
+            <span className="text-2xl font-bold text-[var(--text-primary)]">
+              {formatPrice(totalPrice)}
+            </span>
           </p>
+          {/* Скидка называется словами: «−15%, последние места». */}
+          {priced.status === 'checked' && priced.label && (
+            <p className="mt-0.5 text-sm font-medium text-[var(--success)]">{priced.label}</p>
+          )}
+          {/* Третий исход: цену на дату сверить не удалось. Молчать нельзя —
+              у правила бывает надбавка, и тогда показанное было бы МЕНЬШЕ
+              того, что придёт в заявке. */}
+          {priced.status === 'unchecked' && (
+            <p className="mt-0.5 text-sm text-[var(--warning)]">
+              Цену на эту дату сверить не удалось — итог подтвердит оператор в заявке.
+            </p>
+          )}
         </div>
         {/* Без даты кнопка выключена — и обязана ВЫГЛЯДЕТЬ выключенной и
             говорить почему: прогулка 10.09 нашла её оранжевой и молчащей

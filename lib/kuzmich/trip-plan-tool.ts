@@ -310,7 +310,10 @@ export async function makeTripPlanForKuzmich(
 
   const start = parsePlanStart(args.when, Date.now());
   const arrival = start.date;
-  const departure = new Date(arrival.getTime() + daysNum * 86400000);
+  // `daysNum` — КАЛЕНДАРНЫЕ дни, считая первый и последний, поэтому шагов
+  // между датами на один меньше (движок считает так же с 27.09: до этого
+  // `getTripDays` возвращал ночи, и «7 дней» превращались в восемь).
+  const departure = new Date(arrival.getTime() + (daysNum - 1) * 86400000);
 
   const rec = await recommendTrip({
     interests,

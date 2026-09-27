@@ -34,6 +34,22 @@ const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
 const CONSTANTS = readFileSync(join(ROOT, 'lib/planner/constants.ts'), 'utf8');
 const DATA = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf8');
 
+/**
+ * Тело подсчёта ночёвок — от объявления счётчиков до конца цикла, а не окно в
+ * 700 символов от первой строки.
+ *
+ * Окно ломается от любого добавленного комментария: 27.09 правка «у последнего
+ * дня поездки ночи нет» вытеснила проверяемую строку за границу, и тест
+ * покраснел на неизменном поведении. Проверяем СМЫСЛ, а не расстояние в
+ * байтах.
+ */
+function lodgingBlock(): string {
+  const from = ENGINE.indexOf('let accFrom = 0;');
+  const to = ENGINE.indexOf('if (nightCount === 0)');
+  if (from < 0 || to <= from) throw new Error('подсчёт ночёвок не найден в движке');
+  return ENGINE.slice(from, to);
+}
+
 describe('разбор состава тура', () => {
   it('настоящая строка с прода распознаётся', () => {
     // Дословно из ответа ID9 — на выдуманной строке сторож не значил бы ничего.
@@ -95,8 +111,7 @@ describe('смета не платит за ночь дважды', () => {
     // Сравнение с `true` строгое намеренно. Истинностная проверка
     // (`if (day.realTour?.lodgingIncluded)`) вела бы себя так же, но
     // молча — и следующая правка легко превратила бы null в «включено».
-    const at = ENGINE.indexOf('let accFrom = 0;');
-    const block = ENGINE.slice(at, at + 600);
+    const block = lodgingBlock();
     expect(block).not.toMatch(/if \(day\.realTour\?\.lodgingIncluded\) continue;/);
   });
 
@@ -125,8 +140,7 @@ describe('ночь считается там, где её проводят', () 
   it('смета читает это поле, а не только приписку', () => {
     // Поле без потребителя — то же объявление в никуда, что и приписка
     // (§10.09): выглядело бы починкой, не будучи ею.
-    const at = ENGINE.indexOf('let accFrom = 0;');
-    const block = ENGINE.slice(at, at + 700);
+    const block = lodgingBlock();
     expect(block).toMatch(/const sleepZone = sleepZoneOf\(day\.zone\)/);
     expect(CONSTANTS).toMatch(/return ZONE_SLEEPS_IN\[zone\] \?\? zone/);
     expect(block).toMatch(/const acc = ZONE_ACCOMMODATION\[sleepZone\]/);
@@ -134,8 +148,7 @@ describe('ночь считается там, где её проводят', () 
 
   it('зона, где ночуют, платит по своей цене', () => {
     // Иначе правка свелась бы к «взять ноль из другого места».
-    const at = ENGINE.indexOf('let accFrom = 0;');
-    const block = ENGINE.slice(at, at + 700);
+    const block = lodgingBlock();
     expect(block).not.toMatch(/ZONE_ACCOMMODATION\[day\.zone\]\.pricePerNight/);
   });
 });

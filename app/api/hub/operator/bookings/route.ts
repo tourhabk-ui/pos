@@ -118,6 +118,24 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    /**
+     * Отказ не глушится (CLAUDE.md §4.0).
+     *
+     * 27.09: список броней оператора отвечал 500 на запрос без `?limit=`, и
+     * найти причину было НЕЧЕМ — этот `catch` не писал ни строки, в логе
+     * стояло только «GET ... 500». Причина оказалась в `z.coerce.number()`:
+     * `Number(null)` равен нулю, `.default(20)` срабатывает лишь на
+     * `undefined`, и отсутствующий параметр падал на `.min(1)`. То есть
+     * ошибка разбора параметров выдавалась за поломку сервера.
+     *
+     * Неверный параметр — это 400 и внятное сообщение, а не 500.
+     */
+    if (error instanceof z.ZodError) {
+      console.warn(`[hub/operator/bookings] параметры не разобраны: ${error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+      return NextResponse.json({ error: 'Неверные параметры списка' }, { status: 400 });
+    }
+    const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '?';
+    console.error(`[hub/operator/bookings] список не отдан (SQLSTATE ${code}): ${error instanceof Error ? error.message : String(error)}`);
     return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 });
   }
 }
@@ -218,6 +236,8 @@ export async function POST(request: NextRequest) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
+    const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '?';
+    console.error(`[hub/operator/bookings] ручная бронь не заведена (SQLSTATE ${code}): ${error instanceof Error ? error.message : String(error)}`);
     return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 });
   }
 }

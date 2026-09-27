@@ -92,6 +92,35 @@ export function overLimitText(place: PlaceLoad): string {
   return `${place.name}: по броням уже ${place.planned} из ${place.limit} человек в сутки (норма: ${place.limitSource})`;
 }
 
+/**
+ * Сколько КАЛЕНДАРНЫХ дней в поездке, считая и первый, и последний.
+ *
+ * ── Почему это отдельное правило (27.09) ──────────────────────────────────
+ *
+ * Движок считал разницу дат, то есть НОЧИ, а называл их днями. Прогон на
+ * 10-17 июля давал семь дней, и последний день плана — тот, у которого
+ * подпись «Сборы утром. Трансфер в аэропорт, вылет днём», — приходился на
+ * 16 июля. Рейс у человека 17-го.
+ *
+ * Правило живёт РЯДОМ с `dateOfTripDay` намеренно: одно переводит номер дня
+ * в дату, другое говорит, сколько этих номеров бывает, и разойтись они не
+ * должны. День 1 — дата прилёта, день N — дата отъезда.
+ *
+ * Равные даты — ОДИН день, а не ноль: житель края выезжает утром и
+ * возвращается вечером, и такая поездка законна.
+ *
+ * Отрицательная разница (отъезд раньше прилёта) — ноль, а не отрицательное
+ * число: это «поездки нет», и раскладка не должна получить дни с номерами
+ * меньше единицы.
+ */
+export function tripCalendarDays(arrivalDate: string, departureDate: string): number {
+  const from = Date.parse(`${arrivalDate.slice(0, 10)}T00:00:00Z`);
+  const to = Date.parse(`${departureDate.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return 0;
+  const nights = Math.round((to - from) / 86_400_000);
+  return nights < 0 ? 0 : nights + 1;
+}
+
 /** Дата N-го дня поездки (день 1 — день прилёта), YYYY-MM-DD. */
 export function dateOfTripDay(arrivalDate: string, dayNum: number): string | null {
   const t = Date.parse(`${arrivalDate.slice(0, 10)}T00:00:00Z`);

@@ -14,7 +14,9 @@ import { query } from '@/lib/database';
 import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { pool } from '@/lib/db-pool';
-import { buildAnchorIndex, matchAlertAnchor, ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
+import { buildAnchorIndex, matchAlertAnchor } from '@/lib/safety/alert-anchor';
+import { buildVolcanoIndex, matchVolcanoPlace } from '@/lib/services/safety/volcano-match';
+import { ALERT_MATCH_SQL } from '@/lib/services/safety/alert-place-scope';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
@@ -173,63 +175,6 @@ function authError(req: Request): Response | null {
  */
 
 /**
- * Когда у события и у точки есть координаты И тип события таков, что
- * расстояние вообще что-то значит.
- *
- * Условие написано ОДИН раз и подставляется в обе ветки: в первой редакции
- * оно было продублировано с отрицанием, и любая правка радиусных типов
- * требовала помнить про второй экземпляр. Точка, не попавшая ни в одну
- * ветку, теряет очистку `active_alerts` и остаётся со вчерашним значением —
- * то есть цена расхождения здесь не косметическая.
- */
-const GEO_SCOPED_SQL = `
-  ea.alert_type IN ('fire_danger', 'road_closure')
-  AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
-  AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
-`;
-
-/**
- * Радиус по роду события, км.
- *
- * Пожар — 50: шире 10-километрового кластера FIRMS, уже зоны (инженерная
- * оценка #861, не замер).
- *
- * Дорожное ограничение — 30: решение владельца 15.09 («30 км от вилючинского
- * вулкана достаточно») после карточки «Раздолья», где предупреждение о
- * Вилючинском перевале висело за шестьдесят километров. Число хранится в
- * `ROAD_ALERT_RADIUS_KM` и подставляется отсюда, чтобы у радиуса не завелось
- * второго значения в SQL.
- */
-const ALERT_MATCH_SQL = `
-  (
-    ${GEO_SCOPED_SQL}
-    AND 2 * 6371 * asin(sqrt(
-          power(sin(radians((ark.lat - ea.lat) / 2)), 2)
-          + cos(radians(ea.lat)) * cos(radians(ark.lat))
-            * power(sin(radians((ark.lng - ea.lng) / 2)), 2)
-        )) <= CASE ea.alert_type
-                WHEN 'road_closure' THEN ${ROAD_ALERT_RADIUS_KM}
-                ELSE 50
-              END
-  )
-  OR (
-    NOT (${GEO_SCOPED_SQL})
-    -- Пустые/NULL зоны совпадают НИ С КЕМ (17.09). Раньше здесь стояло
-    -- «IS NULL OR = '{}' OR …» — пустота читалась как «весь край», и любое
-    -- предупреждение, у которого зона не распозналась, красило каждое место
-    -- (паводок в Соболевском округе → красный на сопках в центре города).
-    -- Та же ошибка сводила на нет лечение USGS в seismic-zones.ts: далёкое
-    -- землетрясение сохранялось с [] и по этому предикату красило всех.
-    -- «Не установлено» ≠ «везде» (§4.0). Событие с пустыми зонами остаётся в
-    -- общекраевой ленте (/safety, safety_status); явно общекраевые тексты
-    -- получают все четыре зоны в mchs_zones по слову источника.
-    -- Зеркальный предикат — lib/routes/collect-signals.ts; сторож
-    -- tests/unit/alert-zone-unknown.test.ts держит их вместе.
-    AND ark.zone = ANY(ea.affected_zones)
-  )
-`;
-
-/**
  * Привязать дорожные предупреждения к точке каталога.
  *
  * Лента МЧС координат не несёт, поэтому до 15.09 ограничение проезда
@@ -298,6 +243,89 @@ async function anchorRoadAlerts(): Promise<RoadAnchorResult> {
     // зону» не находится никогда.
     const message = e instanceof Error ? e.message : 'привязка не выполнилась';
     console.error('[safety-ingest] привязка дорожных предупреждений не выполнилась:', message);
+    return { anchored: 0, ambiguous: 0, unresolved: 0, error: message };
+  }
+}
+
+/**
+ * Привязать вулканическое предупреждение к вулкану каталога.
+ *
+ * Сводка KVERT называет вулкан ИМЕНЕМ, а не координатой. Имя парсер сохраняет
+ * в `external_alerts.volcano_name` (миграция 1102); здесь оно превращается в
+ * точку каталога тем же детерминированным матчером, которым уже пользуется
+ * синк вулканических шкал (`lib/services/safety/volcano-match.ts`): сравнение
+ * ОСНОВ имён, три исхода, неоднозначность — отказ.
+ *
+ * Гадать здесь нельзя по той же причине, что и там: привязать извержение к
+ * чужому конусу хуже, чем не привязать. Именно это и происходило до 27.09 —
+ * без привязки алерт раскладывался зоной, и пепел Шивелуча давал Ключевскому
+ * [КРАСНЫЙ] при собственном жёлтом KVERT (замер владельца, дайджест 27.09).
+ *
+ * Лечит и уже лежащие записи, не только свежий приём: предупреждение живёт до
+ * двух суток, а починка, которая начинает действовать через двое суток, — не
+ * починка. Условие `volcano_ark_id IS NULL` делает прогон идемпотентным.
+ */
+interface VolcanoAnchorResult {
+  /** Нашли вулкан в каталоге — дальше судит VOLCANO_SCOPED_SQL. */
+  anchored: number;
+  /** Основа имени совпала с несколькими точками: какая — неизвестно. */
+  ambiguous: number;
+  /** Источник вулкан назвал, а в каталоге его нет. Пробел каталога. */
+  unresolved: number;
+  error?: string;
+}
+
+async function anchorVolcanoAlerts(): Promise<VolcanoAnchorResult> {
+  try {
+    const volcanoes = await query<{ ark_id: string; name: string }>(
+      `SELECT ark_id::text AS ark_id, name
+         FROM places
+        WHERE is_visible = TRUE AND merged_into_id IS NULL
+          AND ark_id IS NOT NULL
+          AND location_type = 'volcano'`,
+    );
+    if (volcanoes.rows.length === 0) {
+      // Ноль вулканов в каталоге — это отказ, а не «ноль привязок»: второе
+      // неотличимо от «всё уже привязано» (§4.0).
+      return { anchored: 0, ambiguous: 0, unresolved: 0, error: 'вулканов в каталоге нет — привязывать не к чему' };
+    }
+    const index = buildVolcanoIndex(volcanoes.rows.map((r) => ({ arkId: r.ark_id, name: r.name })));
+
+    const pending = await query<{ id: string; volcano_name: string }>(
+      `SELECT id::text AS id, volcano_name FROM external_alerts
+        WHERE alert_type = 'volcanic_eruption'
+          AND volcano_name IS NOT NULL
+          AND volcano_ark_id IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())`,
+    );
+
+    let anchored = 0, ambiguous = 0, unresolved = 0;
+    for (const row of pending.rows) {
+      const match = matchVolcanoPlace(index, row.volcano_name);
+      if (match.kind === 'ambiguous') { ambiguous++; continue; }
+      if (match.kind === 'no_place') { unresolved++; continue; }
+      await query(
+        // Координата вулкана ставится тем же UPDATE: с ней вулканическое
+        // предупреждение начинает сужаться и на КАРТОЧКЕ МАРШРУТА, где
+        // правило «есть координата — меряем» уже написано
+        // (lib/routes/collect-signals.ts). Иначе пришлось бы писать второе
+        // правило о том же (§12).
+        `UPDATE external_alerts ea
+            SET volcano_ark_id = p.ark_id,
+                lat = COALESCE(ea.lat, p.lat),
+                lng = COALESCE(ea.lng, p.lng)
+           FROM places p
+          WHERE ea.id::text = $1 AND p.ark_id::text = $2`,
+        [row.id, match.arkId],
+      );
+      anchored++;
+    }
+    return { anchored, ambiguous, unresolved };
+  } catch (e) {
+    // Молчать нельзя: без строки в логе «почему пепел опять на чужом вулкане»
+    // не находится никогда.
+    const message = e instanceof Error ? e.message : 'привязка не выполнилась';
+    console.error('[safety-ingest] привязка вулканических предупреждений не выполнилась:', message);
     return { anchored: 0, ambiguous: 0, unresolved: 0, error: message };
   }
 }
@@ -680,6 +708,9 @@ function buildResponse(
   // осталось зонными и почему. Отказ приходит причиной, а не нулём — ноль
   // привязок и несработавшая привязка выглядят одинаково (§4.0).
   roadAnchors?: RoadAnchorResult | { error: string },
+  // То же про вулканы: сколько извержений привязано к своему конусу, сколько
+  // осталось без привязки (и потому не красит места вовсе) и почему.
+  volcanoAnchors?: VolcanoAnchorResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -694,6 +725,7 @@ function buildResponse(
     ...(pushResult?.error ? [pushResult.error] : []),
     ...(pruned && 'error' in pruned ? [pruned.error] : []),
     ...(roadAnchors && 'error' in roadAnchors && roadAnchors.error ? [roadAnchors.error] : []),
+    ...(volcanoAnchors && 'error' in volcanoAnchors && volcanoAnchors.error ? [volcanoAnchors.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -790,6 +822,10 @@ function buildResponse(
     // что такой точки у нас нет. Три исхода видны раздельно: «не привязали»
     // по разным причинам чинится по-разному.
     road_anchors: roadAnchors ?? null,
+    // Вулканическая привязка теми же тремя исходами: привязано / имя
+    // неоднозначно / такого вулкана нет в каталоге. Непривязанное извержение
+    // не красит места — цифра здесь единственный способ это заметить.
+    volcano_anchors: volcanoAnchors ?? null,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
     // Сколько звонков намеренно не сделано, потому что об этом типе уже
     // предупреждали и алерт ещё действует (миграция 957). Ноль тут значит
@@ -994,6 +1030,9 @@ export async function GET(req: Request) {
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
   const roadAnchors = await safely('road-anchor', () => anchorRoadAlerts());
+  // Тем же порядком и по той же причине: без привязки вулканическое
+  // предупреждение не попадёт в свою ветку и уйдёт зоной ещё на прогон.
+  const volcanoAnchors = await safely('volcano-anchor', () => anchorVolcanoAlerts());
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   // Статус — по источникам, которыми владеет heartbeat (см. записи здоровья
@@ -1091,7 +1130,7 @@ export async function GET(req: Request) {
         skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
         problems: emsdOk ? emsdResult.table.problems : [],
       },
-    }, pruned, roadAnchors);
+    }, pruned, roadAnchors, volcanoAnchors);
 }
 
 const HtmlBodySchema = z.object({
@@ -1260,6 +1299,9 @@ export async function POST(req: Request) {
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
   const roadAnchors = await safely('road-anchor', () => anchorRoadAlerts());
+  // Тем же порядком и по той же причине: без привязки вулканическое
+  // предупреждение не попадёт в свою ветку и уйдёт зоной ещё на прогон.
+  const volcanoAnchors = await safely('volcano-anchor', () => anchorVolcanoAlerts());
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   // Статус — по источникам, которые приносит воркфлоу (те же, что в записях
@@ -1299,5 +1341,5 @@ export async function POST(req: Request) {
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
     knownDormantSources: knownDormantPost,
-  }, pruned, roadAnchors);
+  }, pruned, roadAnchors, volcanoAnchors);
 }

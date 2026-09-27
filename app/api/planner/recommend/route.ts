@@ -45,6 +45,9 @@ const RecommendSchema = z.object({
   // Стиль поездки и дни отдыха (владелец 26.09, lib/planner/travel-style).
   travelStyle: z.enum(['self', 'operator', 'mixed']).optional(),
   restDays: z.number().int().min(0).max(MAX_REST_DAYS).optional(),
+  // Прилетает человек или живёт в крае (владелец 27.09,
+  // lib/planner/trip-origin). Нет — прежнее поведение: считаем, что прилетает.
+  tripOrigin: z.enum(['visitor', 'local']).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -83,9 +86,14 @@ export async function POST(req: NextRequest) {
 
     const parsed = RecommendSchema.parse(mergedBody);
 
-    if (parsed.arrivalDate && parsed.departureDate && parsed.departureDate <= parsed.arrivalDate) {
+    // Равные даты допустимы: это поездка на ОДИН день. Форма их и так
+    // позволяет (`min={arrival}`), а сервер отвергал — и житель края,
+    // собравший однодневный выход, получал отказ на том, что форма разрешила.
+    if (parsed.arrivalDate && parsed.departureDate && parsed.departureDate < parsed.arrivalDate) {
       return NextResponse.json(
-        { success: false, error: 'Дата отъезда должна быть позже даты прилёта' },
+        // Нейтрально: у местного прилёта нет, а даты те же самые — первый и
+        // последний день поездки (lib/planner/trip-origin).
+        { success: false, error: 'Дата окончания должна быть позже даты начала' },
         { status: 400 },
       );
     }

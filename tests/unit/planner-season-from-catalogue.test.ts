@@ -89,7 +89,11 @@ describe('каталог расширяет сезонное окно', () => {
     // в одном ответе.
     expect(ENGINE).toMatch(/const catalogueOpen = await fetchActivitiesBookableInMonth\(getMonth\(profile\), cache\)/);
     expect(ENGINE).toMatch(/scoreZones\(profile, cache, catalogueOpen\)/);
-    expect(ENGINE).toMatch(/collectWarnings\([^)]*catalogueOpen\)/);
+    // Проверяется, что каталог ДОХОДИТ до сбора предупреждений, а не что он
+    // стоит последним аргументом: 27.09 к вызову добавились зоны готового плана
+    // (предупреждения о разрешениях считались по зонам-кандидатам и требовали
+    // погранзону ФСБ для поездки, которой нет). Правило то же, порядок другой.
+    expect(ENGINE).toMatch(/collectWarnings\([^)]*catalogueOpen/);
     expect(ENGINE).toMatch(/generateDayPlans\(profile, zones, tripDays, cache, catalogueOpen\)/);
     // Ни одна из трёх проверок не судит по голой таблице.
     expect(ENGINE).not.toMatch(/if \(!c\.months\.includes\(month\)\) continue;/);
