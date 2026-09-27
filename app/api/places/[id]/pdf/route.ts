@@ -79,7 +79,7 @@ export async function GET(
       altitudeM:              r.altitude_m != null ? Number(r.altitude_m) : null,
       // PDF человек берёт в поле, где проверить утверждение нечем: опасности и
       // сложность, выведенные шаблоном 070 из location_type, в него не попадают
-      // (lib/safety/profile-source.ts, миграция 1038).
+      // (lib/safety/profile-source.ts, миграция 1042).
       difficultyLevel:        honestPdf.difficultyLevel != null ? String(honestPdf.difficultyLevel) : null,
       hazardTypes:            honestPdf.hazardTypes,
       requiredGear:           r.required_gear as string[] | null,

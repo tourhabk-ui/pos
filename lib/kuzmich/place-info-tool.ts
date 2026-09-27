@@ -71,7 +71,7 @@ export function placeFactLines(p: PlaceRow): string[] {
   if (lat != null && lng != null) lines.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   if (p.altitude_m != null && p.altitude_m > 0) lines.push(`Высота: ${p.altitude_m} м`);
   // Опасности, выведенные шаблоном 070 из location_type, фактом не называются:
-  // правило одно на платформу (lib/safety/profile-source.ts, миграция 1038).
+  // правило одно на платформу (lib/safety/profile-source.ts, миграция 1042).
   // Эта карточка уходит в MCP, то есть читает её чужой ИИ-клиент и повторяет
   // как факт — тем опаснее, чем дальше от базы.
   const hazards = honestSafetyFields(
