@@ -35,7 +35,8 @@ describe('composePlacePost: только то, что в записи', () => {
 
   it('описание записи входит целиком и без правок', () => {
     expect(post).toContain('Купание не рекомендуется — высокая минерализация.');
-    expect(post).toContain('<b>Озеро Зелёное</b>');
+    // Заголовок — жирный и ведёт на страницу (стандарт канала, 27.09).
+    expect(post).toContain(`<b><a href="https://vedarai.ru/routes/${ZELENOE.id}">Озеро Зелёное</a></b>`);
     expect(post).toContain('<i>Озеро</i>');
   });
 
@@ -57,7 +58,7 @@ describe('composePlacePost: только то, что в записи', () => {
 
   it('HTML в данных экранируется, а не уходит разметкой', () => {
     const p = composePlacePost({ ...ZELENOE, title: 'A <b>&</b> B', description: 'Описание <script> длинное и содержательное про озеро.' }, OPTS) ?? '';
-    expect(p).toContain('<b>A &lt;b&gt;&amp;&lt;/b&gt; B</b>');
+    expect(p).toContain('>A &lt;b&gt;&amp;&lt;/b&gt; B</a></b>');
     expect(p).toContain('&lt;script&gt;');
   });
 });
