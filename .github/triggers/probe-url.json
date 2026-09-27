@@ -1,14 +1,13 @@
 {
-  "note": "27.09, прогон 618. ТОЛЬКО ЧТЕНИЕ. После 1039/1040: описание Малок, галереи Вилючинского и Микижи (ищем ark_id для проверки кадра).",
-  "run": 618,
+  "note": "27.09, прогон 619. ТОЛЬКО ЧТЕНИЕ. Кадр Вилючинского с Микижи после 1039: ждём 216343 байта в обеих галереях.",
+  "run": 619,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 2500,
+  "bytes": 200,
   "urls": [
-    "https://vedarai.ru/api/places/284c862f-a339-409d-988a-da4107324b60",
-    "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933",
-    "https://vedarai.ru/api/places?q=%D0%9C%D0%B8%D0%BA%D0%B8%D0%B6%D0%B0"
+    "https://vedarai.ru/api/images/place-gallery/164f612c-32da-4f0f-b261-c45c09dc2933/1",
+    "https://vedarai.ru/api/images/place-gallery/b7693d96-9118-422e-ba7c-1c00c82651d6/3"
   ]
 }
