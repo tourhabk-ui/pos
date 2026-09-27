@@ -1,21 +1,12 @@
 {
-  "note": "26.09, прогон 610. ТОЛЬКО ЧТЕНИЕ. TravelLine Partner API для канала продаж: владелец отправил заявку на partner_ota@travelline.ru. Нужны условия (стоимость, комиссия канала), способы оплаты (оплата на месте, предоплата — кто принимает деньги гостя), шаги сертификации и устройство бронирования. Сайт TravelLine из контейнера закрыт.",
-  "run": 610,
+  "note": "27.09, прогон 609. ТОЛЬКО ЧТЕНИЕ. Снимок владельца «Вид на Вилючинский вулкан» (миграция 1036): id записи «Озеро Микижа», чтобы следующей пробой проверить галерею.",
+  "run": 609,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 200,
-  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
-  "grep": ["комисс", "оплат", "стоимост", "бесплатн", "сертификац", "договор", "на месте", "предоплат"],
-  "around": ["комисс", "оплат", "стоимост", "сертификац", "на месте"],
-  "aroundLines": 8,
-  "aroundBefore": 2,
-  "aroundHits": 3,
+  "bytes": 1500,
   "urls": [
-    "https://www.travelline.ru/support/knowledge-base/partner-api-faq/",
-    "https://www.travelline.ru/support/knowledge-base/kak-kanalu-prodazh-podklyuchit-partner-api/",
-    "https://www.travelline.ru/support/knowledge-base/usloviya-sotrudnichestva/",
-    "https://www.travelline.ru/support/knowledge-base/reservation-api-bronirovanie/"
+    "https://vedarai.ru/api/places?q=%D0%9C%D0%B8%D0%BA%D0%B8%D0%B6%D0%B0&limit=3"
   ]
 }
