@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
-import { calculateDynamicPrice } from '@/lib/services/tours/dynamic-pricing';
+import { honestTourPrice } from '@/lib/tours/honest-price';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
@@ -45,13 +45,21 @@ export async function GET(
 
   const { date, guests } = parsed.data;
 
-  // Получаем базовую цену тура
-  const { rows } = await pool.query<{ base_price: string; title: string }>(
-    // Шлюз витрины общий (lib/tours/public-visibility). Здесь он заодно
-    // добавил is_active: цену выключенного тура роут отдавал, хотя ни
-    // карточка, ни бронь его уже не видят.
-    `SELECT base_price, title FROM operator_tours
-     WHERE id = $1 AND ${publicTourSql('')}`,
+  // Единица цены и длительность нужны, чтобы вернуть ИТОГ, а не только цену
+  // за человека: до 27.09 этот эндпоинт отдавал цену единицы, а тур «за
+  // группу» и «за день» превращает её в другую сумму
+  // (lib/tours/booking-total.ts).
+  //
+  // Шлюз витрины общий (lib/tours/public-visibility) — он же добавляет
+  // is_active: цену выключенного тура роут отдавал, хотя ни карточка, ни
+  // бронь его уже не видят.
+  const { rows } = await pool.query<{
+    base_price: string; title: string; price_unit: string | null;
+    multi_day_count: number | null; duration_hours: number | null;
+  }>(
+    `SELECT base_price, title, price_unit, multi_day_count, duration_hours
+       FROM operator_tours
+      WHERE id = $1 AND ${publicTourSql('')}`,
     [id]
   );
 
@@ -59,26 +67,34 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'Тур не найден' }, { status: 404 });
   }
 
-  const basePrice = parseFloat(rows[0].base_price);
-
-  // Рассчитываем динамическую цену
-  const priceResult = await calculateDynamicPrice({
-    tourId:    id,
-    tourDate:  date,
-    guests,
-    basePrice,
+  const tour = rows[0];
+  const price = await honestTourPrice({
+    tourId: id,
+    tourDate: date,
+    baseUnitPrice: parseFloat(tour.base_price),
+    priceUnit: tour.price_unit,
+    participants: guests,
+    duration: tour,
   });
 
   return NextResponse.json({
     success:      true,
     tourId:       id,
-    tourTitle:    rows[0].title,
+    tourTitle:    tour.title,
     date,
     guests,
-    basePrice:    priceResult.basePrice,
-    finalPrice:   priceResult.finalPrice,
-    discount:     priceResult.discount,
-    multiplier:   priceResult.multiplier,
-    appliedRules: priceResult.appliedRules,
+    // Прежние имена сохранены — их читают внешние вызовы; смысл тот же, цена
+    // за единицу.
+    basePrice:    price.baseUnitPrice,
+    finalPrice:   price.finalUnitPrice,
+    discount:     price.finalUnitPrice - price.baseUnitPrice,
+    multiplier:   price.multiplier,
+    appliedRules: price.appliedRules,
+    // Новое: итог брони и подпись для экрана. Итог — ровно то, что запишет
+    // бронь: обе двери считают одним правилом (lib/tours/honest-price.ts).
+    baseTotal:    price.baseTotal,
+    total:        price.total,
+    changePercent: price.changePercent,
+    label:        price.label,
   });
 }

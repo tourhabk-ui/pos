@@ -63,7 +63,7 @@
  */
 
 import type { PoolClient } from 'pg';
-import { bookingTotal } from '@/lib/tours/booking-total';
+import { honestTourPrice } from '@/lib/tours/honest-price';
 import { transaction } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
@@ -286,14 +286,33 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       }
     }
 
-    // Единица цены решает, на что умножать (lib/tours/booking-total.ts):
-    // тур «за группу» стоит base_price при любом числе участников.
-    const totalPrice = bookingTotal({
-      basePrice: Number(tour.base_price),
+    /**
+     * Цена брони — та же, что показана туристу (lib/tours/honest-price.ts).
+     *
+     * До 27.09 здесь стоял `bookingTotal(base_price × участники)` мимо правил
+     * `tour_pricing_rules`. Пока цену мимо правил показывали ВСЕ поверхности,
+     * расхождения не было; в тот день владелец попросил показать скидки, и
+     * первым делом её обязана считать бронь — иначе человек увидел бы
+     * «−15%, последние места» на карточке, а в заявке и в письме получил
+     * полную сумму.
+     *
+     * Правила читаются КЛИЕНТОМ ЭТОЙ ЖЕ транзакции: выше взят `FOR UPDATE` на
+     * строке тура, и занятость даты, прочитанная вторым соединением, не
+     * увидела бы ни лока, ни только что вставленных строк.
+     *
+     * Цену от клиента этот модуль не принимает и никогда не принимал — в
+     * `ReserveInput` такого поля нет. Считает сервер.
+     */
+    const price = await honestTourPrice({
+      tourId: input.tourId,
+      tourDate: input.date,
+      baseUnitPrice: Number(tour.base_price),
       priceUnit: tour.price_unit,
       participants: input.participants,
       duration: tour,
+      exec: client,
     });
+    const totalPrice = price.total;
 
     /**
      * Чья продажа. Бронь за клиента агента — его, без вопросов. Иначе —
@@ -327,10 +346,11 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
          operator_tour_id, tourist_name, tourist_email, tourist_phone,
          participants, booking_date, end_date, duration_days,
          special_requests, booking_status,
-         base_total_price, final_price, created_via, user_id, metadata,
+         base_total_price, final_price, discount_percent, discount_reason,
+         created_via, user_id, metadata,
          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version,
          referral_link_id, agent_user_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21,$22,$23)
        RETURNING id, access_token::text AS access_token`,
       [
         input.tourId,
@@ -347,7 +367,19 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
         durationDays,
         input.specialRequests ?? '',
         NEW_BOOKING_STATUS,
+        // Итог по цене оператора и итог после правил — РАЗНЫЕ колонки. До
+        // 27.09 в обе шло одно значение ($11 дважды), и разбор брони не мог
+        // ответить, была ли скидка.
+        price.baseTotal,
         totalPrice,
+        /**
+         * Скидка записывается только когда она скидка. Надбавка (`> 0`) в
+         * колонку с именем `discount_percent` не пишется — иначе «скидка
+         * −10%» означала бы подорожание, и следующий читатель это перепутает.
+         * Причина при этом пишется всегда: она называет и надбавку.
+         */
+        price.changePercent !== null && price.changePercent < 0 ? Math.abs(price.changePercent) : null,
+        price.label,
         input.createdVia,
         input.userId ?? null,
         /**
