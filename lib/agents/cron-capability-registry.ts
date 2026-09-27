@@ -50,6 +50,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'user-photo-hero': ['db_read', 'db_write', 'pd_direct'],
   'build-sha-probe': [],
   'catalog-census': ['db_read'],
+  'pricing-rules-census': ['db_read'],
   'catalog-diag': ['db_read'],
   'channel-photo-check': ['db_read'],
   'channel-post': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
