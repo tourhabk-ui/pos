@@ -32,7 +32,7 @@ describe('owner-decision не переписывается машинами', ()
   });
 
   it('миграции с решением владельца пишут ровно это имя писателя', () => {
-    for (const m of ['migrations/987_klyuchevskaya_description_fact.sql', 'migrations/1034_mikizha_description_fact.sql', 'migrations/1041_mikizha_description_owner_restore.sql']) {
+    for (const m of ['migrations/987_klyuchevskaya_description_fact.sql', 'migrations/1034_mikizha_description_fact.sql', 'migrations/1042_mikizha_description_owner_restore.sql']) {
       expect(read(m)).toContain(`'${OWNER_DECISION_WRITER}'`);
     }
   });
