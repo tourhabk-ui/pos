@@ -20,26 +20,50 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 
+/**
+ * 27.09: предикат сопоставления алерта с местом ПЕРЕЕХАЛ из крон-роута в
+ * `lib/services/safety/alert-place-scope.ts`. Пока он жил внутри роута,
+ * проверить его можно было только вместе с походами за сводками, и его не
+ * проверял никто — так дожили до прода пепел Шивелуча на Ключевском и
+ * «Вилючинский перевал» за 500 км.
+ *
+ * Сторож идёт за правилом: инварианты те же (пожар судится расстоянием,
+ * формула объявлена один раз), адрес другой. Роут проверяется отдельно — он
+ * обязан ЗВАТЬ вынесенное правило, а не держать свою копию.
+ */
+const strip = (src: string) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*|--)/.test(l)).join('\n');
+/**
+ * ДВА адреса, а не один: 27.09 предикат сопоставления алерта с местом уехал
+ * в свой модуль, а раскладка статусов (CTE, пороги severity, вместимость)
+ * осталась в крон-роуте. Проверять их одним текстом значило бы искать
+ * пороги статуса там, где их нет.
+ */
+const SCOPE = strip(readFileSync(join(process.cwd(), 'lib/services/safety/alert-place-scope.ts'), 'utf-8'));
 const RAW = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
-const CODE = RAW.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+const CODE = strip(RAW);
 
 describe('пожарный алерт — радиус вместо зоны', () => {
   it('fire_danger с координатами обеих сторон матчится по расстоянию (haversine), не по зоне', () => {
     // 15.09: радиусных родов стало два — к пожару добавилось ограничение
     // проезда (владелец: «30 км от вилючинского вулкана достаточно»).
     // Требование прежнее: пожар судится расстоянием, а не зоной.
-    expect(CODE, 'нет ветки fire_danger').toMatch(/alert_type IN \([^)]*'fire_danger'[^)]*\)/);
-    expect(CODE, 'нет проверки координат события').toMatch(/ea\.lat IS NOT NULL AND ea\.lng IS NOT NULL/);
-    expect(CODE, 'нет проверки координат точки').toMatch(/ark\.lat IS NOT NULL AND ark\.lng IS NOT NULL/);
-    expect(CODE, 'нет формулы расстояния (haversine)').toMatch(/asin\(sqrt\(/);
-    expect(CODE, 'нет земного радиуса 6371').toMatch(/6371/);
+    expect(SCOPE, 'нет ветки fire_danger').toMatch(/alert_type IN \([^)]*'fire_danger'[^)]*\)/);
+    expect(SCOPE, 'нет проверки координат события').toMatch(/ea\.lat IS NOT NULL AND ea\.lng IS NOT NULL/);
+    expect(SCOPE, 'нет проверки координат точки').toMatch(/ark\.lat IS NOT NULL AND ark\.lng IS NOT NULL/);
+    expect(SCOPE, 'нет формулы расстояния (haversine)').toMatch(/asin\(sqrt\(/);
+    expect(SCOPE, 'нет земного радиуса 6371').toMatch(/6371/);
   });
 
   it('каждый порог радиуса уже привычной 300-км зоны', () => {
     // Порог теперь не один: CASE по роду события. Проверяются ВСЕ — иначе
     // второй род мог бы тихо получить зональную ширину обратно.
-    const cmp = /\)\)\s*<=\s*([\s\S]{0,200}?)END/.exec(CODE)
-      ?? /\)\)\s*<=\s*(\d+)/.exec(CODE);
+    // Формула расстояния сведена в `distanceKmSql` (27.09), поэтому перед
+    // `<=` в тексте запроса стоит её вызов, а не хвост `))`. Ищем сравнение
+    // после любого из двух видов — смысл проверки прежний: КАЖДЫЙ порог уже
+    // зональной ширины.
+    const cmp = /<=\s*CASE ea\.alert_type([\s\S]{0,200}?)END/.exec(SCOPE)
+      ?? /\)\)\s*<=\s*([\s\S]{0,200}?)END/.exec(SCOPE)
+      ?? /<=\s*\$\{(CORRIDOR_VOLCANO_KM)\}/.exec(SCOPE);
     expect(cmp, 'не найден порог сравнения с рассчитанным расстоянием').toBeTruthy();
 
     const literals = (cmp![1].match(/\d+/g) ?? []).map(Number);
@@ -62,19 +86,19 @@ describe('пожарный алерт — радиус вместо зоны', (
     // Фолбэк отрицает ТУ ЖЕ строку условия, что включает радиус
     // (GEO_SCOPED_SQL подставляется в обе ветки). Раньше условие было
     // выписано дважды — вторая копия могла разъехаться с первой молча.
-    expect(CODE).toMatch(/NOT\s*\(\$\{GEO_SCOPED_SQL\}\)/);
-    expect(CODE.match(/const GEO_SCOPED_SQL/g)?.length, 'условие радиуса объявлено не один раз').toBe(1);
+    expect(SCOPE).toMatch(/NOT\s*\(\$\{GEO_SCOPED_SQL\}\)/);
+    expect(SCOPE.match(/const GEO_SCOPED_SQL/g)?.length, 'условие радиуса объявлено не один раз').toBe(1);
     // С 17.09 пустые зоны — «никого», а не «весь край»: ветки IS NULL / = '{}'
     // в фолбэке нет (сторож — alert-zone-unknown.test.ts), остаётся зонное
     // совпадение.
-    expect(CODE).toMatch(/AND ark\.zone = ANY\(ea\.affected_zones\)/);
+    expect(SCOPE).toMatch(/AND ark\.zone = ANY\(ea\.affected_zones\)/);
   });
 
   it('формула расстояния и зонный фолбэк объявлены один раз, а не трижды', () => {
-    const distanceHits = CODE.match(/asin\(sqrt\(/g) ?? [];
+    const distanceHits = SCOPE.match(/asin\(sqrt\(/g) ?? [];
     expect(distanceHits.length, 'формула расстояния продублирована — риск разъехаться, как в #897').toBe(1);
 
-    const zoneHits = CODE.match(/ark\.zone = ANY\(ea\.affected_zones\)/g) ?? [];
+    const zoneHits = SCOPE.match(/ark\.zone = ANY\(ea\.affected_zones\)/g) ?? [];
     expect(zoneHits.length, 'зонный фолбэк продублирован').toBe(1);
   });
 
@@ -95,5 +119,17 @@ describe('пожарный алерт — радиус вместо зоны', (
   it('вместимость (capacity_per_day) по-прежнему определяет yellow/red', () => {
     expect(CODE).toMatch(/capacity_per_day/);
     expect(CODE).toMatch(/THEN 'yellow'/);
+  });
+});
+
+describe('правило вынесено, а не продублировано (27.09)', () => {
+  it('крон-роут зовёт модуль скоупа', () => {
+    expect(RAW).toContain("from '@/lib/services/safety/alert-place-scope'");
+    expect(RAW).toMatch(/AND \(\$\{ALERT_MATCH_SQL\}\)/);
+  });
+
+  it('в роуте не осталось своей формулы расстояния', () => {
+    // Вторая копия разошлась бы с первой при следующей правке радиуса.
+    expect(CODE, 'в роуте снова своя формула расстояния').not.toMatch(/asin\(sqrt\(|6371 \* acos/);
   });
 });

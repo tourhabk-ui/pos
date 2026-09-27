@@ -35,6 +35,27 @@ import { CORRIDOR_VOLCANO_KM } from '@/lib/routes/collect-signals';
  * ветку, теряет очистку `active_alerts` и остаётся со вчерашним значением —
  * то есть цена расхождения здесь не косметическая.
  */
+/**
+ * Расстояние между двумя точками в километрах — ОДНО выражение на модуль.
+ *
+ * Формула стояла здесь дважды: против координат самого события и против
+ * координат вулкана. Разные аргументы, один и тот же haversine — и ровно тот
+ * риск, из-за которого сторож `fire-alert-radius` держит правило «формула
+ * объявлена один раз, а не трижды» (#897): вторая копия расходится с первой
+ * молча, и половина алертов начинает мериться иначе.
+ *
+ * Имена колонок подставляются в текст запроса, поэтому принимаются ТОЛЬКО
+ * из кода этого модуля — ни одного значения из запроса или из базы здесь быть
+ * не может (§4: никакой конкатенации внешних данных в SQL).
+ */
+export function distanceKmSql(aLat: string, aLng: string, bLat: string, bLng: string): string {
+  return `2 * 6371 * asin(sqrt(
+          power(sin(radians((${aLat} - ${bLat}) / 2)), 2)
+          + cos(radians(${bLat})) * cos(radians(${aLat}))
+            * power(sin(radians((${aLng} - ${bLng}) / 2)), 2)
+        ))`;
+}
+
 export const GEO_SCOPED_SQL = `
   ea.alert_type IN ('fire_danger', 'road_closure')
   AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
@@ -100,11 +121,7 @@ export const VOLCANO_SCOPED_SQL = `
        WHERE vp.ark_id = ea.volcano_ark_id
          AND vp.lat IS NOT NULL AND vp.lng IS NOT NULL
          AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
-         AND 2 * 6371 * asin(sqrt(
-               power(sin(radians((ark.lat - vp.lat) / 2)), 2)
-               + cos(radians(vp.lat)) * cos(radians(ark.lat))
-                 * power(sin(radians((ark.lng - vp.lng) / 2)), 2)
-             )) <= ${CORRIDOR_VOLCANO_KM}
+         AND ${distanceKmSql('ark.lat', 'ark.lng', 'vp.lat', 'vp.lng')} <= ${CORRIDOR_VOLCANO_KM}
     )
   )
 `;
@@ -124,11 +141,7 @@ export const VOLCANO_SCOPED_SQL = `
 export const ALERT_MATCH_SQL = `
   (
     ${GEO_SCOPED_SQL}
-    AND 2 * 6371 * asin(sqrt(
-          power(sin(radians((ark.lat - ea.lat) / 2)), 2)
-          + cos(radians(ea.lat)) * cos(radians(ark.lat))
-            * power(sin(radians((ark.lng - ea.lng) / 2)), 2)
-        )) <= CASE ea.alert_type
+    AND ${distanceKmSql('ark.lat', 'ark.lng', 'ea.lat', 'ea.lng')} <= CASE ea.alert_type
                 WHEN 'road_closure' THEN ${ROAD_ALERT_RADIUS_KM}
                 ELSE 50
               END
