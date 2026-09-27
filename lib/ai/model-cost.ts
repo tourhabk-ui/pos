@@ -112,10 +112,13 @@ export function workloadByKey(key: WorkloadKey): Workload {
  * мусор («не разобрали» — тоже не ноль).
  */
 export function parseCatalogPrice(raw: unknown): number | null {
-  if (typeof raw === 'number' && Number.isFinite(raw)) return raw * 1e6;
-  if (typeof raw !== 'string' || raw.trim() === '') return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n * 1e6 : null;
+  const n = typeof raw === 'number' ? raw
+    : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+  // Отрицательная цена (у OpenRouter «-1» — авто-роутер и прочие модели, чья
+  // цена зависит от того, куда уйдёт запрос) — это «цены нет», а не число.
+  // 26.09 одна такая строка роняла ВЕСЬ каталог: прод отвечал 400 на
+  // usd_per_mtok_in < 0, и каталог цен не загрузился ни разу.
+  return Number.isFinite(n) && n >= 0 ? n * 1e6 : null;
 }
 
 /** Вендор из слага каталога: `z-ai/glm-5.3` → `z-ai`. Без слеша — сам id. */

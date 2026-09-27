@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { selectReviewTargets, riskScore, type LedgerEntry } from '@/lib/agents/evo/coverage-ledger';
-import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
+import { detectMockPatterns, buttonActionText } from '@/lib/agents/evo/mock-detector';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const NOW = Date.parse('2026-07-24T12:00:00Z');
 const H = 3_600_000;
@@ -246,5 +248,33 @@ export default function C() {
   return <div>{STEPS[step].title}</div>;
 }`;
     expect(detectMockPatterns('app/hub/gear/onboarding/_Client.tsx', src)).toHaveLength(0);
+  });
+});
+
+/**
+ * Ложняк 26.09: «Кнопки действий без мутации» на TourPaymentModal (денежный
+ * путь). Слова «подтвердит» стояли в комментарии и в подписи, а единственная
+ * кнопка — «Закрыть»; бронь отправляет вложенная BookingFormClient.
+ */
+describe('detectMockPatterns — действие ищется на кнопке, а не во всём файле', () => {
+  it('рамка модалки с «подтвердит» в тексте и кнопкой «Закрыть» — НЕ находка', () => {
+    const src = readFileSync(join(process.cwd(), 'components/booking/TourPaymentModal.tsx'), 'utf8');
+    expect(detectMockPatterns('components/booking/TourPaymentModal.tsx', src)
+      .some((f) => f.title === 'Кнопки действий без мутации')).toBe(false);
+  });
+
+  it('действие в имени обработчика — находка, как и в подписи', () => {
+    const src = `'use client';
+    export default function C() {
+      return <Button onClick={handleApprove}><Check /></Button>;
+    }`;
+    expect(detectMockPatterns('app/hub/x/_Client.tsx', src).some((f) => f.title === 'Кнопки действий без мутации')).toBe(true);
+  });
+
+  it('текст кнопок и обработчики — вне комментариев и подписей', () => {
+    const t = buttonActionText(`// оператор подтвердит дату
+      <p>Оплата — после подтверждения</p>
+      <button onClick={onClose}><X /></button>`);
+    expect(/подтверд/i.test(t)).toBe(false);
   });
 });

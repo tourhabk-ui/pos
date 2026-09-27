@@ -49,6 +49,12 @@ describe('цена из каталога: три состояния', () => {
     }
   });
 
+  it('отрицательная цена («-1» у авто-роутера) — «цены нет», а не число (26.09)', () => {
+    // Одна такая строка роняла весь каталог: прод отвечал 400 на цену < 0.
+    expect(parseCatalogPrice('-1')).toBeNull();
+    expect(parseCatalogPrice(-0.000001)).toBeNull();
+  });
+
   it('вендор берётся из слага', () => {
     expect(vendorOf('z-ai/glm-5.3')).toBe('z-ai');
     expect(vendorOf('anthropic/claude-opus-5')).toBe('anthropic');

@@ -72,6 +72,13 @@ describe('формат просят у провайдера, а не угова�
     const call = CODE.slice(CODE.indexOf('callAIQualityOrNull(messages'));
     expect(call.slice(0, 400)).toMatch(/temperature: 0/);
   });
+
+  it('судья без размышления: весь потолок — ответу (27.09)', () => {
+    // Разведчик молчал три прогона: v4-pro в режиме размышления потратил
+    // бюджет на reasoning и вернул пустой ответ. Судье размышлять не над чем.
+    const call = CODE.slice(CODE.indexOf('callAIQualityOrNull(messages'));
+    expect(call.slice(0, 1200)).toMatch(/deepThinking: false/);
+  });
 });
 
 describe('разбор и повтор остались страховкой', () => {
