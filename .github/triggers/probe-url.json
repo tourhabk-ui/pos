@@ -1,19 +1,23 @@
 {
-  "note": "27.09, прогон 610. ТОЛЬКО ЧТЕНИЕ. Снимок владельца «Вид на Вилючинский вулкан» (миграция 1036): отдаёт ли прод кадр 3 галереи «Озеро Микижа» и есть ли он в карточке места.",
-  "run": 610,
+  "note": "27.09, прогон 611. ТОЛЬКО ЧТЕНИЕ. Владелец: снимок «Вид на Вилючинский вулкан с озера Микижа» — и на карточку вулкана. Смотрим, что у записи «Вулкан Вилючинский» уже есть: ark_id, герой, кадры галереи.",
+  "run": 611,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 5,
   "allowStale": true,
-  "bytes": 120,
+  "bytes": 200,
   "count": [
     "place-gallery/"
   ],
-  "grep": [
-    "place-gallery/b7693d96-9118-422e-ba7c-1c00c82651d6/3"
+  "around": [
+    "\"arkId\"",
+    "place-gallery/",
+    "\"photos\"",
+    "\"name\""
   ],
+  "aroundLines": 0,
+  "aroundHits": 6,
   "urls": [
-    "https://vedarai.ru/api/images/place-gallery/b7693d96-9118-422e-ba7c-1c00c82651d6/3",
-    "https://vedarai.ru/api/places/b7693d96-9118-422e-ba7c-1c00c82651d6"
+    "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933"
   ]
 }
