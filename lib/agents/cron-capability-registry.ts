@@ -56,6 +56,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'channel-post': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-post-tour': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-readiness': ['db_read', 'pd_direct'],
+  'channel-parity': ['db_read'],
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'commission-dry-run': ['db_read', 'db_write', 'money'],
