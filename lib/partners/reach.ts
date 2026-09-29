@@ -51,6 +51,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 /**
  * Две колонки адреса, как их отдаёт база. Имена полей закреплены: запрос
@@ -206,10 +207,11 @@ export async function partnerReachCensus(): Promise<PartnerReachCensusRow[]> {
             p.max_chat_id
        FROM partners p
        LEFT JOIN users u_reach ON u_reach.id = p.user_id
+       -- Тот же шлюз витрины, что у каталога Кузьмича и MCP (publicTourSql):
+       -- с 29.09 каталог не считает NULL в is_published опубликованным, и
+       -- перепись обязана судить так же, иначе числа разойдутся молча.
        JOIN operator_tours t ON t.operator_id = p.id
-                            AND t.is_active = true
-                            AND t.deleted_at IS NULL
-                            AND COALESCE(t.is_published, TRUE) = TRUE
+                            AND ${publicTourSql('t')}
       GROUP BY p.id, p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
   );
   return rows.map((r) => {
