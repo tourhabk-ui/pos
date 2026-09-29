@@ -423,7 +423,17 @@ async function synthesizeBotNotes(
  * «column does not exist» глушился, и Кузьмич с MCP отвечали «Туры не
  * найдены» при живых турах. Оператор туров — partners (§1).
  */
+/** Каталог для промпта чата: отказ базы — пустая строка, чат живёт без него. */
 export async function buildTourCatalog(): Promise<string> {
+  return (await loadTourCatalog()) ?? '';
+}
+
+/**
+ * Каталог туров: '' — туров нет, null — база не ответила. Два исхода
+ * различимы для get_tours: до 29.09 отказ отдавался внешнему агенту как
+ * «Туры не найдены.» — ложный факт о каталоге (проверка MCP).
+ */
+export async function loadTourCatalog(): Promise<string | null> {
   if (_tourCatalogCache && Date.now() - _tourCatalogAt < CATALOG_TTL_MS) {
     return _tourCatalogCache;
   }
@@ -505,7 +515,7 @@ export async function buildTourCatalog(): Promise<string> {
     // Молчаливый catch прятал сломанный SQL месяцами — «Туры не найдены» при
     // живых турах неотличимо от пустой БД. Ошибку теперь видно в логах прода.
     console.error('[buildTourContext] каталог туров не собрался:', e instanceof Error ? e.message : e);
-    return '';
+    return null;
   }
 }
 
@@ -1274,8 +1284,13 @@ export async function getTourDetails(query: string): Promise<string> {
       ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${t.cancellation_policy.trim()}`
       : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
     return parts.join('\n');
-  } catch {
-    return '';
+  } catch (err) {
+    // Отказ базы — исключение, а не пустая строка: исполнитель вернёт
+    // «ошибка выполнения», MCP — isError. Прежний '' становился «Не удалось
+    // получить детали тура.» обычным результатом, без строки в логе (§4.0).
+    const code = (err as { code?: unknown })?.code;
+    console.error('[kuzmich] детали тура не прочитаны:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+    throw err;
   }
 }
 
@@ -1953,7 +1968,8 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     if (name === 'get_tours') {
       // Только каталог (перф-аудит 08.08, п.4): агенту для обзора не нужны
       // 100 мест и 50 записей знаний — лишняя работа и токены.
-      const ctx = await buildTourCatalog();
+      const ctx = await loadTourCatalog();
+      if (ctx === null) return TOOL_EXECUTION_FAILED;
       if (!ctx) return 'Туры не найдены.';
       // Фильтр по типу активности объявлен в схеме с самого начала, но
       // executeTool его игнорировал (аудит 08.08). Матчим и слаг (fishing),

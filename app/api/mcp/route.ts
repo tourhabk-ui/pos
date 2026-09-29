@@ -208,7 +208,11 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   }
 
   const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
-  const tour = await resolveTourByQuery(tourQuery);
+  // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
+  // это сбой, а не отсутствие тура (проверка MCP 29.09).
+  const tour = await resolveTourByQuery(tourQuery).catch(() => {
+    throw new McpUserError('Не удалось проверить тур — заявка не создана, повторите позже.');
+  });
   if (!tour) {
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
   }

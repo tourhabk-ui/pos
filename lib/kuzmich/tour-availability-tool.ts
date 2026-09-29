@@ -23,7 +23,12 @@ export interface ResolvedTour {
   price_unit: string | null;
 }
 
-/** Тур по названию/ключевому слову или числовому ID — тот же паттерн, что у get_tour_details. */
+/**
+ * Тур по названию/ключевому слову или числовому ID — тот же паттерн, что у
+ * get_tour_details. null — такого тура нет; отказ базы — исключение (с
+ * логом): до 29.09 он тоже был null, и внешний агент получал ложный факт
+ * «тур не найден среди активных» на месте «не смог проверить» (§4.0).
+ */
 export async function resolveTourByQuery(query: string): Promise<ResolvedTour | null> {
   const q = query.trim();
   if (!q) return null;
@@ -46,11 +51,9 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
     );
     return rows[0] ?? null;
   } catch (err) {
-    // Контракт прежний (null), но отказ базы не глушится: иначе «тур не
-    // найден» и «не смогли спросить» неотличимы (§4.0).
     const e = err as { code?: string; message?: string };
     console.error('[tour-availability] тур не прочитан', { sqlstate: e?.code, message: e?.message });
-    return null;
+    throw err;
   }
 }
 
