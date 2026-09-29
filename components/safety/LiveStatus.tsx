@@ -349,8 +349,9 @@ export function RadarScope({ hazards, center, degraded = false }: {
             // только заливка круга: вулкан и землетрясение рядом на круге
             // были одинаковыми точками, различить их можно было только
             // тапом по одной за раз — владелец: «в радаре нужно отличать
-            // вулкан от сейсмособытий». Треугольник — только у вулканов,
-            // остальное (сейсмика, медведь, наблюдение) — по-прежнему круг.
+            // вулкан от сейсмособытий». Треугольник — у вулканов, ромб — у
+            // пожаров, метка-капля — у землетрясений (29.09); остальное
+            // (медведь, наблюдение, термы) — по-прежнему круг.
             const r = h.level === 'critical' ? 4 : h.level === 'danger' ? 3.2 : 2.6;
             const shadow = sel === h ? { filter: 'drop-shadow(0 0 4px currentColor)' } : undefined;
             return (
@@ -374,6 +375,27 @@ export function RadarScope({ hazards, center, degraded = false }: {
                     fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
                     style={shadow}
                   />
+                ) : h.kind === 'quake' ? (
+                  // Метка-капля с белой точкой — землетрясение (29.09,
+                  // владелец прислал пост сейсмоканала eqkam: «в радаре сделай
+                  // землетрясения таким значком»). Остриё стоит РОВНО в
+                  // эпицентре, головка — над ним: точка события не смещается
+                  // формой. Цвет по-прежнему несёт силу, форма — род.
+                  (() => {
+                    const hr = r * 1.15;
+                    const cy = h.y - r * 2.4;
+                    const dx = hr * 0.87;
+                    return (
+                      <>
+                        <path
+                          d={`M ${h.x} ${h.y} L ${h.x - dx} ${cy + hr * 0.5} A ${hr} ${hr} 0 1 1 ${h.x + dx} ${cy + hr * 0.5} Z`}
+                          fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
+                          style={shadow}
+                        />
+                        <circle cx={h.x} cy={cy} r={hr * 0.42} fill="#fff" />
+                      </>
+                    );
+                  })()
                 ) : (
                   <circle cx={h.x} cy={h.y} r={r} fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} style={shadow} />
                 )}
@@ -433,14 +455,15 @@ export function RadarScope({ hazards, center, degraded = false }: {
           </div>
         )}
         {/* Форма — только когда на круге реально есть чем различать: иначе
-            строка объясняла бы разницу, которой сейчас не видно. Три формы
-            (треугольник вулкана, ромб пожара, круг остального) появляются в
-            легенде только те, что реально стоят на круге прямо сейчас. */}
+            строка объясняла бы разницу, которой сейчас не видно. Четыре формы
+            (треугольник вулкана, ромб пожара, капля землетрясения, круг
+            остального) — в легенде только те, что реально стоят на круге. */}
         {!sel && (() => {
           const hasVolcano = placed.some((h) => h.kind === 'volcano');
           const hasFire = placed.some((h) => h.kind === 'fire');
-          const hasOther = placed.some((h) => h.kind !== 'volcano' && h.kind !== 'fire');
-          if ([hasVolcano, hasFire, hasOther].filter(Boolean).length < 2) return null;
+          const hasQuake = placed.some((h) => h.kind === 'quake');
+          const hasOther = placed.some((h) => h.kind !== 'volcano' && h.kind !== 'fire' && h.kind !== 'quake');
+          if ([hasVolcano, hasFire, hasQuake, hasOther].filter(Boolean).length < 2) return null;
           return (
             <div className="rshapes">
               {hasVolcano && (
@@ -459,12 +482,21 @@ export function RadarScope({ hazards, center, degraded = false }: {
                   пожар
                 </span>
               )}
+              {hasQuake && (
+                <span>
+                  <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                    <path d="M 4.5 8.8 L 1.3 4.9 A 3.3 3.3 0 1 1 7.7 4.9 Z" fill="var(--text-muted)" />
+                    <circle cx="4.5" cy="3.3" r="1.3" fill="var(--bg-card)" />
+                  </svg>
+                  землетрясение
+                </span>
+              )}
               {hasOther && (
                 <span>
                   <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
                     <circle cx="4.5" cy="4.5" r="4" fill="var(--text-muted)" />
                   </svg>
-                  сейсмика и остальное
+                  остальное
                 </span>
               )}
             </div>
