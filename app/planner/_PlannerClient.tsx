@@ -1073,8 +1073,21 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     return n >= 3 && n <= 21 ? n : 0;
   }, [searchParams]);
 
-  const [arrival, setArrival]       = useState(() => (linkDays > 0 ? isoInDays(30) : ''));
-  const [departure, setDeparture]   = useState(() => (linkDays > 0 ? isoInDays(30 + linkDays) : ''));
+  // `from` — дата старта, на которую посчитан план в ответе Кузьмича/MCP;
+  // прошедшая или битая не принимается. Отъезд — `days` КАЛЕНДАРНЫХ дней
+  // включительно, как считает движок (с 27.09): прежнее «+ days» давало
+  // восьмидневный план из «7 дней» (проверка MCP 29.09).
+  const linkFrom = useMemo(() => {
+    const raw = searchParams.get('from');
+    return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(Date.parse(raw)) && raw >= isoInDays(0) ? raw : null;
+  }, [searchParams]);
+
+  const [arrival, setArrival]       = useState(() => (linkDays > 0 ? (linkFrom ?? isoInDays(30)) : ''));
+  const [departure, setDeparture]   = useState(() => {
+    if (linkDays <= 0) return '';
+    const start = linkFrom ? Date.parse(`${linkFrom}T00:00:00Z`) : Date.parse(`${isoInDays(30)}T00:00:00Z`);
+    return new Date(start + (linkDays - 1) * 86400000).toISOString().slice(0, 10);
+  });
   const [flightArrival, setFlightArrival]     = useState('');
   const [flightDeparture, setFlightDeparture] = useState('');
   const [flightArrivalTime, setFlightArrivalTime]       = useState('');
