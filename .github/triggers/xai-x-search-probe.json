@@ -1,0 +1,7 @@
+{
+  "note": "Пуш этого файла гоняет xai-x-search-probe.yml: умеет ли ключ XAI_API_KEY из секретов GitHub читать посты X через серверный поиск xAI (Responses API + x_search, запасной путь — chat/completions + search_parameters), какие модели это принимают и что говорит документация о цене. Повод — решение владельца 29.09: разведчик должен читать новости про ИИ в X. Только чтение, ничего не пишет.",
+  "run": 1,
+  "hours": 24,
+  "handles": ["OpenAI", "AnthropicAI", "GoogleDeepMind", "xai", "huggingface", "MistralAI"],
+  "maxModels": 3
+}
