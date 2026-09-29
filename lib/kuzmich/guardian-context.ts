@@ -6,6 +6,7 @@ import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { describeForAgent } from '@/lib/places/description-voice';
+import { containsPattern } from '@/lib/db/like';
 
 interface GuardianPlaceRow {
   name: string;
@@ -279,7 +280,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
          AND (title ILIKE $1 OR description ILIKE $1)
        ORDER BY severity DESC
        LIMIT 3`,
-      [`%${placeName}%`],
+      [containsPattern(placeName)],
     ),
     pool.query<KnowledgeRow>(
       // type <> 'outcome': оценки ответов Кузьмича (kuzmich-outcomes) — служебная
@@ -296,7 +297,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
               ELSE 3 END,
          updated_at DESC
        LIMIT 5`,
-      [`%${placeName}%`],
+      [containsPattern(placeName)],
     ),
   ]);
 

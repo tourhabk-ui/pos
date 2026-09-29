@@ -20,6 +20,7 @@ import { pool } from '@/lib/db-pool';
 import { fetchForecastDays, type ForecastDay } from '@/lib/planner/intelligence';
 import { insideKrai } from '@/lib/geo/krai-envelope';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { containsPattern } from '@/lib/db/like';
 
 export const DEFAULT_WEATHER_PLACE = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 } as const;
 export const WEATHER_DAYS_DEFAULT = 3;
@@ -40,7 +41,7 @@ export async function resolvePlaceCoords(
         AND is_visible = true AND merged_into_id IS NULL
       ORDER BY length(name) ASC
       LIMIT 1`,
-    [`%${name}%`],
+    [containsPattern(name)],
   );
   return rows[0] ?? null;
 }

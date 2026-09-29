@@ -11,6 +11,7 @@ import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { getPublicBaseUrl } from '@/lib/config';
 import { recordAgentStaySearch } from '@/lib/stay/demand-record';
+import { containsPattern } from '@/lib/db/like';
 
 export interface AccommodationSearchArgs {
   zone?: string;
@@ -36,8 +37,8 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   const conds: string[] = [publicAccommodationSql('')];
   const params: unknown[] = [];
 
-  if (args.zone) { params.push(`%${args.zone}%`); conds.push(`location_zone ILIKE $${params.length}`); }
-  if (args.type) { params.push(`%${args.type}%`); conds.push(`type ILIKE $${params.length}`); }
+  if (args.zone) { params.push(containsPattern(args.zone)); conds.push(`location_zone ILIKE $${params.length}`); }
+  if (args.type) { params.push(containsPattern(args.type)); conds.push(`type ILIKE $${params.length}`); }
   const priceMax = Number(args.price_max);
   if (args.price_max && Number.isFinite(priceMax) && priceMax > 0) {
     params.push(priceMax);
