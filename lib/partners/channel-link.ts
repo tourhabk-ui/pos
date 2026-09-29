@@ -90,12 +90,12 @@ export function verifyPartnerLinkToken(token: string, now: number = Date.now()):
 }
 
 /** Ссылка на бота строго на своих хостах — env с посторонним игнорируется. */
-function telegramBot(): string {
+export function telegramBot(): string {
   const name = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmichai_bot';
   return /^[A-Za-z0-9_]{5,32}$/.test(name) ? name : 'kuzmichai_bot';
 }
 
-function maxBot(): string {
+export function maxBot(): string {
   const fallback = 'https://max.ru/id4101147649_bot';
   const candidate = process.env.NEXT_PUBLIC_MAX_BOT_LINK ?? fallback;
   try {

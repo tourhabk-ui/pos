@@ -20,6 +20,8 @@ import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
+import { parseAnswerPayload, operatorReplyText, statusTokenFromStart } from '@/lib/seat-requests/core';
+import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -312,6 +314,17 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       && update.update_type === 'bot_started'
       && update.chat_id
       && typeof update.payload === 'string') {
+    // Турист хочет получить ответ оператора на запрос мест сюда. Тот же
+    // гейт: в этот чат уйдёт ссылка на его бронь.
+    const seatToken = statusTokenFromStart(update.payload);
+    if (seatToken !== null) {
+      const bound = await bindTouristChat(seatToken, 'max', update.chat_id);
+      await maxReply(update.chat_id, !bound.ok
+        ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.' : 'Не удалось подключить — попробуйте ещё раз через минуту.')
+        : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
+      return;
+    }
+
     const partnerToken = partnerTokenFromStart(update.payload);
     if (partnerToken !== null) {
       const check = verifyPartnerLinkToken(partnerToken);
@@ -521,6 +534,22 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
+
+    // Ответ оператора на запрос свободных мест (lib/seat-requests). Право
+    // нажатия — чат сообщения совпадает с MAX-чатом оператора запроса, и
+    // только по заверенному источнику апдейта.
+    const seat = parseAnswerPayload(payload);
+    if (seat) {
+      if (opts?.verifiedOrigin !== true) return;
+      const mine = await requestBelongsToMaxChat(seat.requestId, resolvedChatId);
+      if (mine !== true) {
+        await maxReply(resolvedChatId, operatorReplyText({ ok: false, reason: mine === 'db_error' ? 'db_error' : 'not_yours' }));
+        return;
+      }
+      const result = await answerSeatRequest(seat.requestId, { kind: seat.kind }, 'max');
+      await maxReply(resolvedChatId, operatorReplyText(result));
+      return;
+    }
 
     // Кнопки по лиду. Право нажатия — принадлежность чата рабочему
     // MAX_OPERATOR_CHAT_ID: user_id прислал бы кто угодно, а чат сообщения с

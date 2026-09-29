@@ -186,12 +186,13 @@ describe('обработчики ботов', () => {
     const src = read('app/api/max/kuzmich/route.ts');
     const i = src.indexOf("bindPartnerChannel(check.partnerId, 'max'");
     expect(i).toBeGreaterThan(0);
-    // Условие того самого if, внутри которого разбирается токен, — гейт.
-    // Гейт входа выше по файлу не в счёт: он охраняет другую ветку.
+    // Ближайший гейт перед разбором токена, и его блок между ними не закрыт.
+    // Гейт входа выше по файлу не в счёт: его блок закрывается раньше.
     const k = src.lastIndexOf('partnerTokenFromStart(update.payload)', i);
     expect(k).toBeGreaterThan(0);
-    const enclosingIf = src.lastIndexOf('if (', k);
-    expect(src.slice(enclosingIf, k)).toMatch(/opts\?\.verifiedOrigin === true/);
+    const gate = src.lastIndexOf('if (opts?.verifiedOrigin === true', k);
+    expect(gate).toBeGreaterThan(0);
+    expect(src.slice(gate, k)).not.toMatch(/\n  \}\n/);
   });
 });
 

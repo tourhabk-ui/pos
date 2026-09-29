@@ -49,6 +49,8 @@ import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
+import { statusTokenFromStart } from '@/lib/seat-requests/core';
+import { bindTouristChat } from '@/lib/seat-requests/service';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
 import { createTicket, getUserOpenTickets, addTicketMessage } from '@/lib/support/ticket.service';
 import { categorizeSupport, CATEGORY_LABELS, RESIDENT_INTRO } from '@/lib/support/categorize';
@@ -652,6 +654,17 @@ export async function POST(request: NextRequest) {
         }
         const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
         await sendHTML(chatId, bindReplyText('telegram', bound));
+        return NextResponse.json({ ok: true });
+      }
+
+      // /start sr_{ключ статуса} — турист хочет получить ответ оператора на
+      // запрос мест сюда (lib/seat-requests). Ответ уже есть — уходит сразу.
+      const seatToken = statusTokenFromStart(arg);
+      if (seatToken !== null) {
+        const bound = await bindTouristChat(seatToken, 'telegram', update.message.chat.id);
+        await sendHTML(chatId, !bound.ok
+          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.' : 'Не удалось подключить — попробуйте ещё раз через минуту.')
+          : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
         return NextResponse.json({ ok: true });
       }
 

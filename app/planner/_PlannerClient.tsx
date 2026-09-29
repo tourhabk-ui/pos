@@ -40,6 +40,7 @@ import type {
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
+import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -155,6 +156,14 @@ function fmt(n: number): string { return n.toLocaleString('ru-RU'); }
 function trunc(s: string | null | undefined, len: number): string {
   if (!s) return '';
   return s.length > len ? s.slice(0, len).trimEnd() + '...' : s;
+}
+
+/** Дата дня плана: прилёт + номер дня; прилёт не задан — пусто, турист выберет сам. */
+function dayDateFrom(arrival: string, idx: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(arrival)) return '';
+  const d = new Date(`${arrival}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + idx);
+  return d.toISOString().slice(0, 10);
 }
 
 function guessZone(lat: number, lng: number): DayPlan['zone'] {
@@ -336,11 +345,13 @@ interface DayCardProps {
   onShowMap: () => void;
   onConfirm: (dayNum: number) => void;
   onRef: (el: HTMLElement | null) => void;
+  /** Запрос свободных мест у оператора по туру дня (29.09). */
+  onAskSeats?: (tour: TourPreview) => void;
 }
 
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour,
-  onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef,
+  onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
 }: DayCardProps) {
   const dragControls = useDragControls();
   const { Icon: TransIcon } = TRANSPORT_OPTIONS[transport];
@@ -501,6 +512,17 @@ function DayCard({
               от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
             </span>
           </a>
+        )}
+        {/* Свободные места — спросить у оператора (29.09): расписание в базе
+            ведут не все, а оператор отвечает одним нажатием в мессенджере. */}
+        {topTour && day.type === 'activity' && onAskSeats && (
+          <button
+            type="button"
+            onClick={() => onAskSeats(topTour)}
+            className="mx-3 mb-2.5 text-[10px] font-semibold text-[var(--accent)] hover:underline"
+          >
+            Уточнить места у оператора
+          </button>
         )}
         {/* Day warnings */}
         {day.dayWarnings && day.dayWarnings.length > 0 && (
@@ -1112,6 +1134,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Level 2
   const [transportByDay, setTransportByDay] = useState<Record<number, TransportType>>({});
   const [partnersModal, setPartnersModal]   = useState<{ activityType: string } | null>(null);
+  // Запрос мест у оператора (29.09): тур дня и дата дня, если прилёт известен.
+  const [seatModal, setSeatModal] = useState<{ tour: TourPreview; date: string } | null>(null);
 
   // Background route markers
   const [bgRoutes, setBgRoutes] = useState<RoutePoint[]>([]);
@@ -2547,6 +2571,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                     onToggleEdit={toggleEditDay}
                     onTransportChange={setTransport}
                     onShowPartners={(at) => setPartnersModal({ activityType: at })}
+                    onAskSeats={(t) => setSeatModal({ tour: t, date: dayDateFrom(arrival, idx) })}
                     onDelete={deleteDay}
                     onShowMap={() => setMobileTab('map')}
                     onConfirm={confirmDay}
@@ -2887,6 +2912,16 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       {/* Partners modal */}
       {partnersModal && (
         <PartnersModal activityType={partnersModal.activityType} onClose={() => setPartnersModal(null)} />
+      )}
+
+      {/* Запрос свободных мест у оператора */}
+      {seatModal && (
+        <SeatRequestForm
+          tour={{ id: seatModal.tour.id, title: seatModal.tour.title }}
+          defaultDate={seatModal.date}
+          defaultParticipants={adults + childAges.length}
+          onClose={() => setSeatModal(null)}
+        />
       )}
 
       {/* Companion widget — available during trip planning */}
