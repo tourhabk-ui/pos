@@ -15,6 +15,7 @@ import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { fetchForecastDays } from '@/lib/planner/intelligence';
 import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { containsPattern } from '@/lib/db/like';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -93,7 +94,7 @@ const searchTours: SDKTool = {
     }
     if (args.query) {
       conditions.push(`(t.title ILIKE $${idx} OR t.description ILIKE $${idx})`);
-      params.push(`%${String(args.query)}%`);
+      params.push(containsPattern(String(args.query)));
       idx++;
     }
 

@@ -32,6 +32,7 @@ import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
+import { containsPattern } from '@/lib/db/like';
 
 export interface PlaceRow {
   name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null;
@@ -152,7 +153,7 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
       `SELECT title, compiled_truth FROM agent_knowledge
         WHERE agent_id='kuzmich' AND type <> 'outcome' AND title ILIKE $1
         LIMIT 3`,
-      [`%${placeName}%`],
+      [containsPattern(placeName)],
     ),
   ]);
   return composePlaceInfo(placeName, pr.rows, kr.rows);

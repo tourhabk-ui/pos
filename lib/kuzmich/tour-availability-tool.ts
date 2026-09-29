@@ -12,6 +12,7 @@
 import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
+import { containsPattern } from '@/lib/db/like';
 
 export interface ResolvedTour {
   id: number;
@@ -40,7 +41,7 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
         LIMIT 1`,
-      [`%${q}%`],
+      [containsPattern(q)],
     );
     return rows[0] ?? null;
   } catch {

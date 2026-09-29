@@ -35,6 +35,7 @@ import { searchOperatorAvailability } from '@/lib/telegram/operator-availability
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { containsPattern } from '@/lib/db/like';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -648,7 +649,7 @@ export async function searchPlaceKnowledge(query: string): Promise<string> {
       const words = ftsQuery.split(/\s+/).filter(w => w.length > 3);
       if (words.length) {
         const conds = words.slice(0, 3).map((_, i) => `title ILIKE $${i + 1}`).join(' OR ');
-        const params = words.slice(0, 3).map(w => `%${w}%`);
+        const params = words.slice(0, 3).map(w => containsPattern(w));
         const { rows: fb } = await pool.query<PlaceRow>(
           `SELECT title, description, lat::text AS lat, lng::text AS lng, source_name
            FROM agent_route_knowledge
@@ -1194,7 +1195,7 @@ export async function saveMsg(
 
 export async function findTour(keywords: string[]): Promise<TourRow | null> {
   try {
-    const patterns = keywords.map(k => `%${k}%`);
+    const patterns = keywords.map(k => containsPattern(k));
     const matchClauses = patterns.map((_, i) =>
       `(CASE WHEN title ILIKE $${i + 1} THEN 1 ELSE 0 END + CASE WHEN activity_type ILIKE $${i + 1} THEN 1 ELSE 0 END)`
     );

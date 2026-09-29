@@ -139,3 +139,23 @@ describe('6. ILIKE: шаблон ищет текст, а не всё подря�
     );
   });
 });
+
+describe('6а. ILIKE во всех инструментах агента (аудит MCP 29.09)', () => {
+  // Кузьмич и MCP получают эти аргументы от человека или модели: `%` в
+  // названии места превращал поиск «Ксудач» в «что угодно». Каждый файл —
+  // проверенное решение, а не замена вслепую (шапка lib/db/like.ts).
+  const TOOLS = [
+    'lib/kuzmich/guardian-context.ts',
+    'lib/kuzmich/place-info-tool.ts',
+    'lib/kuzmich/weather-tool.ts',
+    'lib/kuzmich/tour-availability-tool.ts',
+    'lib/kuzmich/accommodation-search.ts',
+    'lib/kuzmich/core.ts',
+    'lib/agents/sdk/tourist-tools.ts',
+  ];
+  it.each(TOOLS)('%s: шаблон «содержит» только через containsPattern', (f) => {
+    const src = read(f);
+    expect(src).toContain('containsPattern(');
+    expect(src, 'шаблон снова склеен руками').not.toMatch(/`%\$\{[^`]*\}%`/);
+  });
+});
