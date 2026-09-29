@@ -108,7 +108,7 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   }
 
   return rows.map(a => {
-    // Объект с бронью на своём сайте (миграция 1105): цены и наличие там —
+    // Объект с бронью на своём сайте (миграция 1106): цены и наличие там —
     // так и говорим, а не «цена по запросу», которая звала бы писать нам.
     const price = a.price_per_night_from
       ? `от ${Math.round(Number(a.price_per_night_from))} руб/ночь`

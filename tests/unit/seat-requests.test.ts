@@ -49,8 +49,8 @@ describe('правила владельца', () => {
     expect(SEAT_REQUEST_DEADLINE_MS).toBe(2 * 3600 * 1000);
   });
 
-  it('статусы кода и CHECK миграции 1104 совпадают', () => {
-    const sql = read('migrations/1104_tour_seat_requests.sql');
+  it('статусы кода и CHECK миграции 1105 совпадают', () => {
+    const sql = read('migrations/1105_tour_seat_requests.sql');
     const m = /status IN \(([^)]+)\)/.exec(sql);
     const inSql = (m?.[1] ?? '').split(',').map(s => s.trim().replace(/'/g, '')).sort();
     expect(inSql).toEqual([...SEAT_REQUEST_STATUSES].sort());

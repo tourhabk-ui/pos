@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
       [days],
     )).rows[0]),
 
-    // Переходы на бронь на сайте самого объекта (миграция 1105): спрос,
+    // Переходы на бронь на сайте самого объекта (миграция 1106): спрос,
     // который ушёл к объекту напрямую, мимо нашей брони. Без этого счёта
     // «брони у нас нет» читалось бы как «жильё не нужно».
     measure('stay_external_booking', async () => (await pool.query<{ clicks: number; visitors: number; listings: number }>(

@@ -53,7 +53,7 @@ interface EditFormState {
   checkOutTime: string;
   /** '' — не размечена (старые объекты); снять разметку владелец не может. */
   plannerZone: ZoneId | '';
-  /** Бронь на своём сайте (миграция 1105); '' — нет. */
+  /** Бронь на своём сайте (миграция 1106); '' — нет. */
   externalBookingUrl: string;
 }
 

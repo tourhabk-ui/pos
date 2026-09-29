@@ -1,6 +1,6 @@
 /**
  * Бронь на сайте самого объекта жилья (решение владельца 29.09, миграция
- * 1105). Бесплатная замена подключению к TravelLine, пока спрос не виден:
+ * 1106). Бесплатная замена подключению к TravelLine, пока спрос не виден:
  * карточка ведёт туда, где объект сам держит цены и свободные даты.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,7 +14,7 @@ vi.mock('@/lib/stay/demand-record', () => ({ recordAgentStaySearch: async () => 
 import { searchAccommodationsForKuzmich } from '@/lib/kuzmich/accommodation-search';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
-const MIG = 'migrations/1105_accommodation_external_booking.sql';
+const MIG = 'migrations/1106_accommodation_external_booking.sql';
 
 beforeEach(() => { poolQueryMock.mockReset(); });
 
