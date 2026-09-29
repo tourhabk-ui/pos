@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { FishingPageClient } from './_FishingPageClient';
+import { Header } from '@/components/layout/Header';
+import BottomNav from '@/components/shared/BottomNav';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,7 +117,13 @@ export default async function FishingPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <FishingPageClient tours={tours} />
+      {/* Шапка (с SOS, §2) и таб-бар: до 29.09 публичная посадочная «Рыбалка»
+          была тупиком без навигации и без SOS (аудит UI/UX 29.09, P0). */}
+      <Header />
+      <div className="px-4 pt-20 pb-24 md:pb-10">
+        <FishingPageClient tours={tours} />
+      </div>
+      <BottomNav activePath="/hub/fishing" />
     </>
   );
 }
