@@ -5,6 +5,7 @@ import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
+  alternates: { canonical: '/map' },
   title: 'Карта Камчатки — Ведар',
   description: 'Интерактивная карта Камчатки с достопримечательностями, вулканами, термальными источниками',
 };

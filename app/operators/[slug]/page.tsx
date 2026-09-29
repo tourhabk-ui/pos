@@ -14,6 +14,7 @@ import {
   extractServices, extractFeatures, extractContacts, extractFaq,
   extractGallery, extractLegalInfo,
 } from '@/lib/operators/profile-parse';
+import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 
 export const dynamic = 'force-dynamic';
 
@@ -226,7 +227,7 @@ export default async function OperatorProfilePage(
               <div>
                 <div className="relative w-full h-64 sm:h-80 rounded-lg overflow-hidden bg-[var(--bg-hover)] border border-[var(--border)]">
                   {heroImage ? (
-                    <Image src={heroImage} alt={profile.name} fill className="object-cover" sizes="(max-width: 1024px) 100vw, 50vw" priority />
+                    <Image src={heroImage} alt={profile.name} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 1024px) 100vw, 50vw" priority />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                       <MapPin className="w-10 h-10" />
@@ -244,7 +245,7 @@ export default async function OperatorProfilePage(
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {gallery.slice(0, 6).map((url, i) => (
                   <div key={i} className="relative h-40 rounded-lg overflow-hidden bg-[var(--bg-hover)]">
-                    <Image src={url} alt={`${profile.name} ${i + 1}`} fill className="object-cover hover:scale-105 transition-transform duration-300" sizes="33vw" />
+                    <Image src={url} alt={`${profile.name} ${i + 1}`} fill className="object-cover hover:scale-105 transition-transform duration-300" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="33vw" />
                   </div>
                 ))}
               </div>
@@ -267,7 +268,7 @@ export default async function OperatorProfilePage(
                     >
                       {img && (
                         <div className="relative h-36">
-                          <Image src={img} alt={t.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, 33vw" />
+                          <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 640px) 100vw, 33vw" />
                         </div>
                       )}
                       <div className="p-4 space-y-1.5 flex-1">

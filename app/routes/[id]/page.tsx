@@ -10,6 +10,7 @@ import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
+import { metaDescription } from '@/lib/seo/meta-description';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -23,34 +24,68 @@ interface Props {
  * kamchatka_routes), а VIEW agent_route_knowledge его не содержит — поэтому
  * сначала находим id по slug, дальше карточка работает как раньше по id.
  */
-async function resolveToId(idOrSlug: string): Promise<string | null> {
-  if (isUuid(idOrSlug)) return idOrSlug;
+async function resolveToId(idOrSlug: string): Promise<{ id: string; kind: 'route' | 'place' } | null> {
   try {
     // VIEW agent_route_knowledge ключуется по ark_id для мест и COALESCE(ark_id,id)
     // для маршрутов (миграция 677) — резолвим slug именно в этот id.
+    //
+    // Маршрут — первым: /routes/ — адрес маршрутов, и если slug совпал у
+    // маршрута и места, это разные сущности, а показывать надо маршрут. Род
+    // (kind) нужен странице: место под /routes/ — двойник карточки места.
+    if (isUuid(idOrSlug)) {
+      const r = await query(
+        `SELECT 'route' AS kind FROM kamchatka_routes WHERE COALESCE(ark_id, id)::text = $1
+         UNION ALL SELECT 'place' AS kind FROM places WHERE ark_id::text = $1
+         LIMIT 1`,
+        [idOrSlug]
+      );
+      return { id: idOrSlug, kind: (r.rows[0]?.kind as 'route' | 'place' | undefined) ?? 'route' };
+    }
     const r = await query(
-      `SELECT ark_id::text AS id FROM places WHERE slug = $1
-       UNION ALL SELECT COALESCE(ark_id, id)::text AS id FROM kamchatka_routes WHERE slug = $1
-       LIMIT 1`,
+      `SELECT * FROM (
+         SELECT COALESCE(ark_id, id)::text AS id, 'route' AS kind, 0 AS ord FROM kamchatka_routes WHERE slug = $1
+         UNION ALL SELECT ark_id::text AS id, 'place' AS kind, 1 AS ord FROM places WHERE slug = $1
+       ) x ORDER BY ord LIMIT 1`,
       [idOrSlug]
     );
-    return (r.rows[0]?.id as string) ?? null;
-  } catch {
+    const row = r.rows[0];
+    return row ? { id: row.id as string, kind: row.kind as 'route' | 'place' } : null;
+  } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[routes/[id]] резолв адреса упал', { idOrSlug, sqlstate: e?.code, message: e?.message });
     return null;
   }
 }
 
-interface RouteWaypointRow { name: string; lat: number | null; lng: number | null; position: number }
+/**
+ * Slug видимого места-тёзки маршрута, если оно есть. Отказ БД — null с
+ * записью в лог: не смогли проверить — показываем маршрут, как раньше.
+ */
+async function findPlaceTwin(slug: string): Promise<string | null> {
+  try {
+    const r = await query(`SELECT slug FROM places WHERE slug = $1 AND is_visible = TRUE LIMIT 1`, [slug]);
+    return (r.rows[0]?.slug as string | undefined) ?? null;
+  } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[routes/[id]] проверка двойника места упала', { slug, sqlstate: e?.code, message: e?.message });
+    return null;
+  }
+}
+
+interface RouteWaypointRow { name: string; slug: string | null; lat: number | null; lng: number | null; position: number }
 
 /** Точки маршрута по порядку (route_waypoints → places). Ошибка БД → []. */
 async function getRouteWaypoints(viewId: string): Promise<RouteWaypointRow[]> {
   try {
     const r = await query(
-      `SELECT p.name, p.lat, p.lng, rw.position
+      `SELECT p.name, p.slug, p.lat, p.lng, rw.position
          FROM route_waypoints rw
          JOIN kamchatka_routes kr ON kr.id = rw.route_id
          JOIN places p ON p.id = rw.place_id
         WHERE COALESCE(kr.ark_id, kr.id)::text = $1
+          -- «Рядом» — не точка пути (CLAUDE.md §4.1, миграция 874): ни в
+          -- itinerary, ни в списке точек маршрута ему не место.
+          AND COALESCE(rw.link_kind, 'unknown') <> 'nearby'
         ORDER BY rw.position ASC
         LIMIT 30`,
       [viewId],
@@ -77,8 +112,9 @@ async function getRouteWaypoints(viewId: string): Promise<RouteWaypointRow[]> {
  * двух гоняющихся.
  */
 async function getRouteRaw(idOrSlug: string) {
-  const realId = await resolveToId(idOrSlug);
-  if (!realId) return null;
+  const resolved = await resolveToId(idOrSlug);
+  if (!resolved) return null;
+  const realId = resolved.id;
   try {
     const result = await query(
       `SELECT id, category, title, description, lat, lng, source_url, payload,
@@ -120,6 +156,7 @@ async function getRouteRaw(idOrSlug: string) {
       locationType: (r.location_type as string | null) ?? null,
       activityType: (r.activity_type as string | null) ?? null,
       slug,
+      kind: resolved.kind,
     };
   } catch (error) {
     // Отказ БД молчал полностью — «не смог проверить» и «не нашёл» были
@@ -170,14 +207,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   // Individual route metadata — id может быть UUID или slug
   const route = await getRoute(decodeSlug(id));
-  if (!route) return { title: 'Маршрут не найден' };
+  if (!route) return { title: 'Маршрут не найден', robots: { index: false, follow: false } };
   // Канонический URL — всегда по slug (если он есть), даже если пришли по UUID
   const canonicalId = route.slug ?? id;
 
   const title = `${route.title} — маршрут на Камчатке`;
-  const desc = route.description
-    ? stripTags(route.description).slice(0, 180)
-    : `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
+  // По предложению или слову, а не slice(0, 180) посреди слова (Н11).
+  const desc = metaDescription(route.description)
+    || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
 
   // SEO keywords: города + типы активностей + регион
   const baseKeywords = [
@@ -265,6 +302,17 @@ export default async function RouteOrCategoryPage({ params }: Props) {
 
   const route = await getRoute(decodeSlug(id));
   if (!route) notFound();
+
+  // Двойник карточки места: место, открытое под адресом маршрута, или
+  // маршрут с тем же slug, что у видимого места (скрейп «как добраться» носил
+  // имена мест). 218 таких пар соперничали в выдаче с /places/{slug}, а по §9
+  // точка — не маршрут. Решение владельца 29.09: 308 на карточку места.
+  const twinOf = route.kind === 'place'
+    ? (route.slug ?? route.id)
+    : (route.slug ? await findPlaceTwin(route.slug) : null);
+  if (twinOf) {
+    permanentRedirect(`/places/${twinOf}`);
+  }
 
   // Точки маршрута по порядку — для itinerary в JSON-LD: без ItemList с
   // position поисковики и AI-ответы не понимают, что маршрут — это
@@ -434,7 +482,15 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     <>
       <JsonLd data={jsonLd} />
       <JsonLd data={breadcrumbLd} />
-      <RouteDetailClient id={route.id} mapPackBaseUrl={process.env[MAP_PACK_BASE_URL_ENV] || null} />
+      <RouteDetailClient
+        id={route.id}
+        mapPackBaseUrl={process.env[MAP_PACK_BASE_URL_ENV] || null}
+        summary={{
+          title: route.title,
+          description: route.description ? stripTags(route.description).trim() || null : null,
+          waypoints: waypoints.map((w) => ({ name: w.name, slug: w.slug })),
+        }}
+      />
     </>
   );
 }

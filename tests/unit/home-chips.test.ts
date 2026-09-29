@@ -20,7 +20,7 @@ import { parseMarketplaceSearchParams } from '@/lib/tours/marketplace-page';
 import { ACTIVITY_LABELS } from '@/lib/tours/labels';
 
 const ROOT = process.cwd();
-const ROUTES_PAGE = readFileSync(join(ROOT, 'app/routes/page.tsx'), 'utf-8');
+const ROUTES_PAGE = readFileSync(join(ROOT, 'app/routes/(list)/page.tsx'), 'utf-8');
 
 /**
  * Какие query-параметры страница `/routes` реально разбирает.
@@ -34,7 +34,7 @@ function parsedParams(): Set<string> {
 describe('чип — это настоящий фильтр', () => {
   it('страница /routes разбирает как минимум те параметры, которыми пользуются чипы', () => {
     const parsed = parsedParams();
-    expect(parsed.size, 'не разобрать чтение searchParams в app/routes/page.tsx').toBeGreaterThan(0);
+    expect(parsed.size, 'не разобрать чтение searchParams в app/routes/(list)/page.tsx').toBeGreaterThan(0);
 
     const offenders: string[] = [];
     for (const chip of INTENT_CHIPS) {

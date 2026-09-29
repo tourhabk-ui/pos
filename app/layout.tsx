@@ -126,12 +126,13 @@ export const metadata: Metadata = {
     description: 'Помогаем спланировать маршрут и выйти на реальный тур без обманов и серых схем.',
     images: ['/images/hero/hero-light.jpeg'],
   },
+  // index/follow по умолчанию и так разрешены — явное «index, follow» здесь
+  // наследовала каждая страница, и на «не найдено» рядом с noindex от Next
+  // выходили ДВА meta robots. Яндекс при таком сочетании выбирает
+  // разрешающий и индексирует пустышку (аудит SEO 29.09, Н2). Страница, которой
+  // нужно явное разрешение, ставит его сама.
   robots: {
-    index: true,
-    follow: true,
     googleBot: {
-      index: true,
-      follow: true,
       'max-video-preview': -1,
       'max-image-preview': 'large',
       'max-snippet': -1,

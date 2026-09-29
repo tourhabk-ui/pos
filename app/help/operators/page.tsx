@@ -3,6 +3,7 @@ import HelpArticleView from '@/components/help/HelpArticleView';
 import { OPERATORS } from '@/lib/help/content';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/help/operators' },
   title: 'Инструкция оператора',
   description: 'Как разместить тур, подключить уведомления, подтверждать брони, вести команду гидов и получать выплаты',
 };

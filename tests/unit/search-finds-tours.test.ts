@@ -174,7 +174,7 @@ describe('GlobalSearchModal', () => {
 });
 
 describe('/routes — блок «Туры по запросу»', () => {
-  const PAGE = read('app/routes/page.tsx');
+  const PAGE = read('app/routes/(list)/page.tsx');
   it('при непустом q страница спрашивает туры через lib/search и отдаёт блок клиенту', () => {
     expect(PAGE).toMatch(/findToursForQuery\(q, /);
     expect(PAGE).toMatch(/<ToursForQuery q=\{q\} state=\{toursState\}/);

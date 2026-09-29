@@ -74,3 +74,38 @@ describe('фото не режутся по центру — голова ост
     expect(film).toContain("objectPosition: '50% 30%'");
   });
 });
+
+/**
+ * Замечание владельца 29.09: «обрезал головы на фото туров — мы это пару
+ * месяцев назад исправляли». Сторож выше держал только карточку тура, а плитки
+ * туров на странице оператора, карточка каталога и /hub/fishing снова резали
+ * портретные фото по центру. Теперь — каждая поверхность с фото тура: у
+ * каждого object-cover рядом точка кадрирования из lib/tours/photo-focus.
+ */
+describe('все поверхности с фото туров держат голову в кадре', () => {
+  const SURFACES = [
+    'components/marketplace/MarketplaceClient.tsx',
+    'app/operators/[slug]/page.tsx',
+    'app/hub/fishing/_FishingPageClient.tsx',
+    'app/ai-assistant/_AIAssistantClient.tsx',
+  ];
+  /** Элементы <Image …/> и <img …/> с object-cover, кроме логотипов (object-contain). */
+  function coverImages(src: string): string[] {
+    const tags = [...src.matchAll(/<(?:Image|img)\b[\s\S]*?\/>/g)].map((m) => m[0]);
+    return tags.filter((t) => /object-cover/.test(t));
+  }
+  for (const f of SURFACES) {
+    it(f, () => {
+      const src = readFileSync(f, 'utf8');
+      // Пейзажи — герой каталога и фото мест/маршрутов — не портреты туров.
+      const imgs = coverImages(src).filter((t) => !/hero-marketplace\.jpg|route\.imageUrl/.test(t));
+      expect(imgs.length, `${f}: не нашёл ни одного фото — сторож смотрит не туда`).toBeGreaterThan(0);
+      for (const t of imgs) expect(t, `${f}: фото без точки кадрирования`).toMatch(/objectPosition:\s*TOUR_PHOTO_POSITION/);
+      expect(src).toMatch(/from '@\/lib\/tours\/photo-focus'/);
+    });
+  }
+  it('точка кадрирования — та же, что у карточки тура', async () => {
+    const { TOUR_PHOTO_POSITION } = await import('@/lib/tours/photo-focus');
+    expect(TOUR_PHOTO_POSITION).toBe('50% 30%');
+  });
+});

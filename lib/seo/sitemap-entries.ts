@@ -182,10 +182,14 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       slug: string | null;
       updated_at: Date;
     }>(`
-      SELECT id, slug, updated_at
-      FROM kamchatka_routes
-      WHERE is_visible = TRUE OR is_visible IS NULL
-      ORDER BY updated_at DESC
+      SELECT kr.id, kr.slug, kr.updated_at
+      FROM kamchatka_routes kr
+      WHERE (kr.is_visible = TRUE OR kr.is_visible IS NULL)
+        AND kr.merged_into_id IS NULL
+        -- Двойник места отвечает 308 на /places/{slug} (решение владельца
+        -- 29.09): адрес с редиректом sitemap не предлагает.
+        AND NOT EXISTS (SELECT 1 FROM places tp WHERE tp.slug = kr.slug AND tp.is_visible = TRUE)
+      ORDER BY kr.updated_at DESC
       LIMIT 2000
     `);
 

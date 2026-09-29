@@ -22,7 +22,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: col.title,
     description: col.description ?? `Кураторская подборка «${col.title}»`,
+    alternates: { canonical: `/collections/${slug}` },
     openGraph: {
+      url: `/collections/${slug}`,
       title: col.title,
       description: col.description ?? '',
       images: col.cover_image ? [col.cover_image] : [],

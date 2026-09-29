@@ -77,10 +77,19 @@ describe('роуты места не отдают наружу текст оши
     });
   }
 
+  it('карточка места: логика в lib/places/place-detail.ts, SQLSTATE — в лог, наружу — нейтральный текст', () => {
+    // С 29.09 карточку собирает loadPlaceDetail (её зовут роут и серверная
+    // страница, аудит SEO Н1), роут только возвращает её ответ.
+    const route = readFileSync(join(process.cwd(), 'app/api/places/[id]/route.ts'), 'utf-8');
+    const lib = readFileSync(join(process.cwd(), 'lib/places/place-detail.ts'), 'utf-8');
+    expect(route).toMatch(/loadPlaceDetail\(/);
+    expect(lib).toMatch(/sqlstate/i);
+    expect(lib).not.toMatch(/error:\s*e\??\.message|error:\s*err\.message|String\(err\)\s*\}/);
+  });
+
   it('катастрофические пути пишут SQLSTATE в лог', () => {
     // Три роута, чей отказ видит турист: карточка, отзыв, файл точки.
     const mustLogSqlstate = [
-      'app/api/places/[id]/route.ts',
       'app/api/places/[id]/reviews/route.ts',
       'app/api/places/[id]/gpx/route.ts',
     ];

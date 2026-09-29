@@ -69,6 +69,7 @@ import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels
 import { photoSrc } from '@/lib/images/variant';
 import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
+import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -339,7 +340,7 @@ function TourCard({
           fill
           sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
           className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
-          style={{ filter: 'saturate(1.12) contrast(1.04)' }}
+          style={{ objectPosition: TOUR_PHOTO_POSITION, filter: 'saturate(1.12) contrast(1.04)' }}
         />
         {/* Лёгкое затемнение сверху — под рейлом и сердцем, краски фото целы */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-transparent" />

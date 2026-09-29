@@ -53,7 +53,7 @@ const UPLOAD = read('app/api/admin/places/[id]/photo/route.ts');
 // словами. 14.09 объяснение доросло до упоминания раньше запроса, и сторож
 // покраснел на комментарии — том самом, который правило выше разрешает.
 const UPLOAD_CODE = code(UPLOAD);
-const API = read('app/api/places/[id]/route.ts');
+const API = read('lib/places/place-detail.ts');
 const VIEW = read('app/places/[id]/_PlaceDetailClient.tsx');
 const VIEW_CODE = code(VIEW);
 

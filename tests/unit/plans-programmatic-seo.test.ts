@@ -89,7 +89,8 @@ describe('страница /plans/[slug]', () => {
 
   it('неизвестный слаг — notFound, движок в try/catch (500 недопустим)', () => {
     expect(PAGE).toMatch(/if \(!preset\) notFound\(\)/);
-    expect(PAGE).toMatch(/catch \{ \/\* план живёт на интро и CTA \*\/ \}/);
+    // Отказ движка не роняет страницу, но и не молчит (§4.0): причина — в лог.
+    expect(PAGE).toMatch(/catch \(e\) \{\s*\/\/ План живёт на интро и CTA[^\n]*\n\s*console\.error\('\[plans\/\[slug\]\] план не рассчитан'/);
   });
 
   it('план ведёт к брони и несёт JSON-LD и канонику', () => {

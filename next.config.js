@@ -21,6 +21,15 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Метаданные — в <head> и для Googlebot. Next 15.5 отдаёт title/canonical/
+  // robots стримингом в <body> всем, кроме списка htmlLimitedBots, а в
+  // списке по умолчанию есть yandex и Bingbot, но НЕТ Googlebot. Google
+  // принимает rel=canonical только из <head>: по замеру аудита SEO 29.09 (Н4)
+  // около 790 из 880 адресов были для него без действующего canonical.
+  // Строка ниже — список Next по умолчанию (next/dist/shared/lib/router/utils/
+  // html-bots.js) плюс Googlebot. Цена — блокирующий рендер для этих ботов.
+  htmlLimitedBots: /Googlebot|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
   compress: true,
 
   // Здесь стоял experimental.serverActions.bodySizeLimit = '60mb'. Убрано

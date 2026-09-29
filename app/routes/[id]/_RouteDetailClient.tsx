@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
+import { RouteServerSummary, type RouteSummary } from '@/components/routes/RouteServerSummary';
 import { SURFACE_TYPES as SURFACE_LABELS } from '@/lib/import/elevation-profile';
 import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
@@ -432,7 +433,7 @@ function OfferCard({ offer, activityType, onBook }: {
   );
 }
 
-export default function RouteDetailClient({ id, mapPackBaseUrl }: { id: string; mapPackBaseUrl: string | null }) {
+export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }: { id: string; mapPackBaseUrl: string | null; summary?: RouteSummary | null }) {
   const router = useRouter();
   const [route, setRoute] = useState<RouteDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -675,6 +676,16 @@ export default function RouteDetailClient({ id, mapPackBaseUrl }: { id: string; 
     return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track, approachCaption, hiddenCaption };
   }, [route, pathWaypoints]);
 
+  // Пока грузится полная карточка — то, что сервер уже знает (Н1 аудита SEO).
+  if (loading && summary) {
+    return (
+      <>
+        <Header />
+        <RouteServerSummary summary={summary} />
+      </>
+    );
+  }
+
   if (loading) {
     return (
       <>
@@ -684,6 +695,17 @@ export default function RouteDetailClient({ id, mapPackBaseUrl }: { id: string; 
           <div className="ds-skeleton rounded h-6 w-2/3" />
           <div className="ds-skeleton rounded h-4 w-1/2" />
         </div>
+      </>
+    );
+  }
+
+  // Полная карточка не пришла (нет сети, /api/ недоступен), а сервер маршрут
+  // нашёл — показываем найденное, а не «не найден».
+  if ((notFound || !route) && summary) {
+    return (
+      <>
+        <Header />
+        <RouteServerSummary summary={summary} note="Подробности маршрута не загрузились. Проверьте связь и обновите страницу." />
       </>
     );
   }

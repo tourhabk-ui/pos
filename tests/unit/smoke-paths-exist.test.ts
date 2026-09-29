@@ -18,7 +18,7 @@
  * настоящую.
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SPEC = readFileSync(join(process.cwd(), 'test/e2e/smoke.spec.ts'), 'utf-8');
@@ -43,8 +43,14 @@ function gotoPaths(src: string): string[] {
 function hasPage(urlPath: string): boolean {
   const clean = urlPath.split('?')[0].split('#')[0];
   const rel = clean === '/' ? 'app' : join('app', clean);
-  return ['page.tsx', 'page.ts', 'page.jsx', 'page.js']
-    .some((f) => existsSync(join(process.cwd(), rel, f)));
+  const dir = join(process.cwd(), rel);
+  const files = ['page.tsx', 'page.ts', 'page.jsx', 'page.js'];
+  if (files.some((f) => existsSync(join(dir, f)))) return true;
+  // Страница в группе маршрутов `(…)` отвечает по тому же адресу: так лежат
+  // списки /catalog и /routes (аудит SEO 29.09, Н2 — loading.tsx раздела не
+  // должен накрывать карточки).
+  if (!existsSync(dir)) return false;
+  return readdirSync(dir).some((d) => /^\(.+\)$/.test(d) && files.some((f) => existsSync(join(dir, d, f))));
 }
 
 describe('адреса smoke существуют в приложении', () => {

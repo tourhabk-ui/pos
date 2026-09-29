@@ -85,7 +85,9 @@ describe('2. реестр один', () => {
   it('пути реестра существуют как страницы', () => {
     const missing = allPlatformHrefs().filter(h => {
       const dir = join(ROOT, 'app', h.replace(/^\//, ''));
-      try { readFileSync(join(dir, 'page.tsx')); return false; } catch { return true; }
+      try { readFileSync(join(dir, 'page.tsx')); return false; } catch { /* нет прямой страницы */ }
+      // Список может лежать в группе маршрутов (list) — адрес тот же (аудит SEO 29.09, Н2).
+      try { readFileSync(join(dir, '(list)', 'page.tsx')); return false; } catch { return true; }
     });
     expect(missing, 'реестр ведёт на страницу, которой нет').toEqual([]);
   });
