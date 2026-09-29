@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import PDFDocument from 'pdfkit';
+import { requireAuth } from '@/lib/auth/middleware';
+import { canReadRegistration } from '@/lib/safety/registration-read';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,9 +89,19 @@ function generatePDF(reg: Record<string, unknown>): Promise<Buffer> {
 
 export async function GET(request: NextRequest, { params }: Params) {
   const { id } = await params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return NextResponse.json({ success: false, error: 'Некорректный идентификатор регистрации' }, { status: 400 });
+  }
+
+  // Проверка безопасности 29.09 (#2073): здесь не было проверки ни входа, ни
+  // владельца — любой залогиненный с чужим UUID получал ФИО и телефоны
+  // группы, год рождения участников и экстренный контакт. UUID утекает
+  // легко (ссылка на PDF, пересланный экран), а ПД группы — не публичные.
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   const result = await query(
-    `SELECT id, route_name, route_description, start_date, end_date, region,
+    `SELECT id, user_id, route_name, route_description, start_date, end_date, region,
             group_size, group_members, leader_name, leader_phone, leader_email,
             emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
             completed_at, mchs_status, created_at
@@ -97,11 +109,15 @@ export async function GET(request: NextRequest, { params }: Params) {
     [id],
   );
 
-  if (result.rows.length === 0) {
+  // Чужая регистрация отвечает тем же 404, что и несуществующая: иначе
+  // ответ подтверждал бы, что такой UUID есть.
+  const row = result.rows[0] as (Record<string, unknown> & { user_id?: string | null }) | undefined;
+  if (!row || !canReadRegistration({ userId: auth.userId, role: auth.role }, row.user_id ?? null)) {
     return NextResponse.json({ success: false, error: 'Регистрация не найдена' }, { status: 404 });
   }
 
-  const reg = result.rows[0];
+  const { user_id: _owner, ...reg } = row;
+  void _owner;
   const wantPdf = request.nextUrl.searchParams.has('pdf');
 
   if (wantPdf) {
