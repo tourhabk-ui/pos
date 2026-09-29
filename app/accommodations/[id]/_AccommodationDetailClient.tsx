@@ -63,7 +63,7 @@ interface AccommodationDetail {
   /** from: null — цену не называли (объект с бронью на своём сайте). */
   pricePerNight: { from: number | null; to: number | null };
   amenities: string[];
-  /** Бронь на сайте самого объекта (миграция 1107); null — нет. */
+  /** Бронь на сайте самого объекта (миграция 1109); null — нет. */
   externalBookingUrl: string | null;
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;

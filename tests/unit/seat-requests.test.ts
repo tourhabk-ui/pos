@@ -81,15 +81,15 @@ describe('правила владельца', () => {
     expect(SEAT_REQUEST_DEADLINE_MS).toBe(2 * 3600 * 1000);
   });
 
-  it('статусы и причины отказа кода совпадают с CHECK миграции 1106', () => {
-    const sql = read('migrations/1106_tour_seat_requests.sql');
+  it('статусы и причины отказа кода совпадают с CHECK миграции 1108', () => {
+    const sql = read('migrations/1108_tour_seat_requests.sql');
     const list = (re: RegExp) => (re.exec(sql)?.[1] ?? '').split(',').map(x => x.trim().replace(/'/g, '')).sort();
     expect(list(/status IN \(([^)]+)\)/)).toEqual([...SEAT_REQUEST_STATUSES].sort());
     expect(list(/failure_kind IN \(([^)]+)\)/)).toEqual([...FAILURE_KINDS].sort());
   });
 
-  it('миграция 1106: один ждущий запрос на (тур, дата, телефон) — на уровне базы, а не только кода', () => {
-    const sql = read('migrations/1106_tour_seat_requests.sql');
+  it('миграция 1108: один ждущий запрос на (тур, дата, телефон) — на уровне базы, а не только кода', () => {
+    const sql = read('migrations/1108_tour_seat_requests.sql');
     expect(sql).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS uq_tour_seat_requests_pending_same\s+ON tour_seat_requests \(tour_id, tour_date, tourist_phone\) WHERE status = 'pending'/);
     // Ключ страницы для позднего сообщения, попытки, код агента, причина отказа.
     for (const col of ['status_token_enc', 'tourist_notify_attempts', 'referral_code', 'failure_kind']) {

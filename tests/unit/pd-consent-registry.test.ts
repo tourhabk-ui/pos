@@ -50,7 +50,7 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
   },
   tour_seat_requests: {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
-    note: 'миграция 1106, четвёртая копия — типы как у 911/969. Согласие живёт здесь, пока запрос не стал бронью: при «Есть места» переезжает в operator_bookings той же вставкой (lib/bookings/reserve)',
+    note: 'миграция 1108, четвёртая копия — типы как у 911/969. Согласие живёт здесь, пока запрос не стал бронью: при «Есть места» переезжает в operator_bookings той же вставкой (lib/bookings/reserve)',
   },
 };
 

@@ -167,7 +167,7 @@ export async function GET(
       checkInTime: accommodation.check_in_time,
       checkOutTime: accommodation.check_out_time,
       pricePerNight: {
-        // Цены может не быть (объект с бронью на своём сайте, миграция 1107):
+        // Цены может не быть (объект с бронью на своём сайте, миграция 1109):
         // null — «цену не называли», а не NaN и не ноль (§4.0).
         from: accommodation.price_per_night_from != null ? parseFloat(accommodation.price_per_night_from) : null,
         to: accommodation.price_per_night_to ? parseFloat(accommodation.price_per_night_to) : null,
@@ -175,7 +175,7 @@ export async function GET(
       },
       amenities: accommodation.amenities || [],
       languages: accommodation.languages || [],
-      // Бронь на сайте самого объекта (миграция 1107): живые цены и наличие
+      // Бронь на сайте самого объекта (миграция 1109): живые цены и наличие
       // там, а не у нас. null — своей брони у объекта нет или не указана.
       externalBookingUrl: accommodation.external_booking_url ?? null,
       // «Не оценён» — null, а не ноль. Ноль читается экраном и планером как
