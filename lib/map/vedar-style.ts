@@ -39,6 +39,7 @@
 
 import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { calculatedCarLine } from '@/lib/map/line-standard';
+import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 
 /**
  * Верхний зум СЛОЁВ обзорного яруса (гипсометрия, тень, океан) — на единицу
@@ -1270,7 +1271,8 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * тем же способом падает на `other`, если у места нет типа или он неизвестен
  * набору форм (растеризатор сам подставляет форму `other`, а не пустоту).
  *
- * Иконка видна с самого нижнего зума карты (OVERVIEW_MIN_ZOOM, сейчас z4) —
+ * Место видно с самого нижнего зума карты (OVERVIEW_MIN_ZOOM, сейчас z4; с
+ * 29.09 — точкой, значок вблизи, см. ниже) —
  * на /map это первый экран, который видит человек, и «Точек: 383» под ним
  * не должно врать пустой картой (владелец 06.09, скрин: «точек мест нет»,
  * зум 4.4). `icon-allow-overlap` — тем же способом, каким кружок раньше
@@ -1285,7 +1287,33 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * и подобные полностью закрывали маркер, и тапнуть по нему было нечем. Имя
  * места теперь узнаётся тапом, не текстом на карте. Второй шаг того же дня —
  * снятие самих кружков вершин и посёлков, см. OSM_LAYERS_NOT_DRAWN.
+ *
+ * ── Обзор — точками, значки — вблизи (решение владельца 29.09) ────────────
+ *
+ * «Значки мест мне не нравятся — слишком большая рябь в глазах»: на обзоре
+ * (z4, /map открывается им) 379 значков разных форм и цветов с кромками
+ * сливались в пёструю кашу. Из трёх вариантов владелец выбрал этот: ниже
+ * PLACE_ICON_MIN_ZOOM место — маленькая точка в цвет типа, без кромки и
+ * символа (тот же PLACE_KIND_COLOR, что у значка: вулкан остаётся
+ * оранжевым); с него — прежний значок. Место при этом видно с самого
+ * нижнего зума, как требует решение 06.09, — точкой, а не значком. Опасность
+ * на обзоре не рисуется: она читается кромкой значка вблизи и в карточке.
+ *
+ * Слой точек зовётся `vedar-places-dots<ns>` — с префиксом `vedar-places`,
+ * чтобы тап (startsWith), фильтр-чипы и кнопка видимости (includes
+ * 'vedar-place') в VedarMap ловили его без правки.
  */
+export const PLACE_ICON_MIN_ZOOM = 9;
+
+function placeKindColor(): unknown {
+  const pairs: unknown[] = [];
+  for (const [kind, hex] of Object.entries(PLACE_KIND_COLOR)) {
+    if (kind === 'other') continue;
+    pairs.push(kind, hex);
+  }
+  return ['match', ['coalesce', ['get', 'kind'], 'other'], ...pairs, PLACE_KIND_COLOR.other];
+}
+
 function vedarPlaceLayers(
   sources: VedarStyleSources, p: MapPalette, ns: string,
 ): unknown[] {
@@ -1298,11 +1326,20 @@ function vedarPlaceLayers(
     ['coalesce', ['get', 'kind'], 'other'],
   ];
   return [{
-    id: `vedar-places${ns}`, type: 'symbol', source,
+    id: `vedar-places-dots${ns}`, type: 'circle', source,
     minzoom: OVERVIEW_MIN_ZOOM,
+    maxzoom: PLACE_ICON_MIN_ZOOM,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], OVERVIEW_MIN_ZOOM, 2.2, PLACE_ICON_MIN_ZOOM, 3.6],
+      'circle-color': placeKindColor(),
+      'circle-opacity': 0.9,
+    },
+  }, {
+    id: `vedar-places${ns}`, type: 'symbol', source,
+    minzoom: PLACE_ICON_MIN_ZOOM,
     layout: {
       'icon-image': iconImage,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], OVERVIEW_MIN_ZOOM, 0.32, 13, 0.9],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], PLACE_ICON_MIN_ZOOM, 0.6, 13, 0.9],
       'icon-anchor': 'bottom',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,

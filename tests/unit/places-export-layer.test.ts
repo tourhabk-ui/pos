@@ -22,7 +22,8 @@ import {
 } from '@/lib/map/pack-source';
 import { OVERVIEW_ID, type PackRegionId } from '@/lib/geo/regions';
 import { packKeysToVerify } from '@/scripts/map-tiles/verify-packs';
-import { buildVedarStyle, buildRegionOverlay } from '@/lib/map/vedar-style';
+import { buildVedarStyle, buildRegionOverlay, PLACE_ICON_MIN_ZOOM } from '@/lib/map/vedar-style';
+import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 
 const ROOT = process.cwd();
@@ -216,13 +217,38 @@ describe('слой мест в стиле карты', () => {
     expect(iconImage).toContain('"kind"');
   });
 
-  it('иконка виден с нижнего зума карты, не только с z6 (владелец 06.09, «точек мест нет» на z4.4)', () => {
-    // /map открывается на минимальном зуме края — «Точек: 383» под картой
+  it('место видно с нижнего зума карты, не только с z6 (владелец 06.09, «точек мест нет» на z4.4)', () => {
+    // /map открывается на минимальном зуме края — «Точек: 379» под картой
     // не должно врать пустой картой ровно там, где человек её впервые видит.
+    // С 29.09 на обзоре это точка, а значок — вблизи (см. следующий тест).
     const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
-    const places = style.layers.find((l) => l.id === 'vedar-places') as { minzoom?: number } | undefined;
-    expect(places?.minzoom).toBe(OVERVIEW_MIN_ZOOM);
+    const dots = style.layers.find((l) => l.id === 'vedar-places-dots') as { minzoom?: number; maxzoom?: number } | undefined;
+    const icons = style.layers.find((l) => l.id === 'vedar-places') as { minzoom?: number } | undefined;
+    expect(dots?.minzoom).toBe(OVERVIEW_MIN_ZOOM);
+    // Точки и значки стыкуются без дыры и без двойного показа.
+    expect(dots?.maxzoom).toBe(PLACE_ICON_MIN_ZOOM);
+    expect(icons?.minzoom).toBe(PLACE_ICON_MIN_ZOOM);
     expect(OVERVIEW_MIN_ZOOM).toBeLessThan(6);
+  });
+
+  it('обзор — точками в цвет типа, без кромки (владелец 29.09, «слишком большая рябь»)', () => {
+    const style = buildVedarStyle('dark', STYLE_SRC) as { layers: Layer[] };
+    const dots = style.layers.find((l) => l.id === 'vedar-places-dots') as
+      { type?: string; paint?: Record<string, unknown> } | undefined;
+    expect(dots?.type).toBe('circle');
+    const color = JSON.stringify(dots?.paint?.['circle-color']);
+    // Цвет — тот же, что у значка этого типа: вулкан на обзоре и вблизи один.
+    expect(color).toContain('"kind"');
+    expect(color).toContain(`"volcano","${PLACE_KIND_COLOR.volcano}"`);
+    expect(color).toContain(`"hot_spring","${PLACE_KIND_COLOR.hot_spring}"`);
+    expect(dots?.paint?.['circle-stroke-width']).toBeUndefined();
+    // Точка маленькая: на z4 не больше 3 px радиуса.
+    const r = dots?.paint?.['circle-radius'] as unknown[];
+    expect(r[3]).toBe(OVERVIEW_MIN_ZOOM);
+    expect(r[4] as number).toBeLessThanOrEqual(3);
+    // Точки под значками по порядку слоёв.
+    const ids = style.layers.map((l) => l.id);
+    expect(ids.indexOf('vedar-places-dots')).toBeLessThan(ids.indexOf('vedar-places'));
   });
 
   it('слой мест — symbol с иконкой, не голый кружок (владелец 07.09)', () => {

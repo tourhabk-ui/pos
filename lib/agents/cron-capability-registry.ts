@@ -97,7 +97,13 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'field-check-photo': ['db_read'],
   'field-check-queue': ['db_read'],
   'followups': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
-  'funnel-census': ['db_read', 'db_write', 'net_out'],
+  // 29.09: подсчёт переехал в lib/analytics/funnel-window (перепись и страница
+  // /hub/admin/traffic считают одним модулем). Роут теперь зовёт модуль, а
+  // судью воронки (growth-agent, откуда виден выход в сеть) — модуль: это на
+  // одну ступень дальше глубины обхода, и `net_out` из перечня ушёл не потому,
+  // что возможность пропала, а потому, что статика её больше не достаёт.
+  // Перепись по-прежнему только читает и в сеть сама не ходит.
+  'funnel-census': ['db_read', 'db_write'],
   'guide-readiness': ['db_read', 'pd_direct'],
   'health': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'money', 'pd_direct'],
   'hidden-tracks-census': ['db_read'],

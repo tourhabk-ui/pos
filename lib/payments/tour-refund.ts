@@ -124,3 +124,54 @@ export function computeTourRefund(input: TourRefundInput): TourRefund {
       : `Отмена позже чем за ${freeDays} ${daysWord(freeDays)} до тура — по условиям оператора возвращается ${lateRefundPercent}%.`,
   };
 }
+
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/** «7 октября» из YYYY-MM-DD, минус `days` календарных дней. */
+function dayMinus(tourDate: string, days: number): string {
+  const t = new Date(`${tourDate.slice(0, 10)}T00:00:00Z`);
+  t.setUTCDate(t.getUTCDate() - days);
+  return `${t.getUTCDate()} ${MONTHS_GEN[t.getUTCMonth()]}`;
+}
+
+/** Родительный падеж после «меньше»: меньше 1 дня, меньше 3 дней, меньше 21 дня. */
+function daysGen(n: number): string {
+  return n % 10 === 1 && n % 100 !== 11 ? 'дня' : 'дней';
+}
+
+function lateTail(percent: number): string {
+  return percent === 0 ? 'позже возврата нет' : `позже возвращается ${percent}%`;
+}
+
+/**
+ * Условия отмены одной строкой — для туриста ДО отправки заявки (27.09).
+ *
+ * Модуль бронирования отеля показывает условия отмены у каждого тарифа до
+ * брони; у нас они были только текстом в карточке, а в форме — нигде. Строка
+ * считается ТЕМ ЖЕ правилом, что и настоящий возврат (`computeTourRefund`):
+ * граница «не позднее чем за N дней» включительно, календарь Камчатки, пустые
+ * условия — полный возврат. Разойдись они — форма обещала бы одно, а при
+ * отмене вернулось бы другое.
+ *
+ * `tourDate` не выбрана — правило без даты. `now` — для тестов.
+ */
+export function cancellationTermsLine(
+  terms: TourRefundTerms,
+  tourDate: string | null,
+  now: Date = new Date(),
+): string {
+  const { freeDays, lateRefundPercent } = terms;
+  if (!validDays(freeDays) || !validPercent(lateRefundPercent)) {
+    return 'Условия отмены оператор не записал — при отмене вернём всю сумму.';
+  }
+  if (!tourDate) {
+    return `Бесплатная отмена не позднее чем за ${freeDays} ${daysWord(freeDays)} до тура, ${lateTail(lateRefundPercent)}.`;
+  }
+  const left = daysBeforeTour(tourDate, now);
+  if (left >= freeDays) {
+    return `Бесплатная отмена до ${dayMinus(tourDate, freeDays)} включительно, ${lateTail(lateRefundPercent)}.`;
+  }
+  return lateRefundPercent === 0
+    ? `До тура меньше ${freeDays} ${daysGen(freeDays)}: по условиям оператора при отмене возврата нет.`
+    : `До тура меньше ${freeDays} ${daysGen(freeDays)}: по условиям оператора при отмене возвращается ${lateRefundPercent}%.`;
+}

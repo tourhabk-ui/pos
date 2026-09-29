@@ -145,7 +145,8 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
     expect(verdictFrom(alive).insufficient).toBeNull();
     expect(verdictFrom(alive).verdict).toBeNull();
     // Перепись обязана печатать различие наружу, иначе оно живёт только в коде.
-    const CENSUS = readFileSync(join(ROOT, 'app/api/cron/funnel-census/route.ts'), 'utf-8');
+    // Различие печатает общий модуль подсчёта: перепись зовёт его, как и страница.
+    const CENSUS = readFileSync(join(ROOT, 'lib/analytics/funnel-window.ts'), 'utf-8');
     expect(CENSUS).toContain('insufficient_sample');
   });
 

@@ -184,7 +184,16 @@ export async function GET(req: NextRequest) {
       cancelled = rows.length;
     }
 
-    recordCronRun('payments', startedAt, 'success', { items: reminded + cancelled });
+    // Сухой прогон отметки НЕ ставит. `recordCronRun` пишет строку в
+    // `agent_run_history`, а по ней Watchdog судит, что крон жив. Сухой вызов
+    // (`?dry=1`) ничего не отправил и не отменил — значит, работы не было, и
+    // отметка «успех» погасила бы тревогу «прогон не отмечался N ч» о кроне,
+    // который на самом деле не запускался (29.09, замечено перед первым сухим
+    // прогоном на проде). Тот же класс подмены, что «сходил и работы не нашлось»
+    // против «не запускался» у Editor: третий исход выдан за первый (§4.0).
+    if (!dryRun) {
+      recordCronRun('payments', startedAt, 'success', { items: reminded + cancelled });
+    }
 
     return NextResponse.json({
       ok: true,

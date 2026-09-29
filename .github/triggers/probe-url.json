@@ -1,20 +1,20 @@
 {
-  "note": "29.09, прогон 623. ТОЛЬКО ЧТЕНИЕ. Партнёр «Камчатская рыбалка» дал доступ к своему сайту fishingkam.ru (Tilda), ставим туда чат Кузьмича и форму заявки Ведара. Вопросы к проду: какой slug у партнёра на самом деле (lead.js отвечает 200 только на живой slug с widget_enabled), открываются ли карточки его туров по /marketplace/tours/<id> (id из get_tours MCP), стоит ли сайт партнёра на Tilda (маркер tilda в HTML). Из контейнера разработки ни vedarai.ru, ни fishingkam.ru не открываются.",
-  "run": 623,
+  "note": "29.09, прогон 624. ТОЛЬКО ЧТЕНИЕ. TravelLine Partner API, тестовая среда: владелец положил TRAVELLINE_CLIENT_ID/SECRET в секреты GitHub и Timeweb. Нужно из документации: адрес получения токена (client_credentials → JWT), базовый адрес API тестовой среды, пути Content/Search/Reservation, тестовый объект. Сайт partner.qatl.ru из контейнера закрыт.",
+  "run": 624,
   "timeout": 40,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 600,
-  "grep": ["tilda", "Осенняя рыбалка", "Недельный рыболовный тур", "partner not found", "TourHub"],
+  "bytes": 300,
+  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
+  "grep": ["token", "client_credentials", "client_id", "Authorization", "Bearer", "/api/", "qatl", "tlintegration", "propert", "room-stays", "bookings", "7291"],
+  "around": ["client_credentials", "token", "https://partner", "/api/", "7291"],
+  "aroundLines": 6,
+  "aroundBefore": 2,
+  "aroundHits": 4,
   "urls": [
-    "https://vedarai.ru/api/widget/lead.js?partner=fishingkam",
-    "https://vedarai.ru/api/widget/lead.js?partner=kamchatskaya-rybalka",
-    "https://vedarai.ru/api/widget/lead.js?partner=rybalka-po-kamchatski",
-    "https://vedarai.ru/api/widget/partner/fishingkam",
-    "https://vedarai.ru/marketplace/tours/4",
-    "https://vedarai.ru/marketplace/tours/11",
-    "https://fishingkam.ru/",
-    "https://vedarai.ru/version.json"
+    "https://partner.qatl.ru/docs/booking-process/",
+    "https://partner.qatl.ru/docs/",
+    "https://www.travelline.ru/support/knowledge-base/kak-rabotat-s-zaprosami-k-api/"
   ]
 }
