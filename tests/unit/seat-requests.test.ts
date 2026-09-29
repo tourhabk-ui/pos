@@ -40,7 +40,7 @@ import {
 } from '@/lib/seat-requests/core';
 import {
   createSeatRequest, answerSeatRequest, recoverUnfinished, expireOverdue, notifyTourist, statusUrl, bindTouristChat, tourKeepsSchedule,
-  MAX_PENDING_PER_OPERATOR, MAX_TOURIST_NOTIFY_ATTEMPTS,
+  MAX_PENDING_PER_OPERATOR, MAX_PENDING_PER_OPERATOR_MCP, MAX_TOURIST_NOTIFY_ATTEMPTS,
 } from '@/lib/seat-requests/service';
 import { ReserveError } from '@/lib/bookings/reserve';
 
@@ -330,6 +330,19 @@ describe('создание запроса', () => {
       setDb([TOUR, { match: /AS op_pending/, rows: [caps] }]);
       expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'too_many' });
     }
+  });
+
+  // Проверка MCP 29.09: анонимный клиент за 40 минут занимал все 20 мест
+  // оператора. Через MCP — свой потолок; сайт его не чувствует.
+  it('через MCP — свой потолок у оператора, сайт его не чувствует', async () => {
+    reachMock.mockResolvedValue(reachOk);
+    pdAlertMock.mockResolvedValue({ channel: 'max', delivered: true, reason: 'ok' });
+    const full = { op_pending: MAX_PENDING_PER_OPERATOR_MCP, op_pending_mcp: MAX_PENDING_PER_OPERATOR_MCP, phone_pending: 0, phone_day: 0 };
+    setDb([TOUR, { match: /AS op_pending/, rows: [full] }]);
+    expect(await createSeatRequest({ ...input, source: 'mcp' })).toEqual({ ok: false, reason: 'too_many' });
+    setDb([TOUR, { match: /AS op_pending/, rows: [full] }, { match: /INSERT INTO tour_seat_requests/, rows: [{ id: RID }] }]);
+    expect(await createSeatRequest({ ...input, source: 'planner' })).toMatchObject({ ok: true });
+    expect(findCall(/AS op_pending_mcp/)![0]).toMatch(/source = 'mcp'/);
   });
 
   it('гонка двух одинаковых запросов: вставку выиграл один, второй получает duplicate', async () => {

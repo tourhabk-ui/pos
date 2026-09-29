@@ -55,6 +55,13 @@ import {
 
 /** Ждущих запросов у одного оператора. */
 export const MAX_PENDING_PER_OPERATOR = 20;
+/**
+ * Из них — пришедших через публичный MCP (анонимный вход). Проверка MCP 29.09:
+ * один неизменный клиент при лимите записи 5 за 10 минут за 40 минут занимал
+ * все 20 мест оператора на 2 часа, и туристы с сайта получали «слишком много
+ * запросов». Отдельный потолок оставляет сайту не меньше 15.
+ */
+export const MAX_PENDING_PER_OPERATOR_MCP = 5;
 /** Ждущих запросов с одного телефона (на разные туры). */
 export const MAX_PENDING_PER_PHONE = 3;
 /** Запросов с одного телефона за сутки. */
@@ -197,8 +204,10 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
       return { ok: false, reason: dup.status === 'confirmed' ? 'already_confirmed' : 'duplicate' };
     }
 
-    const { rows: [caps] } = await pool.query<{ op_pending: number; phone_pending: number; phone_day: number }>(
+    const { rows: [caps] } = await pool.query<{ op_pending: number; op_pending_mcp: number; phone_pending: number; phone_day: number }>(
       `SELECT COUNT(*) FILTER (WHERE status = 'pending' AND deadline_at > NOW() AND operator_id = $1)::int AS op_pending,
+              COUNT(*) FILTER (WHERE status = 'pending' AND deadline_at > NOW() AND operator_id = $1
+                                 AND source = 'mcp')::int AS op_pending_mcp,
               COUNT(*) FILTER (WHERE status = 'pending' AND deadline_at > NOW() AND tourist_phone = $2)::int AS phone_pending,
               COUNT(*) FILTER (WHERE tourist_phone = $2 AND created_at > NOW() - INTERVAL '24 hours')::int AS phone_day
          FROM tour_seat_requests
@@ -207,6 +216,7 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     );
     if (
       (caps?.op_pending ?? 0) >= MAX_PENDING_PER_OPERATOR
+      || (input.source === 'mcp' && (caps?.op_pending_mcp ?? 0) >= MAX_PENDING_PER_OPERATOR_MCP)
       || (caps?.phone_pending ?? 0) >= MAX_PENDING_PER_PHONE
       || (caps?.phone_day ?? 0) >= MAX_PER_PHONE_PER_DAY
     ) return { ok: false, reason: 'too_many' };
