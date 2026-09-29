@@ -109,6 +109,16 @@ describe('бренд-канон «Ведар» в публичных повер�
     expect(offenders).toEqual([]);
   });
 
+  // Описания MCP-инструментов индексируют каталоги (Smithery, Glama, реестр
+  // MCP) и читают чужие агенты: «из платформы TourHab» стояло в четырёх из
+  // четырнадцати (живая проба 29.09). Проверяется ровно то, что уходит наружу.
+  it('MCP: карточка сервера и описания инструментов — без старого бренда', async () => {
+    const { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } = await import('@/lib/mcp/public-tools');
+    const outward = JSON.stringify({ MCP_SERVER_INFO, PUBLIC_MCP_TOOLS });
+    expect(outward.length).toBeGreaterThan(5000);
+    expect(outward).not.toMatch(/TourHab|Tourhab|KamchatourHub|КамчатурХаб/);
+  });
+
   it('публичный JSON-LD не называет организацию старым брендом', () => {
     const offenders: string[] = [];
     for (const f of files) {
