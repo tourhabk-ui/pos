@@ -20,6 +20,7 @@ import {
   sightingAgeLabel,
 } from '@/lib/safety/bear-sightings';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
+import { normalizeVolcanoName } from '@/lib/services/safety/kvert-vona';
 import { volcanoMarks, kfegsIsFresh, type KfegsReading, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
@@ -120,10 +121,16 @@ export interface Quake { magnitude: number; place: string; time: number; depth: 
  */
 export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null; checkedAt: string | null }
 
-/** Один вулкан в «пульсе»: живая строка volcano_status, привязанная к месту. */
+/**
+ * Один вулкан в «пульсе»: живая строка volcano_status.
+ *
+ * `placeId` — `null`, когда вулкану не нашлось видимого места в каталоге.
+ * Раньше такие строки не входили в пульс вовсе (INNER JOIN), и оранжевый код
+ * пропадал с экрана безопасности из-за пробела в каталоге (см. запрос ниже).
+ */
 export interface VolcanoPulseItem {
   name: string;
-  placeId: string;
+  placeId: string | null;
   acc: string; // green|yellow|orange|red|unassigned
   ashHeightM: number | null;
   observedAt: string | null;
@@ -686,10 +693,25 @@ export interface SafetyLiveData {
 async function fetchVolcanoPulse(): Promise<VolcanoSnapshot> {
   try {
     const { rows } = await query<{
-      name: string; place_id: string; acc: string; ash: number | null;
+      name: string; place_id: string | null; acc: string; ash: number | null;
       observed_at: string | null; checked_at: string | null; summary: string | null;
     }>(
-      `SELECT p.name, p.id::text AS place_id, vs.aviation_color_code AS acc,
+      // ── LEFT JOIN, а не JOIN (29.09) ──────────────────────────────────────
+      //
+      // Сверка каналов: MCP `get_volcano_status` называл Чикурачки оранжевым
+      // (KVERT), а пульс на сайте — нет: «под наблюдением 18» против 20 у MCP
+      // и «повышенный код у 4» против пяти. Причина — внутреннее соединение с
+      // `places`: вулкан, которому не нашлось ВИДИМОГО места (Чикурачки — на
+      // Парамушире, в каталоге его нет), отбрасывался молча, и оранжевый код
+      // исчезал с экрана безопасности из-за пробела в каталоге, а не из-за
+      // спокойствия вулкана. Радар главной этим уже переболел (02.09) и
+      // объявил непривязанный код `degraded`; пульс тот урок пропустил.
+      //
+      // Теперь строка остаётся, а места у неё нет — `placeId: null`, имя из
+      // KVERT. Порядок — сперва по тяжести кода, а уже потом по свежести:
+      // при LIMIT свежий ЗЕЛЁНЫЙ не должен вытеснять оранжевый.
+      `SELECT COALESCE(p.name, vs.volcano_name) AS name, p.id::text AS place_id,
+              vs.aviation_color_code AS acc,
               vs.ash_height_m AS ash, vs.observed_at::text AS observed_at,
               -- Когда синк последний раз отметился по ЭТОЙ записи. Отдельно от
               -- observed_at: первое — время нашего опроса, второе — время
@@ -697,14 +719,18 @@ async function fetchVolcanoPulse(): Promise<VolcanoSnapshot> {
               vs.updated_at::text AS checked_at,
               LEFT(vs.summary, 300) AS summary
          FROM volcano_status vs
-         JOIN places p ON vs.place_ark_id = p.ark_id
-        WHERE p.is_visible = TRUE
-          AND vs.aviation_color_code <> 'unassigned'
-        ORDER BY vs.observed_at DESC NULLS LAST
+         LEFT JOIN places p ON vs.place_ark_id = p.ark_id AND p.is_visible = TRUE
+        WHERE vs.aviation_color_code <> 'unassigned'
+        ORDER BY CASE vs.aviation_color_code
+                   WHEN 'red' THEN 3 WHEN 'orange' THEN 2 WHEN 'yellow' THEN 1 ELSE 0 END DESC,
+                 vs.observed_at DESC NULLS LAST
         LIMIT 24`,
     );
     const items: VolcanoPulseItem[] = rows.map((r) => ({
-      name: r.name, placeId: r.place_id, acc: r.acc,
+      // KVERT присылает латиницей и капсом (CHIKURACHKI) — русское имя из общей
+      // таблицы алиасов; незнакомое остаётся как есть, «похожее» не подставляем.
+      name: r.place_id ? r.name : (normalizeVolcanoName(r.name)?.ru ?? r.name),
+      placeId: r.place_id, acc: r.acc,
       ashHeightM: r.ash, observedAt: r.observed_at, summary: r.summary,
     }));
     const updatedAt = rows.reduce<string | null>(

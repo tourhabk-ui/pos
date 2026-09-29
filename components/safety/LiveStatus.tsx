@@ -20,7 +20,7 @@ import {
   isVolcanoObservationStale, type AccColor,
 } from '@/lib/services/safety/kvert-vona';
 import { coastPaths } from '@/lib/geo/coastline';
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
@@ -627,12 +627,19 @@ export function SeismicPulse({ events, source }: { events: PulseQuake[]; source:
 }
 
 interface PulseVolcano {
-  name: string; placeId: string; acc: string;
+  name: string; placeId: string | null; acc: string;
   ashHeightM: number | null; observedAt: string | null; summary: string | null;
 }
 
 const ACC_BAR_H: Record<string, number> = { green: 28, yellow: 52, orange: 76, red: 100 };
 const ACC_ORDER: Record<string, number> = { green: 0, yellow: 1, orange: 2, red: 3 };
+
+/** Выбранный вулкан: ссылкой на место, если место есть, и просто плашкой, если нет. */
+function SelWrap({ placeId, children }: { placeId: string | null; children: ReactNode }) {
+  return placeId
+    ? <a className="psel" href={`/places/${placeId}`}>{children}</a>
+    : <div className="psel">{children}</div>;
+}
 
 function volcanoWord(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -715,20 +722,22 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
       </div>
       <div className="pbars">
         {bars.map((v, i) => (
-          <button key={v.placeId} className={`pbar${sel === i ? ' on' : ''}`}
+          <button key={v.placeId ?? v.name} className={`pbar${sel === i ? ' on' : ''}`}
             style={{ height: `${ACC_BAR_H[v.acc] ?? 16}%`, background: meta(v.acc).token }}
             aria-label={`${v.name}: ${meta(v.acc).short}`} onClick={() => setSel(sel === i ? null : i)} />
         ))}
       </div>
       <div className="paxis"><span>спокойнее</span><span>активнее →</span></div>
       {selected ? (
-        <a className="psel" href={`/places/${selected.placeId}`}>
+        // Места в каталоге может не быть — тогда карточка без ссылки: ссылка
+        // на `/places/null` вела бы на несуществующую страницу.
+        <SelWrap placeId={selected.placeId}>
           <span className="pmag" style={{ background: meta(selected.acc).token }}>{meta(selected.acc).short.slice(0, 1)}</span>
           <span className="ptx">
             <b>{selected.name}</b>
             <span>{meta(selected.acc).label}{selected.ashHeightM != null ? ` · пепел до ${(selected.ashHeightM / 1000).toFixed(1)} км` : ''} · {ageOf(selected)}</span>
           </span>
-        </a>
+        </SelWrap>
       ) : (
         <div className="psum">
           под наблюдением {items.length}
