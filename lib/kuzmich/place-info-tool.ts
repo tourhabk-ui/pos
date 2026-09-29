@@ -30,7 +30,7 @@ import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { gradeNameMatch } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
-import { descriptionVoice } from '@/lib/places/description-voice';
+import { describeForAgent } from '@/lib/places/description-voice';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 
 export interface PlaceRow {
@@ -54,13 +54,6 @@ function num(v: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function clipDescription(text: string): string {
-  const t = text.trim();
-  if (t.length <= PLACE_DESCRIPTION_MAX) return t;
-  const cut = t.slice(0, PLACE_DESCRIPTION_MAX);
-  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
-  return (end > PLACE_DESCRIPTION_MAX / 2 ? cut.slice(0, end + 1) : cut.trimEnd()) + ' …';
-}
 
 /** Строки фактов о месте — только то, что записано. */
 export function placeFactLines(p: PlaceRow): string[] {
@@ -113,20 +106,12 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
     const cat = primary.category ? ` [${primary.category}]` : '';
     const district = primary.district ? ` (${primary.district})` : '';
     const card = [`${primary.name}${cat}${district}`, ...placeFactLines(primary)];
-    if (primary.description?.trim()) {
-      // Голос описания (lib/places/description-voice): дневник — рассказ о
-      // поездке, которой не было, и его «вчера», «фумаролы работают» агент
-      // принял бы за наблюдение о сегодняшнем состоянии места. Не отдаём и
-      // говорим почему; ощущения отдаём, но подписанными.
-      const { voice } = descriptionVoice(primary.description);
-      if (voice === 'diary') {
-        card.push('Описание: не приводится — текст в базе написан как путевая заметка от первого лица и справкой не является; ориентируйтесь на факты выше.');
-      } else if (voice === 'impression') {
-        card.push(`Описание (впечатление, не наблюдение): ${clipDescription(primary.description)}`);
-      } else {
-        card.push(`Описание: ${clipDescription(primary.description)}`);
-      }
-    }
+    // Голос описания (lib/places/description-voice): дневник — рассказ о
+    // поездке, которой не было, и его «вчера», «фумаролы работают» агент
+    // принял бы за наблюдение о сегодняшнем состоянии места. Не отдаём и
+    // говорим почему; ощущения отдаём, но подписанными.
+    const descLine = describeForAgent(primary.description, PLACE_DESCRIPTION_MAX);
+    if (descLine) card.push(descLine);
     parts.push(card.join('\n'));
   }
   for (const n of own) parts.push(`Заметка Кузьмича «${n.title}»: ${n.compiled_truth}`);

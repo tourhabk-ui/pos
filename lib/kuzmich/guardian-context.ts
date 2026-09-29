@@ -5,6 +5,7 @@ import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
+import { describeForAgent } from '@/lib/places/description-voice';
 
 interface GuardianPlaceRow {
   name: string;
@@ -434,9 +435,10 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       parts.push('Профиль безопасности для этого места не оцифрован.');
     }
 
-    if (p.description) {
-      parts.push(p.description.slice(0, 300));
-    }
+    // Тот же фильтр голоса, что у get_place_info: путевая заметка не
+    // выдаётся за наблюдение о месте (аудит MCP 29.09).
+    const descLine = describeForAgent(p.description, 300);
+    if (descLine) parts.push(descLine);
   }
 
   for (const a of alertsRes.rows) {
