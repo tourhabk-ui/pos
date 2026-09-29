@@ -23,7 +23,9 @@ describe('buildTourContext: оператор — из partners', () => {
   });
 
   it('скрытые с витрины туры (837) не попадают и в каталог агентов', () => {
-    expect(CORE).toMatch(/COALESCE\(ot\.is_published, TRUE\) = TRUE/);
+    // С 29.09 — общий шлюз витрины (publicTourSql): NULL в is_published
+    // больше не считается опубликованным, как на сайте.
+    expect(CORE).toMatch(/WHERE \$\{publicTourSql\('ot'\)\}/);
   });
 });
 
@@ -44,7 +46,8 @@ describe('buildTourContext: обогащение не роняет катало�
 
 describe('перф-аудит 08.08, пп. 4-5: тонкий каталог и раздельные TTL', () => {
   it('get_tours отдаёт только каталог — без блоба мест и знаний', () => {
-    expect(CORE).toMatch(/const ctx = await buildTourCatalog\(\)/);
+    // loadTourCatalog — тот же каталог, но отличает отказ базы (null) от пустоты.
+    expect(CORE).toMatch(/const ctx = await loadTourCatalog\(\)/);
   });
 
   it('TTL раздельные: туры протухают быстрее обогащения', () => {
