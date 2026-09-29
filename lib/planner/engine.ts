@@ -443,13 +443,23 @@ interface SafetyAlertRow {
  * (/api/cron/safety-alert), а до него слой предупреждений был пуст и
  * выглядел работающим.
  */
+/** Сколько дней вперёд действует тревога без срока окончания. */
+export const UNDATED_ALERT_HORIZON_DAYS = 14;
+
 async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): Promise<SafetyAlert[]> {
   try {
     const params: string[] = [];
     let dateFilter = '';
     if (arrivalDate && departureDate) {
-      params.push(arrivalDate, departureDate);
-      dateFilter = `AND (active_until IS NULL OR active_until >= $1::date)
+      params.push(arrivalDate, departureDate, String(UNDATED_ALERT_HORIZON_DAYS));
+      // Без срока окончания тревога — снимок обстановки на день публикации,
+      // а не прогноз. «Проезд перекрыт» от 23.08 выводился в плане на июль
+      // 2027 (аудит MCP 29.09). Такая тревога идёт только в план поездки,
+      // начинающейся в ближайшие UNDATED_ALERT_HORIZON_DAYS дней; у датированной —
+      // её собственный срок, как прежде.
+      dateFilter = `AND (active_until >= $1::date
+                         OR (active_until IS NULL
+                             AND $1::date <= CURRENT_DATE + $3::int))
                     AND active_from <= $2::date`;
     }
     const { rows } = await pool.query<SafetyAlertRow>(
@@ -470,6 +480,23 @@ async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): 
     return [];
   }
 }
+
+/**
+ * Имя активности и уровень подготовки словами — для текста предупреждений.
+ * До 29.09 в них стоял ключ движка: «volcano: требуется уровень "active", у
+ * вас "moderate"» уходило туристу и агентам MCP как есть (аудит MCP 29.09).
+ * Словарь активностей один (ACTIVITY_NAMES), второй перевод разошёлся бы.
+ */
+function activityLabel(interest: string): string {
+  const name = ACTIVITY_NAMES[interest] ?? interest;
+  return name.charAt(0).toLocaleUpperCase('ru-RU') + name.slice(1);
+}
+
+const FITNESS_WORDS: Record<FitnessLevel, string> = {
+  beginner: 'начальная',
+  moderate: 'средняя',
+  active: 'хорошая',
+};
 
 // ─── Core engine ─────────────────────────────────────────────────────────────
 
@@ -681,7 +708,7 @@ function collectWarnings(
     if (!inSeason(interest, month, catalogueOpen)) {
       warnings.push({
         type: 'season', severity: 'critical',
-        message: `${interest}: недоступно в выбранный период. ${c.seasonNote ?? ''}`.trim(),
+        message: `${activityLabel(interest)}: недоступно в выбранный период. ${c.seasonNote ?? ''}`.trim(),
       });
     }
   }
@@ -695,7 +722,7 @@ function collectWarnings(
         const alt = c.childAlternative ? ` Альтернатива: ${c.childAlternative}` : '';
         warnings.push({
           type: 'children', severity: 'important',
-          message: `${interest}: минимальный возраст ${c.minChildAge} лет, ребёнку ${youngest}.${alt}`,
+          message: `${activityLabel(interest)}: минимальный возраст ${c.minChildAge} лет, ребёнку ${youngest}.${alt}`,
         });
       }
     }
@@ -709,7 +736,7 @@ function collectWarnings(
     if (levels.indexOf(c.fitnessRequired) > levels.indexOf(profile.fitnessLevel)) {
       warnings.push({
         type: 'fitness', severity: 'important',
-        message: `${interest}: требуется уровень "${c.fitnessRequired}", у вас "${profile.fitnessLevel}". ${c.safetyNotes?.[0] ?? ''}`.trim(),
+        message: `${activityLabel(interest)}: нужна ${FITNESS_WORDS[c.fitnessRequired]} подготовка, у вас указана ${FITNESS_WORDS[profile.fitnessLevel]}. ${c.safetyNotes?.[0] ?? ''}`.trim(),
       });
     }
   }

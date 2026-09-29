@@ -140,7 +140,7 @@ describe('matchPreset: ссылка на публичную страницу с 
 describe('formatTripPlanForChat', () => {
   it('план по дням с ценами, предупреждением и обеими ссылками', () => {
     const text = formatTripPlanForChat(
-      [day({}), day({ day: 2, title: 'Паратунка', activityType: 'thermal', priceFrom: 1500 })],
+      [day({ realPrice: 8500 }), day({ day: 2, title: 'Паратунка', activityType: 'thermal', priceFrom: 1500, realPrice: 1500 })],
       ['Сентябрь — штормовой сезон на воде.'],
       { slug: 'kamchatka-za-7-dney-vulkany', title: 'x' },
     );
@@ -150,6 +150,25 @@ describe('formatTripPlanForChat', () => {
     expect(text).toContain('Важно: Сентябрь');
     expect(text).toContain('/plans/kamchatka-za-7-dney-vulkany');
     expect(text).toContain('/planner');
+  });
+
+  it('цена — только у реального тура, ориентир движка ценой не называется (аудит MCP 29.09)', () => {
+    const text = formatTripPlanForChat(
+      [day({ title: 'вулканы — Авачинская зона', priceFrom: 5000 })],
+      [], null,
+    );
+    expect(text).not.toMatch(/5.000/);
+    expect(text).toContain('День 1. Вулканы — Авачинская зона');
+  });
+
+  it('разрыв в нумерации назван словами, а не пропущен молча', () => {
+    const text = formatTripPlanForChat(
+      [day({}), day({ day: 2 }), day({ day: 3 }), day({ day: 7, title: 'Вылет' })],
+      [], null,
+    );
+    expect(text).toMatch(/Дни 4–6\. Не заполнены/);
+    const one = formatTripPlanForChat([day({}), day({ day: 3 })], [], null);
+    expect(one).toMatch(/День 2\. Не заполнен:/);
   });
 
   it('пустой план — честный ответ со ссылкой на планировщик, не тишина', () => {
@@ -356,5 +375,22 @@ describe('инструмент подключён', () => {
 
   it('core зовёт обработчик', () => {
     expect(CORE).toMatch(/makeTripPlanForKuzmich/);
+  });
+});
+
+describe('план не выдаёт служебное и прошлое за факт (аудит MCP 29.09)', () => {
+  const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf-8');
+
+  it('в тексте предупреждений нет ключа движка и английских уровней', () => {
+    // «volcano: требуется уровень "active", у вас "moderate"» уходило туристу.
+    expect(ENGINE).not.toMatch(/message: `\$\{interest\}:/);
+    expect(ENGINE).not.toMatch(/требуется уровень "\$\{c\.fitnessRequired\}"/);
+    expect(ENGINE).toContain('activityLabel(interest)');
+  });
+
+  it('тревога без срока не растягивается на поездку через год', () => {
+    // Прежняя форма `active_until IS NULL OR ...` — «навсегда».
+    expect(ENGINE).not.toMatch(/active_until IS NULL OR active_until >= \$1/);
+    expect(ENGINE).toMatch(/active_until IS NULL\s+AND \$1::date <= CURRENT_DATE \+ \$3::int/);
   });
 });
