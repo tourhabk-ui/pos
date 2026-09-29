@@ -171,6 +171,10 @@ describe('ссылки на маршрут — в пространстве id к
     expect(code('components/places/PlaceRoutes.tsx')).toMatch(/href=\{`\/routes\/\$\{r\.slug \?\? r\.id\}`\}/);
   });
 
+  it('туры с карточки места — прямо на /catalog, без 308 через /marketplace', () => {
+    expect(code('components/places/PlaceTours.tsx')).toMatch(/href=\{`\/catalog\/tours\/\$\{t\.id\}`\}/);
+  });
+
   it('резолвер страницы по-прежнему ищет UUID в пространстве VIEW', () => {
     expect(code('app/routes/[id]/page.tsx')).toMatch(/FROM kamchatka_routes WHERE COALESCE\(ark_id, id\)::text = \$1/);
   });
