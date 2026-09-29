@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
-import { REPLY_CHANNELS } from '@/lib/seat-requests/core';
+import { REPLY_CHANNELS, SEAT_REQUEST_FAILURE } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, touristBotLinks } from '@/lib/seat-requests/service';
 
 export const dynamic = 'force-dynamic';
@@ -32,19 +32,6 @@ const Schema = z.object({
   // атрибуции, а не отказ туристу (решает reserveBooking).
   referral_code: z.string().trim().max(32).optional(),
 });
-
-const REASON_TEXT: Record<string, { status: number; error: string }> = {
-  date_past:            { status: 422, error: 'Выбранная дата уже прошла.' },
-  bad_date:             { status: 400, error: 'Такой даты нет в календаре. Проверьте дату.' },
-  bad_phone:            { status: 400, error: 'Проверьте телефон: нужно от 10 цифр, например +7 900 000-00-00.' },
-  duplicate:            { status: 409, error: 'Запрос на эту дату уже отправлен оператору — дождитесь ответа.' },
-  already_confirmed:    { status: 409, error: 'На эту дату у вас уже есть подтверждённая бронь этого тура.' },
-  too_many:             { status: 429, error: 'Слишком много запросов. Попробуйте позже или оставьте заявку — менеджер свяжется с оператором.' },
-  tour_not_found:       { status: 404, error: 'Тур не найден или больше не доступен.' },
-  operator_unreachable: { status: 409, error: 'Этот оператор пока не принимает запросы мест в мессенджере. Оставьте заявку — менеджер свяжется с оператором.' },
-  delivery_failed:      { status: 502, error: 'Не удалось доставить запрос оператору. Оставьте заявку — менеджер свяжется с ним.' },
-  check_failed:         { status: 503, error: 'Не удалось отправить запрос, попробуйте через минуту.' },
-};
 
 export async function POST(req: NextRequest) {
   const ip = getTrustedClientIp(req.headers);
@@ -81,7 +68,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (!result.ok) {
-    const r = REASON_TEXT[result.reason] ?? REASON_TEXT.check_failed!;
+    const r = SEAT_REQUEST_FAILURE[result.reason] ?? SEAT_REQUEST_FAILURE.check_failed!;
     return NextResponse.json({ success: false, error: r.error, reason: result.reason }, { status: r.status });
   }
 

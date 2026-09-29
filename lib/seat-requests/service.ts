@@ -115,6 +115,29 @@ export type CreateSeatRequestResult =
   | { ok: true; requestId: string; statusToken: string; deadlineAt: Date; operatorDelivery: 'max' | 'telegram-stub' }
   | { ok: false; reason: CreateSeatRequestFailure };
 
+/**
+ * Ведёт ли тур расписание: есть ли хоть одна будущая (по Камчатке) неотменённая
+ * дата в `tour_availability`. Три исхода (§4.0): true / false / null — «не
+ * смог проверить». Отличает «мест нет» (расписание есть, места разобраны) от
+ * «расписания нет» (оператор берёт туристов без календаря): во втором случае
+ * честный ответ — спросить оператора, а не отказать.
+ */
+export async function tourKeepsSchedule(tourId: number): Promise<boolean | null> {
+  try {
+    const { rows } = await pool.query<{ has: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM tour_availability
+          WHERE operator_tour_id = $1
+            AND date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+            AND is_cancelled = FALSE
+            AND deleted_at IS NULL
+       ) AS has`,
+      [tourId],
+    );
+    return rows[0]?.has === true;
+  } catch (err) { logFail('расписание тура не прочитано', err); return null; }
+}
+
 export async function createSeatRequest(input: CreateSeatRequestInput): Promise<CreateSeatRequestResult> {
   // Несуществующая дата (2099-02-31) — не «прошедшая»: это разные слова.
   if (!isRealDate(input.date)) return { ok: false, reason: 'bad_date' };

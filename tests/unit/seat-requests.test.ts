@@ -39,7 +39,7 @@ import {
   isFutureOrToday, isRealDate, kamchatkaToday, touristOutcomeText, operatorReplyText,
 } from '@/lib/seat-requests/core';
 import {
-  createSeatRequest, answerSeatRequest, recoverUnfinished, expireOverdue, notifyTourist, statusUrl, bindTouristChat,
+  createSeatRequest, answerSeatRequest, recoverUnfinished, expireOverdue, notifyTourist, statusUrl, bindTouristChat, tourKeepsSchedule,
   MAX_PENDING_PER_OPERATOR, MAX_TOURIST_NOTIFY_ATTEMPTS,
 } from '@/lib/seat-requests/service';
 import { ReserveError } from '@/lib/bookings/reserve';
@@ -242,6 +242,20 @@ describe('создание запроса', () => {
   };
   const TOUR = { match: /FROM operator_tours\s+WHERE id/, rows: [{ operator_id: 'op', title: 'Тур' }] };
   const reachOk = { reachable: true, maxChatId: '1', telegramChatId: '2' };
+
+  it('расписание тура: есть будущая неотменённая дата / нет / не смогли проверить — три разных исхода', async () => {
+    setDb([{ match: /FROM tour_availability/, rows: [{ has: true }] }]);
+    expect(await tourKeepsSchedule(7)).toBe(true);
+    const q = findCall(/FROM tour_availability/)!;
+    expect(q[0]).toMatch(/date >= \(NOW\(\) AT TIME ZONE 'Asia\/Kamchatka'\)::date/);
+    expect(q[0]).toMatch(/is_cancelled = FALSE/);
+    expect(q[0]).toMatch(/deleted_at IS NULL/);
+    expect(q[1]).toEqual([7]);
+    setDb([{ match: /FROM tour_availability/, rows: [{ has: false }] }]);
+    expect(await tourKeepsSchedule(7)).toBe(false);
+    setDb([{ match: /FROM tour_availability/, error: { code: '57P01' } }]);
+    expect(await tourKeepsSchedule(7)).toBeNull();
+  });
 
   it('прошлая дата и мусорный телефон отсекаются до базы', async () => {
     expect(await createSeatRequest({ ...input, date: '2000-01-01' })).toEqual({ ok: false, reason: 'date_past' });

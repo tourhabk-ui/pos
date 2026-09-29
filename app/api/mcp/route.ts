@@ -14,9 +14,13 @@
  * требует личности пользователя, здесь нет by construction — у Кузьмича
  * такие поверхности живут вне tool-реестра.
  *
- * Единственная запись — create_lead (заявка на подбор тура): не бронь и не
- * оплата, идёт в общий createLead() со скорингом и дедупом. Бронирование
- * анонимному внешнему агенту не отдаём сознательно.
+ * Записи две: create_lead (заявка на подбор тура) и create_booking_request
+ * (заявка на бронь тура на дату): не бронь и не оплата, идут в общий
+ * createLead() со скорингом и дедупом. Бронирование анонимному внешнему
+ * агенту не отдаём сознательно. Единственное исключение по форме — тур без
+ * расписания: вместо ложного «нет мест» уходит запрос мест оператору
+ * (lib/seat-requests). Бронь и там заводит не агент, а оператор своим
+ * нажатием «Есть места» в мессенджере.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -33,6 +37,8 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
+import { SEAT_REQUEST_FAILURE } from '@/lib/seat-requests/core';
+import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
 // теми же функциями, какими их находят сами инструменты.
@@ -137,6 +143,42 @@ const bookingRequestArgsSchema = z.object({
   consent: z.boolean({ error: MISSING_CONSENT_FIELD }),
 });
 
+/**
+ * Тур без расписания: вместо заявки менеджеру — запрос мест оператору в его
+ * мессенджер (ответ одним нажатием, срок 2 часа). Согласие на ПД — тот же
+ * допуск `admitWrite`, что у обеих заявок. Ответ агенту говорит, что запрос
+ * ушёл и что это не бронь: бронь заводится только если оператор ответит
+ * «Есть места», и ссылка на страницу статуса — единственное, что нужно
+ * передать человеку.
+ */
+async function requestSeatsFromOperator(a: {
+  ctx: McpCallContext; tourId: number; tourTitle: string; date: string; participants: number;
+  name: string; phone: string; hasComment: boolean; consent: boolean | undefined;
+}): Promise<string> {
+  const pd_consent = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent);
+  if (!pd_consent) throw new Error('Согласие на обработку персональных данных не получено — запрос не отправлен.');
+  const result = await createSeatRequest({
+    tourId: a.tourId,
+    date: a.date,
+    participants: a.participants,
+    touristName: a.name,
+    touristPhone: a.phone,
+    replyChannel: 'phone',
+    pdConsent: pd_consent,
+    source: 'mcp',
+  });
+  if (!result.ok) {
+    const failure = SEAT_REQUEST_FAILURE[result.reason] ?? SEAT_REQUEST_FAILURE.check_failed!;
+    return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
+  }
+  const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
+  return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
+    + `Это НЕ бронь и не оплата: если оператор ответит «Есть места», бронь заведётся и подтвердится, а ссылка на оплату появится на странице статуса. `
+    + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
+    + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
+    + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.';
+}
+
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
@@ -177,6 +219,16 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const slots = await fetchAvailabilityForTour(String(tour.id), date, date, cache);
   const remaining = slots[0]?.remaining ?? 0;
   if (remaining < participants) {
+    // Расписание есть, а мест на дату нет — честный отказ ниже. Расписания
+    // нет вовсе (оператор берёт туристов без календаря) — «нет мест» было бы
+    // ложью, и вместо отказа уходит запрос оператору.
+    const keepsSchedule = await tourKeepsSchedule(Number(tour.id));
+    if (keepsSchedule === null) {
+      throw new Error('Не удалось проверить расписание тура — заявка не создана, попробуйте позже.');
+    }
+    if (!keepsSchedule) {
+      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent });
+    }
     // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
     const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
     const nearest = (await fetchAvailabilityForTour(String(tour.id), today, horizon, cache))

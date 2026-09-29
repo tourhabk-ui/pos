@@ -53,7 +53,7 @@ export const CREATE_LEAD_TOOL = {
  */
 export const BOOKING_REQUEST_TOOL = {
   name: 'create_booking_request',
-  description: 'Заявка на бронь конкретного тура на дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — это не мгновенная бронь и не оплата. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.',
+  description: 'Заявка на бронь конкретного тура на дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — это не мгновенная бронь и не оплата. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; это не бронь. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -151,7 +151,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no specific tour or date is chosen yet; human-confirmed by a manager; not a booking, no payment.' },
-  create_booking_request: { title: 'Booking request',      lead: 'Booking request for a specific Kamchatka tour on a date; live availability is checked first, human-confirmed by the operator; no payment. No tour chosen yet — use create_lead.' },
+  create_booking_request: { title: 'Booking request',      lead: 'Booking request for a specific Kamchatka tour on a date; live availability checked first, human-confirmed by the operator; no payment. No tour chosen yet — use create_lead. No schedule: asks operator.' },
 };
 
 /**
