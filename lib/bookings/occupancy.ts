@@ -87,3 +87,21 @@ export function occupiedOnDaySql(opts: {
              AND ${b}.deleted_at IS NULL
              AND ${bookingCoversDaySql(b, day)}`;
 }
+
+/**
+ * Свободные места на дату — выражение поверх `occupiedOnDaySql`.
+ *
+ * Вместимость — меньшее из слотов даты и `max_participants` тура; занятое
+ * вычитается, ниже нуля не уходит. Это то самое выражение, по которому
+ * календарь карточки тура (`/api/tours/[id]/slots`) решает, есть ли дата, —
+ * каталог для агентов (`get_tours`) обязан отвечать по нему же, а не по
+ * счётчику `booked_slots`, который растёт только при оплате и не видит
+ * созданные-но-неоплаченные брони.
+ *
+ * @param slot  алиас `tour_availability`
+ * @param tour  алиас `operator_tours`
+ * @param taken выражение занятого (колонка `taken` подзапроса `occupiedOnDaySql`)
+ */
+export function freeSlotsSql(slot: string, tour: string, taken: string): string {
+  return `GREATEST(0, LEAST(${slot}.available_slots, COALESCE(${tour}.max_participants, ${slot}.available_slots)) - ${taken})`;
+}

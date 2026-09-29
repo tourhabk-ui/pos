@@ -191,7 +191,13 @@ export interface SafetyFacts {
   max_severity: number | null;
   top_alert: { text: string | null; source: string | null; kind: string | null } | null;
   updated_at: string | null;
-  /** Заголовки списком, как лента `/safety`. У MCP-инструмента списка нет — null. */
+  /**
+   * Сколько из активных меняют решение туриста (типы ленты сайта). У сайта
+   * это число ограничено потолком выборки (`HOME_ALERTS_LIMIT`), у MCP — полное.
+   * null — сторона его не называет.
+   */
+  feed_count: number | null;
+  /** Заголовки списком, как лента `/safety`. null — сторона списка не отдаёт. */
   feed_titles: string[] | null;
 }
 
@@ -203,6 +209,19 @@ export function parseSafetyText(text: string): SafetyFacts | null {
   const top = /^Наиболее значимое:\s*(.*?)(?:\s+\(([a-z_]+)\))?\.\s*$/m.exec(text);
   const src = /^Источник этого предупреждения:\s*(.*?)\.\s*$/m.exec(text);
   const upd = /^Данные обновлены:\s*(.*?)\.\s*$/m.exec(text);
+  const feed = /^Из них меняют решение туриста сегодня[^:]*:\s*(\d+)\.\s*$/m.exec(text);
+  // Список — строки «- заголовок» после «Лента предупреждений»; кончается на
+  // первой строке, не начинающейся с «- » (в т.ч. «…и ещё N.»).
+  let titles: string[] | null = null;
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => l.startsWith('Лента предупреждений'));
+  if (at >= 0) {
+    titles = [];
+    for (const l of lines.slice(at + 1)) {
+      if (!l.startsWith('- ')) break;
+      titles.push(l.slice(2).trim());
+    }
+  }
   return {
     alert_count: count ? Number(count[1]) : 0,
     max_severity: count ? Number(count[2]) : 0,
@@ -210,7 +229,8 @@ export function parseSafetyText(text: string): SafetyFacts | null {
       ? { text: top ? top[1] : null, source: src ? src[1] : null, kind: top && top[2] ? top[2] : null }
       : null,
     updated_at: upd ? upd[1] : null,
-    feed_titles: null,
+    feed_count: feed ? Number(feed[1]) : null,
+    feed_titles: titles,
   };
 }
 
@@ -251,7 +271,11 @@ export function colorFromWord(w: string): string | null {
 /** «событий 255» → 255; иначе null. Считает только явное число, не выводит. */
 export function eventsFromGist(s: string | null | undefined): number | null {
   if (!s) return null;
-  const m = /событий\s+(\d+)/i.exec(s);
+  // Настоящая фраза сводки — «Количество событий в районе вулкана 255»: число
+  // стоит не сразу за словом, а через пояснение. Первая редакция искала
+  // «событий 255» и на проде 29.09 не нашла ни одного (события были у всех
+  // вулканов на обеих сторонах пусты).
+  const m = /событий[^\d.;]{0,60}?(\d+)/i.exec(s);
   return m ? Number(m[1]) : null;
 }
 

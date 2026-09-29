@@ -13,6 +13,7 @@
 import type { MarketplaceTourRow } from '@/lib/search/tour-search';
 import type { SafetyLiveData } from '@/app/_home/data';
 import { catalogAvailability, tourDays } from '@/lib/tours/catalog-availability';
+import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { volcanoStem } from '@/lib/services/safety/volcano-match';
 import {
   TOUR_FIELDS, VOLCANO_FIELDS, contractParams, diffFields, emptyTour, emptyVolcano,
@@ -171,7 +172,7 @@ export async function collectChannelParity(deps: ParityDeps): Promise<ParityRepo
     'MCP отдаёт день наблюдения KVERT без времени, поэтому kvert_observed_at сравнивается по суткам Камчатки.',
     'На сайте КФ ЕГС виден только у вулканов, повышенных хотя бы по одной шкале (радар): у спокойного вулкана egs_* на стороне ui пусты по устройству экрана.',
     'Каталог get_tours кэшируется в процессе на 3 минуты: мест и ближайших дат MCP может отставать от сайта на этот срок.',
-    'У safety_status нет списка предупреждений — feed_titles на стороне mcp всегда null; сверяется счётчик и верхнее предупреждение.',
+    'Сайт не показывает общего числа активных предупреждений и их наибольшей тяжести (только ленту решающих типов с потолком HOME_ALERTS_LIMIT), поэтому alert_count и max_severity на стороне ui = null; сверяются feed_count (на потолке — «столько или больше»), заголовки ленты и верхнее предупреждение.',
   ];
 
   // Контракт: из тех же данных, которые отдаёт tools/list.
@@ -282,10 +283,14 @@ export async function collectChannelParity(deps: ParityDeps): Promise<ParityRepo
     } else {
       const top = live.safety.alerts[0] ?? null;
       safetyUi = {
-        alert_count: live.safety.activeCount,
-        max_severity: live.safety.maxSeverity,
+        // Общего числа активных сайт не показывает: он рисует ленту решающих
+        // типов с потолком выборки. Называть длину ленты «числом активных»
+        // значило бы выдать потолок за счёт — поэтому null, а не alerts.length.
+        alert_count: null,
+        max_severity: null,
         top_alert: top ? { text: top.title, source: null, kind: top.type } : null,
         updated_at: live.safety.updatedAt,
+        feed_count: live.safety.activeCount,
         feed_titles: live.safety.alerts.map((a) => a.title),
       };
     }
@@ -298,6 +303,28 @@ export async function collectChannelParity(deps: ParityDeps): Promise<ParityRepo
     const d = diffFields('safety', ['alert_count', 'max_severity', 'top_alert_text', 'top_alert_kind', 'top_alert_source', 'updated_at'], flat(safetyMcp), flat(safetyUi));
     diffs.push(...d.diffs);
     notCompared.push(...d.not_compared);
+
+    // Лента: сайт берёт не больше HOME_ALERTS_LIMIT, и число на потолке значит
+    // «столько или больше». Расхождение — только когда MCP насчитал МЕНЬШЕ, чем
+    // сайт показывает; полное число выше потолка расхождением не является.
+    const uiFeed = safetyUi.feed_count;
+    const mcpFeed = safetyMcp.feed_count;
+    if (uiFeed === null || mcpFeed === null) {
+      notCompared.push({ scope: 'safety', field: 'feed_count', silent: [...(mcpFeed === null ? ['mcp' as const] : []), ...(uiFeed === null ? ['ui' as const] : [])] });
+    } else {
+      const capped = uiFeed >= HOME_ALERTS_LIMIT;
+      if (capped ? mcpFeed < uiFeed : mcpFeed !== uiFeed) {
+        diffs.push({ scope: 'safety', field: 'feed_count', mcp: mcpFeed, ui: capped ? `${uiFeed} и больше` : uiFeed });
+      }
+    }
+    // Заголовки: первые N у MCP — те же, что на сайте, в том же порядке.
+    const uiTitles = safetyUi.feed_titles;
+    const mcpTitles = safetyMcp.feed_titles;
+    if (uiTitles === null || mcpTitles === null) {
+      notCompared.push({ scope: 'safety', field: 'feed_titles', silent: [...(mcpTitles === null ? ['mcp' as const] : []), ...(uiTitles === null ? ['ui' as const] : [])] });
+    } else if (JSON.stringify(mcpTitles.slice(0, uiTitles.length)) !== JSON.stringify(uiTitles)) {
+      diffs.push({ scope: 'safety', field: 'feed_titles', mcp: mcpTitles.slice(0, uiTitles.length), ui: uiTitles });
+    }
   }
 
   // ── Вулканы ──

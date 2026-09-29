@@ -22,6 +22,7 @@
 import { query } from '@/lib/database';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { RESOLUTION_SQL_PATTERN } from '@/lib/safety/resolution-notice';
+import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 
 export interface CurrentSafetyStatus {
   hasAlert: boolean;
@@ -37,7 +38,20 @@ export interface CurrentSafetyStatus {
    * показывает плитка главной и пакет офлайн-карты.
    */
   source: string;
+  /**
+   * Сколько из активных предупреждений меняют решение туриста сегодня — те же
+   * типы, что показывает лента сайта (`FEED_ALERT_TYPES`), одна тема — одна
+   * строка. `null` — не смогли посчитать (это не «ноль»): активные считаются
+   * ВСЕ типы, лента сайта — только эти, и без разбивки «14 против 5» читалось
+   * как расхождение двух каналов (сверка 29.09).
+   */
+  feedCount: number | null;
+  /** Заголовки этих предупреждений в порядке ленты сайта; `null` — не смогли прочитать. */
+  feedTitles: string[] | null;
 }
+
+/** Сколько заголовков лент MCP называет: столько же, сколько видно на сайте, с запасом. */
+export const AGENT_FEED_TITLES_LIMIT = 8;
 
 /** Перечень лент одной строкой — для ответа без верхней тревоги. */
 export const SAFETY_FEEDS_TEXT = SAFETY_FEEDS.join('; ');
@@ -76,6 +90,28 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       `),
     ]);
 
+    // Лента — отдельным запросом со своим отказом: не смогли её прочитать —
+    // общее число всё равно верно, и обнулять ответ целиком незачем. Условие и
+    // порядок те же, что у ленты сайта (app/_home/data.ts, fetchSafety).
+    let feedCount: number | null = null;
+    let feedTitles: string[] | null = null;
+    try {
+      const feed = await query<{ title: string }>(`
+        SELECT title FROM (
+          SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at
+            FROM external_alerts
+           WHERE expires_at > NOW()
+             AND alert_type = ANY($1::text[])
+           ORDER BY lower(title), severity DESC, created_at DESC
+        ) t
+        ORDER BY severity DESC, created_at DESC
+      `, [[...FEED_ALERT_TYPES]]);
+      feedCount = feed.rows.length;
+      feedTitles = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => r.title);
+    } catch (err) {
+      console.error('[current-status] лента предупреждений не прочитана:', err instanceof Error ? err.message : err);
+    }
+
     const agg = aggResult.rows[0];
     const top = topResult.rows[0] ?? null;
     const activeCount = parseInt(agg?.active_count ?? '0');
@@ -90,6 +126,8 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       source: top
         ? (alertOrigin(top.external_id, top.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT)
         : SAFETY_FEEDS_TEXT,
+      feedCount,
+      feedTitles,
     };
   } catch {
     return null;
@@ -111,6 +149,12 @@ export function formatSafetyStatusForAgent(status: CurrentSafetyStatus | null): 
       ? `Активных предупреждений по Камчатскому краю: ${status.activeCount} (максимальная тяжесть ${status.maxSeverity} из 5).`
       : 'Активных предупреждений по Камчатскому краю нет.',
   );
+  // Разбивка: общее число включает и то, что решения туриста не меняет.
+  // Без неё внешний агент читал «14» как «14 опасностей» и расходился с
+  // лентой сайта, где их пять (сверка каналов 29.09).
+  if (status.feedCount !== null) {
+    lines.push(`Из них меняют решение туриста сегодня (закрытия, вулканы, стихии, погода, медведи): ${status.feedCount}.`);
+  }
   if (status.topTitle) {
     lines.push(`Наиболее значимое: ${status.topTitle}${status.topType ? ` (${status.topType})` : ''}.`);
     // Источник — у верхней тревоги, а не у ответа: разные тревоги приходят
@@ -118,6 +162,13 @@ export function formatSafetyStatusForAgent(status: CurrentSafetyStatus | null): 
     lines.push(`Источник этого предупреждения: ${status.source}.`);
   } else {
     lines.push(`Ленты, по которым собирается обстановка: ${status.source}.`);
+  }
+  if (status.feedTitles && status.feedTitles.length > 0) {
+    lines.push('Лента предупреждений (как на сайте):');
+    for (const t of status.feedTitles) lines.push(`- ${t}`);
+    if (status.feedCount !== null && status.feedCount > status.feedTitles.length) {
+      lines.push(`…и ещё ${status.feedCount - status.feedTitles.length}.`);
+    }
   }
   if (status.dataUpdatedAt) {
     lines.push(`Данные обновлены: ${status.dataUpdatedAt}.`);

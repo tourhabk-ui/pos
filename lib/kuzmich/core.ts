@@ -9,6 +9,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { reachForTour } from '@/lib/partners/reach';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
@@ -440,12 +441,22 @@ export async function buildTourCatalog(): Promise<string> {
         LEFT JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN LATERAL (
           SELECT ta.date AS next_date,
-                 (ta.available_slots - COALESCE(ta.booked_slots, 0)) AS free_slots
+                 ${freeSlotsSql('ta', 'ot', 'occ.taken')} AS free_slots
             FROM tour_availability ta
+           -- Занятость — общее правило платформы (lib/bookings/occupancy), а не
+           -- счётчик booked_slots: тот растёт только при оплате и не видит
+           -- созданные-но-неоплаченные брони, тогда как календарь тура на сайте
+           -- их считает (снимок «MCP против сайта» 29.09). Расхождение было
+           -- скрыто тем, что оплаченных броней на проде ещё не было.
+           CROSS JOIN LATERAL (
+             ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
+           ) occ
            WHERE ta.operator_tour_id = ot.id
              AND ta.date >= CURRENT_DATE
              AND COALESCE(ta.is_cancelled, false) = false
-             AND (ta.available_slots - COALESCE(ta.booked_slots, 0)) > 0
+             AND ta.deleted_at IS NULL
+             AND ta.date <= CURRENT_DATE + INTERVAL '1 year'
+             AND ${freeSlotsSql('ta', 'ot', 'occ.taken')} > 0
            ORDER BY ta.date
            LIMIT 1
         ) live ON true

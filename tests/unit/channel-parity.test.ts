@@ -27,7 +27,7 @@ import { formatSafetyStatusForAgent } from '@/lib/safety/current-status';
 import { composeVolcanoReport, type VolcanoInput } from '@/lib/kuzmich/volcano-tool';
 import {
   parseToursText, parseAvailabilityText, parseSafetyText, parseVolcanoText,
-  parseVolcanoAggregates, parseRuDayMonth, diffFields, contractParams,
+  parseVolcanoAggregates, parseRuDayMonth, diffFields, contractParams, eventsFromGist,
 } from '@/lib/quality/channel-parity';
 import {
   collectChannelParity, sameVolcano, PARITY_TOUR_IDS, PARITY_VOLCANOES, type ParityDeps,
@@ -124,17 +124,34 @@ describe('get_tour_availability → даты', () => {
 });
 
 describe('safety_status → поля', () => {
-  const base = { hasAlert: true, maxSeverity: 3, activeCount: 14, topTitle: 'Циклон (штормовое предупреждение)', topType: 'weather', dataUpdatedAt: '2026-09-29 10:00:00+03', source: 'ГУ МЧС Камчатки' };
+  const base = {
+    hasAlert: true, maxSeverity: 3, activeCount: 14, topTitle: 'Циклон (штормовое предупреждение)', topType: 'weather',
+    dataUpdatedAt: '2026-09-29 10:00:00+03', source: 'ГУ МЧС Камчатки',
+    feedCount: 12, feedTitles: ['Циклон (штормовое предупреждение)', 'Подъем уровней воды на реках'],
+  };
 
   it('счётчик, верхнее предупреждение, тип, источник, время', () => {
     const f = parseSafetyText(formatSafetyStatusForAgent(base));
-    expect(f).toMatchObject({ alert_count: 14, max_severity: 3, updated_at: '2026-09-29 10:00:00+03', feed_titles: null });
+    expect(f).toMatchObject({ alert_count: 14, max_severity: 3, updated_at: '2026-09-29 10:00:00+03' });
     expect(f?.top_alert).toEqual({ text: 'Циклон (штормовое предупреждение)', source: 'ГУ МЧС Камчатки', kind: 'weather' });
   });
 
+  it('разбивка: сколько из активных решающие и какие именно — списком', () => {
+    const f = parseSafetyText(formatSafetyStatusForAgent(base));
+    expect(f?.feed_count).toBe(12);
+    expect(f?.feed_titles).toEqual(['Циклон (штормовое предупреждение)', 'Подъем уровней воды на реках']);
+  });
+
+  it('ленту прочитать не смогли — feed_* null, а не ноль и не пустой список', () => {
+    const f = parseSafetyText(formatSafetyStatusForAgent({ ...base, feedCount: null, feedTitles: null }));
+    expect(f?.feed_count).toBeNull();
+    expect(f?.feed_titles).toBeNull();
+    expect(f?.alert_count).toBe(14);
+  });
+
   it('тревог нет — ноль и ноль, верхнего нет', () => {
-    const f = parseSafetyText(formatSafetyStatusForAgent({ ...base, hasAlert: false, activeCount: 0, maxSeverity: 0, topTitle: null, topType: null }));
-    expect(f).toMatchObject({ alert_count: 0, max_severity: 0 });
+    const f = parseSafetyText(formatSafetyStatusForAgent({ ...base, hasAlert: false, activeCount: 0, maxSeverity: 0, topTitle: null, topType: null, feedCount: 0, feedTitles: [] }));
+    expect(f).toMatchObject({ alert_count: 0, max_severity: 0, feed_count: 0 });
     expect(f?.top_alert?.text ?? null).toBeNull();
   });
 
@@ -171,6 +188,19 @@ describe('get_volcano_status → поля', () => {
     expect(kl).toMatchObject({ kvert_color: 'orange', ash_km: 6, egs_color: 'orange', egs_events: null });
     const ch = parseVolcanoText(composeVolcanoReport(INPUT, 'Чикурачки', NOW));
     expect(ch).toMatchObject({ name_ru: 'Чикурачки', kvert_color: 'orange', egs_color: null, egs_events: null, egs_bulletin_date: null });
+  });
+
+  it('события КФ ЕГС — по настоящей фразе сводки «Количество событий в районе вулкана 255»', () => {
+    // 29.09 первая редакция искала «событий 255» и на проде не нашла ни одного.
+    expect(eventsFromGist('Выше фона. Количество событий в районе вулкана 255')).toBe(255);
+    expect(eventsFromGist('Сейсмичность выше фона, событий 255')).toBe(255);
+    expect(eventsFromGist('Фоновая сейсмичность')).toBeNull();
+    expect(eventsFromGist(null)).toBeNull();
+    const real: VolcanoInput = {
+      ...INPUT,
+      kfegs: [{ ...INPUT.kfegs![0], seismicity: 'R=3.2; Ks пред.=4.0 Выше фона. Количество событий в районе вулкана 255.' }, INPUT.kfegs![1]],
+    };
+    expect(parseVolcanoText(composeVolcanoReport(real, 'Мутновский', NOW))?.egs_events).toBe(255);
   });
 
   it('вулкана нет ни в одной сводке — null', () => {
@@ -221,10 +251,12 @@ function uiRow(id: number, over: Partial<MarketplaceTourRow> = {}): MarketplaceT
   };
 }
 
+const FEED = ['Штормовое предупреждение', 'Подъем воды', 'Закрытие дороги', 'Сход селя', 'Оползень'];
+
 const LIVE: SafetyLiveData = {
   safety: {
     activeCount: 5, maxSeverity: 1, updatedAt: '2026-09-29 10:00:00+03', volcanoes: [],
-    alerts: [{ title: 'Штормовое предупреждение', description: null, type: 'weather', severity: 1, at: '2026-09-29', until: null }],
+    alerts: FEED.map((title) => ({ title, description: null, type: 'weather', severity: 1, at: '2026-09-29', until: null })),
   },
   seismic: {} as SafetyLiveData['seismic'],
   radar: { hazards: [], center: { lat: 0, lng: 0, label: '' } },
@@ -243,7 +275,7 @@ function deps(over: Partial<ParityDeps> = {}): ParityDeps {
     callMcp: async (tool, args) => {
       if (tool === 'get_tours') return tours;
       if (tool === 'get_tour_availability') return 'Тур "Тур 27" (ID27) — свободные даты (реальная занятость из броней):\n- 03.10 (2026-10-03): свободно 4, от 13 000 ₽/чел.\nБронь.';
-      if (tool === 'safety_status') return formatSafetyStatusForAgent({ hasAlert: true, maxSeverity: 1, activeCount: 13, topTitle: 'Штормовое предупреждение', topType: 'weather', dataUpdatedAt: '2026-09-29 10:00:00+03', source: 'ГУ МЧС Камчатки' });
+      if (tool === 'safety_status') return formatSafetyStatusForAgent({ hasAlert: true, maxSeverity: 1, activeCount: 13, topTitle: 'Штормовое предупреждение', topType: 'weather', dataUpdatedAt: '2026-09-29 10:00:00+03', source: 'ГУ МЧС Камчатки', feedCount: 9, feedTitles: [...FEED, 'Шестая'] });
       if (tool === 'get_volcano_status') return composeVolcanoReport(INPUT, args.volcano, Date.parse('2026-09-29T06:00:00Z'));
       throw new Error(`неожиданный инструмент ${tool}`);
     },
@@ -262,8 +294,10 @@ describe('collectChannelParity', () => {
     const unit = r.diffs.filter((d) => d.field === 'price_unit');
     expect(unit).toHaveLength(PARITY_TOUR_IDS.length);
     expect(unit[0]).toMatchObject({ mcp: 'per_tour', ui: 'per_person' });
-    // Счётчик обстановки: 13 против 5.
-    expect(r.diffs).toContainEqual({ scope: 'safety', field: 'alert_count', mcp: 13, ui: 5 });
+    // Обстановка: 13 активных против 5 в ленте — не расхождение, а разные вещи:
+    // сайт общего числа не показывает (null), лента на потолке — «5 и больше».
+    expect(r.diffs.filter((d) => d.scope === 'safety')).toEqual([]);
+    expect(r.not_compared).toContainEqual({ scope: 'safety', field: 'alert_count', silent: ['ui'] });
     // MCP не называет сезон — не расхождение, а «не сравнено».
     expect(r.diffs.some((d) => d.field === 'season_open')).toBe(false);
     expect(r.not_compared).toContainEqual({ scope: 'tour:27', field: 'season_open', silent: ['mcp'] });
@@ -306,6 +340,26 @@ describe('collectChannelParity', () => {
     expect(r.failed.map((f) => f.block)).toContain('safety.ui');
     expect(r.safety.ui).toBeNull();
     expect(r.diffs.some((d) => d.scope === 'safety')).toBe(false);
+  });
+
+  it('лента: MCP насчитал меньше, чем сайт показывает, — расхождение; больше потолка — нет', async () => {
+    const few = await collectChannelParity(deps({
+      callMcp: async (tool, args) => (tool === 'safety_status'
+        ? formatSafetyStatusForAgent({ hasAlert: true, maxSeverity: 1, activeCount: 13, topTitle: 'Штормовое предупреждение', topType: 'weather', dataUpdatedAt: null, source: 'x', feedCount: 3, feedTitles: FEED.slice(0, 3) })
+        : deps().callMcp(tool, args)),
+    }));
+    expect(few.diffs).toContainEqual({ scope: 'safety', field: 'feed_count', mcp: 3, ui: '5 и больше' });
+    const many = await collectChannelParity(deps());
+    expect(many.diffs.some((d) => d.field === 'feed_count')).toBe(false);
+  });
+
+  it('заголовки ленты в другом порядке — расхождение feed_titles', async () => {
+    const r = await collectChannelParity(deps({
+      callMcp: async (tool, args) => (tool === 'safety_status'
+        ? formatSafetyStatusForAgent({ hasAlert: true, maxSeverity: 1, activeCount: 13, topTitle: 'Штормовое предупреждение', topType: 'weather', dataUpdatedAt: null, source: 'x', feedCount: 9, feedTitles: [...FEED].reverse() })
+        : deps().callMcp(tool, args)),
+    }));
+    expect(r.diffs.some((d) => d.scope === 'safety' && d.field === 'feed_titles')).toBe(true);
   });
 
   it('id из pg приходит строкой — в снимке он числом', async () => {
