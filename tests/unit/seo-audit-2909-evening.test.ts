@@ -233,6 +233,12 @@ describe('ссылки на маршрут — в пространстве id к
     expect(code('components/places/PlaceTours.tsx')).toMatch(/href=\{`\/catalog\/tours\/\$\{t\.id\}`\}/);
   });
 
+  it('пинг IndexNow после импорта паспортов — тоже id из VIEW', () => {
+    const src = code('app/api/admin/import/route-passports/route.ts');
+    expect(src).toMatch(/SELECT id, COALESCE\(ark_id, id\)::text AS view_id/);
+    expect(src).toMatch(/pingRoutesChanged\([^;]*r\.slug \?\? r\.view_id\)/);
+  });
+
   it('резолвер страницы по-прежнему ищет UUID в пространстве VIEW', () => {
     expect(code('app/routes/[id]/page.tsx')).toMatch(/FROM kamchatka_routes WHERE COALESCE\(ark_id, id\)::text = \$1/);
   });

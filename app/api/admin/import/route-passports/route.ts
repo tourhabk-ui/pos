@@ -33,6 +33,8 @@ const EXTRACT_PROMPT = `Ты извлекаешь данные из паспор
 
 interface RouteRow {
   id: number;
+  /** id в пространстве VIEW — COALESCE(ark_id, id), как ищет /routes/[id]. */
+  view_id: string;
   title: string;
   source_url: string;
   slug: string | null;
@@ -116,7 +118,7 @@ export async function POST(req: NextRequest) {
 
   // Find routes with PDF passport URLs that still need enrichment
   const { rows: routes } = await pool.query<RouteRow>(
-    `SELECT id, title, source_url, slug
+    `SELECT id, COALESCE(ark_id, id)::text AS view_id, title, source_url, slug
      FROM kamchatka_routes
      WHERE source_url LIKE '%route_passports%'
        AND (
@@ -221,9 +223,11 @@ export async function POST(req: NextRequest) {
   const fails = results.filter(r => r.status !== 'ok' && r.status !== 'would_process').length;
 
   // Попутный пинг IndexNow по обогащённым маршрутам — адрес как в sitemap
-  // (slug, иначе id). Пустой список пинга не создаёт.
+  // (slug, иначе id в пространстве VIEW: карточка ищет UUID как
+  // COALESCE(ark_id, id), и голый id у маршрута с ark_id давал Яндексу 404).
+  // Пустой список пинга не создаёт.
   const okIds = new Set(results.filter(r => r.status === 'ok').map(r => r.id));
-  pingRoutesChanged(routes.filter(r => okIds.has(r.id)).map(r => r.slug ?? r.id));
+  pingRoutesChanged(routes.filter(r => okIds.has(r.id)).map(r => r.slug ?? r.view_id));
 
   return NextResponse.json({
     ok: true,
