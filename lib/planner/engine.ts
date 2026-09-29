@@ -1142,7 +1142,11 @@ async function generateDayPlans(
       const fits: RealTour[] = [];
       const tight: RealTour[] = [];
       for (const t of realTours) {
-        const slots = await fetchAvailabilityForTour(t.tourId, profile.arrivalDate, profile.departureDate, cache);
+        // Занятость не прочиталась — «мест нет» было бы враньём: тур остаётся
+        // в плане, но не впереди тех, где места проверены.
+        const slots = await fetchAvailabilityForTour(t.tourId, profile.arrivalDate, profile.departureDate, cache)
+          .catch(() => null);
+        if (slots === null) { tight.push(t); continue; }
         if (slots.length === 0) { noSlotTours.add(t.title); continue; }
         (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
       }
@@ -1347,10 +1351,11 @@ async function generateDayPlans(
 
         // Check availability for this tour
         if (profile.arrivalDate && profile.departureDate) {
+          // Отказ чтения — даты и остатка не называем вовсе (не «0 мест»).
           const slots = await fetchAvailabilityForTour(
             realTour.tourId, profile.arrivalDate, profile.departureDate, cache
-          );
-          if (slots.length > 0) {
+          ).catch(() => null);
+          if (slots && slots.length > 0) {
             availableDate = slots[0].date;
             slotsRemaining = slots[0].remaining;
             const gs = groupSize(profile);

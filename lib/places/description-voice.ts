@@ -61,6 +61,11 @@ const DIARY = new RegExp(
     // бывают и у потока лавы, и у острога — их здесь нет.
     'сижу', 'стою', 'иду', 'смотрю', 'вижу', 'слышу', 'выхожу',
     'поднимаюсь', 'спускаюсь',
+    // Второе лицо ед. числа — тот же рассказ о поездке, только «ты» вместо
+    // «я» (Ксудач, аудит MCP 29.09: «внизу ночуешь у подножия конуса»).
+    // Список явный: окончание -ешь/-ишь ловило бы «лишь» и «мышь».
+    'ночуешь', 'идёшь', 'идешь', 'стоишь', 'видишь', 'смотришь', 'слышишь',
+    'поднимаешься', 'спускаешься', 'выходишь', 'попадаешь', 'оказываешься',
   ].join('|') + ')' + R,
   'giu',
 );
@@ -70,6 +75,9 @@ const IMPRESSION = new RegExp(
   L + '(' + [
     'запах\\p{L}*', 'пахн\\p{L}*', 'тишин\\p{L}*', 'слышн\\p{L}*', 'слышен',
     'чувству\\p{L}*', 'дышит', 'ты',
+    // Осязание — «вода обжигает палец» (Ксудач): так пишет рассказчик, а
+    // не справка, и источника у такой детали нет.
+    'обжига\\p{L}*', 'палец', 'пальц\\p{L}*', 'ладон\\p{L}*',
   ].join('|') + ')' + R,
   'giu',
 );
@@ -87,4 +95,34 @@ export function descriptionVoice(text: string | null | undefined): VoiceVerdict 
   const impression = collect(IMPRESSION, t);
   if (impression.length > 0) return { voice: 'impression', markers: impression };
   return { voice: 'plain', markers: [] };
+}
+
+/**
+ * Строка «Описание» для ответа агенту (Кузьмич, MCP) — одна на все
+ * инструменты. До 29.09 её собирал только get_place_info, а
+ * get_guardian_context печатал `description.slice(0, 300)` мимо фильтра:
+ * «Вчера поднялся… фумаролы работают исправно» у Авачинского уходил наружу
+ * и обрывался на полуслове (аудит MCP 29.09).
+ *
+ * diary — не отдаётся, причина названа; impression — подписано; plain — как
+ * есть. Режется по предложению. Пусто — null.
+ */
+export function describeForAgent(text: string | null | undefined, max: number): string | null {
+  const t = stripTags(text ?? '').trim();
+  if (!t) return null;
+  const { voice } = descriptionVoice(t);
+  if (voice === 'diary') {
+    return 'Описание: не приводится — текст в базе написан как путевая заметка от первого лица и справкой не является; ориентируйтесь на факты выше.';
+  }
+  const clipped = clipAtSentence(t, max);
+  return voice === 'impression'
+    ? `Описание (впечатление, не наблюдение): ${clipped}`
+    : `Описание: ${clipped}`;
+}
+
+function clipAtSentence(t: string, max: number): string {
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  return (end > max / 2 ? cut.slice(0, end + 1) : cut.trimEnd()) + ' …';
 }

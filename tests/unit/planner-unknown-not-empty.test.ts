@@ -69,9 +69,14 @@ function bodyOf(src: string, name: string): string {
  * умеренно»: до того оно лишь штрафовало оценку зоны, и ноль означал «штрафа
  * не будет». Теперь отказ и отсутствие слотов дают `null`, а отказ ещё и
  * строку в лог.
+ *
+ * `fetchAvailabilityForTour` СНЯТ 29.09 (аудит MCP): на отказе БД отвечал
+ * «свободных дат нет», и агент повторял это человеку как факт о туре. Ветки
+ * «не смог» у инструмента Кузьмича и tourist-tools были написаны, но не
+ * срабатывали никогда — им нечего было ловить. Теперь отказ летит наверх с
+ * записью в лог, а движок плана читает его как «не знаю», а не «мест нет».
  */
 const KNOWN_SILENT: readonly string[] = [
-  'fetchAvailabilityForTour',
   'fetchContingencyAlternatives',
 ];
 
@@ -159,5 +164,23 @@ describe('недобор дней не называет причину, кото
     expect(block).toContain('причину недобора назвать не берёмся');
     // Ветка «вне сезона» идёт ПОСЛЕ проверки на непроверенное, а не до.
     expect(block.indexOf('вне сезона')).toBeGreaterThan(block.indexOf('не берёмся'));
+  });
+});
+
+describe('занятость тура: отказ — не «мест нет» (аудит MCP 29.09)', () => {
+  it('загрузчик пишет причину и бросает, а не возвращает пустой список', () => {
+    const body = bodyOf(DATA, 'fetchAvailabilityForTour');
+    expect(body).toContain('[planner] занятость тура');
+    expect(body).toMatch(/throw new Error\(/);
+    expect(body).not.toMatch(SILENT_CATCH);
+  });
+
+  it('движок плана читает отказ как «не знаю»: тур не выкидывается и даты не называются', () => {
+    expect(ENGINE).toMatch(/if \(slots === null\) \{ tight\.push\(t\); continue; \}/);
+    expect(ENGINE).toMatch(/if \(slots && slots\.length > 0\)/);
+    // Каждый вызов в движке обязан поймать отказ сам — иначе он роняет весь план.
+    const calls = ENGINE.split('fetchAvailabilityForTour(').length - 1;
+    const guarded = (ENGINE.match(/fetchAvailabilityForTour\([^;]*?\)\s*\.catch\(\(\) => null\)/g) ?? []).length;
+    expect(guarded).toBe(calls);
   });
 });

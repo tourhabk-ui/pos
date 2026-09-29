@@ -66,6 +66,10 @@ const ZONE_LABELS: Record<string, string> = {
   northern:      'Северная',
   petropavlovsk: 'Петропавловск',
   commander:     'Командорские о-ва',
+  // Коды зон сейсмо-разбора (lib/services/safety/seismic-zones) лежат в той же
+  // колонке; без подписи карточка показывала «Район: eastern» (аудит 29.09).
+  eastern:       'Восточное побережье',
+  western:       'Западное побережье',
 };
 
 /** Сложность — единственное место, где значение красится: это состояние. */
@@ -102,7 +106,9 @@ export default function PlaceFacts({ locationType, zone, safety, terrainType }: 
     value: LOCATION_TYPE_LABELS[locationType ?? 'other'] ?? 'Место',
   });
 
-  if (zone) facts.push({ label: 'Район', value: ZONE_LABELS[zone] ?? zone });
+  // Код без подписи туристу не показываем: «Район: xyz» — служебная строка,
+  // а не факт о месте.
+  if (zone && ZONE_LABELS[zone]) facts.push({ label: 'Район', value: ZONE_LABELS[zone] });
   if (terrainType) facts.push({ label: 'Рельеф', value: terrainType });
 
   if (safety.altitudeM != null) {

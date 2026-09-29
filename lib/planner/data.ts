@@ -268,8 +268,13 @@ export async function fetchAvailabilityForTour(
         remaining: r.remaining,
         priceOverride: r.price_override,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      // Пустой список здесь значил «мест нет», хотя это «проверить не смог»
+      // (§4.0, аудит MCP 29.09): при отказе БД агент честно отвечал «свободных
+      // дат нет». Отказ летит наверх — у вызывающих своя ветка «не смог».
+      const e = err as { code?: string; message?: string };
+      console.error(`[planner] занятость тура ${tourId} не прочиталась:`, { sqlstate: e?.code, message: e?.message });
+      throw new Error('Не удалось проверить занятость тура — попробуйте позже.');
     }
   });
 }

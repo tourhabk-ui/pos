@@ -114,3 +114,34 @@ describe('перепись называет голос', () => {
     for (const k of ['diary:', 'impression:', 'plain:', 'empty:']) expect(ROUTE).toContain(k);
   });
 });
+
+describe('describeForAgent — одна строка «Описание» для всех инструментов агента (аудит MCP 29.09)', () => {
+  // Ксудач на проде: второе лицо вместо первого — тот же дневник.
+  const KSUDACH = 'Ночуешь у подножия конуса, утром идёшь к озеру Ключевому — вода у берега обжигает палец.';
+
+  it('путевая заметка во втором лице — diary, текст не отдаётся', async () => {
+    const { describeForAgent } = await import('@/lib/places/description-voice');
+    expect(descriptionVoice(KSUDACH).voice).toBe('diary');
+    const line = describeForAgent(KSUDACH, 300)!;
+    expect(line).toMatch(/не приводится/);
+    expect(line).not.toContain('Ночуешь');
+  });
+
+  it('справка режется по предложению, а не на полуслове', async () => {
+    const { describeForAgent } = await import('@/lib/places/description-voice');
+    const line = describeForAgent(PLAIN, 90)!;
+    expect(line.startsWith('Описание: Действующий вулкан')).toBe(true);
+    expect(line).toMatch(/Камчатского\. …$/);
+    expect(describeForAgent('', 300)).toBeNull();
+  });
+
+  it('get_guardian_context и get_place_info идут через неё, а не через slice', () => {
+    for (const f of ['lib/kuzmich/guardian-context.ts', 'lib/kuzmich/place-info-tool.ts']) {
+      const src = readFileSync(join(process.cwd(), f), 'utf-8');
+      expect(src, f).toContain('describeForAgent(');
+      // Текст места (p./primary.description) не режется мимо фильтра; описание
+      // алерта МЧС — не текст места, его обрезка законна.
+      expect(src, f).not.toMatch(/\b(?:p|primary|place)\.description\.slice\(/);
+    }
+  });
+});

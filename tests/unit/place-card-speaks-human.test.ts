@@ -332,3 +332,14 @@ describe('дружелюбие не отменило тревогу', () => {
     expect(STATUS).toContain('var(--warning)');
   });
 });
+
+describe('район называется словами, а не кодом (аудит UI/UX 29.09)', () => {
+  const FACTS = readFileSync(join(process.cwd(), 'components/places/PlaceFacts.tsx'), 'utf-8');
+  it('коды сейсмо-зон подписаны', () => {
+    expect(FACTS).toMatch(/eastern:\s*'Восточное побережье'/);
+    expect(FACTS).toMatch(/western:\s*'Западное побережье'/);
+  });
+  it('неподписанный код не выводится как есть', () => {
+    expect(FACTS).not.toMatch(/ZONE_LABELS\[zone\] \?\? zone/);
+  });
+});

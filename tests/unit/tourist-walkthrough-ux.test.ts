@@ -130,7 +130,11 @@ describe('тач-цели и плавающие кнопки (#1780)', () => {
 
   it('кнопка заявки скрыта на /kuzmich (там живой чат) и на входе', () => {
     const src = read('components/shared/StickyLeadButton.tsx');
-    expect(src).toMatch(/'\/kuzmich', '\/auth'\]/);
+    // Членство, а не место в списке: список растёт (29.09 — карточки места и
+    // маршрута, карта), и сторож не должен требовать, чтобы /auth шёл последним.
+    const list = /HIDDEN_PATHS = \[([^\]]*)\]/.exec(src)?.[1] ?? '';
+    expect(list).toContain("'/kuzmich'");
+    expect(list).toContain("'/auth'");
   });
 
   it('фильтры карты на телефоне — одна прокручиваемая строка, чипы 44px', () => {

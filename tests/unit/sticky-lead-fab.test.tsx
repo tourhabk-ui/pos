@@ -74,6 +74,25 @@ describe('кнопка «Хочу тур»', () => {
     expect(container.innerHTML, 'вторая безадресная заявка рядом с только что созданной').toBe('');
   });
 
+  it('скрыта на карточках места и маршрута и на карте (аудит UI/UX 29.09)', () => {
+    // Ложилась на вердикт «Не сегодня» и на счётчик точек; место не продают (§9).
+    for (const p of ['/places/vulkan-ksudach', '/routes/vulkan-ksudach', '/map']) {
+      pathname = p;
+      const { container, unmount } = render(<StickyLeadButton />);
+      expect(container.innerHTML, `кнопка снова на ${p}`).toBe('');
+      unmount();
+    }
+  });
+
+  it('списки маршрутов и мест не задеты', () => {
+    for (const p of ['/routes', '/places']) {
+      pathname = p;
+      const { container, unmount } = render(<StickyLeadButton />);
+      expect(container.innerHTML, `кнопка пропала на ${p}`).not.toBe('');
+      unmount();
+    }
+  });
+
   it('списки туров не задеты', () => {
     for (const p of ['/catalog', '/marketplace']) {
       pathname = p;
