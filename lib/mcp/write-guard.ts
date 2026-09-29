@@ -118,7 +118,12 @@ interface Counts {
  */
 export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecision> {
   const s = salt();
-  const clientKey = s ? fingerprint(`${input.ip}|${input.userAgent}`, s) : null;
+  // Ключ клиента — только доверенный адрес. User-Agent в ключе делал лимит
+  // клиента (5 за 10 минут, 20 за сутки) обходимым сменой заголовка на
+  // каждый запрос, а разделить агентов за общим выходным адресом (все
+  // пользователи claude.ai) он и не мог — у них один и тот же UA (проверка
+  // MCP 29.09). userAgent остаётся во входе: он нужен журналу вызовов.
+  const clientKey = s ? fingerprint(input.ip, s) : null;
   const phoneHash = s && input.phone ? fingerprint(input.phone, s) : null;
 
   // Согласие спрашивается ПЕРВЫМ и не зависит ни от базы, ни от настроек.

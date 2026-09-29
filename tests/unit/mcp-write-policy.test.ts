@@ -64,6 +64,20 @@ beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
 });
 
+describe('ключ клиента — адрес, а не адрес с User-Agent (проверка MCP 29.09)', () => {
+  it('смена UA не даёт нового окна: оба вызова считаются одним клиентом', async () => {
+    const keys: unknown[] = [];
+    poolQueryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      if (!txNoise(sql) && /COUNT\(\*\)/.test(sql)) { keys.push(params?.[0]); return Promise.resolve(counts(0, 0, 0)); }
+      return Promise.resolve({ rows: [] });
+    });
+    await checkMcpWrite({ ...base, userAgent: 'agent/1.0' });
+    await checkMcpWrite({ ...base, userAgent: 'совсем-другой-агент/9.9' });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+});
+
 describe('три исхода, и третий не равен первому', () => {
   it('чисто — пускаем', async () => {
     poolQueryMock.mockImplementation((sql: string) =>
