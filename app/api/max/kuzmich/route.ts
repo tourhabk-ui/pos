@@ -18,6 +18,8 @@ import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
+import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
+import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -299,6 +301,29 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
     );
     return;
+  }
+
+  // ── ПОДКЛЮЧЕНИЕ ОПЕРАТОРА К ЗАЯВКАМ ───────────────────────────────────────
+  // Тот же гейт, что у входа: чат, куда пойдут имена и телефоны туристов,
+  // назначается только по заверенному источнику апдейта (verifiedOrigin —
+  // серверный флаг), а не по полю из тела. Ссылку выдаёт администратор
+  // (lib/partners/channel-link), запись — в карточку партнёра.
+  if (opts?.verifiedOrigin === true
+      && update.update_type === 'bot_started'
+      && update.chat_id
+      && typeof update.payload === 'string') {
+    const partnerToken = partnerTokenFromStart(update.payload);
+    if (partnerToken !== null) {
+      const check = verifyPartnerLinkToken(partnerToken);
+      if (!check.ok) {
+        console.error(`[max-kuzmich] ссылка привязки оператора отклонена: ${check.reason}`);
+        await maxReply(update.chat_id, badLinkReplyText(check.reason));
+        return;
+      }
+      const bound = await bindPartnerChannel(check.partnerId, 'max', update.chat_id);
+      await maxReply(update.chat_id, bindReplyText('max', bound));
+      return;
+    }
   }
 
   // bot_started → обычный /start (в т.ч. незаверенный login-payload — без входа)

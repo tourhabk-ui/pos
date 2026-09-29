@@ -35,6 +35,9 @@ interface OperatorRow {
   application_status: string | null;
   reviewed_at: string | null;
   telegram_chat_id: string | null;
+  /** Каналы по колонкам доставки (lib/partners/reach), не по contacts JSONB. */
+  has_telegram: boolean;
+  has_max: boolean;
   slug: string | null;
   widget_enabled: boolean;
   widget_domains: string[];
@@ -102,6 +105,96 @@ function RejectModal({
   );
 }
 
+function ChannelLinkPanel({ op }: { op: OperatorRow }) {
+  const [state, setState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; message: string; expiresAt: string; bound: { telegram: boolean; max: boolean } }
+    | { kind: 'error'; error: string }
+  >({ kind: 'idle' });
+  const [copied, setCopied] = useState(false);
+
+  const bound = state.kind === 'ready' ? state.bound : { telegram: op.has_telegram, max: op.has_max };
+
+  async function issue() {
+    setState({ kind: 'loading' });
+    try {
+      const res = await fetch(`/api/admin/operators/${op.id}/channel-link`, { method: 'POST' });
+      const body = await res.json().catch(() => null) as
+        | { success: true; data: { message: string; expires_at: string; bound: { telegram: boolean; max: boolean } } }
+        | { success: false; error?: string }
+        | null;
+      if (!res.ok || !body || !body.success) {
+        setState({ kind: 'error', error: (body && !body.success && body.error) || `Сервер ответил ${res.status}` });
+        return;
+      }
+      setState({ kind: 'ready', message: body.data.message, expiresAt: body.data.expires_at, bound: body.data.bound });
+    } catch {
+      setState({ kind: 'error', error: 'Нет связи с сервером' });
+    }
+  }
+
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setState({ kind: 'error', error: 'Не удалось скопировать — выделите текст вручную' });
+    }
+  }
+
+  const badge = (on: boolean, label: string) => (
+    <span className={`text-xs px-2 py-0.5 rounded ${on
+      ? 'bg-[var(--success)]/15 text-[var(--success)]'
+      : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'}`}>
+      {label}: {on ? 'подключён' : 'нет'}
+    </span>
+  );
+
+  return (
+    <div className="mt-3 space-y-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <Send className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
+        {badge(bound.max, 'MAX')}
+        {badge(bound.telegram, 'Telegram')}
+        <button
+          onClick={issue}
+          disabled={state.kind === 'loading'}
+          className="ds-btn ds-btn-secondary text-xs px-2 py-1"
+        >
+          {state.kind === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Ссылка для подключения'}
+        </button>
+      </div>
+      {!bound.max && !bound.telegram && state.kind === 'idle' && (
+        <p className="text-xs text-[var(--warning)]">
+          Заявки этому оператору сейчас не доходят: ни MAX, ни Telegram не подключены.
+        </p>
+      )}
+      {state.kind === 'error' && <p className="text-xs text-[var(--danger)]">{state.error}</p>}
+      {state.kind === 'ready' && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-[var(--text-secondary)]">
+            Перешлите оператору любым способом (WhatsApp, почта, SMS). Действует до{' '}
+            {new Date(state.expiresAt).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' })} по Камчатке.
+          </p>
+          <textarea
+            readOnly
+            value={state.message}
+            rows={5}
+            className="ds-input w-full text-xs font-mono"
+            onFocus={e => e.currentTarget.select()}
+          />
+          <button onClick={() => copy(state.message)} className="ds-btn ds-btn-secondary text-xs px-2 py-1 inline-flex items-center gap-1">
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Скопировано' : 'Скопировать текст'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OperatorCard({
   op,
   onApprove,
@@ -114,29 +207,12 @@ function OperatorCard({
   acting: string | null;
 }) {
   const [expanded, setExpanded] = useState(op.profile_status === 'pending');
-  const [tgEdit, setTgEdit] = useState(false);
-  const [tgValue, setTgValue] = useState(op.telegram_chat_id ?? '');
-  const [tgSaving, setTgSaving] = useState(false);
 
   const [widgetEnabled, setWidgetEnabled] = useState(op.widget_enabled ?? false);
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));
   const [widgetEditing, setWidgetEditing] = useState(false);
   const [widgetSaving, setWidgetSaving] = useState(false);
   const [widgetCopied, setWidgetCopied] = useState(false);
-
-  async function saveTelegram() {
-    setTgSaving(true);
-    try {
-      await fetch(`/api/admin/operators/${op.id}/contacts`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_chat_id: tgValue.trim() || null }),
-      });
-      setTgEdit(false);
-    } finally {
-      setTgSaving(false);
-    }
-  }
 
   async function toggleWidget() {
     const next = !widgetEnabled;
@@ -231,46 +307,11 @@ function OperatorCard({
             </div>
           )}
 
-          {/* Telegram Chat ID */}
-          <div className="mt-3 flex items-center gap-2 text-sm">
-            <Send className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
-            {tgEdit ? (
-              <div className="flex items-center gap-1.5 flex-1">
-                <input
-                  autoFocus
-                  value={tgValue}
-                  onChange={e => setTgValue(e.target.value)}
-                  placeholder="telegram_chat_id (число)"
-                  className="flex-1 px-2 py-1 text-xs bg-[var(--bg-primary)] border border-[var(--accent)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
-                />
-                <button
-                  onClick={saveTelegram}
-                  disabled={tgSaving}
-                  className="p-1 text-[var(--success)] hover:bg-[var(--success)]/10 rounded transition-colors"
-                >
-                  {tgSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  onClick={() => { setTgEdit(false); setTgValue(op.telegram_chat_id ?? ''); }}
-                  className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] rounded transition-colors"
-                >
-                  <XCircle className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 flex-1">
-                <span className={`text-xs ${tgValue ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)] italic'}`}>
-                  {tgValue || 'telegram_chat_id не указан'}
-                </span>
-                <button
-                  onClick={() => setTgEdit(true)}
-                  className="p-1 text-[var(--text-muted)] hover:text-[var(--accent)] rounded transition-colors"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Мессенджеры для заявок: состояние — по колонкам доставки,
+              подключение — ссылкой, которую оператор открывает сам. Прежнее
+              ручное поле писало chat_id только в contacts JSONB, и заявки о
+              бронях по нему не уходили (доставка читает колонки). */}
+          <ChannelLinkPanel op={op} />
 
           {/* Widget management */}
           {op.slug && (

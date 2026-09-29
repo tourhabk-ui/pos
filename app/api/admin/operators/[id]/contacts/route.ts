@@ -1,6 +1,13 @@
 /**
  * PATCH /api/admin/operators/[id]/contacts
  * Обновляет поля в contacts JSONB оператора (telegram_chat_id и др.)
+ *
+ * telegram_chat_id пишется ДВАЖДЫ — в колонку partners.telegram_chat_id и в
+ * contacts JSONB (29.09). До этого — только в JSONB, а уведомление о брони и
+ * перепись operator-reach читают колонку: чат, вписанный администратором
+ * руками, получал лиды и не получал ни одной брони. Основной путь теперь —
+ * ссылка привязки (POST .../channel-link), ручной ввод оставлен для
+ * исключений.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,7 +18,8 @@ import { z } from 'zod';
 export const dynamic = 'force-dynamic';
 
 const Schema = z.object({
-  telegram_chat_id: z.string().max(50).nullable().optional(),
+  // Число чата Telegram: у лички положительное, у группы — отрицательное.
+  telegram_chat_id: z.string().regex(/^-?\d{1,19}$/, 'chat_id Telegram — целое число').nullable().optional(),
   phone:            z.string().max(30).optional(),
   email:            z.string().email().optional().nullable(),
 });
@@ -43,13 +51,15 @@ export async function PATCH(
     return NextResponse.json({ error: 'Нет данных для обновления' }, { status: 400 });
   }
 
+  const touchesTelegram = parsed.data.telegram_chat_id !== undefined;
   const { rows } = await pool.query(
     `UPDATE partners
-     SET contacts   = contacts || $1::jsonb,
+     SET contacts   = COALESCE(contacts, '{}'::jsonb) || $1::jsonb,
+         telegram_chat_id = CASE WHEN $3::boolean THEN $4::bigint ELSE telegram_chat_id END,
          updated_at = NOW()
      WHERE id = $2
      RETURNING id, contacts->>'telegram_chat_id' AS telegram_chat_id`,
-    [JSON.stringify(updates), id]
+    [JSON.stringify(updates), id, touchesTelegram, parsed.data.telegram_chat_id ?? null]
   );
 
   if (rows.length === 0) {

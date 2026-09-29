@@ -47,6 +47,8 @@ import {
 import { PlatformAgent } from '@/lib/agents/platform-agent';
 import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
+import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
+import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
 import { createTicket, getUserOpenTickets, addTicketMessage } from '@/lib/support/ticket.service';
 import { categorizeSupport, CATEGORY_LABELS, RESIDENT_INTRO } from '@/lib/support/categorize';
@@ -635,6 +637,23 @@ export async function POST(request: NextRequest) {
     // /start [link_{token}] — привязка аккаунта или приветствие
     if (text.startsWith('/start')) {
       const arg = text.slice('/start'.length).trim();
+
+      // /start op_{token} — оператор подключает этот чат к получению заявок
+      // (ссылку выдал администратор, lib/partners/channel-link). Пишется в
+      // карточку ПАРТНЁРА, а не человека: у импортированных операторов
+      // аккаунта на платформе нет.
+      const partnerToken = partnerTokenFromStart(arg);
+      if (partnerToken !== null) {
+        const check = verifyPartnerLinkToken(partnerToken);
+        if (!check.ok) {
+          console.error(`[telegram-webhook] ссылка привязки оператора отклонена: ${check.reason}`);
+          await sendHTML(chatId, badLinkReplyText(check.reason));
+          return NextResponse.json({ ok: true });
+        }
+        const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
+        await sendHTML(chatId, bindReplyText('telegram', bound));
+        return NextResponse.json({ ok: true });
+      }
 
       // /start link_{token} — привязка email-аккаунта к Telegram
       if (arg.startsWith('link_')) {
