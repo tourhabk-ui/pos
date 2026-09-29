@@ -6,10 +6,11 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { notifyBudgetAlert } from '@/lib/telegram/admin-notify';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +21,14 @@ export async function GET(req: Request) {
     return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
   if (!timingSafeCompare(secret, cronSecret)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
+
+  // Два планировщика (GitHub и супервизор контейнера, start.js): аренда окна в
+  // час не даёт им прислать один и тот же алерт о превышении дважды. Ключ —
+  // agentId записи реестра, под ним же пишется heartbeat.
+  const lease = await claimCronWindow('llm-budget', 60, 'external');
+  if (!shouldRun(lease)) return Response.json(leaseSkipBody('llm-budget', 60));
 
   const startedAt = Date.now();
 
