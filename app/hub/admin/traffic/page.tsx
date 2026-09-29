@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut } from 'lucide-react';
 import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
+import FunnelWindow from './_FunnelWindow';
 
 interface TrafficData {
   totals: {
@@ -111,6 +112,9 @@ export default function AdminTrafficPage() {
           писался, ретроактивно посчитать нельзя — только просмотры).</>
         )}
       </p>
+
+      {/* Воронка за день, вчера, неделю, месяц или любые сутки — владелец 29.09 */}
+      <FunnelWindow />
 
       {loading ? (
         <div className="space-y-2">

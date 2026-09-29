@@ -1,5 +1,6 @@
 /**
  * GET /api/cron/funnel-census?secret=<CRON_SECRET>&days=7
+ *     …&range=today|yesterday|7d|30d   или   …&date=ГГГГ-ММ-ДД
  *
  * Перепись воронки. Только чтение, ничего не меняет.
  *
@@ -33,78 +34,25 @@
  *     `views_last_at` и `views_rows_total`.
  * Первое лечится привлечением, второе — починкой кода. Спутать их значит
  * месяц чинить не ту половину.
+ *
+ * ОКНО (29.09, владелец: «не только за 7 дней, но и за день»). Считает
+ * `lib/analytics/funnel-window` — тем же модулем, что страница
+ * `/hub/admin/traffic`. Здесь остались только вход по секрету крона и разбор
+ * параметров: `days` (скользящее окно, как раньше), `range` и `date` (сутки
+ * по Камчатке). Своих запросов у переписи больше нет — второй экземпляр
+ * подсчёта разошёлся бы с первым (§12).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { pickFunnelFinding, funnelSampleShortfall, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
+import { buildFunnelReport, resolveFunnelWindow } from '@/lib/analytics/funnel-window';
+
+// Прежние имена остаются здесь: их импортируют сторожа и объектив эволюции.
+export { measure, verdictFrom, type Measured } from '@/lib/analytics/funnel-window';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
-
-const DEFAULT_DAYS = 7;
-const MAX_DAYS     = 90;
-
-/** Отказ не глушится: имя замера и текст ошибки уходят в лог и в ответ. */
-export interface Measured<T> {
-  value: T | null;
-  failed: string | null;
-}
-
-export async function measure<T>(name: string, fn: () => Promise<T>): Promise<Measured<T>> {
-  try {
-    return { value: await fn(), failed: null };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'неизвестная ошибка';
-    console.error(`[funnel-census] замер «${name}» не удался:`, msg);
-    return { value: null, failed: msg };
-  }
-}
-
-/**
- * Вердикт — только по полностью известным входам.
- *
- * Дыра воронки определяется ПЕРВЫМ нулём сверху. Если верхний счётчик не
- * сосчитался, «первый ноль» окажется ниже него — и мы назовём сломанным
- * звено, которое просто следующее по списку. Поэтому неизвестность хотя бы
- * одного входа отменяет вердикт целиком.
- */
-export function verdictFrom(
-  counts: Partial<Record<keyof FunnelCounts, number | null>>,
-): {
-  verdict: ReturnType<typeof pickFunnelFinding>;
-  unknown: string[];
-  /** Выборки не хватило, чтобы судить — причина словами (иначе null). */
-  insufficient: string | null;
-} {
-  const required: (keyof FunnelCounts)[] = [
-    'visits', 'tour_views', 'booking_starts', 'leads', 'bookings', 'paid',
-  ];
-  const unknown = required.filter((k) => counts[k] === null || counts[k] === undefined);
-  if (unknown.length > 0) return { verdict: null, unknown, insufficient: null };
-
-  const full: FunnelCounts = {
-    visits:         counts.visits as number,
-    tour_views:     counts.tour_views as number,
-    booking_starts: counts.booking_starts as number,
-    leads:          counts.leads as number,
-    bookings:       counts.bookings as number,
-    paid:           counts.paid as number,
-    plan_views:     counts.plan_views ?? 0,
-    plan_to_tour:   counts.plan_to_tour ?? 0,
-  };
-
-  return {
-    verdict: pickFunnelFinding(full),
-    unknown: [],
-    // Пустой вердикт бывает двух разных родов, и до 07.09 они выглядели
-    // одинаково: «поток есть» и «наблюдений слишком мало, чтобы судить».
-    // Второй — третий исход §4.0, и молчанием он быть не должен.
-    insufficient: funnelSampleShortfall(full),
-  };
-}
 
 export async function GET(req: NextRequest) {
   const secret = getCronSecret(req);
@@ -112,164 +60,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const startedAt = Date.now();
-  const rawDays = Number(req.nextUrl.searchParams.get('days') ?? DEFAULT_DAYS);
-  const days = Number.isFinite(rawDays)
-    ? Math.min(MAX_DAYS, Math.max(1, Math.trunc(rawDays)))
-    : DEFAULT_DAYS;
-
-  // Окно параметризовано, не склеено строкой (§4, сторож sql-interval-not-concatenated).
-  const W = `NOW() - ($1 || ' days')::INTERVAL`;
-
-  const [
-    views, starts, leadRows, bookingRows,
-    viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, bookingStatuses,
-  ] = await Promise.all([
-    // Верх воронки — собственная метрика. Пути обеих публичных карточек тура:
-    // /catalog и /marketplace рендерят одну реализацию (§11).
-    measure('page_views', async () => (await pool.query<{
-      visits: number; tour_views: number; plan_views: number; plan_to_tour: number; bot_views: number;
-    }>(
-      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE)::int AS visits,
-              COUNT(*) FILTER (WHERE is_bot = FALSE
-                                 AND (path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%'))::int AS tour_views,
-              COUNT(*) FILTER (WHERE is_bot = FALSE
-                                 AND (path LIKE '/trip/%' OR path LIKE '/plans/%'))::int AS plan_views,
-              COUNT(*) FILTER (WHERE is_bot = FALSE
-                                 AND (path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')
-                                 AND (from_path LIKE '/trip/%' OR from_path LIKE '/plans/%'))::int AS plan_to_tour,
-              COUNT(*) FILTER (WHERE is_bot = TRUE)::int AS bot_views
-         FROM page_views
-        WHERE created_at > ${W}`,
-      [days],
-    )).rows[0]),
-
-    measure('funnel_events.booking_start', async () => (await pool.query<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM funnel_events
-        WHERE step = 'booking_start' AND created_at > ${W}`,
-      [days],
-    )).rows[0]?.n ?? 0),
-
-    measure('leads', async () => (await pool.query<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM leads WHERE created_at > ${W}`,
-      [days],
-    )).rows[0]?.n ?? 0),
-
-    measure('operator_bookings', async () => (await pool.query<{ bookings: number; paid: number }>(
-      `SELECT COUNT(*)::int AS bookings, COUNT(paid_at)::int AS paid
-         FROM operator_bookings WHERE created_at > ${W}`,
-      [days],
-    )).rows[0]),
-
-    // Жив ли счётчик вообще: «на сайт не заходят» и «метрика умерла» дают
-    // одинаковый ноль в окне и разные последние строки за всё время.
-    measure('page_views.alive', async () => (await pool.query<{ last_at: string | null; total: number }>(
-      `SELECT MAX(created_at)::text AS last_at, COUNT(*)::int AS total FROM page_views`,
-    )).rows[0]),
-
-    // То же для маяка: ноль касаний формы и неработающий маяк — разные вещи.
-    measure('funnel_events.alive', async () => (await pool.query<{ last_at: string | null; total: number }>(
-      `SELECT MAX(created_at)::text AS last_at, COUNT(*)::int AS total FROM funnel_events`,
-    )).rows[0]),
-
-    // Куда люди на самом деле ходят. Без этого «каталог не ведёт к турам» —
-    // догадка: может, до каталога никто и не доходил.
-    measure('top_paths', async () => (await pool.query<{ path: string; views: number; visitors: number }>(
-      `SELECT path,
-              COUNT(*)::int                     AS views,
-              COUNT(DISTINCT visitor_hash)::int AS visitors
-         FROM page_views
-        WHERE created_at > ${W} AND is_bot = FALSE
-        GROUP BY path
-        ORDER BY views DESC
-        LIMIT 20`,
-      [days],
-    )).rows),
-
-    // Откуда приходят В карточку тура. Это и есть ответ, какая поверхность
-    // кормит коммерцию, а какая только кажется, что кормит.
-    measure('tour_edges', async () => (await pool.query<{ from_path: string | null; views: number }>(
-      `SELECT from_path, COUNT(*)::int AS views
-         FROM page_views
-        WHERE created_at > ${W} AND is_bot = FALSE
-          AND (path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')
-        GROUP BY from_path
-        ORDER BY views DESC
-        LIMIT 15`,
-      [days],
-    )).rows),
-
-    measure('leads_by_status', async () => (await pool.query<{ status: string | null; n: number }>(
-      `SELECT status, COUNT(*)::int AS n FROM leads
-        WHERE created_at > ${W} GROUP BY status ORDER BY n DESC`,
-      [days],
-    )).rows),
-
-    measure('bookings_by_status', async () => (await pool.query<{ booking_status: string | null; n: number }>(
-      `SELECT booking_status, COUNT(*)::int AS n FROM operator_bookings
-        WHERE created_at > ${W} GROUP BY booking_status ORDER BY n DESC`,
-      [days],
-    )).rows),
-  ]);
-
-  const counts = {
-    visits:         views.value?.visits ?? null,
-    tour_views:     views.value?.tour_views ?? null,
-    booking_starts: starts.value ?? null,
-    leads:          leadRows.value ?? null,
-    bookings:       bookingRows.value?.bookings ?? null,
-    paid:           bookingRows.value?.paid ?? null,
-    plan_views:     views.value?.plan_views ?? null,
-    plan_to_tour:   views.value?.plan_to_tour ?? null,
-  };
-
-  const { verdict, unknown, insufficient } = verdictFrom(counts);
-
-  const failures = [
-    views, starts, leadRows, bookingRows,
-    viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, bookingStatuses,
-  ].filter((m) => m.failed !== null).length;
-
-  return NextResponse.json({
-    ok: true,
-    probe: 'funnel_census_v1',
-    window_days: days,
-    counts,
-    bot_views: views.value?.bot_views ?? null,
-    // Вердикт — от того же судьи, что в петле эволюции.
-    verdict: verdict
-      ? { title: verdict.title, severity: verdict.severity, suggestion: verdict.suggestion }
-      : null,
-    // Пустой вердикт при известных входах — «поток до денег есть»; при
-    // неизвестных — «не смог проверить»; при известных, но крошечных —
-    // «судить рано» (07.09, случай #1689). Это три разных ответа, и они
-    // названы по отдельности: два первых уже стоили одной находки severity
-    // high, выехавшей на двух касаниях формы.
-    verdict_state: unknown.length > 0
-      ? 'unknown'
-      : (verdict ? 'broken_link' : (insufficient ? 'insufficient_sample' : 'no_broken_link')),
-    unknown_inputs: unknown,
-    insufficient_sample: insufficient,
-    failed_measures: [
-      ['page_views', views], ['booking_start', starts], ['leads', leadRows],
-      ['operator_bookings', bookingRows], ['page_views.alive', viewsAlive],
-      ['funnel_events.alive', beaconAlive], ['top_paths', topPaths],
-      ['tour_edges', tourEdges], ['leads_by_status', leadStatuses],
-      ['bookings_by_status', bookingStatuses],
-    ].filter(([, m]) => (m as Measured<unknown>).failed !== null)
-     .map(([name, m]) => ({ measure: name, error: (m as Measured<unknown>).failed })),
-    liveness: {
-      views_last_at:     viewsAlive.value?.last_at ?? null,
-      views_rows_total:  viewsAlive.value?.total ?? null,
-      beacon_last_at:    beaconAlive.value?.last_at ?? null,
-      beacon_rows_total: beaconAlive.value?.total ?? null,
-    },
-    top_paths:          topPaths.value,
-    tour_entry_edges:   tourEdges.value,
-    leads_by_status:    leadStatuses.value,
-    bookings_by_status: bookingStatuses.value,
-    // Судить не по чему — это отказ переписи, а не «всё хорошо».
-    meaningful: failures === 0 && unknown.length === 0,
-    duration_ms: Date.now() - startedAt,
+  const q = req.nextUrl.searchParams;
+  const resolved = resolveFunnelWindow({
+    range: q.get('range'),
+    date: q.get('date'),
+    days: q.get('days'),
   });
+  // Непонятный запрос — отказ со словами, а не молчаливые семь суток: цифры
+  // «за неделю» под видом «за день» хуже отсутствия цифр.
+  if (!resolved.ok) {
+    return NextResponse.json({ ok: false, error: resolved.error }, { status: 400 });
+  }
+
+  const report = await buildFunnelReport(resolved.window);
+  return NextResponse.json({ ok: true, probe: 'funnel_census_v1', ...report });
 }
