@@ -199,21 +199,29 @@ describe('обработчики ботов', () => {
 
   it('MAX: привязка только по заверенному источнику апдейта', () => {
     const src = read('app/api/max/kuzmich/route.ts');
-    const i = src.indexOf("bindPartnerChannel(check.partnerId, 'max'");
+    const i = src.indexOf("handlePartnerStart(startArg, 'max'");
     expect(i).toBeGreaterThan(0);
-    // Ближайший гейт перед разбором токена, и его блок между ними не закрыт.
-    // Гейт входа выше по файлу не в счёт: его блок закрывается раньше.
-    // Ветка живёт внутри общего блока bot_started (отступ 4), а не рядом с ним:
+    // Ближайший гейт перед разбором — именно тот, за которым берётся payload;
+    // его блок между ними не закрыт. Гейт входа выше по файлу не в счёт.
+    // Разбор, подпись и запись — одной цепочкой в lib (handlePartnerStart):
     // отдельные условия по полям тела возле проверки подписи CodeQL читает как
     // «значение пользователя управляет проверкой безопасности» (js/user-controlled-bypass).
-    const k = src.lastIndexOf('partnerTokenFromStart(startArg)', i);
-    expect(k).toBeGreaterThan(0);
-    const gate = src.lastIndexOf('if (opts?.verifiedOrigin === true', k);
+    const gate = src.lastIndexOf('if (opts?.verifiedOrigin === true', i);
     expect(gate).toBeGreaterThan(0);
-    expect(src.slice(gate, k)).not.toMatch(/\n    \}\n/);
-    // Гейт — ровно тот, за которым разбирается payload, а не более ранний.
+    expect(src.slice(gate, i)).not.toMatch(/\n    \}\n/);
     expect(src).toMatch(/if \(opts\?\.verifiedOrigin === true\) \{\s*\n\s*const startArg = typeof update\.payload === 'string'/);
-    expect(src).not.toMatch(/update_type === 'bot_started'\s*\n\s*&& update\.chat_id\s*\n\s*&& typeof update\.payload === 'string'\s*\n\s*\) \{\s*\n\s*\/\/ Турист хочет/);
+    expect(src).not.toMatch(/verifyPartnerLinkToken|partnerTokenFromStart/);
+  });
+
+  it('handlePartnerStart: не наша ссылка — false; плохая — причина человеку; хорошая — запись', async () => {
+    const { handlePartnerStart } = await import('@/lib/partners/bind-channel');
+    const reply = vi.fn().mockResolvedValue(undefined);
+    expect(await handlePartnerStart('login-abc', 'max', 5, reply)).toBe(false);
+    expect(reply).not.toHaveBeenCalled();
+    poolQueryMock.mockClear();
+    expect(await handlePartnerStart('op_' + 'A'.repeat(43), 'max', 5, reply)).toBe(true);
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(poolQueryMock).not.toHaveBeenCalled();
   });
 });
 

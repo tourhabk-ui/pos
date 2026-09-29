@@ -29,6 +29,7 @@ import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { maxSendDm } from '@/lib/notifications/max-channel';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 
 export type PartnerChannel = 'telegram' | 'max';
 
@@ -141,4 +142,32 @@ export function badLinkReplyText(reason: 'malformed' | 'bad_signature' | 'expire
   if (reason === 'expired') return 'Ссылка для подключения устарела (действует 72 часа). Попросите у администратора платформы новую.';
   if (reason === 'no_secret') return 'Подключение сейчас недоступно — на платформе не настроена проверка ссылок. Администратор уже может это видеть в логе.';
   return 'Ссылка для подключения недействительна. Попросите у администратора платформы новую.';
+}
+
+/**
+ * Обработать аргумент /start, если это ссылка привязки оператора.
+ *
+ * Возвращает true, если аргумент был ссылкой привязки (ответ человеку уже
+ * отправлен — удачный или с причиной отказа), и false, если это не наша
+ * ссылка и обработчик идёт дальше. Разбор, проверка подписи и запись живут
+ * здесь одной цепочкой; обработчик канала решает только, ЧЬЁ это чат, — по
+ * заверенному источнику апдейта, а не по полю тела.
+ */
+export async function handlePartnerStart(
+  arg: string,
+  channel: PartnerChannel,
+  chatId: number,
+  reply: (text: string) => Promise<unknown>,
+): Promise<boolean> {
+  const token = partnerTokenFromStart(arg);
+  if (token === null) return false;
+  const check = verifyPartnerLinkToken(token);
+  if (!check.ok) {
+    console.error(`[bind-channel] ссылка привязки оператора (${CHANNEL_LABEL[channel]}) отклонена: ${check.reason}`);
+    await reply(badLinkReplyText(check.reason));
+    return true;
+  }
+  const bound = await bindPartnerChannel(check.partnerId, channel, chatId);
+  await reply(bindReplyText(channel, bound));
+  return true;
 }

@@ -18,8 +18,7 @@ import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
-import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
-import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
+import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 
@@ -327,18 +326,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         return;
       }
 
-      const partnerToken = partnerTokenFromStart(startArg);
-      if (partnerToken !== null) {
-        const check = verifyPartnerLinkToken(partnerToken);
-        if (!check.ok) {
-          console.error(`[max-kuzmich] ссылка привязки оператора отклонена: ${check.reason}`);
-          await maxReply(update.chat_id, badLinkReplyText(check.reason));
-          return;
-        }
-        const bound = await bindPartnerChannel(check.partnerId, 'max', update.chat_id);
-        await maxReply(update.chat_id, bindReplyText('max', bound));
-        return;
-      }
+      const chatId = update.chat_id;
+      if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
     }
 
     let capturedStart = '';
