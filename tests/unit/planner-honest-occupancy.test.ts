@@ -61,10 +61,15 @@ describe('fetchAvailabilityForTour — занятость из operator_bookings
     expect(sql).toContain('ta.deleted_at IS NULL');
   });
 
-  it('ошибка БД → прежний тихий фолбэк []', async () => {
+  it('ошибка БД → отказ, а не «мест нет» (аудит MCP 29.09)', async () => {
+    // Раньше здесь был тихий фолбэк [] — и агент говорил человеку «свободных
+    // дат нет», когда база просто не ответила.
     poolQueryMock.mockRejectedValue(new Error('db down'));
-    const slots = await fetchAvailabilityForTour('7', '2026-08-01', '2026-08-05', freshCache());
-    expect(slots).toEqual([]);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(fetchAvailabilityForTour('7', '2026-08-01', '2026-08-05', freshCache()))
+      .rejects.toThrow(/Не удалось проверить занятость/);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
   });
 });
 
