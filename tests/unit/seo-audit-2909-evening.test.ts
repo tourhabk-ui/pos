@@ -176,6 +176,30 @@ describe('ссылки на маршрут — в пространстве id к
   });
 });
 
+describe('публичный блог читает из общей памяти агентов только дайджесты', () => {
+  // agent_knowledge хранит и оценки ответов Кузьмича — outcome_kuz_<chatId>_<n>
+  // с текстом туриста. Страница поста искала по одному slug и отдавала их
+  // анонимно (152-ФЗ). Проверено на PostgreSQL: без условия строка находится.
+  it('правило одно и не пропускает оценки ответов', () => {
+    const scope = code('lib/blog/digest-scope.ts');
+    expect(scope).toMatch(/type IN \('digest', 'decision'\)/);
+    expect(scope).toMatch(/slug LIKE 'digest\/%' OR slug LIKE 'proposals\/%'/);
+    expect(scope).not.toMatch(/outcome/);
+  });
+
+  it('страница поста и список блога оба ограничены этим правилом', () => {
+    const page = code('app/blog/[slug]/page.tsx');
+    expect(page).toMatch(/FROM agent_knowledge\s+WHERE slug = \$1\s+AND \$\{BLOG_DIGEST_SCOPE_SQL\}/);
+    expect(page).not.toMatch(/WHERE slug = \$1\s+LIMIT/);
+    expect(code('app/blog/page.tsx')).toMatch(/FROM agent_knowledge\s+WHERE \$\{BLOG_DIGEST_SCOPE_SQL\}/);
+  });
+
+  it('отказ базы не глушится ни в списке, ни на странице', () => {
+    expect(code('app/blog/[slug]/page.tsx')).toMatch(/catch \(err\)[\s\S]{0,300}console\.error\('\[blog\/\[slug\]\]/);
+    expect(code('app/blog/page.tsx')).toMatch(/catch \(err\)[\s\S]{0,300}console\.error\('\[blog\] дайджесты/);
+  });
+});
+
 describe('блог не обещает того, чего SOS не делает', () => {
   it('сигнал уходит дежурному Ведара, а в МЧС — звонок 112', () => {
     const blog = read('app/blog/page.tsx');

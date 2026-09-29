@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { stripTags } from '@/lib/html/text';
+import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,13 +44,15 @@ async function getLatestDigests(): Promise<DigestEntry[]> {
     const { rows } = await pool.query<DigestEntry>(`
       SELECT slug, title, compiled_truth, created_at::text
       FROM agent_knowledge
-      WHERE type IN ('digest', 'decision')
-        AND (slug LIKE 'digest/%' OR slug LIKE 'proposals/%')
+      WHERE ${BLOG_DIGEST_SCOPE_SQL}
       ORDER BY created_at DESC
       LIMIT 9
     `);
     return rows;
-  } catch {
+  } catch (err) {
+    // «Дайджестов нет» и «не смогли прочитать» — разные ответы (§4.0).
+    const e = err as { code?: string; message?: string };
+    console.error('[blog] дайджесты не прочитаны', { sqlstate: e?.code, message: e?.message });
     return [];
   }
 }

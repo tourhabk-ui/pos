@@ -89,7 +89,10 @@ describe('заголовок главной проверяется по осно
 
   it('регулярка знает нынешнее имя платформы', () => {
     const layout = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf-8');
-    const title = /title:\s*'([^']+)'/.exec(layout)?.[1] ?? '';
+    // С 29.09 заголовок главной — константа HOME_TITLE (её же берут og и
+    // twitter); прежняя форма — литерал в metadata.title.
+    const title = /const HOME_TITLE = '([^']+)'/.exec(layout)?.[1]
+      ?? /title:\s*'([^']+)'/.exec(layout)?.[1] ?? '';
     expect(title, 'заголовок главной не прочитался').not.toBe('');
     const m = /toHaveTitle\(\/([^/]+)\/i\)/.exec(SPEC);
     expect(m).not.toBeNull();
