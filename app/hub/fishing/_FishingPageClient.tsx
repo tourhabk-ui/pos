@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Fish, Clock, Users, Mountain, ChevronRight, Phone, Calendar } from 'lucide-react';
+import { Fish, Clock, Users, Mountain, ChevronRight, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 
@@ -55,7 +55,7 @@ function TourCard({ tour }: { tour: FishingTour }) {
   const diff  = tour.difficulty ?? 'easy';
 
   return (
-    <Link href={`/marketplace/tours/${tour.id}`} className="group block">
+    <Link href={`/catalog/tours/${tour.id}`} className="group block">
       <div className="ds-card overflow-hidden hover:shadow-md transition-all duration-200 h-full flex flex-col">
         {/* Фото */}
         <div className="relative h-48 bg-[var(--bg-hover)] overflow-hidden">
@@ -132,8 +132,15 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
     return true;
   });
 
-  const minPrice = Math.min(...tours.map(t => t.base_price));
-  const maxDays  = Math.max(...tours.map(t => Math.round(t.duration_hours / 24)));
+  // Сводка — только из строк туров. Пустой список не даёт «от ∞ ₽» и
+  // «до -Infinity человек»: при нуле туров чисел нет вовсе (§4.0).
+  const hasTours  = tours.length > 0;
+  const minPrice  = hasTours ? Math.min(...tours.map(t => t.base_price)) : null;
+  const minDays   = hasTours ? Math.max(1, Math.min(...tours.map(t => Math.round(t.duration_hours / 24)))) : null;
+  const maxDays   = hasTours ? Math.max(1, ...tours.map(t => Math.round(t.duration_hours / 24))) : null;
+  const minGroup  = hasTours ? Math.min(...tours.map(t => t.min_participants)) : null;
+  const maxGroup  = hasTours ? Math.max(...tours.map(t => t.max_participants)) : null;
+  const operators = [...new Set(tours.map(t => t.operator_name))];
 
   return (
     <div className="ds-page min-h-screen">
@@ -166,10 +173,12 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
               <Calendar className="w-4 h-4 text-[var(--ocean)]" />
               <span className="text-sm text-white">Весь год</span>
             </div>
-            <div className="flex items-center gap-2 bg-[rgba(255,255,255,0.1)] rounded-md px-4 py-2">
-              <Mountain className="w-4 h-4 text-[var(--ocean)]" />
-              <span className="text-sm text-white">от {priceLabel(minPrice)}</span>
-            </div>
+            {minPrice !== null && (
+              <div className="flex items-center gap-2 bg-[rgba(255,255,255,0.1)] rounded-md px-4 py-2">
+                <Mountain className="w-4 h-4 text-[var(--ocean)]" />
+                <span className="text-sm text-white">от {priceLabel(minPrice)}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -182,14 +191,11 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
             Поможем выбрать тур под ваши даты и уровень подготовки
           </p>
         </div>
+        {/* Кнопка «Позвонить» вела на +7 (4152) 26-44-44 — номер без
+            источника: его нет ни у одного оператора, ни в контактах
+            платформы (сверка SEO 29.09, вечер). Телефон оператора — на
+            странице тура и оператора. */}
         <div className="flex items-center gap-3 shrink-0">
-          <a
-            href="tel:+74152264444"
-            className="ds-btn ds-btn-secondary flex items-center gap-2 text-sm"
-          >
-            <Phone className="w-4 h-4" />
-            Позвонить
-          </a>
           <Link href="/ai-assistant?q=хочу+рыбачить+на+Камчатке"
             className="ds-btn ds-btn-primary flex items-center gap-2 text-sm">
             Спросить Кузьмича
@@ -225,12 +231,16 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
 
       {/* ── Почему мы ───────────────────────────────────────────────── */}
       <div className="ds-card p-8 mb-8">
-        <h2 className="ds-h2 mb-6">Почему выбирают нас</h2>
-        <div className="grid md:grid-cols-3 gap-6">
+        {/* «10+ лет опыта» и «Всё включено: трансфер, снаряжение…» не имели
+            источника, а второе спорило с данными: у туров «Камчатской
+            рыбалки» трансфер до базы — отдельно, от 7 000 ₽, снасти сверх
+            комплекта — в аренду (миграция 1106, not_included). Страница
+            открыта для индекса — обещание ушло бы в выдачу. */}
+        <h2 className="ds-h2 mb-6">Что важно знать</h2>
+        <div className="grid md:grid-cols-2 gap-6">
           {[
-            { title: 'Профессиональные гиды', body: 'Местные рыбаки с 10+ лет опыта. Знают каждый перекат реки Камчатки.' },
-            { title: 'Всё включено', body: 'Трансфер, снаряжение, наживка, разделка рыбы и упаковка для перевозки.' },
             { title: 'Весь сезон', body: 'Зимняя рыбалка со льда — с ноября. Летний лосось — с июня по октябрь.' },
+            { title: 'Состав — в карточке тура', body: 'Что входит в цену, а что оплачивается отдельно, оператор указывает в каждом туре.' },
           ].map(({ title, body }) => (
             <div key={title}>
               <div className="w-8 h-1 bg-[var(--accent)] rounded mb-3" />
@@ -248,12 +258,15 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
           Река Камчатка является одной из крупнейших нерестовых рек в мире: здесь нерестятся
           все пять видов тихоокеанского лосося — чавыча, нерка, кета, горбуша и кижуч.
         </p>
-        <p className="mt-3">
-          Наш партнёр — компания «Камчатская рыбалка» — работает на реке Камчатке с 2010 года.
-          Туры проводятся круглогодично: зимой рыбачат со льда, летом — с берега и моторных лодок.
-          Продолжительность туров от 1 до 7 дней, группы от {Math.min(...tours.map(t => t.min_participants))}
-          до {maxDays * 4} человек.
-        </p>
+        {/* Абзац раньше называл год основания партнёра, «моторные лодки» и
+            «группы до {дни × 4} человек» — без источника. Теперь только то,
+            что есть в строках туров. */}
+        {hasTours && (
+          <p className="mt-3">
+            Туры проводят: {operators.join(', ')}. Продолжительность — от {minDays} до {maxDays} дн.,
+            группы от {minGroup} до {maxGroup} человек. Зимой рыбачат со льда.
+          </p>
+        )}
       </div>
 
     </div>

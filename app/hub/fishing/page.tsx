@@ -87,10 +87,13 @@ export default async function FishingPage() {
       position: i + 1,
       item: {
         '@type': 'TouristTrip',
-        '@id': `${SITE}/hub/marketplace/${t.id}`,
+        // Адрес тура — /catalog/tours/{id}. Прежний /hub/marketplace/{id}
+        // не существует: аноним получал редирект на вход, обходчик — адрес
+        // под Disallow: /hub/ (сверка SEO 29.09, вечер).
+        '@id': `${SITE}/catalog/tours/${t.id}`,
         name: t.title,
         description: t.short_description ?? t.description ?? '',
-        url: `${SITE}/hub/marketplace/${t.id}`,
+        url: `${SITE}/catalog/tours/${t.id}`,
         touristType: 'Рыбаки, любители активного отдыха',
         availableLanguage: 'Russian',
         provider: {
@@ -103,7 +106,7 @@ export default async function FishingPage() {
           price: t.base_price,
           priceCurrency: 'RUB',
           availability: 'https://schema.org/InStock',
-          url: `${SITE}/hub/marketplace/${t.id}`,
+          url: `${SITE}/catalog/tours/${t.id}`,
         },
         ...(t.duration_hours && {
           itinerary: {

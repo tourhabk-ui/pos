@@ -158,6 +158,30 @@ describe('главная, каталог и рыбалка называют сп
   });
 });
 
+describe('/hub/fishing открыта индексу — на ней нет обещаний без источника', () => {
+  const client = code('app/hub/fishing/_FishingPageClient.tsx');
+  const page = code('app/hub/fishing/page.tsx');
+
+  it('туры — по настоящему адресу /catalog/tours/{id}, в разметке и в карточках', () => {
+    expect(page).not.toMatch(/hub\/marketplace/);
+    expect((page.match(/\$\{SITE\}\/catalog\/tours\/\$\{t\.id\}/g) ?? []).length).toBe(3);
+    expect(client).toMatch(/href=\{`\/catalog\/tours\/\$\{tour\.id\}`\}/);
+    expect(client).not.toMatch(/\/marketplace\/tours/);
+  });
+
+  it('нет номера без источника, стажа, года основания, «всё включено» и «дни × 4 человека»', () => {
+    for (const bad of [/264444/, /10\+ лет/, /2010/, /Всё включено/, /моторных лод/, /maxDays \* 4/]) {
+      expect(client, String(bad)).not.toMatch(bad);
+    }
+  });
+
+  it('сводка считается из строк туров и не выводится при пустом списке', () => {
+    expect(client).toMatch(/const minPrice\s+= hasTours \?/);
+    expect(client).toMatch(/\{minPrice !== null && \(/);
+    expect(client).toMatch(/\{hasTours && \(/);
+  });
+});
+
 describe('ссылки на маршрут — в пространстве id карточки', () => {
   // /routes/[id] ищет маршрут по UUID как COALESCE(ark_id, id) (VIEW
   // agent_route_knowledge). Голый kr.id у записи с ark_id там не находится.
