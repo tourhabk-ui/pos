@@ -31,6 +31,7 @@ import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCO
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
+import { logText } from '@/lib/log/log-text';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
@@ -587,7 +588,7 @@ async function handleToolsCall(
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
     // называется в логе (§4.0).
     const target = await handoffTargetForTool(toolName, toolArgs).catch((err: unknown) => {
-      console.error('[mcp] цель ссылки не определена:', toolName, err instanceof Error ? err.message : String(err));
+      console.error('[mcp] цель ссылки не определена:', logText(toolName), logText(err instanceof Error ? err.message : err, 300));
       return null;
     });
     const handoff = target
@@ -608,7 +609,7 @@ async function handleToolsCall(
     const userFacing = toolErr instanceof McpUserError;
     if (!userFacing) {
       const code = (toolErr as { code?: unknown })?.code;
-      console.error('[mcp] инструмент упал:', toolName, typeof code === 'string' ? code : '', toolErr instanceof Error ? toolErr.message : String(toolErr));
+      console.error('[mcp] инструмент упал:', logText(toolName), typeof code === 'string' ? logText(code, 10) : '', logText(toolErr instanceof Error ? toolErr.message : toolErr, 300));
     }
     logMcpToolCall({
       tool: toolName,
@@ -742,7 +743,7 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(reply, invalid ? { status: 400 } : undefined);
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
-    console.error('[mcp] необработанная ошибка:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+    console.error('[mcp] необработанная ошибка:', typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
     const id = (body && typeof body === 'object' && !Array.isArray(body) ? (body as { id?: unknown }).id : null);
     const safeId = typeof id === 'string' || typeof id === 'number' ? id : null;
     return NextResponse.json(jsonrpcError(safeId, -32603, MCP_INTERNAL_ERROR_TEXT), { status: 500 });

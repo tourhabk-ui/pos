@@ -41,6 +41,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { programSteps } from '@/lib/tours/describe';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
+import { logText } from '@/lib/log/log-text';
 import { redactPII } from '@/lib/security/pii-redact';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -2111,7 +2112,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
   } catch (err) {
     // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
     const code = (err as { code?: unknown })?.code;
-    console.error('[kuzmich-tool] исполнение упало:', name, typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+    console.error('[kuzmich-tool] исполнение упало:', logText(name), typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
     return TOOL_EXECUTION_FAILED;
   }
 }

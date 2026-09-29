@@ -7,10 +7,12 @@
  * mcp_tool_calls и тишину журнала объявляет фактом о каталогах (проверка
  * MCP 29.09).
  */
+import { logText } from '@/lib/log/log-text';
+
 export function logMcpFailure(operation: string, err: unknown): void {
   const code = (err as { code?: unknown } | null)?.code;
   console.error(
-    `[mcp] ${operation} не выполнилось: sqlstate=${typeof code === 'string' ? code : 'нет'}`,
-    err instanceof Error ? err.message : String(err),
+    `[mcp] ${operation} не выполнилось: sqlstate=${typeof code === 'string' ? logText(code, 10) : 'нет'}`,
+    logText(err instanceof Error ? err.message : err, 300),
   );
 }
