@@ -56,7 +56,8 @@
     '#tourhub-widget-btn{width:56px;height:56px;border-radius:50%;border:none;background:' + accent + ';color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s}',
     '#tourhub-widget-btn:hover{transform:scale(1.08);box-shadow:0 6px 24px rgba(0,0,0,0.25)}',
     '#tourhub-widget-btn svg{width:24px;height:24px}',
-    '#tourhub-widget-frame{position:absolute;bottom:70px;width:370px;height:520px;border:none;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.18);opacity:0;transform:translateY(10px) scale(0.95);transition:opacity .25s,transform .25s;pointer-events:none;background:#fff}',
+    // Высота не больше экрана: при большом data-bottom верх окна иначе уходит за экран.
+    '#tourhub-widget-frame{position:absolute;bottom:70px;width:370px;height:520px;max-height:calc(100vh - ' + (bottom + 90) + 'px);border:none;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.18);opacity:0;transform:translateY(10px) scale(0.95);transition:opacity .25s,transform .25s;pointer-events:none;background:#fff}',
     position === 'left'
       ? '#tourhub-widget-frame{left:0}'
       : '#tourhub-widget-frame{right:0}',
@@ -64,7 +65,9 @@
     // Телефон: окно привязано к экрану, а не к кнопке. Прежнее left:50%
     // считалось от корня шириной 56 px, и окно уезжало на 125 px за правый
     // край экрана 390 px (примерка на fishingkam.ru 29.09).
-    '@media(max-width:420px){#tourhub-widget-frame{position:fixed;left:16px;right:16px;width:auto;bottom:' + (bottom + 70) + 'px;height:min(520px,calc(100vh - ' + (bottom + 100) + 'px))}}',
+    // Ширина задана явно: у iframe (замещаемый элемент) width:auto между
+    // left и right не растягивается, а остаётся 300 px у левого края.
+    '@media(max-width:420px){#tourhub-widget-frame{position:fixed;left:16px;right:16px;width:calc(100vw - 32px);bottom:' + (bottom + 70) + 'px;height:min(520px,calc(100vh - ' + (bottom + 100) + 'px))}}',
   ].join('\n');
   document.head.appendChild(css);
 

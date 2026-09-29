@@ -148,6 +148,20 @@ describe('GET /api/widget/lead.js — скрипт на сайте партнё�
     expect(iframe.style.height).toBe('537px');
   });
 
+  it('экран уменьшился (клавиатура, поворот) — окно пересчитывается от высоты формы', async () => {
+    new Function(await script())();
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: 'https://vedarai.ru', data: { type: 'th:height', height: 537 }, source: iframe.contentWindow,
+    }));
+    expect(iframe.style.height).toBe('537px');
+    const before = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    expect(iframe.style.height).toBe('336px');
+    Object.defineProperty(window, 'innerHeight', { value: before, configurable: true });
+  });
+
   it('высоту от чужого источника не принимает', async () => {
     new Function(await script())();
     const iframe = document.querySelector('iframe') as HTMLIFrameElement;
@@ -179,6 +193,8 @@ describe('embed.js — чат на сайте партнёра', () => {
     run({ 'data-partner-id': 'fishingkam', 'data-color': '#003466', 'data-bottom': '120' });
     expect(css()).toMatch(/#tourhub-widget-root\{position:fixed;bottom:120px/);
     expect(css()).toMatch(/background:#003466/);
+    // Верх окна чата не уходит за экран при большом отступе.
+    expect(css()).toMatch(/max-height:calc\(100vh - 210px\)/);
   });
 
   it('произвольная строка в data-color в CSS не попадает', () => {
@@ -190,7 +206,7 @@ describe('embed.js — чат на сайте партнёра', () => {
   it('на телефоне окно чата привязано к краям экрана, а не к кнопке', () => {
     run({ 'data-partner-id': 'fishingkam', 'data-bottom': '120' });
     const mobile = css().match(/@media\(max-width:420px\)\{([^@]*)\}/)?.[1] ?? '';
-    expect(mobile).toMatch(/position:fixed;left:16px;right:16px;width:auto;bottom:190px/);
+    expect(mobile).toMatch(/position:fixed;left:16px;right:16px;width:calc\(100vw - 32px\);bottom:190px/);
     expect(mobile).not.toMatch(/left:50%/);
   });
 

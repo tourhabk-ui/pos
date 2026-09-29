@@ -193,12 +193,21 @@ export async function GET(request: NextRequest) {
   });
 
   /* ── PostMessage from iframe ── */
+  /* Высота окна = высота формы, но не выше экрана. Экран меняется (поворот,
+     клавиатура на телефоне) — пересчитываем от последней высоты формы,
+     иначе «Отправить заявку» уходит за край. */
+  var formHeight = 0;
+  function fitFrame() {
+    if (!formHeight) return;
+    iframe.style.height = Math.max(200, Math.min(formHeight, window.innerHeight - 64)) + 'px';
+  }
+  window.addEventListener('resize', fitFrame);
   window.addEventListener('message', function (e) {
     if (e.origin !== BASE) return;
     if (e.data === 'th:close') { close(); return; }
     if (e.data && e.data.type === 'th:height' && typeof e.data.height === 'number' && e.source === iframe.contentWindow) {
-      var h = Math.max(200, Math.min(e.data.height, window.innerHeight - 64));
-      iframe.style.height = h + 'px';
+      formHeight = e.data.height;
+      fitFrame();
     }
   });
 
