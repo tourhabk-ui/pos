@@ -203,11 +203,17 @@ describe('обработчики ботов', () => {
     expect(i).toBeGreaterThan(0);
     // Ближайший гейт перед разбором токена, и его блок между ними не закрыт.
     // Гейт входа выше по файлу не в счёт: его блок закрывается раньше.
-    const k = src.lastIndexOf('partnerTokenFromStart(update.payload)', i);
+    // Ветка живёт внутри общего блока bot_started (отступ 4), а не рядом с ним:
+    // отдельные условия по полям тела возле проверки подписи CodeQL читает как
+    // «значение пользователя управляет проверкой безопасности» (js/user-controlled-bypass).
+    const k = src.lastIndexOf('partnerTokenFromStart(startArg)', i);
     expect(k).toBeGreaterThan(0);
     const gate = src.lastIndexOf('if (opts?.verifiedOrigin === true', k);
     expect(gate).toBeGreaterThan(0);
-    expect(src.slice(gate, k)).not.toMatch(/\n  \}\n/);
+    expect(src.slice(gate, k)).not.toMatch(/\n    \}\n/);
+    // Гейт — ровно тот, за которым разбирается payload, а не более ранний.
+    expect(src).toMatch(/if \(opts\?\.verifiedOrigin === true\) \{\s*\n\s*const startArg = typeof update\.payload === 'string'/);
+    expect(src).not.toMatch(/update_type === 'bot_started'\s*\n\s*&& update\.chat_id\s*\n\s*&& typeof update\.payload === 'string'\s*\n\s*\) \{\s*\n\s*\/\/ Турист хочет/);
   });
 });
 

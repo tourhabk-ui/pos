@@ -626,10 +626,12 @@ describe('провода', () => {
   it('турист подключает чат в обоих ботах; в MAX — под гейтом заверенного апдейта', () => {
     expect(read('app/api/telegram/webhook/route.ts')).toMatch(/bindTouristChat\(seatToken, 'telegram', update\.message\.chat\.id\)/);
     const max = read('app/api/max/kuzmich/route.ts');
-    const k = max.indexOf('statusTokenFromStart(update.payload)');
+    const k = max.indexOf('statusTokenFromStart(startArg)');
     const gate = max.lastIndexOf('if (opts?.verifiedOrigin === true', k);
     expect(gate).toBeGreaterThan(0);
-    expect(max.slice(gate, k)).not.toMatch(/\n  \}\n/);
+    expect(max.slice(gate, k)).not.toMatch(/\n    \}\n/);
+    // Гейт — ровно тот, за которым разбирается payload, а не более ранний.
+    expect(max).toMatch(/if \(opts\?\.verifiedOrigin === true\) \{\s*\n\s*const startArg = typeof update\.payload === 'string'/);
   });
 
   it('планер показывает кнопку и форму; форма шлёт код агента и состояние согласия', () => {

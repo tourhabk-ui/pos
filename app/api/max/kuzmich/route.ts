@@ -305,44 +305,42 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     return;
   }
 
-  // ── ПОДКЛЮЧЕНИЕ ОПЕРАТОРА К ЗАЯВКАМ ───────────────────────────────────────
-  // Тот же гейт, что у входа: чат, куда пойдут имена и телефоны туристов,
-  // назначается только по заверенному источнику апдейта (verifiedOrigin —
-  // серверный флаг), а не по полю из тела. Ссылку выдаёт администратор
-  // (lib/partners/channel-link), запись — в карточку партнёра.
-  if (opts?.verifiedOrigin === true
-      && update.update_type === 'bot_started'
-      && update.chat_id
-      && typeof update.payload === 'string') {
-    // Турист хочет получить ответ оператора на запрос мест сюда. Тот же
-    // гейт: в этот чат уйдёт ссылка на его бронь.
-    const seatToken = statusTokenFromStart(update.payload);
-    if (seatToken !== null) {
-      const bound = await bindTouristChat(seatToken, 'max', update.chat_id);
-      await maxReply(update.chat_id, !bound.ok
-        ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
-            : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
-            : 'Не удалось подключить — попробуйте ещё раз через минуту.')
-        : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
-      return;
-    }
-
-    const partnerToken = partnerTokenFromStart(update.payload);
-    if (partnerToken !== null) {
-      const check = verifyPartnerLinkToken(partnerToken);
-      if (!check.ok) {
-        console.error(`[max-kuzmich] ссылка привязки оператора отклонена: ${check.reason}`);
-        await maxReply(update.chat_id, badLinkReplyText(check.reason));
-        return;
-      }
-      const bound = await bindPartnerChannel(check.partnerId, 'max', update.chat_id);
-      await maxReply(update.chat_id, bindReplyText('max', bound));
-      return;
-    }
-  }
-
   // bot_started → обычный /start (в т.ч. незаверенный login-payload — без входа)
   if (update.update_type === 'bot_started' && update.chat_id) {
+    // ── ПОДКЛЮЧЕНИЕ ОПЕРАТОРА И ТУРИСТА ────────────────────────────────────
+    // Чат, куда пойдут имена и телефоны туристов и ссылка на бронь,
+    // назначается только по заверенному источнику апдейта (verifiedOrigin —
+    // серверный флаг, НЕ поле тела). Ворота настоящие — подпись ссылки
+    // (lib/partners/channel-link, HMAC) и ключ запроса (хэш в базе); форму
+    // payload проверяют сами разборщики. Ссылку оператору выдаёт администратор.
+    if (opts?.verifiedOrigin === true) {
+      const startArg = typeof update.payload === 'string' ? update.payload : '';
+      const seatToken = statusTokenFromStart(startArg);
+      if (seatToken !== null) {
+        // Турист хочет получить ответ оператора на запрос мест сюда.
+        const bound = await bindTouristChat(seatToken, 'max', update.chat_id);
+        await maxReply(update.chat_id, !bound.ok
+          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
+              : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
+              : 'Не удалось подключить — попробуйте ещё раз через минуту.')
+          : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
+        return;
+      }
+
+      const partnerToken = partnerTokenFromStart(startArg);
+      if (partnerToken !== null) {
+        const check = verifyPartnerLinkToken(partnerToken);
+        if (!check.ok) {
+          console.error(`[max-kuzmich] ссылка привязки оператора отклонена: ${check.reason}`);
+          await maxReply(update.chat_id, badLinkReplyText(check.reason));
+          return;
+        }
+        const bound = await bindPartnerChannel(check.partnerId, 'max', update.chat_id);
+        await maxReply(update.chat_id, bindReplyText('max', bound));
+        return;
+      }
+    }
+
     let capturedStart = '';
     const capturingStart = async (id: number, text: string) => {
       capturedStart = text;
