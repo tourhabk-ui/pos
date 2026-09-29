@@ -47,7 +47,21 @@ describe('идемпотентность заявки на бронь: (теле
 
   it('роут спрашивает домен лидов по детерминированному префиксу — своего SQL у MCP нет', () => {
     expect(ROUTE).toMatch(/findRecentLeadByCommentPrefix\(phone, bookingPrefix\)/);
-    expect(ROUTE).toMatch(/— новую не создаю/);
+    expect(ROUTE).toMatch(/— повторно не создаю/);
+  });
+
+  // Проверка MCP 29.09: дубль проверялся ДО согласия и сторожа записи и
+  // называл номер заявки — любой, кто знает телефон, узнавал, что его
+  // владелец просил бронь такого тура на такую дату (152-ФЗ).
+  it('дубль проверяется после согласия и сторожа записи, номер заявки не называется', () => {
+    const fn = ROUTE.slice(ROUTE.indexOf('async function executeCreateBookingRequest'), ROUTE.indexOf('async function executeCreateLead'));
+    const gate = fn.indexOf('await admitWrite(ctx, BOOKING_REQUEST_TOOL.name');
+    const dedup = fn.indexOf('findRecentLeadByCommentPrefix(phone, bookingPrefix)');
+    expect(gate).toBeGreaterThan(0);
+    expect(dedup).toBeGreaterThan(gate);
+    const dupAnswer = fn.slice(dedup, fn.indexOf('const leadId', dedup));
+    expect(dupAnswer).not.toMatch(/\$\{existing\}/);
+    expect(dupAnswer).not.toMatch(/\$\{phone\}/);
   });
 
   it('дедуп в домене лидов: окно 24ч, спецсимволы LIKE экранируются', () => {

@@ -212,16 +212,6 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     return `Дата ${date} уже прошла — заявка не создана. Свободные даты: get_tour_availability.`;
   }
 
-  // Аудит 08.08, замечание 3 — явная идемпотентность по (телефон, тур, дата):
-  // общий дедуп createLead требует ТОЧНОГО совпадения комментария, а агент при
-  // ретрае может переформулировать. Ключ — детерминированный префикс комментария;
-  // SQL живёт в домене лидов (lib/leads/create), не здесь — у MCP своего движка нет.
-  const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
-  const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
-  if (existing) {
-    return `Заявка на бронь "${tour.title}" на ${date} с этого телефона уже есть (номер ${existing}) — новую не создаю. Оператор свяжется по ${phone}.`;
-  }
-
   const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
   const cache = createPlannerCache();
   const slots = await fetchAvailabilityForTour(String(tour.id), date, date, cache);
@@ -248,6 +238,22 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   }
 
   const pd_consent = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent);
+
+  // Аудит 08.08, замечание 3 — явная идемпотентность по (телефон, тур, дата):
+  // общий дедуп createLead требует ТОЧНОГО совпадения комментария, а агент при
+  // ретрае может переформулировать. Ключ — детерминированный префикс комментария;
+  // SQL живёт в домене лидов (lib/leads/create), не здесь — у MCP своего движка нет.
+  //
+  // Проверка стоит ПОСЛЕ согласия и сторожа записи, а ответ не называет номер
+  // заявки. Раньше она шла первой: любой, кто знает телефон, без согласия и
+  // вне лимита записи узнавал, что его владелец просил бронь такого тура на
+  // такую дату, и номер его заявки (152-ФЗ; проверка MCP 29.09).
+  const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
+  const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
+  if (existing) {
+    return `Такая заявка на бронь ("${tour.title}", ${date}, этот телефон) уже принята — повторно не создаю. Оператор свяжется по указанному телефону.`;
+  }
+
   const leadId = await createLead({
     name,
     phone,
