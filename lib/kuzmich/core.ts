@@ -37,6 +37,9 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { programSteps } from '@/lib/tours/describe';
+import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { redactPII } from '@/lib/security/pii-redact';
 
@@ -474,8 +477,7 @@ export async function loadTourCatalog(): Promise<string | null> {
            ORDER BY ta.date
            LIMIT 1
         ) live ON true
-        WHERE ot.is_active = true AND ot.deleted_at IS NULL
-          AND COALESCE(ot.is_published, TRUE) = TRUE
+        WHERE ${publicTourSql('ot')}
         ORDER BY ot.base_price ASC
         LIMIT 40
       `);
@@ -1216,7 +1218,7 @@ export async function findTour(keywords: string[]): Promise<TourRow | null> {
     const { rows } = await pool.query<TourRow>(
       `SELECT id, title, base_price, multi_day_count, activity_type
        FROM operator_tours
-       WHERE is_active = true AND deleted_at IS NULL
+       WHERE ${publicTourSql('')}
          AND (${whereClause})
        ORDER BY (${relevanceExpr}) DESC, base_price ASC LIMIT 1`,
       patterns,
@@ -1231,6 +1233,9 @@ export async function findTour(keywords: string[]): Promise<TourRow | null> {
  * промпт на 40 туров) — а без них Кузьмич не знает ни программы, ни откуда
  * стартует сплав. Ищем по названию/ключевому слову, берём самый релевантный.
  */
+/** Сколько описания отдаётся агенту; длиннее — с пометкой об обрезке. */
+const TOUR_DESCRIPTION_MAX = 1200;
+
 export async function getTourDetails(query: string): Promise<string> {
   const q = query.trim();
   if (!q) return '';
@@ -1255,11 +1260,16 @@ export async function getTourDetails(query: string): Promise<string> {
       cancellation_policy: string | null;
       location_name: string | null;
       activity_type: string | null;
+      program: unknown;
+      safety_notes: string[] | null;
+      pickup_type: string | null;
+      pickup_details: string | null;
     }>(
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
-              included, not_included, what_to_bring, cancellation_policy, location_name, activity_type
+              included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
+              program, safety_notes, pickup_type, pickup_details
          FROM operator_tours
-        WHERE id = $1`,
+        WHERE id = $1 AND ${publicTourSql('')}`,
       [resolved.id],
     );
     const t = rows[0];
@@ -1273,8 +1283,29 @@ export async function getTourDetails(query: string): Promise<string> {
     if (priceLine) parts.push(`Цена: ${priceLine}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
-    if (t.description) parts.push(`Описание: ${t.description.slice(0, 1200)}`);
-    if (t.meeting_point) parts.push(`Точка сбора и логистика (бери ТОЛЬКО отсюда, не выдумывай):\n${t.meeting_point}`);
+    if (t.description) {
+      // Обрезка называется: агент принимал обрывок за полный текст (проверка MCP 29.09).
+      const cut = t.description.length > TOUR_DESCRIPTION_MAX;
+      parts.push(`Описание: ${t.description.slice(0, TOUR_DESCRIPTION_MAX)}${cut ? ' […описание длиннее, полный текст — на странице тура]' : ''}`);
+    }
+    // Программа, забор и правила безопасности — описание инструмента их
+    // обещало («программа, точка сбора и логистика»), а SELECT не брал:
+    // у всех живых туров meeting_point пуст намеренно (забирают сами), и на
+    // «откуда стартуем» агент не получал ничего (проверка MCP 29.09).
+    const steps = programSteps(t.program);
+    parts.push(steps.length
+      ? `Программа (бери ТОЛЬКО отсюда):\n${steps.map((st, i) => `${i + 1}. ${st.title}${st.text ? ` — ${st.text}` : ''}`).join('\n')}`
+      : 'Программа по дням у этого тура НЕ ЗАПИСАНА — не сочиняй её, скажи, что уточняется у оператора.');
+    const pickup = pickupForCard(t.pickup_type, t.pickup_details, t.meeting_point);
+    if (pickup) {
+      parts.push(`Как попасть на тур (бери ТОЛЬКО отсюда): ${pickup.summary}${pickup.lines.length ? `\n${pickup.lines.join('\n')}` : ''}`);
+    } else if (t.meeting_point) {
+      parts.push(`Точка сбора и логистика (бери ТОЛЬКО отсюда, не выдумывай):\n${t.meeting_point}`);
+    } else {
+      parts.push('Как туриста доставляют на тур, НЕ ЗАПИСАНО — не называй место и время сбора, скажи, что уточняется у оператора.');
+    }
+    const notes = (t.safety_notes ?? []).map((n) => n.trim()).filter(Boolean);
+    if (notes.length) parts.push(`Правила безопасности этого тура:\n- ${notes.join('\n- ')}`);
     if (t.included?.length) parts.push(`Входит в стоимость:\n- ${t.included.join('\n- ')}`);
     if (t.not_included?.length) parts.push(`Не входит:\n- ${t.not_included.join('\n- ')}`);
     if (t.what_to_bring?.length) parts.push(`Взять с собой:\n- ${t.what_to_bring.join('\n- ')}`);

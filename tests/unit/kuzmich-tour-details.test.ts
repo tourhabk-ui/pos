@@ -76,3 +76,46 @@ describe('getTourDetails', () => {
     expect(out).toContain('13 000');
   });
 });
+
+// Проверка MCP 29.09: описание инструмента обещало программу, забор и
+// правила безопасности, а SELECT их не брал; резолвер находил черновики.
+describe('getTourDetails: программа, забор, безопасность — и только тур на витрине', () => {
+  const TOUR = {
+    id: 27, title: 'Сплав по реке Быстрая', base_price: 13000, price_unit: 'person',
+    short_description: null, description: 'x'.repeat(1300), meeting_point: null,
+    included: null, not_included: null, what_to_bring: null, cancellation_policy: null,
+    location_name: null, activity_type: 'rafting',
+    program: [{ title: 'Выезд из Петропавловска', text: 'в 7:00' }, { title: 'Сплав', text: '' }],
+    safety_notes: ['Спасжилет на воде обязателен'],
+    pickup_type: 'hotel_pickup', pickup_details: 'От гостиниц Петропавловска',
+  };
+
+  it('всё обещанное доходит до ответа, обрезка описания названа', async () => {
+    poolQueryMock.mockImplementation(async (sql: string) =>
+      /LIMIT 1/.test(sql) ? { rows: [{ id: 27, title: TOUR.title, base_price: 13000, price_unit: 'person' }] } : { rows: [TOUR] });
+    const out = await getTourDetails('сплав');
+    expect(out).toMatch(/Программа \(бери ТОЛЬКО отсюда\):\n1\. Выезд из Петропавловска — в 7:00\n2\. Сплав/);
+    expect(out).toMatch(/Оператор забирает туриста сам[\s\S]*От гостиниц Петропавловска/);
+    expect(out).toMatch(/Спасжилет на воде обязателен/);
+    expect(out).toMatch(/описание длиннее/);
+  });
+
+  it('не записано — так и сказано, без выдумки', async () => {
+    const bare = { ...TOUR, program: null, safety_notes: null, pickup_type: null, pickup_details: null, description: 'коротко' };
+    poolQueryMock.mockImplementation(async (sql: string) =>
+      /LIMIT 1/.test(sql) ? { rows: [{ id: 27, title: TOUR.title, base_price: 13000, price_unit: 'person' }] } : { rows: [bare] });
+    const out = await getTourDetails('сплав');
+    expect(out).toMatch(/Программа по дням у этого тура НЕ ЗАПИСАНА/);
+    expect(out).toMatch(/Как туриста доставляют на тур, НЕ ЗАПИСАНО/);
+    expect(out).not.toMatch(/описание длиннее/);
+  });
+
+  it('каждый запрос к operator_tours несёт шлюз витрины (is_published)', async () => {
+    poolQueryMock.mockImplementation(async (sql: string) =>
+      /LIMIT 1/.test(sql) ? { rows: [{ id: 27, title: TOUR.title, base_price: 13000, price_unit: 'person' }] } : { rows: [TOUR] });
+    await getTourDetails('сплав');
+    const tourSql = poolQueryMock.mock.calls.map((c) => c[0]).filter((q) => /FROM operator_tours/.test(q));
+    expect(tourSql.length).toBeGreaterThanOrEqual(2);
+    for (const q of tourSql) expect(q).toMatch(/is_published = true/);
+  });
+});

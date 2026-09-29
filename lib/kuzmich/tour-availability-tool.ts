@@ -10,6 +10,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
@@ -25,7 +26,10 @@ export interface ResolvedTour {
 
 /**
  * Тур по названию/ключевому слову или числовому ID — тот же паттерн, что у
- * get_tour_details. null — такого тура нет; отказ базы — исключение (с
+ * get_tour_details. Только тур на витрине (publicTourSql): черновик
+ * оператора (is_published = false) через MCP не находился бы ни картой, ни
+ * заявкой на бронь — до 29.09 резолвер смотрел лишь is_active и deleted_at.
+ * null — такого тура нет; отказ базы — исключение (с
  * логом): до 29.09 он тоже был null, и внешний агент получал ложный факт
  * «тур не найден среди активных» на месте «не смог проверить» (§4.0).
  */
@@ -36,14 +40,14 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
     if (/^\d+$/.test(q)) {
       const { rows } = await pool.query<ResolvedTour>(
         `SELECT id, title, base_price, price_unit FROM operator_tours
-          WHERE id = $1 AND is_active = true AND deleted_at IS NULL`,
+          WHERE id = $1 AND ${publicTourSql('')}`,
         [Number(q)],
       );
       if (rows[0]) return rows[0];
     }
     const { rows } = await pool.query<ResolvedTour>(
       `SELECT id, title, base_price, price_unit FROM operator_tours
-        WHERE is_active = true AND deleted_at IS NULL
+        WHERE ${publicTourSql('')}
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
         LIMIT 1`,
