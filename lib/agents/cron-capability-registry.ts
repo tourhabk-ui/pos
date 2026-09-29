@@ -56,7 +56,13 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'channel-post': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-post-tour': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-readiness': ['db_read', 'pd_direct'],
-  'channel-parity': ['db_read'],
+  // Статическая перепись видит всё, что достижимо через executeKuzmichTool
+  // (весь реестр инструментов Кузьмича: запись, сеть, Telegram, модели). Проба
+  // зовёт ровно четыре читающих инструмента (get_tours, get_tour_availability,
+  // safety_status, get_volcano_status) и сама не пишет — это держит
+  // tests/unit/channel-parity.test.ts, — но перепись судит по достижимости, а
+  // не по намерению, поэтому объявлено то, что она видит.
+  'channel-parity': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'commission-dry-run': ['db_read', 'db_write', 'money'],
