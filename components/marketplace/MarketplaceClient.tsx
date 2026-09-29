@@ -146,9 +146,9 @@ const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 
 function TourCardSkeleton() {
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-      <div className="ds-skeleton h-56 w-full" />
-      <div className="p-5 space-y-3">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl overflow-hidden">
+      <div className="ds-skeleton aspect-[4/3] w-full" />
+      <div className="p-4 space-y-3">
         <div className="ds-skeleton h-3 w-1/3 rounded" />
         <div className="ds-skeleton h-5 w-4/5 rounded" />
         <div className="ds-skeleton h-3 w-full rounded" />
@@ -321,60 +321,67 @@ function TourCard({
   };
 
   return (
-    <div className="group relative aspect-[5/6] sm:aspect-[17/25] rounded-2xl overflow-hidden bg-[var(--bg-hover)] shadow-sm hover:shadow-xl transition-all duration-300">
-      {/* Фото на всю карточку */}
-      <Image
-        src={imageSrc}
-        alt={tour.title}
-        fill
-        sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
-        className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
-        style={{ filter: 'saturate(1.12) contrast(1.04)' }}
-      />
-      {/* Затемнение только внизу под текстом — краски фото играют */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
-
+    // Фото сверху, текст под ним — решение владельца 29.09. До этого дня
+    // стеклянная панель с описанием, «что входит», оператором и ценой лежала
+    // ПОВЕРХ фото и на телефоне закрывала его почти целиком: «описание тура
+    // закрывает фото, это не профессионально». Теперь фото свободно (на нём
+    // только рейл фич и избранное — стекло), а текст стоит сплошным блоком на
+    // --bg-card: на сплошном фоне стекла нет (CLAUDE.md §2).
+    <div className="group relative flex flex-col rounded-2xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border)] shadow-sm hover:shadow-xl transition-all duration-300">
       {/* Навигация по всей карточке (под оверлеями) — сразу на канонический
           адрес: /marketplace/* уходит 308-редиректом и теряет #booking (#129). */}
       <Link href={href} className="absolute inset-0 z-[1]" aria-label={tour.title} />
 
-      {/* Рейл фич — стекло поверх фото */}
-      {features.length > 0 && (
-        <div
-          className="absolute top-3 left-3 z-[2] flex flex-col gap-0.5 p-1.5 rounded-2xl backdrop-blur-md bg-black/40 border border-white/15 pointer-events-none"
-          role="list"
-          aria-label="Что в туре"
+      <div className="relative aspect-[4/3] overflow-hidden bg-[var(--bg-hover)]">
+        <Image
+          src={imageSrc}
+          alt={tour.title}
+          fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
+          style={{ filter: 'saturate(1.12) contrast(1.04)' }}
+        />
+        {/* Лёгкое затемнение сверху — под рейлом и сердцем, краски фото целы */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-transparent" />
+
+        {/* Рейл фич — стекло поверх фото */}
+        {features.length > 0 && (
+          <div
+            className="absolute top-3 left-3 z-[2] flex flex-col gap-0.5 p-1.5 rounded-2xl backdrop-blur-md bg-black/40 border border-white/15 pointer-events-none"
+            role="list"
+            aria-label="Что в туре"
+          >
+            {features.map((f) => (
+              <span key={f.label} role="listitem" title={f.label} aria-label={f.label} className="w-8 h-8 grid place-items-center text-white">
+                <f.Icon className="w-[18px] h-[18px]" aria-hidden />
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Избранное — стекло, цель 44px */}
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleLike(tour.id); }}
+          aria-label={isLiked ? 'Убрать из избранного' : 'В избранное'}
+          aria-pressed={isLiked}
+          className="absolute top-2 right-2 z-[3] w-11 h-11 rounded-full grid place-items-center backdrop-blur-md bg-black/40 border border-white/15 transition-transform duration-200 hover:scale-105"
         >
-          {features.map((f) => (
-            <span key={f.label} role="listitem" title={f.label} aria-label={f.label} className="w-8 h-8 grid place-items-center text-white">
-              <f.Icon className="w-[18px] h-[18px]" aria-hidden />
-            </span>
-          ))}
-        </div>
-      )}
+          <Heart className={`w-5 h-5 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
+        </button>
+      </div>
 
-      {/* Избранное — стекло, цель 44px */}
-      <button
-        type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleLike(tour.id); }}
-        aria-label={isLiked ? 'Убрать из избранного' : 'В избранное'}
-        aria-pressed={isLiked}
-        className="absolute top-2 right-2 z-[3] w-11 h-11 rounded-full grid place-items-center backdrop-blur-md bg-black/40 border border-white/15 transition-transform duration-200 hover:scale-105"
-      >
-        <Heart className={`w-5 h-5 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
-      </button>
-
-      {/* Нижняя панель: стекло для контекста (текст), кнопка — непрозрачная */}
+      {/* Текст — сплошным блоком под фото; кнопка непрозрачная */}
       <div
-        className="absolute left-2.5 right-2.5 bottom-2.5 z-[2] p-3.5 rounded-2xl text-white backdrop-blur-md bg-black/60 border border-white/15 pointer-events-none [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none [@media(prefers-reduced-transparency:reduce)]:bg-[var(--bg-card)] [@media(prefers-reduced-transparency:reduce)]:text-[var(--text-primary)] [@media(prefers-reduced-transparency:reduce)]:border-[var(--border)]"
+        className="relative z-[2] flex flex-col flex-1 p-4 text-[var(--text-primary)] pointer-events-none"
         style={{ fontFamily: 'var(--font-outfit)' }}
       >
-        <div className="flex flex-wrap items-center gap-1.5 mb-1.5 text-[11px] font-semibold">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2 text-[11px] font-semibold text-[var(--text-secondary)]">
           <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{activity}</span>
           {diffBadge && <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{diffBadge.label}</span>}
           <span className="inline-flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: AVAILABILITY_DOT[availability] }} />
-            <span className={availability === 'dates' ? '' : 'font-medium opacity-90'}>{AVAILABILITY_LABEL[availability]}</span>
+            <span className={availability === 'dates' ? '' : 'font-medium'}>{AVAILABILITY_LABEL[availability]}</span>
           </span>
           {showSeason && (
             <span className="inline-flex items-center gap-1">
@@ -392,13 +399,13 @@ function TourCard({
         </h3>
 
         {(tour.short_description || tour.description) && (
-          <p className="text-[13px] leading-snug opacity-90 line-clamp-2 mb-1.5">
+          <p className="text-[13px] leading-snug text-[var(--text-secondary)] line-clamp-2 mb-1.5">
             {tour.short_description ?? tour.description}
           </p>
         )}
 
         {included.length > 0 && (
-          <ul className="flex flex-nowrap sm:flex-wrap overflow-hidden gap-1 mb-1.5 text-[11px]" aria-label="Входит в цену">
+          <ul className="flex flex-nowrap sm:flex-wrap overflow-hidden gap-1 mb-2 text-[11px] text-[var(--text-secondary)]" aria-label="Входит в цену">
             {included.map(item => (
               <li key={item} className="shrink-0 max-w-[11rem] truncate px-2 py-0.5 rounded-full border" style={chipStyle} title={item}>
                 {item}
@@ -407,11 +414,11 @@ function TourCard({
           </ul>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs opacity-90 mb-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)] mb-3">
           <span className="inline-flex items-center gap-1">
             {tour.operator_name}
             {tour.operator_verified === true && (
-              <span className="inline-flex items-center gap-0.5 font-semibold">
+              <span className="inline-flex items-center gap-0.5 font-semibold text-[var(--success)]">
                 <BadgeCheck className="w-3.5 h-3.5" aria-hidden /> проверен
               </span>
             )}
@@ -422,18 +429,18 @@ function TourCard({
           )}
         </div>
 
-
         {/* Цена строкой выше, кнопка — слева и по своей ширине: правый нижний
             угол карточки свободен, и плавающая «Подобрать тур» (StickyLeadButton,
-            right-4) при любой прокрутке ложится на пустое место, а не на бронь. */}
-        <div className="flex flex-col items-start gap-1.5 pointer-events-auto">
+            right-4) при любой прокрутке ложится на пустое место, а не на бронь.
+            mt-auto — низ карточек в ряду сетки выровнен. */}
+        <div className="mt-auto flex flex-col items-start gap-1.5 pointer-events-auto">
           <div className="flex flex-col min-w-0">
             {priceOld && priceOld > basePrice && (
-              <span className="text-xs opacity-60 line-through tabular-nums">{rub(priceOld)}</span>
+              <span className="text-xs text-[var(--text-secondary)] line-through tabular-nums">{rub(priceOld)}</span>
             )}
             <span className="whitespace-nowrap leading-tight">
               <span className="text-lg font-bold tabular-nums">{rub(basePrice)}</span>{' '}
-              <span className="text-[11px] opacity-75">{priceUnitLabel(tour.price_unit, true)}</span>
+              <span className="text-[11px] text-[var(--text-secondary)]">{priceUnitLabel(tour.price_unit, true)}</span>
             </span>
           </div>
           <Link
