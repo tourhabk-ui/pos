@@ -239,6 +239,14 @@ describe('ссылки на маршрут — в пространстве id к
     expect(src).toMatch(/pingRoutesChanged\([^;]*r\.slug \?\? r\.view_id\)/);
   });
 
+  it('ссылка «забронировать» у планера и Кузьмича ведёт на тур, а не на маршрут', () => {
+    for (const f of ['lib/planner/compose.ts', 'lib/agents/sdk/tourist-tools.ts']) {
+      const src = code(f);
+      expect(src, f).toMatch(/booking_url: `\/catalog\/tours\/\$\{/);
+      expect(src, f).not.toMatch(/booking_url: `\/routes\//);
+    }
+  });
+
   it('резолвер страницы по-прежнему ищет UUID в пространстве VIEW', () => {
     expect(code('app/routes/[id]/page.tsx')).toMatch(/FROM kamchatka_routes WHERE COALESCE\(ark_id, id\)::text = \$1/);
   });

@@ -208,7 +208,9 @@ const getTourDetails: SDKTool = {
         operator: t.operator_name,
         operator_phone: t.operator_phone,
         image: t.tour_image,
-        booking_url: `/routes/${t.id}`,
+        // Тур из operator_tours — его страница /catalog/tours/{id}; /routes/{id}
+        // отвечал туристу 404 (сверка SEO 29.09).
+        booking_url: `/catalog/tours/${t.id}`,
       });
     } catch {
       return JSON.stringify({ error: 'Ошибка загрузки тура' });
