@@ -176,7 +176,10 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     gaps_found: unknownQuestions.length,
     topics_processed: uniqueTopics.length,
     topics_saved: saved.length,
-    topics: saved,
+    // Сами темы наружу не отдаются: это вопросы туристов (при отказе дедупа —
+    // дословно), а ответ крона печатается в лог GitHub Actions
+    // (cron-kb-gap.yml, cat /tmp/out.json) — за пределы платформы (152-ФЗ,
+    // проверка MCP 29.09). Темы видны в agent_knowledge.
     timestamp: new Date().toISOString(),
   });
 }

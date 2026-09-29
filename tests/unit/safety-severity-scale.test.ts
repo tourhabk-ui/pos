@@ -28,6 +28,13 @@ describe('шкала тяжести external_alerts', () => {
     expect(text).not.toMatch(/из 5/);
   });
 
+  it('экран планирования — та же шкала словом, без «из 5»', () => {
+    const ui = read('app/planning/_PlanningClient.tsx');
+    expect(ui).not.toMatch(/maxSeverity\} из 5/);
+    expect(ui).toMatch(/alertSeverityWord\(snap\.maxSeverity\)/);
+    expect(ui).toMatch(/from '@\/lib\/safety\/severity-words'/);
+  });
+
   it('слово по уровню и за краями шкалы', () => {
     expect(alertSeverityWord(0)).toBe('справочное');
     expect(alertSeverityWord(2)).toBe('опасно');

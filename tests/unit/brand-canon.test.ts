@@ -119,6 +119,15 @@ describe('бренд-канон «Ведар» в публичных повер�
     expect(outward).not.toMatch(/TourHab|Tourhab|KamchatourHub|КамчатурХаб/);
   });
 
+  // Приветствие и справка чат-бота Кузьмича — тоже наружу: /start и /help
+  // называли «AI-агент платформы TourHab» (сверка 29.09).
+  it('Кузьмич представляется Ведаром, а не старым брендом', () => {
+    const code = readFileSync('lib/kuzmich/core.ts', 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    expect(code).not.toMatch(/TourHab|Tourhab|KamchatourHub|КамчатурХаб/);
+  });
+
   it('публичный JSON-LD не называет организацию старым брендом', () => {
     const offenders: string[] = [];
     for (const f of files) {

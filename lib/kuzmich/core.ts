@@ -2451,7 +2451,7 @@ export async function processMessage(opts: {
   if (cmd === '/start') {
     const name = userName ?? 'друг';
     await replyFn(chatId, [
-      `Привет, ${name}! Я Кузьмич — AI-агент платформы TourHab.`,
+      `Привет, ${name}! Я Кузьмич — AI-агент платформы Ведар.`,
       '',
       '<b>Что умею:</b>',
       '- Подобрать тур: рыбалка, вулканы, медведи, термальные источники...',
@@ -2468,7 +2468,7 @@ export async function processMessage(opts: {
   // /help
   if (cmd === '/help') {
     await replyFn(chatId, [
-      '<b>Кузьмич — многофункциональный агент TourHab</b>',
+      '<b>Кузьмич — многофункциональный агент Ведара</b>',
       '',
       '<b>Туры и бронирование:</b>',
       '"хочу рыбалку в июле, 3 человека"',

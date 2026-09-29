@@ -134,19 +134,9 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
   }
 }
 
-/**
- * Шкала тяжести external_alerts — 0..3, как её пишут производители
- * (seismic-parser: 0=info, 1=warning, 2=critical, 3=emergency; форма админа —
- * max(3)). До 29.09 агент читал «тяжесть 3 из 5», и предупреждение о цунами
- * (3 — чрезвычайная) пересказывалось как середина шкалы (проверка MCP).
- * Словами, а не числом: число без шкалы агент достраивает сам.
- */
-export const ALERT_SEVERITY_WORDS: readonly string[] = ['справочное', 'предупреждение', 'опасно', 'чрезвычайная ситуация'];
-
-export function alertSeverityWord(severity: number): string {
-  const i = Math.max(0, Math.min(ALERT_SEVERITY_WORDS.length - 1, Math.round(severity)));
-  return ALERT_SEVERITY_WORDS[i]!;
-}
+// Шкала тяжести словами — lib/safety/severity-words (одна на сервер и экран).
+import { ALERT_SEVERITY_WORDS, alertSeverityWord } from '@/lib/safety/severity-words';
+export { ALERT_SEVERITY_WORDS, alertSeverityWord };
 
 /**
  * Текст для внешнего агента. Отдельно от формы для UI: агент передаёт ответ

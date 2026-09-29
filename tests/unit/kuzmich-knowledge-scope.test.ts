@@ -85,4 +85,11 @@ describe('писатели чистят ПД до записи', () => {
     expect(gap).toMatch(/unknownQuestions\.push\(redactPII\(userMsg\.content\)/);
     expect(gap).toMatch(/if \(stored\) saved\.push\(topic\)/);
   });
+
+  it('kb-gap не печатает темы в ответ — он уходит в лог GitHub Actions', () => {
+    const gap = read('app/api/cron/kb-gap/route.ts');
+    const body = gap.slice(gap.lastIndexOf('return NextResponse.json({'));
+    expect(body).toMatch(/topics_saved: saved\.length/);
+    expect(body).not.toMatch(/\btopics: saved\b/);
+  });
 });
