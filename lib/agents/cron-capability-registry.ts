@@ -135,7 +135,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'intel-feeds-census': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'intel-note': ['db_read', 'db_write'],
   'intelligence': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
-  'kb-gap': ['db_read', 'db_write', 'net_out', 'ai'],
+  // pd_direct с 29.09: крон читает вопросы туристов из chat_sessions и
+  // чистит их redactPII до дедупа в модели, веб-поиска и записи (проверка
+  // MCP). С ПД он работал и раньше — признак стал видимым вместе с чисткой.
+  'kb-gap': ['db_read', 'db_write', 'net_out', 'ai', 'pd_direct'],
   'kernel-worker': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kml-inbox': ['db_read', 'db_write'],
   'kuzmich': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
