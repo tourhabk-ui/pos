@@ -32,7 +32,7 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   }
 }
 import {
-  Sun, Moon, User, X, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle,
+  Sun, Moon, User, X, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle, Route,
   Sparkles, Flame, Droplet, Anchor, Waves, Mountain, Droplets, Zap, CloudRain, Binoculars, Gem,
   Palmtree, Umbrella, TreePine, Landmark, History, Home,
 } from 'lucide-react';
@@ -49,6 +49,7 @@ import { trackLine } from '@/lib/map/line-standard';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { resolvePackSource, BUILT_PACK_REGIONS, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
+import { ON_ROUTE_FILTER } from '@/lib/places/on-route';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { useMesh } from '@/hooks/use-mesh';
@@ -79,6 +80,10 @@ const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').t
 // карте (lib/map/place-marker-icons.ts, PLACE_KIND_COLOR), здесь остаётся
 // форма: другой набор виджетов, тот же принцип «своё лицо на категорию».
 const LOCATION_FILTERS = [
+  // Первый экран — места, куда есть живой маршрут (владелец 29.09: «при
+  // открытии популярные места, с формой места; по фильтрам — остальные,
+  // а то человек в первый раз просто потеряется»). Правило — lib/places/on-route.
+  { id: ON_ROUTE_FILTER,        label: 'С маршрутом',    icon: Route },
   { id: 'all',                  label: 'Все',            icon: Target },
   { id: 'activity:esoteric',    label: 'Места силы',     icon: Sparkles },
   { id: 'volcano',              label: 'Вулканы',        icon: Flame },
@@ -140,6 +145,8 @@ interface RoutePoint {
   /** Активные ограничения места (#836): офлайн — из пакета, онлайн — из API. */
   restrictions?: string[];
   restrictionsAt?: number | null;
+  /** Через место идёт живой маршрут; undefined/null — не знаем (офлайн-кэш). */
+  onRoute?: boolean | null;
 }
 
 const VOLCANO_STATUS_COLOR: Record<string, string> = {
@@ -190,7 +197,7 @@ interface MapPageClientProps {
 
 export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientProps = {}) {
   const { isDark, toggleTheme } = useTheme();
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState<string>(ON_ROUTE_FILTER);
   const [allRoutes, setAllRoutes] = useState<RoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
@@ -320,7 +327,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         if (!data.success) return;
         const points: RoutePoint[] = (data.data ?? [])
           .filter((r: { lat: number | null; lng: number | null }) => r.lat != null && r.lng != null)
-          .map((r: { id: string; title: string; locationType: string | null; activityType: string | null; lat: number; lng: number; description: string; volcanoStatus?: string | null; geometry?: MapMarkerGeometry | null; isOpen?: boolean | null }) => ({
+          .map((r: { id: string; title: string; locationType: string | null; activityType: string | null; lat: number; lng: number; description: string; volcanoStatus?: string | null; geometry?: MapMarkerGeometry | null; isOpen?: boolean | null; onRoute?: boolean | null }) => ({
             id:           r.id,
             title:         r.title,
             locationType:  r.locationType ?? 'other',
@@ -333,6 +340,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             // Онлайн каталог отдаёт is_open точки (#2079): закрытая точка
             // получает «Закрыто» в попапе, как в скачанном пакете.
             restrictions:  withClosure([], r.isOpen),
+            onRoute:       r.onRoute ?? null,
           }));
         setAllRoutes(points);
       } catch {
@@ -357,16 +365,28 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
 
   const filters = isOffline ? OFFLINE_FILTERS : LOCATION_FILTERS;
 
+  // «С маршрутом» без данных о маршрутах — не пустая карта, а «Все»: в
+  // офлайн-кэше признака нет, а незнание не должно выглядеть как «мест нет»
+  // (§4.0). Пока список грузится, выбор держится — слой карты сам несёт
+  // признак из пакета.
+  const onRouteKnown = allRoutes.some(r => r.onRoute === true);
+  const filterNow = activeFilter === ON_ROUTE_FILTER && (isOffline || (!loading && !onRouteKnown))
+    ? 'all'
+    : activeFilter;
+
   const filtered = useMemo(() =>
-    activeFilter === 'all'
+    filterNow === 'all'
       ? allRoutes
-      : activeFilter.startsWith('activity:')
-        ? allRoutes.filter(r => r.activityType === activeFilter.slice(9))
-        : allRoutes.filter(r => r.locationType === activeFilter),
-  [allRoutes, activeFilter]);
+      : filterNow === ON_ROUTE_FILTER
+        ? allRoutes.filter(r => r.onRoute === true)
+        : filterNow.startsWith('activity:')
+          ? allRoutes.filter(r => r.activityType === filterNow.slice(9))
+          : allRoutes.filter(r => r.locationType === filterNow),
+  [allRoutes, filterNow]);
 
   const countFor = useCallback((id: string) => {
     if (id === 'all') return allRoutes.length;
+    if (id === ON_ROUTE_FILTER) return allRoutes.filter(r => r.onRoute === true).length;
     if (id.startsWith('activity:')) return allRoutes.filter(r => r.activityType === id.slice(9)).length;
     return allRoutes.filter(r => r.locationType === id).length;
   }, [allRoutes]);
@@ -395,7 +415,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
     const baseColor = r.locationType === 'volcano' && r.volcanoStatus
       ? (VOLCANO_STATUS_COLOR[r.volcanoStatus] ?? PLACE_KIND_COLOR.volcano)
       : (PLACE_KIND_COLOR[r.locationType ?? 'other'] ?? PLACE_KIND_COLOR.other);
-    const color = (activeFilter === 'activity:esoteric' && r.activityType === 'esoteric')
+    const color = (filterNow === 'activity:esoteric' && r.activityType === 'esoteric')
       ? 'purple'
       : baseColor;
 
@@ -425,7 +445,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
       // В офлайне: показываем балун (без suppressBalloon) — человек должен видеть описание точки без клика на маршрут-страницу (нет интернета)
       suppressBalloon: false,
     };
-  }), [filtered, activeFilter, userPos]);
+  }), [filtered, filterNow, userPos]);
 
   // Stable merged marker array — memoized so LeafletMap's useEffect doesn't
   // fire (and destroy+recreate the map) when _MapPageClient re-renders for
@@ -498,14 +518,14 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                     key={f.id}
                     onClick={() => setActiveFilter(f.id)}
                     className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all min-h-[44px] ${
-                      activeFilter === f.id
+                      filterNow === f.id
                         ? 'bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/30'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-[var(--border)]'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
                     {f.label}
-                    <span className={`text-xs ${activeFilter === f.id ? 'opacity-70' : 'text-white/40'}`}>
+                    <span className={`text-xs ${filterNow === f.id ? 'opacity-70' : 'text-white/40'}`}>
                       {loading ? '…' : cnt}
                     </span>
                   </button>
@@ -695,13 +715,13 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                 key={f.id}
                 onClick={() => setActiveFilter(f.id)}
                 className={`min-h-[44px] px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap shrink-0 ${
-                  activeFilter === f.id
+                  filterNow === f.id
                     ? 'bg-[var(--accent)] text-white'
                     : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border)]'
                 }`}
               >
                 {f.label}
-                <span className={`ml-1 text-xs ${activeFilter === f.id ? 'opacity-70' : 'text-[var(--text-muted)]'}`}>
+                <span className={`ml-1 text-xs ${filterNow === f.id ? 'opacity-70' : 'text-[var(--text-muted)]'}`}>
                   {loading ? '…' : cnt}
                 </span>
               </button>
@@ -745,7 +765,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               // карта по-прежнему рисует все места разом). vedar-places
               // несёт kind = location_type, тот же столбец, что и фильтр;
               // activity:* фильтров у слоя нет — на них показываем как есть.
-              placesFilter={activeFilter !== 'all' && !activeFilter.startsWith('activity:') ? activeFilter : null}
+              placesFilter={filterNow !== 'all' && !filterNow.startsWith('activity:') ? filterNow : null}
             />
           ) : (
             <LeafletMap

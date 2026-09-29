@@ -22,6 +22,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 // (lib/routes/card-image.ts). Своё выражение здесь уже расходилось с тем,
 // что перепись рассказывала владельцу про градиент.
 import { cardImage } from '@/lib/routes/card-image';
+import { placeOnLiveRouteSql } from '@/lib/places/on-route';
 
 
 /** Определение опасностей на основе данных точки/маршрута. */
@@ -116,6 +117,11 @@ export interface CatalogItem {
    * geometry из kamchatka_routes, не по payload. null — не маршрут.
    */
   lineGrade: PassportGrade | null;
+  /**
+   * Через место идёт живой маршрут (lib/places/on-route) — по нему /map
+   * открывается «местами с маршрутом». null — не место.
+   */
+  onRoute: boolean | null;
 }
 
 export interface CatalogResult {
@@ -366,7 +372,12 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          (krl.id IS NOT NULL AND EXISTS (
             SELECT 1 FROM route_waypoints rww WHERE rww.route_id = krl.id
          )) AS has_route_waypoints,
-         wp.photo_id AS waypoint_photo_id
+         wp.photo_id AS waypoint_photo_id,
+         -- id VIEW у места — places.ark_id; правило связи берёт places.id.
+         CASE WHEN ark.kind = 'place' THEN EXISTS (
+           SELECT 1 FROM places pp
+            WHERE pp.ark_id = ark.id AND ${placeOnLiveRouteSql('pp.id')}
+         ) END AS on_route
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
@@ -455,6 +466,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
             Boolean(r.has_route_waypoints),
           )
         : null,
+      onRoute: r.on_route == null ? null : Boolean(r.on_route),
     };
   });
 

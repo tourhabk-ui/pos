@@ -25,8 +25,10 @@ describe('applyPlacesFilter — VedarMap', () => {
   });
 
   it('строит ==-выражение по kind, снимает фильтр при null', () => {
-    expect(MAP).toMatch(/const expr = filter \? \['==', \['get', 'kind'\], filter\] : null/);
-    expect(MAP).toMatch(/map\.setFilter\(l\.id, expr as never\)/);
+    // С 29.09 впереди ветка «с маршрутом» (признак on_route, не род места —
+    // сторож map-on-route-first); выражение по kind и снятие при null прежние.
+    expect(MAP).toMatch(/: filter \? \['==', \['get', 'kind'\], filter\] : null/);
+    expect(MAP).toMatch(/map\.setFilter\(l\.id, \(isDots && onRoute \? \['boolean', false\] : expr\) as never\)/);
   });
 
   it('применяется отдельным эффектом на смену placesFilter', () => {
@@ -41,9 +43,11 @@ describe('applyPlacesFilter — VedarMap', () => {
 });
 
 describe('/map — фильтр-чипсы доходят до карты', () => {
-  it('placesFilter строится из activeFilter, activity:* не передаётся слою', () => {
+  it('placesFilter строится из выбранного фильтра, activity:* не передаётся слою', () => {
+    // filterNow — выбранный фильтр с честным откатом «с маршрутом» → «все»,
+    // когда признака нет (29.09, сторож map-on-route-first).
     expect(CLIENT).toMatch(
-      /placesFilter=\{activeFilter !== 'all' && !activeFilter\.startsWith\('activity:'\) \? activeFilter : null\}/,
+      /placesFilter=\{filterNow !== 'all' && !filterNow\.startsWith\('activity:'\) \? filterNow : null\}/,
     );
   });
 });
