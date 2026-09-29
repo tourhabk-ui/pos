@@ -240,10 +240,14 @@ export function matchPreset(
   days: number,
   interests: string[],
   presets: readonly PlanPreset[] = PLAN_PRESETS,
+  month?: number,
 ): { slug: string; title: string } | null {
   let best: { slug: string; title: string; score: number } | null = null;
 
   for (const p of presets) {
+    // Сезонная страница — только в свой месяц: «Камчатка в июне» на поездку
+    // в июле или октябре обещает то, чего в эти месяцы нет (проба MCP 29.09).
+    if (month !== undefined && p.months && !p.months.includes(month)) continue;
     const overlap = p.interests.filter((i) => interests.includes(i)).length;
     // Ни одного общего интереса — не кандидат вовсе. Ссылка наугад хуже
     // отсутствия ссылки: турист уходит читать не про то, что просил.
@@ -358,7 +362,7 @@ export async function makeTripPlanForKuzmich(
       ...(rec.preferences?.notes ?? []).filter((n) => n.status !== 'honoured').map((n) => n.message),
       ...rec.warnings.filter((w) => w.severity !== 'info').map((w) => w.message),
     ],
-    matchPreset(daysNum, interests),
+    matchPreset(daysNum, interests, PLAN_PRESETS, month),
     { refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor },
   );
 

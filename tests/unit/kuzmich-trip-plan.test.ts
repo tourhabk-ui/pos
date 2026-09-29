@@ -77,6 +77,20 @@ describe('matchPreset: ссылка на публичную страницу с 
     expect(p?.title).toContain('океан');
   });
 
+  it('сезонная страница — только в свой месяц (проба MCP 29.09: июль → «в июне»)', () => {
+    expect(matchPreset(7, ['volcano', 'bears'], PLAN_PRESETS, 7)?.slug).not.toBe('kamchatka-v-iyune');
+    expect(matchPreset(3, ['thermal'], PLAN_PRESETS, 10)?.slug).not.toBe('kamchatka-v-iyune');
+    expect(matchPreset(7, ['snowmobile'], PLAN_PRESETS, 1)?.slug).toBe('kamchatka-zimoy');
+    expect(matchPreset(7, ['snowmobile'], PLAN_PRESETS, 7)?.slug).not.toBe('kamchatka-zimoy');
+    expect(matchPreset(7, ['volcano', 'thermal', 'bears'], PLAN_PRESETS, 6)?.slug).toBe('kamchatka-v-iyune');
+  });
+
+  it('у каждой сезонной страницы записан её месяц', () => {
+    for (const slug of ['kamchatka-v-iyune', 'kamchatka-v-sentyabre', 'kamchatka-zimoy']) {
+      expect(PLAN_PRESETS.find((p) => p.slug === slug)?.months?.length, slug).toBeGreaterThan(0);
+    }
+  });
+
   it('ответ не зависит от порядка пресетов в массиве', () => {
     // Главное свойство. Пока оно держится, вернуть прежний дефект нельзя
     // никакой перестановкой литералов.
