@@ -170,9 +170,10 @@ export default function AccommodationsClient() {
     if (ok) setEditingId(null);
   }
 
+  const externalUrlValid = form.externalBookingUrl.trim() === '' || /^https:\/\/\S+$/.test(form.externalBookingUrl.trim());
   const formValid = form.name.trim().length > 0 &&
     (form.pricePerNightFrom === '' || Number(form.pricePerNightFrom) > 0) &&
-    (form.externalBookingUrl.trim() === '' || /^https:\/\/\S+$/.test(form.externalBookingUrl.trim()));
+    externalUrlValid;
 
   return (
     <div className="p-5 lg:p-6 space-y-4">
@@ -313,8 +314,11 @@ export default function AccommodationsClient() {
                 <label className="ds-label" htmlFor={`ext-${item.id}`}>Бронь на вашем сайте (необязательно)</label>
                 <input id={`ext-${item.id}`} className="ds-input" type="url" inputMode="url" placeholder="https://…"
                   value={form.externalBookingUrl} onChange={e => setForm({ ...form, externalBookingUrl: e.target.value })} />
+                {!externalUrlValid && (
+                  <p className="text-xs text-[var(--danger)] mt-1" role="alert">Ссылка должна начинаться с https://</p>
+                )}
                 <p className="text-xs text-[var(--text-muted)] mt-1">
-                  Если номера и цены вы ведёте в своей системе брони, укажите ссылку — туристы перейдут туда с кнопки «Забронировать на сайте отеля».
+                  Если номера и цены вы ведёте в своей системе брони, укажите ссылку — туристы перейдут туда с кнопки «Забронировать на сайте отеля». Смена ссылки отправляет объект на повторную проверку.
                 </p>
               </div>
               <div>

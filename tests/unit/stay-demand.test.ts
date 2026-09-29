@@ -60,14 +60,13 @@ describe('словарь', () => {
 describe('раскладка поисков', () => {
   it('нулевые клетки присутствуют, чужие события считаются отдельно', () => {
     const r = summarizeStaySearches([
-      { entity_id: 'web:found', searches: 3, visitors: 2 },
-      { entity_id: 'web:empty', searches: 1, visitors: 1 },
-      { entity_id: 'agent:empty', searches: 5, visitors: 0 },
-      { entity_id: 'typo', searches: 2, visitors: 2 },
+      { entity_id: 'web:found', searches: 3 },
+      { entity_id: 'web:empty', searches: 1 },
+      { entity_id: 'agent:empty', searches: 5 },
+      { entity_id: 'typo', searches: 2 },
     ]);
     expect(r.searches.web).toEqual({ found: 3, empty: 1, failed: 0 });
     expect(r.searches.agent).toEqual({ found: 0, empty: 5, failed: 0 });
-    expect(r.web_visitors).toBe(3);
     expect(r.unrecognized).toBe(2);
   });
 
@@ -79,12 +78,16 @@ describe('раскладка поисков', () => {
 });
 
 describe('производители на каждой поверхности', () => {
-  it('каталог /accommodations шлёт stay_search только на поиск с условиями', () => {
+  it('каталог /accommodations шлёт stay_search только на поиск с условиями, с паузой', () => {
     const src = read('app/accommodations/_AccommodationsClient.tsx');
-    expect(src).toMatch(/funnelBeacon\('stay_search', staySearchEntity\('web', outcome\)\)/);
+    expect(src).toMatch(/funnelBeacon\('stay_search', staySearchEntity\('web', beaconPending\.current\)\)/);
     expect(src).toMatch(/currentPage === 1 && isSearch\(currentFilters\)/);
+    // Каждая буква и каждый сдвиг ползунка — не отдельное намерение.
+    expect(src).toMatch(/setTimeout\(flushBeacon, 1500\)/);
     // Исход по умолчанию — «не смог»: неответ витрины не выдаётся за «пусто».
     expect(src).toMatch(/let outcome: StaySearchOutcome = 'failed'/);
+    // Условия поиска — ровно те, что load отправляет на сервер.
+    expect(src).toMatch(/f\.type\.length === 1/);
   });
 
   it('форма брони жилья шлёт stay_booking_start один раз', () => {
@@ -118,6 +121,11 @@ describe('читатель и исполнитель', () => {
     expect(src).toMatch(/publicAccommodationSql\('a'\)/);
     // Ноль до заведения счётчика — «не считали», и ответ это говорит.
     expect(src).toMatch(/window_predates_counter/);
+    // Суточный хэш не склеивает дни: «visitor_days» — человеко-дни, не люди.
+    expect(src).toMatch(/visitor_days/);
+    expect(src).not.toMatch(/\bAS visitors\b/);
+    // Считаются только номера, которые видит турист.
+    expect(src).toMatch(/r\.is_active = true/);
     // Только чтение.
     expect(src).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
   });

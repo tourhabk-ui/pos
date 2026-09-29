@@ -15,7 +15,7 @@ interface View { status: string; tourTitle: string; date: string; participants: 
 export function OperatorAnswerClient({ id, k }: { id: string; k: string }) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ message: string; tone: 'success' | 'warning' } | null>(null);
   const [sending, setSending] = useState(false);
   const [altDate, setAltDate] = useState('');
 
@@ -42,10 +42,16 @@ export function OperatorAnswerClient({ id, k }: { id: string; k: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ k, answer: kind, ...(kind === 'other_date' ? { date: altDate } : {}) }),
       });
-      const b = await res.json().catch(() => null) as { success: true; data: { message: string } } | { success: false; error?: string } | null;
+      const b = await res.json().catch(() => null) as
+        | { success: true; data: { message: string; failed?: boolean } }
+        | { success: false; error?: string; reason?: string }
+        | null;
       if (!b) setError(`Сервер ответил ${res.status}`);
+      // Ответ принят, но исход не записан: повторять нельзя, это не ошибка ввода.
+      else if (!b.success && b.reason === 'accepted_unfinished') setResult({ message: b.error ?? 'Ответ принят.', tone: 'warning' });
       else if (!b.success) setError(b.error ?? 'Ответ не принят');
-      else setResult(b.data.message);
+      // «Бронь не завелась» — не успех: оператору надо проверить кабинет.
+      else setResult({ message: b.data.message, tone: b.data.failed ? 'warning' : 'success' });
     } catch {
       setError('Нет связи с сервером — ответ не отправлен. Попробуйте ещё раз.');
     } finally {
@@ -66,7 +72,11 @@ export function OperatorAnswerClient({ id, k }: { id: string; k: string }) {
             {open && <span className="block text-sm text-[var(--text-secondary)] mt-1">Ответить до {new Date(view.deadlineAt).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Kamchatka', hour: '2-digit', minute: '2-digit' })} по Камчатке.</span>}
           </p>
         )}
-        {result && <p className="text-sm text-[var(--success)]" aria-live="polite">{result}</p>}
+        {result && (
+          <p className="text-sm" style={{ color: result.tone === 'success' ? 'var(--success)' : 'var(--warning)' }} aria-live="polite">
+            {result.message}
+          </p>
+        )}
         {error && <p className="text-sm text-[var(--danger)]" role="alert">{error}</p>}
         {view && !open && !result && <p className="text-sm text-[var(--text-secondary)]">На этот запрос ответ уже не принимается.</p>}
         {view && open && !result && (

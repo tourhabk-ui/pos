@@ -55,7 +55,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead' | 'seat_request_failed';
   count: number;
   details: string;
   /**
@@ -194,6 +194,53 @@ async function checkUnconfirmedBookings(): Promise<CheckResult> {
     // упал, обязан оставить след, иначе поломка неотличима от тишины.
     console.error('[watchdog] checkUnconfirmedBookings:', err instanceof Error ? err.message : err);
     return checkFailure('checkUnconfirmedBookings', err);
+  }
+}
+
+/**
+ * Запросы мест, которые не довели до конца (миграция 1105, status='failed').
+ *
+ * Читатель для статуса, у которого иначе не было бы ни одного: туристу и
+ * оператору в этих случаях сказано «мы разбираемся, администратор увидит
+ * запрос», и это обещание держится ЗДЕСЬ. Без проверки оно было бы объявлением
+ * без исполнителя (CLAUDE.md, правило 10.09).
+ *
+ * Причины (failure_kind) требуют разного:
+ *   accounting — оператор сказал «есть», а учёт платформы видит дату закрытой
+ *                или занятой: расхождение с календарём оператора;
+ *   system     — сбой при заведении/подтверждении брони, бронь может висеть
+ *                'new' у оператора;
+ *   unfinished — ответ принят, исход не записан: узнать у оператора, что он
+ *                ответил;
+ *   delivery   — оператору не дошло сообщение с запросом.
+ * Окно — сутки: дальше запрос уже не действует, а стоячая тревога хуже
+ * отсутствующей. ПД туриста в тексте нет.
+ */
+async function checkFailedSeatRequests(): Promise<CheckResult> {
+  try {
+    const { rows } = await pool.query<{ count: string; kinds: string | null; ids: string | null }>(`
+      SELECT COUNT(*)::text AS count,
+             string_agg(DISTINCT failure_kind, ', ' ORDER BY failure_kind) AS kinds,
+             string_agg(LEFT(id::text, 8), ', ' ORDER BY updated_at DESC) AS ids
+        FROM tour_seat_requests
+       WHERE status = 'failed' AND updated_at > NOW() - INTERVAL '24 hours'
+    `);
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+    const kinds = rows[0]?.kinds ?? 'причина не названа';
+    return {
+      type: 'seat_request_failed',
+      count,
+      details:
+        `${count} запросов свободных мест не доведены до конца за сутки (причины: ${kinds}). ` +
+        `Разобрать в таблице tour_seat_requests (failure_reason); туристу сказано «мы разбираемся». ` +
+        `Номера: ${rows[0]?.ids ?? '—'}.`,
+      // Состав нарушения, а не возраст: новый упавший запрос — новое сообщение.
+      debounceOn: `seat_request_failed:${rows[0]?.ids ?? ''}`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkFailedSeatRequests:', err instanceof Error ? err.message : err);
+    return checkFailure('checkFailedSeatRequests', err);
   }
 }
 
@@ -1884,6 +1931,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   const CHECKS: Array<() => Promise<CheckResult>> = [
     checkUnconfirmedBookings,
     checkUnconfirmedStayBookings,
+    checkFailedSeatRequests,
     checkPendingGearRentals,
     checkPendingTransferBookings,
     checkUnreachableOperators,

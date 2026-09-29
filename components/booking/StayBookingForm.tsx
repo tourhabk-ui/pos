@@ -66,6 +66,8 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
   // Счётчик спроса на жильё (lib/stay/demand, 29.09): первое касание формы —
   // один раз за показ, как booking_start у тура. Смотреть карточку и начать
   // выбирать номер и даты — разные намерения, и первое уже считает page_views.
+  // Касанием считается ФОКУС или ИЗМЕНЕНИЕ поля, а не нажатие указателя:
+  // жест прокрутки, начатый над формой, — не начало брони.
   const touchedRef = useRef(false);
   const markTouched = useCallback(() => {
     if (touchedRef.current) return;
@@ -208,7 +210,7 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
   }
 
   return (
-    <form onSubmit={handleSubmit} onPointerDownCapture={markTouched} onFocusCapture={markTouched} className="space-y-5">
+    <form onSubmit={handleSubmit} onFocusCapture={markTouched} onChangeCapture={markTouched} className="space-y-5">
 
       {/* Выбор номера */}
       <div className="ds-card p-5">

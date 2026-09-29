@@ -171,16 +171,16 @@ jobs:
               sup = stay.get('supply') or {}
               print('  на витрине объектов:', sup.get('listings'), '| номеров:', sup.get('rooms'))
               v = stay.get('views') or {}
-              print('  каталог: просмотров', v.get('list_views'), '/ людей', v.get('list_visitors'))
-              print('  карточки: просмотров', v.get('card_views'), '/ людей', v.get('card_visitors'))
+              print('  каталог: просмотров', v.get('list_views'), '/ человеко-дней', v.get('list_visitor_days'))
+              print('  карточки: просмотров', v.get('card_views'), '/ человеко-дней', v.get('card_visitor_days'))
               for ch, row in (stay.get('searches') or {}).items():
                   print('  поиск %-6s нашли %s | пусто %s | витрина не ответила %s'
                         % (ch, row.get('found'), row.get('empty'), row.get('failed')))
-              print('  людей с поиском в каталоге:', stay.get('web_search_visitors'))
+              print('  человеко-дней с поиском в каталоге:', stay.get('web_search_visitor_days'), '(суточный хэш не склеивает дни — это не число людей)')
               b = stay.get('booking_starts') or {}
-              print('  начали бронь:', b.get('starts'), '/ людей', b.get('visitors'))
+              print('  начали бронь:', b.get('starts'), '/ человеко-дней', b.get('visitor_days'))
               x = stay.get('external_booking_clicks') or {}
-              print('  ушли бронировать на сайт объекта:', x.get('clicks'), '/ людей', x.get('visitors'))
+              print('  ушли бронировать на сайт объекта:', x.get('clicks'), '/ человеко-дней', x.get('visitor_days'))
               m = stay.get('mcp_search_calls') or {}
               print('  из них через MCP (внешние AI-агенты):', m.get('calls'))
               print('  заявок на бронь по статусам:', stay.get('bookings_by_status'))

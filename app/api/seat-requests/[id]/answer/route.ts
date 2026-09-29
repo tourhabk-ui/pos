@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { operatorReplyText, verifyOperatorAnswerKey } from '@/lib/seat-requests/core';
 import { answerSeatRequest, readForOperator } from '@/lib/seat-requests/service';
 
@@ -26,7 +26,7 @@ const BodySchema = z.object({
 });
 
 async function guard(req: NextRequest, rawId: string, key: string): Promise<{ id: string } | NextResponse> {
-  if (!limiter.check(getClientIp(req.headers))) {
+  if (!limiter.check(getTrustedClientIp(req.headers))) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов' }, { status: 429 });
   }
   const id = IdSchema.safeParse(rawId);
@@ -68,8 +68,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   );
   const message = operatorReplyText(result);
   if (!result.ok) {
-    const status = result.reason === 'db_error' ? 503 : result.reason === 'not_found' ? 404 : result.reason === 'bad_date' ? 400 : 409;
+    const status = result.reason === 'db_error' ? 503
+      : result.reason === 'not_found' ? 404
+      : result.reason === 'bad_date' ? 400
+      : result.reason === 'accepted_unfinished' ? 202
+      : 409;
     return NextResponse.json({ success: false, error: message, reason: result.reason }, { status });
   }
-  return NextResponse.json({ success: true, data: { status: result.status, message } });
+  return NextResponse.json({ success: true, data: { status: result.status, failed: result.status === 'failed', message } });
 }

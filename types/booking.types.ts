@@ -76,7 +76,7 @@ export interface BookingLogEntry {
   bookingId: string;
   fromStatus: BookingStatus;
   toStatus: BookingStatus;
-  changedBy: string;
+  changedBy: string | null;
   comment: string | null;
   createdAt: Date;
 }

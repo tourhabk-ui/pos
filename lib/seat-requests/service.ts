@@ -3,15 +3,24 @@
  *
  * Поток (решения владельца 29.09):
  *   1. турист из планера спрашивает тур, дату и число людей (createSeatRequest);
- *   2. оператору уходит сообщение с кнопками «Есть места» / «Мест нет» и
- *      ссылкой «Другая дата» — в MAX с именем и телефоном туриста, в Telegram
- *      заглушкой без ПД со ссылкой на страницу ответа (lib/notifications/pd-alert);
+ *   2. оператору уходит сообщение С КНОПКАМИ «Есть места» / «Мест нет» и
+ *      ссылкой «Другая дата». В нём НЕТ имени и телефона туриста: чтобы
+ *      ответить про места, они не нужны, а сообщение идёт и в Telegram, куда
+ *      ПД не уходят по решению владельца 23.08. Контакты придут ПОСЛЕ ответа
+ *      «есть» — обычным уведомлением о брони;
  *   3. «Есть места» СРАЗУ заводит бронь той же дверью, что сайт и Кузьмич
- *      (reserveBooking), и подтверждает её (confirmBooking): ответ оператора и
- *      есть подтверждение, второго шага в кабинете ему не нужно;
- *   4. через 2 часа без ответа — 'expired', «оператор не ответил» (не «мест нет»);
+ *      (reserveBooking), подтверждает её (confirmBooking) и уведомляет
+ *      оператора тем же хвостом, что веб-форма (notifyOperatorOfNewBooking);
+ *   4. 2 часа без ответа — 'expired', «оператор не ответил» (не «мест нет»);
  *   5. исход уходит туристу в его мессенджер, если он подключил чат, и всегда
  *      виден на странице статуса.
+ *
+ * Надёжность. Ответ захватывается атомарно (UPDATE ... WHERE answered_at IS
+ * NULL), а бронь, подтверждение и запись исхода идут отдельными транзакциями:
+ * общий клиент с reserveBooking не разделить. Процесс может оборваться между
+ * ними — деплой Timeweb идёт по каждому push. Поэтому у «принят, но не
+ * доведён» есть уборщик (recoverUnfinished): такой запрос не висит вечно
+ * «ждём ответа», а превращается в 'failed' или 'confirmed' по факту в базе.
  *
  * Отказы не глушатся (§4.0): каждый выход в «не смог» пишет причину в лог и
  * возвращает её вызывающему.
@@ -25,24 +34,48 @@ import { telegramService } from '@/lib/notifications/telegram';
 import { maxSendDm } from '@/lib/notifications/max-channel';
 import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
 import { confirmBooking } from '@/lib/bookings/booking.service';
+import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { telegramBot, maxBot } from '@/lib/partners/channel-link';
+import { normalizePhone } from '@/lib/mcp/normalize-phone';
+import { escapeHtml } from '@/lib/text/escape-html';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import {
   SEAT_REQUEST_DEADLINE_MS, answerPayload, effectiveStatus, hashStatusToken,
-  isFutureOrToday, newStatusToken, operatorAnswerKey, touristOutcomeText, TOURIST_START_PREFIX,
-  type OperatorAnswer, type ReplyChannel, type SeatRequestStatus,
+  isFutureOrToday, isRealDate, kamchatkaToday, newStatusToken, operatorAnswerKey, touristOutcomeText,
+  TOURIST_START_PREFIX,
+  type FailureKind, type OperatorAnswer, type ReplyChannel, type SeatRequestStatus,
+  type TouristMessageState,
 } from '@/lib/seat-requests/core';
+
+// ── Потолки ───────────────────────────────────────────────────────────────
+// Публичная запись без аккаунта: без потолков один скрипт заваливал бы
+// оператора сообщениями с кнопками. Лимит по IP их не заменяет — IP подделать
+// проще, чем телефон, и защита должна стоять там, где вред (у оператора).
+
+/** Ждущих запросов у одного оператора. */
+export const MAX_PENDING_PER_OPERATOR = 20;
+/** Ждущих запросов с одного телефона (на разные туры). */
+export const MAX_PENDING_PER_PHONE = 3;
+/** Запросов с одного телефона за сутки. */
+export const MAX_PER_PHONE_PER_DAY = 10;
+/** Сколько раз пытаемся сообщить исход туристу в мессенджер. */
+export const MAX_TOURIST_NOTIFY_ATTEMPTS = 12;
+/** Ответ принят, а исхода нет дольше этого — процесс оборвался. */
+export const UNFINISHED_AFTER_MINUTES = 10;
 
 function logFail(where: string, err: unknown): void {
   const e = err as { message?: string; code?: string };
   console.error(`[seat-requests] ${where}:`, e?.message ?? 'неизвестная ошибка', `SQLSTATE=${e?.code ?? 'нет'}`);
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
+/**
+ * Страница статуса. Ключ — во ФРАГМЕНТЕ (#), а не в пути: фрагмент не уходит
+ * ни на сервер, ни в Referer, ни в page_views. Ключ в пути оседал бы в
+ * собственной метрике открытым текстом (обзор 29.09).
+ */
 export function statusUrl(token: string): string {
-  return `${getPublicBaseUrl()}/seat-request/${token}`;
+  return `${getPublicBaseUrl()}/seat-request#${token}`;
 }
 
 /** «Старт» по этой ссылке — и ответ оператора придёт туристу в мессенджер. */
@@ -66,15 +99,25 @@ export interface CreateSeatRequestInput {
   touristPhone: string;
   replyChannel: ReplyChannel;
   pdConsent: PdConsentRecord;
+  referralCode?: string | null;
   source?: string;
 }
 
+export type CreateSeatRequestFailure =
+  | 'date_past' | 'bad_date' | 'bad_phone' | 'tour_not_found' | 'operator_unreachable'
+  | 'duplicate' | 'already_confirmed' | 'too_many' | 'check_failed' | 'delivery_failed';
+
 export type CreateSeatRequestResult =
   | { ok: true; requestId: string; statusToken: string; deadlineAt: Date; operatorDelivery: 'max' | 'telegram-stub' }
-  | { ok: false; reason: 'date_past' | 'tour_not_found' | 'operator_unreachable' | 'check_failed' | 'delivery_failed' };
+  // existingStatusUrl — при 'duplicate': ссылка на уже отправленный запрос.
+  | { ok: false; reason: CreateSeatRequestFailure; existingStatusUrl?: string | null };
 
 export async function createSeatRequest(input: CreateSeatRequestInput): Promise<CreateSeatRequestResult> {
+  // Несуществующая дата (2099-02-31) — не «прошедшая»: это разные слова.
+  if (!isRealDate(input.date)) return { ok: false, reason: 'bad_date' };
   if (!isFutureOrToday(input.date)) return { ok: false, reason: 'date_past' };
+  const phone = normalizePhone(input.touristPhone);
+  if (phone === null) return { ok: false, reason: 'bad_phone' };
 
   let tour: { operator_id: string; title: string } | undefined;
   try {
@@ -93,6 +136,43 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   if (reach === null) return { ok: false, reason: 'check_failed' };
   if (!reach.reachable) return { ok: false, reason: 'operator_unreachable' };
 
+  // Дубли и потолки — до вставки и до сообщения оператору.
+  try {
+    const { rows: [dup] } = await pool.query<{ status: SeatRequestStatus; status_token_enc: string | null }>(
+      `SELECT r.status, r.status_token_enc
+         FROM tour_seat_requests r
+         LEFT JOIN operator_bookings b ON b.id = r.booking_id
+        WHERE r.tour_id = $1 AND r.tour_date = $2::date AND r.tourist_phone = $3
+          AND ((r.status = 'pending' AND r.deadline_at > NOW())
+               OR (r.status = 'confirmed'
+                   AND b.booking_status NOT IN ('cancelled', 'rejected') AND b.deleted_at IS NULL))
+        LIMIT 1`,
+      [input.tourId, input.date, phone],
+    );
+    if (dup) {
+      const enc = dup.status_token_enc ? decrypt(dup.status_token_enc) : null;
+      return {
+        ok: false,
+        reason: dup.status === 'confirmed' ? 'already_confirmed' : 'duplicate',
+        existingStatusUrl: enc ? statusUrl(enc) : null,
+      };
+    }
+
+    const { rows: [caps] } = await pool.query<{ op_pending: number; phone_pending: number; phone_day: number }>(
+      `SELECT COUNT(*) FILTER (WHERE status = 'pending' AND deadline_at > NOW() AND operator_id = $1)::int AS op_pending,
+              COUNT(*) FILTER (WHERE status = 'pending' AND deadline_at > NOW() AND tourist_phone = $2)::int AS phone_pending,
+              COUNT(*) FILTER (WHERE tourist_phone = $2 AND created_at > NOW() - INTERVAL '24 hours')::int AS phone_day
+         FROM tour_seat_requests
+        WHERE operator_id = $1 OR tourist_phone = $2`,
+      [tour.operator_id, phone],
+    );
+    if (
+      (caps?.op_pending ?? 0) >= MAX_PENDING_PER_OPERATOR
+      || (caps?.phone_pending ?? 0) >= MAX_PENDING_PER_PHONE
+      || (caps?.phone_day ?? 0) >= MAX_PER_PHONE_PER_DAY
+    ) return { ok: false, reason: 'too_many' };
+  } catch (err) { logFail('дубли и потолки не проверены', err); return { ok: false, reason: 'check_failed' }; }
+
   const { token, hash } = newStatusToken();
   const deadlineAt = new Date(Date.now() + SEAT_REQUEST_DEADLINE_MS);
   let requestId: string;
@@ -100,32 +180,37 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO tour_seat_requests
          (tour_id, operator_id, tour_date, participants, tourist_name, tourist_phone,
-          reply_channel, status_token_hash, deadline_at, source,
+          reply_channel, status_token_hash, status_token_enc, deadline_at, source, referral_code,
           pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
-       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id`,
       [input.tourId, tour.operator_id, input.date, input.participants, input.touristName,
-       input.touristPhone, input.replyChannel, hash, deadlineAt, input.source ?? 'planner',
+       phone, input.replyChannel, hash, encrypt(token), deadlineAt, input.source ?? 'planner',
+       input.referralCode ?? null,
        input.pdConsent.at, input.pdConsent.ip, input.pdConsent.source, input.pdConsent.version],
     );
     requestId = rows[0]!.id;
-  } catch (err) { logFail('запрос не записан', err); return { ok: false, reason: 'check_failed' }; }
+  } catch (err) {
+    // Гонка двух одинаковых запросов: проверку выше прошли оба, вставку — один.
+    if ((err as { code?: string }).code === '23505') return { ok: false, reason: 'duplicate', existingStatusUrl: null };
+    logFail('запрос не записан', err);
+    return { ok: false, reason: 'check_failed' };
+  }
 
   const answerUrl = operatorAnswerUrl(requestId);
-  const what = `«${esc(tour.title)}», ${input.date}, ${input.participants} чел.`;
+  const what = `«${escapeHtml(tour.title)}», ${input.date}, ${input.participants} чел.`;
   const deadlineLocal = deadlineAt.toLocaleTimeString('ru-RU', { timeZone: 'Asia/Kamchatka', hour: '2-digit', minute: '2-digit' });
+  // Текст БЕЗ ПД: сообщение уходит и в MAX, и в Telegram-заглушку. Через дверь
+  // pd-alert он идёт ради кнопок MAX и строгой доставки названному адресату.
+  const text = [
+    '<b>Запрос свободных мест</b>',
+    what,
+    '',
+    `Ответьте до ${deadlineLocal} (по Камчатке). «Есть места» — бронь сразу заводится и подтверждается, турист получает ссылку на оплату, а вам придёт обычное уведомление о брони с его контактами (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).`,
+  ].join('\n');
   const delivery = await sendPdAlert({
-    text: [
-      '<b>Запрос свободных мест</b>',
-      what,
-      `Турист: ${esc(input.touristName)}, ${esc(input.touristPhone)}`,
-      '',
-      `Ответьте до ${deadlineLocal} (по Камчатке). «Есть места» — бронь сразу заводится и подтверждается, турист получает ссылку на оплату.`,
-    ].join('\n'),
-    stub: [
-      `Запрос свободных мест: ${what}`,
-      `Ответьте до ${deadlineLocal} (по Камчатке) по ссылке ниже. Контакты туриста придут после подтверждения — в кабинет и в MAX.`,
-    ].join('\n'),
+    text,
+    stub: text,
     buttons: [
       { text: 'Есть места', payload: answerPayload('yes', requestId) },
       { text: 'Мест нет', payload: answerPayload('no', requestId) },
@@ -142,6 +227,7 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
       `UPDATE tour_seat_requests
           SET operator_delivery = $2,
               status = CASE WHEN $3::boolean THEN 'failed' ELSE status END,
+              failure_kind = CASE WHEN $3::boolean THEN 'delivery' ELSE failure_kind END,
               failure_reason = CASE WHEN $3::boolean THEN $4 ELSE failure_reason END,
               updated_at = NOW()
         WHERE id = $1`,
@@ -159,20 +245,22 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
 // ── 2. Ответ оператора ────────────────────────────────────────────────────
 
 export type AnswerResult =
-  | { ok: true; status: SeatRequestStatus; tourTitle: string; date: string }
-  | { ok: false; reason: 'not_found' | 'already_answered' | 'expired' | 'bad_date' | 'db_error'; status?: SeatRequestStatus };
+  | {
+      ok: true; status: SeatRequestStatus; tourTitle: string; date: string;
+      failureKind: FailureKind | null; touristMessage: TouristMessageState;
+    }
+  | {
+      ok: false;
+      reason: 'not_found' | 'already_answered' | 'expired' | 'date_past' | 'bad_date' | 'db_error' | 'accepted_unfinished';
+      status?: SeatRequestStatus;
+    };
 
 interface ClaimedRow {
   id: string; tour_id: string; operator_id: string; tour_date: string; participants: number;
-  tourist_name: string; tourist_phone: string; title: string;
+  tourist_name: string; tourist_phone: string; title: string; referral_code: string | null;
   pd_consent_at: Date; pd_consent_ip: string | null; pd_consent_source: string | null; pd_consent_version: string | null;
 }
 
-/**
- * Принять ответ. Захват атомарный: ответ засчитывается, только если запрос
- * ещё ждёт, срок не вышел и никто не ответил раньше (`answered_at IS NULL`).
- * Два нажатия подряд или ответ из двух каналов сразу — выигрывает первый.
- */
 /**
  * Адресован ли запрос оператору, чей это MAX-чат. Право нажать кнопку —
  * принадлежность ЧАТА сообщения: user_id прислал бы кто угодно, а чат
@@ -189,6 +277,13 @@ export async function requestBelongsToMaxChat(requestId: string, chatId: number)
   } catch (err) { logFail('принадлежность запроса не проверена', err); return 'db_error'; }
 }
 
+/**
+ * Принять ответ. Захват атомарный: ответ засчитывается, только если запрос
+ * ещё ждёт, срок не вышел, дата тура не прошла (по Камчатке) и никто не
+ * ответил раньше. Два нажатия подряд или ответ из двух каналов сразу —
+ * выигрывает первый; ответ после полуночи на прошедшую дату не заводит бронь
+ * в прошлое.
+ */
 export async function answerSeatRequest(
   requestId: string,
   answer: OperatorAnswer,
@@ -204,8 +299,9 @@ export async function answerSeatRequest(
          FROM operator_tours t
         WHERE r.id = $1::uuid AND t.id = r.tour_id
           AND r.status = 'pending' AND r.answered_at IS NULL AND r.deadline_at > NOW()
+          AND r.tour_date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
         RETURNING r.id, r.tour_id::text, r.operator_id, r.tour_date::text, r.participants,
-                  r.tourist_name, r.tourist_phone, t.title,
+                  r.tourist_name, r.tourist_phone, t.title, r.referral_code,
                   r.pd_consent_at, r.pd_consent_ip, r.pd_consent_source, r.pd_consent_version`,
       [requestId, via],
     ));
@@ -213,23 +309,32 @@ export async function answerSeatRequest(
 
   if (!claimed) {
     // Почему не захватилось — отдельным чтением: «уже ответили», «срок
-    // вышел» и «нет такого» — разные слова оператору.
+    // вышел», «дата прошла» и «нет такого» — разные слова оператору.
     try {
-      const { rows: [r] } = await pool.query<{ status: SeatRequestStatus; deadline_at: Date; answered_at: Date | null }>(
-        `SELECT status, deadline_at, answered_at FROM tour_seat_requests WHERE id = $1::uuid`, [requestId],
+      const { rows: [r] } = await pool.query<{
+        status: SeatRequestStatus; deadline_at: Date; answered_at: Date | null; tour_date: string;
+      }>(
+        `SELECT status, deadline_at, answered_at, tour_date::text FROM tour_seat_requests WHERE id = $1::uuid`,
+        [requestId],
       );
       if (!r) return { ok: false, reason: 'not_found' };
       const st = effectiveStatus(r);
-      return { ok: false, reason: st === 'expired' ? 'expired' : 'already_answered', status: st };
+      if (st === 'expired') return { ok: false, reason: 'expired', status: st };
+      if (st === 'pending' && r.answered_at === null && r.tour_date < kamchatkaToday()) {
+        return { ok: false, reason: 'date_past', status: st };
+      }
+      return { ok: false, reason: 'already_answered', status: st };
     } catch (err) { logFail('состояние запроса не прочитано', err); return { ok: false, reason: 'db_error' }; }
   }
 
   let finalStatus: SeatRequestStatus;
+  let failureKind: FailureKind | null = null;
+  let failureReason: string | null = null;
   let bookingId: number | null = null;
   let accessTokenEnc: string | null = null;
-  let failureReason: string | null = null;
   let altDate: string | null = null;
   let liveBookingUrl: string | null = null;
+  let reservedInfo: { bookingId: number; tourTitle: string; totalPrice: number; operatorId: string } | null = null;
 
   if (answer.kind === 'no') {
     finalStatus = 'declined';
@@ -241,6 +346,7 @@ export async function answerSeatRequest(
     // подтверждение. Учёт платформы может не согласиться с оператором (дата
     // закрыта в его же календаре, места заняты другой бронью) — это 'failed'
     // с причиной, а не молчаливая бронь сверх вместимости.
+    finalStatus = 'failed';
     try {
       const reserved = await reserveBooking({
         tourId: Number(claimed.tour_id),
@@ -251,6 +357,7 @@ export async function answerSeatRequest(
         specialRequests: 'Запрос свободных мест из планера: места подтверждены оператором в мессенджере.',
         createdVia: 'seat_request',
         metadata: { seat_request_id: claimed.id },
+        referralCode: claimed.referral_code,
         pdConsent: {
           at: claimed.pd_consent_at,
           ip: claimed.pd_consent_ip ?? 'неизвестен',
@@ -259,41 +366,77 @@ export async function answerSeatRequest(
         },
       });
       bookingId = reserved.bookingId;
+      reservedInfo = { bookingId: reserved.bookingId, tourTitle: reserved.tourTitle, totalPrice: reserved.totalPrice, operatorId: reserved.operatorId };
       accessTokenEnc = encrypt(reserved.accessToken);
       if (accessTokenEnc === null) {
         console.error(`[seat-requests] ключ брони ${reserved.bookingId} не зашифрован (ENCRYPTION_KEY) — ссылка уйдёт туристу только сообщением`);
       }
-      await confirmBooking(String(reserved.bookingId), null, 'Места подтверждены оператором в мессенджере (запрос мест)');
-      finalStatus = 'confirmed';
       // Ключ брони в открытом виде живёт только здесь и сейчас — сообщению
       // туристу он нужен немедленно, в базе он лежит зашифрованным.
       liveBookingUrl = `${getPublicBaseUrl()}/booking-success/${reserved.bookingId}?t=${reserved.accessToken}`;
+      try {
+        await confirmBooking(String(reserved.bookingId), null, 'Места подтверждены оператором в мессенджере (запрос мест)');
+        finalStatus = 'confirmed';
+      } catch (err) {
+        // Бронь создана и держит места, но осталась 'new' — оператор видит её
+        // в кабинете как обычную веб-бронь и может подтвердить сам.
+        failureKind = 'system';
+        failureReason = `бронь #${reserved.bookingId} создана, подтверждение не прошло: ${err instanceof Error ? err.message : 'неизвестно'}`;
+        logFail(`бронь ${reserved.bookingId} по запросу ${claimed.id} не подтверждена`, err);
+      }
     } catch (err) {
-      finalStatus = 'failed';
-      failureReason = err instanceof ReserveError
-        ? `учёт платформы: ${err.message}`
-        : `сбой при заведении брони: ${err instanceof Error ? err.message : 'неизвестно'}`;
+      if (err instanceof ReserveError) {
+        failureKind = 'accounting';
+        failureReason = `учёт платформы: ${err.message}`;
+      } else {
+        failureKind = 'system';
+        failureReason = `сбой при заведении брони: ${err instanceof Error ? err.message : 'неизвестно'}`;
+      }
       logFail(`«Есть места» по запросу ${claimed.id} не превратилось в бронь`, err);
-      // Бронь могла завестись, а подтверждение — упасть: тогда она остаётся
-      // 'new' у оператора в кабинете, и запрос ссылается на неё.
     }
   }
 
   try {
-    await pool.query(
+    const { rowCount } = await pool.query(
       `UPDATE tour_seat_requests
           SET status = $2, booking_id = $3, booking_access_token_enc = $4,
-              failure_reason = $5, alt_date = $6::date, updated_at = NOW()
-        WHERE id = $1::uuid`,
-      [claimed.id, finalStatus, bookingId, accessTokenEnc, failureReason, altDate],
+              failure_kind = $5, failure_reason = $6, alt_date = $7::date, updated_at = NOW()
+        WHERE id = $1::uuid AND status = 'pending'`,
+      [claimed.id, finalStatus, bookingId, accessTokenEnc, failureKind, failureReason, altDate],
     );
+    if (rowCount === 0) {
+      // Уборщик успел раньше нас (процесс завис дольше срока восстановления):
+      // исход уже записан им, второй раз не пишем и не уведомляем.
+      return { ok: false, reason: 'already_answered', status: finalStatus };
+    }
   } catch (err) {
     logFail(`исход запроса ${claimed.id} не записан`, err);
-    return { ok: false, reason: 'db_error' };
+    // Ответ принят, бронь могла завестись. Оператору нельзя говорить «нажмите
+    // ещё раз» (второй раз уже не примут) — запрос подберёт уборщик.
+    return { ok: false, reason: 'accepted_unfinished' };
   }
 
-  await notifyTourist(claimed.id, liveBookingUrl);
-  return { ok: true, status: finalStatus, tourTitle: claimed.title, date: claimed.tour_date };
+  // Оператору — обычное уведомление о брони (контакты туриста, U-ON), как у
+  // веб-формы; иначе он подтвердил бронь и не знает, кому звонить.
+  if (finalStatus === 'confirmed' && reservedInfo) {
+    await notifyOperatorOfNewBooking({
+      bookingId: reservedInfo.bookingId,
+      operatorId: reservedInfo.operatorId,
+      tourTitle: reservedInfo.tourTitle,
+      date: claimed.tour_date,
+      participants: claimed.participants,
+      totalPrice: reservedInfo.totalPrice,
+      touristName: claimed.tourist_name,
+      touristPhone: claimed.tourist_phone,
+      via: 'seat_request',
+    });
+  }
+
+  const touristMessage = await notifyTourist(claimed.id, liveBookingUrl);
+  return {
+    ok: true, status: finalStatus, tourTitle: claimed.title, date: claimed.tour_date,
+    failureKind, touristMessage,
+  };
 }
 
 // ── 3. Туристу ────────────────────────────────────────────────────────────
@@ -301,8 +444,9 @@ export async function answerSeatRequest(
 interface NotifyRow {
   id: string; status: SeatRequestStatus; deadline_at: Date; answered_at: Date | null;
   reply_channel: ReplyChannel; tourist_chat_id: string | null; tourist_notified_at: Date | null;
+  tourist_notify_attempts: number;
   tour_title: string; tour_date: string; participants: number; alt_date: string | null;
-  booking_id: string | null; booking_access_token_enc: string | null; status_token_hash: string;
+  booking_id: string | null; booking_access_token_enc: string | null; status_token_enc: string | null;
 }
 
 function bookingLink(row: { booking_id: string | null; booking_access_token_enc: string | null }): string | null {
@@ -311,22 +455,30 @@ function bookingLink(row: { booking_id: string | null; booking_access_token_enc:
   return key ? `${getPublicBaseUrl()}/booking-success/${row.booking_id}?t=${key}` : null;
 }
 
+function statusLink(row: { status_token_enc: string | null }): string | null {
+  if (!row.status_token_enc) return null;
+  const token = decrypt(row.status_token_enc);
+  return token ? statusUrl(token) : null;
+}
+
 /**
  * Отправить исход туристу, если он подключил чат, и отметить отправку.
  * Страница статуса работает всегда; сообщение — удобство, а не единственный
- * путь. Повторно не шлёт: `tourist_notified_at` ставится только при успехе.
+ * путь. Повторно не шлёт: `tourist_notified_at` ставится только при успехе;
+ * при отказе растёт счётчик попыток, и уборщик повторит (потолок —
+ * MAX_TOURIST_NOTIFY_ATTEMPTS).
  */
 export async function notifyTourist(
   requestId: string,
   liveBookingUrl: string | null = null,
-): Promise<'sent' | 'no_chat' | 'not_final' | 'failed'> {
+): Promise<TouristMessageState> {
   let row: NotifyRow | undefined;
   try {
     ({ rows: [row] } = await pool.query<NotifyRow>(
       `SELECT r.id, r.status, r.deadline_at, r.answered_at, r.reply_channel,
-              r.tourist_chat_id::text, r.tourist_notified_at, t.title AS tour_title,
-              r.tour_date::text, r.participants, r.alt_date::text, r.booking_id::text,
-              r.booking_access_token_enc, r.status_token_hash
+              r.tourist_chat_id::text, r.tourist_notified_at, r.tourist_notify_attempts,
+              t.title AS tour_title, r.tour_date::text, r.participants, r.alt_date::text,
+              r.booking_id::text, r.booking_access_token_enc, r.status_token_enc
          FROM tour_seat_requests r JOIN operator_tours t ON t.id = r.tour_id
         WHERE r.id = $1::uuid`,
       [requestId],
@@ -339,18 +491,18 @@ export async function notifyTourist(
   if (row.tourist_notified_at) return 'sent';
   if (!row.tourist_chat_id || (row.reply_channel !== 'telegram' && row.reply_channel !== 'max')) return 'no_chat';
 
-  // Ссылку на страницу статуса собрать нельзя — её ключ у туриста, у нас
-  // только хэш. Поэтому «куда дальше» — планер, а ссылка на бронь (там, где
-  // она есть) — ключевая, из шифра или из только что заведённой брони.
   const text = touristOutcomeText(
     { status, tour_title: row.tour_title, tour_date: row.tour_date, participants: row.participants, alt_date: row.alt_date },
-    { statusUrl: `${getPublicBaseUrl()}/planner`, bookingUrl: liveBookingUrl ?? bookingLink(row) },
+    { statusUrl: statusLink(row), bookingUrl: liveBookingUrl ?? bookingLink(row) },
   );
   const sent = row.reply_channel === 'telegram'
     ? (await telegramService.sendMessage({ chatId: row.tourist_chat_id, text })).success
     : (await maxSendDm(row.tourist_chat_id, text)).ok;
   if (!sent) {
-    console.error(`[seat-requests] исход запроса ${row.id} не доставлен туристу в ${row.reply_channel}`);
+    console.error(`[seat-requests] исход запроса ${row.id} не доставлен туристу в ${row.reply_channel} (попытка ${row.tourist_notify_attempts + 1})`);
+    try {
+      await pool.query(`UPDATE tour_seat_requests SET tourist_notify_attempts = tourist_notify_attempts + 1 WHERE id = $1::uuid`, [row.id]);
+    } catch (err) { logFail('счётчик попыток уведомления не записан', err); }
     return 'failed';
   }
   try {
@@ -396,6 +548,8 @@ export interface SeatRequestView {
   deadlineAt: string;
   replyChannel: ReplyChannel;
   touristChatBound: boolean;
+  /** Сообщение с исходом в мессенджер действительно ушло. */
+  touristNotified: boolean;
   bookingUrl: string | null;
 }
 
@@ -404,9 +558,10 @@ export async function readSeatRequest(statusToken: string): Promise<SeatRequestV
   try {
     ({ rows: [row] } = await pool.query<NotifyRow & { tour_id: string }>(
       `SELECT r.id, r.status, r.deadline_at, r.answered_at, r.reply_channel,
-              r.tourist_chat_id::text, r.tourist_notified_at, t.title AS tour_title, r.tour_id::text,
+              r.tourist_chat_id::text, r.tourist_notified_at, r.tourist_notify_attempts,
+              t.title AS tour_title, r.tour_id::text,
               r.tour_date::text, r.participants, r.alt_date::text, r.booking_id::text,
-              r.booking_access_token_enc, r.status_token_hash
+              r.booking_access_token_enc, r.status_token_enc
          FROM tour_seat_requests r JOIN operator_tours t ON t.id = r.tour_id
         WHERE r.status_token_hash = $1`,
       [hashStatusToken(statusToken)],
@@ -423,6 +578,7 @@ export async function readSeatRequest(statusToken: string): Promise<SeatRequestV
     deadlineAt: new Date(row.deadline_at).toISOString(),
     replyChannel: row.reply_channel,
     touristChatBound: row.tourist_chat_id !== null,
+    touristNotified: row.tourist_notified_at !== null,
     bookingUrl: bookingLink(row),
   };
 }
@@ -445,26 +601,109 @@ export async function readForOperator(requestId: string): Promise<
   } catch (err) { logFail('запрос для оператора не прочитан', err); return 'db_error'; }
 }
 
-// ── 5. Просрочка ──────────────────────────────────────────────────────────
+// ── 5. Уборщик ────────────────────────────────────────────────────────────
 
 /**
- * Закрыть просроченные запросы и сообщить туристам. Срок и без этого виден
- * читателям (effectiveStatus); уборщик нужен, чтобы статус в базе совпадал с
- * правдой и чтобы турист получил сообщение, а не ждал его.
+ * Подобрать запросы, у которых ответ ПРИНЯТ, а исход не записан: процесс
+ * оборвался между захватом и итоговой записью (деплой, обрыв соединения).
+ * Без этого такой запрос вечно показывал «ждём ответа», а повторное нажатие
+ * оператора упиралось в «уже ответили».
+ *
+ * Правда берётся из базы, а не угадывается: бронь ищется по метке
+ * `metadata.seat_request_id`, которую reserveBooking записал в неё же.
+ *   - бронь есть и подтверждена → 'confirmed';
+ *   - бронь есть, не подтверждена → 'failed'/system, бронь остаётся у оператора;
+ *   - брони нет → 'failed'/unfinished: ответ «есть» не превратился ни во что.
+ * 'declined' и 'other_date' восстановить нечем — ответ оператора (что именно
+ * он нажал) до записи исхода не сохраняется, — поэтому такой запрос честно
+ * 'failed'/unfinished, и человек выясняет ответ у оператора.
  */
-export async function expireOverdue(): Promise<{ expired: number; notified: number; notifyFailed: number }> {
-  const { rows } = await pool.query<{ id: string }>(
+export async function recoverUnfinished(): Promise<{ recovered: number; failed: number }> {
+  const { rows } = await pool.query<{ id: string; tour_date: string; participants: number; tourist_name: string; tourist_phone: string; operator_id: string; title: string }>(
+    `SELECT r.id, r.tour_date::text, r.participants, r.tourist_name, r.tourist_phone, r.operator_id, t.title
+       FROM tour_seat_requests r JOIN operator_tours t ON t.id = r.tour_id
+      WHERE r.status = 'pending' AND r.answered_at IS NOT NULL
+        AND r.answered_at < NOW() - ($1 || ' minutes')::INTERVAL`,
+    [String(UNFINISHED_AFTER_MINUTES)],
+  );
+  let recovered = 0;
+  let failed = 0;
+  for (const r of rows) {
+    try {
+      const { rows: [b] } = await pool.query<{ id: string; booking_status: string; final_price: string | null }>(
+        `SELECT id::text, booking_status, COALESCE(final_price, base_total_price)::text AS final_price
+           FROM operator_bookings
+          WHERE metadata->>'seat_request_id' = $1 AND deleted_at IS NULL
+          ORDER BY id DESC LIMIT 1`,
+        [r.id],
+      );
+      let status: SeatRequestStatus = 'failed';
+      let kind: FailureKind | null = 'unfinished';
+      let reason: string | null = 'ответ принят, а исход не записан (процесс оборвался); что именно ответил оператор, восстановить нечем';
+      if (b && b.booking_status === 'confirmed') {
+        status = 'confirmed'; kind = null; reason = null;
+      } else if (b) {
+        kind = 'system';
+        reason = `бронь #${b.id} создана, но осталась «${b.booking_status}» (процесс оборвался до подтверждения)`;
+      }
+      const upd = await pool.query(
+        `UPDATE tour_seat_requests
+            SET status = $2, booking_id = $3::bigint, failure_kind = $4, failure_reason = $5, updated_at = NOW()
+          WHERE id = $1::uuid AND status = 'pending' AND answered_at IS NOT NULL`,
+        [r.id, status, b?.id ?? null, kind, reason],
+      );
+      if ((upd.rowCount ?? 0) === 0) continue;
+      if (status === 'confirmed') {
+        recovered++;
+        // Уведомление оператору могло не успеть уйти; дубль безвреден, тишина — нет.
+        await notifyOperatorOfNewBooking({
+          bookingId: b!.id, operatorId: r.operator_id, tourTitle: r.title, date: r.tour_date,
+          participants: r.participants, totalPrice: Number(b!.final_price ?? 0),
+          touristName: r.tourist_name, touristPhone: r.tourist_phone, via: 'seat_request',
+        });
+      } else {
+        failed++;
+      }
+    } catch (err) { logFail(`незавершённый запрос ${r.id} не подобран`, err); }
+  }
+  return { recovered, failed };
+}
+
+/**
+ * Закрыть просроченные запросы, подобрать незавершённые и сообщить туристам.
+ * Срок и без этого виден читателям (effectiveStatus); уборщик нужен, чтобы
+ * статус в базе совпадал с правдой и чтобы турист получил сообщение, а не
+ * ждал его. Сообщения, не дошедшие раньше, повторяются (потолок попыток,
+ * сутки давности).
+ */
+export async function expireOverdue(): Promise<{
+  expired: number; recovered: number; unfinished_failed: number; notified: number; notify_failed: number;
+}> {
+  const { rows: expired } = await pool.query<{ id: string }>(
     `UPDATE tour_seat_requests
         SET status = 'expired', updated_at = NOW()
       WHERE status = 'pending' AND answered_at IS NULL AND deadline_at <= NOW()
       RETURNING id`,
   );
+  const rec = await recoverUnfinished();
+
+  const { rows: unnotified } = await pool.query<{ id: string }>(
+    `SELECT id FROM tour_seat_requests
+      WHERE status <> 'pending' AND tourist_notified_at IS NULL AND tourist_chat_id IS NOT NULL
+        AND reply_channel IN ('telegram', 'max')
+        AND tourist_notify_attempts < $1
+        AND updated_at > NOW() - INTERVAL '24 hours'`,
+    [MAX_TOURIST_NOTIFY_ATTEMPTS],
+  );
   let notified = 0;
   let notifyFailed = 0;
-  for (const r of rows) {
+  for (const r of unnotified) {
     const res = await notifyTourist(r.id);
     if (res === 'sent') notified++;
     if (res === 'failed') notifyFailed++;
   }
-  return { expired: rows.length, notified, notifyFailed };
+  return {
+    expired: expired.length, recovered: rec.recovered, unfinished_failed: rec.failed,
+    notified, notify_failed: notifyFailed,
+  };
 }

@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { readSeatRequest, touristBotLinks } from '@/lib/seat-requests/service';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 const limiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 
 export async function GET(req: NextRequest) {
-  if (!limiter.check(getClientIp(req.headers))) {
+  if (!limiter.check(getTrustedClientIp(req.headers))) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов' }, { status: 429 });
   }
   const t = req.nextUrl.searchParams.get('t') ?? '';

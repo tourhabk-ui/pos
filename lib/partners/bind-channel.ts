@@ -8,7 +8,11 @@
  * `contacts->>'telegram_chat_id'`: этот ключ до сих пор читают раздача горячих
  * лидов, напоминания по лидам и приёмник оплат оператора (последний — §7, «не
  * трогать»). Без зеркала привязка доходила бы до броней и не доходила бы до
- * лидов — половина механизма, выглядящая целой. Читатели ключа перечислены в
+ * лидов — половина механизма, выглядящая целой. Колонка contacts на проде
+ * по умолчанию `[]` (baseline), а не `{}`: `[] || объект` даёт МАССИВ и ключ
+ * не пишет, поэтому пустой/NULL заменяется пустым объектом, а НЕПУСТОЙ массив не трогается —
+ * потерять его содержимое хуже, чем не записать зеркало (колонка при этом
+ * пишется всегда) (обзор 29.09). Читатели ключа перечислены в
  * сторожe `tests/unit/partner-channel-link.test.ts`, список может только
  * сокращаться.
  *
@@ -24,6 +28,7 @@
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { maxSendDm } from '@/lib/notifications/max-channel';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 export type PartnerChannel = 'telegram' | 'max';
 
@@ -45,7 +50,10 @@ export async function bindPartnerChannel(
   const sql = channel === 'telegram'
     ? `UPDATE partners p
           SET telegram_chat_id = $1::bigint,
-              contacts = COALESCE(p.contacts, '{}'::jsonb) || jsonb_build_object('telegram_chat_id', $1::text),
+              contacts = (CASE WHEN jsonb_typeof(p.contacts) = 'object' THEN p.contacts
+                                WHEN p.contacts IS NULL OR p.contacts IN ('[]'::jsonb, 'null'::jsonb) THEN '{}'::jsonb
+                                ELSE p.contacts END)
+                         || jsonb_build_object('telegram_chat_id', $1::text),
               updated_at = NOW()
          FROM (SELECT id, telegram_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id
@@ -91,9 +99,10 @@ async function announceBinding(
   const label = CHANNEL_LABEL[channel];
   const adminChat = process.env.TELEGRAM_CHAT_ID;
   if (adminChat) {
+    const name = escapeHtml(partnerName);
     const text = rebound
-      ? `Оператор «${partnerName}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте оператору новую ссылку.`
-      : `Оператор «${partnerName}» подключил ${label}: заявки будут приходить туда.`;
+      ? `Оператор «${name}»: заявки в ${label} ПЕРЕНЕСЕНЫ в другой чат по ссылке привязки. Если перенос не согласован — выдайте оператору новую ссылку.`
+      : `Оператор «${name}» подключил ${label}: заявки будут приходить туда.`;
     const res = await telegramService.sendMessage({ chatId: adminChat, text });
     if (!res.success) console.error(`[bind-channel] администратор не уведомлён о привязке: ${res.error ?? 'нет ответа'}`);
   } else {
@@ -101,7 +110,7 @@ async function announceBinding(
   }
 
   if (!rebound || previous === null) return;
-  const notice = `Заявки оператора «${partnerName}» больше не приходят в этот чат — их перенесли в другой по ссылке привязки. Если это сделали не вы, сообщите администратору платформы.`;
+  const notice = `Заявки оператора «${escapeHtml(partnerName)}» больше не приходят в этот чат — их перенесли в другой по ссылке привязки. Если это сделали не вы, сообщите администратору платформы.`;
   if (channel === 'telegram') {
     const res = await telegramService.sendMessage({ chatId: previous, text: notice });
     if (!res.success) console.error(`[bind-channel] прежний Telegram-чат не уведомлён: ${res.error ?? 'нет ответа'}`);
@@ -121,7 +130,7 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
   const tail = channel === 'telegram'
     ? 'Сюда будут приходить номера заявок и ссылки в кабинет. Имя и телефон туриста по закону о персональных данных приходят только в MAX — подключите и его, если ещё нет.'
     : 'Сюда будут приходить заявки туристов с именем и телефоном.';
-  return `Готово: ${CHANNEL_LABEL[channel]} подключён к оператору «${result.partnerName}». ${tail}`;
+  return `Готово: ${CHANNEL_LABEL[channel]} подключён к оператору «${escapeHtml(result.partnerName)}». ${tail}`;
 }
 
 /** Текст для недействительной ссылки. */

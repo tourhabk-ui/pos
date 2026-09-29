@@ -41,11 +41,12 @@ export async function POST(
   let row: { name: string; has_telegram: boolean; has_max: boolean } | undefined;
   try {
     ({ rows: [row] } = await pool.query<{ name: string; has_telegram: boolean; has_max: boolean }>(
-      `SELECT name,
-              telegram_chat_id IS NOT NULL AS has_telegram,
-              max_chat_id IS NOT NULL      AS has_max
-         FROM partners
-        WHERE id = $1::uuid`,
+      `SELECT p.name,
+              (p.telegram_chat_id IS NOT NULL OR u.telegram_id IS NOT NULL) AS has_telegram,
+              p.max_chat_id IS NOT NULL AS has_max
+         FROM partners p
+         LEFT JOIN users u ON u.id = p.user_id
+        WHERE p.id = $1::uuid`,
       [id],
     ));
   } catch (err) {

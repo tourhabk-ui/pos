@@ -7,6 +7,7 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 /** Срок ответа оператора — решение владельца 29.09 («2 часа»). */
 export const SEAT_REQUEST_DEADLINE_MS = 2 * 60 * 60 * 1000;
@@ -15,6 +16,10 @@ export const SEAT_REQUEST_STATUSES = [
   'pending', 'confirmed', 'declined', 'other_date', 'expired', 'failed',
 ] as const;
 export type SeatRequestStatus = (typeof SEAT_REQUEST_STATUSES)[number];
+
+/** Почему запрос 'failed' (миграция 1105, failure_kind). */
+export const FAILURE_KINDS = ['delivery', 'accounting', 'system', 'unfinished'] as const;
+export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 export const REPLY_CHANNELS = ['telegram', 'max', 'whatsapp', 'phone'] as const;
 export type ReplyChannel = (typeof REPLY_CHANNELS)[number];
@@ -103,8 +108,14 @@ export function operatorAnswerKey(requestId: string): string | null {
 
 export function verifyOperatorAnswerKey(requestId: string, given: string): boolean {
   const expected = operatorAnswerKey(requestId);
-  if (!expected || typeof given !== 'string' || given.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+  if (!expected || typeof given !== 'string') return false;
+  // Сравниваются БАЙТЫ: строка из многобайтных символов той же длины в
+  // символах даёт буфер другой длины, а timingSafeEqual на таком бросает
+  // исключение — анонимный запрос получал бы 500 вместо отказа.
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 // ── Даты ──────────────────────────────────────────────────────────────────
@@ -114,56 +125,104 @@ export function kamchatkaToday(now: number = Date.now()): string {
   return new Date(now + 12 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
+/** Настоящая календарная дата: 2026-02-31 формой YYYY-MM-DD проходит, а датой не является. */
+export function isRealDate(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const d = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === date;
+}
+
 export function isFutureOrToday(date: string, now: number = Date.now()): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= kamchatkaToday(now);
+  return isRealDate(date) && date >= kamchatkaToday(now);
 }
 
 // ── Тексты туристу ────────────────────────────────────────────────────────
 // Без ПД: турист знает своё имя; в мессенджер уходит только суть исхода.
+// Название тура экранируется: оба канала шлют HTML, и «<b>» в названии иначе
+// ломал бы или подменял разметку.
 
+/**
+ * `statusUrl` — страница запроса туриста; null, если ссылку собрать не из чего
+ * (ключ страницы не сохранён зашифрованным). Тогда текст не отсылает «на
+ * страницу», которой туристу не назвали.
+ */
 export function touristOutcomeText(
   r: { status: SeatRequestStatus; tour_title: string; tour_date: string; participants: number; alt_date: string | null },
-  links: { statusUrl: string; bookingUrl: string | null },
+  links: { statusUrl: string | null; bookingUrl: string | null },
 ): string {
-  const what = `«${r.tour_title}», ${r.tour_date}, ${r.participants} чел.`;
+  const title = escapeHtml(r.tour_title);
+  const what = `«${title}», ${r.tour_date}, ${r.participants} чел.`;
+  const more = links.statusUrl ? `: ${links.statusUrl}` : '.';
   switch (r.status) {
-    case 'confirmed':
-      return `Оператор подтвердил места: ${what}. Бронь заведена и подтверждена — оплатить можно на странице брони: ${links.bookingUrl ?? links.statusUrl}`;
+    case 'confirmed': {
+      const pay = links.bookingUrl
+        ? ` Оплатить можно на странице брони: ${links.bookingUrl}`
+        : links.statusUrl
+          ? ` Ссылка на оплату — на странице запроса: ${links.statusUrl}`
+          : ' Оператор свяжется с вами по указанному телефону.';
+      return `Оператор подтвердил места: ${what}. Бронь заведена и подтверждена.${pay}`;
+    }
     case 'declined':
-      return `На ${r.tour_date} мест нет: ${what}. Посмотрите другие даты или туры: ${links.statusUrl}`;
+      return `На ${r.tour_date} мест нет: ${what}. Можно посмотреть другие даты или туры${more}`;
     case 'other_date':
-      return `На ${r.tour_date} мест нет, оператор предлагает ${r.alt_date}: «${r.tour_title}». Если дата подходит, оформите запрос на неё: ${links.statusUrl}`;
+      return `На ${r.tour_date} мест нет, оператор предлагает ${r.alt_date}: «${title}». Если дата подходит, отправьте запрос на неё${more}`;
     case 'expired':
-      return `Оператор не ответил за 2 часа: ${what}. Это не значит, что мест нет — можно отправить запрос ещё раз или оставить заявку: ${links.statusUrl}`;
+      return `Оператор не ответил за 2 часа: ${what}. Это не значит, что мест нет — можно отправить запрос ещё раз или оставить заявку${more}`;
     case 'failed':
-      return `Оператор ответил, что места есть, но бронь автоматически не завелась: ${what}. Мы разбираемся и свяжемся с вами: ${links.statusUrl}`;
+      return `Оператор ответил, что места есть, но бронь автоматически не завелась: ${what}. Мы разбираемся и свяжемся с вами${more}`;
     case 'pending':
-      return `Запрос отправлен оператору: ${what}. Ответ придёт сюда в течение 2 часов: ${links.statusUrl}`;
+      return `Запрос отправлен оператору: ${what}. Ответ придёт сюда в течение 2 часов${more}`;
   }
 }
 
-/** Ответ оператору после нажатия. */
-export function operatorReplyText(
-  result:
-    | { ok: true; status: SeatRequestStatus; tourTitle: string; date: string }
-    | { ok: false; reason: 'not_found' | 'already_answered' | 'expired' | 'bad_date' | 'db_error' | 'not_yours'; status?: SeatRequestStatus },
-): string {
+/** Что сталось с сообщением туристу (notifyTourist). */
+export type TouristMessageState = 'sent' | 'no_chat' | 'failed' | 'not_final';
+
+export type OperatorReplyInput =
+  | {
+      ok: true;
+      status: SeatRequestStatus;
+      tourTitle: string;
+      date: string;
+      failureKind?: FailureKind | null;
+      touristMessage?: TouristMessageState;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'not_found' | 'already_answered' | 'expired' | 'date_past' | 'bad_date'
+        | 'db_error' | 'accepted_unfinished' | 'not_yours';
+      status?: SeatRequestStatus;
+    };
+
+/** Ответ оператору после нажатия. Говорит только то, что известно. */
+export function operatorReplyText(result: OperatorReplyInput): string {
   if (result.ok) {
-    const what = `«${result.tourTitle}», ${result.date}`;
+    const what = `«${escapeHtml(result.tourTitle)}», ${result.date}`;
     switch (result.status) {
-      case 'confirmed': return `Принято: бронь на ${what} заведена и подтверждена. Контакты туриста — в кабинете, турист получил ссылку на оплату.`;
+      case 'confirmed': {
+        const tourist = result.touristMessage === 'sent'
+          ? 'Турист получил ссылку на оплату в мессенджер.'
+          : 'Турист увидит бронь на странице запроса; в мессенджер сообщение не ушло.';
+        return `Принято: бронь на ${what} заведена и подтверждена. ${tourist} Контакты туриста придут отдельным уведомлением о брони (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).`;
+      }
       case 'declined': return `Принято: мест на ${what} нет. Турист получит ответ.`;
       case 'other_date': return `Принято: туристу предложена другая дата для ${what}.`;
-      case 'failed': return `Бронь на ${what} не завелась: учёт платформы видит эту дату закрытой или занятой (см. календарь и вместимость тура в кабинете). Туристу сказано, что мы разбираемся; администратор видит запрос.`;
+      case 'failed':
+        return result.failureKind === 'accounting'
+          ? `Бронь на ${what} не завелась: учёт платформы видит эту дату закрытой или занятой (проверьте календарь и вместимость тура в кабинете). Туристу сказано, что мы разбираемся; администратор увидит запрос в течение часа.`
+          : `Бронь на ${what} не завелась из-за сбоя на нашей стороне, не из-за вашей даты. Проверьте раздел броней в кабинете: если бронь там есть, подтвердите её. Туристу сказано, что мы разбираемся; администратор увидит запрос в течение часа.`;
       default: return `Ответ по ${what} записан.`;
     }
   }
   switch (result.reason) {
     case 'expired': return 'Срок ответа (2 часа) вышел — туристу уже сказано, что ответа не было. Он может отправить запрос снова.';
+    case 'date_past': return 'Дата запроса уже прошла — ответ не принимается. Турист может отправить новый запрос на другую дату.';
     case 'already_answered': return 'На этот запрос уже ответили.';
     case 'not_found': return 'Запрос не найден.';
     case 'not_yours': return 'Этот запрос адресован другому оператору.';
     case 'bad_date': return 'Дата должна быть не раньше сегодняшней.';
-    case 'db_error': return 'Не удалось записать ответ — база не ответила. Нажмите ещё раз через минуту.';
+    case 'accepted_unfinished': return 'Ответ принят, но записать исход не удалось. Повторно не нажимайте: запрос подберёт уборщик, а администратор увидит его в течение часа.';
+    case 'db_error': return 'Не удалось записать ответ — база не ответила, ничего не сохранено. Нажмите ещё раз через минуту.';
   }
 }

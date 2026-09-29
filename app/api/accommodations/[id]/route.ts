@@ -329,21 +329,39 @@ export async function PATCH(
     const values: unknown[] = [];
     let idx = 1;
 
+    // Индекс параметра со ссылкой на бронь: по нему ниже сравнивается «было —
+    // стало», чтобы правка ссылки владельцем отправляла объект на модерацию.
+    let externalUrlIdx: number | null = null;
+
     for (const [key, value] of Object.entries(parsed.data)) {
       const mapping = columnMap[key];
       if (!mapping) continue;
       setClauses.push(`${mapping.column} = $${idx}`);
+      if (key === 'externalBookingUrl') externalUrlIdx = idx;
       values.push(mapping.transform ? mapping.transform(value) : value);
       idx++;
     }
 
-    // Отклонённый объект, исправленный ВЛАДЕЛЬЦЕМ, снова уходит на проверку:
-    // экран отказа обещает «после правки — снова на проверку». Только
-    // содержательная правка (не выключатель показа) и только от владельца —
-    // администратор решает через /api/admin/accommodations/[id].
+    // Модерация после правки ВЛАДЕЛЬЦА (администратор решает через
+    // /api/admin/accommodations/[id]):
+    //   - отклонённый объект, исправленный по существу, снова уходит на
+    //     проверку — экран отказа обещает «после правки — снова на проверку»;
+    //   - СМЕНА ссылки на бронь у одобренного объекта тоже: ссылка уходит
+    //     туристу кнопкой «Забронировать на сайте отеля» и, будучи подменённой,
+    //     вела бы на чужой сайт под одобренной карточкой без чьей-либо
+    //     проверки (обзор 29.09). Одобренная ссылка не меняется молча; такая
+    //     же ссылка, как была, ничего не сбрасывает.
+    // Условие одно и в одном присваивании: два `moderation_status = …` в
+    // одном UPDATE база отвергает.
     const contentEdited = Object.keys(parsed.data).some(k => k !== 'isActive');
     if (!isAdmin && contentEdited) {
-      setClauses.push(`moderation_status = CASE WHEN moderation_status = 'rejected' THEN 'pending' ELSE moderation_status END`);
+      // В UPDATE правая часть читает СТАРУЮ строку, поэтому сравнение колонки с
+      // новым значением видит именно «было — стало».
+      const conds = [`moderation_status = 'rejected'`];
+      if (externalUrlIdx !== null) {
+        conds.push(`(moderation_status = 'approved' AND external_booking_url IS DISTINCT FROM $${externalUrlIdx}::text)`);
+      }
+      setClauses.push(`moderation_status = CASE WHEN ${conds.join(' OR ')} THEN 'pending' ELSE moderation_status END`);
     }
 
     setClauses.push('updated_at = NOW()');

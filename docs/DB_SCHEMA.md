@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 250 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3349 |
+| Колонок | 3353 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 73 |
 
@@ -645,9 +645,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `operator_tour_id bigint!` `rule_type varchar!` `date_from date` `date_to date` `days_before_min integer` `days_before_max integer` `occupancy_min integer` `guests_min integer` `multiplier numeric!` `is_active boolean=` `created_at timestamp=`
 
-**tour_seat_requests** · 27 кол. · PK id · booking_id → operator_bookings.id, operator_id → partners.id, tour_id → operator_tours.id · индексов 4
+**tour_seat_requests** · 31 кол. · PK id · booking_id → operator_bookings.id, operator_id → partners.id, tour_id → operator_tours.id · индексов 7
 
-`id uuid!=` `tour_id bigint!` `operator_id uuid!` `tour_date date!` `participants integer!` `tourist_name varchar!` `tourist_phone varchar!` `reply_channel varchar!` `tourist_chat_id bigint` `status_token_hash character!` `status varchar!=` `alt_date date` `booking_id bigint` `booking_access_token_enc text` `failure_reason text` `operator_delivery varchar` `deadline_at timestamptz!` `answered_at timestamptz` `answered_via varchar` `tourist_notified_at timestamptz` `source varchar!=` `pd_consent_at timestamptz!` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `tour_id bigint!` `operator_id uuid!` `tour_date date!` `participants integer!` `tourist_name varchar!` `tourist_phone varchar!` `reply_channel varchar!` `tourist_chat_id bigint` `status_token_hash character!` `status_token_enc text` `status varchar!=` `alt_date date` `booking_id bigint` `booking_access_token_enc text` `failure_reason text` `failure_kind varchar` `operator_delivery varchar` `deadline_at timestamptz!` `answered_at timestamptz` `answered_via varchar` `tourist_notified_at timestamptz` `tourist_notify_attempts integer!=` `referral_code varchar` `source varchar!=` `pd_consent_at timestamptz!` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `created_at timestamptz!=` `updated_at timestamptz!=`
 
 **tour_selection_events** · 7 кол. · PK id · item_id → tour_selection_items.id, selection_id → tour_selections.id · индексов 2
 

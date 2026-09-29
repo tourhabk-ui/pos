@@ -55,13 +55,20 @@ export interface PdAlertParams {
   to?: { maxChatId?: string | number | null; telegramChatId?: string | number | null };
 }
 
-/** Куда слать ПД. Публичный канал (MAX_CHANNEL_ID) сюда не годится — там их увидят все. */
-function maxTarget(explicit?: string | number | null): { id: string } | { error: string } {
-  const id = explicit != null && String(explicit).trim() !== ''
-    ? String(explicit).trim()
-    : process.env.MAX_OPERATOR_CHAT_ID?.trim();
+/**
+ * Куда слать ПД. Публичный канал (MAX_CHANNEL_ID) сюда не годится — там их увидят все.
+ *
+ * `strict` — получатель НАЗВАН вызывающим (params.to). Тогда адрес берётся
+ * только у него: нет max_chat_id — значит «не смог», а не откат на рабочий
+ * чат платформы. Без строгости оператор с одним Telegram (штатное состояние)
+ * не получал ничего, а имя и телефон туриста уходили в чужой для него чат и
+ * числились доставленными (найдено обзором 29.09).
+ */
+function maxTarget(explicit: string | number | null | undefined, strict: boolean): { id: string } | { error: string } {
+  const own = explicit != null && String(explicit).trim() !== '' ? String(explicit).trim() : null;
+  const id = own ?? (strict ? undefined : process.env.MAX_OPERATOR_CHAT_ID?.trim());
   if (!id) {
-    return { error: explicit != null ? 'у получателя нет max_chat_id' : 'MAX_OPERATOR_CHAT_ID не задан' };
+    return { error: strict ? 'у получателя нет max_chat_id' : 'MAX_OPERATOR_CHAT_ID не задан' };
   }
 
   const channel = process.env.MAX_CHANNEL_ID?.trim();
@@ -75,14 +82,16 @@ function maxTarget(explicit?: string | number | null): { id: string } | { error:
 
 async function telegramStub(
   stub: string,
-  buttons?: PdAlertButton[],
-  explicitChatId?: string | number | null,
+  buttons: PdAlertButton[] | undefined,
+  explicitChatId: string | number | null | undefined,
+  strict: boolean,
 ): Promise<boolean> {
   const links = buttons?.filter((b): b is { text: string; url: string } => 'url' in b);
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = explicitChatId != null && String(explicitChatId).trim() !== ''
-    ? String(explicitChatId).trim()
-    : process.env.TELEGRAM_CHAT_ID;
+  const own = explicitChatId != null && String(explicitChatId).trim() !== '' ? String(explicitChatId).trim() : null;
+  // Названный получатель без Telegram-адреса — заглушке некуда идти. Рабочий
+  // чат платформы не заменяет оператора: он не тот, кому адресовано.
+  const chatId = own ?? (strict ? undefined : process.env.TELEGRAM_CHAT_ID);
   if (!token || !chatId) return false;
 
   try {
@@ -121,11 +130,12 @@ export async function sendPdAlert(params: PdAlertParams): Promise<PdAlertResult>
   // Если получатель назван явно, адрес берётся ТОЛЬКО у него: молчаливый
   // откат на рабочий чат платформы отправил бы ПД туриста не тому, кому
   // сообщение адресовано, а оператор своего уведомления не получил бы вовсе.
-  const target = params.to ? maxTarget(params.to.maxChatId ?? null) : maxTarget(undefined);
+  const strict = params.to !== undefined;
+  const target = maxTarget(params.to?.maxChatId ?? null, strict);
 
   if ('error' in target) {
     console.error(`[pd-alert] MAX не настроен: ${target.error} — ПД не отправлены`);
-    const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId);
+    const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId, strict);
     return stubbed
       ? { channel: 'telegram-stub', delivered: false, reason: target.error }
       : { channel: 'none', delivered: false, reason: `${target.error}; заглушка в Telegram тоже не ушла` };
@@ -136,7 +146,7 @@ export async function sendPdAlert(params: PdAlertParams): Promise<PdAlertResult>
 
   const why = res.error ?? 'MAX API error';
   console.error(`[pd-alert] MAX отказал: ${why} — ПД не отправлены, уходит заглушка`);
-  const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId);
+  const stubbed = await telegramStub(params.stub, params.buttons, params.to?.telegramChatId, strict);
   return stubbed
     ? { channel: 'telegram-stub', delivered: false, reason: why }
     : { channel: 'none', delivered: false, reason: `${why}; заглушка в Telegram тоже не ушла` };

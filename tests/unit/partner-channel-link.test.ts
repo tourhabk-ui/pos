@@ -127,6 +127,10 @@ describe('запись канала', () => {
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toMatch(/SET telegram_chat_id = \$1::bigint/);
     expect(sql).toMatch(/jsonb_build_object\('telegram_chat_id', \$1::text\)/);
+    // contacts на проде по умолчанию `[]`: массив заменяется объектом, а
+    // НЕПУСТОЙ массив не теряется.
+    expect(sql).toMatch(/jsonb_typeof\(p\.contacts\) = 'object'/);
+    expect(sql).toMatch(/p\.contacts IN \('\[\]'::jsonb, 'null'::jsonb\)/);
     expect(params).toEqual(['12345', PID]);
     // Администратор узнаёт о подключении; прежнего чата не было — ему нечего слать.
     expect(tgSendMock).toHaveBeenCalledTimes(1);
@@ -166,6 +170,16 @@ describe('запись канала', () => {
     expect(logged).toMatch(/SQLSTATE=57P01/);
   });
 
+  it('название оператора экранируется во всех сообщениях бота (оба канала шлют HTML)', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{ name: 'A<b>&"', previous: '111' }] });
+    await bindPartnerChannel(PID, 'max', 222);
+    expect(tgSendMock.mock.calls[0][0].text).toContain('A&lt;b&gt;&amp;&quot;');
+    expect(tgSendMock.mock.calls[0][0].text).not.toContain('<b>&');
+    expect(maxSendMock.mock.calls[0]![1]).toContain('A&lt;b&gt;&amp;&quot;');
+    const t = bindReplyText('max', { ok: true, partnerName: 'A<b>&', previousChatId: null, rebound: false });
+    expect(t).toContain('A&lt;b&gt;&amp;');
+  });
+
   it('ответ в Telegram честно говорит, что ПД туриста приходят только в MAX', () => {
     const t = bindReplyText('telegram', { ok: true, partnerName: 'X', previousChatId: null, rebound: false });
     expect(t).toMatch(/только в MAX/);
@@ -202,7 +216,10 @@ describe('админка видит то же, что доставка', () => {
   });
 
   it('состояние каналов — по колонкам, а не по contacts JSONB', () => {
-    expect(read('app/api/admin/operators/route.ts')).toMatch(/\(p\.telegram_chat_id IS NOT NULL\) AS has_telegram/);
+    // Telegram достижим по колонке партнёра ИЛИ по аккаунту человека — так же
+    // считает доставка (lib/partners/reach); админка не должна спорить с ней.
+    expect(read('app/api/admin/operators/route.ts')).toMatch(/\(p\.telegram_chat_id IS NOT NULL OR u\.telegram_id IS NOT NULL\) AS has_telegram/);
+    expect(read('app/api/admin/operators/[id]/channel-link/route.ts')).toMatch(/p\.telegram_chat_id IS NOT NULL OR u\.telegram_id IS NOT NULL/);
     expect(read('app/api/admin/operators/route.ts')).toMatch(/\(p\.max_chat_id IS NOT NULL\)\s+AS has_max/);
     const ui = read('app/hub/admin/operators/_OperatorsClient.tsx');
     expect(ui).toMatch(/channel-link/);
@@ -211,7 +228,12 @@ describe('админка видит то же, что доставка', () => {
   });
 
   it('ручной путь пишет чат и в колонку', () => {
-    expect(read('app/api/admin/operators/[id]/contacts/route.ts')).toMatch(/telegram_chat_id = CASE WHEN \$3::boolean THEN \$4::bigint/);
+    const route = read('app/api/admin/operators/[id]/contacts/route.ts');
+    expect(route).toMatch(/telegram_chat_id = CASE WHEN \$3::boolean THEN \$4::bigint/);
+    // contacts по умолчанию `[]` (baseline): `[] || объект` — массив, ключ не пишется.
+    expect(route).toMatch(/jsonb_typeof\(contacts\) = 'object'/);
+    // 19 цифр могут не поместиться в bigint.
+    expect(route).toMatch(/\\d\{1,18\}/);
   });
 });
 

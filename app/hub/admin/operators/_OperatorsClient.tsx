@@ -113,6 +113,9 @@ function ChannelLinkPanel({ op }: { op: OperatorRow }) {
     | { kind: 'error'; error: string }
   >({ kind: 'idle' });
   const [copied, setCopied] = useState(false);
+  // Отдельно от state: сбой буфера обмена не должен стирать выданную ссылку
+  // ровно тогда, когда просят выделить её вручную (обзор 29.09).
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const bound = state.kind === 'ready' ? state.bound : { telegram: op.has_telegram, max: op.has_max };
 
@@ -137,10 +140,11 @@ function ChannelLinkPanel({ op }: { op: OperatorRow }) {
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
+      setCopyError(null);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setState({ kind: 'error', error: 'Не удалось скопировать — выделите текст вручную' });
+      setCopyError('Не удалось скопировать — выделите текст в поле выше вручную.');
     }
   }
 
@@ -189,6 +193,7 @@ function ChannelLinkPanel({ op }: { op: OperatorRow }) {
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? 'Скопировано' : 'Скопировать текст'}
           </button>
+          {copyError && <p className="text-xs text-[var(--danger)]" role="alert">{copyError}</p>}
         </div>
       )}
     </div>

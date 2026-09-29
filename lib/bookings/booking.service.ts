@@ -107,7 +107,7 @@ function normalizeLogRow(row: Record<string, unknown>): BookingLogEntry {
     bookingId: String(row.booking_id),
     fromStatus: String(row.from_status) as BookingStatus,
     toStatus: String(row.to_status) as BookingStatus,
-    changedBy: String(row.changed_by),
+    changedBy: row.changed_by != null ? String(row.changed_by) : null,
     comment: row.comment ? String(row.comment) : null,
     createdAt: new Date(String(row.created_at)),
   };
@@ -544,7 +544,7 @@ export async function getBookingForUser(
   userId: string
 ): Promise<BookingWithDetails | null> {
   const result = await query(
-    `${BOOKING_SELECT} WHERE b.id = $1 AND b.user_id = $2`,
+    `${BOOKING_SELECT} AND b.id = $1 AND b.user_id = $2`,
     [bookingId, userId]
   );
   if (result.rows.length === 0) {

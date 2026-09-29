@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal, X, Building2 } from 'lucide-react';
 import { AccommodationCard } from '@/components/shared/AccommodationCard';
@@ -56,20 +56,22 @@ const DEFAULT_FILTERS: FiltersState = {
 };
 
 /**
- * Задал ли посетитель хоть одно условие. Порядок сортировки — не условие:
- * он меняет вид, а не то, что человек ищет. Первая загрузка витрины без
- * условий поиском не считается — её уже посчитал просмотр страницы
- * (page_views), и второй счёт того же захода раздул бы спрос.
+ * Задал ли посетитель хоть одно условие ПОИСКА — ровно те, что `load` уходит
+ * искать. Порядок сортировки — не условие: он меняет вид, а не то, что человек
+ * ищет. Условия здесь повторяют отбор параметров в `load` (тип — только когда
+ * выбран один; даты — только валидной парой): иначе выдача, в которой фильтр
+ * НЕ применён, считалась бы поиском. Первая загрузка витрины без условий
+ * поиском не считается — её уже посчитал просмотр страницы (page_views).
  */
 function isSearch(f: FiltersState): boolean {
-  return f.type.length > 0
-    || f.priceMin !== DEFAULT_FILTERS.priceMin
-    || f.priceMax !== DEFAULT_FILTERS.priceMax
-    || f.ratingMin !== DEFAULT_FILTERS.ratingMin
+  return f.type.length === 1
+    || f.priceMin > 0
+    || f.priceMax < 50000
+    || f.ratingMin > 0
     || f.amenities.length > 0
     || f.locationZone !== ''
-    || f.search.trim() !== ''
-    || (f.checkIn !== '' && f.checkOut !== '');
+    || f.search !== ''
+    || (f.checkIn !== '' && f.checkOut !== '' && f.checkOut > f.checkIn);
 }
 
 export function AccommodationsClient() {
@@ -123,6 +125,21 @@ export function AccommodationsClient() {
     }
   }, [favMap, router]);
 
+  // Маяк спроса шлётся после паузы: каждая буква в поиске и каждый сдвиг
+  // ползунка цены — отдельная загрузка, но не отдельное намерение. Считается
+  // последний исход серии, а не каждый промежуточный (обзор 29.09).
+  const beaconTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const beaconPending = useRef<StaySearchOutcome | null>(null);
+  const flushBeacon = useCallback(() => {
+    if (beaconTimer.current) { clearTimeout(beaconTimer.current); beaconTimer.current = null; }
+    if (beaconPending.current) {
+      funnelBeacon('stay_search', staySearchEntity('web', beaconPending.current));
+      beaconPending.current = null;
+    }
+  }, []);
+  // Уход со страницы не теряет последний поиск серии.
+  useEffect(() => flushBeacon, [flushBeacon]);
+
   const load = useCallback(async (currentPage: number, currentFilters: FiltersState) => {
     setLoading(true);
     const p = new URLSearchParams();
@@ -165,14 +182,14 @@ export function AccommodationsClient() {
       }
     } finally {
       setLoading(false);
-      // Считается поиск, а не «показать ещё», и только с условиями. Приёмник
-      // дедуплицирует посетителя за час — набор фильтров по одному полю не
-      // множит одного человека.
+      // Считается поиск, а не «показать ещё», и только с условиями.
       if (currentPage === 1 && isSearch(currentFilters)) {
-        funnelBeacon('stay_search', staySearchEntity('web', outcome));
+        beaconPending.current = outcome;
+        if (beaconTimer.current) clearTimeout(beaconTimer.current);
+        beaconTimer.current = setTimeout(flushBeacon, 1500);
       }
     }
-  }, []);
+  }, [flushBeacon]);
 
   useEffect(() => {
     setPage(1);

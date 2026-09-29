@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * Страница статуса запроса мест для туриста (29.09). Работает всегда — даже
- * если мессенджер не подключён: ответ оператора виден здесь. Пока запрос
- * ждёт, страница сама переспрашивает статус раз в 30 секунд.
+ * Страница статуса запроса мест для туриста (29.09). Ключ запроса — во
+ * фрагменте адреса (`/seat-request#<ключ>`), а не в пути. Работает всегда —
+ * даже если мессенджер не подключён: ответ оператора виден здесь. Пока запрос
+ * ждёт, страница сама переспрашивает статус раз в 30 секунд; если самая первая
+ * загрузка не удалась, повторяет её, а не застывает на ошибке.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -22,6 +24,7 @@ interface View {
   deadlineAt: string;
   replyChannel: 'telegram' | 'max' | 'whatsapp' | 'phone';
   touristChatBound: boolean;
+  touristNotified: boolean;
   bookingUrl: string | null;
   botLinks: { telegram: string; max: string };
 }
@@ -45,11 +48,23 @@ function Icon({ s }: { s: Status }) {
   return <AlertTriangle className={cls} style={style} />;
 }
 
-export function SeatRequestStatusClient({ token }: { token: string }) {
+const KEY_RE = /^[A-Za-z0-9_-]{32}$/;
+
+export function SeatRequestStatusClient() {
+  const [token, setToken] = useState<string | null | undefined>(undefined);
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Ключ читается из фрагмента после монтирования: на сервере его нет по
+  // построению. undefined — ещё не читали, null — в адресе ключа нет.
+  useEffect(() => {
+    const raw = window.location.hash.replace(/^#/, '');
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- чтение адреса браузера, источника до монтирования нет
+    setToken(KEY_RE.test(raw) ? raw : null);
+  }, []);
+
   const load = useCallback(async () => {
+    if (!token) return;
     try {
       const res = await fetch(`/api/seat-requests/status?t=${encodeURIComponent(token)}`, { cache: 'no-store' });
       const body = await res.json().catch(() => null) as { success: true; data: View } | { success: false; error?: string } | null;
@@ -60,9 +75,7 @@ export function SeatRequestStatusClient({ token }: { token: string }) {
       setError(null);
       setView(body.data);
     } catch {
-      // Сеть пропала — показываем последнее известное и говорим об этом,
-      // а не делаем вид, что статус свежий.
-      setError('Нет связи — показан последний известный статус.');
+      setError('Нет связи с сервером.');
     }
   }, [token]);
 
@@ -70,21 +83,42 @@ export function SeatRequestStatusClient({ token }: { token: string }) {
     void load();
   }, [load]);
 
+  // Пока запрос ждёт — переспрашиваем. Пока первая загрузка не удалась
+  // (view нет, ошибка есть) — тоже: иначе один сбой сети оставлял страницу
+  // навсегда на ошибке, хотя запрос жив.
   useEffect(() => {
-    if (view?.status !== 'pending') return;
-    const t = setInterval(() => { void load(); }, 30_000);
+    const keepPolling = view?.status === 'pending' || (view === null && error !== null);
+    if (!token || !keepPolling) return;
+    const t = setInterval(() => { void load(); }, view === null ? 10_000 : 30_000);
     return () => clearInterval(t);
-  }, [view?.status, load]);
+  }, [token, view, error, load]);
+
+  if (token === undefined) {
+    return <main className="ds-page min-h-screen" />;
+  }
 
   return (
     <main className="ds-page min-h-screen px-4 py-10">
       <div className="max-w-md mx-auto space-y-4">
-        {!view && !error && (
+        {token === null && (
+          <div className="ds-card p-6 space-y-2">
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>Ссылка не полная</h1>
+            <p className="text-sm text-[var(--text-secondary)]">
+              В адресе нет ключа запроса. Откройте ссылку целиком — ту, что показали после отправки запроса или прислали в мессенджер.
+            </p>
+            <Link href="/planner" className="text-sm text-[var(--ocean)] hover:underline">К планеру</Link>
+          </div>
+        )}
+        {token !== null && !view && !error && (
           <div className="ds-card p-6 flex items-center gap-2 text-[var(--text-secondary)]">
             <Loader2 className="w-4 h-4 animate-spin" /> Проверяем статус…
           </div>
         )}
-        {error && <p className="text-sm text-[var(--danger)]" role="alert">{error}</p>}
+        {error && (
+          <p className="text-sm text-[var(--danger)]" role="alert">
+            {view ? `${error} Показан последний известный статус.` : `${error} Пробуем ещё раз…`}
+          </p>
+        )}
         {view && (
           <div className="ds-card p-6 space-y-4" aria-live="polite">
             <div className="flex items-start gap-3">
@@ -108,7 +142,12 @@ export function SeatRequestStatusClient({ token }: { token: string }) {
             {view.status === 'confirmed' && (
               view.bookingUrl
                 ? <a href={view.bookingUrl} className="ds-btn ds-btn-primary w-full inline-flex justify-center">Открыть бронь и оплатить</a>
-                : <p className="text-sm text-[var(--text-secondary)]">Бронь подтверждена. Ссылку на оплату мы прислали в мессенджер; если её нет — оператор свяжется по телефону.</p>
+                : <p className="text-sm text-[var(--text-secondary)]">
+                    Бронь подтверждена.{' '}
+                    {view.touristNotified
+                      ? 'Ссылку на оплату мы прислали в мессенджер.'
+                      : 'Ссылку на оплату мы отдельно не отправляли — оператор свяжется с вами по указанному телефону.'}
+                  </p>
             )}
             {view.status === 'other_date' && view.altDate && (
               <p className="text-sm text-[var(--text-primary)]">Предложенная дата: <b>{view.altDate}</b>. Если подходит — отправьте запрос на неё из планера или откройте тур.</p>

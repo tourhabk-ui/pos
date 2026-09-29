@@ -85,6 +85,24 @@ export function createRateLimiter({ windowMs, max }: RateLimiterOptions): RateLi
   };
 }
 
+/**
+ * IP клиента для мест, где от него зависит доказательство или потолок:
+ * лимит публичной записи, обстоятельства согласия на ПД.
+ *
+ * `getClientIp` берёт ПЕРВЫЙ элемент X-Forwarded-For — то есть то, что клиент
+ * написал сам (сервер дописывает свой адрес в конец). Скрипт, меняющий
+ * заголовок с каждым запросом, обходил лимит и подделывал IP в записи
+ * согласия (обзор 29.09). Порядок здесь тот же, что у middleware.ts:
+ * x-real-ip (ставит прокси, снаружи не подделать) → cf-connecting-ip →
+ * X-Forwarded-For как последнее средство.
+ */
+export function getTrustedClientIp(headers: Headers): string {
+  return headers.get('x-real-ip')?.trim()
+    || headers.get('cf-connecting-ip')?.trim()
+    || headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || '127.0.0.1';
+}
+
 /** Extract client IP from NextRequest headers */
 export function getClientIp(headers: Headers): string {
   return headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';

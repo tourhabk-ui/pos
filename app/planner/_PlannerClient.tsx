@@ -519,7 +519,7 @@ function DayCard({
           <button
             type="button"
             onClick={() => onAskSeats(topTour)}
-            className="mx-3 mb-2.5 text-[10px] font-semibold text-[var(--accent)] hover:underline"
+            className="mx-3 mb-2.5 -mt-1 min-h-8 px-1 inline-flex items-center text-xs font-semibold text-[var(--accent)] hover:underline"
           >
             Уточнить места у оператора
           </button>
@@ -897,7 +897,7 @@ function CompanionWidget({ days, arrival, departure }: {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-[var(--accent)] text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
+        className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-[var(--accent)] text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
         title="Помощник путешественника"
       >
         <MessageCircle className="w-5 h-5" />
@@ -906,7 +906,7 @@ function CompanionWidget({ days, arrival, departure }: {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-80 max-h-[70vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-xl flex flex-col overflow-hidden">
+    <div className="fixed bottom-6 right-6 z-40 w-80 max-h-[70vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-xl flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-hover)]">
         <div className="flex items-center gap-2">
           <MessageCircle className="w-4 h-4 text-[var(--accent)]" />

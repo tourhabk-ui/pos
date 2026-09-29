@@ -65,26 +65,26 @@ export async function GET(req: NextRequest) {
   // Окно параметризовано, не склеено строкой (§4, сторож sql-interval-not-concatenated).
   const W = `NOW() - ($1 || ' days')::INTERVAL`;
 
-  const [supply, views, searchRows, starts, external, mcp, bookings, since] = await Promise.all([
+  const [supply, views, searchRows, webDays, starts, external, mcp, bookings, since] = await Promise.all([
     // Предложение: без него спрос не с чем сравнить. «Ищут, а витрина пуста»
     // и «ищут и находят» — разные доводы в разговоре о поставщике.
     measure('supply', async () => (await pool.query<{ listings: number; rooms: number }>(
       `SELECT COUNT(DISTINCT a.id)::int AS listings,
               COUNT(r.id)::int          AS rooms
          FROM accommodations a
-         LEFT JOIN accommodation_rooms r ON r.accommodation_id = a.id
+         LEFT JOIN accommodation_rooms r ON r.accommodation_id = a.id AND r.is_active = true
         WHERE ${publicAccommodationSql('a')}`,
     )).rows[0]),
 
     // Просмотры — собственная метрика (page_views), люди отдельно от ботов.
     measure('page_views', async () => (await pool.query<{
-      list_views: number; list_visitors: number;
-      card_views: number; card_visitors: number; bot_views: number;
+      list_views: number; list_visitor_days: number;
+      card_views: number; card_visitor_days: number; bot_views: number;
     }>(
       `SELECT COUNT(*) FILTER (WHERE is_bot = FALSE AND path = '/accommodations')::int AS list_views,
-              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND path = '/accommodations')::int AS list_visitors,
+              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND path = '/accommodations')::int AS list_visitor_days,
               COUNT(*) FILTER (WHERE is_bot = FALSE AND path LIKE '/accommodations/%')::int AS card_views,
-              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND path LIKE '/accommodations/%')::int AS card_visitors,
+              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND path LIKE '/accommodations/%')::int AS card_visitor_days,
               COUNT(*) FILTER (WHERE is_bot = TRUE)::int AS bot_views
          FROM page_views
         WHERE created_at > ${W}
@@ -93,20 +93,28 @@ export async function GET(req: NextRequest) {
     )).rows[0]),
 
     measure('stay_search', async () => (await pool.query<StaySearchRow>(
-      `SELECT entity_id,
-              COUNT(*)::int                     AS searches,
-              COUNT(DISTINCT visitor_hash)::int AS visitors
+      `SELECT entity_id, COUNT(*)::int AS searches
          FROM funnel_events
         WHERE step = 'stay_search' AND created_at > ${W}
         GROUP BY entity_id`,
       [days],
     )).rows),
 
+    // Один посетитель, искавший в каталоге дважды с разным исходом, — один
+    // человеко-день, а не два: считается отдельным DISTINCT по всему каналу,
+    // а не суммой по исходам.
+    measure('stay_search_web_days', async () => (await pool.query<{ visitor_days: number }>(
+      `SELECT COUNT(DISTINCT visitor_hash)::int AS visitor_days
+         FROM funnel_events
+        WHERE step = 'stay_search' AND entity_id LIKE 'web:%' AND created_at > ${W}`,
+      [days],
+    )).rows[0]),
+
     measure('stay_booking_start', async () => (await pool.query<{
-      starts: number; visitors: number; listings: number;
+      starts: number; visitor_days: number; listings: number;
     }>(
       `SELECT COUNT(*)::int                     AS starts,
-              COUNT(DISTINCT visitor_hash)::int AS visitors,
+              COUNT(DISTINCT visitor_hash)::int AS visitor_days,
               COUNT(DISTINCT entity_id)::int    AS listings
          FROM funnel_events
         WHERE step = 'stay_booking_start' AND created_at > ${W}`,
@@ -116,9 +124,9 @@ export async function GET(req: NextRequest) {
     // Переходы на бронь на сайте самого объекта (миграция 1106): спрос,
     // который ушёл к объекту напрямую, мимо нашей брони. Без этого счёта
     // «брони у нас нет» читалось бы как «жильё не нужно».
-    measure('stay_external_booking', async () => (await pool.query<{ clicks: number; visitors: number; listings: number }>(
+    measure('stay_external_booking', async () => (await pool.query<{ clicks: number; visitor_days: number; listings: number }>(
       `SELECT COUNT(*)::int                     AS clicks,
-              COUNT(DISTINCT visitor_hash)::int AS visitors,
+              COUNT(DISTINCT visitor_hash)::int AS visitor_days,
               COUNT(DISTINCT entity_id)::int    AS listings
          FROM funnel_events
         WHERE step = 'stay_external_booking' AND created_at > ${W}`,
@@ -159,7 +167,7 @@ export async function GET(req: NextRequest) {
   const firstAt = since.value?.first_at ? new Date(since.value.first_at) : null;
 
   const all: [string, Measured<unknown>][] = [
-    ['supply', supply], ['page_views', views], ['stay_search', searchRows],
+    ['supply', supply], ['page_views', views], ['stay_search', searchRows], ['stay_search_web_days', webDays],
     ['stay_booking_start', starts], ['stay_external_booking', external], ['mcp_tool_calls', mcp],
     ['accommodation_bookings', bookings], ['counting_since', since],
   ];
@@ -169,12 +177,16 @@ export async function GET(req: NextRequest) {
     ok: true,
     probe: 'stay_demand_census_v1',
     window_days: days,
+    // Суточный хэш посетителя (152-ФЗ) не склеивает дни: «visitor_days» —
+    // человеко-ДНИ, а не люди. Один человек, приходивший пять дней, — пять.
+    // Число людей за окно эта метрика по построению не даёт.
+    visitor_note: 'visitor_days — человеко-дни: суточный хэш не склеивает дни; людей за окно не посчитать',
     supply: supply.value ?? null,
     views: views.value ?? null,
     // Каналы: web — каталог с условиями (люди, дедуп за час); agent — Кузьмич
     // и MCP вместе (штуки, посетителя в этом месте нет).
     searches: searches?.searches ?? null,
-    web_search_visitors: searches?.web_visitors ?? null,
+    web_search_visitor_days: webDays.value?.visitor_days ?? null,
     unrecognized_search_events: searches?.unrecognized ?? null,
     booking_starts: starts.value ?? null,
     external_booking_clicks: external.value ?? null,

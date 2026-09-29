@@ -60,7 +60,6 @@ export function parseStaySearchEntity(
 export interface StaySearchRow {
   entity_id: string | null;
   searches: number;
-  visitors: number;
 }
 
 export type StaySearchTable = Record<StaySearchChannel, Record<StaySearchOutcome, number>>;
@@ -73,7 +72,6 @@ export type StaySearchTable = Record<StaySearchChannel, Record<StaySearchOutcome
  */
 export function summarizeStaySearches(rows: readonly StaySearchRow[]): {
   searches: StaySearchTable;
-  web_visitors: number;
   unrecognized: number;
 } {
   const zero = (): Record<StaySearchOutcome, number> =>
@@ -81,13 +79,11 @@ export function summarizeStaySearches(rows: readonly StaySearchRow[]): {
   const searches = Object.fromEntries(
     STAY_SEARCH_CHANNELS.map(c => [c, zero()]),
   ) as StaySearchTable;
-  let webVisitors = 0;
   let unrecognized = 0;
   for (const r of rows) {
     const key = parseStaySearchEntity(r.entity_id);
     if (!key) { unrecognized += r.searches; continue; }
     searches[key.channel][key.outcome] += r.searches;
-    if (key.channel === 'web') webVisitors += r.visitors;
   }
-  return { searches, web_visitors: webVisitors, unrecognized };
+  return { searches, unrecognized };
 }

@@ -226,7 +226,7 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
         {data.externalBookingUrl && (
           <div className="ds-card p-5 mb-8 space-y-3">
             <p className="text-sm text-[var(--text-secondary)]">
-              Номера, цены и свободные даты — на сайте {ACCOMMODATION_TYPE_LABELS[data.type as AccommodationType]?.toLowerCase() ?? 'объекта'}: там же бронь и оплата.
+              Номера, цены и свободные даты — на сайте объекта: там же бронь и оплата.
             </p>
             <a
               href={data.externalBookingUrl}
