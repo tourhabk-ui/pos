@@ -28,7 +28,7 @@ describe('safety-слой как источник раздела «Камчат�
   });
 
   it('подключён к прогону рядом с RSS-фидами', () => {
-    expect(SRC).toMatch(/Promise\.all\(\[\.\.\.RSS_SOURCES\.map\(fetchSource\), fetchXSource\(\), fetchSafetyLayerSource\(\)\]\)/);
+    expect(SRC).toMatch(/Promise\.all\(\[\.\.\.RSS_SOURCES\.map\(fetchSource\), fetchXSource\(opts\.xFromRunner \?\? null\), fetchSafetyLayerSource\(\)\]\)/);
   });
 
   it('читает external_alerts за суточное окно с приоритетом по severity', () => {

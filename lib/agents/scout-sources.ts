@@ -255,9 +255,22 @@ export const X_HANDLES: readonly string[] = [
 ];
 
 /**
- * Источник «X» — не в RSS_SOURCES: у него нет ленты по адресу, его читает
- * `fetchXSource` в scout-digest через xAI. `url` — для дедупа адресов в
- * source-discovery-runner и для человека в отчёте.
+ * Окно поиска по X. Дайджест идёт дважды в сутки (05:03 и 17:00 UTC), между
+ * прогонами 12 часов; два часа запаса — на сдвиг планировщика GitHub, чтобы
+ * пост на стыке не потерялся. Повтор поста в двух прогонах снимает дедуп
+ * по адресу (filterUnseen). Здесь, а не в scout-digest: окно нужно и
+ * раннеру (scripts/scout-x-fetch.ts), а тянуть весь конвейер ради числа
+ * скрипт не должен.
+ */
+export const X_SEARCH_WINDOW_HOURS = 14;
+
+/**
+ * Источник «X» — не в RSS_SOURCES: у него нет ленты по адресу. Посты читает
+ * РАННЕР GitHub (scripts/scout-x-fetch.ts) и передаёт проду телом запроса;
+ * `fetchXSource` в scout-digest только принимает их. С прода api.x.ai закрыт
+ * по региону (ai-debug run 13, 29.09: «This service is not available in
+ * your region»). `url` — для дедупа адресов в source-discovery-runner и
+ * для человека в отчёте.
  */
 export const X_SOURCE: ScoutSource = {
   key: 'x_ai_labs',

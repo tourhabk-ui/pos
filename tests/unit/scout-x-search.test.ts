@@ -6,12 +6,16 @@
  * быстрее, проба 29.09), разбор ответа (только настоящие адреса постов),
  * отказ словами вместо пустоты (§4.0), расход по цене провайдера, источник
  * внесён в конвейер дайджеста, в сторож молчания и в реестр егресса (D2).
+ *
+ * С 29.09 поиск идёт С РАННЕРА GitHub: с прода api.x.ai закрыт по региону
+ * (ai-debug run 13). Прод принимает результат телом запроса и проверяет его
+ * заново; в xAI сам не ходит.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  pickXSearchModel, parseXSearchAnswer, buildXSearchPrompt, XAI_USD_PER_TICK,
+  pickXSearchModel, parseXSearchAnswer, buildXSearchPrompt, XAI_USD_PER_TICK, xSearchResultFromRunner,
 } from '@/lib/ai/xai-x-search';
 import { X_SOURCE, X_HANDLES } from '@/lib/agents/scout-sources';
 import { SCOUT_SOURCE_EXPECTATIONS } from '@/lib/services/scout/source-health';
@@ -148,13 +152,18 @@ describe('вызов xAI', () => {
 describe('источник встроен в конвейер', () => {
   const DIGEST = read('lib/agents/scout-digest.ts');
   it('дайджест собирает X вместе с RSS и safety-слоем, а не отдельно', () => {
-    expect(DIGEST).toMatch(/Promise\.all\(\[\.\.\.RSS_SOURCES\.map\(fetchSource\), fetchXSource\(\), fetchSafetyLayerSource\(\)\]\)/);
+    expect(DIGEST).toMatch(/Promise\.all\(\[\.\.\.RSS_SOURCES\.map\(fetchSource\), fetchXSource\(opts\.xFromRunner \?\? null\), fetchSafetyLayerSource\(\)\]\)/);
     expect(DIGEST).toMatch(/X_SOURCE\.label, SAFETY_LAYER_SOURCE\.label\]/);
     expect(DIGEST).toMatch(/\[X_SOURCE\.label, X_SOURCE\.category\]/);
   });
-  it('отказ xAI — статус error с причиной, не пустой список', () => {
-    const fn = DIGEST.slice(DIGEST.indexOf('async function fetchXSource'), DIGEST.indexOf('async function fetchXSource') + 1200);
-    expect(fn).toMatch(/if \(!r\.ok\) return \{ \.\.\.base, items: \[\], status: 'error', error: r\.reason/);
+  it('прод в xAI не ходит: searchX в конвейере не зовётся', () => {
+    expect(DIGEST).not.toMatch(/\bsearchX\(/);
+    expect(DIGEST).toMatch(/import type \{ XSearchResult \} from '@\/lib\/ai\/xai-x-search'/);
+  });
+  it('отказ раннера — статус error с причиной; нет данных раннера — error с этим именем, не пустой список', () => {
+    const fn = DIGEST.slice(DIGEST.indexOf('function fetchXSource'), DIGEST.indexOf('function fetchXSource') + 1200);
+    expect(fn).toMatch(/if \(!fromRunner\.ok\) return \{ \.\.\.base, items: \[\], status: 'error', error: fromRunner\.reason/);
+    expect(fn).toMatch(/if \(!fromRunner\) \{[\s\S]*?status: 'error'[\s\S]*?раннер/);
   });
   it('страницы постов X не тянутся за текстом статьи', () => {
     expect(DIGEST).toMatch(/if \(item\.source === X_SOURCE\.label\) continue;/);
@@ -163,5 +172,67 @@ describe('источник встроен в конвейер', () => {
     expect(SCOUT_SOURCE_EXPECTATIONS.find((e) => e.key === X_SOURCE.key)?.label).toBe(X_SOURCE.label);
     expect(LLM_EGRESS_FILES).toContain('lib/ai/xai-x-search.ts');
     expect(X_SOURCE.kind).toBe('x_search');
+  });
+});
+
+describe('результат с раннера проверяется на проде заново', () => {
+  it('посты без адреса x.com и дубли выбрасываются, дата — только разбираемая', () => {
+    const r = xSearchResultFromRunner({
+      ok: true, model: 'grok-x-non-reasoning', ms: 5000,
+      posts: [
+        { handle: 'OpenAI', url: 'https://x.com/OpenAI/status/123', postedAt: '2026-09-29T08:00:00Z', summary: 'Вышла модель' },
+        { handle: 'OpenAI', url: 'https://x.com/OpenAI/status/123', postedAt: null, summary: 'Дубль' },
+        { handle: 'evil', url: 'https://evil.example/status/1', postedAt: null, summary: 'Не X' },
+        { handle: 'xai', url: 'https://x.com/xai/status/9', postedAt: 'не дата', summary: 'Grok' },
+        { handle: 'xai', url: 'https://x.com/xai/status/10', postedAt: null, summary: '' },
+      ],
+    });
+    expect(r?.ok).toBe(true);
+    if (r && r.ok) {
+      expect(r.posts.map((p) => p.url)).toEqual(['https://x.com/OpenAI/status/123', 'https://x.com/xai/status/9']);
+      expect(r.posts[1].postedAt).toBeNull();
+      expect(r.model).toBe('grok-x-non-reasoning');
+    }
+  });
+
+  it('отказ раннера доходит словами и подписан раннером', () => {
+    expect(xSearchResultFromRunner({ ok: false, reason: 'XAI_API_KEY не задан' }))
+      .toEqual({ ok: false, reason: 'раннер: XAI_API_KEY не задан' });
+    expect(xSearchResultFromRunner({ ok: false })).toEqual({ ok: false, reason: 'раннер: причина не передана' });
+  });
+
+  it('ничего не передано или мусор — null («раннер ничего не передал»), а не «постов нет»', () => {
+    expect(xSearchResultFromRunner(undefined)).toBeNull();
+    expect(xSearchResultFromRunner('строка')).toBeNull();
+    expect(xSearchResultFromRunner({ ok: true })).toBeNull();
+  });
+});
+
+describe('связка раннер → прод', () => {
+  const WF = read('.github/workflows/cron-scout-digest.yml');
+  const ROUTE = read('app/api/cron/scout-digest/route.ts');
+  const SCRIPT = read('scripts/scout-x-fetch.ts');
+
+  it('раннер ищет той же searchX, с ключом xAI и CRON_SECRET для книг расхода', () => {
+    expect(SCRIPT).toContain("import { searchX, type XSearchResult } from '@/lib/ai/xai-x-search'");
+    expect(SCRIPT).toContain('searchX({ handles: X_HANDLES, hours: X_SEARCH_WINDOW_HOURS })');
+    const step = WF.slice(WF.indexOf('- name: Посты X через xAI — с раннера'), WF.indexOf('- name: Scout Digest'));
+    expect(step).toContain('XAI_API_KEY: ${{ secrets.XAI_API_KEY }}');
+    expect(step).toContain('CRON_SECRET: ${{ secrets.CRON_SECRET }}');
+    expect(step).toContain('npx tsx scripts/scout-x-fetch.ts /tmp/x-source.json');
+    // Сбой X не останавливает выпуск по остальным источникам.
+    expect(step).toContain('continue-on-error: true');
+  });
+
+  it('результат уходит на прод телом POST', () => {
+    expect(WF).toMatch(/-X POST "https:\/\/vedarai\.ru\/api\/cron\/scout-digest"/);
+    expect(WF).toContain('--data-binary @/tmp/digest-body.json');
+    expect(WF).toContain("body['x_source'] = json.load(open('/tmp/x-source.json'))");
+  });
+
+  it('роут принимает POST, проверяет x_source и передаёт в прогон', () => {
+    expect(ROUTE).toMatch(/export async function POST\(req: Request\)/);
+    expect(ROUTE).toContain('xFromRunner = xSearchResultFromRunner(body?.x_source);');
+    expect(ROUTE).toContain("runScoutDigestJournaled('cron', { xFromRunner })");
   });
 });

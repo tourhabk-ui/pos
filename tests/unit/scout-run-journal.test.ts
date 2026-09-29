@@ -23,7 +23,8 @@ const DIAG = SRC('app/api/cron/scout-diagnose/route.ts');
 
 describe('одна дорога в журнал', () => {
   it('крон-роут и админка зовут runScoutDigestJournaled, а не голый runScoutDigest', () => {
-    expect(ROUTE).toMatch(/runScoutDigestJournaled\('cron'\)/);
+    // С 29.09 крон передаёт посты X с раннера вторым аргументом (xFromRunner).
+    expect(ROUTE).toMatch(/runScoutDigestJournaled\('cron'(, \{ xFromRunner \})?\)/);
     expect(ADMIN).toMatch(/runScoutDigestJournaled\('admin'\)/);
     for (const [name, src] of [['route', ROUTE], ['admin', ADMIN]] as const) {
       expect(src, `${name}: голый вызов мимо журнала`).not.toMatch(/\brunScoutDigest\(\)/);

@@ -6,8 +6,16 @@
  * прогон 2): `POST /v1/responses` с `tools: [{type: 'x_search'}]` отдаёт
  * настоящие посты с адресами и датами; прежний Live Search
  * (`search_parameters` в chat/completions) отвечает 410 «deprecated».
- * Поиск идёт на стороне xAI — с прода нужен только `api.x.ai`, реле и
- * раннер не нужны.
+ * Поиск идёт на стороне xAI.
+ *
+ * ЗОВЁТСЯ С РАННЕРА GitHub, не с прода (29.09, решение владельца «читался с
+ * гитхаба, с таймвеб геоблок»). Первый боевой прогон с прода получил
+ * «каталог xAI: HTTP 403»; ai-debug run 13 назвал причину — api.x.ai
+ * отвечает адресу Timeweb страницей «This service is not available in your
+ * region», без ключа и до ключа. 04.09 тот же адрес пропускался, значит
+ * блок введён позже. Раннер (scripts/scout-x-fetch.ts) выполняет searchX и
+ * передаёт результат проду в теле запроса разведчика; прод его проверяет
+ * (xSearchResultFromRunner) и сам в xAI не ходит.
  *
  * Цена (та же проба): одна выборка по шести аккаунтам за сутки на
  * `grok-4.20-…-non-reasoning` — 8 вызовов поиска, 10k токенов, $0,07 за
@@ -237,4 +245,36 @@ export async function searchX(
   }
   if (text.trim() === '') return { ok: false, reason: 'xAI: в ответе нет текста' };
   return { ok: true, model: picked.model, posts: parseXSearchAnswer(text), usage, ms: Date.now() - started };
+}
+
+/**
+ * Результат поиска, пришедший с раннера в теле запроса разведчика, — снова
+ * по форме, как ответ модели: доверие к раннеру (он за CRON_SECRET) не
+ * отменяет проверки данных. Пост без адреса x.com выбрасывается, отказ без
+ * причины становится отказом со словами. Не распознано вовсе — null:
+ * «раннер ничего не передал», а не «постов нет».
+ */
+export function xSearchResultFromRunner(raw: unknown): XSearchResult | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (o.ok === false) {
+    const reason = typeof o.reason === 'string' && o.reason.trim() ? o.reason.trim() : 'причина не передана';
+    return { ok: false, reason: `раннер: ${reason}`.slice(0, 300) };
+  }
+  if (o.ok !== true || !Array.isArray(o.posts)) return null;
+  const posts: XPost[] = [];
+  const seen = new Set<string>();
+  for (const it of o.posts.slice(0, 200)) {
+    const p = (it ?? {}) as Record<string, unknown>;
+    const url = typeof p.url === 'string' ? p.url.trim() : '';
+    const summary = typeof p.summary === 'string' ? p.summary.trim() : '';
+    if (!X_URL.test(url) || !summary || seen.has(url)) continue;
+    seen.add(url);
+    const handle = (typeof p.handle === 'string' && p.handle ? p.handle : url.split('/')[3] ?? '').replace(/^@/, '').slice(0, 15);
+    const postedAt = typeof p.postedAt === 'string' && !Number.isNaN(Date.parse(p.postedAt)) ? new Date(p.postedAt).toISOString() : null;
+    posts.push({ handle, url, postedAt, summary: summary.slice(0, 200) });
+  }
+  const model = typeof o.model === 'string' ? o.model.slice(0, 80) : 'неизвестна';
+  const ms = typeof o.ms === 'number' && Number.isFinite(o.ms) ? o.ms : 0;
+  return { ok: true, model, posts, usage: null, ms };
 }

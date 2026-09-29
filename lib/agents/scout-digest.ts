@@ -36,7 +36,7 @@ import {
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
-import { searchX } from '@/lib/ai/xai-x-search';
+import type { XSearchResult } from '@/lib/ai/xai-x-search';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { polishDigest } from '@/lib/text/digest-polish';
@@ -245,7 +245,6 @@ import {
   RSS_SOURCES,
   SAFETY_LAYER_SOURCE,
   X_SOURCE,
-  X_HANDLES,
   type ScoutSource,
   type SourceCategory,
 } from '@/lib/agents/scout-sources';
@@ -469,35 +468,35 @@ async function fetchSource(s: ScoutSource): Promise<SourceFetch> {
   return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'relay' };
 }
 
-/**
- * Окно поиска по X. Дайджест идёт дважды в сутки (05:03 и 17:00 UTC), между
- * прогонами 12 часов; два часа запаса — на сдвиг планировщика GitHub, чтобы
- * пост на стыке не потерялся. Повтор поста в двух прогонах снимает дедуп
- * по адресу (filterUnseen).
- */
-const X_SEARCH_WINDOW_HOURS = 14;
 
 /**
- * Посты X через xAI (решение владельца 29.09) — одним запросом на весь
- * список аккаунтов. Отказ провайдера — 'error' с его словами: «нет ключа»,
- * «кредиты исчерпаны», «сеть не дошла» — а не пустой список (§4.0). Модель
- * дату называет сама; без даты запись остаётся, как у Telegram.
+ * Посты X (решение владельца 29.09) — из того, что передал РАННЕР GitHub.
+ *
+ * С прода api.x.ai закрыт по региону (ai-debug run 13, 29.09), поэтому сам
+ * поиск делает раннер (scripts/scout-x-fetch.ts), а сюда приходит его
+ * результат, уже проверенный по форме (xSearchResultFromRunner). Исходов
+ * три, и ни один не выдаёт себя за другой (§4.0):
+ *  - посты (в том числе ноль — «за окно ничего не писали»);
+ *  - отказ раннера его словами: «нет ключа», «кредиты исчерпаны»;
+ *  - раннер ничего не передал (ручной запуск из админки, старый workflow) —
+ *    'error' с этим именем, а не пустой список.
  */
-async function fetchXSource(): Promise<SourceFetch> {
+function fetchXSource(fromRunner: XSearchResult | null): SourceFetch {
   const base = { key: X_SOURCE.key, label: X_SOURCE.label, category: X_SOURCE.category };
-  try {
-    const r = await searchX({ handles: X_HANDLES, hours: X_SEARCH_WINDOW_HOURS });
-    if (!r.ok) return { ...base, items: [], status: 'error', error: r.reason.slice(0, 160) };
-    const items: RssItem[] = r.posts.map((p) => ({
-      title: `@${p.handle}: ${p.summary}`,
-      url: p.url,
-      source: X_SOURCE.label,
-      ...(p.postedAt ? { publishedAt: p.postedAt } : {}),
-    }));
-    return { ...base, items, status: items.length > 0 ? 'ok' : 'empty' };
-  } catch (e) {
-    return { ...base, items: [], status: 'error', error: ((e as Error).message || 'unknown').slice(0, 160) };
+  if (!fromRunner) {
+    return {
+      ...base, items: [], status: 'error',
+      error: 'X читается раннером GitHub, а этот запуск пришёл без его данных (с прода xAI закрыт по региону)',
+    };
   }
+  if (!fromRunner.ok) return { ...base, items: [], status: 'error', error: fromRunner.reason.slice(0, 160) };
+  const items: RssItem[] = fromRunner.posts.map((p) => ({
+    title: `@${p.handle}: ${p.summary}`,
+    url: p.url,
+    source: X_SOURCE.label,
+    ...(p.postedAt ? { publishedAt: p.postedAt } : {}),
+  }));
+  return { ...base, items, status: items.length > 0 ? 'ok' : 'empty' };
 }
 
 /**
@@ -913,7 +912,15 @@ async function recordSourceHealthAndAlert(
   };
 }
 
-export async function runScoutDigest(): Promise<DigestResult> {
+export interface ScoutDigestOptions {
+  /**
+   * Результат поиска по X с раннера GitHub (scripts/scout-x-fetch.ts); null —
+   * раннер ничего не передал. Прод в xAI сам не ходит: закрыт по региону.
+   */
+  xFromRunner?: XSearchResult | null;
+}
+
+export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<DigestResult> {
   const start = Date.now();
 
   // Warm-up: read platform state and own run history before doing any work.
@@ -925,7 +932,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const publishedDigests = await recentPublishedDigests();
 
   // Collect signals in parallel — RSS плюс safety-слой, с честным статусом каждого
-  const fetched = await Promise.all([...RSS_SOURCES.map(fetchSource), fetchXSource(), fetchSafetyLayerSource()]);
+  const fetched = await Promise.all([...RSS_SOURCES.map(fetchSource), fetchXSource(opts.xFromRunner ?? null), fetchSafetyLayerSource()]);
   // Отсев старья идёт ЗДЕСЬ, а не внутри fetchSource: там считается rawItems
   // здоровья источника, и фид, отдавший десять архивных записей, обязан
   // числиться живым, а не «пустым». Иначе починка гналась бы за призраком

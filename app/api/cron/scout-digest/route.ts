@@ -3,6 +3,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { pool } from '@/lib/db-pool';
 import { countLeadingSkips, silenceIsCritical, MAX_SILENT_RUNS } from '@/lib/agents/scout-silence';
+import { xSearchResultFromRunner, type XSearchResult } from '@/lib/ai/xai-x-search';
 
 /**
  * GET /api/cron/scout-digest
@@ -10,7 +11,31 @@ import { countLeadingSkips, silenceIsCritical, MAX_SILENT_RUNS } from '@/lib/age
  * Запускать раз в сутки (утром, ~07:00 UTC).
  */
 export async function GET(req: Request) {
-  const url = new URL(req.url);
+  return runDigestRequest(req, null);
+}
+
+/**
+ * POST — тот же прогон, но с данными, добытыми раннером GitHub (29.09).
+ *
+ * Тело: `{ "x_source": <результат searchX> }`. С прода api.x.ai закрыт по
+ * региону, поэтому посты X ищет раннер (scripts/scout-x-fetch.ts), а прод
+ * только принимает их — проверив форму заново (xSearchResultFromRunner).
+ * Тело не разобралось — прогон всё равно идёт, а источник X честно говорит
+ * «раннер ничего не передал»: одна битая строка не должна останавливать
+ * выпуск по двадцати пяти остальным источникам.
+ */
+export async function POST(req: Request) {
+  let xFromRunner: XSearchResult | null = null;
+  try {
+    const body = (await req.json()) as { x_source?: unknown } | null;
+    xFromRunner = xSearchResultFromRunner(body?.x_source);
+  } catch {
+    xFromRunner = null;
+  }
+  return runDigestRequest(req, xFromRunner);
+}
+
+async function runDigestRequest(req: Request, xFromRunner: XSearchResult | null) {
   const secret = getCronSecret(req);
 
   const cronSecret = process.env.CRON_SECRET;
@@ -26,7 +51,7 @@ export async function GET(req: Request) {
     // прогон из оркестратора эволюции и из админки раньше в agent_run_history
     // не попадал вовсе, и разбор «почему молчит» видел только ручные запуски.
     // Причина пропуска и улика переживают запрос там же.
-    const { result } = await runScoutDigestJournaled('cron');
+    const { result } = await runScoutDigestJournaled('cron', { xFromRunner });
     /**
      * Молчание подряд — повод покраснеть, а не только предупредить.
      *

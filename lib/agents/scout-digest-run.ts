@@ -21,7 +21,7 @@
  * не записан» на каждом прогоне.
  */
 
-import { runScoutDigest, type DigestResult } from '@/lib/agents/scout-digest';
+import { runScoutDigest, type DigestResult, type ScoutDigestOptions } from '@/lib/agents/scout-digest';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { runWithUsageTracking, type UsageSnapshot } from '@/lib/ai/usage-context';
 
@@ -35,10 +35,13 @@ export interface JournaledDigestRun {
   started_at: Date;
 }
 
-export async function runScoutDigestJournaled(trigger: ScoutTrigger): Promise<JournaledDigestRun> {
+export async function runScoutDigestJournaled(
+  trigger: ScoutTrigger,
+  opts: ScoutDigestOptions = {},
+): Promise<JournaledDigestRun> {
   const started_at = new Date();
   try {
-    const { result, usage } = await runWithUsageTracking('scout-digest', () => runScoutDigest());
+    const { result, usage } = await runWithUsageTracking('scout-digest', () => runScoutDigest(opts));
     void logAgentRun({
       agent_id: 'scout-digest',
       status: result.digest_sent ? 'success' : 'partial',

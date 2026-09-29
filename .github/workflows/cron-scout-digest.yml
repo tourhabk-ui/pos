@@ -52,6 +52,31 @@ jobs:
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 
+      # Посты X — с раннера (29.09): с прода api.x.ai закрыт по региону
+      # (ai-debug run 13: «This service is not available in your region»).
+      # Владелец: «читался с гитхаба, с таймвеб геоблок». Раннер делает поиск
+      # (scripts/scout-x-fetch.ts, та же searchX, что была на проде) и кладёт
+      # результат в файл; следующий шаг отдаёт его проду телом запроса.
+      # continue-on-error: сбой X не должен останавливать выпуск по
+      # остальным источникам — прод без файла скажет «раннер ничего не
+      # передал», а не «постов нет».
+      - uses: actions/setup-node@v7
+        continue-on-error: true
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Зависимости для поиска по X
+        continue-on-error: true
+        run: npm ci --ignore-scripts
+      - name: Посты X через xAI — с раннера
+        continue-on-error: true
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          # Расход поиска уходит в книги прода через usage-sink (CRON_SECRET):
+          # с раннера БД закрыта файрволом.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: npx tsx scripts/scout-x-fetch.ts /tmp/x-source.json
+
       - name: Scout Digest — ежедневный дайджест
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -83,9 +108,23 @@ jobs:
           # вызов сильной модели до 90 с. У роута серверного потолка нет,
           # работа доделывается — терпение раннера обязано быть длиннее
           # работы, иначе красный снова врёт. Потолок job — 40 минут.
+          # Тело — результат поиска по X с раннера (шаг выше). Файла нет —
+          # пустой объект: прод пойдёт без X и назовёт это вслух.
+          python3 - <<'PY'
+          import json, os
+          body = {}
+          if os.path.exists('/tmp/x-source.json'):
+              try:
+                  body['x_source'] = json.load(open('/tmp/x-source.json'))
+              except Exception as e:
+                  body['x_source'] = {'ok': False, 'reason': f'файл результата не прочитан: {e}'}
+          json.dump(body, open('/tmp/digest-body.json', 'w'), ensure_ascii=False)
+          PY
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 600 \
-            "https://vedarai.ru/api/cron/scout-digest" \
-            -H "Authorization: Bearer $CRON_SECRET")
+            -X POST "https://vedarai.ru/api/cron/scout-digest" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/digest-body.json)
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] || { echo "FAIL $HTTP"; exit 1; }
 
