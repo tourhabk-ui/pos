@@ -142,7 +142,7 @@ export default function WidgetPage() {
             {config.name}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            AI-помощник TourHub
+            Помощник Ведар AI
           </div>
         </div>
       </div>
@@ -259,7 +259,7 @@ export default function WidgetPage() {
         background: 'var(--bg-card)',
         borderTop: '1px solid rgba(0,0,0,0.04)',
       }}>
-        Powered by <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>TourHub</a>
+        Работает на <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>Ведар AI</a>
       </div>
     </div>
   );

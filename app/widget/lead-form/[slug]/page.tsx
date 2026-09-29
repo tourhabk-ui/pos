@@ -187,7 +187,7 @@ export default function LeadFormPage() {
             {config?.name ?? 'Заявка на тур'}
           </p>
           <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Powered by TourHub
+            Ведар AI
           </p>
         </div>
       </div>

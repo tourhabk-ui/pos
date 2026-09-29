@@ -1,5 +1,5 @@
 /**
- * TourHub Partner Widget — Embed Script
+ * Виджет партнёра Ведар AI — скрипт встраивания
  *
  * Usage on partner site:
  * <script defer src="https://vedarai.ru/widget/embed.js"
@@ -27,7 +27,7 @@
 
   var partnerId = script.getAttribute('data-partner-id');
   if (!partnerId) {
-    console.warn('[TourHub Widget] data-partner-id is required');
+    console.warn('[Ведар AI] не задан data-partner-id');
     return;
   }
 
