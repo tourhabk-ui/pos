@@ -134,8 +134,11 @@ describe('get_volcano_status: две шкалы, победителя нет', (
       kvert: [...FRESH.kvert!, { ark: null, place_name: null, name: 'CHIKURACHKI', acc: 'orange', ash_height_m: null, observed_at: '2026-09-25T01:00:00Z' }],
     };
     const out = composeVolcanoReport(withKuril, undefined, NOW);
-    expect(out).toMatch(/CHIKURACHKI: КФ ЕГС: в сводке этого вулкана нет/);
-    expect(out).not.toMatch(/CHIKURACHKI: КФ ЕГС: свежей сводки нет/);
+    // Имя — по-русски: KVERT присылает латиницей, а словарь знает русское
+    // (29.09, tests/unit/volcano-tool-names.test.ts). Смысл прежний: «этого
+    // вулкана в сводке нет», а не «сводки нет».
+    expect(out).toMatch(/Чикурачки: КФ ЕГС: в сводке этого вулкана нет/);
+    expect(out).not.toMatch(/Чикурачки: КФ ЕГС: свежей сводки нет/);
   });
 
   it('самые опасные первыми', () => {
@@ -144,13 +147,24 @@ describe('get_volcano_status: две шкалы, победителя нет', (
   });
 
   it('по имени — этот вулкан по обеим шкалам, в том числе спокойный', () => {
+    // Карымский у KVERT записан латиницей и без места в каталоге. До 29.09
+    // русский запрос его не находил (имя бралось сырым) и агент слышал «нет в
+    // сводках» о вулкане, который KVERT ведёт зелёным. Теперь имя русское, и
+    // ответ — про оба источника.
     const out = composeVolcanoReport(FRESH, 'Карымский', NOW);
-    // KVERT знает его по-английски, справочник — нет: русский запрос его не
-    // найдёт, и это сказано словами, а не «спокоен».
-    expect(out).toContain('нет в сводках');
-    expect(out).toContain('НЕ значит, что он спокоен');
+    expect(out).toContain('Карымский: КФ ЕГС: в сводке этого вулкана нет');
+    expect(out).toContain('KVERT (авиация): зелёный');
+    expect(out).not.toContain('нет в сводках');
     const kl = composeVolcanoReport(FRESH, 'ключевской', NOW);
     expect(kl).toContain('Вулкан Ключевской: КФ ЕГС');
+  });
+
+  it('вулкана нет ни в одной сводке — так и сказано, и это не «спокоен»', () => {
+    // Слова про «не значит, что спокоен» остаются за вулканом, которого
+    // действительно нигде нет.
+    const out = composeVolcanoReport(FRESH, 'Ичинский', NOW);
+    expect(out).toContain('нет в сводках');
+    expect(out).toContain('НЕ значит, что он спокоен');
   });
 
   it('устаревшая сводка КФ ЕГС — её цвета не учтены, и «все спокойны» не говорится', () => {

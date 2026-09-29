@@ -23,6 +23,7 @@ import { pool } from '@/lib/db-pool';
 import { ACC_META, isVolcanoObservationStale, VOLCANO_STALE_DAYS, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsIsFresh, kfegsPhrase, type KfegsReading, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { volcanoStem } from '@/lib/services/safety/volcano-match';
+import { normalizeVolcanoName } from '@/lib/services/safety/kvert-vona';
 
 export interface KvertRow {
   ark: string | null;
@@ -95,7 +96,13 @@ export function mergeVolcanoes(input: VolcanoInput, nowMs: number = Date.now()):
 
   for (const k of input.kvert ?? []) {
     const key = keyOf(k.ark, k.name);
-    byKey.set(key, { name: k.place_name ?? k.name, aliases: [k.name], kvert: k, kfegs: null });
+    // Имя места, а если места в каталоге нет — русское имя из общего словаря
+    // (KVERT присылает латиницей и капсом: `CHIKURACHKI`). 29.09 сверка
+    // каналов: Чикурачки, оранжевый по KVERT, отдавался агенту латиницей,
+    // хотя словарь его знает. Незнакомое остаётся как есть: «похожее» не
+    // подставляем. Латинское имя остаётся среди алиасов — поиск по нему жив.
+    const shown = k.place_name ?? normalizeVolcanoName(k.name)?.ru ?? k.name;
+    byKey.set(key, { name: shown, aliases: [k.name], kvert: k, kfegs: null });
   }
   if (fresh && input.kfegsDate) {
     for (const b of input.kfegs ?? []) {
