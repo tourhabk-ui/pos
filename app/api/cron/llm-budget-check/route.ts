@@ -6,7 +6,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { notifyBudgetAlert } from '@/lib/telegram/admin-notify';
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
   if (!timingSafeCompare(secret, cronSecret)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    return Response.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
 
   // Два планировщика (GitHub и супервизор контейнера, start.js): аренда окна в
