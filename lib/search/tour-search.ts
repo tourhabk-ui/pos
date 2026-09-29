@@ -13,6 +13,7 @@ import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { pool } from '@/lib/db-pool';
+import { tourHeroImageSql } from '@/lib/tours/hero-image';
 
 export const MarketplaceToursQuerySchema = z.object({
   search:        z.string().max(200).optional(),
@@ -120,7 +121,8 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
       ot.activity_type,
       ot.location_type,
       ot.location_name,
-      ot.tour_image,
+      -- Главный кадр — первый кадр галереи, как в карточке тура (lib/tours/hero-image).
+      ${tourHeroImageSql('ot')} AS tour_image,
       ot.max_participants,
       ot.duration_hours,
       ot.duration_type,
