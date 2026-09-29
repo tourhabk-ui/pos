@@ -7,7 +7,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { computeQuickScore, classifyLead } from '@/lib/leads/scoring';
+import { computeQuickScore, classifyLead, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { normalizeLeadChannel } from '@/lib/leads/channel';
 import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
@@ -69,8 +69,11 @@ export async function findRecentLeadByCommentPrefix(phone: string, prefix: strin
       [phone, escaped],
     );
     return rows[0]?.id ?? null;
-  } catch {
-    return null; // дедуп опционален — как в createLead
+  } catch (err) {
+    // Дедуп опционален — как в createLead, но отказ называется (§4.0).
+    const e = err as { code?: string; message?: string };
+    console.error('[leads] проверка дубля по префиксу не выполнилась:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    return null;
   }
 }
 
@@ -91,7 +94,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
 
   // ── 1. Скоринг ──────────────────────────────────────────────────────────
   const quickScore = computeQuickScore(name, phone, comment ?? null, source_data ?? null);
-  const isLowQuality = quickScore < 30;
+  const isLowQuality = quickScore < LOW_QUALITY_SCORE;
 
   // ── 2. Дубль: тот же телефон + тот же комментарий за 24ч ────────────────
   if (phone && comment) {

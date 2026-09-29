@@ -19,6 +19,7 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 export interface ResolvedTour {
   id: number;
   title: string;
+  operator_id: string | null;
   base_price: number | null;
   /** За что назначена цена; null — не записано. */
   price_unit: string | null;
@@ -39,14 +40,17 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
   try {
     if (/^\d+$/.test(q)) {
       const { rows } = await pool.query<ResolvedTour>(
-        `SELECT id, title, base_price, price_unit FROM operator_tours
+        `SELECT id, title, operator_id, base_price, price_unit FROM operator_tours
           WHERE id = $1 AND ${publicTourSql('')}`,
         [Number(q)],
       );
-      if (rows[0]) return rows[0];
+      // Номер, которого нет на витрине, — это «тура нет», а не повод искать
+      // «%7%» по названиям: так заявка на снятый тур 7 уходила по самому
+      // дешёвому туру, где в описании есть семёрка (проверка MCP 29.09).
+      return rows[0] ?? null;
     }
     const { rows } = await pool.query<ResolvedTour>(
-      `SELECT id, title, base_price, price_unit FROM operator_tours
+      `SELECT id, title, operator_id, base_price, price_unit FROM operator_tours
         WHERE ${publicTourSql('')}
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST

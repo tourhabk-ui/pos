@@ -32,6 +32,7 @@ import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERN
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
@@ -39,7 +40,7 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
-import { SEAT_REQUEST_FAILURE, kamchatkaToday } from '@/lib/seat-requests/core';
+import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
@@ -122,16 +123,37 @@ const MISSING_CONSENT_FIELD =
   'В запросе нет поля consent. Схема инструмента требует его: спросите у человека согласие '
   + 'на обработку персональных данных (имя, телефон) и передайте consent: true.';
 
+/**
+ * Третий случай рядом с «поля нет» и «согласия нет»: поле есть, но не
+ * логическое (строка «true»). До 29.09 он получал текст «поля нет», и агент
+ * чинил не то (проверка MCP).
+ */
+const CONSENT_NOT_BOOLEAN = 'Поле consent должно быть логическим значением true или false, а не строкой.';
+
+const consentField = z.boolean({
+  error: (iss) => (iss.input === undefined ? MISSING_CONSENT_FIELD : CONSENT_NOT_BOOLEAN),
+});
+
+/**
+ * Имя — одной строкой: в уведомлении менеджеру оно стоит прямо над
+ * настоящим телефоном, и «Иван\nТел: +7999…» подделывал бы строку номера
+ * (проверка MCP 29.09). Управляющие символы не проходят.
+ */
+const personName = z.string().trim()
+  .min(2, 'Имя короче 2 символов')
+  .max(120, 'Имя длиннее 120 символов')
+  .regex(/^[^\p{Cc}]+$/u, 'Имя — одной строкой, без переводов строки и управляющих символов');
+
 const createLeadArgsSchema = z.object({
-  name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
-  phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50),
-  comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000),
-  interest: z.string().trim().max(200).optional(),
+  name: personName,
+  phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50, 'Телефон длиннее 50 символов'),
+  comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000, 'Комментарий длиннее 2000 символов'),
+  interest: z.string().trim().max(200, 'Интерес длиннее 200 символов').optional(),
   // Обязателен и здесь, а не только в JSON Schema инструмента. Два источника
   // правды путают ОСНОВАНИЕ отказа: агент, смотрящий схему, видит поле
   // обязательным, а парсер роута пропускал бы его отсутствие дальше — и
   // отказ «поля нет» становился неотличим от отказа «согласия нет».
-  consent: z.boolean({ error: MISSING_CONSENT_FIELD }),
+  consent: consentField,
 });
 
 // ── create_booking_request (Эволюция 3.0, п.4) ───────────────
@@ -141,14 +163,20 @@ const createLeadArgsSchema = z.object({
 // Занятость проверяется движком планера — тем же расчётом, что у гейта брони:
 // нет мест → заявка не создаётся, агенту честно отдаются ближайшие даты.
 const bookingRequestArgsSchema = z.object({
-  tour: z.string().trim().min(1, 'Укажите тур: название или ID').max(200),
+  tour: z.string().trim().min(1, 'Укажите тур: название или ID').max(200, 'Название тура длиннее 200 символов'),
   date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате YYYY-MM-DD'),
-  participants: z.coerce.number().int().min(1).max(30).default(1),
-  name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
-  phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50),
-  comment: z.string().trim().max(2000).optional(),
+  // Сообщения по-русски (§4): без них zod отвечал «Too small: expected
+  // number to be >=1» и «expected number, received NaN».
+  participants: z.coerce.number({ error: 'Число участников — целое число, например 2' })
+    .int('Число участников — целое число')
+    .min(1, 'Участников не меньше одного')
+    .max(30, 'Не больше 30 участников в одной заявке')
+    .default(1),
+  name: personName,
+  phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
+  comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
   // См. пояснение у createLeadArgsSchema: обязателен в обоих источниках.
-  consent: z.boolean({ error: MISSING_CONSENT_FIELD }),
+  consent: consentField,
 });
 
 /**
@@ -180,6 +208,12 @@ async function requestSeatsFromOperator(a: {
     // текстом: второй говорил бы анониму, знающему номер, где его владелец
     // будет в этот день (проверка MCP 29.09).
     const reason = result.reason === 'already_confirmed' ? 'duplicate' : result.reason;
+    // Сбой проверки или доставки — не деловой исход, а отказ: isError и
+    // ok=false в журнале (до 29.09 журнал считал его успехом).
+    if (reason === 'check_failed' || reason === 'delivery_failed') {
+      const failure = SEAT_REQUEST_FAILURE[reason]!;
+      throw new McpUserError(`${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead.`);
+    }
     const failure = reason === 'duplicate'
       ? { error: 'По этому телефону запрос на этот тур и дату уже есть — повторно не отправляю; ответ придёт по ссылке, выданной в первый раз.' }
       : SEAT_REQUEST_FAILURE[reason] ?? SEAT_REQUEST_FAILURE.check_failed!;
@@ -217,6 +251,12 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
   }
 
+  // Несуществующая дата (2027-02-30) проходила регулярку и падала в базе
+  // с 22008 — общим «внутренняя ошибка» вместо внятного отказа (29.09).
+  if (!isRealDate(date)) {
+    throw new McpUserError(`Даты ${date} нет в календаре — заявка не создана. Проверьте дату.`);
+  }
+
   // Прошедшая дата — по Камчатке: по UTC с 12:00 до 24:00 заявка на уже
   // прошедший там день принималась и уходила менеджеру (проверка MCP 29.09).
   const today = kamchatkaToday();
@@ -249,6 +289,11 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
   }
 
+  const leadComment = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.`
+    + (comment ? ` ${comment}` : '');
+  const leadSource = { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants };
+  refuseSilentLead(name, phone, leadComment, leadSource);
+
   const pd_consent = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent);
 
   // Аудит 08.08, замечание 3 — явная идемпотентность по (телефон, тур, дата):
@@ -265,8 +310,11 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // одном: любой различимый ответ — оракул «этот телефон уже просил этот тур
   // на эту дату» (проверка MCP 29.09). Для агента правда одна: заявка принята,
   // оператор позвонит. Номер заявки человеку ни для чего не нужен — звонят ему.
-  const accepted = `Заявка на бронь принята: "${tour.title}", ${date}, ${participants} чел. ` +
-    `На ${date} свободно ${remaining} мест. Оператор подтвердит бронь по телефону ${phone}. Это заявка, не оплата.`;
+  // Состав группы в ответе не повторяется: на дубле он взят бы из НОВОГО
+  // вызова, а в заявке остался прежний (скептик проверки 29.09).
+  const accepted = `Заявка на бронь принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
+    + `Оператор перезвонит по телефону ${phone}, подтвердит бронь и состав группы — если число людей или пожелания изменились, `
+    + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.';
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   if (existing) {
@@ -276,12 +324,14 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const leadId = await createLead({
     name,
     phone,
-    comment:
-      `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.` +
-      (comment ? ` ${comment}` : ''),
+    comment: leadComment,
     route_title: tour.title,
+    // Оператор тура известен — заявка ложится ему. Без него лид оставался
+    // без оператора: тот его не видел, а подбор по заявке предлагал туры
+    // конкурентов (проверка MCP 29.09, W1).
+    operator_id: tour.operator_id ?? undefined,
     source_url: 'mcp://vedar/booking',
-    source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants },
+    source_data: leadSource,
     pd_consent,
   });
   if (!leadId) {
@@ -300,11 +350,13 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   if (!phone) {
     throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
   }
+  const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
+  refuseSilentLead(name, phone, leadComment, { source: 'mcp' });
   const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({
     name,
     phone,
-    comment: interest ? `[Интерес: ${interest}] ${comment}` : comment,
+    comment: leadComment,
     source_url: 'mcp://vedar',
     source_data: { source: 'mcp' },
     pd_consent,
@@ -312,7 +364,25 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже');
   }
-  return `Заявка принята (номер ${leadId}). Менеджер Ведара свяжется по указанному телефону.`;
+  // Номер не называется, как и у заявки на бронь: createLead на точном дубле
+  // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
+  // такой телефон с таким текстом уже писал (проверка MCP 29.09).
+  return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.';
+}
+
+/**
+ * Заявка, которую createLead закроет сразу (балл ниже LOW_QUALITY_SCORE:
+ * processed_at, без уведомления), — отказ ДО записи, а не «менеджер
+ * свяжется». До 29.09 агент обещал человеку звонок по заявке, которую
+ * никто не увидит (например, имя из двух букв — балл 5).
+ */
+function refuseSilentLead(name: string, phone: string, comment: string, sourceData: Record<string, unknown>): void {
+  if (computeQuickScore(name, phone, comment, sourceData) < LOW_QUALITY_SCORE) {
+    throw new McpUserError(
+      'Заявка слишком неполная — менеджер её не увидит, поэтому не создаю. Укажите имя и фамилию человека '
+      + 'и опишите запрос подробнее: даты, число людей, что интересует.',
+    );
+  }
 }
 
 
@@ -472,8 +542,12 @@ async function handleToolsCall(
     if (rateLimitedLogGate.check(ip)) {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent });
     }
+    // Окно записи — десять минут, чтения — минута; общий текст «подождите
+    // минуту» на записи обещал неправду (проверка MCP 29.09).
     return jsonrpcSuccess(id, {
-      content: [{ type: 'text', text: 'Слишком много запросов — подождите минуту и повторите.' }],
+      content: [{ type: 'text', text: isWrite
+        ? 'Слишком много заявок с этого адреса — подождите 10 минут и повторите.'
+        : 'Слишком много запросов — подождите минуту и повторите.' }],
       isError: true,
     });
   }

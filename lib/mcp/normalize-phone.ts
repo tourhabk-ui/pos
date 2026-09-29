@@ -9,8 +9,13 @@
  */
 export function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/[^\d+]/g, '');
+  const hasPlus = digits.startsWith('+');
   const bare = digits.replace(/^\+/, '');
   if (!/^\d{10,15}$/.test(bare)) return null;
   if (/^8\d{10}$/.test(bare)) return `+7${bare.slice(1)}`;
+  // Десять цифр без плюса («900 123-45-67») — российский номер без кода
+  // страны. Прежде он становился «+9001234567», по которому оператору нечем
+  // позвонить (проверка MCP 29.09; то же правило жило только в запросе мест).
+  if (!hasPlus && bare.length === 10) return `+7${bare}`;
   return `+${bare}`;
 }

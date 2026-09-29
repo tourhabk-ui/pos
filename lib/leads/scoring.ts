@@ -3,6 +3,14 @@
  * Вынесена из /api/leads/route.ts — единый источник для всех точек входа.
  */
 
+/**
+ * Ниже этого балла createLead закрывает лид сразу (processed_at) и не шлёт
+ * уведомления. Порог один на все входы: MCP спрашивает его ДО записи, чтобы
+ * не отвечать агенту «менеджер свяжется» по заявке, которую никто не увидит
+ * (проверка MCP 29.09).
+ */
+export const LOW_QUALITY_SCORE = 30;
+
 export function computeQuickScore(
   name: string,
   phone: string,
