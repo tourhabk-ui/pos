@@ -1916,6 +1916,9 @@ const NO_PLACE_HEAD = 'Места нет в справочнике платфо�
 
 const noTourFound = (q: string) =>
   `${NO_TOUR_HEAD} По запросу "${q}" ничего нет. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+/** Подпись веб-сниппетов, пришедших вместо места из базы. */
+export const WEB_NOT_BASE = 'Места нет в базе Ведара. Ниже — выдержки из веб-поиска, не проверены платформой:';
+
 const noPlaceInBase = (n: string) =>
   `${NO_PLACE_HEAD} По запросу "${n}" ничего нет.`;
 
@@ -1927,7 +1930,14 @@ export function toolOutputHasData(content: string): boolean {
   return true;
 }
 
-async function executeTool(name: string, args: Record<string, string>): Promise<string> {
+/**
+ * Где исполняется инструмент. `mcp` — публичная анонимная поверхность: там
+ * не тратятся платные внешние квоты (шапка app/api/mcp/route.ts), и ответ
+ * читает чужой ИИ, а не Кузьмич, который знает, откуда текст.
+ */
+export interface ToolSurface { surface?: 'chat' | 'mcp' }
+
+async function executeTool(name: string, args: Record<string, string>, opts: ToolSurface = {}): Promise<string> {
   try {
     if (name === 'search_kamchatka') {
       const result = await searchWeb(args.query ?? '');
@@ -1959,7 +1969,13 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const { placeInfoForKuzmich } = await import('@/lib/kuzmich/place-info-tool');
       const info = await placeInfoForKuzmich(placeName);
       if (info) return info;
-      return await searchWeb(placeName) || noPlaceInBase(placeName);
+      // На публичном MCP веб-поиска нет: он платный (Tavily/Brave), а шапка
+      // роута обещает, что квоты анонимный вызов не жжёт (проверка MCP 29.09).
+      if (opts.surface === 'mcp') return noPlaceInBase(placeName);
+      const web = await searchWeb(placeName);
+      // Чужой текст подписан как чужой: без подписи сниппет с сайта
+      // турагентства читался как справка из базы Ведара.
+      return web ? `${WEB_NOT_BASE}\n${web}` : noPlaceInBase(placeName);
     }
     if (name === 'get_guardian_context') {
       const { getGuardianContext } = await import('@/lib/kuzmich/guardian-context');

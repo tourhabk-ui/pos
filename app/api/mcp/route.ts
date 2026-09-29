@@ -320,7 +320,7 @@ async function executeTool(
   if (!validation.ok) {
     throw new Error(validation.error);
   }
-  return executeKuzmichTool(name, validation.args);
+  return executeKuzmichTool(name, validation.args, { surface: 'mcp' });
 }
 
 // ── JSON-RPC helpers ─────────────────────────────────────────
