@@ -14,6 +14,7 @@ import EmergencyAction from '@/components/shared/EmergencyAction';
 import Link from 'next/link';
 import Image from 'next/image';
 import { paceIsShowable } from '@/lib/routes/route-contradiction';
+import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 
 interface TourSuggestion {
   id: number;
@@ -193,7 +194,7 @@ function TourCard({ tour }: { tour: TourSuggestion }) {
     >
       <div className="relative w-16 h-16 rounded-md overflow-hidden shrink-0 bg-[var(--bg-hover)]">
         {tour.tour_image ? (
-          <Image src={tour.tour_image} alt={tour.title} fill sizes="64px" className="object-cover" />
+          <Image src={tour.tour_image} alt={tour.title} fill sizes="64px" className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <MapPin className="w-5 h-5 text-[var(--text-muted)]" />

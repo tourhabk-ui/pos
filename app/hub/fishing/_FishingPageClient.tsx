@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Fish, Clock, Users, Mountain, ChevronRight, Phone, Calendar } from 'lucide-react';
 import Link from 'next/link';
+import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 
 interface FishingTour {
   id: number;
@@ -63,6 +64,7 @@ function TourCard({ tour }: { tour: FishingTour }) {
               src={photo}
               alt={tour.title}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              style={{ objectPosition: TOUR_PHOTO_POSITION }}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
