@@ -47,7 +47,6 @@ describe('идемпотентность заявки на бронь: (теле
 
   it('роут спрашивает домен лидов по детерминированному префиксу — своего SQL у MCP нет', () => {
     expect(ROUTE).toMatch(/findRecentLeadByCommentPrefix\(phone, bookingPrefix\)/);
-    expect(ROUTE).toMatch(/— повторно не создаю/);
   });
 
   // Проверка MCP 29.09: дубль проверялся ДО согласия и сторожа записи и
@@ -62,6 +61,23 @@ describe('идемпотентность заявки на бронь: (теле
     const dupAnswer = fn.slice(dedup, fn.indexOf('const leadId', dedup));
     expect(dupAnswer).not.toMatch(/\$\{existing\}/);
     expect(dupAnswer).not.toMatch(/\$\{phone\}/);
+  });
+
+  // Остаток оракула (сверка 29.09): отличимый от успеха ответ на дубль всё
+  // равно говорил «этот телефон уже просил». Ответ один и тот же, без номера.
+  it('дубль и новая заявка отвечают одним и тем же текстом, без номера заявки', () => {
+    const fn = ROUTE.slice(ROUTE.indexOf('async function executeCreateBookingRequest'), ROUTE.indexOf('async function executeCreateLead'));
+    const dedup = fn.indexOf('findRecentLeadByCommentPrefix(phone, bookingPrefix)');
+    const dupBranch = fn.slice(dedup, fn.indexOf('}', dedup) + 1);
+    expect(dupBranch).toMatch(/if \(existing\) \{\s*return accepted;\s*\}/);
+    expect(fn.trimEnd()).toMatch(/return accepted;\s*\}$/);
+    expect(fn).not.toMatch(/номер \$\{leadId\}/);
+  });
+
+  it('запрос мест: «уже есть бронь» не отличается от «запрос уже отправлен»', () => {
+    const fn = ROUTE.slice(ROUTE.indexOf('async function requestSeatsFromOperator'), ROUTE.indexOf('async function executeCreateBookingRequest'));
+    expect(fn).toMatch(/result\.reason === 'already_confirmed' \? 'duplicate'/);
+    expect(fn).not.toMatch(/SEAT_REQUEST_FAILURE\[result\.reason\]/);
   });
 
   it('дедуп в домене лидов: окно 24ч, спецсимволы LIKE экранируются', () => {

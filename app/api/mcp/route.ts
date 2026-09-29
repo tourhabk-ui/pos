@@ -176,7 +176,13 @@ async function requestSeatsFromOperator(a: {
     source: 'mcp',
   });
   if (!result.ok) {
-    const failure = SEAT_REQUEST_FAILURE[result.reason] ?? SEAT_REQUEST_FAILURE.check_failed!;
+    // «Запрос уже отправлен» и «у вас уже есть подтверждённая бронь» — одним
+    // текстом: второй говорил бы анониму, знающему номер, где его владелец
+    // будет в этот день (проверка MCP 29.09).
+    const reason = result.reason === 'already_confirmed' ? 'duplicate' : result.reason;
+    const failure = reason === 'duplicate'
+      ? { error: 'По этому телефону запрос на этот тур и дату уже есть — повторно не отправляю; ответ придёт по ссылке, выданной в первый раз.' }
+      : SEAT_REQUEST_FAILURE[reason] ?? SEAT_REQUEST_FAILURE.check_failed!;
     return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
@@ -250,10 +256,17 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // заявки. Раньше она шла первой: любой, кто знает телефон, без согласия и
   // вне лимита записи узнавал, что его владелец просил бронь такого тура на
   // такую дату, и номер его заявки (152-ФЗ; проверка MCP 29.09).
+  //
+  // Ответ на дубль СОВПАДАЕТ с ответом на новую заявку, и номера нет ни в
+  // одном: любой различимый ответ — оракул «этот телефон уже просил этот тур
+  // на эту дату» (проверка MCP 29.09). Для агента правда одна: заявка принята,
+  // оператор позвонит. Номер заявки человеку ни для чего не нужен — звонят ему.
+  const accepted = `Заявка на бронь принята: "${tour.title}", ${date}, ${participants} чел. ` +
+    `На ${date} свободно ${remaining} мест. Оператор подтвердит бронь по телефону ${phone}. Это заявка, не оплата.`;
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   if (existing) {
-    return `Такая заявка на бронь ("${tour.title}", ${date}, этот телефон) уже принята — повторно не создаю. Оператор свяжется по указанному телефону.`;
+    return accepted;
   }
 
   const leadId = await createLead({
@@ -270,8 +283,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже');
   }
-  return `Заявка на бронь принята (номер ${leadId}): "${tour.title}", ${date}, ${participants} чел. ` +
-    `На ${date} свободно ${remaining} мест. Оператор подтвердит бронь по телефону ${phone}. Это заявка, не оплата.`;
+  return accepted;
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {

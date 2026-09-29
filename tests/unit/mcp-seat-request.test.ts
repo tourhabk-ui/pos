@@ -104,6 +104,18 @@ describe('тур без расписания', () => {
     }
   });
 
+  // Проверка MCP 29.09: «у вас уже есть подтверждённая бронь» говорил
+  // анониму, знающему номер, где его владелец будет в этот день.
+  it('«уже есть бронь» звучит так же, как «запрос уже отправлен»', async () => {
+    keepsScheduleMock.mockResolvedValue(false);
+    createSeatMock.mockResolvedValueOnce({ ok: false, reason: 'duplicate' });
+    const dup = await text(await POST(call(args)));
+    createSeatMock.mockResolvedValueOnce({ ok: false, reason: 'already_confirmed' });
+    const confirmed = await text(await POST(call(args)));
+    expect(confirmed.text).toBe(dup.text);
+    expect(confirmed.text).not.toMatch(/подтверждённая бронь/);
+  });
+
   it('без согласия на ПД запрос не отправляется', async () => {
     keepsScheduleMock.mockResolvedValue(false);
     const r = await text(await POST(call({ ...args, consent: false })));
