@@ -148,8 +148,10 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
               Камчатская рыбалка
             </span>
           </div>
+          {/* H1 совпадает с title страницы: «на реке Камчатка» уже, чем
+              запрос «рыбалка на Камчатке» (аудит SEO 29.09, вечер). */}
           <h1 className="font-playfair text-4xl md:text-5xl font-bold text-white mb-4 leading-tight">
-            Рыбалка на реке Камчатка
+            Рыбалка на Камчатке
           </h1>
           <p className="text-lg text-[rgba(255,255,255,0.7)] mb-8 leading-relaxed max-w-xl">
             Лосось, кижуч, чавыча, нерка. Туры проверенных операторов: что входит

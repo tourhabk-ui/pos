@@ -177,9 +177,15 @@ const nextConfig = {
   async headers() {
     return [
       // HTML-страницы не должны кэшироваться на CDN/прокси —
-      // «статус дня» и персональные данные не должны отдаваться из edge-кэша
+      // «статус дня» и персональные данные не должны отдаваться из edge-кэша.
+      //
+      // Машинные файлы для обходчиков исключены (аудит SEO 29.09, вечер):
+      // sitemap, robots, llms.txt и две ленты объявлений ставят свой
+      // Cache-Control, но это правило перебивало его — прод отвечал no-store,
+      // а код обещал «кэш на час». Ни статуса дня, ни личных данных в них нет.
+      // Сторож: tests/unit/seo-audit-2909-evening.test.ts.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms\\.txt$|api/channels/(?:avito|yandex)/feed$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },
@@ -229,8 +235,22 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=86400' },
         ],
       },
+      // Кабинет закрыт от индекса целиком, кроме посадочной «Рыбалка»
+      // (/hub/fishing, пункт шапки, в sitemap с 29.09). Раньше правило стояло
+      // на '/hub/:path*': страница несла meta «index, follow» и заголовок
+      // «noindex, nofollow» одновременно, а Google из двух берёт запрет —
+      // лучшая коммерческая страница выпадала из его индекса (замер с раннера
+      // 29.09, и Googlebot, и YandexBot получали заголовок). robots.txt тут ни
+      // при чём: более длинное Allow: /hub/fishing перебивает Disallow: /hub/.
+      // Сторож: tests/unit/seo-audit-2909-evening.test.ts.
       {
-        source: '/hub/:path*',
+        source: '/hub',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        ],
+      },
+      {
+        source: '/hub/:path((?!fishing(?:/|$)).*)',
         headers: [
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],

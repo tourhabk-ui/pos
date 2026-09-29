@@ -74,7 +74,11 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
-  } catch {
+  } catch (err) {
+    // Клиент покажет состояние ошибки, но отказ не глушится: без строки в логе
+    // пустой первый экран у поисковика неотличим от «мест нет» (§4.0).
+    const e = err as { code?: string; message?: string };
+    console.error('[places] каталог мест не прочитан', { sqlstate: e?.code, message: e?.message });
     initial = null;
   }
 

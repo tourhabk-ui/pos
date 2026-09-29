@@ -15,11 +15,19 @@ export const metadata: Metadata = {
   // из поиска, хотя robots.txt её явно открывал (аудит SEO 29.09, Н13).
   robots: { index: true, follow: true },
   alternates: { canonical: '/hub/fishing' },
+  // Без картинки ссылка на посадочную уходила в мессенджеры голой (аудит
+  // SEO 29.09, вечер). Снимок — тот же, что у категории «Рыбалка» в каталоге.
   openGraph: {
     url: '/hub/fishing',
     title: 'Рыбалка на Камчатке — туры от профессионалов',
     description: 'Лосось, кижуч, чавыча — рыбалка на реке Камчатка с профессиональными гидами.',
     type: 'website',
+    images: [{ url: '/images/activities/fishing.jpg', width: 1680, height: 1141, alt: 'Рыбалка на Камчатке' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Рыбалка на Камчатке — туры от профессионалов',
+    images: ['/images/activities/fishing.jpg'],
   },
 };
 

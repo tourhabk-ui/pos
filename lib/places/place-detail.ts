@@ -234,8 +234,12 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     // номер ТОЧКИ ВНУТРИ маршрута, и сортировать им список разных
     // маршрутов бессмысленно (одно и то же место бывает первым в одном
     // и седьмым в другом).
+    // id — в пространстве VIEW (COALESCE(ark_id, id)), slug — для ссылки:
+    // голый kr.id у маршрута с заполненным ark_id карточка /routes/[id] не
+    // находит (404), а UUID при живом slug стоил обходчику лишнего 308
+    // (аудит SEO 29.09, вечер; тот же дефект чинили в /api/trending).
     const routesResult = await query(
-      `SELECT kr.id, kr.title, kr.activity_type, kr.difficulty, kr.distance_km, kr.duration_hours
+      `SELECT COALESCE(kr.ark_id, kr.id) AS id, kr.slug, kr.title, kr.activity_type, kr.difficulty, kr.distance_km, kr.duration_hours
        FROM route_waypoints rw
        JOIN kamchatka_routes kr ON kr.id = rw.route_id
        WHERE rw.place_id = $1
@@ -454,6 +458,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 
         routes: routesResult.rows.map(rt => ({
           id: rt.id as string,
+          slug: (rt.slug as string | null) ?? null,
           title: rt.title as string,
           activityType: rt.activity_type as string | null,
           difficulty: rt.difficulty as string | null,

@@ -131,9 +131,12 @@ type SortValue      = 'title' | 'recent' | 'price_asc' | 'price_desc' | 'recomme
 type DifficultyValue = '' | 'easy' | 'medium' | 'hard';
 type KindValue      = 'place' | 'route';
 
-const KIND_TABS: { value: KindValue; label: string; desc: string }[] = [
-  { value: 'route', label: 'Маршруты', desc: 'пеших и автомобильных маршрутов' },
-  { value: 'place', label: 'Места',    desc: 'природных мест и достопримечательностей' },
+// heading — H1 раздела. Было одно слово «Камчатка» на /places и /routes
+// сразу: заголовок не говорил, что на странице, и совпадал у двух разделов
+// (аудит SEO 29.09, вечер).
+const KIND_TABS: { value: KindValue; label: string; desc: string; heading: string }[] = [
+  { value: 'route', label: 'Маршруты', desc: 'пеших и автомобильных маршрутов', heading: 'Маршруты по Камчатке' },
+  { value: 'place', label: 'Места',    desc: 'природных мест и достопримечательностей', heading: 'Места Камчатки' },
 ];
 
 interface RoutesPageClientProps {
@@ -402,7 +405,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {/* ── Hero ──────────────────────────────────────────── */}
         <div className="mb-6">
-          <h1 className="ds-h1 mb-1">Камчатка</h1>
+          <h1 className="ds-h1 mb-1">{KIND_TABS.find(t => t.value === kind)?.heading ?? 'Маршруты и места Камчатки'}</h1>
           <p className="text-[var(--text-secondary)] text-sm md:text-base">
             {meta.total.toLocaleString('ru-RU')} {KIND_TABS.find(t => t.value === kind)?.desc}
           </p>

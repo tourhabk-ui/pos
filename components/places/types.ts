@@ -53,7 +53,10 @@ export interface VolcanoAccStatus {
 }
 
 export interface PlaceRoute {
+  /** id в пространстве VIEW — COALESCE(ark_id, id), как ищет /routes/[id]. */
   id: string;
+  /** ЧПУ маршрута; null — адрес только по id. */
+  slug: string | null;
   title: string;
   activityType: string | null;
   difficulty: string | null;

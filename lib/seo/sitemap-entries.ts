@@ -177,12 +177,16 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   // Динамические страницы: все видимые маршруты kamchatka_routes
   let routePages: MetadataRoute.Sitemap = [];
   try {
+    // id — в пространстве VIEW, COALESCE(ark_id, id): им карточка /routes/[id]
+    // ищет маршрут по UUID. Голый kr.id у записи с заполненным ark_id там не
+    // находится — адрес маршрута без slug отвечал бы 404 (тот же дефект, что
+    // чинили в /api/trending; аудит SEO 29.09, вечер).
     const { rows } = await pool.query<{
       id: string;
       slug: string | null;
       updated_at: Date;
     }>(`
-      SELECT kr.id, kr.slug, kr.updated_at
+      SELECT COALESCE(kr.ark_id, kr.id) AS id, kr.slug, kr.updated_at
       FROM kamchatka_routes kr
       WHERE (kr.is_visible = TRUE OR kr.is_visible IS NULL)
         AND kr.merged_into_id IS NULL

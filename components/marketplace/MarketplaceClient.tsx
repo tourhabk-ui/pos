@@ -176,7 +176,7 @@ function HeroSection({ summary }: { summary: CatalogSummary | null }) {
     ? `${summary.total} ${plural(summary.total, 'тур', 'тура', 'туров')}${summary.minPrice != null ? ` от ${rub(summary.minPrice)}` : ''}`
     : null;
   return (
-    <section className="relative overflow-hidden mb-4 sm:mb-8" aria-label="Туры Камчатки">
+    <section className="relative overflow-hidden mb-4 sm:mb-8" aria-label="Туры на Камчатку">
       <Image
         src="/images/marketplace/hero-marketplace.jpg"
         alt="Камчатка — земля вулканов"
@@ -187,11 +187,13 @@ function HeroSection({ summary }: { summary: CatalogSummary | null }) {
       />
       <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/55 to-black/20" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-12 lg:py-14">
+        {/* «Туры на Камчатку» — ровно запрос, с которым сюда приходят
+            (аудит SEO 29.09, вечер); «Туры Камчатки» его не содержал. */}
         <h1
           className="text-[28px] sm:text-4xl lg:text-5xl font-bold text-white leading-tight"
           style={{ fontFamily: 'var(--font-playfair)' }}
         >
-          Туры Камчатки
+          Туры на Камчатку
         </h1>
         {fact && (
           <p className="mt-1 text-base sm:text-lg text-white/90 font-medium tabular-nums">
