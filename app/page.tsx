@@ -76,7 +76,7 @@ export const metadata: Metadata = {
     url: '/',
     title: HOME_TITLE,
     description: HOME_DESCRIPTION,
-    images: [{ url: '/images/hero/hero-light.jpeg', width: 1200, height: 630, alt: 'Камчатка' }],
+    images: [{ url: '/images/hero/hero-light.jpeg', width: 1024, height: 1024, alt: 'Камчатка' }],
     type: 'website', locale: 'ru_RU', siteName: 'Ведар',
   },
   twitter: { card: 'summary_large_image', title: HOME_TITLE, description: HOME_DESCRIPTION, images: ['/images/hero/hero-light.jpeg'] },

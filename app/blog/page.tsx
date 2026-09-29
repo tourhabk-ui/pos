@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: 'Блог Ведара — Камчатка: маршруты, безопасность, операторы',
+  title: 'Блог о Камчатке: маршруты, безопасность, операторы',
   description:
     'Актуальные материалы о путешествиях по Камчатке: обновления маршрутов, разведданные о сезоне, новости платформы и советы по безопасности.',
   keywords: [

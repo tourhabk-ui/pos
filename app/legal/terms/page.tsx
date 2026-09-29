@@ -6,7 +6,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 export const metadata = {
   alternates: { canonical: '/legal/terms' },
   title: 'Пользовательское соглашение',
-  description: 'Условия использования платформы Tourhab',
+  description: 'Условия использования платформы Ведар',
 };
 
 export default function TermsPage() {

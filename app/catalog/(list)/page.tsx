@@ -38,14 +38,14 @@ export const metadata: Metadata = {
     canonical: `${SITE}/catalog`,
   },
   openGraph: {
-    title: 'Реальные туры по Камчатке',
+    title: 'Туры на Камчатку — реальные предложения операторов',
     description: 'Проверенные операторы, реальные предложения и честные условия без серых схем.',
     type: 'website',
     url: `${SITE}/catalog`,
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Реальные туры по Камчатке',
+    title: 'Туры на Камчатку — реальные предложения операторов',
     description: 'Каталог реальных туров от операторов Камчатки с прозрачными условиями.',
   },
 };

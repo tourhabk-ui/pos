@@ -183,6 +183,39 @@ describe('/hub/fishing открыта индексу — на ней нет об
   });
 });
 
+describe('размеры картинки для ссылок совпадают с файлом', () => {
+  /** Ширина и высота JPEG из маркера SOF — без зависимостей. */
+  function jpegSize(buf: Buffer): { w: number; h: number } | null {
+    let i = 2;
+    while (i < buf.length - 9) {
+      if (buf[i] !== 0xff) { i++; continue; }
+      const m = buf[i + 1];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+      }
+      i += 2 + buf.readUInt16BE(i + 2);
+    }
+    return null;
+  }
+
+  // hero-light.jpeg объявлялся 1200×630 на четырёх страницах, а файл 1024×1024:
+  // превью в мессенджерах и выдаче обрезало бы картинку по чужим размерам.
+  it('каждое объявление { url: /images/….jpg, width, height } в метаданных равно файлу', () => {
+    const files = ['app/page.tsx', 'app/layout.tsx', 'app/plans/[slug]/page.tsx', 'app/trip/[token]/page.tsx', 'app/hub/fishing/page.tsx'];
+    let checked = 0;
+    for (const f of files) {
+      const src = read(f);
+      for (const m of src.matchAll(/url:\s*'(\/images\/[^']+\.jpe?g)',\s*width:\s*(\d+),\s*height:\s*(\d+)/g)) {
+        const size = jpegSize(readFileSync(join(ROOT, 'public', m[1])));
+        expect(size, m[1]).not.toBeNull();
+        expect(`${size!.w}x${size!.h}`, `${f}: ${m[1]}`).toBe(`${m[2]}x${m[3]}`);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(5);
+  });
+});
+
 describe('ссылки на маршрут — в пространстве id карточки', () => {
   // /routes/[id] ищет маршрут по UUID как COALESCE(ark_id, id) (VIEW
   // agent_route_knowledge). Голый kr.id у записи с ark_id там не находится.

@@ -7,7 +7,7 @@ import { THIRD_PARTIES, crossBorderRecipients } from '@/lib/legal/third-party-re
 export const metadata = {
   alternates: { canonical: '/legal/privacy' },
   title: 'Политика конфиденциальности',
-  description: 'Политика обработки персональных данных платформы Tourhab',
+  description: 'Политика обработки персональных данных платформы Ведар',
 };
 
 export default function PrivacyPage() {

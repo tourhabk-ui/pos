@@ -6,7 +6,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 export const metadata = {
   alternates: { canonical: '/legal/offer' },
   title: 'Публичная оферта для партнёров',
-  description: 'Условия сотрудничества с платформой Tourhab для туристических операторов',
+  description: 'Условия сотрудничества с платформой Ведар для туристических операторов',
 };
 
 export default function OfferPage() {

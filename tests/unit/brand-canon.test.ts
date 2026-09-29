@@ -86,6 +86,29 @@ describe('бренд-канон «Ведар» в публичных повер�
     expect(offenders, `title с ручным «— Ведар» (даст «— Ведар | Ведар»):\n${offenders.join('\n')}`).toEqual([]);
   });
 
+  it('старый бренд кириллицей и «Ведар 2026» / «— Блог Ведара» в title (шаблон доклеит ещё «| Ведар»)', () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      for (const [i, line] of readFileSync(f, 'utf-8').split('\n').entries()) {
+        if (line.includes('template:') || !/^\s*title\s*:/.test(line)) continue;
+        if (/КамчатурХаб|Камчатур\s*Хаб|ТурХаб/i.test(line) || /Ведар\s+20\d\d/.test(line) || /—\s*Блог Ведара/.test(line)) {
+          offenders.push(`${f}:${i + 1}`);
+        }
+      }
+    }
+    expect(offenders, `title со старым брендом или брендом дважды:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('description юрстраниц — бренд «Ведар» (тела документов вне scope)', () => {
+    const offenders: string[] = [];
+    for (const f of collectAll(join(ROOT, 'app', 'legal'))) {
+      for (const [i, line] of readFileSync(f, 'utf-8').split('\n').entries()) {
+        if (/^\s*description\s*:/.test(line) && /TourHab|Tourhab|KamchatourHub/.test(line)) offenders.push(`${f}:${i + 1}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('публичный JSON-LD не называет организацию старым брендом', () => {
     const offenders: string[] = [];
     for (const f of files) {

@@ -70,7 +70,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article = STATIC_ARTICLES.find(a => a.slug === slug);
   if (article) {
     return {
-      title: `${article.title} — Блог Ведара`,
+      title: article.title,
       description: article.excerpt,
       alternates: { canonical: `${SITE}/blog/${slug}` },
     };
