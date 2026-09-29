@@ -4,6 +4,7 @@ import PageShell from '@/components/shared/PageShell';
 import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
+  alternates: { canonical: '/legal/agent-agreement' },
   title: 'Агентский договор — Ведар',
   description: 'Шаблон агентского договора между платформой TourHab и туроператором Камчатки. Комиссия 10%, AI-обработка лидов, прозрачные условия.',
 };

@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/safety/offline' },
   title: 'Выживание на Камчатке — офлайн-инструкции',
   description: 'Экстренные инструкции для туристов на Камчатке. Медведи, вулканы, гипотермия, потерялся в тайге. Работает без интернета.',
 };

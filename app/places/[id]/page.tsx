@@ -10,6 +10,9 @@ import { stripTags } from '@/lib/html/text';
 // Словарь разделов — общий с контекстом Хранителя (lib/places/type-label.ts).
 import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { loadPlaceDetail } from '@/lib/places/place-detail';
+import { metaDescription } from '@/lib/seo/meta-description';
+import type { PlaceData } from '@/components/places/types';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -25,6 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       // мессенджере нарисованной картинкой этого вулкана. Карточка точки по
       // CLAUDE.md §9 — географический факт; фото в превью должно быть фото.
       `SELECT p.name, p.essence, p.description, p.photo_url, p.location_type, p.images,
+              p.slug, p.ark_id::text AS ark_id,
               (CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai
                                  WHERE ai.route_id = p.ark_id
                                    AND ${shownPhotoSql('ai.model')})
@@ -36,8 +40,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const r = result.rows[0];
     if (!r) return { title: 'Место не найдено' };
 
-    const desc = (r.essence as string | null) ??
-      ((r.description as string | null)?.slice(0, 150) ?? 'Место на Камчатке');
+    // По границе предложения/слова, а не slice(0, 150) посреди слова (Н11).
+    const desc = metaDescription((r.essence as string | null) || (r.description as string | null))
+      || 'Место на Камчатке';
+    // Canonical — ЧПУ места. До 29.09 его не было у всех 379 карточек (Н4):
+    // место открывается по ark_id, id и slug, и без canonical это три адреса.
+    const canonical = `/places/${(r.slug as string | null) ?? (r.ark_id as string)}`;
     const imgs = r.images as unknown[] | null;
     const imagesFirst = Array.isArray(imgs) && imgs.length > 0 && typeof imgs[0] === 'string' ? imgs[0] as string : null;
     const imgUrl = (r.photo_url ?? imagesFirst ?? r.real_photo) as string | null;
@@ -45,7 +53,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       title: `${r.name} — место на Камчатке`,
       description: desc,
+      alternates: { canonical },
       openGraph: {
+        url: canonical,
         title: r.name as string,
         description: desc,
         ...(imgUrl ? { images: [{ url: imgUrl }] } : {}),
@@ -108,6 +118,18 @@ export default async function PlaceDetailPage({ params }: Props) {
     permanentRedirect(`/places/${slug}`);
   }
   const canonicalId = slug ?? id;
+
+  // Данные карточки — сразу в HTML: поисковик и человек без JS видят имя,
+  // описание, факты и ссылки на маршруты (Н1). Браузер потом обновит их сам.
+  let initialPlace: PlaceData | null = null;
+  if (found) {
+    const detail = await loadPlaceDetail(arkId, { countView: false });
+    if (detail.status === 200 && detail.body.data) {
+      // JSON-круг снимает Date и прочее, чего клиентский компонент не ждёт:
+      // та же форма, что приходит из /api/places/{id}.
+      initialPlace = JSON.parse(JSON.stringify(detail.body.data)) as PlaceData;
+    }
+  }
 
   // JSON-LD для поисковых систем
   let jsonLd: Record<string, unknown> | null = null;
@@ -195,7 +217,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       {jsonLd && (
         <JsonLd data={jsonLd} />
       )}
-      <PlaceDetailClient id={arkId} />
+      <PlaceDetailClient id={arkId} initialPlace={initialPlace} />
       <PlaceSOS />
     </>
   );

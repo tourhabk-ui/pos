@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { CollectionsClient } from './_CollectionsClient';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/collections' },
   title: 'Подборки маршрутов Камчатки',
   description: 'Кураторские подборки лучших мест и маршрутов Камчатки — вулканы, источники, дикая природа',
 };

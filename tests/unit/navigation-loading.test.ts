@@ -16,7 +16,7 @@
  * Сторож закрывает обе.
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -42,6 +42,28 @@ function homeSafetyRoutes(): string[] {
 
 function routeDir(pathname: string): string {
   return pathname === '/' ? 'app' : join('app', pathname.slice(1));
+}
+
+/**
+ * Скелет адреса: `loading.tsx` рядом со страницей — в папке адреса или в его
+ * группе маршрутов `(…)`, где лежит сама `page.tsx`. Группа нужна спискам
+ * /catalog и /routes (аудит SEO 29.09, Н2): файл загрузки в корне раздела
+ * оборачивал и карточки, и их 404/308 уходили наружу как 200.
+ */
+function hasLoading(pathname: string): boolean {
+  const dir = join(ROOT, routeDir(pathname));
+  if (existsSync(join(dir, 'loading.tsx'))) return true;
+  if (!existsSync(dir)) return false;
+  return readdirSync(dir).some((d) => /^\(.+\)$/.test(d)
+    && existsSync(join(dir, d, 'page.tsx')) && existsSync(join(dir, d, 'loading.tsx')));
+}
+
+/** Страница адреса — в его папке или в группе маршрутов. */
+function hasPage(pathname: string): boolean {
+  const dir = join(ROOT, routeDir(pathname));
+  if (existsSync(join(dir, 'page.tsx'))) return true;
+  if (!existsSync(dir)) return false;
+  return readdirSync(dir).some((d) => /^\(.+\)$/.test(d) && existsSync(join(dir, d, 'page.tsx')));
 }
 
 describe('service worker: висящая сеть заканчивается таймаутом', () => {
@@ -80,16 +102,16 @@ describe('навигация: переход виден сразу', () => {
     expect(routes.length).toBeGreaterThanOrEqual(4);
     for (const r of routes) {
       if (r === '/') continue; // главная — точка старта, не переход
-      expect(existsSync(join(ROOT, routeDir(r), 'loading.tsx')), `${r}: нет loading.tsx`).toBe(true);
+      expect(hasLoading(r), `${r}: нет loading.tsx`).toBe(true);
     }
   });
 
   it('у целей блока безопасности главной есть скелетон', () => {
-    const routes = homeSafetyRoutes().filter((r) => existsSync(join(ROOT, routeDir(r), 'page.tsx')));
+    const routes = homeSafetyRoutes().filter((r) => hasPage(r));
     expect(routes.length).toBeGreaterThan(0);
     for (const r of routes) {
       if (r === '/') continue;
-      expect(existsSync(join(ROOT, routeDir(r), 'loading.tsx')), `${r}: нет loading.tsx`).toBe(true);
+      expect(hasLoading(r), `${r}: нет loading.tsx`).toBe(true);
     }
   });
 

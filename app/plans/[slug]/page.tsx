@@ -15,6 +15,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { unstable_cache } from 'next/cache';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { recommendTrip, ACTIVITY_CONSTRAINTS, type DayPlan } from '@/lib/planner';
@@ -91,16 +92,18 @@ function formatPrice(from: number, to: number): string | null {
   return `${from.toLocaleString('ru-RU')} – ${to.toLocaleString('ru-RU')} ₽`;
 }
 
-export default async function PlanPresetPage({ params }: PageProps) {
-  const { slug } = await params;
-  const preset = findPlanPreset(slug);
-  if (!preset) notFound();
-
-  // Движок может быть недоступен (БД, таймаут) — страница обязана открыться.
-  let days: DayPlan[] = [];
-  let tours: Record<string, TopTour> = {};
-  const { arrival, departure } = planDates(preset.days, preset.interests);
-  try {
+/**
+ * Расчёт плана — на сутки в кэше данных. Страница рендерится динамически
+ * (ответ no-store), и `revalidate` выше ничего не кэшировал: recommendTrip
+ * пересчитывался на каждый запрос, и все 16 /plans/* отвечали за 9–14 с
+ * (аудит SEO 29.09, Н7). Ключ — slug и даты поездки: даты сдвигаются раз в
+ * сутки, вместе с ними и расчёт. Пустой план не кэшируется: пустота от
+ * недоступной БД не должна жить сутки.
+ */
+const loadPresetPlan = unstable_cache(
+  async (slug: string, arrival: string, departure: string): Promise<{ days: DayPlan[]; tours: Record<string, TopTour> }> => {
+    const preset = findPlanPreset(slug);
+    if (!preset) throw new Error(`нет пресета ${slug}`);
     const rec = await recommendTrip({
       interests: preset.interests,
       arrivalDate: arrival,
@@ -111,9 +114,29 @@ export default async function PlanPresetPage({ params }: PageProps) {
       budgetTier: 'comfort',
       riskMode: 'safe_only',
     });
-    days = rec.days;
-    tours = await topToursByActivity(days.map((d) => d.activityType));
-  } catch { /* план живёт на интро и CTA */ }
+    if (rec.days.length === 0) throw new Error('движок вернул пустой план');
+    const tours = await topToursByActivity(rec.days.map((d) => d.activityType));
+    return { days: rec.days, tours };
+  },
+  ['plan-preset-v1'],
+  { revalidate: 86400 },
+);
+
+export default async function PlanPresetPage({ params }: PageProps) {
+  const { slug } = await params;
+  const preset = findPlanPreset(slug);
+  if (!preset) notFound();
+
+  // Движок может быть недоступен (БД, таймаут) — страница обязана открыться.
+  let days: DayPlan[] = [];
+  let tours: Record<string, TopTour> = {};
+  const { arrival, departure } = planDates(preset.days, preset.interests);
+  try {
+    ({ days, tours } = await loadPresetPlan(slug, arrival, departure));
+  } catch (e) {
+    // План живёт на интро и CTA, но отказ движка — в лог (§4.0).
+    console.error('[plans/[slug]] план не рассчитан', { slug, message: e instanceof Error ? e.message : String(e) });
+  }
 
   const priceFrom = days.reduce((s, d) => s + (d.priceFrom || 0), 0);
 

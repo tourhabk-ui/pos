@@ -39,7 +39,7 @@ import { describeDescriptionSource } from '@/lib/text/description-source';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
-const API = read('app/api/places/[id]/route.ts');
+const API = read('lib/places/place-detail.ts');
 const MODULE = read('lib/text/description-source.ts');
 const VIEW = read('components/places/PlaceDescription.tsx');
 const CLIENT = read('app/places/[id]/_PlaceDetailClient.tsx');

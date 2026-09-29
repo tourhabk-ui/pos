@@ -72,7 +72,7 @@ describe('честные цифры витрины и главной (#1780)', (
     const search = read('lib/search/tour-search.ts');
     expect(search).toMatch(/export async function queryCatalogSummary\(/);
     expect(search).toMatch(/GROUP BY ot\.activity_type/);
-    for (const page of ['app/catalog/page.tsx', 'app/marketplace/page.tsx']) {
+    for (const page of ['app/catalog/(list)/page.tsx', 'app/marketplace/page.tsx']) {
       expect(read(page)).toMatch(/queryCatalogSummaryForPage\(\)/);
       expect(read(page)).toMatch(/summary=\{summary\}/);
     }
@@ -93,7 +93,7 @@ describe('честные цифры витрины и главной (#1780)', (
 
 describe('навигация и именование (#1780)', () => {
   it('/routes по умолчанию открывает маршруты — на сервере и на клиенте', () => {
-    expect(read('app/routes/page.tsx')).toMatch(/kindRaw === 'place' \? 'place' : 'route'/);
+    expect(read('app/routes/(list)/page.tsx')).toMatch(/kindRaw === 'place' \? 'place' : 'route'/);
     const client = read('app/routes/_RoutesPageClient.tsx');
     expect(client).toMatch(/\(k === 'place' \|\| k === 'route'\) \? k : 'route'/);
     expect(client).not.toMatch(/if \(kind !== 'place'\)\s+p\.set\('kind'/);

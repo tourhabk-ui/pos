@@ -15,20 +15,25 @@ import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { distanceToCity } from '@/lib/places/distance-to-city';
 
-const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
+// Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
+// сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
+// была ssr:false и собиралась fetch'ем из закрытого в robots.txt /api/ —
+// у 379 мест в HTML не было ни H1, ни текста (аудит SEO, Н1). Карты, баннеры
+// и всё, что трогает браузерные API, по-прежнему только на клиенте.
+const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'));
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
 const PlaceRealtimeStatus   = dynamic(() => import('@/components/places/PlaceRealtimeStatus'),   { ssr: false });
 const VolcanoAccBadge       = dynamic(() => import('@/components/places/VolcanoAccBadge'),       { ssr: false });
-const PlaceDescription      = dynamic(() => import('@/components/places/PlaceDescription'),      { ssr: false });
-const PlaceFacts            = dynamic(() => import('@/components/places/PlaceFacts'),            { ssr: false });
+const PlaceDescription      = dynamic(() => import('@/components/places/PlaceDescription'));
+const PlaceFacts            = dynamic(() => import('@/components/places/PlaceFacts'));
 const PlaceSafety           = dynamic(() => import('@/components/places/PlaceSafety'),           { ssr: false });
 const PlaceAccess           = dynamic(() => import('@/components/places/PlaceAccess'),           { ssr: false });
 const PlaceSeason           = dynamic(() => import('@/components/places/PlaceSeason'),           { ssr: false });
-const PlaceRoutes           = dynamic(() => import('@/components/places/PlaceRoutes'),           { ssr: false });
-const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'),            { ssr: false });
+const PlaceRoutes           = dynamic(() => import('@/components/places/PlaceRoutes'));
+const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'));
 const PlaceKuzmich          = dynamic(() => import('@/components/places/PlaceKuzmich'),          { ssr: false });
 const PlaceReviews          = dynamic(() => import('@/components/places/PlaceReviews'),          { ssr: false });
-const PlaceNearby           = dynamic(() => import('@/components/places/PlaceNearby'),           { ssr: false });
+const PlaceNearby           = dynamic(() => import('@/components/places/PlaceNearby'));
 const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco'),              { ssr: false });
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
@@ -161,23 +166,27 @@ function lsWrite(id: string, data: PlaceData) {
   } catch { /* localStorage full */ }
 }
 
-export default function PlaceDetailClient({ id }: { id: string }) {
+export default function PlaceDetailClient({ id, initialPlace = null }: { id: string; initialPlace?: PlaceData | null }) {
   // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
   // приехал сюда за путём. Читается из location, а не через useSearchParams:
   // хук заставил бы обернуть страницу в Suspense ради одного булева флага.
   const autoRoute = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('route') === '1';
-  const [place, setPlace] = useState<PlaceData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [place, setPlace] = useState<PlaceData | null>(initialPlace);
+  const [loading, setLoading] = useState(!initialPlace);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Данные с сервера уже на экране — кладём их в офлайн-кэш и всё равно
+      // спрашиваем сеть: свежий реалтайм и счётчик просмотров. Отказ сети
+      // тогда не ошибка — карточка уже есть.
+      if (initialPlace) lsWrite(id, initialPlace);
       // Показываем кэш сразу — пока грузится сеть
-      const cached = lsRead(id);
-      if (cached && !cancelled) {
+      const cached = initialPlace ?? lsRead(id);
+      if (cached && !initialPlace && !cancelled) {
         setPlace(cached);
         setLoading(false);
         setFromCache(true);
@@ -216,6 +225,8 @@ export default function PlaceDetailClient({ id }: { id: string }) {
       }
     })();
     return () => { cancelled = true; };
+    // initialPlace — снимок первого рендера; смена id приносит новый снимок.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (loading) return <><Header /><Skeleton /></>;

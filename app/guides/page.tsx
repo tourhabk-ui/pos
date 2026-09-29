@@ -4,6 +4,7 @@ import { Shield, Award, Star } from 'lucide-react';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/guides' },
   title: 'Сертифицированные гиды Камчатки',
   description: 'Гиды Камчатки, проверенные платформой Ведар: аттестаты, специализации, отзывы туристов. Выбирайте проверенного гида для безопасного путешествия.',
   openGraph: {

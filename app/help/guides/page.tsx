@@ -3,6 +3,7 @@ import HelpArticleView from '@/components/help/HelpArticleView';
 import { GUIDES } from '@/lib/help/content';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/help/guides' },
   title: 'Инструкция гида',
   description: 'Как гиду пройти проверку, внести аттестат до 1 октября, вступить в команду оператора и работать с группами',
 };

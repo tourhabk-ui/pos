@@ -5,6 +5,7 @@ import { AgentModelSection } from '@/components/homepage/AgentModelSection'
 import { Footer } from '@/components/layout/Footer'
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/for-operators' },
   title: 'Для туроператоров Камчатки — партнёрская программа Ведар 2026',
   description: 'Кузьмич и operator tools для туроператоров Камчатки: AI-приём обращений, квалификация лидов, подбор туров, PDF-предложения и Telegram-уведомления. Комиссия 10%. Первые 3 месяца бесплатно.',
 }

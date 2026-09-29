@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { PlannerClient } from './_PlannerClient';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/planner' },
   title: 'Конструктор маршрута — Камчатка',
   description: 'Постройте идеальный маршрут по Камчатке: выберите активности, получите AI-рекомендацию и настройте каждый день поездки.',
 };

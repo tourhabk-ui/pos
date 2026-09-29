@@ -6,6 +6,7 @@ import { SupportCard } from '@/components/help/HelpArticleView';
 import { HELP_ARTICLES, type HelpArticle } from '@/lib/help/content';
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/help' },
   title: 'Центр помощи',
   description: 'Инструкции для туристов, операторов и гидов платформы Ведар',
 };

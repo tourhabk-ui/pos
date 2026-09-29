@@ -1,6 +1,14 @@
+/**
+ * Список лежит в группе `(list)` вместе со своим `loading.tsx` намеренно.
+ * Файл загрузки раздела оборачивает и ВЛОЖЕННЫЕ адреса: пока он стоял в
+ * корне раздела, карточка под ним отдавала скелет со статусом 200 раньше, чем
+ * успевала сказать «не найдено» или «переехало», — 404 и 308 карточек
+ * становились soft-404 и meta-refresh (аудит SEO 29.09, Н2). Группа не
+ * меняет адрес, а скелет списка остаётся мгновенным (navigation-loading).
+ */
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import RoutesPageClient from './_RoutesPageClient';
+import RoutesPageClient from '../_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
 import { findToursForQuery } from '@/lib/search/tour-query-match';
 import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';

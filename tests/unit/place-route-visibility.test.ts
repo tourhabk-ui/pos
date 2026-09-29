@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const placeCard = readFileSync(join(ROOT, 'app/api/places/[id]/route.ts'), 'utf-8');
+const placeCard = readFileSync(join(ROOT, 'lib/places/place-detail.ts'), 'utf-8');
 const routeCard = readFileSync(join(ROOT, 'app/api/routes/[id]/route.ts'), 'utf-8');
 
 describe('карточка места — блок «Маршруты»', () => {

@@ -97,7 +97,7 @@ describe('публичные чтения знают про слияние', () 
   const CASES: Array<[string, string]> = [
     ['поиск Ctrl+K', 'app/api/search/route.ts'],
     ['автокомплит мест', 'app/api/places/route.ts'],
-    ['карточка места (API)', 'app/api/places/[id]/route.ts'],
+    ['карточка места (API)', 'lib/places/place-detail.ts'],
   ];
 
   for (const [label, file] of CASES) {
@@ -121,13 +121,13 @@ describe('публичные чтения знают про слияние', () 
     // подсчёт «всего» ломался каждый раз, когда кто-то добавлял ЕЩЁ один
     // законный гард (так и вышло, когда маршруты карточки тоже закрыли от
     // слитых записей — тест покраснел на улучшении).
-    const api = strip(read('app/api/places/[id]/route.ts'));
+    const api = strip(read('lib/places/place-detail.ts'));
     expect(api.match(/p\.merged_into_id IS NULL/g)?.length).toBe(2);
   });
 
   it('маршруты на карточке места — тоже без слитых', () => {
     // Слитый маршрут в блоке «Маршруты» — такая же мёртвая ссылка.
-    const api = strip(read('app/api/places/[id]/route.ts'));
+    const api = strip(read('lib/places/place-detail.ts'));
     expect(api).toMatch(/kr\.merged_into_id IS NULL/);
   });
 });

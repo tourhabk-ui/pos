@@ -33,7 +33,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const API = readFileSync(join(ROOT, 'app', 'api', 'places', '[id]', 'route.ts'), 'utf-8');
+// Сборка карточки места живёт в lib/places/place-detail.ts (с 29.09, аудит SEO Н1).
+const API = readFileSync(join(ROOT, 'lib', 'places', 'place-detail.ts'), 'utf-8');
 const HERO = readFileSync(join(ROOT, 'components', 'places', 'PlaceHero.tsx'), 'utf-8');
 
 /** Тело функции, собирающей photoUrl. */

@@ -42,7 +42,7 @@ const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
 const MIGRATION = read('migrations/968_place_gallery_photos.sql');
-const API = read('app/api/places/[id]/route.ts');
+const API = read('lib/places/place-detail.ts');
 const RASTER = read('app/api/images/place-gallery/[arkId]/[position]/route.ts');
 const CLIENT = read('app/places/[id]/_PlaceDetailClient.tsx');
 const HERO = read('components/places/PlaceHero.tsx');

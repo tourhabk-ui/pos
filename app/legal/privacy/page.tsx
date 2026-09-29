@@ -5,6 +5,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 import { THIRD_PARTIES, crossBorderRecipients } from '@/lib/legal/third-party-registry';
 
 export const metadata = {
+  alternates: { canonical: '/legal/privacy' },
   title: 'Политика конфиденциальности',
   description: 'Политика обработки персональных данных платформы Tourhab',
 };

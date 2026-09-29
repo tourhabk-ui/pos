@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { metaDescription } from '@/lib/seo/meta-description';
 import { getTourForCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import TourDetailClient from '@/app/marketplace/tours/[id]/_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
@@ -26,11 +27,16 @@ async function getReviews(tourId: number) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const tour = await getTour(parseInt(id));
-  if (!tour) return { title: 'Тур не найден | Туры Камчатки' };
+  if (!tour) return { title: 'Тур не найден | Туры Камчатки', robots: { index: false, follow: false } };
 
   const activity = activityLabel(tour.activity_type);
-  const desc = tour.short_description ?? tour.description?.slice(0, 160) ??
-    `${activity} на Камчатке. Реальный тур от проверенного оператора.`;
+  // Короткое описание у рыболовных туров — 43–83 знака (аудит SEO 29.09, Н11):
+  // сниппет из одной фразы. Добираем из полного описания того же тура, режем
+  // по предложению, а не посреди слова. Только данные тура, без сочинённого.
+  const short = (tour.short_description ?? '').trim();
+  const full = metaDescription([short, tour.description ?? ''].filter(Boolean).join(' '));
+  const desc = (short.length >= 110 ? metaDescription(short) : full)
+    || `${activity} на Камчатке. Реальный тур от проверенного оператора.`;
 
   const images = tour.tour_image ? [{ url: tour.tour_image }] : [];
 

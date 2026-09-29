@@ -215,7 +215,7 @@ describe('избранное у гостя — голос, а не молчал�
 });
 
 describe('каркас страниц каталога', () => {
-  for (const [page, active] of [['app/catalog/page.tsx', '/catalog'], ['app/marketplace/page.tsx', '/marketplace']] as const) {
+  for (const [page, active] of [['app/catalog/(list)/page.tsx', '/catalog'], ['app/marketplace/page.tsx', '/marketplace']] as const) {
     it(`${page}: таб-бар с «Туры», футер, отказ SSR в лог`, () => {
       const src = read(page);
       expect(src).toContain(`<BottomNav activePath="${active}" />`);
@@ -238,7 +238,10 @@ describe('каркас страниц каталога', () => {
     const paths = [...(m?.[1] ?? '').matchAll(/'([^']+)'/g)].map(x => x[1]);
     expect(paths.length).toBeGreaterThan(0);
     for (const p of paths) {
-      const file = join('app', p, 'page.tsx');
+      // Список может лежать в группе маршрутов (list) — адрес тот же (Н2 аудита SEO 29.09).
+      const direct = join('app', p, 'page.tsx');
+      const grouped = join('app', p, '(list)', 'page.tsx');
+      const file = existsSync(join(ROOT, direct)) ? direct : grouped;
       expect(existsSync(join(ROOT, file)), file).toBe(true);
       expect(read(file), file).toMatch(new RegExp(`<BottomNav activePath="${p}"`));
     }
