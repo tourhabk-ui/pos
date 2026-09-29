@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
 import { z } from 'zod';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
 import { emailService } from '@/lib/notifications/email-service';
 import { getUserFromRequest } from '@/lib/auth/jwt';
@@ -57,7 +57,7 @@ const BookingSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const ip = getClientIp(req.headers);
+  const ip = getTrustedClientIp(req.headers);
   if (!bookingCreateLimiter.check(ip)) {
     return NextResponse.json(
       { error: 'Слишком много запросов. Попробуйте через минуту.' },

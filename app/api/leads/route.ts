@@ -5,7 +5,7 @@ import { telegramService } from '@/lib/notifications/telegram';
 import { requireRole } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { notifyOperatorNewLead } from '@/lib/notifications/lead-notify';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const ip = getClientIp(req.headers);
+  const ip = getTrustedClientIp(req.headers);
   const allowed = leadLimiter.check(ip);
   if (!allowed) {
     return NextResponse.json(
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
   // Единый путь: скоринг → INSERT → уведомление админу
   const leadId = await createLead({
     name, phone, comment, route_id, route_title, source_url,
-    pd_consent: buildConsentRecord(true, getClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
+    pd_consent: buildConsentRecord(true, getTrustedClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
     source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
     operator_id: operatorId,
   });

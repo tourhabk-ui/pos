@@ -32,7 +32,7 @@ import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
-import { createRateLimiter } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
@@ -56,8 +56,14 @@ const writeLimiter = createRateLimiter({ windowMs: 600_000, max: 5 });
 // источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
 const WRITE_TOOLS = WRITE_TOOL_NAMES;
 
+// IP — из заголовка, который ставит прокси (x-real-ip), а не из первого
+// элемента X-Forwarded-For: тот пишет сам клиент. От этого адреса зависят
+// лимит записи (5 заявок за 10 минут — единственный тормоз спама) и запись
+// согласия на ПД, где адрес — часть доказательства. Скрипт, меняющий XFF
+// с каждым запросом, обходил лимит и подделывал адрес в согласии (сверка
+// MCP 29.09; тот же приём, что у запросов мест, lib/rate-limit.ts).
 function clientIp(request: NextRequest): string {
-  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  return getTrustedClientIp(request.headers);
 }
 
 // Определения инструментов и список наружу — в lib/mcp/public-tools.ts:
