@@ -31,17 +31,33 @@ export interface AiMaterial {
 export const AI_POST_MIN_MATERIALS = 2;
 
 /**
+ * Вывод «Почему важно» в начале строки или цитаты — с выделением или без.
+ *
+ * 28.09 (вечерний выпуск) пост не вышел с «0 полных материалов». Шаблон
+ * 27.09 ставит вывод внутрь цитаты — `<blockquote><b>Почему важно:</b> …`, —
+ * а модели свойственно опускать внутренний `<b>`: цитата и так выделена.
+ * Счётчик узнавал вывод только по `<b>Почему важно`, и пост с двумя
+ * полными материалами читался пустым. Узнаётся смысл строки, а не её жирность.
+ */
+const WHY_RX = /(?:^|\n|<blockquote[^>]*>)[ \t]*(?:<(?:b|strong|i|em)>[ \t]*)?Почему важно/i;
+
+/** Выделенные фрагменты блока: <b> и <strong> — одно и то же для Telegram. */
+function boldParts(block: string): RegExpMatchArray[] {
+  return [...block.matchAll(/<(b|strong)>([\s\S]*?)<\/\1>/g)];
+}
+
+/**
  * Материалы поста по порядку. Блоки разделены пустой строкой; шапка
  * «AI-дайджест · …» и необязательная цитата-хвост материалами не считаются.
  */
 export function aiPostMaterials(html: string): AiMaterial[] {
   const out: AiMaterial[] = [];
   for (const block of html.split(/\n\s*\n/)) {
-    const titles = [...block.matchAll(/<b>([\s\S]*?)<\/b>/g)]
-      .map((m) => stripTags(m[1]).trim())
+    const titles = boldParts(block)
+      .map((m) => stripTags(m[2]).trim())
       .filter((t) => t && !/^AI-дайджест/i.test(t) && !/^Почему важно/i.test(t));
     const title = titles[0];
-    const why = /<b>\s*Почему важно/i.test(block);
+    const why = WHY_RX.test(block);
     const href = block.match(/<a\s+href="([^"]+)"/i)?.[1];
     if (title && why && href) out.push({ title, url: decodeHtmlEntities(href) });
   }
@@ -77,12 +93,32 @@ export function toJournalLayout(html: string): string {
         b = b.replace(read[0], '').replace(/\n{2,}/g, '\n').replace(/\n+$/, '');
       }
     }
-    // «Почему важно» — плашкой цитаты. Строка, уже начатая <blockquote>,
-    // этим шаблоном не ловится (он требует <b> в начале строки).
-    b = b.replace(/^([ \t]*)(<b>\s*Почему важно.*)$/m, (_line, pad: string, rest: string) =>
-      /<\/blockquote>\s*$/i.test(rest) ? `${pad}${rest}` : `${pad}<blockquote>${rest}</blockquote>`);
+    // «Почему важно» — плашкой цитаты с жирной меткой, в каком бы виде его
+    // ни вернула модель: строкой или цитатой, с <b>, <strong>, <i> или без
+    // выделения (28.09: без <b> пост читался пустым). Вид один на все выпуски.
+    b = b.replace(
+      /^([ \t]*)(?:<blockquote[^>]*>)?[ \t]*(?:<(?:b|strong|i|em)>)?[ \t]*Почему важно[ \t]*:?[ \t]*(?:<\/(?:b|strong|i|em)>)?[ \t]*:?[ \t]*(.*?)(?:<\/blockquote>)?[ \t]*$/m,
+      (_line, pad: string, rest: string) => `${pad}<blockquote><b>Почему важно:</b> ${rest.trim()}</blockquote>`,
+    );
+    // <strong> в заголовке — тот же жирный; вид один.
+    b = b.replace(/<strong>([\s\S]*?)<\/strong>/g, '<b>$1</b>');
     return b;
   }).join('');
+}
+
+/**
+ * Форма черновика одной строкой — для отказа (28.09). Черновик отвергнутого
+ * поста нигде не хранится, и «0 материалов» не говорило, чего именно не
+ * хватило: заголовков, ссылок, вывода или всего сразу. Только счёт разметки,
+ * без текста: в отчёт идёт форма, а не содержание.
+ */
+export function aiPostShape(html: string): string {
+  const blocks = html.split(/\n\s*\n/).filter((b) => b.trim()).length;
+  const bold = boldParts(html).length;
+  const links = (html.match(/<a\s+href="/gi) ?? []).length;
+  const why = (html.match(/Почему важно/gi) ?? []).length;
+  const md = (html.match(/\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:/g) ?? []).length;
+  return `знаков ${html.length}, блоков ${blocks}, жирных ${bold}, ссылок ${links}, «Почему важно» ${why}, Markdown ${md}`;
 }
 
 /** null — пост дотягивает до выпуска; строка — почему нет. */

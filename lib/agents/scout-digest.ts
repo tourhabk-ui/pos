@@ -758,7 +758,7 @@ export { unsourcedPercents } from '@/lib/agents/fact-check';
 // Везде judgeClaims, у которого исход именной.
 import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySections, type JudgeFailure } from '@/lib/agents/fact-check';
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
-import { aiPostTooThin, aiPostMaterials, kamchatkaDate, toJournalLayout } from '@/lib/notifications/ai-post-shape';
+import { aiPostTooThin, aiPostMaterials, aiPostShape, kamchatkaDate, toJournalLayout } from '@/lib/notifications/ai-post-shape';
 
 /**
  * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
@@ -1493,6 +1493,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
         }
       }
 
+      // Форма черновика до чистки хвоста — для отказа по порогу (28.09):
+      // сам черновик не хранится, и без формы «0 материалов» не говорило,
+      // чего не хватило и не срезала ли чистка пост целиком.
+      const aiDraftShape = aiDigest ? aiPostShape(aiDigest) : null;
       if (aiDigest) {
         const aiPolished = polishDigest(aiDigest);
         aiDigest = aiPolished.text;
@@ -1507,7 +1511,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
       // пропускает, и причина пишется в отчёт (lib/notifications/ai-post-shape).
       if (aiDigest) {
         const thin = aiPostTooThin(aiDigest);
-        if (thin) { aiDigest = null; aiSkip = 'ai_post_too_thin'; aiSkipDetail = thin; }
+        if (thin) {
+          aiSkipDetail = `${thin}; черновик: ${aiDraftShape}; после чистки хвоста: ${aiPostShape(aiDigest)}`;
+          aiDigest = null;
+          aiSkip = 'ai_post_too_thin';
+        }
       }
 
       if (aiDigest) {
