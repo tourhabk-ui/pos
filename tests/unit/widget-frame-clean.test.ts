@@ -29,7 +29,11 @@ const HARMLESS_IN_WIDGET: Record<string, string> = {
   LastPositionTracker: 'читает позицию, только если доступ уже выдан; чужому iframe браузер его не выдаёт',
   ReferralCapture: 'читает ?ref собственного адреса; у адреса виджета его нет',
   InstallTracker: 'слушает appinstalled и standalone-запуск — внутри iframe их не бывает',
+  Toaster: 'рисует только всплывашки, которые кто-то вызвал; сам по себе пуст',
 };
+
+/** Контексты Providers — не рисуют ничего и не шлют запросов сами по себе. */
+const CONTEXT_PROVIDER = /Provider$/;
 
 /** Компоненты, что монтируются на каждой странице: <Tag /> внутри <body>. */
 function bodyTags(src: string): string[] {
@@ -65,9 +69,14 @@ describe('isWidgetPath', () => {
 describe('глобальные компоненты молчат внутри виджета', () => {
   const layout = read('app/layout.tsx');
   const providers = read('components/Providers.tsx');
+  // Providers монтирует свои компоненты на каждой странице так же, как layout:
+  // перепись идёт по ВСЕМ его тегам, а не по одному PageViewTracker. Контексты
+  // (*Provider) ничего не рисуют; Toaster берётся из пакета — он в исключениях.
+  const providerTags = [...new Set([...providers.matchAll(/<([A-Z][A-Za-z0-9]*)[\s/>]/g)].map(m => m[1]))]
+    .filter(tag => !CONTEXT_PROVIDER.test(tag));
   const mounted = [
     ...bodyTags(layout).map(tag => ({ tag, file: moduleOf(layout, tag) })),
-    { tag: 'PageViewTracker', file: moduleOf(providers, 'PageViewTracker') },
+    ...providerTags.map(tag => ({ tag, file: HARMLESS_IN_WIDGET[tag] ? '' : moduleOf(providers, tag) })),
   ];
 
   it('layout монтирует то, что сторож ожидает увидеть (перепись не пуста)', () => {
