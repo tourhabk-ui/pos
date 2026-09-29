@@ -71,8 +71,43 @@ export async function fetchEmsdPage(url: string, timeoutMs = 20_000): Promise<Em
       };
     }
   } catch (e) {
-    const why = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    const why = describeFetchFailure(e);
     console.error(`[emsd-fetch] запрос не дошёл (${url}):`, why);
     return { html: null, status: null, decodedBy: null, bytes: null, error: why.slice(0, 300) };
   }
+}
+
+/**
+ * Почему не дошли — словами, а не «fetch failed».
+ *
+ * ── Что нашлось 29.09 ─────────────────────────────────────────────────────
+ *
+ * Watchdog прислал КРИТ о сводке вулканов, и в теле прогона стояло ровно:
+ * `сводка не получена: TypeError: fetch failed`. Это вся причина, какую знал
+ * прод. У `fetch` в Node сообщение ВСЕГДА одно и то же, а настоящая причина
+ * лежит в `cause`: не нашли имя (`ENOTFOUND`), отказали в соединении
+ * (`ECONNREFUSED`), оборвали (`ECONNRESET`), истёк таймаут, не сошёлся
+ * сертификат. Чинятся они по-разному — от «сайт института лежит» до «с
+ * Timeweb закрыт выход», — а выглядели одинаково.
+ *
+ * Причина разворачивается по цепочке: `cause` у undici сам бывает ошибкой с
+ * `cause`. Глубина ограничена, чтобы кольцо ссылок не увело в бесконечность.
+ */
+export function describeFetchFailure(e: unknown, maxDepth = 4): string {
+  if (!(e instanceof Error)) return String(e);
+  const parts: string[] = [`${e.name}: ${e.message}`];
+  const seen = new Set<unknown>([e]);
+  let cur: unknown = (e as { cause?: unknown }).cause;
+  for (let i = 0; i < maxDepth && cur !== undefined && cur !== null && !seen.has(cur); i++) {
+    seen.add(cur);
+    if (cur instanceof Error) {
+      const code = (cur as { code?: unknown }).code;
+      parts.push(`${cur.name}: ${cur.message}${typeof code === 'string' ? ` [${code}]` : ''}`);
+      cur = (cur as { cause?: unknown }).cause;
+    } else {
+      parts.push(String(cur));
+      break;
+    }
+  }
+  return parts.length > 1 ? `${parts[0]} (причина: ${parts.slice(1).join(' ← ')})` : parts[0];
 }

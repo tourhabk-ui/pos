@@ -114,6 +114,9 @@ export async function computeAlertDeliveryHealth(now: Date = new Date()): Promis
     const r = await pool.query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM external_alerts
         WHERE push_sent_at IS NULL
+          -- Тот же отбор, что у диспетчера и Watchdog: заглушённый дубль
+          -- (миграция 957) не недоставлен, а решён.
+          AND push_suppressed_at IS NULL
           AND severity >= 2
           AND created_at < NOW() - INTERVAL '30 minutes'
           AND expires_at > NOW()`,

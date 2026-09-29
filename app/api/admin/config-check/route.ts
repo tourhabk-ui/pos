@@ -30,7 +30,8 @@ export async function GET(req: NextRequest) {
     countOrNull(
       `SELECT COUNT(*)::text AS n FROM external_alerts
         WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
-          AND push_sent_at IS NULL`,
+          AND push_sent_at IS NULL
+          AND push_suppressed_at IS NULL`,
     ),
   ]);
 
