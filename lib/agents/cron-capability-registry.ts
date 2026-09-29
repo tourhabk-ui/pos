@@ -175,6 +175,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'partner-candidates-census': ['db_read', 'pd_direct'],
   'partner-cleanup': ['db_read', 'db_write'],
   'partner-junk-census': ['db_read', 'db_write', 'net_out'],
+  'place-slug-census': ['db_read'],
   'passport-flag-census': ['db_read', 'pd_direct'],
   'payment-config': [],
   'payment-test-setup': ['db_read', 'db_write', 'money'],

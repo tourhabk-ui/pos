@@ -185,6 +185,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // реальный рубль, teardown прячет их мягко. Расписания быть не должно.
   'payment-test-setup':        { kind: 'manual', writes: true,  note: 'обвязка проверки оплаты и комиссии: служебный партнёр, невидимый тур, бронь под QR' },
   'partner-junk-census':       { kind: 'manual', writes: false, note: 'партнёры, у которых имя не имя (реестровый номер вместо названия)' },
+  'place-slug-census':         { kind: 'manual', writes: false, note: 'видимые места без адреса по имени и кто держит их адрес (после миграции 1111)' },
   // Расписания у уборки нет и быть не должно: удаление необратимо, и запускает
   // его человек по цифрам переписи. Сам роут без `confirm: true` не удаляет.
   'partner-cleanup':           { kind: 'manual', writes: true,  note: 'удаление бесхозных партнёров: ни туров, ни броней, ни входа, ни аттестаций' },
