@@ -15,6 +15,8 @@ import {
   redeemMcpHandoff,
 } from '@/lib/mcp/handoff';
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(
@@ -33,8 +35,12 @@ export async function GET(
     return new NextResponse('Ссылка устарела — откройте vedarai.ru', { status: 410 });
   }
 
-  // target_path проверен белым списком при выпуске; redirect только same-origin.
-  const destination = new URL(handoff.targetPath, request.nextUrl.origin);
+  // target_path проверен белым списком при выпуске; redirect только на свой сайт.
+  // База — публичный адрес, а не origin входящего запроса: за прокси Timeweb
+  // origin внутренний, и до 29.09 КАЖДАЯ ссылка «Продолжить в Ведаре» из
+  // ответов MCP уводила на https://localhost:3001/… — токен гасился, переход
+  // засчитывался, а человек получал неоткрываемый адрес (аудит MCP 29.09).
+  const destination = new URL(handoff.targetPath, SITE_URL);
   const response = NextResponse.redirect(destination, { status: 303 });
 
   // Без MCP_ATTRIBUTION_COOKIE_SECRET переход работает, атрибуция выключена.

@@ -122,3 +122,13 @@ describe('врезка в MCP-роут и приём лида', () => {
     expect(LEADS).not.toMatch(/body[^;]*mcp_handoff_id/);
   });
 });
+
+describe('переход ведёт на публичный сайт, а не на внутренний адрес за прокси', () => {
+  it('база редиректа — NEXT_PUBLIC_SITE_URL, не request.nextUrl.origin', () => {
+    // Аудит MCP 29.09: за прокси Timeweb origin внутренний, и все ссылки
+    // «Продолжить в Ведаре» отвечали 303 на https://localhost:3001/…
+    expect(REDIRECT).toMatch(/new URL\(handoff\.targetPath, SITE_URL\)/);
+    expect(REDIRECT).not.toMatch(/request\.nextUrl\.origin/);
+    expect(REDIRECT).toMatch(/const SITE_URL = process\.env\.NEXT_PUBLIC_SITE_URL/);
+  });
+});
