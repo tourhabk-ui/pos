@@ -115,7 +115,9 @@ withPg('честная цена на настоящем PostgreSQL', () => {
        VALUES ($1, 'last_minute', 0, 7, 0.85, true)`,
       [tourWithRule],
     );
-  });
+    // Baseline + все миграции, как у соседних pg-тестов: дефолтных 10 с хука
+    // перестало хватать по мере роста числа миграций (kernel-pg 29.09).
+  }, 300_000);
 
   afterAll(async () => {
     if (pool) await pool.end();
