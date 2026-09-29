@@ -14,6 +14,7 @@
  */
 import { listPublishedTrips } from '@/lib/transfers/service';
 import { getPublicBaseUrl } from '@/lib/config';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export interface TransferSearchArgs {
   from?: string;
@@ -31,7 +32,9 @@ function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
 
 /** Окно дат из аргументов модели: неразборчивые даты — окно по умолчанию. */
 export function resolveWindow(args: TransferSearchArgs, now = new Date()): { from: string; to: string } {
-  const from = args.from && DATE.test(args.from) ? args.from : isoDate(now);
+  // «Сегодня» — по Камчатке: поездки местные, и по UTC с 12:00 до 24:00 окно
+  // начиналось со вчерашнего там дня (проверка MCP 29.09).
+  const from = args.from && DATE.test(args.from) ? args.from : kamchatkaToday(now.getTime());
   let to = args.to && DATE.test(args.to) ? args.to : isoDate(new Date(Date.parse(from) + DEFAULT_WINDOW_DAYS * 86_400_000));
   const span = (Date.parse(to) - Date.parse(from)) / 86_400_000;
   if (!Number.isFinite(span) || span < 0 || span > MAX_WINDOW_DAYS) {
