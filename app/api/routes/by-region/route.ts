@@ -111,6 +111,9 @@ export async function GET(request: NextRequest) {
          -- что подъезд закрыт. LEFT JOIN — место без реалтайм-строки просто
          -- едет с пустым списком, а не выпадает из пакета.
          lrs.active_alerts               AS active_alerts,
+         -- Закрытие точки (#2079): без него пакет знал про перекрытую дорогу,
+         -- но не про закрытую саму точку.
+         lrs.is_open                     AS is_open,
          lrs.alert_severity              AS alert_severity,
          lrs.updated_at                  AS alerts_at
        FROM agent_route_knowledge ark
@@ -145,6 +148,8 @@ export async function GET(request: NextRequest) {
       geometry:     (r.geometry as { type: string; coordinates: [number, number][] } | null) ?? null,
       activeAlerts:  (r.active_alerts as string[] | null) ?? [],
       alertSeverity: r.alert_severity != null ? Number(r.alert_severity) : 0,
+      // null — статус не записан: это не «открыто» (§4.0).
+      isOpen:        (r.is_open as boolean | null) ?? null,
       alertsAt:      r.alerts_at ? new Date(r.alerts_at as string).getTime() : null,
     }));
 

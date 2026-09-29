@@ -63,7 +63,7 @@ describe('signaling-store: peers через границы ячеек', () => {
   const ids = ['t-same', 't-adjacent', 't-far', 't-me'];
 
   afterEach(() => {
-    ids.forEach(removeDevice);
+    ids.forEach((id) => removeDevice(id));
   });
 
   it('getRoomPeers видит свою и смежные ячейки, но не дальние', () => {

@@ -64,6 +64,7 @@ export type Acc = 'green' | 'yellow' | 'orange' | 'red' | 'unassigned';
  */
 export type VerdictReasonCode =
   | 'alert_ban'          // прямой запрет МЧС (severity >= 2)
+  | 'point_closed'       // точка пути закрыта (location_real_time_status.is_open)
   | 'volcano_red'        // красный код KVERT на коридоре
   | 'weather_severe'     // опасная погода на окно выхода
   | 'signals_unknown'    // не знаем того, что способно скрыть запрет
@@ -94,6 +95,20 @@ export interface RouteSignals {
   inSeason: boolean | null;
   /** Опасная погода на окно выхода. `null` — прогноза нет (не критично). */
   weather: { severe: boolean; note: string } | null;
+  /**
+   * Закрытые точки ПУТИ маршрута (issue #2079, 29.09).
+   *
+   * До этого вердикт знал предупреждения, вулканы, погоду и сезон — и не
+   * знал, что точку на маршруте закрыли (`is_open = false`: ставит
+   * администратор по сводке парка, Минтура, МЧС). Маршрут через закрытую
+   * точку мог получить «Идти». Связи рода `nearby` не входят: «рядом,
+   * загляните» — не место, через которое идут (§4.1).
+   *
+   * `reason` — действующее сообщение точки (`alert_message`), null — не
+   * записано. `null` у всего поля — не смогли узнать, и это запрещает
+   * зелёный: закрытие способно скрыть запрет.
+   */
+  closures: Array<{ place: string; reason: string | null }> | null;
 }
 
 export interface Verdict {
@@ -121,6 +136,7 @@ function missingCritical(s: RouteSignals): string[] {
   const gaps: string[] = [];
   if (s.alerts === null) gaps.push('предупреждения');
   if (s.volcanoes === null) gaps.push('вулканы на маршруте');
+  if (s.closures === null) gaps.push('закрытые точки');
   return gaps;
 }
 
@@ -177,6 +193,16 @@ export function goVerdict(s: RouteSignals): Verdict {
   const ban = mostSpecific(s.alerts ?? [], 2);
   if (ban) {
     return { status: 'no', code: 'alert_ban', reason: `МЧС: ${ban.title}`, unknown };
+  }
+
+  // Закрытая точка пути — запрет того же веса: идти через неё нельзя,
+  // сколько бы ни молчали предупреждения и вулканы.
+  const closed = (s.closures ?? [])[0];
+  if (closed) {
+    return {
+      status: 'no', code: 'point_closed',
+      reason: `Закрыто: ${closed.place}${closed.reason ? ` — ${closed.reason}` : ''}`, unknown,
+    };
   }
 
   const redVolcano = (s.volcanoes ?? []).find((v) => ACC_BLOCKING.includes(v.acc));

@@ -1,0 +1,91 @@
+name: xAI — проба чтения X с раннера
+
+# Умеет ли ключ XAI_API_KEY читать посты X через серверный поиск xAI и что
+# говорит документация о цене (29.09, решение владельца: разведчик должен
+# читать новости про ИИ в X). Только чтение; ключ наружу не выходит.
+# Вывод дублируется в check-run на коммите: лог job лежит в blob-хранилище,
+# которое сессия Claude за прокси не видит (тот же приём, что у probe-url).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/xai-x-search-probe.json'
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Параметры из маркера
+        # Маркер разбирается здесь, а не в скрипте: данные из файла в теле
+        # сетевого запроса CodeQL считает находкой; через env скрипт получает
+        # уже разобранные строки, а форму каждой проверяет сам.
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          m = json.load(open('.github/triggers/xai-x-search-probe.json'))
+          print('PROBE_RUN=' + str(m.get('run', '?')))
+          print('PROBE_HOURS=' + str(m.get('hours', 24)))
+          print('PROBE_MAX_MODELS=' + str(m.get('maxModels', 3)))
+          print('PROBE_HANDLES=' + ','.join(m.get('handles', [])))
+          print('PROBE_MODELS=' + ','.join(m.get('models', [])))
+          PY
+      - name: Проба
+        id: probe
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          # exec, а не `| tee`: конвейер съел бы код выхода, а красная проба
+          # обязана оставаться красной.
+          exec > >(tee /tmp/probe-out.txt) 2>&1
+          npx tsx scripts/xai-x-search-probe.ts
+      - name: Publish output as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.probe.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          text = open('/tmp/probe-out.txt', encoding='utf-8', errors='replace').read() if os.path.exists('/tmp/probe-out.txt') else '(вывод шага не записан)'
+          limit = 60000
+          if len(text) > limit:
+              text = '…(обрезано: показан хвост)\n' + text[-limit:]
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'xai-x-search-probe',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {
+                  'title': f"Проба xAI x_search {os.environ.get('GITHUB_RUN_NUMBER', '?')}: {outcome}",
+                  'summary': 'Копия вывода шага «Проба» для чтения через API репозитория.',
+                  'text': text,
+              },
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              j = json.load(r)
+          print('check-run:', j.get('html_url'))
+          PY

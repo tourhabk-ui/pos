@@ -57,6 +57,7 @@ import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
 import { usePlaceProximity } from '@/hooks/usePlaceProximity';
 import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 import { clipAtWord } from '@/lib/text/clip-at-word';
+import { withClosure } from '@/lib/safety/place-closure';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -298,7 +299,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               geometry:     r.geometry as MapMarkerGeometry | null ?? null,
               // Ограничения из скачанного пакета — ради них #836 и делался:
               // в поле без сети это единственный источник «дорога закрыта».
-              restrictions:   r.activeAlerts ?? [],
+              // Закрытие точки — первым (#2079).
+              restrictions:   withClosure(r.activeAlerts ?? [], r.isOpen),
               restrictionsAt: r.alertsAt ?? null,
             }));
           setAllRoutes(points);
@@ -318,7 +320,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         if (!data.success) return;
         const points: RoutePoint[] = (data.data ?? [])
           .filter((r: { lat: number | null; lng: number | null }) => r.lat != null && r.lng != null)
-          .map((r: { id: string; title: string; locationType: string | null; activityType: string | null; lat: number; lng: number; description: string; volcanoStatus?: string | null; geometry?: MapMarkerGeometry | null }) => ({
+          .map((r: { id: string; title: string; locationType: string | null; activityType: string | null; lat: number; lng: number; description: string; volcanoStatus?: string | null; geometry?: MapMarkerGeometry | null; isOpen?: boolean | null }) => ({
             id:           r.id,
             title:         r.title,
             locationType:  r.locationType ?? 'other',
@@ -328,6 +330,9 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             description:   r.description ?? '',
             volcanoStatus: r.volcanoStatus ?? null,
             geometry:      r.geometry ?? null,
+            // Онлайн каталог отдаёт is_open точки (#2079): закрытая точка
+            // получает «Закрыто» в попапе, как в скачанном пакете.
+            restrictions:  withClosure([], r.isOpen),
           }));
         setAllRoutes(points);
       } catch {
