@@ -89,7 +89,7 @@ async function getOperatorTours(operatorId: string): Promise<OperatorPageTourRow
   return result.rows;
 }
 
-/** +79147822222 → «+7 914 782-22-22»; незнакомая форма — как записана. */
+/** +79001234567 → «+7 900 123-45-67»; незнакомая форма — как записана. */
 function formatPhone(raw: string): string {
   const d = raw.replace(/[^\d+]/g, '');
   const m = d.match(/^\+7(\d{3})(\d{3})(\d{2})(\d{2})$/);
