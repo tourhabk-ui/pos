@@ -10,7 +10,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { measure, verdictFrom } from '@/app/api/cron/funnel-census/route';
 
-const SRC = readFileSync(join(process.cwd(), 'app/api/cron/funnel-census/route.ts'), 'utf-8');
+// Перепись — это роут (вход по секрету, разбор параметров) плюс общий модуль
+// подсчёта `lib/analytics/funnel-window`, который считает и страница
+// `/hub/admin/traffic` (29.09, «не только за 7 дней, но и за день»). Свойства
+// переписи держатся на обоих файлах вместе: где лежит запрос, сторожу всё равно.
+const SRC = [
+  readFileSync(join(process.cwd(), 'app/api/cron/funnel-census/route.ts'), 'utf-8'),
+  readFileSync(join(process.cwd(), 'lib/analytics/funnel-window.ts'), 'utf-8'),
+].join('\n');
 
 const known = {
   visits: 10, tour_views: 4, booking_starts: 1, leads: 0, bookings: 0, paid: 0,
@@ -84,7 +91,11 @@ describe('перепись не заводит своего правила и н
   });
 
   it('окно параметризовано, а не склеено строкой', () => {
-    expect(SRC).toMatch(/\(\$1 \|\| ' days'\)::INTERVAL/);
+    // Раньше — `($1 || ' days')::INTERVAL`; теперь границы окна приходят
+    // готовыми временными метками, и та же гарантия держится иначе: значения
+    // идут только параметрами, с явным приведением типа.
+    expect(SRC).toMatch(/created_at >= \$1::timestamptz/);
+    expect(SRC).toMatch(/created_at < \$2::timestamptz/);
     expect(SRC).not.toMatch(/INTERVAL '\$\{/);
   });
 
@@ -115,6 +126,6 @@ describe('перепись не заводит своего правила и н
   });
 
   it('meaningful ложно при любом отказе замера', () => {
-    expect(SRC).toMatch(/meaningful:\s*failures === 0 && unknown\.length === 0/);
+    expect(SRC).toMatch(/meaningful:\s*failed\.length === 0 && unknown\.length === 0/);
   });
 });
