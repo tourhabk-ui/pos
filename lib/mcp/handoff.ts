@@ -20,6 +20,7 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
+import { logMcpFailure } from '@/lib/mcp/log-failure';
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const COOKIE_NAME = 'vedar_mcp_attr';
@@ -99,19 +100,25 @@ export async function issueMcpHandoff(input: {
     await pool.query(
       `INSERT INTO mcp_handoff_events (handoff_id, event_type) VALUES ($1, 'issued')`,
       [handoffId],
-    ).catch(() => {});
+    ).catch((err: unknown) => logMcpFailure('событие выпуска ссылки', err));
 
     return { handoffId, url: `${BASE_URL}/mcp/h/${token}` };
-  } catch {
+  } catch (err) {
     // Телеметрия не важнее ответа агенту: не смогли выдать — ответ без ссылки.
+    logMcpFailure('выпуск ссылки mcp_handoffs', err);
     return null;
   }
 }
 
+/**
+ * null — ссылки нет или срок вышел; 'unavailable' — база не ответила. Разные
+ * исходы: до 29.09 отказ базы отвечал человеку 410 «Ссылка устарела», и
+ * рабочая ссылка выглядела мёртвой (§4.0).
+ */
 export async function redeemMcpHandoff(rawToken: string): Promise<{
   handoffId: string;
   targetPath: string;
-} | null> {
+} | null | 'unavailable'> {
   try {
     // Атомарно: проверка TTL и отметка перехода одним UPDATE.
     const result = await pool.query<{ id: string; target_path: string }>(
@@ -130,11 +137,12 @@ export async function redeemMcpHandoff(rawToken: string): Promise<{
     await pool.query(
       `INSERT INTO mcp_handoff_events (handoff_id, event_type) VALUES ($1, 'opened')`,
       [row.id],
-    ).catch(() => {});
+    ).catch((err: unknown) => logMcpFailure('событие перехода по ссылке', err));
 
     return { handoffId: row.id, targetPath: row.target_path };
-  } catch {
-    return null;
+  } catch (err) {
+    logMcpFailure('погашение ссылки mcp_handoffs', err);
+    return 'unavailable';
   }
 }
 
@@ -174,7 +182,7 @@ export async function attachMcpAttribution(
     `INSERT INTO mcp_handoff_events (handoff_id, event_type, action_type)
      VALUES ($1, 'attributed_action', $2)`,
     [handoffId, actionType],
-  ).catch(() => {});
+  ).catch((err: unknown) => logMcpFailure('атрибуция действия после перехода', err));
   return handoffId;
 }
 

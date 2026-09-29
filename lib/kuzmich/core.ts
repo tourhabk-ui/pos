@@ -37,6 +37,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { redactPII } from '@/lib/security/pii-redact';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -1913,10 +1914,11 @@ const NO_DATA_TEXTS: readonly string[] = [
   'Погода временно недоступна.',
   'Данные о месте не найдены в системе. Попробую поискать через другие источники.',
   'Неизвестный инструмент.',
-  'Ошибка при выполнении запроса.',
 ];
 
+
 const NO_TOUR_HEAD = 'Тур на платформе не найден.';
+const NO_DATA = new Set<string>([...NO_DATA_TEXTS, TOOL_EXECUTION_FAILED]);
 const NO_PLACE_HEAD = 'Места нет в справочнике платформы.';
 
 const noTourFound = (q: string) =>
@@ -1930,7 +1932,7 @@ const noPlaceInBase = (n: string) =>
 /** Принёс ли вызов инструмента данные. Экспортирован для метрики заземления. */
 export function toolOutputHasData(content: string): boolean {
   if (content.trim() === '') return false;
-  if (NO_DATA_TEXTS.includes(content)) return false;
+  if (NO_DATA.has(content)) return false;
   if (content.startsWith(NO_TOUR_HEAD) || content.startsWith(NO_PLACE_HEAD)) return false;
   return true;
 }
@@ -2035,8 +2037,11 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days });
     }
     return 'Неизвестный инструмент.';
-  } catch {
-    return 'Ошибка при выполнении запроса.';
+  } catch (err) {
+    // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
+    const code = (err as { code?: unknown })?.code;
+    console.error('[kuzmich-tool] исполнение упало:', name, typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+    return TOOL_EXECUTION_FAILED;
   }
 }
 

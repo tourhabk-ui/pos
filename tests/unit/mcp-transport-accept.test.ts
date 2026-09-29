@@ -89,7 +89,9 @@ describe('живое рядом не задето', () => {
   it('уведомление об инициализации по-прежнему пустое 202', () => {
     // Чинили 17.09: раньше уходил ответ с id: null — ответ на вопрос,
     // которого клиент не задавал.
-    expect(SRC).toContain("case 'notifications/initialized':");
+    // С 29.09 — не одно initialized, а всякое уведомление и ответ клиента
+    // (lib/mcp/jsonrpc.ts, поведение — mcp-jsonrpc-conformance.test.ts).
+    expect(SRC).toMatch(/if \(msg\.kind === 'response' \|\| msg\.kind === 'notification'\) return null;/);
     expect(SRC).toMatch(/return new NextResponse\(null, \{ status: 202 \}\)/);
   });
 

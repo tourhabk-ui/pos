@@ -27,8 +27,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
-import { negotiateProtocolVersion } from '@/lib/mcp/protocol-version';
+import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
+import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
+import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
@@ -105,7 +107,7 @@ async function admitWrite(
   // а не сторожа: анонимный приём ПД — не то место, где непроверенное
   // пропускают. Потери нет: счёт живёт в той же базе, что и лид.
   if (verdict.decision !== 'allow') {
-    throw new Error(verdict.message);
+    throw new McpUserError(verdict.message);
   }
   return buildConsentRecord(true, ctx.ip, 'mcp');
 }
@@ -162,7 +164,7 @@ async function requestSeatsFromOperator(a: {
   name: string; phone: string; hasComment: boolean; consent: boolean | undefined;
 }): Promise<string> {
   const pd_consent = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent);
-  if (!pd_consent) throw new Error('Согласие на обработку персональных данных не получено — запрос не отправлен.');
+  if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.');
   const result = await createSeatRequest({
     tourId: a.tourId,
     date: a.date,
@@ -188,7 +190,7 @@ async function requestSeatsFromOperator(a: {
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
   }
   const { tour: tourQuery, date, participants, name, comment } = parsed.data;
 
@@ -196,7 +198,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // заявка без дозвонного номера бесполезна менеджеру.
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
-    throw new Error('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
   }
 
   const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
@@ -222,7 +224,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     // ложью, и вместо отказа уходит запрос оператору.
     const keepsSchedule = await tourKeepsSchedule(Number(tour.id));
     if (keepsSchedule === null) {
-      throw new Error('Не удалось проверить расписание тура — заявка не создана, попробуйте позже.');
+      throw new McpUserError('Не удалось проверить расписание тура — заявка не создана, попробуйте позже.');
     }
     if (!keepsSchedule) {
       return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent });
@@ -266,7 +268,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     pd_consent,
   });
   if (!leadId) {
-    throw new Error('Не удалось сохранить заявку — попробуйте позже');
+    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже');
   }
   return `Заявка на бронь принята (номер ${leadId}): "${tour.title}", ${date}, ${participants} чел. ` +
     `На ${date} свободно ${remaining} мест. Оператор подтвердит бронь по телефону ${phone}. Это заявка, не оплата.`;
@@ -275,12 +277,12 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
   }
   const { name, comment, interest } = parsed.data;
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
-    throw new Error('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
   }
   const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({
@@ -292,21 +294,20 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     pd_consent,
   });
   if (!leadId) {
-    throw new Error('Не удалось сохранить заявку — попробуйте позже');
+    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже');
   }
   return `Заявка принята (номер ${leadId}). Менеджер Ведара свяжется по указанному телефону.`;
 }
 
 
 // ── Execute tool by name ─────────────────────────────────────
+// Имя проверено вызывающим (неизвестный инструмент — ошибка протокола
+// -32602, а не результат с isError: так велит спецификация tools).
 async function executeTool(
   name: string,
   rawArgs: Record<string, unknown>,
   ctx: McpCallContext,
 ): Promise<string> {
-  if (!PUBLIC_MCP_TOOL_NAMES.has(name)) {
-    throw new Error(`Unknown tool: ${name}`);
-  }
   if (name === CREATE_LEAD_TOOL.name) {
     return executeCreateLead(rawArgs, ctx);
   }
@@ -318,21 +319,9 @@ async function executeTool(
   // trim, обрезка длины), затем тот же исполнитель.
   const validation = validateToolArgs(name, rawArgs as Record<string, string>);
   if (!validation.ok) {
-    throw new Error(validation.error);
+    throw new McpUserError(validation.error);
   }
   return executeKuzmichTool(name, validation.args, { surface: 'mcp' });
-}
-
-// ── JSON-RPC helpers ─────────────────────────────────────────
-interface JsonRpcRequest {
-  jsonrpc?: string;
-  method?: string;
-  params?: Record<string, unknown>;
-  id?: string | number | null;
-}
-
-function jsonrpcSuccess(id: string | number | null | undefined, result: unknown) {
-  return { jsonrpc: '2.0', id: id ?? null, result };
 }
 
 /**
@@ -349,10 +338,6 @@ export function wantsEventStream(accept: string | null): boolean {
   const types = accept.split(',').map((t) => t.split(';')[0].trim().toLowerCase()).filter(Boolean);
   if (types.length === 0) return false;
   return types.every((t) => t === 'text/event-stream');
-}
-
-function jsonrpcError(id: string | number | null | undefined, code: number, message: string) {
-  return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
 }
 
 /**
@@ -411,135 +396,234 @@ export async function OPTIONS() {
 }
 
 // ── MCP Protocol: POST = JSON-RPC 2.0 ───────────────────────
-export async function POST(request: NextRequest) {
-  let body: JsonRpcRequest;
-  try {
-    body = await request.json() as JsonRpcRequest;
-  } catch {
-    return NextResponse.json(
-      jsonrpcError(null, -32700, 'Parse error'),
-      { status: 400 }
-    );
+
+/**
+ * Инструкция хосту в ответ на initialize (поле появилось в 2025-03-26):
+ * хост кладёт её в контекст модели. Готовый текст уже был — описание сервера
+ * для каталогов, — но в рукопожатие не доходил (проверка MCP 29.09).
+ */
+const SERVER_INSTRUCTIONS = `${MCP_SERVER_INFO.description} Данные — из базы платформы; чего в базе нет, инструменты так и говорят, и дополнять это догадкой не нужно. Экстренный вызов на Камчатке — 112.`;
+
+/** Отказ по лимиту пишется в журнал раз в минуту на адрес, а не на каждый запрос флуда. */
+const rateLimitedLogGate = createRateLimiter({ windowMs: 60_000, max: 1 });
+
+async function handleToolsCall(
+  request: NextRequest,
+  id: JsonRpcId,
+  params: Record<string, unknown>,
+): Promise<ReturnType<typeof jsonrpcSuccess> | ReturnType<typeof jsonrpcError>> {
+  const toolName = typeof params.name === 'string' ? params.name : '';
+  const toolArgs = (params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
+    ? params.arguments
+    : {}) as Record<string, unknown>;
+
+  // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в
+  // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
+  const ip = clientIp(request);
+  const userAgent = request.headers.get('user-agent') ?? '';
+
+  // Rate-limit до исполнения и до любой записи в базу: превышение — обычный
+  // tool-ответ с isError, агент его прочитает и подождёт (429 на JSON-RPC
+  // клиенты реагируют хуже). Запись о клиенте — ПОСЛЕ лимита: раньше каждый
+  // запрос флуда писал строку в mcp_clients мимо тормоза.
+  const isWrite = WRITE_TOOLS.has(toolName);
+  const limiter = isWrite ? writeLimiter : readLimiter;
+  if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
+    if (rateLimitedLogGate.check(ip)) {
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent });
+    }
+    return jsonrpcSuccess(id, {
+      content: [{ type: 'text', text: 'Слишком много запросов — подождите минуту и повторите.' }],
+      isError: true,
+    });
   }
 
-  const { method, params, id } = body;
+  // Клиент мог не звать рукопожатие вовсе — тогда род из заголовка
+  // остаётся единственным ответом на «кто». Имя не перетирается: см.
+  // COALESCE в logMcpClient.
+  logMcpClient({ ip, userAgent });
 
+  // Неизвестный инструмент — ошибка протокола, не результат (спецификация
+  // tools, «Error Handling»): агент, перепутавший имя, должен перечитать
+  // tools/list, а не пересказывать человеку «инструмент не сработал».
+  if (!PUBLIC_MCP_TOOL_NAMES.has(toolName)) {
+    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', ip, userAgent });
+    return jsonrpcError(id, -32602, `Unknown tool: ${toolName.slice(0, 80)}`);
+  }
+
+  const startedAt = Date.now();
+  const invocationId = randomUUID();
   try {
-    switch (method) {
-      // ── initialize handshake ──
-      case 'initialize':
-        // Клиент представляется САМ (clientInfo). До 18.08 мы это поле
-        // выбрасывали — и на вопрос владельца «какая именно AI обращалась»
-        // ответить было нечем при полном журнале вызовов. Имя программы, не
-        // человека: суточную модель hash не ломает.
+    const text = await executeTool(toolName, toolArgs, { ip, userAgent });
+
+    // Исполнитель Кузьмича ловит своё падение и возвращает этот текст — для
+    // модели в чате. Здесь это отказ: isError, ok=false в журнале (его читают
+    // панель MCP и сторож молчания), и никакой ссылки «продолжить» к
+    // несостоявшемуся ответу (проверка MCP 29.09).
+    if (text === TOOL_EXECUTION_FAILED) {
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', durationMs: Date.now() - startedAt, ip, userAgent });
+      return jsonrpcSuccess(id, {
+        content: [{ type: 'text', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' }],
+        isError: true,
+      });
+    }
+    logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent });
+
+    // Мост «ответ агента → действие человека»: отдельная проверяемая
+    // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
+    // называется в логе (§4.0).
+    const target = await handoffTargetForTool(toolName, toolArgs).catch((err: unknown) => {
+      console.error('[mcp] цель ссылки не определена:', toolName, err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    const handoff = target
+      ? await issueMcpHandoff({ mcpInvocationId: invocationId, toolName, target })
+      : null;
+
+    // Ссылка — отдельным элементом ответа, не хвостом текста (внешняя
+    // проверка MCP 26.09: «для чистого MCP-клиента — шум»). Клиент,
+    // показывающий всё подряд, увидит её как прежде; клиент, берущий
+    // первый элемент как ответ инструмента, получает чистые данные.
+    const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
+    if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
+    return jsonrpcSuccess(id, { content });
+  } catch (toolErr) {
+    // Наружу — только текст, написанный для агента. Отказ пула или чужое
+    // исключение уходит общим текстом, подробность — в лог: раньше аноним
+    // получал err.message как есть, а лог роута не получал ничего.
+    const userFacing = toolErr instanceof McpUserError;
+    if (!userFacing) {
+      const code = (toolErr as { code?: unknown })?.code;
+      console.error('[mcp] инструмент упал:', toolName, typeof code === 'string' ? code : '', toolErr instanceof Error ? toolErr.message : String(toolErr));
+    }
+    logMcpToolCall({
+      tool: toolName,
+      ok: false,
+      errorKind: 'execution',
+      durationMs: Date.now() - startedAt,
+      ip,
+      userAgent,
+    });
+    return jsonrpcSuccess(id, {
+      content: [{ type: 'text', text: userFacing ? toolErr.message : MCP_INTERNAL_ERROR_TEXT }],
+      isError: true,
+    });
+  }
+}
+
+/**
+ * Одно сообщение JSON-RPC → ответ или null (уведомление и ответ клиента
+ * ответа не получают). Ошибки протокола уходят телом JSON-RPC с HTTP 200:
+ * клиент SDK на не-2xx бросает транспортную ошибку и не видит кода -32601.
+ */
+async function handleMessage(
+  request: NextRequest,
+  raw: unknown,
+): Promise<ReturnType<typeof jsonrpcSuccess> | ReturnType<typeof jsonrpcError> | null> {
+  const msg = classifyMessage(raw);
+  if (msg.kind === 'response' || msg.kind === 'notification') return null;
+  if (msg.kind === 'invalid') return jsonrpcError(msg.id, -32600, `Invalid Request: ${msg.reason}`);
+
+  const { id, method, params } = msg;
+  switch (method) {
+    // ── initialize handshake ──
+    case 'initialize':
+      // Клиент представляется САМ (clientInfo). До 18.08 мы это поле
+      // выбрасывали — и на вопрос владельца «какая именно AI обращалась»
+      // ответить было нечем при полном журнале вызовов. Имя программы, не
+      // человека: суточную модель hash не ломает. Запись — под тем же
+      // лимитом чтения, что и вызовы: рукопожатие не дверь в базу мимо него.
+      if (readLimiter.check(`r:${clientIp(request)}`)) {
         logMcpClient({
           ip: clientIp(request),
           userAgent: request.headers.get('user-agent') ?? '',
-          clientInfo: (params as { clientInfo?: unknown } | undefined)?.clientInfo,
+          clientInfo: params.clientInfo,
         });
-        return NextResponse.json(jsonrpcSuccess(id, {
-          // Версией клиента, если умеем её; иначе — своей новейшей. Решение
-          // «жить с этим» за клиентом (lib/mcp/protocol-version.ts).
-          protocolVersion: negotiateProtocolVersion(
-            (params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
-          ),
-          capabilities: { tools: {} },
-          serverInfo: {
-            name: MCP_SERVER_INFO.name,
-            version: MCP_SERVER_INFO.version,
-          },
-        }));
-
-      // ── client acknowledged init ──
-      case 'notifications/initialized':
-        // Уведомление — сообщение без id, и ответа на него по JSON-RPC не
-        // бывает. Streamable HTTP велит принять его пустым 202. До 17.09
-        // здесь уходил JSON-ответ с `id: null` — клиент получал ответ на
-        // вопрос, которого не задавал.
-        return new NextResponse(null, { status: 202 });
-
-      // ── list available tools ──
-      case 'tools/list':
-        return NextResponse.json(jsonrpcSuccess(id, { tools: PUBLIC_MCP_TOOLS }));
-
-      // ── call a tool ──
-      case 'tools/call': {
-        const toolName = typeof params?.name === 'string' ? params.name : '';
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>;
-
-        // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в
-        // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
-        const ip = clientIp(request);
-        const userAgent = request.headers.get('user-agent') ?? '';
-        // Клиент мог не звать рукопожатие вовсе — тогда род из заголовка
-        // остаётся единственным ответом на «кто». Имя не перетирается: см.
-        // COALESCE в logMcpClient.
-        logMcpClient({ ip, userAgent });
-
-        // Rate-limit до исполнения: превышение — обычный tool-ответ с isError,
-        // агент его прочитает и подождёт (429 на JSON-RPC клиенты реагируют хуже).
-        const limiter = WRITE_TOOLS.has(toolName) ? writeLimiter : readLimiter;
-        if (!limiter.check(`${WRITE_TOOLS.has(toolName) ? 'w' : 'r'}:${ip}`)) {
-          logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent });
-          return NextResponse.json(jsonrpcSuccess(id, {
-            content: [{ type: 'text', text: 'Слишком много запросов — подождите минуту и повторите.' }],
-            isError: true,
-          }));
-        }
-
-        const startedAt = Date.now();
-        const invocationId = randomUUID();
-        try {
-          const text = await executeTool(toolName, toolArgs, { ip, userAgent });
-          logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent });
-
-          // Мост «ответ агента → действие человека»: отдельная проверяемая
-          // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ.
-          const target = await handoffTargetForTool(toolName, toolArgs).catch(() => null);
-          const handoff = target
-            ? await issueMcpHandoff({ mcpInvocationId: invocationId, toolName, target })
-            : null;
-
-          // Ссылка — отдельным элементом ответа, не хвостом текста (внешняя
-          // проверка MCP 26.09: «для чистого MCP-клиента — шум»). Клиент,
-          // показывающий всё подряд, увидит её как прежде; клиент, берущий
-          // первый элемент как ответ инструмента, получает чистые данные.
-          const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-          if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
-          return NextResponse.json(jsonrpcSuccess(id, { content }));
-        } catch (toolErr) {
-          const msg = toolErr instanceof Error ? toolErr.message : 'Tool execution failed';
-          logMcpToolCall({
-            tool: toolName,
-            ok: false,
-            errorKind: PUBLIC_MCP_TOOL_NAMES.has(toolName) ? 'execution' : 'unknown_tool',
-            durationMs: Date.now() - startedAt,
-            ip,
-            userAgent,
-          });
-          return NextResponse.json(jsonrpcSuccess(id, {
-            content: [{ type: 'text', text: msg }],
-            isError: true,
-          }));
-        }
       }
+      return jsonrpcSuccess(id, {
+        // Версией клиента, если умеем её; иначе — своей новейшей. Решение
+        // «жить с этим» за клиентом (lib/mcp/protocol-version.ts).
+        protocolVersion: negotiateProtocolVersion(params.protocolVersion),
+        capabilities: { tools: {} },
+        serverInfo: {
+          name: MCP_SERVER_INFO.name,
+          title: MCP_SERVER_INFO.title,
+          version: MCP_SERVER_INFO.version,
+        },
+        instructions: SERVER_INSTRUCTIONS,
+      });
 
-      // ── ping/pong ──
-      case 'ping':
-        return NextResponse.json(jsonrpcSuccess(id, {}));
+    // ── list available tools ──
+    case 'tools/list':
+      return jsonrpcSuccess(id, { tools: PUBLIC_MCP_TOOLS });
 
-      // ── unknown method ──
-      default:
-        return NextResponse.json(
-          jsonrpcError(id, -32601, `Method not found: ${method}`),
-          { status: 400 }
-        );
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Internal error';
+    // ── call a tool ──
+    case 'tools/call':
+      return handleToolsCall(request, id, params);
+
+    // ── ping/pong ──
+    case 'ping':
+      return jsonrpcSuccess(id, {});
+
+    // ── unknown method ──
+    default:
+      return jsonrpcError(id, -32601, `Method not found: ${method.slice(0, 80)}`);
+  }
+}
+
+/** Пакет длиннее — не наш клиент, а флуд одним HTTP-запросом мимо лимита соединений. */
+const MAX_BATCH = 20;
+
+export async function POST(request: NextRequest) {
+  // Ревизия 2025-06-18: неподдерживаемая версия в заголовке — 400. Нет
+  // заголовка — клиент старше 2025-06-18, и это его право.
+  const headerVersion = request.headers.get('mcp-protocol-version');
+  if (headerVersion !== null && !isSupportedProtocolVersion(headerVersion)) {
     return NextResponse.json(
-      jsonrpcError(id, -32603, msg),
-      { status: 500 }
+      jsonrpcError(null, -32600, `Unsupported MCP-Protocol-Version: ${headerVersion.slice(0, 40)}. Supported: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`),
+      { status: 400 },
     );
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(jsonrpcError(null, -32700, 'Parse error'), { status: 400 });
+  }
+
+  try {
+    // Пакет (массив сообщений) — ревизия 2025-03-26 требует его принимать.
+    // Ответы — только на запросы с id; одни уведомления — пустой 202.
+    if (Array.isArray(body)) {
+      if (body.length === 0) {
+        return NextResponse.json(jsonrpcError(null, -32600, 'Invalid Request: пустой пакет'), { status: 400 });
+      }
+      const replies = [];
+      for (const item of body.slice(0, MAX_BATCH)) {
+        const reply = await handleMessage(request, item);
+        if (reply) replies.push(reply);
+      }
+      if (body.length > MAX_BATCH) {
+        replies.push(jsonrpcError(null, -32600, `Invalid Request: в пакете больше ${MAX_BATCH} сообщений, лишние не обработаны`));
+      }
+      return replies.length > 0 ? NextResponse.json(replies) : new NextResponse(null, { status: 202 });
+    }
+
+    const reply = await handleMessage(request, body);
+    if (!reply) {
+      // Уведомление или ответ клиента — JSON-RPC на них не отвечает,
+      // Streamable HTTP велит принять пустым 202. До 17.09 так было только
+      // у notifications/initialized, до 29.09 остальные получали 400.
+      return new NextResponse(null, { status: 202 });
+    }
+    const invalid = 'error' in reply && reply.error.code === -32600;
+    return NextResponse.json(reply, invalid ? { status: 400 } : undefined);
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[mcp] необработанная ошибка:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+    const id = (body && typeof body === 'object' && !Array.isArray(body) ? (body as { id?: unknown }).id : null);
+    const safeId = typeof id === 'string' || typeof id === 'number' ? id : null;
+    return NextResponse.json(jsonrpcError(safeId, -32603, MCP_INTERNAL_ERROR_TEXT), { status: 500 });
   }
 }

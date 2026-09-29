@@ -50,6 +50,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 
 /** Окно и потолок на клиента: столько же, сколько держал счётчик в памяти. */
@@ -172,8 +173,12 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
   if (phoneHash) locks.push([LOCK_NS_PHONE, lockKey(phoneHash)]);
   locks.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
 
-  const client = await pool.connect();
+  // Соединение берётся внутри try: отказ пула — тоже «не смог посчитать»,
+  // с логом, а не исключение наверх (до 29.09 его текст — адрес базы —
+  // уходил анонимному MCP-клиенту ответом инструмента).
+  let client: PoolClient | null = null;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     for (const [ns, key] of locks) {
       // xact-замок снимается коммитом или откатом сам — забыть его нельзя.
@@ -212,7 +217,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     await sweepOld();
     return verdict.decision;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client?.query('ROLLBACK').catch(() => {});
     // Молчать нельзя: отказ проверки, выданный за её прохождение, — ровно тот
     // дефект, ради которого §4.0 и написан.
     console.error('[mcp-write-guard] не смог посчитать поток:', err);
@@ -221,7 +226,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
       message: 'Не удалось проверить ограничения — заявка не создана. Повторите позже.',
     };
   } finally {
-    client.release();
+    client?.release();
   }
 }
 

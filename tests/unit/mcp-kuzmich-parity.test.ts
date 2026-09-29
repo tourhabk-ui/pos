@@ -89,11 +89,14 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     expect(executeKuzmichTool).not.toHaveBeenCalled();
   });
 
+  // С 29.09 — ошибкой протокола -32602, а не результатом с isError
+  // (спецификация tools, «Error Handling»).
   it('исключённые и неизвестные инструменты не исполняются', async () => {
     for (const name of [...EXCLUDED, 'no_such_tool']) {
       const res = await rpc('tools/call', { name, arguments: { query: 'test', task: 'test' } });
       const json = await res.json();
-      expect(json.result.isError, name).toBe(true);
+      expect(json.result, name).toBeUndefined();
+      expect(json.error?.code, name).toBe(-32602);
     }
     expect(executeKuzmichTool).not.toHaveBeenCalled();
   });

@@ -265,7 +265,9 @@ describe('счёт и запись — одна транзакция под за
   it('на ошибке — откат, а не полузаписанное состояние', () => {
     const tx = GUARD_SRC.slice(GUARD_SRC.indexOf('await client.query(\'BEGIN\')'));
     expect(tx).toContain("ROLLBACK");
-    expect(tx).toContain('client.release()');
+    // С 29.09 соединение берётся внутри try — отказ пула тоже «не смог».
+    expect(tx).toContain('client?.release()');
+    expect(GUARD_SRC).toMatch(/try \{\s*client = await pool\.connect\(\);/);
   });
 });
 

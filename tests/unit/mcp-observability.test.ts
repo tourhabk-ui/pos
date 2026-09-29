@@ -53,12 +53,16 @@ describe('все исходы вызова видны', () => {
   it('логируются успех, падение и rate-limit', () => {
     expect(ROUTE).toMatch(/ok: true, durationMs/);
     expect(ROUTE).toMatch(/errorKind: 'rate_limited'/);
-    expect(ROUTE).toMatch(/'execution' : 'unknown_tool'/);
+    expect(ROUTE).toMatch(/errorKind: 'unknown_tool'/);
+    expect(ROUTE).toMatch(/errorKind: 'execution'/);
   });
 
   it('журнал fire-and-forget — сбой БД не ломает ответ агенту', () => {
     expect(LOG).toMatch(/void pool/);
-    expect(LOG).toMatch(/\.catch\(\(\) =>/);
+    // Не ломает ответ — но называется в логе (29.09): молчащий журнал сторож
+    // молчания MCP читал бы как «никто не звал».
+    expect((LOG.match(/\.catch\(\(err: unknown\) => logMcpFailure\(/g) ?? []).length).toBe(2);
+    expect(LOG).not.toMatch(/\.catch\(\(\) =>/);
   });
 });
 
