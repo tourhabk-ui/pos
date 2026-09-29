@@ -63,6 +63,19 @@ describe('abandoned-bookings: часы не переставляет тот, к�
     expect(src).toContain("created_at < NOW() - INTERVAL '24 hours'");
   });
 
+  it('сухой прогон не ставит отметку «крон отработал»', () => {
+    // 29.09: `?dry=1` ничего не шлёт и не отменяет, но писал в
+    // agent_run_history строку «success» — и гасил тревогу Watchdog «прогон
+    // не отмечался N ч» о кроне, который не запускался. Отметка — только у
+    // настоящего прогона.
+    const ok = src.indexOf("recordCronRun('payments', startedAt, 'success'");
+    expect(ok, 'отметка успеха не найдена').toBeGreaterThan(-1);
+    expect(src.slice(Math.max(0, ok - 400), ok)).toMatch(/if \(!dryRun\) \{\s*$/);
+    // Отказ по-прежнему отмечается всегда: сухой прогон, упавший на выборке,
+    // — тоже сигнал.
+    expect(src).toMatch(/recordCronRun\('payments', startedAt, 'failed'/);
+  });
+
   it('updated_at не участвует в отборе', () => {
     // Триггер trigger_operator_bookings_timestamp (миграция 040) двигает
     // updated_at при любом UPDATE — включая нашу же отметку о напоминании.
