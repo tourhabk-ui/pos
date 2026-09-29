@@ -330,9 +330,9 @@ export function buildTourStructuredData(
     '@id': `${canonicalUrl}#breadcrumb`,
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Главная', item: siteUrl },
-      { '@type': 'ListItem', position: 2, name: 'Туры', item: `${siteUrl}/marketplace` },
+      { '@type': 'ListItem', position: 2, name: 'Туры', item: `${siteUrl}/catalog` },
       ...(hasActivity
-        ? [{ '@type': 'ListItem', position: 3, name: activityLabel, item: `${siteUrl}/marketplace?activity_type=${tour.activity_type}` }]
+        ? [{ '@type': 'ListItem', position: 3, name: activityLabel, item: `${siteUrl}/catalog?activity_type=${tour.activity_type}` }]
         : []),
       { '@type': 'ListItem', position: hasActivity ? 4 : 3, name: tour.title, item: canonicalUrl },
     ],

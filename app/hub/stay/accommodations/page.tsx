@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import AccommodationsClient from './_AccommodationsClient';
 
 export const metadata: Metadata = {
-  title: 'Мои объекты размещения | Tourhab',
+  title: 'Мои объекты размещения',
   description: 'Управление объектами размещения',
   robots: 'noindex, nofollow',
 };

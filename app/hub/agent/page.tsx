@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import AgentDashboardClient from './_AgentDashboardClient';
 
 export const metadata: Metadata = {
-  title: 'Кабинет агента | Tourhab',
+  title: 'Кабинет агента',
   description: 'Управление клиентами, бронированиями и комиссионными',
   robots: 'noindex, nofollow',
 };

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import RentalsClient from './_RentalsClient';
 
 export const metadata: Metadata = {
-  title: 'Заявки на аренду | Tourhab',
+  title: 'Заявки на аренду',
   description: 'Управление заявками на аренду снаряжения',
   robots: 'noindex, nofollow',
 };

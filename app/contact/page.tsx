@@ -34,7 +34,7 @@ export default function ContactPage() {
     '@type': 'LocalBusiness',
     name: 'Ведар',
     url: 'https://vedarai.ru/contact',
-    image: 'https://vedarai.ru/og-image.jpg',
+    image: 'https://vedarai.ru/images/hero/hero-light.jpeg',
     telephone: '+7 (914) 782-22-22',
     address: {
       '@type': 'PostalAddress',

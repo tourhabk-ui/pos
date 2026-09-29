@@ -4,7 +4,7 @@ import ReturnClient from './ReturnClient';
 import { Loader2 } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Отметить возврат — Tourhab',
+  title: 'Отметить возврат',
   robots: 'noindex, nofollow',
 };
 

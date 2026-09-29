@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import AIPromptsClient from './_AIPromptsClient';
 
 export const metadata: Metadata = {
-  title: 'AI-промпты | Kamchatour Admin',
+  title: 'AI-промпты | Админ',
   robots: 'noindex',
 };
 

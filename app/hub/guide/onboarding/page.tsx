@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import GuideOnboardingClient from './_GuideOnboardingClient';
 
 export const metadata: Metadata = {
-  title: 'Настройка профиля гида | Tourhab',
+  title: 'Настройка профиля гида',
   description: 'Первые шаги кабинета гида',
   robots: 'noindex, nofollow',
 };

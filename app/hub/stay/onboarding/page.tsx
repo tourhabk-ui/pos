@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import StayOnboardingClient from './_StayOnboardingClient';
 
 export const metadata: Metadata = {
-  title: 'Настройка кабинета жилья | Tourhab',
+  title: 'Настройка кабинета жилья',
   description: 'Первые шаги владельца жилья',
   robots: 'noindex, nofollow',
 };

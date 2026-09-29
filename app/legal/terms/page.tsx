@@ -4,7 +4,7 @@ import PageShell from '@/components/shared/PageShell';
 import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
-  title: 'Пользовательское соглашение | Tourhab',
+  title: 'Пользовательское соглашение',
   description: 'Условия использования платформы Tourhab',
 };
 

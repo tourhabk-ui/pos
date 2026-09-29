@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import PhotosClient from './_PhotosClient';
 
 export const metadata: Metadata = {
-  title: 'Фото объекта | Tourhab',
+  title: 'Фото объекта',
   description: 'Фотографии объекта размещения',
   robots: 'noindex, nofollow',
 };

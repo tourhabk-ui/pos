@@ -617,7 +617,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
               <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
               <Link href="/catalog" className={CRUMB}>Туры</Link>
               <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
-              <Link href={`/marketplace?activity_type=${tour.activity_type}`} className={CRUMB}>{activity}</Link>
+              <Link href={`/catalog?activity_type=${tour.activity_type}`} className={CRUMB}>{activity}</Link>
             </nav>
 
             <div className="flex items-center gap-2.5 mb-3">

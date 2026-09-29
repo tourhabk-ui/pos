@@ -12,6 +12,8 @@ import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plans/presets';
+import { NOT_MERGED } from '@/lib/places/aliases';
+import { FISH_SPECIES } from '@/lib/fish-species';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -70,6 +72,13 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     })),
     { url: `${BASE}/planning`,             lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/catalog`,              lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
+    // Посадочная «Рыбалка» из шапки сайта (открыта для индекса 29.09) и
+    // справочник рыб — страницы были, в sitemap их не было (аудит SEO 29.09, Н9).
+    { url: `${BASE}/hub/fishing`,          lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
+    { url: `${BASE}/fish`,                 lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.7 },
+    ...FISH_SPECIES.map((f) => ({
+      url: `${BASE}/fish/${f.id}`, lastModified: STABLE, changeFrequency: 'monthly' as const, priority: 0.6,
+    })),
     { url: `${BASE}/accommodations`,       lastModified: RECENT,      changeFrequency: 'daily',   priority: 0.8 },
     // Витрина мест в поездках перевозчиков (схема 926, экран 02.09).
     { url: `${BASE}/transfers`,            lastModified: new Date('2026-09-02'), changeFrequency: 'daily', priority: 0.7 },
@@ -128,6 +137,9 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       SELECT ark_id, slug, updated_at, location_type
       FROM places
       WHERE is_visible = TRUE
+        -- Слитое место отвечает 308 на своё основное, которое в sitemap и так
+        -- есть: адрес с редиректом sitemap предлагать не должен (Н9).
+        AND ${NOT_MERGED('places')}
       ORDER BY updated_at DESC
       LIMIT 2000
     `);
@@ -256,6 +268,9 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
       `SELECT slug, updated_at FROM partners
        WHERE category = 'operator' AND slug IS NOT NULL
+         -- Страница оператора открывается только при is_public; без этого
+         -- условия sitemap раздавал адреса, отвечающие 404 (Н9).
+         AND is_public = TRUE
        ORDER BY updated_at DESC LIMIT 200`
     );
     operatorPages = rows.map(row => ({
@@ -270,8 +285,14 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     console.error('[sitemap] профили операторов не попали в sitemap:', e instanceof Error ? e.message : e);
   }
 
+  // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет
+  // ни одного опубликованного объекта, в sitemap её не предлагаем (Н9).
+  const staticLive = accommodationPages.length > 0
+    ? staticPages
+    : staticPages.filter((p) => p.url !== `${BASE}/accommodations`);
+
   return [
-    ...staticPages,
+    ...staticLive,
     ...categoryPages,
     ...placesPages,
     ...articlePages,

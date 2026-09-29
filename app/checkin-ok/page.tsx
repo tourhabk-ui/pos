@@ -4,7 +4,7 @@ import CheckinOkClient from './CheckinOkClient';
 import { Loader2 } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Мы в порядке — Tourhab',
+  title: 'Мы в порядке',
   robots: 'noindex, nofollow',
 };
 

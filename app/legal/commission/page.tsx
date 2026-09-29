@@ -4,7 +4,7 @@ import PageShell from '@/components/shared/PageShell';
 import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
-  title: 'Условия комиссионного вознаграждения | Tourhab',
+  title: 'Условия комиссионного вознаграждения',
   description: 'Подробные условия комиссии платформы Tourhab для партнёров',
 };
 

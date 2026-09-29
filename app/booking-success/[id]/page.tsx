@@ -4,7 +4,9 @@ import BookingSuccessClient from './_BookingSuccessClient';
 
 export const metadata: Metadata = {
   title: 'Заявка на тур',
-  description: 'Детали заявки на тур: оператор подтверждает дату, после подтверждения открывается оплата.'
+  description: 'Детали заявки на тур: оператор подтверждает дату, после подтверждения открывается оплата.',
+  // Личная страница заявки по её id: в выдаче ей не место (аудит SEO 29.09, Н5).
+  robots: { index: false, follow: false },
 };
 
 /**

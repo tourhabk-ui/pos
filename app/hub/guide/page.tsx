@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import GuideDashboardClient from './_GuideDashboardClient';
 
 export const metadata: Metadata = {
-  title: 'Личный кабинет гида | Tourhab',
+  title: 'Личный кабинет гида',
   description: 'Управление расписанием, группами и доходами гида на Tourhab',
   robots: 'noindex, nofollow',
 };

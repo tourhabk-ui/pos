@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import StaysClient from './_StaysClient';
 
 export const metadata: Metadata = {
-  title: 'Мои проживания | Tourhab',
+  title: 'Мои проживания',
   description: 'Брони жилья',
   robots: 'noindex, nofollow',
 };

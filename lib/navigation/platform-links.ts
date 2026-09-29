@@ -77,6 +77,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Маршруты',            href: '/routes',         icon: Waypoints },
       { label: 'Карта Камчатки',      href: '/map',            icon: Map },
       { label: 'Статьи о Камчатке',   href: '/articles',       icon: Newspaper },
+      { label: 'Рыбы Камчатки',       href: '/fish',           icon: Fish },
       { label: 'Блог',                href: '/blog',           icon: BookOpen },
       { label: 'AI-арсенал',          href: '/ai-tools',       icon: Sparkles },
       { label: 'О платформе',         href: '/about',          icon: Info },

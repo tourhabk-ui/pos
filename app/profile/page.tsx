@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import ProfilePageClient from './_ProfilePageClient';
 
 export const metadata = {
-  title: 'Профиль пользователя | Tourhab',
+  title: 'Профиль пользователя',
   description: 'Управление профилем и настройками аккаунта на Tourhab',
 };
 
