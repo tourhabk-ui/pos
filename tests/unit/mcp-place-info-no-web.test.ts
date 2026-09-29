@@ -49,3 +49,16 @@ describe('роут MCP передаёт поверхность', () => {
     expect(src).toMatch(/executeKuzmichTool\(name, validation\.args, \{ surface: 'mcp' \}\)/);
   });
 });
+
+// Проверка MCP 29.09: пустой ответ стража обещал «поищу через другие
+// источники», а на MCP поиска нет — обещание действия, которого не будет.
+describe('get_guardian_context: пусто — без обещания поиска на MCP', () => {
+  it('MCP — «ничего нет» и 112; чат — прежняя подсказка модели', async () => {
+    const mcp = await executeKuzmichTool('get_guardian_context', { place: 'Озеро Х' }, { surface: 'mcp' });
+    expect(mcp).not.toMatch(/поискать/);
+    expect(mcp).toMatch(/не значит, что там безопасно[\s\S]*112/);
+    const chat = await executeKuzmichTool('get_guardian_context', { place: 'Озеро Х' });
+    expect(chat).toMatch(/Попробую поискать/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

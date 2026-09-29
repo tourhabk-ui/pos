@@ -1958,13 +1958,16 @@ const NO_DATA_TEXTS: readonly string[] = [
   'Туры не найдены.',
   'Не удалось получить детали тура.',
   'Погода временно недоступна.',
-  'Данные о месте не найдены в системе. Попробую поискать через другие источники.',
   'Неизвестный инструмент.',
 ];
 
+const GUARDIAN_EMPTY_CHAT = 'Данные о месте не найдены в системе. Попробую поискать через другие источники.';
+const GUARDIAN_EMPTY_MCP = 'Данные о месте не найдены в системе: ни места, ни предупреждений по этому названию в базе Ведара нет. '
+  + 'Это не значит, что там безопасно — уточните название места; экстренный вызов на Камчатке — 112.';
+
 
 const NO_TOUR_HEAD = 'Тур на платформе не найден.';
-const NO_DATA = new Set<string>([...NO_DATA_TEXTS, TOOL_EXECUTION_FAILED]);
+const NO_DATA = new Set<string>([...NO_DATA_TEXTS, TOOL_EXECUTION_FAILED, GUARDIAN_EMPTY_CHAT, GUARDIAN_EMPTY_MCP]);
 const NO_PLACE_HEAD = 'Места нет в справочнике платформы.';
 
 const noTourFound = (q: string) =>
@@ -2034,7 +2037,11 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     if (name === 'get_guardian_context') {
       const { getGuardianContext } = await import('@/lib/kuzmich/guardian-context');
       const ctx = await getGuardianContext(args.place ?? args.name ?? '');
-      return ctx || 'Данные о месте не найдены в системе. Попробую поискать через другие источники.';
+      // «Попробую поискать через другие источники» — подсказка модели чата,
+      // у которой есть веб-поиск. На MCP никакого поиска нет, и обещание
+      // действия, которого сервер не совершит, было бы ложью (проверка 29.09).
+      if (!ctx) return opts.surface === 'mcp' ? GUARDIAN_EMPTY_MCP : GUARDIAN_EMPTY_CHAT;
+      return ctx;
     }
     if (name === 'get_weather') {
       // Место или точка — lib/kuzmich/weather-tool (25.09); прежде здесь

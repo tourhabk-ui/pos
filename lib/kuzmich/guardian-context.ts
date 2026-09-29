@@ -8,6 +8,8 @@ import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { isVolcanoObservationStale, VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
+import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 
 interface GuardianPlaceRow {
   name: string;
@@ -40,6 +42,8 @@ interface GuardianPlaceRow {
   kfegs_seismicity: string | null;
   kfegs_date: string | null;
   linked_volcanoes: string | null;
+  /** Когда статус места пересчитан. null — не записано. */
+  status_updated_at?: string | null;
   /** Псевдонимы места (place_aliases) — разговорные имена того же объекта. */
   aliases?: string[] | null;
 }
@@ -59,6 +63,13 @@ function accLine(color: AccColor, p: GuardianPlaceRow): string {
     // одному агенту разные даты одного снимка (сверка 26.09).
     ? ` (наблюдение ${new Date(p.volcano_observed_at).toLocaleDateString('ru-RU', { timeZone: 'Asia/Kamchatka' })})`
     : '';
+  // Старое наблюдение называется старым — так же, как в get_volcano_status
+  // (kvertPhrase): до 29.09 guardian печатал «ЗЕЛЁНЫЙ — спокоен» по снимку
+  // любой давности, и два инструмента давали агенту противоположные выводы
+  // о свежести одного снимка (проверка MCP).
+  if (isVolcanoObservationStale(p.volcano_observed_at)) {
+    return `Авиационный цветовой код KVERT: последнее наблюдение${seen} — ${meta.short.toLowerCase()}, но оно старше ${VOLCANO_STALE_DAYS} дней: текущим его не считать, текущего кода нет.${ash}`;
+  }
   return `Авиационный цветовой код KVERT: ${meta.short.toUpperCase()} — ${meta.label.toLowerCase()}.${ash}${seen}`;
 }
 
@@ -93,12 +104,24 @@ interface AlertRow {
   severity: number;
   description: string | null;
   source_url: string | null;
+  external_id: string | null;
 }
 
 interface KnowledgeRow {
   title: string;
   compiled_truth: string;
   type: string;
+}
+
+/**
+ * Свежесть пересчёта статуса места. Крон safety-ingest пересчитывает все
+ * строки каждые 5 минут; три часа тишины — пересчёт встал, и цвет на экране
+ * уже не про сегодня (проверка MCP 29.09: цвет печатался без времени).
+ */
+const STATUS_FRESH_MS = 3 * 60 * 60 * 1000;
+
+function kamchatkaStamp(iso: string): string {
+  return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -240,6 +263,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
          lsp.capacity_per_day, lsp.open_from_date, lsp.open_to_date,
          lrs.is_open, lrs.current_crowds, lrs.active_alerts,
          lrs.recommender_status, lrs.alert_message, lrs.alert_severity,
+         lrs.updated_at::text AS status_updated_at,
          lrs.tourists_today,
          vs.aviation_color_code AS volcano_acc,
          vs.ash_height_m        AS volcano_ash_height_m,
@@ -275,7 +299,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       placeMatch.params,
     ),
     pool.query<AlertRow>(
-      `SELECT title, severity, description, source_url
+      `SELECT title, severity, description, source_url, external_id
        FROM external_alerts
        WHERE (expires_at IS NULL OR expires_at > NOW())
          AND (title ILIKE $1 OR description ILIKE $1)
@@ -331,7 +355,13 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   };
 
   for (const p of placesRes.rows) {
-    const status = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
+    const rawStatus = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
+    // Цвет без времени пересчёта — обязательное поле, заполненное враньём
+    // (§4.0): зелёный печатался одинаково при живом пересчёте и при
+    // вставшем. Устарел — цвет не показываем и говорим почему.
+    const updatedMs = p.status_updated_at ? Date.parse(p.status_updated_at) : NaN;
+    const statusStale = rawStatus !== null && Number.isFinite(updatedMs) && Date.now() - updatedMs > STATUS_FRESH_MS;
+    const status = statusStale ? null : rawStatus;
     // Раздел каталога — в заголовке, рядом с именем. До 17.09 location_type
     // выбирался этим же запросом и не печатался: тип был виден только на
     // бейдже карточки и маркере карты, а в MCP — единственном канале, которым
@@ -345,6 +375,12 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       ? `${nameWithKind} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
       : nameWithKind;
     parts.push(header);
+    if (statusStale) {
+      parts.push(`Статус места не пересчитывался с ${kamchatkaStamp(p.status_updated_at!)} (по Камчатке) — цвет не показываю: он может быть уже не про сегодня.`);
+    } else if (p.recommender_status === 'green') {
+      const when = Number.isFinite(updatedMs) ? `, пересчёт ${kamchatkaStamp(p.status_updated_at!)} по Камчатке` : '';
+      parts.push(`ЗЕЛЁНЫЙ значит: активных предупреждений по месту не найдено${when}. Это не гарантия безопасности.`);
+    }
     if (p.linked_volcanoes) {
       parts.push(`Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС.`);
     }
@@ -446,7 +482,10 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     // показанный в строке места, здесь не повторяем.
     if (shownAlerts.has(a.title)) continue;
     shownAlerts.add(a.title);
-    parts.push(`[Алерт КБГС/МЧС] ${a.title}${a.description ? ': ' + a.description.slice(0, 150) : ''}`);
+    // Источник — по ленте, из которой пришла тревога, а не одной подписью
+    // «КБГС/МЧС» на все шесть лент (проверка MCP 29.09).
+    const origin = alertOrigin(a.external_id, a.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT;
+    parts.push(`[Предупреждение, источник: ${origin}] ${a.title}${a.description ? ': ' + a.description.slice(0, 150) : ''}`);
   }
 
   for (const k of knowledgeRes.rows) {

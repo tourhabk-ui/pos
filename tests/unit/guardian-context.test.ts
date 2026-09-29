@@ -6,6 +6,9 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...args: unknown[]) => mockQuery(...args) },
 }));
 
+/** Наблюдение KVERT час назад — свежее: правило устаревания (7 дней) его не трогает. */
+const FRESH_OBSERVATION = new Date(Date.now() - 3_600_000).toISOString();
+
 describe('gradeNameMatch (CRAG-lite relevance grading, Roitman §16.5.5)', () => {
   it('grades an exact name match as high confidence', () => {
     expect(gradeNameMatch('Толбачик', 'Толбачик')).toBe('high');
@@ -144,7 +147,7 @@ describe('getGuardianContext — авиационный цветовой код 
   }
 
   it('красный код с пеплом выдаётся сразу после алертов при точном совпадении', async () => {
-    mockDbFor({ ...base, volcano_acc: 'red', volcano_ash_height_m: 8000, volcano_observed_at: '2025-08-07T23:40:00Z' });
+    mockDbFor({ ...base, volcano_acc: 'red', volcano_ash_height_m: 8000, volcano_observed_at: FRESH_OBSERVATION });
     const ctx = await getGuardianContext('Ключевской');
     expect(ctx).toContain('KVERT: КРАСНЫЙ');
     expect(ctx).toContain('Пепел до 8.0 км');
@@ -220,7 +223,8 @@ describe('getGuardianContext — чистка контекста (#63, проб�
     expect(ctx).toContain('Камнепад на верхнем участке');
   });
 
-  it('блок [Алерт КБГС/МЧС] не повторяет алерт, уже показанный в строке места', async () => {
+  // С 29.09 источник — по ленте (alertOrigin), а не одна подпись «КБГС/МЧС».
+  it('блок предупреждений не повторяет алерт, уже показанный в строке места', async () => {
     mockDb({
       places: [{ ...placeBase, name: 'Вулкан Авачинский', active_alerts: ['Пепловый выброс на Авачинском'] }],
       alerts: [
@@ -230,7 +234,7 @@ describe('getGuardianContext — чистка контекста (#63, проб�
     });
     const ctx = await getGuardianContext('Авачинский');
     expect(ctx.split('Пепловый выброс на Авачинском').length - 1).toBe(1);
-    expect(ctx).toContain('[Алерт КБГС/МЧС] Закрыта тропа на Авачинский');
+    expect(ctx).toContain('[Предупреждение, источник: источник не записан] Закрыта тропа на Авачинский');
   });
 
   it('дедуп действует и в hedge-ветке слабого совпадения', async () => {
@@ -267,7 +271,7 @@ describe('getGuardianContext — запрос «имя тип» находит �
     capacity_per_day: null, open_from_date: null, open_to_date: null, is_open: true,
     current_crowds: null, active_alerts: null, recommender_status: 'green',
     alert_message: null, alert_severity: null, tourists_today: null,
-    volcano_ash_height_m: null, volcano_observed_at: '2026-09-17T00:00:00Z',
+    volcano_ash_height_m: null, volcano_observed_at: FRESH_OBSERVATION,
   };
 
   it('запрос попадает в SQL как AND по словам, а не буквальной фразой', async () => {
@@ -372,7 +376,7 @@ describe('getGuardianContext — вторая шкала вулкана, КФ Е
     sat_communicator_required: null, capacity_per_day: null, open_from_date: null, open_to_date: null,
     is_open: null, current_crowds: null, active_alerts: null, recommender_status: null,
     alert_message: null, alert_severity: null, tourists_today: null,
-    volcano_acc: 'green', volcano_ash_height_m: null, volcano_observed_at: '2026-09-17T00:00:00Z',
+    volcano_acc: 'green', volcano_ash_height_m: null, volcano_observed_at: '2026-09-23T00:00:00Z',
     kfegs_color: 'yellow', kfegs_raw: 'Желтый',
     kfegs_seismicity: 'R=3.2; Ks пред.=4.0 Выше фона. Количество событий в районе вулкана 255.',
     kfegs_date: '2026-09-22',
@@ -433,5 +437,57 @@ describe('getGuardianContext — вторая шкала вулкана, КФ Е
     await getGuardianContext('Мутновский вулкан');
     const sql = mockQuery.mock.calls.find(([s]) => (s as string).includes('FROM places'))![0] as string;
     expect(sql).toMatch(/FROM volcano_bulletin_kfegs b\s+WHERE b\.place_ark_id = p\.ark_id\s+ORDER BY b\.observed_date DESC\s+LIMIT 1/);
+  });
+});
+
+// Проверка MCP 29.09: guardian печатал «ЗЕЛЁНЫЙ — спокоен» по снимку KVERT
+// любой давности, цвет места — без времени пересчёта, а все тревоги
+// подписывал «КБГС/МЧС».
+describe('getGuardianContext — свежесть и происхождение (проверка MCP 29.09)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const row = {
+    name: 'Вулкан Мутновский', description: null, location_type: 'volcano',
+    lat: 52.45, lng: 158.2, hazard_types: null, difficulty_level: null, altitude_m: null,
+    nearest_medical_km: null, sat_communicator_required: null, capacity_per_day: null,
+    open_from_date: null, open_to_date: null, is_open: true, current_crowds: null,
+    active_alerts: null, recommender_status: 'green', alert_message: null, alert_severity: null,
+    tourists_today: null, volcano_acc: 'green', volcano_ash_height_m: null,
+  };
+  function mockDb(opts: { places?: Record<string, unknown>[]; alerts?: Record<string, unknown>[] }) {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) return Promise.resolve({ rows: opts.places ?? [] });
+      if (sql.includes('FROM external_alerts')) return Promise.resolve({ rows: opts.alerts ?? [] });
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('наблюдение KVERT старше 7 дней — не «спокоен», а «текущего кода нет»', async () => {
+    mockDb({ places: [{ ...row, volcano_observed_at: new Date(Date.now() - 10 * 86_400_000).toISOString() }] });
+    const ctx = await getGuardianContext('Мутновский');
+    expect(ctx).toMatch(/старше 7 дней: текущим его не считать, текущего кода нет/);
+    expect(ctx).not.toMatch(/ЗЕЛЁНЫЙ — спокоен/);
+  });
+
+  it('свежий зелёный — со смыслом и временем пересчёта', async () => {
+    mockDb({ places: [{ ...row, volcano_observed_at: FRESH_OBSERVATION, status_updated_at: new Date(Date.now() - 600_000).toISOString() }] });
+    const ctx = await getGuardianContext('Мутновский');
+    expect(ctx).toMatch(/\[ЗЕЛЁНЫЙ\]/);
+    expect(ctx).toMatch(/активных предупреждений по месту не найдено, пересчёт .* по Камчатке\. Это не гарантия безопасности/);
+  });
+
+  it('пересчёт встал больше трёх часов назад — цвет не показывается', async () => {
+    mockDb({ places: [{ ...row, volcano_observed_at: FRESH_OBSERVATION, status_updated_at: new Date(Date.now() - 5 * 3_600_000).toISOString() }] });
+    const ctx = await getGuardianContext('Мутновский');
+    expect(ctx).not.toMatch(/\[ЗЕЛЁНЫЙ\]/);
+    expect(ctx).toMatch(/Статус места не пересчитывался с .* цвет не показываю/);
+  });
+
+  it('тревога подписана своей лентой', async () => {
+    mockDb({
+      places: [{ ...row, volcano_observed_at: FRESH_OBSERVATION }],
+      alerts: [{ title: 'Землетрясение M5.1', severity: 1, description: null, source_url: null, external_id: 't.me/kbgsras/123' }],
+    });
+    const ctx = await getGuardianContext('Мутновский');
+    expect(ctx).toContain('[Предупреждение, источник: КБГС РАН] Землетрясение M5.1');
   });
 });
