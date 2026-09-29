@@ -17,24 +17,30 @@
  *
  *   XAI_API_KEY=... npx tsx scripts/xai-x-search-probe.ts
  */
-import { readFileSync } from 'node:fs';
 import { keyIdentity } from '@/lib/ai/key-identity';
+import { stripTags } from '@/lib/html/text';
 
 const BASE = 'https://api.x.ai/v1';
-const MARKER = '.github/triggers/xai-x-search-probe.json';
 const DOCS = [
   'https://docs.x.ai/docs/guides/tools/x-search',
   'https://docs.x.ai/docs/guides/tools/overview',
   'https://docs.x.ai/docs/models',
 ];
 
-interface Marker {
-  run?: number;
-  handles?: string[];
-  hours?: number;
-  /** Модели для пробы; пусто — берём из /v1/models всё семейство grok. */
-  models?: string[];
-  maxModels?: number;
+/**
+ * Параметры пробы приходят через env (workflow разбирает маркер JSON сам):
+ * CodeQL считает данные из файла в теле сетевого запроса находкой
+ * (js/file-access-to-http), а маркер — это конфиг из репозитория, не ввод.
+ * Форма значений при этом проверяется: аккаунт X — до 15 знаков [A-Za-z0-9_].
+ */
+const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
+const MODEL_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function envList(name: string, re: RegExp): string[] {
+  return (process.env[name] ?? '')
+    .split(',')
+    .map((x) => x.trim().replace(/^@/, ''))
+    .filter((x) => x.length > 0 && re.test(x));
 }
 
 function short(s: string, n = 400): string {
@@ -92,12 +98,9 @@ async function docsPriceLines(): Promise<void> {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VedarProbe/1.0)' } });
       const html = await r.text();
-      const text = html
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;|&#160;/g, ' ')
-        .replace(/\s+/g, ' ');
+      // Одна реализация снятия разметки на репозиторий (lib/html/text):
+      // тело скрипта не остаётся, снятие до неподвижной точки.
+      const text = stripTags(html, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/\s+/g, ' ');
       console.log(`\n-- ${url} → HTTP ${r.status}, ${text.length} знаков текста`);
       const hits = text.match(/[^.]{0,120}(\$\s?\d[\d.,]*|per 1[,\d]* |allowed_x_handles|from_date|to_date|x_search|search_parameters|tool call)[^.]{0,160}/gi) ?? [];
       const uniq = [...new Set(hits.map((h) => h.trim()))].slice(0, 30);
@@ -115,13 +118,17 @@ async function main(): Promise<number> {
   if (!id.present) { console.log('Ключа нет в секрете XAI_API_KEY.'); return 2; }
   console.log(`ключ: длина ${id.length}, отпечаток ${id.fingerprint}, префикс ${raw.startsWith('xai-') ? 'xai-' : 'иной'}`);
 
-  let marker: Marker = {};
-  try { marker = JSON.parse(readFileSync(MARKER, 'utf-8')) as Marker; } catch { /* маркера нет — дефолты */ }
-  const handles = (marker.handles ?? ['OpenAI', 'AnthropicAI', 'GoogleDeepMind', 'xai', 'huggingface', 'MistralAI']).map((h) => h.replace(/^@/, ''));
-  const hours = marker.hours ?? 24;
+  const fromEnv = envList('PROBE_HANDLES', HANDLE_RE);
+  const handles = fromEnv.length > 0 ? fromEnv : ['OpenAI', 'AnthropicAI', 'GoogleDeepMind', 'xai', 'huggingface', 'MistralAI'];
+  const hoursRaw = Number(process.env.PROBE_HOURS);
+  const hours = Number.isFinite(hoursRaw) && hoursRaw >= 1 && hoursRaw <= 168 ? Math.floor(hoursRaw) : 24;
+  const modelsFromEnv = envList('PROBE_MODELS', MODEL_RE);
+  const maxRaw = Number(process.env.PROBE_MAX_MODELS);
+  const maxModels = Number.isFinite(maxRaw) && maxRaw >= 1 && maxRaw <= 10 ? Math.floor(maxRaw) : 3;
+  const run = process.env.PROBE_RUN ?? '?';
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3_600_000);
-  console.log(`прогон ${marker.run ?? '?'}: аккаунты ${handles.map((h) => '@' + h).join(', ')}; окно ${hours} ч (${isoDate(from)} … ${isoDate(to)})`);
+  console.log(`прогон ${run}: аккаунты ${handles.map((h) => '@' + h).join(', ')}; окно ${hours} ч (${isoDate(from)} … ${isoDate(to)})`);
 
   // Каталог — правда о том, какие модели есть у ключа сегодня.
   let catalog: string[] = [];
@@ -136,11 +143,11 @@ async function main(): Promise<number> {
     console.log(`/models → HTTP ${models.status} — ${short(models.body)}`);
   }
 
-  const wanted = marker.models && marker.models.length > 0
-    ? marker.models
-    : catalog.filter((m) => /grok/i.test(m) && !/(image|vision|voice|audio|imagegen)/i.test(m)).slice(0, marker.maxModels ?? 3);
+  const wanted = modelsFromEnv.length > 0
+    ? modelsFromEnv
+    : catalog.filter((m) => /grok/i.test(m) && !/(image|vision|voice|audio|imagegen)/i.test(m)).slice(0, maxModels);
   if (wanted.length === 0) {
-    console.log('ИТОГ: моделей для пробы нет — каталог не прочитан и список в маркере пуст.');
+    console.log('ИТОГ: моделей для пробы нет — каталог не прочитан и список PROBE_MODELS пуст.');
     await docsPriceLines();
     return 1;
   }
