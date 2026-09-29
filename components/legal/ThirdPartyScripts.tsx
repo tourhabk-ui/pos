@@ -24,11 +24,13 @@
  */
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
 import { readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
+import { isWidgetPath } from '@/lib/embed/widget-frame';
 
 const ALL_DENIED: ConsentChoice = { analytics: false, advertising: false };
 
@@ -50,6 +52,14 @@ export default function ThirdPartyScripts() {
     setChoice(next);
     setAsked(true);
   }
+
+  const pathname = usePathname();
+
+  // Виджет партнёра (iframe на его сайте): посетитель пришёл к партнёру, а не
+  // к Ведару. Ни баннера — он закрывал имя и телефон в форме заявки, — ни
+  // счётчиков: Метрика в iframe писала визит Ведару за каждый просмотр
+  // чужой страницы (примерка на fishingkam.ru 29.09).
+  if (isWidgetPath(pathname)) return null;
 
   const allowed = THIRD_PARTIES.filter((tp) => loadDecision(tp, choice).load);
 

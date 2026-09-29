@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { MessageSquarePlus, X, User, Phone, Sparkles, Send, CheckCircle, MessageCircle } from 'lucide-react';
 import { trackLeadEvent, LEAD_EVENTS } from '@/lib/analytics/lead-tracking';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { isWidgetPath } from '@/lib/embed/widget-frame';
 
 type State = 'idle' | 'form' | 'sending' | 'done' | 'error';
 
@@ -59,7 +60,9 @@ export default function StickyLeadButton() {
   // телефоне кнопка ложилась на «Договор (PDF)» и «Мои бронирования»
   // (аудит П1, #143/#145/#148).
   const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/booking-success', '/planning', '/field-check', '/kuzmich', '/auth'];
-  if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/') return null;
+  // /widget/* — iframe на чужом сайте: там кнопка ложилась поверх отправки
+  // в чате и полей формы (примерка на fishingkam.ru 29.09, lib/embed/widget-frame).
+  if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/' || isWidgetPath(pathname)) return null;
 
   async function submitLead(e: React.FormEvent) {
     e.preventDefault();

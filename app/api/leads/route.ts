@@ -121,12 +121,18 @@ export async function POST(req: NextRequest) {
 
   const { name, phone, comment, route_id, route_title, source_url, source_data, partner_slug } = parse.data;
 
-  // Если пришёл partner_slug — резолвим operator_id
+  // Если пришёл partner_slug — резолвим operator_id. Форма виджета до 29.09
+  // клала slug только в source_data, и лид вставал без оператора: в пул и в
+  // рабочий чат платформы вместо партнёра. Закэшированная у посетителя
+  // старая форма шлёт так и сейчас — поэтому запасной путь, а не только
+  // правка формы.
+  const embeddedSlug = typeof source_data?.partner_slug === 'string' ? source_data.partner_slug : undefined;
+  const widgetSlug = partner_slug ?? (embeddedSlug && embeddedSlug.length <= 100 ? embeddedSlug : undefined);
   let operatorId: string | null = null;
-  if (partner_slug) {
+  if (widgetSlug) {
     const pRes = await pool.query<{ id: string }>(
       `SELECT id FROM partners WHERE slug = $1 AND widget_enabled = true LIMIT 1`,
-      [partner_slug]
+      [widgetSlug]
     );
     operatorId = pRes.rows[0]?.id ?? null;
   }
@@ -142,7 +148,7 @@ export async function POST(req: NextRequest) {
   // Единый путь: скоринг → INSERT → уведомление админу
   const leadId = await createLead({
     name, phone, comment, route_id, route_title, source_url,
-    pd_consent: buildConsentRecord(true, getClientIp(req.headers), partner_slug ? 'widget' : 'web-form'),
+    pd_consent: buildConsentRecord(true, getClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
     source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
     operator_id: operatorId,
   });
