@@ -264,6 +264,10 @@ export function matchPreset(
   return best ? { slug: best.slug, title: best.title } : null;
 }
 
+function capitalize(t: string): string {
+  return t ? t.charAt(0).toLocaleUpperCase('ru-RU') + t.slice(1) : t;
+}
+
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
 export function formatTripPlanForChat(
   days: DayPlan[],
@@ -286,9 +290,24 @@ export function formatTripPlanForChat(
       : 'Собрал план по дням:',
     '',
   ];
+  let prevDay = 0;
   for (const d of days) {
-    const price = d.priceFrom > 0 ? ` — от ${d.priceFrom.toLocaleString('ru-RU')} ₽` : '';
-    lines.push(`День ${d.day}. ${d.title}${price}`);
+    // Разрыв в нумерации — дни, которые движок не наполнил и не придумал
+    // (19.09). Молча пропущенные, они читались как «День 5 → День 7» (аудит
+    // MCP 29.09): человек не понимал, куда делся шестой.
+    if (d.day > prevDay + 1) {
+      const from = prevDay + 1;
+      const to = d.day - 1;
+      lines.push(from === to
+        ? `День ${from}. Не заполнен: подтверждённого выхода на эту дату у нас нет, придумывать не стали`
+        : `Дни ${from}–${to}. Не заполнены: подтверждённых выходов на эти даты у нас нет, придумывать не стали`);
+    }
+    prevDay = d.day;
+    // Цена — только у реального тура. Без него priceFrom — ориентир из
+    // констант движка («вулканы от 5 000 ₽» при нуле туров на вулканы), и
+    // рядом с настоящими ценами он читался как цена (аудит MCP 29.09).
+    const price = d.realPrice != null && d.realPrice > 0 ? ` — от ${d.realPrice.toLocaleString('ru-RU')} ₽` : '';
+    lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
   }
   if (warnings.length > 0) {
     lines.push('', `Важно: ${warnings.slice(0, 2).join(' ')}`);
