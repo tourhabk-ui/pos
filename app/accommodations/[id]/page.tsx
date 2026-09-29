@@ -11,7 +11,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return { title: 'Объект не найден | Tourhab' };
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { title: 'Объект не найден' };
 
   try {
     const { rows } = await pool.query<{ name: string; short_description: string | null }>(
@@ -19,15 +19,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       [id]
     );
     const acc = rows[0];
-    if (!acc) return { title: 'Объект не найден | Tourhab' };
+    if (!acc) return { title: 'Объект не найден' };
 
     return {
-      title: `${acc.name} — жильё на Камчатке | Tourhab`,
+      title: `${acc.name} — жильё на Камчатке`,
       description: acc.short_description ?? `${acc.name}: описание, номера, цены и бронирование`,
       alternates: { canonical: `https://vedarai.ru/accommodations/${id}` },
     };
   } catch {
-    return { title: 'Жильё на Камчатке | Tourhab' };
+    return { title: 'Жильё на Камчатке' };
   }
 }
 

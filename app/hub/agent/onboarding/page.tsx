@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import AgentOnboardingClient from './_AgentOnboardingClient';
 
 export const metadata: Metadata = {
-  title: 'Настройка кабинета агента | Tourhab',
+  title: 'Настройка кабинета агента',
   description: 'Первые шаги агентского кабинета',
   robots: 'noindex, nofollow',
 };

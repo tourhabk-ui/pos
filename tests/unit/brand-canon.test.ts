@@ -41,12 +41,12 @@ describe('бренд-канон «Ведар» в публичных повер�
     expect(offenders, `siteName с legacy-брендом:\n${offenders.join('\n')}`).toEqual([]);
   });
 
-  it('title не содержит legacy-суффиксов (| TourHab, | KamchatourHub)', () => {
+  it('title не содержит legacy-суффиксов (| TourHab, | Tourhab, | Kamchatour, | KamchatourHub)', () => {
     const offenders: string[] = [];
     for (const f of files) {
       for (const [i, line] of readFileSync(f, 'utf-8').split('\n').entries()) {
         if (!/\btitle\s*[:=]/.test(line)) continue;
-        if (/\|\s*(TourHab|KamchatourHub)/.test(line) || /—\s*(TourHab|KamchatourHub)\s*['"`]/.test(line)) {
+        if (/\|\s*(TourHab|Tourhab|KamchatourHub|Kamchatour)\b/.test(line) || /—\s*(TourHab|Tourhab|KamchatourHub|Kamchatour)\s*['"`]/.test(line)) {
           offenders.push(`${f}:${i + 1}`);
         }
       }

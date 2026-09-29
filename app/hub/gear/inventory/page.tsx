@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import InventoryClient from './_InventoryClient';
 
 export const metadata: Metadata = {
-  title: 'Инвентарь снаряжения | Tourhab',
+  title: 'Инвентарь снаряжения',
   description: 'Управление позициями проката снаряжения',
   robots: 'noindex, nofollow',
 };

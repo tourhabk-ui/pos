@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import ToursManagementClient from './_ToursManagementClient';
 
 export const metadata: Metadata = {
-  title: 'Мои туры | Оператор | Tourhab',
+  title: 'Мои туры | Оператор',
   description: 'Управление каталогом туров оператора',
   robots: 'noindex, nofollow',
 };

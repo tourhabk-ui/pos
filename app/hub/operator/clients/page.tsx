@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import ClientsPageClient from './_ClientsPageClient';
 
 export const metadata: Metadata = {
-  title: 'Клиенты | Оператор | Tourhab',
+  title: 'Клиенты | Оператор',
   description: 'База клиентов и история обращений',
   robots: 'noindex, nofollow',
 };

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import TouristDashboardClient from './_TouristDashboardClient';
 
 export const metadata: Metadata = {
-  title: 'Личный кабинет туриста | Tourhab',
+  title: 'Личный кабинет туриста',
   description: 'Управление бронированиями и турами туриста',
   robots: 'noindex, nofollow',
 };

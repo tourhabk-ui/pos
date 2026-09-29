@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import HealthTabs from './_HealthTabs';
 
 export const metadata: Metadata = {
-  title: 'Health-метрики | Tourhab Admin',
+  title: 'Health-метрики | Админ',
   description: 'Сводка health-метрик данных платформы',
   robots: 'noindex, nofollow',
 };

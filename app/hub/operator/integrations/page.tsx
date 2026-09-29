@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import IntegrationsPageClient from './_IntegrationsPageClient';
 
 export const metadata: Metadata = {
-  title: 'Интеграции | Оператор | Tourhab',
+  title: 'Интеграции | Оператор',
   description: 'Настройка интеграций с партнёрами',
   robots: 'noindex, nofollow',
 };

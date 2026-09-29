@@ -3,7 +3,7 @@ import { Header } from '@/components/layout/Header';
 import CartClient from './_CartClient';
 
 export const metadata: Metadata = {
-  title: 'Корзина | Tourhab',
+  title: 'Корзина',
 };
 
 export default function CartPage() {

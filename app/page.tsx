@@ -62,7 +62,8 @@ export const metadata: Metadata = {
   title: 'Ведар — помощник и планировщик путешествия по Камчатке',
   description: 'Ведар помогает спланировать честное и безопасное путешествие по Камчатке.',
   openGraph: {
-    title: 'Ведар — Туры на Камчатку',
+    url: '/',
+    title: 'Ведар — помощник и планировщик путешествия по Камчатке',
     description: 'Маршруты, советы, Кузьмич, проверенные операторы.',
     images: [{ url: '/images/hero/hero-light.jpeg', width: 1200, height: 630, alt: 'Камчатка' }],
     type: 'website', locale: 'ru_RU', siteName: 'Ведар',

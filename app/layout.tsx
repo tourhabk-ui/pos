@@ -105,7 +105,9 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'ru_RU',
-    url: BASE_URL,
+    // Без url: его наследовала каждая страница без своего openGraph, и 22
+    // адреса sitemap (/planner, /safety, /register…) говорили соцсетям и
+    // поиску «я — главная» (аудит SEO 29.09, Н14). og:url ставит сама страница.
     siteName: 'Ведар',
     title: 'Ведар — помощник по Камчатке',
     description: 'Помощник, планировщик и безопасный проводник к реальным турам по Камчатке.',
@@ -292,22 +294,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "sameAs": [
                   "https://t.me/kamchatourhub",
                   "https://vk.com/kamchatourhub"
-                ]
-              },
-              {
-                "@context": "https://schema.org",
-                "@type": "ItemList",
-                "name": "Топ достопримечательностей Камчатки",
-                "description": "Главные природные и исторические объекты Камчатки",
-                "itemListElement": [
-                  { "@type": "ListItem", "position": 1, "name": "Долина гейзеров", "url": `${BASE_URL}/routes/796c18b3-e199-4ac6-bbd6-de50d560ff40` },
-                  { "@type": "ListItem", "position": 2, "name": "Ключевская сопка", "url": `${BASE_URL}/routes/54b106de-d81a-42af-9a41-32ee49604309` },
-                  { "@type": "ListItem", "position": 3, "name": "Кальдера Узон", "url": `${BASE_URL}/routes/a6330106-13d5-40f0-9c77-d252daf5b95f` },
-                  { "@type": "ListItem", "position": 4, "name": "Курильское озеро — медведи", "url": `${BASE_URL}/routes/8ef745b1-7de3-4899-9431-809f9c8521de` },
-                  { "@type": "ListItem", "position": 5, "name": "Халактырский пляж", "url": `${BASE_URL}/routes/49a1d46a-704b-4307-bb6a-fea5988ec4f8` },
-                  { "@type": "ListItem", "position": 6, "name": "Вулкан Горелый", "url": `${BASE_URL}/routes/430e1a7a-a1c2-4c5a-a8fd-866817f096ac` },
-                  { "@type": "ListItem", "position": 7, "name": "Вулкан Мутновский", "url": `${BASE_URL}/routes/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9` },
-                  { "@type": "ListItem", "position": 8, "name": "Плоский Толбачик", "url": `${BASE_URL}/routes/fd0e39dc-36cc-4fa4-9be9-f0640b039fba` }
                 ]
               }
             ])

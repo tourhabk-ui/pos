@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     openGraph: {
       title: `${trip.title} — маршрут по Камчатке`,
       description: `${Array.isArray(trip.days) ? trip.days.length : 0} дней · vedarai.ru`,
-      images: [{ url: '/icons/og-image.jpg', width: 1200, height: 630 }],
+      images: [{ url: '/images/hero/hero-light.jpeg', width: 1200, height: 630 }],
     },
   };
 }
