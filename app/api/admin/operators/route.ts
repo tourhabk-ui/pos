@@ -50,6 +50,11 @@ export async function GET(request: NextRequest) {
       p.id,
       p.name            AS company_name,
       p.contacts->>'telegram_chat_id' AS telegram_chat_id,
+      -- Подключён ли канал — по тем же источникам, что читает доставка заявок
+      -- (lib/partners/reach: partners.telegram_chat_id ИЛИ users.telegram_id
+      -- через partners.user_id), а не по contacts JSONB.
+      (p.telegram_chat_id IS NOT NULL OR u.telegram_id IS NOT NULL) AS has_telegram,
+      (p.max_chat_id IS NOT NULL)      AS has_max,
       p.category,
       p.description,
       p.profile_status,

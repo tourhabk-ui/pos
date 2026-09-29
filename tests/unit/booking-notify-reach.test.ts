@@ -6,7 +6,9 @@
  * пути денег два молчания подряд:
  *
  *  1. `app/api/hub/bookings/create/route.ts` — весь блок «уведомить оператора
- *     + синк U-ON» стоял под пустым `catch {}`. Упало — бронь в базе есть,
+ *     + синк U-ON» стоял под пустым `catch {}`. С 29.09 блок живёт в общем
+ *     модуле `lib/bookings/notify-operator.ts` (его зовёт и запрос мест), и
+ *     сторож читает его там; веб-форма обязана его звать. Упало — бронь в базе есть,
  *     оператор не знает, в логе ни строки;
  *  2. `lib/notifications/operator-booking.ts` — отправка оператору шла под
  *     `if (есть адрес)` БЕЗ `else`. Оператор без MAX и Telegram не получал
@@ -22,6 +24,7 @@ import { join } from 'node:path';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const CREATE = read('app/api/hub/bookings/create/route.ts');
+const NOTIFY_OP = read('lib/bookings/notify-operator.ts');
 const NOTIFY = read('lib/notifications/operator-booking.ts');
 const REACH = read('app/api/cron/operator-reach/route.ts');
 // Сам запрос переписи с 08.09 живёт в общем модуле достижимости: адрес
@@ -31,21 +34,27 @@ const REACH_SQL = read('lib/partners/reach.ts');
 
 describe('создание брони: отказ уведомления не глушится', () => {
   it('catch вокруг уведомления оператору пишет в лог', () => {
-    expect(CREATE).toMatch(/\[bookings\/create\] уведомление оператору не отправлено/);
+    expect(NOTIFY_OP).toMatch(/\[notify-operator\] уведомление оператору не отправлено/);
+  });
+
+  it('веб-форма зовёт общий хвост, а не держит свою копию (копии расходятся)', () => {
+    expect(CREATE).toMatch(/notifyOperatorOfNewBooking\(/);
+    expect(CREATE).not.toMatch(/createUonRequest|notifyNewBooking\(/);
   });
 
   it('соседние отказы того же пути тоже названы: CRM оператора и письмо туристу', () => {
     // Синк U-ON: не доехало — заявки нет в CRM оператора, он работает по
     // неполной картине. Письмо туристу: ссылка на оплату живёт ТОЛЬКО в нём,
     // потерять его молча значит молча потерять продажу.
-    expect(CREATE).toMatch(/\[bookings\/create\] синк U-ON не прошёл/);
+    expect(NOTIFY_OP).toMatch(/\[notify-operator\] синк U-ON не прошёл/);
     expect(CREATE).toMatch(/\[bookings\/create\] письмо туристу не ушло/);
   });
 
   it('на пути «заявка → оператор → оплата» не осталось пустых catch', () => {
-    const block = CREATE.slice(CREATE.indexOf('Уведомление оператору'));
-    expect(block).not.toMatch(/catch\s*\{\s*(\/\/[^\n]*\n\s*)*\}/);
-    expect(block).not.toMatch(/\.catch\(\(\)\s*=>\s*\{\s*(\/\*[^*]*\*\/\s*)*\}\)/);
+    for (const src of [CREATE.slice(CREATE.indexOf('Уведомление оператору')), NOTIFY_OP]) {
+      expect(src).not.toMatch(/catch\s*\{\s*(\/\/[^\n]*\n\s*)*\}/);
+      expect(src).not.toMatch(/\.catch\(\(\)\s*=>\s*\{\s*(\/\*[^*]*\*\/\s*)*\}\)/);
+    }
   });
 });
 

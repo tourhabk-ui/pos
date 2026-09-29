@@ -39,7 +39,8 @@ export async function GET(
       id: string; name: string; type: string; description: string; short_description: string;
       address: string; coordinates: unknown; location_zone: string; star_rating: unknown;
       total_rooms: unknown; check_in_time: unknown; check_out_time: unknown;
-      price_per_night_from: string; price_per_night_to: string | null; currency: string;
+      price_per_night_from: string | null; price_per_night_to: string | null; currency: string;
+      external_booking_url: string | null;
       amenities: unknown; languages: unknown; rating: string | null; review_count: unknown;
       is_verified: boolean; partner_name: string | null; partner_email: string | null;
       partner_phone: string | null; images: unknown; created_at: unknown; updated_at: unknown;
@@ -166,12 +167,17 @@ export async function GET(
       checkInTime: accommodation.check_in_time,
       checkOutTime: accommodation.check_out_time,
       pricePerNight: {
-        from: parseFloat(accommodation.price_per_night_from),
+        // Цены может не быть (объект с бронью на своём сайте, миграция 1109):
+        // null — «цену не называли», а не NaN и не ноль (§4.0).
+        from: accommodation.price_per_night_from != null ? parseFloat(accommodation.price_per_night_from) : null,
         to: accommodation.price_per_night_to ? parseFloat(accommodation.price_per_night_to) : null,
         currency: accommodation.currency,
       },
       amenities: accommodation.amenities || [],
       languages: accommodation.languages || [],
+      // Бронь на сайте самого объекта (миграция 1109): живые цены и наличие
+      // там, а не у нас. null — своей брони у объекта нет или не указана.
+      externalBookingUrl: accommodation.external_booking_url ?? null,
       // «Не оценён» — null, а не ноль. Ноль читается экраном и планером как
       // ОЦЕНКА, и планер по ней отсеивал объект навсегда (условие
       // «rating >= 3.5», §4.0). Правило одно на все выдачи —
@@ -214,7 +220,7 @@ export async function GET(
         type: item.type,
         description: item.short_description,
         address: item.address,
-        pricePerNight: parseFloat(item.price_per_night_from),
+        pricePerNight: item.price_per_night_from != null ? parseFloat(item.price_per_night_from) : null,
         currency: item.currency,
         // То же и у похожих объектов: неоценённый — null.
         rating: publicRating(item.rating, item.review_count),
@@ -257,6 +263,12 @@ const UpdateAccommodationSchema = z.object({
   // Зона планера (миграция 1031). Снять разметку (null) владелец не может —
   // только поменять; «не размечено» остаётся у старых объектов до решения.
   plannerZone: z.enum(ZONE_IDS, { message: 'Выберите зону для планера поездок' }).optional(),
+  // Ссылка на бронь на сайте объекта: только https, пустая строка — снять.
+  externalBookingUrl: z.union([
+    z.string().trim().max(500).regex(/^https:\/\/\S+$/, 'Ссылка на бронь должна начинаться с https://'),
+    z.literal('').transform(() => null),
+    z.null(),
+  ]).optional(),
 }).refine(data => Object.keys(data).length > 0, { message: 'Нет полей для обновления' });
 
 // PATCH /api/accommodations/[id] — владелец редактирует свой объект, admin — любой
@@ -310,27 +322,48 @@ export async function PATCH(
       checkOutTime: { column: 'check_out_time' },
       isActive: { column: 'is_active' },
       plannerZone: { column: 'planner_zone' },
+      externalBookingUrl: { column: 'external_booking_url' },
     };
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
     let idx = 1;
 
+    // Индекс параметра со ссылкой на бронь: по нему ниже сравнивается «было —
+    // стало», чтобы правка ссылки владельцем отправляла объект на модерацию.
+    let externalUrlIdx: number | null = null;
+
     for (const [key, value] of Object.entries(parsed.data)) {
       const mapping = columnMap[key];
       if (!mapping) continue;
       setClauses.push(`${mapping.column} = $${idx}`);
+      if (key === 'externalBookingUrl') externalUrlIdx = idx;
       values.push(mapping.transform ? mapping.transform(value) : value);
       idx++;
     }
 
-    // Отклонённый объект, исправленный ВЛАДЕЛЬЦЕМ, снова уходит на проверку:
-    // экран отказа обещает «после правки — снова на проверку». Только
-    // содержательная правка (не выключатель показа) и только от владельца —
-    // администратор решает через /api/admin/accommodations/[id].
+    // Модерация после правки ВЛАДЕЛЬЦА (администратор решает через
+    // /api/admin/accommodations/[id]):
+    //   - отклонённый объект, исправленный по существу, снова уходит на
+    //     проверку — экран отказа обещает «после правки — снова на проверку»;
+    //   - СМЕНА ссылки на бронь у одобренного объекта тоже: ссылка уходит
+    //     туристу кнопкой «Забронировать на сайте отеля» и, будучи подменённой,
+    //     вела бы на чужой сайт под одобренной карточкой без чьей-либо
+    //     проверки (обзор 29.09). Одобренная ссылка не меняется молча; такая
+    //     же ссылка, как была, ничего не сбрасывает.
+    // Условие одно и в одном присваивании: два `moderation_status = …` в
+    // одном UPDATE база отвергает.
     const contentEdited = Object.keys(parsed.data).some(k => k !== 'isActive');
     if (!isAdmin && contentEdited) {
-      setClauses.push(`moderation_status = CASE WHEN moderation_status = 'rejected' THEN 'pending' ELSE moderation_status END`);
+      // В UPDATE правая часть читает СТАРУЮ строку, поэтому сравнение колонки с
+      // новым значением видит именно «было — стало».
+      const conds = [`moderation_status = 'rejected'`];
+      if (externalUrlIdx !== null) {
+        // Снятие ссылки (NULL) риска подмены не несёт и объект с витрины не
+        // убирает; на модерацию уходит только замена ссылки на другую.
+        conds.push(`(moderation_status = 'approved' AND $${externalUrlIdx}::text IS NOT NULL AND external_booking_url IS DISTINCT FROM $${externalUrlIdx}::text)`);
+      }
+      setClauses.push(`moderation_status = CASE WHEN ${conds.join(' OR ')} THEN 'pending' ELSE moderation_status END`);
     }
 
     setClauses.push('updated_at = NOW()');

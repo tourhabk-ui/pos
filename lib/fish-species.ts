@@ -11,6 +11,13 @@ export interface FishSpecies {
   habitat: string;
   funFact: string;
   patterns: RegExp[];
+  /**
+   * Изображение вида для описания — только из public/images (CLAUDE.md §3),
+   * чужие хосты запрещены. Нет изображения — поля нет, и страница показывает
+   * значок, а не заглушку с чужой рыбой. `alt` называет, ЧТО на картинке,
+   * включая род изображения: рисунок не выдаётся за снимок с реки.
+   */
+  image?: { src: string; alt: string };
 }
 
 export const FISH_SPECIES: FishSpecies[] = [
@@ -97,6 +104,11 @@ export const FISH_SPECIES: FishSpecies[] = [
     habitat: 'Горные и равнинные реки, озёра',
     funFact: 'Дикая камчатская микижа — один из самых ценных объектов нахлыстовой рыбалки в мире. Туристы едут специально из США, Японии и Германии.',
     patterns: [/микиж[аыуией]/gi],
+    // Изображение прислал владелец 29.09 («микижа ставь в описание фото»).
+    image: {
+      src: '/images/fish/mikizha.jpg',
+      alt: 'Микижа (Oncorhynchus mykiss) — рисунок: пятнистое тело с розовой полосой вдоль бока',
+    },
   },
   {
     id: 'kharius',

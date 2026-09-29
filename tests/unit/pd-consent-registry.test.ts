@@ -48,6 +48,10 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
     note: 'миграция 969, третья копия — типы взяты у 911 дословно',
   },
+  tour_seat_requests: {
+    fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
+    note: 'миграция 1108, четвёртая копия — типы как у 911/969. Согласие живёт здесь, пока запрос не стал бронью: при «Есть места» переезжает в operator_bookings той же вставкой (lib/bookings/reserve)',
+  },
 };
 
 describe('где живёт согласие', () => {
@@ -56,14 +60,14 @@ describe('где живёт согласие', () => {
     const dir = join(ROOT, 'migrations');
     const tables = new Set<string>();
     for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql'))) {
-      const sql = readFileSync(join(dir, f), 'utf-8');
+      // Разбор по ОПЕРАТОРАМ, а не окном в N символов от имени таблицы: у
+      // широкой CREATE TABLE колонка согласия стоит дальше любого окна, и
+      // окно в 900 знаков не видело tour_seat_requests (обзор 29.09).
+      const sql = readFileSync(join(dir, f), 'utf-8').replace(/--[^\n]*/g, '');
       if (!/pd_consent_at/i.test(sql)) continue;
-      for (const m of sql.matchAll(/(?:ALTER TABLE|CREATE TABLE(?: IF NOT EXISTS)?)\s+([a-z_]+)/gi)) {
-        const table = m[1].toLowerCase();
-        // Таблица попадает в счёт, только если колонка согласия объявлена
-        // ИМЕННО у неё: в одной миграции бывает несколько ALTER подряд.
-        const after = sql.slice(m.index ?? 0, (m.index ?? 0) + 900);
-        if (/pd_consent_at/i.test(after)) tables.add(table);
+      for (const stmt of sql.split(';')) {
+        const m = /^\s*(?:ALTER TABLE(?: IF EXISTS)?|CREATE TABLE(?: IF NOT EXISTS)?)\s+([a-z_]+)/i.exec(stmt);
+        if (m && /pd_consent_at/i.test(stmt)) tables.add(m[1].toLowerCase());
       }
     }
     const unknown = [...tables].filter((t) => !(t in CONSENT_HOMES));
@@ -108,6 +112,7 @@ const CONSENT_FORMS = [
   'components/routes/LeadModal.tsx',
   'components/shared/StickyLeadButton.tsx',
   'components/marketplace/BookingFormClient.tsx',
+  'components/planner/SeatRequestForm.tsx',
 ];
 
 /**
@@ -176,6 +181,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/auth/register/route.ts',
   'app/api/auth/register-operator/route.ts',
   'app/api/hub/bookings/create/route.ts',
+  'app/api/seat-requests/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

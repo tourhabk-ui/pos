@@ -18,6 +18,9 @@ import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
+import { handlePartnerStart } from '@/lib/partners/bind-channel';
+import { parseAnswerPayload, operatorReplyText, statusTokenFromStart } from '@/lib/seat-requests/core';
+import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -303,6 +306,30 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
   // bot_started → обычный /start (в т.ч. незаверенный login-payload — без входа)
   if (update.update_type === 'bot_started' && update.chat_id) {
+    // ── ПОДКЛЮЧЕНИЕ ОПЕРАТОРА И ТУРИСТА ────────────────────────────────────
+    // Чат, куда пойдут имена и телефоны туристов и ссылка на бронь,
+    // назначается только по заверенному источнику апдейта (verifiedOrigin —
+    // серверный флаг, НЕ поле тела). Ворота настоящие — подпись ссылки
+    // (lib/partners/channel-link, HMAC) и ключ запроса (хэш в базе); форму
+    // payload проверяют сами разборщики. Ссылку оператору выдаёт администратор.
+    if (opts?.verifiedOrigin === true) {
+      const startArg = typeof update.payload === 'string' ? update.payload : '';
+      const seatToken = statusTokenFromStart(startArg);
+      if (seatToken !== null) {
+        // Турист хочет получить ответ оператора на запрос мест сюда.
+        const bound = await bindTouristChat(seatToken, 'max', update.chat_id);
+        await maxReply(update.chat_id, !bound.ok
+          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
+              : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
+              : 'Не удалось подключить — попробуйте ещё раз через минуту.')
+          : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
+        return;
+      }
+
+      const chatId = update.chat_id;
+      if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
+    }
+
     let capturedStart = '';
     const capturingStart = async (id: number, text: string) => {
       capturedStart = text;
@@ -496,6 +523,22 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
+
+    // Ответ оператора на запрос свободных мест (lib/seat-requests). Право
+    // нажатия — чат сообщения совпадает с MAX-чатом оператора запроса, и
+    // только по заверенному источнику апдейта.
+    const seat = parseAnswerPayload(payload);
+    if (seat) {
+      if (opts?.verifiedOrigin !== true) return;
+      const mine = await requestBelongsToMaxChat(seat.requestId, resolvedChatId);
+      if (mine !== true) {
+        await maxReply(resolvedChatId, operatorReplyText({ ok: false, reason: mine === 'db_error' ? 'db_error' : 'not_yours' }));
+        return;
+      }
+      const result = await answerSeatRequest(seat.requestId, { kind: seat.kind }, 'max');
+      await maxReply(resolvedChatId, operatorReplyText(result));
+      return;
+    }
 
     // Кнопки по лиду. Право нажатия — принадлежность чата рабочему
     // MAX_OPERATOR_CHAT_ID: user_id прислал бы кто угодно, а чат сообщения с

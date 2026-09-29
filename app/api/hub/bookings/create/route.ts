@@ -4,14 +4,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
 import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
-import { reachForPartner } from '@/lib/partners/reach';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { notifyNewBooking } from '@/lib/notifications/operator-booking';
+import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
 import { emailService } from '@/lib/notifications/email-service';
-import { createUonRequest } from '@/lib/integrations/uon';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
@@ -143,101 +140,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ
-    void (async () => {
-      try {
-        // Адрес оператора — через общий модуль: он смотрит ОБЕ колонки
-        // (partners.telegram_chat_id и users.telegram_id). Раньше здесь
-        // читалась только первая, и оператор, у которого адрес записан в
-        // аккаунте человека, был для этого роута «неподключённым», хотя бронь
-        // из чата Кузьмича до него доезжала.
-        //
-        // Телефон и почта — на случай, когда канала у оператора нет вовсе:
-        // тогда заявку доносит человек, и ему нужно, чем звонить (issue #1719).
-        const [opRow, reach] = await Promise.all([
-          pool.query<{
-            name: string; uon_api_key: string | null;
-            phone: string | null; email: string | null;
-          }>(
-            `SELECT name, uon_api_key,
-                    contacts->>'phone' AS phone, contacts->>'email' AS email
-               FROM partners WHERE id = $1 LIMIT 1`,
-            [result.operatorId],
-          ),
-          reachForPartner(result.operatorId),
-        ]);
-        const op = opRow.rows[0];
-
-        // U-ON sync: if operator has API key, create request in their CRM
-        if (op?.uon_api_key) {
-          try {
-            const uonId = await createUonRequest(op.uon_api_key, {
-              tour_title:       result.tourTitle,
-              booking_date:     data.booking_date,
-              participants:     data.participants_count,
-              total_price:      result.totalPrice,
-              tourist_name:     data.tourist_name,
-              tourist_phone:    data.tourist_phone,
-              tourist_email:    data.tourist_email,
-              special_requests: data.special_requests,
-              operator_id:      result.operatorId,
-              booking_id:       String(result.bookingId),
-            });
-            if (uonId != null) {
-              await pool.query(
-                `UPDATE operator_bookings SET uon_request_id = $1, uon_synced_at = NOW() WHERE id = $2`,
-                [uonId, result.bookingId],
-              );
-            }
-          } catch (err) {
-            // Не фатально для брони, но у оператора своя CRM: не доехало —
-            // заявки в ней нет, и оператор работает по неполной картине.
-            console.error(
-              '[bookings/create] синк U-ON не прошёл, бронь',
-              String(result.bookingId),
-              err instanceof Error ? err.message : err,
-            );
-          }
-        }
-
-        await notifyNewBooking({
-          booking_id:                String(result.bookingId),
-          tour_title:                result.tourTitle,
-          tourist_name:              data.tourist_name,
-          tourist_phone:             data.tourist_phone,
-          tourist_email:             data.tourist_email,
-          booking_date:              data.booking_date,
-          participants:              data.participants_count,
-          final_price:               result.totalPrice,
-          operator_name:             op?.name ?? 'Оператор',
-          operator_telegram_chat_id: reach?.telegramChatId ?? undefined,
-          operator_max_chat_id:      reach?.maxChatId ?? undefined,
-          operator_phone:            op?.phone ?? null,
-          operator_email:            op?.email ?? null,
-          via:                       'website',
-        });
-
-        // Адреса нет ни одного — заявка легла в базу и никуда не поехала.
-        // Молчать об этом нельзя: Watchdog через 48 часов запишет это как
-        // «оператор игнорирует бронь», хотя оператору никто не писал (§4.0).
-        if (reach && !reach.reachable) {
-          console.error(
-            '[bookings/create] у оператора нет ни Telegram, ни MAX — заявка не отправлена, бронь',
-            String(result.bookingId),
-          );
-        }
-      } catch (err) {
-        // Не фатально для брони — она уже в базе, — но и не бесследно.
-        // Пустой catch здесь означал: заявка есть, оператор о ней не знает, и
-        // это неотличимо от «оператор знает и не отвечает». Первое чинит нас,
-        // второе — оператора; путать их дорого (§4.0).
-        console.error(
-          '[bookings/create] уведомление оператору не отправлено, бронь',
-          String(result.bookingId),
-          err instanceof Error ? err.message : err,
-        );
-      }
-    })();
+    // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ.
+    // Хвост общий с запросом мест (lib/bookings/notify-operator): копия этого
+    // кода во второй двери уже однажды осталась без уведомления оператору.
+    void notifyOperatorOfNewBooking({
+      bookingId:       result.bookingId,
+      operatorId:      result.operatorId,
+      tourTitle:       result.tourTitle,
+      date:            data.booking_date,
+      participants:    data.participants_count,
+      totalPrice:      result.totalPrice,
+      touristName:     data.tourist_name,
+      touristPhone:    data.tourist_phone,
+      touristEmail:    data.tourist_email,
+      specialRequests: data.special_requests,
+      via:             'website',
+    });
 
     // Email туристу — fire-and-forget, не блокирует ответ
     if (data.tourist_email) {

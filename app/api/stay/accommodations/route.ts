@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     const result = await query(
       `SELECT
         a.id, a.name, a.type, a.description, a.short_description, a.address,
-        a.location_zone, a.planner_zone, a.star_rating, a.total_rooms,
+        a.location_zone, a.planner_zone, a.external_booking_url, a.star_rating, a.total_rooms,
         a.check_in_time, a.check_out_time,
         a.price_per_night_from, a.price_per_night_to, a.currency,
         a.amenities, a.rating, a.review_count,

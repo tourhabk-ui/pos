@@ -193,6 +193,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     endpoint: 'channel-sync',
   },
   {
+    key: 'seat-requests-expire', label: 'Seat Requests Expire',
+    description: 'Запросы мест без ответа оператора за 2 часа → «оператор не ответил», сообщение туристу.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'ops', agentId: 'seat-requests-expire', triggerable: false,
+    endpoint: 'seat-requests-expire',
+  },
+  {
     key: 'support-escalate', label: 'Support Escalate',
     description: 'Эскалация зависших тикетов поддержки (>24ч).',
     workflow: 'cron-support-escalate.yml', cron: '0 */2 * * *', schedule: 'каждые 2 ч',
@@ -520,6 +527,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'llm-budget': 'unknown',
   'payments': 'unknown',
   'channel-sync': 'unknown',
+  // Ноль просроченных запросов мест — норма: операторы ответили вовремя или
+  // запросов не было. Поломка видна иначе — HTTP не 200 валит шаг сразу.
+  'seat-requests-expire': 'normal',
   'support-escalate': 'unknown',
   'route-escalation': 'unknown',
   'tour-reminder': 'unknown',

@@ -16,6 +16,16 @@
  *   partner_contact          — открыт контакт исполнителя (entityId = партнёр/тур)
  *   mchs_registration_start  — переход к регистрации маршрута в МЧС из плана
  *   offline_bundle_download  — скачан офлайн-пакет плана (GPX)
+ *   stay_search              — поиск жилья с условиями (entityId = канал и
+ *                              исход, lib/stay/demand.ts: web:found, agent:empty…)
+ *   stay_booking_start       — первое касание формы брони жилья (entityId = id объекта)
+ *   stay_external_booking    — переход на бронь на сайте самого объекта
+ *                              (entityId = id объекта, миграция 1109)
+ *
+ * Три последних — счётчик спроса на жильё (решение владельца 29.09): платить
+ * TravelLine за подключение (100 000 ₽ + минимум 200 000 ₽ в год) имеет смысл,
+ * только когда видно, что жильё ищут. В NSM они НЕ входят: «активированная
+ * поездка» определена стратегией 14.08, и расширять её молча нельзя.
  *
  * NSM «активированные поездки» = уникальные посетители за неделю с
  * planner_result_viewed И хотя бы одним действием исполнения (plan_saved,
@@ -32,6 +42,9 @@ export const FUNNEL_STEPS = [
   'partner_contact',
   'mchs_registration_start',
   'offline_bundle_download',
+  'stay_search',
+  'stay_booking_start',
+  'stay_external_booking',
 ] as const;
 
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];

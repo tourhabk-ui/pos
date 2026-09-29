@@ -86,6 +86,7 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     direct_contact: 'Телефон/мессенджер',
     api: 'API',
     agent: 'Агент платформы (за клиента)',
+    seat_request: 'Запрос мест из планера (вы подтвердили места)',
   };
 
   // Общая часть — без ПД: её видно в обоих каналах.

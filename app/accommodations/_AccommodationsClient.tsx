@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal, X, Building2 } from 'lucide-react';
 import { AccommodationCard } from '@/components/shared/AccommodationCard';
 import { AccommodationCardSkeleton } from '@/components/shared/AccommodationCardSkeleton';
 import { AccommodationFilters } from '@/components/shared/AccommodationFilters';
+import { funnelBeacon } from '@/lib/funnel/beacon';
+import { staySearchEntity, type StaySearchOutcome } from '@/lib/stay/demand';
 
 // Форма ответа GET /api/accommodations (camelCase — как отдаёт роут;
 // старый snake_case интерфейс не совпадал с API и листинг падал)
@@ -52,6 +54,25 @@ const DEFAULT_FILTERS: FiltersState = {
   checkIn: '',
   checkOut: '',
 };
+
+/**
+ * Задал ли посетитель хоть одно условие ПОИСКА — ровно те, что `load` уходит
+ * искать. Порядок сортировки — не условие: он меняет вид, а не то, что человек
+ * ищет. Условия здесь повторяют отбор параметров в `load` (тип — только когда
+ * выбран один; даты — только валидной парой): иначе выдача, в которой фильтр
+ * НЕ применён, считалась бы поиском. Первая загрузка витрины без условий
+ * поиском не считается — её уже посчитал просмотр страницы (page_views).
+ */
+function isSearch(f: FiltersState): boolean {
+  return f.type.length === 1
+    || f.priceMin > 0
+    || f.priceMax < 50000
+    || f.ratingMin > 0
+    || f.amenities.length > 0
+    || f.locationZone !== ''
+    || f.search.trim() !== ''
+    || (f.checkIn !== '' && f.checkOut !== '' && f.checkOut > f.checkIn);
+}
 
 export function AccommodationsClient() {
   const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
@@ -104,6 +125,21 @@ export function AccommodationsClient() {
     }
   }, [favMap, router]);
 
+  // Маяк спроса шлётся после паузы: каждая буква в поиске и каждый сдвиг
+  // ползунка цены — отдельная загрузка, но не отдельное намерение. Считается
+  // последний исход серии, а не каждый промежуточный (обзор 29.09).
+  const beaconTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const beaconPending = useRef<StaySearchOutcome | null>(null);
+  const flushBeacon = useCallback(() => {
+    if (beaconTimer.current) { clearTimeout(beaconTimer.current); beaconTimer.current = null; }
+    if (beaconPending.current) {
+      funnelBeacon('stay_search', staySearchEntity('web', beaconPending.current));
+      beaconPending.current = null;
+    }
+  }, []);
+  // Уход со страницы не теряет последний поиск серии.
+  useEffect(() => flushBeacon, [flushBeacon]);
+
   const load = useCallback(async (currentPage: number, currentFilters: FiltersState) => {
     setLoading(true);
     const p = new URLSearchParams();
@@ -123,6 +159,10 @@ export function AccommodationsClient() {
       p.set('check_out', currentFilters.checkOut);
     }
 
+    // Исход поиска для счётчика спроса на жильё (lib/stay/demand). По
+    // умолчанию 'failed': если витрина не ответила или ответила не тем, спрос
+    // был, а ответа не было — и это факт о нас, а не «ничего не нашлось».
+    let outcome: StaySearchOutcome = 'failed';
     try {
       const res = await fetch(`/api/accommodations?${p}`);
       if (res.ok) {
@@ -135,13 +175,21 @@ export function AccommodationsClient() {
         if (data.success && Array.isArray(data.data?.accommodations)) {
           const items = data.data.accommodations;
           setAccommodations(currentPage === 1 ? items : prev => [...prev, ...items]);
-          setTotal(data.data.pagination?.total ?? items.length);
+          const found = data.data.pagination?.total ?? items.length;
+          setTotal(found);
+          outcome = found > 0 ? 'found' : 'empty';
         }
       }
     } finally {
       setLoading(false);
+      // Считается поиск, а не «показать ещё», и только с условиями.
+      if (currentPage === 1 && isSearch(currentFilters)) {
+        beaconPending.current = outcome;
+        if (beaconTimer.current) clearTimeout(beaconTimer.current);
+        beaconTimer.current = setTimeout(flushBeacon, 1500);
+      }
     }
-  }, []);
+  }, [flushBeacon]);
 
   useEffect(() => {
     setPage(1);

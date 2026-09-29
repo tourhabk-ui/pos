@@ -38,6 +38,7 @@ interface AccommodationRow {
   moderation_reason: string | null;
   /** Зона планера (миграция 1031); null — не размечена. */
   planner_zone: string | null;
+  external_booking_url: string | null;
   rooms_count: string | number;
   pending_bookings: string | number;
 }
@@ -52,6 +53,8 @@ interface EditFormState {
   checkOutTime: string;
   /** '' — не размечена (старые объекты); снять разметку владелец не может. */
   plannerZone: ZoneId | '';
+  /** Бронь на своём сайте (миграция 1109); '' — нет. */
+  externalBookingUrl: string;
 }
 
 // null — «не указано», а не «0 ₽»: Number(null) равен нулю, и цена,
@@ -89,7 +92,7 @@ export default function AccommodationsClient() {
   const [form, setForm] = useState<EditFormState>({
     name: '', shortDescription: '', description: '',
     pricePerNightFrom: '', pricePerNightTo: '', checkInTime: '', checkOutTime: '',
-    plannerZone: '',
+    plannerZone: '', externalBookingUrl: '',
   });
 
   const load = useCallback(() => {
@@ -122,6 +125,7 @@ export default function AccommodationsClient() {
       checkInTime: toHHMM(item.check_in_time),
       checkOutTime: toHHMM(item.check_out_time),
       plannerZone: isZoneId(item.planner_zone) ? item.planner_zone : '',
+      externalBookingUrl: item.external_booking_url ?? '',
     });
   }
 
@@ -159,13 +163,17 @@ export default function AccommodationsClient() {
     if (form.checkInTime) payload.checkInTime = form.checkInTime;
     if (form.checkOutTime) payload.checkOutTime = form.checkOutTime;
     if (form.plannerZone) payload.plannerZone = form.plannerZone;
+    // Пустое поле — снять ссылку (сервер пишет NULL).
+    payload.externalBookingUrl = form.externalBookingUrl.trim();
 
     const ok = await patchAccommodation(editingId, payload, 'Не удалось сохранить изменения');
     if (ok) setEditingId(null);
   }
 
+  const externalUrlValid = form.externalBookingUrl.trim() === '' || /^https:\/\/\S+$/.test(form.externalBookingUrl.trim());
   const formValid = form.name.trim().length > 0 &&
-    (form.pricePerNightFrom === '' || Number(form.pricePerNightFrom) > 0);
+    (form.pricePerNightFrom === '' || Number(form.pricePerNightFrom) > 0) &&
+    externalUrlValid;
 
   return (
     <div className="p-5 lg:p-6 space-y-4">
@@ -301,6 +309,17 @@ export default function AccommodationsClient() {
                   {form.plannerZone === '' && <option value="">Не указана — выберите зону</option>}
                   {ZONE_IDS.map(z => <option key={z} value={z}>{ZONE_NAMES[z]}</option>)}
                 </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="ds-label" htmlFor={`ext-${item.id}`}>Бронь на вашем сайте (необязательно)</label>
+                <input id={`ext-${item.id}`} className="ds-input" type="url" inputMode="url" placeholder="https://…"
+                  value={form.externalBookingUrl} onChange={e => setForm({ ...form, externalBookingUrl: e.target.value })} />
+                {!externalUrlValid && (
+                  <p className="text-xs text-[var(--danger)] mt-1" role="alert">Ссылка должна начинаться с https://</p>
+                )}
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Если номера и цены вы ведёте в своей системе брони, укажите ссылку — туристы перейдут туда с кнопки «Забронировать на сайте отеля». Замена ссылки на другую отправляет объект на повторную проверку; снять ссылку можно без проверки.
+                </p>
               </div>
               <div>
                 <label className="ds-label">Заезд с</label>

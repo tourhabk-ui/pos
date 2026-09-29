@@ -38,7 +38,9 @@ const code = (src: string) =>
  * Список закрытый намеренно — новый читатель обязан попасть сюда осознанно.
  */
 const READERS: Array<[string, string]> = [
-  ['бронь с сайта',        'app/api/hub/bookings/create/route.ts'],
+  // С 29.09 адрес оператора для брони с сайта и из запроса мест читает
+  // общий хвост уведомления; сама веб-форма его больше не спрашивает.
+  ['бронь с сайта',        'lib/bookings/notify-operator.ts'],
   ['бронь из чата',        'lib/kuzmich/core.ts'],
   ['напоминание о оплате', 'app/api/cron/abandoned-bookings/route.ts'],
   ['watchdog',             'lib/agents/watchdog.ts'],
@@ -130,7 +132,7 @@ describe('читатели денежного пути спрашивают об
 
 describe('недостижимость не выдаётся за молчание оператора', () => {
   it('бронь с сайта: нет ни одного адреса — это пишется в лог', () => {
-    const c = code(read('app/api/hub/bookings/create/route.ts'));
+    const c = code(read('lib/bookings/notify-operator.ts'));
     expect(c).toMatch(/reach\s*&&\s*!reach\.reachable/);
   });
 

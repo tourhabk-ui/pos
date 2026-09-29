@@ -41,7 +41,9 @@ describe('доставка заявки оператору: три исхода'
   });
 
   it('телефон и почта оператора действительно запрашиваются из профиля', () => {
-    const create = strip(read('app/api/hub/bookings/create/route.ts'));
+    // Запрос профиля с 29.09 живёт в общем хвосте уведомления оператору
+    // (lib/bookings/notify-operator) — его зовут веб-форма и запрос мест.
+    const create = strip(read('lib/bookings/notify-operator.ts'));
     expect(create).toMatch(/contacts->>'phone' AS phone/);
     expect(create).toMatch(/operator_phone:/);
   });

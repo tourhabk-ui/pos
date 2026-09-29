@@ -5,10 +5,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   MapPin, Star, Clock, BedDouble, Users, ShieldCheck, Sparkles,
-  ChevronLeft, Wifi,
+  ChevronLeft, Wifi, ExternalLink,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
+import { funnelBeacon } from '@/lib/funnel/beacon';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
 import { ACCOMMODATION_TYPE_LABELS, AccommodationType } from '@/lib/stay/accommodation-types';
 
@@ -43,7 +44,8 @@ interface SimilarItem {
   name: string;
   type: string;
   address: string;
-  pricePerNight: number;
+  /** null — цену не называли. */
+  pricePerNight: number | null;
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;
   image: string | null;
@@ -58,8 +60,11 @@ interface AccommodationDetail {
   starRating: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
-  pricePerNight: { from: number; to: number | null };
+  /** from: null — цену не называли (объект с бронью на своём сайте). */
+  pricePerNight: { from: number | null; to: number | null };
   amenities: string[];
+  /** Бронь на сайте самого объекта (миграция 1109); null — нет. */
+  externalBookingUrl: string | null;
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;
   reviewCount: number;
@@ -215,14 +220,44 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
           </div>
         )}
 
-        {/* Номера */}
-        <h2 className="ds-h2 mb-4">Номера и цены</h2>
-        {data.rooms.length === 0 ? (
-          <div className="ds-card p-6 mb-8 text-center">
+        {/* Бронь на сайте объекта (29.09): живые цены и свободные даты там,
+            где объект их ведёт. Переход считается — это довод в решении,
+            подключать ли поставщика (счётчик спроса, lib/stay/demand). */}
+        {data.externalBookingUrl && (
+          <div className="ds-card p-5 mb-8 space-y-3">
             <p className="text-sm text-[var(--text-secondary)]">
-              Владелец ещё не добавил номера — цена от {formatMoney(data.pricePerNight.from)} ₽/ночь, бронирование через оператора платформы.
+              Номера, цены и свободные даты — на сайте объекта: там же бронь и оплата.
             </p>
+            <a
+              href={data.externalBookingUrl}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              onClick={() => funnelBeacon('stay_external_booking', data.id)}
+              className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2"
+            >
+              Забронировать на сайте отеля
+              <ExternalLink className="w-4 h-4" />
+            </a>
           </div>
+        )}
+
+        {/* Номера. Есть ссылка на бронь на сайте объекта — она ЕДИНСТВЕННЫЙ путь
+            брони: два пути («там же бронь и оплата» и форма ниже) противоречили
+            бы друг другу, а цены в наших номерах и на сайте объекта могут
+            расходиться (обзор 29.09). */}
+        {!data.externalBookingUrl && (
+          <h2 className="ds-h2 mb-4">Номера и цены</h2>
+        )}
+        {data.externalBookingUrl ? null : data.rooms.length === 0 ? (
+          (
+            <div className="ds-card p-6 mb-8 text-center">
+              <p className="text-sm text-[var(--text-secondary)]">
+                {data.pricePerNight.from != null
+                  ? <>Владелец ещё не добавил номера — цена от {formatMoney(data.pricePerNight.from)} ₽/ночь, бронирование через оператора платформы.</>
+                  : <>Владелец ещё не добавил номера и не назвал цену — бронирование через оператора платформы.</>}
+              </p>
+            </div>
+          )
         ) : (
           <div className="space-y-3 mb-8">
             {data.rooms.map(room => (
@@ -253,7 +288,7 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
         )}
 
         {/* Бронирование */}
-        {data.rooms.length > 0 && (
+        {!data.externalBookingUrl && data.rooms.length > 0 && (
           <>
             <h2 className="ds-h2 mb-4">Забронировать</h2>
             <div className="mb-8">
@@ -306,7 +341,7 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
                   <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{item.name}</p>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5 truncate">{item.address}</p>
                   <p className="text-xs text-[var(--text-primary)] mt-1 font-medium">
-                    от {formatMoney(item.pricePerNight)} ₽/ночь
+                    {item.pricePerNight != null ? `от ${formatMoney(item.pricePerNight)} ₽/ночь` : 'цена у объекта'}
                   </p>
                 </Link>
               ))}

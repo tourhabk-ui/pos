@@ -13,10 +13,20 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) },
 }));
 
+// Счётчик спроса (lib/stay/demand-record) пишет своим INSERT — здесь он
+// подменён, чтобы не вклиниваться в очередь ответов pool; его исход проверяется
+// отдельно в конце файла.
+const recordMock = vi.fn<(outcome: string) => Promise<void>>();
+vi.mock('@/lib/stay/demand-record', () => ({
+  recordAgentStaySearch: (outcome: string) => recordMock(outcome),
+}));
+
 import { searchAccommodationsForKuzmich } from '@/lib/kuzmich/accommodation-search';
 
 beforeEach(() => {
   poolQueryMock.mockReset();
+  recordMock.mockReset();
+  recordMock.mockResolvedValue(undefined);
 });
 
 describe('searchAccommodationsForKuzmich', () => {
@@ -100,3 +110,28 @@ describe('searchAccommodationsForKuzmich', () => {
     expect(out).toContain('/accommodations/a1');
   });
 });
+
+describe('счётчик спроса на жильё (29.09)', () => {
+  it('нашли — исход found, ровно одна запись', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{ id: 'a1', name: 'Лагуна', type: 'hotel', address: null, location_zone: 'Паратунка', price_per_night_from: '9000', rating: null }] });
+    await searchAccommodationsForKuzmich({ zone: 'Паратунка' });
+    expect(recordMock.mock.calls).toEqual([['found']]);
+  });
+
+  it('пусто — исход empty, и с условиями, и без', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [] });
+    await searchAccommodationsForKuzmich({});
+    poolQueryMock.mockResolvedValue({ rows: [] });
+    await searchAccommodationsForKuzmich({ zone: 'Паратунка' });
+    expect(recordMock.mock.calls).toEqual([['empty'], ['empty']]);
+  });
+
+  it('витрина не ответила — исход failed, а не empty (§4.0)', async () => {
+    poolQueryMock.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await searchAccommodationsForKuzmich({ zone: 'Паратунка' });
+    errSpy.mockRestore();
+    expect(recordMock.mock.calls).toEqual([['failed']]);
+  });
+});
+

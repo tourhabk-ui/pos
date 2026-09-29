@@ -180,6 +180,19 @@ export default async function FishDetailPage({ params }: Props) {
               перечисляет чавычу-нерку-кижуча — а страницы описаний у нас есть,
               открытие логично). Текущий вид исключён — сам на себя не ссылаемся. */}
           <section>
+            {species.image && (
+              <figure className="mb-6 rounded-lg overflow-hidden bg-[var(--bg-card)] border border-[var(--border)]">
+                {/* eslint-disable-next-line @next/next/no-img-element -- images.unoptimized, статичный файл из public */}
+                <img
+                  src={species.image.src}
+                  alt={species.image.alt}
+                  width={1000}
+                  height={500}
+                  loading="eager"
+                  className="w-full h-auto"
+                />
+              </figure>
+            )}
             <DescriptionWithFishLinks
               paragraphs={[species.shortDesc]}
               excludeId={species.id}

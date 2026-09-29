@@ -90,6 +90,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   // снимки по id места; ПД нет, метод один.
   '/api/images': ['GET'],
   '/api/analytics/hit': ['POST'],    // трекинг просмотров страниц (без авторизации)
+  '/api/seat-requests': ['GET', 'POST'], // запрос свободных мест (29.09): турист без аккаунта; статус — по ключу статуса, ответ оператора — по подписи (lib/seat-requests/core), rate-limit внутри
   '/api/funnel': ['POST'],           // маяк воронки — публичный by design (rate-limit + bot-detect внутри); Edge молча резал его 401, и funnel_events был пуст для всех гостей (сквозной прогон 14.08)
   '/api/payments/webhook': ['POST'],                    // CloudPayments webhook — HMAC validated inside
   '/api/payments/tochka/webhook': ['POST'],             // СБП-вебхук Точки — факт оплаты подтверждается обратным запросом в банк

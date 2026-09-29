@@ -253,11 +253,15 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'scout-digest': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'scout-relay-check': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'scout-study': ['db_read', 'db_write', 'net_out', 'ai'],
+  // Запрос мест (29.09): закрывает просроченные и пишет туристу в его мессенджер
+  // (Telegram или MAX) — без ПД, только исход запроса.
+  'seat-requests-expire': ['db_read', 'db_write', 'net_out', 'telegram'],
   'smart-notify': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'sos-census': ['db_read', 'pd_direct'],
   'sos-events-bridge': ['db_read', 'db_write'],
   'source-probe': ['net_out'],
   'sql-shape-check': ['db_read', 'db_write'],
+  'stay-demand-census': ['db_read'],
   'ssr-sentinel': ['net_out', 'telegram', 'pd_direct'],
   'support-escalate': ['db_read', 'db_write', 'net_out', 'telegram'],
   // 'ai' снят 19.09 вместе с MTProto: возможность была ТРАНЗИТИВНОЙ — watchdog

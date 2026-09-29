@@ -57,7 +57,10 @@ async function logStatusChange(
   bookingId: string,
   fromStatus: BookingStatus,
   toStatus: BookingStatus,
-  changedBy: string,
+  // null — перевод сделал не человек платформы: оператор нажал кнопку в
+  // мессенджере (запрос мест, lib/seat-requests). booking_logs.changed_by —
+  // ссылка на users, а у оператора из мессенджера аккаунта может не быть.
+  changedBy: string | null,
   comment?: string
 ): Promise<void> {
   await client.query(
@@ -104,7 +107,7 @@ function normalizeLogRow(row: Record<string, unknown>): BookingLogEntry {
     bookingId: String(row.booking_id),
     fromStatus: String(row.from_status) as BookingStatus,
     toStatus: String(row.to_status) as BookingStatus,
-    changedBy: String(row.changed_by),
+    changedBy: row.changed_by != null ? String(row.changed_by) : null,
     comment: row.comment ? String(row.comment) : null,
     createdAt: new Date(String(row.created_at)),
   };
@@ -147,6 +150,12 @@ const BOOKING_SELECT = `
   LEFT JOIN users u ON b.user_id = u.id
   WHERE b.deleted_at IS NULL
 `;
+// Запирается ТОЛЬКО строка брони: `FOR UPDATE OF b`. Голый `FOR UPDATE` на
+// этом запросе PostgreSQL отвергает всегда — 0A000 «FOR UPDATE cannot be
+// applied to the nullable side of an outer join» (оба JOIN левые). До 29.09
+// так стояло в confirmBooking, cancelBooking и completeBooking: юниты с моком
+// pool их пропускали, а настоящая база не выполняла ни одного. Найдено
+// прогоном запроса мест (lib/seat-requests) на PostgreSQL 16.
 
 // ========================================
 // Публичный API сервиса
@@ -162,11 +171,12 @@ const BOOKING_SELECT = `
  */
 export async function confirmBooking(
   bookingId: string,
-  operatorId: string
+  operatorId: string | null,
+  comment: string = 'Бронирование подтверждено оператором',
 ): Promise<BookingWithDetails> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE OF b`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -187,7 +197,7 @@ export async function confirmBooking(
     // operator_bookings.departure_id не заполняет ни один поток — старый
     // UPDATE был вечным no-op (модель отправлений полу-мёртвая, см. бэклог).
 
-    await logStatusChange(client, bookingId, currentStatus, 'confirmed', operatorId, 'Бронирование подтверждено оператором');
+    await logStatusChange(client, bookingId, currentStatus, 'confirmed', operatorId, comment);
 
     const updated = await client.query(
       `${BOOKING_SELECT} AND b.id = $1`,
@@ -234,7 +244,7 @@ export async function cancelBooking(
 ): Promise<{ booking: BookingWithDetails; refund: RefundResult | null }> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE OF b`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -470,7 +480,7 @@ export async function completeBooking(
 ): Promise<BookingWithDetails> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE OF b`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -534,7 +544,7 @@ export async function getBookingForUser(
   userId: string
 ): Promise<BookingWithDetails | null> {
   const result = await query(
-    `${BOOKING_SELECT} WHERE b.id = $1 AND b.user_id = $2`,
+    `${BOOKING_SELECT} AND b.id = $1 AND b.user_id = $2`,
     [bookingId, userId]
   );
   if (result.rows.length === 0) {
