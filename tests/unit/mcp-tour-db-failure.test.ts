@@ -63,3 +63,18 @@ describe('create_booking_request: отказ базы — не «тур не н�
     expect(json.result.content[0].text).not.toMatch(/не найден/);
   });
 });
+
+// Проверка MCP 29.09 (T6): «расписания нет» ≠ «мест нет».
+describe('get_tour_availability: тур без расписания — не «мест нет»', () => {
+  it('нет календаря — места уточняются у оператора, путь через create_booking_request', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [{ id: 7, title: 'Тур без календаря', operator_id: 'op', base_price: 5000, price_unit: 'person' }] };
+      if (/SELECT EXISTS/.test(sql)) return { rows: [{ has: false }] };
+      return { rows: [] };
+    });
+    const text = await executeKuzmichTool('get_tour_availability', { tour: '7' });
+    expect(text).toMatch(/расписания в системе нет/);
+    expect(text).toMatch(/create_booking_request/);
+    expect(text).not.toMatch(/реальная занятость из броней/);
+  });
+});

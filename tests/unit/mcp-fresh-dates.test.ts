@@ -25,9 +25,19 @@ describe('get_tours: даты из живой занятости', () => {
 
   it('ближайшая дата — из tour_availability, не из статической колонки', () => {
     expect(block).toMatch(/FROM tour_availability ta/);
-    expect(block).toMatch(/ta\.date >= CURRENT_DATE/);
+    // «Сегодня» — по Камчатке (проверка MCP 29.09), не по поясу сессии БД.
+    expect(block).toMatch(/ta\.date >= \(NOW\(\) AT TIME ZONE 'Asia\/Kamchatka'\)::date/);
+    expect(block).not.toMatch(/CURRENT_DATE/);
     expect(block).toMatch(/COALESCE\(ta\.is_cancelled, false\) = false/);
     expect(block).not.toMatch(/ot\.next_available_date/);
+  });
+
+  // Проверка MCP 29.09 (T6): тур без календаря печатался «Мест: нет
+  // свободных» — агент не доходил до запроса мест оператору.
+  it('«расписания нет» отличается от «мест нет»', () => {
+    expect(block).toMatch(/\) AS has_schedule/);
+    const core = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf-8');
+    expect(core).toMatch(/r\.has_schedule === false\s*\? ' \| Расписания в системе нет/);
   });
 
   it('места — свободные на этот слот, не статический счётчик тура', () => {

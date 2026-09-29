@@ -11,6 +11,8 @@
 
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourKeepsSchedule } from '@/lib/seat-requests/service';
+import { getPublicBaseUrl } from '@/lib/config';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
@@ -101,8 +103,27 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
   try {
     const slots = await fetchAvailabilityForTour(String(tour.id), from, to, createPlannerCache());
     if (slots.length === 0) {
-      return `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${shortDate(from)} по ${shortDate(to)} нет. ` +
-        'Это реальная занятость из броней — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.';
+      // «Мест нет» — только когда расписание есть и места разобраны. Тур без
+      // календаря (оператор берёт без него) — иной случай: места уточняются у
+      // оператора, и create_booking_request отправит ему запрос. До 29.09 оба
+      // звучали «реальная занятость из броней», и агент до запроса не доходил.
+      const keeps = await tourKeepsSchedule(Number(tour.id));
+      if (keeps === false) {
+        return [...notes,
+          `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — оператор берёт туристов без календаря. `
+          + 'Это не «мест нет»: места уточняются у оператора. create_booking_request с датой отправит ему запрос в мессенджер, ответ — до 2 часов.',
+        ].join('\n');
+      }
+      if (keeps === null) {
+        return [...notes,
+          `Тур "${tour.title}" (ID${tour.id}): свободных дат с ${shortDate(from)} по ${shortDate(to)} не нашёл, а проверить, ведёт ли тур расписание, не смог. `
+          + 'Не утверждай, что мест нет, — предложи уточнить у оператора или повторить позже.',
+        ].join('\n');
+      }
+      return [...notes,
+        `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${shortDate(from)} по ${shortDate(to)} нет. `
+        + 'Это реальная занятость из броней — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.',
+      ].join('\n');
     }
     const SHOWN = 12;
     const lines = slots.slice(0, SHOWN).map((s) => {
@@ -120,7 +141,9 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость из броней):`,
       ...lines,
       ...more,
-      `Бронь на странице: /catalog/tours/${tour.id}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
+      // Ссылка — полным адресом: относительная у внешнего агента никуда не
+      // ведёт (проверка MCP 29.09).
+      `Бронь на странице: ${getPublicBaseUrl()}/catalog/tours/${tour.id}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
     ].join('\n');
   } catch (err) {
     const e = err as { code?: string; message?: string };

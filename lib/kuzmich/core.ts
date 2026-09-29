@@ -198,6 +198,8 @@ interface TourContextRow {
   operator_name: string | null;
   available_slots: number | null;
   next_available_date: string | null;
+  /** Есть ли у тура будущие даты в календаре; нет — места спрашивают оператора. */
+  has_schedule?: boolean;
   short_description: string | null;
   has_details: boolean | null;
 }
@@ -451,6 +453,17 @@ export async function loadTourCatalog(): Promise<string | null> {
                COALESCE(live.free_slots, 0) AS available_slots,
                live.next_date::text AS next_available_date,
                ot.short_description,
+               -- «Расписания нет» ≠ «мест нет»: оператор берёт туристов без
+               -- календаря, и честный ответ — спросить его (tourKeepsSchedule,
+               -- то же правило). До 29.09 оба случая печатались «Мест: нет
+               -- свободных», и агент не доходил до запроса мест (проверка MCP).
+               EXISTS (
+                 SELECT 1 FROM tour_availability ta0
+                  WHERE ta0.operator_tour_id = ot.id
+                    AND ta0.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+                    AND ta0.is_cancelled = FALSE
+                    AND ta0.deleted_at IS NULL
+               ) AS has_schedule,
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                p.name AS operator_name
@@ -468,11 +481,13 @@ export async function loadTourCatalog(): Promise<string | null> {
            CROSS JOIN LATERAL (
              ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
            ) occ
+           -- «Сегодня» — по Камчатке: пояс сессии БД не задан, и по UTC
+           -- полсуток каталог называл ближайшей датой уже прошедший там день.
            WHERE ta.operator_tour_id = ot.id
-             AND ta.date >= CURRENT_DATE
+             AND ta.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
              AND COALESCE(ta.is_cancelled, false) = false
              AND ta.deleted_at IS NULL
-             AND ta.date <= CURRENT_DATE + INTERVAL '1 year'
+             AND ta.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
              AND ${freeSlotsSql('ta', 'ot', 'occ.taken')} > 0
            ORDER BY ta.date
            LIMIT 1
@@ -494,9 +509,11 @@ export async function loadTourCatalog(): Promise<string | null> {
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
-      const slots = r.available_slots != null
-        ? ` | Мест: ${r.available_slots > 0 ? r.available_slots : 'нет свободных'}`
-        : '';
+      const slots = r.has_schedule === false
+        ? ' | Расписания в системе нет — места уточняются у оператора (create_booking_request отправит ему запрос)'
+        : r.available_slots != null
+          ? ` | Мест: ${r.available_slots > 0 ? r.available_slots : 'нет свободных'}`
+          : '';
       const nextDate = r.next_available_date
         ? ` | Ближайшая дата: ${new Date(r.next_available_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
         : '';
