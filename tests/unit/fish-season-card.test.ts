@@ -15,6 +15,29 @@ import { detectFishSpecies, FISH_SPECIES, MONTH_SHORT } from '@/lib/fish-species
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
+describe('голец в именительном падеже находится (замер на проде 29.09)', () => {
+  it('«голец» — как в описаниях туров «Камчатской рыбалки»', () => {
+    // Дословная форма с карточек: «Зимняя рыбалка: … голец, микижа».
+    expect(detectFishSpecies('Ловим голец и микижу со льда').map(s => s.id)).toContain('golets');
+    expect(detectFishSpecies('Голец, хариус — круглый год').map(s => s.id)).toContain('golets');
+    // Косвенные формы, как и прежде.
+    expect(detectFishSpecies('на гольца').map(s => s.id)).toContain('golets');
+  });
+
+  it('граница слова — не ASCII-\\b: после кириллицы он не срабатывает никогда', () => {
+    // `/голец\b/` не находил «голец» ни в одном тексте: для \b в JavaScript
+    // кириллица — не буквы. Любой такой шаблон молча мёртв.
+    const dead = FISH_SPECIES.flatMap(sp =>
+      sp.patterns.filter(p => /[а-яё]\\b/i.test(p.source)).map(p => `${sp.id}: ${p.source}`),
+    );
+    expect(dead, `шаблоны с ASCII-\\b после кириллицы: ${dead.join(', ')}`).toEqual([]);
+  });
+
+  it('граница всё ещё граница: «гольцовый» не читается как «голец»', () => {
+    expect(detectFishSpecies('голецкий ключ').map(s => s.id)).not.toContain('golets');
+  });
+});
+
 describe('detectFishSpecies: связка тур → рыба', () => {
   it('находит виды по падежам в живом тексте тура', () => {
     const ids = detectFishSpecies(
