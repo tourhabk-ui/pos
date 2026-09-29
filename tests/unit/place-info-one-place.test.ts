@@ -100,3 +100,22 @@ describe('get_place_info: факты впереди текста (внешняя
     expect(src).toMatch(/LEFT JOIN location_safety_profile lsp ON lsp\.agent_route_id = p\.ark_id/);
   });
 });
+
+describe('скрытое место координату не называет (проверка MCP 29.09)', () => {
+  // 947: «Озеро Овальное» скрыто за точку в 3 км от центра города вместо
+  // подножия Авачинского. get_place_info уходит в MCP — чужой ИИ повторил бы
+  // эту точку туристу.
+  it('is_visible=false — ни одной цифры координаты, прямо сказано почему', async () => {
+    const { placeFactLines } = await import('@/lib/kuzmich/place-info-tool');
+    const lines = placeFactLines({ name: 'Озеро Овальное', description: null, category: 'lake', district: null, is_visible: false, lat: 53.0203, lng: 158.6441 });
+    const text = lines.join('\n');
+    expect(text).not.toMatch(/53\.02|158\.64/);
+    expect(text).toMatch(/не называем — место снято с сайта/);
+  });
+  it('видимое место — координаты как раньше', async () => {
+    const { placeFactLines } = await import('@/lib/kuzmich/place-info-tool');
+    const lines = placeFactLines({ name: 'Вулкан Горелый', description: null, category: 'volcano', district: null, is_visible: true, lat: 52.58046, lng: 158.08914 });
+    expect(lines.join('\n')).toMatch(/Координаты: 52\.58046, 158\.08914/);
+  });
+});
+
