@@ -245,12 +245,16 @@ describe('getGuardianContext — чистка контекста (#63, проб�
     expect(ctx.split('Общерегиональный алерт').length - 1).toBe(1);
   });
 
-  it('запрос знаний исключает служебные оценки ответов (type outcome)', async () => {
+  // С 29.09 — разрешённым списком: запрет одного outcome пропускал
+  // search_result и auto_gap с вопросами туристов в заголовке.
+  it('запрос знаний берёт только курируемые роды — без оценок и вопросов туристов', async () => {
     mockDb({ places: [{ ...placeBase, name: 'Вулкан Авачинский', active_alerts: null }] });
     await getGuardianContext('Авачинский');
     const kbCall = mockQuery.mock.calls.find(([sql]) => (sql as string).includes('FROM agent_knowledge'));
     expect(kbCall).toBeDefined();
-    expect(kbCall![0]).toMatch(/type <> 'outcome'/);
+    const sql = kbCall![0] as string;
+    expect(sql).toMatch(/type IN \('place', 'faq', 'transport', 'indigenous'\)/);
+    for (const hidden of ['outcome', 'search_result', 'auto_gap']) expect(sql).not.toContain(`'${hidden}'`);
   });
 });
 

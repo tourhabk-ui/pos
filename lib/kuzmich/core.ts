@@ -36,6 +36,8 @@ import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
+import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { redactPII } from '@/lib/security/pii-redact';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -523,14 +525,10 @@ async function buildEnrichment(): Promise<string> {
     pool.query<{ title: string; compiled_truth: string }>(`
         SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
         FROM agent_knowledge
-        WHERE agent_id = 'kuzmich'
-          -- type <> 'outcome': оценки ответов Кузьмича — служебная телеметрия
-          -- качества, а не знание о крае. Пятьдесят самых свежих записей идут
-          -- в контекст промпта; без этого условия туда попадали строки вида
-          -- «Оценка ответа: 6/10. Проблемы: неполная информация о ценах».
-          -- Тот же фильтр давно стоит в guardian-context (проба 113, 15.08);
-          -- здесь его забыли, и обе копии разошлись молча.
-          AND type <> 'outcome'
+        -- Разрешённый список родов (lib/kuzmich/knowledge-scope): пятьдесят
+        -- свежих записей идут в промпт КАЖДОГО чата, и запрет одного outcome
+        -- пропускал сюда search_result с сообщениями туристов дословно.
+        WHERE ${KUZMICH_KNOWLEDGE_SCOPE_SQL}
         ORDER BY updated_at DESC
         LIMIT 50
       `),
@@ -1862,7 +1860,11 @@ function needsPreemptiveSearch(text: string): boolean {
   return PREEMPTIVE_PATTERNS.some(p => p.test(text));
 }
 
-async function saveSearchResultToKB(query: string, result: string): Promise<void> {
+async function saveSearchResultToKB(rawQuery: string, result: string): Promise<void> {
+  // Запрос — это сообщение туриста как есть (userContent): телефон и почта в
+  // заголовок и slug не ложатся. Наружу этот род не отдаётся вовсе
+  // (lib/kuzmich/knowledge-scope), чистка — вторая стена, для хранения.
+  const query = redactPII(rawQuery);
   const slug = `auto_${query.toLowerCase()
     .replace(/[^a-zа-яё0-9]/gi, '_')
     .replace(/_+/g, '_')
@@ -1872,7 +1874,10 @@ async function saveSearchResultToKB(query: string, result: string): Promise<void
      VALUES($1,'search_result',$2,$3,'kuzmich',0,NOW(),NOW())
      ON CONFLICT(slug) DO NOTHING`,
     [slug, query.slice(0, 100), `${result.slice(0, 500)}\n[Веб-поиск, ${new Date().toLocaleDateString('ru-RU')}]`],
-  ).catch(() => {});
+  ).catch((err: unknown) => {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[kuzmich] результат поиска не сохранён:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+  });
 }
 
 // ── Level 2: Tool use ────────────────────────────────────────────────────────

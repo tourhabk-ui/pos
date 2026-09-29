@@ -7,6 +7,7 @@ import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { containsPattern } from '@/lib/db/like';
+import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 
 interface GuardianPlaceRow {
   name: string;
@@ -283,18 +284,16 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       [containsPattern(placeName)],
     ),
     pool.query<KnowledgeRow>(
-      // type <> 'outcome': оценки ответов Кузьмича (kuzmich-outcomes) — служебная
-      // телеметрия качества, не знание о месте. Запись «Оценка ответа: 6/10...»
-      // совпадала по ILIKE с названием места и уходила туристу (проба 113, 15.08).
+      // Роды — разрешённым списком (lib/kuzmich/knowledge-scope). Запрет одного
+      // outcome (проба 113, 15.08) пропускал search_result и auto_gap, у
+      // которых заголовок — вопрос туриста дословно: place='+79' отдавал
+      // анонимному MCP-клиенту до пяти чужих сообщений (проверка 29.09).
       `SELECT title, compiled_truth, type
        FROM agent_knowledge
-       WHERE agent_id = 'kuzmich'
-         AND type <> 'outcome'
+       WHERE ${KUZMICH_KNOWLEDGE_SCOPE_SQL}
          AND (title ILIKE $1 OR compiled_truth ILIKE $1)
        ORDER BY
-         CASE WHEN type = 'indigenous' THEN 1
-              WHEN type = 'auto_gap' THEN 2
-              ELSE 3 END,
+         CASE WHEN type = 'indigenous' THEN 1 ELSE 2 END,
          updated_at DESC
        LIMIT 5`,
       [containsPattern(placeName)],

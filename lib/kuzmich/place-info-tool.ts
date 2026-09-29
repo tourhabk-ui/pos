@@ -33,6 +33,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { containsPattern } from '@/lib/db/like';
+import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 
 export interface PlaceRow {
   name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null;
@@ -158,10 +159,11 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
     ),
     pool.query<NoteRow>(
       // Только по заголовку: упоминание места в чужой заметке — не заметка о
-      // нём. type <> 'outcome' — служебные оценки ответов туристу не отдаются
-      // (20.09: «Оценка ответа: 6/10» ушла ответом про озеро).
+      // нём. Роды — разрешённым списком (lib/kuzmich/knowledge-scope): у
+      // search_result заголовок — сообщение туриста, и get_place_info с
+      // name='меня зовут' отдавал его анонимному MCP-клиенту (проверка 29.09).
       `SELECT title, compiled_truth FROM agent_knowledge
-        WHERE agent_id='kuzmich' AND type <> 'outcome' AND title ILIKE $1
+        WHERE ${KUZMICH_KNOWLEDGE_SCOPE_SQL} AND title ILIKE $1
         LIMIT 3`,
       [containsPattern(placeName)],
     ),
