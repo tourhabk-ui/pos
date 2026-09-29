@@ -10,6 +10,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { getPublicBaseUrl } from '@/lib/config';
+import { recordAgentStaySearch } from '@/lib/stay/demand-record';
 
 export interface AccommodationSearchArgs {
   zone?: string;
@@ -61,8 +62,14 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
     // о витрине, и турист принял бы решение по несуществующему ответу.
     const code = (err as { code?: string }).code ?? 'нет кода';
     console.error(`[search_accommodations] запрос к accommodations не выполнен, SQLSTATE=${code}`);
+    // Спрос был, ответа не было: исход 'failed', а не 'empty' (lib/stay/demand).
+    await recordAgentStaySearch('failed');
     return `Не смог посмотреть витрину жилья — база не ответила. Это отказ проверки, а не «жилья нет». Попробуйте позже или откройте ${base}/accommodations.`;
   }
+
+  // Счётчик спроса на жильё (29.09): каждый поиск агента — сигнал, пустой
+  // тем более. Пустой ответ на спрос и есть довод «подключать поставщика».
+  await recordAgentStaySearch(rows.length > 0 ? 'found' : 'empty');
 
   if (rows.length === 0) {
     // Разные пустоты — разные ответы.

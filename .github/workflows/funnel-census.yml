@@ -19,6 +19,13 @@ name: Перепись воронки — доходит ли заявка до 
 # operator-reach объявлены `writes: false`, а beacon-check делает свой INSERT
 # в транзакции с гарантированным откатом — строка не остаётся по построению, а
 # не по удаче.
+#
+# Четвёртая (29.09) — перепись спроса на жильё, stay-demand-census: ищут ли у
+# нас жильё, что находят, начинают ли бронь. Повод — решение о TravelLine:
+# подключение стоит 100 000 ₽ и минимум 200 000 ₽ в год, и платить это стоит
+# только при видимом спросе. Тоже только чтение. Красным прогон она не красит
+# НИКОГДА: пустой спрос виноват не кодом (тот же довод, что у пустой воронки);
+# отказ самой переписи — жёлтый «не спросили».
 
 on:
   workflow_dispatch:
@@ -58,7 +65,7 @@ jobs:
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 
-      - name: Три переписи воронки
+      - name: Переписи воронки и спроса на жильё
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -78,6 +85,7 @@ jobs:
           ask funnel   "/api/cron/funnel-census?days=14"
           ask reach    "/api/cron/operator-reach"
           ask beacon   "/api/cron/beacon-check"
+          ask stay     "/api/cron/stay-demand-census?days=30"
 
           python3 - <<'PY'
           import json, sys
@@ -88,7 +96,7 @@ jobs:
               except Exception:
                   return {}
 
-          funnel, reach, beacon = load('funnel'), load('reach'), load('beacon')
+          funnel, reach, beacon, stay = load('funnel'), load('reach'), load('beacon'), load('stay')
           red, unknown = [], []
 
           # ── 1. Доходит ли заявка до оператора ─────────────────────────────
@@ -150,6 +158,36 @@ jobs:
                   unknown.append('входы воронки не сосчитаны: %s' % funnel.get('unknown_inputs'))
               elif state == 'insufficient_sample':
                   print('  судить рано — выборка мала, это НЕ «всё хорошо»')
+
+          # ── 4. Спрос на жильё ─────────────────────────────────────────────
+          # Довод к решению о TravelLine, а не приговор: порог окупаемости
+          # зависит от комиссии отеля, которую никто не называл (§4.0).
+          print()
+          print('=== СПРОС НА ЖИЛЬЁ (30 дней) ===')
+          if not stay:
+              print('  не спросили')
+              unknown.append('stay-demand-census не ответила')
+          else:
+              sup = stay.get('supply') or {}
+              print('  на витрине объектов:', sup.get('listings'), '| номеров:', sup.get('rooms'))
+              v = stay.get('views') or {}
+              print('  каталог: просмотров', v.get('list_views'), '/ людей', v.get('list_visitors'))
+              print('  карточки: просмотров', v.get('card_views'), '/ людей', v.get('card_visitors'))
+              for ch, row in (stay.get('searches') or {}).items():
+                  print('  поиск %-6s нашли %s | пусто %s | витрина не ответила %s'
+                        % (ch, row.get('found'), row.get('empty'), row.get('failed')))
+              print('  людей с поиском в каталоге:', stay.get('web_search_visitors'))
+              b = stay.get('booking_starts') or {}
+              print('  начали бронь:', b.get('starts'), '/ людей', b.get('visitors'))
+              m = stay.get('mcp_search_calls') or {}
+              print('  из них через MCP (внешние AI-агенты):', m.get('calls'))
+              print('  заявок на бронь по статусам:', stay.get('bookings_by_status'))
+              c = stay.get('counting') or {}
+              print('  счётчик пишет с:', c.get('since'))
+              if c.get('window_predates_counter'):
+                  print('  окно началось раньше счётчика — нули в начале окна значат «не считали», а не «не искали»')
+              if stay.get('failed_measures'):
+                  unknown.append('спрос на жильё сосчитан не весь: %s' % stay.get('failed_measures'))
 
           # ── Приговор ──────────────────────────────────────────────────────
           # Красный только там, где виновата ПЛАТФОРМА: оператор без канала и

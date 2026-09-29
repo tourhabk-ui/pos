@@ -245,6 +245,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'sos-events-bridge': ['db_read', 'db_write'],
   'source-probe': ['net_out'],
   'sql-shape-check': ['db_read', 'db_write'],
+  'stay-demand-census': ['db_read'],
   'ssr-sentinel': ['net_out', 'telegram', 'pd_direct'],
   'support-escalate': ['db_read', 'db_write', 'net_out', 'telegram'],
   // 'ai' снят 19.09 вместе с MTProto: возможность была ТРАНЗИТИВНОЙ — watchdog

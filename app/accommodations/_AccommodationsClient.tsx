@@ -6,6 +6,8 @@ import { Search, SlidersHorizontal, X, Building2 } from 'lucide-react';
 import { AccommodationCard } from '@/components/shared/AccommodationCard';
 import { AccommodationCardSkeleton } from '@/components/shared/AccommodationCardSkeleton';
 import { AccommodationFilters } from '@/components/shared/AccommodationFilters';
+import { funnelBeacon } from '@/lib/funnel/beacon';
+import { staySearchEntity, type StaySearchOutcome } from '@/lib/stay/demand';
 
 // Форма ответа GET /api/accommodations (camelCase — как отдаёт роут;
 // старый snake_case интерфейс не совпадал с API и листинг падал)
@@ -52,6 +54,23 @@ const DEFAULT_FILTERS: FiltersState = {
   checkIn: '',
   checkOut: '',
 };
+
+/**
+ * Задал ли посетитель хоть одно условие. Порядок сортировки — не условие:
+ * он меняет вид, а не то, что человек ищет. Первая загрузка витрины без
+ * условий поиском не считается — её уже посчитал просмотр страницы
+ * (page_views), и второй счёт того же захода раздул бы спрос.
+ */
+function isSearch(f: FiltersState): boolean {
+  return f.type.length > 0
+    || f.priceMin !== DEFAULT_FILTERS.priceMin
+    || f.priceMax !== DEFAULT_FILTERS.priceMax
+    || f.ratingMin !== DEFAULT_FILTERS.ratingMin
+    || f.amenities.length > 0
+    || f.locationZone !== ''
+    || f.search.trim() !== ''
+    || (f.checkIn !== '' && f.checkOut !== '');
+}
 
 export function AccommodationsClient() {
   const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
@@ -123,6 +142,10 @@ export function AccommodationsClient() {
       p.set('check_out', currentFilters.checkOut);
     }
 
+    // Исход поиска для счётчика спроса на жильё (lib/stay/demand). По
+    // умолчанию 'failed': если витрина не ответила или ответила не тем, спрос
+    // был, а ответа не было — и это факт о нас, а не «ничего не нашлось».
+    let outcome: StaySearchOutcome = 'failed';
     try {
       const res = await fetch(`/api/accommodations?${p}`);
       if (res.ok) {
@@ -135,11 +158,19 @@ export function AccommodationsClient() {
         if (data.success && Array.isArray(data.data?.accommodations)) {
           const items = data.data.accommodations;
           setAccommodations(currentPage === 1 ? items : prev => [...prev, ...items]);
-          setTotal(data.data.pagination?.total ?? items.length);
+          const found = data.data.pagination?.total ?? items.length;
+          setTotal(found);
+          outcome = found > 0 ? 'found' : 'empty';
         }
       }
     } finally {
       setLoading(false);
+      // Считается поиск, а не «показать ещё», и только с условиями. Приёмник
+      // дедуплицирует посетителя за час — набор фильтров по одному полю не
+      // множит одного человека.
+      if (currentPage === 1 && isSearch(currentFilters)) {
+        funnelBeacon('stay_search', staySearchEntity('web', outcome));
+      }
     }
   }, []);
 

@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { StayDatePicker } from './calendars/StayDatePicker';
 import { GuestSelector } from './ui/GuestSelector';
 import { computeStayTotal, NightPrice } from '@/lib/booking/stay-price';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
 import { STAY_PAY_ON_SITE } from '@/lib/stay/pay-on-site';
+import { funnelBeacon } from '@/lib/funnel/beacon';
 
 /**
  * Форма бронирования жилья с выбором номера. Расчёт суммы зеркалит
@@ -61,6 +62,16 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<BookingSuccess | null>(null);
+
+  // Счётчик спроса на жильё (lib/stay/demand, 29.09): первое касание формы —
+  // один раз за показ, как booking_start у тура. Смотреть карточку и начать
+  // выбирать номер и даты — разные намерения, и первое уже считает page_views.
+  const touchedRef = useRef(false);
+  const markTouched = useCallback(() => {
+    if (touchedRef.current) return;
+    touchedRef.current = true;
+    funnelBeacon('stay_booking_start', accommodationId);
+  }, [accommodationId]);
 
   const room = rooms.find(r => r.id === roomId) ?? null;
 
@@ -197,7 +208,7 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} onPointerDownCapture={markTouched} onFocusCapture={markTouched} className="space-y-5">
 
       {/* Выбор номера */}
       <div className="ds-card p-5">
