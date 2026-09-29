@@ -85,7 +85,8 @@ export interface Partner {
   rating: number;
   review_count: number;
   short_description: string;
-  contacts: Array<{ name: string; phone: string; role: string }> | null;
+  /** partners.contacts — JSONB без гарантии формы: массив людей или объект каналов. */
+  contacts: unknown;
   has_matching_tours: boolean;
 }
 

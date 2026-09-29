@@ -36,6 +36,9 @@ export default function LeadFormPage() {
       window.parent.postMessage({ type: 'th:height', height: Math.ceil(el.scrollHeight) }, '*');
     };
     post();
+    // Старые браузеры без ResizeObserver: высота отправлена один раз, а
+    // окно всё равно прокручивается — форма не падает целиком.
+    if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(post);
     ro.observe(el);
     return () => ro.disconnect();
@@ -184,7 +187,7 @@ export default function LeadFormPage() {
             {config?.name ?? 'Заявка на тур'}
           </p>
           <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Powered by TourHub
+            Ведар AI
           </p>
         </div>
       </div>

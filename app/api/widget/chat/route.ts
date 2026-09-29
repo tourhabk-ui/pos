@@ -64,7 +64,7 @@ function getCorsHeaders(origin: string | null, allowedDomains: string[]): Record
 
 function buildWidgetSystemPrompt(partner: PartnerRow): string {
   const greeting = (partner.widget_config as Record<string, string>)?.greeting || '';
-  return `Ты - AI-помощник туристической платформы TourHub Камчатка, встроенный на сайт партнёра "${partner.name}".
+  return `Ты - AI-помощник туристической платформы Ведар AI (Камчатка), встроенный на сайт партнёра "${partner.name}".
 Партнёр: ${partner.name} (${partner.category})${partner.description ? `. ${partner.description}` : ''}.
 ${greeting ? `Приветствие: ${greeting}` : ''}
 
