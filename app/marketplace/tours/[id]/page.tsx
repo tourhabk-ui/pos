@@ -10,6 +10,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 /** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
 import { activityLabel } from '@/lib/tours/labels';
+import { tourHeroImage } from '@/lib/tours/hero-image';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -32,7 +33,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const desc = tour.short_description ?? tour.description?.slice(0, 160) ??
     `${activity} на Камчатке. Реальный тур от проверенного оператора с уточнением деталей перед бронированием.`;
 
-  const images = tour.tour_image ? [{ url: tour.tour_image }] : [];
+  const hero = tourHeroImage(tour.photos, tour.tour_image);
+  const images = hero ? [{ url: hero }] : [];
 
   return {
     title: `${tour.title} | Реальные туры Камчатки`,

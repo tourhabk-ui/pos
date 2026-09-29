@@ -34,6 +34,7 @@ import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
+import { extractContacts } from '@/lib/operators/profile-parse';
 import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
@@ -756,7 +757,9 @@ function PartnersModal({ activityType, onClose }: {
             </div>
           )}
           {!loading && partners.map(p => {
-            const phone = Array.isArray(p.contacts) ? p.contacts[0]?.phone : null;
+            // Контакты партнёра — массив людей ИЛИ объект каналов; разбор общий
+            // со страницей оператора (у «Камчатской рыбалки» с 1106 — объект).
+            const phone = extractContacts(p.contacts).find(c => c.phone)?.phone ?? null;
             return (
               <div key={p.id} className="bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg p-3 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">

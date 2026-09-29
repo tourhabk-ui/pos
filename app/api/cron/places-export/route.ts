@@ -43,12 +43,17 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { packRegionBbox } from '@/lib/geo/regions';
 import { PLACES_ATTRIBUTION } from '@/lib/map/pack-source';
+import { placeOnLiveRouteSql } from '@/lib/places/on-route';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-/** Версия ответа. Менять вместе с поведением — workflow ждёт именно её. */
-const PLACES_EXPORT_V = 1;
+/**
+ * Версия ответа. Менять вместе с поведением — workflow ждёт именно её.
+ * 2 (29.09): у точки появился `on_route` — через место идёт живой маршрут;
+ * по нему /map открывается «местами с маршрутом» (lib/places/on-route).
+ */
+const PLACES_EXPORT_V = 2;
 
 interface PlaceRow {
   id: string;
@@ -62,6 +67,7 @@ interface PlaceRow {
   sat_communicator_required: boolean | null;
   difficulty_level: number | null;
   altitude_m: number | null;
+  on_route: boolean;
 }
 
 export async function GET(request: NextRequest) {
@@ -91,7 +97,8 @@ export async function GET(request: NextRequest) {
               sp.nearest_medical_km::float8 AS nearest_medical_km,
               sp.sat_communicator_required,
               sp.difficulty_level,
-              sp.altitude_m
+              sp.altitude_m,
+              ${placeOnLiveRouteSql('p.id')} AS on_route
          FROM places p
          LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
         WHERE p.is_visible = true
@@ -119,6 +126,7 @@ export async function GET(request: NextRequest) {
         sat_communicator_required: r.sat_communicator_required,
         difficulty_level: r.difficulty_level,
         altitude_m: r.altitude_m,
+        on_route: r.on_route,
       },
     }));
 

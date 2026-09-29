@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
@@ -23,6 +23,35 @@ export default function LeadFormPage() {
   const [success, setSuccess] = useState(false);
   const [error, setError]     = useState('');
   const [pdConsent, setPdConsent] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Высоту окна задаёт форма, а не угадывает lead.js. До 29.09 iframe стоял
+  // 440 px со scrolling="no", а форма занимала 537 px: «Отправить заявку»
+  // была за краем, отправить кликом было нельзя (примерка на fishingkam.ru).
+  // Документ формы сообщает свою высоту, lead.js подгоняет под неё iframe.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof window === 'undefined' || window.parent === window) return;
+    const post = () => {
+      window.parent.postMessage({ type: 'th:height', height: Math.ceil(el.scrollHeight) }, '*');
+    };
+    post();
+    // Старые браузеры без ResizeObserver: высота отправлена один раз, а
+    // окно всё равно прокручивается — форма не падает целиком.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(post);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [success]);
+
+  // Esc внутри iframe не доходит до страницы партнёра — закрываем сами.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && window.parent !== window) window.parent.postMessage('th:close', '*');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (!slug) return;
@@ -48,6 +77,10 @@ export default function LeadFormPage() {
           name: name.trim(),
           phone: phone.trim(),
           comment: comment.trim() || undefined,
+          // На верхнем уровне: /api/leads ищет оператора ИМЕННО здесь. До
+          // 29.09 slug жил только в source_data, лид вставал без оператора,
+          // уходил в общий пул и в рабочий чат платформы, а не партнёру.
+          partner_slug: slug,
           source_data: {
             source:       'partner_widget',
             partner_slug: slug,
@@ -75,7 +108,7 @@ export default function LeadFormPage() {
 
   if (success) {
     return (
-      <div style={{
+      <div ref={rootRef} style={{
         minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
@@ -127,8 +160,7 @@ export default function LeadFormPage() {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
+    <div ref={rootRef} style={{
       display: 'flex',
       flexDirection: 'column',
       fontFamily: "'Outfit', system-ui, sans-serif",
@@ -155,7 +187,7 @@ export default function LeadFormPage() {
             {config?.name ?? 'Заявка на тур'}
           </p>
           <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Powered by TourHub
+            Ведар AI
           </p>
         </div>
       </div>
@@ -218,8 +250,7 @@ export default function LeadFormPage() {
           type="submit"
           disabled={submitting || !name.trim() || !phone.trim() || !pdConsent}
           style={{
-            marginTop: 'auto',
-            paddingTop: 16,
+            marginTop: 16,
             padding: '12px 20px',
             background: submitting || !name.trim() || !phone.trim() || !pdConsent ? 'var(--bg-hover)' : accent,
             color: 'white',

@@ -34,12 +34,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
   buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex, DETAIL_MIN_ZOOM,
-  neighborLayerAnchor,
+  neighborLayerAnchor, PLACE_ICON_MIN_ZOOM,
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
+import { ON_ROUTE_FILTER } from '@/lib/places/on-route';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 import { placeMarkerSvg, PLACE_MARKER_SIZE, PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 import { parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO } from '@/lib/map/place-icon-raster';
@@ -210,10 +211,23 @@ export interface VedarMapHandle {
  */
 function applyPlacesFilter(map: MLMap, filter: string | null | undefined): void {
   const layers = map.getStyle()?.layers ?? [];
-  const expr = filter ? ['==', ['get', 'kind'], filter] : null;
+  const onRoute = filter === ON_ROUTE_FILTER;
+  // «С маршрутом» (29.09) — не род места, а признак из слоя: `on_route`
+  // (lib/places/on-route). Таких мест немного, и владелец просил видеть их
+  // «с формой места» уже на первом экране — поэтому в этом режиме значки
+  // идут с самого нижнего зума, а обзорные точки не рисуются вовсе.
+  const expr = onRoute
+    ? ['==', ['get', 'on_route'], true]
+    : filter ? ['==', ['get', 'kind'], filter] : null;
   for (const l of layers) {
     if (!l.id.includes('vedar-place')) continue;
-    try { map.setFilter(l.id, expr as never); } catch { /* слоя ещё нет в эту миллисекунду — следующий вызов подхватит */ }
+    const isDots = l.id.startsWith('vedar-places-dots');
+    try {
+      map.setFilter(l.id, (isDots && onRoute ? ['boolean', false] : expr) as never);
+      if (!isDots && l.id.startsWith('vedar-places')) {
+        map.setLayerZoomRange(l.id, onRoute ? OVERVIEW_MIN_ZOOM : PLACE_ICON_MIN_ZOOM, 24);
+      }
+    } catch { /* слоя ещё нет в эту миллисекунду — следующий вызов подхватит */ }
   }
 }
 

@@ -7,7 +7,9 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 import { query } from '@/lib/database';
-import type { OperatorProfileRow } from '@/lib/types/db-rows';
+import type { OperatorProfileRow, OperatorPageTourRow } from '@/lib/types/db-rows';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { priceUnitLabel } from '@/lib/tours/labels';
 import {
   extractServices, extractFeatures, extractContacts, extractFaq,
   extractGallery, extractLegalInfo,
@@ -65,6 +67,51 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
   return result.rows[0] ?? null;
 }
 
+/**
+ * Туры оператора на витрине. До 29.09 страница оператора не показывала его
+ * туров вовсе: турист видел описание базы и цены «от», но дойти отсюда до
+ * брони было нельзя. Шлюз витрины — общий (`publicTourSql`): черновик и
+ * снятый с витрины тур здесь не появляются.
+ */
+async function getOperatorTours(operatorId: string): Promise<OperatorPageTourRow[]> {
+  const result = await query<OperatorPageTourRow>(
+    `SELECT ot.id::text AS id, ot.title, ot.short_description,
+            ot.base_price::text AS base_price, ot.price_unit,
+            ot.duration_type, ot.multi_day_count,
+            to_char(ot.season_start, 'DD.MM.YYYY') AS season_start,
+            to_char(ot.season_end, 'DD.MM.YYYY') AS season_end,
+            ot.photos, ot.tour_image
+       FROM operator_tours ot
+      WHERE ot.operator_id::text = $1::text AND ${publicTourSql('ot')}
+      ORDER BY ot.season_start NULLS LAST, ot.id`,
+    [operatorId]
+  );
+  return result.rows;
+}
+
+/** +79001234567 → «+7 900 123-45-67»; незнакомая форма — как записана. */
+function formatPhone(raw: string): string {
+  const d = raw.replace(/[^\d+]/g, '');
+  const m = d.match(/^\+7(\d{3})(\d{3})(\d{2})(\d{2})$/);
+  return m ? `+7 ${m[1]} ${m[2]}-${m[3]}-${m[4]}` : raw;
+}
+
+function tourPriceText(t: OperatorPageTourRow): string {
+  const price = t.base_price === null ? NaN : Number.parseFloat(t.base_price);
+  if (!Number.isFinite(price) || price <= 0) return 'Цена по запросу';
+  return `${Math.round(price).toLocaleString('ru-RU')} ₽ ${priceUnitLabel(t.price_unit)}`;
+}
+
+function tourDurationText(t: OperatorPageTourRow): string | null {
+  if (t.duration_type === 'multi_day' && t.multi_day_count) {
+    const d = t.multi_day_count;
+    return `${d} ${d % 10 === 1 && d % 100 !== 11 ? 'день' : d % 10 >= 2 && d % 10 <= 4 && (d % 100 < 10 || d % 100 >= 20) ? 'дня' : 'дней'}`;
+  }
+  if (t.duration_type === 'day') return '1 день';
+  if (t.duration_type === 'half_day') return 'Полдня';
+  return null;
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<Params> }
 ): Promise<Metadata> {
@@ -119,6 +166,7 @@ export default async function OperatorProfilePage(
   const faq       = extractFaq(profile.faq);
 
   const heroImage = profile.hero_image ?? gallery[0] ?? null;
+  const tours = await getOperatorTours(profile.id);
 
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh]">
@@ -199,6 +247,42 @@ export default async function OperatorProfilePage(
                     <Image src={url} alt={`${profile.name} ${i + 1}`} fill className="object-cover hover:scale-105 transition-transform duration-300" sizes="33vw" />
                   </div>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {/* Tours */}
+          {tours.length > 0 && (
+            <section className="ds-card p-5">
+              <h2 className="font-playfair text-2xl font-bold mb-4">Туры</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {tours.map(t => {
+                  const img = t.photos?.[0] ?? t.tour_image ?? null;
+                  const duration = tourDurationText(t);
+                  return (
+                    <Link
+                      key={t.id}
+                      href={`/catalog/tours/${t.id}`}
+                      className="group bg-[var(--bg-hover)] rounded-lg overflow-hidden flex flex-col hover:ring-1 hover:ring-[var(--accent)] transition-all duration-200"
+                    >
+                      {img && (
+                        <div className="relative h-36">
+                          <Image src={img} alt={t.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, 33vw" />
+                        </div>
+                      )}
+                      <div className="p-4 space-y-1.5 flex-1">
+                        <p className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)]">{t.title}</p>
+                        {t.season_start && t.season_end && (
+                          <p className="text-xs text-[var(--text-muted)]">{t.season_start} — {t.season_end}{duration ? ` · ${duration}` : ''}</p>
+                        )}
+                        {t.short_description && (
+                          <p className="text-sm text-[var(--text-secondary)] line-clamp-2">{t.short_description}</p>
+                        )}
+                        <p className="text-sm font-medium text-[var(--accent)]">{tourPriceText(t)}</p>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </section>
           )}
@@ -294,8 +378,8 @@ export default async function OperatorProfilePage(
                           </p>
                         )}
                         {c.phone && (
-                          <a href={`tel:${c.phone}`} className="text-sm text-[var(--ocean)] hover:underline">
-                            {c.phone}
+                          <a href={`tel:${c.phone.replace(/[^\d+]/g, '')}`} className="text-sm text-[var(--ocean)] hover:underline">
+                            {formatPhone(c.phone)}
                           </a>
                         )}
                         {c.href && (
@@ -309,6 +393,7 @@ export default async function OperatorProfilePage(
                           </a>
                         )}
                         {c.address && <p className="text-xs text-[var(--text-muted)] mt-0.5">{c.address}</p>}
+                        {c.note && <p className="text-xs text-[var(--text-muted)] mt-0.5">{c.note}</p>}
                       </div>
                     </div>
                   ))}

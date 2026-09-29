@@ -1356,6 +1356,22 @@ export interface OperatorProfileRow {
   created_at: string;
 }
 
+/** Тур в блоке «Туры» страницы оператора /operators/[slug] (operator_tours). */
+export interface OperatorPageTourRow {
+  id: string;
+  title: string;
+  short_description: string | null;
+  /** NULL — «цена по запросу» (миграция 690 сняла NOT NULL). */
+  base_price: string | null;
+  price_unit: string | null;
+  duration_type: string | null;
+  multi_day_count: number | null;
+  season_start: string | null;
+  season_end: string | null;
+  photos: string[] | null;
+  tour_image: string | null;
+}
+
 /** Строка снимка официального реестра (official_registry_operators, migration 742) */
 export interface OfficialRegistryOperatorRow {
   id: string;

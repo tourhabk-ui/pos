@@ -29,9 +29,36 @@ export interface ContactItem {
   role?: string;
   phone?: string;
   address?: string;
-  /** Ссылка-канал (Telegram, WhatsApp, сайт): подпись + адрес. */
+  /** Ссылка-канал (Telegram, WhatsApp, MAX, сайт): подпись + адрес. */
   label?: string;
   href?: string;
+  /** Пояснение мелким текстом под строкой — например, часы звонков. */
+  note?: string;
+}
+
+/**
+ * Личный Telegram: username (`some_manager`) или номер телефона (`+79001234567`).
+ * По номеру Telegram открывает чат ссылкой `t.me/+<цифры>` — так же стоят
+ * ссылки на сайте «Камчатской рыбалки» (29.09). Ник — `t.me/<ник>`.
+ * Незнакомая форма — пустая строка: мёртвая кнопка хуже её отсутствия.
+ */
+export function telegramContactHref(raw: unknown): string {
+  const v = str(raw).replace(/^@/, '');
+  // Ник Telegram начинается с буквы: «79147822222» ником не бывает, а
+  // t.me/79147822222 ведёт на заглушку Telegram, а не в чат.
+  if (/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(v)) return `https://t.me/${v}`;
+  const digits = v.replace(/[\s()-]/g, '');
+  if (/^\+\d{10,15}$/.test(digits)) return `https://t.me/${digits}`;
+  return '';
+}
+
+/**
+ * MAX — только ссылка на профиль, которую дал сам партнёр: ссылки ПО НОМЕРУ
+ * в MAX нет (см. tests/unit/max-contact.test.ts). Чужой хост кнопкой не станет.
+ */
+export function maxProfileHref(raw: unknown): string {
+  const v = str(raw);
+  return /^https:\/\/max\.ru\/[A-Za-z0-9_@.\-/]{2,64}$/.test(v) ? v : '';
 }
 
 export interface FaqItem {
@@ -119,13 +146,12 @@ function contactsFromObject(o: Record<string, unknown>): ContactItem[] {
 
   const phone = str(o.phone);
   const phone2 = str(o.phone2);
-  if (phone) out.push({ name: str(o.admin_name) || undefined, phone });
+  const hours = str(o.phone_hours);
+  if (phone) out.push({ name: str(o.admin_name) || undefined, phone, note: hours || undefined });
   if (phone2) out.push({ name: str(o.admin_name_2) || undefined, phone: phone2 });
 
-  const tgc = str(o.telegram_contact).replace(/^@/, '');
-  if (/^[A-Za-z0-9_]{5,32}$/.test(tgc)) {
-    out.push({ label: 'Написать в Telegram', href: `https://t.me/${tgc}` });
-  }
+  const tgc = telegramContactHref(o.telegram_contact);
+  if (tgc) out.push({ label: 'Написать в Telegram', href: tgc });
 
   const tg = str(o.telegram_channel);
   if (tg.startsWith('https://t.me/')) {
@@ -135,6 +161,19 @@ function contactsFromObject(o: Record<string, unknown>): ContactItem[] {
   const wa = str(o.whatsapp).replace(/[^\d]/g, '');
   if (/^\d{10,15}$/.test(wa)) {
     out.push({ label: 'WhatsApp', href: `https://wa.me/${wa}` });
+  }
+
+  const max = maxProfileHref(o.max);
+  if (max) out.push({ label: 'Написать в MAX', href: max });
+
+  const tiktok = str(o.tiktok).replace(/^@/, '');
+  if (/^[\w.]{2,24}$/.test(tiktok)) {
+    out.push({ label: 'TikTok', href: `https://www.tiktok.com/@${tiktok}` });
+  }
+
+  const email = str(o.email);
+  if (/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+    out.push({ label: email, href: `mailto:${email}` });
   }
 
   const site = str(o.website);

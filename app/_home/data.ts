@@ -28,6 +28,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { orderPlates } from '@/lib/home/plate-facts';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
+import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
@@ -327,7 +328,7 @@ export async function fetchPlates(): Promise<Plate[]> {
     }>(`
       SELECT ot.id::text, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
-             COALESCE(ot.tour_image, (ot.photos)[1])                              AS image_url,
+             ${tourHeroImageSql('ot')}                                             AS image_url,
              ot.base_price::text,
              ot.activity_type,
              ot.price_unit,
