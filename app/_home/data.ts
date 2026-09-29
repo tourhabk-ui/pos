@@ -32,6 +32,7 @@ import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
+import { varietyByType } from '@/lib/home/explore-variety';
 import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
@@ -387,6 +388,8 @@ export async function fetchPlates(): Promise<Plate[]> {
 
 /** Сколько мест в ленте «Исследовать»: столько же, сколько туров в витрине. */
 export const EXPLORE_LIMIT = 8;
+/** Из скольких первых мест каталога собирается лента: хватает, чтобы типы нашлись. */
+const EXPLORE_POOL = 60;
 
 export async function fetchExplore(): Promise<ExplorePlace[]> {
   // Та же выдача, что у каталога мест (/routes?kind=place), тем же порядком
@@ -394,8 +397,10 @@ export async function fetchExplore(): Promise<ExplorePlace[]> {
   // владельца 20.09). Своей сортировки и своего отбора здесь нет — иначе
   // главная и каталог отвечали бы на один вопрос по-разному.
   try {
-    const { items } = await queryCatalog({ kind: 'place', page: 1, limit: EXPLORE_LIMIT, sort: 'recommended' });
-    return items.map((it) => ({
+    // Берём с запасом и раскладываем по типам (lib/home/explore-variety): в
+    // порядке `recommended` первые восемь были сплошь вулканами (29.09).
+    const { items } = await queryCatalog({ kind: 'place', page: 1, limit: EXPLORE_POOL, sort: 'recommended' });
+    return varietyByType(items, EXPLORE_LIMIT).map((it) => ({
       id: it.id,
       title: it.title,
       typeLabel: locationTypeLabel(it.locationType),
