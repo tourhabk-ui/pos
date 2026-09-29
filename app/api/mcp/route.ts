@@ -37,7 +37,7 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
-import { SEAT_REQUEST_FAILURE } from '@/lib/seat-requests/core';
+import { SEAT_REQUEST_FAILURE, kamchatkaToday } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
@@ -205,7 +205,9 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Прошедшая дата — по Камчатке: по UTC с 12:00 до 24:00 заявка на уже
+  // прошедший там день принималась и уходила менеджеру (проверка MCP 29.09).
+  const today = kamchatkaToday();
   if (date < today) {
     return `Дата ${date} уже прошла — заявка не создана. Свободные даты: get_tour_availability.`;
   }

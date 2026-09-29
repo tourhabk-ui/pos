@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export interface ResolvedTour {
   id: number;
@@ -44,7 +45,11 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
       [containsPattern(q)],
     );
     return rows[0] ?? null;
-  } catch {
+  } catch (err) {
+    // Контракт прежний (null), но отказ базы не глушится: иначе «тур не
+    // найден» и «не смогли спросить» неотличимы (§4.0).
+    const e = err as { code?: string; message?: string };
+    console.error('[tour-availability] тур не прочитан', { sqlstate: e?.code, message: e?.message });
     return null;
   }
 }
@@ -63,12 +68,23 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
     return `Тур по запросу "${tourQuery}" не найден среди активных. Не выдумывай даты — предложи выбрать тур через get_tours.`;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // «Сегодня» — по Камчатке: даты туров местные. По UTC с 12:00 до 24:00
+  // сегодняшнее число на Камчатке уже следующее, и инструмент предлагал
+  // вчерашний день как свободный (проба MCP 29.09, 22:05 UTC — «29.09
+  // свободно 12» при 30.09 на Камчатке).
+  const today = kamchatkaToday();
+  const pastFrom = /^\d{4}-\d{2}-\d{2}$/.test(args.date_from ?? '') && (args.date_from as string) < today;
   const from = /^\d{4}-\d{2}-\d{2}$/.test(args.date_from ?? '') && (args.date_from as string) >= today
     ? (args.date_from as string)
     : today;
   const daysRaw = Number(args.days);
   const days = Number.isFinite(daysRaw) ? Math.min(Math.max(Math.trunc(daysRaw), 1), 31) : 14;
+  // Поправки запроса называются, а не делаются молча: агент должен знать,
+  // что смотрели не то окно, которое он просил.
+  const notes = [
+    pastFrom ? `Дата ${args.date_from} уже прошла — показываю с сегодняшнего дня по Камчатке.` : '',
+    Number.isFinite(daysRaw) && Math.trunc(daysRaw) > 31 ? 'Окно больше 31 дня не смотрю — показываю 31.' : '',
+  ].filter(Boolean);
   const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
 
   try {
@@ -77,19 +93,27 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       return `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${shortDate(from)} по ${shortDate(to)} нет. ` +
         'Это реальная занятость из броней — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.';
     }
-    const lines = slots.slice(0, 12).map((s) => {
+    const SHOWN = 12;
+    const lines = slots.slice(0, SHOWN).map((s) => {
       // Единица — из тура, а не «р/чел»: у многодневок цена за группу, и
       // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
       // Цена на дату может быть переопределена, но единица у неё та же.
       const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
       return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}`;
     });
+    const more = slots.length > SHOWN
+      ? [`…и ещё ${slots.length - SHOWN} дат с местами до ${shortDate(to)} — чтобы увидеть их, сдвиньте date_from.`]
+      : [];
     return [
+      ...notes,
       `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость из броней):`,
       ...lines,
-      `Бронь на странице: /catalog/tours/${tour.id}?date=<дата>. Данные на ${shortDate(today)}.`,
+      ...more,
+      `Бронь на странице: /catalog/tours/${tour.id}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
     ].join('\n');
-  } catch {
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tour-availability] занятость не прочитана', { tourId: tour.id, sqlstate: e?.code, message: e?.message });
     return 'Занятость временно недоступна — не называй даты по памяти, предложи страницу тура.';
   }
 }
