@@ -59,5 +59,5 @@ usable AS (
 UPDATE places p
    SET slug = u.base
   FROM usable u
- WHERE p.id = u.id
+ WHERE p.id::text = u.id::text
    AND p.slug IS NULL;
