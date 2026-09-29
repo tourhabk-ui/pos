@@ -31,7 +31,11 @@ describe('get_tours: даты из живой занятости', () => {
   });
 
   it('места — свободные на этот слот, не статический счётчик тура', () => {
-    expect(block).toMatch(/ta\.available_slots - COALESCE\(ta\.booked_slots, 0\)/);
+    // Слот — по-прежнему ta.*, но вычитается ЖИВАЯ занятость (общее правило
+    // lib/bookings/occupancy), а не счётчик booked_slots: тот растёт только при
+    // оплате (сверка «MCP против сайта» 29.09, tests/unit/occupancy-single-rule).
+    expect(block).toMatch(/freeSlotsSql\('ta', 'ot', 'occ\.taken'\)/);
+    expect(block).not.toMatch(/ta\.booked_slots/);
     expect(block).not.toMatch(/ot\.available_slots/);
   });
 
