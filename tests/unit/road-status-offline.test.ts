@@ -60,7 +60,9 @@ describe('офлайн-пакет несёт ограничения', () => {
 
 describe('карта показывает ограничения', () => {
   it('офлайн-точки получают restrictions из пакета', () => {
-    expect(MAP).toContain('restrictions:   r.activeAlerts ?? []');
+    // С 29.09 (#2079) перед ограничениями пакета ставится «Закрыто», если
+    // точка закрыта: список из пакета при этом доезжает целиком.
+    expect(MAP).toContain('restrictions:   withClosure(r.activeAlerts ?? [], r.isOpen)');
     expect(MAP).toContain('restrictionsAt: r.alertsAt ?? null');
   });
 

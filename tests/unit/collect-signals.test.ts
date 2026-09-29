@@ -34,6 +34,9 @@ type Rows = Record<string, unknown[]>;
 function stubQuery(rows: Partial<Rows> = {}, fail: string[] = []): QueryFn {
   return (async (sql: string) => {
     const table = sql.includes('kamchatka_routes') ? 'route'
+      // Закрытия тоже читают route_waypoints — узнаются по своей таблице
+      // статуса раньше, чем по общей таблице связей (#2079).
+      : sql.includes('location_real_time_status') ? 'closures'
       : sql.includes('route_waypoints') ? 'waypoints'
       : sql.includes('external_alerts') ? 'alerts'
       : sql.includes('volcano_status') ? 'volcanoes'
@@ -369,5 +372,37 @@ describe('координата важнее зоны, когда она есть
     const alertsFn = SRC.split('async function loadAlerts')[1]?.split('async function loadVolcanoes')[0] ?? '';
     expect(alertsFn).toContain('console.error');
     expect(alertsFn).toContain('SQLSTATE');
+  });
+});
+
+describe('закрытые точки пути (#2079)', () => {
+  it('закрытая точка доезжает до вердикта: «Не сегодня» с названием и причиной', async () => {
+    const s = await collectRouteSignals(ROUTE_ID, {
+      query: stubQuery(withRoute({ closures: [{ name: 'Перевал Дзендзур', reason: 'Сход лавин' }] })),
+      month: 7,
+    });
+    expect(s.closures).toEqual([{ place: 'Перевал Дзендзур', reason: 'Сход лавин' }]);
+    const v = goVerdict(s);
+    expect(v.status).toBe('no');
+    expect(v.code).toBe('point_closed');
+    expect(v.reason).toBe('Закрыто: Перевал Дзендзур — Сход лавин');
+  });
+
+  it('упал запрос закрытий — closures === null, и зелёного нет', async () => {
+    const s = await collectRouteSignals(ROUTE_ID, {
+      query: stubQuery(withRoute(), ['closures']), month: 7,
+    });
+    expect(s.closures).toBeNull();
+    const v = goVerdict(s);
+    expect(v.status).not.toBe('go');
+    expect(v.unknown).toContain('закрытые точки');
+  });
+
+  it('запрос закрытий не судит связи «рядом» и берёт только действующее сообщение', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/routes/collect-signals.ts'), 'utf-8');
+    const q = src.slice(src.indexOf('async function loadClosures'), src.indexOf('export async function collectRouteSignals'));
+    expect(q).toMatch(/COALESCE\(to_jsonb\(rw\)->>'link_kind', 'unknown'\) <> 'nearby'/);
+    expect(q).toMatch(/rs\.is_open = FALSE/);
+    expect(q).toMatch(/rs\.alert_expires_at IS NULL OR rs\.alert_expires_at > NOW\(\)/);
   });
 });
