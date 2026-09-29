@@ -1,0 +1,46 @@
+name: Разведчик — проба поиска по X с раннера
+
+# Та же scripts/scout-x-fetch.ts, что стоит шагом в cron-scout-digest.yml, —
+# но без прогона разведчика: ничего не публикует, только печатает, что
+# вернул xAI (постов сколько, вызовов поиска сколько, начало ответа при
+# нуле). Повод — 29.09 первый боевой прогон дал «0 постов за 4 с», и ждать
+# следующего выпуска ради ответа «почему» — двенадцать часов и пост в
+# канале. Стоит один-два запроса xAI (~$0,07 каждый по пробе 29.09).
+#
+# Запуск — правкой маркера .github/triggers/scout-x-fetch-probe.json в main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/scout-x-fetch-probe.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Поиск по X
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          # Расход — в книги прода через usage-sink.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          npx tsx scripts/scout-x-fetch.ts /tmp/x-source.json
+          python3 - <<'PY'
+          import json
+          r = json.load(open('/tmp/x-source.json'))
+          for p in (r.get('posts') or [])[:15]:
+              print('  ', p.get('postedAt'), p.get('url'), '—', (p.get('summary') or '')[:120])
+          PY

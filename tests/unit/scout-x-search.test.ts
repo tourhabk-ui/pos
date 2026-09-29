@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   pickXSearchModel, parseXSearchAnswer, buildXSearchPrompt, XAI_USD_PER_TICK, xSearchResultFromRunner,
+  xSearchDateWindow, X_HANDLES_PER_REQUEST,
 } from '@/lib/ai/xai-x-search';
 import { X_SOURCE, X_HANDLES } from '@/lib/agents/scout-sources';
 import { SCOUT_SOURCE_EXPECTATIONS } from '@/lib/services/scout/source-health';
@@ -146,6 +147,58 @@ describe('вызов xAI', () => {
     expect(logged).toHaveLength(1);
     expect(logged[0][0]).toBe('xai:x_search:grok-test');
     expect(logged[0][3]).toBeCloseTo(0.0733, 3);
+  });
+
+  it('больше десяти аккаунтов — несколько запросов, посты сведены без дублей (30.09: 11 аккаунтов дали ноль)', async () => {
+    const bodies: Array<{ tools: Array<{ allowed_x_handles: string[] }> }> = [];
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? '{}')));
+      return new Response(JSON.stringify({
+        output: [{ type: 'message', content: [{ type: 'output_text', text: '[{"handle":"OpenAI","url":"https://x.com/OpenAI/status/7","posted_at":"2026-09-29T19:15:08Z","summary_ru":"Тизер"}]' }] }],
+        usage: { input_tokens: 10, output_tokens: 5, cost_in_usd_ticks: 1e8, server_side_tool_usage_details: { x_search_calls: 3 } },
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { searchX } = await import('@/lib/ai/xai-x-search');
+    const handles = Array.from({ length: 11 }, (_, i) => `h${i}`);
+    const r = await searchX({ handles, hours: 14 });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].tools[0].allowed_x_handles).toHaveLength(X_HANDLES_PER_REQUEST);
+    expect(bodies[1].tools[0].allowed_x_handles).toEqual(['h10']);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.posts).toHaveLength(1);
+    expect(r.diag).toMatchObject({ requests: 2, searchCalls: 6 });
+    expect(logged).toHaveLength(2);
+  });
+
+  it('ноль постов — начало ответа в диагностике; отказ части при успехе другой — назван', async () => {
+    let n = 0;
+    globalThis.fetch = vi.fn(async () => {
+      n += 1;
+      if (n === 2) return new Response('{"error":"boom"}', { status: 500 });
+      return new Response(JSON.stringify({
+        output: [{ type: 'message', content: [{ type: 'output_text', text: 'За указанный период постов не найдено: []' }] }],
+        usage: { input_tokens: 10, output_tokens: 5, server_side_tool_usage_details: { x_search_calls: 0 } },
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { searchX } = await import('@/lib/ai/xai-x-search');
+    const r = await searchX({ handles: Array.from({ length: 11 }, (_, i) => `h${i}`), hours: 14 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.posts).toEqual([]);
+    expect(r.diag?.searchCalls).toBe(0);
+    expect(r.diag?.emptyAnswerHead).toContain('постов не найдено');
+    expect(r.diag?.chunkErrors?.[0]).toMatch(/HTTP 500/);
+  });
+});
+
+describe('окно дат поиска', () => {
+  it('вечером 14 часов укладываются в сутки — to_date всё равно завтрашний, окно не пустое', () => {
+    const w = xSearchDateWindow(new Date('2026-09-29T21:17:40Z'), 14);
+    expect(w).toEqual({ from_date: '2026-09-29', to_date: '2026-09-30' });
+  });
+  it('утром окно захватывает вчера', () => {
+    expect(xSearchDateWindow(new Date('2026-09-29T05:00:00Z'), 14)).toEqual({ from_date: '2026-09-28', to_date: '2026-09-30' });
   });
 });
 

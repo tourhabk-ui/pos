@@ -105,9 +105,50 @@ export interface XSearchUsage {
   costUsd: number | null;
 }
 
+/**
+ * Что видно о поиске, кроме постов (30.09): первый прогон с раннера вернул
+ * «0 постов» за 4 с — и по одному нулю нельзя было отличить «за окно никто
+ * не писал» от «модель не искала» или «запрос отсёк всё». Счёт вызовов
+ * поиска и начало ответа при нуле говорят это сами.
+ */
+export interface XSearchDiag {
+  /** Сколько раз модель вызвала x_search (сумма по запросам). */
+  searchCalls: number;
+  /** Сколько запросов ушло (аккаунты делятся по X_HANDLES_PER_REQUEST). */
+  requests: number;
+  /** Начало текста ответа, если постов ноль, — форма, а не догадка. */
+  emptyAnswerHead?: string;
+  /** Отказы отдельных запросов, если остальные прошли. */
+  chunkErrors?: string[];
+}
+
 export type XSearchResult =
-  | { ok: true; model: string; posts: XPost[]; usage: XSearchUsage | null; ms: number }
+  | { ok: true; model: string; posts: XPost[]; usage: XSearchUsage | null; ms: number; diag?: XSearchDiag }
   | { ok: false; reason: string };
+
+/**
+ * Аккаунтов на запрос. У серверного поиска xAI список `allowed_x_handles`
+ * ограничен (по памяти о документации — десять; сама документация из
+ * песочницы закрыта). Первый боевой прогон слал одиннадцать и получил ноль
+ * постов, тогда как проба на шести находила настоящие. Список делится на
+ * части: лишний запрос дешевле немого нуля.
+ */
+export const X_HANDLES_PER_REQUEST = 10;
+
+/**
+ * Даты окна для x_search: от даты начала окна до ЗАВТРА.
+ *
+ * Окно 14 ч вечером укладывается в одни сутки, и from_date совпадал с
+ * to_date. Включительна ли to_date у xAI, из песочницы не проверить; если
+ * нет — окно пустое по построению. Запас в сутки справа безвреден: промпт
+ * всё равно просит «за последние N часов», а повтор поста снимает дедуп
+ * по адресу. Чистая функция — под тестом.
+ */
+export function xSearchDateWindow(now: Date, hours: number): { from_date: string; to_date: string } {
+  const from = new Date(now.getTime() - hours * 3_600_000);
+  const to = new Date(now.getTime() + 24 * 3_600_000);
+  return { from_date: from.toISOString().slice(0, 10), to_date: to.toISOString().slice(0, 10) };
+}
 
 /** Что просим у модели: только данные, без выдумки, и пустой список — законный ответ. */
 export function buildXSearchPrompt(handles: readonly string[], hours: number): string {
@@ -190,42 +231,31 @@ function nameFailure(status: number, body: string): string {
   return `xAI: HTTP ${status} — ${short}`;
 }
 
-/**
- * Один запрос: посты указанных аккаунтов за окно часов.
- *
- * Расход пишется в книги ценой, названной xAI. Отказ возвращается словами и
- * никогда пустым списком.
- */
-export async function searchX(
-  opts: { handles: readonly string[]; hours: number; timeoutMs?: number; maxOutputTokens?: number },
-): Promise<XSearchResult> {
-  const key = getXaiKey();
-  if (!key) return { ok: false, reason: 'XAI_API_KEY не задан' };
-  if (opts.handles.length === 0) return { ok: false, reason: 'список аккаунтов пуст' };
+type OneRequest =
+  | { ok: true; posts: XPost[]; usage: XSearchUsage | null; text: string }
+  | { ok: false; reason: string };
 
-  const picked = await resolveModel(key).catch((e: unknown) => ({ error: `каталог xAI: ${e instanceof Error ? e.message : String(e)}` }));
-  if ('error' in picked) return { ok: false, reason: picked.error };
-
-  const to = new Date();
-  const from = new Date(to.getTime() - opts.hours * 3_600_000);
-  const started = Date.now();
+/** Один запрос к xAI по части списка аккаунтов. */
+async function searchXOnce(
+  key: string, model: string, handles: readonly string[], hours: number,
+  timeoutMs: number, maxOutputTokens: number,
+): Promise<OneRequest> {
   let res: Response;
   try {
     res = await fetch(`${XAI_BASE}/responses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model: picked.model,
-        input: [{ role: 'user', content: buildXSearchPrompt(opts.handles, opts.hours) }],
+        model,
+        input: [{ role: 'user', content: buildXSearchPrompt(handles, hours) }],
         tools: [{
           type: 'x_search',
-          allowed_x_handles: [...opts.handles],
-          from_date: from.toISOString().slice(0, 10),
-          to_date: to.toISOString().slice(0, 10),
+          allowed_x_handles: [...handles],
+          ...xSearchDateWindow(new Date(), hours),
         }],
-        max_output_tokens: opts.maxOutputTokens ?? 1500,
+        max_output_tokens: maxOutputTokens,
       }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
     return { ok: false, reason: `xAI: сеть не дошла — ${e instanceof Error ? e.message : String(e)}` };
@@ -241,10 +271,67 @@ export async function searchX(
   }
   const { text, usage } = digest(parsed);
   if (usage) {
-    await logProviderPricedUsage(`xai:x_search:${picked.model}`, usage.inputTokens, usage.outputTokens, usage.costUsd);
+    await logProviderPricedUsage(`xai:x_search:${model}`, usage.inputTokens, usage.outputTokens, usage.costUsd);
   }
   if (text.trim() === '') return { ok: false, reason: 'xAI: в ответе нет текста' };
-  return { ok: true, model: picked.model, posts: parseXSearchAnswer(text), usage, ms: Date.now() - started };
+  return { ok: true, posts: parseXSearchAnswer(text), usage, text };
+}
+
+/**
+ * Посты указанных аккаунтов за окно часов — частями по X_HANDLES_PER_REQUEST.
+ *
+ * Расход каждой части пишется в книги ценой, названной xAI. Отказ всех
+ * частей — отказ словами (первой причиной); отказ части при успехе других —
+ * посты есть, а отказ назван в diag.chunkErrors. Никогда — пустой список
+ * вместо отказа.
+ */
+export async function searchX(
+  opts: { handles: readonly string[]; hours: number; timeoutMs?: number; maxOutputTokens?: number },
+): Promise<XSearchResult> {
+  const key = getXaiKey();
+  if (!key) return { ok: false, reason: 'XAI_API_KEY не задан' };
+  if (opts.handles.length === 0) return { ok: false, reason: 'список аккаунтов пуст' };
+
+  const picked = await resolveModel(key).catch((e: unknown) => ({ error: `каталог xAI: ${e instanceof Error ? e.message : String(e)}` }));
+  if ('error' in picked) return { ok: false, reason: picked.error };
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < opts.handles.length; i += X_HANDLES_PER_REQUEST) {
+    chunks.push(opts.handles.slice(i, i + X_HANDLES_PER_REQUEST));
+  }
+
+  const started = Date.now();
+  const results = await Promise.all(chunks.map((c) => searchXOnce(
+    key, picked.model, c, opts.hours, opts.timeoutMs ?? 90_000, opts.maxOutputTokens ?? 1500,
+  )));
+
+  const good = results.filter((r): r is Extract<OneRequest, { ok: true }> => r.ok);
+  const bad = results.filter((r): r is Extract<OneRequest, { ok: false }> => !r.ok);
+  if (good.length === 0) return { ok: false, reason: bad[0]?.reason ?? 'xAI: ни одного ответа' };
+
+  const posts: XPost[] = [];
+  const seen = new Set<string>();
+  for (const r of good) {
+    for (const p of r.posts) {
+      if (seen.has(p.url)) continue;
+      seen.add(p.url);
+      posts.push(p);
+    }
+  }
+  const usages = good.map((r) => r.usage).filter((u): u is XSearchUsage => u !== null);
+  const usage: XSearchUsage | null = usages.length === 0 ? null : {
+    inputTokens: usages.reduce((a, u) => a + u.inputTokens, 0),
+    outputTokens: usages.reduce((a, u) => a + u.outputTokens, 0),
+    xSearchCalls: usages.reduce((a, u) => a + u.xSearchCalls, 0),
+    costUsd: usages.every((u) => u.costUsd === null) ? null : usages.reduce((a, u) => a + (u.costUsd ?? 0), 0),
+  };
+  const diag: XSearchDiag = {
+    searchCalls: usage?.xSearchCalls ?? 0,
+    requests: chunks.length,
+    ...(posts.length === 0 ? { emptyAnswerHead: good.map((r) => r.text.replace(/\s+/g, ' ').slice(0, 200)).join(' | ') } : {}),
+    ...(bad.length > 0 ? { chunkErrors: bad.map((r) => r.reason) } : {}),
+  };
+  return { ok: true, model: picked.model, posts, usage, ms: Date.now() - started, diag };
 }
 
 /**

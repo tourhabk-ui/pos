@@ -34,6 +34,14 @@ async function main(): Promise<void> {
   writeFileSync(out, JSON.stringify(result));
   if (result.ok) {
     process.stdout.write(`X: ${result.posts.length} постов за ${X_SEARCH_WINDOW_HOURS} ч, модель ${result.model}, ${result.ms} мс\n`);
+    // Ноль постов — с формой ответа (30.09): иначе «никто не писал» и «модель
+    // не искала» неотличимы.
+    const d = result.diag;
+    if (d) {
+      process.stdout.write(`X: запросов ${d.requests}, вызовов поиска ${d.searchCalls}\n`);
+      if (d.chunkErrors) process.stdout.write(`X: отказы частей — ${d.chunkErrors.join(' | ')}\n`);
+      if (d.emptyAnswerHead !== undefined) process.stdout.write(`X: начало ответа — ${d.emptyAnswerHead}\n`);
+    }
   } else {
     process.stdout.write(`X: отказ — ${result.reason}\n`);
   }
