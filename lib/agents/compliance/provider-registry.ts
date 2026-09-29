@@ -119,6 +119,9 @@ export const LLM_EGRESS_FILES: readonly string[] = [
   // Остаток счёта DeepSeek (`GET /user/balance`): не LLM-вызов, ПД в запросе
   // нет, но егресс на тот же зарубежный хост — под надзором D2.
   'lib/ai/balances.ts',
+  // Посты X через xAI Responses API (`x_search`, 29.09): в промпте только
+  // имена аккаунтов и окно часов, но егресс зарубежный — под надзором D2.
+  'lib/ai/xai-x-search.ts',
 ] as const;
 
 /**

@@ -18,7 +18,7 @@
  * не показывает, из чего сложился.
  */
 import { describe, it, expect } from 'vitest';
-import { RSS_SOURCES, SAFETY_LAYER_SOURCE } from '@/lib/agents/scout-digest';
+import { RSS_SOURCES, SAFETY_LAYER_SOURCE, X_SOURCE } from '@/lib/agents/scout-digest';
 import {
   SCOUT_SOURCE_EXPECTATIONS,
   buildSourceReport,
@@ -30,7 +30,8 @@ describe('сторож покрывает всю разведку', () => {
   const watched = new Set(SCOUT_SOURCE_EXPECTATIONS.map((e) => e.key));
   // Настроенные источники — это не только RSS: раздел «Камчатка» кормится
   // из safety-слоя (external_alerts), и он сторожится наравне с фидами.
-  const allSources = [...RSS_SOURCES, SAFETY_LAYER_SOURCE];
+  // X (29.09) — тоже не RSS: читается через xAI, сторожится наравне.
+  const allSources = [...RSS_SOURCES, X_SOURCE, SAFETY_LAYER_SOURCE];
   const configured = new Set(allSources.map((s) => s.key));
 
   it('каждый настроенный источник имеет порог тишины', () => {

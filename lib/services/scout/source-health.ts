@@ -104,6 +104,10 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'tg_rostransnadzor',    label: 'Ространснадзор',      maxSilenceHours: 240 },
   { key: 'tg_rospotrebnadzor',   label: 'Роспотребнадзор',     maxSilenceHours: 240 },
   { key: 'safety_layer',  label: 'Safety-слой',       maxSilenceHours: 168 },
+  // Посты X через xAI (29.09). Одиннадцать аккаунтов лабораторий и
+  // инструментов пишут ежедневно; четверо суток без единого поста — это
+  // кончившиеся кредиты xAI или сломанный ответ, а не тишина в X.
+  { key: 'x_ai_labs',     label: 'X · лаборатории ИИ', maxSilenceHours: 96 },
 ] as const;
 
 export interface ScoutSourceState {

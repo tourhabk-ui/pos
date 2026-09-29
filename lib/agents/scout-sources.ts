@@ -21,10 +21,11 @@
 export type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
 
 /**
- * Род источника: RSS/Atom-лента (по умолчанию) или публичное превью
- * Telegram-канала (`t.me/s/<канал>`, разбор — lib/agents/scout-telegram).
+ * Род источника: RSS/Atom-лента (по умолчанию), публичное превью
+ * Telegram-канала (`t.me/s/<канал>`, разбор — lib/agents/scout-telegram)
+ * или посты X через поиск xAI (`x_search`, lib/ai/xai-x-search; 29.09).
  */
-export type SourceKind = 'rss' | 'telegram';
+export type SourceKind = 'rss' | 'telegram' | 'x_search';
 
 export interface ScoutSource {
   key: string;
@@ -238,4 +239,30 @@ export const SAFETY_LAYER_SOURCE = {
   key: 'safety_layer',
   label: 'Safety-слой',
   category: 'kamchatka' as SourceCategory,
+};
+
+/**
+ * Аккаунты X, которые читает разведчик (решение владельца 29.09: «разведчик
+ * должен читать новости про ИИ в X», карт-бланш — «ты знаешь, что нужно, и
+ * для проекта тоже»). Лаборатории — первоисточники релизов; последние три —
+ * то, на чём стоит сама платформа: карты, фреймворк, хостинг фронта.
+ * Один запрос на прогон по всему списку; в промпт уходят только имена.
+ */
+export const X_HANDLES: readonly string[] = [
+  'OpenAI', 'AnthropicAI', 'GoogleDeepMind', 'xai', 'huggingface', 'MistralAI',
+  'deepseek_ai', 'Alibaba_Qwen',
+  'maplibre', 'nextjs', 'vercel',
+];
+
+/**
+ * Источник «X» — не в RSS_SOURCES: у него нет ленты по адресу, его читает
+ * `fetchXSource` в scout-digest через xAI. `url` — для дедупа адресов в
+ * source-discovery-runner и для человека в отчёте.
+ */
+export const X_SOURCE: ScoutSource = {
+  key: 'x_ai_labs',
+  url: 'https://x.com/',
+  label: 'X · лаборатории ИИ',
+  category: 'ai',
+  kind: 'x_search',
 };
