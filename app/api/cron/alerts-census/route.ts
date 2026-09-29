@@ -78,6 +78,7 @@ interface LiveRow {
   id: string; title: string | null; description: string | null;
   alert_type: string | null; severity: number | null;
   created_at: string; expires_at: string | null; push_sent: boolean;
+  push_suppressed_at: string | null; push_suppressed_reason: string | null;
 }
 interface RunRow { agent_id: string; status: string; started_at: string; age_min: number }
 
@@ -125,7 +126,9 @@ export async function GET(request: NextRequest) {
     const { rows: live } = await pool.query<LiveRow>(
       `SELECT id::text, title, description, alert_type, severity::int AS severity,
               created_at::text, expires_at::text,
-              (push_sent_at IS NOT NULL) AS push_sent
+              (push_sent_at IS NOT NULL) AS push_sent,
+              push_suppressed_at::text AS push_suppressed_at,
+              push_suppressed_reason
          FROM external_alerts
         WHERE expires_at IS NULL OR expires_at > NOW()
         ORDER BY created_at DESC
@@ -154,6 +157,10 @@ export async function GET(request: NextRequest) {
         stand_down_description: isResolutionNotice(description),
         contested: !standDownTitle ? false : r.severity === null ? null : r.severity >= 1,
         push_sent: r.push_sent,
+        // Третий исход рядом с «разослан»: не слали намеренно, причина названа.
+        // Без него «push_sent: false» читалось как недоставка.
+        push_suppressed_at: r.push_suppressed_at,
+        push_suppressed_reason: r.push_suppressed_reason,
         title: r.title,
         // 300 символов оказалось мало: в прогоне 1 отбраковку жанра снимала
         // фраза из ХВОСТА суточной сводки, и по обрезанному телу вывод был
