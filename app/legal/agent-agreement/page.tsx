@@ -5,7 +5,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata = {
   alternates: { canonical: '/legal/agent-agreement' },
-  title: 'Агентский договор — Ведар',
+  title: 'Агентский договор',
   description: 'Шаблон агентского договора между платформой TourHab и туроператором Камчатки. Комиссия 10%, AI-обработка лидов, прозрачные условия.',
 };
 

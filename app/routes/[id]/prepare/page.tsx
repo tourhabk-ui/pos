@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import PrepareClient from './_PrepareClient';
 
 export const metadata: Metadata = {
-  title: 'Подготовка к походу — Ведар',
+  title: 'Подготовка к походу',
   description: 'План подготовки к выходу: маршрут, условия, навигация, вода, одежда, группа, логистика.',
   robots: 'noindex',
 };

@@ -31,6 +31,16 @@ function collect(dir: string, acc: string[] = []): string[] {
 
 const files = [...collect(join(ROOT, 'app')), ...collect(join(ROOT, 'components'))];
 
+/** Все .ts/.tsx каталога без исключений — для app/legal, где нужны только метаданные. */
+function collectAll(dir: string, acc: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) collectAll(p, acc);
+    else if (/\.(ts|tsx)$/.test(name)) acc.push(p);
+  }
+  return acc;
+}
+
 describe('бренд-канон «Ведар» в публичных поверхностях', () => {
   it('siteName нигде не TourHab/KamchatourHub', () => {
     const offenders: string[] = [];
@@ -52,6 +62,37 @@ describe('бренд-канон «Ведар» в публичных повер�
       }
     }
     expect(offenders, `title с legacy-суффиксом:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  // Аудит SEO 29.09, вечер. Каталог app/legal исключён выше ради ТЕЛ
+  // документов, и вместе с ними выпал шаблон заголовков юрраздела: пять
+  // страниц sitemap уходили в выдачу как «… | Tourhab». Шаблон — метаданные,
+  // поэтому проверяется отдельно; тела и REQUISITES по-прежнему вне scope.
+  it('шаблон заголовков юрраздела — бренд «Ведар»', () => {
+    const src = readFileSync(join(ROOT, 'app/legal/layout.tsx'), 'utf-8');
+    expect(src).toMatch(/template:\s*'%s \| Ведар'/);
+    expect(src).not.toMatch(/TourHab|Tourhab|KamchatourHub|Kamchatour/);
+  });
+
+  it('title не заканчивается на «— Ведар» (шаблон доклеит «| Ведар» — бренд дважды)', () => {
+    const legalPages = collectAll(join(ROOT, 'app', 'legal'));
+    const offenders: string[] = [];
+    for (const f of [...files, ...legalPages]) {
+      for (const [i, line] of readFileSync(f, 'utf-8').split('\n').entries()) {
+        if (line.includes('template:')) continue;
+        if (/^\s*title\s*:/.test(line) && /—\s*Ведар\s*['"`]/.test(line)) offenders.push(`${f}:${i + 1}`);
+      }
+    }
+    expect(offenders, `title с ручным «— Ведар» (даст «— Ведар | Ведар»):\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('публичный JSON-LD не называет организацию старым брендом', () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(f, 'utf-8');
+      if (/'@type':\s*'Organization',\s*name:\s*'(TourHab|Tourhab|KamchatourHub)'/.test(src)) offenders.push(f);
+    }
+    expect(offenders).toEqual([]);
   });
 
   it('title не заканчивается на "| Ведар" (root layout template доклеит второй — дубль)', () => {

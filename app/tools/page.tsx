@@ -3,7 +3,7 @@ import { Backpack, ShieldCheck } from 'lucide-react';
 import { ToolCard } from '@/components/tools/ToolCard';
 
 export const metadata: Metadata = {
-  title: 'Инструменты путешественника — Ведар',
+  title: 'Инструменты путешественника',
   description: 'Бесплатные AI-утилиты для подготовки к поездке на Камчатку: чек-лист снаряжения и анализатор безопасности.',
   robots: { index: true, follow: true },
   alternates: { canonical: '/tools' },

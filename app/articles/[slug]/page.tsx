@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const description = (article.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
   return {
-    title: `${article.title} — Ведар`,
+    title: article.title,
     description: description || `${article.title}: материал о Камчатке.`,
     alternates: { canonical: `https://vedarai.ru/articles/${article.slug}` },
     openGraph: {

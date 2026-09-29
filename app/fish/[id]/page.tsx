@@ -92,7 +92,7 @@ export default async function FishDetailPage({ params }: Props) {
     url: `https://vedarai.ru/fish/${id}`,
     inLanguage: 'ru',
     about: { '@type': 'Thing', name: species.name, alternateName: species.nameLatin },
-    publisher: { '@type': 'Organization', name: 'TourHab', url: 'https://vedarai.ru' },
+    publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://vedarai.ru' },
   };
 
   // Other species (exclude current)
