@@ -62,8 +62,12 @@ export function useRouteVerdict(routeId: string): VerdictResponse | null {
   const [data, setData] = useState<VerdictResponse | null>(null);
 
   useEffect(() => {
+    // Пустой id — вердикт уже передан страницей. Без этой проверки уходил
+    // запрос /api/routes//verdict и получал 400 на каждой карточке (аудит
+    // UI/UX 29.09).
+    if (!routeId) return;
     let alive = true;
-    fetch(`/api/routes/${routeId}/verdict`)
+    fetch(`/api/routes/${encodeURIComponent(routeId)}/verdict`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('ответ не 200'))))
       .then((d: VerdictResponse) => { if (alive) setData(d); })
       // Молчание было бы худшим из ответов: экран выглядел бы спокойным.

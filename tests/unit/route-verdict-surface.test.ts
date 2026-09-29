@@ -191,3 +191,12 @@ describe('дизайн-система соблюдена', () => {
     expect(SURFACE).toContain('font-playfair');
   });
 });
+
+describe('переданный вердикт не порождает пустой запрос (аудит UI/UX 29.09)', () => {
+  it('хук не идёт в сеть с пустым id — иначе /api/routes//verdict и 400', () => {
+    const src = readFileSync(join(process.cwd(), 'components/routes/RouteVerdict.tsx'), 'utf-8');
+    const hook = src.slice(src.indexOf('export function useRouteVerdict'), src.indexOf('export default function RouteVerdict'));
+    expect(hook.indexOf('if (!routeId) return;')).toBeGreaterThan(-1);
+    expect(hook.indexOf('if (!routeId) return;')).toBeLessThan(hook.indexOf('fetch('));
+  });
+});
