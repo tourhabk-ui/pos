@@ -26,6 +26,7 @@ interface AccommodationRow {
   location_zone: string | null;
   price_per_night_from: string | null;
   rating: string | null;
+  external_booking_url: string | null;
 }
 
 const appBase = getPublicBaseUrl;
@@ -49,7 +50,7 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   let rows: AccommodationRow[];
   try {
     ({ rows } = await pool.query<AccommodationRow>(
-      `SELECT id, name, type, address, location_zone, price_per_night_from, rating
+      `SELECT id, name, type, address, location_zone, price_per_night_from, rating, external_booking_url
        FROM accommodations
        WHERE ${conds.join(' AND ')}
        ORDER BY rating DESC NULLS LAST
@@ -107,10 +108,13 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   }
 
   return rows.map(a => {
+    // Объект с бронью на своём сайте (миграция 1105): цены и наличие там —
+    // так и говорим, а не «цена по запросу», которая звала бы писать нам.
     const price = a.price_per_night_from
       ? `от ${Math.round(Number(a.price_per_night_from))} руб/ночь`
-      : 'цена по запросу';
+      : a.external_booking_url ? 'цены и свободные даты — на сайте объекта' : 'цена по запросу';
     const where = [a.location_zone, a.address].filter(Boolean).join(', ');
-    return `${a.name}${a.type ? ` [${a.type}]` : ''} — ${price}${where ? `. ${where}` : ''}. ${base}/accommodations/${a.id}`;
+    const book = a.external_booking_url ? ` Бронь на сайте объекта: ${a.external_booking_url}` : '';
+    return `${a.name}${a.type ? ` [${a.type}]` : ''} — ${price}${where ? `. ${where}` : ''}. ${base}/accommodations/${a.id}.${book}`;
   }).join('\n\n');
 }

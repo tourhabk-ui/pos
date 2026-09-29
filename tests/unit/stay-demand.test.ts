@@ -27,11 +27,13 @@ describe('словарь', () => {
   it('шаги спроса на жильё — в едином словаре воронки', () => {
     expect(FUNNEL_STEPS).toContain('stay_search');
     expect(FUNNEL_STEPS).toContain('stay_booking_start');
+    expect(FUNNEL_STEPS).toContain('stay_external_booking');
   });
 
   it('в NSM «активированная поездка» не входят — её определение не расширяется молча', () => {
     expect(EXECUTION_STEPS).not.toContain('stay_search');
     expect(EXECUTION_STEPS).not.toContain('stay_booking_start');
+    expect(EXECUTION_STEPS).not.toContain('stay_external_booking');
   });
 
   it('entity_id укладывается в колонку приёмника (max 64)', () => {
@@ -91,6 +93,11 @@ describe('производители на каждой поверхности', 
     expect(src).toMatch(/touchedRef/);
   });
 
+  it('кнопка брони на сайте объекта шлёт stay_external_booking', () => {
+    const src = read('app/accommodations/[id]/_AccommodationDetailClient.tsx');
+    expect(src).toMatch(/funnelBeacon\('stay_external_booking', data\.id\)/);
+  });
+
   it('Кузьмич и MCP — через одну функцию поиска, и она пишет спрос', () => {
     const src = read('lib/kuzmich/accommodation-search.ts');
     expect(src).toMatch(/recordAgentStaySearch\('failed'\)/);
@@ -105,6 +112,7 @@ describe('читатель и исполнитель', () => {
     const src = read('app/api/cron/stay-demand-census/route.ts');
     expect(src).toMatch(/step = 'stay_search'/);
     expect(src).toMatch(/step = 'stay_booking_start'/);
+    expect(src).toMatch(/step = 'stay_external_booking'/);
     expect(src).toMatch(/tool = 'search_accommodations'/);
     // Витрина — тем же шлюзом модерации, что у каталога.
     expect(src).toMatch(/publicAccommodationSql\('a'\)/);

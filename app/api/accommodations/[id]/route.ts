@@ -39,7 +39,8 @@ export async function GET(
       id: string; name: string; type: string; description: string; short_description: string;
       address: string; coordinates: unknown; location_zone: string; star_rating: unknown;
       total_rooms: unknown; check_in_time: unknown; check_out_time: unknown;
-      price_per_night_from: string; price_per_night_to: string | null; currency: string;
+      price_per_night_from: string | null; price_per_night_to: string | null; currency: string;
+      external_booking_url: string | null;
       amenities: unknown; languages: unknown; rating: string | null; review_count: unknown;
       is_verified: boolean; partner_name: string | null; partner_email: string | null;
       partner_phone: string | null; images: unknown; created_at: unknown; updated_at: unknown;
@@ -166,12 +167,17 @@ export async function GET(
       checkInTime: accommodation.check_in_time,
       checkOutTime: accommodation.check_out_time,
       pricePerNight: {
-        from: parseFloat(accommodation.price_per_night_from),
+        // Цены может не быть (объект с бронью на своём сайте, миграция 1105):
+        // null — «цену не называли», а не NaN и не ноль (§4.0).
+        from: accommodation.price_per_night_from != null ? parseFloat(accommodation.price_per_night_from) : null,
         to: accommodation.price_per_night_to ? parseFloat(accommodation.price_per_night_to) : null,
         currency: accommodation.currency,
       },
       amenities: accommodation.amenities || [],
       languages: accommodation.languages || [],
+      // Бронь на сайте самого объекта (миграция 1105): живые цены и наличие
+      // там, а не у нас. null — своей брони у объекта нет или не указана.
+      externalBookingUrl: accommodation.external_booking_url ?? null,
       // «Не оценён» — null, а не ноль. Ноль читается экраном и планером как
       // ОЦЕНКА, и планер по ней отсеивал объект навсегда (условие
       // «rating >= 3.5», §4.0). Правило одно на все выдачи —
@@ -214,7 +220,7 @@ export async function GET(
         type: item.type,
         description: item.short_description,
         address: item.address,
-        pricePerNight: parseFloat(item.price_per_night_from),
+        pricePerNight: item.price_per_night_from != null ? parseFloat(item.price_per_night_from) : null,
         currency: item.currency,
         // То же и у похожих объектов: неоценённый — null.
         rating: publicRating(item.rating, item.review_count),
@@ -257,6 +263,12 @@ const UpdateAccommodationSchema = z.object({
   // Зона планера (миграция 1031). Снять разметку (null) владелец не может —
   // только поменять; «не размечено» остаётся у старых объектов до решения.
   plannerZone: z.enum(ZONE_IDS, { message: 'Выберите зону для планера поездок' }).optional(),
+  // Ссылка на бронь на сайте объекта: только https, пустая строка — снять.
+  externalBookingUrl: z.union([
+    z.string().trim().max(500).regex(/^https:\/\/\S+$/, 'Ссылка на бронь должна начинаться с https://'),
+    z.literal('').transform(() => null),
+    z.null(),
+  ]).optional(),
 }).refine(data => Object.keys(data).length > 0, { message: 'Нет полей для обновления' });
 
 // PATCH /api/accommodations/[id] — владелец редактирует свой объект, admin — любой
@@ -310,6 +322,7 @@ export async function PATCH(
       checkOutTime: { column: 'check_out_time' },
       isActive: { column: 'is_active' },
       plannerZone: { column: 'planner_zone' },
+      externalBookingUrl: { column: 'external_booking_url' },
     };
 
     const setClauses: string[] = [];

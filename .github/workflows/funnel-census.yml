@@ -179,6 +179,8 @@ jobs:
               print('  людей с поиском в каталоге:', stay.get('web_search_visitors'))
               b = stay.get('booking_starts') or {}
               print('  начали бронь:', b.get('starts'), '/ людей', b.get('visitors'))
+              x = stay.get('external_booking_clicks') or {}
+              print('  ушли бронировать на сайт объекта:', x.get('clicks'), '/ людей', x.get('visitors'))
               m = stay.get('mcp_search_calls') or {}
               print('  из них через MCP (внешние AI-агенты):', m.get('calls'))
               print('  заявок на бронь по статусам:', stay.get('bookings_by_status'))

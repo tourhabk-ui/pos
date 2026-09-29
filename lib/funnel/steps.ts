@@ -19,8 +19,10 @@
  *   stay_search              — поиск жилья с условиями (entityId = канал и
  *                              исход, lib/stay/demand.ts: web:found, agent:empty…)
  *   stay_booking_start       — первое касание формы брони жилья (entityId = id объекта)
+ *   stay_external_booking    — переход на бронь на сайте самого объекта
+ *                              (entityId = id объекта, миграция 1105)
  *
- * Два последних — счётчик спроса на жильё (решение владельца 29.09): платить
+ * Три последних — счётчик спроса на жильё (решение владельца 29.09): платить
  * TravelLine за подключение (100 000 ₽ + минимум 200 000 ₽ в год) имеет смысл,
  * только когда видно, что жильё ищут. В NSM они НЕ входят: «активированная
  * поездка» определена стратегией 14.08, и расширять её молча нельзя.
@@ -42,6 +44,7 @@ export const FUNNEL_STEPS = [
   'offline_bundle_download',
   'stay_search',
   'stay_booking_start',
+  'stay_external_booking',
 ] as const;
 
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
