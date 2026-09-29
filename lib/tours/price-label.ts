@@ -32,15 +32,20 @@
  * цены нет, а не подставлять её. Складывать «не знаю» с нулём запрещено.
  */
 
+import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+
 /**
- * «от 13 000 р/чел» либо `null`, если цена не записана.
+ * «от 13 000 ₽/чел.» либо `null`, если цена не записана.
  *
  * `unit` — чтобы одно и то же число называлось одинаково на всех
- * поверхностях; второго формата цены заводить не нужно.
+ * поверхностях; второго формата цены заводить не нужно. Для цены ТУРА единицу
+ * берёт не вызывающий, а `priceFromUnit` — из `operator_tours.price_unit`.
  */
 export function priceFrom(
   basePrice: string | number | null | undefined,
-  unit = 'р/чел',
+  // Без умолчания намеренно: «р/чел» по умолчанию и был дефектом 29.09 — см.
+  // `priceFromUnit` ниже. Вызывающий обязан назвать единицу сам.
+  unit: string,
 ): string | null {
   if (basePrice == null) return null;
   const n = Number(basePrice);
@@ -57,8 +62,52 @@ export function priceFrom(
  */
 export function priceFromOrSay(
   basePrice: string | number | null | undefined,
-  absent = 'цена не указана',
-  unit = 'р/чел',
+  absent: string,
+  unit: string,
 ): string {
   return priceFrom(basePrice, unit) ?? absent;
+}
+
+/**
+ * Цена тура вместе с ТЕМ, за что она назначена.
+ *
+ * ── Что нашлось 29.09 (сверка каналов MCP и каталога) ─────────────────────
+ *
+ * Каталог сайта печатает единицу из `operator_tours.price_unit`:
+ *
+ *   Сплав ID27          13 000 ₽/чел.
+ *   Кижуч ID6           28 000 ₽/чел. в день
+ *   5 дней ID9         140 000 ₽/группа
+ *   7 дней ID11        196 000 ₽/группа
+ *
+ * MCP `get_tours`, `get_tour_details` и `get_tour_availability` печатали ту
+ * же цифру с зашитым «р/чел». Агент в чужом ассистенте читал «140 000 р/чел» и
+ * называл человеку цену с человека — в 4-6 раз выше карточки. Колонка при
+ * этом существует с миграции 056 и в MCP-запросы просто не выбиралась: единица
+ * была не «неизвестна», а ОТБРОШЕНА, и на её месте стояла выдумка.
+ *
+ * ── Правило ───────────────────────────────────────────────────────────────
+ *
+ * Единица берётся из тех же подписей, что рисует каталог (`PRICE_UNIT_SHORT`
+ * — второго словаря нет, §12). Единицы нет или она незнакома — цифра всё
+ * равно печатается, а единица называется НЕИЗВЕСТНОЙ: «за человека» здесь
+ * было бы тем самым выдуманным числом (§4.0), только словами.
+ */
+export function priceFromUnit(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+): string | null {
+  const short = priceUnit ? PRICE_UNIT_SHORT[priceUnit] : undefined;
+  if (short) return priceFrom(basePrice, `₽${short}`);
+  const bare = priceFrom(basePrice, '₽');
+  return bare ? `${bare} (за что назначена цена — не записано, не называй её ценой с человека)` : null;
+}
+
+/** То же, но строка непуста: цены нет — так и говорим. */
+export function priceFromUnitOrSay(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+  absent = 'цена не указана',
+): string {
+  return priceFromUnit(basePrice, priceUnit) ?? absent;
 }

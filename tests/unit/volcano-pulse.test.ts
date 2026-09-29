@@ -89,7 +89,13 @@ describe('компонент', () => {
     expect(comp).toMatch(/повышенных кодов нет/);
   });
 
-  it('тап ведёт на карточку места', () => {
-    expect(comp).toMatch(/href=\{`\/places\/\$\{selected\.placeId\}`\}/);
+  it('тап ведёт на карточку места, когда место есть', () => {
+    // Ссылка строится из placeId выбранного вулкана. Формы `selected.placeId`
+    // прямо в href больше нет: у вулкана без места в каталоге она вела бы на
+    // `/places/null` (29.09, см. volcano-pulse-keeps-unplaced).
+    // Компонент передаёт место обёртке, а обёртка (она объявлена выше
+    // VolcanoPulse, поэтому в срезе `comp` её нет) строит ссылку.
+    expect(comp).toMatch(/<SelWrap placeId=\{selected\.placeId\}>/);
+    expect(LIVE).toMatch(/href=\{`\/places\/\$\{placeId\}`\}/);
   });
 });
