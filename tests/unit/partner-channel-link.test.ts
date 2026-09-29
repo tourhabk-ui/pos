@@ -127,10 +127,11 @@ describe('запись канала', () => {
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toMatch(/SET telegram_chat_id = \$1::bigint/);
     expect(sql).toMatch(/jsonb_build_object\('telegram_chat_id', \$1::text\)/);
-    // contacts на проде по умолчанию `[]`: массив заменяется объектом, а
-    // НЕПУСТОЙ массив не теряется.
+    // contacts на проде по умолчанию `[]`: пустой массив (и NULL) заменяется
+    // объектом, а НЕПУСТОЙ массив не трогается вовсе — «массив || объект»
+    // дописал бы в него элемент, и ключ по-прежнему не читался бы.
     expect(sql).toMatch(/jsonb_typeof\(p\.contacts\) = 'object'/);
-    expect(sql).toMatch(/p\.contacts IN \('\[\]'::jsonb, 'null'::jsonb\)/);
+    expect(sql).toMatch(/WHEN jsonb_typeof\(p\.contacts\) = 'array' AND p\.contacts <> '\[\]'::jsonb THEN p\.contacts/);
     expect(params).toEqual(['12345', PID]);
     // Администратор узнаёт о подключении; прежнего чата не было — ему нечего слать.
     expect(tgSendMock).toHaveBeenCalledTimes(1);
