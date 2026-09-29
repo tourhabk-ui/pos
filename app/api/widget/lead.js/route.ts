@@ -11,15 +11,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { widgetStyle } from '@/lib/embed/widget-style';
 
 export const dynamic = 'force-dynamic';
 
 interface PartnerRow {
   name: string;
   slug: string;
-  widget_config: Record<string, string> | null;
+  widget_config: Record<string, unknown> | null;
   widget_domains: string[];
 }
+
 
 function jsStr(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
@@ -68,10 +70,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const cfg = p.widget_config ?? {};
-  const accent       = cfg.accentColor  ?? '#D44A0C';
-  const buttonText   = cfg.buttonText   ?? 'Заявка на тур';
-  const position     = cfg.position     ?? 'right'; // 'right' | 'left'
+  const { accent, buttonText, position, bottom } = widgetStyle(p.widget_config ?? {});
 
   const BASE = 'https://vedarai.ru';
 
@@ -85,6 +84,7 @@ export async function GET(request: NextRequest) {
   var ACCENT = '${jsStr(accent)}';
   var BTN_TEXT = '${jsStr(buttonText)}';
   var POS = '${jsStr(position)}';
+  var BOTTOM = ${bottom};
 
   /* ── Floating button ── */
   var btn = document.createElement('button');
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
   btn.textContent = BTN_TEXT;
   Object.assign(btn.style, {
     position: 'fixed',
-    bottom: '24px',
+    bottom: BOTTOM + 'px',
     [POS === 'left' ? 'left' : 'right']: '24px',
     zIndex: '2147483646',
     background: ACCENT,
@@ -159,14 +159,17 @@ export async function GET(request: NextRequest) {
     color: '#6B6560',
   });
 
-  /* ── Iframe ── */
+  /* ── Iframe ──
+     Высоту сообщает сама форма (postMessage th:height). До 29.09 окно было
+     440 px со scrolling="no" при форме в 537 px, и «Отправить заявку»
+     оказывалась за краем. Пока сообщения нет — стартовая высота с запасом,
+     и прокрутка разрешена: форма обязана быть досягаема при любой высоте. */
   var iframe = document.createElement('iframe');
   iframe.src = BASE + '/widget/lead-form/' + encodeURIComponent(SLUG);
-  iframe.scrolling = 'no';
   Object.assign(iframe.style, {
     display: 'block',
     width: '100%',
-    height: '440px',
+    height: 'min(600px, calc(100vh - 64px))',
     border: 'none',
   });
   iframe.setAttribute('loading', 'lazy');
@@ -190,14 +193,31 @@ export async function GET(request: NextRequest) {
   });
 
   /* ── PostMessage from iframe ── */
+  /* Высота окна = высота формы, но не выше экрана. Экран меняется (поворот,
+     клавиатура на телефоне) — пересчитываем от последней высоты формы,
+     иначе «Отправить заявку» уходит за край. */
+  var formHeight = 0;
+  function fitFrame() {
+    if (!formHeight) return;
+    iframe.style.height = Math.max(200, Math.min(formHeight, window.innerHeight - 64)) + 'px';
+  }
+  window.addEventListener('resize', fitFrame);
   window.addEventListener('message', function (e) {
     if (e.origin !== BASE) return;
-    if (e.data === 'th:close' || e.data === 'th:success') close();
+    if (e.data === 'th:close') { close(); return; }
+    if (e.data && e.data.type === 'th:height' && typeof e.data.height === 'number' && e.source === iframe.contentWindow) {
+      formHeight = e.data.height;
+      fitFrame();
+    }
   });
 
-  /* ── Mount ── */
-  document.body.appendChild(btn);
-  document.body.appendChild(overlay);
+  /* ── Mount ── без defer скрипт в <head> выполняется до <body> */
+  function mount() {
+    document.body.appendChild(btn);
+    document.body.appendChild(overlay);
+  }
+  if (document.body) mount();
+  else document.addEventListener('DOMContentLoaded', mount);
 })();
 `.trim();
 

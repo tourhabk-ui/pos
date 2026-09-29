@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
+import { isWidgetPath } from '@/lib/embed/widget-frame';
 
 /**
  * Первичный счётчик платформы. Пишет не только факт захода, но и поведение:
@@ -91,6 +92,9 @@ export default function PageViewTracker() {
 
   useEffect(() => {
     if (!pathname || pathname === lastPath.current) return;
+    // Виджет в iframe на сайте партнёра — не визит на Ведар: без этой строки
+    // каждый просмотр fishingkam.ru писался в page_views как /widget/<slug>.
+    if (isWidgetPath(pathname)) return;
     const prevPath = lastPath.current || undefined;
     lastPath.current = pathname;
 
