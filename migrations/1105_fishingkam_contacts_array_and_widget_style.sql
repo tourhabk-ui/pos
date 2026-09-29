@@ -73,7 +73,7 @@ UPDATE partners p
    SET contacts = c.contacts,
        updated_at = NOW()
   FROM cleaned c
- WHERE p.id = c.id;
+ WHERE p.id::text = c.id::text;
 
 -- Строка-сводка `contact.phone`: только Анатолий.
 UPDATE partners
