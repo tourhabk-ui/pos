@@ -1,0 +1,33 @@
+name: TravelLine — проба тестовой среды с раннера
+
+# Ключи канала (TRAVELLINE_CLIENT_ID/SECRET) и спецификация Partner API на
+# тестовой среде partner.qatl.ru (29.09): из контейнера разработки она
+# закрыта. Только чтение; токен маскируется до вывода, ключи из текста
+# ошибок вычищаются. Запуск — правка маркера на main или на claude/**.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/travelline-stage-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Проба
+        env:
+          TRAVELLINE_CLIENT_ID: ${{ secrets.TRAVELLINE_CLIENT_ID }}
+          TRAVELLINE_CLIENT_SECRET: ${{ secrets.TRAVELLINE_CLIENT_SECRET }}
+        run: npx tsx scripts/travelline-stage-probe.ts
