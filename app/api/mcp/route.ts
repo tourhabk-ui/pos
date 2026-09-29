@@ -341,19 +341,21 @@ async function executeTool(
 }
 
 /**
- * Просит ли клиент поток событий.
+ * Просит ли клиент поток событий GET-запросом.
  *
- * Разбор именно по типу, а не поиском подстроки в сыром заголовке: клиент
- * Streamable HTTP шлёт `application/json, text/event-stream` — обе строки
- * сразу, — и «содержит text/event-stream» отправляло бы в 405 того, кто
- * согласен и на JSON. Поток запрошен только тогда, когда ДРУГОГО он не
- * принимает.
+ * Разбор по типу, а не поиском подстроки в сыром заголовке. Поток запрошен,
+ * если text/event-stream есть в списке. Прежняя редакция требовала, чтобы
+ * ДРУГОГО клиент не принимал, ссылаясь на строку `application/json,
+ * text/event-stream` — но это Accept клиента на POST. На GET спецификация
+ * Streamable HTTP велит клиенту перечислить text/event-stream, а серверу —
+ * ответить потоком или 405; 200 с JSON на такой GET — нарушение, из-за
+ * которого строгий клиент обрывает соединение (проверка MCP 29.09).
+ * Браузер (text/html) и curl (*\/*) по-прежнему получают карточку сервера.
  */
 export function wantsEventStream(accept: string | null): boolean {
   if (!accept) return false;
   const types = accept.split(',').map((t) => t.split(';')[0].trim().toLowerCase()).filter(Boolean);
-  if (types.length === 0) return false;
-  return types.every((t) => t === 'text/event-stream');
+  return types.includes('text/event-stream');
 }
 
 /**
@@ -387,12 +389,34 @@ export async function GET(request: NextRequest) {
   if (wantsEventStream(request.headers.get('accept'))) {
     // Тело пустое намеренно: JSON здесь снова стал бы ответом не на тот
     // вопрос. Allow называет метод, которым с нами и надо говорить.
-    return new NextResponse(null, { status: 405, headers: { Allow: 'POST' } });
+    return withCors(new NextResponse(null, { status: 405, headers: { Allow: 'POST' } }));
   }
-  return NextResponse.json({
+  return withCors(NextResponse.json({
     ...MCP_SERVER_INFO,
     tools: PUBLIC_MCP_TOOLS,
-  });
+  }));
+}
+
+/**
+ * CORS на КАЖДОМ ответе, не только на предполёте (проверка MCP 29.09).
+ *
+ * Предполёт разрешал браузеру POST, а сам ответ POST шёл без
+ * Access-Control-Allow-Origin: запрос исполнялся, а прочитать ответ
+ * браузерный клиент не мог — обещание OPTIONS без исполнения (§10.09).
+ * Открытие чтения не расширяет запись: запрос из браузера исполнялся и до
+ * этого, а отдаём мы публичные данные.
+ *
+ * Origin не проверяется, и это отступление от «MUST validate Origin»
+ * Streamable HTTP записано здесь с причиной: правило защищает ЛОКАЛЬНЫЕ
+ * серверы от DNS rebinding, а этот сервер публичный и анонимный — чужой
+ * странице rebinding не даёт ничего сверх прямого запроса. Что остаётся —
+ * заявки из браузеров посетителей чужой страницы, каждая со своего адреса
+ * мимо лимита на адрес, — решение владельца (запрет пишущих инструментов
+ * при чужом Origin сломал бы браузерных агентов), см. отчёт проверки MCP.
+ */
+function withCors(res: NextResponse): NextResponse {
+  res.headers.set('Access-Control-Allow-Origin', '*');
+  return res;
 }
 
 /**
@@ -590,7 +614,7 @@ async function handleMessage(
 /** Пакет длиннее — не наш клиент, а флуд одним HTTP-запросом мимо лимита соединений. */
 const MAX_BATCH = 20;
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest): Promise<NextResponse> {
   // Ревизия 2025-06-18: неподдерживаемая версия в заголовке — 400. Нет
   // заголовка — клиент старше 2025-06-18, и это его право.
   const headerVersion = request.headers.get('mcp-protocol-version');
@@ -601,9 +625,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Тело — не больше MAX_BODY_BYTES: длины режет Zod, но уже ПОСЛЕ разбора,
+  // а многомегабайтный POST — дешёвый способ занять память контейнера мимо
+  // лимита на вызовы (проверка MCP 29.09).
+  const raw = await readBodyLimited(request);
+  if (raw === null) {
+    return NextResponse.json(jsonrpcError(null, -32600, `Invalid Request: тело больше ${MAX_BODY_BYTES / 1024} КБ`), { status: 413 });
+  }
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
     return NextResponse.json(jsonrpcError(null, -32700, 'Parse error'), { status: 400 });
   }
@@ -642,4 +673,35 @@ export async function POST(request: NextRequest) {
     const safeId = typeof id === 'string' || typeof id === 'number' ? id : null;
     return NextResponse.json(jsonrpcError(safeId, -32603, MCP_INTERNAL_ERROR_TEXT), { status: 500 });
   }
+}
+
+export async function POST(request: NextRequest) {
+  return withCors(await handlePost(request));
+}
+
+/**
+ * Самая длинная осмысленная заявка — комментарий до 2000 символов (около 4 КБ
+ * в UTF-8), пакет чтений ещё короче: предел с запасом больше чем вдесятеро.
+ */
+const MAX_BODY_BYTES = 64 * 1024;
+
+/** Тело как текст, не длиннее предела; null — длиннее. Чтение обрывается на пределе. */
+async function readBodyLimited(request: NextRequest): Promise<string | null> {
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
 }

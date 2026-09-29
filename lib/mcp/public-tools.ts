@@ -85,8 +85,9 @@ export const BOOKING_REQUEST_TOOL = {
  *     у заявок `false` — каждый вызов ложится к менеджеру отдельно (дедуп
  *     внутри есть, но контракт этого не обещает);
  *   · `openWorldHint` — ходит ли инструмент к внешним сущностям в момент
- *     вызова. Почти всё читает нашу базу; наружу в момент вызова идёт только
- *     погода.
+ *     вызова. Почти всё читает нашу базу; наружу в момент вызова идут погода
+ *     и план поездки (он берёт прогноз Open-Meteo на даты плана — строка
+ *     «только погода» стояла здесь неверной до проверки MCP 29.09).
  */
 export interface McpToolAnnotations {
   title: string;
@@ -112,7 +113,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   search_accommodations: READ,
   search_transfers:      READ,
   search_gear:           READ,
-  make_trip_plan:        READ,
+  make_trip_plan:        { ...READ, openWorldHint: true },
   create_lead:           WRITE,
   create_booking_request: WRITE,
 };

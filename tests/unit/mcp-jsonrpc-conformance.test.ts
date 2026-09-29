@@ -176,3 +176,21 @@ describe('отказ инструмента — isError, а не успех', ()
     expect(json.result.content[0].text).toMatch(/нет поля consent/);
   });
 });
+
+describe('размер тела и CORS (проверка MCP 29.09)', () => {
+  it('тело больше предела — 413 до разбора', async () => {
+    const huge = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(70 * 1024) } });
+    const res = await post(huge);
+    expect(res.status).toBe(413);
+  });
+
+  it('ответ POST несёт Access-Control-Allow-Origin — браузер может его прочитать', async () => {
+    const res = await post({ jsonrpc: '2.0', id: 1, method: 'ping' });
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  it('и 202 на уведомление, и ошибка разбора — тоже', async () => {
+    expect((await post({ jsonrpc: '2.0', method: 'notifications/initialized' })).headers.get('access-control-allow-origin')).toBe('*');
+    expect((await post('{')).headers.get('access-control-allow-origin')).toBe('*');
+  });
+});
