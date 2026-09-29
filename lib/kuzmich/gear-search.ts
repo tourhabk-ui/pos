@@ -8,6 +8,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicGearSql } from '@/lib/gear/moderation';
 import { containsPattern } from '@/lib/db/like';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -29,7 +30,11 @@ interface GearRow {
 const appBase = getPublicBaseUrl;
 
 export async function searchGearForKuzmich(args: GearSearchArgs): Promise<string> {
-  const conds: string[] = ['is_active = true'];
+  // Шлюз витрины — тот же, что у каталога /gear: позиция на проверке или
+  // отклонённая (moderation_status) в ответ Кузьмича и публичного MCP не
+  // попадает. До 29.09 здесь стояло одно is_active, и непроверенная позиция
+  // уходила внешнему агенту наравне с одобренной (проверка MCP).
+  const conds: string[] = [publicGearSql('')];
   const params: unknown[] = [];
 
   // containsPattern, а не `%${...}%`: оба аргумента приходят из переписки с
