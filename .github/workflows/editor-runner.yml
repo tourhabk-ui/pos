@@ -92,9 +92,15 @@ jobs:
           jq '{model: .model, items: [.items[] | select(.description != null) | {id: .id, description: .description}]}' \
             /tmp/editor-result.json > /tmp/editor-body.json
           COUNT=$(jq '.items | length' /tmp/editor-body.json)
+          # Пустой прогон тоже доходит до прода, и выходить здесь нельзя.
+          #
+          # До 29.09 выходили: «описаний нет — публиковать нечего». Очередь
+          # пуста уже неделями, значит прод не видел раннера ни разу, и
+          # Watchdog справедливо звенел «прогон не отмечался 181ч» о живом,
+          # ежесуточно проходящем workflow. Отметку о прогоне ставит только
+          # ответ editor-result — другой двери у раннера к базе нет (файрвол).
           if [ "$COUNT" = "0" ]; then
-            echo "Описаний нет — публиковать нечего (шаг выше уже покраснел бы, если вход был непуст)."
-            exit 0
+            echo "Описаний нет — публикуем пустой прогон, чтобы он отметился в истории."
           fi
           CODE=$(curl -sS -o /tmp/editor-resp.json -w '%{http_code}' --max-time 60 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
