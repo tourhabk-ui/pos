@@ -185,6 +185,13 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
       await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [ns, key]);
     }
 
+    // По номеру считаются только ПРИНЯТЫЕ заявки. Раньше — все исходы, и три
+    // вызова с чужим номером и consent:false (согласие для отказа не нужно,
+    // в лимит клиента помещаются) отправляли настоящие заявки владельца
+    // номера в карантин на сутки, а каждая его попытка продлевала окно
+    // (проверка MCP 29.09). Потолок номера — про заявки, созданные на него;
+    // поток отказов держит лимит клиента, который считает всё.
+    //
     // Приведения у параметров явные: форма «сравнение с колонкой внутри
     // FILTER» выводом типов не покрыта так же надёжно, как обычный WHERE,
     // а цена ошибки здесь — 42P08 на живом пути (случай 24.08 в CLAUDE.md).
@@ -193,7 +200,8 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
          COUNT(*) FILTER (WHERE client_key = $1::char(64)
                             AND created_at > NOW() - (INTERVAL '1 minute' * $3::int))::text AS a,
          COUNT(*) FILTER (WHERE client_key = $1::char(64))::text AS b,
-         COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64))::text AS c
+         COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64)
+                            AND outcome = 'allowed')::text AS c
        FROM mcp_write_attempts
        WHERE created_at > NOW() - INTERVAL '24 hours'`,
       [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES)],

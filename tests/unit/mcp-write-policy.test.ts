@@ -271,6 +271,16 @@ describe('счёт и запись — одна транзакция под за
   });
 });
 
+describe('карантин номера — только по принятым заявкам (проверка MCP 29.09)', () => {
+  it('потолок номера считает outcome = allowed, лимит клиента — все исходы', () => {
+    const sql = GUARD_SRC.slice(GUARD_SRC.indexOf('COUNT(*) FILTER (WHERE client_key'), GUARD_SRC.indexOf('FROM mcp_write_attempts'));
+    const phone = sql.slice(sql.indexOf('phone_hash ='));
+    expect(phone).toMatch(/AND outcome = 'allowed'\)::text AS c/);
+    const client = sql.slice(0, sql.indexOf('phone_hash ='));
+    expect(client).not.toMatch(/outcome/);
+  });
+});
+
 describe('долг по согласию назван долгом', () => {
   /**
    * `consent: true` ставит агент, а не человек. Запись честно значит «агент
