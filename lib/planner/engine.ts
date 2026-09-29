@@ -1832,7 +1832,17 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export async function recommendTrip(profile: TripProfile): Promise<TripRecommendation> {
+/**
+ * `itinerary: 'plain'` — без AI-пересказа маршрута. Его зовёт make_trip_plan
+ * Кузьмича и публичного MCP, который поле itinerary не читает вовсе: каждый
+ * анонимный вызов платил флагманскую модель и ждал до 15 с ради строки,
+ * выброшенной следом (проверка MCP 29.09). Веб-планер и агентство — как были.
+ */
+export interface RecommendTripOptions {
+  itinerary?: 'ai' | 'plain';
+}
+
+export async function recommendTrip(profile: TripProfile, opts: RecommendTripOptions = {}): Promise<TripRecommendation> {
   if (!profile.interests || profile.interests.length === 0) {
     return {
       zones: [], days: [], warnings: [],
@@ -2097,16 +2107,19 @@ export async function recommendTrip(profile: TripProfile): Promise<TripRecommend
   // AI itinerary — include seasickness context
   let itinerary = `Маршрут на ${tripDays} дней по Камчатке: ${zones.map(z => ZONE_NAMES[z.zone]).join(', ')}.`;
 
-  try {
-    const aiPrompt = buildAIPrompt(profile, zones, days, warnings);
-    const messages: ChatMessage[] = [
-      { role: 'system', content: 'Ты ассистент по туристическому планированию Камчатки.' },
-      { role: 'user', content: aiPrompt },
-    ];
-    const aiResponse = await callAIWithModelDirect(messages, getModelForAgent('planner'));
-    if (aiResponse?.trim()) itinerary = aiResponse;
-  } catch {
-    // fallback already set
+  if (opts.itinerary !== 'plain') {
+    try {
+      const aiPrompt = buildAIPrompt(profile, zones, days, warnings);
+      const messages: ChatMessage[] = [
+        { role: 'system', content: 'Ты ассистент по туристическому планированию Камчатки.' },
+        { role: 'user', content: aiPrompt },
+      ];
+      const aiResponse = await callAIWithModelDirect(messages, getModelForAgent('planner'));
+      if (aiResponse?.trim()) itinerary = aiResponse;
+    } catch (err) {
+      // Запасной текст уже стоит; отказ модели называется в логе (§4.0).
+      console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
+    }
   }
 
   // Просьба была — ответ о ней обязателен, даже если заметок нет. Просьбы

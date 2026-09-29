@@ -349,7 +349,7 @@ export async function makeTripPlanForKuzmich(
     riskMode: 'safe_only',
     travelStyle: readTravelStyle(args.travel_style),
     restDays: readRestDays(args.rest_days),
-  });
+  }, { itinerary: 'plain' });
 
   const month = arrival.getUTCMonth() + 1;
   const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
