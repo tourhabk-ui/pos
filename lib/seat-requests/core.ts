@@ -3,7 +3,7 @@
  *
  * Решения владельца 29.09: ответ оператора одним нажатием в мессенджере;
  * «Есть места» сразу создаёт и подтверждает бронь; на ответ 2 часа; ответ
- * туристу — туда, где ему удобно. Схема — миграция 1105.
+ * туристу — туда, где ему удобно. Схема — миграция 1106.
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
@@ -17,7 +17,7 @@ export const SEAT_REQUEST_STATUSES = [
 ] as const;
 export type SeatRequestStatus = (typeof SEAT_REQUEST_STATUSES)[number];
 
-/** Почему запрос 'failed' (миграция 1105, failure_kind). */
+/** Почему запрос 'failed' (миграция 1106, failure_kind). */
 export const FAILURE_KINDS = ['delivery', 'accounting', 'system', 'unfinished'] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
