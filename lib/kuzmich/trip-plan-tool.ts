@@ -191,8 +191,16 @@ export function startNote(start: PlanStart, plannedFor: string): string {
   }
 }
 
+/** Классика первой поездки — когда интересы не разобраны. */
+export const DEFAULT_PLAN_INTERESTS = ['volcano', 'bears', 'thermal'];
+
 /** Свободный текст интересов → ключи движка. Пусто — классика первой поездки. */
 export function parseChatInterests(raw: string): string[] {
+  return parseChatInterestsDetailed(raw).interests;
+}
+
+/** То же, и признак «ничего не разобрано — подставлена классика». */
+export function parseChatInterestsDetailed(raw: string): { interests: string[]; defaulted: boolean } {
   const text = (raw || '').toLowerCase();
   const found = new Set<string>(parseInterestWords(text));
   // parseInterestsFromText движка ловит то, что словарь не покрыл
@@ -200,9 +208,32 @@ export function parseChatInterests(raw: string): string[] {
     const parsed = parseInterestsFromText(text);
     for (const k of parsed.interests ?? []) found.add(k);
   } catch { /* словаря достаточно */ }
-  if (found.size === 0) return ['volcano', 'bears', 'thermal'];
-  return [...found];
+  if (found.size === 0) return { interests: [...DEFAULT_PLAN_INTERESTS], defaulted: true };
+  return { interests: [...found], defaulted: false };
 }
+
+/**
+ * Длительность из слова модели. «10 days», «10 дней» — десять: прежнее
+ * Number('10 days') давало NaN и молча превращалось в семь (проверка MCP
+ * 29.09). Вне 3–21 — ближайшая граница, и это говорится вслух.
+ */
+export function readPlanDays(raw: string | undefined): { days: number; note: string | null } {
+  const m = /\d+/.exec(raw ?? '');
+  if (!m) {
+    return { days: 7, note: raw?.trim() ? `Длительность «${raw.trim()}» не разобрал — считаю 7 дней.` : null };
+  }
+  const n = Number(m[0]);
+  if (n < 3) return { days: 3, note: `План собираю от 3 дней — считаю 3, а не ${n}.` };
+  if (n > 21) return { days: 21, note: `План собираю до 21 дня — считаю 21, а не ${n}.` };
+  return { days: n, note: null };
+}
+
+/**
+ * Допущения, которых турист не называл, — вслух первой строкой. Движок
+ * считает на двоих взрослых со средней подготовкой, и его «у вас указана
+ * средняя» читалось как слова человека, который ничего не указывал.
+ */
+export const PLAN_ASSUMPTIONS = 'Считаю на двоих взрослых со средней подготовкой, уровень размещения «комфорт», только безопасные варианты — если у вас иначе, пересоберите в планировщике.';
 
 /**
  * Вес за совпадение ЗАГЛАВНОГО интереса пресета — первого в его списке.
@@ -272,6 +303,9 @@ function capitalize(t: string): string {
   return t ? t.charAt(0).toLocaleUpperCase('ru-RU') + t.slice(1) : t;
 }
 
+const DAY_WARNINGS_SHOWN = 3;
+const WARNINGS_SHOWN = 6;
+
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
 export function formatTripPlanForChat(
   days: DayPlan[],
@@ -312,9 +346,17 @@ export function formatTripPlanForChat(
     // рядом с настоящими ценами он читался как цена (аудит MCP 29.09).
     const price = d.realPrice != null && d.realPrice > 0 ? ` — от ${d.realPrice.toLocaleString('ru-RU')} ₽` : '';
     lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
+    // Предупреждения дня — «Только с гидом», лимит парка, детям до N лет —
+    // стоят на самом дне; до 29.09 до ответа не доходило ни одно.
+    const dayWarn = (d.dayWarnings ?? []).filter(Boolean);
+    for (const w of dayWarn.slice(0, DAY_WARNINGS_SHOWN)) lines.push(`   ! ${w}`);
+    if (dayWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${dayWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
   }
   if (warnings.length > 0) {
-    lines.push('', `Важно: ${warnings.slice(0, 2).join(' ')}`);
+    // Без молчаливого потолка: прежний slice(0, 2) отрезал третье и
+    // дальше, включая безопасность (проверка MCP 29.09).
+    lines.push('', 'Важно:', ...warnings.slice(0, WARNINGS_SHOWN).map((w) => `- ${w}`));
+    if (warnings.length > WARNINGS_SHOWN) lines.push(`…и ещё ${warnings.length - WARNINGS_SHOWN} — в планировщике`);
   }
   lines.push('');
   if (preset) {
@@ -328,8 +370,14 @@ export function formatTripPlanForChat(
 export async function makeTripPlanForKuzmich(
   args: { days?: string; interests?: string; when?: string; travel_style?: string; rest_days?: string },
 ): Promise<string> {
-  const daysNum = Math.min(21, Math.max(3, Number(args.days) || 7));
-  const interests = parseChatInterests(args.interests ?? '');
+  const { days: daysNum, note: daysNote } = readPlanDays(args.days);
+  const { interests, defaulted } = parseChatInterestsDetailed(args.interests ?? '');
+  // Интересы не разобраны — берётся классика, и это говорится, как у дат.
+  const interestsNote = defaulted
+    ? (args.interests?.trim()
+      ? `Интересы «${args.interests.trim()}» не разобрал — взял классику первой поездки: вулканы, медведи, термальные источники.`
+      : 'Интересы не названы — взял классику первой поездки: вулканы, медведи, термальные источники.')
+    : null;
 
   const start = parsePlanStart(args.when, Date.now());
   const arrival = start.date;
@@ -360,12 +408,15 @@ export async function makeTripPlanForKuzmich(
       // Что вышло из просьбы «как ехать / дни отдыха» — первым: турист об
       // этом просил, и частичное исполнение не должно читаться как полное.
       ...(rec.preferences?.notes ?? []).filter((n) => n.status !== 'honoured').map((n) => n.message),
-      ...rec.warnings.filter((w) => w.severity !== 'info').map((w) => w.message),
+      // Безопасность — даже уровня info: «территория медведей, гид с
+      // фальшфейером обязателен» и «нет сотовой связи» отсекались фильтром
+      // вместе со справками о загрузке (проверка MCP 29.09).
+      ...rec.warnings.filter((w) => w.severity !== 'info' || w.type === 'safety').map((w) => w.message),
     ],
     matchPreset(daysNum, interests, PLAN_PRESETS, month),
     { refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor },
   );
 
-  const note = startNote(start, plannedFor);
-  return note ? `${note}\n\n${text}` : text;
+  const notes = [startNote(start, plannedFor), daysNote, interestsNote, PLAN_ASSUMPTIONS].filter(Boolean);
+  return `${notes.join('\n')}\n\n${text}`;
 }

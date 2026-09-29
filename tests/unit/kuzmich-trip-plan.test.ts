@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import {
   parseChatInterests, matchPreset, formatTripPlanForChat,
   buildRefusal, inSeasonInterests, parsePlanStart, startNote,
+  readPlanDays, parseChatInterestsDetailed,
 } from '@/lib/kuzmich/trip-plan-tool';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
@@ -161,7 +162,7 @@ describe('formatTripPlanForChat', () => {
     // Разделитель тысяч в ru-RU — неразрывный пробел, не привязываемся к нему.
     expect(text).toMatch(/День 1\. Авачинский вулкан — от 8.500.₽/);
     expect(text).toContain('День 2. Паратунка');
-    expect(text).toContain('Важно: Сентябрь');
+    expect(text).toContain('Важно:\n- Сентябрь');
     expect(text).toContain('/plans/kamchatka-za-7-dney-vulkany');
     expect(text).toContain('/planner');
   });
@@ -406,5 +407,42 @@ describe('план не выдаёт служебное и прошлое за �
     // Прежняя форма `active_until IS NULL OR ...` — «навсегда».
     expect(ENGINE).not.toMatch(/active_until IS NULL OR active_until >= \$1/);
     expect(ENGINE).toMatch(/active_until IS NULL\s+AND \$1::date <= CURRENT_DATE \+ \$3::int/);
+  });
+});
+
+// Проверка MCP 29.09: предупреждения дня («Только с гидом», лимит парка) и
+// безопасность уровня info («территория медведей») до ответа не доходили;
+// «10 days» молча становилось семью; допущения движка не назывались.
+describe('план говорит то, что знает движок', () => {
+  const dayW = (over: Partial<DayPlan>): DayPlan => ({
+    day: 2, type: 'activity', title: 'Трекинг — Восточная зона', description: '', zone: 'eastern',
+    activityType: 'trekking', priceFrom: 0, priceTo: 0, coords: [53, 158], defaultTransport: 'walking',
+    allowedTransports: ['walking'], difficulty: 'moderate', childFriendly: true, minChildAge: 0,
+    dayWarnings: [], ...over,
+  } as DayPlan);
+
+  it('предупреждения дня стоят под днём, лишние названы числом', () => {
+    const text = formatTripPlanForChat([dayW({ dayWarnings: ['Только с гидом: перевал. Ищите тур оператора.', 'a', 'b', 'c'] })], [], null);
+    expect(text).toMatch(/День 2\. Трекинг — Восточная зона\n {3}! Только с гидом: перевал/);
+    expect(text).toMatch(/…и ещё 1 — в планировщике/);
+  });
+
+  it('все предупреждения плана, без молчаливого потолка в два', () => {
+    const text = formatTripPlanForChat([dayW({})], ['один', 'два', 'Территория медведей. Гид с фальшфейером обязателен.'], null);
+    expect(text).toMatch(/Территория медведей/);
+  });
+
+  it('длительность из слов модели и границы — вслух', () => {
+    expect(readPlanDays('10 days')).toEqual({ days: 10, note: null });
+    expect(readPlanDays('две недели').note).toMatch(/не разобрал — считаю 7/);
+    expect(readPlanDays('30')).toEqual({ days: 21, note: expect.stringMatching(/считаю 21, а не 30/) });
+  });
+
+  it('инструмент оставляет safety-предупреждения уровня info и называет допущения', () => {
+    const src = readFileSync('lib/kuzmich/trip-plan-tool.ts', 'utf-8');
+    expect(src).toMatch(/w\.severity !== 'info' \|\| w\.type === 'safety'/);
+    expect(src).toMatch(/\[startNote\(start, plannedFor\), daysNote, interestsNote, PLAN_ASSUMPTIONS\]/);
+    expect(parseChatInterestsDetailed('что-нибудь интересное')).toEqual({ interests: ['volcano', 'bears', 'thermal'], defaulted: true });
+    expect(parseChatInterestsDetailed('рыбалка').defaulted).toBe(false);
   });
 });
