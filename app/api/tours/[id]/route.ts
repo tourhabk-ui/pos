@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicRating } from '@/lib/reviews/public-rating';
+import { isUuid } from '@/lib/text/slugify';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +32,24 @@ export async function GET(
   try {
     const { id } = await params;
 
-    const result = await query(
+    // `operator_tours.id` — bigint, `agent_route_knowledge.id` — uuid. Всё
+    // прочее не может быть ни тем, ни другим, и спрашивать базу об этом
+    // незачем: запрос отвечал 22P02 ещё на первом сравнении, и роут отдавал
+    // 500 на любой мусор в адресе (проверено живым `/api/tours/not-a-tour`).
+    // «Такого тура нет» — это 404, а не отказ сервера.
+    const isNumericId = /^\d+$/.test(id);
+    if (!isNumericId && !isUuid(id)) {
+      return NextResponse.json(
+        { success: false, error: 'Тур не найден' },
+        { status: 404 }
+      );
+    }
+
+    // Спрашиваем только operator_tours и только по числовому id: колонка
+    // bigint, и на UUID запрос падал 22P02 `invalid input syntax for type
+    // bigint` — отказом сервера вместо «такого тура нет».
+    const result = isNumericId
+      ? await query(
       `SELECT
         t.*,
         kr.id          AS route_kr_id,
@@ -40,83 +60,37 @@ export async function GET(
         kr.source_url  AS route_source_url,
         p.id           AS partner_id_val,
         p.name         AS partner_name,
-        p.rating       AS partner_rating
+        p.rating       AS partner_rating,
+        p.review_count AS partner_review_count
        FROM operator_tours t
        LEFT JOIN kamchatka_routes kr ON t.route_id = kr.id
        LEFT JOIN partners p ON t.operator_id = p.id
-       WHERE t.id = $1 AND t.is_active = TRUE AND t.deleted_at IS NULL`,
+       -- Шлюз витрины один на все публичные чтения тура
+       -- (lib/tours/public-visibility.ts). Без is_published карточка
+       -- открывалась по прямой ссылке на снятый с витрины черновик.
+       WHERE t.id = $1 AND ${publicTourSql('t')}`,
       [id]
-    );
+    )
+      : { rows: [] as Record<string, unknown>[] };
 
-    // ── Фолбэк: маршрут из agent_route_knowledge ──────────────────────────────
+    // Тура с таким id на витрине нет — это 404, а не отказ сервера.
+    //
+    // Здесь до 26.09 стоял фолбэк на `agent_route_knowledge`: если тур не
+    // найден, роут отдавал под видом тура МАРШРУТ или МЕСТО. Он был
+    // недостижим по построению — первый запрос сравнивает `t.id` (bigint) с
+    // тем же параметром и на UUID падал 22P02 раньше, чем дело доходило до
+    // фолбэка. То есть путь был объявлен, описан и не работал ни разу (§10.09).
+    //
+    // Возвращать его нельзя и по смыслу: тур — коммерческое предложение
+    // оператора, маршрут — инструкция, место — географический факт (§4.1).
+    // Отдавать место как тур значит обещать бронирование там, где его нет.
     if (result.rows.length === 0) {
-      const arkResult = await query<{
-        id: string; title: string; description: string | null;
-        category: string; lat: string | null; lng: string | null;
-        source_url: string | null; source_name: string | null;
-        payload: Record<string, unknown> | null;
-        created_at: Date; updated_at: Date;
-      }>(`SELECT id, title, description, category, lat, lng, source_url, source_name, payload, created_at, updated_at
-         FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`, [id]);
-
-      if (arkResult.rows.length === 0) {
-        return NextResponse.json(
-          { success: false, error: 'Тур не найден' },
-          { status: 404 }
-        );
-      }
-
-      const ark = arkResult.rows[0];
-      const payload = (typeof ark.payload === 'object' && ark.payload !== null)
-        ? ark.payload as Record<string, unknown>
-        : {};
-
-      const price = typeof payload.price === 'number' ? payload.price
-        : typeof payload.price_from === 'number' ? payload.price_from : 0;
-      const duration = typeof payload.duration === 'number' ? payload.duration
-        : typeof payload.duration_hours === 'number' ? payload.duration_hours : 0;
-      const rawImages = Array.isArray(payload.images) ? payload.images as string[] : [];
-      const images = rawImages.length > 0
-        ? rawImages
-        : (CATEGORY_IMAGES[ark.category] ? [CATEGORY_IMAGES[ark.category]] : []);
-
-      const tour = {
-        id: ark.id,
-        name: ark.title,
-        description: ark.description || '',
-        shortDescription: (ark.description || '').slice(0, 200),
-        category: ark.category,
-        difficulty: (typeof payload.difficulty === 'string' ? payload.difficulty : 'medium') as 'easy' | 'medium' | 'hard',
-        duration,
-        price,
-        currency: 'RUB',
-        season: Array.isArray(payload.season) ? payload.season : [],
-        coordinates: ark.lat && ark.lng
-          ? [{ lat: parseFloat(ark.lat), lng: parseFloat(ark.lng) }]
-          : [],
-        requirements: [],
-        included: Array.isArray(payload.included) ? payload.included as string[] : [],
-        notIncluded: [],
-        maxGroupSize: typeof payload.max_group === 'number' ? payload.max_group : 20,
-        minGroupSize: 1,
-        rating: typeof payload.rating === 'number' ? payload.rating : 0,
-        reviewCount: typeof payload.review_count === 'number' ? payload.review_count : 0,
-        isActive: true,
-        images,
-        slug: '',
-        locationName: '',
-        createdAt: new Date(String(ark.created_at)),
-        updatedAt: new Date(String(ark.updated_at)),
-        routeId: null,
-        route: null,
-        operator: null,
-        sourceUrl: ark.source_url,
-        sourceName: ark.source_name,
-      };
-
-      return NextResponse.json({ success: true, data: tour });
+      return NextResponse.json(
+        { success: false, error: 'Тур не найден' },
+        { status: 404 }
+      );
     }
-    // ─────────────────────────────────────────────────────────────────────────
+
 
     const row = result.rows[0];
 
@@ -156,7 +130,11 @@ export async function GET(
       notIncluded:      parseJsonField(row.notIncluded || row.not_included) as string[],
       maxGroupSize:     parseInt(String(row.maxGroupSize || row.max_group_size || 20)),
       minGroupSize:     parseInt(String(row.minGroupSize || row.min_group_size || 1)),
-      rating:           parseFloat(String(row.rating || 0)),
+      // Оценки нет — null. `row.rating || 0` превращал «никто не оценивал» в
+      // «нуль звёзд» (§4.0); каноническое чтение карточки держит
+      // `rating: string | null` (lib/tours/tour-detail-query.ts). Правило одно
+      // на все выдачи — lib/reviews/public-rating.
+      rating:           publicRating(row.rating, row.review_count ?? row.reviewCount),
       reviewCount:      parseInt(String(row.review_count || row.reviewCount || 0)),
       isActive:         (row.is_active ?? true) as boolean,
       images,
@@ -180,13 +158,19 @@ export async function GET(
       operator: row.partner_id_val ? {
         id:     row.partner_id_val as string,
         name:   (row.partner_name || '') as string,
-        rating: parseFloat(String(row.partner_rating || 0)),
+        // То же и у оператора: «его никто не оценивал» — не «нуль».
+        rating: publicRating(row.partner_rating, row.partner_review_count),
       } : null,
     };
 
     return NextResponse.json({ success: true, data: tour });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
+    // Причина обязана осесть в логе: до 26.09 отказ карточки тура не писал
+    // ничего, и род поломки (22P02 против настоящего отказа базы) снаружи был
+    // неразличим (§4.0 «отказ не глушится»).
+    const e = error as { code?: string };
+    console.error('[tours/id] карточка тура не собралась', { sqlstate: e?.code, message: msg });
     return NextResponse.json(
       { success: false, error: 'Ошибка загрузки тура', details: process.env.NODE_ENV === 'development' ? msg : undefined },
       { status: 500 }

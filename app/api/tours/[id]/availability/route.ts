@@ -1,6 +1,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { ApiResponse } from '@/types';
 import { TourCheckRow, AvailabilityDateRow } from '@/lib/types/db-rows';
 
@@ -40,13 +41,14 @@ export async function GET(
     // Проверяем существование тура.
     // min_participants: колонки min_group_size в operator_tours НЕТ (алиас с
     // таким именем живёт только во VIEW миграции 056) — запрос падал 42703 на
-    // КАЖДОМ вызове, роут не отработал ни разу. is_published: снятый с
-    // витрины тур не должен отдавать календарь доступности (миграции 807/808/837).
+    // КАЖДОМ вызове, роут не отработал ни разу. Шлюз витрины — общий
+    // (lib/tours/public-visibility): снятый с витрины тур не должен отдавать
+    // календарь доступности (миграции 807/808/837).
     const tourQuery = `
       SELECT id, title AS name, max_participants AS max_group_size,
              min_participants AS min_group_size, base_price AS price, is_active
       FROM operator_tours
-      WHERE id = $1 AND is_published = true AND deleted_at IS NULL
+      WHERE id = $1 AND ${publicTourSql('')}
     `;
     const tourResult = await query<TourCheckRow>(tourQuery, [id]);
 
@@ -57,14 +59,11 @@ export async function GET(
       } as ApiResponse<null>, { status: 404 });
     }
 
+    // Отдельной проверки is_active больше нет: она входит в шлюз витрины, и
+    // выключенный тур отвечает так же, как снятый и удалённый — «не найден».
+    // Два разных ответа на одно состояние («тура для туриста нет») учили
+    // различать то, что различать не нужно.
     const tour = tourResult.rows[0];
-
-    if (!tour.is_active) {
-      return NextResponse.json({
-        success: false,
-        error: 'Tour is not active'
-      } as ApiResponse<null>, { status: 400 });
-    }
 
     // Генерируем даты в диапазоне
     const availabilityQuery = `

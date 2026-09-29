@@ -82,6 +82,12 @@ function mockReserveDb(link: { id: string; agent_id: string } | null) {
     if (s.includes('generate_series')) return Promise.resolve({ rows: [{ date: '2099-07-01', occupied: '0', available_slots: null, is_cancelled: null }] });
     if (s.includes('FROM agent_referral_links')) return Promise.resolve({ rows: link ? [link] : [] });
     if (s.includes('INSERT INTO operator_bookings')) return Promise.resolve({ rows: [{ id: 501, access_token: 'tok-1' }] });
+    // Цена брони считается правилами `tour_pricing_rules` (27.09,
+    // lib/tours/honest-price): бронь читает их и занятость даты клиентом ТОЙ
+    // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
+    // то есть прежнее поведение этих проверок.
+    if (s.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    if (s.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + s);
   });
 }

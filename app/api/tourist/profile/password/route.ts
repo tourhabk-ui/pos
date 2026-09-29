@@ -36,7 +36,9 @@ export async function PATCH(request: NextRequest) {
   let body: unknown;
   try {
     body = await request.json();
-  } catch {
+  } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[tourist/profile/password] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
       { success: false, error: 'Некорректный формат запроса' },
       { status: 400 }
@@ -86,6 +88,8 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true, message: 'Пароль успешно изменён' });
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[tourist/profile/password] отказ', { sqlstate: e?.code, message: e?.message });
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       {

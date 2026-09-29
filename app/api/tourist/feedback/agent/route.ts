@@ -49,7 +49,9 @@ export async function POST(req: NextRequest) {
   }
 
   let body: unknown;
-  try { body = await req.json(); } catch {
+  try { body = await req.json(); } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[tourist/feedback/agent] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({ success: false, error: 'Некорректный JSON' }, { status: 400 });
   }
 
@@ -81,6 +83,8 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[tourist/feedback/agent] отказ', { sqlstate: e?.code, message: e?.message });
     // Молчать нельзя (§4.0): без строки в логе «ошибка записи» неотличима
     // от «таблицы нет», «прав нет» и «поле не влезло».
     const code = (err as { code?: string })?.code ?? 'нет кода';

@@ -172,6 +172,11 @@ export default function TouristDashboardClient() {
   // Погода не пришла — это состояние, а не пустое место (#1774): раньше API
   // подсовывал выдуманные 15 °C, и карточка выглядела заполненной.
   const [weatherFailed, setWeatherFailed] = useState(false);
+  // Сводка тоже: до 26.09 отказ /api/tourist/stats просто УБИРАЛ блок
+  // «Обзора» — четыре карточки исчезали молча, и экран выглядел так, будто у
+  // человека ничего нет. Рядом, на «Моей Камчатке», это уже сделано честно:
+  // значения рисуются как «—», пока не удалось посчитать (§4.0).
+  const [statsFailed, setStatsFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recsLoading, setRecsLoading] = useState(true);
   // Активная поездка — ТОТ ЖЕ источник, что у главной (auth-scoped
@@ -188,12 +193,16 @@ export default function TouristDashboardClient() {
       fetch('/api/weather?lat=53.0375&lng=158.6556&location=Петропавловск-Камчатский'),
     ]);
 
+    if (statsRes.status === 'rejected') setStatsFailed(true);
     if (statsRes.status === 'fulfilled') {
       // Не-JSON (502 прокси) прежде бросал здесь, и setLoading(false) не
       // наступал никогда — «Обзор» крутил спиннер вечно.
       const d = await statsRes.value.json().catch(() => null);
-      if (d?.success) setStats(d.data);
-      else console.error('[tourist-dashboard] сводка не получена', statsRes.value.status);
+      if (d?.success) { setStats(d.data); setStatsFailed(false); }
+      else {
+        setStatsFailed(true);
+        console.error('[tourist-dashboard] сводка не получена', statsRes.value.status);
+      }
     }
     if (bookingsRes.status === 'fulfilled') {
       const d = await bookingsRes.value.json().catch(() => null);
@@ -254,11 +263,19 @@ export default function TouristDashboardClient() {
 
   const ps = stats?.profile_summary;
 
+  // Не смогли посчитать — говорим это прочерком, а не исчезновением блока:
+  // пропавшие карточки читаются как «поездок ноль», то есть третий исход
+  // выдаётся за второй (§4.0).
   const kpis = ps ? [
     { label: 'Поездок', value: String(ps.total_trips), icon: MapPin },
     { label: 'Потрачено', value: fmtRub(ps.total_spent), icon: TrendingUp },
     { label: 'Эко', value: new Intl.NumberFormat('ru-RU').format(ps.loyalty_points), icon: Award },
     { label: 'Уровень', value: TIER_LABELS[ps.loyalty_tier] ?? ps.loyalty_tier, icon: Compass },
+  ] : statsFailed ? [
+    { label: 'Поездок', value: '—', icon: MapPin },
+    { label: 'Потрачено', value: '—', icon: TrendingUp },
+    { label: 'Эко', value: '—', icon: Award },
+    { label: 'Уровень', value: '—', icon: Compass },
   ] : [];
 
   if (loading) {
@@ -335,6 +352,11 @@ export default function TouristDashboardClient() {
       <SectionsNav />
 
       {/* KPIs */}
+      {statsFailed && (
+        <p className="text-sm text-[var(--text-muted)]">
+          Сводку посчитать не удалось — это не значит, что поездок нет. Обновите страницу позже.
+        </p>
+      )}
       {kpis.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {kpis.map(kpi => {

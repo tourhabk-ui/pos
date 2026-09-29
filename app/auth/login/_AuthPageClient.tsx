@@ -212,6 +212,9 @@ export default function AuthPageClient() {
   };
 
   const switchMode = (newMode: Mode) => {
+    // Нажатие на УЖЕ активную закладку не должно стирать введённое: человек
+    // видит свою почту и пароль исчезнувшими без всякой причины.
+    if (newMode === mode) return;
     setMode(newMode);
     resetForm();
   };
@@ -259,11 +262,18 @@ export default function AuthPageClient() {
           <p className="text-sm text-[var(--text-muted)] mt-1">Туристическая платформа Камчатки</p>
         </div>
 
-        {/* Mode Toggle */}
+        {/* Mode Toggle.
+            type="button" обязателен: у <button> без type род по умолчанию —
+            submit, и такая закладка отправляет ближайшую форму. Здесь она
+            рисуется рядом с формами, но стоит переставить разметку — и
+            переключатель начнёт логинить или регистрировать, ничего об этом не
+            сказав. Род кнопки объявляется явно, а не выводится из вёрстки.
+            Сторож: tests/unit/auth-tabs-not-submit.test.tsx. */}
         <div className="flex gap-1 mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-1">
           {(['login', 'register'] as const).map(m => (
             <button
               key={m}
+              type="button"
               onClick={() => switchMode(m)}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
                 mode === m

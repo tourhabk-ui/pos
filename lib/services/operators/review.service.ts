@@ -12,6 +12,7 @@ import {
   ReviewValidationError,
   DuplicateReviewError,
 } from '../_helpers';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 export const reviewService = {
   normalize(row: Record<string, unknown> | null) {
@@ -37,8 +38,7 @@ export const reviewService = {
       operator_reply_at: row.operator_reply_at ?? row.operatorReplyAt ?? null,
       createdAt: row.created_at ?? row.createdAt ?? null,
       updatedAt: row.updated_at ?? row.updatedAt ?? null,
-      userName: toStringOrNull(row.user_name),
-      userEmail: toStringOrNull(row.user_email),
+      userName: publicReviewerName(toStringOrNull(row.user_name)),
       tourName: toStringOrNull(row.tour_name),
     };
   },
@@ -73,10 +73,21 @@ export const reviewService = {
   },
   async getById(id: string) {
     const result = await pool.query(
+      // Почта автора отсюда УБРАНА: `GET /api/discovery/reviews/[id]`
+      // публичен по замыслу (см. шапку роута), и `normalize` прокидывал
+      // `userEmail` наружу. Имя сокращается правилом публичного имени
+      // (lib/reviews/public-name.ts) — тем же, что у отзывов о жилье.
+      //
+      // Сам роут при этом сейчас МЁРТВ, и это отдельная поломка: `reviews.tour_id`
+      // имеет тип uuid, а `operator_tours.id` — bigint, поэтому соединение
+      // ниже отвечает `operator does not exist: uuid = bigint` на любой запрос
+      // (проверено живым HTTP 26.09). Живые отзывы о туре лежат в
+      // `operator_tour_reviews` и читаются своим путём; эта ветка — легаси.
+      // Почта убрана до починки намеренно: починит кто-то соединение — утечки
+      // в подарок не получит.
       `SELECT
          r.*,
          u.name AS user_name,
-         u.email AS user_email,
          t.title AS tour_name
        FROM reviews r
        LEFT JOIN users u ON r.user_id = u.id

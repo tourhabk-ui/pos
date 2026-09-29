@@ -130,7 +130,21 @@ export async function POST(
       message: 'Спасибо за отзыв!',
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Ошибка';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    // Текст ошибки PostgreSQL наружу НЕ уходит. До 26.09 уходил, и турист,
+    // нажавший «Отправить отзыв», читал на экране
+    // `record "new" has no field "operator_id"` — внутреннее устройство базы
+    // вместо понятного сообщения (CLAUDE.md: «ошибки — понятные сообщения на
+    // русском»). Причина обязана оседать в логе с SQLSTATE: молчащий catch
+    // превращает поломку в «данных нет» (§4.0).
+    const e = err as { code?: string; message?: string };
+    console.error('[places/reviews] не удалось записать отзыв', {
+      placeRef: id,
+      sqlstate: e?.code,
+      message: e?.message,
+    });
+    return NextResponse.json(
+      { success: false, error: 'Не удалось сохранить отзыв. Мы записали отказ и разберёмся; попробуйте позже.' },
+      { status: 500 },
+    );
   }
 }

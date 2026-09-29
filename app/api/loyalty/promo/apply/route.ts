@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[loyalty/promo/apply] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка применения промокода'

@@ -68,7 +68,16 @@ export interface ZoneCapacityInfo {
   tourCount: number;
   totalSlots: number;
   totalBooked: number;
-  utilizationPercent: number;
+  /**
+   * Занятость зоны в процентах, или `null` — НЕ ИЗМЕРЕНА.
+   *
+   * `null` в двух случаях, и оба не равны нулю: слотов на эти даты нет вовсе
+   * (делить не на что) и запрос не выполнился. До 27.09 оба отдавали 0, то
+   * есть «не знаем» было неотличимо от «свободно» (§4.0). Разница стала
+   * видимой, когда это число пошло НА ЭКРАН меткой загрузки зоны: «свободно»
+   * там — обещание, а «слотов нет» — совсем другая новость.
+   */
+  utilizationPercent: number | null;
 }
 
 export interface AlternativeTour {
@@ -299,7 +308,15 @@ export async function fetchZoneCapacity(
         LEFT JOIN v_tour_daily_occupancy occ
           ON occ.operator_tour_id = ta.operator_tour_id
           AND occ.date = ta.date
-        WHERE ark.zone = $1
+        -- Предикат зоны — ТОТ ЖЕ, что у отбора туров на день (выше, строка с
+        -- ark.zone = $1 OR $1 = 'avachinsky'). Ослабление для Авачинской
+        -- зоны там записано осознанно: тур без зоны считается городским. Здесь
+        -- предикат был СТРОГИМ, и получалось, что дни Авачинской зоны движок
+        -- берёт из таких туров, а их заполненность не считает никогда — на
+        -- экране метка загрузки зоны не могла зажечься ни при какой
+        -- занятости. Два запроса об одном и том же обязаны отбирать одно и то
+        -- же (CLAUDE.md §12).
+        WHERE (ark.zone = $1 OR $1 = 'avachinsky')
           AND ot.is_active = TRUE
           AND ot.is_published = TRUE
           AND ot.deleted_at IS NULL`,
@@ -313,10 +330,13 @@ export async function fetchZoneCapacity(
         tourCount: parseInt(String(r?.tour_count ?? '0'), 10),
         totalSlots,
         totalBooked,
-        utilizationPercent: totalSlots > 0 ? Math.round((totalBooked / totalSlots) * 100) : 0,
+        utilizationPercent: totalSlots > 0 ? Math.round((totalBooked / totalSlots) * 100) : null,
       };
-    } catch {
-      return { tourCount: 0, totalSlots: 0, totalBooked: 0, utilizationPercent: 0 };
+    } catch (err) {
+      // Отказ не глушится: имя и SQLSTATE в лог, наружу — «не измерено».
+      const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '?';
+      console.error(`[planner] занятость зоны ${zone} не посчитана (SQLSTATE ${code}): ${err instanceof Error ? err.message : String(err)}`);
+      return { tourCount: 0, totalSlots: 0, totalBooked: 0, utilizationPercent: null };
     }
   });
 }

@@ -2,6 +2,19 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { getHazardSignals, getOverallDangerLevel } from '@/lib/safety/hazard-signals';
 import { activeAlertsForZone, type SafetyAlert } from '@/lib/safety/alerts';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
+
+/** Опасности точки без того, что выдумал шаблон 070 (см. profile-source.ts). */
+function honestHazards(row: { hazard_types: string[] | null; profile_source: string | null }): string[] | null {
+  const kept = honestSafetyFields(
+    {
+      hazardTypes: row.hazard_types ?? [],
+      capacityPerDay: null, optimalGroupSize: null, difficultyLevel: null, terrainType: null,
+    },
+    asProfileSource(row.profile_source),
+  ).hazardTypes;
+  return kept.length ? kept : null;
+}
 
 /**
  * GET /api/safety/warnings?route_id=XXX
@@ -32,6 +45,7 @@ export async function GET(req: Request) {
       location_type: string | null;
       activity_type: string | null;
       hazard_types: string[] | null;
+      profile_source: string | null;
       zone: string | null;
       title: string;
       is_open: boolean;
@@ -48,6 +62,7 @@ export async function GET(req: Request) {
         location_type: string | null;
         activity_type: string | null;
         hazard_types: string[] | null;
+        profile_source: string | null;
         zone: string | null;
         is_open: boolean;
         alert_severity: number;
@@ -63,6 +78,7 @@ export async function GET(req: Request) {
            ark.location_type,
            COALESCE(ark.activity_type, ot.activity_type) AS activity_type,
            lsp.hazard_types,
+           lsp.profile_source,
            ark.zone,
            COALESCE(lrs.is_open, true) AS is_open,
            COALESCE(lrs.alert_severity, 0) AS alert_severity,
@@ -83,6 +99,7 @@ export async function GET(req: Request) {
         location_type: string | null;
         activity_type: string | null;
         hazard_types: string[] | null;
+        profile_source: string | null;
         zone: string | null;
         is_open: boolean;
         alert_severity: number;
@@ -93,6 +110,7 @@ export async function GET(req: Request) {
            ark.location_type,
            ark.activity_type,
            lsp.hazard_types,
+           lsp.profile_source,
            ark.zone,
            COALESCE(lrs.is_open, true) AS is_open,
            COALESCE(lrs.alert_severity, 0) AS alert_severity,
@@ -118,7 +136,10 @@ export async function GET(req: Request) {
     const signals = getHazardSignals({
       location_type: routeInfo.location_type ?? undefined,
       activity_type: routeInfo.activity_type ?? undefined,
-      hazard_types: routeInfo.hazard_types ?? undefined,
+      // Опасности шаблона 070 (выведены из location_type, не измерены) в
+      // предупреждения не идут: правило одно на платформу
+      // (lib/safety/profile-source.ts, миграция 1100).
+      hazard_types: honestHazards(routeInfo) ?? undefined,
       zone: routeInfo.zone ?? undefined,
       operator_tour: operatorTour,
       hidden_hazards: routeInfo.hazards_hidden ?? undefined,
@@ -127,7 +148,10 @@ export async function GET(req: Request) {
     const dangerLevel = getOverallDangerLevel({
       location_type: routeInfo.location_type ?? undefined,
       activity_type: routeInfo.activity_type ?? undefined,
-      hazard_types: routeInfo.hazard_types ?? undefined,
+      // Опасности шаблона 070 (выведены из location_type, не измерены) в
+      // предупреждения не идут: правило одно на платформу
+      // (lib/safety/profile-source.ts, миграция 1100).
+      hazard_types: honestHazards(routeInfo) ?? undefined,
       zone: routeInfo.zone ?? undefined,
       operator_tour: operatorTour,
       hidden_hazards: routeInfo.hazards_hidden ?? undefined,

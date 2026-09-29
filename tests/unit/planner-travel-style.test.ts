@@ -19,6 +19,7 @@
  *   — дни отдыха исполняются и не выходят за срок поездки.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { tripCalendarDays } from '@/lib/planner/flow-balance';
 
 // ── Подмена хранилища ────────────────────────────────────────────────────
 
@@ -177,6 +178,11 @@ const GOLDEN_MIXED: string[] = [
   'rest|-|avachinsky|День отдыха. Термальные источники',
   'activity|open|avachinsky|треккинг — Авачинская зона',
   'activity|open|avachinsky|рыбалка — Авачинская зона',
+  // Этот день ПОЯВИЛСЯ 27.09 вместе с починкой счёта дней: 3-12 августа — это
+  // десять календарных дней, а не девять. Движок считал разницу дат (ночи) и
+  // терял последний день поездки; восстановленный день заполнен настоящим
+  // материалом, а не набивкой.
+  'activity|open|avachinsky|горячие источники — Авачинская зона',
   'travel|-|avachinsky|Переезд: Авачинская зона → Восточная зона',
   'activity|open|eastern|треккинг — Восточная зона',
   'activity|open|eastern|горячие источники — Восточная зона',
@@ -194,6 +200,9 @@ const GOLDEN_TREK: string[] = [
   'activity|open|eastern|треккинг — Восточная зона',
   'activity|open|eastern|горячие источники — Восточная зона',
   'travel|-|avachinsky|Возвращение: Восточная зона → Петропавловск',
+  // Тот же восстановленный день (см. GOLDEN_MIXED): материала на него у этого
+  // набора интересов нет, поэтому он свободный, а не выдуманный.
+  'activity|self|avachinsky|Свободный день. Город, сувениры, рыбный рынок',
   'departure|-|avachinsky|Сборы утром. Трансфер в аэропорт, вылет днём',
 ];
 
@@ -352,7 +361,11 @@ describe('дни отдыха', () => {
     const rec = await recommendTrip({ ...TREK, restDays: 2 });
     const rest = rec.days.filter((d) => d.type === 'rest').length;
     expect(rest).toBeGreaterThanOrEqual(2);
-    expect(rec.days.length).toBeLessThanOrEqual(9);
+    // Срок поездки выражен ПРАВИЛОМ, а не числом 9: смысл проверки — «дни не
+    // выходят за срок», и зашитое число делало её проверкой счёта дней. Оно и
+    // устарело 27.09, когда счёт починили (3-12 августа — десять дней, а не
+    // девять).
+    expect(rec.days.length).toBeLessThanOrEqual(tripCalendarDays(TREK.arrivalDate!, TREK.departureDate!));
     expect(rec.preferences?.restDaysPlanned).toBe(rest);
     expect(rec.preferences?.notes.find((n) => n.topic === 'rest_days')?.status).toBe('honoured');
     const firstRest = rec.days.findIndex((d) => d.type === 'rest');
@@ -362,7 +375,7 @@ describe('дни отдыха', () => {
   it('просьба больше срока — ставится что влезло и говорится словами', async () => {
     const short: TripProfile = { ...TREK, arrivalDate: '2026-08-03', departureDate: '2026-08-07', restDays: 10 };
     const rec = await recommendTrip(short);
-    expect(rec.days.length).toBeLessThanOrEqual(4);
+    expect(rec.days.length).toBeLessThanOrEqual(tripCalendarDays(short.arrivalDate!, short.departureDate!));
     expect(rec.days.some((d) => d.type === 'activity')).toBe(true);
     const note = rec.preferences?.notes.find((n) => n.topic === 'rest_days');
     expect(note?.status).not.toBe('honoured');

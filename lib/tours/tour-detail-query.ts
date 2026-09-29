@@ -17,6 +17,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 /** Строка тура для карточки. `program`/`safety_notes` могут отсутствовать,
  *  если миграция 809 ещё не применилась — карточка это переживает. */
@@ -162,12 +163,12 @@ function buildSql(withOptional: boolean): string {
     FROM operator_tours ot
     JOIN partners p ON ot.operator_id = p.id
     WHERE ot.id = $1
-      AND ot.is_active = true
-      -- Снятие с витрины делается ИМЕННО этим флагом (миграции 807/808/837:
-      -- демо-туры, чужие партнёры, несезонные окна), is_active при этом часто
-      -- остаётся true. Без проверки карточка открывалась по прямой ссылке.
-      AND ot.is_published = true
-      AND ot.deleted_at IS NULL
+      -- Шлюз витрины — один на все публичные чтения тура. Снятие делается
+      -- ИМЕННО флагом is_published (миграции 807/808/837: демо-туры, чужие
+      -- партнёры, несезонные окна), is_active при этом часто остаётся true.
+      -- Условие жило здесь копией, а три публичных роута /api/tours его не
+      -- знали вовсе — теперь оно одно (lib/tours/public-visibility.ts).
+      AND ${publicTourSql('ot')}
   `;
 }
 

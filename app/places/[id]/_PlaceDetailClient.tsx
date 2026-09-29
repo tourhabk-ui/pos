@@ -439,6 +439,18 @@ export default function PlaceDetailClient({ id }: { id: string }) {
                 />
               )}
 
+              {/* Опасности этого места завела миграция 070 шаблоном по типу и
+                  не измерял никто — API их не отдаёт (lib/safety/profile-source).
+                  Молчание читалось бы как «опасностей нет», поэтому состояние
+                  называется словами: §4.0, третий исход. */}
+              {place.safety.source === 'type_template' && place.safety.hazardTypes.length === 0 && (
+                <p className="text-sm text-[var(--text-muted)]">
+                  Опасности этого места у нас не записаны. Раньше здесь стоял набор,
+                  выведенный из типа места, а не проверенный на месте, — мы его убрали.
+                  Спросите МЧС и оператора перед выходом.
+                </p>
+              )}
+
               {/* Авиационный цветовой код вулкана (KVERT) */}
               {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}
 

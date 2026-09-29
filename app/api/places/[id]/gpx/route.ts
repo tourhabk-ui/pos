@@ -70,7 +70,14 @@ export async function GET(
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Ошибка';
-    return new NextResponse(message, { status: 500 });
+    // Текст ошибки базы наружу не уходит: файл скачивает человек в поле, и
+    // `column ... does not exist` в скачанном файле — не сообщение, а мусор.
+    const e = err as { code?: string; message?: string };
+    console.error('[places/gpx] точка не выгрузилась', {
+      placeRef: id,
+      sqlstate: e?.code,
+      message: e?.message,
+    });
+    return new NextResponse('Не удалось собрать файл точки. Мы записали отказ.', { status: 500 });
   }
 }

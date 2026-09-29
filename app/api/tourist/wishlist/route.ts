@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
       data: result.rows
     } as ApiResponse<unknown>);
   } catch (error) {
+   const e = error as { code?: string; message?: string };
+   console.error('[tourist/wishlist] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении избранного' } as ApiResponse<null>,
       { status: 500 }
@@ -112,6 +114,8 @@ export async function POST(request: NextRequest) {
       data: result.rows[0]
     } as ApiResponse<unknown>);
   } catch (error) {
+   const e = error as { code?: string; message?: string };
+   console.error('[tourist/wishlist] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
       { success: false, error: 'Ошибка при добавлении в избранное' } as ApiResponse<null>,
       { status: 500 }
@@ -168,6 +172,8 @@ export async function DELETE(request: NextRequest) {
       data: { message: 'Удалено из избранного' }
     } as ApiResponse<unknown>);
   } catch (error) {
+   const e = error as { code?: string; message?: string };
+   console.error('[tourist/wishlist] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
       { success: false, error: 'Ошибка при удалении из избранного' } as ApiResponse<null>,
       { status: 500 }

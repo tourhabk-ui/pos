@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import {
   BarChart3, Map, Calendar, CalendarDays, Users, CreditCard,
   Settings, Bell, FileText, HelpCircle, CheckCircle, Inbox, User,
-  Download, BookMarked, MessageSquareText, Contact, Bot,
+  Download, BookMarked, MessageSquareText, Contact, Bot, Percent,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -27,6 +27,10 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи' },
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи' },
   { href: '/hub/operator/calendar', label: 'Календарь', icon: CalendarDays, section: 'Продажи' },
+  // Скидки оператора на свои туры (27.09). До этого правила цены заводил
+  // только администратор, и скидку на последние места назначить было нельзя
+  // тому, кто продаёт.
+  { href: '/hub/operator/pricing', label: 'Скидки', icon: Percent, section: 'Продажи' },
 
   { href: '/hub/operator/finance', label: 'Финансы', icon: CreditCard, section: 'Финансы' },
   { href: '/hub/operator/analytics', label: 'Аналитика', icon: BarChart3, section: 'Финансы' },

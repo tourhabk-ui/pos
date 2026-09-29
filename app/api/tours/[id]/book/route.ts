@@ -16,6 +16,7 @@ import { emailService } from '@/lib/notifications/email-service';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getTokenFromRequest } from '@/lib/auth';
 import { TourBookCheckRow } from '@/lib/types/db-rows';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // Валидация входных данных
 const bookingSchema = z.object({
@@ -80,10 +81,10 @@ export async function POST(
         COALESCE(p.contact->>'email', p.contacts->>'email') as operator_email
       FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
-      -- is_published: снятие с витрины (миграции 807/808/837) обязано
-      -- закрывать И этот путь брони — реестр BOOKING_ROUTES называет четыре,
-      -- гейт у всех один.
-      WHERE t.id = $1 AND t.is_active = true AND t.is_published = true AND t.deleted_at IS NULL`,
+      -- Снятие с витрины (миграции 807/808/837) обязано закрывать И этот путь
+      -- брони — реестр BOOKING_ROUTES называет четыре, гейт у всех один, и
+      -- живёт он в lib/tours/public-visibility.
+      WHERE t.id = $1 AND ${publicTourSql('t')}`,
       [tourId]
     );
 

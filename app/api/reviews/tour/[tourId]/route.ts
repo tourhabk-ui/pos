@@ -103,7 +103,9 @@ export async function GET(
         pagination: { page, limit, totalCount, totalPages: Math.ceil(totalCount / limit) },
       },
     } as ApiResponse<unknown>);
-  } catch {
+  } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[reviews/tour] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка при получении отзывов',
@@ -223,6 +225,8 @@ export async function POST(
         if (p.success) eco.photo = p.pointsEarned; else eco.errors.push(`photo: ${p.message}`);
       }
     } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[reviews/tour] отказ', { sqlstate: e?.code, message: e?.message });
       eco.errors.push(err instanceof Error ? err.message : String(err));
     }
     if (eco.errors.length > 0) {
@@ -237,6 +241,8 @@ export async function POST(
         : 'Отзыв опубликован',
     } as ApiResponse<unknown>);
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[reviews/tour] отказ', { sqlstate: e?.code, message: e?.message });
     // Причина наружу словами: «Ошибка при создании отзыва» без деталей уже
     // прятала несовпадение типов колонок целый сезон.
     const detail = error instanceof Error ? redactPII(error.message).slice(0, 200) : '';

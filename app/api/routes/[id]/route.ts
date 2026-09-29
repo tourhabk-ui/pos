@@ -20,6 +20,8 @@ import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
 import type { CoordSource } from '@/lib/places/coord-source';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 export const dynamic = 'force-dynamic';
 
@@ -257,7 +259,7 @@ export async function GET(
               to_jsonb(rw)->>'link_kind' AS link_kind,
          p.ark_id AS place_id, p.name AS place_name, p.location_type,
          p.lat AS place_lat, p.lng AS place_lng, p.coord_source,
-         sp.altitude_m, sp.hazard_types
+         sp.altitude_m, sp.hazard_types, sp.profile_source
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
        LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
@@ -324,7 +326,7 @@ export async function GET(
     // (карточка B, объединена с этой). Привязка через legacy ark_id.
     const reviewsResult = await query(
       `SELECT rv.id, rv.rating, rv.comment, rv.created_at,
-         COALESCE(u.name, 'Турист') AS author_name
+         u.name AS author_full_name, rv.author_name AS author_own_name
        FROM reviews rv
        LEFT JOIN users u ON u.id = rv.user_id
        WHERE rv.tour_id::text = $1
@@ -601,7 +603,12 @@ export async function GET(
           id:         String(rv.id),
           rating:     rv.rating != null ? Number(rv.rating) : null,
           comment:    (rv.comment as string | null) ?? null,
-          authorName: rv.author_name as string,
+          // Полное имя аккаунта на публичную страницу не уходит: имя
+          // сокращается тем же правилом, что у отзывов о жилье
+          // (lib/reviews/public-name.ts). Было `COALESCE(u.name, 'Турист')`.
+          authorName: publicReviewerName(
+            (rv.author_own_name as string | null) ?? (rv.author_full_name as string | null),
+          ),
           createdAt:  rv.created_at as string,
         })),
         createdAt:   r.created_at as string,
@@ -620,7 +627,16 @@ export async function GET(
           // «координата не подтверждена» (lib/places/coord-source.ts).
           coordSource:  ((w.coord_source as string | null) ?? 'unknown') as CoordSource,
           altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
-          hazardTypes:  (w.hazard_types as string[]) ?? [],
+          // Опасности точки, выведенные шаблоном 070 из location_type, не
+          // уходят на карточку маршрута: иначе маршрут через любой вулкан
+          // обещает лавины (lib/safety/profile-source.ts, миграция 1100).
+          hazardTypes:  honestSafetyFields(
+            {
+              hazardTypes: Array.isArray(w.hazard_types) ? (w.hazard_types as string[]) : [],
+              capacityPerDay: null, optimalGroupSize: null, difficultyLevel: null, terrainType: null,
+            },
+            asProfileSource(w.profile_source),
+          ).hazardTypes,
           // Чем связь является: точка пути или «это рядом» (миграция 874).
           // Без этого карточка показывала краевой музей как этап похода.
           linkKind:     asLinkKind(w.link_kind as string | null),

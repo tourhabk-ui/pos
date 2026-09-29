@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { publicReviewerName } from '@/lib/reviews/public-name';
+import { publicRating } from '@/lib/reviews/public-rating';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
@@ -171,7 +172,11 @@ export async function GET(
       },
       amenities: accommodation.amenities || [],
       languages: accommodation.languages || [],
-      rating: accommodation.rating ? parseFloat(accommodation.rating) : 0,
+      // «Не оценён» — null, а не ноль. Ноль читается экраном и планером как
+      // ОЦЕНКА, и планер по ней отсеивал объект навсегда (условие
+      // «rating >= 3.5», §4.0). Правило одно на все выдачи —
+      // lib/reviews/public-rating: оценку подтверждает счёт отзывов.
+      rating: publicRating(accommodation.rating, accommodation.review_count),
       reviewCount: accommodation.review_count || 0,
       isVerified: accommodation.is_verified,
       partner: {
@@ -211,7 +216,8 @@ export async function GET(
         address: item.address,
         pricePerNight: parseFloat(item.price_per_night_from),
         currency: item.currency,
-        rating: item.rating ? parseFloat(item.rating) : 0,
+        // То же и у похожих объектов: неоценённый — null.
+        rating: publicRating(item.rating, item.review_count),
         reviewCount: item.review_count || 0,
         image: item.images?.[0]?.url || null,
       })),

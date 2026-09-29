@@ -1,6 +1,14 @@
 /**
  * Dynamic Pricing Service
  *
+ * Сопоставление правил вынесено 27.09 в `lib/tours/pricing-rule-match` — оно
+ * было написано здесь ДВАЖДЫ, по пятьдесят строк в каждой функции, и уже
+ * разошлось: занятость одиночный расчёт брал из `v_tour_daily_occupancy`
+ * (реальные брони), а bulk — из счётчика `booked_slots`, который видит только
+ * оплаченных. На один и тот же тур и день два места платформы отвечали разной
+ * ценой, причём bulk зовёт `/api/octo/availability`, то есть чужой канал.
+ * Теперь источник занятости один у обеих функций.
+ *
  * Рассчитывает итоговую цену тура с учётом:
  *   - season_peak / season_low (дата в диапазоне)
  *   - early_bird             (бронирование за N+ дней)
@@ -14,141 +22,31 @@
  */
 
 import { pool } from '@/lib/db-pool';
-
-interface PricingRule {
-  rule_type: string;
-  date_from: string | null;
-  date_to:   string | null;
-  days_before_min: number | null;
-  days_before_max: number | null;
-  occupancy_min:   number | null;
-  guests_min:      number | null;
-  multiplier: string;
-}
-
-interface PriceCalcInput {
-  tourId:    number | string;
-  tourDate:  string;          // YYYY-MM-DD
-  guests:    number;
-  basePrice: number;
-}
+import { matchPricingRules, finalUnitPrice, type PricingRule } from '@/lib/tours/pricing-rule-match';
 
 interface PriceCalcResult {
   basePrice:      number;
   finalPrice:     number;
-  discount:       number;   // < 0 = скидка, > 0 = надбавка (в рублях)
-  multiplier:     number;   // итоговый множитель (1.15 = +15%)
-  appliedRules:   string[]; // список сработавших правил
+  discount:       number;
+  multiplier:     number;
+  appliedRules:   string[];
 }
 
-export async function calculateDynamicPrice(input: PriceCalcInput): Promise<PriceCalcResult> {
-  const { tourId, tourDate, guests, basePrice } = input;
-
-  // Загружаем активные правила для тура
-  const { rows: rules } = await pool.query<PricingRule>(
-    `SELECT rule_type, date_from, date_to, days_before_min, days_before_max,
-            occupancy_min, guests_min, multiplier
-     FROM tour_pricing_rules
-     WHERE operator_tour_id = $1 AND is_active = TRUE`,
-    [tourId]
-  );
-
-  if (rules.length === 0) {
-    return { basePrice, finalPrice: basePrice, discount: 0, multiplier: 1, appliedRules: [] };
-  }
-
-  // Загружаем текущую загрузку слота (если есть). Занятость — из реальных
-  // броней (v_tour_daily_occupancy), не из счётчика booked_slots: счётчик
-  // видит только оплаченных, и occupancy-сюрдж недо-срабатывал, пока
-  // неоплаченные заявки заполняли даты.
-  const { rows: slotRows } = await pool.query<{ available_slots: number | null; booked_slots: number }>(
-    `SELECT ta.available_slots, COALESCE(occ.occupied, 0)::int AS booked_slots
-     FROM tour_availability ta
-     LEFT JOIN v_tour_daily_occupancy occ
-       ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
-     WHERE ta.operator_tour_id = $1 AND ta.date = $2 AND ta.is_cancelled = FALSE`,
-    [tourId, tourDate]
-  );
-
-  const bookDate   = new Date();
-  const tourDateObj = new Date(tourDate);
-  const daysBeforeTour = Math.floor((tourDateObj.getTime() - bookDate.getTime()) / 86_400_000);
-  const isWeekend = [5, 6, 0].includes(tourDateObj.getDay()); // пт, сб, вс
-
-  let occupancyPct = 0;
-  if (slotRows.length > 0 && slotRows[0].available_slots) {
-    const total = slotRows[0].available_slots;
-    const booked = slotRows[0].booked_slots;
-    occupancyPct = total > 0 ? Math.round((booked / total) * 100) : 0;
-  }
-
-  let totalMultiplier = 1;
-  const appliedRules: string[] = [];
-
-  for (const rule of rules) {
-    const m = parseFloat(rule.multiplier);
-    let applies = false;
-
-    switch (rule.rule_type) {
-      case 'season_peak':
-      case 'season_low':
-        if (rule.date_from && rule.date_to) {
-          const from = new Date(rule.date_from);
-          const to   = new Date(rule.date_to);
-          // Сравниваем только месяц-день (год не важен, сезон повторяется)
-          const tourMD = tourDateObj.getMonth() * 100 + tourDateObj.getDate();
-          const fromMD = from.getMonth() * 100 + from.getDate();
-          const toMD   = to.getMonth()   * 100 + to.getDate();
-          applies = fromMD <= toMD
-            ? tourMD >= fromMD && tourMD <= toMD
-            : tourMD >= fromMD || tourMD <= toMD; // переход через год
-        }
-        break;
-
-      case 'early_bird':
-        applies =
-          (rule.days_before_min === null || daysBeforeTour >= rule.days_before_min) &&
-          (rule.days_before_max === null || daysBeforeTour <= rule.days_before_max);
-        break;
-
-      case 'last_minute':
-        applies =
-          (rule.days_before_min === null || daysBeforeTour >= rule.days_before_min) &&
-          (rule.days_before_max === null || daysBeforeTour <= rule.days_before_max);
-        break;
-
-      case 'occupancy_high':
-        applies = rule.occupancy_min !== null && occupancyPct >= rule.occupancy_min;
-        break;
-
-      case 'group_discount':
-        applies = rule.guests_min !== null && guests >= rule.guests_min;
-        break;
-
-      case 'weekend':
-        applies = isWeekend;
-        break;
-    }
-
-    if (applies) {
-      totalMultiplier *= m;
-      appliedRules.push(rule.rule_type);
-    }
-  }
-
-  // Округляем до 100 руб
-  const rawPrice   = basePrice * totalMultiplier;
-  const finalPrice = Math.round(rawPrice / 100) * 100;
-  const discount   = finalPrice - basePrice;
-
-  return {
-    basePrice,
-    finalPrice,
-    discount,
-    multiplier: Math.round(totalMultiplier * 1000) / 1000,
-    appliedRules,
-  };
-}
+/**
+ * `calculateDynamicPrice` УДАЛЁН 27.09 — его заменил `honestTourPrice`
+ * (`lib/tours/honest-price.ts`).
+ *
+ * Разница не в имени. Старая функция отдавала цену ЗА ЕДИНИЦУ, и вызывающий
+ * дальше сам решал, умножать её на людей или нет; новая композирует правила с
+ * `bookingTotal` — тем же правилом единицы цены, которым считают все двери
+ * брони, — и потому её ответ годится и для экрана, и для счёта. Оставлять
+ * рядом обе значило бы завести второй способ получить цену: ровно то, из-за
+ * чего цикл сопоставления правил в этом файле разошёлся сам с собой.
+ *
+ * Нашёл смерть функции не человек, а перепись экспортов
+ * (`tests/unit/export-census-frozen.test.ts`): после переезда эндпоинта на
+ * новое правило она осталась экспортированной и никому не нужной.
+ */
 
 /**
  * Bulk расчёт для списка дат (для календаря доступности).
@@ -173,13 +71,22 @@ export async function bulkDynamicPrices(
     [tourId]
   );
 
-  // 2. Загружаем занятость всех запрошенных слотов одним запросом
+  // 2. Занятость всех запрошенных слотов одним запросом.
+  //
+  // Источник — v_tour_daily_occupancy (реальные брони), тот же, что у
+  // одиночного расчёта. До 27.09 здесь стоял COALESCE(booked_slots, 0): счётчик
+  // видит только ОПЛАЧЕННЫХ, и надбавка occupancy_high по нему не срабатывала,
+  // пока дату занимали неоплаченные заявки. Расхождение доставалось чужому
+  // каналу: bulk зовёт /api/octo/availability.
   const { rows: slotRows } = await pool.query<{ date: string; available_slots: number | null; booked_slots: number }>(
-    `SELECT date::text, available_slots, COALESCE(booked_slots, 0) AS booked_slots
-     FROM tour_availability
-     WHERE operator_tour_id = $1
-       AND date = ANY($2::date[])
-       AND is_cancelled = FALSE`,
+    `SELECT ta.date::text AS date, ta.available_slots,
+            COALESCE(occ.occupied, 0)::int AS booked_slots
+       FROM tour_availability ta
+       LEFT JOIN v_tour_daily_occupancy occ
+         ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
+      WHERE ta.operator_tour_id = $1
+        AND ta.date = ANY($2::date[])
+        AND ta.is_cancelled = FALSE`,
     [tourId, dates]
   );
 
@@ -188,78 +95,20 @@ export async function bulkDynamicPrices(
     slotMap[row.date] = { available: row.available_slots, booked: row.booked_slots };
   }
 
-  const bookDate = new Date();
   const results: Record<string, PriceCalcResult> = {};
 
-  // 3. Вычисляем цену для каждой даты в памяти (без DB запросов)
+  // 3. Цена каждой даты — тем же правилом, что у одиночного расчёта.
   for (const date of dates) {
-    if (rules.length === 0) {
-      results[date] = { basePrice, finalPrice: basePrice, discount: 0, multiplier: 1, appliedRules: [] };
-      continue;
-    }
-
-    const tourDateObj = new Date(date);
-    const daysBeforeTour = Math.floor((tourDateObj.getTime() - bookDate.getTime()) / 86_400_000);
-    const isWeekend = [5, 6, 0].includes(tourDateObj.getDay());
-
     const slot = slotMap[date];
-    let occupancyPct = 0;
-    if (slot?.available && slot.available > 0) {
-      occupancyPct = Math.round((slot.booked / slot.available) * 100);
-    }
-
-    let totalMultiplier = 1;
-    const appliedRules: string[] = [];
-
-    for (const rule of rules) {
-      const m = parseFloat(rule.multiplier);
-      let applies = false;
-
-      switch (rule.rule_type) {
-        case 'season_peak':
-        case 'season_low':
-          if (rule.date_from && rule.date_to) {
-            const from = new Date(rule.date_from);
-            const to   = new Date(rule.date_to);
-            const tourMD = tourDateObj.getMonth() * 100 + tourDateObj.getDate();
-            const fromMD = from.getMonth() * 100 + from.getDate();
-            const toMD   = to.getMonth()   * 100 + to.getDate();
-            applies = fromMD <= toMD
-              ? tourMD >= fromMD && tourMD <= toMD
-              : tourMD >= fromMD || tourMD <= toMD;
-          }
-          break;
-        case 'early_bird':
-        case 'last_minute':
-          applies =
-            (rule.days_before_min === null || daysBeforeTour >= rule.days_before_min) &&
-            (rule.days_before_max === null || daysBeforeTour <= rule.days_before_max);
-          break;
-        case 'occupancy_high':
-          applies = rule.occupancy_min !== null && occupancyPct >= rule.occupancy_min;
-          break;
-        case 'group_discount':
-          applies = rule.guests_min !== null && guests >= rule.guests_min;
-          break;
-        case 'weekend':
-          applies = isWeekend;
-          break;
-      }
-
-      if (applies) {
-        totalMultiplier *= m;
-        appliedRules.push(rule.rule_type);
-      }
-    }
-
-    const rawPrice   = basePrice * totalMultiplier;
-    const finalPrice = Math.round(rawPrice / 100) * 100;
-
+    const total = slot?.available ?? 0;
+    const occupancyPct = total > 0 ? Math.round(((slot?.booked ?? 0) / total) * 100) : 0;
+    const { multiplier, appliedRules } = matchPricingRules(rules, { tourDate: date, guests, occupancyPct });
+    const finalPrice = finalUnitPrice(basePrice, multiplier);
     results[date] = {
       basePrice,
       finalPrice,
-      discount:   finalPrice - basePrice,
-      multiplier: Math.round(totalMultiplier * 1000) / 1000,
+      discount: finalPrice - basePrice,
+      multiplier,
       appliedRules,
     };
   }

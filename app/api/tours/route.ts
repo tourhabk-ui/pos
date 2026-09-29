@@ -5,6 +5,8 @@ import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { TotalRow } from '@/lib/types/db-rows';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicRating } from '@/lib/reviews/public-rating';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +27,12 @@ interface TourResponse {
   notIncluded: string[];
   maxGroupSize: number;
   minGroupSize: number;
-  rating: number;
+  /**
+   * `null` — тур никто не оценивал. Тип обязан допускать отсутствие (§4.0):
+   * объявленный `number` принуждал бы выдумать число, а ноль читается экраном
+   * и планером как ОЦЕНКА «нуль звёзд».
+   */
+  rating: number | null;
   reviewCount: number;
   isActive: boolean;
   images: string[];
@@ -74,7 +81,11 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
     const offset = Math.max(parseInt(searchParams.get('offset') || '0'), 0);
 
-    const whereConditions: string[] = ['t.is_active = true'];
+    // Шлюз витрины — один на все публичные чтения туров
+    // (`lib/tours/public-visibility.ts`). Прежде здесь стояло только
+    // `t.is_active = true`, и черновик оператора (`is_published = false`)
+    // выезжал в каталог наравне с живым туром.
+    const whereConditions: string[] = [publicTourSql('t')];
     const queryParams: (string | number)[] = [];
     let paramIndex = 1;
 
@@ -140,7 +151,7 @@ export async function GET(request: NextRequest) {
         p.hero_image as partner_hero_image
       FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
-      ${whereClause} AND t.deleted_at IS NULL
+      ${whereClause}
       ORDER BY t.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
@@ -149,7 +160,7 @@ export async function GET(request: NextRequest) {
     const result = await query(selectSql, queryParams);
 
     const countResult = await query<TotalRow>(
-      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause} AND t.deleted_at IS NULL`,
+      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause}`,
       queryParams.slice(0, -2),
     );
     const total = parseInt(countResult.rows[0]?.total ?? '0');
@@ -181,7 +192,11 @@ export async function GET(request: NextRequest) {
         notIncluded,
         maxGroupSize: typeof row.max_participants === 'number' ? row.max_participants : 20,
         minGroupSize: typeof row.min_participants === 'number' ? row.min_participants : 1,
-        rating: typeof row.rating === 'string' ? parseFloat(row.rating as string) : (row.rating as number),
+        // «Не оценивали» — null, а не ноль (§4.0). Правило одно на все выдачи
+        // (lib/reviews/public-rating): оценка отдаётся, только когда её
+        // подтверждает непустой счёт отзывов — колонка rating у туров стоит
+        // с DEFAULT 0, и пропуска одного NULL тут не хватает.
+        rating: publicRating(row.rating, row.reviews_count),
         reviewCount: typeof row.reviews_count === 'number' ? row.reviews_count : 0,
         isActive: row.is_active === true,
         images: (() => {

@@ -65,7 +65,12 @@ describe('mchs_zones — три исхода', () => {
 });
 
 describe('оба SQL-предиката читают пустые зоны как «никого»', () => {
-  const FILES = ['app/api/cron/safety-ingest/route.ts', 'lib/routes/collect-signals.ts'];
+  // Предикат мест переехал из крон-роута в свой модуль 27.09: внутри роута его
+  // нельзя было прогнать без походов за сводками, и два дефекта дожили до
+  // прода (пепел Шивелуча на Ключевском; дорожный алерт на полкрая). Правило
+  // от переезда не изменилось, и этот сторож держит его там, где оно теперь
+  // живёт. Исполняет его tests/integration/alert-place-scope.pg.test.ts.
+  const FILES = ['lib/services/safety/alert-place-scope.ts', 'lib/routes/collect-signals.ts'];
 
   for (const f of FILES) {
     it(`${f}: нет ветки affected_zones IS NULL / = '{}'`, () => {
@@ -78,8 +83,17 @@ describe('оба SQL-предиката читают пустые зоны ка�
     });
   }
 
-  it('safety-ingest: незональная ветка совпадает только по ark.zone = ANY(ea.affected_zones)', () => {
+  it('незональная ветка совпадает только по ark.zone = ANY(ea.affected_zones)', () => {
     expect(read(FILES[0])).toMatch(/AND ark\.zone = ANY\(ea\.affected_zones\)/);
+  });
+
+  it('рода с точным местом в зональную ветку не падают (27.09)', () => {
+    // Дорожный алерт, вулканическое извержение и пожар знают своё место
+    // точно. Не привязалось — не красит никого; зона им не замена, иначе
+    // возвращается «Вилючинский перевал» на Курильском озере.
+    const src = read(FILES[0]);
+    expect(src).toMatch(/AND NOT \(\$\{PLACE_SCOPED_SQL\}\)/);
+    expect(src).toMatch(/PLACE_SCOPED_TYPES = \['road_closure', 'fire_danger', 'volcanic_eruption'\]/);
   });
 
   it('collect-signals: совпадение только по пересечению зон маршрута', () => {

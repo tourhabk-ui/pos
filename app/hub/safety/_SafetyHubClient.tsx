@@ -203,10 +203,12 @@ export default function SafetyHubClient() {
   const [rescueLoading, setRescueLoading] = useState(false);
   const rescueChatRef = useRef<HTMLDivElement>(null);
 
-  // Тихий трекинг визита для Rescue агента
-  useEffect(() => {
-    fetch('/api/safety/visit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab: 'sos' }) }).catch(() => {});
-  }, []);
+  // Трекинг визита удалён вместе с роутом /api/safety/visit: он был объявлен
+  // «для Rescue агента», но в реестре публичных роутов не значился (Edge
+  // отвечал анониму 401 на ПУБЛИЧНОЙ странице), ответ глушился .catch, а
+  // записи safety_hub_visit не читал никто. Объявленный исход без источника
+  // и без потребителя (§10.09) — удалён, а не «починен на будущее».
+  // Сторож: tests/unit/safety-visit-purged.test.ts.
 
   const fetchWeather = useCallback(() => {
     setWeatherLoading(true);

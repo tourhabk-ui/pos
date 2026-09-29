@@ -38,6 +38,12 @@ describe('bookingTotal', () => {
 });
 
 describe('все двери считают одной функцией', () => {
+  /**
+   * `honestTourPrice` (lib/tours/honest-price.ts) — та же функция плюс правила
+   * цены: внутри она зовёт `bookingTotal`, и это проверяется отдельным тестом
+   * ниже. Дверь, ушедшая на неё, правило не обходит, а получает его целиком;
+   * дверь, считающая `base_price × участники` сама, по-прежнему краснеет.
+   */
   const DOORS: Array<[string, string]> = [
     ['lib/bookings/reserve.ts', 'форма заявки, корзина, Кузьмич'],
     // 26.09: /api/bookings/tour удалён, агентская бронь и модалка брони
@@ -52,8 +58,17 @@ describe('все двери считают одной функцией', () => {
 
   it.each(DOORS)('%s (%s) — bookingTotal, не base_price × участники', (path) => {
     const src = read(path);
-    expect(src).toMatch(/bookingTotal\(/);
+    expect(src).toMatch(/bookingTotal\(|honestTourPrice\(/);
     expect(src).not.toMatch(/base_price\)?\s*\*\s*(input\.)?participants\b/);
     expect(src).not.toMatch(/\bbasePrice \* (input\.)?participants\b/);
+  });
+
+  it('honestTourPrice считает итог тем же bookingTotal, а не своей арифметикой', () => {
+    // Иначе разрешение выше («или honestTourPrice») открыло бы дверь второму
+    // правилу суммы — тому самому, из-за которого тур «за группу» считался
+    // вчетверо дороже.
+    const src = read('lib/tours/honest-price.ts');
+    expect(src).toMatch(/bookingTotal\(/);
+    expect(src).not.toMatch(/\* participants\b/);
   });
 });

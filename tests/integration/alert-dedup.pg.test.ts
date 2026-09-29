@@ -62,17 +62,24 @@ type Parser = typeof import('@/lib/services/safety/seismic-parser');
 type SeismicEvent = import('@/lib/services/safety/seismic-parser').SeismicEvent;
 
 /**
- * DDL external_alerts — из САМОЙ миграции, а не переписан руками: тест
+ * DDL external_alerts — из САМИХ миграций, а не переписан руками: тест
  * обязан видеть те же колонки, что и прод, иначе он снова проверял бы
  * не то. Берётся блок CREATE TABLE из 070 плюс колонки 687 (magnitude,
- * lat, lng), которые saveEvent пишет.
+ * lat, lng) и 1044 (volcano_name, volcano_ark_id) — всё, что пишет saveEvent.
+ *
+ * Список ведётся вручную по необходимости, и это видно сразу: 27.09 привязка
+ * вулканического алерта к вулкану добавила две колонки, saveEvent начал их
+ * писать, и все семь проверок этого файла покраснели с внятным «column
+ * volcano_name of relation external_alerts does not exist». Именно так и
+ * должно быть — тест поймал расхождение своей схемы с прод-схемой сам.
  */
 function externalAlertsDdl(): string {
   const m070 = readFileSync(join(process.cwd(), 'migrations', '070_safety_capacity_layer_fix.sql'), 'utf-8');
   const block = m070.match(/CREATE TABLE IF NOT EXISTS external_alerts \([\s\S]*?\);/);
   if (!block) throw new Error('в миграции 070 не найден CREATE TABLE external_alerts');
   const m687 = readFileSync(join(process.cwd(), 'migrations', '687_external_alerts_coords.sql'), 'utf-8');
-  return `${block[0]}\n${m687}`;
+  const m1044 = readFileSync(join(process.cwd(), 'migrations', '1102_alert_volcano_anchor.sql'), 'utf-8');
+  return `${block[0]}\n${m687}\n${m1044}`;
 }
 
 // Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила

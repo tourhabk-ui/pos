@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
     } as ApiResponse<unknown>);
 
   } catch (error) {
+   const e = error as { code?: string; message?: string };
+   console.error('[notifications/mark-all-read] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка при обновлении уведомлений'

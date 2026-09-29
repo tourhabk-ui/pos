@@ -84,6 +84,8 @@ export async function PUT(
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[notifications/[id]] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка при обновлении уведомления'
@@ -123,6 +125,8 @@ export async function DELETE(
     } as ApiResponse<null>);
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[notifications/[id]] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка при удалении уведомления'

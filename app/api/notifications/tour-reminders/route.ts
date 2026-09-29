@@ -29,7 +29,9 @@ export async function POST(request: NextRequest) {
       if (text) {
         body = JSON.parse(text);
       }
-    } catch {
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      console.error('[notifications/tour-reminders] отказ', { sqlstate: e?.code, message: e?.message });
       // Игнорируем ошибку парсинга - параметры не обязательны
     }
 
@@ -136,6 +138,8 @@ export async function POST(request: NextRequest) {
 
         sentCount++;
       } catch (error) {
+        const e = error as { code?: string; message?: string };
+        console.error('[notifications/tour-reminders] отказ', { sqlstate: e?.code, message: e?.message });
         errors.push(`Booking ${booking.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
@@ -151,6 +155,8 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    const e = error as { code?: string; message?: string };
+    console.error('[notifications/tour-reminders] отказ', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json({
       success: false,
       error: 'Ошибка при отправке напоминаний',
