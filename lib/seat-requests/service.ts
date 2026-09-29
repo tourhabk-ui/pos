@@ -107,16 +107,25 @@ export type CreateSeatRequestFailure =
   | 'date_past' | 'bad_date' | 'bad_phone' | 'tour_not_found' | 'operator_unreachable'
   | 'duplicate' | 'already_confirmed' | 'too_many' | 'check_failed' | 'delivery_failed';
 
+// Ключ страницы статуса при отказе НЕ возвращается никогда: телефон — не
+// секрет, и «дубль → ссылка на чужой запрос» отдавало бы страницу статуса, а с
+// ней ссылку на бронь, любому, кто знает номер (обзор 29.09). Автор возвращается
+// к своему запросу по ссылке, полученной при отправке.
 export type CreateSeatRequestResult =
   | { ok: true; requestId: string; statusToken: string; deadlineAt: Date; operatorDelivery: 'max' | 'telegram-stub' }
-  // existingStatusUrl — при 'duplicate': ссылка на уже отправленный запрос.
-  | { ok: false; reason: CreateSeatRequestFailure; existingStatusUrl?: string | null };
+  | { ok: false; reason: CreateSeatRequestFailure };
 
 export async function createSeatRequest(input: CreateSeatRequestInput): Promise<CreateSeatRequestResult> {
   // Несуществующая дата (2099-02-31) — не «прошедшая»: это разные слова.
   if (!isRealDate(input.date)) return { ok: false, reason: 'bad_date' };
   if (!isFutureOrToday(input.date)) return { ok: false, reason: 'date_past' };
-  const phone = normalizePhone(input.touristPhone);
+  // Десять цифр без кода страны («900 123-45-67») — российский номер: общий
+  // normalizePhone дал бы из них «+9001234567», по которому оператору нечем
+  // позвонить, а «+7 900…» того же человека обходил бы дубль и потолки.
+  const rawDigits = input.touristPhone.replace(/\D/g, '');
+  const phone = normalizePhone(
+    !input.touristPhone.trim().startsWith('+') && rawDigits.length === 10 ? `7${rawDigits}` : input.touristPhone,
+  );
   if (phone === null) return { ok: false, reason: 'bad_phone' };
 
   let tour: { operator_id: string; title: string } | undefined;
@@ -138,8 +147,20 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
 
   // Дубли и потолки — до вставки и до сообщения оператору.
   try {
-    const { rows: [dup] } = await pool.query<{ status: SeatRequestStatus; status_token_enc: string | null }>(
-      `SELECT r.status, r.status_token_enc
+    // Просроченный, но ещё не убранный ждущий запрос закрывается ЗДЕСЬ:
+    // уникальный индекс держит любую строку 'pending' независимо от срока, а
+    // уборщик приходит раз в полчаса. Без этого турист, которому страница уже
+    // сказала «отправьте ещё раз», получал бы ложное «уже отправлен».
+    await pool.query(
+      `UPDATE tour_seat_requests
+          SET status = 'expired', updated_at = NOW()
+        WHERE tour_id = $1 AND tour_date = $2::date AND tourist_phone = $3
+          AND status = 'pending' AND answered_at IS NULL AND deadline_at <= NOW()`,
+      [input.tourId, input.date, phone],
+    );
+
+    const { rows: [dup] } = await pool.query<{ status: SeatRequestStatus }>(
+      `SELECT r.status
          FROM tour_seat_requests r
          LEFT JOIN operator_bookings b ON b.id = r.booking_id
         WHERE r.tour_id = $1 AND r.tour_date = $2::date AND r.tourist_phone = $3
@@ -150,12 +171,7 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
       [input.tourId, input.date, phone],
     );
     if (dup) {
-      const enc = dup.status_token_enc ? decrypt(dup.status_token_enc) : null;
-      return {
-        ok: false,
-        reason: dup.status === 'confirmed' ? 'already_confirmed' : 'duplicate',
-        existingStatusUrl: enc ? statusUrl(enc) : null,
-      };
+      return { ok: false, reason: dup.status === 'confirmed' ? 'already_confirmed' : 'duplicate' };
     }
 
     const { rows: [caps] } = await pool.query<{ op_pending: number; phone_pending: number; phone_day: number }>(
@@ -192,7 +208,7 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     requestId = rows[0]!.id;
   } catch (err) {
     // Гонка двух одинаковых запросов: проверку выше прошли оба, вставку — один.
-    if ((err as { code?: string }).code === '23505') return { ok: false, reason: 'duplicate', existingStatusUrl: null };
+    if ((err as { code?: string }).code === '23505') return { ok: false, reason: 'duplicate' };
     logFail('запрос не записан', err);
     return { ok: false, reason: 'check_failed' };
   }
@@ -248,6 +264,12 @@ export type AnswerResult =
   | {
       ok: true; status: SeatRequestStatus; tourTitle: string; date: string;
       failureKind: FailureKind | null; touristMessage: TouristMessageState;
+      /**
+       * Дошло ли оператору уведомление о брони с контактами туриста. null —
+       * не применимо (бронь не заводилась). false — не дошло: оператору так и
+       * говорится, контакты ему передаст администратор.
+       */
+      operatorNotified: boolean | null;
     }
   | {
       ok: false;
@@ -396,6 +418,28 @@ export async function answerSeatRequest(
     }
   }
 
+  // Оператору — обычное уведомление о брони (контакты туриста, U-ON), как у
+  // веб-формы; иначе он подтвердил бронь и не знает, кому звонить. Оно идёт ДО
+  // итоговой записи, а не после: оборвись процесс между ними — уборщик найдёт
+  // подтверждённую бронь и уведомит повторно (дубль безвреден), а порядок
+  // «запись, потом уведомление» оставлял бы окно, в котором бронь есть, а
+  // оператор о ней не знает и записи об этом нет.
+  let operatorNotified: boolean | null = null;
+  if (finalStatus === 'confirmed' && reservedInfo) {
+    const n = await notifyOperatorOfNewBooking({
+      bookingId: reservedInfo.bookingId,
+      operatorId: reservedInfo.operatorId,
+      tourTitle: reservedInfo.tourTitle,
+      date: claimed.tour_date,
+      participants: claimed.participants,
+      totalPrice: reservedInfo.totalPrice,
+      touristName: claimed.tourist_name,
+      touristPhone: claimed.tourist_phone,
+      via: 'seat_request',
+    });
+    operatorNotified = n.state === 'notified' && n.outcome.state === 'delivered';
+  }
+
   try {
     const { rowCount } = await pool.query(
       `UPDATE tour_seat_requests
@@ -416,26 +460,10 @@ export async function answerSeatRequest(
     return { ok: false, reason: 'accepted_unfinished' };
   }
 
-  // Оператору — обычное уведомление о брони (контакты туриста, U-ON), как у
-  // веб-формы; иначе он подтвердил бронь и не знает, кому звонить.
-  if (finalStatus === 'confirmed' && reservedInfo) {
-    await notifyOperatorOfNewBooking({
-      bookingId: reservedInfo.bookingId,
-      operatorId: reservedInfo.operatorId,
-      tourTitle: reservedInfo.tourTitle,
-      date: claimed.tour_date,
-      participants: claimed.participants,
-      totalPrice: reservedInfo.totalPrice,
-      touristName: claimed.tourist_name,
-      touristPhone: claimed.tourist_phone,
-      via: 'seat_request',
-    });
-  }
-
   const touristMessage = await notifyTourist(claimed.id, liveBookingUrl);
   return {
     ok: true, status: finalStatus, tourTitle: claimed.title, date: claimed.tour_date,
-    failureKind, touristMessage,
+    failureKind, touristMessage, operatorNotified,
   };
 }
 
@@ -444,7 +472,7 @@ export async function answerSeatRequest(
 interface NotifyRow {
   id: string; status: SeatRequestStatus; deadline_at: Date; answered_at: Date | null;
   reply_channel: ReplyChannel; tourist_chat_id: string | null; tourist_notified_at: Date | null;
-  tourist_notify_attempts: number;
+  tourist_notify_attempts: number; failure_kind: FailureKind | null;
   tour_title: string; tour_date: string; participants: number; alt_date: string | null;
   booking_id: string | null; booking_access_token_enc: string | null; status_token_enc: string | null;
 }
@@ -476,7 +504,7 @@ export async function notifyTourist(
   try {
     ({ rows: [row] } = await pool.query<NotifyRow>(
       `SELECT r.id, r.status, r.deadline_at, r.answered_at, r.reply_channel,
-              r.tourist_chat_id::text, r.tourist_notified_at, r.tourist_notify_attempts,
+              r.tourist_chat_id::text, r.tourist_notified_at, r.tourist_notify_attempts, r.failure_kind,
               t.title AS tour_title, r.tour_date::text, r.participants, r.alt_date::text,
               r.booking_id::text, r.booking_access_token_enc, r.status_token_enc
          FROM tour_seat_requests r JOIN operator_tours t ON t.id = r.tour_id
@@ -492,7 +520,7 @@ export async function notifyTourist(
   if (!row.tourist_chat_id || (row.reply_channel !== 'telegram' && row.reply_channel !== 'max')) return 'no_chat';
 
   const text = touristOutcomeText(
-    { status, tour_title: row.tour_title, tour_date: row.tour_date, participants: row.participants, alt_date: row.alt_date },
+    { status, tour_title: row.tour_title, tour_date: row.tour_date, participants: row.participants, alt_date: row.alt_date, failure_kind: row.failure_kind },
     { statusUrl: statusLink(row), bookingUrl: liveBookingUrl ?? bookingLink(row) },
   );
   const sent = row.reply_channel === 'telegram'
@@ -519,19 +547,27 @@ export async function bindTouristChat(
   statusToken: string,
   channel: 'telegram' | 'max',
   chatId: number,
-): Promise<{ ok: true; notified: boolean } | { ok: false; reason: 'not_found' | 'db_error' }> {
+): Promise<{ ok: true; notified: boolean } | { ok: false; reason: 'not_found' | 'already_bound' | 'db_error' }> {
   let id: string | undefined;
   try {
     const { rows } = await pool.query<{ id: string }>(
       `UPDATE tour_seat_requests
           SET tourist_chat_id = $2::bigint, reply_channel = $3, updated_at = NOW()
         WHERE status_token_hash = $1
+          AND (tourist_chat_id IS NULL OR tourist_chat_id = $2::bigint)
         RETURNING id`,
       [hashStatusToken(statusToken), String(chatId), channel],
     );
     id = rows[0]?.id;
   } catch (err) { logFail('чат туриста не записан', err); return { ok: false, reason: 'db_error' }; }
-  if (!id) return { ok: false, reason: 'not_found' };
+  if (!id) {
+    // Ключ верный, но к запросу уже подключён ДРУГОЙ чат: перезаписать его
+    // значило бы дать тому, кто узнал ключ, получить исход и ссылку на бронь.
+    try {
+      const { rows } = await pool.query(`SELECT 1 FROM tour_seat_requests WHERE status_token_hash = $1`, [hashStatusToken(statusToken)]);
+      return { ok: false, reason: rows.length > 0 ? 'already_bound' : 'not_found' };
+    } catch (err) { logFail('запрос для проверки привязки не прочитан', err); return { ok: false, reason: 'db_error' }; }
+  }
   const res = await notifyTourist(id);
   return { ok: true, notified: res === 'sent' };
 }
@@ -550,6 +586,8 @@ export interface SeatRequestView {
   touristChatBound: boolean;
   /** Сообщение с исходом в мессенджер действительно ушло. */
   touristNotified: boolean;
+  /** Почему 'failed': «исход неизвестен» и «не завелась бронь» — разные тексты. */
+  failureKind: FailureKind | null;
   bookingUrl: string | null;
 }
 
@@ -558,7 +596,7 @@ export async function readSeatRequest(statusToken: string): Promise<SeatRequestV
   try {
     ({ rows: [row] } = await pool.query<NotifyRow & { tour_id: string }>(
       `SELECT r.id, r.status, r.deadline_at, r.answered_at, r.reply_channel,
-              r.tourist_chat_id::text, r.tourist_notified_at, r.tourist_notify_attempts,
+              r.tourist_chat_id::text, r.tourist_notified_at, r.tourist_notify_attempts, r.failure_kind,
               t.title AS tour_title, r.tour_id::text,
               r.tour_date::text, r.participants, r.alt_date::text, r.booking_id::text,
               r.booking_access_token_enc, r.status_token_enc
@@ -579,6 +617,7 @@ export async function readSeatRequest(statusToken: string): Promise<SeatRequestV
     replyChannel: row.reply_channel,
     touristChatBound: row.tourist_chat_id !== null,
     touristNotified: row.tourist_notified_at !== null,
+    failureKind: row.failure_kind,
     bookingUrl: bookingLink(row),
   };
 }
@@ -630,27 +669,35 @@ export async function recoverUnfinished(): Promise<{ recovered: number; failed: 
   let failed = 0;
   for (const r of rows) {
     try {
-      const { rows: [b] } = await pool.query<{ id: string; booking_status: string; final_price: string | null }>(
-        `SELECT id::text, booking_status, COALESCE(final_price, base_total_price)::text AS final_price
+      const { rows: [b] } = await pool.query<{ id: string; booking_status: string; final_price: string | null; access_token: string }>(
+        `SELECT id::text, booking_status, COALESCE(final_price, base_total_price)::text AS final_price,
+                access_token::text AS access_token
            FROM operator_bookings
           WHERE metadata->>'seat_request_id' = $1 AND deleted_at IS NULL
           ORDER BY id DESC LIMIT 1`,
         [r.id],
       );
       let status: SeatRequestStatus = 'failed';
+      let tokenEnc: string | null = null;
       let kind: FailureKind | null = 'unfinished';
       let reason: string | null = 'ответ принят, а исход не записан (процесс оборвался); что именно ответил оператор, восстановить нечем';
       if (b && b.booking_status === 'confirmed') {
         status = 'confirmed'; kind = null; reason = null;
+        // Ключ брони лежит в самой брони: без него турист получал бы круг из
+        // двух текстов «ссылка на странице запроса» / «ссылка в мессенджере» и
+        // не нашёл бы её нигде.
+        tokenEnc = encrypt(b.access_token);
+        if (tokenEnc === null) console.error(`[seat-requests] ключ брони ${b.id} не зашифрован (ENCRYPTION_KEY) — ссылка на оплату в запросе не сохранена`);
       } else if (b) {
         kind = 'system';
         reason = `бронь #${b.id} создана, но осталась «${b.booking_status}» (процесс оборвался до подтверждения)`;
       }
       const upd = await pool.query(
         `UPDATE tour_seat_requests
-            SET status = $2, booking_id = $3::bigint, failure_kind = $4, failure_reason = $5, updated_at = NOW()
+            SET status = $2, booking_id = $3::bigint, failure_kind = $4, failure_reason = $5,
+                booking_access_token_enc = COALESCE($6, booking_access_token_enc), updated_at = NOW()
           WHERE id = $1::uuid AND status = 'pending' AND answered_at IS NOT NULL`,
-        [r.id, status, b?.id ?? null, kind, reason],
+        [r.id, status, b?.id ?? null, kind, reason, tokenEnc],
       );
       if ((upd.rowCount ?? 0) === 0) continue;
       if (status === 'confirmed') {

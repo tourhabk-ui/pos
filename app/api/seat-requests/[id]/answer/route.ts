@@ -66,7 +66,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     answer === 'other_date' ? { kind: 'other_date', date: date! } : { kind: answer },
     'web',
   );
-  const message = operatorReplyText(result);
+  // Веб-страница выводит строку как текст, не HTML: экранировать нельзя.
+  const message = operatorReplyText(result, { html: false });
   if (!result.ok) {
     const status = result.reason === 'db_error' ? 503
       : result.reason === 'not_found' ? 404

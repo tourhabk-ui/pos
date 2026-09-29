@@ -359,7 +359,9 @@ export async function PATCH(
       // новым значением видит именно «было — стало».
       const conds = [`moderation_status = 'rejected'`];
       if (externalUrlIdx !== null) {
-        conds.push(`(moderation_status = 'approved' AND external_booking_url IS DISTINCT FROM $${externalUrlIdx}::text)`);
+        // Снятие ссылки (NULL) риска подмены не несёт и объект с витрины не
+        // убирает; на модерацию уходит только замена ссылки на другую.
+        conds.push(`(moderation_status = 'approved' AND $${externalUrlIdx}::text IS NOT NULL AND external_booking_url IS DISTINCT FROM $${externalUrlIdx}::text)`);
       }
       setClauses.push(`moderation_status = CASE WHEN ${conds.join(' OR ')} THEN 'pending' ELSE moderation_status END`);
     }

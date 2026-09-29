@@ -5,10 +5,12 @@
  * фрагменте адреса (`/seat-request#<ключ>`), а не в пути. Работает всегда —
  * даже если мессенджер не подключён: ответ оператора виден здесь. Пока запрос
  * ждёт, страница сама переспрашивает статус раз в 30 секунд; если самая первая
- * загрузка не удалась, повторяет её, а не застывает на ошибке.
+ * загрузка не удалась по причине сети или сервера, повторяет её, а не застывает
+ * на ошибке. Ответ «ссылка неверна» / «запрос не найден» окончателен: повтор
+ * ничего не изменит, и страница говорит это прямо, а не вечно «пробуем ещё».
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, Send } from 'lucide-react';
 
@@ -25,6 +27,7 @@ interface View {
   replyChannel: 'telegram' | 'max' | 'whatsapp' | 'phone';
   touristChatBound: boolean;
   touristNotified: boolean;
+  failureKind: 'delivery' | 'accounting' | 'system' | 'unfinished' | null;
   bookingUrl: string | null;
   botLinks: { telegram: string; max: string };
 }
@@ -35,8 +38,19 @@ const TEXT: Record<Status, { title: string; tone: string }> = {
   declined:   { title: 'На эту дату мест нет', tone: 'var(--text-secondary)' },
   other_date: { title: 'Оператор предлагает другую дату', tone: 'var(--warning)' },
   expired:    { title: 'Оператор не ответил за 2 часа', tone: 'var(--warning)' },
-  failed:     { title: 'Бронь автоматически не завелась', tone: 'var(--danger)' },
+  failed:     { title: 'Запрос не завершён автоматически', tone: 'var(--danger)' },
 };
+
+/**
+ * Под статусом «failed» — разные исходы, и слова у них разные. «Оператор
+ * ответил, что места есть» — только когда это известно; если ответ потерян,
+ * так писать нельзя.
+ */
+function failedText(kind: View['failureKind']): string {
+  if (kind === 'unfinished') return 'Мы уточняем ответ оператора. Бронь пока не заведена — свяжемся с вами.';
+  if (kind === 'delivery') return 'Запрос до оператора не дошёл. Оставьте заявку на карточке тура — менеджер свяжется с оператором сам.';
+  return 'Оператор ответил, что места есть, но наш учёт не дал завести бронь. Мы разбираемся и свяжемся с вами.';
+}
 
 function Icon({ s }: { s: Status }) {
   const cls = 'w-6 h-6 shrink-0';
@@ -50,24 +64,57 @@ function Icon({ s }: { s: Status }) {
 
 const KEY_RE = /^[A-Za-z0-9_-]{32}$/;
 
+/** Что показать вместо «Пробуем ещё раз»: у неверной ссылки повтор смысла не имеет. */
+const FATAL_TEXT: Record<400 | 404, string> = {
+  400: 'Ссылка на запрос повреждена. Откройте её целиком — ту, что показали после отправки или прислали в мессенджер.',
+  404: 'Запрос по этой ссылке не найден. Возможно, ссылку скопировали не полностью.',
+};
+
+function readTokenFromHash(): string | null {
+  const raw = window.location.hash.replace(/^#/, '');
+  return KEY_RE.test(raw) ? raw : null;
+}
+
 export function SeatRequestStatusClient() {
   const [token, setToken] = useState<string | null | undefined>(undefined);
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Окончательный отказ (400/404): опрос останавливается.
+  const [fatal, setFatal] = useState<string | null>(null);
+  // Какой ключ страница показывает сейчас: ответ на прежний ключ, пришедший
+  // после смены адреса, не должен затирать статус нового запроса.
+  const activeToken = useRef<string | null>(null);
 
   // Ключ читается из фрагмента после монтирования: на сервере его нет по
   // построению. undefined — ещё не читали, null — в адресе ключа нет.
+  // Фрагмент можно поменять, не перезагружая страницу (вставили другую ссылку
+  // в ту же вкладку), — слушаем и смену.
   useEffect(() => {
-    const raw = window.location.hash.replace(/^#/, '');
+    const apply = () => {
+      const next = readTokenFromHash();
+      activeToken.current = next;
+      setView(null);
+      setError(null);
+      setFatal(null);
+      setToken(next);
+    };
     // eslint-disable-next-line react-hooks/set-state-in-effect -- чтение адреса браузера, источника до монтирования нет
-    setToken(KEY_RE.test(raw) ? raw : null);
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
   }, []);
 
   const load = useCallback(async () => {
     if (!token) return;
+    const asked = token;
     try {
-      const res = await fetch(`/api/seat-requests/status?t=${encodeURIComponent(token)}`, { cache: 'no-store' });
+      const res = await fetch(`/api/seat-requests/status?t=${encodeURIComponent(asked)}`, { cache: 'no-store' });
       const body = await res.json().catch(() => null) as { success: true; data: View } | { success: false; error?: string } | null;
+      if (activeToken.current !== asked) return;
+      if (res.status === 400 || res.status === 404) {
+        setFatal(FATAL_TEXT[res.status]);
+        return;
+      }
       if (!res.ok || !body || !body.success) {
         setError((body && !body.success && body.error) || `Сервер ответил ${res.status}`);
         return;
@@ -75,6 +122,7 @@ export function SeatRequestStatusClient() {
       setError(null);
       setView(body.data);
     } catch {
+      if (activeToken.current !== asked) return;
       setError('Нет связи с сервером.');
     }
   }, [token]);
@@ -88,10 +136,10 @@ export function SeatRequestStatusClient() {
   // навсегда на ошибке, хотя запрос жив.
   useEffect(() => {
     const keepPolling = view?.status === 'pending' || (view === null && error !== null);
-    if (!token || !keepPolling) return;
+    if (!token || fatal || !keepPolling) return;
     const t = setInterval(() => { void load(); }, view === null ? 10_000 : 30_000);
     return () => clearInterval(t);
-  }, [token, view, error, load]);
+  }, [token, view, error, fatal, load]);
 
   if (token === undefined) {
     return <main className="ds-page min-h-screen" />;
@@ -109,12 +157,19 @@ export function SeatRequestStatusClient() {
             <Link href="/planner" className="text-sm text-[var(--ocean)] hover:underline">К планеру</Link>
           </div>
         )}
-        {token !== null && !view && !error && (
+        {fatal && (
+          <div className="ds-card p-6 space-y-2" role="alert">
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>Запрос не открылся</h1>
+            <p className="text-sm text-[var(--text-secondary)]">{fatal}</p>
+            <Link href="/planner" className="text-sm text-[var(--ocean)] hover:underline">К планеру</Link>
+          </div>
+        )}
+        {token !== null && !fatal && !view && !error && (
           <div className="ds-card p-6 flex items-center gap-2 text-[var(--text-secondary)]">
             <Loader2 className="w-4 h-4 animate-spin" /> Проверяем статус…
           </div>
         )}
-        {error && (
+        {error && !fatal && (
           <p className="text-sm text-[var(--danger)]" role="alert">
             {view ? `${error} Показан последний известный статус.` : `${error} Пробуем ещё раз…`}
           </p>
@@ -156,7 +211,7 @@ export function SeatRequestStatusClient() {
               <p className="text-sm text-[var(--text-secondary)]">Это не значит, что мест нет: оператор мог быть без связи. Отправьте запрос ещё раз или оставьте заявку — менеджер свяжется с оператором.</p>
             )}
             {view.status === 'failed' && (
-              <p className="text-sm text-[var(--text-secondary)]">Оператор ответил, что места есть, но наш учёт не дал завести бронь. Мы разбираемся и свяжемся с вами.</p>
+              <p className="text-sm text-[var(--text-secondary)]">{failedText(view.failureKind)}</p>
             )}
 
             {!view.touristChatBound && view.status === 'pending' && (

@@ -147,7 +147,11 @@ export function isFutureOrToday(date: string, now: number = Date.now()): boolean
  * страницу», которой туристу не назвали.
  */
 export function touristOutcomeText(
-  r: { status: SeatRequestStatus; tour_title: string; tour_date: string; participants: number; alt_date: string | null },
+  r: {
+    status: SeatRequestStatus; tour_title: string; tour_date: string; participants: number; alt_date: string | null;
+    /** Причина 'failed': 'unfinished' — ответ оператора неизвестен, «места есть» утверждать нельзя. */
+    failure_kind?: FailureKind | null;
+  },
   links: { statusUrl: string | null; bookingUrl: string | null },
 ): string {
   const title = escapeHtml(r.tour_title);
@@ -169,6 +173,15 @@ export function touristOutcomeText(
     case 'expired':
       return `Оператор не ответил за 2 часа: ${what}. Это не значит, что мест нет — можно отправить запрос ещё раз или оставить заявку${more}`;
     case 'failed':
+      // Разные исходы под одним статусом: где ответ оператора известен («места
+      // есть»), а бронь не завелась, — и где сам ответ потерян. Во втором
+      // случае «оператор ответил, что места есть» было бы выдумкой.
+      if (r.failure_kind === 'unfinished') {
+        return `Мы уточняем ответ оператора: ${what}. Бронь пока не заведена — свяжемся с вами${more}`;
+      }
+      if (r.failure_kind === 'delivery') {
+        return `Запрос до оператора не дошёл: ${what}. Оставьте заявку — менеджер свяжется с оператором сам${more}`;
+      }
       return `Оператор ответил, что места есть, но бронь автоматически не завелась: ${what}. Мы разбираемся и свяжемся с вами${more}`;
     case 'pending':
       return `Запрос отправлен оператору: ${what}. Ответ придёт сюда в течение 2 часов${more}`;
@@ -186,6 +199,8 @@ export type OperatorReplyInput =
       date: string;
       failureKind?: FailureKind | null;
       touristMessage?: TouristMessageState;
+      /** Уведомление оператору с контактами туриста дошло (false — нет; null/undefined — не применимо). */
+      operatorNotified?: boolean | null;
     }
   | {
       ok: false;
@@ -195,22 +210,32 @@ export type OperatorReplyInput =
       status?: SeatRequestStatus;
     };
 
-/** Ответ оператору после нажатия. Говорит только то, что известно. */
-export function operatorReplyText(result: OperatorReplyInput): string {
+/**
+ * Ответ оператору после нажатия. Говорит только то, что известно.
+ *
+ * `html` — куда уходит текст: в MAX/Telegram (оба шлют HTML, название
+ * экранируется) или на веб-страницу ответа (React выводит строку как текст,
+ * экранирование там показало бы оператору «&amp;» вместо «&»).
+ */
+export function operatorReplyText(result: OperatorReplyInput, opts: { html?: boolean } = {}): string {
   if (result.ok) {
-    const what = `«${escapeHtml(result.tourTitle)}», ${result.date}`;
+    const title = opts.html === false ? result.tourTitle : escapeHtml(result.tourTitle);
+    const what = `«${title}», ${result.date}`;
     switch (result.status) {
       case 'confirmed': {
         const tourist = result.touristMessage === 'sent'
           ? 'Турист получил ссылку на оплату в мессенджер.'
           : 'Турист увидит бронь на странице запроса; в мессенджер сообщение не ушло.';
-        return `Принято: бронь на ${what} заведена и подтверждена. ${tourist} Контакты туриста придут отдельным уведомлением о брони (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).`;
+        const contacts = result.operatorNotified === false
+          ? 'Уведомление с контактами туриста сюда доставить не удалось — их передаст администратор (бронь уже в вашем кабинете).'
+          : 'Контакты туриста придут отдельным уведомлением о брони (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).';
+        return `Принято: бронь на ${what} заведена и подтверждена. ${tourist} ${contacts}`;
       }
       case 'declined': return `Принято: мест на ${what} нет. Турист получит ответ.`;
       case 'other_date': return `Принято: туристу предложена другая дата для ${what}.`;
       case 'failed':
         return result.failureKind === 'accounting'
-          ? `Бронь на ${what} не завелась: учёт платформы видит эту дату закрытой или занятой (проверьте календарь и вместимость тура в кабинете). Туристу сказано, что мы разбираемся; администратор увидит запрос в течение часа.`
+          ? `Бронь на ${what} не завелась: учёт платформы её не принял — дата закрыта или занята, группа больше вместимости либо тур снят с публикации (проверьте календарь и вместимость тура в кабинете). Туристу сказано, что мы разбираемся; администратор увидит запрос в течение часа.`
           : `Бронь на ${what} не завелась из-за сбоя на нашей стороне, не из-за вашей даты. Проверьте раздел броней в кабинете: если бронь там есть, подтвердите её. Туристу сказано, что мы разбираемся; администратор увидит запрос в течение часа.`;
       default: return `Ответ по ${what} записан.`;
     }

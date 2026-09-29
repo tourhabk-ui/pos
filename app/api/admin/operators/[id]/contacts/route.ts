@@ -59,13 +59,15 @@ export async function PATCH(
   try {
     ({ rows } = await pool.query<{ id: string; telegram_chat_id: string | null }>(
       `UPDATE partners
-       SET contacts   = (CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts
-                                WHEN contacts IS NULL OR contacts IN ('[]'::jsonb, 'null'::jsonb) THEN '{}'::jsonb
-                                ELSE contacts END) || $1::jsonb,
+       SET contacts   = CASE
+                          -- Непустой массив не трогаем: «массив || объект» дописывает элемент.
+                          WHEN jsonb_typeof(contacts) = 'array' AND contacts <> '[]'::jsonb THEN contacts
+                          ELSE (CASE WHEN jsonb_typeof(contacts) = 'object' THEN contacts ELSE '{}'::jsonb END) || $1::jsonb
+                        END,
            telegram_chat_id = CASE WHEN $3::boolean THEN $4::bigint ELSE telegram_chat_id END,
            updated_at = NOW()
        WHERE id = $2::uuid
-       RETURNING id, contacts->>'telegram_chat_id' AS telegram_chat_id`,
+       RETURNING id, telegram_chat_id::text AS telegram_chat_id`,
       [JSON.stringify(updates), id, touchesTelegram, parsed.data.telegram_chat_id ?? null],
     ));
   } catch (err) {

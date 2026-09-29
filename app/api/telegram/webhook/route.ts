@@ -663,7 +663,9 @@ export async function POST(request: NextRequest) {
       if (seatToken !== null) {
         const bound = await bindTouristChat(seatToken, 'telegram', update.message.chat.id);
         await sendHTML(chatId, !bound.ok
-          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.' : 'Не удалось подключить — попробуйте ещё раз через минуту.')
+          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
+            : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
+            : 'Не удалось подключить — попробуйте ещё раз через минуту.')
           : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
         return NextResponse.json({ ok: true });
       }

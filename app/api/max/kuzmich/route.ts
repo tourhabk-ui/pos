@@ -320,7 +320,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (seatToken !== null) {
       const bound = await bindTouristChat(seatToken, 'max', update.chat_id);
       await maxReply(update.chat_id, !bound.ok
-        ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.' : 'Не удалось подключить — попробуйте ещё раз через минуту.')
+        ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
+            : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
+            : 'Не удалось подключить — попробуйте ещё раз через минуту.')
         : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
       return;
     }

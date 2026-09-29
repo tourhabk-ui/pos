@@ -70,7 +70,7 @@ function isSearch(f: FiltersState): boolean {
     || f.ratingMin > 0
     || f.amenities.length > 0
     || f.locationZone !== ''
-    || f.search !== ''
+    || f.search.trim() !== ''
     || (f.checkIn !== '' && f.checkOut !== '' && f.checkOut > f.checkIn);
 }
 

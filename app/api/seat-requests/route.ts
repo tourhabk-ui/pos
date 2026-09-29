@@ -82,13 +82,7 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     const r = REASON_TEXT[result.reason] ?? REASON_TEXT.check_failed!;
-    return NextResponse.json({
-      success: false,
-      error: r.error,
-      reason: result.reason,
-      // Уже отправленный запрос: ссылка на него, а не тупик «уже отправлено».
-      ...(result.existingStatusUrl ? { status_url: result.existingStatusUrl } : {}),
-    }, { status: r.status });
+    return NextResponse.json({ success: false, error: r.error, reason: result.reason }, { status: r.status });
   }
 
   return NextResponse.json({

@@ -39,7 +39,7 @@ import {
   isFutureOrToday, isRealDate, kamchatkaToday, touristOutcomeText, operatorReplyText,
 } from '@/lib/seat-requests/core';
 import {
-  createSeatRequest, answerSeatRequest, recoverUnfinished, expireOverdue, notifyTourist, statusUrl,
+  createSeatRequest, answerSeatRequest, recoverUnfinished, expireOverdue, notifyTourist, statusUrl, bindTouristChat,
   MAX_PENDING_PER_OPERATOR, MAX_TOURIST_NOTIFY_ATTEMPTS,
 } from '@/lib/seat-requests/service';
 import { ReserveError } from '@/lib/bookings/reserve';
@@ -202,6 +202,30 @@ describe('тексты говорят только то, что известно
     expect(sys).not.toMatch(/дату закрытой или занятой/);
   });
 
+  it('на веб-странице ответа название не экранируется (React выводит строку как текст), в мессенджер — экранируется', () => {
+    const r = { ok: true as const, status: 'declined' as const, tourTitle: 'Тур & <Море>', date: '2099-07-10' };
+    expect(operatorReplyText(r, { html: false })).toContain('«Тур & <Море>»');
+    expect(operatorReplyText(r)).toContain('Тур &amp; &lt;Море&gt;');
+  });
+
+  it('оператору: доставка контактов туриста не обещается, если уведомление не дошло', () => {
+    const ok = { ok: true as const, status: 'confirmed' as const, tourTitle: 'Т', date: '2099-07-10', touristMessage: 'sent' as const };
+    expect(operatorReplyText({ ...ok, operatorNotified: false })).toMatch(/доставить не удалось — их передаст администратор/);
+    expect(operatorReplyText({ ...ok, operatorNotified: true })).toMatch(/Контакты туриста придут отдельным уведомлением/);
+  });
+
+  it('туристу: «ответ неизвестен» и «запрос не дошёл» не выдаются за «оператор сказал, что места есть»', () => {
+    const f = { tour_title: 'Т', tour_date: '2099-07-10', participants: 2, alt_date: null, status: 'failed' as const };
+    const links = { statusUrl: null, bookingUrl: null };
+    const unfinished = touristOutcomeText({ ...f, failure_kind: 'unfinished' }, links);
+    expect(unfinished).toMatch(/уточняем ответ оператора/);
+    expect(unfinished).not.toMatch(/места есть/);
+    const delivery = touristOutcomeText({ ...f, failure_kind: 'delivery' }, links);
+    expect(delivery).toMatch(/до оператора не дошёл/);
+    expect(delivery).not.toMatch(/места есть/);
+    expect(touristOutcomeText({ ...f, failure_kind: 'accounting' }, links)).toMatch(/места есть/);
+  });
+
   it('«ответ принят, исход не записан» — не зовёт нажимать ещё раз', () => {
     const t = operatorReplyText({ ok: false, reason: 'accepted_unfinished' });
     expect(t).toMatch(/Повторно не нажимайте/);
@@ -239,24 +263,47 @@ describe('создание запроса', () => {
     expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'check_failed' });
   });
 
-  it('дубль: тот же тур, дата и телефон — не вторая строка и не второе сообщение оператору', async () => {
+  it('дубль: тот же тур, дата и телефон — не вторая строка, не второе сообщение оператору и НЕ ключ чужого запроса', async () => {
     const { token } = newStatusToken();
     const { encrypt } = await import('@/lib/encryption');
     setDb([TOUR, { match: /r\.status = 'pending' AND r\.deadline_at > NOW\(\)/, rows: [{ status: 'pending', status_token_enc: encrypt(token) }] }]);
     reachMock.mockResolvedValue(reachOk);
     const r = await createSeatRequest(input);
-    expect(r).toMatchObject({ ok: false, reason: 'duplicate' });
-    expect(r.ok === false && r.existingStatusUrl).toBe(statusUrl(token));
+    // Телефон — не секрет: ответ на дубль не может нести ссылку на страницу
+    // статуса (а с ней и на бронь) того, кто знает лишь номер.
+    expect(r).toEqual({ ok: false, reason: 'duplicate' });
+    expect(JSON.stringify(r)).not.toContain(token);
     expect(sqlCalls().some(s => /INSERT INTO tour_seat_requests/.test(s))).toBe(false);
     expect(pdAlertMock).not.toHaveBeenCalled();
     // Телефон сравнивается нормализованным: 8… и +7… — один человек.
     expect(findCall(/r\.tourist_phone = \$3/)![1]).toEqual([7, '2099-07-10', '+79000000000']);
+    // Запрос не читает и не расшифровывает ключ страницы вовсе.
+    expect(findCall(/r\.status = 'pending' AND r\.deadline_at > NOW\(\)/)![0]).not.toMatch(/status_token_enc/);
   });
 
-  it('подтверждённая бронь на ту же дату — «уже есть», а не второй запрос', async () => {
-    setDb([TOUR, { match: /r\.status = 'pending' AND r\.deadline_at > NOW\(\)/, rows: [{ status: 'confirmed', status_token_enc: null }] }]);
+  it('просроченный, но не убранный ждущий запрос закрывается ДО проверки дубля — иначе «отправьте ещё раз» упирается в ложное «уже отправлен»', async () => {
+    setDb([TOUR, { match: /AS op_pending/, rows: [{ op_pending: 0, phone_pending: 0, phone_day: 0 }] },
+      { match: /INSERT INTO tour_seat_requests/, rows: [{ id: RID }] }]);
     reachMock.mockResolvedValue(reachOk);
-    expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'already_confirmed', existingStatusUrl: null });
+    pdAlertMock.mockResolvedValue({ channel: 'max', delivered: true, reason: 'ok' });
+    expect(await createSeatRequest(input)).toMatchObject({ ok: true });
+    const calls = sqlCalls();
+    const close = calls.findIndex(q => /SET status = 'expired'/.test(q) && /deadline_at <= NOW\(\)/.test(q) && /answered_at IS NULL/.test(q));
+    const dup = calls.findIndex(q => /r\.status = 'pending' AND r\.deadline_at > NOW\(\)/.test(q));
+    expect(close).toBeGreaterThanOrEqual(0);
+    expect(close).toBeLessThan(dup);
+    // Закрывается ровно тот запрос, что мешает, а не чужие: тур, дата, телефон.
+    expect(poolQueryMock.mock.calls[close]![1]).toEqual([7, '2099-07-10', '+79000000000']);
+  });
+
+  it('десять цифр без кода страны — российский номер, и «+7 900…» того же человека даёт тот же телефон', async () => {
+    reachMock.mockResolvedValue(reachOk);
+    for (const raw of ['900 123-45-67', '+7 900 123-45-67', '8 900 123 45 67']) {
+      setDb([TOUR, { match: /AS op_pending/, rows: [{ op_pending: 0, phone_pending: 3, phone_day: 0 }] }]);
+      poolQueryMock.mockClear();
+      await createSeatRequest({ ...input, touristPhone: raw });
+      expect(findCall(/r\.tourist_phone = \$3/)![1], raw).toEqual([7, '2099-07-10', '+79001234567']);
+    }
   });
 
   it('потолки: у оператора, у телефона, в сутки', async () => {
@@ -386,15 +433,41 @@ describe('ответ оператора', () => {
     reserveMock.mockResolvedValue(reserved);
     confirmMock.mockResolvedValue({});
     expect(await answerSeatRequest(RID, { kind: 'yes' }, 'max')).toEqual({ ok: false, reason: 'accepted_unfinished' });
-    expect(notifyOpMock).not.toHaveBeenCalled();
+    // Оператор о подтверждённой брони узнаёт ДО итоговой записи: оборвись
+    // процесс между ними, бронь была бы, а он о ней не знал бы. Уборщик
+    // уведомит ещё раз — дубль безвреден, тишина нет.
+    expect(notifyOpMock).toHaveBeenCalledTimes(1);
+    expect(tgSendMock).not.toHaveBeenCalled();
+    expect(maxSendMock).not.toHaveBeenCalled();
   });
 
-  it('уборщик успел раньше нас — второй раз исход не пишем и не уведомляем', async () => {
+  it('уборщик успел раньше нас — исход второй раз не пишем и туристу второй раз не сообщаем', async () => {
     setDb([CLAIM, { match: /SET status = \$2, booking_id = \$3/, rowCount: 0 }]);
     reserveMock.mockResolvedValue(reserved);
     confirmMock.mockResolvedValue({});
     expect(await answerSeatRequest(RID, { kind: 'yes' }, 'max')).toMatchObject({ ok: false, reason: 'already_answered' });
-    expect(notifyOpMock).not.toHaveBeenCalled();
+    expect(maxSendMock).not.toHaveBeenCalled();
+    expect(tgSendMock).not.toHaveBeenCalled();
+  });
+
+  it('уведомление оператору уходит РАНЬШЕ итоговой записи, а его исход попадает в ответ', async () => {
+    const order: string[] = [];
+    poolQueryMock.mockImplementation(async (sql: string) => {
+      if (/SET answered_at = NOW\(\)/.test(sql)) return { rows: [claimed], rowCount: 1 };
+      if (/SET status = \$2, booking_id = \$3/.test(sql)) { order.push('final'); return { rows: [], rowCount: 1 }; }
+      return { rows: [], rowCount: 0 };
+    });
+    reserveMock.mockResolvedValue(reserved);
+    confirmMock.mockResolvedValue({});
+    notifyOpMock.mockImplementation(async () => { order.push('notify'); return { state: 'notified', outcome: { state: 'delivered', channel: 'max' } }; });
+    expect(await answerSeatRequest(RID, { kind: 'yes' }, 'max')).toMatchObject({ ok: true, operatorNotified: true });
+    expect(order.slice(0, 2)).toEqual(['notify', 'final']);
+
+    // Доставить не вышло — ответ оператору не обещает, что контакты пришли.
+    notifyOpMock.mockResolvedValue({ state: 'failed', reason: 'нет канала' });
+    poolQueryMock.mockClear();
+    setDb([CLAIM, FINAL]);
+    expect(await answerSeatRequest(RID, { kind: 'yes' }, 'max')).toMatchObject({ ok: true, operatorNotified: false });
   });
 
   it('дата «другой даты» в прошлом отклоняется ДО захвата', async () => {
@@ -447,6 +520,21 @@ describe('туристу и уборщик', () => {
     expect(maxSendMock.mock.calls[0]![1]).not.toContain(`/seat-request/${token}`);
   });
 
+  it('чат туриста: чужой уже подключённый чат не перезаписывается; ключ неверный и ключ верный, но чат занят, — разные исходы', async () => {
+    const { token } = newStatusToken();
+    // UPDATE не подошёл ни одной строке, запрос по ключу есть — чат занят.
+    setDb([{ match: /SET tourist_chat_id = \$2::bigint/, rows: [] }, { match: /SELECT 1 FROM tour_seat_requests WHERE status_token_hash/, rows: [{ '?column?': 1 }] }]);
+    expect(await bindTouristChat(token, 'max', 555)).toEqual({ ok: false, reason: 'already_bound' });
+    const upd = findCall(/SET tourist_chat_id = \$2::bigint/)!;
+    expect(upd[0]).toMatch(/tourist_chat_id IS NULL OR tourist_chat_id = \$2::bigint/);
+    // Ключа нет вовсе.
+    setDb([]);
+    expect(await bindTouristChat(token, 'max', 555)).toEqual({ ok: false, reason: 'not_found' });
+    // База упала — «не смог», а не «не найден».
+    setDb([{ match: /SET tourist_chat_id/, error: { code: '57P01' } }]);
+    expect(await bindTouristChat(token, 'max', 555)).toEqual({ ok: false, reason: 'db_error' });
+  });
+
   it('уборщик: бронь подтверждена → confirmed и уведомление оператору', async () => {
     setDb([
       { match: /FROM tour_seat_requests r JOIN operator_tours t ON t\.id = r\.tour_id\s+WHERE r\.status = 'pending' AND r\.answered_at IS NOT NULL/, rows: [
@@ -455,8 +543,25 @@ describe('туристу и уборщик', () => {
       { match: /UPDATE tour_seat_requests\s+SET status = \$2, booking_id = \$3::bigint/, rowCount: 1 },
     ]);
     expect(await recoverUnfinished()).toEqual({ recovered: 1, failed: 0 });
-    expect(findCall(/SET status = \$2, booking_id = \$3::bigint/)![1]).toEqual([RID, 'confirmed', '42', null, null]);
+    expect(findCall(/SET status = \$2, booking_id = \$3::bigint/)![1]).toEqual([RID, 'confirmed', '42', null, null, null]);
     expect(notifyOpMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('уборщик сохраняет ключ брони зашифрованным — иначе ссылка на оплату теряется вместе с процессом', async () => {
+    setDb([
+      { match: /FROM tour_seat_requests r JOIN operator_tours t ON t\.id = r\.tour_id\s+WHERE r\.status = 'pending' AND r\.answered_at IS NOT NULL/, rows: [
+        { id: RID, tour_date: '2099-07-10', participants: 2, tourist_name: 'Иван', tourist_phone: '+7900', operator_id: 'op', title: 'Тур' }] },
+      { match: /FROM operator_bookings\s+WHERE metadata->>'seat_request_id'/, rows: [{ id: '42', booking_status: 'confirmed', final_price: '9000', access_token: 'live-booking-key' }] },
+      { match: /UPDATE tour_seat_requests\s+SET status = \$2, booking_id = \$3::bigint/, rowCount: 1 },
+    ]);
+    await recoverUnfinished();
+    const upd = findCall(/SET status = \$2, booking_id = \$3::bigint/)!;
+    expect(upd[0]).toMatch(/booking_access_token_enc = COALESCE\(\$6, booking_access_token_enc\)/);
+    const enc = upd[1]![5] as string;
+    expect(enc).toEqual(expect.any(String));
+    expect(enc).not.toContain('live-booking-key');
+    const { decrypt } = await import('@/lib/encryption');
+    expect(decrypt(enc)).toBe('live-booking-key');
   });
 
   it('уборщик: бронь есть, но не подтверждена → failed/system; брони нет → failed/unfinished', async () => {
@@ -537,6 +642,31 @@ describe('провода', () => {
     expect(f).toMatch(/pd_consent: consent/);
     // Escape закрывает окно, фокус уходит внутрь.
     expect(f).toMatch(/e\.key === 'Escape'/);
+  });
+
+  it('окно запроса: пока идёт отправка, закрыть нельзя; поверх нижней навигации; прокрутка страницы под ним заперта', () => {
+    const f = read('components/planner/SeatRequestForm.tsx');
+    // Закрытие во время отправки отвязало бы страницу от запроса, который уже
+    // ушёл оператору, — ключа статуса турист бы не увидел.
+    expect(f).toMatch(/e\.key === 'Escape' && !sendingRef\.current/);
+    expect(f).toMatch(/onClick=\{onClose\} disabled=\{sending\}/);
+    expect(f).toMatch(/z-\[1100\]/);
+    expect(f).toMatch(/max-h-\[92dvh\]/);
+    expect(f).toMatch(/document\.body\.style\.overflow = 'hidden'/);
+    expect(f).toMatch(/document\.body\.style\.overflow = prevOverflow/);
+    // Ссылка на запрос переживает закрытие окна и перезагрузку — но только в браузере зрителя.
+    expect(f).toMatch(/localStorage\.setItem\(STORE_KEY/);
+  });
+
+  it('страница статуса: неверная ссылка — окончательный ответ, смена фрагмента подхватывается, поздний ответ не затирает новый', () => {
+    const c = read('app/seat-request/_SeatRequestStatusClient.tsx');
+    expect(c).toMatch(/res\.status === 400 \|\| res\.status === 404/);
+    expect(c).toMatch(/if \(!token \|\| fatal \|\| !keepPolling\) return;/);
+    expect(c).toMatch(/addEventListener\('hashchange'/);
+    expect(c).toMatch(/removeEventListener\('hashchange'/);
+    expect(c).toMatch(/activeToken\.current !== asked/);
+    // Причина «failed» приходит из API и меняет слова.
+    expect(c).toMatch(/failedText\(view\.failureKind\)/);
   });
 
   it('плавающий помощник не перекрывает окно запроса', () => {

@@ -56,6 +56,23 @@ describe('API и карточка', () => {
     expect(ui).toMatch(/funnelBeacon\('stay_external_booking', data\.id\)/);
   });
 
+  it('есть ссылка на сайт объекта — она единственный путь брони: ни списка номеров, ни нашей формы', () => {
+    const ui = read('app/accommodations/[id]/_AccommodationDetailClient.tsx');
+    expect(ui).toMatch(/\{data\.externalBookingUrl \? null : data\.rooms\.length === 0 \?/);
+    expect(ui).toMatch(/\{!data\.externalBookingUrl && data\.rooms\.length > 0 && \(/);
+    expect(ui).toMatch(/\{!data\.externalBookingUrl && \(\s*<h2 className="ds-h2 mb-4">Номера и цены<\/h2>/);
+  });
+
+  it('снятие ссылки не уводит объект на повторную модерацию — только замена одной ссылки на другую', () => {
+    const src = read('app/api/accommodations/[id]/route.ts');
+    expect(src).toMatch(/moderation_status = 'approved' AND \$\$\{externalUrlIdx\}::text IS NOT NULL AND external_booking_url IS DISTINCT FROM/);
+  });
+
+  it('поиск на витрине считается поиском, только если фильтр реально уходит в запрос (пробелы — не фильтр)', () => {
+    const ui = read('app/accommodations/_AccommodationsClient.tsx');
+    expect(ui).toMatch(/f\.search\.trim\(\) !== ''/);
+  });
+
   it('владелец может указать ссылку в кабинете', () => {
     expect(read('app/hub/stay/accommodations/_AccommodationsClient.tsx')).toMatch(/payload\.externalBookingUrl = form\.externalBookingUrl\.trim\(\)/);
   });

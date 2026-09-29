@@ -241,12 +241,15 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
           </div>
         )}
 
-        {/* Номера */}
-        {!(data.externalBookingUrl && data.rooms.length === 0) && (
+        {/* Номера. Есть ссылка на бронь на сайте объекта — она ЕДИНСТВЕННЫЙ путь
+            брони: два пути («там же бронь и оплата» и форма ниже) противоречили
+            бы друг другу, а цены в наших номерах и на сайте объекта могут
+            расходиться (обзор 29.09). */}
+        {!data.externalBookingUrl && (
           <h2 className="ds-h2 mb-4">Номера и цены</h2>
         )}
-        {data.rooms.length === 0 ? (
-          data.externalBookingUrl ? null : (
+        {data.externalBookingUrl ? null : data.rooms.length === 0 ? (
+          (
             <div className="ds-card p-6 mb-8 text-center">
               <p className="text-sm text-[var(--text-secondary)]">
                 {data.pricePerNight.from != null
@@ -285,7 +288,7 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
         )}
 
         {/* Бронирование */}
-        {data.rooms.length > 0 && (
+        {!data.externalBookingUrl && data.rooms.length > 0 && (
           <>
             <h2 className="ds-h2 mb-4">Забронировать</h2>
             <div className="mb-8">

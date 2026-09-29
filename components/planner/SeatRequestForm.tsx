@@ -30,6 +30,33 @@ const CHANNELS: { value: ReplyChannel; label: string }[] = [
   { value: 'phone', label: 'Звонок' },
 ];
 
+/**
+ * Ссылки на отправленные запросы, на этом устройстве. Сервер по совпадению
+ * телефона ссылку не отдаёт (телефон — не секрет), поэтому автор возвращается
+ * к своему запросу так: ключ у него на устройстве. Это удобство одного
+ * зрителя, а не состояние платформы: без localStorage форма работает.
+ */
+const STORE_KEY = 'vedar_seat_requests_v1';
+
+function loadSaved(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, string> : {};
+  } catch { return {}; }
+}
+
+function saveLink(key: string, url: string): void {
+  try {
+    const all = loadSaved();
+    all[key] = url;
+    // Хранится не больше десяти последних: хранилище не бесконечно.
+    const keys = Object.keys(all);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 10))) delete all[k];
+    localStorage.setItem(STORE_KEY, JSON.stringify(all));
+  } catch { /* хранилище недоступно — не страшно */ }
+}
+
 interface Created {
   status_url: string;
   deadline_at: string;
@@ -55,6 +82,7 @@ export function SeatRequestForm({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingUrl, setExistingUrl] = useState<string | null>(null);
+  const sendingRef = useRef(false);
   const [created, setCreated] = useState<Created | null>(null);
   const [copied, setCopied] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -68,16 +96,43 @@ export function SeatRequestForm({
   // эффекта он возвращал бы фокус в диалог при каждом нажатии клавиши.
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
+  useEffect(() => { sendingRef.current = sending; });
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      // Во время отправки окно не закрывается: запрос уже уходит, а ссылка на
+      // ответ появится только после — закрыв окно раньше, её не увидеть.
+      if (e.key === 'Escape' && !sendingRef.current) { onCloseRef.current(); return; }
+      if (e.key !== 'Tab') return;
+      // aria-modal без ловушки фокуса — обещание без исполнителя: Tab уходил
+      // бы на страницу под затемнением.
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea, select, [tabindex]:not([tabindex="-1"])',
+      ));
+      if (items.length === 0) { e.preventDefault(); root.focus(); return; }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (!root.contains(active)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && (active === first || active === root)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
       opener?.focus();
     };
   }, []);
+
+  // После отправки фокус остаётся на исчезнувшей кнопке: переводим его на окно,
+  // чтобы скринридер прочёл заголовок и новое содержимое.
+  useEffect(() => { if (created) dialogRef.current?.focus(); }, [created]);
 
   const count = Number(participants);
   const countValid = Number.isInteger(count) && count >= 1 && count <= 100;
@@ -102,13 +157,18 @@ export function SeatRequestForm({
       });
       const body = await res.json().catch(() => null) as
         | { success: true; data: Created }
-        | { success: false; error?: string; status_url?: string }
+        | { success: false; error?: string; reason?: string }
         | null;
       if (!res.ok || !body || !body.success) {
         setError((body && !body.success && body.error) || `Сервер ответил ${res.status}`);
-        if (body && !body.success && body.status_url) setExistingUrl(body.status_url);
+        // Уже отправленный запрос: ссылка берётся с ЭТОГО устройства, а не из
+        // ответа сервера (телефон — не секрет, ключ по нему не выдаётся).
+        if (body && !body.success && (body.reason === 'duplicate' || body.reason === 'already_confirmed')) {
+          setExistingUrl(loadSaved()[`${tour.id}:${date}`] ?? null);
+        }
         return;
       }
+      saveLink(`${tour.id}:${date}`, body.data.status_url);
       setCreated(body.data);
     } catch {
       setError('Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.');
@@ -135,9 +195,9 @@ export function SeatRequestForm({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4"
+      className="fixed inset-0 z-[1100] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4"
       role="presentation"
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={e => { if (e.target === e.currentTarget && !sending) onClose(); }}
     >
       <div
         ref={dialogRef}
@@ -145,7 +205,7 @@ export function SeatRequestForm({
         role="dialog"
         aria-modal="true"
         aria-labelledby="seat-request-title"
-        className="ds-card w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded-lg p-5 space-y-4 outline-none"
+        className="ds-card w-full sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-lg sm:rounded-lg p-5 space-y-4 outline-none"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -154,7 +214,7 @@ export function SeatRequestForm({
             </h2>
             <p className="text-sm text-[var(--text-secondary)] mt-1">{tour.title}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Закрыть" className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+          <button type="button" onClick={onClose} disabled={sending} aria-label="Закрыть" className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-40">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -246,11 +306,11 @@ export function SeatRequestForm({
             {error && (
               <div className="text-sm text-[var(--danger)] space-y-1" role="alert">
                 <p>{error}</p>
-                {existingUrl && (
+                {existingUrl ? (
                   <a href={existingUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--ocean)] hover:underline">
                     Открыть отправленный запрос
                   </a>
-                )}
+                ) : null}
               </div>
             )}
             <button type="submit" disabled={sending} className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2">

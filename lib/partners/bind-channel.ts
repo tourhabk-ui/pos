@@ -50,10 +50,13 @@ export async function bindPartnerChannel(
   const sql = channel === 'telegram'
     ? `UPDATE partners p
           SET telegram_chat_id = $1::bigint,
-              contacts = (CASE WHEN jsonb_typeof(p.contacts) = 'object' THEN p.contacts
-                                WHEN p.contacts IS NULL OR p.contacts IN ('[]'::jsonb, 'null'::jsonb) THEN '{}'::jsonb
-                                ELSE p.contacts END)
-                         || jsonb_build_object('telegram_chat_id', $1::text),
+              contacts = CASE
+                           -- Непустой массив не трогаем совсем: «массив || объект»
+                           -- ДОПИСЫВАЕТ элемент, и ключ по-прежнему не читается.
+                           WHEN jsonb_typeof(p.contacts) = 'array' AND p.contacts <> '[]'::jsonb THEN p.contacts
+                           ELSE (CASE WHEN jsonb_typeof(p.contacts) = 'object' THEN p.contacts ELSE '{}'::jsonb END)
+                                || jsonb_build_object('telegram_chat_id', $1::text)
+                         END,
               updated_at = NOW()
          FROM (SELECT id, telegram_chat_id::text AS old FROM partners WHERE id = $2::uuid) prev
         WHERE p.id = prev.id

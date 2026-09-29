@@ -122,8 +122,13 @@ export async function GET(req: NextRequest) {
         buttons: [{ text: 'Открыть бронирования', url: `${getPublicBaseUrl()}/hub/operator/bookings` }],
         to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
       });
-      if (!res.delivered) {
-        console.error(`[cron/abandoned-bookings] бронь ${row.id}: ПД не доставлены (${res.channel}) — ${res.reason}`);
+      // Оператору с одним Telegram уходит заглушка: `delivered` у неё false по
+      // построению (ПД не доставлены), но напоминание ДОШЛО — в ней всё, что
+      // нужно (номер брони, сумма, срок), кроме имени. Считать её отказом значило
+      // слать то же напоминание каждый час до отмены брони.
+      const reminderReached = res.delivered || res.channel === 'telegram-stub';
+      if (!reminderReached) {
+        console.error(`[cron/abandoned-bookings] бронь ${row.id}: напоминание не доставлено (${res.channel}) — ${res.reason}`);
         sendFailed++;
         continue; // отметку не ставим: пусть попробует ещё раз через час
       }
