@@ -42,7 +42,19 @@ const LOCATION_PRIORITY: Record<string, number> = {
   island:     0.6,
 };
 
-export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
+/**
+ * Записи sitemap и список секций, которые не удалось прочитать. Секция при
+ * отказе базы выпадает, а sitemap остаётся ответом 200 — поэтому вызывающий
+ * обязан знать, что ответ неполон: урезанный sitemap нельзя кэшировать
+ * (с 29.09 он отдаётся с собственным Cache-Control, а не с общим no-store).
+ */
+export async function collectSitemapEntriesWithStatus(): Promise<{ entries: MetadataRoute.Sitemap; degraded: string[] }> {
+  const degraded: string[] = [];
+  /** Отказ секции: в лог имя и причину, в список — имя (§4.0: «не смог» ≠ «пусто»). */
+  const fail = (section: string, e: unknown) => {
+    degraded.push(section);
+    console.error('[sitemap] секция не прочитана:', section, e instanceof Error ? e.message : e);
+  };
   // Статические страницы
   const staticPages: MetadataRoute.Sitemap = [
     { url: BASE,                            lastModified: new Date(),  changeFrequency: 'hourly',  priority: 1.0 },
@@ -121,8 +133,8 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: p.path.includes('/') ? 0.75 : 0.85,
     }));
-  } catch {
-    // sitemap без страниц каталога
+  } catch (e) {
+    fail('каталог', e);
   }
 
   // Динамические страницы мест (places) — 779 страниц /places/[id]
@@ -149,8 +161,8 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: LOCATION_PRIORITY[row.location_type ?? ''] ?? 0.65,
     }));
-  } catch {
-    // Если БД недоступна при сборке — sitemap без страниц мест
+  } catch (e) {
+    fail('места', e);
   }
 
   // Страницы статей (11.08). Оглавление без страниц — половина работы:
@@ -170,8 +182,9 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'monthly' as const,
       priority: 0.6,
     }));
-  } catch {
-    // БД недоступна — честно без статей, а не выдуманный список адресов.
+  } catch (e) {
+    // Без статей, а не выдуманный список адресов — но отказ виден.
+    fail('статьи', e);
   }
 
   // Динамические страницы: все видимые маршруты kamchatka_routes
@@ -203,8 +216,8 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: 0.7,
     }));
-  } catch {
-    // Если БД недоступна при сборке — sitemap без динамических страниц
+  } catch (e) {
+    fail('маршруты', e);
   }
 
   // Детальные страницы жилья /accommodations/[id]
@@ -221,8 +234,8 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority: 0.7,
     }));
-  } catch {
-    // Если БД недоступна при сборке — sitemap без страниц жилья
+  } catch (e) {
+    fail('жильё', e);
   }
 
   // Маркетплейс-туры. Раньше фильтр шёл по is_visible — колонке PLACES,
@@ -246,7 +259,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     }));
   } catch (e) {
     // Молчаливый catch прятал сломанный фильтр — теперь причину видно в логах.
-    console.error('[sitemap] туры не попали в sitemap:', e instanceof Error ? e.message : e);
+    fail('туры', e);
   }
 
   // Подборки (collections)
@@ -267,7 +280,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     // Молчал годами: колонка называлась is_published, а в таблице is_public —
     // подборки не попадали в sitemap ни разу, и отличить это от «таблицы нет»
     // было нечем.
-    console.error('[sitemap] подборки не попали в sitemap:', e instanceof Error ? e.message : e);
+    fail('подборки', e);
   }
 
   // Профили операторов /operators/[slug]
@@ -290,7 +303,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   } catch (e) {
     // То же самое: фильтр стоял по partner_type, которого в partners нет —
     // профили операторов в sitemap не попадали, и отказ был не виден.
-    console.error('[sitemap] профили операторов не попали в sitemap:', e instanceof Error ? e.message : e);
+    fail('операторы', e);
   }
 
   // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет
@@ -299,7 +312,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     ? staticPages
     : staticPages.filter((p) => p.url !== `${BASE}/accommodations`);
 
-  return [
+  const entries: MetadataRoute.Sitemap = [
     ...staticLive,
     ...categoryPages,
     ...placesPages,
@@ -310,5 +323,11 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     ...collectionPages,
     ...operatorPages,
   ];
+  return { entries, degraded };
 }
 
+
+/** Только записи — для IndexNow bulk, которому полнота не нужна для ответа. */
+export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
+  return (await collectSitemapEntriesWithStatus()).entries;
+}

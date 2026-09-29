@@ -14,6 +14,8 @@ export async function GET() {
   // ссылками /routes/{id}: 228 из 277 адресов вели на двойников мест и на
   // «Маршрут не найден» (аудит SEO 29.09, Н10). Место — это /places/{slug}
   // (CLAUDE.md §9), читается из places, слитые не печатаются.
+  // Секции, которые не прочитались: урезанный файл не кэшируется (ниже).
+  const degraded: string[] = [];
   let routes: { ref: string; title: string; location_type: string | null }[] = [];
   try {
     const { rows } = await pool.query<{ ref: string; title: string; location_type: string | null }>(`
@@ -25,6 +27,7 @@ export async function GET() {
     `);
     routes = rows;
   } catch (e) {
+    degraded.push('места');
     console.error('[llms.txt] места не прочитаны:', e instanceof Error ? e.message : e);
   }
   const placeRefs = new Set(routes.map(r => r.ref));
@@ -47,8 +50,10 @@ export async function GET() {
       LIMIT 40
     `);
     tours = rows;
-  } catch {
-    // fallback без БД — секция туров просто не печатается
+  } catch (e) {
+    // Секция туров не печатается, но отказ не глушится (§4.0).
+    degraded.push('туры');
+    console.error('[llms.txt] туры не прочитаны:', e instanceof Error ? e.message : e);
   }
 
   const byType: Record<string, typeof routes> = {};
@@ -217,7 +222,9 @@ ${sections}
   return new NextResponse(content, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+      // Сутки кэша — только полному файлу: урезанный без мест или туров
+      // модели и обходчики держали бы у себя сутки как настоящий.
+      'Cache-Control': degraded.length > 0 ? 'no-store' : 'public, max-age=86400, s-maxage=86400',
     },
   });
 }

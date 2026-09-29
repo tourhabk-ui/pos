@@ -81,9 +81,10 @@ describe('машинные файлы отдаются со своим Cache-Con
     }
   });
 
-  it('обещанный ими кэш объявлен в самих роутах', () => {
-    expect(code('app/sitemap.xml/route.ts')).toMatch(/'Cache-Control':\s*'public,[^']*s-maxage=3600/);
-    expect(code('app/llms.txt/route.ts')).toMatch(/'Cache-Control':\s*'public,/);
+  it('обещанный ими кэш объявлен в самих роутах — и только для полного ответа', () => {
+    // Поведение (урезанный ответ → no-store) держит sitemap-degraded-no-cache.test.ts.
+    expect(code('app/sitemap.xml/route.ts')).toMatch(/'Cache-Control': degraded\.length > 0\s*\?\s*'no-store'\s*:\s*'public,[^']*s-maxage=3600/);
+    expect(code('app/llms.txt/route.ts')).toMatch(/'Cache-Control': degraded\.length > 0 \? 'no-store' : 'public,/);
   });
 
   it('HTML по-прежнему no-store — статус дня и личные данные не из кэша прокси', async () => {
