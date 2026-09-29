@@ -36,6 +36,7 @@ import {
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
+import { searchX } from '@/lib/ai/xai-x-search';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { polishDigest } from '@/lib/text/digest-polish';
@@ -243,6 +244,8 @@ export const MIN_SIGNALS_FOR_DIGEST = 3;
 import {
   RSS_SOURCES,
   SAFETY_LAYER_SOURCE,
+  X_SOURCE,
+  X_HANDLES,
   type ScoutSource,
   type SourceCategory,
 } from '@/lib/agents/scout-sources';
@@ -250,7 +253,7 @@ import {
 // Реэкспорт для прежних читателей: состав переехал в чистый модуль (§12,
 // разбор 08.09 — копия списка в раннере подбора разошлась с оригиналом за
 // сутки), но импорты из дайджеста ломать незачем.
-export { RSS_SOURCES, SAFETY_LAYER_SOURCE };
+export { RSS_SOURCES, SAFETY_LAYER_SOURCE, X_SOURCE };
 export type { ScoutSource, SourceCategory };
 
 /** Потолок сигналов safety-слоя за прогон — раздел, а не сводка МЧС целиком. */
@@ -320,13 +323,14 @@ async function fetchSafetyLayerSource(): Promise<SourceFetch> {
 // Метки AI-источников — для отдельного поста в @ai_hub_money
 const AI_LABELS = new Set(RSS_SOURCES.filter(s => s.category === 'ai').map(s => s.label));
 
-// Все источники разведки для метаданных выпуска: RSS плюс safety-слой.
-const ALL_SOURCE_LABELS = [...RSS_SOURCES.map(s => s.label), SAFETY_LAYER_SOURCE.label];
+// Все источники разведки для метаданных выпуска: RSS, X и safety-слой.
+const ALL_SOURCE_LABELS = [...RSS_SOURCES.map(s => s.label), X_SOURCE.label, SAFETY_LAYER_SOURCE.label];
 
 // Метка источника → категория. Нужна, чтобы тянуть текст статей по разделам
 // (см. комментарий у ARTICLE_TEXT_PER_CATEGORY) — у самого RssItem категории нет.
 const CATEGORY_BY_LABEL = new Map<string, SourceCategory>([
   ...RSS_SOURCES.map(s => [s.label, s.category] as const),
+  [X_SOURCE.label, X_SOURCE.category],
   [SAFETY_LAYER_SOURCE.label, SAFETY_LAYER_SOURCE.category],
 ]);
 
@@ -463,6 +467,37 @@ async function fetchSource(s: ScoutSource): Promise<SourceFetch> {
   }
   const items = parse(relayed.text);
   return { ...base, items, status: items.length > 0 ? 'ok' : 'empty', via: 'relay' };
+}
+
+/**
+ * Окно поиска по X. Дайджест идёт дважды в сутки (05:03 и 17:00 UTC), между
+ * прогонами 12 часов; два часа запаса — на сдвиг планировщика GitHub, чтобы
+ * пост на стыке не потерялся. Повтор поста в двух прогонах снимает дедуп
+ * по адресу (filterUnseen).
+ */
+const X_SEARCH_WINDOW_HOURS = 14;
+
+/**
+ * Посты X через xAI (решение владельца 29.09) — одним запросом на весь
+ * список аккаунтов. Отказ провайдера — 'error' с его словами: «нет ключа»,
+ * «кредиты исчерпаны», «сеть не дошла» — а не пустой список (§4.0). Модель
+ * дату называет сама; без даты запись остаётся, как у Telegram.
+ */
+async function fetchXSource(): Promise<SourceFetch> {
+  const base = { key: X_SOURCE.key, label: X_SOURCE.label, category: X_SOURCE.category };
+  try {
+    const r = await searchX({ handles: X_HANDLES, hours: X_SEARCH_WINDOW_HOURS });
+    if (!r.ok) return { ...base, items: [], status: 'error', error: r.reason.slice(0, 160) };
+    const items: RssItem[] = r.posts.map((p) => ({
+      title: `@${p.handle}: ${p.summary}`,
+      url: p.url,
+      source: X_SOURCE.label,
+      ...(p.postedAt ? { publishedAt: p.postedAt } : {}),
+    }));
+    return { ...base, items, status: items.length > 0 ? 'ok' : 'empty' };
+  } catch (e) {
+    return { ...base, items: [], status: 'error', error: ((e as Error).message || 'unknown').slice(0, 160) };
+  }
 }
 
 /**
@@ -890,7 +925,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const publishedDigests = await recentPublishedDigests();
 
   // Collect signals in parallel — RSS плюс safety-слой, с честным статусом каждого
-  const fetched = await Promise.all([...RSS_SOURCES.map(fetchSource), fetchSafetyLayerSource()]);
+  const fetched = await Promise.all([...RSS_SOURCES.map(fetchSource), fetchXSource(), fetchSafetyLayerSource()]);
   // Отсев старья идёт ЗДЕСЬ, а не внутри fetchSource: там считается rawItems
   // здоровья источника, и фид, отдавший десять архивных записей, обязан
   // числиться живым, а не «пустым». Иначе починка гналась бы за призраком
@@ -1020,6 +1055,9 @@ export async function runScoutDigest(): Promise<DigestResult> {
   for (const item of dedupedItems) {
     const cat = CATEGORY_BY_LABEL.get(item.source);
     if (!cat) continue;
+    // Страницу поста X с прода не прочитать (закрыта из РФ и отдаётся
+    // скриптом); суть поста уже в заголовке от xAI — тянуть нечего.
+    if (item.source === X_SOURCE.label) continue;
     const picks = perCategoryPicks.get(cat) ?? [];
     if (picks.length < ARTICLE_TEXT_PER_CATEGORY) {
       picks.push(item);

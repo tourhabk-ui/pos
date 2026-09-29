@@ -124,7 +124,7 @@ function answeredModel(requested: string, data: unknown): string {
  * пересчитываем («пересчёт задним числом — тоже вид выдумывания») — строки
  * до миграции 961 помечены отдельным значением самой миграцией, не этим кодом.
  */
-type CostBasis = 'model_catalog' | 'cost_table_fallback' | 'unknown';
+type CostBasis = 'model_catalog' | 'cost_table_fallback' | 'provider_reported' | 'unknown';
 
 /**
  * Достижим ли каталог отсюда.
@@ -393,6 +393,39 @@ export async function logSpeechUsage(model: string, usage: unknown): Promise<boo
   if (prompt + completion === 0) return false;
   await logLLMUsage(`qwen-tts:${model}`, { prompt_tokens: prompt, completion_tokens: completion });
   return true;
+}
+
+/**
+ * Расход, цену которого назвал САМ провайдер (xAI отдаёт `cost_in_usd_ticks`
+ * на каждый ответ Responses API, 29.09). В книги идёт его число, а не оценка
+ * по каталогу: плата за серверные инструменты (`x_search`) в каталоге моделей
+ * не значится, и оценка по токенам занизила бы счёт вчетверо (проба
+ * xai-x-search-probe, прогон 2). `null` — провайдер цену не назвал; тогда
+ * строка ложится с cost NULL и basis 'unknown', как у прочих неоценённых.
+ * На раннере расход, как и весь остальной, уходит на прод через usage-sink
+ * (там цену считает сервер — по каталогу, то есть без платы за инструмент).
+ */
+export async function logProviderPricedUsage(
+  model: string, promptTokens: number, completionTokens: number, costUsd: number | null,
+): Promise<void> {
+  const total = promptTokens + completionTokens;
+  if (total === 0 && costUsd === null) return;
+  addUsage(promptTokens, completionTokens, costUsd ?? 0);
+  if (usageSinkEnabled()) {
+    void sendUsageToProd([{
+      model, prompt_tokens: promptTokens, completion_tokens: completionTokens, agent_id: currentAgentId(),
+    }]);
+    return;
+  }
+  const basis: CostBasis = costUsd === null ? 'unknown' : 'provider_reported';
+  await pool.query(
+    `INSERT INTO llm_usage_log
+       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())`,
+    [model, promptTokens, completionTokens, total, costUsd, basis, currentAgentId()],
+  ).catch((e) => {
+    console.error('[llm-usage] строка не записана:', model, e instanceof Error ? e.message : e);
+  });
 }
 
 // ── Retry с exponential backoff + jitter (Roitman §18.7.1) ────
