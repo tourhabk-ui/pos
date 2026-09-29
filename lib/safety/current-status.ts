@@ -135,6 +135,20 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
 }
 
 /**
+ * Шкала тяжести external_alerts — 0..3, как её пишут производители
+ * (seismic-parser: 0=info, 1=warning, 2=critical, 3=emergency; форма админа —
+ * max(3)). До 29.09 агент читал «тяжесть 3 из 5», и предупреждение о цунами
+ * (3 — чрезвычайная) пересказывалось как середина шкалы (проверка MCP).
+ * Словами, а не числом: число без шкалы агент достраивает сам.
+ */
+export const ALERT_SEVERITY_WORDS: readonly string[] = ['справочное', 'предупреждение', 'опасно', 'чрезвычайная ситуация'];
+
+export function alertSeverityWord(severity: number): string {
+  const i = Math.max(0, Math.min(ALERT_SEVERITY_WORDS.length - 1, Math.round(severity)));
+  return ALERT_SEVERITY_WORDS[i]!;
+}
+
+/**
  * Текст для внешнего агента. Отдельно от формы для UI: агент передаёт ответ
  * человеку словами, и «данных нет» обязано звучать как «данных нет».
  */
@@ -146,7 +160,7 @@ export function formatSafetyStatusForAgent(status: CurrentSafetyStatus | null): 
   const lines: string[] = [];
   lines.push(
     status.hasAlert
-      ? `Активных предупреждений по Камчатскому краю: ${status.activeCount} (максимальная тяжесть ${status.maxSeverity} из 5).`
+      ? `Активных предупреждений по Камчатскому краю: ${status.activeCount} (наивысший уровень — «${alertSeverityWord(status.maxSeverity)}», ${status.maxSeverity} по шкале 0–${ALERT_SEVERITY_WORDS.length - 1}).`
       : 'Активных предупреждений по Камчатскому краю нет.',
   );
   // Разбивка: общее число включает и то, что решения туриста не меняет.
