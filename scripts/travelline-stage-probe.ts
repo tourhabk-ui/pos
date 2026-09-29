@@ -147,11 +147,59 @@ async function readProperty(specs: Array<{ url: string; spec: OpenApi }>, token:
   }
 }
 
+/**
+ * Прогон 1 показал: swagger-initializer.js на /docs/booking-process/ ссылается
+ * на демо Petstore — настоящей спецификации там нет. Ищем её в разметке
+ * документации, а пути Partner API проверяем напрямую, только GET.
+ */
+async function readDocsIndex(): Promise<void> {
+  line();
+  line('── 1б. Разметка документации (ссылки на спецификации) ──');
+  for (const page of ['/docs/', '/docs/booking-process/', '/docs/booking-process/swagger-initializer.js']) {
+    const r = await get(`${BASE}${page}`);
+    line(`${page}: HTTP ${r.status}, ${r.text.length} байт`);
+    const refs = new Set<string>();
+    for (const m of r.text.matchAll(/(?:href|src|url)\s*[:=]\s*["'`]([^"'`]+)["'`]/g)) refs.add(m[1]);
+    for (const m of r.text.matchAll(/["'`]([^"'`\s]+\.(?:json|ya?ml))["'`]/g)) refs.add(m[1]);
+    line(`  ссылки: ${[...refs].slice(0, 60).join(' | ') || '—'}`);
+  }
+}
+
+function plusDays(n: number): string {
+  const d = new Date(Date.now() + n * 86_400_000);
+  return d.toISOString().slice(0, 10);
+}
+
+async function readKnownPaths(token: string): Promise<void> {
+  line();
+  line(`── 3б. Пути Partner API (только GET), объект ${TEST_PROPERTY} ──`);
+  const arrival = plusDays(30);
+  const departure = plusDays(32);
+  const paths = [
+    '/api/content/v1/properties?count=5',
+    `/api/content/v1/properties/${TEST_PROPERTY}`,
+    '/api/content/v1/meal-plans',
+    '/api/content/v1/room-type-categories',
+    `/api/search/v1/properties/${TEST_PROPERTY}/room-stays?adults=2&arrivalDate=${arrival}&departureDate=${departure}`,
+    `/api/search/v1/properties/room-stays?propertyIds=${TEST_PROPERTY}&adults=2&arrivalDate=${arrival}&departureDate=${departure}`,
+    `/api/search/v1/properties/${TEST_PROPERTY}/services`,
+  ];
+  for (const p of paths) {
+    const r = await get(`${BASE}${p}`, { Authorization: `Bearer ${token}`, Accept: 'application/json' });
+    let keys = '';
+    try { keys = Object.keys(JSON.parse(r.text) as object).join(', '); } catch { /* не JSON */ }
+    line(`GET ${p} → HTTP ${r.status}; поля: ${keys || '—'}`);
+    line(`  ${r.text.slice(0, 2500).replace(/\s+/g, ' ')}`);
+  }
+}
+
 async function main(): Promise<void> {
   const specs = await readSpecs();
+  await readDocsIndex();
   const token = await getToken();
-  if (token && specs.length > 0) await readProperty(specs, token);
-  else if (token) line('спецификация не прочитана — запросы к объекту пропущены');
+  const real = specs.filter(s => !/petstore/i.test(s.url));
+  if (token && real.length > 0) await readProperty(real, token);
+  if (token) await readKnownPaths(token);
 }
 
 main().catch((e) => {
