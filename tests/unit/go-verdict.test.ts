@@ -23,11 +23,12 @@ const CLEAR: RouteSignals = {
   volcanoes: [{ name: 'Авачинский', acc: 'green' }],
   inSeason: true,
   weather: { severe: false, note: 'ясно' },
+  closures: [],
 };
 
 /** Ничего не известно — экран, открытый без связи и без данных. */
 const BLANK: RouteSignals = {
-  alerts: null, volcanoes: null, inSeason: null, weather: null,
+  alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null,
 };
 
 describe('проверка 1: схема воспроизводима', () => {
@@ -248,5 +249,27 @@ describe('код причины стабилен и отделён от текс
     expect(VERDICT_LABELS.go).toBe('Идти');
     expect(VERDICT_LABELS.caution).toBe('Осторожно');
     expect(VERDICT_LABELS.no).toBe('Не сегодня');
+  });
+});
+
+describe('закрытая точка пути (#2079)', () => {
+  it('закрытая точка — «Не сегодня», даже когда всё остальное зелёное', () => {
+    const v = goVerdict({ ...CLEAR, closures: [{ place: 'Озеро Кроноцкое', reason: null }] });
+    expect(v.status).toBe('no');
+    expect(v.code).toBe('point_closed');
+    expect(v.reason).toBe('Закрыто: Озеро Кроноцкое');
+  });
+  it('запрет МЧС называется первым: он тяжелее и шире одной точки', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [{ title: 'Запрет выхода в горы', severity: 2 }],
+      closures: [{ place: 'Озеро Кроноцкое', reason: null }],
+    });
+    expect(v.code).toBe('alert_ban');
+  });
+  it('не знаем о закрытиях — зелёного нет', () => {
+    const v = goVerdict({ ...CLEAR, closures: null });
+    expect(v.status).toBe('caution');
+    expect(v.unknown).toContain('закрытые точки');
   });
 });

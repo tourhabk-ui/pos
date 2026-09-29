@@ -1,0 +1,14 @@
+{
+  "note": "Пуш этого файла гоняет xai-x-search-probe.yml: умеет ли ключ XAI_API_KEY из секретов GitHub читать посты X через серверный поиск xAI (Responses API + x_search, запасной путь — chat/completions + search_parameters), какие модели это принимают и что говорит документация о цене. Повод — решение владельца 29.09: разведчик должен читать новости про ИИ в X. Только чтение, ничего не пишет. Прогон 1 (29.09 06:42): ключ принят, api.x.ai ответил 403 permission-denied — кредиты исчерпаны; документация подтвердила x_search в Responses API и цену флагмана $2/$6 за 1M. Прогон 2: владелец пополнил кредиты.",
+  "run": 2,
+  "hours": 24,
+  "handles": [
+    "OpenAI",
+    "AnthropicAI",
+    "GoogleDeepMind",
+    "xai",
+    "huggingface",
+    "MistralAI"
+  ],
+  "maxModels": 3
+}

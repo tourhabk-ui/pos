@@ -91,6 +91,7 @@ interface RouteRow { zone: string | null; season: string | null; lat: string | n
 interface PointRow { zone: string | null; lat: string | null; lng: string | null }
 interface AlertRow { title: string; severity: number | null; alert_type: string | null }
 interface VolcanoRow { name: string; acc: string }
+interface ClosureRow { name: string; reason: string | null }
 
 /** Опорные точки маршрута: он сам плюс его путевые точки. */
 interface RouteShape {
@@ -297,6 +298,44 @@ async function loadVolcanoes(
 }
 
 /**
+ * Закрытые точки пути маршрута (issue #2079).
+ *
+ * `is_open = false` в `location_real_time_status` ставит администратор
+ * (PATCH /api/admin/places/[id]/status). Связи рода `nearby` не судят:
+ * через «рядом» не идут. `to_jsonb(rw)->>'link_kind'` — тем же приёмом, что
+ * карточка маршрута: чтение переживает базу без колонки (миграция 874).
+ * Сообщение точки берётся, только пока оно действует.
+ *
+ * Пустой массив — узнали, закрытых нет; null — не смогли узнать (§4.0).
+ */
+async function loadClosures(
+  routeId: string, q: QueryFn,
+): Promise<Array<{ place: string; reason: string | null }> | null> {
+  try {
+    const { rows } = await q<ClosureRow>(
+      `SELECT p.name,
+              CASE WHEN rs.alert_expires_at IS NULL OR rs.alert_expires_at > NOW()
+                   THEN NULLIF(btrim(rs.alert_message), '') END AS reason
+         FROM route_waypoints rw
+         JOIN places p ON p.id = rw.place_id
+         JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
+        WHERE rw.route_id = $1
+          AND p.is_visible = TRUE
+          AND p.merged_into_id IS NULL
+          AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+          AND rs.is_open = FALSE
+        ORDER BY rw.position`,
+      [routeId],
+    );
+    return rows.map((r) => ({ place: r.name, reason: r.reason }));
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[collect-signals] закрытые точки маршрута не прочитаны, SQLSTATE ${code}:`, err);
+    return null;
+  }
+}
+
+/**
  * Собрать сигналы по маршруту.
  *
  * Погода намеренно не собирается: опасная погода доезжает до нас
@@ -316,12 +355,13 @@ export async function collectRouteSignals(
   // Форма неизвестна — неизвестно ВСЁ, что от неё зависит. Подставить сюда
   // пустые массивы значило бы сказать «узнали, там чисто».
   if (!shape) {
-    return { alerts: null, volcanoes: null, inSeason: null, weather: null };
+    return { alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null };
   }
 
-  const [alerts, volcanoes] = await Promise.all([
+  const [alerts, volcanoes, closures] = await Promise.all([
     loadAlerts(shape.zones, shape.points, q),
     loadVolcanoes(shape.points, q),
+    loadClosures(routeId, q),
   ]);
 
   return {
@@ -329,5 +369,6 @@ export async function collectRouteSignals(
     volcanoes,
     inSeason: isInSeason(shape.season, month),
     weather: null,
+    closures,
   };
 }

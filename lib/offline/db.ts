@@ -54,6 +54,11 @@ export interface OfflineRoute {
   activeAlerts: string[];
   alertSeverity: number;
   alertsAt: number | null;
+  /**
+   * Точка закрыта на момент скачивания (#2079). null — статус не записан или
+   * пакет скачан старым билдом; это не «открыто».
+   */
+  isOpen: boolean | null;
   cachedAt: number;
 }
 

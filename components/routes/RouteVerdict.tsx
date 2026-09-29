@@ -40,10 +40,10 @@ const OFFLINE: VerdictResponse = {
     status: 'caution',
     code: 'signals_unknown',
     reason: 'Нет связи с сервером — обстановку на сегодня узнать не удалось',
-    unknown: ['предупреждения', 'вулканы на маршруте'],
+    unknown: ['предупреждения', 'вулканы на маршруте', 'закрытые точки'],
     label: 'Осторожно',
   },
-  signals: { alerts: null, volcanoes: null, inSeason: null, weather: null },
+  signals: { alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null },
 };
 
 const ACC_RU: Record<string, string> = {
@@ -93,6 +93,20 @@ function factLines(s: RouteSignals): Array<{ label: string; value: string; dim: 
           value: s.volcanoes.map((v) => `${v.name} — ${ACC_RU[v.acc] ?? v.acc}`).join(' · '),
           dim: false,
         });
+
+  // Закрытые точки пути (issue #2079). Старый ответ сервера поля не несёт —
+  // тогда строки нет вовсе, а не «закрытых нет».
+  if (s.closures !== undefined) {
+    out.push(s.closures === null
+      ? { label: 'Закрытые точки', value: 'не смогли узнать', dim: true }
+      : s.closures.length === 0
+        ? { label: 'Закрытые точки', value: 'нет', dim: false }
+        : {
+            label: 'Закрытые точки',
+            value: s.closures.map((c) => (c.reason ? `${c.place} — ${c.reason}` : c.place)).join(' · '),
+            dim: false,
+          });
+  }
 
   if (s.inSeason !== null) {
     out.push({ label: 'Сезон', value: s.inSeason ? 'маршрут в своём сезоне' : 'маршрут вне сезона', dim: false });

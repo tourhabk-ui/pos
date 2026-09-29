@@ -150,6 +150,7 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
         activeAlerts: r.activeAlerts ?? [],
         alertSeverity: r.alertSeverity ?? 0,
         alertsAt: r.alertsAt ?? null,
+        isOpen: r.isOpen ?? null,
         cachedAt: Date.now(),
       }));
       await saveRoutes(routesWithRegion);

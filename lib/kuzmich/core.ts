@@ -11,7 +11,7 @@
 import { pool } from '@/lib/db-pool';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { reachForTour } from '@/lib/partners/reach';
-import { priceFrom, priceFromOrSay } from '@/lib/tours/price-label';
+import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -182,6 +182,8 @@ interface TourContextRow {
   id: number;
   title: string;
   base_price: number;
+  /** За что назначена цена: за человека / за группу / за человека в день. */
+  price_unit: string | null;
   multi_day_count: number | null;
   activity_type: string | null;
   location_name: string | null;
@@ -422,7 +424,7 @@ export async function buildTourCatalog(): Promise<string> {
   }
   try {
     const toursResult = await pool.query<TourContextRow>(`
-        SELECT ot.id, ot.title, ot.base_price, ot.multi_day_count, ot.activity_type,
+        SELECT ot.id, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count, ot.activity_type,
                ot.location_name,
                -- ЖИВАЯ занятость, не статические колонки тура: аудит пилота
                -- 15.08 — сплав показывал «Ближайшая дата: 1 июня» в середине
@@ -461,7 +463,7 @@ export async function buildTourCatalog(): Promise<string> {
       // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
       // 0, и каталог печатал «от 0 р/чел», то есть «бесплатно» (18.09,
       // тур 34). Правило одно на все поверхности — lib/tours/price-label.
-      const price = priceFromOrSay(r.base_price);
+      const price = priceFromUnitOrSay(r.base_price, r.price_unit);
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
@@ -1222,6 +1224,7 @@ export async function getTourDetails(query: string): Promise<string> {
       id: number;
       title: string;
       base_price: number | null;
+      price_unit: string | null;
       short_description: string | null;
       description: string | null;
       meeting_point: string | null;
@@ -1232,7 +1235,7 @@ export async function getTourDetails(query: string): Promise<string> {
       location_name: string | null;
       activity_type: string | null;
     }>(
-      `SELECT id, title, base_price, short_description, description, meeting_point,
+      `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type
          FROM operator_tours
         WHERE id = $1`,
@@ -1245,7 +1248,7 @@ export async function getTourDetails(query: string): Promise<string> {
     if (t.location_name) parts.push(`Локация: ${t.location_name}`);
     // Здесь проверка на null уже была, но формат теперь общий с каталогом:
     // два написания одной цены разъезжаются так же, как два предиката.
-    const priceLine = priceFrom(t.base_price);
+    const priceLine = priceFromUnit(t.base_price, t.price_unit);
     if (priceLine) parts.push(`Цена: ${priceLine}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);

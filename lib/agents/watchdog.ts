@@ -599,6 +599,12 @@ async function checkUndeliveredSafetyPush(): Promise<CheckResult> {
         -- обоих мест разом 06.09 (решение владельца, отменяет #836).
         WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
           AND push_sent_at IS NULL
+          -- Заглушённый дубль (миграция 957) — решение, а не недоставка:
+          -- диспетчер исключает такие строки из выборки, и сторож обязан
+          -- спрашивать то же. Без этой строки тревога о заглушённом дубле не
+          -- гасла до истечения алерта — КРИТ «туристы не предупреждены» о том,
+          -- о чём турист уже был предупреждён первым звонком (29.09).
+          AND push_suppressed_at IS NULL
           AND created_at < NOW() - INTERVAL '30 minutes'
           AND created_at > NOW() - INTERVAL '7 days'
           -- Истёкший недоставленный алерт уже не починить: диспетчер ретраит

@@ -28,7 +28,7 @@ describe('safety-слой как источник раздела «Камчат�
   });
 
   it('подключён к прогону рядом с RSS-фидами', () => {
-    expect(SRC).toMatch(/Promise\.all\(\[\.\.\.RSS_SOURCES\.map\(fetchSource\), fetchSafetyLayerSource\(\)\]\)/);
+    expect(SRC).toMatch(/Promise\.all\(\[\.\.\.RSS_SOURCES\.map\(fetchSource\), fetchXSource\(\), fetchSafetyLayerSource\(\)\]\)/);
   });
 
   it('читает external_alerts за суточное окно с приоритетом по severity', () => {
@@ -44,7 +44,7 @@ describe('safety-слой как источник раздела «Камчат�
   });
 
   it('метаданные выпуска называют safety-слой среди источников', () => {
-    expect(SRC).toMatch(/ALL_SOURCE_LABELS = \[\.\.\.RSS_SOURCES\.map\(s => s\.label\), SAFETY_LAYER_SOURCE\.label\]/);
+    expect(SRC).toMatch(/ALL_SOURCE_LABELS = \[\.\.\.RSS_SOURCES\.map\(s => s\.label\), X_SOURCE\.label, SAFETY_LAYER_SOURCE\.label\]/);
     expect(SRC).toMatch(/sources: ALL_SOURCE_LABELS/);
   });
 });

@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  aiPostMaterials, aiPostTooThin, kamchatkaDate, toJournalLayout,
+  aiPostMaterials, aiPostShape, aiPostTooThin, kamchatkaDate, toJournalLayout,
 } from '@/lib/notifications/ai-post-shape';
 
 /** Пост 26.09 в том виде, в каком он ушёл (без подвала). */
@@ -76,6 +76,61 @@ describe('вёрстка «Журнал» (выбор владельца 27.09)'
 
   it('уже свёрстанный пост не меняется (повторный проход — no-op)', () => {
     expect(toJournalLayout(J)).toBe(J);
+  });
+});
+
+/**
+ * Вечерний выпуск 28.09 не вышел с «0 полных материалов». Шаблон 27.09
+ * ставит вывод в цитату, и модели свойственно опускать внутренний <b>:
+ * цитата и так выделена. Счётчик узнавал вывод только по <b>Почему важно —
+ * и пост с двумя полными материалами читался пустым.
+ */
+const UNBOLD_2809 = `<b>AI-дайджест · 29 сентября</b>
+
+<b><a href="https://a.example/1">Первый материал</a></b>
+Два предложения конкретики.
+<blockquote>Почему важно: вывод для строителя агентов.</blockquote>
+
+<strong><a href="https://a.example/2">Второй материал</a></strong>
+Ещё два предложения.
+<blockquote><i>Почему важно:</i> второй вывод.</blockquote>
+
+Почему важно: строкой без тегов тоже вывод.`;
+
+describe('вывод без жирного — всё равно вывод (28.09)', () => {
+  it('пост в шаблоне 27.09 без <b> у «Почему важно» — два материала, выпуск', () => {
+    expect(aiPostMaterials(UNBOLD_2809).map((m) => m.title)).toEqual(['Первый материал', 'Второй материал']);
+    expect(aiPostTooThin(UNBOLD_2809)).toBeNull();
+  });
+
+  it('обрывок 26.09 по-прежнему не материал', () => {
+    expect(aiPostTooThin(POST_2609)).toMatch(/0 полных материалов/);
+  });
+
+  it('вёрстка приводит вывод к одному виду: цитата с жирной меткой', () => {
+    const J = toJournalLayout(UNBOLD_2809);
+    expect(J).toContain('<blockquote><b>Почему важно:</b> вывод для строителя агентов.</blockquote>');
+    expect(J).toContain('<blockquote><b>Почему важно:</b> второй вывод.</blockquote>');
+    expect(J).toContain('<blockquote><b>Почему важно:</b> строкой без тегов тоже вывод.</blockquote>');
+    expect(J).toContain('<b><a href="https://a.example/2">Второй материал</a></b>');
+    expect(J).not.toMatch(/<strong>|<i>Почему/);
+    expect(aiPostMaterials(J)).toEqual(aiPostMaterials(UNBOLD_2809));
+    expect(toJournalLayout(J)).toBe(J);
+  });
+
+  it('форма черновика называет счёт разметки, а не текст', () => {
+    const shape = aiPostShape(UNBOLD_2809);
+    expect(shape).toMatch(/блоков 4, жирных 3, ссылок 2, «Почему важно» 3, Markdown 0/);
+    expect(shape).not.toMatch(/Первый материал/);
+    expect(aiPostShape('**Заголовок** и [ссылка](https://x.example)')).toMatch(/Markdown 2/);
+  });
+
+  it('отказ по порогу несёт форму черновика до и после чистки хвоста', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf8');
+    const draft = src.indexOf('const aiDraftShape = aiDigest ? aiPostShape(aiDigest) : null;');
+    expect(draft).toBeGreaterThan(0);
+    expect(draft).toBeLessThan(src.indexOf('polishDigest(aiDigest)'));
+    expect(src).toContain('черновик: ${aiDraftShape}; после чистки хвоста: ${aiPostShape(aiDigest)}');
   });
 });
 

@@ -20,7 +20,7 @@ import {
   isVolcanoObservationStale, type AccColor,
 } from '@/lib/services/safety/kvert-vona';
 import { coastPaths } from '@/lib/geo/coastline';
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
@@ -349,8 +349,9 @@ export function RadarScope({ hazards, center, degraded = false }: {
             // только заливка круга: вулкан и землетрясение рядом на круге
             // были одинаковыми точками, различить их можно было только
             // тапом по одной за раз — владелец: «в радаре нужно отличать
-            // вулкан от сейсмособытий». Треугольник — только у вулканов,
-            // остальное (сейсмика, медведь, наблюдение) — по-прежнему круг.
+            // вулкан от сейсмособытий». Треугольник — у вулканов, ромб — у
+            // пожаров, метка-капля — у землетрясений (29.09); остальное
+            // (медведь, наблюдение, термы) — по-прежнему круг.
             const r = h.level === 'critical' ? 4 : h.level === 'danger' ? 3.2 : 2.6;
             const shadow = sel === h ? { filter: 'drop-shadow(0 0 4px currentColor)' } : undefined;
             return (
@@ -374,6 +375,27 @@ export function RadarScope({ hazards, center, degraded = false }: {
                     fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
                     style={shadow}
                   />
+                ) : h.kind === 'quake' ? (
+                  // Метка-капля с белой точкой — землетрясение (29.09,
+                  // владелец прислал пост сейсмоканала eqkam: «в радаре сделай
+                  // землетрясения таким значком»). Остриё стоит РОВНО в
+                  // эпицентре, головка — над ним: точка события не смещается
+                  // формой. Цвет по-прежнему несёт силу, форма — род.
+                  (() => {
+                    const hr = r * 1.15;
+                    const cy = h.y - r * 2.4;
+                    const dx = hr * 0.87;
+                    return (
+                      <>
+                        <path
+                          d={`M ${h.x} ${h.y} L ${h.x - dx} ${cy + hr * 0.5} A ${hr} ${hr} 0 1 1 ${h.x + dx} ${cy + hr * 0.5} Z`}
+                          fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} strokeLinejoin="round"
+                          style={shadow}
+                        />
+                        <circle cx={h.x} cy={cy} r={hr * 0.42} fill="#fff" />
+                      </>
+                    );
+                  })()
                 ) : (
                   <circle cx={h.x} cy={h.y} r={r} fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6} style={shadow} />
                 )}
@@ -433,14 +455,15 @@ export function RadarScope({ hazards, center, degraded = false }: {
           </div>
         )}
         {/* Форма — только когда на круге реально есть чем различать: иначе
-            строка объясняла бы разницу, которой сейчас не видно. Три формы
-            (треугольник вулкана, ромб пожара, круг остального) появляются в
-            легенде только те, что реально стоят на круге прямо сейчас. */}
+            строка объясняла бы разницу, которой сейчас не видно. Четыре формы
+            (треугольник вулкана, ромб пожара, капля землетрясения, круг
+            остального) — в легенде только те, что реально стоят на круге. */}
         {!sel && (() => {
           const hasVolcano = placed.some((h) => h.kind === 'volcano');
           const hasFire = placed.some((h) => h.kind === 'fire');
-          const hasOther = placed.some((h) => h.kind !== 'volcano' && h.kind !== 'fire');
-          if ([hasVolcano, hasFire, hasOther].filter(Boolean).length < 2) return null;
+          const hasQuake = placed.some((h) => h.kind === 'quake');
+          const hasOther = placed.some((h) => h.kind !== 'volcano' && h.kind !== 'fire' && h.kind !== 'quake');
+          if ([hasVolcano, hasFire, hasQuake, hasOther].filter(Boolean).length < 2) return null;
           return (
             <div className="rshapes">
               {hasVolcano && (
@@ -459,12 +482,21 @@ export function RadarScope({ hazards, center, degraded = false }: {
                   пожар
                 </span>
               )}
+              {hasQuake && (
+                <span>
+                  <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
+                    <path d="M 4.5 8.8 L 1.3 4.9 A 3.3 3.3 0 1 1 7.7 4.9 Z" fill="var(--text-muted)" />
+                    <circle cx="4.5" cy="3.3" r="1.3" fill="var(--bg-card)" />
+                  </svg>
+                  землетрясение
+                </span>
+              )}
               {hasOther && (
                 <span>
                   <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden>
                     <circle cx="4.5" cy="4.5" r="4" fill="var(--text-muted)" />
                   </svg>
-                  сейсмика и остальное
+                  остальное
                 </span>
               )}
             </div>
@@ -595,12 +627,19 @@ export function SeismicPulse({ events, source }: { events: PulseQuake[]; source:
 }
 
 interface PulseVolcano {
-  name: string; placeId: string; acc: string;
+  name: string; placeId: string | null; acc: string;
   ashHeightM: number | null; observedAt: string | null; summary: string | null;
 }
 
 const ACC_BAR_H: Record<string, number> = { green: 28, yellow: 52, orange: 76, red: 100 };
 const ACC_ORDER: Record<string, number> = { green: 0, yellow: 1, orange: 2, red: 3 };
+
+/** Выбранный вулкан: ссылкой на место, если место есть, и просто плашкой, если нет. */
+function SelWrap({ placeId, children }: { placeId: string | null; children: ReactNode }) {
+  return placeId
+    ? <a className="psel" href={`/places/${placeId}`}>{children}</a>
+    : <div className="psel">{children}</div>;
+}
 
 function volcanoWord(n: number): string {
   const mod10 = n % 10, mod100 = n % 100;
@@ -683,20 +722,22 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
       </div>
       <div className="pbars">
         {bars.map((v, i) => (
-          <button key={v.placeId} className={`pbar${sel === i ? ' on' : ''}`}
+          <button key={v.placeId ?? v.name} className={`pbar${sel === i ? ' on' : ''}`}
             style={{ height: `${ACC_BAR_H[v.acc] ?? 16}%`, background: meta(v.acc).token }}
             aria-label={`${v.name}: ${meta(v.acc).short}`} onClick={() => setSel(sel === i ? null : i)} />
         ))}
       </div>
       <div className="paxis"><span>спокойнее</span><span>активнее →</span></div>
       {selected ? (
-        <a className="psel" href={`/places/${selected.placeId}`}>
+        // Места в каталоге может не быть — тогда карточка без ссылки: ссылка
+        // на `/places/null` вела бы на несуществующую страницу.
+        <SelWrap placeId={selected.placeId}>
           <span className="pmag" style={{ background: meta(selected.acc).token }}>{meta(selected.acc).short.slice(0, 1)}</span>
           <span className="ptx">
             <b>{selected.name}</b>
             <span>{meta(selected.acc).label}{selected.ashHeightM != null ? ` · пепел до ${(selected.ashHeightM / 1000).toFixed(1)} км` : ''} · {ageOf(selected)}</span>
           </span>
-        </a>
+        </SelWrap>
       ) : (
         <div className="psum">
           под наблюдением {items.length}

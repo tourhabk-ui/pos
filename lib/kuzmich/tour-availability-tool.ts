@@ -11,11 +11,14 @@
 
 import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
+import { priceFromUnit } from '@/lib/tours/price-label';
 
 export interface ResolvedTour {
   id: number;
   title: string;
   base_price: number | null;
+  /** За что назначена цена; null — не записано. */
+  price_unit: string | null;
 }
 
 /** Тур по названию/ключевому слову или числовому ID — тот же паттерн, что у get_tour_details. */
@@ -25,14 +28,14 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
   try {
     if (/^\d+$/.test(q)) {
       const { rows } = await pool.query<ResolvedTour>(
-        `SELECT id, title, base_price FROM operator_tours
+        `SELECT id, title, base_price, price_unit FROM operator_tours
           WHERE id = $1 AND is_active = true AND deleted_at IS NULL`,
         [Number(q)],
       );
       if (rows[0]) return rows[0];
     }
     const { rows } = await pool.query<ResolvedTour>(
-      `SELECT id, title, base_price FROM operator_tours
+      `SELECT id, title, base_price, price_unit FROM operator_tours
         WHERE is_active = true AND deleted_at IS NULL
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
@@ -74,8 +77,11 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
         'Это реальная занятость из броней — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.';
     }
     const lines = slots.slice(0, 12).map((s) => {
-      const price = s.priceOverride ?? tour.base_price;
-      return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price != null ? `, от ${Number(price).toLocaleString('ru-RU')} р/чел` : ''}`;
+      // Единица — из тура, а не «р/чел»: у многодневок цена за группу, и
+      // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
+      // Цена на дату может быть переопределена, но единица у неё та же.
+      const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
+      return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}`;
     });
     return [
       `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость из броней):`,

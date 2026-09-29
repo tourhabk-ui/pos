@@ -47,7 +47,7 @@ import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
 import type { VedarMapPlaceHit } from '@/components/shared/VedarMap';
 import { trackLine } from '@/lib/map/line-standard';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
-import { resolvePackSource, BUILT_PACK_REGIONS } from '@/lib/map/pack-source';
+import { resolvePackSource, BUILT_PACK_REGIONS, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
@@ -57,6 +57,7 @@ import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
 import { usePlaceProximity } from '@/hooks/usePlaceProximity';
 import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 import { clipAtWord } from '@/lib/text/clip-at-word';
+import { withClosure } from '@/lib/safety/place-closure';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -112,7 +113,19 @@ const OFFLINE_FILTERS = [
 // Module-level constants — stable references across renders, never trigger LeafletMap useEffect
 const MAP_CENTER: [number, number] = [53.0444, 158.6483];
 const MAP_ZOOM_ONLINE = 8;
-const MAP_ZOOM_OFFLINE = 7;
+/**
+ * Обзор /map открывается всем полуостровом (владелец 29.09, скрин карты на
+ * зуме 4.0: «хочу, чтоб карта открывалась в таком масштабе»). До этого старт
+ * был Петропавловск на зуме 6 — видно окрестности города, а 379 мест края
+ * от Лопатки до севера начинались за краем экрана. Центр — середина
+ * полуострова с Командорами; на телефоне в кадр входит весь край.
+ * Leaflet считает тайлы по 256 пикселей, MapLibre — по 512: тот же вид у
+ * запасной карты на единицу зума больше.
+ */
+const OVERVIEW_CENTER: [number, number] = [56.0, 159.8];
+// Нижний ярус тайлов — дальше отдалить нельзя, ближе — край не влезает.
+const OVERVIEW_ZOOM = OVERVIEW_MIN_ZOOM;
+const OVERVIEW_ZOOM_LEAFLET = OVERVIEW_ZOOM + 1;
 
 interface RoutePoint {
   id: string;
@@ -286,7 +299,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               geometry:     r.geometry as MapMarkerGeometry | null ?? null,
               // Ограничения из скачанного пакета — ради них #836 и делался:
               // в поле без сети это единственный источник «дорога закрыта».
-              restrictions:   r.activeAlerts ?? [],
+              // Закрытие точки — первым (#2079).
+              restrictions:   withClosure(r.activeAlerts ?? [], r.isOpen),
               restrictionsAt: r.alertsAt ?? null,
             }));
           setAllRoutes(points);
@@ -306,7 +320,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         if (!data.success) return;
         const points: RoutePoint[] = (data.data ?? [])
           .filter((r: { lat: number | null; lng: number | null }) => r.lat != null && r.lng != null)
-          .map((r: { id: string; title: string; locationType: string | null; activityType: string | null; lat: number; lng: number; description: string; volcanoStatus?: string | null; geometry?: MapMarkerGeometry | null }) => ({
+          .map((r: { id: string; title: string; locationType: string | null; activityType: string | null; lat: number; lng: number; description: string; volcanoStatus?: string | null; geometry?: MapMarkerGeometry | null; isOpen?: boolean | null }) => ({
             id:           r.id,
             title:         r.title,
             locationType:  r.locationType ?? 'other',
@@ -316,6 +330,9 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             description:   r.description ?? '',
             volcanoStatus: r.volcanoStatus ?? null,
             geometry:      r.geometry ?? null,
+            // Онлайн каталог отдаёт is_open точки (#2079): закрытая точка
+            // получает «Закрыто» в попапе, как в скачанном пакете.
+            restrictions:  withClosure([], r.isOpen),
           }));
         setAllRoutes(points);
       } catch {
@@ -712,8 +729,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                 oceanUrl: overviewSource.oceanUrl,
                 attribution: '© Copernicus DEM (ESA)',
               } : null}
-              center={MAP_CENTER}
-              zoom={6}
+              center={OVERVIEW_CENTER}
+              zoom={OVERVIEW_ZOOM}
               height="calc(100vh - 180px)"
               showUserLocation={showMyLocation}
               packs={regionPacks}
@@ -732,8 +749,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             />
           ) : (
             <LeafletMap
-              center={MAP_CENTER}
-              zoom={MAP_ZOOM_OFFLINE}
+              center={OVERVIEW_CENTER}
+              zoom={OVERVIEW_ZOOM_LEAFLET}
               markers={allMarkers}
               height="calc(100vh - 180px)"
               onMarkerClick={handleMarkerClick}
