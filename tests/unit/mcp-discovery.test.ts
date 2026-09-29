@@ -90,7 +90,7 @@ describe('обстановка в крае: «не знаем» звучит к�
   it('тишина названа тишиной, а не молчанием', () => {
     const text = formatSafetyStatusForAgent({
       hasAlert: false, maxSeverity: 0, activeCount: 0,
-      topTitle: null, topType: null, dataUpdatedAt: '2026-08-05T00:00:00Z', source: 'КБГС РАН',
+      topTitle: null, topType: null, dataUpdatedAt: '2026-08-05T00:00:00Z', source: 'КБГС РАН', feedCount: null, feedTitles: null,
     });
     expect(text).toMatch(/Активных предупреждений по Камчатскому краю нет/);
     expect(text).toMatch(/КБГС РАН/);
@@ -99,7 +99,7 @@ describe('обстановка в крае: «не знаем» звучит к�
   it('ответ про край не выдаёт себя за оценку маршрута', () => {
     const text = formatSafetyStatusForAgent({
       hasAlert: true, maxSeverity: 3, activeCount: 2,
-      topTitle: 'Сход селя', topType: 'landslide', dataUpdatedAt: null, source: 'КБГС РАН',
+      topTitle: 'Сход селя', topType: 'landslide', dataUpdatedAt: null, source: 'КБГС РАН', feedCount: null, feedTitles: null,
     });
     expect(text).toMatch(/обстановка по краю целиком/i);
     expect(text).toMatch(/get_guardian_context/);

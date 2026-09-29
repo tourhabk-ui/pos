@@ -60,6 +60,7 @@ const SURFACES = [
   'lib/planner/data.ts',                          // планер
   'lib/search/tour-search.ts',                    // поиск туров
   'lib/octo/service.ts',                          // внешний канал
+  'lib/kuzmich/core.ts',                          // каталог для агентов (get_tours): места и ближайшая дата
 ];
 
 describe('правило интервала', () => {
@@ -151,9 +152,31 @@ describe('второго правила нет нигде', () => {
   it('реестр поверхностей не опустел и не разъехался с файлами', () => {
     // Пустой список зеленел бы на первой проверке, а отсутствующий файл
     // означал бы, что поверхность переименовали и правило за ней не поехало.
-    expect(SURFACES.length).toBeGreaterThanOrEqual(11);
+    expect(SURFACES.length).toBeGreaterThanOrEqual(12);
     for (const f of SURFACES) {
       expect(statSync(join(ROOT, f)).isFile(), `${f} не найден`).toBe(true);
     }
+  });
+});
+
+describe('каталог для агентов (get_tours) — места по живой занятости', () => {
+  const core = readFileSync(join(ROOT, 'lib/kuzmich/core.ts'), 'utf-8');
+
+  it('места не берутся из счётчика booked_slots', () => {
+    /**
+     * Снимок «MCP против сайта» 29.09: `get_tours` считал `available_slots -
+     * booked_slots`, календарь тура — живые брони с зажимом по вместимости.
+     * Счётчик растёт только при оплате, и агент пообещал бы места, по которым
+     * гейт брони откажет. Совпадало лишь потому, что оплаченных броней не было.
+     */
+    expect(core).not.toMatch(/available_slots\s*-\s*COALESCE\(ta\.booked_slots/);
+    expect(core).toMatch(/freeSlotsSql\('ta', 'ot', 'occ\.taken'\)/);
+  });
+
+  it('вместимость — меньшее из слотов даты и max_participants тура', async () => {
+    const { freeSlotsSql } = await import('@/lib/bookings/occupancy');
+    const sql = freeSlotsSql('ta', 'ot', 'occ.taken');
+    expect(sql).toContain('LEAST(ta.available_slots, COALESCE(ot.max_participants, ta.available_slots))');
+    expect(sql).toMatch(/^GREATEST\(0,/);
   });
 });
