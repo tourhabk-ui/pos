@@ -2,13 +2,22 @@
 
 import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { zoneName } from '@/lib/safety/zone-names';
 import { plural } from '@/lib/home/data-freshness';
-import { manualRefreshNote, type ManualRefreshOutcome } from '@/lib/safety/manual-refresh';
+import {
+  manualRefreshNote,
+  ingestFinishedSince,
+  screenIsStale,
+  MANUAL_REFRESH_FOLLOWUP_MS,
+  MANUAL_REFRESH_FOLLOWUP_TRIES,
+  MANUAL_REFRESH_GAVE_UP_NOTE,
+  type ManualRefreshOutcome,
+} from '@/lib/safety/manual-refresh';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
 
@@ -249,6 +258,14 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  // Когда экран перечитывался целиком в последний раз (серверный блок тоже).
+  // Ставится при монтировании, а не в рендере: рендер обязан быть чистым.
+  const lastScreenLoad = useRef<number>(0);
+  // Дожидание сбора после «долго»: таймер и номер попытки. Новое нажатие
+  // или уход со страницы обрывают прежнее дожидание.
+  const followUpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const followUpGen = useRef(0);
 
   /**
    * Загрузка всех источников. `fresh` — кнопка «обновить»: она просит сервер
@@ -295,8 +312,82 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
   }, []);
 
   useEffect(() => {
+    lastScreenLoad.current = Date.now();
     void loadAll().finally(() => setLoading(false));
   }, [loadAll]);
+
+  /**
+   * Перечитать экран ЦЕЛИКОМ.
+   *
+   * Радар, лента предупреждений и пульсы приходят пропом `live` — серверным
+   * рендером страницы (app/safety/page.tsx). loadAll их не касается: он
+   * перечитывает только то, что экран берёт сам. До 01.10 кнопка «Обновить
+   * данные» звала один loadAll, и верхний блок — ровно тот, над которым
+   * кнопка стоит, — оставался таким, каким страница открылась (владелец:
+   * «хоть я и нажимал на радаре обновить данные»). Серверный блок
+   * перечитывает router.refresh(): состояние экрана при этом не теряется.
+   */
+  const reloadScreen = useCallback(async (fresh: boolean): Promise<boolean> => {
+    lastScreenLoad.current = Date.now();
+    router.refresh();
+    return loadAll(fresh);
+  }, [router, loadAll]);
+
+  /**
+   * «Источники отвечают долго — данные обновятся сами»: обеспечение обещания.
+   *
+   * Сбор после ответа кнопки не отменяется и дописывает базу сам; экран
+   * раз в MANUAL_REFRESH_FOLLOWUP_MS спрашивает время последнего сбора и
+   * перечитывается, как только оно ушло дальше `before` — сбора до нажатия.
+   * Попыток конечное число, по исчерпании — честная строка, а не вечный
+   * опрос. Разбор — lib/safety/manual-refresh.ts.
+   */
+  const followIngest = useCallback(async (before: string | null) => {
+    const gen = ++followUpGen.current;
+    for (let i = 0; i < MANUAL_REFRESH_FOLLOWUP_TRIES; i++) {
+      await new Promise<void>((resolve) => {
+        followUpTimer.current = setTimeout(resolve, MANUAL_REFRESH_FOLLOWUP_MS);
+      });
+      if (gen !== followUpGen.current) return;
+      let checked: string | null = null;
+      try {
+        const r = await fetch('/api/safety/seismic?fresh=0');
+        const d = (await r.json()) as { checkedAt?: string | null };
+        checked = d.checkedAt ?? null;
+      } catch {
+        // Сеть пропала посреди ожидания — это «пока не знаем», попытка не
+        // считается удачной; следующая спросит снова.
+        checked = null;
+      }
+      if (gen !== followUpGen.current) return;
+      if (ingestFinishedSince(before, checked)) {
+        setRefreshNote(null);
+        await reloadScreen(false);
+        return;
+      }
+    }
+    if (gen === followUpGen.current) setRefreshNote(MANUAL_REFRESH_GAVE_UP_NOTE);
+  }, [reloadScreen]);
+
+  // Уход со страницы обрывает дожидание: таймер не переживает экран.
+  useEffect(() => () => {
+    followUpGen.current++;
+    if (followUpTimer.current) clearTimeout(followUpTimer.current);
+  }, []);
+
+  // Возврат на вкладку, открытую давно, перечитывает экран сам: телефон
+  // держит вкладку часами, и радар на ней показывает час открытия. Без сети
+  // не трогаем — на маршруте это норма, и сохранённое лучше пустого.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      if (!screenIsStale(lastScreenLoad.current, Date.now())) return;
+      void reloadScreen(false);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reloadScreen]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshState === 'loading') return;
@@ -309,22 +400,30 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     }
     setRefreshState('loading');
     setRefreshNote(null);
+    // Прежнее дожидание (если было) больше не нужно: идёт новый сбор.
+    followUpGen.current++;
+    if (followUpTimer.current) clearTimeout(followUpTimer.current);
     // Сначала сбор — тот же, что супервизор зовёт каждые 5 минут (владелец
     // 26.09: кнопка должна правда обходить источники). Потом перечитываем
     // экран: сбор пишет в базу, экран читает из неё.
     let outcome: ManualRefreshOutcome = 'failed';
+    // Время последнего сбора ДО нажатия: по нему дожидание узнает, что
+    // сбор, запущенный кнопкой, дописал базу.
+    let before: string | null = null;
     try {
       const r = await fetch('/api/safety/refresh', { method: 'POST' });
       const d = (await r.json()) as { outcome?: ManualRefreshOutcome; checked_at?: string | null };
       if (d.outcome) outcome = d.outcome;
+      before = d.checked_at ?? null;
       if (d.checked_at) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checked_at as string).getTime()));
     } catch {
       outcome = 'failed';
     }
     setRefreshNote(manualRefreshNote(outcome));
-    const any = await loadAll(true);
+    const any = await reloadScreen(true);
     setRefreshState(outcome === 'failed' && !any ? 'failed' : 'done');
-  }, [loadAll, refreshState]);
+    if (outcome === 'timeout') void followIngest(before);
+  }, [reloadScreen, followIngest, refreshState]);
 
   useEffect(() => {
     if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });

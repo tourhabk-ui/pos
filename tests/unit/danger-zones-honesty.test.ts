@@ -131,7 +131,11 @@ describe('баннер обстановки не выдаёт незнание �
 
   it('незнание никогда не окрашено как успех', () => {
     const SRC = readFileSync(join(process.cwd(), 'app/safety/_SafetyClient.tsx'), 'utf-8');
-    const label = SRC.slice(SRC.indexOf('const bannerColor'), SRC.indexOf('return ('));
+    // Конец окна — первый `return (` ПОСЛЕ объявления цвета: выше по файлу
+    // стоят очистки эффектов (`return () => ...`), и поиск с начала файла
+    // давал пустое окно — проверка молча переставала что-либо проверять.
+    const from = SRC.indexOf('const bannerColor');
+    const label = SRC.slice(from, SRC.indexOf('return (', from));
     // Цвет и подпись берутся из состояния баннера, а не из уровня риска
     // напрямую: именно прямое чтение уровня из пустого списка и давало зелень.
     expect(label).toMatch(/banner\.state === 'unknown'/);

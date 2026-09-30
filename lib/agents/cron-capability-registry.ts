@@ -65,6 +65,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // tests/unit/channel-parity.test.ts, — но перепись судит по достижимости, а
   // не по намерению, поэтому объявлено то, что она видит.
   'channel-parity': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  'seismic-latency-census': ['db_read'],
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'commission-dry-run': ['db_read', 'db_write', 'money'],
