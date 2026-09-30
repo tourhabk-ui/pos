@@ -64,6 +64,20 @@ beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
 });
 
+describe('ключ клиента — адрес, а не адрес с User-Agent (проверка MCP 29.09)', () => {
+  it('смена UA не даёт нового окна: оба вызова считаются одним клиентом', async () => {
+    const keys: unknown[] = [];
+    poolQueryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      if (!txNoise(sql) && /COUNT\(\*\)/.test(sql)) { keys.push(params?.[0]); return Promise.resolve(counts(0, 0, 0)); }
+      return Promise.resolve({ rows: [] });
+    });
+    await checkMcpWrite({ ...base, userAgent: 'agent/1.0' });
+    await checkMcpWrite({ ...base, userAgent: 'совсем-другой-агент/9.9' });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+});
+
 describe('три исхода, и третий не равен первому', () => {
   it('чисто — пускаем', async () => {
     poolQueryMock.mockImplementation((sql: string) =>
@@ -251,7 +265,19 @@ describe('счёт и запись — одна транзакция под за
   it('на ошибке — откат, а не полузаписанное состояние', () => {
     const tx = GUARD_SRC.slice(GUARD_SRC.indexOf('await client.query(\'BEGIN\')'));
     expect(tx).toContain("ROLLBACK");
-    expect(tx).toContain('client.release()');
+    // С 29.09 соединение берётся внутри try — отказ пула тоже «не смог».
+    expect(tx).toContain('client?.release()');
+    expect(GUARD_SRC).toMatch(/try \{\s*client = await pool\.connect\(\);/);
+  });
+});
+
+describe('карантин номера — только по принятым заявкам (проверка MCP 29.09)', () => {
+  it('потолок номера считает outcome = allowed, лимит клиента — все исходы', () => {
+    const sql = GUARD_SRC.slice(GUARD_SRC.indexOf('COUNT(*) FILTER (WHERE client_key'), GUARD_SRC.indexOf('FROM mcp_write_attempts'));
+    const phone = sql.slice(sql.indexOf('phone_hash ='));
+    expect(phone).toMatch(/AND outcome = 'allowed'\)::text AS c/);
+    const client = sql.slice(0, sql.indexOf('phone_hash ='));
+    expect(client).not.toMatch(/outcome/);
   });
 });
 

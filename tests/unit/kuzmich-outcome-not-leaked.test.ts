@@ -17,6 +17,12 @@
  *
  * Сторож проверяет ИСХОДНИКИ всех трёх запросов: до базы тест не ходит, а
  * забытое условие видно в SQL.
+ *
+ * 29.09 запрет одного рода заменён разрешённым списком
+ * (lib/kuzmich/knowledge-scope): тот же запрос пропускал search_result и
+ * auto_gap с сообщениями туристов в заголовке. outcome в список не входит —
+ * значит, отсекается по-прежнему; связку «список ↔ писатели» держит
+ * tests/unit/kuzmich-knowledge-scope.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -46,14 +52,19 @@ describe('ни один читающий запрос не берёт оценк
     const qs = [...knowledgeQueries(core), ...knowledgeQueries(placeInfo)];
     expect(qs.length).toBeGreaterThanOrEqual(2);
     for (const q of qs) {
-      expect(q, `запрос без фильтра: ${q.slice(0, 120)}`).toMatch(/type\s*<>\s*'outcome'/);
+      expect(q, `запрос без фильтра: ${q.slice(0, 120)}`).toMatch(/\$\{KUZMICH_KNOWLEDGE_SCOPE_SQL\}/);
     }
   });
 
   it('в guardian-context фильтр на месте — он и был первым', () => {
     for (const q of knowledgeQueries(guardian)) {
-      expect(q).toMatch(/type\s*<>\s*'outcome'/);
+      expect(q).toMatch(/\$\{KUZMICH_KNOWLEDGE_SCOPE_SQL\}/);
     }
+  });
+
+  it('outcome не входит в разрешённый список', async () => {
+    const { KUZMICH_KNOWLEDGE_TYPES } = await import('@/lib/kuzmich/knowledge-scope');
+    expect(KUZMICH_KNOWLEDGE_TYPES as readonly string[]).not.toContain('outcome');
   });
 
   it('запись оценок по-прежнему идёт: чинилось чтение, не запись', () => {

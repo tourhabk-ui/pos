@@ -34,7 +34,7 @@ describe('имя клиента берётся из рукопожатия', () 
   it('вызов без рукопожатия тоже оставляет след — по заголовку', () => {
     // Не всякий клиент зовёт initialize: часть просто шлёт tools/call. Без
     // этой ветки такие остались бы полностью безымянными.
-    const call = ROUTE.slice(ROUTE.indexOf("case 'tools/call'"));
+    const call = ROUTE.slice(ROUTE.indexOf('async function handleToolsCall'));
     expect(call).toMatch(/logMcpClient\(\{ ip, userAgent \}\)/);
   });
 

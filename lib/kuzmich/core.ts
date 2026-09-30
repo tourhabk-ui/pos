@@ -36,6 +36,13 @@ import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
+import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { programSteps } from '@/lib/tours/describe';
+import { pickupForCard } from '@/lib/tours/pickup';
+import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
+import { logText } from '@/lib/log/log-text';
+import { redactPII } from '@/lib/security/pii-redact';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -192,6 +199,8 @@ interface TourContextRow {
   operator_name: string | null;
   available_slots: number | null;
   next_available_date: string | null;
+  /** Есть ли у тура будущие даты в календаре; нет — места спрашивают оператора. */
+  has_schedule?: boolean;
   short_description: string | null;
   has_details: boolean | null;
 }
@@ -420,7 +429,17 @@ async function synthesizeBotNotes(
  * «column does not exist» глушился, и Кузьмич с MCP отвечали «Туры не
  * найдены» при живых турах. Оператор туров — partners (§1).
  */
+/** Каталог для промпта чата: отказ базы — пустая строка, чат живёт без него. */
 export async function buildTourCatalog(): Promise<string> {
+  return (await loadTourCatalog()) ?? '';
+}
+
+/**
+ * Каталог туров: '' — туров нет, null — база не ответила. Два исхода
+ * различимы для get_tours: до 29.09 отказ отдавался внешнему агенту как
+ * «Туры не найдены.» — ложный факт о каталоге (проверка MCP).
+ */
+export async function loadTourCatalog(): Promise<string | null> {
   if (_tourCatalogCache && Date.now() - _tourCatalogAt < CATALOG_TTL_MS) {
     return _tourCatalogCache;
   }
@@ -435,6 +454,17 @@ export async function buildTourCatalog(): Promise<string> {
                COALESCE(live.free_slots, 0) AS available_slots,
                live.next_date::text AS next_available_date,
                ot.short_description,
+               -- «Расписания нет» ≠ «мест нет»: оператор берёт туристов без
+               -- календаря, и честный ответ — спросить его (tourKeepsSchedule,
+               -- то же правило). До 29.09 оба случая печатались «Мест: нет
+               -- свободных», и агент не доходил до запроса мест (проверка MCP).
+               EXISTS (
+                 SELECT 1 FROM tour_availability ta0
+                  WHERE ta0.operator_tour_id = ot.id
+                    AND ta0.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+                    AND ta0.is_cancelled = FALSE
+                    AND ta0.deleted_at IS NULL
+               ) AS has_schedule,
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                p.name AS operator_name
@@ -452,17 +482,18 @@ export async function buildTourCatalog(): Promise<string> {
            CROSS JOIN LATERAL (
              ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
            ) occ
+           -- «Сегодня» — по Камчатке: пояс сессии БД не задан, и по UTC
+           -- полсуток каталог называл ближайшей датой уже прошедший там день.
            WHERE ta.operator_tour_id = ot.id
-             AND ta.date >= CURRENT_DATE
+             AND ta.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
              AND COALESCE(ta.is_cancelled, false) = false
              AND ta.deleted_at IS NULL
-             AND ta.date <= CURRENT_DATE + INTERVAL '1 year'
+             AND ta.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
              AND ${freeSlotsSql('ta', 'ot', 'occ.taken')} > 0
            ORDER BY ta.date
            LIMIT 1
         ) live ON true
-        WHERE ot.is_active = true AND ot.deleted_at IS NULL
-          AND COALESCE(ot.is_published, TRUE) = TRUE
+        WHERE ${publicTourSql('ot')}
         ORDER BY ot.base_price ASC
         LIMIT 40
       `);
@@ -479,9 +510,11 @@ export async function buildTourCatalog(): Promise<string> {
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
-      const slots = r.available_slots != null
-        ? ` | Мест: ${r.available_slots > 0 ? r.available_slots : 'нет свободных'}`
-        : '';
+      const slots = r.has_schedule === false
+        ? ' | Расписания в системе нет — места уточняются у оператора (create_booking_request отправит ему запрос)'
+        : r.available_slots != null
+          ? ` | Мест: ${r.available_slots > 0 ? r.available_slots : 'нет свободных'}`
+          : '';
       const nextDate = r.next_available_date
         ? ` | Ближайшая дата: ${new Date(r.next_available_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
         : '';
@@ -502,7 +535,7 @@ export async function buildTourCatalog(): Promise<string> {
     // Молчаливый catch прятал сломанный SQL месяцами — «Туры не найдены» при
     // живых турах неотличимо от пустой БД. Ошибку теперь видно в логах прода.
     console.error('[buildTourContext] каталог туров не собрался:', e instanceof Error ? e.message : e);
-    return '';
+    return null;
   }
 }
 
@@ -523,14 +556,10 @@ async function buildEnrichment(): Promise<string> {
     pool.query<{ title: string; compiled_truth: string }>(`
         SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
         FROM agent_knowledge
-        WHERE agent_id = 'kuzmich'
-          -- type <> 'outcome': оценки ответов Кузьмича — служебная телеметрия
-          -- качества, а не знание о крае. Пятьдесят самых свежих записей идут
-          -- в контекст промпта; без этого условия туда попадали строки вида
-          -- «Оценка ответа: 6/10. Проблемы: неполная информация о ценах».
-          -- Тот же фильтр давно стоит в guardian-context (проба 113, 15.08);
-          -- здесь его забыли, и обе копии разошлись молча.
-          AND type <> 'outcome'
+        -- Разрешённый список родов (lib/kuzmich/knowledge-scope): пятьдесят
+        -- свежих записей идут в промпт КАЖДОГО чата, и запрет одного outcome
+        -- пропускал сюда search_result с сообщениями туристов дословно.
+        WHERE ${KUZMICH_KNOWLEDGE_SCOPE_SQL}
         ORDER BY updated_at DESC
         LIMIT 50
       `),
@@ -1207,7 +1236,7 @@ export async function findTour(keywords: string[]): Promise<TourRow | null> {
     const { rows } = await pool.query<TourRow>(
       `SELECT id, title, base_price, multi_day_count, activity_type
        FROM operator_tours
-       WHERE is_active = true AND deleted_at IS NULL
+       WHERE ${publicTourSql('')}
          AND (${whereClause})
        ORDER BY (${relevanceExpr}) DESC, base_price ASC LIMIT 1`,
       patterns,
@@ -1222,6 +1251,9 @@ export async function findTour(keywords: string[]): Promise<TourRow | null> {
  * промпт на 40 туров) — а без них Кузьмич не знает ни программы, ни откуда
  * стартует сплав. Ищем по названию/ключевому слову, берём самый релевантный.
  */
+/** Сколько описания отдаётся агенту; длиннее — с пометкой об обрезке. */
+const TOUR_DESCRIPTION_MAX = 1200;
+
 export async function getTourDetails(query: string): Promise<string> {
   const q = query.trim();
   if (!q) return '';
@@ -1246,11 +1278,16 @@ export async function getTourDetails(query: string): Promise<string> {
       cancellation_policy: string | null;
       location_name: string | null;
       activity_type: string | null;
+      program: unknown;
+      safety_notes: string[] | null;
+      pickup_type: string | null;
+      pickup_details: string | null;
     }>(
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
-              included, not_included, what_to_bring, cancellation_policy, location_name, activity_type
+              included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
+              program, safety_notes, pickup_type, pickup_details
          FROM operator_tours
-        WHERE id = $1`,
+        WHERE id = $1 AND ${publicTourSql('')}`,
       [resolved.id],
     );
     const t = rows[0];
@@ -1264,8 +1301,29 @@ export async function getTourDetails(query: string): Promise<string> {
     if (priceLine) parts.push(`Цена: ${priceLine}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
-    if (t.description) parts.push(`Описание: ${t.description.slice(0, 1200)}`);
-    if (t.meeting_point) parts.push(`Точка сбора и логистика (бери ТОЛЬКО отсюда, не выдумывай):\n${t.meeting_point}`);
+    if (t.description) {
+      // Обрезка называется: агент принимал обрывок за полный текст (проверка MCP 29.09).
+      const cut = t.description.length > TOUR_DESCRIPTION_MAX;
+      parts.push(`Описание: ${t.description.slice(0, TOUR_DESCRIPTION_MAX)}${cut ? ' […описание длиннее, полный текст — на странице тура]' : ''}`);
+    }
+    // Программа, забор и правила безопасности — описание инструмента их
+    // обещало («программа, точка сбора и логистика»), а SELECT не брал:
+    // у всех живых туров meeting_point пуст намеренно (забирают сами), и на
+    // «откуда стартуем» агент не получал ничего (проверка MCP 29.09).
+    const steps = programSteps(t.program);
+    parts.push(steps.length
+      ? `Программа (бери ТОЛЬКО отсюда):\n${steps.map((st, i) => `${i + 1}. ${st.title}${st.text ? ` — ${st.text}` : ''}`).join('\n')}`
+      : 'Программа по дням у этого тура НЕ ЗАПИСАНА — не сочиняй её, скажи, что уточняется у оператора.');
+    const pickup = pickupForCard(t.pickup_type, t.pickup_details, t.meeting_point);
+    if (pickup) {
+      parts.push(`Как попасть на тур (бери ТОЛЬКО отсюда): ${pickup.summary}${pickup.lines.length ? `\n${pickup.lines.join('\n')}` : ''}`);
+    } else if (t.meeting_point) {
+      parts.push(`Точка сбора и логистика (бери ТОЛЬКО отсюда, не выдумывай):\n${t.meeting_point}`);
+    } else {
+      parts.push('Как туриста доставляют на тур, НЕ ЗАПИСАНО — не называй место и время сбора, скажи, что уточняется у оператора.');
+    }
+    const notes = (t.safety_notes ?? []).map((n) => n.trim()).filter(Boolean);
+    if (notes.length) parts.push(`Правила безопасности этого тура:\n- ${notes.join('\n- ')}`);
     if (t.included?.length) parts.push(`Входит в стоимость:\n- ${t.included.join('\n- ')}`);
     if (t.not_included?.length) parts.push(`Не входит:\n- ${t.not_included.join('\n- ')}`);
     if (t.what_to_bring?.length) parts.push(`Взять с собой:\n- ${t.what_to_bring.join('\n- ')}`);
@@ -1275,8 +1333,13 @@ export async function getTourDetails(query: string): Promise<string> {
       ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${t.cancellation_policy.trim()}`
       : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
     return parts.join('\n');
-  } catch {
-    return '';
+  } catch (err) {
+    // Отказ базы — исключение, а не пустая строка: исполнитель вернёт
+    // «ошибка выполнения», MCP — isError. Прежний '' становился «Не удалось
+    // получить детали тура.» обычным результатом, без строки в логе (§4.0).
+    const code = (err as { code?: unknown })?.code;
+    console.error('[kuzmich] детали тура не прочитаны:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+    throw err;
   }
 }
 
@@ -1862,7 +1925,11 @@ function needsPreemptiveSearch(text: string): boolean {
   return PREEMPTIVE_PATTERNS.some(p => p.test(text));
 }
 
-async function saveSearchResultToKB(query: string, result: string): Promise<void> {
+async function saveSearchResultToKB(rawQuery: string, result: string): Promise<void> {
+  // Запрос — это сообщение туриста как есть (userContent): телефон и почта в
+  // заголовок и slug не ложатся. Наружу этот род не отдаётся вовсе
+  // (lib/kuzmich/knowledge-scope), чистка — вторая стена, для хранения.
+  const query = redactPII(rawQuery);
   const slug = `auto_${query.toLowerCase()
     .replace(/[^a-zа-яё0-9]/gi, '_')
     .replace(/_+/g, '_')
@@ -1872,7 +1939,10 @@ async function saveSearchResultToKB(query: string, result: string): Promise<void
      VALUES($1,'search_result',$2,$3,'kuzmich',0,NOW(),NOW())
      ON CONFLICT(slug) DO NOTHING`,
     [slug, query.slice(0, 100), `${result.slice(0, 500)}\n[Веб-поиск, ${new Date().toLocaleDateString('ru-RU')}]`],
-  ).catch(() => {});
+  ).catch((err: unknown) => {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[kuzmich] результат поиска не сохранён:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+  });
 }
 
 // ── Level 2: Tool use ────────────────────────────────────────────────────────
@@ -1906,28 +1976,42 @@ const NO_DATA_TEXTS: readonly string[] = [
   'Туры не найдены.',
   'Не удалось получить детали тура.',
   'Погода временно недоступна.',
-  'Данные о месте не найдены в системе. Попробую поискать через другие источники.',
   'Неизвестный инструмент.',
-  'Ошибка при выполнении запроса.',
 ];
 
+const GUARDIAN_EMPTY_CHAT = 'Данные о месте не найдены в системе. Попробую поискать через другие источники.';
+const GUARDIAN_EMPTY_MCP = 'Данные о месте не найдены в системе: ни места, ни предупреждений по этому названию в базе Ведара нет. '
+  + 'Это не значит, что там безопасно — уточните название места; экстренный вызов на Камчатке — 112.';
+
+
 const NO_TOUR_HEAD = 'Тур на платформе не найден.';
+const NO_DATA = new Set<string>([...NO_DATA_TEXTS, TOOL_EXECUTION_FAILED, GUARDIAN_EMPTY_CHAT, GUARDIAN_EMPTY_MCP]);
 const NO_PLACE_HEAD = 'Места нет в справочнике платформы.';
 
 const noTourFound = (q: string) =>
   `${NO_TOUR_HEAD} По запросу "${q}" ничего нет. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+/** Подпись веб-сниппетов, пришедших вместо места из базы. */
+export const WEB_NOT_BASE = 'Места нет в базе Ведара. Ниже — выдержки из веб-поиска, не проверены платформой:';
+
 const noPlaceInBase = (n: string) =>
   `${NO_PLACE_HEAD} По запросу "${n}" ничего нет.`;
 
 /** Принёс ли вызов инструмента данные. Экспортирован для метрики заземления. */
 export function toolOutputHasData(content: string): boolean {
   if (content.trim() === '') return false;
-  if (NO_DATA_TEXTS.includes(content)) return false;
+  if (NO_DATA.has(content)) return false;
   if (content.startsWith(NO_TOUR_HEAD) || content.startsWith(NO_PLACE_HEAD)) return false;
   return true;
 }
 
-async function executeTool(name: string, args: Record<string, string>): Promise<string> {
+/**
+ * Где исполняется инструмент. `mcp` — публичная анонимная поверхность: там
+ * не тратятся платные внешние квоты (шапка app/api/mcp/route.ts), и ответ
+ * читает чужой ИИ, а не Кузьмич, который знает, откуда текст.
+ */
+export interface ToolSurface { surface?: 'chat' | 'mcp' }
+
+async function executeTool(name: string, args: Record<string, string>, opts: ToolSurface = {}): Promise<string> {
   try {
     if (name === 'search_kamchatka') {
       const result = await searchWeb(args.query ?? '');
@@ -1936,7 +2020,8 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     if (name === 'get_tours') {
       // Только каталог (перф-аудит 08.08, п.4): агенту для обзора не нужны
       // 100 мест и 50 записей знаний — лишняя работа и токены.
-      const ctx = await buildTourCatalog();
+      const ctx = await loadTourCatalog();
+      if (ctx === null) return TOOL_EXECUTION_FAILED;
       if (!ctx) return 'Туры не найдены.';
       // Фильтр по типу активности объявлен в схеме с самого начала, но
       // executeTool его игнорировал (аудит 08.08). Матчим и слаг (fishing),
@@ -1959,12 +2044,22 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const { placeInfoForKuzmich } = await import('@/lib/kuzmich/place-info-tool');
       const info = await placeInfoForKuzmich(placeName);
       if (info) return info;
-      return await searchWeb(placeName) || noPlaceInBase(placeName);
+      // На публичном MCP веб-поиска нет: он платный (Tavily/Brave), а шапка
+      // роута обещает, что квоты анонимный вызов не жжёт (проверка MCP 29.09).
+      if (opts.surface === 'mcp') return noPlaceInBase(placeName);
+      const web = await searchWeb(placeName);
+      // Чужой текст подписан как чужой: без подписи сниппет с сайта
+      // турагентства читался как справка из базы Ведара.
+      return web ? `${WEB_NOT_BASE}\n${web}` : noPlaceInBase(placeName);
     }
     if (name === 'get_guardian_context') {
       const { getGuardianContext } = await import('@/lib/kuzmich/guardian-context');
       const ctx = await getGuardianContext(args.place ?? args.name ?? '');
-      return ctx || 'Данные о месте не найдены в системе. Попробую поискать через другие источники.';
+      // «Попробую поискать через другие источники» — подсказка модели чата,
+      // у которой есть веб-поиск. На MCP никакого поиска нет, и обещание
+      // действия, которого сервер не совершит, было бы ложью (проверка 29.09).
+      if (!ctx) return opts.surface === 'mcp' ? GUARDIAN_EMPTY_MCP : GUARDIAN_EMPTY_CHAT;
+      return ctx;
     }
     if (name === 'get_weather') {
       // Место или точка — lib/kuzmich/weather-tool (25.09); прежде здесь
@@ -2014,8 +2109,11 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days });
     }
     return 'Неизвестный инструмент.';
-  } catch {
-    return 'Ошибка при выполнении запроса.';
+  } catch (err) {
+    // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
+    const code = (err as { code?: unknown })?.code;
+    console.error('[kuzmich-tool] исполнение упало:', logText(name), typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
+    return TOOL_EXECUTION_FAILED;
   }
 }
 
@@ -2354,7 +2452,7 @@ export async function processMessage(opts: {
   if (cmd === '/start') {
     const name = userName ?? 'друг';
     await replyFn(chatId, [
-      `Привет, ${name}! Я Кузьмич — AI-агент платформы TourHab.`,
+      `Привет, ${name}! Я Кузьмич — AI-агент платформы Ведар.`,
       '',
       '<b>Что умею:</b>',
       '- Подобрать тур: рыбалка, вулканы, медведи, термальные источники...',
@@ -2371,7 +2469,7 @@ export async function processMessage(opts: {
   // /help
   if (cmd === '/help') {
     await replyFn(chatId, [
-      '<b>Кузьмич — многофункциональный агент TourHab</b>',
+      '<b>Кузьмич — многофункциональный агент Ведара</b>',
       '',
       '<b>Туры и бронирование:</b>',
       '"хочу рыбалку в июле, 3 человека"',

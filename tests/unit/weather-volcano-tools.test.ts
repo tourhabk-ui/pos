@@ -65,7 +65,7 @@ describe('get_weather: исполнитель', () => {
     const out = await weatherForKuzmich({ lat: '52.45', lng: '158.19', days: '2' });
     expect(forecast).toHaveBeenCalledWith(52.45, 158.19, 2);
     expect(q).not.toHaveBeenCalled();
-    expect(out).toContain('точка 52.4500, 158.1900');
+    expect(out).toContain('точка 52.45, 158.19');
     expect(out).toContain('26.09: -1…+9°C');
   });
 

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import BriefingClient from './_BriefingClient';
 
 export const metadata: Metadata = {
-  title: 'Брифинг похода — Ведар',
+  title: 'Брифинг похода',
   description: 'План выхода и время возврата: что делать, если человек не вернулся вовремя.',
   robots: 'noindex',
 };

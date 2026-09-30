@@ -50,6 +50,31 @@ const FORECAST_TTL = 3 * 60 * 60 * 1000;
 /** Отказ кэшируется коротко: двадцать броней одной зоны — один таймаут, а не двадцать. */
 const FORECAST_FAIL_TTL = 5 * 60 * 1000;
 const forecastCache = new Map<string, { result: ForecastResult; expiresAt: number }>();
+/**
+ * Потолок кэша. get_weather на публичном MCP принимает любую точку Земли, и
+ * без потолка каждый новый квадрат сотых градуса оставался в памяти процесса
+ * на три часа (проверка MCP 29.09). Зон планера и мест края — сотни, запас
+ * десятикратный.
+ */
+const FORECAST_CACHE_MAX = 5000;
+
+function rememberForecast(key: string, result: ForecastResult, ttl: number): void {
+  if (forecastCache.size >= FORECAST_CACHE_MAX) {
+    const now = Date.now();
+    for (const [k, v] of forecastCache) if (v.expiresAt <= now) forecastCache.delete(k);
+    // Всё свежее — выбрасываются самые старые записи (Map хранит порядок вставки).
+    for (const k of forecastCache.keys()) {
+      if (forecastCache.size < FORECAST_CACHE_MAX) break;
+      forecastCache.delete(k);
+    }
+  }
+  forecastCache.set(key, { result, expiresAt: Date.now() + ttl });
+}
+
+/** Для сторожа: сколько точек сейчас в кэше. */
+export function forecastCacheSize(): number {
+  return forecastCache.size;
+}
 
 function finite(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -110,10 +135,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
   if (!result.ok) {
     logSwallowedFailure('weather', `прогноз Open-Meteo (${lat.toFixed(2)}, ${lng.toFixed(2)})`, new Error(result.reason));
   }
-  forecastCache.set(cacheKey, {
-    result,
-    expiresAt: Date.now() + (result.ok ? FORECAST_TTL : FORECAST_FAIL_TTL),
-  });
+  rememberForecast(cacheKey, result, result.ok ? FORECAST_TTL : FORECAST_FAIL_TTL);
   return result;
 }
 

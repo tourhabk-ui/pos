@@ -58,7 +58,7 @@ describe('разбор слова модели', () => {
 describe('инструмент передаёт выбор в движок и говорит, что вышло', () => {
   it('travel_style и rest_days доходят до recommendTrip', async () => {
     await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10', travel_style: 'сам', rest_days: '1' });
-    expect(recommendMock).toHaveBeenCalledWith(expect.objectContaining({ travelStyle: 'self', restDays: 1 }));
+    expect(recommendMock).toHaveBeenCalledWith(expect.objectContaining({ travelStyle: 'self', restDays: 1 }), { itinerary: 'plain' });
   });
 
   it('без полей — как прежде: стиль не задан', async () => {

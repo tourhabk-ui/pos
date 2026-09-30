@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata = {
   alternates: { canonical: '/map' },
-  title: 'Карта Камчатки — Ведар',
+  title: 'Карта Камчатки',
   description: 'Интерактивная карта Камчатки с достопримечательностями, вулканами, термальными источниками',
 };
 

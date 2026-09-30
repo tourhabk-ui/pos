@@ -78,7 +78,8 @@ describe('перепись достижимости считает то, что 
     // строк; сторож, привязанный к написанию, покраснел на ВЕРНОЙ правке.
     // Что именно значит «живой», держит partner-reach.test.ts.
     expect(REACH_SQL).toMatch(/JOIN operator_tours t ON[\s\S]{0,200}t\.operator_id = p\.id/);
-    expect(REACH_SQL).toMatch(/t\.is_active = true/);
+    // С 29.09 живой предикат — общий шлюз витрины (publicTourSql).
+    expect(REACH_SQL).toMatch(/t\.is_active = true|publicTourSql\('t'\)/);
     // LEFT JOIN сюда пускать нельзя: партнёр без единого тура недостижим
     // безобидно — ему нечего присылать, и в тревоге он только шум.
     expect(REACH_SQL).not.toMatch(/LEFT JOIN operator_tours/);

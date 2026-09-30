@@ -23,9 +23,10 @@
  *
  * ── Почему разбор заголовка, а не поиск подстроки ──────────────────────────
  *
- * Клиент шлёт `application/json, text/event-stream` — обе строки сразу.
- * Условие «содержит text/event-stream» отправило бы в 405 того, кто согласен
- * и на JSON, то есть сломало бы рабочий путь ради починки сломанного.
+ * До 29.09 здесь стоял довод: клиент шлёт `application/json,
+ * text/event-stream`, и «содержит text/event-stream» отправило бы его в 405.
+ * Это Accept клиента на POST; на GET спецификация требует потока или 405
+ * всякому, кто text/event-stream перечислил (проверка MCP 29.09).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -41,10 +42,12 @@ describe('кто просит поток событий', () => {
     expect(wantsEventStream(' text/event-stream ;q=0.9 ')).toBe(true);
   });
 
-  it('согласен и на JSON — значит поток НЕ запрошен', () => {
-    // Ровно строка официального клиента Streamable HTTP.
-    expect(wantsEventStream('application/json, text/event-stream')).toBe(false);
-    expect(wantsEventStream('text/event-stream, application/json')).toBe(false);
+  // Пересмотрено 29.09: строка «application/json, text/event-stream» —
+  // Accept клиента на POST. На GET, где text/event-stream перечислен,
+  // спецификация велит отвечать потоком или 405 — JSON там нарушение.
+  it('text/event-stream в списке на GET — поток запрошен, даже рядом с JSON', () => {
+    expect(wantsEventStream('application/json, text/event-stream')).toBe(true);
+    expect(wantsEventStream('text/event-stream, application/json')).toBe(true);
   });
 
   it('обычные запросы потоком не считаются', () => {
@@ -89,7 +92,9 @@ describe('живое рядом не задето', () => {
   it('уведомление об инициализации по-прежнему пустое 202', () => {
     // Чинили 17.09: раньше уходил ответ с id: null — ответ на вопрос,
     // которого клиент не задавал.
-    expect(SRC).toContain("case 'notifications/initialized':");
+    // С 29.09 — не одно initialized, а всякое уведомление и ответ клиента
+    // (lib/mcp/jsonrpc.ts, поведение — mcp-jsonrpc-conformance.test.ts).
+    expect(SRC).toMatch(/if \(msg\.kind === 'response' \|\| msg\.kind === 'notification'\) return null;/);
     expect(SRC).toMatch(/return new NextResponse\(null, \{ status: 202 \}\)/);
   });
 

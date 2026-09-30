@@ -76,15 +76,25 @@ export function weatherTarget(args: { place?: string; lat?: string; lng?: string
     if (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       return { kind: 'invalid', message: `Координаты «${args.lat}, ${args.lng}» не разобраны: нужны градусы, широта от -90 до 90, долгота от -180 до 180.` };
     }
+    // Огрубление до сотых (~1 км): агент может прислать геопозицию человека,
+    // а прогнозу хватает сетки Open-Meteo. Точная координата не уходит ни в
+    // зарубежный сервис, ни в лог прода (проверка MCP 29.09).
+    const cLat = coarse(lat);
+    const cLng = coarse(lng);
     return {
       kind: 'point',
-      name: `точка ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-      lat, lng,
+      name: `точка ${cLat.toFixed(2)}, ${cLng.toFixed(2)}`,
+      lat: cLat, lng: cLng,
       outsideKrai: insideKrai(lat, lng) === false,
     };
   }
   if (args.place) return { kind: 'place', query: args.place };
   return { kind: 'default' };
+}
+
+/** Сотые градуса — около километра: точнее прогноз не бывает, а человека выдаёт. */
+function coarse(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 export function parseDays(raw: string | undefined): number {
@@ -141,7 +151,7 @@ export async function weatherForKuzmich(args: { place?: string; lat?: string; ln
       console.error('[weather-tool] прогноз не получен:', point.name, why);
       return `ПОГОДА НЕДОСТУПНА для «${point.name}»: прогноз не пришёл (${why}). Не называй погоду по памяти — скажи, что проверить не смог.`;
     }
-    const head = `Прогноз Open-Meteo для «${point.name}» (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}), дней: ${forecast.days.length}.${note}`;
+    const head = `Прогноз Open-Meteo для «${point.name}» (${point.lat.toFixed(2)}, ${point.lng.toFixed(2)}), дней: ${forecast.days.length}.${note}`;
     return [head, ...forecast.days.map(forecastLine)].join('\n');
   } catch (err) {
     logSwallowedFailure('kuzmich', 'прогноз погоды по месту', err);

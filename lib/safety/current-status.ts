@@ -134,6 +134,10 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
   }
 }
 
+// Шкала тяжести словами — lib/safety/severity-words (одна на сервер и экран).
+import { ALERT_SEVERITY_WORDS, alertSeverityWord } from '@/lib/safety/severity-words';
+export { ALERT_SEVERITY_WORDS, alertSeverityWord };
+
 /**
  * Текст для внешнего агента. Отдельно от формы для UI: агент передаёт ответ
  * человеку словами, и «данных нет» обязано звучать как «данных нет».
@@ -146,7 +150,7 @@ export function formatSafetyStatusForAgent(status: CurrentSafetyStatus | null): 
   const lines: string[] = [];
   lines.push(
     status.hasAlert
-      ? `Активных предупреждений по Камчатскому краю: ${status.activeCount} (максимальная тяжесть ${status.maxSeverity} из 5).`
+      ? `Активных предупреждений по Камчатскому краю: ${status.activeCount} (наивысший уровень — «${alertSeverityWord(status.maxSeverity)}», ${status.maxSeverity} по шкале 0–${ALERT_SEVERITY_WORDS.length - 1}).`
       : 'Активных предупреждений по Камчатскому краю нет.',
   );
   // Разбивка: общее число включает и то, что решения туриста не меняет.

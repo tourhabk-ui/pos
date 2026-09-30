@@ -4,7 +4,7 @@ import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/planning' },
-  title: 'Планирование — Ведар',
+  title: 'Планирование',
   description: 'Планируйте поход, отслеживайте готовность и навигируйте по маршруту.',
 };
 

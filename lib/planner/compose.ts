@@ -200,7 +200,9 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
       location: row.location,
       difficulty_level: row.difficulty,
       tour_image: row.tour_image,
-      booking_url: `/routes/${row.id}`,
+      // id — из operator_tours: адрес тура /catalog/tours/{id}. /routes/{id}
+      // ищет маршрут и на числовой id тура отвечал 404 (сверка SEO 29.09).
+      booking_url: `/catalog/tours/${row.id}`,
     });
     usedActivities.add(activity);
     usedDays += tourDays + (selected.length > 1 ? 1 : 0);

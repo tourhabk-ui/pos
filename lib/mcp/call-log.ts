@@ -6,10 +6,13 @@
  * в заявочных лежат имя и телефон туриста (152-ФЗ), а журналу они не нужны:
  * вопрос наблюдаемости — «зовут ли, что зовут, ломается ли», не «кто».
  *
- * Fire-and-forget: сбой журнала не должен ломать ответ агенту.
+ * Fire-and-forget: сбой журнала не должен ломать ответ агенту — но пишется
+ * в лог (lib/mcp/log-failure): молчащий журнал сторож молчания MCP читает как
+ * «никто не звал».
  */
 
 import { pool } from '@/lib/db-pool';
+import { logMcpFailure } from '@/lib/mcp/log-failure';
 import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
 import { PUBLIC_MCP_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { normalizeClientName, normalizeClientVersion, uaFamily } from '@/lib/mcp/client-id';
@@ -79,7 +82,7 @@ export function logMcpClient(entry: {
         uaFamily(entry.userAgent),
       ],
     )
-    .catch(() => { /* журнал не важнее ответа агенту */ });
+    .catch((err: unknown) => logMcpFailure('запись клиента mcp_clients', err));
 }
 
 export function logMcpToolCall(entry: McpCallLogEntry): void {
@@ -96,5 +99,5 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
         hash,
       ],
     )
-    .catch(() => { /* журнал не важнее ответа агенту */ });
+    .catch((err: unknown) => logMcpFailure('запись вызова mcp_tool_calls', err));
 }

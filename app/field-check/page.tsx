@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { FieldCheckClient } from './_FieldCheckClient';
 
 export const metadata: Metadata = {
-  title: 'Полевая проверка маршрутов — Ведар',
+  title: 'Полевая проверка маршрутов',
   description: 'Сверка записей платформы с тем, что видно на месте.',
   robots: { index: false, follow: false },
 };

@@ -58,17 +58,28 @@ async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   }
 }
 
+// Заголовок и описание называют спрос (туры, маршруты, вулканы, гейзеры,
+// источники), а не только роль сервиса: прежние 54 и 73 знака не содержали
+// слова «туры» вовсе (аудит SEO 29.09, вечер). Точная фраза «Туры на Камчатку»
+// остаётся за /catalog и /plans — главная не начинает title с неё же.
+// Без цифр и года: «от N ₽» в статичном описании устареет молча, год — через
+// три месяца (§4.0); без «проверенных»: листинг не фильтрует по проверке.
+// H1 героя — отдельное решение владельца 14.08, его здесь не трогаем.
+// Сторож: tests/unit/seo-audit-2909-evening.test.ts.
+const HOME_TITLE = 'Туры и маршруты по Камчатке — Ведар, планировщик поездки';
+const HOME_DESCRIPTION = 'Туры на Камчатку, маршруты к вулканам, гейзерам и термальным источникам, рыбалка. Статус безопасности на сегодня, офлайн-карта и SOS.';
+
 export const metadata: Metadata = {
-  title: 'Ведар — помощник и планировщик путешествия по Камчатке',
-  description: 'Ведар помогает спланировать честное и безопасное путешествие по Камчатке.',
+  title: HOME_TITLE,
+  description: HOME_DESCRIPTION,
   openGraph: {
     url: '/',
-    title: 'Ведар — помощник и планировщик путешествия по Камчатке',
-    description: 'Маршруты, советы, Кузьмич, проверенные операторы.',
-    images: [{ url: '/images/hero/hero-light.jpeg', width: 1200, height: 630, alt: 'Камчатка' }],
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    images: [{ url: '/images/hero/hero-light.jpeg', width: 1024, height: 1024, alt: 'Камчатка' }],
     type: 'website', locale: 'ru_RU', siteName: 'Ведар',
   },
-  twitter: { card: 'summary_large_image', title: 'Ведар', images: ['/images/hero/hero-light.jpeg'] },
+  twitter: { card: 'summary_large_image', title: HOME_TITLE, description: HOME_DESCRIPTION, images: ['/images/hero/hero-light.jpeg'] },
   robots: { index: true, follow: true },
   alternates: { canonical: '/' },
 }

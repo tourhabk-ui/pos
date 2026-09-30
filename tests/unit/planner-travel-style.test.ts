@@ -20,6 +20,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { tripCalendarDays } from '@/lib/planner/flow-balance';
+import { readFileSync } from 'node:fs';
 
 // ── Подмена хранилища ────────────────────────────────────────────────────
 
@@ -441,5 +442,28 @@ describe('правила «Сам» читают наши данные, а не 
     expect(fitRestDays(10, 6)).toBe(5);
     expect(fitRestDays(3, 1)).toBe(0);
     expect(fitRestDays(-2, 6)).toBe(0);
+  });
+});
+
+// Проверка MCP 29.09: make_trip_plan поле itinerary не читает, а движок звал
+// флагманскую модель на каждый анонимный вызов публичного MCP.
+describe('план без AI-пересказа — модель не зовётся', () => {
+  it("itinerary: 'plain' — ни одного вызова модели, дни те же", async () => {
+    aiPrompts.length = 0;
+    const plain = await recommendTrip(BASE, { itinerary: 'plain' });
+    expect(aiPrompts).toHaveLength(0);
+    expect(shape(plain.days)).toEqual(GOLDEN_MIXED);
+    expect(plain.itinerary).toMatch(/^Маршрут на \d+ дней/);
+  });
+
+  it('по умолчанию (веб-планер) — как прежде, с моделью', async () => {
+    aiPrompts.length = 0;
+    await recommendTrip(BASE);
+    expect(aiPrompts.length).toBeGreaterThan(0);
+  });
+
+  it('make_trip_plan просит движок без пересказа', () => {
+    const src = readFileSync('lib/kuzmich/trip-plan-tool.ts', 'utf-8');
+    expect(src).toMatch(/\}, \{ itinerary: 'plain' \}\);/);
   });
 });

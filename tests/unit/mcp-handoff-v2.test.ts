@@ -59,8 +59,8 @@ describe('цели v2: резолв — той же функцией, что у 
   it('MCP-роут берёт цели из lib, своего switch по инструментам не держит', () => {
     expect(MCP_ROUTE).toMatch(/from '@\/lib\/mcp\/handoff-targets'/);
     expect(MCP_ROUTE).not.toMatch(/case 'make_trip_plan'/);
-    // Сбой резолва не ломает ответ агенту.
-    expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs\)\.catch\(\(\) => null\)/);
+    // Сбой резолва не ломает ответ агенту — но называется в логе (29.09).
+    expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs\)\.catch\(\(err: unknown\) => \{\s*console\.error\([\s\S]{0,160}?return null;/);
   });
 
   it('покрыты инструменты v2: туры, место, планер, безопасность', () => {

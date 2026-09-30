@@ -48,7 +48,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: preset.title,
       description: preset.description,
       url: `${SITE}/plans/${preset.slug}`,
-      images: [{ url: '/images/hero/hero-light.jpeg', width: 1200, height: 630 }],
+      images: [{ url: '/images/hero/hero-light.jpeg', width: 1024, height: 1024 }],
     },
   };
 }

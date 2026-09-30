@@ -31,6 +31,10 @@ export async function GET(
   }
 
   const handoff = await redeemMcpHandoff(token);
+  if (handoff === 'unavailable') {
+    // База не ответила — это не «ссылка устарела»: повтор через минуту откроет.
+    return new NextResponse('Не удалось открыть ссылку — повторите через минуту', { status: 503, headers: { 'Retry-After': '60' } });
+  }
   if (!handoff) {
     return new NextResponse('Ссылка устарела — откройте vedarai.ru', { status: 410 });
   }

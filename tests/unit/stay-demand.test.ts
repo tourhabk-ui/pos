@@ -106,7 +106,7 @@ describe('производители на каждой поверхности', 
     expect(src).toMatch(/recordAgentStaySearch\('failed'\)/);
     expect(src).toMatch(/recordAgentStaySearch\(rows\.length > 0 \? 'found' : 'empty'\)/);
     // MCP не заводит свой поиск жилья — иначе его спрос прошёл бы мимо счётчика.
-    expect(read('app/api/mcp/route.ts')).toMatch(/executeKuzmichTool\(name, validation\.args\)/);
+    expect(read('app/api/mcp/route.ts')).toMatch(/executeKuzmichTool\(name, validation\.args(, \{ surface: 'mcp' \})?\)/);
   });
 });
 

@@ -24,7 +24,7 @@ vi.mock('@/lib/db-pool', () => ({
 
 vi.mock('@/lib/rate-limit', () => ({
   createRateLimiter: () => ({ check: () => true }),
-  getClientIp: () => '10.0.0.1',
+  getTrustedClientIp: () => '10.0.0.1',
 }));
 
 vi.mock('@/lib/notifications/operator-booking', () => ({

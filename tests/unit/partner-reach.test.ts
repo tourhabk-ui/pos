@@ -157,18 +157,15 @@ describe('живой тур в переписи — тот же, что види
   const catalog = code(read('lib/kuzmich/core.ts'));
 
   it('перепись отсеивает удалённые и неопубликованные туры', () => {
+    // С 29.09 — общим шлюзом витрины (publicTourSql), как и каталог.
     const join = census.slice(census.indexOf('JOIN operator_tours t'));
-    expect(join.slice(0, 400)).toMatch(/t\.is_active\s*=\s*true/);
-    expect(join.slice(0, 400)).toMatch(/t\.deleted_at IS NULL/);
-    expect(join.slice(0, 400)).toMatch(/COALESCE\(t\.is_published, TRUE\) = TRUE/);
+    expect(join.slice(0, 400)).toMatch(/\$\{publicTourSql\('t'\)\}/);
   });
 
   it('витрина туриста судит теми же тремя условиями', () => {
     // Если витрина ослабит или ужесточит своё условие, а перепись останется
     // прежней, числа разойдутся снова — и снова молча.
     const where = catalog.slice(catalog.indexOf('FROM operator_tours ot'));
-    expect(where.slice(0, 900)).toMatch(/ot\.is_active = true/);
-    expect(where.slice(0, 900)).toMatch(/ot\.deleted_at IS NULL/);
-    expect(where.slice(0, 900)).toMatch(/COALESCE\(ot\.is_published, TRUE\) = TRUE/);
+    expect(where.slice(0, 2500)).toMatch(/\$\{publicTourSql\('ot'\)\}/);
   });
 });

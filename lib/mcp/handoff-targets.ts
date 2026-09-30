@@ -15,6 +15,7 @@
 
 import type { HandoffTarget } from '@/lib/mcp/handoff';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
+import { parsePlanStart } from '@/lib/kuzmich/trip-plan-tool';
 import { resolvePlaceForLink } from '@/lib/kuzmich/guardian-context';
 
 function str(v: unknown): string {
@@ -32,6 +33,11 @@ export async function handoffTargetForTool(
       if (/^\d{1,2}$/.test(days)) query.set('days', days);
       const interests = str(args.interests);
       if (interests) query.set('interests', interests.slice(0, 120));
+      // Дата старта — та же, на которую посчитан план (parsePlanStart из
+      // when). Без неё планер по ссылке ставил старт «через месяц», и план на
+      // июль 2027 открывался на другие даты (проверка MCP 29.09, T17).
+      const start = parsePlanStart(str(args.when) || undefined, Date.now());
+      if (start.kind !== 'default') query.set('from', start.date.toISOString().slice(0, 10));
       const qs = query.toString();
       return { targetType: 'planner', targetPath: `/planner${qs ? `?${qs}` : ''}` };
     }

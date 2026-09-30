@@ -203,7 +203,9 @@ export interface SafetyFacts {
 
 /** `safety_status` → поля. `null` — ответ не разобран (в том числе «данных нет»). */
 export function parseSafetyText(text: string): SafetyFacts | null {
-  const count = /Активных предупреждений по Камчатскому краю:\s*(\d+)\s*\(максимальная тяжесть\s*(\d+)\s*из\s*5\)/.exec(text);
+  // Тяжесть — по шкале 0–3 словом и числом (проверка MCP 29.09; прежнее
+  // «N из 5» было неверной шкалой).
+  const count = /Активных предупреждений по Камчатскому краю:\s*(\d+)\s*\(наивысший уровень — «[^»]*»,\s*(\d+) по шкале 0–\d+\)/.exec(text);
   const none = /Активных предупреждений по Камчатскому краю нет/.test(text);
   if (!count && !none) return null;
   const top = /^Наиболее значимое:\s*(.*?)(?:\s+\(([a-z_]+)\))?\.\s*$/m.exec(text);

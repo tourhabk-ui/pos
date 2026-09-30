@@ -67,6 +67,14 @@ describe('условие витрины — одно на жильё и прок
     expect(code(HELPERS), 'вернулось условие только по is_active')
       .not.toMatch(/WHERE\s+gi\.is_active = true\s*\n\s*AND gi\.available_quantity/);
   });
+
+  // Проверка MCP 29.09: поиск снаряжения Кузьмича и публичного MCP стоял на
+  // одном is_active — позиция на проверке уходила внешнему агенту.
+  it('поиск Кузьмича (он же MCP search_gear) — через тот же шлюз', () => {
+    const src = code(readFileSync(join(process.cwd(), 'lib/kuzmich/gear-search.ts'), 'utf-8'));
+    expect(src).toMatch(/publicGearSql\(''\)/);
+    expect(src).not.toMatch(/\['is_active = true'\]/);
+  });
 });
 
 describe('исходы для партнёра названы словами', () => {

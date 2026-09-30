@@ -95,13 +95,38 @@ describe('тур без расписания', () => {
 
   it('отказ сервиса (дубль, некому писать, потолок) — понятный текст и путь через create_lead, а не тишина', async () => {
     keepsScheduleMock.mockResolvedValue(false);
-    for (const reason of ['duplicate', 'operator_unreachable', 'too_many', 'delivery_failed']) {
+    for (const reason of ['duplicate', 'operator_unreachable', 'too_many']) {
       createSeatMock.mockResolvedValueOnce({ ok: false, reason });
       const r = await text(await POST(call(args)));
       expect(r.isError, reason).toBe(false);
       expect(r.text, reason).toMatch(/не отправлен/);
       expect(r.text, reason).toMatch(/create_lead/);
     }
+  });
+
+  // Проверка MCP 29.09: сбой проверки или доставки — отказ, а не деловой
+  // исход; журнал вызовов считал его успехом.
+  it('сбой проверки или доставки — isError, текст тот же по смыслу', async () => {
+    keepsScheduleMock.mockResolvedValue(false);
+    for (const reason of ['check_failed', 'delivery_failed']) {
+      createSeatMock.mockResolvedValueOnce({ ok: false, reason });
+      const r = await text(await POST(call(args)));
+      expect(r.isError, reason).toBe(true);
+      expect(r.text, reason).toMatch(/не отправлен/);
+      expect(r.text, reason).toMatch(/create_lead/);
+    }
+  });
+
+  // Проверка MCP 29.09: «у вас уже есть подтверждённая бронь» говорил
+  // анониму, знающему номер, где его владелец будет в этот день.
+  it('«уже есть бронь» звучит так же, как «запрос уже отправлен»', async () => {
+    keepsScheduleMock.mockResolvedValue(false);
+    createSeatMock.mockResolvedValueOnce({ ok: false, reason: 'duplicate' });
+    const dup = await text(await POST(call(args)));
+    createSeatMock.mockResolvedValueOnce({ ok: false, reason: 'already_confirmed' });
+    const confirmed = await text(await POST(call(args)));
+    expect(confirmed.text).toBe(dup.text);
+    expect(confirmed.text).not.toMatch(/подтверждённая бронь/);
   });
 
   it('без согласия на ПД запрос не отправляется', async () => {

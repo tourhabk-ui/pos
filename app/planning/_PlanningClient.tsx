@@ -55,6 +55,7 @@ import {
   probeCoverage, coverageLabel, coverageIsShort, evenSample, type CoverageReport,
 } from '@/lib/offline/coverage';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
+import { alertSeverityWord } from '@/lib/safety/severity-words';
 import { useSwRegistration } from '@/lib/offline/sw-status';
 import {
   passportGradeLabel, passportGradeNote, type PassportGrade,
@@ -5080,7 +5081,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                 <div className="space-y-2 text-sm">
                   <p style={{ color: snap.hasAlert ? 'var(--warning)' : 'var(--text-primary)' }} className="font-semibold">
                     {snap.hasAlert
-                      ? (snap.topTitle ?? `Активные предупреждения (тяжесть ${snap.maxSeverity} из 5)`)
+                      ? (snap.topTitle ?? `Активные предупреждения (наивысший уровень — «${alertSeverityWord(snap.maxSeverity)}»)`)
                       : 'Активных предупреждений по краю нет'}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>

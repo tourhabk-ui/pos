@@ -19,6 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,7 +105,10 @@ export async function GET(request: NextRequest) {
       const botText = botMsg.content?.toLowerCase() ?? '';
       const isUnknowing = UNKNOWING_MARKERS.some(m => botText.includes(m));
       if (isUnknowing && userMsg.content?.length > 5) {
-        unknownQuestions.push(userMsg.content.slice(0, 200));
+        // Вопрос туриста дальше уходит в зарубежную модель (дедуп), в
+        // веб-поиск и в заголовок записи — телефон и почта не идут никуда
+        // (проверка MCP 29.09: заголовки auto_gap отдавались наружу).
+        unknownQuestions.push(redactPII(userMsg.content).slice(0, 200));
       }
     }
   }
@@ -151,14 +155,20 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
 
     const slug = `gap_${topic.toLowerCase().replace(/[^a-zа-яё0-9]/gi, '_').replace(/_+/g, '_').slice(0, 50)}_${Date.now() % 10000}`;
 
-    await pool.query(
+    // «Сохранено» считается по факту записи: прежний .catch(() => {}) с
+    // безусловным saved.push отчитывался темами, которых в базе нет (§4.0).
+    const stored = await pool.query(
       `INSERT INTO agent_knowledge(slug,type,title,compiled_truth,agent_id,edit_count,created_at,updated_at)
        VALUES($1,'auto_gap',$2,$3,'kuzmich',0,NOW(),NOW())
        ON CONFLICT(slug) DO NOTHING`,
       [slug, topic.slice(0, 100), `${compiled}\n[Авто, ${new Date().toLocaleDateString('ru-RU')}]`],
-    ).catch(() => {});
+    ).then(() => true, (err: unknown) => {
+      const code = (err as { code?: unknown })?.code;
+      console.error('[kb-gap] запись не сохранена:', typeof code === 'string' ? code : '', err instanceof Error ? err.message : String(err));
+      return false;
+    });
 
-    saved.push(topic);
+    if (stored) saved.push(topic);
   }
 
   return NextResponse.json({
@@ -166,7 +176,10 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     gaps_found: unknownQuestions.length,
     topics_processed: uniqueTopics.length,
     topics_saved: saved.length,
-    topics: saved,
+    // Сами темы наружу не отдаются: это вопросы туристов (при отказе дедупа —
+    // дословно), а ответ крона печатается в лог GitHub Actions
+    // (cron-kb-gap.yml, cat /tmp/out.json) — за пределы платформы (152-ФЗ,
+    // проверка MCP 29.09). Темы видны в agent_knowledge.
     timestamp: new Date().toISOString(),
   });
 }

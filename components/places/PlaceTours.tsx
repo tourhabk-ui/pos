@@ -23,7 +23,7 @@ export default function PlaceTours({ tours }: Props) {
         {tours.map(t => (
           <Link
             key={t.id}
-            href={`/marketplace/tours/${t.id}`}
+            href={`/catalog/tours/${t.id}`}
             className="ds-card p-4 flex items-center justify-between gap-3 hover:border-[var(--accent)] transition-colors group"
           >
             <div className="flex-1 min-w-0">

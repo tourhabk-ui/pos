@@ -33,6 +33,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { containsPattern } from '@/lib/db/like';
+import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 
 export interface PlaceRow {
   name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null;
@@ -62,7 +63,17 @@ export function placeFactLines(p: PlaceRow): string[] {
   const type = placeTypeLabel(p.location_type ?? p.category);
   if (type) lines.push(`Тип: ${type.toLocaleLowerCase('ru-RU')}`);
   const lat = num(p.lat), lng = num(p.lng);
-  if (lat != null && lng != null) lines.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  // Скрытое место координату не называет. Скрывают в том числе ИМЕННО за
+  // ложную координату, которую не на чем поправить (947 «Озеро Овальное» —
+  // точка в 3 км от центра города вместо подножия Авачинского; 948 — лежбище
+  // сивучей за 506 км): карточка уходит в MCP, и чужой ИИ повторил бы её
+  // туристу как место на карте (проверка MCP 29.09). Остальное о месте —
+  // как решено 19.09: страж может знать скрытое место.
+  if (p.is_visible === false) {
+    if (lat != null && lng != null) lines.push('Координаты: не называем — место снято с сайта, координата не подтверждена');
+  } else if (lat != null && lng != null) {
+    lines.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  }
   if (p.altitude_m != null && p.altitude_m > 0) lines.push(`Высота: ${p.altitude_m} м`);
   // Опасности, выведенные шаблоном 070 из location_type, фактом не называются:
   // правило одно на платформу (lib/safety/profile-source.ts, миграция 1100).
@@ -148,10 +159,11 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
     ),
     pool.query<NoteRow>(
       // Только по заголовку: упоминание места в чужой заметке — не заметка о
-      // нём. type <> 'outcome' — служебные оценки ответов туристу не отдаются
-      // (20.09: «Оценка ответа: 6/10» ушла ответом про озеро).
+      // нём. Роды — разрешённым списком (lib/kuzmich/knowledge-scope): у
+      // search_result заголовок — сообщение туриста, и get_place_info с
+      // name='меня зовут' отдавал его анонимному MCP-клиенту (проверка 29.09).
       `SELECT title, compiled_truth FROM agent_knowledge
-        WHERE agent_id='kuzmich' AND type <> 'outcome' AND title ILIKE $1
+        WHERE ${KUZMICH_KNOWLEDGE_SCOPE_SQL} AND title ILIKE $1
         LIMIT 3`,
       [containsPattern(placeName)],
     ),

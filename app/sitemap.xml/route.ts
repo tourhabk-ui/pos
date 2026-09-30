@@ -10,7 +10,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { collectSitemapEntries } from '@/lib/seo/sitemap-entries';
+import { collectSitemapEntriesWithStatus } from '@/lib/seo/sitemap-entries';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +26,7 @@ function isoDate(d: string | Date | undefined): string | null {
 }
 
 export async function GET() {
-  const entries = await collectSitemapEntries();
+  const { entries, degraded } = await collectSitemapEntriesWithStatus();
 
   const urls = entries.map((e) => {
     const lastmod = isoDate(e.lastModified);
@@ -47,10 +47,14 @@ export async function GET() {
     '</urlset>',
   ].join('\n');
 
+  // Секция не прочиталась — sitemap неполон, и кэшировать его нельзя: иначе
+  // обходчик час видел бы sitemap без мест или туров как настоящий.
   return new NextResponse(xml, {
     headers: {
       'Content-Type': 'application/xml; charset=utf-8',
-      'Cache-Control': 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
+      'Cache-Control': degraded.length > 0
+        ? 'no-store'
+        : 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
     },
   });
 }

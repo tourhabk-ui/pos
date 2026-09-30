@@ -50,6 +50,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 
 /** Окно и потолок на клиента: столько же, сколько держал счётчик в памяти. */
@@ -118,7 +119,12 @@ interface Counts {
  */
 export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecision> {
   const s = salt();
-  const clientKey = s ? fingerprint(`${input.ip}|${input.userAgent}`, s) : null;
+  // Ключ клиента — только доверенный адрес. User-Agent в ключе делал лимит
+  // клиента (5 за 10 минут, 20 за сутки) обходимым сменой заголовка на
+  // каждый запрос, а разделить агентов за общим выходным адресом (все
+  // пользователи claude.ai) он и не мог — у них один и тот же UA (проверка
+  // MCP 29.09). userAgent остаётся во входе: он нужен журналу вызовов.
+  const clientKey = s ? fingerprint(input.ip, s) : null;
   const phoneHash = s && input.phone ? fingerprint(input.phone, s) : null;
 
   // Согласие спрашивается ПЕРВЫМ и не зависит ни от базы, ни от настроек.
@@ -167,14 +173,25 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
   if (phoneHash) locks.push([LOCK_NS_PHONE, lockKey(phoneHash)]);
   locks.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
 
-  const client = await pool.connect();
+  // Соединение берётся внутри try: отказ пула — тоже «не смог посчитать»,
+  // с логом, а не исключение наверх (до 29.09 его текст — адрес базы —
+  // уходил анонимному MCP-клиенту ответом инструмента).
+  let client: PoolClient | null = null;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     for (const [ns, key] of locks) {
       // xact-замок снимается коммитом или откатом сам — забыть его нельзя.
       await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [ns, key]);
     }
 
+    // По номеру считаются только ПРИНЯТЫЕ заявки. Раньше — все исходы, и три
+    // вызова с чужим номером и consent:false (согласие для отказа не нужно,
+    // в лимит клиента помещаются) отправляли настоящие заявки владельца
+    // номера в карантин на сутки, а каждая его попытка продлевала окно
+    // (проверка MCP 29.09). Потолок номера — про заявки, созданные на него;
+    // поток отказов держит лимит клиента, который считает всё.
+    //
     // Приведения у параметров явные: форма «сравнение с колонкой внутри
     // FILTER» выводом типов не покрыта так же надёжно, как обычный WHERE,
     // а цена ошибки здесь — 42P08 на живом пути (случай 24.08 в CLAUDE.md).
@@ -183,7 +200,8 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
          COUNT(*) FILTER (WHERE client_key = $1::char(64)
                             AND created_at > NOW() - (INTERVAL '1 minute' * $3::int))::text AS a,
          COUNT(*) FILTER (WHERE client_key = $1::char(64))::text AS b,
-         COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64))::text AS c
+         COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64)
+                            AND outcome = 'allowed')::text AS c
        FROM mcp_write_attempts
        WHERE created_at > NOW() - INTERVAL '24 hours'`,
       [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES)],
@@ -207,7 +225,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     await sweepOld();
     return verdict.decision;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client?.query('ROLLBACK').catch(() => {});
     // Молчать нельзя: отказ проверки, выданный за её прохождение, — ровно тот
     // дефект, ради которого §4.0 и написан.
     console.error('[mcp-write-guard] не смог посчитать поток:', err);
@@ -216,7 +234,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
       message: 'Не удалось проверить ограничения — заявка не создана. Повторите позже.',
     };
   } finally {
-    client.release();
+    client?.release();
   }
 }
 

@@ -113,6 +113,8 @@ describe('get_tour_availability → даты', () => {
 
   it('свободных дат нет — none_free, это не отказ разбора', async () => {
     q.mockResolvedValueOnce({ rows: [{ id: 27, title: 'Сплав', base_price: 13000, price_unit: 'per_person' }] });
+    // Расписание у тура есть — значит пусто это именно «мест нет» (29.09).
+    q.mockResolvedValueOnce({ rows: [{ has: true }] });
     availability.mockResolvedValueOnce([]);
     const f = parseAvailabilityText(await getTourAvailabilityForKuzmich({ tour: '27' }));
     expect(f).toMatchObject({ dates: [], none_free: true });

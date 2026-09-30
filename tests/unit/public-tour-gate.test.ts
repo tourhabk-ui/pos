@@ -113,6 +113,20 @@ describe('каждый публичный роут туров спрашивае
   });
 });
 
+// Проверка MCP 29.09: публичный MCP и Кузьмич — тоже витрина. Резолвер тура
+// смотрел только is_active и deleted_at: черновик находился картой и заявкой.
+describe('туры на пути Кузьмича и MCP — через тот же шлюз', () => {
+  const FILES = ['lib/kuzmich/tour-availability-tool.ts', 'lib/kuzmich/core.ts'];
+  it('каждый FROM operator_tours в них зовёт publicTourSql', () => {
+    for (const f of FILES) {
+      const src = readFileSync(join(process.cwd(), f), 'utf-8');
+      const reads = [...src.matchAll(/FROM operator_tours\b([\s\S]{0,400}?)(?:`|LIMIT|ORDER BY)/g)];
+      expect(reads.length, f).toBeGreaterThan(0);
+      for (const m of reads) expect(m[1], `${f}: ${m[0].slice(0, 100)}`).toMatch(/publicTourSql\(/);
+    }
+  });
+});
+
 describe('поведение трёх роутов: в отправленном SQL стоит is_published', () => {
   it('GET /api/tours — список', async () => {
     queryMock.mockResolvedValue({ rows: [], rowCount: 0 });

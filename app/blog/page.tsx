@@ -5,13 +5,14 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { stripTags } from '@/lib/html/text';
+import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
 
 export const dynamic = 'force-dynamic';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: 'Блог Ведара — Камчатка: маршруты, безопасность, операторы',
+  title: 'Блог о Камчатке: маршруты, безопасность, операторы',
   description:
     'Актуальные материалы о путешествиях по Камчатке: обновления маршрутов, разведданные о сезоне, новости платформы и советы по безопасности.',
   keywords: [
@@ -43,13 +44,15 @@ async function getLatestDigests(): Promise<DigestEntry[]> {
     const { rows } = await pool.query<DigestEntry>(`
       SELECT slug, title, compiled_truth, created_at::text
       FROM agent_knowledge
-      WHERE type IN ('digest', 'decision')
-        AND (slug LIKE 'digest/%' OR slug LIKE 'proposals/%')
+      WHERE ${BLOG_DIGEST_SCOPE_SQL}
       ORDER BY created_at DESC
       LIMIT 9
     `);
     return rows;
-  } catch {
+  } catch (err) {
+    // «Дайджестов нет» и «не смогли прочитать» — разные ответы (§4.0).
+    const e = err as { code?: string; message?: string };
+    console.error('[blog] дайджесты не прочитаны', { sqlstate: e?.code, message: e?.message });
     return [];
   }
 }
@@ -70,6 +73,13 @@ function formatDate(iso: string): string {
   }
 }
 
+// Три текста зашиты в код и в sitemap намеренно НЕ внесены (аудит SEO 29.09,
+// вечер): в них есть факты без источника в данных — квота Долины гейзеров,
+// «самый тёплый июнь за 10 лет», критерии проверки операторов. Звать поиск на
+// них — решение владельца после вычитки. Одна фраза исправлена сразу, потому
+// что она про безопасность: SOS уходит дежурному Ведара (app/api/safety/sos →
+// Telegram), а не «в МЧС Камчатки», и сам роут велит звонить 112.
+// Сторож: tests/unit/seo-audit-2909-evening.test.ts.
 export const STATIC_ARTICLES = [
   {
     slug: 'kamchatka-season-2026',
@@ -106,7 +116,7 @@ export const STATIC_ARTICLES = [
     slug: 'sos-offline-guide',
     title: 'Как работает SOS-кнопка без интернета',
     excerpt:
-      'Подробный разбор: как Ведар сохраняет координаты GPS, отправляет сигнал тревоги и передаёт маршрут экстренным службам даже без сети.',
+      'Подробный разбор: как Ведар сохраняет координаты GPS без сети, отправляет сигнал тревоги дежурному платформы, когда сеть появится, и почему звонить 112 нужно всё равно.',
     tag: 'Безопасность',
     date: '2026-05-20',
     content: `На Камчатке покрытие мобильной сети заканчивается примерно в 30 км от Петропавловска. Большинство популярных маршрутов проходит вне зоны 4G. Именно поэтому SOS-функция Ведара работает без интернета.
@@ -117,7 +127,7 @@ export const STATIC_ARTICLES = [
 
 2. **Координаты сохраняются локально.** При нажатии SOS платформа записывает вашу точку в браузерную базу данных (IndexedDB). Данные хранятся на устройстве.
 
-3. **Отправка при появлении сети.** Как только телефон поймает хоть какой-то сигнал, данные автоматически отправятся в МЧС Камчатки через фоновую синхронизацию (Background Sync API).
+3. **Отправка при появлении сети.** Как только телефон поймает хоть какой-то сигнал, данные автоматически отправятся дежурному Ведара через фоновую синхронизацию (Background Sync API). В МЧС сигнал сам не передаётся — туда звоните 112.
 
 4. **Экстренный номер работает всегда.** 112 работает через любую сотовую сеть — без интернета, без баланса и даже без SIM-карты, и сам переключает на МЧС/полицию/скорую.
 

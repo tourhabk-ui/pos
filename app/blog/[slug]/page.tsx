@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { STATIC_ARTICLES } from '@/app/blog/page';
+import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -22,17 +23,25 @@ interface DigestEntry {
   created_at: string;
 }
 
+// Только материал блога, а не любая строка общей памяти агентов: без этого
+// условия /blog/outcome_kuz_<chatId>_<n> отдавал анонимно вопрос туриста
+// Кузьмичу (lib/blog/digest-scope.ts).
 async function getDigest(slug: string): Promise<DigestEntry | null> {
   try {
     const { rows } = await pool.query<DigestEntry>(
       `SELECT slug, title, compiled_truth, created_at::text
        FROM agent_knowledge
        WHERE slug = $1
+         AND ${BLOG_DIGEST_SCOPE_SQL}
        LIMIT 1`,
       [slug],
     );
     return rows[0] ?? null;
-  } catch {
+  } catch (err) {
+    // Отказ базы — не «поста нет»: в лог имя и SQLSTATE, без slug и тела
+    // (slug несёт chatId, §7 pd-guard).
+    const e = err as { code?: string; message?: string };
+    console.error('[blog/[slug]] пост не прочитан', { sqlstate: e?.code, message: e?.message });
     return null;
   }
 }
@@ -61,7 +70,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article = STATIC_ARTICLES.find(a => a.slug === slug);
   if (article) {
     return {
-      title: `${article.title} — Блог Ведара`,
+      title: article.title,
       description: article.excerpt,
       alternates: { canonical: `${SITE}/blog/${slug}` },
     };

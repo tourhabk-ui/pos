@@ -68,6 +68,9 @@ describe('окно дат', () => {
     expect(resolveWindow({}, now)).toEqual({ from: '2026-09-02', to: '2026-09-16' });
     expect(resolveWindow({ from: 'завтра', to: '2026-13-99' }, now)).toEqual({ from: '2026-09-02', to: '2026-09-16' });
   });
+  it('«сегодня» по Камчатке: в 22:05 UTC окно начинается со следующего числа', () => {
+    expect(resolveWindow({}, new Date('2026-09-29T22:05:00Z'))).toEqual({ from: '2026-09-30', to: '2026-10-14' });
+  });
   it('окно шире 60 дней или «до» раньше «от» — сжимается к 14 дням от «от»', () => {
     expect(resolveWindow({ from: '2026-09-01', to: '2026-12-31' })).toEqual({ from: '2026-09-01', to: '2026-09-15' });
     expect(resolveWindow({ from: '2026-09-10', to: '2026-09-01' })).toEqual({ from: '2026-09-10', to: '2026-09-24' });

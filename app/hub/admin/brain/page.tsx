@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { BrainClient } from './_BrainClient';
 
 export const metadata: Metadata = {
-  title: 'Brain — Память агентов | КамчатурХаб',
+  title: 'Brain — Память агентов',
   robots: 'noindex, nofollow',
 };
 

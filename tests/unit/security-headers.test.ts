@@ -13,13 +13,20 @@ import { readFileSync } from 'node:fs';
 const config = readFileSync('next.config.js', 'utf8');
 const mw = readFileSync('middleware.ts', 'utf8');
 
-// Блок заголовков основных страниц — source с негативным lookahead на widget
-const nonWidgetBlock = config.slice(
-  config.indexOf("source: '/:path((?!widget/).*)'"),
-  config.indexOf("source: '/hub/:path*'"),
-);
+// Блок заголовков основных страниц — source с негативным lookahead на widget,
+// до следующей записи (кэш картинок). Конец среза раньше искался по
+// '/hub/:path*'; с 29.09 такой строки нет, и indexOf -1 молча растянул бы
+// срез до конца файла. Поэтому оба края проверяются.
+const blockStart = config.indexOf("source: '/:path((?!widget/).*)'");
+const blockEnd = config.indexOf("source: '/images/:path*'");
+const nonWidgetBlock = config.slice(blockStart, blockEnd);
 
 describe('next.config.js — заголовки основных страниц', () => {
+  it('срез блока найден с обоих краёв', () => {
+    expect(blockStart).toBeGreaterThan(-1);
+    expect(blockEnd).toBeGreaterThan(blockStart);
+  });
+
   it('HSTS с preload присутствует', () => {
     expect(nonWidgetBlock).toMatch(/Strict-Transport-Security/);
     expect(nonWidgetBlock).toMatch(/max-age=\d{7,}/);
