@@ -25,6 +25,7 @@
  *   Услуги → Активный отдых → Рыбалка, охота
  */
 
+import { priceLine } from '@/lib/channels/price-line';
 import type {
   ChannelAdapter, ChannelBooking, ChannelName,
   ChannelTour, PushBookingInput, PushBookingResult,
@@ -119,12 +120,14 @@ export function durationLabel(hours: number | null | undefined): string {
 }
 
 function tourDescription(tour: ChannelTour): string {
+  // Цена с единицей — первой строкой: поле Price у Авито несёт только число.
+  const price = priceLine(tour.base_price, tour.price_unit) + '\n\n';
   const base = tour.short_description ?? tour.description ?? '';
   const included = Array.isArray(tour.included) && tour.included.length > 0
     ? '\n\nВключено: ' + tour.included.join(', ')
     : '';
   const link = `\n\nПодробнее и бронирование: ${tourPublicUrl(tour.id)}`;
-  return (base + included + link).slice(0, 7000);
+  return (price + base + included + link).slice(0, 7000);
 }
 
 /**
@@ -144,7 +147,14 @@ function tourDescription(tour: ChannelTour): string {
 export interface AvitoSkipped {
   id: string | number;
   activity_type: string | null;
-  reason: 'no_category';
+  /**
+   * `no_category` — типу не сопоставлена категория Авито;
+   * `season_over` — сезон кончился, дат нет (общее правило каталога). У
+   * объявления Авито нет пометки «сейчас недоступно», как `available` у
+   * Яндекса: выложенное объявление продаёт тур, которого нет (замер 30.09 —
+   * «Семейный тур выходного дня» с сезоном до 15.09 висел живым).
+   */
+  reason: 'no_category' | 'season_over';
 }
 
 export interface AvitoFeed {
@@ -157,6 +167,10 @@ export function generateAvitoXmlFeed(tours: ChannelTour[]): AvitoFeed {
   const skipped: AvitoSkipped[] = [];
   const items = tours
     .map(tour => {
+      if (tour.availability === 'season_over') {
+        skipped.push({ id: tour.id, activity_type: tour.activity_type ?? null, reason: 'season_over' });
+        return null;
+      }
       const cat = avitoCategory(tour.activity_type);
       if (!cat) {
         // Не выгружаем, но и не молчим: неверная категория снимает объявление,

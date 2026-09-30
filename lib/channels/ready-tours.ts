@@ -20,6 +20,8 @@
 import { pool } from '@/lib/db-pool';
 import type { ChannelTour } from '@/lib/channels/types';
 import { missingFields, type ReadinessRow } from '@/lib/tours/readiness';
+import { catalogAvailability } from '@/lib/tours/catalog-availability';
+import { hasAvailabilitySql } from '@/lib/search/tour-search';
 
 interface FeedRow {
   id: number; title: string; description: string | null;
@@ -29,6 +31,8 @@ interface FeedRow {
   max_participants: number; duration_hours: string | number | null;
   difficulty: string | null; photos: string[] | null;
   included: unknown; season_start: string | null; season_end: string | null;
+  price_unit: string | null; duration_type: string | null; multi_day_count: number | null;
+  has_availability: boolean;
   tripster_experience_id: string | null; avito_listing_id: string | null;
   sputnik8_product_id: string | null;
   operator_name: string | null; operator_phone: string | null;
@@ -52,6 +56,9 @@ const SQL = `
     ot.base_price, ot.max_participants, ot.duration_hours,
     ot.difficulty, ot.photos, ot.included,
     ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+    ot.price_unit, ot.duration_type, ot.multi_day_count,
+    -- Даты тура — тем же EXISTS, что у главной и каталога: правило одно.
+    ${hasAvailabilitySql()}                         AS has_availability,
     ot.tripster_experience_id, ot.avito_listing_id, ot.sputnik8_product_id,
     COALESCE(p.company_name, p.name)                AS operator_name,
     -- Телефон оператора, а не платформы: звонок «в никуда» убивает лид,
@@ -91,6 +98,15 @@ function toChannelTour(r: FeedRow): ChannelTour {
     included: Array.isArray(r.included) ? r.included as string[] : [],
     season_start: r.season_start,
     season_end: r.season_end,
+    price_unit: r.price_unit,
+    availability: catalogAvailability({
+      has_availability: r.has_availability,
+      season_start: r.season_start,
+      season_end: r.season_end,
+      duration_type: r.duration_type,
+      multi_day_count: r.multi_day_count,
+      duration_hours: r.duration_hours !== null ? Number(r.duration_hours) : null,
+    }),
     tripster_experience_id: r.tripster_experience_id,
     avito_listing_id: r.avito_listing_id,
     sputnik8_product_id: r.sputnik8_product_id,

@@ -13,6 +13,7 @@
  * Обновление: Яндекс перечитывает фид раз в 24 часа.
  */
 
+import { priceLine, priceUnitPhrase } from '@/lib/channels/price-line';
 import type { ChannelTour } from './types';
 import { stripTags } from '@/lib/html/text';
 import { absoluteUrl } from './avito';
@@ -108,6 +109,9 @@ export function seasonEnded(end: string | null, today: string = new Date().toISO
 function buildDescription(tour: ChannelTour): string {
   const parts: string[] = [];
 
+  // Цена с единицей — первой строкой: <price> несёт только число.
+  parts.push(priceLine(tour.base_price, tour.price_unit));
+
   const base = stripTags(tour.short_description ?? tour.description ?? '').trim();
   if (base) parts.push(base);
 
@@ -171,8 +175,15 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
     if (tour.location_name) {
       params.push(`      <param name="Место">${escapeXml(tour.location_name)}</param>`);
     }
+    const unit = priceUnitPhrase(tour.price_unit);
+    if (unit) {
+      params.push(`      <param name="Цена указана">${escapeXml(unit)}</param>`);
+    }
 
-    const available = seasonEnded(tour.season_end) ? 'false' : 'true';
+    // Правило дат — общее для каталога и обеих лент (catalogAvailability);
+    // своё сравнение с концом сезона — только если отбор его не посчитал.
+    const over = tour.availability ? tour.availability === 'season_over' : seasonEnded(tour.season_end);
+    const available = over ? 'false' : 'true';
     return `    <offer id="${tour.id}" available="${available}">
       <url>${escapeXml(`${SITE}/catalog/tours/${tour.id}`)}</url>
       <name>${escapeXml(tour.title.slice(0, 120))}</name>
@@ -182,7 +193,7 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
       <categoryId>${cat.id}</categoryId>
 ${pictures ? pictures + '\n' : ''}      <vendor>${escapeXml(tour.operator_name || 'Ведар')}</vendor>
       <vendorCode>${tour.id}</vendorCode>
-      <country_of_origin>Россия</country_of_origin>
+${unit ? `      <sales_notes>${escapeXml(`Цена ${unit}`.slice(0, 50))}</sales_notes>\n` : ''}      <country_of_origin>Россия</country_of_origin>
 ${params.join('\n')}
     </offer>`;
   }).join('\n\n');

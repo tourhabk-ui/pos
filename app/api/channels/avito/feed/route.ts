@@ -30,7 +30,10 @@ export async function GET() {
     const selection = await selectFeedTours();
     const tours = selection.tours;
 
-    const { xml, skipped } = generateAvitoXmlFeed(tours);
+    const { xml, skipped: allSkipped } = generateAvitoXmlFeed(tours);
+    // Сезон кончился — законный пропуск, а не поломка: считаем отдельно.
+    const seasonOver = allSkipped.filter((s) => s.reason === 'season_over');
+    const skipped = allSkipped.filter((s) => s.reason === 'no_category');
 
     // Готовый тур, которому не нашлось категории Авито, исчезал молча: он
     // проходил проверку готовности, доезжал до генератора и растворялся, а
@@ -55,6 +58,7 @@ export async function GET() {
         // «туров мало», а не как «туры не готовы».
         ...feedHeaders(selection),
         'X-Skipped-No-Category': String(skipped.length),
+        'X-Skipped-Season-Over': String(seasonOver.length),
         'X-Skipped-Types': [...new Set(skipped.map((s) => s.activity_type ?? 'null'))].join(',') || 'none',
         'Content-Type': 'application/xml; charset=utf-8',
         'Cache-Control': 'public, max-age=3600',  // кешируем 1 час

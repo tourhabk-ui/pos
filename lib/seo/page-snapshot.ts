@@ -142,8 +142,13 @@ export function snapshotPage(html: string, pageUrl: string): PageSnapshot {
   const body = html.match(/<body\b[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html;
   // stripTags снимает script и style вместе с телом — отдельной чистки не нужно.
   const visible = text(body);
-  for (const m of visible.matchAll(/(?:\+7|8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}/g)) {
-    phones.add(m[0].replace(/[^\d+]/g, '').replace(/^8/, '+7'));
+  // Цифры по краям запрещены: иначе «8 410…» внутри ОГРН 1184101002227
+  // читался телефоном (замер 30.09 на tourkamchatka.ru). Номер из одной
+  // повторённой цифры — маска поля формы «+7 (999) 999-99-99», не контакт.
+  for (const m of visible.matchAll(/(?<!\d)(?:\+7|8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)/g)) {
+    const phone = m[0].replace(/[^\d+]/g, '').replace(/^8/, '+7');
+    if (/^\+7(\d)\1{9}$/.test(phone)) continue;
+    phones.add(phone);
   }
   for (const m of visible.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g)) emails.add(m[0].toLowerCase());
 
