@@ -27,6 +27,7 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.doUnmock('@/lib/max/max-fetch');
   });
 
   it('401 без валидного cron-секрета', async () => {
@@ -42,7 +43,8 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
       }
       throw new Error('POST не должен вызываться, когда подписка уже есть');
     });
-    vi.stubGlobal('fetch', fetchMock);
+    // Запросы к API MAX идут через maxFetch (корень Минцифры) — подменяем его.
+    vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
 
     const res = await callRoute();
     const body = await res.json();
@@ -61,7 +63,8 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
       }
       return new Response(JSON.stringify({ subscriptions: [] }), { status: 200 });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    // Запросы к API MAX идут через maxFetch (корень Минцифры) — подменяем его.
+    vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
 
     const res = await callRoute();
     const body = await res.json();

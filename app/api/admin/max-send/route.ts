@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/auth/cron';
-import { Bot } from '@maxhub/max-bot-api';
+import { maxBot } from '@/lib/max/max-fetch';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,7 @@ const MaxSendSchema = z.object({
 function getApi() {
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) return null;
-  return new Bot(token).api;
+  return maxBot(token).api;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {

@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
-import { Bot } from '@maxhub/max-bot-api';
+import { maxBot } from '@/lib/max/max-fetch';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 
@@ -111,7 +111,7 @@ async function sendMaxMessage(chatId: number, text: string): Promise<void> {
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) return;
   try {
-    const bot = new Bot(token);
+    const bot = maxBot(token);
     await bot.api.sendMessageToChat(chatId, text);
   } catch { /* не блокируем */ }
 }

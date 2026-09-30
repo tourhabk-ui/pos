@@ -10,7 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Bot, type Api } from '@maxhub/max-bot-api';
+import type { Api } from '@maxhub/max-bot-api';
+import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
 import { registerOperatorMaxChatId, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
@@ -44,8 +45,7 @@ function getApi(): Api | null {
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) return null;
   if (!_api) {
-    const bot = new Bot(token);
-    _api = bot.api;
+    _api = maxBot(token).api;
   }
   return _api;
 }

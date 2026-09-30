@@ -7,7 +7,8 @@
  * Если MAX_CHANNEL_ID не задан — пропускаем постинг (не блокируем TG).
  */
 
-import { Bot, type Api } from '@maxhub/max-bot-api';
+import type { Api } from '@maxhub/max-bot-api';
+import { maxBot } from '@/lib/max/max-fetch';
 
 // ── Lazy API init ─────────────────────────────────────────────────────────────
 
@@ -17,8 +18,7 @@ function getApi(): Api | null {
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) return null;
   if (!_api) {
-    const bot = new Bot(token);
-    _api = bot.api;
+    _api = maxBot(token).api;
   }
   return _api;
 }

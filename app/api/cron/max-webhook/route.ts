@@ -14,6 +14,7 @@
  * Env: MAX_BOT_TOKEN, CRON_SECRET.
  */
 
+import { maxFetch } from '@/lib/max/max-fetch';
 import { NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -26,6 +27,18 @@ const MAX_API_BASE = 'https://platform-api2.max.ru';
 const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
 
 interface MaxSubscription { url?: string }
+
+/**
+ * Причина сетевого отказа. 223 прогона подряд писали только «fetch failed», и
+ * что это сертификат, а не сеть, выяснилось лишь чтением цепочки руками.
+ */
+function causeOf(err: unknown): string | null {
+  const c = err instanceof Error ? (err as Error & { cause?: unknown }).cause : null;
+  if (!c) return null;
+  const code = typeof c === 'object' && c !== null && 'code' in c ? String((c as { code: unknown }).code) : '';
+  const msg = c instanceof Error ? c.message : String(c);
+  return [code, msg].filter(Boolean).join(': ').slice(0, 200);
+}
 
 // URL с webhook-секретом (если задан MAX_WEBHOOK_SECRET) — см. lib/max/webhook-url.
 function expectedWebhookUrl(): string {
@@ -53,7 +66,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   let current: MaxSubscription[] = [];
   let listOk = false;
   try {
-    const res = await fetch(`${MAX_API_BASE}/subscriptions`, { method: 'GET', headers });
+    const res = await maxFetch(`${MAX_API_BASE}/subscriptions`, { method: 'GET', headers });
     listOk = res.ok;
     const data = await res.json().catch(() => ({}));
     // MAX может вернуть { subscriptions: [...] } или массив
@@ -61,7 +74,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     if (Array.isArray(raw)) current = raw as MaxSubscription[];
   } catch (err) {
     return NextResponse.json(
-      { ok: false, step: 'list', error: err instanceof Error ? err.message : 'fetch failed' },
+      { ok: false, step: 'list', error: err instanceof Error ? err.message : 'fetch failed', cause: causeOf(err) },
       { status: 502 },
     );
   }
@@ -82,7 +95,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   let registerStatus = 0;
   let registerResponse: unknown = null;
   try {
-    const res = await fetch(`${MAX_API_BASE}/subscriptions`, {
+    const res = await maxFetch(`${MAX_API_BASE}/subscriptions`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ url: webhookUrl, update_types: UPDATE_TYPES }),
@@ -97,7 +110,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     }
   } catch (err) {
     return NextResponse.json(
-      { ok: false, step: 'register', error: err instanceof Error ? err.message : 'fetch failed' },
+      { ok: false, step: 'register', error: err instanceof Error ? err.message : 'fetch failed', cause: causeOf(err) },
       { status: 502 },
     );
   }
