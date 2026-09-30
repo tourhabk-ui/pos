@@ -209,8 +209,8 @@ describe('дайджест не отдаёт ПД зарубежной моде�
  * водителю: перенести его некуда, пока у водителей нет адреса в MAX.
  */
 const TELEGRAM_PD_CENSUS: ReadonlyArray<{ file: string; why: string }> = [
-  { file: 'app/api/cron/route-escalation/route.ts',
-    why: 'ПД лидера группы уходят экстренному контакту почтой; это и есть назначение' },
+  { file: 'app/api/cron/checkin-watchdog/route.ts',
+    why: 'турист не вернулся к сроку, контакт недоступен в Telegram: имя и телефон контакта — в админ-чат владельца, чтобы позвонил человек (30.09; заменил снятый route-escalation)' },
   { file: 'app/api/cron/smart-notify/route.ts',
     why: 'имя пользователя в его же чате' },
   { file: 'app/api/hub/admin/support/tickets/[id]/route.ts',

@@ -4,6 +4,7 @@
  * Лестница: soft (спросить туриста) → hard (экстренный контакт) → mchs.
  */
 import { NextResponse } from 'next/server';
+import { sendEmail } from '@/lib/email';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
@@ -40,6 +41,7 @@ interface RegRow {
   emergency_contact_name: string;
   emergency_contact_phone: string;
   emergency_contact_telegram_chat_id: string | null;
+  emergency_contact_email: string | null;
   sent_steps: string[];
 }
 
@@ -63,7 +65,9 @@ async function sendTelegram(chatId: string, text: string): Promise<SendResult> {
     const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+      // Без parse_mode: текст тревоги — простой, а HTML-режим отвергал бы
+      // сообщение целиком из-за «<» в названии маршрута или имени.
+      body: JSON.stringify({ chat_id: chatId, text }),
     });
     const body = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
     if (res.ok && body?.ok) return { ok: true };
@@ -82,17 +86,40 @@ async function sendTelegram(chatId: string, text: string): Promise<SendResult> {
  * телефоном контакта: позвонить может человек, раз не смог бот.
  */
 async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Promise<void> {
+  const reasons: string[] = [];
+  let delivered = false;
+
   const contactChat = reg.emergency_contact_telegram_chat_id;
-  let reason = 'у контакта нет Telegram';
   if (contactChat) {
     const r = await sendTelegram(contactChat, msg);
     if (r.ok) {
+      delivered = true;
       await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone);
-      return;
+    } else {
+      reasons.push(`Telegram не доставлен (${r.error})`);
+      await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone, 'failed', r.error);
     }
-    reason = `Telegram контакту не доставлен (${r.error})`;
-    await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone, 'failed', r.error);
+  } else {
+    reasons.push('у контакта нет Telegram');
   }
+
+  // Почта — второй канал к контакту. Перенесена сюда 30.09 из снятого
+  // route-escalation: это была единственная полезная часть второго сторожа.
+  const email = reg.emergency_contact_email?.trim();
+  if (email) {
+    const e = await sendEmail({ to: email, subject: `Ведар: ${reg.leader_name} не вернулся к сроку`, text: msg });
+    if (e.success) {
+      delivered = true;
+      await recordNotification(reg.id, step, 'email', email);
+    } else {
+      reasons.push(`письмо не отправлено (${e.error ?? 'нет причины'})`);
+      await recordNotification(reg.id, step, 'email', email, 'failed', e.error);
+    }
+  }
+
+  if (delivered) return;
+
+  const reason = reasons.join('; ');
   const adminChatId = process.env.TELEGRAM_CHAT_ID;
   const adminText =
     `ПОЗВОНИТЕ КОНТАКТУ — ${reason}\n` +
@@ -191,6 +218,7 @@ export async function GET(req: Request) {
       r.emergency_contact_name,
       r.emergency_contact_phone,
       r.emergency_contact_telegram_chat_id::text,
+      r.emergency_contact_email,
       COALESCE(
         ARRAY(
           SELECT CASE n.step

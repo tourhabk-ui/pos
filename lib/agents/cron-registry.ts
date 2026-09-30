@@ -206,12 +206,6 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 120, tier: 'ops', agentId: 'support-escalate', triggerable: false,
   },
   {
-    key: 'route-escalation', label: 'Route Escalation',
-    description: 'Маршруты без ответа.',
-    workflow: 'cron-route-escalation.yml', cron: '30 */2 * * *', schedule: 'каждые 2 ч',
-    everyMin: 120, tier: 'ops', agentId: 'route-escalation', triggerable: false,
-  },
-  {
     key: 'document-expiry', label: 'Document Expiry',
     description: 'Истекающие документы туриста (30 дней) → одно напоминание в TG.',
     workflow: 'cron-document-expiry.yml', cron: '30 5 * * *', schedule: 'ежедневно · 05:30 UTC',
@@ -531,7 +525,6 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // запросов не было. Поломка видна иначе — HTTP не 200 валит шаг сразу.
   'seat-requests-expire': 'normal',
   'support-escalate': 'unknown',
-  'route-escalation': 'unknown',
   'tour-reminder': 'unknown',
   'tour-review-request': 'unknown',
   'trip-reminders': 'unknown',
