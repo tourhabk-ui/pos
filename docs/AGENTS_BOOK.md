@@ -15,7 +15,7 @@
    - [Rescue Agent](#3-rescue-agent--агент-спасения)
    - [Danger Analyst](#4-danger-analyst--аналитик-опасности)
    - [Checkin Watchdog](#5-checkin-watchdog--контроль-регистрации)
-   - [Route Escalation](#6-route-escalation--эскалация-маршрутов)
+   - [Route Escalation — снят](#6-route-escalation--снят-3009)
    - [SOS Events Bridge](#7-sos-events-bridge--мост-sos-событий)
 3. [Часть II — Контент и знания](#часть-ii)
    - [Editor](#8-editor--редактор-маршрутов)
@@ -350,29 +350,15 @@ ORDER BY created_at DESC LIMIT 20;
 
 ---
 
-### 6. Route Escalation — Эскалация маршрутов
+### 6. Route Escalation — снят 30.09
 
-**Файл:** `app/api/cron/route-escalation/route.ts`  
-**Workflow:** (встроен в cron-checkin-watchdog.yml или отдельный)  
-**Расписание:** каждый час
-
-#### Что делает
-
-4-ступенчатая эскалация по времени суток для просроченных маршрутных регистраций:
-- Ранние часы (00–06): только email
-- Дневные (06–20): email + Telegram
-- Вечерние (20–24): Telegram + звонок
-
-Дублирует и расширяет логику Checkin Watchdog для маршрутов с официальной регистрацией в МЧС.
-
-#### Настройка
-
-```env
-CRON_SECRET=<секрет>
-TELEGRAM_BOT_TOKEN=<токен>
-TELEGRAM_CHAT_ID=<чат>
-# + email service env vars
-```
+Был вторым сторожем невозвращения рядом с Checkin Watchdog: своя лестница по
+календарным дням и часу UTC, без контрольного времени, отметок «я в порядке» и
+последней точки, и своя нумерация шагов в той же `route_registration_notifications`
+— контакту могли уходить дубли. Напоминания туристу в Telegram не доходили никогда:
+`users.telegram_chat_id` не пишет ни один путь. Единственная полезная часть —
+письмо экстренному контакту — перенесена в Checkin Watchdog вторым каналом.
+Судья невозвращения теперь один: `app/api/cron/checkin-watchdog`.
 
 ---
 
@@ -1506,7 +1492,7 @@ CLOUDPAYMENTS_SECRET=
 | `external_alerts` | safety-ingest |
 | `location_real_time_status` | safety-ingest |
 | `sos_events` | sos-events-bridge |
-| `route_registration_notifications` | checkin-watchdog, route-escalation, support-escalate |
+| `route_registration_notifications` | checkin-watchdog, support-escalate |
 | `agent_run_history` | safety-ingest, intelligence, telegram-webhook-watchdog, watchdog |
 | `ai_actions_log` | intelligence, health |
 | `danger_assessments` | danger-analyst-agency (TTL 2ч) |

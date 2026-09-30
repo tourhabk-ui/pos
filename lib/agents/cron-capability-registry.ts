@@ -225,7 +225,6 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'route-desc-census': ['db_read', 'db_write', 'net_out', 'ai'],
   'route-desc-read': ['db_read'],
   'route-endpoints': ['db_read', 'db_write', 'net_out', 'ai'],
-  'route-escalation': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'route-family-merge': ['db_read', 'db_write'],
   'route-fields-backfill': ['db_read'],
   'route-geometry-census': ['db_read'],

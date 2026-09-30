@@ -11,6 +11,8 @@ import { join } from 'node:path';
 import {
   decideEscalation,
   resolveControlTime,
+  kamchatkaWallTime,
+  ymdOfDate,
   tripKindFromDates,
   buildEscalationMessage,
   formatPositionText,
@@ -104,11 +106,23 @@ describe('decideEscalation', () => {
     expect(decideEscalation(T0, 'day', ['soft', 'hard', 'mchs'], null, hoursAfter(10))).toBeNull();
   });
 
-  it('resolveControlTime: без expected_return_at — end_date 20:00', () => {
-    const end = new Date('2026-07-19T00:00:00');
-    expect(resolveControlTime(end, null).getHours()).toBe(20);
-    const explicit = new Date('2026-07-19T16:30:00');
-    expect(resolveControlTime(end, explicit)).toEqual(explicit);
+  it('resolveControlTime: без expected_return_at — end_date 20:00 ПО КАМЧАТКЕ, не по часам сервера', () => {
+    // До 30.09 здесь стояло getHours() === 20 — то есть 20:00 по поясу Node
+    // (на проде UTC), на 12 часов позже камчатских 20:00.
+    expect(resolveControlTime('2026-07-19', null).toISOString()).toBe('2026-07-19T08:00:00.000Z');
+    const explicit = new Date('2026-07-19T16:30:00+12:00');
+    expect(resolveControlTime('2026-07-19', explicit)).toEqual(explicit);
+  });
+
+  it('kamchatkaWallTime: «вернусь в 19:00» — 19:00 на Камчатке, при любом поясе сервера', () => {
+    expect(kamchatkaWallTime('2026-10-04', '19:00').toISOString()).toBe('2026-10-04T07:00:00.000Z');
+    // Раннее утро по Камчатке — ещё вчера по UTC.
+    expect(kamchatkaWallTime('2026-10-04', '06:30').toISOString()).toBe('2026-10-03T18:30:00.000Z');
+  });
+
+  it('ymdOfDate: DATE из node-pg (локальная полночь) и строка дают одну дату', () => {
+    expect(ymdOfDate('2026-10-04')).toBe('2026-10-04');
+    expect(ymdOfDate(new Date(2026, 9, 4))).toBe('2026-10-04');
   });
 
   it('tripKindFromDates: одна дата — day, разные — multi', () => {
