@@ -210,9 +210,9 @@ describe('дайджест не отдаёт ПД зарубежной моде�
  */
 const TELEGRAM_PD_CENSUS: ReadonlyArray<{ file: string; why: string }> = [
   { file: 'app/api/cron/checkin-watchdog/route.ts',
-    why: 'турист не вернулся к сроку, контакт недоступен в Telegram: имя и телефон контакта — в админ-чат владельца, чтобы позвонил человек (30.09; заменил снятый route-escalation)' },
+    why: 'контроль по форме /register: тревога о невернувшемся уходит экстренному контакту в ЕГО Telegram, который он сам дал в форме, — с именем и телефоном туриста. Дежурному данные идут только через alertDuty (MAX), в Telegram — заглушка. Разд. 5 политики конфиденциальности такой передачи не называет — вопрос владельцу и юристу (docs/safety/WATCH_DESIGN.md)' },
   { file: 'lib/safety/trip-watch.ts',
-    why: 'отбой и «турист на связи» после тревоги: имя туриста — его же экстренному контакту и в админ-чат владельца, только тем, кому тревога уже ушла (манифест контроля выхода, правило 10)' },
+    why: 'отбой и «турист на связи» после тревоги: имя туриста — экстренному контакту в его Telegram (только у контроля по форме и только если тревога ему уже ушла); дежурному — через sendPdAlert. Та же передача, что у сторожа, тот же открытый вопрос к разд. 5 политики (docs/safety/WATCH_DESIGN.md)' },
   { file: 'app/api/cron/smart-notify/route.ts',
     why: 'имя пользователя в его же чате' },
   { file: 'app/api/hub/admin/support/tickets/[id]/route.ts',
@@ -251,14 +251,19 @@ describe('перепись ПД в Telegram только сокращается'
   sourceFiles(join(root, 'app'), files);
   sourceFiles(join(root, 'lib'), files);
 
+  // Файлы под точным правилом (PD_FILES) сюда не попадают: у них гарантия
+  // строже, чем «в файле нет ПД рядом с Telegram». Одного импорта sendPdAlert
+  // для исключения мало: файл, который зовёт дверь для дежурного, а контакту
+  // шлёт ПД в Telegram мимо неё, иначе не проверялся бы ничем — так 30.09
+  // выпал из обеих сетей lib/safety/trip-watch.ts.
+  const strict = new Set(PD_FILES.map((p) => p.file));
   const actual = files
-    .filter((f) => {
+    .map((f) => ({ f, rel: relative(root, f).split('\\').join('/') }))
+    .filter(({ f, rel }) => {
       const src = readFileSync(f, 'utf8');
-      // Файлы под точным правилом (импортируют sendPdAlert) сюда не попадают:
-      // у них гарантия строже, чем «в файле нет ПД рядом с Telegram».
-      return TELEGRAM_SEND.test(src) && PD_ANY.test(src) && !/sendPdAlert/.test(src);
+      return TELEGRAM_SEND.test(src) && PD_ANY.test(src) && !strict.has(rel);
     })
-    .map((f) => relative(root, f).split('\\').join('/'))
+    .map(({ rel }) => rel)
     .sort();
 
   it('новых файлов с ПД в Telegram не появилось', () => {

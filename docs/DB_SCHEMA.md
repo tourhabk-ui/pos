@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3361 |
+| Колонок | 3363 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 74 |
 
@@ -357,9 +357,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `registration_id uuid` `step integer!` `channel varchar!` `recipient text!` `status varchar=` `error_message text` `sent_at timestamptz` `created_at timestamptz=`
 
-**route_registrations** · 38 кол. · PK id · user_id → users.id · на неё ссылаются: route_registration_notifications, tracker_links · индексов 8
+**route_registrations** · 40 кол. · PK id · user_id → users.id · на неё ссылаются: route_registration_notifications, tracker_links · индексов 8
 
-`id uuid!=` `user_id uuid` `route_name text!` `route_description text` `start_date date!` `end_date date!` `region text!=` `group_size integer!` `group_members jsonb` `leader_name text!` `leader_phone text!` `leader_email text` `emergency_contact_name text!` `emergency_contact_phone text!` `emergency_contact_relation text` `emergency_contact_telegram_chat_id bigint` `emergency_contact_email text` `emergency_contact_consent boolean=` `emergency_contact_consent_at timestamptz` `mchs_status varchar=` `mchs_reference text` `submitted_at timestamptz` `completed_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `expected_return_at timestamptz` `trip_kind varchar=` `last_position_lat numeric` `last_position_lng numeric` `last_position_at timestamptz` `checkin_confirmed_at timestamptz` `reminder_sent boolean!=` `mchs_informed_at timestamptz` `last_position_source text` `source text!=` `tourist_chat_channel text` `tourist_chat_id bigint` `closed_by text`
+`id uuid!=` `user_id uuid` `route_name text!` `route_description text` `start_date date!` `end_date date!` `region text!=` `group_size integer!` `group_members jsonb` `leader_name text!` `leader_phone text!` `leader_email text` `emergency_contact_name text!` `emergency_contact_phone text!` `emergency_contact_relation text` `emergency_contact_telegram_chat_id bigint` `emergency_contact_email text` `emergency_contact_consent boolean=` `emergency_contact_consent_at timestamptz` `mchs_status varchar=` `mchs_reference text` `submitted_at timestamptz` `completed_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `expected_return_at timestamptz` `trip_kind varchar=` `last_position_lat numeric` `last_position_lng numeric` `last_position_at timestamptz` `checkin_confirmed_at timestamptz` `reminder_sent boolean!=` `mchs_informed_at timestamptz` `last_position_source text` `source text!=` `tourist_chat_channel text` `tourist_chat_id bigint` `closed_by text` `closed_reason text` `ladder_reset_at timestamptz`
 
 **safety_alerts** · 12 кол. · PK id · created_by → users.id · индексов 3 · триггеры: trg_safety_alerts_updated_at
 

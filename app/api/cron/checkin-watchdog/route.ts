@@ -1,11 +1,13 @@
 /**
  * GET /api/cron/checkin-watchdog
  * Почасовой сторож маршрутов: эскалирует по лестнице при просрочке возврата.
- * Лестница: soft (спросить туриста) → hard (экстренный контакт) → mchs.
+ * Лестница: soft (спросить туриста) → hard (экстренный контакт) → mchs
+ * (дежурный решает, передавать ли в МЧС). Правила — docs/safety/WATCH_MANIFEST.md.
  */
 import { NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/email';
 import { maxSendDm } from '@/lib/notifications/max-channel';
+import { alertDuty, dutyStub, announceClosure } from '@/lib/safety/trip-watch';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
@@ -28,6 +30,8 @@ import type { EscalationStep, PositionSource } from '@/lib/safety/checkin-escala
 export const dynamic = 'force-dynamic';
 
 const SITE_BASE = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
+/** Сколько дел за прогон. Полная пачка — прогон красный: за ней могли остаться люди. */
+const WATCHDOG_BATCH = 100;
 
 interface RegRow {
   id: string;
@@ -47,8 +51,10 @@ interface RegRow {
   emergency_contact_phone: string;
   emergency_contact_telegram_chat_id: string | null;
   emergency_contact_email: string | null;
-  source: 'form' | 'telegram' | 'max';
-  tourist_chat_channel: 'tg' | 'max' | null;
+  last_position_at: Date | null;
+  group_size: number | null;
+  source: 'form' | 'max';
+  tourist_chat_channel: 'max' | null;
   tourist_chat_id: string | null;
   sent_steps: string[];
 }
@@ -77,9 +83,8 @@ async function sendTelegram(chatId: string, text: string): Promise<SendResult> {
  * человеку ночью, должен это знать (правило 4: решение за ним).
  */
 function sourceNote(reg: RegRow): string {
-  if (reg.source === 'telegram' || reg.source === 'max') {
-    const where = reg.source === 'telegram' ? 'Telegram' : 'MAX';
-    return `Контроль поставлен из чата Кузьмича (${where}); телефоны введены туристом и кодом не подтверждены.\n`;
+  if (reg.source === 'max') {
+    return 'Контроль поставлен из чата Кузьмича в MAX; имя — из профиля MAX, телефоны введены туристом и кодом не подтверждены.\n';
   }
   return 'Контроль поставлен формой /register.\n';
 }
@@ -114,7 +119,7 @@ async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Pr
   // route-escalation: это была единственная полезная часть второго сторожа.
   const email = reg.emergency_contact_email?.trim();
   if (email) {
-    const e = await sendEmail({ to: email, subject: `Ведар: ${reg.leader_name} не вернулся к сроку`, text: msg });
+    const e = await sendEmail({ to: email, subject: `Ведар: турист ${reg.leader_name} не вернулся к сроку`, text: msg });
     if (e.success) {
       delivered = true;
       await recordNotification(reg.id, step, 'email', email);
@@ -127,25 +132,27 @@ async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Pr
   if (delivered) return;
 
   const reason = reasons.join('; ');
-  const adminChatId = process.env.TELEGRAM_CHAT_ID;
   const adminText =
     `ПОЗВОНИТЕ КОНТАКТУ — ${reason}\n` +
     `${reg.emergency_contact_name}: ${reg.emergency_contact_phone}\n` +
     sourceNote(reg) + `\n${msg}`;
-  const a = adminChatId ? await sendTelegram(adminChatId, adminText) : { ok: false as const, error: 'TELEGRAM_CHAT_ID не задан' };
-  if (a.ok) {
+  // Дежурному — данные только в MAX, в Telegram — заглушка без них
+  // (политика конфиденциальности, разд. 5; lib/safety/trip-watch.ts alertDuty).
+  const a = await alertDuty(adminText, dutyStub(reg.id, 'позвоните контакту'));
+  if (a.delivered) {
     await recordNotification(reg.id, step, 'admin_only', 'admin');
   } else {
-    // Не дошло никуда — это громко в лог и `skipped`, чтобы лестница не встала:
-    // следующая ступень (в итоге МЧС-тревога) важнее повторов этой.
-    console.error('[checkin-watchdog] шаг не доставлен никому', { registrationId: reg.id, step, reason, admin: a.error });
-    await recordNotification(reg.id, step, 'none', reg.emergency_contact_phone, 'skipped', `${reason}; админ: ${a.error}`);
+    // Не дошло до дежурного с данными — это громко в лог и `failed`: шаг
+    // повторится следующим прогоном. Лестница при этом не встаёт — старшая
+    // ступень берётся, как только назреет (checkin-escalation.ts).
+    console.error('[checkin-watchdog] шаг не доставлен никому', { registrationId: reg.id, step, reason, duty: a.reason });
+    await recordNotification(reg.id, step, 'none', 'admin', 'failed', `${reason}; дежурный: ${a.reason}`);
   }
 }
 
 /**
- * Первая ступень — туристу в его чат (Telegram или MAX), если контроль
- * поставлен из чата. true — канал подтвердил доставку.
+ * Первая ступень — туристу в его чат MAX, если контроль поставлен из чата.
+ * true — канал подтвердил доставку.
  */
 async function wakeTourist(reg: RegRow, controlTime: Date, tripKind: 'day' | 'multi'): Promise<boolean> {
   const b = BUFFERS[tripKind];
@@ -159,15 +166,16 @@ async function wakeTourist(reg: RegRow, controlTime: Date, tripKind: 'day' | 'mu
     contactByDuty: !reg.emergency_contact_telegram_chat_id && !reg.emergency_contact_email,
   });
   const chatId = reg.tourist_chat_id ?? '';
-  const r: SendResult = reg.tourist_chat_channel === 'max'
-    ? await maxSendDm(chatId, escapeHtml(text)).then((x) => (x.ok ? { ok: true as const } : { ok: false as const, error: x.error ?? 'MAX не ответил' }))
-    : await sendTelegram(chatId, text);
-  const channel = reg.tourist_chat_channel === 'max' ? 'max' : 'telegram';
+  // У `maxSendDm` своего предела нет: зависший MAX держал бы всю очередь.
+  const r: SendResult = await Promise.race([
+    maxSendDm(chatId, escapeHtml(text)).then((x) => (x.ok ? { ok: true as const } : { ok: false as const, error: x.error ?? 'MAX не ответил' })),
+    new Promise<SendResult>((resolve) => setTimeout(() => resolve({ ok: false, error: 'MAX не ответил за 10 с' }), 10_000)),
+  ]);
   if (r.ok) {
-    await recordNotification(reg.id, 'soft', channel, 'tourist');
+    await recordNotification(reg.id, 'soft', 'max', 'tourist');
     return true;
   }
-  await recordNotification(reg.id, 'soft', channel, 'tourist', 'failed', r.error);
+  await recordNotification(reg.id, 'soft', 'max', 'tourist', 'failed', r.error);
   return false;
 }
 
@@ -208,7 +216,9 @@ function buildMessage(
         reg.last_position_lat,
         reg.last_position_lng,
         reg.last_position_source,
+        reg.last_position_at ? new Date(reg.last_position_at) : null,
       ),
+      groupSize: reg.group_size,
       returnUrl: `${SITE_BASE}/return?id=${reg.id}`,
       // Вторая ссылка — для живой группы, которая просто задерживается. Без
       // неё единственным способом снять тревогу была отметка о ВОЗВРАТЕ, то
@@ -249,6 +259,8 @@ export async function GET(req: Request) {
       r.last_position_lat::text,
       r.last_position_lng::text,
       r.last_position_source,
+      r.last_position_at,
+      r.group_size,
       r.leader_name,
       r.leader_phone,
       r.emergency_contact_name,
@@ -265,6 +277,7 @@ export async function GET(req: Request) {
           END
           FROM route_registration_notifications n
           WHERE n.registration_id = r.id AND n.status IN ('sent', 'skipped')
+            AND (r.ladder_reset_at IS NULL OR n.sent_at >= r.ladder_reset_at)
           ORDER BY n.step
         ),
         ARRAY[]::text[]
@@ -276,9 +289,20 @@ export async function GET(req: Request) {
         OR
         r.expected_return_at IS NULL AND r.end_date < $2
       )
+      -- Дело, дошедшее до дежурного (ступень МЧС ушла после последнего
+      -- продления), сторожу больше не принадлежит: оно у человека. Без этого
+      -- сто забытых отметок навсегда занимали голову выборки, и новый
+      -- невернувшийся в неё не попадал вовсе (разбор противником, 30.09).
+      AND NOT EXISTS (
+        SELECT 1 FROM route_registration_notifications n
+         WHERE n.registration_id = r.id AND n.step = 3 AND n.status IN ('sent', 'skipped')
+           AND (r.ladder_reset_at IS NULL OR n.sent_at >= r.ladder_reset_at)
+      )
     ORDER BY COALESCE(r.expected_return_at, r.end_date::timestamptz) ASC
-    LIMIT 100
-  `, [now, now]);
+    LIMIT $3
+  `, [now, now, WATCHDOG_BATCH]);
+  // Полная пачка — значит, за ней могли остаться люди. Это не успех.
+  const tail = rows.length === WATCHDOG_BATCH;
 
   let processed = 0;
   let escalated = 0;
@@ -314,20 +338,31 @@ export async function GET(req: Request) {
     } else if (step === 'soft' || step === 'hard') {
       await notifyContact(reg, step, msg);
     } else {
-      // mchs — уведомляем admin-чат для ручной передачи в МЧС
-      const adminChatId = process.env.TELEGRAM_CHAT_ID;
-      const r = adminChatId
-        ? await sendTelegram(adminChatId, `МЧС-ТРЕВОГА\n${sourceNote(reg)}\n${msg}`)
-        : { ok: false as const, error: 'TELEGRAM_CHAT_ID не задан' };
-      if (r.ok) {
-        await recordNotification(reg.id, step, 'telegram', 'admin');
+      // mchs — дежурному для решения о передаче в МЧС: данные в MAX,
+      // заглушка без данных в Telegram (alertDuty).
+      const r = await alertDuty(`МЧС-ТРЕВОГА\n${sourceNote(reg)}\n${msg}`, dutyStub(reg.id, 'МЧС-ТРЕВОГА, решение за дежурным'));
+      if (r.delivered) {
+        await recordNotification(reg.id, step, 'max', 'admin');
       } else {
-        // МЧС-тревога, не дошедшая до человека, — самый тяжёлый отказ крона:
-        // не `skipped` (тогда следующий прогон её не повторит), а `failed`,
-        // и прогон краснеет (failed++ ниже через throw).
-        await recordNotification(reg.id, step, 'none', 'admin', 'failed', r.error);
-        throw new Error(`МЧС-тревога не доставлена: ${r.error}`);
+        // МЧС-тревога, не дошедшая до человека с данными, — самый тяжёлый
+        // отказ крона: не `skipped` (тогда следующий прогон её не повторит),
+        // а `failed`, и прогон краснеет (failed++ ниже через throw).
+        await recordNotification(reg.id, step, 'none', 'admin', 'failed', r.reason);
+        throw new Error(`МЧС-тревога не доставлена: ${r.reason}`);
       }
+    }
+
+    // Турист мог написать «вернулся», пока шаг уходил: весть об отбое тогда
+    // разослана раньше, чем этот шаг записан, и до его адресата не дойдёт.
+    // Перепроверяем и догоняем отбоем (разбор противником, 30.09).
+    const after = await query<{ completed_at: Date | null; closed_by: string | null; closed_reason: string | null }>(
+      `SELECT completed_at, closed_by, closed_reason FROM route_registrations WHERE id = $1`,
+      [reg.id],
+    );
+    const closed = after.rows[0];
+    if (closed?.completed_at) {
+      const reason = closed.closed_reason === 'returned' || closed.closed_reason === 'cancelled' ? closed.closed_reason : null;
+      await announceClosure(reg.id, closed.closed_by === 'link' ? 'link' : 'chat', reason);
     }
 
     escalated++;
@@ -366,11 +401,16 @@ export async function GET(req: Request) {
   // Пропущенные люди — это НЕ успех. Прогон, где кого-то не обработали,
   // помечается failed: иначе сторож ляжет наполовину, а реестр кронов будет
   // показывать здоровье.
+  if (tail) console.error('[checkin-watchdog] пачка полная — за ней могли остаться просроченные', { batch: WATCHDOG_BATCH });
+  const problems = [
+    failed > 0 ? `не обработано туристов: ${failed}` : '',
+    tail ? `пачка ${WATCHDOG_BATCH} полная — очередь не исчерпана` : '',
+  ].filter(Boolean).join('; ');
   recordCronRun(
     'checkin-watchdog',
     startedAt,
-    failed > 0 ? 'failed' : 'success',
-    { items: processed, ...(failed > 0 ? { error: `не обработано туристов: ${failed}` } : {}) },
+    problems ? 'failed' : 'success',
+    { items: processed, ...(problems ? { error: problems } : {}) },
   );
-  return NextResponse.json({ success: failed === 0, processed, escalated, failed, ts: now.toISOString() });
+  return NextResponse.json({ success: !problems, processed, escalated, failed, tail, ts: now.toISOString() });
 }

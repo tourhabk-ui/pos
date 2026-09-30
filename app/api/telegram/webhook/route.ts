@@ -31,6 +31,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
+import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
@@ -1153,6 +1154,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       await sendHTML(chatId, result.ok ? '✅ Пост опубликован.' : `❌ Ошибка: ${result.error ?? 'неизвестная'}`);
+      return NextResponse.json({ ok: true });
+    }
+
+    // Контроль выхода в Telegram не ставится: он собирает телефоны, а
+    // политика конфиденциальности (разд. 5) обещает, что их здесь нет. На
+    // разговор о нём — куда идти (lib/kuzmich/watch-flow.ts). Раньше эвристики
+    // телефона ниже: «сообщите маме +7 914 …» иначе стало бы заявкой на тур.
+    const watchRedirect = telegramWatchRedirect(text);
+    if (watchRedirect) {
+      await sendHTML(chatId, watchRedirect);
       return NextResponse.json({ ok: true });
     }
 

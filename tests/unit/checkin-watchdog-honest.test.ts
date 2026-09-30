@@ -41,7 +41,7 @@ describe('доставка тревоги', () => {
 
   it('недоставленная МЧС-тревога — failed и красный прогон, не skipped', () => {
     const mchs = SRC.slice(SRC.indexOf('МЧС-ТРЕВОГА'), SRC.indexOf('escalated++'));
-    expect(mchs).toMatch(/'failed', r\.error\)/);
+    expect(mchs).toMatch(/'failed', r\.reason\)/);
     expect(mchs).toContain('throw new Error');
     expect(mchs).not.toMatch(/'skipped'/);
   });

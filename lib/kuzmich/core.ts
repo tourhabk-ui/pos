@@ -43,7 +43,7 @@ import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { redactPII } from '@/lib/security/pii-redact';
-import { handleWatchMessage, deleteWatchDraft } from '@/lib/kuzmich/watch-flow';
+import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -2445,8 +2445,14 @@ export async function processMessage(opts: {
   visionDescription?: string;
   platform?: 'tg' | 'max';
   afterReply?: (chatId: number, answer?: string) => Promise<void>;
+  /**
+   * Апдейт пришёл на вебхук с нашим секретом. Контроль выхода без этого
+   * ничего не меняет: вебхук MAX принимает обычные сообщения от кого угодно,
+   * и поддельное «вернулся» закрыло бы чужой контроль (разбор противником).
+   */
+  verifiedOrigin?: boolean;
 }): Promise<void> {
-  const { chatId, text, userName, userId, mode, createdVia, pending: pendingMap, reply: replyFn, visionDescription, platform, afterReply } = opts;
+  const { chatId, text, userName, userId, mode, createdVia, pending: pendingMap, reply: replyFn, visionDescription, platform, afterReply, verifiedOrigin } = opts;
   const cmd = text.split(' ')[0]?.toLowerCase() ?? '';
 
   // /start
@@ -2483,8 +2489,8 @@ export async function processMessage(opts: {
       '"опасно ли сейчас на Мутновском?"',
       '',
       '<b>Безопасность:</b>',
-      '"иду на Чёртов мост, вернусь к 19:00, если задержусь — сообщите Марине +7 914 …" → поставлю на контроль выхода',
-      '"вернулся" → закрою контроль',
+      '"иду на Чёртов мост, вернусь к 19:00, если задержусь — сообщите Марине +7 914 …" → поставлю на контроль выхода (в MAX)',
+      '"вернулся" → закрою контроль, "+2 ч" → перенесу срок',
       'SOS → vedarai.ru → кнопка SOS',
       'Экстренная: 112 — работает без баланса и SIM',
       '',
@@ -2498,7 +2504,7 @@ export async function processMessage(opts: {
   // /reset
   if (cmd === '/reset') {
     await deleteBookingFlow(chatId, mode, pendingMap);
-    if (platform) {
+    if (platform === 'max') {
       await deleteWatchDraft(platform, chatId).catch((err) =>
         console.error('[kuzmich] черновик контроля не удалён', logText(platform), logText(chatId), logText(err instanceof Error ? err.message : err)));
     }
@@ -2517,9 +2523,18 @@ export async function processMessage(opts: {
   // черновик и его подтверждение. Раньше брони: у открытого контроля
   // «вернулся» — самое важное сообщение чата. Решения здесь принимает код,
   // а не модель (docs/safety/WATCH_MANIFEST.md, правило 3).
-  if (platform && !isMediaMessage) {
+  if (platform === 'tg' && !isMediaMessage) {
+    // В Telegram контроль не ставится: он собирает телефоны, а политика
+    // конфиденциальности обещает, что их там нет. Говорим, где поставить.
+    const redirect = telegramWatchRedirect(text);
+    if (redirect) {
+      await replyFn(chatId, redirect);
+      return;
+    }
+  }
+  if (platform === 'max' && !isMediaMessage) {
     try {
-      if (await handleWatchMessage({ channel: platform, chatId, text, userName, reply: replyFn })) return;
+      if (await handleWatchMessage({ channel: platform, chatId, text, userName, reply: replyFn, verified: verifiedOrigin === true })) return;
     } catch (err) {
       // Сбой контроля не должен молча превратиться в обычный ответ модели:
       // человек, написавший «вернулся», обязан узнать, что отметка не прошла.

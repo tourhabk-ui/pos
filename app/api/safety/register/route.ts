@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kamchatkaWallTime } from '@/lib/safety/checkin-escalation';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
 import { createTripWatch } from '@/lib/safety/trip-watch';
 import { verifyAuth } from '@/lib/auth';
@@ -127,7 +129,14 @@ function generateRegistrationPDF(data: z.infer<typeof RegistrationSchema>): Prom
  * POST /api/safety/register
  * Создаёт регистрацию маршрута + возвращает PDF
  */
+// Регистрация открыта без входа — предел на адрес, иначе поток выдуманных
+// контролей завалил бы дежурного тревогами.
+const limiter = createRateLimiter({ windowMs: 60_000, max: 5 });
+
 export async function POST(request: NextRequest) {
+  if (!limiter.check(getClientIp(request.headers))) {
+    return NextResponse.json({ success: false, error: 'Слишком часто — подождите минуту' }, { status: 429 });
+  }
   const auth = await verifyAuth(request).catch(() => ({
     isAuthenticated: false,
     userId: null,
@@ -151,6 +160,16 @@ export async function POST(request: NextRequest) {
   }
 
   const data = validation.data;
+
+  // Срок в прошлом — это не контроль, а мгновенная МЧС-тревога дежурному:
+  // сто таких запросов за минуту ослепляли сторожа (разбор противником, 30.09).
+  const today = kamchatkaDate(new Date());
+  if (data.end_date < today || data.start_date > data.end_date) {
+    return NextResponse.json(
+      { success: false, error: 'Проверьте даты: окончание не раньше сегодняшнего дня и не раньше начала.' },
+      { status: 400 },
+    );
+  }
 
   // Сохраняем в БД
   // Строим expected_return_at из end_date + expected_return_time (если задано)

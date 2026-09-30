@@ -345,6 +345,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       pending,
       reply: capturingStart,
       platform: 'max',
+      verifiedOrigin: opts?.verifiedOrigin === true,
     });
     if (capturedStart) {
       await maxReplyWithButtons(update.chat_id, 'Выберите тему или задайте вопрос:', START_MENU);
@@ -386,6 +387,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         userName, userId, mode: 'max',
         createdVia: 'max', pending, reply: maxReply, visionDescription,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       return;
     }
@@ -419,6 +421,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         chatId, text: transcription, userName, userId,
         mode: 'max', createdVia: 'max_voice', pending, reply: maxReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       return;
     }
@@ -491,6 +494,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         chatId, text, userName, userId,
         mode: 'max', createdVia: 'max', pending, reply: capturingReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       if (capturedReply && hasTourRecommendation(capturedReply)) {
         await maxReplyWithButtons(chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
@@ -565,6 +569,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         chatId: resolvedChatId, text: topicText, userName, userId,
         mode: 'max', createdVia: 'max', pending, reply: capturingReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       if (capturedReply && hasTourRecommendation(capturedReply)) {
         await maxReplyWithButtons(resolvedChatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
@@ -590,6 +595,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         userName, userId,
         mode: 'max', createdVia: 'max', pending, reply: maxReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       return;
     }

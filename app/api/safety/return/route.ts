@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, message: 'Возврат уже отмечен', already_completed: true });
   }
 
-  await closeTripWatch(registration_id, 'link');
+  await closeTripWatch(registration_id, 'link', 'returned');
 
   return NextResponse.json({
     success: true,
