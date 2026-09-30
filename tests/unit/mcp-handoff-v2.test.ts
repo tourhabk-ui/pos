@@ -28,7 +28,7 @@ const GPX = read('app/api/trips/share/[token]/gpx/route.ts');
 describe('цели v2: резолв — той же функцией, что у инструмента', () => {
   it('туры — через resolveTourByQuery, своего ILIKE в targets нет', () => {
     expect(TARGETS).toMatch(/resolveTourByQuery/);
-    expect(TARGETS).toMatch(/\/catalog\/tours\/\$\{tour\.id\}/);
+    expect(TARGETS).toMatch(/tourPath\(tour\)/);
     expect(TARGETS).not.toMatch(/ILIKE/);
     expect(TARGETS).not.toMatch(/pool\.query/);
   });

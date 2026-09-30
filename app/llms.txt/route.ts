@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { tourPath } from '@/lib/tours/tour-url';
 import { pool } from '@/lib/db-pool';
 import { NOT_MERGED } from '@/lib/places/aliases';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
@@ -38,10 +39,10 @@ export async function GET() {
   // Живой каталог туров — аудит «как ИИ видят Ведар» (08.08): манифест был
   // силён по местам и слеп по коммерции, модели видели «энциклопедию
   // Камчатки», а не витрину продаж. Витринные флаги — как у sitemap и MCP.
-  let tours: { id: string; title: string; base_price: string; activity_type: string | null; operator_name: string | null }[] = [];
+  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null }[] = [];
   try {
     const { rows } = await pool.query<typeof tours[number]>(`
-      SELECT ot.id, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name
+      SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name
       FROM operator_tours ot
       LEFT JOIN partners p ON p.id = ot.operator_id
       WHERE ot.is_active = TRUE AND ot.deleted_at IS NULL
@@ -92,7 +93,7 @@ export async function GET() {
     .join('\n\n');
 
   const tourLines = tours
-    .map((t) => `- [${t.title}](${BASE}/catalog/tours/${t.id}) — от ${Number(t.base_price).toLocaleString('ru-RU')} ₽${t.activity_type ? ` (${activityLabel(t.activity_type)})` : ''}${t.operator_name ? ` · оператор: ${t.operator_name}` : ''}`)
+    .map((t) => `- [${t.title}](${BASE}${tourPath(t)}) — от ${Number(t.base_price).toLocaleString('ru-RU')} ₽${t.activity_type ? ` (${activityLabel(t.activity_type)})` : ''}${t.operator_name ? ` · оператор: ${t.operator_name}` : ''}`)
     .join('\n');
   const planLines = PLAN_PRESETS
     .map((p) => `- [${p.title}](${BASE}/plans/${p.slug})`)

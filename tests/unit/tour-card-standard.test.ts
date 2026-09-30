@@ -50,7 +50,8 @@ describe('стандарт карточки тура — безопасност�
 
   it('обе страницы читают тур ОДНИМ общим запросом, без своего SQL', () => {
     for (const page of [catalogPage, marketPage]) {
-      expect(page).toContain('getTourForCard');
+      // loadTourCard — обёртка над getTourForCard (адрес или число, миграция 1114)
+      expect(page).toContain('loadTourCard');
       expect(page).toContain('getTourReviews');
       // своего SELECT в странице быть не должно — иначе копии снова разъедутся
       expect(page).not.toMatch(/FROM operator_tours/);

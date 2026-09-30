@@ -17,6 +17,7 @@
  */
 
 import { query } from '@/lib/database';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export const INDEXNOW_KEY = 'ed64b13e2286450aa82e6dfef6659834';
 
@@ -93,8 +94,21 @@ async function log(action: string, metadata: Record<string, unknown>): Promise<v
 // на него ведёт навигация («Туры» → /catalog). Пинг обязан совпадать с
 // каноном — иначе мы сами сообщаем Яндексу два разных «настоящих» адреса.
 // Сторож согласованности: tests/unit/indexnow.test.ts.
+//
+// С 30.09 канон — адрес по имени (ЧПУ, lib/tours/tour-url): адрес берётся
+// из базы в момент пинга; не прочитался — пингуем числом (оно уводит 308 на
+// адрес), и это пишется в лог, а не глушится.
 export function pingTourChanged(tourId: string | number | bigint): void {
-  void pingIndexNow([`/catalog/tours/${tourId}`, '/catalog']).catch(() => {});
+  void (async () => {
+    let path = `/catalog/tours/${tourId}`;
+    try {
+      const { rows } = await query<{ slug: string | null }>('SELECT slug FROM operator_tours WHERE id = $1', [String(tourId)]);
+      path = tourPath({ id: String(tourId), slug: rows[0]?.slug ?? null });
+    } catch (e) {
+      console.error('[indexnow] адрес тура не прочитан, пингую числом:', e instanceof Error ? e.message : String(e));
+    }
+    await pingIndexNow([path, '/catalog']);
+  })().catch(() => {});
 }
 
 export function pingPlaceChanged(slugOrId: string): void {

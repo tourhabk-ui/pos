@@ -84,6 +84,8 @@ export interface PlaceReview {
 
 export interface PlaceTour {
   id: string;
+  /** Адрес карточки тура (ЧПУ, 1114). */
+  slug: string | null;
   title: string;
   basePrice: number;
   durationDays: number | null;

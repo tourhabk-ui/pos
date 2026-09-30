@@ -165,8 +165,8 @@ describe('/hub/fishing открыта индексу — на ней нет об
 
   it('туры — по настоящему адресу /catalog/tours/{id}, в разметке и в карточках', () => {
     expect(page).not.toMatch(/hub\/marketplace/);
-    expect((page.match(/\$\{SITE\}\/catalog\/tours\/\$\{t\.id\}/g) ?? []).length).toBe(3);
-    expect(client).toMatch(/href=\{`\/catalog\/tours\/\$\{tour\.id\}`\}/);
+    expect((page.match(/\$\{SITE\}\$\{tourPath\(t\)\}/g) ?? []).length).toBe(3);
+    expect(client).toMatch(/tourPath\(tour\)/);
     expect(client).not.toMatch(/\/marketplace\/tours/);
   });
 
@@ -230,7 +230,7 @@ describe('ссылки на маршрут — в пространстве id к
   });
 
   it('туры с карточки места — прямо на /catalog, без 308 через /marketplace', () => {
-    expect(code('components/places/PlaceTours.tsx')).toMatch(/href=\{`\/catalog\/tours\/\$\{t\.id\}`\}/);
+    expect(code('components/places/PlaceTours.tsx')).toMatch(/href=\{tourPath\(t\)\}/);
   });
 
   it('пинг IndexNow после импорта паспортов — тоже id из VIEW', () => {

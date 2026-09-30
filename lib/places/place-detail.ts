@@ -257,7 +257,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     // Tours to this place (via route_waypoints → kamchatka_routes → operator_tours)
     const toursResult = await query(
       `SELECT DISTINCT ON (ot.id)
-         ot.id, ot.title, ot.base_price, ot.multi_day_count AS duration_days,
+         ot.id, ot.slug, ot.title, ot.base_price, ot.multi_day_count AS duration_days,
          p.name AS operator_name, p.slug AS operator_slug
        FROM route_waypoints rw
        JOIN kamchatka_routes kr ON kr.id = rw.route_id
@@ -468,6 +468,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 
         tours: toursResult.rows.map(t => ({
           id: t.id as string,
+          slug: (t.slug as string | null) ?? null,
           title: t.title as string,
           basePrice: Number(t.base_price),
           durationDays: t.duration_days != null ? Number(t.duration_days) : null,

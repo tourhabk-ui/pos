@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { getPublicBaseUrl } from '@/lib/config';
+import { tourPath } from '@/lib/tours/tour-url';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
@@ -22,6 +23,8 @@ export interface ResolvedTour {
   id: number;
   title: string;
   operator_id: string | null;
+  /** Адрес карточки (ЧПУ, 1114). NULL — только по числу. */
+  slug?: string | null;
   base_price: number | null;
   /** За что назначена цена; null — не записано. */
   price_unit: string | null;
@@ -42,7 +45,7 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
   try {
     if (/^\d+$/.test(q)) {
       const { rows } = await pool.query<ResolvedTour>(
-        `SELECT id, title, operator_id, base_price, price_unit FROM operator_tours
+        `SELECT id, title, operator_id, base_price, price_unit, slug FROM operator_tours
           WHERE id = $1 AND ${publicTourSql('')}`,
         [Number(q)],
       );
@@ -52,7 +55,7 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
       return rows[0] ?? null;
     }
     const { rows } = await pool.query<ResolvedTour>(
-      `SELECT id, title, operator_id, base_price, price_unit FROM operator_tours
+      `SELECT id, title, operator_id, base_price, price_unit, slug FROM operator_tours
         WHERE ${publicTourSql('')}
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
@@ -143,7 +146,7 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       ...more,
       // Ссылка — полным адресом: относительная у внешнего агента никуда не
       // ведёт (проверка MCP 29.09).
-      `Бронь на странице: ${getPublicBaseUrl()}/catalog/tours/${tour.id}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
+      `Бронь на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
     ].join('\n');
   } catch (err) {
     const e = err as { code?: string; message?: string };

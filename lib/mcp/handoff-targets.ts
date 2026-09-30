@@ -15,6 +15,7 @@
 
 import type { HandoffTarget } from '@/lib/mcp/handoff';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
+import { tourPath } from '@/lib/tours/tour-url';
 import { parsePlanStart } from '@/lib/kuzmich/trip-plan-tool';
 import { resolvePlaceForLink } from '@/lib/kuzmich/guardian-context';
 
@@ -50,14 +51,14 @@ export async function handoffTargetForTool(
       const q = str(args.name) || str(args.query);
       if (!q) return null;
       const tour = await resolveTourByQuery(q);
-      return tour ? { targetType: 'tour', targetPath: `/catalog/tours/${tour.id}` } : null;
+      return tour ? { targetType: 'tour', targetPath: tourPath(tour) } : null;
     }
 
     case 'get_tour_availability': {
       const q = str(args.tour);
       if (!q) return null;
       const tour = await resolveTourByQuery(q);
-      return tour ? { targetType: 'tour', targetPath: `/catalog/tours/${tour.id}` } : null;
+      return tour ? { targetType: 'tour', targetPath: tourPath(tour) } : null;
     }
 
     case 'get_guardian_context':

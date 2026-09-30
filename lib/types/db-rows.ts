@@ -1358,6 +1358,8 @@ export interface OperatorProfileRow {
 
 /** Тур в блоке «Туры» страницы оператора /operators/[slug] (operator_tours). */
 export interface OperatorPageTourRow {
+  /** Адрес карточки тура (ЧПУ, 1114). */
+  slug: string | null;
   id: string;
   title: string;
   short_description: string | null;

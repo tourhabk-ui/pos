@@ -112,6 +112,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
 
   const selectFields = `
       ot.id,
+      ot.slug,
       ot.title,
       ot.description,
       ot.short_description,
