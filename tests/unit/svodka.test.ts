@@ -98,3 +98,16 @@ describe('вулканы: один отбор с Кузьмичом', () => {
     expect(page).toContain('svodkaText(s)');
   });
 });
+
+describe('страница сводки не собирается при сборке', () => {
+  it('рендер на каждый запрос: копия со сборки без базы писала «не удалось получить» (run 74)', () => {
+    const page = readFileSync(join(process.cwd(), 'app/svodka/page.tsx'), 'utf-8');
+    expect(page).toContain("export const dynamic = 'force-dynamic'");
+    expect(page).not.toMatch(/export const revalidate/);
+  });
+
+  it('подпись точки погоды — спрошенное имя, а не найденная запись каталога', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/svodka/svodka.ts'), 'utf-8');
+    expect(src).toContain('points.push(p ? { name, lat: p.lat, lng: p.lng }');
+  });
+});
