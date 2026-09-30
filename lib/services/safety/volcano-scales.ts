@@ -61,6 +61,11 @@ const RU: Record<ScaleColor, string> = {
   green: 'зелёный', yellow: 'жёлтый', orange: 'оранжевый', red: 'красный',
 };
 
+/** Цвет шкалы словом; неизвестный код — null, не «зелёный» по умолчанию. */
+export function scaleColorWord(color: string | null | undefined): string | null {
+  return color === 'green' || color === 'yellow' || color === 'orange' || color === 'red' ? RU[color] : null;
+}
+
 /** Уровень метки по коду. Одинаковый для обеих шкал — см. шапку. */
 export function levelForColor(color: string | null | undefined): RadarLevel | null {
   if (color === 'yellow') return 'danger';
