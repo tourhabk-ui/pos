@@ -60,6 +60,14 @@ describe('snapshotPage', () => {
     expect(s.emails).toEqual(['mail@volcanoesland.ru']);
   });
 
+  it('ОГРН и маска поля формы — не телефоны (замер 30.09, tourkamchatka.ru)', () => {
+    const p = snapshotPage(
+      '<html><body><p>ОГРН 1184101002227, ИНН 4101184305</p><p>Телефон: +7 (999) 999-99-99</p><p>+7 914 027-89-66</p></body></html>',
+      'https://tourkamchatka.ru/about',
+    );
+    expect(p.phones).toEqual(['+79140278966']);
+  });
+
   it('свои ссылки отдельно от чужих хостов, счётчики опознаются', () => {
     expect(s.internal_links).toBe(1);
     expect(s.external_hosts).toEqual(['vk.com']);
