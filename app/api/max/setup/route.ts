@@ -7,6 +7,7 @@
  * MAX API v2: POST https://platform-api2.max.ru/subscriptions
  */
 
+import { maxFetch } from '@/lib/max/max-fetch';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // GET /subscriptions
-  const res = await fetch(`${MAX_API_BASE}/subscriptions`, {
+  const res = await maxFetch(`${MAX_API_BASE}/subscriptions`, {
     method: 'GET',
     headers: authHeaders(token),
   });
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const data = await res.json().catch(() => ({}));
 
   // GET /me — информация о боте
-  const meRes = await fetch(`${MAX_API_BASE}/me`, {
+  const meRes = await maxFetch(`${MAX_API_BASE}/me`, {
     method: 'GET',
     headers: authHeaders(token),
   });
@@ -79,7 +80,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const webhookUrl = maxWebhookUrl();
 
   // POST /subscriptions — регистрация webhook
-  const res = await fetch(`${MAX_API_BASE}/subscriptions`, {
+  const res = await maxFetch(`${MAX_API_BASE}/subscriptions`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify({
@@ -110,7 +111,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'MAX_BOT_TOKEN not set' }, { status: 500 });
   }
 
-  const res = await fetch(`${MAX_API_BASE}/subscriptions`, {
+  const res = await maxFetch(`${MAX_API_BASE}/subscriptions`, {
     method: 'DELETE',
     headers: authHeaders(token),
   });

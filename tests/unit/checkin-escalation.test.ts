@@ -191,7 +191,11 @@ describe('buildEscalationMessage', () => {
 
 describe('formatPositionText', () => {
   it('координаты форматируются, отсутствие — «неизвестно»', () => {
-    expect(formatPositionText('53.0195', '158.6505')).toBe('53.01950° N, 158.65050° E');
+    // Источник и время не записаны — так и сказано: приписать «телефон» или
+    // выдать вчерашнюю точку за свежую было бы догадкой (манифест, правило 6).
+    expect(formatPositionText('53.0195', '158.6505')).toBe('53.01950° N, 158.65050° E (источник не записан, время не записано)');
+    expect(formatPositionText('53.0195', '158.6505', 'tracker', new Date('2026-09-30T02:20:00Z')))
+      .toBe('53.01950° N, 158.65050° E (спутниковый трекер, 30.09 14:20 (камч.))');
     expect(formatPositionText(null, '158.65')).toBe('неизвестно');
   });
 });
@@ -225,20 +229,27 @@ describe('очередь эскалации переживает сбой на �
 
   it('пропущенные люди считаются и попадают в ответ', () => {
     expect(SRC).toMatch(/let failed = 0/);
-    expect(SRC).toMatch(/failed,\s*ts:/);
+    expect(SRC).toMatch(/failed, tail, ts:/);
   });
 
   it('прогон с пропущенными НЕ отчитывается успехом', () => {
     // Иначе сторож ляжет наполовину, а реестр кронов покажет здоровье.
-    expect(SRC).toMatch(/failed > 0 \? 'failed' : 'success'/);
-    expect(SRC).toMatch(/success: failed === 0/);
+    // Полная пачка — тоже не успех: за ней могли остаться люди (30.09).
+    expect(SRC).toMatch(/failed > 0 \? `не обработано туристов/);
+    expect(SRC).toMatch(/tail \? `пачка/);
+    expect(SRC).toMatch(/problems \? 'failed' : 'success'/);
+    expect(SRC).toMatch(/success: !problems/);
   });
 
   it('отправка в Telegram не выпускает исключение наружу', () => {
     // `.catch()` на промисе ловил только сетевой отказ: сам fetch может
     // бросить синхронно на кривом базовом адресе, и тогда не выполнится
     // следующая строка — запись шага эскалации.
-    const fn = SRC.slice(SRC.indexOf('async function sendTelegram'), SRC.indexOf('async function recordNotification'));
+    // Сторож шлёт общим сервисом (lib/notifications/telegram.ts): бросок
+    // fetch ловится там, и наружу выходит исход, а не исключение.
+    const svc = readFileSync(join(process.cwd(), 'lib/notifications/telegram.ts'), 'utf-8');
+    const fn = svc.slice(svc.indexOf('async sendMessage('), svc.indexOf('async sendDriverNotification'));
+    expect(SRC).toContain('telegramService.sendMessage(');
     expect(fn).toMatch(/try\s*\{/);
     expect(fn).toMatch(/catch/);
   });

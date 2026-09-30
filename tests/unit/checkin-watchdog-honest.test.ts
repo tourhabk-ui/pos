@@ -16,8 +16,13 @@ const REG = readFileSync(join(process.cwd(), 'app/api/safety/register/route.ts')
 
 describe('доставка тревоги', () => {
   it('исход отправки берётся из ответа Telegram, а не из факта вызова', () => {
+    // Своего fetch у сторожа нет: общий сервис читает `ok` ответа.
+    const SVC = readFileSync(join(process.cwd(), 'lib/notifications/telegram.ts'), 'utf-8');
     expect(SRC).toMatch(/async function sendTelegram\([^)]*\): Promise<SendResult>/);
-    expect(SRC).toMatch(/if \(res\.ok && body\?\.ok\) return \{ ok: true \}/);
+    expect(SRC).toMatch(/telegramService\.sendMessage\(/);
+    expect(SRC).toMatch(/r\.success \? \{ ok: true \}/);
+    expect(SRC).not.toMatch(/sendMessage`/);
+    expect(SVC).toMatch(/if \(data\.ok\)/);
   });
 
   it('контакт без Telegram или с отказом — в админ-чат с его телефоном, а не молчаливый skipped', () => {
@@ -36,7 +41,7 @@ describe('доставка тревоги', () => {
 
   it('недоставленная МЧС-тревога — failed и красный прогон, не skipped', () => {
     const mchs = SRC.slice(SRC.indexOf('МЧС-ТРЕВОГА'), SRC.indexOf('escalated++'));
-    expect(mchs).toMatch(/'failed', r\.error\)/);
+    expect(mchs).toMatch(/'failed', r\.reason\)/);
     expect(mchs).toContain('throw new Error');
     expect(mchs).not.toMatch(/'skipped'/);
   });

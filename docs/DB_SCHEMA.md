@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-09-30 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1114_tour_slugs.sql`.
+> Снято 2026-09-30 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1118_trip_watch_chat.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 250 |
+| Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3353 |
+| Колонок | 3363 |
 | Внешних ключей | 284 |
-| Таблиц без единого FK в обе стороны | 73 |
+| Таблиц без единого FK в обе стороны | 74 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 7 | `model_catalog` `operator_client_notes` `operator_notification_reads` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `volcano_bulletin_kfegs` |
+| [Прочее](#прочее) | 8 | `model_catalog` `operator_client_notes` `operator_notification_reads` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_watch_flow` `volcano_bulletin_kfegs` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -357,9 +357,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `registration_id uuid` `step integer!` `channel varchar!` `recipient text!` `status varchar=` `error_message text` `sent_at timestamptz` `created_at timestamptz=`
 
-**route_registrations** · 34 кол. · PK id · user_id → users.id · на неё ссылаются: route_registration_notifications, tracker_links · индексов 7
+**route_registrations** · 40 кол. · PK id · user_id → users.id · на неё ссылаются: route_registration_notifications, tracker_links · индексов 8
 
-`id uuid!=` `user_id uuid` `route_name text!` `route_description text` `start_date date!` `end_date date!` `region text!=` `group_size integer!` `group_members jsonb` `leader_name text!` `leader_phone text!` `leader_email text` `emergency_contact_name text!` `emergency_contact_phone text!` `emergency_contact_relation text` `emergency_contact_telegram_chat_id bigint` `emergency_contact_email text` `emergency_contact_consent boolean=` `emergency_contact_consent_at timestamptz` `mchs_status varchar=` `mchs_reference text` `submitted_at timestamptz` `completed_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `expected_return_at timestamptz` `trip_kind varchar=` `last_position_lat numeric` `last_position_lng numeric` `last_position_at timestamptz` `checkin_confirmed_at timestamptz` `reminder_sent boolean!=` `mchs_informed_at timestamptz` `last_position_source text`
+`id uuid!=` `user_id uuid` `route_name text!` `route_description text` `start_date date!` `end_date date!` `region text!=` `group_size integer!` `group_members jsonb` `leader_name text!` `leader_phone text!` `leader_email text` `emergency_contact_name text!` `emergency_contact_phone text!` `emergency_contact_relation text` `emergency_contact_telegram_chat_id bigint` `emergency_contact_email text` `emergency_contact_consent boolean=` `emergency_contact_consent_at timestamptz` `mchs_status varchar=` `mchs_reference text` `submitted_at timestamptz` `completed_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `expected_return_at timestamptz` `trip_kind varchar=` `last_position_lat numeric` `last_position_lng numeric` `last_position_at timestamptz` `checkin_confirmed_at timestamptz` `reminder_sent boolean!=` `mchs_informed_at timestamptz` `last_position_source text` `source text!=` `tourist_chat_channel text` `tourist_chat_id bigint` `closed_by text` `closed_reason text` `ladder_reset_at timestamptz`
 
 **safety_alerts** · 12 кол. · PK id · created_by → users.id · индексов 3 · триггеры: trg_safety_alerts_updated_at
 
@@ -1336,6 +1336,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **tracker_links** · 12 кол. · PK id · created_by → users.id, registration_id → route_registrations.id · индексов 4
 
 `id uuid!=` `registration_id uuid!` `token text!` `label text` `vendor text` `created_at timestamptz!=` `created_by uuid` `revoked_at timestamptz` `points_total integer!=` `last_point_at timestamptz` `last_error text` `last_error_at timestamptz`
+
+**trip_watch_flow** · 4 кол. · PK channel, chat_id · индексов 1
+
+`channel text!` `chat_id bigint!` `state jsonb!` `updated_at timestamptz!=`
 
 **volcano_bulletin_kfegs** · 10 кол. · PK id · индексов 3
 

@@ -6,6 +6,7 @@
  *   Б — уведомления: новые лиды и брони (в TELEGRAM_CHAT_ID, admin-группа)
  */
 
+import { maxFetch } from '@/lib/max/max-fetch';
 import { channelHeadline, channelKicker, channelFacts, channelPost, escHtml } from '@/lib/notifications/channel-style';
 import { query } from '@/lib/database';
 import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
@@ -289,7 +290,7 @@ export async function maxChannelPost(
     };
     if (attachments.length > 0) body.attachments = attachments;
 
-    const res = await fetch(
+    const res = await maxFetch(
       // MAX Bot API v2 host — старый platform-api.max.ru выведен из эксплуатации.
       `https://platform-api2.max.ru/messages?chat_id=${channelId}`,
       {

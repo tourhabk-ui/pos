@@ -2,6 +2,10 @@
  * POST /api/safety/position
  * Записывает последнюю GPS-позицию для активной регистрации маршрута.
  * Вызывается с телефона пока есть связь — чтобы сторож знал последнюю точку.
+ *
+ * Источник пишется вместе с точкой. До 30.09 его не писали, и точка телефона
+ * наследовала подпись предыдущей точки трекера — дежурный читал «спутниковый
+ * трекер» там, где была связь телефона (манифест, правило 6; разбор противником).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -34,7 +38,8 @@ export async function POST(req: NextRequest) {
 
   const { rowCount } = await query(
     `UPDATE route_registrations
-     SET last_position_lat = $1, last_position_lng = $2, last_position_at = now()
+     SET last_position_lat = $1, last_position_lng = $2, last_position_at = now(),
+         last_position_source = 'phone'
      WHERE id = $3 AND user_id = $4 AND completed_at IS NULL`,
     [lat, lng, registrationId, user.id],
   );

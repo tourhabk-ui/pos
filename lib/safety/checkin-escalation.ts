@@ -23,6 +23,7 @@
  */
 
 import { kamchatkaDayStart } from '@/lib/analytics/kamchatka-day';
+import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 
 export type TripKind = 'day' | 'multi';
 
@@ -36,7 +37,9 @@ export interface EscalationDecision {
   hoursSinceConfirm: number | null;
 }
 
-const BUFFERS: Record<TripKind, { soft: number; hard: number; mchs: number }> = {
+const STEP_RANK: Record<EscalationStep, number> = { soft: 1, hard: 2, mchs: 3 };
+
+export const BUFFERS: Record<TripKind, { soft: number; hard: number; mchs: number }> = {
   day:   { soft: 1, hard: 3,  mchs: 8  },
   multi: { soft: 3, hard: 6,  mchs: 18 },
 };
@@ -128,10 +131,17 @@ export function decideEscalation(
 
   const buf = BUFFERS[tripKind];
 
+  // Лестница только вверх. После простоя сторожа догоняющий прогон берёт
+  // старшую назревшую ступень; младшие после неё НЕ шлются — иначе дежурный
+  // получил бы «МЧС-ТРЕВОГУ», а через час контакт — «это не повод для тревоги»
+  // (разбор противником, 30.09).
+  const sentRank = Math.max(0, ...alreadySent.map((st) => STEP_RANK[st]));
+  const due = (st: EscalationStep, hours: number) =>
+    hoursSinceEffective >= hours && STEP_RANK[st] > sentRank;
   const nextStep: EscalationStep | null =
-    hoursSinceEffective >= buf.mchs && !alreadySent.includes('mchs')  ? 'mchs'  :
-    hoursSinceEffective >= buf.hard && !alreadySent.includes('hard')  ? 'hard'  :
-    hoursSinceEffective >= buf.soft && !alreadySent.includes('soft')  ? 'soft'  :
+    due('mchs', buf.mchs) ? 'mchs' :
+    due('hard', buf.hard) ? 'hard' :
+    due('soft', buf.soft) ? 'soft' :
     null;
 
   if (!nextStep) return null;
@@ -156,8 +166,10 @@ export interface EscalationMessageInput {
   leaderPhone: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
-  /** Готовый текст позиции: «53.02° N, 158.65° E» или «неизвестно». */
+  /** Готовый текст позиции: «53.02° N, 158.65° E (телефон, 30.09 14:20 (камч.))» или «неизвестно». */
   positionText: string;
+  /** Сколько человек в группе: первый вопрос диспетчера МЧС. null — не указано. */
+  groupSize?: number | null;
   /** Ссылка «Я вернулся» — vedarai.ru/return?id=<регистрация>. */
   returnUrl: string;
   /** Ссылка «Мы в порядке, ещё в пути» — vedarai.ru/checkin-ok?id=<регистрация>. */
@@ -197,14 +209,18 @@ export function formatPositionText(
   lat: string | null,
   lng: string | null,
   source: PositionSource = null,
+  at: Date | null = null,
 ): string {
   if (!lat || !lng) return 'неизвестно';
   const point = `${parseFloat(lat).toFixed(5)}° N, ${parseFloat(lng).toFixed(5)}° E`;
-  if (source === 'tracker') return `${point} (спутниковый трекер)`;
-  if (source === 'phone') return `${point} (телефон)`;
+  // Точка без времени — полправды (манифест, правило 6): вчерашняя и
+  // пятиминутная точки ведут спасателей в разные места.
+  const when = at ? `, ${formatKamchatkaTime(at)}` : ', время не записано';
+  if (source === 'tracker') return `${point} (спутниковый трекер${when})`;
+  if (source === 'phone') return `${point} (телефон${when})`;
   // Источник не записан — так и молчим. Приписать «телефон» было бы
   // догадкой в сообщении, по которому поднимают спасателей (§4.0).
-  return point;
+  return `${point} (источник не записан${when})`;
 }
 
 /**
@@ -230,6 +246,7 @@ export function buildEscalationMessage(
   hoursOverdue: number,
 ): string {
   const hours = hoursOverdue.toFixed(1);
+  const groupLine = input.groupSize ? `Людей в группе: ${input.groupSize}.\n` : '';
   const confirmLine =
     typeof input.hoursSinceConfirm === 'number'
       ? `Последняя отметка «всё в порядке» — ${input.hoursSinceConfirm.toFixed(1)} ч назад.\n`
@@ -258,6 +275,7 @@ export function buildEscalationMessage(
     return (
       `ВНИМАНИЕ: турист ${input.leaderName} (${input.leaderPhone}) не вернулся с маршрута ` +
       `«${input.routeName}» уже ${hours} ч.\n` +
+      groupLine +
       confirmLine +
       `Последняя известная позиция: ${input.positionText}.\n` +
       `Пожалуйста, свяжитесь с туристом.\n` +
@@ -271,11 +289,47 @@ export function buildEscalationMessage(
   return (
     `ЭКСТРЕННАЯ СИТУАЦИЯ: турист ${input.leaderName} (${input.leaderPhone}) не вернулся с маршрута ` +
     `«${input.routeName}» уже ${hours} ч.\n` +
+    groupLine +
     confirmLine +
     mchsNote +
     `Экстренный контакт: ${input.emergencyContactName} (${input.emergencyContactPhone}).\n` +
     `Последняя известная позиция: ${input.positionText}.\n` +
     `Отметка о возвращении (если группа нашлась): ${input.returnUrl}\n` +
-    `Рекомендуем немедленно сообщить в МЧС: 112.`
+    // Правило решения, а не «немедленно в МЧС»: тишина — ещё не беда (Cal OES:
+    // не дозвонились ни до туриста, ни до контакта или неясно, что с ним, —
+    // считать ЧС). Номер — только проверенный (lib/safety/emergency-numbers.ts).
+    `Позвоните туристу и контакту. Не дозвонились ни до кого или неясно, что с человеком, — ` +
+    `передавайте в МЧС: ${VERIFIED_REGIONAL[0].name} ${VERIFIED_REGIONAL[0].phone} или 112.`
   );
+}
+
+/**
+ * Первая ступень — самому туристу, в чат, из которого он поставил контроль
+ * (манифест, правило 4: сначала человек, потом контакт). Будить его раньше
+ * контакта — не вежливость: половина тревог — забытая отметка, и снять её
+ * может только он сам, одним словом.
+ */
+export function buildTouristWakeMessage(input: {
+  routeName: string;
+  controlTime: Date;
+  contactName: string;
+  hoursUntilContact: number;
+  /** У контакта нет своего канала — следующую ступень несёт дежурный звонком. */
+  contactByDuty: boolean;
+}): string {
+  const h = Math.max(1, Math.round(input.hoursUntilContact));
+  const next = input.contactByDuty
+    ? `дежурный Ведара позвонит ${input.contactName}`
+    : `я сообщу ${input.contactName}`;
+  return [
+    `Вы не отметились: контроль «${input.routeName}» ждал вас к ${formatKamchatkaTime(input.controlTime)}.`,
+    '',
+    'Вернулись — напишите «вернулся».',
+    // Новый срок — лучший ответ: с ним лестница начинается заново с вопроса
+    // туристу, а «задерживаюсь» только отодвигает следующий шаг.
+    'Задерживаетесь — напишите новое время: «+2 ч» или «до 21:00».',
+    'Всё в порядке, но срок назвать не можете — «задерживаюсь».',
+    '',
+    `Если не ответите, примерно через ${h} ч ${next}. В беде — 112.`,
+  ].join('\n');
 }

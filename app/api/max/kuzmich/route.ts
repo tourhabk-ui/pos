@@ -10,7 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Bot, type Api } from '@maxhub/max-bot-api';
+import type { Api } from '@maxhub/max-bot-api';
+import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
 import { registerOperatorMaxChatId, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
@@ -44,8 +45,7 @@ function getApi(): Api | null {
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) return null;
   if (!_api) {
-    const bot = new Bot(token);
-    _api = bot.api;
+    _api = maxBot(token).api;
   }
   return _api;
 }
@@ -345,6 +345,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       pending,
       reply: capturingStart,
       platform: 'max',
+      verifiedOrigin: opts?.verifiedOrigin === true,
     });
     if (capturedStart) {
       await maxReplyWithButtons(update.chat_id, 'Выберите тему или задайте вопрос:', START_MENU);
@@ -386,6 +387,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         userName, userId, mode: 'max',
         createdVia: 'max', pending, reply: maxReply, visionDescription,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       return;
     }
@@ -419,6 +421,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         chatId, text: transcription, userName, userId,
         mode: 'max', createdVia: 'max_voice', pending, reply: maxReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       return;
     }
@@ -491,6 +494,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         chatId, text, userName, userId,
         mode: 'max', createdVia: 'max', pending, reply: capturingReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       if (capturedReply && hasTourRecommendation(capturedReply)) {
         await maxReplyWithButtons(chatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
@@ -565,6 +569,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         chatId: resolvedChatId, text: topicText, userName, userId,
         mode: 'max', createdVia: 'max', pending, reply: capturingReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       if (capturedReply && hasTourRecommendation(capturedReply)) {
         await maxReplyWithButtons(resolvedChatId, 'Хотите оформить заявку?', BOOKING_BUTTONS);
@@ -590,6 +595,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         userName, userId,
         mode: 'max', createdVia: 'max', pending, reply: maxReply,
         platform: 'max',
+        verifiedOrigin: opts?.verifiedOrigin === true,
       });
       return;
     }

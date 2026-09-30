@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kamchatkaWallTime } from '@/lib/safety/checkin-escalation';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
-import { query } from '@/lib/database';
+import { createTripWatch } from '@/lib/safety/trip-watch';
 import { verifyAuth } from '@/lib/auth';
 import PDFDocument from 'pdfkit';
 
@@ -127,7 +129,14 @@ function generateRegistrationPDF(data: z.infer<typeof RegistrationSchema>): Prom
  * POST /api/safety/register
  * Создаёт регистрацию маршрута + возвращает PDF
  */
+// Регистрация открыта без входа — предел на адрес, иначе поток выдуманных
+// контролей завалил бы дежурного тревогами.
+const limiter = createRateLimiter({ windowMs: 60_000, max: 5 });
+
 export async function POST(request: NextRequest) {
+  if (!limiter.check(getClientIp(request.headers))) {
+    return NextResponse.json({ success: false, error: 'Слишком часто — подождите минуту' }, { status: 429 });
+  }
   const auth = await verifyAuth(request).catch(() => ({
     isAuthenticated: false,
     userId: null,
@@ -152,6 +161,16 @@ export async function POST(request: NextRequest) {
 
   const data = validation.data;
 
+  // Срок в прошлом — это не контроль, а мгновенная МЧС-тревога дежурному:
+  // сто таких запросов за минуту ослепляли сторожа (разбор противником, 30.09).
+  const today = kamchatkaDate(new Date());
+  if (data.end_date < today || data.start_date > data.end_date) {
+    return NextResponse.json(
+      { success: false, error: 'Проверьте даты: окончание не раньше сегодняшнего дня и не раньше начала.' },
+      { status: 400 },
+    );
+  }
+
   // Сохраняем в БД
   // Строим expected_return_at из end_date + expected_return_time (если задано)
   // Время на стене — камчатское: без явного пояса `new Date('…T19:00:00')`
@@ -160,41 +179,29 @@ export async function POST(request: NextRequest) {
     ? kamchatkaWallTime(data.end_date, data.expected_return_time)
     : null;
 
-  const tripKind = data.start_date === data.end_date ? 'day' : 'multi';
-
-  const result = await query(
-    `INSERT INTO route_registrations
-       (user_id, route_name, route_description, start_date, end_date, region,
-        group_size, group_members, leader_name, leader_phone, leader_email,
-        emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
-        emergency_contact_telegram_chat_id, emergency_contact_email,
-        emergency_contact_consent, expected_return_at, trip_kind)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-     RETURNING id`,
-    [
-      userId,
-      data.route_name,
-      data.route_description ?? null,
-      data.start_date,
-      data.end_date,
-      data.region,
-      data.group_size,
-      data.group_members ? JSON.stringify(data.group_members) : null,
-      data.leader_name,
-      data.leader_phone,
-      data.leader_email || null,
-      data.emergency_contact_name,
-      data.emergency_contact_phone,
-      data.emergency_contact_relation ?? null,
-      data.emergency_contact_telegram_chat_id ? BigInt(data.emergency_contact_telegram_chat_id) : null,
-      data.emergency_contact_email || null,
-      data.emergency_contact_consent,
-      expectedReturnAt,
-      tripKind,
-    ]
-  );
-
-  const registrationId = result.rows[0].id as string;
+  // Одна запись на все пути создания — lib/safety/trip-watch.ts (манифест, правило 1).
+  const registrationId = await createTripWatch({
+    source: 'form',
+    userId,
+    routeName: data.route_name,
+    routeDescription: data.route_description ?? null,
+    startDate: data.start_date,
+    endDate: data.end_date,
+    expectedReturnAt,
+    region: data.region,
+    groupSize: data.group_size,
+    groupMembers: data.group_members ?? null,
+    leaderName: data.leader_name,
+    leaderPhone: data.leader_phone,
+    leaderEmail: data.leader_email || null,
+    contactName: data.emergency_contact_name,
+    contactPhone: data.emergency_contact_phone,
+    contactRelation: data.emergency_contact_relation ?? null,
+    contactTelegramChatId: data.emergency_contact_telegram_chat_id || null,
+    contactEmail: data.emergency_contact_email || null,
+    contactConsent: data.emergency_contact_consent,
+    touristChat: null,
+  });
 
   // Проверяем: клиент хочет PDF или просто сохранение
   const acceptHeader = request.headers.get('accept') || '';

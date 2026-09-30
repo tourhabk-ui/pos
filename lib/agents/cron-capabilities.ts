@@ -149,7 +149,7 @@ const MARKERS: ReadonlyArray<{ cap: Capability; re: RegExp }> = [
   // у чтения и записи.
   { cap: 'db_write', re: /\b(INSERT\s+INTO|UPDATE\s+[a-z_"]+\s+SET|DELETE\s+FROM|TRUNCATE|ALTER\s+TABLE|CREATE\s+TABLE)\b/i },
   { cap: 'db_read', re: /\bpool\.query\b|\bSELECT\b[\s\S]{0,200}\bFROM\b/i },
-  { cap: 'net_out', re: /\bfetch\s*\(|\brelayFetch\w*\s*\(|\bfetchWithRetry\s*\(/ },
+  { cap: 'net_out', re: /\bfetch\s*\(|\brelayFetch\w*\s*\(|\bfetchWithRetry\s*\(|\bmaxFetch\s*\(/ },
   { cap: 'telegram', re: /api\.telegram\.org|\btgSend\w*\s*\(|\btgAlert\s*\(|\bsendPdAlert\s*\(|\bmaxSendDm\s*\(/ },
   { cap: 'ai', re: /\bcallAI\w*\s*\(|\bcallDeepSeek\w*\s*\(|\bcallOpenrouter\s*\(|\bcallAnthropic\s*\(|\bcallQwen\w*\s*\(|\bcallXai\s*\(|\bcallGemini\w*\s*\(/ },
   { cap: 'money', re: /\b(tour_payments|operator_commissions|payouts|recordCommissionFromBooking)\b/ },

@@ -64,7 +64,10 @@ export class TelegramNotificationService {
           text: message.text,
           parse_mode: message.parseMode || 'HTML',
           reply_markup: message.replyMarkup
-        })
+        }),
+        // Без предела зависший Telegram держал бы вызывающего до конца его
+        // собственного таймаута — у сторожа невозвращения это вся очередь.
+        signal: AbortSignal.timeout(10_000),
       });
 
       const data = await response.json();
