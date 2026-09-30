@@ -69,6 +69,7 @@ const VedarMap = dynamic(() => import('@/components/shared/VedarMap'), {
   loading: () => <div style={{ height: 'calc(100vh - 180px)' }} className="bg-[var(--bg-hover)] animate-pulse rounded-lg" />,
 });
 const PlaceMapSheet = dynamic(() => import('@/components/map/PlaceMapSheet').then(m => ({ default: m.PlaceMapSheet })), { ssr: false });
+const MapThreatChip = dynamic(() => import('@/components/map/MapThreatChip').then(m => ({ default: m.MapThreatChip })), { ssr: false });
 const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').then(m => ({ default: m.MapWeatherChip })), { ssr: false });
 
 // Основные фильтры для UI (без мусорных типов). id начинающийся с
@@ -793,12 +794,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             <Navigation size={18} />
           </button>
 
-          {/* Weather overlay — top-left */}
-          {userPos && (
-            <div className="absolute top-3 left-3 z-[500]">
-              <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />
-            </div>
-          )}
+          {/* Top-left: обстановка в крае (#1428) и погода под ней */}
+          <div className="absolute top-3 left-3 z-[500] flex flex-col items-start gap-2">
+            <MapThreatChip />
+            {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
+          </div>
 
           {/* Счётчик */}
           <div className="absolute bottom-3 left-3 z-[500] bg-[var(--bg-card)] rounded-lg px-3 py-1.5 border border-[var(--border)] shadow-sm">
