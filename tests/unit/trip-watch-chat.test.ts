@@ -235,6 +235,16 @@ describe('разбор', () => {
     expect(parseExtension('до завтра')).toBeNull();
     expect(parseExtension('до встречи')).toBeNull();
     expect(parseExtension('ок')).toBeNull();
+    expect(parseExtension('+2 ч!!!')).toEqual({ kind: 'relative', minutes: 120 });
+    expect(parseExtension('до 21:00.')).toEqual({ kind: 'absolute', text: 'до 21:00' });
+  });
+
+  it('новый срок: разбор линейный — строка из 50 тысяч «!» не вешает поток (CodeQL js/polynomial-redos)', () => {
+    const t0 = Date.now();
+    expect(parseExtension(`${'!'.repeat(50_000)}x`)).toBeNull();
+    expect(parseExtension(`+2 ч${'!'.repeat(50_000)}`)).toBeNull();
+    expect(telegramWatchRedirect(`${'!'.repeat(50_000)}x`)).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2_000);
   });
 
   it('однодневка — по длительности: поставленная накануне вечером тоже однодневка', () => {

@@ -317,7 +317,15 @@ export type Extension = { kind: 'relative'; minutes: number } | { kind: 'absolut
  * «до 21:00», «продли до 21:30». Только сообщение целиком (правило 3).
  */
 export function parseExtension(text: string): Extension | null {
-  const t = norm(text).replace(/[.!]+$/, '');
+  // Новый срок — короткое сообщение: длинное им не бывает, и разбирать его
+  // незачем. Хвостовые «.» и «!» срезаются циклом, а не выражением `[.!]+$`:
+  // у того на строке из тысяч «!» с буквой в конце время квадратичное
+  // (CodeQL js/polynomial-redos, #2132).
+  let t = norm(text);
+  if (t.length > 60) return null;
+  let end = t.length;
+  while (end > 0 && (t[end - 1] === '.' || t[end - 1] === '!')) end--;
+  t = t.slice(0, end);
   const rel = t.match(/^(?:\+ ?|плюс |продли(?:ть)? (?:на )?|на |задерж(?:усь|иваюсь|имся|иваемся) на )(\d{1,2}|час|полчаса) ?(ч|час|часа|часов|м|мин|минут|минуты)?$/);
   if (rel) {
     const n = rel[1] === 'час' ? 1 : rel[1] === 'полчаса' ? 30 : Number(rel[1]);
