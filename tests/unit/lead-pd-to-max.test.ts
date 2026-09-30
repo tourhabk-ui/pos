@@ -211,6 +211,8 @@ describe('дайджест не отдаёт ПД зарубежной моде�
 const TELEGRAM_PD_CENSUS: ReadonlyArray<{ file: string; why: string }> = [
   { file: 'app/api/cron/checkin-watchdog/route.ts',
     why: 'турист не вернулся к сроку, контакт недоступен в Telegram: имя и телефон контакта — в админ-чат владельца, чтобы позвонил человек (30.09; заменил снятый route-escalation)' },
+  { file: 'lib/safety/trip-watch.ts',
+    why: 'отбой и «турист на связи» после тревоги: имя туриста — его же экстренному контакту и в админ-чат владельца, только тем, кому тревога уже ушла (манифест контроля выхода, правило 10)' },
   { file: 'app/api/cron/smart-notify/route.ts',
     why: 'имя пользователя в его же чате' },
   { file: 'app/api/hub/admin/support/tickets/[id]/route.ts',

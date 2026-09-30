@@ -291,14 +291,19 @@ export function buildTouristWakeMessage(input: {
   controlTime: Date;
   contactName: string;
   hoursUntilContact: number;
+  /** У контакта нет своего канала — следующую ступень несёт дежурный звонком. */
+  contactByDuty: boolean;
 }): string {
   const h = Math.max(1, Math.round(input.hoursUntilContact));
+  const next = input.contactByDuty
+    ? `дежурный Ведара позвонит ${input.contactName}`
+    : `я сообщу ${input.contactName}`;
   return [
     `Вы не отметились: контроль «${input.routeName}» ждал вас к ${formatKamchatkaTime(input.controlTime)}.`,
     '',
     'Вернулись — напишите «вернулся».',
     'Задерживаетесь, но всё в порядке — «задерживаюсь».',
     '',
-    `Если не ответите, через ${h} ч я сообщу ${input.contactName}. В беде — 112.`,
+    `Если не ответите, примерно через ${h} ч ${next}. В беде — 112.`,
   ].join('\n');
 }

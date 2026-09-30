@@ -238,7 +238,11 @@ describe('очередь эскалации переживает сбой на �
     // `.catch()` на промисе ловил только сетевой отказ: сам fetch может
     // бросить синхронно на кривом базовом адресе, и тогда не выполнится
     // следующая строка — запись шага эскалации.
-    const fn = SRC.slice(SRC.indexOf('async function sendTelegram'), SRC.indexOf('async function recordNotification'));
+    // Сторож шлёт общим сервисом (lib/notifications/telegram.ts): бросок
+    // fetch ловится там, и наружу выходит исход, а не исключение.
+    const svc = readFileSync(join(process.cwd(), 'lib/notifications/telegram.ts'), 'utf-8');
+    const fn = svc.slice(svc.indexOf('async sendMessage('), svc.indexOf('async sendDriverNotification'));
+    expect(SRC).toContain('telegramService.sendMessage(');
     expect(fn).toMatch(/try\s*\{/);
     expect(fn).toMatch(/catch/);
   });

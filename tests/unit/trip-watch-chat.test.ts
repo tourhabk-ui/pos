@@ -12,17 +12,22 @@ import { join } from 'node:path';
 const query = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
+const tgSend = vi.fn(async () => ({ ok: true }));
+const sendEmail = vi.fn(async () => ({ success: true }));
+vi.mock('@/lib/notifications/tg-send', () => ({ tgSend: (...a: unknown[]) => tgSend(...(a as [])) }));
+vi.mock('@/lib/email', () => ({ sendEmail: (...a: unknown[]) => sendEmail(...(a as [])) }));
+
 import {
   isWatchTrigger, isReturnedCommand, isDelayedCommand, isConfirm, isCancel,
-  extractPhone, extractDestination, extractContactName, parseReturn,
-  draftFromTrigger, advanceDraft, watchSummary, handleWatchMessage, type WatchDraft,
+  extractPhone, extractDestination, extractContactName, parseReturn, returnSegment,
+  draftFromTrigger, advanceDraft, watchSummary, handleWatchMessage, WATCH_MAX_OPEN_PER_CHAT, type WatchDraft,
 } from '@/lib/kuzmich/watch-flow';
 import { buildTouristWakeMessage } from '@/lib/safety/checkin-escalation';
 
 // 30.09.2026 10:00 по Камчатке = 29.09 22:00 UTC.
 const NOW = new Date('2026-09-29T22:00:00Z');
 
-beforeEach(() => query.mockReset());
+beforeEach(() => { query.mockReset(); tgSend.mockClear(); sendEmail.mockClear(); });
 
 describe('слова человека — только сообщением целиком', () => {
   it('«вернулся» закрывает, «я не вернулся» — нет', () => {
@@ -90,6 +95,38 @@ describe('разбор', () => {
     expect(parseReturn('15.12 12:00', NOW)).toEqual({ ok: false, reason: 'too_far' });
     expect(parseReturn('31.02 12:00', NOW)).toEqual({ ok: false, reason: 'bad_date' });
   });
+
+  it('два времени во фразе — отказ, а не первое попавшееся (оно было бы временем выхода)', () => {
+    expect(parseReturn('выхожу в 7, вернусь в 19', NOW)).toEqual({ ok: false, reason: 'ambiguous' });
+    expect(parseReturn('сегодня или завтра к 12', NOW)).toEqual({ ok: false, reason: 'ambiguous' });
+  });
+
+  it('дни словами не считаем: «в субботу», «через 3 часа» — переспрос', () => {
+    expect(parseReturn('в субботу к 18', NOW)).toEqual({ ok: false, reason: 'ambiguous' });
+    expect(parseReturn('через 3 часа', NOW)).toEqual({ ok: false, reason: 'ambiguous' });
+  });
+
+  it('«к 19.30» и «19.30» — время, «7 вечера» — 19:00, «3 октября» — дата', () => {
+    expect(parseReturn('к 19.30', NOW)).toEqual({ ok: true, date: '2026-09-30', time: '19:30' });
+    expect(parseReturn('вернусь 19.30', NOW)).toEqual({ ok: true, date: '2026-09-30', time: '19:30' });
+    expect(parseReturn('в 7 вечера', NOW)).toEqual({ ok: true, date: '2026-09-30', time: '19:00' });
+    expect(parseReturn('3 октября в 18:00', NOW)).toEqual({ ok: true, date: '2026-10-03', time: '18:00' });
+    expect(parseReturn('в 2 часа дня', NOW)).toEqual({ ok: true, date: '2026-09-30', time: '14:00' });
+    // «в 2 дня» — то ли 14:00, то ли «на два дня»: не угадываем, переспрашиваем.
+    expect(parseReturn('в 2 дня', NOW)).toEqual({ ok: false, reason: 'no_time' });
+  });
+
+  it('число с единицей — не час: «в 2 км от моста»', () => {
+    expect(parseReturn('в 2 км от моста', NOW)).toEqual({ ok: false, reason: 'no_time' });
+  });
+
+  it('срок из первой фразы — только из куска про возвращение', () => {
+    expect(returnSegment('еду на Авачу в 7, вернусь к 19, если задержусь — сообщите')).toBe('вернусь к 19');
+    expect(returnSegment('еду на Авачу к 10, если задержусь — сообщите')).toBeNull();
+    const d = draftFromTrigger('Еду на Авачу к 10, если задержусь — сообщите +7 914 123-45-67', NOW, 1);
+    expect(d.returnTime).toBeUndefined();
+    expect(d.step).toBe('return');
+  });
 });
 
 describe('черновик', () => {
@@ -105,15 +142,25 @@ describe('черновик', () => {
     expect(r.reply).toMatch(/номер контакта/);
   });
 
-  it('итог называет лестницу числами однодневки и то, что спасателей зовёт человек', () => {
+  it('итог называет лестницу числами однодневки, кто несёт каждую ступень и что спасателей зовёт человек', () => {
     const d: WatchDraft = { step: 'confirm', where: 'Чёртов <b>мост</b>', returnDate: '2026-09-30', returnTime: '19:00', contactPhone: '+79141234567', contactName: 'Марина', leaderPhone: '+79146245651', startedAt: 1 };
     const s = watchSummary(d, NOW);
-    expect(s).toContain('через 1 ч спрошу вас');
-    expect(s).toContain('через 3 ч сообщу Марина');
-    expect(s).toContain('через 8 ч передам дежурному');
-    expect(s).toContain('не автомат');
+    expect(s).toContain('через 1 ч напишу вам сюда');
+    // До SMS контакту звонит человек — бот этого не обещает от своего имени.
+    expect(s).toContain('через 3 ч попрошу дежурного Ведара позвонить Марина (+79141234567)');
+    expect(s).not.toMatch(/сообщу Марина/);
+    expect(s).toContain('через 8 ч дежурный получит тревогу');
+    expect(s).toContain('Сам автомат спасателей не вызывает');
+    expect(s).toContain('может прийти на час позже');
     expect(s).toContain('Чёртов &lt;b&gt;мост&lt;/b&gt;');
     expect(s).toContain('19:00 по камчатскому времени');
+  });
+
+  it('вопрос вместо ответа не становится маршрутом', () => {
+    const d: WatchDraft = { step: 'where', startedAt: 1 };
+    const r = advanceDraft(d, 'а какая там погода?', NOW);
+    expect(r.draft.where).toBeUndefined();
+    expect(r.reply).toMatch(/Сначала закончим с контролем/);
   });
 });
 
@@ -157,6 +204,48 @@ describe('handleWatchMessage', () => {
     spy.mockRestore();
   });
 
+  it('сообщение о беде черновик не проглатывает — оно уходит в обычный путь с SOS-блоком', async () => {
+    const draft: WatchDraft = { step: 'return', where: 'Чёртов мост', startedAt: NOW.getTime() };
+    query.mockResolvedValueOnce({ rows: [{ state: draft }] });
+    const handled = await handleWatchMessage({ channel: 'tg', chatId: 5, text: 'помогите, сломал ногу', userName: null, reply, now: NOW });
+    expect(handled).toBe(false);
+    expect(replies).toHaveLength(0);
+    expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO trip_watch_flow'))).toBe(false);
+  });
+
+  it(`больше ${WATCH_MAX_OPEN_PER_CHAT} открытых контролей из одного чата не ставится`, async () => {
+    const open = Array.from({ length: WATCH_MAX_OPEN_PER_CHAT }, (_, i) => ({ id: `r${i}`, route_name: 'x', expected_return_at: null }));
+    query
+      .mockResolvedValueOnce({ rows: [] })        // черновика нет
+      .mockResolvedValueOnce({ rows: open });     // открытые контроли чата
+    await handleWatchMessage({ channel: 'tg', chatId: 5, text: 'поставь меня на контроль', userName: null, reply, now: NOW });
+    expect(replies.at(-1)).toMatch(/больше из одного чата не ставлю/);
+    expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO trip_watch_flow'))).toBe(false);
+  });
+
+  it('отбой после тревоги уходит тем, кого встревожили: дежурному и контакту', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'reg-1', route_name: 'Чёртов мост', expected_return_at: null }] }) // открытые
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })                                                          // UPDATE
+      .mockResolvedValueOnce({ rows: [{ route_name: 'Чёртов мост', leader_name: 'Иван', contact_tg: null }] })  // контроль
+      .mockResolvedValueOnce({ rows: [{ channel: 'admin_only', recipient: 'admin' }, { channel: 'email', recipient: 'm@x.ru' }] });
+    await handleWatchMessage({ channel: 'tg', chatId: 5, text: 'вернулся', userName: null, reply, now: NOW });
+    expect(tgSend).toHaveBeenCalledTimes(1);
+    expect(String(tgSend.mock.calls[0]?.[1])).toMatch(/Отбой тревоги: Иван вернулся/);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('не встревожили никого — отбоя никому не шлём', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'reg-1', route_name: 'x', expected_return_at: null }] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ route_name: 'x', leader_name: 'Иван', contact_tg: null }] })
+      .mockResolvedValueOnce({ rows: [] });
+    await handleWatchMessage({ channel: 'tg', chatId: 5, text: 'вернулся', userName: null, reply, now: NOW });
+    expect(tgSend).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
   it('«вернулся» закрывает открытый контроль этого чата с пометкой chat', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'reg-1', route_name: 'Чёртов мост', expected_return_at: null }] })
@@ -171,11 +260,13 @@ describe('handleWatchMessage', () => {
 
 describe('сторож будит туриста первым', () => {
   it('текст называет срок по Камчатке, слова отметки и когда сообщат контакту', () => {
-    const t = buildTouristWakeMessage({ routeName: 'Чёртов мост', controlTime: new Date('2026-09-30T07:00:00Z'), contactName: 'Марина', hoursUntilContact: 2 });
+    const t = buildTouristWakeMessage({ routeName: 'Чёртов мост', controlTime: new Date('2026-09-30T07:00:00Z'), contactName: 'Марина', hoursUntilContact: 2, contactByDuty: true });
     expect(t).toContain('30.09 19:00 (камч.)');
     expect(t).toContain('«вернулся»');
     expect(t).toContain('«задерживаюсь»');
-    expect(t).toContain('через 2 ч я сообщу Марина');
+    expect(t).toContain('примерно через 2 ч дежурный Ведара позвонит Марина');
+    const viaBot = buildTouristWakeMessage({ routeName: 'x', controlTime: new Date(), contactName: 'Марина', hoursUntilContact: 2, contactByDuty: false });
+    expect(viaBot).toContain('я сообщу Марина');
   });
 
   it('checkin-watchdog: soft у контроля из чата — туристу, контакту только если не дошло', () => {

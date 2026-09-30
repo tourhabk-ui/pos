@@ -20,11 +20,14 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { kamchatkaDate, shiftDate, isRealDate, ruShort, DAY_MS } from '@/lib/analytics/kamchatka-day';
 import { kamchatkaWallTime, formatKamchatkaTime, BUFFERS } from '@/lib/safety/checkin-escalation';
 import {
-  createTripWatch, openWatchesForChat, closeTripWatch, type TouristChannel,
+  createTripWatch, openWatchesForChat, closeTripWatch, markTripWatchAlive, type TouristChannel,
 } from '@/lib/safety/trip-watch';
+import { detectEmergency } from '@/lib/safety/sos-detector';
 
 /** Черновик живёт полчаса — как и заявка на тур. */
 export const WATCH_DRAFT_TTL_MS = 30 * 60 * 1000;
+/** Больше трёх открытых контролей из одного чата не бывает у честного пользователя. */
+export const WATCH_MAX_OPEN_PER_CHAT = 3;
 /** Дальше месяца контроль из чата не ставится: это уже экспедиция, ей нужна форма и МЧС. */
 export const WATCH_MAX_AHEAD_MS = 30 * DAY_MS;
 
@@ -101,43 +104,121 @@ export function extractDestination(text: string): string | null {
 
 export type ReturnParse =
   | { ok: true; date: string; time: string }
-  | { ok: false; reason: 'no_time' | 'bad_date' | 'past' | 'too_far' };
+  | { ok: false; reason: 'no_time' | 'bad_date' | 'past' | 'too_far' | 'ambiguous' };
+
+const MONTHS: Array<[RegExp, number]> = [
+  [/^январ[ья]$/, 1], [/^феврал[ья]$/, 2], [/^марта?$/, 3], [/^апрел[ья]$/, 4], [/^ма[йя]$/, 5],
+  [/^июн[ья]$/, 6], [/^июл[ья]$/, 7], [/^августа?$/, 8], [/^сентябр[ья]$/, 9], [/^октябр[ья]$/, 10],
+  [/^ноябр[ья]$/, 11], [/^декабр[ья]$/, 12],
+];
+
+/** «В субботу», «через 3 часа», «на выходных» — день словами, которых мы не считаем. */
+const VAGUE =
+  /(?<!\p{L})(понедельник|вторник|сред[уаы]|четверг|пятниц|суббот|воскресень|выходн|через\s+(?:\d+|пару|час|полчаса))/u;
+
+/** Число после предлога — не час, если за ним единица: «в 2 км», «до 3 дней». */
+const NOT_HOUR = String.raw`(?!\s*(?:км|километр|метр|м(?!\p{L})|дн|день|дня|дней|недел|чел|человек|раз|шт|кг|л(?!\p{L})))`;
+
+function applyDayPart(hh: number, part: string | undefined): number {
+  if (!part) return hh;
+  if (part.startsWith('веч')) return hh < 12 ? hh + 12 : hh;
+  if (part === 'дня') return hh >= 1 && hh <= 6 ? hh + 12 : hh;
+  if (part === 'ночи') return hh >= 9 && hh <= 11 ? hh + 12 : hh === 12 ? 0 : hh;
+  return hh; // утра
+}
+
+function yearFor(day: number, month: number, explicitYear: number | null, today: string): string | null {
+  const y = explicitYear ?? Number(today.slice(0, 4));
+  const candidate = `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (!isRealDate(candidate)) return null;
+  // «03.01» в декабре — январь следующего года, если год не назван.
+  if (explicitYear === null && candidate < today) return `${y + 1}${candidate.slice(4)}`;
+  return candidate;
+}
 
 /**
  * Срок возвращения из текста: «сегодня 19:00», «завтра к 12», «03.10 18:30»,
- * «к 19:00». Без даты — сегодня. Срок в прошлом или дальше месяца — отказ,
- * а не догадка «наверное, завтра».
+ * «к 19.30», «3 октября в 7 вечера». Без даты — сегодня.
+ *
+ * Не угадываем НИКОГДА (§4.0). Два разных времени во фразе («выхожу в 7,
+ * вернусь в 19») — отказ «ambiguous», а не первое попавшееся: первое здесь
+ * было бы временем ВЫХОДА, и тревога ушла бы до того, как человек вышел.
+ * «В субботу» и «через 3 часа» — тоже отказ: словами мы дни не считаем.
+ * Срок в прошлом или дальше месяца — отказ, а не «наверное, завтра».
  */
 export function parseReturn(text: string, now: Date): ReturnParse {
   const t = norm(text);
   const today = kamchatkaDate(now);
+  if (VAGUE.test(t)) return { ok: false, reason: 'ambiguous' };
 
-  let date = today;
-  const dm = t.match(/(?<![\d:])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?![\d:])/);
-  if (/послезавтра/.test(t)) date = shiftDate(today, 2);
-  else if (/завтра/.test(t)) date = shiftDate(today, 1);
-  else if (dm) {
-    const year = dm[3] ? (dm[3].length === 2 ? 2000 + Number(dm[3]) : Number(dm[3])) : Number(today.slice(0, 4));
-    const candidate = `${year}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
-    if (!isRealDate(candidate)) return { ok: false, reason: 'bad_date' };
-    date = candidate;
-    // «03.01» в декабре — январь следующего года, если год не назван.
-    if (!dm[3] && date < today) date = `${year + 1}${date.slice(4)}`;
+  const times = new Set<string>();
+  const dates = new Set<string>();
+  let badDate = false;
+  const addTime = (hh: number, mm: number) => {
+    if (hh > 23 || mm > 59) return;
+    times.add(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
+  };
+
+  // 19:00 (с частью суток после — «7:30 вечера»)
+  for (const m of t.matchAll(/(?<![\d.:])(\d{1,2}):(\d{2})(?![\d.:])(?:\s+(утра|дня|вечера|вечером|ночи))?/g)) {
+    addTime(applyDayPart(Number(m[1]), m[3]), Number(m[2]));
   }
+  // к 19, в 7 вечера, до 19.30, около 20 ч
+  const prep = new RegExp(
+    String.raw`(?<!\p{L})(?:к|в|до|около)\s+(\d{1,2})(?:[.:](\d{2}))?(?![\d.:])` + NOT_HOUR +
+      String.raw`(?:\s*(?:ч|час|часам|часов|часа)(?!\p{L}))?(?:\s+(утра|дня|вечера|вечером|ночи))?`,
+    'gu',
+  );
+  const prepSpans: Array<[number, number]> = [];
+  for (const m of t.matchAll(prep)) {
+    addTime(applyDayPart(Number(m[1]), m[3]), m[2] ? Number(m[2]) : 0);
+    prepSpans.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  }
+  // 03.10, 03.10.2026 — дата; «19.30» без предлога — время, раз такой даты нет
+  for (const m of t.matchAll(/(?<![\d.:])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?![\d.:])/g)) {
+    const at = m.index ?? 0;
+    if (prepSpans.some(([a, b]) => at >= a && at < b)) continue; // уже время после предлога
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const yr = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : null;
+    const d = yearFor(a, b, yr, today);
+    if (d) dates.add(d);
+    else if (!m[3] && m[2].length === 2 && a <= 23 && b <= 59) addTime(a, b);
+    else badDate = true;
+  }
+  // 3 октября
+  for (const m of t.matchAll(/(?<![\d.])(\d{1,2})\s+(\p{L}+)/gu)) {
+    const month = MONTHS.find(([re]) => re.test(m[2]))?.[1];
+    if (!month) continue;
+    const d = yearFor(Number(m[1]), month, null, today);
+    if (d) dates.add(d);
+    else badDate = true;
+  }
+  if (/послезавтра/.test(t)) dates.add(shiftDate(today, 2));
+  else if (/завтра/.test(t)) dates.add(shiftDate(today, 1));
+  if (/сегодня/.test(t)) dates.add(today);
 
-  let hh: number | null = null;
-  let mm = 0;
-  const tm = t.match(/(?<![\d.])(\d{1,2}):(\d{2})(?![\d.])/);
-  const hm = t.match(/(?:^|\s)(?:к|в|до)\s+(\d{1,2})(?:\s*(?:ч|час|часам|часов|часа))?(?![\d.:])/);
-  if (tm) { hh = Number(tm[1]); mm = Number(tm[2]); }
-  else if (hm) { hh = Number(hm[1]); }
-  if (hh === null || hh > 23 || mm > 59) return { ok: false, reason: 'no_time' };
+  if (badDate) return { ok: false, reason: 'bad_date' };
+  if (dates.size > 1 || times.size > 1) return { ok: false, reason: 'ambiguous' };
+  if (times.size === 0) return { ok: false, reason: 'no_time' };
 
-  const time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  const date = dates.size === 1 ? [...dates][0] : today;
+  const time = [...times][0];
   const at = kamchatkaWallTime(date, time);
   if (at.getTime() <= now.getTime()) return { ok: false, reason: 'past' };
   if (at.getTime() - now.getTime() > WATCH_MAX_AHEAD_MS) return { ok: false, reason: 'too_far' };
   return { ok: true, date, time };
+}
+
+/**
+ * Кусок фразы, где говорится о ВОЗВРАЩЕНИИ: «еду на мост в 7, вернусь к 19»
+ * → «вернусь к 19». Нет такого слова — срок из первой фразы не берём вовсе
+ * и спрашиваем отдельно: «еду на Авачу к 10» — это, скорее всего, прибытие.
+ */
+export function returnSegment(text: string): string | null {
+  const m = text.match(/(?<!\p{L})(вернусь|вернемся|вернёмся|вернуться|буду дома|буду обратно|обратно|назад)(?!\p{L})/iu);
+  if (!m || m.index === undefined) return null;
+  return text.slice(m.index).split(/[,;]\s*(?:если|а если|и если)/iu)[0];
 }
 
 /** Имя контакта: текст без телефона и служебных слов. */
@@ -168,19 +249,23 @@ function whenText(date: string, time: string, now: Date): string {
  */
 export function watchSummary(d: WatchDraft, now: Date): string {
   const b = BUFFERS[d.returnDate === kamchatkaDate(now) ? 'day' : 'multi'];
-  const [soft, hard, duty] = [b.soft, b.hard, b.mchs];
+  const contact = `${escapeHtml(d.contactName)} (${escapeHtml(d.contactPhone)})`;
   return [
     'Проверьте, всё ли верно:',
     '',
     `Куда: ${escapeHtml(d.where)}`,
     `Вернусь: ${whenText(d.returnDate ?? '', d.returnTime ?? '', now)}`,
     `Ваш телефон: ${escapeHtml(d.leaderPhone)}`,
-    `Кому сообщить: ${escapeHtml(d.contactName)}, ${escapeHtml(d.contactPhone)}`,
+    `Кому сообщить: ${contact}`,
     '',
     'Если к сроку не напишете «вернулся»:',
-    `- через ${soft} ч спрошу вас здесь;`,
-    `- через ${hard} ч сообщу ${escapeHtml(d.contactName)};`,
-    `- через ${duty} ч передам дежурному Ведара вашу последнюю точку и данные. Спасателей вызывает дежурный, а не автомат.`,
+    `- через ${b.soft} ч напишу вам сюда;`,
+    // Своего канала к контакту у контроля из чата нет, пока не подключены SMS:
+    // до контакта его несёт человек. Обещать «сообщу» от имени бота было бы
+    // неправдой (Trust-First: не обещать того, что система не гарантирует).
+    `- через ${b.hard} ч попрошу дежурного Ведара позвонить ${contact};`,
+    `- через ${b.mchs} ч дежурный получит тревогу с вашим маршрутом и сроком и решит, звать ли спасателей. Сам автомат спасателей не вызывает.`,
+    'Сторож проверяет раз в час, поэтому каждый шаг может прийти на час позже.',
     '',
     'Ответьте «да», чтобы включить контроль, или «нет», чтобы отменить.',
   ].join('\n');
@@ -199,6 +284,7 @@ const RETURN_ERR: Record<Exclude<ReturnParse, { ok: true }>['reason'], string> =
   bad_date: 'Такой даты нет. Напишите, например: «03.10 18:30».',
   past: 'Этот срок уже прошёл. Когда вернётесь? Например: «сегодня 21:00».',
   too_far: 'Из чата контроль ставится не дальше чем на месяц. Для долгого похода — форма vedarai.ru/register.',
+  ambiguous: 'Напишите только срок возвращения — одну дату и одно время, например: «сегодня 19:00» или «03.10 18:30».',
 };
 
 function nextStep(d: WatchDraft): WatchStep {
@@ -223,8 +309,9 @@ export function draftFromTrigger(text: string, now: Date, startedAt: number): Wa
   const d: WatchDraft = { step: 'where', startedAt };
   const where = extractDestination(text);
   if (where) d.where = where;
-  const r = parseReturn(text, now);
-  if (r.ok) { d.returnDate = r.date; d.returnTime = r.time; }
+  const seg = returnSegment(text);
+  const r = seg ? parseReturn(seg, now) : null;
+  if (r?.ok) { d.returnDate = r.date; d.returnTime = r.time; }
   const phone = extractPhone(text);
   if (phone) d.contactPhone = phone;
   d.step = nextStep(d);
@@ -237,6 +324,7 @@ export function advanceDraft(d: WatchDraft, text: string, now: Date): { draft: W
   switch (d.step) {
     case 'where': {
       const w = text.trim().replace(/\s+/g, ' ');
+      if (w.endsWith('?')) return { draft: d, reply: `Сначала закончим с контролем. ${ASK.where} Передумали — «отмена».` };
       if (w.length < 2 || w.length > 120) return { draft: d, reply: ASK.where };
       next.where = w;
       break;
@@ -257,6 +345,7 @@ export function advanceDraft(d: WatchDraft, text: string, now: Date): { draft: W
       break;
     }
     case 'contact_name': {
+      if (text.trim().endsWith('?')) return { draft: d, reply: `Сначала закончим с контролем. ${ASK.contact_name} Передумали — «отмена».` };
       const n = extractContactName(text);
       if (!n) return { draft: d, reply: ASK.contact_name };
       next.contactName = n;
@@ -341,11 +430,7 @@ export async function handleWatchMessage(m: WatchMessage): Promise<boolean> {
   if (isDelayedCommand(text)) {
     const open = await openWatchesForChat(channel, chatId);
     if (open.length === 0) return false;
-    await pool.query(
-      `UPDATE route_registrations SET checkin_confirmed_at = now(), updated_at = now()
-        WHERE id = ANY($1::uuid[]) AND completed_at IS NULL`,
-      [open.map((w) => w.id)],
-    );
+    await markTripWatchAlive(open.map((w) => w.id), 'chat');
     await reply(
       chatId,
       'Отметил: вы в порядке и задерживаетесь. Отсчёт тревог пошёл заново от этой минуты — ' +
@@ -367,6 +452,10 @@ export async function handleWatchMessage(m: WatchMessage): Promise<boolean> {
   }
 
   if (draft) {
+    // Сообщение о беде черновик не проглатывает: «помогите, сломал ногу»
+    // в ответ на «когда вернётесь?» уходит в обычный путь с SOS-блоком
+    // (lib/safety/sos-detector.ts), а черновик ждёт дальше.
+    if (detectEmergency(text).detected) return false;
     if (isCancel(text)) {
       await deleteWatchDraft(channel, chatId);
       await reply(chatId, 'Контроль выхода не включён.');
@@ -382,6 +471,16 @@ export async function handleWatchMessage(m: WatchMessage): Promise<boolean> {
   }
 
   if (!isWatchTrigger(text)) return false;
+
+  // Потолок открытых контролей на чат: каждый просроченный контроль будит
+  // живого дежурного, и чат не должен уметь завалить его сотней выдуманных.
+  const already = await openWatchesForChat(channel, chatId);
+  if (already.length >= WATCH_MAX_OPEN_PER_CHAT) {
+    await reply(chatId,
+      `У вас уже ${already.length} открытых контроля — больше из одного чата не ставлю. ` +
+      'Вернулись — напишите «вернулся», и можно ставить новый.');
+    return true;
+  }
 
   const d = draftFromTrigger(text, now, now.getTime());
   await saveDraft(channel, chatId, d);

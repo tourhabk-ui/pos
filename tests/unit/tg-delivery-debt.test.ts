@@ -39,7 +39,6 @@ const OWN_SENDERS: readonly string[] = [
   'app/api/admin/operators/[id]/route.ts',
   'app/api/auth/register-operator/route.ts',
   'app/api/cron/booking-stall-alert/route.ts',
-  'app/api/cron/checkin-watchdog/route.ts',
   'app/api/cron/digest/route.ts',
   'app/api/cron/evo/route.ts',
   'app/api/cron/health/route.ts',

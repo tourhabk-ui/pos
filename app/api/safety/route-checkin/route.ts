@@ -19,9 +19,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { openRegistrationForMark, markDenied } from '@/lib/safety/registration-mark';
+import { markTripWatchAlive } from '@/lib/safety/trip-watch';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,10 +59,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  await query(
-    `UPDATE route_registrations SET checkin_confirmed_at = now() WHERE id = $1`,
-    [parsed.registration_id],
-  );
+  await markTripWatchAlive([parsed.registration_id], 'link');
 
   return NextResponse.json({
     success: true,

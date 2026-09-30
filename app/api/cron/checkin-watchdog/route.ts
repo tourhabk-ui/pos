@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/email';
 import { maxSendDm } from '@/lib/notifications/max-channel';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
@@ -46,6 +47,7 @@ interface RegRow {
   emergency_contact_phone: string;
   emergency_contact_telegram_chat_id: string | null;
   emergency_contact_email: string | null;
+  source: 'form' | 'telegram' | 'max';
   tourist_chat_channel: 'tg' | 'max' | null;
   tourist_chat_id: string | null;
   sent_steps: string[];
@@ -54,33 +56,32 @@ interface RegRow {
 type SendResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Отправка в Telegram с ЧЕСТНЫМ исходом.
+ * Отправка в Telegram с ЧЕСТНЫМ исходом — общим сервисом, который читает
+ * `ok` ответа (lib/notifications/telegram.ts).
  *
  * До 30.09 ответ не читался вовсе: контакт, который ни разу не писал боту,
  * получает от Telegram 403 «bot can't initiate conversation», а шаг писался как
  * `sent` — тревога числилась доставленной человеку, до которого не дошла
- * (§4.0: «не смог» выдавалось за «хорошо»). Теперь исход — из `ok` ответа.
+ * (§4.0: «не смог» выдавалось за «хорошо»). Текст экранируется: сервис шлёт в
+ * HTML-режиме, и «<» в названии маршрута отверг бы сообщение целиком.
  */
 async function sendTelegram(chatId: string, text: string): Promise<SendResult> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return { ok: false, error: 'TELEGRAM_BOT_TOKEN не задан' };
   if (!chatId) return { ok: false, error: 'нет chat_id' };
-  // Синхронный бросок fetch (кривой TELEGRAM_API_BASE) ловится здесь же:
-  // иначе шаг не записался бы, и турист стоял бы на месте до следующего прогона.
-  try {
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // Без parse_mode: текст тревоги — простой, а HTML-режим отвергал бы
-      // сообщение целиком из-за «<» в названии маршрута или имени.
-      body: JSON.stringify({ chat_id: chatId, text }),
-    });
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
-    if (res.ok && body?.ok) return { ok: true };
-    return { ok: false, error: `Telegram ${res.status}: ${body?.description ?? 'нет ответа'}` };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  const r = await telegramService.sendMessage({ chatId, text: escapeHtml(text) });
+  return r.success ? { ok: true } : { ok: false, error: r.error ?? 'Telegram не ответил' };
+}
+
+/**
+ * Откуда контроль — строка для дежурного. Телефоны контроля из чата введены
+ * самим туристом и кодом не подтверждены: дежурный, который звонит незнакомому
+ * человеку ночью, должен это знать (правило 4: решение за ним).
+ */
+function sourceNote(reg: RegRow): string {
+  if (reg.source === 'telegram' || reg.source === 'max') {
+    const where = reg.source === 'telegram' ? 'Telegram' : 'MAX';
+    return `Контроль поставлен из чата Кузьмича (${where}); телефоны введены туристом и кодом не подтверждены.\n`;
   }
+  return 'Контроль поставлен формой /register.\n';
 }
 
 /**
@@ -129,7 +130,8 @@ async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Pr
   const adminChatId = process.env.TELEGRAM_CHAT_ID;
   const adminText =
     `ПОЗВОНИТЕ КОНТАКТУ — ${reason}\n` +
-    `${reg.emergency_contact_name}: ${reg.emergency_contact_phone}\n\n${msg}`;
+    `${reg.emergency_contact_name}: ${reg.emergency_contact_phone}\n` +
+    sourceNote(reg) + `\n${msg}`;
   const a = adminChatId ? await sendTelegram(adminChatId, adminText) : { ok: false as const, error: 'TELEGRAM_CHAT_ID не задан' };
   if (a.ok) {
     await recordNotification(reg.id, step, 'admin_only', 'admin');
@@ -152,6 +154,9 @@ async function wakeTourist(reg: RegRow, controlTime: Date, tripKind: 'day' | 'mu
     controlTime,
     contactName: reg.emergency_contact_name,
     hoursUntilContact: b.hard - b.soft,
+    // Своего канала к контакту у контроля из чата нет (до SMS): следующую
+    // ступень несёт дежурный звонком — так и сказано туристу.
+    contactByDuty: !reg.emergency_contact_telegram_chat_id && !reg.emergency_contact_email,
   });
   const chatId = reg.tourist_chat_id ?? '';
   const r: SendResult = reg.tourist_chat_channel === 'max'
@@ -250,6 +255,7 @@ export async function GET(req: Request) {
       r.emergency_contact_phone,
       r.emergency_contact_telegram_chat_id::text,
       r.emergency_contact_email,
+      r.source,
       r.tourist_chat_channel,
       r.tourist_chat_id::text,
       COALESCE(
@@ -311,7 +317,7 @@ export async function GET(req: Request) {
       // mchs — уведомляем admin-чат для ручной передачи в МЧС
       const adminChatId = process.env.TELEGRAM_CHAT_ID;
       const r = adminChatId
-        ? await sendTelegram(adminChatId, `МЧС-ТРЕВОГА\n\n${msg}`)
+        ? await sendTelegram(adminChatId, `МЧС-ТРЕВОГА\n${sourceNote(reg)}\n${msg}`)
         : { ok: false as const, error: 'TELEGRAM_CHAT_ID не задан' };
       if (r.ok) {
         await recordNotification(reg.id, step, 'telegram', 'admin');
@@ -346,6 +352,15 @@ export async function GET(req: Request) {
         message: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  // Черновики контроля, брошенные на полпути, держат телефоны людей, которые
+  // ни на что не соглашались (правило 9). Живёт черновик 30 минут; сутки —
+  // с запасом. Сбой уборки не мешает тревогам: лог, и дальше.
+  try {
+    await query(`DELETE FROM trip_watch_flow WHERE updated_at < now() - interval '1 day'`);
+  } catch (err) {
+    console.error('[checkin-watchdog] уборка черновиков не выполнилась', err instanceof Error ? err.message : err);
   }
 
   // Пропущенные люди — это НЕ успех. Прогон, где кого-то не обработали,
