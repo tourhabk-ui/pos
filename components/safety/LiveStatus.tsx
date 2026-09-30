@@ -24,6 +24,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
+import { clip } from '@/lib/safety/alert-clip';
 
 export function fmtAgo(iso: string | null): string {
   if (!iso) return '';
@@ -96,19 +97,8 @@ export function alertStamp(a: { type: string | null; at: string | null; until: s
   return `${fmtDate(a.at)}${a.at ? ` · ${fmtAgo(a.at)}` : ''}`;
 }
 
-/**
- * Обрезка описания для ленты. Бегущая строка — поверхность одного взгляда, а
- * дорожные ограничения приходят абзацами на 400-600 символов: целиком они не
- * читаются ни в прокрутке, ни в раскрытом списке (владелец увидел два экрана
- * текста). Полный текст живёт на карточке маршрута, тут — суть.
- */
-export function clip(text: string, max = 140): string {
-  const t = text.trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max);
-  const space = cut.lastIndexOf(' ');
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:—-]+$/, '')}…`;
-}
+/** Обрезка — общая с сервером: lib/safety/alert-clip. */
+export { clip };
 
 function magColor(m: number): string {
   if (m >= 6) return 'var(--danger)';

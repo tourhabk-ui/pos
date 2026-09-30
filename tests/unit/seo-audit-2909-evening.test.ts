@@ -143,7 +143,7 @@ describe('главная, каталог и рыбалка называют сп
   });
 
   it('H1 героя главной не тронут — решение владельца 14.08', () => {
-    expect(code('components/homepage/HeroStatus.tsx')).toMatch(/Соберите безопасную поездку на Камчатку/);
+    expect(code('components/homepage/desk/DeskHero.tsx')).toMatch(/Соберите безопасную поездку на Камчатку/);
   });
 
   it('H1 и title каталога туров — «Туры на Камчатку»', () => {

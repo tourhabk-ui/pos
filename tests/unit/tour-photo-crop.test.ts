@@ -22,7 +22,7 @@ import { join } from 'node:path';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const V8 = read('app/_home/_HomeV8Client.tsx');
-const FEATURED = read('components/homepage/FeaturedTour.tsx');
+const FEATURED = read('components/homepage/desk/DeskTours.tsx');
 
 describe('кроп фотографий туров прижат к верху', () => {
   it('плата в карусели «Исследовать»', () => {

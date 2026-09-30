@@ -1,30 +1,23 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
-import { pool } from '@/lib/db-pool'
-import { getCurrentSafetyStatus } from '@/lib/safety/current-status'
 import { Header } from '@/components/layout/Header'
-import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroStatus'
-import { HOME_CONTAINER, HOME_SECTION } from '@/lib/home/desktop-layout'
-import { FeaturedTour } from '@/components/homepage/FeaturedTour'
-import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
-import { StatsBand, type PlatformStats } from '@/components/homepage/StatsBand'
-import { KuzmichBriefing } from '@/components/homepage/KuzmichBriefing'
-import { BentoSection } from '@/components/homepage/BentoSection'
-import { EditorialSection } from '@/components/homepage/EditorialSection'
-import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSection'
+import { HOME_CONTAINER } from '@/lib/home/desktop-layout'
 import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
-import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
-import { MoodEntry } from '@/components/homepage/MoodEntry'
-import { SeasonNow } from '@/components/homepage/SeasonNow'
 import BottomNav from '@/components/shared/BottomNav'
 import HomeV8Client from './_home/_HomeV8Client'
 import { getHomeV8Data, fetchPlates } from './_home/data'
 import { homeTreeFor } from '@/lib/home/device-tree'
-import { TourGrid } from '@/components/homepage/TourGrid'
-import { getPlatformCounts } from '@/lib/stats/platform-counts'
 import { queryCatalogSummaryForPage } from '@/lib/search'
+import { loadDeskBrief } from '@/lib/home/desk-brief'
+import { DeskHero } from '@/components/homepage/desk/DeskHero'
+import { DeskPlanChanges } from '@/components/homepage/desk/DeskPlanChanges'
+import { DeskVolcanoBoard } from '@/components/homepage/desk/DeskVolcanoBoard'
+import { DeskTours } from '@/components/homepage/desk/DeskTours'
+import { DeskHelp } from '@/components/homepage/desk/DeskHelp'
+import { DeskAbout } from '@/components/homepage/desk/DeskAbout'
+import { getPlatformCounts } from '@/lib/stats/platform-counts'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,28 +29,6 @@ export const dynamic = 'force-dynamic'
  * — плавающий EmergencyAction в левом нижнем углу. Второй экземпляр рядом с
  * шапкой — две кнопки одного действия на одном экране (#887, #1775).
  */
-
-async function getSafetyStatus(): Promise<SafetyStatusData | null> {
-  try {
-    // Обстановка — из общего правила (lib/safety/current-status.ts): до
-    // 17.09 здесь лежала дословная копия его SQL с подписью «КБГС РАН»
-    // константой, и на паводок от МЧС главная отвечала именем сейсмологов.
-    // Своей остаётся только свежесть: главной важно, когда крон ingest
-    // последний раз что-то записал (MAX(created_at) по всем записям,
-    // включая истёкшие; null = крон ни разу не запускался), а не когда
-    // обновились реалтайм-данные точек.
-    const [status, lastIngestRes] = await Promise.all([
-      getCurrentSafetyStatus(),
-      pool.query<{ last_ingest: string | null }>(`
-        SELECT MAX(created_at)::text AS last_ingest FROM external_alerts
-      `),
-    ]);
-    if (!status) return null;
-    return { ...status, dataUpdatedAt: lastIngestRes.rows[0]?.last_ingest ?? null };
-  } catch {
-    return null;
-  }
-}
 
 // Заголовок и описание называют спрос (туры, маршруты, вулканы, гейзеры,
 // источники), а не только роль сервиса: прежние 54 и 73 знака не содержали
@@ -115,12 +86,16 @@ export default async function Page() {
     );
   }
 
-  // ── Десктоп-дерево (и все боты/SEO): единый источник цифр ──────────
-  // Витрина туров — та же выборка, что у телефона (fetchPlates): порядок,
-  // фильтр живого тура и правило сезона одни на оба дерева. Отказ fetchPlates
-  // пишет в лог сам и отдаёт [] — блоки туров тогда честно не рисуются.
-  const [safety, counts, plates, catalogSummary] = await Promise.all([
-    getSafetyStatus(), getPlatformCounts().catch(() => null), fetchPlates(),
+  // ── Десктоп-дерево (и все боты/SEO): «Сводка дня» (доска 30.09) ───────
+  // Порядок доски «Десктоп — сводка дня»: сводка поверх фото → что меняет
+  // план и табло вулканов → можно поехать → Кузьмич и подготовка без связи →
+  // о Ведаре и остальные разделы.
+  // Сводка — та же, что уходит гидам и что говорит Кузьмич (lib/svodka);
+  // витрина туров — та же, что у телефона (fetchPlates): порядок, фильтр
+  // живого тура и правило сезона одни на оба дерева.
+  const [brief, plates, catalogSummary, counts] = await Promise.all([
+    loadDeskBrief(),
+    fetchPlates(),
     // Счётчик «Все туры» — из сводки каталога, не из длины витрины (§4.0:
     // не смогли посчитать — числа нет, отказ в логе).
     queryCatalogSummaryForPage().catch((e: unknown) => {
@@ -129,67 +104,42 @@ export default async function Page() {
       });
       return null;
     }),
+    // Цифры «О Ведаре» — тот же счёт, что у /about; не посчитались — без цифр.
+    getPlatformCounts().catch((e: unknown) => {
+      console.error('[home] счёт платформы не получен', {
+        code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    }),
   ]);
-  const platformStats: PlatformStats | null = counts
-    ? { routes: counts.routes, places: counts.places, mchsRoutes: counts.mchsRoutes, safetyProfiles: counts.safetyProfiles }
-    : null;
-  const fetchedAt = new Date().toISOString();
 
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
-      <Header />
+      {/* Шапка поверх фото героя: белые иконки до прокрутки (overPhoto). */}
+      <Header overPhoto />
       <OnSiteBanner />
-      <main className="flex-1 pt-[56px] pb-16 md:pb-0">
+      <main className="flex-1 pb-16 md:pb-0">
+        <DeskHero brief={brief} />
 
-        {/* Одна сетка (lib/home/desktop-layout, 25.09): у каждой секции тот же
-            левый край и тот же ритм. «Истории» и бегущая строка — мобильные
-            приёмы — с десктопа сняты; цифры встали статичной полосой под
-            героем. */}
-        <HeroStatus safety={safety} fetchedAt={fetchedAt} />
-
-        {/* Платформа в цифрах — сразу под героем: довод «почему нам верить» */}
-        <StatsBand stats={platformStats} />
-
-        {/* Туры сезона — первый тур витрины крупно, остальные сеткой, последняя
-            клетка — заявка (#33). Один источник — fetchPlates, второй выборки нет. */}
-        <SectionErrorBoundary>
-          <FeaturedTour tour={plates[0] ?? null} total={catalogSummary?.total ?? null} />
-        </SectionErrorBoundary>
-        {plates.length > 0 && <TourGrid plates={plates.slice(1)} />}
-
-        {/* Mood/vibe entry — emotional starting point */}
-        <MoodEntry />
-
-        {/* Event-driven travel, пилот на рыбе (issue #1421) — не рендерится в межсезонье */}
-        <SeasonNow />
-
-        {/* Кузьмич одним блоком: живые счётчики (при нулях их нет, #36/#40),
-            обстановка и туры сезона из той же витрины, каналы связи. */}
-        <div className="pt-4 pb-12">
-          <LiveOnTrails />
-          <SectionErrorBoundary>
-            <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, slug: p.slug, title: p.title }))} />
-          </SectionErrorBoundary>
-          <div className={HOME_CONTAINER}>
-            <MessengerAgentsSection />
-          </div>
-        </div>
-
-        {/* Explore by element — 6 categories */}
-        <BentoSection />
-
-        {/* Editorial strip — цифры из единого источника, не хардкод */}
-        <EditorialSection mchsRoutes={counts?.mchsRoutes ?? null} safetyProfiles={counts?.safetyProfiles ?? null} />
-
-        {/* Map preview — lazy, в общей сетке */}
-        <SectionErrorBoundary>
-          <div className={`${HOME_CONTAINER} ${HOME_SECTION}`}>
-            <div className="rounded-lg overflow-hidden border border-[var(--border)] h-[380px] md:h-[440px]">
-              <HomeMapPreviewLazy />
+        <div className={`${HOME_CONTAINER} flex flex-col gap-24 pb-24 pt-20`}>
+          <section className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14" aria-label="Обстановка сегодня">
+            <div className="lg:col-span-7">
+              <DeskPlanChanges changes={brief.changes} feedCount={brief.svodka?.safety?.feedCount ?? null} trusted={brief.safetyTrusted} />
             </div>
-          </div>
-        </SectionErrorBoundary>
+            <div className="lg:col-span-5">
+              <DeskVolcanoBoard volcanoes={brief.svodka?.volcanoes ?? null} />
+            </div>
+          </section>
 
+          <SectionErrorBoundary>
+            <DeskTours plates={plates} total={catalogSummary?.total ?? null} />
+          </SectionErrorBoundary>
+
+          <DeskHelp />
+
+          {/* О платформе и дороги в остальные разделы (владелец 30.09). */}
+          <DeskAbout counts={counts} />
+        </div>
       </main>
       {/* Футер — только desktop (CLAUDE.md §2); на мобильном — своя нижняя навигация v8 */}
       {/* hidden md:block: это дерево получает и телефон с неопознанным UA, а

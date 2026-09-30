@@ -18,7 +18,7 @@ const base: Svodka = {
   },
   volcanoes: {
     sources: 'Источники — …', complete: true, more: 0,
-    items: [{ name: 'Шивелуч', ash: 'оранжевый', ashKm: 12, tremor: 'жёлтый', level: 'orange' }],
+    items: [{ name: 'Шивелуч', ash: 'оранжевый', ashKm: 12, tremor: 'жёлтый', level: 'orange', ashCode: 'orange', tremorCode: 'yellow' }],
   },
   weather: [
     { name: 'Авачинский', days: [{ date: '2026-09-30', tempMin: -11, tempMax: -10, precipMm: 29.9, windKmh: 18, weatherCode: 75, description: 'Сильный снег' }], reason: null },

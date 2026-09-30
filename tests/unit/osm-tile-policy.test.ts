@@ -34,7 +34,6 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const SW = read('public/sw.js');
 const OFFLINE_REGION = read('lib/offline/useOfflineRegion.ts');
 const MAP_PAGE = read('app/map/_MapPageClient.tsx');
-const HOME_PREVIEW = read('components/homepage/HomeMapPreview.tsx');
 const LEAFLET_MAP = read('components/shared/LeafletMap.tsx');
 const EMERGENCY = read('public/emergency.html');
 const PLANNING = read('app/planning/_PlanningClient.tsx');
@@ -126,10 +125,6 @@ describe('атрибуция OSM видна на всех продуктовых
 
   it('/map (online и offline режимы) не отключает атрибуцию явно', () => {
     expect(MAP_PAGE).not.toContain('attribution={false}');
-  });
-
-  it('главная (HomeMapPreview) не отключает атрибуцию явно', () => {
-    expect(HOME_PREVIEW).not.toContain('attribution={false}');
   });
 
   it('emergency.html включает attributionControl и указывает источник', () => {

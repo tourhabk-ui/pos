@@ -85,9 +85,6 @@ describe('честные цифры витрины и главной (#1780)', (
     expect(data).not.toMatch(/label: 'рег\. МЧС'/);
     expect(data).not.toMatch(/label: 'SAR'/);
     expect(data).toMatch(/plural\(counts\.routes, 'маршрут', 'маршрута', 'маршрутов'\)/);
-    const band = read('components/homepage/StatsBand.tsx');
-    expect(band).toMatch(/plural\(stats\.safetyProfiles, 'профиль', 'профиля', 'профилей'\)/);
-    expect(band).not.toMatch(/SAR-мониторинг/);
   });
 });
 

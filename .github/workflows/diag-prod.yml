@@ -94,12 +94,11 @@ jobs:
           echo "байт HTML: $(printf %s "$DL" | wc -c); ItemList: $(printf %s "$DL" | grep -c 'ItemList' || true); «вулкан»: $(printf %s "$DL" | grep -ci 'вулкан' || true)"
 
           echo ""
-          echo "=== Проба главной: честные цифры StatsBand (после #458) ==="
+          echo "=== Проба главной: «Сводка дня» (30.09) ==="
           HP=$(curl -s --max-time 30 "$BASE/" || true)
-          echo "старый хардкод «778»: $(printf %s "$HP" | grep -c '778' || true) (0 = хардкод умер)"
-          echo "старый лейбл «маршрута в базе»: $(printf %s "$HP" | grep -c 'маршрута в базе' || true)"
-          echo "новый лейбл «маршрутов в базе»: $(printf %s "$HP" | grep -c 'маршрутов в базе' || true)"
-          echo "лейбл «локаций с координатами»: $(printf %s "$HP" | grep -c 'локаций с координатами' || true)"
+          echo "ссылок на туры витрины: $(printf %s "$HP" | grep -o 'href="/catalog/tours/[^"]*"' | wc -l)"
+          echo "блок «Что меняет план»: $(printf %s "$HP" | grep -c 'Что меняет план' || true)"
+          echo "табло вулканов: $(printf %s "$HP" | grep -c 'Табло вулканов' || true)"
 
           echo ""
           echo "=== SSR-проба /operators ==="

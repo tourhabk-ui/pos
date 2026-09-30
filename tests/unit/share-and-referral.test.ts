@@ -226,11 +226,11 @@ describe('кнопка на главной есть на обоих деревь
   });
 
   it('десктопное дерево', () => {
-    expect(read('components/homepage/HeroStatus.tsx')).toMatch(/<ShareButton/);
+    expect(read('components/homepage/desk/DeskHero.tsx')).toMatch(/<ShareButton/);
   });
 
   it('на обоих ссылка реферальная', () => {
     expect(read('app/_home/_HomeV8Client.tsx')).toMatch(/referral\s/);
-    expect(read('components/homepage/HeroStatus.tsx')).toMatch(/referral\s/);
+    expect(read('components/homepage/desk/DeskHero.tsx')).toMatch(/referral\s/);
   });
 });
