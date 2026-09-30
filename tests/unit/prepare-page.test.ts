@@ -30,7 +30,7 @@ describe('/prepare: факты из справочников', () => {
     expect(CODE).not.toMatch(new RegExp(`\\b${MCHS_LEAD_WORKING_DAYS}\\s+рабоч`));
     expect(CODE).not.toMatch(/\+7[\s(]*4152/);
     expect(CODE).not.toMatch(/['">]\s*112\b/);
-    expect(CODE).not.toMatch(/forms\.mchs\.gov\.ru/);
+    expect(CODE).not.toContain('forms.mchs.gov.ru');
   });
 
   it('пороги сложности не переписаны: строка строится из DIFFICULTY_SCALE', () => {
