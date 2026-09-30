@@ -89,11 +89,17 @@ function jsonldTypes(html: string): { types: string[]; invalid: number } {
   return { types: [...types].sort(), invalid };
 }
 
-const COUNTER_MARKERS: ReadonlyArray<[string, RegExp]> = [
-  ['yandex_metrika', /mc\.yandex\.ru|ym\(\d+/i],
-  ['google_analytics', /googletagmanager\.com|google-analytics\.com/i],
-  ['top_mail_ru', /top-fwz1\.mail\.ru|top\.mail\.ru/i],
-  ['vk_pixel', /vk\.com\/rtrg|vk\.ru\/rtrg/i],
+/**
+ * Признаки счётчиков в тексте страницы. Это поиск подстроки в HTML, а не
+ * проверка адреса: судить по нему, чей это хост, нельзя и не нужно — вопрос
+ * только «стоит ли на странице метрика». Регэкспы по домену тут не нужны
+ * (CodeQL справедливо читает их как проверку URL без якоря).
+ */
+const COUNTER_MARKERS: ReadonlyArray<[string, ReadonlyArray<string>]> = [
+  ['yandex_metrika', ['mc.yandex.ru', 'ym(']],
+  ['google_analytics', ['googletagmanager.com', 'google-analytics.com']],
+  ['top_mail_ru', ['top-fwz1.mail.ru', 'top.mail.ru']],
+  ['vk_pixel', ['vk.com/rtrg', 'vk.ru/rtrg']],
 ];
 
 /** Снимок страницы. `pageUrl` нужен, чтобы отличить свои ссылки от чужих. */
@@ -142,6 +148,7 @@ export function snapshotPage(html: string, pageUrl: string): PageSnapshot {
   for (const m of visible.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g)) emails.add(m[0].toLowerCase());
 
   const ld = jsonldTypes(html);
+  const lower = html.toLowerCase();
 
   return {
     title: titleMatch ? text(titleMatch[1]) || null : null,
@@ -163,7 +170,7 @@ export function snapshotPage(html: string, pageUrl: string): PageSnapshot {
     external_hosts: [...external].sort().slice(0, 40),
     phones: [...phones].sort(),
     emails: [...emails].sort(),
-    counters: COUNTER_MARKERS.filter(([, re]) => re.test(html)).map(([k]) => k),
+    counters: COUNTER_MARKERS.filter(([, marks]) => marks.some((m) => lower.includes(m))).map(([k]) => k),
     words: visible ? visible.split(' ').length : 0,
   };
 }
