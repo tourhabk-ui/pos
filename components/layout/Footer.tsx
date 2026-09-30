@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import Image from 'next/image';
+import Logo from '@/components/shared/Logo';
 import { Send } from 'lucide-react';
 // Список ссылок — из реестра, общего со страницей «Ещё» (/menu, 02.09).
 // Своего списка у футера больше нет: две копии одного меню расходятся так же,
@@ -18,13 +18,7 @@ export function Footer() {
           {/* Brand */}
           <div className="md:col-span-1 lg:col-span-2">
             <Link href="/" className="flex items-center gap-2.5 mb-4">
-              <Image
-                src="/logo-kamchatka.svg"
-                alt="Ведар"
-                width={32}
-                height={32}
-                className="shrink-0"
-              />
+              <Logo size={32} className="shrink-0" />
               <span
                 className="text-base font-semibold text-[var(--text-primary)]"
                 style={{ fontFamily: 'var(--font-outfit)' }}
