@@ -102,6 +102,14 @@ jobs:
           # Статусы печатаются у ВСЕХ полученных, логи читаются у двух свежих:
           # по одному статусу не видно, когда сборки перестали доходить, а лог
           # десяти сборок — это простыня, в которой ответ теряется.
+          #
+          # И у последней УПАВШЕЙ (30.09): каждый пуш в main останавливает
+          # текущую сборку и начинает новую, поэтому к моменту чтения две
+          # свежие — это почти всегда «building» и «stopped», а причина
+          # красного деплоя лежит глубже в списке (29.09 и 30.09 — status
+          # failure третьей-четвёртой строкой, лог не прочитан ни разу).
+          picked = []
+          failed = None
           for n, d in enumerate(deploys):
               did = d.get('id', '')
               status = d.get('status', '?')
@@ -109,7 +117,13 @@ jobs:
               created = str(d.get('created_at') or '?')[:19]
               print(f'{did}|{status}|{commit}|{created}', file=sys.stderr)
               if did and n < 2:
-                  print(did)
+                  picked.append(did)
+              if did and failed is None and status == 'failure':
+                  failed = did
+          if failed and failed not in picked:
+              picked.append(failed)
+          for did in picked:
+              print(did)
           PY
 
           HTTP=$(curl -sS -o /tmp/deploys.json -w "%{http_code}" --max-time 60 \
