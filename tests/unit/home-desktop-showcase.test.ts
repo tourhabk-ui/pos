@@ -29,7 +29,8 @@ const DESKTOP_COMPONENTS = [
 describe('витрина: все туры одной выборкой (#33)', () => {
   it('десктопное дерево читает fetchPlates один раз и отдаёт его карточке и сетке', () => {
     expect(DESKTOP.match(/fetchPlates\(\)/g)?.length).toBe(1);
-    expect(DESKTOP).toMatch(/<FeaturedTour tour=\{plates\[0\] \?\? null\} total=\{plates\.length\} \/>/);
+    // Число «Все туры (N)» — из сводки каталога, не из обрезанной витрины (30.09).
+    expect(DESKTOP).toMatch(/<FeaturedTour tour=\{plates\[0\] \?\? null\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
     expect(DESKTOP).toMatch(/<TourGrid plates=\{plates\.slice\(1\)\} \/>/);
   });
 

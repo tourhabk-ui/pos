@@ -3,8 +3,15 @@ import Link from 'next/link';
 import { Shield, MapPin, Users, Zap, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
+import { getPlatformCounts } from '@/lib/stats/platform-counts';
+import { queryCatalogSummaryForPage } from '@/lib/search';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
+// Цифры страницы — из базы, а не из текста: прежние «779 / 294» стояли здесь
+// с мая и расходились с главной (замер 30.09: 380 мест, 391 маршрут).
+// Счёт кэшируется на час там же, где его берёт главная.
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: 'О платформе Ведар — честный проводник по Камчатке',
@@ -31,17 +38,17 @@ const PILLARS = [
   {
     icon: Shield,
     title: 'Безопасность прежде всего',
-    body: 'SOS-кнопка, офлайн-карта с 525 тайлами, профили безопасности 763 точек, чек-лист снаряжения и прямая связь с МЧС — встроены в платформу, а не добавлены потом.',
+    body: 'SOS-кнопка, офлайн-карта, профили безопасности точек, чек-лист снаряжения и прямая связь с МЧС — встроены в платформу, а не добавлены потом.',
   },
   {
     icon: MapPin,
-    title: '294 маршрута, 779 точек',
+    title: 'Маршруты и точки с рисками',
     body: 'Вулканы, горячие источники, гейзеры, озёра — каждая точка с координатами, описанием сезонности и реальными рисками. Данные из государственных источников и полевых наблюдений.',
   },
   {
     icon: Users,
     title: 'Только проверенные операторы',
-    body: '13 верифицированных туроператоров, 112 аттестованных гидов. Никаких анонимных предложений — только официально зарегистрированные компании с историей работы.',
+    body: 'Туры на платформе ведут туроператоры Камчатки с отметкой проверки. Никаких анонимных предложений — только официально зарегистрированные компании.',
   },
   {
     icon: Zap,
@@ -50,14 +57,36 @@ const PILLARS = [
   },
 ];
 
-const STATS = [
-  { value: '779', label: 'мест и точек' },
-  { value: '294', label: 'маршрута' },
-  { value: '13', label: 'операторов' },
-  { value: '112', label: 'гидов' },
-];
+interface Stat { value: string; label: string }
 
-export default function AboutPage() {
+/**
+ * Живые цифры: места, маршруты и профили безопасности — тем же счётом, что
+ * на главной (getPlatformCounts), туры — сводкой каталога. Не посчиталось —
+ * цифры нет (§4.0), отказ в логе. Операторов и гидов не пишем: у этих чисел
+ * нет счёта в коде, а «13 / 112» с мая стали бы новым «778 мест».
+ */
+async function loadStats(): Promise<Stat[]> {
+  const [counts, catalog] = await Promise.all([
+    getPlatformCounts().catch((e: unknown) => {
+      console.error('[about] счёт платформы не получен', { message: e instanceof Error ? e.message : String(e) });
+      return null;
+    }),
+    queryCatalogSummaryForPage().catch((e: unknown) => {
+      console.error('[about] сводка каталога не получена', { message: e instanceof Error ? e.message : String(e) });
+      return null;
+    }),
+  ]);
+  const out: Stat[] = [];
+  const fmt = (n: number) => n.toLocaleString('ru-RU');
+  if (counts && counts.places > 0) out.push({ value: fmt(counts.places), label: 'мест на карте' });
+  if (counts && counts.routes > 0) out.push({ value: fmt(counts.routes), label: 'маршрутов' });
+  if (counts && counts.safetyProfiles > 0) out.push({ value: fmt(counts.safetyProfiles), label: 'профилей безопасности' });
+  if (catalog && catalog.total > 0) out.push({ value: fmt(catalog.total), label: 'туров от операторов' });
+  return out;
+}
+
+export default async function AboutPage() {
+  const stats = await loadStats();
   return (
     <>
       <Header />
@@ -80,11 +109,12 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* Stats */}
+        {/* Stats — только посчитанное; нет чисел — нет блока */}
+        {stats.length > 0 && (
         <section className="py-10 px-6 border-y border-[var(--border)]">
           <div className="max-w-4xl mx-auto">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-              {STATS.map((s) => (
+              {stats.map((s) => (
                 <div key={s.label} className="text-center">
                   <p className="font-playfair text-4xl font-bold text-[var(--accent)]">{s.value}</p>
                   <p className="text-sm text-[var(--text-muted)] mt-1">{s.label}</p>
@@ -93,6 +123,7 @@ export default function AboutPage() {
             </div>
           </div>
         </section>
+        )}
 
         {/* Mission */}
         <section className="py-16 px-6">
