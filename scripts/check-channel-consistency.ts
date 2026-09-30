@@ -26,8 +26,12 @@ const BASE = process.env.BASE ?? 'https://vedarai.ru';
 
 /** Карточка по числу: код и куда перенаправило. Сеть не ответила — null. */
 async function lookupTour(id: string): Promise<TourLookup> {
+  // Число пришло из файла ответа MCP и уходит в адрес запроса: в адрес идёт
+  // только то, что целиком состоит из цифр. mcpTourIds и так берёт `\d+`,
+  // но проверка стоит у самого запроса — она не зависит от того, кто вызвал.
+  if (!/^\d{1,15}$/.test(id)) return { status: 400, location: null };
   try {
-    const res = await fetch(`${BASE}/catalog/tours/${id}`, {
+    const res = await fetch(`${BASE}/catalog/tours/${encodeURIComponent(id)}`, {
       redirect: 'manual',
       signal: AbortSignal.timeout(30_000),
     });
