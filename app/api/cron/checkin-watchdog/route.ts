@@ -43,24 +43,68 @@ interface RegRow {
   sent_steps: string[];
 }
 
-async function sendTelegram(chatId: string, text: string): Promise<void> {
+type SendResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Отправка в Telegram с ЧЕСТНЫМ исходом.
+ *
+ * До 30.09 ответ не читался вовсе: контакт, который ни разу не писал боту,
+ * получает от Telegram 403 «bot can't initiate conversation», а шаг писался как
+ * `sent` — тревога числилась доставленной человеку, до которого не дошла
+ * (§4.0: «не смог» выдавалось за «хорошо»). Теперь исход — из `ok` ответа.
+ */
+async function sendTelegram(chatId: string, text: string): Promise<SendResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
-  // `.catch()` на промисе ловил только сетевой отказ. Сам вызов `fetch` может
-  // бросить СИНХРОННО — например, на кривом TELEGRAM_API_BASE, — и тогда
-  // ловить уже нечего: исключение уходит выше, и следующая строка вызывающего
-  // (`recordNotification`) не выполняется. Шаг эскалации не записывается, и
-  // просроченный турист остаётся на том же шаге до следующего прогона.
+  if (!token) return { ok: false, error: 'TELEGRAM_BOT_TOKEN не задан' };
+  if (!chatId) return { ok: false, error: 'нет chat_id' };
+  // Синхронный бросок fetch (кривой TELEGRAM_API_BASE) ловится здесь же:
+  // иначе шаг не записался бы, и турист стоял бы на месте до следующего прогона.
   try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
     });
-  } catch {
-    // Отправка — не единственный канал: шаг всё равно будет записан
-    // вызывающим, и эскалация продолжится. Молчать здесь безопасно ровно
-    // потому, что запись идёт отдельной строкой.
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (res.ok && body?.ok) return { ok: true };
+    return { ok: false, error: `Telegram ${res.status}: ${body?.description ?? 'нет ответа'}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Шаг к экстренному контакту (soft/hard).
+ *
+ * Контакт без Telegram или с отказом доставки раньше просто пропускался
+ * (`skipped`) — лестница шла дальше, а живой человек, который мог бы позвонить
+ * туристу, не узнавал ничего. Теперь такой шаг уходит в админ-чат с именем и
+ * телефоном контакта: позвонить может человек, раз не смог бот.
+ */
+async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Promise<void> {
+  const contactChat = reg.emergency_contact_telegram_chat_id;
+  let reason = 'у контакта нет Telegram';
+  if (contactChat) {
+    const r = await sendTelegram(contactChat, msg);
+    if (r.ok) {
+      await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone);
+      return;
+    }
+    reason = `Telegram контакту не доставлен (${r.error})`;
+    await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone, 'failed', r.error);
+  }
+  const adminChatId = process.env.TELEGRAM_CHAT_ID;
+  const adminText =
+    `ПОЗВОНИТЕ КОНТАКТУ — ${reason}\n` +
+    `${reg.emergency_contact_name}: ${reg.emergency_contact_phone}\n\n${msg}`;
+  const a = adminChatId ? await sendTelegram(adminChatId, adminText) : { ok: false as const, error: 'TELEGRAM_CHAT_ID не задан' };
+  if (a.ok) {
+    await recordNotification(reg.id, step, 'admin_only', 'admin');
+  } else {
+    // Не дошло никуда — это громко в лог и `skipped`, чтобы лестница не встала:
+    // следующая ступень (в итоге МЧС-тревога) важнее повторов этой.
+    console.error('[checkin-watchdog] шаг не доставлен никому', { registrationId: reg.id, step, reason, admin: a.error });
+    await recordNotification(reg.id, step, 'none', reg.emergency_contact_phone, 'skipped', `${reason}; админ: ${a.error}`);
   }
 }
 
@@ -69,13 +113,14 @@ async function recordNotification(
   step: EscalationStep,
   channel: string,
   recipient: string,
-  status: 'sent' | 'skipped' = 'sent',
+  status: 'sent' | 'skipped' | 'failed' = 'sent',
+  error?: string,
 ): Promise<void> {
   await query(
     `INSERT INTO route_registration_notifications
-       (registration_id, step, channel, recipient, status, sent_at)
-     VALUES ($1, $2, $3, $4, $5, now())`,
-    [registrationId, stepToNum(step), channel, recipient, status],
+       (registration_id, step, channel, recipient, status, error_message, sent_at)
+     VALUES ($1, $2, $3, $4, $5, $6, now())`,
+    [registrationId, stepToNum(step), channel, recipient, status, error ?? null],
   );
 }
 
@@ -182,7 +227,7 @@ export async function GET(req: Request) {
    try {
 
     const tripKind = reg.trip_kind ?? tripKindFromDates(new Date(reg.start_date), new Date(reg.end_date));
-    const controlTime = resolveControlTime(new Date(reg.end_date), reg.expected_return_at ? new Date(reg.expected_return_at) : null);
+    const controlTime = resolveControlTime(reg.end_date, reg.expected_return_at ? new Date(reg.expected_return_at) : null);
     const alreadySent = (reg.sent_steps ?? []) as EscalationStep[];
     const confirmedAt = reg.checkin_confirmed_at ? new Date(reg.checkin_confirmed_at) : null;
 
@@ -195,29 +240,22 @@ export async function GET(req: Request) {
     // Уведомление в зависимости от шага.
     // Важно: recordNotification вызывается ВСЕГДА — иначе шаг не записывается
     // и эскалация стоит на месте при отсутствии Telegram.
-    if (step === 'soft') {
-      if (reg.emergency_contact_telegram_chat_id) {
-        await sendTelegram(reg.emergency_contact_telegram_chat_id, msg);
-        await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone);
-      } else {
-        // Нет Telegram — записываем skipped чтобы прогрессировать к hard
-        await recordNotification(reg.id, step, 'none', reg.emergency_contact_phone, 'skipped');
-      }
-    } else if (step === 'hard') {
-      if (reg.emergency_contact_telegram_chat_id) {
-        await sendTelegram(reg.emergency_contact_telegram_chat_id, msg);
-        await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone);
-      } else {
-        await recordNotification(reg.id, step, 'none', reg.emergency_contact_phone, 'skipped');
-      }
+    if (step === 'soft' || step === 'hard') {
+      await notifyContact(reg, step, msg);
     } else {
       // mchs — уведомляем admin-чат для ручной передачи в МЧС
       const adminChatId = process.env.TELEGRAM_CHAT_ID;
-      if (adminChatId) {
-        await sendTelegram(adminChatId, `МЧС-ТРЕВОГА\n\n${msg}`);
+      const r = adminChatId
+        ? await sendTelegram(adminChatId, `МЧС-ТРЕВОГА\n\n${msg}`)
+        : { ok: false as const, error: 'TELEGRAM_CHAT_ID не задан' };
+      if (r.ok) {
         await recordNotification(reg.id, step, 'telegram', 'admin');
       } else {
-        await recordNotification(reg.id, step, 'none', 'admin', 'skipped');
+        // МЧС-тревога, не дошедшая до человека, — самый тяжёлый отказ крона:
+        // не `skipped` (тогда следующий прогон её не повторит), а `failed`,
+        // и прогон краснеет (failed++ ниже через throw).
+        await recordNotification(reg.id, step, 'none', 'admin', 'failed', r.error);
+        throw new Error(`МЧС-тревога не доставлена: ${r.error}`);
       }
     }
 

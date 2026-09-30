@@ -22,6 +22,8 @@
  * лестницу: свежая отметка знает о настоящем, вчерашняя — нет.
  */
 
+import { kamchatkaDayStart } from '@/lib/analytics/kamchatka-day';
+
 export type TripKind = 'day' | 'multi';
 
 export type EscalationStep = 'soft' | 'hard' | 'mchs';
@@ -49,18 +51,42 @@ export function tripKindFromDates(startDate: Date, endDate: Date): TripKind {
 }
 
 /**
+ * Календарная дата значения колонки DATE. node-pg отдаёт DATE как Date на
+ * ЛОКАЛЬНОЙ полуночи процесса, поэтому дата берётся локальными геттерами; строка
+ * «YYYY-MM-DD» — как есть.
+ */
+export function ymdOfDate(value: Date | string): string {
+  if (typeof value === 'string') return value.slice(0, 10);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${value.getFullYear()}-${p(value.getMonth() + 1)}-${p(value.getDate())}`;
+}
+
+/**
+ * Момент (UTC) для камчатских «даты и часа на стене»: «2026-10-04» + «19:00» →
+ * 2026-10-04T07:00Z.
+ *
+ * Повод (30.09). Регистрация строила срок как `new Date('2026-10-04T19:00:00')`
+ * — БЕЗ пояса, то есть по часам Node, а Node на проде живёт в UTC
+ * (lib/analytics/kamchatka-day.ts). «Вернусь в 19:00» записывалось как 07:00
+ * следующего утра по Камчатке, и первая тревога уходила на 12 часов позже
+ * обещанного. Тем же страдал запасной срок «20:00 в день окончания».
+ */
+export function kamchatkaWallTime(dateYmd: string, hhmm: string): Date {
+  const [h, m] = hhmm.split(':').map(Number);
+  return new Date(kamchatkaDayStart(dateYmd).getTime() + (h * 60 + (m || 0)) * 60_000);
+}
+
+/**
  * Вычисляет контрольное время возврата.
  * Если `expectedReturnAt` задано — используем его.
- * Иначе fallback: end_date + 20:00 местного времени (консервативно, не полночь).
+ * Иначе fallback: end_date + 20:00 по Камчатке (консервативно, не полночь).
  */
 export function resolveControlTime(
-  endDate: Date,
+  endDate: Date | string,
   expectedReturnAt: Date | null,
 ): Date {
   if (expectedReturnAt) return expectedReturnAt;
-  const fallback = new Date(endDate);
-  fallback.setHours(20, 0, 0, 0);
-  return fallback;
+  return kamchatkaWallTime(ymdOfDate(endDate), '20:00');
 }
 
 /**

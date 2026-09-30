@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { kamchatkaWallTime } from '@/lib/safety/checkin-escalation';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { verifyAuth } from '@/lib/auth';
@@ -153,8 +154,10 @@ export async function POST(request: NextRequest) {
 
   // Сохраняем в БД
   // Строим expected_return_at из end_date + expected_return_time (если задано)
+  // Время на стене — камчатское: без явного пояса `new Date('…T19:00:00')`
+  // читался по часам Node (UTC) и отодвигал тревогу на 12 часов (30.09).
   const expectedReturnAt = data.expected_return_time
-    ? new Date(`${data.end_date}T${data.expected_return_time}:00`)
+    ? kamchatkaWallTime(data.end_date, data.expected_return_time)
     : null;
 
   const tripKind = data.start_date === data.end_date ? 'day' : 'multi';
