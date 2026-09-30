@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
+  Copy,
+  ExternalLink,
   Loader2,
   Plus,
   Search,
@@ -12,6 +14,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { mchsFormText } from '@/lib/safety/mchs-form-text';
+import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 
 // -- Статусы регистрации МЧС --
 type MchsStatus = 'pending' | 'submitted' | 'confirmed' | 'rejected';
@@ -166,6 +170,9 @@ export function MchsRegistrationPanel() {
   });
   const [selectedDetails, setSelectedDetails] = useState<RegistrationDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  // Копирование текста для формы МЧС (владелец 30.09: Ведар готовит данные,
+  // отправляет оператор сам). Отказ буфера — не «скопировано», а подсказка.
+  const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle');
   const [showForm, setShowForm] = useState(false);
 
   const loadRegistrations = useCallback(async () => {
@@ -230,6 +237,7 @@ export function MchsRegistrationPanel() {
       }
 
       const d = payload.data;
+      setCopyState('idle');
       setSelectedDetails({
         id: typeof d.id === 'string' ? d.id : '',
         bookingId: typeof d.bookingId === 'string' ? d.bookingId : '',
@@ -767,6 +775,43 @@ export function MchsRegistrationPanel() {
                     МЧС Ref: {selectedDetails.mchsReference}
                   </p>
                 )}
+                {/* Текст для формы МЧС: собирается из этой записи, оператор
+                    переносит его в форму и отправляет сам. Чего в записи нет
+                    (адреса, связь, транспорт), текст называет словами. */}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(mchsFormText(selectedDetails));
+                        setCopyState('done');
+                      } catch {
+                        setCopyState('failed');
+                      }
+                    }}
+                    className="min-h-[44px] px-3 py-2 rounded-xl bg-[var(--accent)] text-[var(--on-accent)] text-sm inline-flex items-center gap-2 transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                    {copyState === 'done' ? 'Скопировано' : 'Скопировать для формы МЧС'}
+                  </button>
+                  <a
+                    href={MCHS_ONLINE_FORM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[44px] px-3 py-2 rounded-xl border border-[var(--border)] text-[var(--ocean)] text-sm inline-flex items-center gap-2 hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Открыть форму МЧС
+                  </a>
+                </div>
+                {copyState === 'failed' && (
+                  <p role="status" className="text-xs text-[var(--text-secondary)]">
+                    Не удалось скопировать автоматически — выделите текст ниже и скопируйте вручную.
+                  </p>
+                )}
+                <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 max-h-64 overflow-auto">
+                  {mchsFormText(selectedDetails)}
+                </pre>
                 <button
                   type="button"
                   onClick={() => setSelectedDetails(null)}
