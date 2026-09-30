@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import type { GeofenceZone, ZoneHazard, ZoneLevel } from '@/lib/safety/geofence';
+import { ashfallZoneNote } from '@/lib/safety/ashfall-guidance';
 import {
   bearSightingZone,
   FRESH_APPROVED_SQL,
@@ -154,7 +155,9 @@ export async function GET() {
         radiusM: accToRadius(row.acc),
         hazard:  'volcano',
         level:   accToLevel(row.acc),
-        message: `Активный вулкан «${row.name}» — код KVERT ${ACC_LABEL[row.acc]}. Следите за оповещениями KVERT, избегайте кратера.`,
+        // Оранжевый/красный — строка о пепле из справочника (#1428).
+        message: `Активный вулкан «${row.name}» — код KVERT ${ACC_LABEL[row.acc]}. Следите за оповещениями KVERT, избегайте кратера.`
+          + (ashfallZoneNote(row.acc) ? ` ${ashfallZoneNote(row.acc)}` : ''),
       });
     }
 
