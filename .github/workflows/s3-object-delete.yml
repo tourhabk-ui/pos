@@ -1,0 +1,122 @@
+name: Брошенный снимок в хранилище — сухой прогон и удаление (вручную)
+
+# Актуатор POST /api/cron/s3-object-delete (30.09): поимённо, только ключи
+# снимков мест (places/<uuid>/<файл>), причина обязательна, сухой прогон по
+# умолчанию, партия не больше 10. Объект, на который ссылается хоть одна
+# строка базы, не удаляется; проверка, которая не выполнилась, — отказ.
+#
+# Повод: миграция 1116 заменила скрытую картинку Козельского снимками
+# владельца, а сам объект остался в бакете ничьим. Владелец: «это была
+# заглушка скачанная с интернета — удали».
+#
+# Почему раннер: прод из среды разработчика недостижим (403 на CONNECT).
+# Почему маркер: workflow_dispatch через интеграцию отвечает 403.
+# Умолчание маркера без `mode` — dry: удаление необратимо, и файл, забытый
+# в репозитории, не должен однажды уехать боевым.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/s3-object-delete.json'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry — сухой прогон; apply — удаление (не больше 10)'
+        required: true
+        default: dry
+        type: choice
+        options: [dry, apply]
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # Ожидание сборки — до 35 минут (scripts/wait-for-deploy.sh); таймаут job'а
+    # строго больше, иначе прогон умрёт в ожидании и причина потеряется.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      # Эндпоинт может ехать тем же коммитом, что и маркер (так было при
+      # заведении). Удаление, выполненное кодом неизвестной версии, хуже
+      # несделанного: «не дождались сборки» — отказ, а не прогон по чужому коду.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Параметры — из ввода или из маркера
+        env:
+          IN_MODE: ${{ inputs.mode || '' }}
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, os, sys
+          with open('.github/triggers/s3-object-delete.json') as f:
+              marker = json.load(f)
+          mode = (os.environ.get('IN_MODE') or marker.get('mode') or 'dry').strip()
+          if mode not in ('dry', 'apply'):
+              print(f'::error::режим {mode!r} неизвестен — dry или apply'); sys.exit(1)
+          keys = marker.get('keys') or []
+          reason = str(marker.get('reason') or '').strip()
+          if not keys:
+              print('::error::в маркере нет keys — удалять нечего'); sys.exit(1)
+          if len(keys) > 10:
+              print(f'::error::партия из {len(keys)} ключей — не больше 10'); sys.exit(1)
+          if len(reason) < 8:
+              print('::error::reason обязателен: почему объект удаляется'); sys.exit(1)
+          body = {'dry_run': mode != 'apply', 'reason': reason, 'keys': keys}
+          with open('/tmp/body.json', 'w') as f:
+              json.dump(body, f, ensure_ascii=False)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'MODE={mode}\n')
+          print(f'режим: {mode} · ключей: {len(keys)} · причина: {reason}')
+          PY
+
+      - name: Сухой прогон или удаление
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория."
+            exit 1
+          fi
+          URL="https://vedarai.ru/api/cron/s3-object-delete"
+          HTTP=$(curl -sS -o /tmp/out.json -w "%{http_code}" --max-time 120 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+            --data-binary @/tmp/body.json "$URL") || HTTP="000"
+          echo "HTTP $HTTP (режим $MODE)"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Ответ $HTTP — исход не установлен, зелёным не считать."
+            head -c 3000 /tmp/out.json || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, sys
+          with open('/tmp/out.json') as f:
+              a = json.load(f)
+          print(f"dry_run={a.get('dry_run')}  причина: {a.get('reason')}")
+          for r in a.get('results') or []:
+              extra = r.get('bytes') or r.get('referencedBy') or r.get('reason') or ''
+              print(f"  {r['outcome']}: {r['key']}  {extra}")
+          s = a.get('summary') or {}
+          print('итог:', s)
+          # Неподтверждённое удаление — красный: команда ушла, а объект отдаётся.
+          if s.get('unverified'):
+              print('::error::удаление не подтверждено обратным чтением'); sys.exit(1)
+          PY
+          {
+            echo "## s3-object-delete — режим $MODE"
+            echo
+            echo '```json'
+            python3 -m json.tool /tmp/out.json | head -c 20000 || cat /tmp/out.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

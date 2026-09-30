@@ -91,9 +91,12 @@ interface ActiveTrip {
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const { safety, seismic, radar, plates, explore, feed, stats, elements, geometry } = data;
-  // Лента под первой карточкой — остальные туры, без повтора первого
-  // (владелец 25.09: первый тур показывался дважды — крупно и в карусели).
-  const more = plates.slice(1);
+  // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
+  // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
+  // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
+  // ней в ленте — «ноябрь — январь» и «январь — март», три почти одинаковые
+  // карточки подряд читались как повтор.
+  const tours = plates;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -172,7 +175,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   };
   useEffect(() => {
     const c = platesRef.current;
-    if (!c || more.length < 2) return;
+    if (!c || tours.length < 2) return;
     let t: ReturnType<typeof setTimeout>;
     const onScroll = () => {
       clearTimeout(t);
@@ -187,7 +190,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     };
     c.addEventListener('scroll', onScroll, { passive: true });
     return () => { clearTimeout(t); c.removeEventListener('scroll', onScroll); };
-  }, [more.length]);
+  }, [tours.length]);
 
   const goPlate = (i: number) => {
     const c = platesRef.current;
@@ -454,98 +457,55 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </Link>
         </nav>
 
-        {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09); первый
-            тур с ценой по-прежнему в первом экране (решение владельца 24.09, П4б).
-            Решение 29.07 «тур — не первое обещание главной» пересмотрено под
-            цель первых продаж: аудит на 390×844 нашёл первую карточку тура на
-            894px, то есть на первом экране не было ни тура, ни цены. Карточка
-            компактная — фото 16:9 вместо почти квадратного 10/11, — чтобы
-            название и цена попадали в первый экран над таб-баром.
-            Заголовок нейтральный: «Подходит вам сейчас» обещал подбор,
-            которого нет (это просто первый тур витрины по датам и сезону).
-            Бейдж — только при спокойной И свежей обстановке: «Сегодня
-            спокойно» по недоступной сводке — незнание, выданное за покой (#37).
-            Рекламировать тревогу на коммерческой карточке тоже нельзя, поэтому
-            в прочих состояниях бейджа нет вовсе. */}
-        {plates[0] && (() => {
-          const fp = plates[0];
-          const f = plateFacts(fp);
-          return (
-            <section className="fp-sec">
-              <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
-              <Link href={fp.kind === 'tour' ? tourPath(fp) : `/routes/${fp.id}`} className="firstpick">
-                {/* 1280-вариант вместо оригинала: фон не умеет srcset, но вес
-                    режется нарезкой (см. scripts/optimize-images.mjs) — владелец
-                    с полевого EDGE ждал оригинал десятки секунд. */}
-                <div className="fp-photo" style={fp.imageUrl ? { backgroundImage: `url('${photoSrc(fp.imageUrl, 1280)}')` } : undefined}>
-                  {!fp.imageUrl && <span className="noimg" />}
-                  <span className="fp-shade" aria-hidden />
-                  {pill.tone === 'calm' && fresh.state === 'fresh' && <span className="fp-badge"><i aria-hidden />Сегодня спокойно</span>}
-                  <div className="fp-over">
-                    <b>{fp.title}</b>
-                    <span className="fp-facts">
-                      {f.price ? <em>{f.price}</em> : <em>Цена по запросу</em>}
-                      {(f.duration || f.operator) && <span>{[f.duration, f.operator].filter(Boolean).join(' · ')}</span>}
-                    </span>
-                  </div>
-                </div>
-                <div className="fp-body">
-                  {fp.availability === 'season_over' && <span className="fp-avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</span>}
-                  <span className="fp-cta">{fp.kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
-                </div>
-              </Link>
-              {/* Направления — между первым туром и лентой остальных (владелец
-                  26.09: «между турами сезона и просто турами вставь иконки
-                  мест»). */}
-              {intentChips}
-              {/* Остальные туры — лентой под первым, в той же секции. До 25.09
-                  они жили ниже под заголовком «Исследовать» и начинались с того
-                  же первого тура: одна карточка дважды на одном экране. */}
-              {more.length > 0 && (
-                <>
-                  <div className="plates more-tours" ref={platesRef}>
-                    {more.map((p, i) => {
-                      const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
-                      const pf = plateFacts(p);
-                      const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
-                      return (
-                        <figure className="plate" key={p.id} role="group" aria-label={`Тур ${i + 2} из ${plates.length}`}>
-                          <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
-                            {!p.imageUrl && <span className="noimg" />}
-                          </div></Link>
-                          <div className="row"><b>{p.title}</b></div>
-                          {p.description && <div className="cap">{p.description}</div>}
-                          <div className="facts">
-                            {pf.price ? <span className="price">{pf.price}</span> : <span className="price muted">Цена по запросу</span>}
-                            {meta && <span className="meta">{meta}</span>}
-                          </div>
-                          {/* Условия отмены — дословно из поля тура (решение владельца
-                              24.09 п.3): своей сетки сроков и процентов здесь нет. */}
-                          {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
-                          {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
-                          <div className="buy">
-                            <Link className="buy-cta" href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
-                          </div>
-                        </figure>
-                      );
-                    })}
-                  </div>
-                  {more.length > 1 && (
-                    <div className="pl-dots">
-                      {more.map((_, i) => (
-                        <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 2} из ${plates.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
-                      ))}
+        {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09): тур с
+            ценой — в первом экране (решение владельца 24.09, П4б). С 30.09 это
+            одна лента всех туров витрины, без крупной карточки первого сверху
+            (владелец: «ниже дублируются туры, наверное этот блок лишний»).
+            Направления — под лентой: делить туры на «первый» и «остальные»
+            больше нечем. */}
+        {tours.length > 0 ? (
+          <section className="fp-sec">
+            <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
+            <div className="plates more-tours" ref={platesRef}>
+              {tours.map((p, i) => {
+                const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
+                const pf = plateFacts(p);
+                const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
+                return (
+                  <figure className="plate" key={p.id} role="group" aria-label={`Тур ${i + 1} из ${tours.length}`}>
+                    <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
+                      {!p.imageUrl && <span className="noimg" />}
+                    </div></Link>
+                    <div className="row"><b>{p.title}</b></div>
+                    {p.description && <div className="cap">{p.description}</div>}
+                    <div className="facts">
+                      {pf.price ? <span className="price">{pf.price}</span> : <span className="price muted">Цена по запросу</span>}
+                      {meta && <span className="meta">{meta}</span>}
                     </div>
-                  )}
-                </>
-              )}
-              {feed.length > 0 && (
-                <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
-              )}
-            </section>
-          );
-        })()}
-        {!plates[0] && intentChips}
+                    {/* Условия отмены — дословно из поля тура (решение владельца
+                        24.09 п.3): своей сетки сроков и процентов здесь нет. */}
+                    {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
+                    {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
+                    <div className="buy">
+                      <Link className="buy-cta" href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
+                    </div>
+                  </figure>
+                );
+              })}
+            </div>
+            {tours.length > 1 && (
+              <div className="pl-dots">
+                {tours.map((_, i) => (
+                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 1} из ${tours.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
+                ))}
+              </div>
+            )}
+            {intentChips}
+            {feed.length > 0 && (
+              <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
+            )}
+          </section>
+        ) : intentChips}
 
 
 
@@ -1194,31 +1154,7 @@ const CSS = `
 .v7 .mchsline .qt-ic{color:color-mix(in srgb,var(--warning) 80%,var(--text-primary));background:color-mix(in srgb,var(--warning) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warning) 28%,transparent)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 /* платы */
-/* «Туры сезона» — первая карточка тура, первой под героем (П4б, 24.09).
-   Компактная: фото 16:9 (было 10/11 — почти квадрат на весь экран), название
-   и факты поверх нижней тени фото, CTA — под фото на сплошном фоне карточки.
-   Текст на фото читается за счёт собственной нижней тени (.fp-shade). */
-.v7 .firstpick{position:relative;display:block;text-decoration:none;color:#fff;border-radius:18px;overflow:hidden;background:var(--bg-card);border:1px solid var(--border)}
-/* Верхняя привязка — та же причина, что у .plate .img: фото туров
-   вертикальные, и центрирование срезает голову. */
-.v7 .firstpick .fp-photo{position:relative;aspect-ratio:16/9;background:center top/cover no-repeat}
-.v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
-.v7 .firstpick .fp-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.08) 20%,rgba(10,14,12,.82) 92%)}
-/* Бейдж — стекло поверх фото (контекст, §2), а не сплошная зелёная плашка:
-   самым ярким пятном карточки должна быть цена и кнопка, а не он (#39). */
-.v7 .firstpick .fp-badge{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.15);color:#fff;font:600 11px/1 var(--font-outfit),system-ui,sans-serif}
-.v7 .firstpick .fp-badge i{width:7px;height:7px;border-radius:50%;background:var(--success)}
-@media (prefers-reduced-transparency:reduce){.v7 .firstpick .fp-badge{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--bg-card);color:var(--text-primary);border-color:var(--border)}}
-.v7 .firstpick .fp-over{position:absolute;left:0;right:0;bottom:0;padding:12px 14px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
-.v7 .firstpick .fp-over b{font:600 20px/1.15 var(--font-playfair),Georgia,serif;letter-spacing:-.015em;text-shadow:0 2px 14px rgba(0,0,0,.5);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.v7 .firstpick .fp-facts{align-self:stretch;display:flex;flex-direction:column;gap:2px;font:500 12.5px/1.3 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92)}
-.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;font-size:15px;color:#fff}
-.v7 .firstpick .fp-body{display:flex;align-items:center;gap:10px;padding:10px 12px}
-.v7 .firstpick .fp-avail{flex:1;display:inline-flex;align-items:center;gap:6px;font:500 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .firstpick .fp-avail svg,.v7 .plate .avail svg{flex:none;color:var(--warning)}
-/* Текст на акценте — цвет фона страницы, как в каталоге: в тёмной теме белый
-   на светлой лаве давал ~2.9:1. */
-.v7 .firstpick .fp-cta{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:12px;background:var(--accent);color:var(--on-accent);font:700 13px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em}
+.v7 .plate .avail svg{flex:none;color:var(--warning)}
 /* scroll-padding-inline = отступ страницы (аудит 24.09, #38): без него точка
    привязки прижимала карточку к x=0, и текст начинался в 2px от кромки.
    position:relative — чтобы offsetLeft карточек считался от ленты (goPlate). */
@@ -1415,7 +1351,6 @@ const CSS = `
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .qtools,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
-  .v7 .firstpick{max-width:520px;margin-left:auto;margin-right:auto}
   .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
   .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}

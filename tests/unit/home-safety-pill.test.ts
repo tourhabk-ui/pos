@@ -57,12 +57,15 @@ describe('пилюля обстановки', () => {
     expect(safetyPill({ activeCount: 1, maxSeverity: 1, freshness: 'unavailable' }).tone).toBe('warning');
   });
 
-  it('главная передаёт в пилюлю свежесть, а бейдж «Сегодня спокойно» требует и спокойствия, и свежести', () => {
+  it('главная передаёт в пилюлю свежесть, а бейдж «Сегодня спокойно», если он есть, требует и спокойствия, и свежести', () => {
     const src = readFileSync(join(process.cwd(), 'app/_home/_HomeV8Client.tsx'), 'utf-8');
     const call = /safetyPill\(\{[^}]*\}\)/.exec(src)?.[0] ?? '';
     expect(call, 'пилюля снова считается без свежести').toMatch(/freshness:\s*fresh\.state/);
+    // Бейдж жил на крупной карточке первого тура; 30.09 карточку сняли
+    // (владелец: «ниже дублируются туры»), и бейджа сейчас нет. Вернётся —
+    // обязан снова требовать спокойствия И свежести (#37).
     const badgeAt = src.indexOf('Сегодня спокойно</span>');
-    expect(badgeAt, 'бейдж не найден').toBeGreaterThan(0);
+    if (badgeAt < 0) return;
     const guard = src.slice(Math.max(0, badgeAt - 200), badgeAt);
     expect(guard).toMatch(/pill\.tone === 'calm'/);
     expect(guard, 'бейдж снова не смотрит на свежесть').toMatch(/fresh\.state === 'fresh'/);
