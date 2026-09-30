@@ -2,6 +2,8 @@
  * Channel Manager — общие типы для интеграций с внешними маркетплейсами
  */
 
+import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
+
 export type ChannelName = 'tripster' | 'avito' | 'sputnik8';
 
 export interface ChannelTour {
@@ -21,6 +23,17 @@ export interface ChannelTour {
   included: string[];
   season_start: string | null;
   season_end: string | null;
+  /**
+   * За что цена: `per_person` / `per_tour` / `per_day_per_person`; null — не
+   * записано. Без неё 25 000 «с человека в день» и 45 000 «за группу» на
+   * витрине неотличимы (замер 30.09).
+   */
+  price_unit?: string | null;
+  /**
+   * Даты тура по общему правилу каталога (`catalogAvailability`): отбор лент
+   * считает его один раз, генераторы только читают. Нет поля — не считали.
+   */
+  availability?: CatalogAvailability;
   // Оператор — для контактов в объявлении. Площадка обязана показывать телефон
   // того, кто проводит тур: звонок «в платформу» без человека на конце убивает
   // лид, ради которого объявление и размещалось.
