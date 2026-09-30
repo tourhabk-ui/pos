@@ -160,6 +160,14 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
         }}
       >
         <Logo size={28} mono={onPhoto} />
+        {/* Слово рядом со знаком (решение владельца 30.09): вертикальный силуэт
+            один читается хуже прежней широкой ломаной. Место у навигации не
+            отнимает — ширину боковых дорожек задаёт правый ряд кнопок; ниже
+            360px скрыто, чтобы не теснить SOS. */}
+        <span
+          className="hidden min-[360px]:inline"
+          style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontSize: 20, fontWeight: 600, lineHeight: 1 }}
+        >Ведар</span>
       </Link>
 
       {/*
