@@ -94,6 +94,8 @@ import type { LeafletZoomHandle } from '@/components/shared/LeafletMap';
 import { bearingDeg } from '@/lib/on-route/bearing';
 import { isUuid } from '@/lib/text/slugify';
 import { coordIsTrustworthy, coordSourceLabel, asCoordSource, type CoordSource } from '@/lib/places/coord-source';
+import { useGeofenceZones, useGeofenceBreach, refreshGeofenceZones } from '@/hooks/useGeofence';
+import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -450,6 +452,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const [coords, setCoords] = useState<{
     lat: number; lng: number; alt: number | null; accuracy: number | null; t: number;
   } | null>(null);
+  // Геофенс на экране маршрута (#2095): те же зоны, что на /map (вулканы,
+  // термальные поля, цунами, свежие медвежьи наблюдения), и тот же суд
+  // близости — но по СВОЕМУ фиксу экрана, без второго наблюдателя GPS.
+  const { zones: geoZones, zonesAgeHours: geoZonesAge } = useGeofenceZones();
+  const geoBreach = useGeofenceBreach(
+    coords ? { lat: coords.lat, lng: coords.lng, accuracy: coords.accuracy, timestamp: coords.t } : null,
+    geoZones,
+  );
   // Курс по движению: GPS отдаёт course-over-ground, когда человек идёт.
   // Магнитометр врёт рядом с железом (палки, ледоруб, пауэрбанк), курс
   // движения — нет; на ходу он честнее и подхватывает прибор там, где
@@ -962,6 +972,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         };
       }
     } catch { safety = null; }
+    // Зоны опасности (вулканы, термальные поля, цунами, медвежьи наблюдения)
+    // — в кеш телефона вместе с пакетом: в поле сети не будет (#2095).
+    const zonesOutcome = await refreshGeofenceZones();
+    if (zonesOutcome === 'failed') {
+      console.warn('[field-pack] зоны опасности не обновлены — в поле останется прежний кеш');
+    }
     const now = Date.now();
     const manifest: FieldPackManifest = {
       routeId,
@@ -3815,6 +3831,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
   return (
     <div className="relative min-h-[calc(100vh-56px)]" style={{ color: 'var(--text-primary)' }}>
+      {/* Предупреждение о зоне опасности — под прибором, а не у нижнего края:
+          внизу листа SOS и полевые действия, и тревога не должна их закрывать;
+          сверху — азимут и главная цифра навигации (#2095). */}
+      {geoBreach && (
+        <GeofenceAlert breach={geoBreach} cacheAgeHours={geoZonesAge}
+          topOffset={(instrumentBottom ?? topInset) + 8} />
+      )}
       {/* Карта — постоянный базовый слой экрана (редизайн 29.08, по мокапу
           владельца), а не то, что открывается по кнопке. Центр не следует за
           живыми coords (см. комментарий у mapCenter выше) — идентичность

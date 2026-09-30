@@ -13,13 +13,16 @@
  * дожимает очередь. Фото не блокирует наблюдение: сначала уходят текст и
  * координаты, затем снимки по одному (см. /api/safety/reports/photo).
  *
- * Категории — полевые (миграция 917): Животное, Растение, Опасность,
- * Тропа, Другое. Кнопка сохранения честна о судьбе записи: онлайн —
+ * Категории — полевые (миграция 917): Медведь, Животное, Растение,
+ * Опасность, Тропа, Другое. «Медведь» — отдельной кнопкой (#2095): из
+ * подтверждённых `bear` строится медвежья зона геофенса
+ * (lib/safety/bear-sightings), а «Животное» туда не попадает — медведь,
+ * отмеченный как «животное», предупреждал бы только модератора. Кнопка сохранения честна о судьбе записи: онлайн —
  * «Отправить», без сети — «Сохранить — отправится, когда появится сеть».
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PawPrint, Leaf, AlertTriangle, Footprints, MoreHorizontal, Camera, ImagePlus, MapPin, X, CheckCircle2 } from 'lucide-react';
+import { PawPrint, Rabbit, Leaf, AlertTriangle, Footprints, MoreHorizontal, Camera, ImagePlus, MapPin, X, CheckCircle2 } from 'lucide-react';
 import { shrinkPhoto } from '@/lib/images/shrink-photo';
 import {
   queueTrailObservation, listTrailObservations, deleteTrailObservation,
@@ -31,7 +34,8 @@ const PHOTO_LIMIT = 3;
 const TAP = 48;
 
 const CATEGORIES = [
-  { value: 'animal', label: 'Животное', icon: PawPrint },
+  { value: 'bear', label: 'Медведь', icon: PawPrint },
+  { value: 'animal', label: 'Другое животное', icon: Rabbit },
   { value: 'plant', label: 'Растение', icon: Leaf },
   { value: 'hazard', label: 'Опасность', icon: AlertTriangle },
   { value: 'trail', label: 'Тропа', icon: Footprints },

@@ -9,6 +9,12 @@ interface Props {
   breach: GeofenceBreach;
   /** Возраст кеша зон в часах. null = данные только что из сети. */
   cacheAgeHours?: number | null;
+  /**
+   * Отступ сверху в px: предупреждение встаёт под шапкой, а не у нижнего
+   * края. Экран «На маршруте» держит SOS и полевые действия внизу листа —
+   * тревога не должна их закрывать (#2095). Не задан — прежнее место внизу.
+   */
+  topOffset?: number;
 }
 
 const LEVEL_STYLES = {
@@ -23,10 +29,13 @@ const STATE_SUFFIX: Record<string, string> = {
   uncertain: 'Возможно, вы в опасной зоне (слабый GPS-сигнал).',
 };
 
-export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
+export function GeofenceAlert({ breach, cacheAgeHours, topOffset }: Props) {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
+
+  const place = topOffset != null ? 'fixed left-3 right-3 z-[500]' : 'fixed bottom-20 left-3 right-3 z-[500]';
+  const placeStyle = topOffset != null ? { top: topOffset } : {};
 
   const { zone, state, distanceM } = breach;
   const isTsunami = zone.hazard === 'tsunami';
@@ -40,8 +49,8 @@ export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
       <div
         role="alert"
         aria-live="assertive"
-        className="fixed bottom-20 left-3 right-3 z-[500] rounded-lg shadow-xl border-2"
-        style={{ background: 'var(--danger)', color: 'var(--bg-card)', borderColor: 'var(--bg-card)' }}
+        className={`${place} rounded-lg shadow-xl border-2`}
+        style={{ ...placeStyle, background: 'var(--danger)', color: 'var(--bg-card)', borderColor: 'var(--bg-card)' }}
       >
         <div className="flex items-start gap-3 p-4">
           <Waves size={26} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
@@ -82,8 +91,8 @@ export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
     <div
       role="alert"
       aria-live="assertive"
-      className="fixed bottom-20 left-3 right-3 z-[500] rounded-lg shadow-xl"
-      style={{ background: style.bg, color: style.text }}
+      className={`${place} rounded-lg shadow-xl`}
+      style={{ ...placeStyle, background: style.bg, color: style.text }}
     >
       <div className="flex items-start gap-3 p-4">
         <Icon size={22} className="flex-shrink-0 mt-0.5" aria-hidden="true" />

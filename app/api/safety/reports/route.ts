@@ -14,6 +14,7 @@ import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { containsProfanity } from '@/lib/services/profanity-filter';
 import { withinKamchatka } from '@/lib/services/routes/geocode';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ const PostSchema = z.object({
   lng: z.number().finite().optional(),
 });
 
-function notifyOwnerAsync(type: string, text: string, lat?: number, lng?: number): void {
+function notifyOwnerAsync(id: string, type: string, text: string, lat?: number, lng?: number): void {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
@@ -50,8 +51,13 @@ function notifyOwnerAsync(type: string, text: string, lat?: number, lng?: number
   const msg =
     `<b>Наблюдение с маршрута</b> (ждёт модерации)\n` +
     `Тип: ${REPORT_TYPE_LABELS[type] ?? type}\n` +
-    `${text}${coords}\n\n` +
-    `Одобрить: UPDATE trail_reports SET status='approved' WHERE status='pending' ORDER BY created_at DESC — /hub/admin`;
+    // Текст туриста — в HTML-сообщение только экранированным (pd-guard §5).
+    `${escapeHtml(text)}${coords}\n\n` +
+    // Одобрение — по id этой записи. Прежняя строка «UPDATE ... ORDER BY
+    // created_at DESC» в PostgreSQL не выполняется вовсе (ORDER BY в UPDATE
+    // нет), а по смыслу одобрила бы все ожидающие разом. От одобрения `bear`
+    // зависит медвежья зона геофенса (#2095).
+    `Одобрить: <code>UPDATE trail_reports SET status='approved' WHERE id='${escapeHtml(id)}' AND status='pending'</code>`;
   // fire-and-forget — нотификация не должна блокировать ответ туристу
   void fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
@@ -137,7 +143,7 @@ export async function POST(req: NextRequest) {
       [report_type, text, lat ?? null, lng ?? null]
     );
 
-    notifyOwnerAsync(report_type, text, lat, lng);
+    notifyOwnerAsync(result.rows[0].id, report_type, text, lat, lng);
 
     return NextResponse.json(
       {

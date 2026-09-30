@@ -35,6 +35,26 @@ function writeCachedZones(zones: GeofenceZone[]): void {
   } catch { /* localStorage может быть недоступен */ }
 }
 
+/**
+ * Обновить кеш зон по сети — при сборке полевого пакета (#2095). До этого
+ * зоны попадали в телефон, только если человек успел открыть карту онлайн;
+ * собрав пакет «в поле», он уходил без медвежьих зон и вулканов в кеше.
+ * Исход назван: 'ok' — кеш обновлён, 'empty' — сервер ответил без зон
+ * (кеш не трогаем: пустое не затирает старое), 'failed' — не дошли.
+ */
+export async function refreshGeofenceZones(): Promise<'ok' | 'empty' | 'failed'> {
+  try {
+    const r = await fetch('/api/safety/geofence-zones');
+    const j = await r.json() as { success?: boolean; zones?: GeofenceZone[] };
+    if (!j.success || !Array.isArray(j.zones)) return 'failed';
+    if (j.zones.length === 0) return 'empty';
+    writeCachedZones(j.zones);
+    return 'ok';
+  } catch {
+    return 'failed';
+  }
+}
+
 interface GeofenceState {
   breach: GeofenceBreach | null;
   zonesLoaded: boolean;
@@ -42,20 +62,35 @@ interface GeofenceState {
   zonesAgeHours: number | null;
 }
 
-/**
- * Следит за GPS-позицией через useOfflineGPS и проверяет попадание в опасные зоны.
- * Зоны кешируются в localStorage для работы без интернета.
- */
-export function useGeofence(): GeofenceState {
-  const { lastPosition }                 = useOfflineGPS();
-  const [zones, setZones]               = useState<GeofenceZone[]>([]);
-  const [zonesLoaded, setLoaded]        = useState(false);
-  const [breach, setBreach]             = useState<GeofenceBreach | null>(null);
-  const [zonesAgeHours, setAgeHours]    = useState<number | null>(null);
-  const fetchedRef                       = useRef(false);
+export interface GeofenceZonesState {
+  zones: GeofenceZone[];
+  zonesLoaded: boolean;
+  /** Возраст кеша зон в часах. null = зоны пришли напрямую из сети (свежие). */
+  zonesAgeHours: number | null;
+}
 
-  // Загрузка зон: кеш всегда используется (любого возраста), сеть — оппортунистически.
-  // Принцип: «старые зоны лучше пустых» — вулкан не переедет за 10 минут.
+/** Позиция для проверки близости — из любого источника GPS экрана. */
+export interface GeofencePosition {
+  lat: number;
+  lng: number;
+  /** Точность в метрах; null — неизвестна, такой фикс не судит (гейт 300 м). */
+  accuracy: number | null;
+  /** Время фикса, мс. */
+  timestamp: number;
+}
+
+/**
+ * Зоны опасности: кеш любого возраста, сеть — оппортунистически.
+ * Принцип: «старые зоны лучше пустых» — вулкан не переедет за 10 минут.
+ * Отдельно от проверки близости (#2095): у экрана «На маршруте» свой
+ * watchPosition, и второй наблюдатель GPS ради геофенса ему не нужен.
+ */
+export function useGeofenceZones(): GeofenceZonesState {
+  const [zones, setZones]            = useState<GeofenceZone[]>([]);
+  const [zonesLoaded, setLoaded]     = useState(false);
+  const [zonesAgeHours, setAgeHours] = useState<number | null>(null);
+  const fetchedRef                   = useRef(false);
+
   useEffect(() => {
     const cached = readCachedZones();
     if (cached) {
@@ -82,29 +117,57 @@ export function useGeofence(): GeofenceState {
       .catch(() => { /* офлайн — продолжаем с тем, что есть в кеше */ });
   }, []);
 
-  // Проверка бреча. Три гейта против ложной тревоги:
-  //  1) точность хуже 300м — вышка сотовой, не GPS;
-  //  2) позиция старше 3 мин — устаревший кеш (юзер уже не там), НЕ живой алерт;
-  //  3) нет зон/позиции.
-  // Интервал переоценивает и СБРАСЫВАЕТ алерт, когда позиция протухает
-  // (GPS пропал в поле) — иначе «вы приближаетесь, 0.7 км» висело бы навсегда.
+  return { zones, zonesLoaded, zonesAgeHours };
+}
+
+/**
+ * Проверка бреча. Три гейта против ложной тревоги:
+ *  1) точность хуже 300м (или неизвестна) — вышка сотовой, не GPS;
+ *  2) позиция старше 3 мин — устаревший кеш (юзер уже не там), НЕ живой алерт;
+ *  3) нет зон/позиции.
+ * Интервал переоценивает и СБРАСЫВАЕТ алерт, когда позиция протухает
+ * (GPS пропал в поле) — иначе «вы приближаетесь, 0.7 км» висело бы навсегда.
+ */
+export function useGeofenceBreach(position: GeofencePosition | null, zones: GeofenceZone[]): GeofenceBreach | null {
+  const [breach, setBreach] = useState<GeofenceBreach | null>(null);
+  const lat = position?.lat;
+  const lng = position?.lng;
+  const accuracy = position?.accuracy ?? null;
+  const timestamp = position?.timestamp;
+
   useEffect(() => {
     const evaluate = () => {
       if (
-        !lastPosition ||
+        lat == null || lng == null || timestamp == null ||
         !zones.length ||
-        lastPosition.accuracy > 300 ||
-        !isPositionFreshForGeofence(lastPosition.timestamp)
+        accuracy == null || accuracy > 300 ||
+        !isPositionFreshForGeofence(timestamp)
       ) {
         setBreach(null);
         return;
       }
-      setBreach(checkBreach(lastPosition.lat, lastPosition.lng, lastPosition.accuracy, zones));
+      setBreach(checkBreach(lat, lng, accuracy, zones));
     };
     evaluate();
     const ticker = setInterval(evaluate, 30_000);
     return () => clearInterval(ticker);
-  }, [lastPosition, zones]);
+  }, [lat, lng, accuracy, timestamp, zones]);
 
+  return breach;
+}
+
+/**
+ * Следит за GPS-позицией через useOfflineGPS и проверяет попадание в опасные зоны.
+ * Зоны кешируются в localStorage для работы без интернета.
+ */
+export function useGeofence(): GeofenceState {
+  const { lastPosition } = useOfflineGPS();
+  const { zones, zonesLoaded, zonesAgeHours } = useGeofenceZones();
+  const breach = useGeofenceBreach(
+    lastPosition
+      ? { lat: lastPosition.lat, lng: lastPosition.lng, accuracy: lastPosition.accuracy, timestamp: lastPosition.timestamp }
+      : null,
+    zones,
+  );
   return { breach, zonesLoaded, zonesAgeHours };
 }
