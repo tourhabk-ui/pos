@@ -42,6 +42,7 @@ import type {
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
+import { tourPath } from '@/lib/tours/tour-url';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -499,7 +500,7 @@ function DayCard({
             (разведка 08.08). Оператор виден на самой карточке. */}
         {topTour && day.type === 'activity' && (
           <a
-            href={`/catalog/tours/${topTour.id}`}
+            href={tourPath(topTour)}
             target="_blank"
             rel="noopener noreferrer"
             title="Открыть тур и забронировать"

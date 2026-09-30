@@ -82,6 +82,8 @@ export interface ZoneCapacityInfo {
 
 export interface AlternativeTour {
   tourId: string;
+  /** Адрес карточки (ЧПУ, миграция 1114); нет — ссылка по числу. */
+  slug?: string | null;
   title: string;
   basePrice: number;
   discountPercent: number;
@@ -357,6 +359,7 @@ export async function fetchContingencyAlternatives(
     try {
       const { rows } = await pool.query<{
         tour_id: string;
+        slug: string | null;
         title: string;
         base_price: string;
         discount_percent: number;
@@ -364,7 +367,7 @@ export async function fetchContingencyAlternatives(
       }>(
         `SELECT
           cr.alternative_tour_id AS tour_id,
-          ot.title, ot.base_price,
+          ot.slug, ot.title, ot.base_price,
           cr.discount_percent, cr.priority
         FROM contingency_rules cr
         JOIN operator_tours ot ON ot.id = cr.alternative_tour_id
@@ -379,6 +382,7 @@ export async function fetchContingencyAlternatives(
 
       return rows.map(r => ({
         tourId: r.tour_id,
+        slug: r.slug,
         title: r.title,
         basePrice: parseFloat(String(r.base_price)) || 0,
         discountPercent: r.discount_percent ?? 0,

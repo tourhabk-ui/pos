@@ -111,6 +111,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
           status: 'ok',
           tours: tours.map(t => ({
             id: t.id,
+            slug: t.slug,
             title: t.title,
             operator_name: t.operator_name,
             activity_type: t.activity_type,

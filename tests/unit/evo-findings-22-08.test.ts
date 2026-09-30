@@ -45,7 +45,7 @@ describe('напоминание туристу', () => {
 
   it('ссылка ведёт на карточку тура, а не на маршрут по id тура', () => {
     expect(src).not.toMatch(/\/routes\/\$\{row\.tour_id\}/);
-    expect(src).toMatch(/\/marketplace\/tours\/\$\{row\.tour_id\}/);
+    expect(src).toMatch(/tourPath\(\{ id: row\.tour_id, slug: row\.tour_slug \}\)/);
   });
 
   it('адрес берётся из конфига, а не зашит в текст', () => {

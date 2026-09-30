@@ -74,6 +74,8 @@ export interface ZonesSnapshot {
 }
 export interface Plate {
   id: string;
+  /** Адрес карточки тура (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   kind: string;
   title: string;
   description: string;
@@ -320,14 +322,14 @@ export async function fetchPlates(): Promise<Plate[]> {
   // его сводке: тур без оператора каталог не показывает, и главная не должна.
   try {
     const { rows } = await query<{
-      id: string; title: string; description: string | null;
+      id: string; slug: string | null; title: string; description: string | null;
       image_url: string | null; base_price: string | null; activity_type: string | null;
       price_unit: string | null; operator_name: string | null;
       duration_hours: string | null; duration_type: string | null; multi_day_count: number | null;
       season_start: string | null; season_end: string | null;
       cancellation_policy: string | null; has_availability: boolean;
     }>(`
-      SELECT ot.id::text, ot.title,
+      SELECT ot.id::text, ot.slug, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
              ${tourHeroImageSql('ot')}                                             AS image_url,
              ot.base_price::text,
@@ -351,6 +353,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       const hours = r.duration_hours == null ? null : Number(r.duration_hours);
       return {
         id: r.id,
+        slug: r.slug,
         kind: 'tour',
         title: r.title,
         description: (r.description || '').slice(0, 140),

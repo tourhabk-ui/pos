@@ -20,6 +20,7 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { recommendTrip, ACTIVITY_CONSTRAINTS, type DayPlan } from '@/lib/planner';
 import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activity';
+import { tourPath } from '@/lib/tours/tour-url';
 import { PLAN_PRESETS, findPlanPreset, planLastModified } from '@/lib/plans/presets';
 
 export const revalidate = 86400;
@@ -240,7 +241,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                       <Link
                         // Дата дня — в форму брони (B-3): availableDate движка
                         // (реальный слот), иначе расчётная дата дня плана.
-                        href={`/catalog/tours/${tour.id}?date=${day.availableDate ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
+                        href={`${tourPath(tour)}?date=${day.availableDate ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
                         className="flex items-center justify-between gap-2 px-3 py-2 rounded-md"
                         style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
                         <span className="text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>

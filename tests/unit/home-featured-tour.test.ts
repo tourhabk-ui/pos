@@ -65,6 +65,6 @@ describe('главная: реальный тур вместо фейка', () =
   });
 
   it('ведёт на реальную страницу тура', () => {
-    expect(FEATURED).toContain('/marketplace/tours/${tour.id}');
+    expect(FEATURED).toContain('href={tourPath(tour)}');
   });
 });

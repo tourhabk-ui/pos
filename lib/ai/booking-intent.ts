@@ -9,6 +9,8 @@ import { pool } from '@/lib/db-pool';
 
 export interface TourSuggestion {
   id: number;
+  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   title: string;
   description: string | null;
   base_price: number;
@@ -96,7 +98,7 @@ export async function findRelevantTours(
 
     const result = await pool.query<TourSuggestion>(
       `SELECT
-         ot.id,
+         ot.id, ot.slug,
          ot.title,
          LEFT(ot.description, 120) AS description,
          ot.base_price,
@@ -119,7 +121,7 @@ export async function findRelevantTours(
     if (result.rows.length === 0 && rawText) {
       const fallback = await pool.query<TourSuggestion>(
         `SELECT
-           ot.id, ot.title,
+           ot.id, ot.slug, ot.title,
            LEFT(ot.description, 120) AS description,
            ot.base_price, ot.activity_type,
            ot.price_unit, ot.multi_day_count, ot.duration_hours::float AS duration_hours,
@@ -137,7 +139,11 @@ export async function findRelevantTours(
     }
 
     return result.rows;
-  } catch {
+  } catch (e) {
+    // Подсказки туров необязательны для ответа, но отказ — в лог (§4.0).
+    console.error('[booking-intent] подбор туров не выполнен', {
+      code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+    });
     return [];
   }
 }

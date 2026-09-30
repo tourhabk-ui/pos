@@ -453,7 +453,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemType: 'tour', itemId: String(tour.id) }),
       });
-      if (res.status === 401) { router.push(`/auth/login?from=/marketplace/tours/${tour.id}`); return; }
+      if (res.status === 401) { router.push(`/auth/login?from=/catalog/tours/${tour.id}`); return; }
       const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };
       if (res.ok && data.success !== false) {
         setWishlisted(w => !w);

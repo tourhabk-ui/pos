@@ -40,6 +40,7 @@ import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
+import { tourPath } from '@/lib/tours/tour-url';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -472,7 +473,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           return (
             <section className="fp-sec">
               <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
-              <Link href={fp.kind === 'tour' ? `/marketplace/tours/${fp.id}` : `/routes/${fp.id}`} className="firstpick">
+              <Link href={fp.kind === 'tour' ? tourPath(fp) : `/routes/${fp.id}`} className="firstpick">
                 {/* 1280-вариант вместо оригинала: фон не умеет srcset, но вес
                     режется нарезкой (см. scripts/optimize-images.mjs) — владелец
                     с полевого EDGE ждал оригинал десятки секунд. */}
@@ -504,7 +505,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 <>
                   <div className="plates more-tours" ref={platesRef}>
                     {more.map((p, i) => {
-                      const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
+                      const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
                       const pf = plateFacts(p);
                       const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
                       return (

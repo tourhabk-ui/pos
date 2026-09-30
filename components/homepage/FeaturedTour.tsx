@@ -7,6 +7,7 @@ import { priceUnitLabel, activityLabel } from '@/lib/tours/labels';
 import { priceFrom } from '@/lib/tours/price-label';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
+import { tourPath } from '@/lib/tours/tour-url';
 
 /**
  * Реальный тур на главной вместо выдуманной «истории путешественницы».
@@ -66,7 +67,7 @@ export function FeaturedTour({ tour, total }: FeaturedTourProps) {
         </div>
 
         <Link
-          href={`/marketplace/tours/${tour.id}`}
+          href={tourPath(tour)}
           className="group block relative rounded-lg overflow-hidden h-[300px] md:h-[380px]"
         >
           {/* Фон: реальное фото тура; нет фото — тёплый земляной градиент, не фейк.

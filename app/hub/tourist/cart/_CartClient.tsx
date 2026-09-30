@@ -102,7 +102,7 @@ export default function CartClient() {
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => router.push(`/marketplace/tours/${item.tourId}`)}
+                    onClick={() => router.push(`/catalog/tours/${item.tourId}`)}
                     className="ds-btn ds-btn-primary px-3 py-1.5 text-xs flex items-center gap-1"
                   >
                     Забронировать

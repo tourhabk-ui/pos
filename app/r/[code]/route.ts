@@ -107,7 +107,7 @@ export async function GET(
   }
 
   const target = link.tour_id
-    ? new URL(`/marketplace/tours/${link.tour_id}`, request.url)
+    ? new URL(`/catalog/tours/${link.tour_id}`, request.url)
     : home;
   // Код едет дальше: на той странице его поймает ReferralCapture и запомнит.
   target.searchParams.set('ref', code);

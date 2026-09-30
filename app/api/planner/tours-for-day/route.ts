@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
     const { rows } = await pool.query<TourRow>(`
       SELECT
         ot.id,
+        ot.slug,
         ot.title,
         ot.short_description,
         ot.base_price::text,
@@ -87,6 +88,7 @@ export async function GET(req: NextRequest) {
   const { rows } = await pool.query<TourRow>(`
     SELECT
       ot.id,
+      ot.slug,
       ot.title,
       ot.short_description,
       ot.base_price::text,

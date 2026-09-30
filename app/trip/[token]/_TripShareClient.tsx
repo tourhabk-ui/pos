@@ -9,6 +9,7 @@ import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-reg
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
+import { tourPath } from '@/lib/tours/tour-url';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -26,6 +27,7 @@ interface DayPlan {
 /** Тур к дню — прикладывает share-API (top_tours по activityType). */
 interface ShareTour {
   id: string;
+  slug?: string | null;
   title: string;
   base_price: string;
   operator_name: string;
@@ -46,7 +48,7 @@ interface Trip {
   /** Прогноз на дату дня (Open-Meteo, горизонт 16 суток; B-5). */
   weather?: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }>;
   /** Запасные туры дня при непогоде (contingency_rules операторов; B-5). */
-  plan_b?: Record<string, Array<{ tour_id: string; title: string }>>;
+  plan_b?: Record<string, Array<{ tour_id: string; slug?: string | null; title: string }>>;
 }
 
 /** «12.08» из YYYY-MM-DD — для строки доступности. */
@@ -344,8 +346,8 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                 {tour && (() => {
                   const avail = trip.availability?.[String(day.day)];
                   const href = avail
-                    ? `/catalog/tours/${tour.id}?date=${avail.date}`
-                    : `/catalog/tours/${tour.id}`;
+                    ? `${tourPath(tour)}?date=${avail.date}`
+                    : tourPath(tour);
                   return (
                     <Link href={href}
                       className="mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
@@ -385,7 +387,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                           {alts.map((a, i) => (
                             <span key={a.tour_id}>
                               {i > 0 && ' · '}
-                              <Link href={`/catalog/tours/${a.tour_id}`} style={{ color: 'var(--ocean)' }}>
+                              <Link href={tourPath({ id: a.tour_id, slug: a.slug })} style={{ color: 'var(--ocean)' }}>
                                 {a.title}
                               </Link>
                             </span>

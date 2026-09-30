@@ -12,6 +12,8 @@ import { pool } from '@/lib/db-pool';
 
 export interface TopTour {
   id: string;
+  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   title: string;
   base_price: string;
   operator_name: string;
@@ -27,7 +29,7 @@ export async function topToursByActivity(activities: string[]): Promise<Record<s
     try {
       const { rows } = await pool.query<TopTour>(`
         SELECT
-          ot.id, ot.title, ot.base_price::text,
+          ot.id, ot.slug, ot.title, ot.base_price::text,
           COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
           p.name AS operator_name
         FROM operator_tours ot
@@ -38,7 +40,12 @@ export async function topToursByActivity(activities: string[]): Promise<Record<s
         LIMIT 1
       `, [activity]);
       if (rows[0]) result[activity] = rows[0];
-    } catch { /* тур-подсказка необязательна */ }
+    } catch (e) {
+      // Тур-подсказка необязательна, но отказ подбора — в лог (§4.0).
+      console.error('[top-tour-by-activity] подбор не выполнен', {
+        activity, code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+      });
+    }
   }));
   return result;
 }

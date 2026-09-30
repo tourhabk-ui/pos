@@ -55,7 +55,7 @@ describe('подключено на странице', () => {
   });
 
   it('тур в воронке ведёт на единственную карточку тура', () => {
-    expect(PAGE).toContain('href={`/marketplace/tours/${f.tourId}`}');
+    expect(PAGE).toContain('href={`/catalog/tours/${f.tourId}`}');
   });
 
   it('открывается в новой вкладке — сводка остаётся', () => {

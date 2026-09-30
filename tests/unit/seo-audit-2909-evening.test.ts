@@ -242,7 +242,7 @@ describe('ссылки на маршрут — в пространстве id к
   it('ссылка «забронировать» у планера и Кузьмича ведёт на тур, а не на маршрут', () => {
     for (const f of ['lib/planner/compose.ts', 'lib/agents/sdk/tourist-tools.ts']) {
       const src = code(f);
-      expect(src, f).toMatch(/booking_url: `\/catalog\/tours\/\$\{/);
+      expect(src, f).toMatch(/booking_url: tourPath\(/);
       expect(src, f).not.toMatch(/booking_url: `\/routes\//);
     }
   });

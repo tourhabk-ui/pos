@@ -73,7 +73,7 @@ describe('главная кабинета', () => {
 
   it('рекомендация ведёт на существующую карточку тура', () => {
     const R = read('components/tourist/RecommendationCard.tsx');
-    expect(R).toMatch(/href=\{`\/marketplace\/tours\/\$\{tour\.id\}`\}/);
+    expect(R).toMatch(/href=\{tourPath\(tour\)\}/);
     expect(existsSync(join(process.cwd(), 'app/marketplace/tours/[id]/page.tsx'))).toBe(true);
     expect(R).not.toMatch(/\{tour\.duration\} дн\./);
   });

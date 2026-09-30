@@ -110,7 +110,7 @@ export default function TourPaymentModal({
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--warning)]" aria-hidden="true" />
               <p>
                 Цена этого тура не указана.{' '}
-                <Link href={`/marketplace/tours/${tourId}`} className="text-[var(--ocean)] hover:underline">
+                <Link href={`/catalog/tours/${tourId}`} className="text-[var(--ocean)] hover:underline">
                   Откройте карточку тура
                 </Link>
                 , чтобы уточнить детали у оператора.

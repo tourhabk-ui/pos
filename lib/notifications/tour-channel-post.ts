@@ -30,9 +30,12 @@ import { activityLabel, difficultyLabel, priceUnitLabel } from '@/lib/tours/labe
 export { absolutePhotoUrls, MAX_PHOTOS } from '@/lib/notifications/photo-urls';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 import { tourPostSeason } from '@/lib/tours/post-season';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export interface TourPostRow {
   id: string;
+  /** Адрес карточки (ЧПУ, миграция 1114); нет — ссылка по числу. */
+  slug?: string | null;
   title: string;
   short_description: string | null;
   base_price: string | number | null;
@@ -71,7 +74,7 @@ export function buildTourPostText(row: TourPostRow, baseUrl: string): string {
   // Стандарт постов канала (lib/notifications/channel-style, 27.09): заголовок
   // сам ведёт на тур, «что и где» — курсивом, факты и цена — плашкой. Прежняя
   // строка КАПСОМ над заголовком ушла в подзаголовок.
-  const url = `${baseUrl.replace(/\/$/, '')}/catalog/tours/${row.id}`;
+  const url = `${baseUrl.replace(/\/$/, '')}${tourPath(row)}`;
   const kind = activityLabel(row.activity_type, true);
 
   const facts: string[] = [];
@@ -121,6 +124,7 @@ export async function postTourToChannel(tourId: string): Promise<TourPostResult>
 
   const { rows } = await query<TourPostRow & { season_start: string | null; season_end: string | null; duration_type: string | null }>(
     `SELECT ot.id::text,
+            ot.slug,
             ot.title,
             ot.short_description,
             ot.base_price,

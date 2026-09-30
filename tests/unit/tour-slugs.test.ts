@@ -84,6 +84,27 @@ describe('производители канонических ссылок ст�
     'components/marketplace/MarketplaceClient.tsx',
     'components/places/PlaceTours.tsx',
     'app/operators/[slug]/page.tsx',
+    // Внутренние ссылки (30.09): главная, Кузьмич, ИИ-чат, планер, поиск,
+    // рыба, рекомендации, посты канала и пуши — адрес, а не два 308 подряд.
+    'app/plans/[slug]/page.tsx',
+    'app/trip/[token]/_TripShareClient.tsx',
+    'app/_home/_HomeV8Client.tsx',
+    'components/homepage/FeaturedTour.tsx',
+    'components/homepage/TourGrid.tsx',
+    'components/homepage/KuzmichBriefing.tsx',
+    'app/ai-assistant/_AIAssistantClient.tsx',
+    'app/kuzmich/_KuzmichClient.tsx',
+    'components/kuzmich/KuzmichWidget.tsx',
+    'lib/ai/rag-context.ts',
+    'app/planner/_PlannerClient.tsx',
+    'app/api/search/route.ts',
+    'components/search/ToursForQuery.tsx',
+    'app/fish/[id]/page.tsx',
+    'components/tourist/RecommendationCard.tsx',
+    'lib/agents/sdk/tourist-tools.ts',
+    'lib/planner/compose.ts',
+    'lib/notifications/tour-channel-post.ts',
+    'lib/kuzmich/engagement.ts',
   ];
   for (const f of PRODUCERS) {
     it(f, () => {
@@ -94,6 +115,30 @@ describe('производители канонических ссылок ст�
       expect(bare.filter((b) => f !== 'lib/seo/indexnow.ts' || b !== 'tourId')).toEqual([]);
     });
   }
+});
+
+describe('внутренние ссылки не ведут через /marketplace', () => {
+  // /marketplace/tours/{id} → 308 /catalog/tours/{id} → 308 /catalog/tours/{адрес}:
+  // два редиректа на каждый клик и обход. Канон — /catalog (next.config).
+  it('ни одного /marketplace/tours/${…} в app, components, lib', () => {
+    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+    const out = execSync(
+      "grep -rnE 'marketplace/tours/\\$\\{' app components lib hooks --include=*.ts --include=*.tsx || true",
+      { encoding: 'utf-8' },
+    ).trim();
+    expect(out).toBe('');
+  });
+
+  it('источники ссылок выбирают адрес тура', () => {
+    for (const f of [
+      'lib/tours/top-tour-by-activity.ts', 'app/_home/data.ts', 'lib/ai/booking-intent.ts',
+      'app/api/planner/tours-for-day/route.ts', 'app/fish/[id]/page.tsx', 'lib/search/tour-recommend.ts',
+      'lib/agents/sdk/tourist-tools.ts', 'lib/planner/compose.ts', 'lib/notifications/tour-channel-post.ts',
+      'lib/kuzmich/engagement.ts',
+    ]) {
+      expect(read(f), f).toMatch(/\b(?:ot|t)\.slug\b|\bslug,/);
+    }
+  });
 });
 
 describe('адреса раздаются и не расходятся', () => {

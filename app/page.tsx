@@ -159,7 +159,7 @@ export default async function Page() {
         <div className="pt-4 pb-12">
           <LiveOnTrails />
           <SectionErrorBoundary>
-            <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, title: p.title }))} />
+            <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, slug: p.slug, title: p.title }))} />
           </SectionErrorBoundary>
           <div className={HOME_CONTAINER}>
             <MessengerAgentsSection />

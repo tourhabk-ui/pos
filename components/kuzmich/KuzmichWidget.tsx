@@ -8,6 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
+import { tourPath } from '@/lib/tours/tour-url';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -24,7 +25,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   imagePreview?: string;
-  tours?: { id: number; title: string; base_price: number; tour_image: string | null; operator_name: string }[];
+  tours?: { id: number; slug?: string | null; title: string; base_price: number; tour_image: string | null; operator_name: string }[];
   bookingForm?: BookingFormData;
   bookingConfirmed?: { id: number };
 }
@@ -473,7 +474,7 @@ export default function KuzmichWidget() {
                   )}
                   {/* Мини-карточки туров */}
                   {msg.tours?.map(t => (
-                    <Link key={t.id} href={`/marketplace/tours/${t.id}`} target="_blank"
+                    <Link key={t.id} href={tourPath(t)} target="_blank"
                       className="flex items-center gap-2 p-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)] transition-all group">
                       {t.tour_image
                         ? <div className="relative w-10 h-8 rounded overflow-hidden shrink-0">
