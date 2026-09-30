@@ -23,7 +23,7 @@ import {
   Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf,
   Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
   MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
-  Handshake, UserPlus, Bot, MessageSquare, Sparkles,
+  Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert,
   FileText, ScrollText, Receipt, Percent, FileSignature,
 } from 'lucide-react';
 
@@ -76,6 +76,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Места',               href: '/places',         icon: MapPin },
       { label: 'Маршруты',            href: '/routes',         icon: Waypoints },
       { label: 'Карта Камчатки',      href: '/map',            icon: Map },
+      { label: 'Сводка для гидов',    href: '/svodka',         icon: ShieldAlert },
       { label: 'Статьи о Камчатке',   href: '/articles',       icon: Newspaper },
       { label: 'Рыбы Камчатки',       href: '/fish',           icon: Fish },
       { label: 'Блог',                href: '/blog',           icon: BookOpen },

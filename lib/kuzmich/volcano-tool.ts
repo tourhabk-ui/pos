@@ -53,7 +53,7 @@ export interface VolcanoInput {
   kfegs: KfegsRow[] | null;
 }
 
-interface Merged {
+export interface MergedVolcano {
   name: string;
   aliases: string[];
   kvert: KvertRow | null;
@@ -89,8 +89,8 @@ export function kvertPhrase(k: KvertRow | null, nowMs: number = Date.now()): str
  * него — имя: английское у KVERT и у КФ ЕГС совпадает по источнику чаще,
  * чем русское с каталогом.
  */
-export function mergeVolcanoes(input: VolcanoInput, nowMs: number = Date.now()): Merged[] {
-  const byKey = new Map<string, Merged>();
+export function mergeVolcanoes(input: VolcanoInput, nowMs: number = Date.now()): MergedVolcano[] {
+  const byKey = new Map<string, MergedVolcano>();
   const fresh = input.kfegsDate !== null && kfegsIsFresh(input.kfegsDate, nowMs);
   const keyOf = (ark: string | null, name: string) => (ark ? `ark:${ark}` : `name:${name.trim().toLowerCase()}`);
 
@@ -126,11 +126,11 @@ export function mergeVolcanoes(input: VolcanoInput, nowMs: number = Date.now()):
   return [...byKey.values()];
 }
 
-function isElevated(m: Merged): boolean {
+function isElevated(m: MergedVolcano): boolean {
   return (m.kvert !== null && ELEVATED.has(m.kvert.acc)) || (m.kfegs?.color != null && ELEVATED.has(m.kfegs.color));
 }
 
-function rank(m: Merged): number {
+function rank(m: MergedVolcano): number {
   const r = (c: string | null | undefined) => (c === 'red' ? 3 : c === 'orange' ? 2 : c === 'yellow' ? 1 : 0);
   return Math.max(r(m.kvert?.acc), r(m.kfegs?.color));
 }
@@ -140,7 +140,7 @@ function rank(m: Merged): number {
  * (курильские, северные), а не «сводки нет»: первая приёмка 25.09 писала
  * про Чикурачки «свежей сводки нет» при сводке того же утра.
  */
-function volcanoLine(m: Merged, nowMs: number, bulletinFresh: boolean): string {
+function volcanoLine(m: MergedVolcano, nowMs: number, bulletinFresh: boolean): string {
   const kf = !m.kfegs && bulletinFresh ? 'КФ ЕГС: в сводке этого вулкана нет' : kfegsPhrase(m.kfegs);
   return `${m.name}: ${kf} · ${kvertPhrase(m.kvert, nowMs)}`;
 }
@@ -151,7 +151,7 @@ function bulletinDate(iso: string): string {
   return `${d}.${m}.${y}`;
 }
 
-function matches(m: Merged, query: string): boolean {
+function matches(m: MergedVolcano, query: string): boolean {
   const q = query.trim().toLowerCase();
   const qs = volcanoStem(query);
   return [m.name, ...m.aliases].some((n) => {
@@ -192,6 +192,25 @@ function sourcesLine(input: VolcanoInput, nowMs: number): { text: string; comple
 
 const FOOTER = 'Цветовые коды — об активности вулкана, а не разрешение на выход: закрытые зоны и регистрация в МЧС — отдельно.';
 
+/** Повышенные хотя бы по одной шкале, опаснейшие первыми — один порядок для Кузьмича и сводки. */
+function sortElevated(all: MergedVolcano[]): MergedVolcano[] {
+  return all.filter(isElevated).sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name, 'ru'));
+}
+
+/**
+ * То же, что видит Кузьмич без имени вулкана, но данными, а не текстом: для
+ * страницы сводки (`/svodka`). Правило отбора и порядок — одни с
+ * `composeVolcanoReport`, иначе сводка и ответ агента разойдутся.
+ */
+export function elevatedVolcanoes(input: VolcanoInput, nowMs: number = Date.now()): {
+  sources: string;
+  complete: boolean;
+  items: MergedVolcano[];
+} {
+  const src = sourcesLine(input, nowMs);
+  return { sources: src.text, complete: src.complete, items: sortElevated(mergeVolcanoes(input, nowMs)) };
+}
+
 /** Ответ инструмента: без имени — повышенные по любой шкале, с именем — этот вулкан по обеим. */
 export function composeVolcanoReport(input: VolcanoInput, query: string | undefined, nowMs: number = Date.now()): string {
   const src = sourcesLine(input, nowMs);
@@ -210,7 +229,7 @@ export function composeVolcanoReport(input: VolcanoInput, query: string | undefi
     return [src.text, ...found.slice(0, 5).map((m) => volcanoLine(m, nowMs, fresh)), FOOTER].join('\n');
   }
 
-  const elevated = all.filter(isElevated).sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name, 'ru'));
+  const elevated = sortElevated(all);
   if (elevated.length === 0) {
     return [
       src.text,
