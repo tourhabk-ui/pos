@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  mcpTourIds, mcpText, mcpDiagnosis, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
+  mcpTourIds, mcpText, mcpDiagnosis, urlTourKeys, resolveMcpTourKeys, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
 } from '@/lib/quality/channel-consistency';
 
 /** Ответ MCP get_tours как он приходит с прода: текст для модели, не JSON. */
@@ -29,7 +29,17 @@ describe('ID вытаскиваются из каждого канала', () =>
 
   it('из ссылок каталога и маркетплейса', () => {
     const llms = 'см. https://vedarai.ru/catalog/tours/6 и /marketplace/tours/27';
-    expect([...urlTourIds(llms)].sort()).toEqual(['27', '6']);
+    expect([...urlTourKeys(llms)].sort()).toEqual(['27', '6']);
+  });
+
+  it('из ссылок по адресу — как с 30.09 (#2110); прежний разбор находил ноль', () => {
+    // Карта сайта и llms.txt стали называть тур адресом. Разбор, искавший
+    // только цифры, нашёл ноль туров в обоих каналах при 893 адресах и завёл
+    // issue #2124 о расхождении, которого не было.
+    const llms = '- [Сплав](https://vedarai.ru/catalog/tours/splav-po-reke-bystraya) — от 13 000 ₽';
+    const sitemap = '<loc>https://vedarai.ru/catalog/tours/rybalka-na-kizhucha-6</loc>';
+    expect([...urlTourKeys(llms)]).toEqual(['splav-po-reke-bystraya']);
+    expect([...urlTourKeys(sitemap)]).toEqual(['rybalka-na-kizhucha-6']);
   });
 
   it('карта сайта считается по числу адресов', () => {
@@ -73,7 +83,7 @@ describe('ID вытаскиваются из каждого канала', () =>
 
   it('посторонние числа за ID не принимаются', () => {
     expect(mcpTourIds('Мест: 12 | цена 13 000').size).toBe(0);
-    expect(urlTourIds('/routes/12 /places/7').size).toBe(0);
+    expect(urlTourKeys('/routes/12 /places/7 /catalog/tours').size).toBe(0);
   });
 });
 
@@ -185,5 +195,36 @@ describe('MCP: разбор причины', () => {
   it('живой каталог даёт ID — и разбор причины к нему не зовётся', () => {
     const ok = 'ID27: Рыбалка\nID5: Сплав';
     expect([...mcpTourIds(ok)].sort()).toEqual(['27', '5']);
+  });
+});
+
+
+describe('число MCP переводится в адрес у самого сайта', () => {
+  const at = (map: Record<string, { status: number; location: string | null } | null>) =>
+    async (id: string) => (id in map ? map[id] : null);
+
+  it('308 на адрес — ключ это адрес', async () => {
+    const r = await resolveMcpTourKeys(['27'], at({
+      '27': { status: 308, location: 'https://vedarai.ru/catalog/tours/splav-po-reke' },
+    }));
+    expect([...r.keys]).toEqual(['splav-po-reke']);
+    expect(r.unresolved).toEqual([]);
+  });
+
+  it('200 — у тура нет адреса, каноничен номер', async () => {
+    const r = await resolveMcpTourKeys(['6'], at({ '6': { status: 200, location: null } }));
+    expect([...r.keys]).toEqual(['6']);
+  });
+
+  it('не смог — не расхождение: сеть, 5xx и пустой Location называются отдельно', async () => {
+    const r = await resolveMcpTourKeys(['1', '2', '3'], at({
+      '1': null,
+      '2': { status: 500, location: null },
+      '3': { status: 308, location: '/somewhere' },
+    }));
+    expect(r.keys.size).toBe(0);
+    expect(r.unresolved.map((u) => u.id)).toEqual(['1', '2', '3']);
+    expect(r.unresolved[0].why).toContain('не ответил');
+    expect(r.unresolved[1].why).toBe('HTTP 500');
   });
 });

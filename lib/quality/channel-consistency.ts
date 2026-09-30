@@ -129,13 +129,61 @@ export function mcpDiagnosis(body: string): string | null {
   return `текст есть, но ID туров в нём не найдены — вероятно изменился формат каталога (первые 160 знаков: ${said.slice(0, 160)})`;
 }
 
-/** ID туров из ссылок вида /catalog/tours/6 или /marketplace/tours/6. */
-export function urlTourIds(text: string): Set<string> {
+/**
+ * Ключи туров из ссылок вида /catalog/tours/{адрес} или /marketplace/tours/6.
+ *
+ * Ключ — сегмент после `/tours/`: адрес (латиница с дефисами) либо число, у
+ * тура без адреса. С 30.09 (#2110) карта сайта и llms.txt называют тур по
+ * адресу, а не по числу. Прежний разбор искал только цифры, нашёл ноль туров
+ * в обоих каналах при 893 адресах и 36 КБ текста — и ночная сверка заводила
+ * issue #2124 о расхождении, которого не было: сломалась сама проверка.
+ */
+export function urlTourKeys(text: string): Set<string> {
   const out = new Set<string>();
-  const re = /\/(?:catalog|marketplace)\/tours\/(\d+)\b/g;
+  const re = /\/(?:catalog|marketplace)\/tours\/([a-z0-9]+(?:-[a-z0-9]+)*)(?![a-z0-9-])/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) out.add(m[1]);
   return out;
+}
+
+/** Ответ на запрос карточки по числу: код и куда перенаправило (null — сеть не ответила). */
+export type TourLookup = { status: number; location: string | null } | null;
+
+export interface McpTourKeys {
+  /** Ключи тех туров, чей адрес удалось узнать. */
+  keys: Set<string>;
+  /** Туры, чей адрес узнать не удалось, и почему — это «не смог проверить», а не расхождение. */
+  unresolved: { id: string; why: string }[];
+}
+
+/**
+ * MCP называет тур числом, карта сайта и llms.txt — адресом. Чтобы сравнить,
+ * число спрашивается у самого сайта: карточка по числу отвечает 308 на адрес.
+ * 200 — у тура нет адреса, и числовая ссылка канонична. Всё прочее — «не смог»:
+ * молча принять его за отсутствие тура в канале значило бы объявить
+ * расхождение там, где не удалось проверить (§4.0).
+ */
+export async function resolveMcpTourKeys(
+  ids: Iterable<string>,
+  lookup: (id: string) => Promise<TourLookup>,
+): Promise<McpTourKeys> {
+  const keys = new Set<string>();
+  const unresolved: { id: string; why: string }[] = [];
+  for (const id of ids) {
+    const r = await lookup(id);
+    if (r === null) {
+      unresolved.push({ id, why: 'сайт не ответил' });
+    } else if (r.status === 200) {
+      keys.add(id);
+    } else if ([301, 302, 307, 308].includes(r.status)) {
+      const seg = /\/(?:catalog|marketplace)\/tours\/([a-z0-9]+(?:-[a-z0-9]+)*)(?![a-z0-9-])/.exec(r.location ?? '');
+      if (seg) keys.add(seg[1]);
+      else unresolved.push({ id, why: `перенаправление без адреса тура (${r.location ?? 'пусто'})` });
+    } else {
+      unresolved.push({ id, why: `HTTP ${r.status}` });
+    }
+  }
+  return { keys, unresolved };
 }
 
 /** Сколько всего адресов в карте сайта. */
