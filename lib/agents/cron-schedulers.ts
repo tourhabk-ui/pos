@@ -186,6 +186,8 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'payment-test-setup':        { kind: 'manual', writes: true,  note: 'обвязка проверки оплаты и комиссии: служебный партнёр, невидимый тур, бронь под QR' },
   'partner-junk-census':       { kind: 'manual', writes: false, note: 'партнёры, у которых имя не имя (реестровый номер вместо названия)' },
   'place-slug-census':         { kind: 'manual', writes: false, note: 'видимые места без адреса по имени и кто держит их адрес (после миграции 1111)' },
+  // Ходит наружу, но только на один хост, зашитый в роуте: параметров нет, иначе SSRF.
+  'partner-site-audit':        { kind: 'manual', writes: false, note: 'SEO-перепись сайта будущего партнёра (volcanoesland.ru) с точки в РФ и сколько наших записей взято с него' },
   // Расписания у уборки нет и быть не должно: удаление необратимо, и запускает
   // его человек по цифрам переписи. Сам роут без `confirm: true` не удаляет.
   'partner-cleanup':           { kind: 'manual', writes: true,  note: 'удаление бесхозных партнёров: ни туров, ни броней, ни входа, ни аттестаций' },
