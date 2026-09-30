@@ -6,6 +6,7 @@ import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
+import { tourPath } from '@/lib/tours/tour-url';
 
 /**
  * Сетка туров под «Турами сезона» на десктопной главной.
@@ -37,7 +38,7 @@ export function TourGrid({ plates }: { plates: readonly Plate[] }) {
           return (
             <Link
               key={p.id}
-              href={`/marketplace/tours/${p.id}`}
+              href={tourPath(p)}
               className="no-underline hover:no-underline group flex flex-col rounded-lg overflow-hidden bg-[var(--bg-card)] border border-[var(--border)] hover:border-[var(--accent)] transition-all duration-200"
             >
               <div className="relative aspect-[4/3] bg-[var(--bg-hover)] overflow-hidden">

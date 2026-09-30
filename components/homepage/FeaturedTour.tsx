@@ -7,6 +7,7 @@ import { priceUnitLabel, activityLabel } from '@/lib/tours/labels';
 import { priceFrom } from '@/lib/tours/price-label';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
+import { tourPath } from '@/lib/tours/tour-url';
 
 /**
  * Реальный тур на главной вместо выдуманной «истории путешественницы».
@@ -31,8 +32,13 @@ import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
 interface FeaturedTourProps {
   /** Первый тур витрины (fetchPlates) либо null — туров нет. */
   tour: Plate | null;
-  /** Сколько туров в витрине всего — для ссылки «Все туры». */
-  total: number;
+  /**
+   * Сколько живых туров в каталоге — то же число, что в герое /catalog
+   * (queryCatalogSummary). null — число не получено, ссылка без счётчика.
+   * Прежде здесь стояла длина витрины, обрезанной до PLATES_LIMIT: главная
+   * писала «Все туры (8)» при 11 в каталоге (замер 30.09).
+   */
+  total: number | null;
 }
 
 export function FeaturedTour({ tour, total }: FeaturedTourProps) {
@@ -61,12 +67,12 @@ export function FeaturedTour({ tour, total }: FeaturedTourProps) {
               «Туры» в шапке и таб-баре. Прежде здесь стоял /routes?kind=tour,
               откуда middleware уводил 301-м на /marketplace (#123). */}
           <Link href="/catalog" className="text-sm text-[var(--ocean)] hover:opacity-80 transition-all duration-200">
-            Все туры{total > 1 ? ` (${total})` : ''}
+            Все туры{total != null && total > 1 ? ` (${total})` : ''}
           </Link>
         </div>
 
         <Link
-          href={`/marketplace/tours/${tour.id}`}
+          href={tourPath(tour)}
           className="group block relative rounded-lg overflow-hidden h-[300px] md:h-[380px]"
         >
           {/* Фон: реальное фото тура; нет фото — тёплый земляной градиент, не фейк.

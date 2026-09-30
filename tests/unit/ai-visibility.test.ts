@@ -51,8 +51,10 @@ describe('llms.txt: коммерческий слой виден моделям'
     expect(LLMS).toMatch(/Мгновенной брони и оплаты через MCP нет by design/);
   });
 
-  it('Last-Updated не отстаёт от Плана 2.0 и Эволюции 3.0', () => {
-    expect(LLMS).toContain('Last-Updated: 2026-08-08');
-    expect(LLMS).not.toContain('2026-07-26');
+  it('Last-Updated — дата сборки ответа, а не замороженная строка', () => {
+    // Списки туров и мест в llms.txt живые; дата «2026-08-08» стояла здесь
+    // до 30.09 и выдавала файл за двухмесячный (замер 30.09).
+    expect(LLMS).toContain('Last-Updated: ${new Date().toISOString().slice(0, 10)}');
+    expect(LLMS).not.toMatch(/Last-Updated: \d{4}-\d{2}-\d{2}/);
   });
 });

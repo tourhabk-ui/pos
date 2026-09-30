@@ -16,6 +16,7 @@ import { detectTourIntent, findRelevantTours } from './booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { semanticSearch } from './embeddings';
 import { distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
+import { tourPath } from '@/lib/tours/tour-url';
 
 // ── In-memory TTL cache (5 min, max 200 entries) ────────────────
 const RAG_CACHE = new Map<string, { data: string; ts: number }>();
@@ -315,7 +316,7 @@ export async function buildRAGContext(
     ctx += tours
       .map(
         (t) =>
-          `• "${t.title}" | Оператор: ${t.operator_name} | от ${t.base_price.toLocaleString('ru-RU')} ₽ | vedarai.ru/marketplace/tours/${t.id}`,
+          `• "${t.title}" | Оператор: ${t.operator_name} | от ${t.base_price.toLocaleString('ru-RU')} ₽ | vedarai.ru${tourPath(t)}`,
       )
       .join('\n');
     ctx +=

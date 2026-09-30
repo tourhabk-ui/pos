@@ -33,6 +33,8 @@ export type MarketplaceToursFilters = z.infer<typeof MarketplaceToursQuerySchema
 
 export interface MarketplaceTourRow {
   id: number;
+  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   title: string;
   description: string;
   short_description: string | null;

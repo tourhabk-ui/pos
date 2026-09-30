@@ -408,7 +408,7 @@ export default function AdminTrafficPage() {
                           <td className="py-1.5 pr-3 text-[var(--text-secondary)] max-w-0 truncate" title={f.title}>
                             {/* Карточка тура — единственная реализация (CLAUDE.md §11). */}
                             <a
-                              href={`/marketplace/tours/${f.tourId}`}
+                              href={`/catalog/tours/${f.tourId}`}
                               target="_blank"
                               rel="noopener"
                               className="hover:text-[var(--ocean)] hover:underline underline-offset-2"

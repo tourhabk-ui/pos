@@ -20,7 +20,7 @@ export interface ReviewRequestParams {
 export function buildReviewRequestMessage(params: ReviewRequestParams): string {
   const { touristName, tourTitle, tourId, appUrl } = params;
   const greeting = touristName?.trim() ? `${touristName.trim()}, привет!` : 'Привет!';
-  const link = `${appUrl}/marketplace/tours/${tourId}#reviews`;
+  const link = `${appUrl}/catalog/tours/${tourId}#reviews`;
 
   return [
     `<b>${greeting}</b>`,

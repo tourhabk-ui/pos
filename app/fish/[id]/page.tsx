@@ -8,6 +8,7 @@ import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { query } from '@/lib/database';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export const revalidate = 3600;
 
@@ -51,6 +52,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 interface FishingTour {
   id: number;
+  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   title: string;
   base_price: number;
   operator_name: string;
@@ -61,7 +64,7 @@ interface FishingTour {
 async function getFishingTours(): Promise<FishingTour[]> {
   try {
     const result = await query<FishingTour>(`
-      SELECT ot.id::int, ot.title, ot.base_price::float,
+      SELECT ot.id::int, ot.slug, ot.title, ot.base_price::float,
              ot.duration_hours::float,
              p.name AS operator_name, p.slug AS operator_slug
       FROM operator_tours ot
@@ -271,7 +274,7 @@ export default async function FishDetailPage({ params }: Props) {
                 {tours.map(tour => (
                   <Link
                     key={tour.id}
-                    href={`/marketplace/tours/${tour.id}`}
+                    href={tourPath(tour)}
                     className="ds-card flex items-center justify-between gap-4 hover:shadow-md transition-all duration-200 group"
                   >
                     <div className="flex-1 min-w-0">

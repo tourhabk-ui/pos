@@ -94,7 +94,7 @@ describe('страница /plans/[slug]', () => {
   });
 
   it('план ведёт к брони и несёт JSON-LD и канонику', () => {
-    expect(PAGE).toMatch(/\/catalog\/tours\/\$\{tour\.id\}/);
+    expect(PAGE).toMatch(/\$\{tourPath\(tour\)\}\?date=/);
     expect(PAGE).toMatch(/TouristTrip/);
     expect(PAGE).toMatch(/alternates: \{ canonical:/);
   });

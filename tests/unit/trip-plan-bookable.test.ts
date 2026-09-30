@@ -24,7 +24,7 @@ const SHARE_UI = readFileSync(join(ROOT, 'app/trip/[token]/_TripShareClient.tsx'
 
 describe('план ведёт к брони', () => {
   it('тур дня в планере — ссылка на карточку тура, не на страницу оператора', () => {
-    expect(PLANNER).toMatch(/href=\{`\/catalog\/tours\/\$\{topTour\.id\}`\}/);
+    expect(PLANNER).toMatch(/href=\{tourPath\(topTour\)\}/);
     expect(PLANNER).not.toMatch(/href=\{`\/operators\/\$\{topTour\.operator_slug\}`\}/);
   });
 
@@ -37,11 +37,12 @@ describe('план ведёт к брони', () => {
     const RESOLVER = readFileSync(join(ROOT, 'lib/tours/top-tour-by-activity.ts'), 'utf-8');
     expect(RESOLVER).toMatch(/FROM operator_tours ot/);
     expect(RESOLVER).toMatch(/ot\.is_active = true AND ot\.is_published = true AND ot\.deleted_at IS NULL/);
-    expect(RESOLVER).toMatch(/catch \{ \/\* тур-подсказка необязательна \*\/ \}/);
+    // Сбой подбора не роняет план, но и не глушится: причина — в лог (§4.0).
+    expect(RESOLVER).toMatch(/catch \(e\) \{[\s\S]*?console\.error\('\[top-tour-by-activity\]/);
   });
 
   it('публичный план рендерит бронь дня', () => {
-    expect(SHARE_UI).toMatch(/\/catalog\/tours\/\$\{tour\.id\}/);
+    expect(SHARE_UI).toMatch(/\$\{tourPath\(tour\)\}\?date=/);
     expect(SHARE_UI).toMatch(/забронировать/);
   });
 });

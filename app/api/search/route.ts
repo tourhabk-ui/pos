@@ -21,6 +21,7 @@ import { semanticSearch } from '@/lib/ai/embeddings';
 import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
 import { findToursForQuery, tourPriceFrom } from '@/lib/search/tour-query-match';
 import { activityLabel } from '@/lib/tours/labels';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
         title: t.title,
         // Цена — только настоящая; нет её — подпись без цены, не «от 0 ₽».
         subtitle: [price, kind].filter(Boolean).join(' · ') || 'Тур',
-        href: `/catalog/tours/${String(t.id)}`,
+        href: tourPath(t),
       };
     });
   }

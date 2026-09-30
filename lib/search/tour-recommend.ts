@@ -16,6 +16,8 @@ export type RecommendationStrategy =
 
 export interface RecommendedTour {
   id: string;
+  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   title: string;
   description: string;
   price: number;
@@ -52,7 +54,7 @@ async function getSimilarUsersRecommendations(
   try {
     const result = await query<RecommendedTour>(
       `SELECT DISTINCT
-         t.id, t.title, t.description,
+         t.id, t.slug, t.title, t.description,
          t.base_price                  AS price,
          t.difficulty,
          t.duration_hours              AS duration,
@@ -76,7 +78,7 @@ async function getSimilarUsersRecommendations(
        WHERE b1.user_id = $1
          AND b1.booking_status IN ('confirmed', 'completed')
          AND b1.deleted_at IS NULL
-       GROUP BY t.id, t.title, t.description, t.base_price, t.difficulty,
+       GROUP BY t.id, t.slug, t.title, t.description, t.base_price, t.difficulty,
                 t.duration_hours, t.activity_type, t.location_name, t.rating,
                 t.photos
        HAVING COUNT(DISTINCT b2.user_id) >= 1
@@ -140,7 +142,7 @@ async function getContentBasedRecommendations(
 
     const result = await query<RecommendedTour>(
       `SELECT
-         id, title, description,
+         id, slug, title, description,
          base_price      AS price,
          difficulty,
          duration_hours  AS duration,
@@ -211,7 +213,7 @@ async function getEcoOptimizedRecommendations(
 
     const result = await query<RecommendedTour>(
       `SELECT
-         id, title, description,
+         id, slug, title, description,
          base_price      AS price,
          difficulty,
          duration_hours  AS duration,
@@ -293,7 +295,7 @@ export async function getRecommendations(
   // Если история пустая — возвращаем топ по рейтингу (с учётом category, если задан)
   if (merged.length === 0) {
     const fallback = await query<RecommendedTour>(
-      `SELECT id, title, description,
+      `SELECT id, slug, title, description,
               base_price     AS price,
               difficulty,
               duration_hours AS duration,

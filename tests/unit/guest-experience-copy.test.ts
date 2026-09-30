@@ -27,7 +27,7 @@ describe('buildReviewRequestMessage', () => {
 
   it('ссылка ведёт на конкретный тур и якорь отзывов', () => {
     const text = buildReviewRequestMessage(base);
-    expect(text).toContain('https://vedarai.ru/marketplace/tours/27#reviews');
+    expect(text).toContain('https://vedarai.ru/catalog/tours/27#reviews');
   });
 
   it('название тура попадает в текст', () => {

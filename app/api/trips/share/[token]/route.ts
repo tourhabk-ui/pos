@@ -76,7 +76,7 @@ export async function GET(
     // (детерминированные пороги: ветер ≥ 40 км/ч или осадки ≥ 10 мм).
     // Любой сбой — блок просто не показывается.
     const weather: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }> = {};
-    const planB: Record<string, Array<{ tour_id: string; title: string }>> = {};
+    const planB: Record<string, Array<{ tour_id: string; slug: string | null; title: string }>> = {};
     if (Number.isFinite(arrivalMs)) {
       try {
         const { createPlannerCache, fetchForecastDays, fetchContingencyAlternatives } = await import('@/lib/planner');
@@ -107,7 +107,7 @@ export async function GET(
             if (bad && tour?.weather_dependent) {
               const alts = await fetchContingencyAlternatives(tour.id, cache);
               if (alts.length > 0) {
-                planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, title: a.title }));
+                planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, slug: a.slug ?? null, title: a.title }));
               }
             }
           } catch { /* погода и план Б необязательны */ }

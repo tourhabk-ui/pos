@@ -14,11 +14,13 @@ import {
 import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
+import { tourPath } from '@/lib/tours/tour-url';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
 interface TourCard {
   id: number;
+  slug?: string | null;
   title: string;
   base_price: number;
   tour_image: string | null;
@@ -242,7 +244,7 @@ function BookingFormCard({
 
 function TourMiniCard({ tour }: { tour: TourCard }) {
   return (
-    <Link href={`/marketplace/tours/${tour.id}`} target="_blank"
+    <Link href={tourPath(tour)} target="_blank"
       className="flex gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)] transition-all group">
       {tour.tour_image ? (
         <div className="relative w-16 h-14 rounded-lg overflow-hidden shrink-0">

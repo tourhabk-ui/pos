@@ -19,9 +19,11 @@ import Link from 'next/link';
 import { ArrowRight, Ticket } from 'lucide-react';
 import { activityLabel } from '@/lib/tours/labels';
 import { tourPriceFrom } from '@/lib/search/tour-query-match';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export interface ToursForQueryItem {
   id: number | string;
+  slug?: string | null;
   title: string;
   operator_name: string | null;
   activity_type: string | null;
@@ -72,7 +74,7 @@ export function ToursForQuery({ q, state }: { q: string; state: ToursForQuerySta
           return (
             <li key={String(t.id)} className="min-w-0">
               <Link
-                href={`/catalog/tours/${t.id}`}
+                href={tourPath(t)}
                 className="ds-card flex items-center gap-3 p-3 min-h-[64px] transition-all duration-200 hover:border-[var(--accent)]"
               >
                 <span

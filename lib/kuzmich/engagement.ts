@@ -14,6 +14,7 @@
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { getPublicBaseUrl } from '@/lib/config';
+import { tourPath } from '@/lib/tours/tour-url';
 
 // ── Записать сигнал интереса ──────────────────────────────────────
 
@@ -50,6 +51,7 @@ interface EngagementRow {
   signal_id:    number;
   user_id:      number;
   tour_id:      number;
+  tour_slug:    string | null;
   tour_title:   string;
   base_price:   number;
   activity_type: string | null;
@@ -69,6 +71,7 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
         s.id            AS signal_id,
         s.user_id,
         s.tour_id,
+        t.slug          AS tour_slug,
         t.title         AS tour_title,
         t.base_price,
         t.activity_type,
@@ -173,7 +176,7 @@ function buildReminderText(row: EngagementRow): string {
     '',
     `Если остались вопросы — напиши мне, помогу с выбором и бронированием.`,
     '',
-    `${getPublicBaseUrl()}/marketplace/tours/${row.tour_id}`,
+    `${getPublicBaseUrl()}${tourPath({ id: row.tour_id, slug: row.tour_slug })}`,
   ];
 
   return lines.join('\n');

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AlertTriangle, ArrowRight, Bot, CloudSun, Compass, Flame, HelpCircle } from 'lucide-react';
 import { briefingStatus, briefingUpdatedAt, type BriefingSafety } from '@/lib/home/briefing';
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout';
+import { tourPath } from '@/lib/tours/tour-url';
 
 /**
  * Утренняя сводка Кузьмича на десктопной главной: погода, обстановка, туры.
@@ -37,6 +38,7 @@ interface BriefingData {
 
 export interface BriefingTour {
   id: string;
+  slug?: string | null;
   title: string;
 }
 
@@ -171,7 +173,7 @@ export function KuzmichBriefing({ tours }: { tours: readonly BriefingTour[] }) {
                     {tours.map(t => (
                       <Link
                         key={t.id}
-                        href={`/marketplace/tours/${t.id}`}
+                        href={tourPath(t)}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
                       >
                         <Compass size={12} className="flex-shrink-0" />

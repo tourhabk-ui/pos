@@ -101,7 +101,7 @@ export async function GET() {
 
   const content = `# Ведар — Туристическая платформа Камчатки
 
-Last-Updated: 2026-08-08
+Last-Updated: ${new Date().toISOString().slice(0, 10)}
 
 ## AI Usage Policy
 

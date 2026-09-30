@@ -54,7 +54,7 @@ function buildProductEntry(tour: TourRow) {
     availability: 'in stock',
     condition: 'new',
     price: priceFormatted,
-    link: `${APP_URL}/marketplace/tours/${tour.id}`,
+    link: `${APP_URL}/catalog/tours/${tour.id}`,
     image_link: imageLink,
     brand: tour.operator_name ?? 'Vedarai',
     google_product_category: category,

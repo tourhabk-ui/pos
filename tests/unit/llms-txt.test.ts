@@ -58,7 +58,7 @@ describe('/llms.txt — актуально и честно', () => {
     expect(text).toContain('2+ объектах');
   });
 
-  it('дата обновления освежена (08.08 — туры, планы и MCP в манифесте)', () => {
-    expect(text).toMatch(/Last-Updated:\s*2026-08/);
+  it('дата обновления — сегодняшняя: списки в файле собираются из базы', () => {
+    expect(text).toContain(`Last-Updated: ${new Date().toISOString().slice(0, 10)}`);
   });
 });

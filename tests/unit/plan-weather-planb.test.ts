@@ -45,7 +45,7 @@ describe('B-5: «план Б» при непогоде', () => {
 
   it('клиент рендерит запасные туры ссылками на бронь', () => {
     expect(SHARE_UI).toMatch(/План Б при непогоде/);
-    expect(SHARE_UI).toMatch(/\/catalog\/tours\/\$\{a\.tour_id\}/);
+    expect(SHARE_UI).toMatch(/tourPath\(\{ id: a\.tour_id, slug: a\.slug \}\)/);
   });
 
   it('все сбои — fail-soft: блока нет, план жив', () => {

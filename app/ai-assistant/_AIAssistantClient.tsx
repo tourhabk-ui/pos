@@ -15,9 +15,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { paceIsShowable } from '@/lib/routes/route-contradiction';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPath } from '@/lib/tours/tour-url';
 
 interface TourSuggestion {
   id: number;
+  slug?: string | null;
   title: string;
   description: string | null;
   base_price: number;
@@ -189,7 +191,7 @@ function WarningCard({ text }: { text: string }) {
 function TourCard({ tour }: { tour: TourSuggestion }) {
   return (
     <Link
-      href={`/marketplace/tours/${tour.id}`}
+      href={tourPath(tour)}
       className="group flex items-start gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/40 hover:bg-[var(--bg-hover)] transition-all"
     >
       <div className="relative w-16 h-16 rounded-md overflow-hidden shrink-0 bg-[var(--bg-hover)]">

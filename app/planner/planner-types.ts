@@ -92,6 +92,8 @@ export interface Partner {
 
 export interface TourPreview {
   id: string;
+  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
+  slug: string | null;
   title: string;
   base_price: string;
   price_unit: string | null;

@@ -17,6 +17,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { tourPath } from '@/lib/tours/tour-url';
 
 
 
@@ -55,6 +56,7 @@ export interface ComposedTrip {
 
 interface TourRow {
   id: number;
+  slug: string | null;
   title: string;
   activity_type: string | null;
   duration_days: number;
@@ -141,7 +143,7 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
   const durationExpr = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
 
   const sql = `
-    SELECT t.id, t.title, t.activity_type,
+    SELECT t.id, t.slug, t.title, t.activity_type,
            ${durationExpr} AS duration_days,
            t.base_price,
            COALESCE(p.company_name, p.name) AS operator_name,
@@ -200,9 +202,9 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
       location: row.location,
       difficulty_level: row.difficulty,
       tour_image: row.tour_image,
-      // id — из operator_tours: адрес тура /catalog/tours/{id}. /routes/{id}
+      // Тур из operator_tours: адрес /catalog/tours/{адрес}. /routes/{id}
       // ищет маршрут и на числовой id тура отвечал 404 (сверка SEO 29.09).
-      booking_url: `/catalog/tours/${row.id}`,
+      booking_url: tourPath(row),
     });
     usedActivities.add(activity);
     usedDays += tourDays + (selected.length > 1 ? 1 : 0);

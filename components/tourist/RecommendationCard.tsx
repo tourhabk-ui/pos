@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Users, Target, Leaf, Mountain, Clock, Circle } from 'lucide-react';
 import type { RecommendedTour, RecommendationStrategy } from '@/lib/search';
+import { tourPath } from '@/lib/tours/tour-url';
 
 /** duration приходит из operator_tours.duration_hours — это ЧАСЫ, не дни. */
 function formatHours(h: number): string {
@@ -57,8 +58,8 @@ export default function RecommendationCard({ tour, onCardClick }: Recommendation
 
   return (
     <Link
-      // /tours/[id] страницы нет (404) — карточка тура живёт в маркетплейсе (§11).
-      href={`/marketplace/tours/${tour.id}`}
+      // Карточка тура — /catalog/tours/{адрес} (§11, ЧПУ миграции 1114).
+      href={tourPath(tour)}
       onClick={handleClick}
       className="
         group relative rounded-lg overflow-hidden

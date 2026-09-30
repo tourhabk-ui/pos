@@ -16,6 +16,7 @@ import { fetchForecastDays } from '@/lib/planner/intelligence';
 import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
+import { tourPath } from '@/lib/tours/tour-url';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -170,7 +171,7 @@ const getTourDetails: SDKTool = {
   execute: async (args) => {
     try {
       const result = await pool.query(`
-        SELECT t.id, t.title, t.description, t.base_price, t.activity_type,
+        SELECT t.id, t.slug, t.title, t.description, t.base_price, t.activity_type,
                ${DURATION_EXPR} AS duration_days,
                t.difficulty, t.location_name,
                t.included, t.not_included, t.what_to_bring,
@@ -208,9 +209,9 @@ const getTourDetails: SDKTool = {
         operator: t.operator_name,
         operator_phone: t.operator_phone,
         image: t.tour_image,
-        // Тур из operator_tours — его страница /catalog/tours/{id}; /routes/{id}
+        // Тур из operator_tours — его страница /catalog/tours/{адрес}; /routes/{id}
         // отвечал туристу 404 (сверка SEO 29.09).
-        booking_url: `/catalog/tours/${t.id}`,
+        booking_url: tourPath({ id: String(t.id), slug: typeof t.slug === 'string' ? t.slug : null }),
       });
     } catch {
       return JSON.stringify({ error: 'Ошибка загрузки тура' });

@@ -24,6 +24,7 @@ import { getHomeV8Data, fetchPlates } from './_home/data'
 import { homeTreeFor } from '@/lib/home/device-tree'
 import { TourGrid } from '@/components/homepage/TourGrid'
 import { getPlatformCounts } from '@/lib/stats/platform-counts'
+import { queryCatalogSummaryForPage } from '@/lib/search'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,8 +119,16 @@ export default async function Page() {
   // Витрина туров — та же выборка, что у телефона (fetchPlates): порядок,
   // фильтр живого тура и правило сезона одни на оба дерева. Отказ fetchPlates
   // пишет в лог сам и отдаёт [] — блоки туров тогда честно не рисуются.
-  const [safety, counts, plates] = await Promise.all([
+  const [safety, counts, plates, catalogSummary] = await Promise.all([
     getSafetyStatus(), getPlatformCounts().catch(() => null), fetchPlates(),
+    // Счётчик «Все туры» — из сводки каталога, не из длины витрины (§4.0:
+    // не смогли посчитать — числа нет, отказ в логе).
+    queryCatalogSummaryForPage().catch((e: unknown) => {
+      console.error('[home] сводка каталога не получена', {
+        code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    }),
   ]);
   const platformStats: PlatformStats | null = counts
     ? { routes: counts.routes, places: counts.places, mchsRoutes: counts.mchsRoutes, safetyProfiles: counts.safetyProfiles }
@@ -144,7 +153,7 @@ export default async function Page() {
         {/* Туры сезона — первый тур витрины крупно, остальные сеткой, последняя
             клетка — заявка (#33). Один источник — fetchPlates, второй выборки нет. */}
         <SectionErrorBoundary>
-          <FeaturedTour tour={plates[0] ?? null} total={plates.length} />
+          <FeaturedTour tour={plates[0] ?? null} total={catalogSummary?.total ?? null} />
         </SectionErrorBoundary>
         {plates.length > 0 && <TourGrid plates={plates.slice(1)} />}
 
@@ -159,7 +168,7 @@ export default async function Page() {
         <div className="pt-4 pb-12">
           <LiveOnTrails />
           <SectionErrorBoundary>
-            <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, title: p.title }))} />
+            <KuzmichBriefing tours={plates.filter((p) => p.availability !== 'season_over').slice(0, 3).map((p) => ({ id: p.id, slug: p.slug, title: p.title }))} />
           </SectionErrorBoundary>
           <div className={HOME_CONTAINER}>
             <MessengerAgentsSection />

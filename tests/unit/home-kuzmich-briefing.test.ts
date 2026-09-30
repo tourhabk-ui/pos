@@ -80,7 +80,7 @@ describe('компонент KuzmichBriefing', () => {
   });
 
   it('рекомендует туры из витрины страницы, а не свой подбор', () => {
-    expect(SRC).toMatch(/\/marketplace\/tours\/\$\{t\.id\}/);
+    expect(SRC).toMatch(/href=\{tourPath\(t\)\}/);
     expect(SRC).not.toMatch(/\/api\/safety\/routes/);
     const PAGE = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf-8');
     expect(PAGE).toMatch(/<KuzmichBriefing tours=\{plates\.filter\(\(p\) => p\.availability !== 'season_over'\)/);
