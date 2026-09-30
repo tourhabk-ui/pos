@@ -70,6 +70,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // sitemap не попали и для поиска не существовали.
     { url: `${BASE}/register`,             lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.85 },
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
+    // Памятка перед поездкой (30.09): факты — импортом из справочников МЧС, парка, SOS.
+    { url: `${BASE}/prepare`,             lastModified: new Date('2026-09-30'), changeFrequency: 'monthly', priority: 0.8 },
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают
