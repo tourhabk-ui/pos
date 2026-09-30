@@ -1,17 +1,12 @@
 {
-  "note": "29.09, прогон 623. ТОЛЬКО ЧТЕНИЕ. /map открывается «С маршрутом» (ec8f020): сколько мест с onRoute:true в выдаче /api/routes?kind=place.",
-  "run": 623,
-  "timeout": 60,
+  "note": "30.09, прогон 624. ТОЛЬКО ЧТЕНИЕ. После сборки c86bd84 (включает 61d5c0e — точку кадрирования фото туров): какой образ на проде.",
+  "run": 624,
+  "timeout": 40,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
   "bytes": 300,
-  "count": [
-    "\"onRoute\":true",
-    "\"onRoute\":false",
-    "\"onRoute\":null"
-  ],
   "urls": [
-    "https://vedarai.ru/api/routes?hasCoords=true&limit=1500&sort=title&kind=place"
+    "https://vedarai.ru/version.json"
   ]
 }
