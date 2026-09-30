@@ -63,7 +63,10 @@ describe('плашка на карте', () => {
 
   it('стекло по §2: тёмное, тревога — кромкой предупреждения', () => {
     expect(chip).toMatch(/className="fx-glass /);
-    expect(chip).toMatch(/data-theme="dark"/);
+    // Не data-theme="dark": token-gate на /map считает переопределение
+    // --accent/--danger на элементе нарушением (CI 30.09).
+    expect(chip).not.toMatch(/^\s+data-theme=/m);
+    expect(chip).toMatch(/var\(--glass-fg\)/);
     expect(chip).toMatch(/'alert' \? 'var\(--warning\)'/);
     expect(chip).not.toMatch(/bg-black\/40|backdrop-blur-md/);
   });

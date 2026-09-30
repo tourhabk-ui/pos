@@ -8,8 +8,10 @@
  * ответ хранится в localStorage, чтобы без сети плашка говорила, что было
  * известно и когда, а не пропадала и не рисовала спокойствие.
  *
- * Стекло поверх карты — по §2 CLAUDE.md: тёмное, содержимое в тёмной теме,
- * тревога узнаётся кромкой цвета предупреждения, а не заливкой.
+ * Стекло поверх карты — по §2 CLAUDE.md: тёмное, тревога узнаётся кромкой
+ * цвета предупреждения, а не заливкой. Цвета текста — --glass-fg /
+ * --glass-fg-muted, а не data-theme="dark": /map проверяет token-gate, и
+ * переопределение --accent/--danger на элементе для него — нарушение.
  */
 
 import { useEffect, useState } from 'react';
@@ -71,7 +73,6 @@ export function MapThreatChip() {
   return (
     <Link
       href="/safety#radar"
-      data-theme="dark"
       aria-label={`${summary.label}${summary.detail ? `. ${summary.detail}` : ''}. Открыть радар угроз`}
       className="fx-glass flex items-start gap-2 max-w-[260px] px-3 py-2 rounded-2xl transition-all duration-200"
       style={{ borderColor: edge, color: 'var(--glass-fg)' }}
