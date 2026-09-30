@@ -102,7 +102,7 @@ describe('карточка говорит только то, что знает',
     expect(CARD).toMatch(/line-clamp-2 mb-1\.5">\s*\{tour\.short_description \?\? tour\.description\}/);
   });
   it('ссылки — сразу на канонический /catalog/tours/{id}, без 308 через /marketplace (#129)', () => {
-    expect(CARD).toMatch(/const href = `\/catalog\/tours\/\$\{tour\.id\}`/);
+    expect(CARD).toMatch(/const href = tourPath\(tour\);/);
     expect(CARD).toMatch(/href=\{`\$\{href\}#booking`\}/);
     expect(code(CLIENT)).not.toMatch(/\/marketplace\/tours\//);
   });

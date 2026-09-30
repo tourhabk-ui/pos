@@ -18,11 +18,14 @@
 
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { parseTourParam } from '@/lib/tours/tour-url';
 
 /** Строка тура для карточки. `program`/`safety_notes` могут отсутствовать,
  *  если миграция 809 ещё не применилась — карточка это переживает. */
 export interface TourCardRow {
   id: number;
+  /** Адрес карточки (ЧПУ, миграция 1114). NULL — только по числу. */
+  slug: string | null;
   title: string;
   description: string | null;
   short_description: string | null;
@@ -137,7 +140,7 @@ const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes,';
 function buildSql(withOptional: boolean): string {
   return `
     SELECT
-      ot.id, ot.title, ot.description, ot.short_description,
+      ot.id, ot.slug, ot.title, ot.description, ot.short_description,
       ot.base_price, ot.price_old, ot.price_unit,
       ot.activity_type, ot.location_type,
       ot.location_name, ot.latitude, ot.longitude,
@@ -177,6 +180,25 @@ function isUndefinedColumn(e: unknown): boolean {
   if (!e || typeof e !== 'object') return false;
   const code = (e as { code?: unknown }).code;
   return code === '42703';
+}
+
+/**
+ * Тур по адресу (ЧПУ) → его id; только тур на витрине. null — такого адреса
+ * нет; отказ базы — тоже null, но с логом: карточка ответит 404, и это
+ * «не нашли», а не выдуманный тур (§4.0 — причина в логе, не в тишине).
+ */
+export async function getTourIdBySlug(slug: string): Promise<number | null> {
+  try {
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM operator_tours WHERE slug = $1 AND ${publicTourSql('')} LIMIT 1`,
+      [slug],
+    );
+    return rows[0] ? Number(rows[0].id) : null;
+  } catch (e) {
+    const code = (e as { code?: unknown } | null)?.code;
+    console.error('[tour-detail-query] тур по адресу не прочитан:', typeof code === 'string' ? code : '', e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }
 
 export async function getTourForCard(id: number): Promise<TourCardRow | null> {
@@ -240,4 +262,19 @@ export async function getTourReviews(tourId: number): Promise<TourCardReview[]> 
       return [];
     }
   }
+}
+
+/**
+ * Карточка по сегменту адреса: число или ЧПУ (30.09). `byId` — пришли по
+ * числу: у тура с адресом страница уводит 308 на него, чтобы в выдаче жил
+ * один адрес. Мусорный сегмент (`12abc`) — null, то есть 404: прежний
+ * parseInt открывал по нему тур 12.
+ */
+export async function loadTourCard(raw: string): Promise<{ tour: TourCardRow; byId: boolean } | null> {
+  const p = parseTourParam(raw);
+  if (!p) return null;
+  const id = p.kind === 'id' ? p.id : await getTourIdBySlug(p.slug);
+  if (id === null) return null;
+  const tour = await getTourForCard(id);
+  return tour ? { tour, byId: p.kind === 'id' } : null;
 }

@@ -15,6 +15,7 @@ import {
   extractGallery, extractLegalInfo,
 } from '@/lib/operators/profile-parse';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,7 +77,7 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
  */
 async function getOperatorTours(operatorId: string): Promise<OperatorPageTourRow[]> {
   const result = await query<OperatorPageTourRow>(
-    `SELECT ot.id::text AS id, ot.title, ot.short_description,
+    `SELECT ot.id::text AS id, ot.slug, ot.title, ot.short_description,
             ot.base_price::text AS base_price, ot.price_unit,
             ot.duration_type, ot.multi_day_count,
             to_char(ot.season_start, 'DD.MM.YYYY') AS season_start,
@@ -263,7 +264,7 @@ export default async function OperatorProfilePage(
                   return (
                     <Link
                       key={t.id}
-                      href={`/catalog/tours/${t.id}`}
+                      href={tourPath(t)}
                       className="group bg-[var(--bg-hover)] rounded-lg overflow-hidden flex flex-col hover:ring-1 hover:ring-[var(--accent)] transition-all duration-200"
                     >
                       {img && (

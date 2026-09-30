@@ -7,6 +7,7 @@
  * который как route-handler исполняется на запросе). Теперь XML отдаёт
  * app/sitemap.xml/route.ts с force-dynamic — тем же паттерном, что llms.txt.
  */
+import { tourPath } from '@/lib/tours/tour-url';
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
@@ -245,14 +246,14 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   // is_published (837).
   let marketplacePages: MetadataRoute.Sitemap = [];
   try {
-    const { rows } = await pool.query<{ id: string; updated_at: Date }>(
-      `SELECT id, updated_at FROM operator_tours
+    const { rows } = await pool.query<{ id: string; slug: string | null; updated_at: Date }>(
+      `SELECT id, slug, updated_at FROM operator_tours
        WHERE deleted_at IS NULL AND is_active = TRUE
          AND COALESCE(is_published, TRUE) = TRUE
        ORDER BY updated_at DESC LIMIT 500`
     );
     marketplacePages = rows.map(row => ({
-      url: `${BASE}/catalog/tours/${row.id}`,
+      url: `${BASE}${tourPath(row)}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
       priority: 0.85,

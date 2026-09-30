@@ -91,7 +91,7 @@ describe('страница оператора: туры', () => {
   const page = read('app/operators/[slug]/page.tsx');
   it('туры берутся через общий шлюз витрины и ведут на карточку тура', () => {
     expect(page).toMatch(/publicTourSql\('ot'\)/);
-    expect(page).toMatch(/href=\{`\/catalog\/tours\/\$\{t\.id\}`\}/);
+    expect(page).toMatch(/href=\{tourPath\(t\)\}/);
   });
   it('нет цены — «Цена по запросу», а не 0 ₽', () => {
     expect(page).toMatch(/'Цена по запросу'/);

@@ -3,6 +3,7 @@ import { pool } from '@/lib/db-pool';
 import { FishingPageClient } from './_FishingPageClient';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,7 @@ export const metadata: Metadata = {
 
 interface FishingTour {
   id: number;
+  slug: string | null;
   title: string;
   short_description: string | null;
   description: string | null;
@@ -52,7 +54,7 @@ interface FishingTour {
 async function getFishingTours(): Promise<FishingTour[]> {
   const { rows } = await pool.query<FishingTour>(`
     SELECT
-      ot.id, ot.title, ot.short_description, ot.description,
+      ot.id, ot.slug, ot.title, ot.short_description, ot.description,
       ot.base_price::float, ot.duration_hours::float,
       ot.max_participants, ot.min_participants,
       ot.difficulty, ot.photos, ot.included,
@@ -90,10 +92,10 @@ export default async function FishingPage() {
         // Адрес тура — /catalog/tours/{id}. Прежний /hub/marketplace/{id}
         // не существует: аноним получал редирект на вход, обходчик — адрес
         // под Disallow: /hub/ (сверка SEO 29.09, вечер).
-        '@id': `${SITE}/catalog/tours/${t.id}`,
+        '@id': `${SITE}${tourPath(t)}`,
         name: t.title,
         description: t.short_description ?? t.description ?? '',
-        url: `${SITE}/catalog/tours/${t.id}`,
+        url: `${SITE}${tourPath(t)}`,
         touristType: 'Рыбаки, любители активного отдыха',
         availableLanguage: 'Russian',
         provider: {
@@ -106,7 +108,7 @@ export default async function FishingPage() {
           price: t.base_price,
           priceCurrency: 'RUB',
           availability: 'https://schema.org/InStock',
-          url: `${SITE}/catalog/tours/${t.id}`,
+          url: `${SITE}${tourPath(t)}`,
         },
         ...(t.duration_hours && {
           itinerary: {

@@ -145,6 +145,8 @@ const nextConfig = {
       { source: '/marketplace/:path*', destination: '/catalog/:path*',                 permanent: true },
       { source: '/marketplace',        destination: '/catalog',                        permanent: true },
       { source: '/tours',              destination: '/catalog',                        permanent: true },
+      // ЧПУ туров (30.09): /tours/{адрес или число} — короткая форма карточки.
+      { source: '/tours/:slug',        destination: '/catalog/tours/:slug',            permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
       // Перепись админ-панели 03.09: «AI Кузьмич» и «Расходы AI» читали одну

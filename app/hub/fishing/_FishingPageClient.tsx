@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { Fish, Clock, Users, Mountain, ChevronRight, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPath } from '@/lib/tours/tour-url';
 
 interface FishingTour {
   id: number;
+  slug: string | null;
   title: string;
   short_description: string | null;
   description: string | null;
@@ -55,7 +57,7 @@ function TourCard({ tour }: { tour: FishingTour }) {
   const diff  = tour.difficulty ?? 'easy';
 
   return (
-    <Link href={`/catalog/tours/${tour.id}`} className="group block">
+    <Link href={tourPath(tour)} className="group block">
       <div className="ds-card overflow-hidden hover:shadow-md transition-all duration-200 h-full flex flex-col">
         {/* Фото */}
         <div className="relative h-48 bg-[var(--bg-hover)] overflow-hidden">

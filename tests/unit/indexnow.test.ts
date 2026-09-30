@@ -61,12 +61,13 @@ describe('канонический адрес тура один — /catalog/tou
   // страница объявляла каноном саму себя, а пинг слал marketplace — мы сами
   // делили сигналы тура между двумя адресами.
   it('sitemap подаёт туры по /catalog/tours/', () => {
-    expect(read('lib/seo/sitemap-entries.ts')).toMatch(/\/catalog\/tours\/\$\{row\.id\}/);
+    expect(read('lib/seo/sitemap-entries.ts')).toMatch(/tourPath\(row\)/);
   });
 
   it('пинг изменения тура шлёт канонический адрес, не marketplace', () => {
     const lib = read('lib/seo/indexnow.ts');
-    expect(lib).toMatch(/\/catalog\/tours\/\$\{tourId\}/);
+    expect(lib).toMatch(/tourPath\(/);
+    expect(lib).toMatch(/\/catalog\/tours\/\$\{tourId\}/); // запас, если адрес не прочитан
     expect(lib).not.toMatch(/\/marketplace\/tours\//);
   });
 
@@ -76,10 +77,9 @@ describe('канонический адрес тура один — /catalog/tou
       'app/marketplace/tours/[id]/page.tsx',
     ]) {
       const src = read(file);
-      const canon = /canonical:\s*`\$\{SITE\}([^`]*)`/.exec(src);
-      expect(canon, `${file}: canonical не найден`).toBeTruthy();
-      expect(canon![1], `${file}: канон должен вести на /catalog/tours/`).toMatch(/^\/catalog\/tours\//);
-      expect(src, `${file}: JSON-LD должен строиться на каноне`).toMatch(/canonicalUrl: `\$\{SITE\}\/catalog\/tours\//);
+      // Канон строит tourPath() — он всегда ведёт на /catalog/tours/ (ЧПУ, 1114).
+      expect(src, `${file}: canonical не на tourPath`).toMatch(/canonical:\s*`\$\{SITE\}\$\{tourPath\(tour\)\}`/);
+      expect(src, `${file}: JSON-LD должен строиться на каноне`).toMatch(/canonicalUrl: `\$\{SITE\}\$\{tourPath\(tour\)\}`/);
     }
   });
 });

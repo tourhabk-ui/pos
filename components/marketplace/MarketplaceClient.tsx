@@ -21,6 +21,8 @@ import {
 
 interface Tour {
   id: number;
+  /** Адрес карточки (ЧПУ, 1114). */
+  slug?: string | null;
   title: string;
   description: string;
   short_description: string | null;
@@ -70,6 +72,7 @@ import { photoSrc } from '@/lib/images/variant';
 import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPath } from '@/lib/tours/tour-url';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -317,7 +320,7 @@ function TourCard({
   const basePrice = Number(tour.base_price);
   const features = deriveFeatures(tour);
   const included = (tour.included ?? []).filter(s => typeof s === 'string' && s.trim()).slice(0, 3);
-  const href = `/catalog/tours/${tour.id}`;
+  const href = tourPath(tour);
   const chipStyle: React.CSSProperties = {
     background: 'color-mix(in srgb, currentColor 12%, transparent)',
     borderColor: 'color-mix(in srgb, currentColor 28%, transparent)',

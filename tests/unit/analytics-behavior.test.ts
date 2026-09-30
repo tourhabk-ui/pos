@@ -145,8 +145,10 @@ describe('витрина не врёт цифрой', () => {
   it('воронка просмотр → бронь: считает по турам, боты и отмены исключены', () => {
     // Просмотры карточек туров ищутся по пути и id извлекается из пути,
     // брони — из operator_bookings за тот же срок, отменённые не в счёт.
-    expect(API).toContain("path ~ '^/(marketplace|catalog)/tours/[0-9]+$'");
-    expect(API).toContain("substring(path from '/tours/([0-9]+)')");
+    // Тур узнаётся и по числу, и по адресу (ЧПУ, миграция 1114).
+    expect(API).toContain("pv.path ~ '^/(marketplace|catalog)/tours/[^/?#]+$'");
+    expect(API).toContain("t.id::text = substring(pv.path from '^/(?:marketplace|catalog)/tours/([^/?#]+)$')");
+    expect(API).toContain("t.slug     = substring(pv.path from '^/(?:marketplace|catalog)/tours/([^/?#]+)$')");
     expect(API).toContain('FROM operator_bookings');
     expect(API).toContain("booking_status <> 'cancelled'");
     // Воронка людская — тот же фильтр ботов (${HUMAN}), что у остальных поведенческих.

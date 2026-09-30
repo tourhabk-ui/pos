@@ -190,14 +190,20 @@ export async function GET(request: NextRequest) {
         tour_id: string; title: string; is_published: boolean;
         views: string; viewer_days: string; bookings: string;
       }>(`
+        -- С 30.09 карточка живёт по адресу (ЧПУ, 1114), а число уводит 308:
+        -- сегмент — либо id, либо slug тура. Только по числу воронка
+        -- обнулилась бы в день выкатки ЧПУ, не потеряв ни одного просмотра.
         WITH tour_views AS (
-          SELECT (substring(path from '/tours/([0-9]+)'))::bigint AS tour_id,
+          SELECT t.id AS tour_id,
                  COUNT(*) AS views,
-                 COUNT(DISTINCT visitor_hash) FILTER (WHERE visitor_hash IS NOT NULL) AS viewer_days
-            FROM page_views
-           WHERE created_at >= NOW() - INTERVAL '30 days'
-             AND ${HUMAN}
-             AND path ~ '^/(marketplace|catalog)/tours/[0-9]+$'
+                 COUNT(DISTINCT pv.visitor_hash) FILTER (WHERE pv.visitor_hash IS NOT NULL) AS viewer_days
+            FROM page_views pv
+            JOIN operator_tours t
+              ON t.id::text = substring(pv.path from '^/(?:marketplace|catalog)/tours/([^/?#]+)$')
+              OR t.slug     = substring(pv.path from '^/(?:marketplace|catalog)/tours/([^/?#]+)$')
+           WHERE pv.created_at >= NOW() - INTERVAL '30 days'
+             AND pv.${HUMAN}
+             AND pv.path ~ '^/(marketplace|catalog)/tours/[^/?#]+$'
            GROUP BY 1
         ),
         tour_bookings AS (
