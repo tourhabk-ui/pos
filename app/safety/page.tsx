@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import SafetyClient from './_SafetyClient';
+import MarineMammalRules from '@/components/safety/MarineMammalRules';
 import { getSafetyLiveData } from '@/app/_home/data';
 
 // Живая обстановка меняется каждые минуты — не кэшировать статикой.
@@ -15,5 +16,5 @@ export default async function SafetyPage() {
   // P0-3b: радар/лента/пульс живут здесь; данные — тем же серверным
   // построителем, что кормил главную (один источник, ноль дублей).
   const live = await getSafetyLiveData().catch(() => null);
-  return <SafetyClient live={live} />;
+  return <SafetyClient live={live} rules={<MarineMammalRules />} />;
 }

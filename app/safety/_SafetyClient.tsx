@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
@@ -214,7 +214,7 @@ function stampLabel(at: string | null | undefined): string {
   return at ? `обновлено ${fmtAgo(at)}` : 'время обновления неизвестно';
 }
 
-export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
+export default function SafetyClient({ live, rules }: { live: SafetyLiveData | null; rules?: ReactNode }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
   // Отдельно от самого списка: «зон нет» и «оценку не посчитали» — разные
   // сообщения, и второе нельзя показывать зелёным.
@@ -796,6 +796,9 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           ))}
         </div>
       </div>
+
+      {/* Правила для мест со зверями — серверный блок из страницы */}
+      {rules}
 
       {/* AI Спасатель */}
       <div className="ds-card" style={{ overflow: 'hidden', marginBottom: 32 }}>
