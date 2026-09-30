@@ -164,9 +164,9 @@ describe('один поток, а не две двери (владелец 25.09
     expect(HOME).not.toMatch(/lg-tour|lg-self|Тур с оператором<\/h2>|Сам по маршруту<\/h2>/);
   });
 
-  it('планировщик и радар над «Турами сезона», затем первый тур, затем чипы (владелец 26.09)', () => {
+  it('планировщик и радар над «Турами сезона», затем лента туров, затем чипы (владелец 26.09, 30.09)', () => {
     const tools = HOME.indexOf('<nav className="qtools qt-top" aria-label="Инструменты поездки">');
-    const first = HOME.indexOf('className="firstpick"');
+    const first = HOME.indexOf('className="plates more-tours"');
     const chips = HOME.indexOf('{intentChips}');
     expect(tools).toBeGreaterThan(-1);
     expect(first).toBeGreaterThan(tools);

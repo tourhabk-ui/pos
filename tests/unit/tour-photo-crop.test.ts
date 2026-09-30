@@ -29,9 +29,8 @@ describe('кроп фотографий туров прижат к верху', 
     expect(V8).toMatch(/\.plate \.img\{[^}]*center top\/cover/);
   });
 
-  it('первый выбор подбора', () => {
-    expect(V8).toMatch(/\.fp-photo\{[^}]*center top\/cover/);
-  });
+  // «Первый выбор» (.fp-photo) снят 30.09 вместе с крупной карточкой первого
+  // тура на мобильной главной: все туры теперь в ленте плат выше.
 
   it('тур недели на десктопе', () => {
     expect(FEATURED).toMatch(/bg-cover bg-top/);

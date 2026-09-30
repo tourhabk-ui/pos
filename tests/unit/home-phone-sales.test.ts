@@ -41,24 +41,25 @@ function pos(marker: string): number {
 }
 
 describe('тур с ценой — на первом экране', () => {
-  it('над туром — только ряд «Своя поездка / Радар» (владелец 26.09); чипы и предупреждения — ниже тура', () => {
+  it('над турами — только ряд «Своя поездка / Радар» (владелец 26.09); чипы и предупреждения — ниже ленты', () => {
     // С 25.09 строки поиска нет (владелец: «поиск лишний»). 26.09 владелец
-    // поставил планировщик и радар над «Турами сезона»; тур остаётся первым
-    // КОНТЕНТОМ под этим рядом, а чипы и строка обстановки — после него.
+    // поставил планировщик и радар над «Турами сезона»; лента туров — первый
+    // КОНТЕНТ под этим рядом, а чипы и строка обстановки — после неё.
     const tools = pos('<nav className="qtools qt-top"');
     const block = pos('<section className="fp-sec"');
-    const first = pos('className="firstpick"');
+    const lane = pos('className="plates more-tours"');
     expect(block).toBeGreaterThan(tools);
-    expect(first).toBeGreaterThan(block);
+    expect(lane).toBeGreaterThan(block);
     for (const later of ['{intentChips}', 'className="alerts-now"']) {
-      expect(pos(later), `${later} снова выше первого тура`).toBeGreaterThan(first);
+      expect(pos(later), `${later} снова выше ленты туров`).toBeGreaterThan(lane);
     }
   });
 
-  it('карточка компактная: фото 16:9, а не почти квадрат', () => {
-    const photo = rule('.v7 .firstpick .fp-photo');
-    expect(photo).toMatch(/aspect-ratio:16\/9/);
-    expect(photo).not.toMatch(/aspect-ratio:10\/11/);
+  it('крупной карточки первого тура над лентой нет (владелец 30.09: «ниже дублируются туры»)', () => {
+    // Крупно стояла «Зимняя рыбалка: февраль — апрель», а сразу под ней в ленте
+    // «ноябрь — январь» и «январь — март» — три почти одинаковые карточки подряд.
+    expect(JSX).not.toContain('className="firstpick"');
+    expect(CSS).not.toContain('.firstpick');
   });
 
   it('карусель туров стоит перед секцией радара; сам радар — плитка, без заголовка и без дубля', () => {
@@ -81,8 +82,7 @@ describe('тур с ценой — на первом экране', () => {
 
   it('на карточках — факты из данных, а не слово-заглушка', () => {
     expect(CODE).not.toContain("'тур оператора'");
-    expect((CODE.match(/plateFacts\(/g) ?? []).length, 'первая карточка и карусель — один источник фактов')
-      .toBeGreaterThanOrEqual(2);
+    expect(CODE, 'факты карточки ленты — из plateFacts').toMatch(/const pf = plateFacts\(p\)/);
   });
 });
 
@@ -101,9 +101,8 @@ describe('карусель', () => {
 
   it('точки озвучены «Тур N из M», а не «Плата N»', () => {
     expect(CODE).not.toMatch(/aria-label=\{`Плата/);
-    // Лента начинается со второго тура (первый — крупной карточкой выше),
-    // поэтому номер i + 2, а знаменатель — все туры витрины.
-    expect(CODE).toMatch(/aria-label=\{`Тур \$\{i \+ 2\} из \$\{plates\.length\}`\}/);
+    // С 30.09 лента — все туры витрины, с первого: номер i + 1.
+    expect(CODE).toMatch(/aria-label=\{`Тур \$\{i \+ 1\} из \$\{tours\.length\}`\}/);
   });
 
   it('CTA — кнопка не ниже 44px и не мельче 13px', () => {
@@ -152,7 +151,7 @@ describe('мелочи с видимой ценой', () => {
   });
 
   it('«Все туры» над турами ведёт в витрину туров, «Все места» — в каталог мест', () => {
-    const tours = JSX.slice(JSX.indexOf('<h2>Туры сезона</h2>'), JSX.indexOf('className="firstpick"'));
+    const tours = JSX.slice(JSX.indexOf('<h2>Туры сезона</h2>'), JSX.indexOf('className="plates more-tours"'));
     expect(tours).toContain('href="/catalog"');
     expect(tours).not.toContain('href="/routes');
     const explore = JSX.slice(JSX.indexOf('<h2>Исследовать</h2>'), JSX.indexOf('className="plates explore"'));
@@ -168,30 +167,27 @@ describe('мелочи с видимой ценой', () => {
     // Ревью 24.09: --warning (#D29922) 12px на --bg-card (#FFF) — ~2.5:1 при
     // требовании AA 4.5:1, а каталог ту же метку жёлтым не красит. Жёлтым
     // может быть только значок рядом (не текст), текст — --text-secondary.
-    const textColors = [...CSS.matchAll(/\.v7 \.(?:plate \.avail|firstpick \.fp-avail)(?!\s*svg)[^{]*\{([^}]*)\}/g)]
+    const textColors = [...CSS.matchAll(/\.v7 \.plate \.avail(?!\s*svg)[^{]*\{([^}]*)\}/g)]
       .map((m) => m[1]);
     expect(textColors.length).toBeGreaterThan(0);
     for (const body of textColors) expect(body, body).not.toMatch(/color:\s*var\(--warning\)/);
     expect(JSX).toMatch(/className="avail"><CalendarX aria-hidden/);
-    expect(JSX).toMatch(/className="fp-avail"><CalendarX aria-hidden/);
   });
 });
 
 describe('два направления и безопасность одним местом (владелец 25.09)', () => {
-  it('первый тур не повторяется: лента под ним начинается со второго', () => {
-    expect(CODE).toMatch(/const more = plates\.slice\(1\)/);
-    expect(JSX).toMatch(/\{more\.map\(\(p, i\) =>/);
-    expect(JSX).not.toMatch(/\{plates\.map\(\(p, i\) =>/);
+  it('тур показывается один раз: одна лента всех туров витрины', () => {
+    expect(CODE).toMatch(/const tours = plates;/);
+    expect((JSX.match(/\{tours\.map\(\(p, i\) =>/g) ?? []).length).toBe(1);
   });
 
-  it('лента туров — внутри «Туров сезона»; направления — между первым туром и лентой (владелец 26.09)', () => {
+  it('лента туров — внутри «Туров сезона»; направления — под лентой (владелец 30.09)', () => {
     const fp = pos('<h2>Туры сезона</h2>');
-    expect(fp).toBeLessThan(pos('className="firstpick"'));
-    expect(pos('className="firstpick"')).toBeLessThan(pos('{intentChips}'));
-    expect(pos('{intentChips}')).toBeLessThan(pos('className="plates more-tours"'));
-    expect(pos('className="plates more-tours"')).toBeLessThan(pos('id="radar"'));
-    // Пустая витрина не прячет входы в места: ряд остаётся без первого тура.
-    expect(JSX).toMatch(/\{!plates\[0\] && intentChips\}/);
+    expect(fp).toBeLessThan(pos('className="plates more-tours"'));
+    expect(pos('className="plates more-tours"')).toBeLessThan(pos('{intentChips}'));
+    expect(pos('{intentChips}')).toBeLessThan(pos('id="radar"'));
+    // Пустая витрина не прячет входы в места: ряд остаётся без туров.
+    expect(JSX).toMatch(/\) : intentChips\}/);
   });
 
   it('«Перед выходом»: предупреждения и полевые инструменты в одной секции #radar', () => {
