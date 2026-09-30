@@ -43,6 +43,7 @@ import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { redactPII } from '@/lib/security/pii-redact';
+import { handleWatchMessage, deleteWatchDraft } from '@/lib/kuzmich/watch-flow';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -2482,6 +2483,8 @@ export async function processMessage(opts: {
       '"опасно ли сейчас на Мутновском?"',
       '',
       '<b>Безопасность:</b>',
+      '"иду на Чёртов мост, вернусь к 19:00, если задержусь — сообщите Марине +7 914 …" → поставлю на контроль выхода',
+      '"вернулся" → закрою контроль',
       'SOS → vedarai.ru → кнопка SOS',
       'Экстренная: 112 — работает без баланса и SIM',
       '',
@@ -2495,6 +2498,10 @@ export async function processMessage(opts: {
   // /reset
   if (cmd === '/reset') {
     await deleteBookingFlow(chatId, mode, pendingMap);
+    if (platform) {
+      await deleteWatchDraft(platform, chatId).catch((err) =>
+        console.error('[kuzmich] черновик контроля не удалён', platform, chatId, err instanceof Error ? err.message : err));
+    }
     await pool.query(
       `DELETE FROM tg_conversations WHERE chat_id = $1 AND mode = $2`,
       [chatId, mode],
@@ -2503,9 +2510,26 @@ export async function processMessage(opts: {
     return;
   }
 
-  // Active booking flow — проверяем память И базу данных
-  // Фото и голос НЕ попадают в booking flow — это контент для AI
+  // Фото и голос НЕ попадают ни в контроль выхода, ни в booking flow — это контент для AI
   const isMediaMessage = !!visionDescription || createdVia.includes('voice');
+
+  // Контроль выхода (lib/kuzmich/watch-flow.ts): «вернулся», «задерживаюсь»,
+  // черновик и его подтверждение. Раньше брони: у открытого контроля
+  // «вернулся» — самое важное сообщение чата. Решения здесь принимает код,
+  // а не модель (docs/safety/WATCH_MANIFEST.md, правило 3).
+  if (platform && !isMediaMessage) {
+    try {
+      if (await handleWatchMessage({ channel: platform, chatId, text, userName, reply: replyFn })) return;
+    } catch (err) {
+      // Сбой контроля не должен молча превратиться в обычный ответ модели:
+      // человек, написавший «вернулся», обязан узнать, что отметка не прошла.
+      console.error('[kuzmich] контроль выхода: сбой', platform, chatId, err instanceof Error ? err.message : err);
+      await replyFn(chatId, 'Не получилось обработать контроль выхода — сбой на нашей стороне. Повторите через минуту; в беде — 112.');
+      return;
+    }
+  }
+
+  // Active booking flow — проверяем память И базу данных
   const activeBooking = !isMediaMessage ? await loadBookingFlow(chatId, mode, pendingMap) : null;
   if (activeBooking) {
     // Auto-expire: если booking flow старше 30 минут — удаляем

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { openRegistrationForMark, markDenied } from '@/lib/safety/registration-mark';
+import { closeTripWatch } from '@/lib/safety/trip-watch';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,10 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, message: 'Возврат уже отмечен', already_completed: true });
   }
 
-  await query(
-    `UPDATE route_registrations SET completed_at = now() WHERE id = $1`,
-    [registration_id],
-  );
+  await closeTripWatch(registration_id, 'link');
 
   return NextResponse.json({
     success: true,

@@ -36,7 +36,7 @@ export interface EscalationDecision {
   hoursSinceConfirm: number | null;
 }
 
-const BUFFERS: Record<TripKind, { soft: number; hard: number; mchs: number }> = {
+export const BUFFERS: Record<TripKind, { soft: number; hard: number; mchs: number }> = {
   day:   { soft: 1, hard: 3,  mchs: 8  },
   multi: { soft: 3, hard: 6,  mchs: 18 },
 };
@@ -278,4 +278,27 @@ export function buildEscalationMessage(
     `Отметка о возвращении (если группа нашлась): ${input.returnUrl}\n` +
     `Рекомендуем немедленно сообщить в МЧС: 112.`
   );
+}
+
+/**
+ * Первая ступень — самому туристу, в чат, из которого он поставил контроль
+ * (манифест, правило 4: сначала человек, потом контакт). Будить его раньше
+ * контакта — не вежливость: половина тревог — забытая отметка, и снять её
+ * может только он сам, одним словом.
+ */
+export function buildTouristWakeMessage(input: {
+  routeName: string;
+  controlTime: Date;
+  contactName: string;
+  hoursUntilContact: number;
+}): string {
+  const h = Math.max(1, Math.round(input.hoursUntilContact));
+  return [
+    `Вы не отметились: контроль «${input.routeName}» ждал вас к ${formatKamchatkaTime(input.controlTime)}.`,
+    '',
+    'Вернулись — напишите «вернулся».',
+    'Задерживаетесь, но всё в порядке — «задерживаюсь».',
+    '',
+    `Если не ответите, через ${h} ч я сообщу ${input.contactName}. В беде — 112.`,
+  ].join('\n');
 }

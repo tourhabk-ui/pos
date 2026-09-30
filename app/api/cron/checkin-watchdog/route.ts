@@ -5,6 +5,8 @@
  */
 import { NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/email';
+import { maxSendDm } from '@/lib/notifications/max-channel';
+import { escapeHtml } from '@/lib/text/escape-html';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
@@ -15,6 +17,8 @@ import {
   resolveControlTime,
   tripKindFromDates,
   buildEscalationMessage,
+  buildTouristWakeMessage,
+  BUFFERS,
   formatPositionText,
   formatKamchatkaTime,
 } from '@/lib/safety/checkin-escalation';
@@ -42,6 +46,8 @@ interface RegRow {
   emergency_contact_phone: string;
   emergency_contact_telegram_chat_id: string | null;
   emergency_contact_email: string | null;
+  tourist_chat_channel: 'tg' | 'max' | null;
+  tourist_chat_id: string | null;
   sent_steps: string[];
 }
 
@@ -135,6 +141,31 @@ async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Pr
   }
 }
 
+/**
+ * Первая ступень — туристу в его чат (Telegram или MAX), если контроль
+ * поставлен из чата. true — канал подтвердил доставку.
+ */
+async function wakeTourist(reg: RegRow, controlTime: Date, tripKind: 'day' | 'multi'): Promise<boolean> {
+  const b = BUFFERS[tripKind];
+  const text = buildTouristWakeMessage({
+    routeName: reg.route_name,
+    controlTime,
+    contactName: reg.emergency_contact_name,
+    hoursUntilContact: b.hard - b.soft,
+  });
+  const chatId = reg.tourist_chat_id ?? '';
+  const r: SendResult = reg.tourist_chat_channel === 'max'
+    ? await maxSendDm(chatId, escapeHtml(text)).then((x) => (x.ok ? { ok: true as const } : { ok: false as const, error: x.error ?? 'MAX не ответил' }))
+    : await sendTelegram(chatId, text);
+  const channel = reg.tourist_chat_channel === 'max' ? 'max' : 'telegram';
+  if (r.ok) {
+    await recordNotification(reg.id, 'soft', channel, 'tourist');
+    return true;
+  }
+  await recordNotification(reg.id, 'soft', channel, 'tourist', 'failed', r.error);
+  return false;
+}
+
 async function recordNotification(
   registrationId: string,
   step: EscalationStep,
@@ -219,6 +250,8 @@ export async function GET(req: Request) {
       r.emergency_contact_phone,
       r.emergency_contact_telegram_chat_id::text,
       r.emergency_contact_email,
+      r.tourist_chat_channel,
+      r.tourist_chat_id::text,
       COALESCE(
         ARRAY(
           SELECT CASE n.step
@@ -268,7 +301,11 @@ export async function GET(req: Request) {
     // Уведомление в зависимости от шага.
     // Важно: recordNotification вызывается ВСЕГДА — иначе шаг не записывается
     // и эскалация стоит на месте при отсутствии Telegram.
-    if (step === 'soft' || step === 'hard') {
+    if (step === 'soft' && reg.tourist_chat_channel && reg.tourist_chat_id) {
+      // Сначала сам человек (манифест, правило 4). Не дошло — контакту сразу.
+      const woke = await wakeTourist(reg, controlTime, tripKind);
+      if (!woke) await notifyContact(reg, step, msg);
+    } else if (step === 'soft' || step === 'hard') {
       await notifyContact(reg, step, msg);
     } else {
       // mchs — уведомляем admin-чат для ручной передачи в МЧС
