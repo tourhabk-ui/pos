@@ -146,6 +146,11 @@ const SAFETY_JOBS = [
   // поэтому вторая нога ему безопасна. Аренда окна 60 мин — в роуте: без неё
   // один алерт о превышении ушёл бы дважды. Таймаут не меньше --max-time workflow.
   { path: '/api/cron/llm-budget-check',          everyMin: 60, timeoutMs: 60000,  startAfterMs: 390000 },
+  // Восстановление брошенных броней (30.09, слово владельца «go»). Watchdog
+  // ловил его молчание у планировщика GitHub (5 ч). Автоотмена не трогает бронь
+  // с деньгами (paid_at / payment_status в самом условии роута), сухой прогон
+  // 29.09 показал cancelled 0. Аренда окна 60 мин — в роуте, кроме ?dry=1.
+  { path: '/api/cron/abandoned-bookings',        everyMin: 60, timeoutMs: 60000,  startAfterMs: 420000 },
 ];
 
 function triggerCron(job) {

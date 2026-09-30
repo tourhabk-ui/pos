@@ -35,7 +35,8 @@ import { pool } from '@/lib/db-pool';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -49,10 +50,20 @@ function escHtml(s: string) {
 export async function GET(req: NextRequest) {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
 
   const dryRun = req.nextUrl.searchParams.get('dry') === '1';
+
+  // Два планировщика (GitHub и супервизор контейнера, start.js): без аренды
+  // окна оба, сработав в один час, отменили бы одну и ту же партию и дважды
+  // написали операторам. Ключ — agentId записи реестра. Сухой прогон окно НЕ
+  // занимает: он ничего не пишет, и пробный вызов рукой не должен отнять у
+  // настоящего прогона его час.
+  if (!dryRun) {
+    const lease = await claimCronWindow('payments', 60, 'external');
+    if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('payments', 60));
+  }
   const startedAt = Date.now();
   const now = new Date();
 
