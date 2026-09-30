@@ -104,8 +104,14 @@ describe('все поверхности с фото туров держат го
       expect(src).toMatch(/from '@\/lib\/tours\/photo-focus'/);
     });
   }
-  it('точка кадрирования — та же, что у карточки тура', async () => {
+  it('в широких плитках — верх кадра (30.09: «почему голова Толика обрезана»)', async () => {
+    // Плитка 4:3 показывает портрет 3:4 лишь на 56% высоты. Точка 50% 30%
+    // (взятая у высокого героя карточки) срезала сверху 13% — голову.
     const { TOUR_PHOTO_POSITION } = await import('@/lib/tours/photo-focus');
-    expect(TOUR_PHOTO_POSITION).toBe('50% 30%');
+    expect(TOUR_PHOTO_POSITION).toBe('50% 0%');
+    // Сколько кадра уходит сверху при этой точке в плитке 4:3: ноль.
+    const visible = (3 / 4) / (4 / 3);               // 0.5625 высоты портрета
+    const y = parseFloat(TOUR_PHOTO_POSITION.split(' ')[1]) / 100;
+    expect(y * (1 - visible)).toBe(0);
   });
 });
