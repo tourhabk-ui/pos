@@ -94,15 +94,15 @@ describe('safety-status: «нет данных» не выглядит как «
   it.each([
     'app/marketplace/tours/[id]/_TourDetailClient.tsx',
     'app/trip/[token]/_TripShareClient.tsx',
-    'components/homepage/KuzmichBriefing.tsx',
+    'components/map/MapThreatChip.tsx',
   ])('потребитель %s не рисует спокойствие из недоступности', (p) => {
     expect(read(p)).toMatch(/unavailable/);
   });
 
-  it('«Условия благоприятные» — только при живых данных', () => {
-    const briefing = read('components/homepage/KuzmichBriefing.tsx');
-    // Ветка «благоприятные» стоит за проверкой наличия safety-данных,
-    // а не в else от «есть тревога».
-    expect(briefing).toMatch(/else if \(safety\)/);
+  it('десктоп-главная: «предупреждений нет» — только при живых данных', () => {
+    // С 30.09 спокойствие на главной рисует DeskHero: ветка «нет» стоит за
+    // проверкой, что обстановку прочитали (safety не null), а не в else.
+    const hero = read('components/homepage/desk/DeskHero.tsx');
+    expect(hero).toMatch(/if \(!safety \|\| \(!hasTop && !brief\.safetyTrusted\)\) \{[\s\S]*Обстановка неизвестна[\s\S]*Действующих предупреждений нет/);
   });
 });

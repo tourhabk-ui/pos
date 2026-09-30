@@ -33,7 +33,7 @@ const SRC = readFileSync('lib/agents/evo/growth-agent.ts', 'utf8');
 
 const SAMPLE_TARGETS = [
   'app/places/[id]/_PlaceClient.tsx',
-  'components/homepage/BentoSection.tsx',
+  'components/map/MapThreatChip.tsx',
   'app/marketplace/tours/[id]/_TourDetailClient.tsx',
 ];
 
@@ -64,7 +64,7 @@ describe('правило чтения мок-сканера', () => {
   });
 
   it('AI-ревью НЕ расширилось: платный проход остался на .ts', () => {
-    expect(isReviewableSourcePath('components/homepage/BentoSection.tsx')).toBe(false);
+    expect(isReviewableSourcePath('components/map/MapThreatChip.tsx')).toBe(false);
     expect(isReviewableSourcePath('lib/agents/foo.ts')).toBe(true);
     expect(SRC).toMatch(/export function isScannableClientPath/);
   });

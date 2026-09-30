@@ -18,14 +18,14 @@ describe('главная: «Все туры (N)» — число каталог�
 
   it('счётчик берётся из сводки каталога, не из длины витрины', () => {
     expect(page).toMatch(/queryCatalogSummaryForPage\(\)/);
-    expect(page).toMatch(/<FeaturedTour tour=\{plates\[0\] \?\? null\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
+    expect(page).toMatch(/<DeskTours plates=\{plates\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
     expect(page).not.toMatch(/total=\{plates\.length\}/);
   });
 
   it('не посчиталось — ссылка без числа, а не с выдуманным', () => {
-    const featured = read('components/homepage/FeaturedTour.tsx');
-    expect(featured).toMatch(/total: number \| null;/);
-    expect(featured).toMatch(/total != null && total > 1/);
+    const tours = read('components/homepage/desk/DeskTours.tsx');
+    expect(tours).toMatch(/total: number \| null/);
+    expect(tours).toMatch(/total != null && total > 0 \? `Все туры \(\$\{total\}\)` : 'Все туры'/);
   });
 });
 
