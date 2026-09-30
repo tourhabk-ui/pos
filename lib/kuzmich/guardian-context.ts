@@ -3,6 +3,7 @@ import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsPhrase, kfegsIsFresh, levelForColor, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
+import { isMarineMammalPlace, marineMammalNote } from '@/lib/safety/marine-mammals';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
 import { describeForAgent } from '@/lib/places/description-voice';
@@ -383,6 +384,13 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     }
     if (p.linked_volcanoes) {
       parts.push(`Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС.`);
+    }
+    // Лежбище или место скопления морских млекопитающих: правила посещения —
+    // из постановления, а не из головы модели (lib/safety/marine-mammals).
+    // Только по названию места, и только когда совпадение с запросом сильное:
+    // при слабом совпадении это может быть чужое место.
+    if (gradePlaceMatch(placeName, p.name, p.aliases) === 'high' && isMarineMammalPlace(p.name)) {
+      parts.push(marineMammalNote());
     }
 
     if (gradePlaceMatch(placeName, p.name, p.aliases) === 'low') {
