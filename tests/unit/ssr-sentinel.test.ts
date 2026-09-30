@@ -39,9 +39,9 @@ describe('SSR-сторож: сигналы контента в первом HTML
     expect(probe('/catalog').check('<div>Загрузка…</div>').ok).toBe(false);
   });
 
-  it('главная: живой лейбл StatsBand — ok, без него — провал', () => {
-    expect(probe('/').check('<span>локаций с координатами</span>').ok).toBe(true);
-    expect(probe('/').check('<span>778 локаций</span>').ok).toBe(false);
+  it('главная: ссылки на туры витрины — ok, без них — провал', () => {
+    expect(probe('/').check('<a href="/catalog/tours/rafting-bystraya">Тур</a>').ok).toBe(true);
+    expect(probe('/').check('<a href="/catalog">Все туры</a>').ok).toBe(false);
   });
 
   it('алерт перечисляет только провалившиеся пробы с путями', () => {

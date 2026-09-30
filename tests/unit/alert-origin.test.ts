@@ -125,7 +125,7 @@ describe('статус берёт источник у верхней трево�
     // Четыре места подставляли «КБГС РАН» сами: плитка главной, карточка тура,
     // серверный статус главной. Своего умолчания ни у кого больше нет.
     for (const f of [
-      'components/homepage/HeroStatus.tsx',
+      'components/homepage/desk/DeskHero.tsx',
       'app/marketplace/tours/[id]/_TourDetailClient.tsx',
       'app/page.tsx',
     ]) {
@@ -136,9 +136,15 @@ describe('статус берёт источник у верхней трево�
   it('главная не держит второй копии запроса обстановки', () => {
     // До 17.09 app/page.tsx повторял SQL из current-status.ts дословно и
     // подписывал результат константой. Одно правило — один запрос.
+    // С 30.09 главная берёт обстановку через сводку дня (lib/svodka), а та —
+    // через getCurrentSafetyStatus: своего SQL обстановки нет ни у страницы,
+    // ни у слоя десктопа.
     const page = read('app/page.tsx');
-    expect(page).toMatch(/getCurrentSafetyStatus\(/);
-    expect(page).not.toMatch(/SELECT title FROM external_alerts/);
+    const brief = read('lib/home/desk-brief.ts');
+    expect(brief).toMatch(/loadSvodka\(/);
+    expect(read('lib/svodka/svodka.ts')).toMatch(/getCurrentSafetyStatus\(\)/);
+    expect(page).not.toMatch(/FROM external_alerts/);
+    expect(brief).not.toMatch(/COUNT\(\*\)[\s\S]{0,80}FROM external_alerts/);
   });
 
   it('SQL верхней тревоги отдаёт external_id и source_url — по ним и узнаётся происхождение', () => {

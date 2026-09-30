@@ -44,6 +44,9 @@ export interface VolcanoLine {
   tremor: string | null;
   /** Цвет строки: самый тревожный из двух. */
   level: 'red' | 'orange' | 'yellow';
+  /** Коды шкал как есть (green|yellow|orange|red), null — кода нет. Для табло с точками. */
+  ashCode: string | null;
+  tremorCode: string | null;
 }
 
 export interface WeatherLine {
@@ -64,6 +67,8 @@ export interface Svodka {
 }
 
 const RANK: Record<string, number> = { red: 3, orange: 2, yellow: 1 };
+/** Все четыре кода шкалы: зелёный в ранг строки не входит, но на табло виден. */
+const RANK_ALL: Record<string, number> = { ...RANK, green: 0 };
 
 function kvertWord(acc: string | undefined): string | null {
   if (!acc) return null;
@@ -81,6 +86,8 @@ function toLine(m: MergedVolcano): VolcanoLine {
     ashKm: m.kvert?.ash_height_m ? Math.round(m.kvert.ash_height_m / 100) / 10 : null,
     tremor: scaleColorWord(t),
     level: (top ?? 'yellow') as VolcanoLine['level'],
+    ashCode: a && a in RANK_ALL ? a : null,
+    tremorCode: t && t in RANK_ALL ? t : null,
   };
 }
 
