@@ -24,7 +24,7 @@ import {
   Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
   MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
   Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert,
-  FileText, ScrollText, Receipt, Percent, FileSignature,
+  FileText, ScrollText, Receipt, Percent, FileSignature, Backpack,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -45,6 +45,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
     title: 'На маршруте и безопасность',
     links: [
       { label: 'Безопасность',        href: '/safety',               icon: Shield },
+      { label: 'Подготовка к поездке', href: '/prepare',              icon: Backpack },
       { label: 'Связь на маршруте',   href: '/safety/communication', icon: Radio },
       { label: 'Инциденты и алерты',  href: '/safety/incidents',     icon: Siren },
       { label: 'Офлайн-инструкции',   href: '/safety/offline',       icon: WifiOff },

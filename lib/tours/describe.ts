@@ -60,7 +60,7 @@ export interface ComposeResult {
   chars: number;
 }
 
-const DIFFICULTY_WORDS: Record<string, string> = {
+export const DIFFICULTY_WORDS: Record<string, string> = {
   easy: 'Маршрут несложный: подойдёт без специальной подготовки',
   medium: 'Нагрузка средняя: нужна обычная физическая форма',
   hard: 'Маршрут тяжёлый: нужна хорошая физическая форма и опыт',
