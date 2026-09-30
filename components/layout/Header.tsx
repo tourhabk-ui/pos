@@ -159,7 +159,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           flexShrink: 0,
         }}
       >
-        <Logo size={24} />
+        <Logo size={28} mono={onPhoto} />
       </Link>
 
       {/*

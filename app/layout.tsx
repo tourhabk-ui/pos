@@ -231,7 +231,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "name": "Ведар",
                 "description": "Помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам проверенных операторов.",
                 "url": BASE_URL,
-                "logo": `${BASE_URL}/logo-kamchatka.svg`,
+                "logo": `${BASE_URL}/icons/icon-512.png`,
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
@@ -271,7 +271,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "name": "Ведар",
                 "description": "Туристический сервис Камчатки: маршруты, планирование поездки, поддержка и честные предложения реальных туров.",
                 "url": BASE_URL,
-                "logo": `${BASE_URL}/logo-kamchatka.svg`,
+                "logo": `${BASE_URL}/icons/icon-512.png`,
                 "telephone": "+7 (914) 782-22-22",
                 "email": "info@vedarai.ru",
                 "address": {
