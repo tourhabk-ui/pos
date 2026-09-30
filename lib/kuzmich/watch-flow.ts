@@ -17,6 +17,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { logText } from '@/lib/log/log-text';
 import { kamchatkaDate, shiftDate, isRealDate, ruShort, DAY_MS } from '@/lib/analytics/kamchatka-day';
 import { kamchatkaWallTime, formatKamchatkaTime, BUFFERS } from '@/lib/safety/checkin-escalation';
 import {
@@ -94,11 +95,15 @@ export function extractPhone(text: string): string | null {
 
 /** Куда идут — из фразы «еду на …», «иду к …». Не нашли — спросим. */
 export function extractDestination(text: string): string | null {
-  const m = text.match(
-    /(?:еду|иду|идем|идём|едем|пойду|поеду|пойдем|пойдём|поедем|выхожу|выходим|собираюсь|собираемся|сплавляюсь|сплавляемся)\s+(?:на|в|во|к|ко)\s+([^,.;!?\n]{2,80})/i,
+  // Пробелы схлопнуты до одного, и захват начинается с не-пробела: у `\s+`
+  // и следующего класса нет общих символов, поэтому на строке из тысячи
+  // табуляций разбор линейный (CodeQL js/polynomial-redos, #2132).
+  const t = text.replace(/\s+/g, ' ');
+  const m = t.match(
+    /(?:еду|иду|идем|идём|едем|пойду|поеду|пойдем|пойдём|поедем|выхожу|выходим|собираюсь|собираемся|сплавляюсь|сплавляемся) (?:на|в|во|к|ко) ([^\s,.;!?][^,.;!?]{1,79})/i,
   );
   if (!m) return null;
-  const cut = m[1].split(/\s+(?:если|вернусь|вернемся|вернёмся|до|к\s+\d|в\s+\d|сегодня|завтра|послезавтра|и\s+вернусь)(?!\p{L})/iu)[0].trim();
+  const cut = m[1].split(/ (?:если|вернусь|вернемся|вернёмся|до|к \d|в \d|сегодня|завтра|послезавтра|и вернусь)(?!\p{L})/iu)[0].trim();
   return cut.length >= 2 ? cut : null;
 }
 
@@ -114,10 +119,10 @@ const MONTHS: Array<[RegExp, number]> = [
 
 /** «В субботу», «через 3 часа», «на выходных» — день словами, которых мы не считаем. */
 const VAGUE =
-  /(?<!\p{L})(понедельник|вторник|сред[уаы]|четверг|пятниц|суббот|воскресень|выходн|через\s+(?:\d+|пару|час|полчаса))/u;
+  /(?<!\p{L})(понедельник|вторник|сред[уаы]|четверг|пятниц|суббот|воскресень|выходн|через (?:\d+|пару|час|полчаса))/u;
 
 /** Число после предлога — не час, если за ним единица: «в 2 км», «до 3 дней». */
-const NOT_HOUR = String.raw`(?!\s*(?:км|километр|метр|м(?!\p{L})|дн|день|дня|дней|недел|чел|человек|раз|шт|кг|л(?!\p{L})))`;
+const NOT_HOUR = String.raw`(?! ?(?:км|километр|метр|м(?!\p{L})|дн|день|дня|дней|недел|чел|человек|раз|шт|кг|л(?!\p{L})))`;
 
 function applyDayPart(hh: number, part: string | undefined): number {
   if (!part) return hh;
@@ -147,6 +152,8 @@ function yearFor(day: number, month: number, explicitYear: number | null, today:
  * Срок в прошлом или дальше месяца — отказ, а не «наверное, завтра».
  */
 export function parseReturn(text: string, now: Date): ReturnParse {
+  // После norm пробел везде ровно один — поэтому ниже в выражениях литеральный
+  // пробел, а не `\s+`: так нет двусмысленных повторов (js/polynomial-redos).
   const t = norm(text);
   const today = kamchatkaDate(now);
   if (VAGUE.test(t)) return { ok: false, reason: 'ambiguous' };
@@ -160,13 +167,13 @@ export function parseReturn(text: string, now: Date): ReturnParse {
   };
 
   // 19:00 (с частью суток после — «7:30 вечера»)
-  for (const m of t.matchAll(/(?<![\d.:])(\d{1,2}):(\d{2})(?![\d.:])(?:\s+(утра|дня|вечера|вечером|ночи))?/g)) {
+  for (const m of t.matchAll(/(?<![\d.:])(\d{1,2}):(\d{2})(?![\d.:])(?: (утра|дня|вечера|вечером|ночи))?/g)) {
     addTime(applyDayPart(Number(m[1]), m[3]), Number(m[2]));
   }
   // к 19, в 7 вечера, до 19.30, около 20 ч
   const prep = new RegExp(
-    String.raw`(?<!\p{L})(?:к|в|до|около)\s+(\d{1,2})(?:[.:](\d{2}))?(?![\d.:])` + NOT_HOUR +
-      String.raw`(?:\s*(?:ч|час|часам|часов|часа)(?!\p{L}))?(?:\s+(утра|дня|вечера|вечером|ночи))?`,
+    String.raw`(?<!\p{L})(?:к|в|до|около) (\d{1,2})(?:[.:](\d{2}))?(?![\d.:])` + NOT_HOUR +
+      String.raw`(?: ?(?:ч|час|часам|часов|часа)(?!\p{L}))?(?: (утра|дня|вечера|вечером|ночи))?`,
     'gu',
   );
   const prepSpans: Array<[number, number]> = [];
@@ -187,7 +194,7 @@ export function parseReturn(text: string, now: Date): ReturnParse {
     else badDate = true;
   }
   // 3 октября
-  for (const m of t.matchAll(/(?<![\d.])(\d{1,2})\s+(\p{L}+)/gu)) {
+  for (const m of t.matchAll(/(?<![\d.])(\d{1,2}) (\p{L}+)/gu)) {
     const month = MONTHS.find(([re]) => re.test(m[2]))?.[1];
     if (!month) continue;
     const d = yearFor(Number(m[1]), month, null, today);
@@ -443,7 +450,7 @@ export async function handleWatchMessage(m: WatchMessage): Promise<boolean> {
   try {
     draft = await loadDraft(channel, chatId);
   } catch (err) {
-    console.error('[watch-flow] черновик не прочитан', channel, chatId, err instanceof Error ? err.message : err);
+    console.error('[watch-flow] черновик не прочитан', logText(channel), logText(chatId), logText(err instanceof Error ? err.message : err));
     draft = null;
   }
   if (draft && draft.startedAt < now.getTime() - WATCH_DRAFT_TTL_MS) {
@@ -528,7 +535,7 @@ async function confirmDraft(m: WatchMessage, d: WatchDraft, now: Date): Promise<
     });
     await deleteWatchDraft(channel, chatId);
   } catch (err) {
-    console.error('[watch-flow] контроль не создан', channel, chatId, err instanceof Error ? err.message : err);
+    console.error('[watch-flow] контроль не создан', logText(channel), logText(chatId), logText(err instanceof Error ? err.message : err));
     await reply(chatId, FAIL_TEXT);
     return true;
   }

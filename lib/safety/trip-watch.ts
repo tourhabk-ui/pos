@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { sendEmail } from '@/lib/email';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { logText } from '@/lib/log/log-text';
 import { formatKamchatkaTime } from '@/lib/safety/checkin-escalation';
 import { telegramService } from '@/lib/notifications/telegram';
 
@@ -188,17 +189,17 @@ async function announceToAlerted(id: string, textFor: (w: AlertedWatch) => strin
 
     if (toAdmin) {
       const r = await tgSend('trip-watch', escapeHtml(text));
-      if (!r.ok) console.error('[trip-watch] весть дежурному не доставлена', id, r.reason);
+      if (!r.ok) console.error('[trip-watch] весть дежурному не доставлена', logText(id), logText(r.reason));
     }
     if (toContactTg && w.contact_tg) {
       const r = await telegramService.sendMessage({ chatId: w.contact_tg, text: escapeHtml(text) });
-      if (!r.success) console.error('[trip-watch] весть контакту в Telegram не доставлена', id, r.error ?? '');
+      if (!r.success) console.error('[trip-watch] весть контакту в Telegram не доставлена', logText(id), logText(r.error ?? ''));
     }
     for (const to of emails) {
       const e = await sendEmail({ to, subject: 'Ведар: новости о туристе', text });
-      if (!e.success) console.error('[trip-watch] письмо контакту не отправлено', id, e.error ?? '');
+      if (!e.success) console.error('[trip-watch] письмо контакту не отправлено', logText(id), logText(e.error ?? ''));
     }
   } catch (err) {
-    console.error('[trip-watch] весть встревоженным не разослана', id, err instanceof Error ? err.message : err);
+    console.error('[trip-watch] весть встревоженным не разослана', logText(id), logText(err instanceof Error ? err.message : err));
   }
 }

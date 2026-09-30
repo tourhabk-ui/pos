@@ -2500,7 +2500,7 @@ export async function processMessage(opts: {
     await deleteBookingFlow(chatId, mode, pendingMap);
     if (platform) {
       await deleteWatchDraft(platform, chatId).catch((err) =>
-        console.error('[kuzmich] черновик контроля не удалён', platform, chatId, err instanceof Error ? err.message : err));
+        console.error('[kuzmich] черновик контроля не удалён', logText(platform), logText(chatId), logText(err instanceof Error ? err.message : err)));
     }
     await pool.query(
       `DELETE FROM tg_conversations WHERE chat_id = $1 AND mode = $2`,
@@ -2523,7 +2523,7 @@ export async function processMessage(opts: {
     } catch (err) {
       // Сбой контроля не должен молча превратиться в обычный ответ модели:
       // человек, написавший «вернулся», обязан узнать, что отметка не прошла.
-      console.error('[kuzmich] контроль выхода: сбой', platform, chatId, err instanceof Error ? err.message : err);
+      console.error('[kuzmich] контроль выхода: сбой', logText(platform), logText(chatId), logText(err instanceof Error ? err.message : err));
       await replyFn(chatId, 'Не получилось обработать контроль выхода — сбой на нашей стороне. Повторите через минуту; в беде — 112.');
       return;
     }
