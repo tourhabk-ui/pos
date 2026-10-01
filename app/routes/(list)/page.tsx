@@ -14,6 +14,7 @@ import { findToursForQuery } from '@/lib/search/tour-query-match';
 import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
+import { withCardExcerpts } from '@/lib/routes/card-excerpt';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
 
@@ -212,7 +213,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
       )}
       <Suspense>
         <RoutesPageClient
-          initialItems={initial?.items ?? []}
+          initialItems={withCardExcerpts(initial?.items ?? [])}
           initialMeta={initial ? { total: initial.meta.total, pages: initial.meta.pages } : { total: 0, pages: 1 }}
           initialError={initial === null}
           initialKey={initialKey}
