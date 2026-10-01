@@ -41,6 +41,7 @@ import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
 import { tourPath } from '@/lib/tours/tour-url';
+import { sessionState } from '@/lib/auth/session-state';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -118,8 +119,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/trips/active', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
+    // Только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
+    sessionState()
+      .then((authed) => (authed === true
+        ? fetch('/api/trips/active', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null))
+        : null))
       .then((j: { data?: ActiveTrip | null } | null) => {
         const d = j?.data;
         if (cancelled || !d || !d.progress) return;

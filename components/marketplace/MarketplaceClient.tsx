@@ -73,6 +73,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { sessionState } from '@/lib/auth/session-state';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -580,10 +581,12 @@ export default function MarketplaceClient({
     return () => clearTimeout(t);
   }, [notice]);
 
-  // Load wishlist. У гостя 401 — ожидаемый ответ «не вошёл», не поломка.
+  // Load wishlist — только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
   useEffect(() => {
-    fetch('/api/tourist/wishlist?type=tour')
-      .then(r => r.ok ? r.json() : null)
+    sessionState()
+      .then(authed => (authed === true
+        ? fetch('/api/tourist/wishlist?type=tour').then(r => (r.ok ? r.json() : null))
+        : null))
       .then(data => {
         if (data?.data) {
           const map = new Map<number, string>();

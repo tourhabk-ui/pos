@@ -40,6 +40,7 @@ import {
   DIFFICULTY_LABELS as DIFFICULTY_MAP,
 } from '@/lib/tours/labels';
 import { telegramContactHref } from '@/lib/operators/profile-parse';
+import { sessionState } from '@/lib/auth/session-state';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -432,8 +433,11 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   // стартовал false: после перезагрузки тур «выпадал» из избранного, а ошибки
   // глотались молча — снаружи это «кнопка не работает» (владелец 07.08).
   useEffect(() => {
-    fetch('/api/tourist/wishlist?type=tour')
-      .then(r => (r.ok ? r.json() : null))
+    // Только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
+    sessionState()
+      .then(authed => (authed === true
+        ? fetch('/api/tourist/wishlist?type=tour').then(r => (r.ok ? r.json() : null))
+        : null))
       .then((j: unknown) => {
         const rows = (j as { data?: Array<{ item_id: string }> } | null)?.data;
         if (Array.isArray(rows) && rows.some(x => String(x.item_id) === String(tour.id))) {
