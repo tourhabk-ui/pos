@@ -18,6 +18,7 @@ import { pool } from '@/lib/db-pool';
 import { sendEmail } from '@/lib/email';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { tgSend } from '@/lib/notifications/tg-send';
+import { exolveConfigured, makeExolveVoiceCall } from '@/lib/notifications/exolve';
 import { telegramService } from '@/lib/notifications/telegram';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { logText } from '@/lib/log/log-text';
@@ -240,14 +241,46 @@ interface AlertedWatch {
  * заглушка без данных в Telegram. `sendPdAlert` шлёт заглушку только при
  * отказе MAX, а для тревоги этого мало: дежурный может не смотреть MAX, и
  * второй канал — это не резерв на отказ, а второй шанс разбудить человека.
+ *
+ * `wake` — тревога, ради которой дежурного будят звонком (Exolve, номер
+ * `TRIP_WATCH_DUTY_PHONE`). Ночью сообщение в мессенджере не будит, звонок —
+ * будит. Робот читает ту же заглушку: номер дела и что делать, без имён и
+ * телефонов — данные остаются в MAX. Звонок не делает тревогу доставленной:
+ * `delivered` — по-прежнему только MAX, потому что без данных дежурному
+ * нечего передать спасателям. Весть «вернулся» звонком не будит.
  */
-export async function alertDuty(text: string, stub: string): Promise<{ delivered: boolean; reason: string }> {
+export async function alertDuty(
+  text: string,
+  stub: string,
+  opts: { wake?: boolean } = {},
+): Promise<{ delivered: boolean; reason: string; call: DutyCall }> {
   const r = await sendPdAlert({ text: escapeHtml(text), stub: escapeHtml(stub) });
   if (r.channel === 'max') {
     const t = await tgSend('trip-watch', escapeHtml(stub));
     if (!t.ok) console.error('[trip-watch] заглушка дежурному в Telegram не ушла', logText(t.reason));
   }
-  return { delivered: r.delivered, reason: r.reason };
+  const call = opts.wake ? await callDuty(stub) : 'not_requested';
+  return { delivered: r.delivered, reason: r.reason, call };
+}
+
+export type DutyCall = 'sent' | 'failed' | 'not_configured' | 'not_requested';
+
+/**
+ * Звонок дежурному. Три исхода не сводятся к двум: «не настроен» (нет ключа
+ * Exolve или номера дежурного) — известное состояние до подключения канала,
+ * «сбой» — громко в лог.
+ */
+async function callDuty(stub: string): Promise<DutyCall> {
+  const phone = process.env.TRIP_WATCH_DUTY_PHONE?.trim();
+  if (!phone || !exolveConfigured()) return 'not_configured';
+  const c = await makeExolveVoiceCall(phone, dutyVoiceText(stub));
+  if (c.status === 'failed') console.error('[trip-watch] звонок дежурному не ушёл', logText(c.reason, 200));
+  return c.status;
+}
+
+/** Текст для робота: заглушка без значков, с паузами вместо разделителей. */
+export function dutyVoiceText(stub: string): string {
+  return `Ведар. ${stub.replace(/\s*·\s*/g, '. ')} Повторяю. ${stub.replace(/\s*·\s*/g, '. ')}`;
 }
 
 /** Заглушка для Telegram: без имён, телефонов и координат. */

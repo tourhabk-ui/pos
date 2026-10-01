@@ -138,7 +138,7 @@ async function notifyContact(reg: RegRow, step: EscalationStep, msg: string): Pr
     sourceNote(reg) + `\n${msg}`;
   // Дежурному — данные только в MAX, в Telegram — заглушка без них
   // (политика конфиденциальности, разд. 5; lib/safety/trip-watch.ts alertDuty).
-  const a = await alertDuty(adminText, dutyStub(reg.id, 'позвоните контакту'));
+  const a = await alertDuty(adminText, dutyStub(reg.id, 'позвоните контакту'), { wake: true });
   if (a.delivered) {
     await recordNotification(reg.id, step, 'admin_only', 'admin');
   } else {
@@ -340,7 +340,7 @@ export async function GET(req: Request) {
     } else {
       // mchs — дежурному для решения о передаче в МЧС: данные в MAX,
       // заглушка без данных в Telegram (alertDuty).
-      const r = await alertDuty(`МЧС-ТРЕВОГА\n${sourceNote(reg)}\n${msg}`, dutyStub(reg.id, 'МЧС-ТРЕВОГА, решение за дежурным'));
+      const r = await alertDuty(`МЧС-ТРЕВОГА\n${sourceNote(reg)}\n${msg}`, dutyStub(reg.id, 'МЧС-ТРЕВОГА, решение за дежурным'), { wake: true });
       if (r.delivered) {
         await recordNotification(reg.id, step, 'max', 'admin');
       } else {
