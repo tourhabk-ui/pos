@@ -3,7 +3,13 @@
 import Link from 'next/link';
 import { Brain, Zap, BarChart3, ArrowRight, CheckCircle } from 'lucide-react';
 
-export function OperatorPromo() {
+/**
+ * headingLevel — уровень заголовка блока. На /for-operators блок открывает
+ * страницу, и его заголовок — H1 страницы (аудит vedarai.ru 01.10: H1 там не
+ * было вовсе); вставленный в чужую страницу блок остаётся с H2.
+ */
+export function OperatorPromo({ headingLevel = 'h2' }: { headingLevel?: 'h1' | 'h2' } = {}) {
+  const Heading = headingLevel;
   return (
     <section className="w-full py-20 bg-[var(--bg-primary)]">
       <div className="max-w-6xl mx-auto px-4">
@@ -12,9 +18,9 @@ export function OperatorPromo() {
           <div className="inline-block mb-4 px-4 py-2 rounded-full bg-[var(--accent)]/10">
             <span className="text-[var(--accent)] text-sm font-semibold">ДЛЯ ТУРОПЕРАТОРОВ</span>
           </div>
-          <h2 className="ds-h1 mb-4">
+          <Heading className="ds-h1 mb-4">
             {'Обработка заявок за 2 клика вместо 30 минут'}
-          </h2>
+          </Heading>
           <p className="text-lg text-[var(--text-secondary)] max-w-2xl mx-auto">
             Кузьмич принимает обращение 24/7, система квалифицирует лид, подбирает туры, готовит PDF-предложение и черновик ответа. Менеджер подтверждает и закрывает сделку.
           </p>

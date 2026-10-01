@@ -5,7 +5,8 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata: Metadata = {
-  title: 'Оставить заявку',
+  // На странице и форма заявки, и реквизиты с почтой (аудит vedarai.ru 01.10).
+  title: 'Контакты и заявка на тур по Камчатке',
   description: 'Оставьте заявку на тур по Камчатке. Наши специалисты подберут маршрут под ваши пожелания.',
   keywords: [
     'туры Камчатка',

@@ -4,8 +4,8 @@ import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/planning' },
-  title: 'Планирование',
-  description: 'Планируйте поход, отслеживайте готовность и навигируйте по маршруту.',
+  title: 'Планирование похода по Камчатке',
+  description: 'Планирование похода по Камчатке: найдите место и маршрут к нему, проверьте готовность по списку и сохраните карту маршрута для работы без интернета.',
 };
 
 /**
@@ -24,5 +24,12 @@ export const dynamic = 'force-dynamic';
 
 export default function PlanningPage() {
   const mapPackBaseUrl = process.env[MAP_PACK_BASE_URL_ENV] || null;
-  return <PlanningClient mapPackBaseUrl={mapPackBaseUrl} />;
+  // Экран-инструмент без видимого заголовка: H1 для поиска и экранного
+  // диктора (аудит vedarai.ru 01.10 — H1 на странице не было вовсе).
+  return (
+    <>
+      <h1 className="sr-only">Планирование похода по Камчатке</h1>
+      <PlanningClient mapPackBaseUrl={mapPackBaseUrl} />
+    </>
+  );
 }

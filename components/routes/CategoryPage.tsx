@@ -5,6 +5,7 @@ import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
 import { arkUrlSlugSql, catalogHref } from '@/lib/routes/url-slug';
+import { stripFillerLead } from '@/lib/text/filler-lead';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
@@ -94,7 +95,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
     href: catalogHref({ id: r.id, kind: r.kind, urlSlug: r.url_slug }, '/routes'),
     category: r.category,
     title: r.title,
-    description: r.description,
+    description: stripFillerLead(r.description),
     lat: r.lat != null ? Number(r.lat) : null,
     lng: r.lng != null ? Number(r.lng) : null,
     priceFrom: r.price_from != null ? Number(r.price_from) : null,

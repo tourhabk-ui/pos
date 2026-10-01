@@ -22,6 +22,7 @@ import { detectTravelMode } from '@/lib/routes/travel-mode';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { publicReviewerName } from '@/lib/reviews/public-name';
+import { stripFillerLead } from '@/lib/text/filler-lead';
 
 export const dynamic = 'force-dynamic';
 
@@ -449,7 +450,8 @@ export async function GET(
         locationType: (r.location_type as string | null) ?? null,
         activityType: (r.activity_type as string | null) ?? null,
         title:        r.title as string,
-        description: (r.description as string | null) ?? '',
+        // Заглушка в начале скачанного описания не показывается (lib/text/filler-lead).
+        description: stripFillerLead(r.description as string | null),
         lat:         r.lat != null ? parseFloat(r.lat as string) : null,
         lng:         r.lng != null ? parseFloat(r.lng as string) : null,
         sourceUrl:   (r.source_url as string | null) ?? null,

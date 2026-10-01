@@ -7,6 +7,7 @@ import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
+import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
@@ -151,7 +152,9 @@ async function getRouteRaw(idOrSlug: string) {
       id: r.id as string,
       category: r.category as string,
       title: r.title as string,
-      description: stripSourceAttribution((r.description as string | null) ?? ''),
+      // Заглушка «Это X в Камчатском крае. Место, которое стоит посмотреть.»
+      // в начале скачанных описаний — не текст (аудит 01.10, lib/text/filler-lead).
+      description: stripFillerLead(stripSourceAttribution((r.description as string | null) ?? '')),
       lat: r.lat != null ? parseFloat(r.lat as string) : null,
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl: (r.source_url as string | null) ?? null,

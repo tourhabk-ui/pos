@@ -15,7 +15,7 @@ export default function ForOperatorsPage() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh]">
       <Header />
       <main className="pt-16">
-        <OperatorPromo />
+        <OperatorPromo headingLevel="h1" />
         <AgentModelSection />
       </main>
       <Footer />

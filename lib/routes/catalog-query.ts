@@ -23,6 +23,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 // что перепись рассказывала владельцу про градиент.
 import { cardImage } from '@/lib/routes/card-image';
 import { placeOnLiveRouteSql } from '@/lib/places/on-route';
+import { stripFillerLead } from '@/lib/text/filler-lead';
 import { arkUrlSlugSql } from '@/lib/routes/url-slug';
 
 
@@ -448,7 +449,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       locationType: (r.location_type as string | null) ?? null,
       activityType: (r.activity_type as string | null) ?? null,
       title:        r.title as string,
-      description:  (r.description as string | null) ?? '',
+      description:  stripFillerLead(r.description as string | null),
       lat:          r.lat != null ? parseFloat(r.lat as string) : null,
       lng:          r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl:    (r.source_url as string | null) ?? null,
