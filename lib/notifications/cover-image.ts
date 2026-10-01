@@ -111,7 +111,7 @@ const NEGATIVE_PROMPT =
  * Семейство qwen-image рисует синхронным multimodal-generation, а не
  * асинхронной задачей text2image (01.10, qwen-image-probe прогон 1):
  * qwen-image-3.0 на text2image отвечает 400 InvalidParameter «url error»,
- * а синхронно рисует 1280*720 за 43 с. Владелец перевёл QWEN_IMAGE_MODEL на
+ * а синхронно рисует 1280*720 за 43–57 с (функция кода — 46 с, прогон 2). Владелец перевёл QWEN_IMAGE_MODEL на
  * qwen-image-3.0 (замена отключаемой 10.10.2026 qwen-image) — без этого
  * разветвления обложки молча ушли бы на Pollinations.
  */
@@ -130,9 +130,10 @@ async function generateViaMultimodal(apiKey: string, base: string, model: string
         input: { messages: [{ role: 'user', content: [{ text: prompt.slice(0, 800) }] }] },
         parameters: { size, negative_prompt: NEGATIVE_PROMPT },
       }),
-      // Как и у пути с задачей, держимся ниже 60 с (лимит эндпоинта и curl
-      // в workflow): замер 43 с.
-      signal: AbortSignal.timeout(50_000),
+      // Как и у пути с задачей (20 с + 35 с опроса), держимся ниже 60 с —
+      // лимит эндпоинта и curl в workflow. Замеры 01.10: 43, 46 и 57 с;
+      // не успела — откат на Pollinations со строкой в лог.
+      signal: AbortSignal.timeout(55_000),
     });
     if (!res.ok) {
       console.error(`[cover-image] ${model}: multimodal-generation — HTTP ${res.status}`);
