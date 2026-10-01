@@ -67,9 +67,10 @@ describe('в лог уходит белый список полей, а не в�
   it('переменные окружения — только имена, только похожие на коммит/сборку (#1762)', () => {
     expect(WF).toMatch(/envs = app\.get\('envs'\)/);
     expect(WF).toMatch(/re\.search\(r'commit\|sha\|git\|rev\|build\|version', n, re\.I\)/);
-    // Значения не печатаются ни в какой форме.
+    // Значения не печатаются ни в какой форме — кроме белого списка имён
+    // выбора модели (см. ниже).
     expect(WF).not.toMatch(/envs\[/);
-    expect(WF).not.toMatch(/\.get\('value'\)/);
+    expect(WF.match(/\.get\('value'\)/g) ?? []).toHaveLength(1);
     expect(WF).not.toMatch(/print\(envs\)/);
     expect(WF).not.toMatch(/print\(names\)/);
     // Неизвестная форма поля называется вслух, а не молчит (§4.0).
@@ -92,5 +93,26 @@ describe('секрет остаётся в секретах', () => {
 
   it('не-200 от API тоже провал', () => {
     expect(WF).toMatch(/API Timeweb ответил \$HTTP/);
+  });
+});
+
+describe('переменные выбора модели — значение только у белого списка и только если это id (01.10)', () => {
+  // Alibaba отключает часть моделей DashScope 10.10.2026; на какой id смотрит
+  // прод, должно быть видно из API, а не из памяти о панели.
+  const block = WF.slice(WF.indexOf('MODEL_VARS = ['));
+
+  it('белый список — имена моделей, ни одного ключа или пароля', () => {
+    const list = block.match(/MODEL_VARS = \[([^\]]*)\]/)?.[1] ?? '';
+    const names = [...list.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(names).toEqual(['QWEN_IMAGE_MODEL', 'QWEN_VISION_MODEL', 'QWEN_MODEL']);
+    for (const n of names) expect(n).toMatch(/_MODEL$/);
+  });
+
+  it('значение берётся только внутри model_var и печатается только по проверке id', () => {
+    const fn = block.slice(block.indexOf('def model_var'), block.indexOf("print('')", block.indexOf('def model_var')));
+    expect(fn).toMatch(/\.get\('value'\)/);
+    expect(block).toMatch(/elif MODEL_ID_RE\.match\(str\(value\)\.strip\(\)\):/);
+    expect(block).toMatch(/MODEL_ID_RE = re\.compile\(r'\^\[A-Za-z0-9\._-\]\{1,64\}\$'\)/);
+    expect(block).toMatch(/значение не печатается/);
   });
 });
