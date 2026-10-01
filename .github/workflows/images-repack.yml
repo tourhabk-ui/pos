@@ -13,6 +13,9 @@ name: Снимки мест — пережать снятое, удалить с
 #   hero       — POST /api/cron/hero-web-variant: веб-копия героев, которых
 #                перенос из снимка туриста поставил ОРИГИНАЛОМ загрузки
 #                (аудит 01.10: 6,1 МБ на главной). Оригинал не трогается.
+#   oversize   — тот же роут, scope oversize: показываемые снимки, уехавшие
+#                в хранилище байтами как были и тяжелее 450 КБ (вес — HEAD к
+#                объекту). Копия ложится рядом, прежний объект не удаляется.
 #
 # Почему workflow, а не маркер prod-check: тот умеет один GET и тела не шлёт,
 # а оба разбора — POST с обязательной причиной. Без актуатора работа была бы
@@ -77,7 +80,7 @@ jobs:
               print(f'::error::mode должен быть dry или apply, а не {mode!r}')
               sys.exit(1)
           tasks = marker.get('tasks') or ['recompress', 'generated']
-          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3', 'hero')]
+          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3', 'hero', 'oversize')]
           if bad:
               print(f'::error::неизвестная задача: {bad}')
               sys.exit(1)
@@ -151,6 +154,11 @@ jobs:
               # кандидат — герой, у которого ссылка равна оригиналу загрузки.
               PATH_="/api/cron/hero-web-variant"
               EXTRA=""
+              LEFT_KEY='pending'
+            elif [ "$TASK" = 'oversize' ]; then
+              # Тот же роут, второй класс: тяжёлые объекты хранилища.
+              PATH_="/api/cron/hero-web-variant"
+              EXTRA="\"scope\": \"oversize\","
               LEFT_KEY='pending'
             else
               PATH_="/api/cron/images-generated"

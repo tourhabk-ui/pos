@@ -69,7 +69,9 @@ describe('перенос в герои пишет копию, оригинал �
 
   it('копия делается до записи и одной дорогой с починкой', () => {
     expect(LIB).toMatch(/heroVariantFor\(row\.url, heroVariantKey\(row\.ark_id, photoId\)\)/);
-    expect(code('app/api/cron/hero-web-variant/route.ts')).toMatch(/heroVariantFor\(r\.s3_url, heroVariantKey\(r\.route_id, r\.id\)\)/);
+    const ROUTE = code('app/api/cron/hero-web-variant/route.ts');
+    expect(ROUTE).toMatch(/scope === 'oversize' \? oversizeVariantKey\(r\.route_id, r\.id\) : heroVariantKey\(r\.route_id, r\.id\)/);
+    expect(ROUTE).toMatch(/heroVariantFor\(r\.s3_url, key\)/);
   });
 
   it('s3_url — копия, source_url — оригинал', () => {
@@ -95,6 +97,7 @@ describe('починка перенесённых героев', () => {
     vi.doMock('@/lib/places/hero-variant', () => ({
       heroVariantFor: (...a: unknown[]) => variantMock(...a),
       heroVariantKey: (ark: string, id: string) => `place-heroes/${ark}/${id}-1280.jpg`,
+      oversizeVariantKey: (ark: string, id: string) => `places/${ark}/${id}-1280.jpg`,
     }));
     process.env.CRON_SECRET = 'test-secret';
   });
@@ -159,5 +162,57 @@ describe('починка перенесённых героев', () => {
     const { NextRequest } = await import('next/server');
     const res = await POST(new NextRequest('http://x', { method: 'POST', body: '{}' }));
     expect(res.status).toBe(401);
+  });
+
+  describe('scope oversize: тяжёлые объекты хранилища', () => {
+    const HEAVY = { id: '22222222-2222-2222-2222-222222222222', route_id: 'ark-2', s3_url: 'https://s3/places/ark-2/heavy.jpg', s3_key: 'places/ark-2/heavy.jpg', place_name: 'Урочище' };
+    const LIGHT = { id: '33333333-3333-3333-3333-333333333333', route_id: 'ark-3', s3_url: 'https://s3/places/ark-3/light.jpg', s3_key: 'places/ark-3/light.jpg', place_name: 'Озеро' };
+    const DEAD  = { id: '44444444-4444-4444-4444-444444444444', route_id: 'ark-4', s3_url: 'https://s3/places/ark-4/dead.jpg', s3_key: 'places/ark-4/dead.jpg', place_name: 'Бухта' };
+    const fetchMock = vi.fn();
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      fetchMock.mockImplementation((url: string) => {
+        if (url === HEAVY.s3_url) return Promise.resolve({ ok: true, headers: new Headers({ 'content-length': '681274' }) });
+        if (url === LIGHT.s3_url) return Promise.resolve({ ok: true, headers: new Headers({ 'content-length': '230000' }) });
+        return Promise.resolve({ ok: false, status: 503, headers: new Headers() });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      poolQueryMock.mockImplementation((sql: string) => {
+        if (String(sql).includes('UPDATE')) return Promise.resolve({ rowCount: 1 });
+        return Promise.resolve({ rows: [HEAVY, LIGHT, DEAD] });
+      });
+    });
+
+    it('кандидаты — показываемые снимки в хранилище, кроме героев из снимков туристов', () => {
+      const src = code('app/api/cron/hero-web-variant/route.ts');
+      expect(src).toMatch(/AND i\.s3_url IS DISTINCT FROM i\.source_url/);
+      expect(src).toMatch(/NOT LIKE 'place-heroes\/%'/);
+      expect(src).toMatch(/\$\{shownPhotoSql\('i\.model'\)\}/);
+      expect(src).toMatch(/method: 'HEAD'/);
+    });
+
+    it('сухой: в плане только тяжёлый, не ответивший — в unchecked, а не «лёгкий»', async () => {
+      const json = await (await post({ reason: 'аудит 01.10: снимки 0,5–0,7 МБ', scope: 'oversize' })).json();
+      expect(json.scope).toBe('oversize');
+      expect(json.pending).toBe(1);
+      expect(json.would_resize).toEqual([{ id: HEAVY.id, subject: 'Урочище', source: HEAVY.s3_url, kb: 665 }]);
+      expect(json.unchecked).toEqual([{ id: DEAD.id, reason: 'HEAD ответил 503' }]);
+      expect(variantMock).not.toHaveBeenCalled();
+    });
+
+    it('боевой: копия рядом с прежним объектом, прежний ключ в отчёте', async () => {
+      variantMock.mockResolvedValue({ status: 'made', url: 'https://s3/places/ark-2/v.jpg', key: `places/ark-2/${HEAVY.id}-1280.jpg`, width: 1280, height: 852, wasBytes: 681274, nowBytes: 260000 });
+      const json = await (await post({ reason: 'аудит 01.10: снимки 0,5–0,7 МБ', scope: 'oversize', dry_run: false })).json();
+      expect(variantMock).toHaveBeenCalledWith(HEAVY.s3_url, `places/ark-2/${HEAVY.id}-1280.jpg`);
+      expect(json.recompressed_count).toBe(1);
+      expect(json.resized[0].replaced_key).toBe(HEAVY.s3_key);
+      const upd = poolQueryMock.mock.calls.find(([sql]) => String(sql).includes('UPDATE'))!;
+      expect(upd[1]).toEqual(['https://s3/places/ark-2/v.jpg', `places/ark-2/${HEAVY.id}-1280.jpg`, 1280, 852, HEAVY.id, HEAVY.s3_url]);
+    });
+
+    it('неизвестный scope — 400', async () => {
+      expect((await post({ reason: 'аудит 01.10: снимки', scope: 'all' })).status).toBe(400);
+    });
   });
 });
