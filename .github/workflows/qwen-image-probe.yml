@@ -30,6 +30,10 @@ jobs:
       - name: Проба картинки
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Скрипт зовёт код обложек, а тот тянет водопад моделей: если по
+          # дороге сработает сочинение промпта, расход дойдёт до книг только
+          # через CRON_SECRET (tests/unit/llm-usage-reaches-books.test.ts).
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: npx tsx scripts/qwen-image-probe.ts | tee probe.log
       - name: Итог — в аннотацию
         if: always()
