@@ -15,11 +15,11 @@
 UPDATE places
    SET name = 'Старт маршрута Вачкажец (снегоходный)',
        updated_at = NOW()
- WHERE ark_id = 'ce16faff-a43c-89bf-a665-9ac7221eb263'::uuid
+ WHERE ark_id::text = 'ce16faff-a43c-89bf-a665-9ac7221eb263'
    AND name = 'Точка маршрута (начало)';
 
 UPDATE places
    SET name = 'Старт маршрута Вачкажец (лыжный)',
        updated_at = NOW()
- WHERE ark_id = '719b7a73-2e99-515a-3cca-7c36748df3b2'::uuid
+ WHERE ark_id::text = '719b7a73-2e99-515a-3cca-7c36748df3b2'
    AND name = 'Точка маршрута (начало)';
