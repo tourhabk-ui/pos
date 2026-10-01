@@ -18,6 +18,8 @@
  * суточной перепроверки — один лишний отказ в 300 мс.
  */
 
+import { isQwenRetired } from '@/lib/ai/qwen-retired';
+
 export const FREE_QUOTA_MARK_TTL_MS = 24 * 60 * 60 * 1000;
 
 const marks = new Map<string, number>();
@@ -65,7 +67,9 @@ export function resetFreeQuotaMarks(): void {
 export function freeQuotaSiblings(model: string, catalog: readonly string[]): string[] {
   const esc = model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const sibling = new RegExp(`^${esc}-(latest|\\d{4}(-\\d{2}-\\d{2})?)$`);
-  const found = [...new Set(catalog.filter((id) => sibling.test(id)))];
+  // Снимки, которые Alibaba отключает 10.10.2026 (qwen-plus-2025-07-28 и
+  // др.), заменой не годятся: подмена ушла бы в заведомый отказ.
+  const found = [...new Set(catalog.filter((id) => sibling.test(id) && !isQwenRetired(id)))];
   return found.sort((a, b) => {
     const al = a.endsWith('-latest') ? 1 : 0;
     const bl = b.endsWith('-latest') ? 1 : 0;

@@ -26,7 +26,7 @@ const BASES = {
 } as const;
 
 /** Что зовёт код сегодня: дефолт цикла инструментов и зрение. */
-const ALWAYS = ['qwen-plus', 'qwen-vl-max'];
+const ALWAYS = ['qwen-plus', 'qwen3-vl-plus'];
 
 /**
  * Зрение (01.10): qwen-vl-max в списке Alibaba на отключение 10.10.2026.

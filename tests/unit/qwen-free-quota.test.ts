@@ -46,9 +46,15 @@ describe('кто замещает модель', () => {
   ];
 
   it('алиас -latest первым, затем снимки от свежих к старым', () => {
-    expect(freeQuotaSiblings('qwen-plus', CATALOG)).toEqual([
-      'qwen-plus-latest', 'qwen-plus-2025-09-11', 'qwen-plus-2025-07-28',
+    const catalog = [...CATALOG, 'qwen-plus-2026-01-15', 'qwen-plus-2026-03-01'];
+    expect(freeQuotaSiblings('qwen-plus', catalog)).toEqual([
+      'qwen-plus-latest', 'qwen-plus-2026-03-01', 'qwen-plus-2026-01-15',
     ]);
+  });
+
+  it('снимки, которые Alibaba отключает 10.10.2026, заменой не становятся', () => {
+    // qwen-plus-2025-09-11 и -2025-07-28 — в уведомлении id=2009.
+    expect(freeQuotaSiblings('qwen-plus', CATALOG)).toEqual(['qwen-plus-latest']);
   });
 
   it('только та же модель: не ролевая, не другой тир', () => {
