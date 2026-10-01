@@ -33,12 +33,14 @@ type Rows = Record<string, unknown[]>;
  */
 function stubQuery(rows: Partial<Rows> = {}, fail: string[] = []): QueryFn {
   return (async (sql: string) => {
-    const table = sql.includes('kamchatka_routes') ? 'route'
+    // Тревоги — первыми: с #2133 их запрос читает и kamchatka_routes
+    // (park_name маршрута для закрытия парка).
+    const table = sql.includes('external_alerts') ? 'alerts'
+      : sql.includes('kamchatka_routes') ? 'route'
       // Закрытия тоже читают route_waypoints — узнаются по своей таблице
       // статуса раньше, чем по общей таблице связей (#2079).
       : sql.includes('location_real_time_status') ? 'closures'
       : sql.includes('route_waypoints') ? 'waypoints'
-      : sql.includes('external_alerts') ? 'alerts'
       : sql.includes('volcano_status') ? 'volcanoes'
       : 'unknown';
     if (fail.includes(table)) throw new Error(`база отказала: ${table}`);
@@ -300,9 +302,13 @@ describe('код сборщика не имеет права молча верн
   });
 
   it('вулканы отбираются по расстоянию, а не по совпадению имён', () => {
-    // Похожее имя дало бы уверенный ответ там, где его нет.
-    expect(SRC).toMatch(/asin|acos|earth_box|ST_DWithin/);
-    expect(SRC).not.toMatch(/volcano_name\s+ILIKE|name\s+ILIKE/);
+    // Похожее имя дало бы уверенный ответ там, где его нет. Судится сам
+    // загрузчик вулканов: с #2133 в файле законно есть park_name ILIKE —
+    // парк маршрута против справочника парков, к вулканам не относится.
+    const volcanoes = SRC.slice(SRC.indexOf('async function loadVolcanoes'), SRC.indexOf('async function loadClosures'));
+    expect(volcanoes.length).toBeGreaterThan(100);
+    expect(volcanoes).toMatch(/asin|acos|earth_box|ST_DWithin/);
+    expect(volcanoes).not.toMatch(/volcano_name\s+ILIKE|name\s+ILIKE/);
   });
 
   it('радиус коридора назван числом, а не спрятан в строке запроса', () => {

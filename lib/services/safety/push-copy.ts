@@ -103,6 +103,12 @@ export function pushCopy(params: {
         body: `${title}. Проверьте подъезд до выезда.`,
       };
 
+    case 'park_closure':
+      return {
+        title: 'Маршруты парка закрыты — Камчатка',
+        body: `${title}. Не выходите на маршруты парка до отмены.`,
+      };
+
     case 'avalanche':
       return {
         title: 'Лавинная опасность — Камчатка',
@@ -167,5 +173,5 @@ export function standDownCopy(zoneHumanName: string): PushCopy {
 export const PUSH_TYPES_WITH_INSTRUCTION = [
   'tsunami_warning', 'earthquake', 'volcanic_eruption', 'ash_cloud',
   'weather', 'flood', 'fire_danger', 'road_closure', 'avalanche', 'landslide',
-  'bear',
+  'bear', 'park_closure',
 ] as const;

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import {
-  AlertTriangle, ArrowRight, CloudRain, Construction, Mountain, PawPrint, Snowflake, Waves,
+  AlertTriangle, ArrowRight, CloudRain, Construction, Mountain, PawPrint, Snowflake, TreePine, Waves,
   type LucideIcon,
 } from 'lucide-react';
 import type { ChangeKind, PlanChange } from '@/lib/home/desk-brief';
@@ -23,6 +23,7 @@ const ICON: Record<ChangeKind, LucideIcon> = {
   snow: Snowflake,
   weather: CloudRain,
   bear: PawPrint,
+  park: TreePine,
   other: AlertTriangle,
 };
 

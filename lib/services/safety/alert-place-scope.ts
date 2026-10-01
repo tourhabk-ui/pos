@@ -83,7 +83,7 @@ export const GEO_SCOPED_SQL = `
  * Придуманный радиус здесь опаснее широкой зоны — он ГАСИТ настоящий сигнал
  * (§4.0: не знаем — не гадаем).
  */
-export const PLACE_SCOPED_TYPES = ['road_closure', 'fire_danger', 'volcanic_eruption'] as const;
+export const PLACE_SCOPED_TYPES = ['road_closure', 'fire_danger', 'volcanic_eruption', 'park_closure'] as const;
 export const PLACE_SCOPED_SQL = `ea.alert_type IN (${PLACE_SCOPED_TYPES.map((t) => `'${t}'`).join(', ')})`;
 
 /**
@@ -127,6 +127,49 @@ export const VOLCANO_SCOPED_SQL = `
 `;
 
 /**
+ * Закрытие маршрутов парка накрывает то, что ЛЕЖИТ В ПАРКЕ (#2133).
+ *
+ * Парк называет тревога (`affected_parks`, слаги справочника `parks`), а что
+ * в парке — справочник маршрутов: `kamchatka_routes.park_name` против
+ * `parks.search_term`, тем же ILIKE, что связывает парк с маршрутами на его
+ * странице (миграция 712). Честных способов быть «в парке» три:
+ *   1. это маршрут, чей `park_name` называет парк;
+ *   2. это место, через которое ИДЁТ такой маршрут (связь рода не `nearby`:
+ *      «рядом, загляните» в парке не лежит, §4.1);
+ *   3. имя места называет парк («Природный парк Налычево»).
+ *
+ * Зона здесь не участвует: «avachinsky» — это и Налычево, и город. Парк
+ * тревогой не назван — она не красит никого (род в PLACE_SCOPED_TYPES).
+ * `parks.is_active` не смотрится: закрытый парк закрыт и без своей страницы.
+ */
+export const PARK_SCOPED_SQL = `
+  ea.alert_type = 'park_closure'
+  AND ea.affected_parks IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+      FROM parks pk
+     WHERE pk.slug = ANY(ea.affected_parks)
+       AND (
+         ark.title ILIKE '%' || pk.search_term || '%'
+         OR EXISTS (
+           SELECT 1 FROM kamchatka_routes kr
+            WHERE COALESCE(kr.ark_id, kr.id) = ark.id
+              AND kr.park_name ILIKE '%' || pk.search_term || '%'
+         )
+         OR EXISTS (
+           SELECT 1
+             FROM places pl
+             JOIN route_waypoints rw ON rw.place_id = pl.id
+             JOIN kamchatka_routes kr ON kr.id = rw.route_id
+            WHERE pl.ark_id = ark.id
+              AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+              AND kr.park_name ILIKE '%' || pk.search_term || '%'
+         )
+       )
+  )
+`;
+
+/**
  * Радиус по роду события, км.
  *
  * Пожар — 50: шире 10-километрового кластера FIRMS, уже зоны (инженерная
@@ -148,6 +191,9 @@ export const ALERT_MATCH_SQL = `
   )
   OR (
     ${VOLCANO_SCOPED_SQL}
+  )
+  OR (
+    ${PARK_SCOPED_SQL}
   )
   OR (
     NOT (${GEO_SCOPED_SQL})
