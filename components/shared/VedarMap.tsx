@@ -1066,6 +1066,13 @@ export default function VedarMap({
       }
       for (const region of hit) {
         if (region === baseRegion) continue;
+        // Мельче PACK_MIN_ZOOM району и клетке рисовать нечего, кроме слоя
+        // мест, а все места края уже несёт обзор. Скрин владельца 01.10:
+        // /map на мобильной сети стоял без единой точки — на открытии обзора
+        // страница тянула слой мест у всех 123 пакетов разом (проверка
+        // map-page-check, прогон 2). Район подложится сам на moveend, когда
+        // человек приблизится: `added` его ещё не знает.
+        if (hasOverview && region !== OVERVIEW_ID && zoom < PACK_MIN_ZOOM) continue;
         const pack = packs.find(p => p.region === region);
         if (!pack) continue;
         // У обзора нет ни горизонталей, ни OSM — подробного яруса у него не
