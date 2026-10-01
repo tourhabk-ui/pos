@@ -9,6 +9,7 @@ import { AccommodationFilters } from '@/components/shared/AccommodationFilters';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { staySearchEntity, type StaySearchOutcome } from '@/lib/stay/demand';
 import { sessionState } from '@/lib/auth/session-state';
+import { ACCOMMODATIONS_FIRST_PAGE_LIMIT, ACCOMMODATIONS_DEFAULT_SORT } from '@/lib/stay/catalog-first-page';
 
 // Форма ответа GET /api/accommodations (camelCase — как отдаёт роут;
 // старый snake_case интерфейс не совпадал с API и листинг падал)
@@ -27,6 +28,11 @@ interface Accommodation {
   reviewCount: number;
   isVerified: boolean;
   images: Array<{ url: string; alt?: string }>;
+}
+
+/** Первая страница витрины, отрисованная сервером (тело ответа GET /api/accommodations). */
+export interface AccommodationsInitial {
+  raw: { accommodations: Accommodation[]; pagination: { total: number } };
 }
 
 interface FiltersState {
@@ -51,7 +57,7 @@ const DEFAULT_FILTERS: FiltersState = {
   amenities: [],
   locationZone: '',
   search: '',
-  sort: 'rating_desc',
+  sort: ACCOMMODATIONS_DEFAULT_SORT,
   checkIn: '',
   checkOut: '',
 };
@@ -75,11 +81,14 @@ function isSearch(f: FiltersState): boolean {
     || (f.checkIn !== '' && f.checkOut !== '' && f.checkOut > f.checkIn);
 }
 
-export function AccommodationsClient() {
-  const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
-  const [total, setTotal] = useState(0);
+export function AccommodationsClient({ initial = null }: { initial?: AccommodationsInitial | null }) {
+  const [accommodations, setAccommodations] = useState<Accommodation[]>(initial?.raw.accommodations ?? []);
+  const [total, setTotal] = useState(initial?.raw.pagination?.total ?? initial?.raw.accommodations.length ?? 0);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initial === null);
+  // Первую страницу при условиях по умолчанию уже отрисовал сервер тем же
+  // запросом (lib/stay/catalog-first-page) — повторно её не спрашиваем.
+  const skipFirstLoad = useRef(initial !== null);
   const [filters, setFilters] = useState<FiltersState>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -148,7 +157,7 @@ export function AccommodationsClient() {
     setLoading(true);
     const p = new URLSearchParams();
     p.set('page', String(currentPage));
-    p.set('limit', '20');
+    p.set('limit', String(ACCOMMODATIONS_FIRST_PAGE_LIMIT));
     p.set('sort', currentFilters.sort);
     if (currentFilters.type.length === 1) p.set('type', currentFilters.type[0]);
     if (currentFilters.priceMin > 0) p.set('price_min', String(currentFilters.priceMin));
@@ -196,6 +205,10 @@ export function AccommodationsClient() {
   }, [flushBeacon]);
 
   useEffect(() => {
+    if (skipFirstLoad.current) {
+      skipFirstLoad.current = false;
+      return;
+    }
     setPage(1);
     load(1, filters);
   }, [filters, load]);
