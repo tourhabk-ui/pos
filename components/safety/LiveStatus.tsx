@@ -211,11 +211,18 @@ export function declutterPlaced<T extends { x: number; y: number; label: string 
  * Отсюда постоянная приписка про медведей и пустое состояние, которое говорит
  * только о том, что радар реально видит, — не «опасностей нет».
  */
-export function RadarScope({ hazards, center, degraded = false }: {
+export function RadarScope({ hazards, center, degraded = false, action }: {
   hazards: RadarHazard[];
   center: { lat: number; lng: number; label: string };
   /** Часть источников не ответила — на круге показано НЕ всё. */
   degraded?: boolean;
+  /**
+   * Действие в правом верхнем углу карточки радара — «Обновить данные»
+   * (владелец 01.10: «маленькой иконкой в правом верхнем углу карты»).
+   * Кнопка живёт у того, что обновляет: отдельной карточкой ниже по странице
+   * она стояла под зонами, и что именно она обновляет, было не видно.
+   */
+  action?: ReactNode;
 }) {
   const [c, setC] = useState(center);
   // Состояний четыре, а не три: «ищу» — отдельное. Без него нажатие кнопки
@@ -287,6 +294,7 @@ export function RadarScope({ hazards, center, degraded = false }: {
 
   return (
     <div className="radar">
+      {action && <div className="ract">{action}</div>}
       <div className="scope">
         {/* role="img" — иначе подпись графики не попадает в accessibility tree
             предсказуемо. Подпись считается из того, что реально нарисовано:
@@ -746,8 +754,9 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
 
 export const LIVE_STATUS_CSS = `
 .kh-live{--radar:#3FB950}
-.kh-live .radar{border:1px solid var(--border);border-radius:16px;padding:16px;background:radial-gradient(120% 100% at 50% 0%,color-mix(in srgb,var(--radar) 8%,transparent),transparent 70%)}
+.kh-live .radar{position:relative;border:1px solid var(--border);border-radius:16px;padding:16px;background:radial-gradient(120% 100% at 50% 0%,color-mix(in srgb,var(--radar) 8%,transparent),transparent 70%)}
 .kh-live .radar .scope{position:relative;width:100%;max-width:300px;margin:0 auto}
+.kh-live .radar .ract{position:absolute;top:8px;right:8px;z-index:2}
 .kh-live .radar .scope svg{width:100%;height:auto;display:block;overflow:visible}
 .kh-live .radar .rn{font:600 8px var(--font-outfit),system-ui,sans-serif;fill:var(--radar);opacity:.8}
 .kh-live .radar .rk{font:500 5.5px var(--fm),ui-monospace,monospace;fill:var(--radar);opacity:.45}

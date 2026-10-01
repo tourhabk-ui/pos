@@ -533,6 +533,37 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     }
   }, [chatInput, chatLoading, chatMessages]);
 
+  // Строка «когда опрашивали источники» — одна на оба места, где стоит
+  // кнопка (иконка на радаре и запасная карточка без радара).
+  const refreshStatus = refreshState === 'offline'
+    ? 'Нет сети — показано сохранённое'
+    : refreshState === 'failed'
+      ? 'Источники не ответили'
+      : refreshState === 'loading'
+        ? 'Опрашиваем источники...'
+        : checkedAt
+          ? `Источники опрошены ${fmtAgo(new Date(checkedAt).toISOString())}${refreshNote ? ` · ${refreshNote}` : ''}`
+          : refreshNote ?? 'Опрос источников ещё не удавался';
+  const refreshTint = refreshState === 'failed' ? 'var(--warning)' : refreshState === 'offline' ? 'var(--text-muted)' : 'var(--ocean)';
+  // Иконка в правом верхнем углу радара (владелец 01.10). 44 px — палец в
+  // перчатке; вращение — утилитой Tailwind, своих @keyframes нет (§3).
+  const refreshIcon = (
+    <button
+      type="button"
+      onClick={handleRefresh}
+      disabled={refreshState === 'loading'}
+      aria-label="Обновить данные"
+      title="Обновить данные"
+      style={{
+        width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg-card)',
+        cursor: refreshState === 'loading' ? 'default' : 'pointer',
+      }}
+    >
+      <RefreshCw className={`w-5 h-5${refreshState === 'loading' ? ' animate-spin' : ''}`} style={{ color: refreshTint }} />
+    </button>
+  );
+
   const bannerColor = banner.state === 'unknown'
     ? 'var(--text-muted)'
     : (RISK_COLORS[banner.level ?? 'low'] ?? 'var(--success)');
@@ -571,7 +602,15 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
       {live && (
         <section id="radar" className="kh-live" style={{ marginBottom: 24 }}>
           <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
-          <RadarScope hazards={live.radar.hazards} center={live.radar.center} degraded={live.radar.degraded} />
+          <RadarScope
+            hazards={live.radar.hazards}
+            center={live.radar.center}
+            degraded={live.radar.degraded}
+            action={refreshIcon}
+          />
+          <p role="status" aria-live="polite" style={{ margin: '8px 4px 0', fontSize: 11, textAlign: 'right', color: refreshState === 'failed' ? 'var(--warning)' : 'var(--text-muted)' }}>
+            {refreshStatus}
+          </p>
           {(live.safety.alerts.length > 0 || live.seismic.events.length > 0
             || live.volcanoes.items.length > 0 || live.volcanoes.degraded) && (
             <div className="safety">
@@ -689,43 +728,34 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         </div>
       ) : null}
 
-      {/* Обновить данные. Рядом — время ПОСЛЕДНЕЙ ПРОВЕРКИ источников, а не
-          возраст события: на экране стояло «41 ч назад», и по этой строке
-          нельзя было понять, проверяли ли мы хоть что-то за эти сорок один
-          час. Толчков просто не было — но человек в поле читает такое как
-          «связи нет» и перестаёт верить экрану. */}
-      <button
-        onClick={handleRefresh}
-        disabled={refreshState === 'loading'}
-        className="ds-card"
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 12,
-          border: 'none', textAlign: 'left', cursor: refreshState === 'loading' ? 'default' : 'pointer',
-          opacity: refreshState === 'loading' ? 0.7 : 1,
-        }}
-      >
-        {/* Вращение — утилитой Tailwind: своих @keyframes в компонентах не
-            заводим (CLAUDE.md §3). */}
-        <RefreshCw
-          className={`w-5 h-5${refreshState === 'loading' ? ' animate-spin' : ''}`}
+      {/* Обновить данные — запасная карточка, ТОЛЬКО когда радара нет (live
+          не пришёл с сервера). При радаре кнопка — иконка в его правом
+          верхнем углу (владелец 01.10): у того, что она обновляет. Рядом —
+          время ПОСЛЕДНЕЙ ПРОВЕРКИ источников, а не возраст события: «41 ч
+          назад» нельзя было отличить от «связи нет». */}
+      {!live && (
+        <button
+          onClick={handleRefresh}
+          disabled={refreshState === 'loading'}
+          className="ds-card"
           style={{
-            color: refreshState === 'failed' ? 'var(--warning)' : refreshState === 'offline' ? 'var(--text-muted)' : 'var(--ocean)',
-            flexShrink: 0,
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 12,
+            border: 'none', textAlign: 'left', cursor: refreshState === 'loading' ? 'default' : 'pointer',
+            opacity: refreshState === 'loading' ? 0.7 : 1,
           }}
-        />
-        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-          {refreshState === 'loading' ? 'Опрашиваем источники...' : 'Обновить данные'}
-        </span>
-        <span style={{ fontSize: 11, color: refreshState === 'failed' ? 'var(--warning)' : 'var(--text-muted)', textAlign: 'right' }}>
-          {refreshState === 'offline'
-            ? 'Нет сети — показано сохранённое'
-            : refreshState === 'failed'
-              ? 'Источники не ответили'
-              : checkedAt
-                ? `Источники опрошены ${fmtAgo(new Date(checkedAt).toISOString())}${refreshNote ? ` · ${refreshNote}` : ''}`
-                : refreshNote ?? 'Опрос источников ещё не удавался'}
-        </span>
-      </button>
+        >
+          <RefreshCw
+            className={`w-5 h-5${refreshState === 'loading' ? ' animate-spin' : ''}`}
+            style={{ color: refreshTint, flexShrink: 0 }}
+          />
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+            Обновить данные
+          </span>
+          <span style={{ fontSize: 11, color: refreshState === 'failed' ? 'var(--warning)' : 'var(--text-muted)', textAlign: 'right' }}>
+            {refreshStatus}
+          </span>
+        </button>
+      )}
 
       {/* Чек-ин — мягкий сигнал, НЕ SOS. SOS — только EmergencyAction в шапке. */}
       <button
