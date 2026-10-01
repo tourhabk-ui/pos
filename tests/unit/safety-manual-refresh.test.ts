@@ -15,8 +15,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   MANUAL_REFRESH_MIN_INTERVAL_MS,
+  MANUAL_REFRESH_WAIT_MS,
+  MANUAL_REFRESH_FOLLOWUP_MS,
+  MANUAL_REFRESH_FOLLOWUP_TRIES,
+  SCREEN_STALE_MS,
   manualRefreshDecision,
   manualRefreshNote,
+  ingestFinishedSince,
+  screenIsStale,
   type ManualRefreshOutcome,
 } from '@/lib/safety/manual-refresh';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
@@ -142,9 +148,9 @@ describe('роут: поведение', () => {
 
 describe('экран: кнопка зовёт сбор и не подмешивает погоду', () => {
   it('нажатие идёт в /api/safety/refresh POST до перечитывания экрана', () => {
-    const handler = CLIENT.slice(CLIENT.indexOf('const handleRefresh'), CLIENT.indexOf('}, [loadAll, refreshState]'));
+    const handler = CLIENT.slice(CLIENT.indexOf('const handleRefresh'), CLIENT.indexOf('}, [reloadScreen, followIngest, refreshState]'));
     expect(handler).toMatch(/fetch\('\/api\/safety\/refresh', \{ method: 'POST' \}\)/);
-    expect(handler.indexOf("'/api/safety/refresh'")).toBeLessThan(handler.indexOf('loadAll(true)'));
+    expect(handler.indexOf("'/api/safety/refresh'")).toBeLessThan(handler.indexOf('reloadScreen(true)'));
   });
   it('время погоды не становится временем опроса источников', () => {
     const weather = CLIENT.slice(CLIENT.indexOf('/api/safety/weather?fresh='), CLIENT.indexOf('/api/safety/weather?fresh=') + 400);
@@ -153,5 +159,110 @@ describe('экран: кнопка зовёт сбор и не подмешив�
   it('подпись говорит «источники опрошены», а не «проверено»', () => {
     expect(CLIENT).toMatch(/Источники опрошены \$\{fmtAgo/);
     expect(CLIENT).not.toMatch(/`Проверено \$\{fmtAgo/);
+  });
+});
+
+/**
+ * Кнопка перечитывает ВЕСЬ экран, а не его нижнюю половину (01.10).
+ *
+ * Радар, лента предупреждений и пульсы приходят пропом `live` — серверным
+ * рендером страницы. Кнопка звала один loadAll, который этот блок не трогает,
+ * и верхний блок оставался таким, каким страница открылась. Владелец:
+ * «хоть я и нажимал на радаре обновить данные» — толчка на радаре не было.
+ */
+describe('экран: кнопка перечитывает и радар', () => {
+  const bodyOf = (start: string, end: string) => {
+    const at = CLIENT.indexOf(start);
+    expect(at, `${start} не найден`).toBeGreaterThan(0);
+    return CLIENT.slice(at, CLIENT.indexOf(end, at));
+  };
+
+  it('радар и пульсы рисуются из серверного пропа live — значит перечитывать их может только сервер', () => {
+    expect(CLIENT).toMatch(/<RadarScope hazards=\{live\.radar\.hazards\}/);
+    expect(CLIENT).toMatch(/<SeismicPulse events=\{live\.seismic\.events\}/);
+  });
+
+  it('перечитывание экрана зовёт router.refresh() и loadAll', () => {
+    const reload = bodyOf('const reloadScreen = useCallback', '}, [router, loadAll]);');
+    expect(reload).toMatch(/router\.refresh\(\)/);
+    expect(reload).toMatch(/return loadAll\(fresh\)/);
+    expect(CLIENT).toMatch(/import \{ useRouter \} from 'next\/navigation'/);
+  });
+
+  it('кнопка перечитывает экран через reloadScreen, а не голым loadAll', () => {
+    const handler = bodyOf('const handleRefresh', '}, [reloadScreen, followIngest, refreshState]');
+    expect(handler).toMatch(/await reloadScreen\(true\)/);
+    expect(handler).not.toMatch(/await loadAll\(true\)/);
+  });
+});
+
+/**
+ * «Источники отвечают долго — данные обновятся сами»: у обещания есть
+ * производитель (01.10). До этого экран перечитывался один раз, ДО того как
+ * продолжавшийся сбор что-то записал, и больше никто его не перечитывал.
+ */
+describe('экран: «обновятся сами» обеспечено дожиданием сбора', () => {
+  const follow = CLIENT.slice(
+    CLIENT.indexOf('const followIngest = useCallback'),
+    CLIENT.indexOf('}, [reloadScreen]);', CLIENT.indexOf('const followIngest = useCallback')),
+  );
+
+  it('исход «долго» запускает дожидание с временем сбора до нажатия', () => {
+    expect(CLIENT).toMatch(/before = d\.checked_at \?\? null/);
+    expect(CLIENT).toMatch(/if \(outcome === 'timeout'\) void followIngest\(before\)/);
+  });
+
+  it('дожидание спрашивает время последнего сбора и перечитывает экран, когда оно сдвинулось', () => {
+    expect(follow).toMatch(/fetch\('\/api\/safety\/seismic\?fresh=0'\)/);
+    expect(follow).toMatch(/ingestFinishedSince\(before, checked\)/);
+    expect(follow).toMatch(/await reloadScreen\(false\)/);
+  });
+
+  it('попыток конечное число, по исчерпании — честная строка', () => {
+    expect(follow).toMatch(/for \(let i = 0; i < MANUAL_REFRESH_FOLLOWUP_TRIES; i\+\+\)/);
+    expect(follow).toMatch(/setRefreshNote\(MANUAL_REFRESH_GAVE_UP_NOTE\)/);
+    // Две минуты дожидания поверх минуты ожидания кнопки — но не вечность.
+    const total = MANUAL_REFRESH_WAIT_MS + MANUAL_REFRESH_FOLLOWUP_MS * MANUAL_REFRESH_FOLLOWUP_TRIES;
+    expect(total).toBeGreaterThanOrEqual(2 * 60_000);
+    expect(total).toBeLessThanOrEqual(5 * 60_000);
+  });
+
+  it('уход со страницы и новое нажатие обрывают прежнее дожидание', () => {
+    expect(CLIENT).toMatch(/useEffect\(\(\) => \(\) => \{\s*followUpGen\.current\+\+;\s*if \(followUpTimer\.current\) clearTimeout\(followUpTimer\.current\);/);
+    const handler = CLIENT.slice(CLIENT.indexOf('const handleRefresh'), CLIENT.indexOf("fetch('/api/safety/refresh'"));
+    expect(handler).toMatch(/followUpGen\.current\+\+/);
+  });
+});
+
+describe('экран: возврат на давно открытую вкладку перечитывает её', () => {
+  it('по visibilitychange, только если экран устарел и сеть есть', () => {
+    const at = CLIENT.indexOf("addEventListener('visibilitychange'");
+    expect(at).toBeGreaterThan(0);
+    const block = CLIENT.slice(CLIENT.lastIndexOf('useEffect(() => {', at), at);
+    expect(block).toMatch(/screenIsStale\(lastScreenLoad\.current, Date\.now\(\)\)/);
+    expect(block).toMatch(/navigator\.onLine === false\) return/);
+    expect(block).toMatch(/void reloadScreen\(false\)/);
+  });
+});
+
+describe('правила дожидания и устаревания', () => {
+  it('сбор закончился — время последнего сбора ушло дальше того, что было до нажатия', () => {
+    expect(ingestFinishedSince('2026-10-01T00:00:00Z', '2026-10-01T00:01:30Z')).toBe(true);
+  });
+  it('время то же или раньше — ещё идёт', () => {
+    expect(ingestFinishedSince('2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')).toBe(false);
+    expect(ingestFinishedSince('2026-10-01T00:00:00Z', '2026-09-30T23:59:00Z')).toBe(false);
+  });
+  it('времени сбора нет или оно нечитаемо — «не знаем», не «закончился»', () => {
+    expect(ingestFinishedSince('2026-10-01T00:00:00Z', null)).toBe(false);
+    expect(ingestFinishedSince('2026-10-01T00:00:00Z', 'не дата')).toBe(false);
+  });
+  it('времени до нажатия не знали — любой прочитанный сбор считается', () => {
+    expect(ingestFinishedSince(null, '2026-10-01T00:01:30Z')).toBe(true);
+  });
+  it('экран устаревает через пять минут', () => {
+    expect(SCREEN_STALE_MS).toBe(5 * 60_000);
+    expect(screenIsStale(0, SCREEN_STALE_MS - 1)).toBe(false);
+    expect(screenIsStale(0, SCREEN_STALE_MS)).toBe(true);
   });
 });

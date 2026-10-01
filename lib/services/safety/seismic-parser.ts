@@ -433,7 +433,59 @@ export function severityForMagnitude(mag: number): 0 | 1 | 2 | 3 {
 // ── Парсер формата eqkam (структурированные сообщения) ───────────────────
 // Пример: «Время UTC: 15 MAR 2026  12:07:52\nКоординаты: 51.27, 159.73\n...Магнитуда (Ml): 4.8»
 
-function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent | null {
+const EQKAM_MONTHS: Record<string, number> = {
+  JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+  JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
+};
+
+/**
+ * Время очага из строки «Время UTC: 30 SEP 2026  18:36:18» бюллетеня EQKam.
+ * null — строки нет или она не разбирается; время тогда не выдумывается.
+ */
+export function parseEqkamOriginTime(text: string): Date | null {
+  const m = text.match(/Время\s+UTC:\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const month = EQKAM_MONTHS[m[2].toUpperCase()];
+  if (month === undefined) return null;
+  const [day, year, hh, mm, ss] = [m[1], m[3], m[4], m[5], m[6]].map(Number);
+  const t = Date.UTC(year, month, day, hh, mm, ss);
+  const d = new Date(t);
+  // 31 SEP превратился бы в 1 OCT — такая строка не разобрана, а не «поправлена».
+  if (Number.isNaN(t) || d.getUTCDate() !== day || d.getUTCMonth() !== month || hh > 23 || mm > 59 || ss > 59) {
+    return null;
+  }
+  return d;
+}
+
+/** Бюллетень выходит после толчка: очаг позже поста — не очаг; неделя до поста — не тот пост. */
+const EQKAM_ORIGIN_AFTER_POST_MS = 15 * 60_000;
+const EQKAM_ORIGIN_BEFORE_POST_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Время толчка для записи: очаг из текста, если он правдоподобен рядом с
+ * временем поста; иначе время поста.
+ *
+ * ── Почему не время поста (01.10) ──────────────────────────────────────────
+ *
+ * Бюллетень выходит минут через шесть после толчка: 30.09 очаг 18:36:18 UTC,
+ * пост 18:42. Записывалось время поста — а сверка «тот же толчок уже пришёл
+ * от USGS или emsd.ru» (findSameQuake) ищет запись в окне ±30 с от времени
+ * очага. Шесть минут в тридцать секунд не влезают, и один толчок вставал в
+ * ленту дважды: M5.5 от USGS и M5.0 от EQKam, оба «5 ч назад» (снимок
+ * владельца 01.10). Время очага пишут USGS и emsd.ru; EQKam его тоже знает —
+ * оно стоит в первой строке бюллетеня.
+ */
+export function eqkamEventTime(text: string, postedAt: string): Date {
+  const posted = new Date(postedAt);
+  const origin = parseEqkamOriginTime(text);
+  if (!origin) return posted;
+  if (Number.isNaN(posted.getTime())) return origin;
+  const lead = posted.getTime() - origin.getTime();
+  if (lead < -EQKAM_ORIGIN_AFTER_POST_MS || lead > EQKAM_ORIGIN_BEFORE_POST_MS) return posted;
+  return origin;
+}
+
+export function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent | null {
   const magMatch = text.match(/Магнитуда\s*\(Ml\):\s*(\d+\.?\d*)/i);
   if (!magMatch) return null;
 
@@ -467,7 +519,9 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
   return {
     source_id: id,
     source_url: `https://${id}`,
-    published_at: new Date(datetime),
+    // Время очага, а не поста: иначе сверка с USGS и emsd.ru (±30 с по
+    // очагу) не узнаёт тот же толчок — разбор в eqkamEventTime.
+    published_at: eqkamEventTime(text, datetime),
     alert_type: 'earthquake',
     severity,
     title: `Землетрясение ML ${mag} — ${epicenter.slice(0, 50)}`,
