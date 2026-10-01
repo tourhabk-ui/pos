@@ -17,7 +17,7 @@ const base: TourSeoInput = {
   location_name: 'Мутновский район',
   latitude: 52.5, longitude: 158.0,
 };
-const opts = { canonicalUrl: 'https://vedarai.ru/catalog/tours/7', siteUrl: 'https://vedarai.ru', activityLabel: 'Треккинг' };
+const opts = { canonicalUrl: 'https://vedarai.ru/catalog/tours/7', siteUrl: 'https://vedarai.ru', activityLabel: 'Треккинг', availability: null };
 
 function nodes(g: Record<string, unknown>) {
   return (g['@graph'] as Array<Record<string, unknown>>);

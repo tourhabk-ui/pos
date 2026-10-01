@@ -454,7 +454,8 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         '@type': 'Offer',
         price: route.priceFrom,
         priceCurrency: 'RUB',
-        availability: 'https://schema.org/InStock',
+        // availability не объявляется: цена «от» маршрута — не предложение с
+        // датами; честный ответ по датам — на карточке тура (аудит 01.10).
         url: `https://vedarai.ru/routes/${id}`,
         seller: {
           '@type': 'TravelAgency',

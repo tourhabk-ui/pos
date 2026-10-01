@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 
-const OPTS = { canonicalUrl: 'https://vedarai.ru/catalog/tours/27', siteUrl: 'https://vedarai.ru', activityLabel: 'Сплав' };
+const OPTS = { canonicalUrl: 'https://vedarai.ru/catalog/tours/27', siteUrl: 'https://vedarai.ru', activityLabel: 'Сплав', availability: null };
 
 const tour = (over: Record<string, unknown>) => ({
   id: 27,
