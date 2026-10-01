@@ -44,14 +44,17 @@ describe('правило: когда кнопка вправе опросить 
   it('не знаем, когда был сбор, — не запрещаем (потолок держит ограничитель)', () => {
     expect(manualRefreshDecision(null, now)).toBe('run');
   });
-  it('у каждого исхода, кроме «опросили», своя строка, и ни одна не говорит «проверено»', () => {
-    const outcomes: ManualRefreshOutcome[] = ['partial', 'recent', 'timeout', 'failed'];
+  it('у каждого исхода, кроме «опросили» и «опрашивали недавно», своя строка, и ни одна не говорит «проверено»', () => {
+    const outcomes: ManualRefreshOutcome[] = ['partial', 'timeout', 'failed'];
     for (const o of outcomes) {
       const note = manualRefreshNote(o);
       expect(note, o).toBeTruthy();
       expect(note, o).not.toMatch(/проверено/i);
     }
     expect(manualRefreshNote('ran')).toBeNull();
+    // «Опрошены 2 мин назад · Опрашивали меньше 2 мин назад» — одно и то же
+    // дважды; время опроса на экране уже это говорит (владелец 01.10).
+    expect(manualRefreshNote('recent')).toBeNull();
   });
 });
 
@@ -178,7 +181,7 @@ describe('экран: кнопка перечитывает и радар', () =
   };
 
   it('радар и пульсы рисуются из серверного пропа live — значит перечитывать их может только сервер', () => {
-    expect(CLIENT).toMatch(/<RadarScope hazards=\{live\.radar\.hazards\}/);
+    expect(CLIENT).toMatch(/<RadarScope\s+hazards=\{live\.radar\.hazards\}/);
     expect(CLIENT).toMatch(/<SeismicPulse events=\{live\.seismic\.events\}/);
   });
 
@@ -264,5 +267,39 @@ describe('правила дожидания и устаревания', () => {
     expect(SCREEN_STALE_MS).toBe(5 * 60_000);
     expect(screenIsStale(0, SCREEN_STALE_MS - 1)).toBe(false);
     expect(screenIsStale(0, SCREEN_STALE_MS)).toBe(true);
+  });
+});
+
+/**
+ * Кнопка — иконка в правом верхнем углу радара (владелец 01.10: «под карту
+ * или маленькой иконкой в правом верхнем углу карты, но чтобы она была
+ * рабочая»). Отдельная карточка ниже по странице — только запасом, когда
+ * радара нет.
+ */
+describe('экран: кнопка на радаре', () => {
+  const LIVE = readFileSync(join(ROOT, 'components/safety/LiveStatus.tsx'), 'utf-8');
+
+  it('радар принимает действие и ставит его в правый верхний угол', () => {
+    expect(LIVE).toMatch(/\{action && <div className="ract">\{action\}<\/div>\}/);
+    expect(LIVE).toMatch(/\.kh-live \.radar \.ract\{position:absolute;top:8px;right:8px/);
+    expect(LIVE).toMatch(/\.kh-live \.radar\{position:relative;/);
+  });
+
+  it('экран передаёт радару иконку, которая зовёт тот же handleRefresh', () => {
+    expect(CLIENT).toMatch(/action=\{refreshIcon\}/);
+    const icon = CLIENT.slice(CLIENT.indexOf('const refreshIcon = ('), CLIENT.indexOf('const bannerColor'));
+    expect(icon).toMatch(/onClick=\{handleRefresh\}/);
+    expect(icon).toMatch(/aria-label="Обновить данные"/);
+    expect(icon).toMatch(/width: 44, height: 44/);
+  });
+
+  it('под радаром — строка статуса опроса, видимая без нажатия', () => {
+    expect(CLIENT).toMatch(/<p role="status" aria-live="polite"[^>]*>\s*\{refreshStatus\}/);
+  });
+
+  it('большая карточка «Обновить данные» — только когда радара нет', () => {
+    const at = CLIENT.indexOf('Обновить данные — запасная карточка');
+    expect(at).toBeGreaterThan(0);
+    expect(CLIENT.slice(at, at + 600)).toMatch(/\{!live && \(/);
   });
 });

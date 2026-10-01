@@ -53,7 +53,10 @@ export function manualRefreshNote(outcome: ManualRefreshOutcome): string | null 
   switch (outcome) {
     case 'ran': return null; // время проверки скажет само
     case 'partial': return 'Часть источников не ответила';
-    case 'recent': return 'Опрашивали меньше 2 мин назад';
+    // Время опроса уже стоит рядом («опрошены 2 мин назад»); вторая строка
+    // о том же («опрашивали меньше 2 мин назад») читалась как сбой (снимок
+    // владельца 01.10). Экран при этом перечитан — кнопка своё сделала.
+    case 'recent': return null;
     case 'timeout': return 'Источники отвечают долго — данные обновятся сами';
     case 'failed': return 'Источники опросить не удалось';
   }
