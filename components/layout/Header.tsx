@@ -8,6 +8,7 @@ import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
 import { GeoToggle } from '@/components/geo/GeoToggle';
 import Logo from '@/components/shared/Logo';
+import { sessionState } from '@/lib/auth/session-state';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
@@ -71,13 +72,10 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
   React.useEffect(() => {
     let alive = true;
     // /api/auth/state, а не /api/auth/me: у гостя «me» отвечает 401 и красит
-    // консоль на каждом экране (#1780); «state» отдаёт 200 с флагом.
-    fetch('/api/auth/state', { credentials: 'include' })
-      .then(r => (r.ok ? r.json() : null))
-      .then((d: { data?: { authenticated?: boolean } } | null) => {
-        if (alive && typeof d?.data?.authenticated === 'boolean') setAuthed(d.data.authenticated);
-      })
-      .catch(() => { /* связи нет — состояние остаётся «не знаю» */ });
+    // консоль на каждом экране (#1780); «state» отдаёт 200 с флагом. Один
+    // запрос на экран — его же ждут AuthContext и блоки страницы
+    // (lib/auth/session-state). null — связи нет, состояние «не знаю».
+    sessionState().then((v) => { if (alive && v !== null) setAuthed(v); });
     return () => { alive = false; };
   }, []);
   const scrolled = scrollY > 60;

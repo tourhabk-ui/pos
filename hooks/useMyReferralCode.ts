@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react';
 import { isUserReferralCode } from '@/lib/referral/link';
+import { sessionState } from '@/lib/auth/session-state';
 
 interface CodeResponse {
   success?: boolean;
@@ -27,8 +28,12 @@ export function useMyReferralCode(enabled = true): string | null {
     if (!enabled) return;
     let alive = true;
 
-    fetch('/api/referral/my-code', { cache: 'no-store' })
-      .then((res) => (res.ok ? (res.json() as Promise<CodeResponse>) : null))
+    // Код есть только у вошедшего: у гостя роут отвечал 401 (аудит 01.10).
+    sessionState()
+      .then((authed) => (authed === true
+        ? fetch('/api/referral/my-code', { cache: 'no-store' })
+            .then((res) => (res.ok ? (res.json() as Promise<CodeResponse>) : null))
+        : null))
       .then((json) => {
         const value = json?.data?.code ?? null;
         if (alive && isUserReferralCode(value)) setCode(value as string);

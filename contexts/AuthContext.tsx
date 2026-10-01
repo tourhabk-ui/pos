@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { sessionState, resetSessionState } from '@/lib/auth/session-state';
 
 export interface User {
   id: string;
@@ -166,6 +167,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadUserFromCookie = async () => {
     try {
+      // Сначала «вошёл ли» (200 с флагом), потом данные: у гостя /api/auth/me
+      // отвечал 401 на каждой странице сайта (аудит 01.10). Не смогли
+      // спросить (null) — тоже не зовём: данных всё равно не будет.
+      if ((await sessionState()) !== true) return;
       const response = await fetch('/api/auth/me');
       if (!response.ok) return;
       const result = await response.json();
@@ -211,6 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUser(userData);
     await saveUserToStorage(userData);
+    resetSessionState();
 
     if (typeof window !== 'undefined') {
       localStorage.setItem('user_roles', JSON.stringify(userData.roles));
@@ -292,6 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(userData);
       await saveUserToStorage(userData);
+      resetSessionState();
       
       // Also update roles in RoleContext
       if (typeof window !== 'undefined') {
@@ -308,6 +315,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
       await fetch('/api/auth/signout', { method: 'POST' });
+      resetSessionState();
       setUser(null);
       await saveUserToStorage(null);
       

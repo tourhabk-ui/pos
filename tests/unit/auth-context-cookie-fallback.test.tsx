@@ -7,12 +7,17 @@
  * залогиненного на /auth/login). Контракт: localStorage пуст → fallback-фетч
  * /api/auth/me БЕЗ Authorization (cookie); 401/ошибка → гость без вечного
  * loading; валидный localStorage → прежний Bearer-путь.
+ *
+ * С 01.10 (аудит vedarai.ru) cookie-путь сперва спрашивает /api/auth/state
+ * (200 с флагом, lib/auth/session-state) и зовёт /api/auth/me только при
+ * «вошёл»: у гостя «me» отвечал 401 на каждой странице сайта.
  */
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { resetSessionState } from '@/lib/auth/session-state';
 
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
@@ -37,17 +42,23 @@ const ME_RESPONSE = {
   },
 };
 
+/** Ответ /api/auth/state: true — cookie-сессия жива, false — гость. */
+const state = (authenticated: boolean) =>
+  Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { authenticated } }) });
+const isState = (url: unknown) => String(url).includes('/api/auth/state');
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // Ответ «вошёл ли» живёт в модуле минуту — между тестами его не переносим.
+  resetSessionState();
 });
 
 describe('AuthContext — cookie-only сессии (magic-link)', () => {
   it('localStorage пуст + cookie-сессия жива → user заполнен, user_roles записан', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(ME_RESPONSE),
-    });
+    fetchMock.mockImplementation((url: string) => (isState(url)
+      ? state(true)
+      : Promise.resolve({ ok: true, json: () => Promise.resolve(ME_RESPONSE) })));
 
     render(<AuthProvider><Probe /></AuthProvider>);
 
@@ -64,6 +75,19 @@ describe('AuthContext — cookie-only сессии (magic-link)', () => {
     expect(JSON.parse(localStorage.getItem('user_roles')!)).toEqual(['tourist']);
     // cookie-only юзер НЕ пишется в localStorage['user'] (нет токена)
     expect(localStorage.getItem('user')).toBeNull();
+  });
+
+  it('гость: /api/auth/state отвечает «не вошёл» → /api/auth/me не зовётся (нет 401)', async () => {
+    fetchMock.mockImplementation((url: string) => (isState(url)
+      ? state(false)
+      : Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ success: false }) })));
+
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => {
+      expect(screen.getByText('guest')).toBeInTheDocument();
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/auth/me'))).toBe(false);
   });
 
   it('localStorage пуст + 401 → гость, без вечного loading', async () => {
@@ -113,7 +137,8 @@ describe('AuthContext — cookie-only сессии (magic-link)', () => {
       ...ME_RESPONSE.data,
       token: 'expired-token',
     }));
-    fetchMock.mockImplementation((_url: string, init?: { headers?: Record<string, string> }) => {
+    fetchMock.mockImplementation((url: string, init?: { headers?: Record<string, string> }) => {
+      if (isState(url)) return state(true);
       if (init?.headers?.Authorization) {
         return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ success: false }) });
       }

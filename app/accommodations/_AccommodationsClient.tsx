@@ -8,6 +8,7 @@ import { AccommodationCardSkeleton } from '@/components/shared/AccommodationCard
 import { AccommodationFilters } from '@/components/shared/AccommodationFilters';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { staySearchEntity, type StaySearchOutcome } from '@/lib/stay/demand';
+import { sessionState } from '@/lib/auth/session-state';
 
 // Форма ответа GET /api/accommodations (camelCase — как отдаёт роут;
 // старый snake_case интерфейс не совпадал с API и листинг падал)
@@ -90,8 +91,11 @@ export function AccommodationsClient() {
   const [favMap, setFavMap] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     let alive = true;
-    fetch('/api/tourist/wishlist?type=accommodation')
-      .then(r => (r.ok ? r.json() : null))
+    // Только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
+    sessionState()
+      .then(authed => (authed === true
+        ? fetch('/api/tourist/wishlist?type=accommodation').then(r => (r.ok ? r.json() : null))
+        : null))
       .then((data: { data?: Array<{ item_id: string; id: string | number }> } | null) => {
         if (!alive || !Array.isArray(data?.data)) return;
         setFavMap(new Map(data.data.map(i => [String(i.item_id), String(i.id)])));
