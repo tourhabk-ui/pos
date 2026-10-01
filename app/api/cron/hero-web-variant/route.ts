@@ -39,7 +39,8 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { heroVariantFor, heroVariantKey, oversizeVariantKey } from '@/lib/places/hero-variant';
+import { heroVariantFor, heroVariantKey, oversizeVariantKey, thumbVariantKey } from '@/lib/places/hero-variant';
+import { THUMB_VARIANT } from '@/lib/images/web-variant';
 import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic     = 'force-dynamic';
@@ -53,7 +54,8 @@ const MAX_BATCH = 10;
 /** С какого веса объект хранилища считается тяжёлым: канон 1280 px весит 150–400 КБ. */
 const OVERSIZE_MIN_BYTES = 450 * 1024;
 
-const ScopeSchema = z.enum(['hero', 'oversize']).default('hero');
+const ScopeSchema = z.enum(['hero', 'oversize', 'thumb']).default('hero');
+type Scope = z.infer<typeof ScopeSchema>;
 
 const BodySchema = z.object({
   reason:  z.string().min(10, 'Причина обязательна: зачем трогаем снимки'),
@@ -151,8 +153,68 @@ async function oversizeCandidates(limit: number): Promise<Picked> {
   };
 }
 
-function candidates(scope: 'hero' | 'oversize', limit: number): Promise<Picked> {
+/**
+ * Копия для карточки (scope thumb, миграция 1138): показываемые снимки
+ * объектом в хранилище, у которых копии ещё нет. Оригинал не трогается —
+ * копия ложится рядом, адрес пишется в thumb_url.
+ */
+const THUMB_WHERE = `i.image_data IS NULL
+        AND i.s3_url IS NOT NULL
+        AND i.thumb_url IS NULL
+        AND ${shownPhotoSql('i.model')}`;
+
+async function thumbCandidates(limit: number): Promise<Picked> {
+  const { rows } = await pool.query<Row>(
+    `SELECT i.id::text, i.route_id::text, i.s3_url, i.s3_key, p.name AS place_name
+       FROM ai_route_images i
+       LEFT JOIN places p ON p.ark_id = i.route_id
+      WHERE ${THUMB_WHERE}
+      ORDER BY i.created_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+  const { rows: left } = await pool.query<{ pending: string }>(
+    `SELECT COUNT(*)::text AS pending FROM ai_route_images i WHERE ${THUMB_WHERE}`,
+  );
+  return {
+    rows,
+    pending: Number(left[0]?.pending ?? '0'),
+    plan: rows.map((r) => ({ id: r.id, subject: r.place_name, source: r.s3_url })),
+    unchecked: [],
+  };
+}
+
+function candidates(scope: Scope, limit: number): Promise<Picked> {
+  if (scope === 'thumb') return thumbCandidates(limit);
   return scope === 'oversize' ? oversizeCandidates(limit) : heroCandidates(limit);
+}
+
+/**
+ * Копия для карточки: снимок не меняется, адрес копии — в thumb_url.
+ * «Копия не нужна» (оригинал легче) — тоже записывается: thumb_url = сам
+ * оригинал, иначе строка выбиралась бы в каждую партию вечно.
+ */
+async function writeThumb(r: Row): Promise<
+  | { kind: 'done'; was_kb: number; now_kb: number; size: string }
+  | { kind: 'skipped'; reason: string }
+  | { kind: 'failed'; reason: string }
+> {
+  const variant = await heroVariantFor(r.s3_url, thumbVariantKey(r.route_id, r.id), THUMB_VARIANT);
+  if (variant.status === 'failed') return { kind: 'failed', reason: variant.reason };
+  const url = variant.status === 'made' ? variant.url : r.s3_url;
+  const res = await pool.query(
+    `UPDATE ai_route_images SET thumb_url = $1
+      WHERE id = $2::uuid AND s3_url = $3 AND thumb_url IS NULL`,
+    [url, r.id, r.s3_url],
+  );
+  if ((res.rowCount ?? 0) === 0) return { kind: 'failed', reason: 'снимок изменился между планом и записью — не тронут' };
+  if (variant.status === 'not_needed') return { kind: 'skipped', reason: variant.reason };
+  return {
+    kind: 'done',
+    was_kb: Math.round(variant.wasBytes / 1024),
+    now_kb: Math.round(variant.nowBytes / 1024),
+    size: `${variant.width}x${variant.height}`,
+  };
 }
 
 function authorized(req: NextRequest): boolean {
@@ -168,7 +230,7 @@ function sqlFailure(where: string, err: unknown) {
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const scope = ScopeSchema.safeParse(req.nextUrl.searchParams.get('scope') ?? undefined);
-  if (!scope.success) return NextResponse.json({ error: 'scope: hero или oversize' }, { status: 400 });
+  if (!scope.success) return NextResponse.json({ error: 'scope: hero, oversize или thumb' }, { status: 400 });
   try {
     const { plan, pending, unchecked } = await candidates(scope.data, MAX_BATCH);
     return NextResponse.json({
@@ -226,6 +288,22 @@ export async function POST(req: NextRequest) {
   const failed: Array<{ id: string; reason: string }> = [];
 
   for (const r of picked.rows) {
+    if (scope === 'thumb') {
+      try {
+        const out = await writeThumb(r);
+        if (out.kind === 'done') done.push({ id: r.id, subject: r.place_name, was_kb: out.was_kb, now_kb: out.now_kb, size: out.size });
+        else if (out.kind === 'skipped') skipped.push({ id: r.id, reason: out.reason });
+        else {
+          console.error(`[hero-web-variant] копия для карточки ${r.id} не сделана:`, out.reason);
+          failed.push({ id: r.id, reason: out.reason });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[hero-web-variant] копия для карточки ${r.id} не записана:`, msg);
+        failed.push({ id: r.id, reason: msg.slice(0, 200) });
+      }
+      continue;
+    }
     const key = scope === 'oversize' ? oversizeVariantKey(r.route_id, r.id) : heroVariantKey(r.route_id, r.id);
     const variant = await heroVariantFor(r.s3_url, key);
     if (variant.status === 'not_needed') { skipped.push({ id: r.id, reason: variant.reason }); continue; }

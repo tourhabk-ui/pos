@@ -59,8 +59,54 @@ describe('копия по канону, без обрезки', () => {
 
   it('EXIF-поворот — до уменьшения, качество и размер — канон платформы', () => {
     const src = code('lib/images/web-variant.ts');
-    expect(src).toMatch(/\.rotate\(\)\s*\.resize\(WEB_VARIANT\.width, WEB_VARIANT\.height, \{ fit: 'outside', withoutEnlargement: true \}\)/);
+    expect(src).toMatch(/\.rotate\(\)\s*\.resize\(size\.width, size\.height, \{ fit: 'outside', withoutEnlargement: true \}\)/);
+    // Размер по умолчанию — канон героя; копия для карточки задаёт свой.
+    expect(src).toMatch(/makeWebVariant\(input: Buffer, size: VariantSize = WEB_VARIANT\)/);
     expect(WEB_VARIANT).toEqual({ width: 1280, height: 720, quality: 85 });
+  });
+});
+
+/**
+ * Копия для карточки (миграция 1138, аудит 01.10): главная грузила снимки
+ * карточек оригиналами — 1,95 МБ из 2,6 на рамки в ~170 пикселей.
+ */
+describe('копия для карточки (scope thumb)', () => {
+  const ROUTE = code('app/api/cron/hero-web-variant/route.ts');
+  const SERVE = code('app/api/images/route/[routeId]/route.ts');
+
+  it('480x360, ключ рядом с объектом снимка', async () => {
+    const { THUMB_VARIANT } = await import('@/lib/images/web-variant');
+    const { thumbVariantKey } = await import('@/lib/places/hero-variant');
+    expect(THUMB_VARIANT).toEqual({ width: 480, height: 360, quality: 80 });
+    expect(thumbVariantKey('ark', 'img')).toBe('places/ark/img-480.jpg');
+  });
+
+  it('пишет только thumb_url, оригинал не трогает; гонка — не тронуто', () => {
+    expect(ROUTE).toMatch(/scope === 'thumb'/);
+    expect(ROUTE).toMatch(/UPDATE ai_route_images SET thumb_url = \$1\s+WHERE id = \$2::uuid AND s3_url = \$3 AND thumb_url IS NULL/);
+    expect(ROUTE).toMatch(/heroVariantFor\(r\.s3_url, thumbVariantKey\(r\.route_id, r\.id\), THUMB_VARIANT\)/);
+  });
+
+  it('«копия не нужна» записывает оригинал, иначе строка выбиралась бы вечно', () => {
+    expect(ROUTE).toMatch(/const url = variant\.status === 'made' \? variant\.url : r\.s3_url;/);
+    expect(ROUTE).toMatch(/i\.thumb_url IS NULL/);
+  });
+
+  it('раздача: ?size=card — копия; без копии оригинал с коротким кэшем', () => {
+    expect(SERVE).toMatch(/searchParams\.get\('size'\) === 'card'/);
+    expect(SERVE).toMatch(/if \(forCard && row\?\.thumb_url\)/);
+    expect(SERVE).toMatch(/'Cache-Control': forCard \? CACHE_UNTIL_THUMB : CACHE_LONG/);
+  });
+
+  it('карточки просят копию', () => {
+    const CARD = code('lib/routes/card-image.ts');
+    expect(CARD.match(/\?size=card`/g)).toHaveLength(2);
+  });
+
+  it('актуатор знает задачу thumb', () => {
+    const wf = code('.github/workflows/images-repack.yml');
+    expect(wf).toMatch(/'oversize', 'thumb'\)/);
+    expect(wf).toMatch(/EXTRA="\\"scope\\": \\"thumb\\","/);
   });
 });
 

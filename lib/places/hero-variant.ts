@@ -9,7 +9,7 @@
  * source_url: копия — производная, её можно пересоздать.
  */
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
-import { fetchSource, makeWebVariant, uploadVerified } from '@/lib/images/web-variant';
+import { fetchSource, makeWebVariant, uploadVerified, WEB_VARIANT, type VariantSize } from '@/lib/images/web-variant';
 
 export type HeroVariantOutcome =
   | { status: 'made'; url: string; key: string; width: number; height: number; wasBytes: number; nowBytes: number }
@@ -29,11 +29,16 @@ export function oversizeVariantKey(arkId: string, imageId: string): string {
   return `places/${arkId}/${imageId}-1280.jpg`;
 }
 
-export async function heroVariantFor(sourceUrl: string, key: string): Promise<HeroVariantOutcome> {
+/** Ключ копии для карточки (scope thumb): рядом с объектом снимка. */
+export function thumbVariantKey(arkId: string, imageId: string): string {
+  return `places/${arkId}/${imageId}-480.jpg`;
+}
+
+export async function heroVariantFor(sourceUrl: string, key: string, size: VariantSize = WEB_VARIANT): Promise<HeroVariantOutcome> {
   if (!isS3Configured) return { status: 'failed', reason: 'хранилище не настроено' };
   const src = await fetchSource(sourceUrl);
   if (src.buf === null) return { status: 'failed', reason: src.reason };
-  const variant = await makeWebVariant(src.buf);
+  const variant = await makeWebVariant(src.buf, size);
   if (variant.status !== 'made') return variant;
   const up = await uploadVerified(key, variant.buf, uploadToS3);
   if (up.url === null) return { status: 'failed', reason: up.reason };

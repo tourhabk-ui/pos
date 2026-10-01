@@ -22,6 +22,15 @@ import sharp from 'sharp';
 
 export const WEB_VARIANT = { width: 1280, height: 720, quality: 85 } as const;
 
+/**
+ * Копия для карточки (01.10): рамка карточки ~170 CSS-пикселей, на телефоне
+ * с плотностью 2,6 это ~450 точек. 480x360 с `outside` покрывает рамку без
+ * мыла; q80 — карточка мала, разница с q85 не видна, вес меньше.
+ */
+export const THUMB_VARIANT = { width: 480, height: 360, quality: 80 } as const;
+
+export type VariantSize = { readonly width: number; readonly height: number; readonly quality: number };
+
 /** Оригиналы тяжелее этого не качаем: загрузка туриста ограничена 10 МБ. */
 export const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 
@@ -30,13 +39,13 @@ export type WebVariantResult =
   | { status: 'not_needed'; reason: string }
   | { status: 'failed'; reason: string };
 
-export async function makeWebVariant(input: Buffer): Promise<WebVariantResult> {
+export async function makeWebVariant(input: Buffer, size: VariantSize = WEB_VARIANT): Promise<WebVariantResult> {
   try {
     const out = await sharp(input, { failOn: 'truncated' })
       // EXIF-ориентация — ДО уменьшения: иначе портрет ужался бы как лежащий.
       .rotate()
-      .resize(WEB_VARIANT.width, WEB_VARIANT.height, { fit: 'outside', withoutEnlargement: true })
-      .jpeg({ quality: WEB_VARIANT.quality, progressive: true, mozjpeg: true })
+      .resize(size.width, size.height, { fit: 'outside', withoutEnlargement: true })
+      .jpeg({ quality: size.quality, progressive: true, mozjpeg: true })
       .toBuffer();
 
     // Буфер вернулся — это ещё не изображение. Проверка ДО записи.

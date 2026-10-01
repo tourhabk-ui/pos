@@ -55,7 +55,7 @@ describe('род картинки называется честно', () => {
   it('свой показываемый снимок — own, и адрес ведёт на него', () => {
     const r = cardImage({ hasShownPhoto: true, id: 'abc', category: 'vulkani' });
     expect(r.kind).toBe('own');
-    expect(r.url).toBe('/api/images/route/abc');
+    expect(r.url).toBe('/api/images/route/abc?size=card');
   });
 
   it('у МЕСТА без снимка — градиент, подстановки больше нет', () => {
@@ -84,14 +84,14 @@ describe('род картинки называется честно', () => {
     // Скрин владельца 26.09: «Однодневный поход к Авачинскому вулкану» с
     // кратером Горелого — заглушкой всей категории trekking.
     const withPoint = cardImage({ hasShownPhoto: false, id: 'route-1', category: 'trekking', kind: 'route', waypointPhotoId: 'place-ark-9' });
-    expect(withPoint).toEqual({ kind: 'waypoint_place', url: '/api/images/route/place-ark-9' });
+    expect(withPoint).toEqual({ kind: 'waypoint_place', url: '/api/images/route/place-ark-9?size=card' });
     const noPoint = cardImage({ hasShownPhoto: false, id: 'route-1', category: 'trekking', kind: 'route' });
     expect(noPoint).toEqual({ kind: 'gradient', url: null });
   });
 
   it('свой снимок маршрута важнее снимка точки', () => {
     const r = cardImage({ hasShownPhoto: true, id: 'route-1', kind: 'route', waypointPhotoId: 'place-ark-9' });
-    expect(r).toEqual({ kind: 'own', url: '/api/images/route/route-1' });
+    expect(r).toEqual({ kind: 'own', url: '/api/images/route/route-1?size=card' });
   });
 
   it('каталог берёт снимок только ТОЧКИ ПУТИ, не места «рядом»', () => {

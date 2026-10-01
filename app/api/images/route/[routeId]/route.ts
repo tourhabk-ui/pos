@@ -27,8 +27,18 @@ interface Props { params: Promise<{ routeId: string }> }
  * уже подтверждён, а байты ещё не убраны. Отдавать в этом случае байты не
  * ошибка, но лишняя работа базе, ради снятия которой переезд и затеян.
  */
-export async function GET(_req: NextRequest, { params }: Props) {
+/**
+ * `?size=card` — карточка (миграция 1138, аудит 01.10): уменьшенная копия,
+ * если она уже сделана. Пока её нет — оригинал, но с КОРОТКИМ кэшем:
+ * перенаправление «навсегда» на оригинал браузер держал бы год и копию не
+ * увидел бы никогда.
+ */
+const CACHE_LONG = 'public, max-age=31536000, immutable';
+const CACHE_UNTIL_THUMB = 'public, max-age=3600';
+
+export async function GET(req: NextRequest, { params }: Props) {
   const { routeId } = await params;
+  const forCard = req.nextUrl.searchParams.get('size') === 'card';
 
   if (!/^[0-9a-f-]{36}$/.test(routeId)) {
     return new NextResponse('Not found', { status: 404 });
@@ -40,7 +50,7 @@ export async function GET(_req: NextRequest, { params }: Props) {
     // попадалась первой — та и уходила, включая случаи, когда постер канала
     // выбирал этот URL ради wikimedia-фото, а эндпоинт отдавал другой блоб.
     const { rows } = await pool.query(
-      `SELECT image_data, mime_type, s3_url FROM ai_route_images
+      `SELECT image_data, mime_type, s3_url, thumb_url FROM ai_route_images
        WHERE route_id = $1
        ORDER BY CASE WHEN ${shownPhotoSql('model')} THEN 0 ELSE 1 END,
                 created_at DESC
@@ -50,13 +60,20 @@ export async function GET(_req: NextRequest, { params }: Props) {
 
     const row = rows[0];
 
+    if (forCard && row?.thumb_url) {
+      return NextResponse.redirect(row.thumb_url as string, {
+        status: 302,
+        headers: { 'Cache-Control': CACHE_LONG, 'X-Source': 's3-thumb' },
+      });
+    }
+
     if (row?.s3_url) {
       // Снимок уже в объектном хранилище. Отдаём ссылкой, а не телом: тот же
       // адрес, тот же кеш, но база и Node из пути исчезают.
       return NextResponse.redirect(row.s3_url as string, {
         status: 302,
         headers: {
-          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Cache-Control': forCard ? CACHE_UNTIL_THUMB : CACHE_LONG,
           'X-Source': 's3',
         },
       });
