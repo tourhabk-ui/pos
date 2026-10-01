@@ -52,14 +52,28 @@
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
+import { tgSend } from '@/lib/notifications/tg-send';
 
-/** Окно и потолок на клиента: столько же, сколько держал счётчик в памяти. */
-export const CLIENT_WINDOW_MINUTES = 10;
+/**
+ * Квота записи — решение владельца 01.10 (разбор публичного аудита): «квота на
+ * запись, не ключ». Ключ сломал бы публичный коннектор — Claude и реестр
+ * подключены без авторизации. Пороги: 5 заявок в час и 20 в сутки с адреса,
+ * дедуп по телефону за сутки. До 01.10 окно было 10 минут, а на номер
+ * пускалось три заявки.
+ */
+export const CLIENT_WINDOW_MINUTES = 60;
 export const CLIENT_MAX_PER_WINDOW = 5;
 /** Суточный потолок на клиента — от медленного равномерного потока. */
 export const CLIENT_MAX_PER_DAY = 20;
-/** Сколько заявок на ОДИН номер терпим за сутки. */
-export const PHONE_MAX_PER_DAY = 3;
+/**
+ * Дедуп по телефону: одна ПРИНЯТАЯ заявка на номер за сутки — в пределах
+ * одного инструмента. Подбор (create_lead), а потом бронь конкретной даты
+ * (create_booking_request) от одного человека — два разных намерения, и
+ * второе первым не отменяется.
+ */
+export const PHONE_MAX_PER_DAY = 1;
+/** Окно, в котором о всплеске сообщается оператору один раз. */
+export const BURST_ALERT_WINDOW_MINUTES = 60;
 
 export type WriteOutcome = 'allowed' | 'rate_limited' | 'quarantined' | 'no_consent' | 'unknown';
 
@@ -107,10 +121,12 @@ export interface WriteGuardInput {
   consent: boolean;
 }
 
-interface Counts {
+export interface Counts {
   by_client_window: number;
   by_client_day: number;
   by_phone_day: number;
+  /** Отказов-карантинов этому номеру за окно оповещения: ноль — сообщаем. */
+  phone_quarantined_recent: number;
 }
 
 /**
@@ -195,21 +211,28 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     // Приведения у параметров явные: форма «сравнение с колонкой внутри
     // FILTER» выводом типов не покрыта так же надёжно, как обычный WHERE,
     // а цена ошибки здесь — 42P08 на живом пути (случай 24.08 в CLAUDE.md).
-    const { rows } = await client.query<{ a: string; b: string; c: string }>(
+    // Дедуп номера — в пределах инструмента ($4): подбор и бронь даты от
+    // одного человека — разные намерения (см. PHONE_MAX_PER_DAY).
+    const { rows } = await client.query<{ a: string; b: string; c: string; d?: string }>(
       `SELECT
          COUNT(*) FILTER (WHERE client_key = $1::char(64)
                             AND created_at > NOW() - (INTERVAL '1 minute' * $3::int))::text AS a,
          COUNT(*) FILTER (WHERE client_key = $1::char(64))::text AS b,
          COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64)
-                            AND outcome = 'allowed')::text AS c
+                            AND tool = $4::varchar(64)
+                            AND outcome = 'allowed')::text AS c,
+         COUNT(*) FILTER (WHERE $2::char(64) IS NOT NULL AND phone_hash = $2::char(64)
+                            AND outcome = 'quarantined'
+                            AND created_at > NOW() - (INTERVAL '1 minute' * $5::int))::text AS d
        FROM mcp_write_attempts
        WHERE created_at > NOW() - INTERVAL '24 hours'`,
-      [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES)],
+      [clientKey, phoneHash, String(CLIENT_WINDOW_MINUTES), input.tool, String(BURST_ALERT_WINDOW_MINUTES)],
     );
     const counts: Counts = {
       by_client_window: Number(rows[0]?.a ?? 0),
       by_client_day: Number(rows[0]?.b ?? 0),
       by_phone_day: Number(rows[0]?.c ?? 0),
+      phone_quarantined_recent: Number(rows[0]?.d ?? 0),
     };
 
     const verdict = decide(counts);
@@ -223,6 +246,8 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     );
     await client.query('COMMIT');
     await sweepOld();
+    const burst = burstToReport(counts, verdict.outcome);
+    if (burst) await reportBurst(burst, input.tool, clientKey);
     return verdict.decision;
   } catch (err) {
     await client?.query('ROLLBACK').catch(() => {});
@@ -256,8 +281,8 @@ function decide(counts: Counts): { outcome: WriteOutcome; decision: WriteDecisio
         decision: 'deny',
         outcome: 'quarantined',
         message:
-          `На этот номер уже ${counts.by_phone_day} заявки за сутки — новую не создаю. `
-          + 'Если заявка настоящая, менеджер свяжется по предыдущей.',
+          'На этот номер уже есть такая заявка за последние сутки — повторную не создаю. '
+          + 'Менеджер свяжется по первой.',
       },
     };
   }
@@ -267,11 +292,58 @@ function decide(counts: Counts): { outcome: WriteOutcome; decision: WriteDecisio
       decision: {
         decision: 'deny',
         outcome: 'rate_limited',
-        message: `Слишком много заявок подряд — подождите ${CLIENT_WINDOW_MINUTES} минут и повторите.`,
+        message: counts.by_client_window >= CLIENT_MAX_PER_WINDOW
+          ? 'Слишком много заявок с этого адреса — подождите час и повторите.'
+          : 'Достигнут суточный предел заявок с этого адреса — повторите завтра.',
       },
     };
   }
   return { outcome: 'allowed', decision: { decision: 'allow' } };
+}
+
+export type BurstKind = 'client_window' | 'client_day' | 'phone_repeat';
+
+/**
+ * Всплеск, о котором надо сказать оператору, — или null.
+ *
+ * Решение владельца 01.10: «всплеск — в лог оператору, не в тихий отказ».
+ * Сообщается ПЕРВЫЙ отказ, а не каждый: поток в сотню запросов не должен
+ * становиться сотней сообщений в Telegram.
+ *   - окно клиента: счёт перед этой попыткой ровно равен потолку — значит
+ *     это первая попытка сверх него (отказы тоже занимают слот);
+ *   - сутки клиента: то же для суточного потолка, при непробитом окне;
+ *   - повтор номера: карантинов этому номеру за час ещё не было (принятых
+ *     заявок отказ не добавляет, поэтому счёт нужен свой).
+ */
+export function burstToReport(counts: Counts, outcome: WriteOutcome): BurstKind | null {
+  if (outcome === 'quarantined') return counts.phone_quarantined_recent === 0 ? 'phone_repeat' : null;
+  if (outcome !== 'rate_limited') return null;
+  if (counts.by_client_window === CLIENT_MAX_PER_WINDOW) return 'client_window';
+  if (counts.by_client_window < CLIENT_MAX_PER_WINDOW && counts.by_client_day === CLIENT_MAX_PER_DAY) return 'client_day';
+  return null;
+}
+
+const BURST_TEXT: Record<BurstKind, string> = {
+  client_window: `${CLIENT_MAX_PER_WINDOW} заявок за час с одного адреса — следующие отклоняются до конца часа`,
+  client_day: `${CLIENT_MAX_PER_DAY} заявок за сутки с одного адреса — следующие отклоняются до завтра`,
+  phone_repeat: 'повтор заявки на тот же номер за сутки — повтор не создан',
+};
+
+/**
+ * Сообщение оператору. Без персональных данных: ни телефона, ни адреса —
+ * только первые 8 знаков отпечатка клиента, чтобы связать повторные сигналы.
+ * Отказ отправки не глушится и решения не меняет — оно уже принято.
+ */
+async function reportBurst(kind: BurstKind, tool: string, clientKey: string): Promise<void> {
+  try {
+    const sent = await tgSend(
+      'mcp-write-burst',
+      `MCP: всплеск записи (${tool}). ${BURST_TEXT[kind]}. Клиент ${clientKey.slice(0, 8)}.`,
+    );
+    if (!sent.ok) console.error('[mcp-write-guard] сигнал о всплеске не отправлен:', sent.reason);
+  } catch (err) {
+    console.error('[mcp-write-guard] сигнал о всплеске не отправлен:', err);
+  }
 }
 
 /**
