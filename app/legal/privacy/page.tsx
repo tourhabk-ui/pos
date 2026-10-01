@@ -29,7 +29,7 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Общие положения</h2>
             <p>
               Настоящая Политика конфиденциальности (далее — Политика) определяет порядок сбора, хранения,
-              использования и защиты персональных данных пользователей туристической платформы TourHab
+              использования и защиты персональных данных пользователей туристической платформы {REQUISITES.brand}{' '}
               (vedarai.ru), принадлежащей {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn})
               (далее — Оператор).
             </p>

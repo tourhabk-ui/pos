@@ -8,6 +8,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { query } from '@/lib/database';
 import { emitEvent, AGENT_EVENTS } from '@/lib/events/emit';
 import { createLead } from '@/lib/leads/create';
+import { REQUISITES } from '@/lib/legal/requisites';
 // Утилита для обогащения контекста AI описаниями туров из внешних источников
 export { fetchAsMarkdown } from '@/lib/ai/fetchAsMarkdown';
 
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
       provider = 'waterfall';
     } catch {
       // Fallback: если все провайдеры недоступны
-      reply = 'Спасибо за обращение! Наш оператор свяжется с вами в ближайшее время. Для срочных вопросов: +7 914-782-22-22. При опасности звоните 112 (МЧС).';
+      reply = `Спасибо за обращение! Наш оператор свяжется с вами в ближайшее время. Для срочных вопросов: ${REQUISITES.phone}. При опасности звоните 112 (МЧС).`;
       provider = 'fallback';
     }
 

@@ -72,6 +72,14 @@ export default function ContactPage() {
                 </dd>
               </div>
               <div>
+                <dt className="text-[var(--text-muted)]">Телефон</dt>
+                <dd>
+                  <a href={`tel:${REQUISITES.phone.replace(/[^+\d]/g, '')}`} className="text-[var(--ocean)] hover:underline">
+                    {REQUISITES.phone}
+                  </a>
+                </dd>
+              </div>
+              <div>
                 <dt className="text-[var(--text-muted)]">Кузьмич, помощник Ведара</dt>
                 <dd className="flex flex-wrap gap-x-4 gap-y-1">
                   <a href="https://t.me/kuzmichai_bot" className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">Telegram</a>

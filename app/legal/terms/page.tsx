@@ -27,7 +27,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Термины и определения</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong>Платформа</strong> — интернет-сервис TourHab, расположенный по адресу vedarai.ru, принадлежащий {REQUISITES.shortName} (ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn})</li>
+              <li><strong>Платформа</strong> — интернет-сервис {REQUISITES.brand}, расположенный по адресу vedarai.ru, принадлежащий {REQUISITES.shortName} (ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn})</li>
               <li><strong>Оператор</strong> — {REQUISITES.shortName}, {REQUISITES.address}</li>
               <li><strong>Пользователь</strong> — физическое лицо, достигшее 18 лет, использующее Платформу в личных, некоммерческих целях</li>
               <li><strong>Партнёр</strong> — юридическое лицо или индивидуальный предприниматель, оказывающий туристические и сопутствующие услуги через Платформу</li>

@@ -242,7 +242,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "url": BASE_URL,
                 "logo": `${BASE_URL}/icons/icon-512.png`,
                 "email": REQUISITES.emailSupport,
-                "telephone": "+7 (914) 782-22-22",
+                "telephone": REQUISITES.phone,
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
