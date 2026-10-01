@@ -1,0 +1,40 @@
+name: Страница /map — проверка браузером с раннера
+
+# 01.10: скрин владельца — /map открылась рельефом без единого места,
+# счётчик стоит на «Загрузка…», а данные целы (проба 634). Из контейнера
+# разработки прод и хранилище не открываются, поэтому страницу смотрит
+# настоящий Chromium на раннере: ошибки консоли, отказы сети, счётчик,
+# чипы и кадр экрана в логе. Только чтение.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-page-check.json'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Открыть страницу
+        run: |
+          P=$(python3 -c "import json;print(json.load(open('.github/triggers/map-page-check.json')).get('path','/map'))")
+          mkdir -p .cache
+          npx tsx scripts/map-tiles/map-page-check.ts --path "$P" --shot .cache/map-page.jpg
