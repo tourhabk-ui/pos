@@ -19,6 +19,7 @@ import {
   MANUAL_REFRESH_FOLLOWUP_MS,
   MANUAL_REFRESH_FOLLOWUP_TRIES,
   SCREEN_STALE_MS,
+  SCREEN_AUTO_CHECK_MS,
   manualRefreshDecision,
   manualRefreshNote,
   ingestFinishedSince,
@@ -237,14 +238,37 @@ describe('экран: «обновятся сами» обеспечено до�
   });
 });
 
-describe('экран: возврат на давно открытую вкладку перечитывает её', () => {
-  it('по visibilitychange, только если экран устарел и сеть есть', () => {
-    const at = CLIENT.indexOf("addEventListener('visibilitychange'");
+describe('экран перечитывается сам, пока открыт (владелец 01.10: «почему сам перестал обновляться?»)', () => {
+  const effectOf = (marker: string) => {
+    const at = CLIENT.indexOf(marker);
     expect(at).toBeGreaterThan(0);
-    const block = CLIENT.slice(CLIENT.lastIndexOf('useEffect(() => {', at), at);
-    expect(block).toMatch(/screenIsStale\(lastScreenLoad\.current, Date\.now\(\)\)/);
+    const start = CLIENT.lastIndexOf('useEffect(() => {', at);
+    return CLIENT.slice(start, CLIENT.indexOf('}, [reloadScreen]);', at));
+  };
+
+  it('тик по таймеру, а не только кнопка и возврат на вкладку', () => {
+    const block = effectOf('setInterval(maybeReload, SCREEN_AUTO_CHECK_MS)');
+    expect(block).toMatch(/addEventListener\('visibilitychange', maybeReload\)/);
+  });
+
+  it('перечитывает только видимый, устаревший экран и только при сети', () => {
+    const block = effectOf('setInterval(maybeReload, SCREEN_AUTO_CHECK_MS)');
+    expect(block).toMatch(/visibilityState !== 'visible'\) return/);
     expect(block).toMatch(/navigator\.onLine === false\) return/);
+    expect(block).toMatch(/screenIsStale\(lastScreenLoad\.current, Date\.now\(\)\)/);
+    // Перечитывает базу, а не гонит обход источников: fresh=false.
     expect(block).toMatch(/void reloadScreen\(false\)/);
+  });
+
+  it('таймер и слушатель снимаются с уходом со страницы', () => {
+    const block = effectOf('setInterval(maybeReload, SCREEN_AUTO_CHECK_MS)');
+    expect(block).toMatch(/clearInterval\(tick\)/);
+    expect(block).toMatch(/removeEventListener\('visibilitychange', maybeReload\)/);
+  });
+
+  it('тик — минута: экран не старше шага сбора плюс минута', () => {
+    expect(SCREEN_AUTO_CHECK_MS).toBe(60_000);
+    expect(SCREEN_AUTO_CHECK_MS).toBeLessThan(SCREEN_STALE_MS);
   });
 });
 
