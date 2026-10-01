@@ -21,6 +21,14 @@ export function heroVariantKey(arkId: string, sourceId: string): string {
   return `place-heroes/${arkId}/${sourceId}-1280.jpg`;
 }
 
+/**
+ * Ключ копии тяжёлого снимка, уехавшего в хранилище байтами как был
+ * (/api/cron/hero-web-variant, scope oversize): рядом с прежним объектом.
+ */
+export function oversizeVariantKey(arkId: string, imageId: string): string {
+  return `places/${arkId}/${imageId}-1280.jpg`;
+}
+
 export async function heroVariantFor(sourceUrl: string, key: string): Promise<HeroVariantOutcome> {
   if (!isS3Configured) return { status: 'failed', reason: 'хранилище не настроено' };
   const src = await fetchSource(sourceUrl);

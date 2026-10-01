@@ -20,16 +20,27 @@
  * потом переписать s3_url — и только если строка не менялась. Оригинал не
  * удаляется и остаётся в source_url: копия производная.
  *
+ * ВТОРОЙ КЛАСС — scope: 'oversize' (аудит 01.10, тот же день). Три снимка мест
+ * по 0,5–0,7 МБ и 1920 пикселей на 20 страницах: они уехали в хранилище
+ * переездом images-to-s3 байтами как были, а пережатие (images-recompress)
+ * перед этим брало только тяжелее мегабайта. Кандидат — показываемый снимок,
+ * лежащий объектом в хранилище, чей объект тяжелее OVERSIZE_MIN_BYTES. Вес
+ * меряется HEAD к самому объекту, а не колонками width/height: у старых строк
+ * они записаны писателем, и чем — неизвестно. Не ответил на HEAD — строка в
+ * отдельном списке `unchecked`, а не «лёгкая» (§4.0). Копия ложится рядом
+ * (`-1280.jpg`); прежний объект не удаляется, его ключ — в отчёте.
+ *
  * Правила партии те же, что у остальных пишущих разборов: dry_run по
  * умолчанию, партия не больше 10, reason обязателен. Bearer CRON_SECRET.
- * Запуск — задачей `hero` актуатора images-repack.yml.
+ * Запуск — задачами `hero` и `oversize` актуатора images-repack.yml.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { heroVariantFor, heroVariantKey } from '@/lib/places/hero-variant';
+import { heroVariantFor, heroVariantKey, oversizeVariantKey } from '@/lib/places/hero-variant';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 300;
@@ -39,8 +50,14 @@ const PROBE = 'hero_web_variant_v1';
 /** Партия не больше десяти — правило владельца, общее для пишущих разборов. */
 const MAX_BATCH = 10;
 
+/** С какого веса объект хранилища считается тяжёлым: канон 1280 px весит 150–400 КБ. */
+const OVERSIZE_MIN_BYTES = 450 * 1024;
+
+const ScopeSchema = z.enum(['hero', 'oversize']).default('hero');
+
 const BodySchema = z.object({
   reason:  z.string().min(10, 'Причина обязательна: зачем трогаем снимки'),
+  scope:   ScopeSchema,
   limit:   z.number().int().min(1).max(MAX_BATCH).default(MAX_BATCH),
   dry_run: z.boolean().default(true),
 });
@@ -49,14 +66,23 @@ interface Row {
   id: string;
   route_id: string;
   s3_url: string;
+  s3_key?: string | null;
   place_name: string | null;
+}
+
+interface Picked {
+  rows: Row[];
+  pending: number;
+  plan: Array<{ id: string; subject: string | null; source: string; kb?: number }>;
+  /** Объект не ответил на HEAD — вес неизвестен, это не «лёгкий». */
+  unchecked: Array<{ id: string; reason: string }>;
 }
 
 const CANDIDATE_WHERE = `i.image_data IS NULL
         AND i.s3_url IS NOT NULL
         AND i.s3_url = i.source_url`;
 
-async function candidates(limit: number) {
+async function heroCandidates(limit: number): Promise<Picked> {
   const { rows } = await pool.query<Row>(
     `SELECT i.id::text, i.route_id::text, i.s3_url, p.name AS place_name
        FROM ai_route_images i
@@ -73,7 +99,60 @@ async function candidates(limit: number) {
     rows,
     pending: Number(left[0]?.pending ?? '0'),
     plan: rows.map((r) => ({ id: r.id, subject: r.place_name, source: r.s3_url })),
+    unchecked: [],
   };
+}
+
+/** Вес объекта по HEAD; null — не ответил (причина в reason). */
+async function objectBytes(url: string): Promise<{ bytes: number } | { bytes: null; reason: string }> {
+  try {
+    const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return { bytes: null, reason: `HEAD ответил ${res.status}` };
+    const n = Number(res.headers.get('content-length') ?? '');
+    if (!Number.isFinite(n) || n <= 0) return { bytes: null, reason: 'HEAD без content-length' };
+    return { bytes: n };
+  } catch (e) {
+    return { bytes: null, reason: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
+  }
+}
+
+async function oversizeCandidates(limit: number): Promise<Picked> {
+  // Показываемые снимки объектом в хранилище; герои из снимков туристов —
+  // у своего класса, их копии (place-heroes/) уже по канону.
+  const { rows } = await pool.query<Row>(
+    `SELECT i.id::text, i.route_id::text, i.s3_url, i.s3_key, p.name AS place_name
+       FROM ai_route_images i
+       LEFT JOIN places p ON p.ark_id = i.route_id
+      WHERE i.image_data IS NULL
+        AND i.s3_url IS NOT NULL
+        AND i.s3_url IS DISTINCT FROM i.source_url
+        AND (i.s3_key IS NULL OR i.s3_key NOT LIKE 'place-heroes/%')
+        AND ${shownPhotoSql('i.model')}
+      ORDER BY i.created_at DESC`,
+  );
+  const heavy: Array<Row & { bytes: number }> = [];
+  const unchecked: Picked['unchecked'] = [];
+  for (let i = 0; i < rows.length; i += 10) {
+    const chunk = rows.slice(i, i + 10);
+    const sizes = await Promise.all(chunk.map((r) => objectBytes(r.s3_url)));
+    chunk.forEach((r, j) => {
+      const s = sizes[j];
+      if (s.bytes === null) unchecked.push({ id: r.id, reason: s.reason });
+      else if (s.bytes > OVERSIZE_MIN_BYTES) heavy.push({ ...r, bytes: s.bytes });
+    });
+  }
+  heavy.sort((a, b) => b.bytes - a.bytes);
+  const picked = heavy.slice(0, limit);
+  return {
+    rows: picked,
+    pending: heavy.length,
+    plan: picked.map((r) => ({ id: r.id, subject: r.place_name, source: r.s3_url, kb: Math.round(r.bytes / 1024) })),
+    unchecked,
+  };
+}
+
+function candidates(scope: 'hero' | 'oversize', limit: number): Promise<Picked> {
+  return scope === 'oversize' ? oversizeCandidates(limit) : heroCandidates(limit);
 }
 
 function authorized(req: NextRequest): boolean {
@@ -88,15 +167,19 @@ function sqlFailure(where: string, err: unknown) {
 
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const scope = ScopeSchema.safeParse(req.nextUrl.searchParams.get('scope') ?? undefined);
+  if (!scope.success) return NextResponse.json({ error: 'scope: hero или oversize' }, { status: 400 });
   try {
-    const { plan, pending } = await candidates(MAX_BATCH);
+    const { plan, pending, unchecked } = await candidates(scope.data, MAX_BATCH);
     return NextResponse.json({
       ok: true,
       probe: PROBE,
+      scope: scope.data,
       dry_run: true,
       method: 'GET',
       pending,
       would_resize: plan,
+      unchecked,
       meaningful: plan.length > 0,
       note: 'только план: GET ничего не пишет. Копии — POST с причиной и явным dry_run: false',
     });
@@ -119,23 +202,23 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const { reason, limit, dry_run } = parsed.data;
+  const { reason, limit, dry_run, scope } = parsed.data;
 
-  let picked: Awaited<ReturnType<typeof candidates>>;
+  let picked: Picked;
   try {
-    picked = await candidates(limit);
+    picked = await candidates(scope, limit);
   } catch (err) {
     return sqlFailure('кандидаты не прочитаны', err);
   }
 
   if (dry_run) {
     return NextResponse.json({
-      ok: true, probe: PROBE, dry_run: true, reason,
-      pending: picked.pending, would_resize: picked.plan,
+      ok: true, probe: PROBE, scope, dry_run: true, reason,
+      pending: picked.pending, would_resize: picked.plan, unchecked: picked.unchecked,
     });
   }
 
-  const done: Array<{ id: string; subject: string | null; was_kb: number; now_kb: number; size: string }> = [];
+  const done: Array<{ id: string; subject: string | null; was_kb: number; now_kb: number; size: string; replaced_key?: string | null }> = [];
   // «Копия не нужна» — оригинал и так лёгкий: это не отказ, но и не работа.
   const skipped: Array<{ id: string; reason: string }> = [];
   // «Не смог» отдельным списком: снимок остался тяжёлым, и по отчёту должно
@@ -143,7 +226,8 @@ export async function POST(req: NextRequest) {
   const failed: Array<{ id: string; reason: string }> = [];
 
   for (const r of picked.rows) {
-    const variant = await heroVariantFor(r.s3_url, heroVariantKey(r.route_id, r.id));
+    const key = scope === 'oversize' ? oversizeVariantKey(r.route_id, r.id) : heroVariantKey(r.route_id, r.id);
+    const variant = await heroVariantFor(r.s3_url, key);
     if (variant.status === 'not_needed') { skipped.push({ id: r.id, reason: variant.reason }); continue; }
     if (variant.status === 'failed') {
       console.error(`[hero-web-variant] снимок ${r.id} не уменьшен:`, variant.reason);
@@ -169,6 +253,8 @@ export async function POST(req: NextRequest) {
         was_kb: Math.round(variant.wasBytes / 1024),
         now_kb: Math.round(variant.nowBytes / 1024),
         size: `${variant.width}x${variant.height}`,
+        // Прежний объект не удаляется — его ключ остаётся в отчёте прогона.
+        ...(scope === 'oversize' ? { replaced_key: r.s3_key ?? null } : {}),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -180,9 +266,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     probe: PROBE,
+    scope,
     dry_run: false,
     reason,
     pending_before: picked.pending,
+    unchecked: picked.unchecked,
     recompressed_count: done.length,
     skipped_count: skipped.length,
     failed_count: failed.length,
