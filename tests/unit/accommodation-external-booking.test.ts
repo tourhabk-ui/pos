@@ -38,7 +38,8 @@ describe('схема', () => {
 
 describe('API и карточка', () => {
   it('ответ карточки несёт ссылку, цена без числа — null, а не NaN', () => {
-    const src = read('app/api/accommodations/[id]/route.ts');
+    // Карточку собирает общий загрузчик страницы и API (аудит 01.10).
+    const src = read('lib/stay/accommodation-detail.ts');
     expect(src).toMatch(/externalBookingUrl: accommodation\.external_booking_url \?\? null/);
     expect(src).toMatch(/from: accommodation\.price_per_night_from != null \? parseFloat/);
   });

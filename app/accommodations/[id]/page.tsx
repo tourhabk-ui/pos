@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { notFound } from 'next/navigation';
+import { loadAccommodationDetail, type AccommodationDetailData } from '@/lib/stay/accommodation-detail';
 import AccommodationDetailClient from './_AccommodationDetailClient';
 
 export const revalidate = 600;
@@ -31,7 +33,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
+/**
+ * Карточка собирается на сервере (аудит 01.10): прежде страница была
+ * оболочкой, и поисковик видел 19 слов без заголовка. Нет объекта — 404;
+ * база не ответила — клиент попробует сам и покажет отказ, а не пустоту.
+ */
 export default async function AccommodationDetailPage({ params }: Props) {
   const { id } = await params;
-  return <AccommodationDetailClient accommodationId={id} />;
+  let initialData: AccommodationDetailData | null = null;
+  try {
+    initialData = await loadAccommodationDetail(id);
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    console.error('[accommodations/[id]] карточка не прочитана:', id, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
+    return <AccommodationDetailClient accommodationId={id} />;
+  }
+  if (!initialData) notFound();
+  return <AccommodationDetailClient accommodationId={id} initialData={initialData} />;
 }
