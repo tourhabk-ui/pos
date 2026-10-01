@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
 import ContactClient from './_ContactClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 export const metadata: Metadata = {
   title: 'Оставить заявку',
@@ -51,6 +52,45 @@ export default function ContactPage() {
       />
       <Header />
       <ContactClient />
+      {/* Кто стоит за формой (аудит 01.10): на странице контактов не было ни
+          почты, ни юрлица. Реквизиты — из единого источника
+          lib/legal/requisites, руками не вписываются. */}
+      <section aria-labelledby="contact-requisites" className="bg-[var(--bg-primary)]">
+        <div className="max-w-lg mx-auto px-4 pb-16">
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
+            <h2 id="contact-requisites" className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Как ещё связаться
+            </h2>
+            <dl className="grid gap-3 text-sm">
+              <div>
+                <dt className="text-[var(--text-muted)]">Почта</dt>
+                <dd>
+                  <a href={`mailto:${REQUISITES.emailSupport}`} className="text-[var(--ocean)] hover:underline">
+                    {REQUISITES.emailSupport}
+                  </a>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[var(--text-muted)]">Кузьмич, помощник Ведара</dt>
+                <dd className="flex flex-wrap gap-x-4 gap-y-1">
+                  <a href="https://t.me/kuzmichai_bot" className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">Telegram</a>
+                  <a href="https://max.ru/id4101147649_bot" className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">MAX</a>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[var(--text-muted)]">Исполнитель</dt>
+                <dd className="text-[var(--text-primary)]">
+                  {REQUISITES.shortName}, ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[var(--text-muted)]">Адрес</dt>
+                <dd className="text-[var(--text-primary)]">{REQUISITES.address}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </section>
     </>
   );
 }

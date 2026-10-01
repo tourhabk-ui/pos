@@ -68,7 +68,6 @@ const KNOWN_COPIES = new Set([
   'app/collections/[slug]/_CollectionDetailClient.tsx',
   'app/hub/admin/places-photos/_PlacesPhotosClient.tsx',
   'app/tools/safety/_SafetyClient.tsx',
-  'app/trending/_TrendingClient.tsx',
   'components/map/PlaceMapSheet.tsx',
   'components/safety/LiveStatus.tsx',
   'lib/notifications/telegram-channel.ts',

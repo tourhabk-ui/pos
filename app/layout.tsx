@@ -1,6 +1,7 @@
 import { Metadata, Viewport } from 'next';
 import { Inter, Playfair_Display, Manrope, JetBrains_Mono, Unbounded } from 'next/font/google';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin', 'cyrillic'],
@@ -226,7 +227,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               // стояли TouristInformationCenter и LocalBusiness с часами
               // 00:00–23:59 семь дней в неделю и priceRange «$$»: офиса с
               // часами приёма у платформы нет, а цены — у туров операторов.
-              // Реквизиты — те же, что на /about. sameAs — живой канал
+              // Реквизиты — те же, что в оферте и на /about. sameAs — живой канал
               // платформы; vk.com/kamchatourhub отвечал 404, а
               // t.me/kamchatourhub — канал старого имени с одним подписчиком.
               {
@@ -234,12 +235,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "@type": "Organization",
                 "@id": `${BASE_URL}/#organization`,
                 "name": "Ведар",
-                "legalName": "ООО «ПОС-СЕРВИС»",
-                "taxID": "4101147649",
+                // Реквизиты — из единого источника lib/legal/requisites.
+                "legalName": REQUISITES.shortName,
+                "taxID": REQUISITES.inn,
                 "description": "Туристическая платформа Камчатки: места и маршруты, офлайн-карта, сводка обстановки, помощник Кузьмич и туры местных операторов.",
                 "url": BASE_URL,
                 "logo": `${BASE_URL}/icons/icon-512.png`,
-                "email": "info@vedarai.ru",
+                "email": REQUISITES.emailSupport,
                 "telephone": "+7 (914) 782-22-22",
                 "address": {
                   "@type": "PostalAddress",

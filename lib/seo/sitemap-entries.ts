@@ -316,6 +316,25 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('операторы', e);
   }
 
+  // Карточки парков (01.10): с серверной отрисовкой у них есть содержимое —
+  // прежде страница собиралась в браузере, и поисковик видел 12–13 слов.
+  let parkPages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
+      `SELECT slug, updated_at FROM parks
+       WHERE is_active = true
+       ORDER BY display_name LIMIT 50`
+    );
+    parkPages = rows.map(row => ({
+      url: `${BASE}/park/${row.slug}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'monthly' as const,
+      priority: 0.75,
+    }));
+  } catch (e) {
+    fail('парки', e);
+  }
+
   // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет
   // ни одного опубликованного объекта, в sitemap её не предлагаем (Н9).
   const staticLive = accommodationPages.length > 0
@@ -332,6 +351,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ...marketplacePages,
     ...collectionPages,
     ...operatorPages,
+    ...parkPages,
   ];
   return { entries, degraded };
 }
