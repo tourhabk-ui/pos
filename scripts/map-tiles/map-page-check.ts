@@ -99,9 +99,14 @@ async function main(): Promise<number> {
         .map(p => (p.textContent ?? '').trim())
         .find(t => t.startsWith('Точек') || t.startsWith('Загрузка')) ?? null;
       const canvases = document.querySelectorAll('canvas').length;
-      return { chips, counter, canvases };
+      // Снимки мест — их настоящий размер (01.10: кадры Алины переложены в 3:4).
+      const photos = Array.from(document.querySelectorAll('img'))
+        .filter(i => /\/api\/images\/(route|place-gallery)\//.test(i.currentSrc || i.src))
+        .map(i => `${decodeURIComponent((i.currentSrc || i.src).replace(/^.*\/api\/images\//, '').slice(0, 70))} ${i.naturalWidth}x${i.naturalHeight}`);
+      return { chips, counter, canvases, photos };
     });
     console.log(`[${at()}] счётчик: ${state.counter ?? 'нет'} · чипы: ${state.chips.join(' | ') || 'нет'} · canvas: ${state.canvases}`);
+    for (const ph of state.photos) console.log(`[${at()}] снимок ${ph}`);
     const file = shot.replace(/\.jpg$/, `-${shots.length + 1}.jpg`);
     await page.screenshot({ path: file, type: 'jpeg', quality: 50 });
     shots.push(file);

@@ -35,7 +35,12 @@ jobs:
 
       - name: Открыть страницу
         run: |
-          P=$(python3 -c "import json;print(json.load(open('.github/triggers/map-page-check.json')).get('path','/map'))")
           mkdir -p .cache
           FLAGS=$(python3 -c "import json;print(' '.join(json.load(open('.github/triggers/map-page-check.json')).get('flags',[])))")
-          npx tsx scripts/map-tiles/map-page-check.ts --path "$P" --shot .cache/map-page.jpg $FLAGS
+          PATHS=$(python3 -c "import json;d=json.load(open('.github/triggers/map-page-check.json'));print(' '.join(d.get('paths') or [d.get('path','/map')]))")
+          code=0
+          for P in $PATHS; do
+            echo "=== $P ==="
+            npx tsx scripts/map-tiles/map-page-check.ts --path "$P" --shot .cache/map-page.jpg $FLAGS || code=$?
+          done
+          exit $code
