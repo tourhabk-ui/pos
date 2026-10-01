@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { fitTitle, PARK_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
@@ -32,7 +33,8 @@ export async function generateMetadata(
   const park = await getPark(slug);
   if (park === null) return { title: 'Парк не найден', robots: { index: false, follow: false } };
   const name = park === 'failed' ? 'Природный парк Камчатки' : park.displayName;
-  const title = `${name} — маршруты, карты офлайн, регистрация МЧС`;
+  // Полный хвост давал 70–78 знаков с « | Ведар» — выдача резала (аудит 01.10).
+  const title = fitTitle(name, PARK_TITLE_TAILS);
   const description = `Маршруты, офлайн-карты и регистрация в МЧС для ${name}. Скачайте карту до выхода в поле.`;
   return {
     title,
