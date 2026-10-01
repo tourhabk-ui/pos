@@ -160,7 +160,7 @@ const ACC_WARNING: Acc[] = ['orange'];
  */
 const NAMED_HAZARD_TYPES = new Set([
   'tsunami_warning', 'volcanic_eruption', 'weather', 'flood', 'fire_danger',
-  'road_closure', 'earthquake', 'ashfall',
+  'road_closure', 'earthquake', 'ashfall', 'park_closure',
 ]);
 
 /**

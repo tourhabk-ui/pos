@@ -31,6 +31,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ALERT_MATCH_SQL } from '@/lib/services/safety/alert-place-scope';
+import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -57,6 +58,16 @@ const NEAR_SHIVELUCH = { id: 'place-near-shiveluch-test', ark: 'b0000000-0000-40
 const FAR_NORTH = { id: 'place-far-north-test', ark: 'b0000000-0000-4000-8000-000000000004', lat: 57.800, lng: 160.000 };
 /** Привязанное к Шивелучу поимённо (place_volcano_links), но за 120 км. */
 const LINKED_FAR = { id: 'place-linked-far-test', ark: 'b0000000-0000-4000-8000-000000000005', lat: 55.600, lng: 161.900 };
+
+/**
+ * Закрытие парка (#2133). Все — в зоне avachinsky: зона не должна решать,
+ * решает парк. Город в той же зоне — контроль «зона ≠ парк».
+ */
+const PARK_NAMED = { id: 'Природный парк Налычево (тест)', ark: 'c0000000-0000-4000-8000-000000000001', lat: 53.400, lng: 158.900 };
+const ON_PARK_ROUTE = { id: 'Таловские источники (тест)', ark: 'c0000000-0000-4000-8000-000000000002', lat: 53.350, lng: 158.950 };
+const NEAR_PARK_ROUTE = { id: 'Музей у тропы (тест)', ark: 'c0000000-0000-4000-8000-000000000003', lat: 53.100, lng: 158.700 };
+const CITY = { id: 'Городская набережная (тест)', ark: 'c0000000-0000-4000-8000-000000000004', lat: 53.020, lng: 158.650 };
+const PARK_ROUTE_ID = 'd0000000-0000-4000-8000-000000000001';
 
 withPg('кого накрывает предупреждение', () => {
   let pool: import('pg').Pool;
@@ -102,6 +113,33 @@ withPg('кого накрывает предупреждение', () => {
        VALUES ($1, $2, 'тест: маршрут поимённо привязан к вулкану')`,
       [LINKED_FAR.id, SHIVELUCH.id],
     );
+
+    // Парк: baseline — схема без строк справочника, а 712 старше baseline.
+    await pool.query(
+      `INSERT INTO parks (slug, display_name, search_term)
+       VALUES ('nalychevo', 'Природный парк «Налычево»', 'Налычево')
+       ON CONFLICT (slug) DO NOTHING`,
+    );
+    for (const p of [PARK_NAMED, ON_PARK_ROUTE, NEAR_PARK_ROUTE, CITY]) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $1, $2, $3, $4, 'hot_spring', 'avachinsky', TRUE)`,
+        [p.id, p.lat, p.lng, p.ark],
+      );
+      await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+    }
+    // park_name — свободным текстом, как его записал импорт (миграция 712).
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible)
+       VALUES ($1, 'trekking', 'Тропа к Таловским источникам (тест)', 'Природный парк "Налычево"', 'avachinsky', TRUE)`,
+      [PARK_ROUTE_ID],
+    );
+    await pool.query(
+      `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES
+         ($1, $2, 0, 'waypoint'),
+         ($1, $3, 1, 'nearby')`,
+      [PARK_ROUTE_ID, ON_PARK_ROUTE.id, NEAR_PARK_ROUTE.id],
+    );
   }, 300_000);
 
   afterAll(async () => {
@@ -132,6 +170,7 @@ withPg('кого накрывает предупреждение', () => {
   async function insertAlert(fields: {
     type: string; title: string; zones: string[];
     lat?: number; lng?: number; volcanoName?: string; volcanoArk?: string;
+    parks?: string[] | null;
   }): Promise<string> {
     const { rows } = await pool.query<{ id: string }>(
       // external_id отдельным параметром, а не `$2 || '-' || ...`: у параметра
@@ -141,16 +180,17 @@ withPg('кого накрывает предупреждение', () => {
       // выполнялся никогда.
       `INSERT INTO external_alerts
          (alert_type, severity, title, description, affected_zones, created_at, expires_at,
-          source_url, external_id, lat, lng, volcano_name, volcano_ark_id)
+          source_url, external_id, lat, lng, volcano_name, volcano_ark_id, affected_parks)
        VALUES ($1, 2, $2, $9, $3, NOW(), NOW() + INTERVAL '1 day',
-               'https://example.test', $8, $4, $5, $6, $7)
+               'https://example.test', $8, $4, $5, $6, $7, $10)
        RETURNING id::text AS id`,
       [fields.type, fields.title, fields.zones, fields.lat ?? null, fields.lng ?? null,
         fields.volcanoName ?? null, fields.volcanoArk ?? null,
         `${fields.type}-${Math.random().toString(36).slice(2)}`,
         // Заголовок и описание — РАЗНЫМИ параметрами: title это varchar, а
         // description text, и один $2 на оба даёт тот же 42P08.
-        fields.title],
+        fields.title,
+        fields.parks ?? null],
     );
     return rows[0].id;
   }
@@ -233,5 +273,45 @@ withPg('кого накрывает предупреждение', () => {
       zones: [],
     });
     expect(await coveredBy(id)).toEqual([]);
+  });
+
+  it('закрытие парка накрывает место парка и место на его маршруте — не «рядом» и не город той же зоны (#2133)', async () => {
+    const id = await insertAlert({
+      type: 'park_closure',
+      title: 'До 1 октября приостановлено посещение маршрутов в природных парках «Налычево» и «Южно-Камчатский»',
+      zones: [],
+      parks: ['nalychevo', 'yuzhno-kamchatsky'],
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(PARK_NAMED.id);
+    expect(covered).toContain(ON_PARK_ROUTE.id);
+    // «Рядом, загляните» в парке не лежит (§4.1).
+    expect(covered).not.toContain(NEAR_PARK_ROUTE.id);
+    // Та же зона avachinsky, но не парк: зона здесь не решает.
+    expect(covered).not.toContain(CITY.id);
+    // Ни один северный объект.
+    expect(covered).not.toContain(SHIVELUCH.id);
+  });
+
+  it('закрытие без названного парка не красит никого — «не установлено» ≠ «везде»', async () => {
+    const id = await insertAlert({ type: 'park_closure', title: 'Маршруты закрыты', zones: ['avachinsky'], parks: null });
+    expect(await coveredBy(id)).toEqual([]);
+  });
+
+  it('Южно-Камчатский заведён миграцией 1124 и неактивен как страница', async () => {
+    const { rows } = await pool.query<{ is_active: boolean; search_term: string }>(
+      `SELECT is_active, search_term FROM parks WHERE slug = 'yuzhno-kamchatsky'`,
+    );
+    expect(rows).toEqual([{ is_active: false, search_term: 'Южно-Камчат' }]);
+  });
+
+  it('карточка маршрута парка видит закрытие тем же правилом (collect-signals, #2133)', async () => {
+    const title = 'Закрыты маршруты природного парка «Налычево» (тест маршрута)';
+    await insertAlert({ type: 'park_closure', title, zones: [], parks: ['nalychevo'] });
+    const q: QueryFn = (sql, params) => pool.query(sql, params) as never;
+    const signals = await collectRouteSignals(PARK_ROUTE_ID, { query: q, month: 10 });
+    expect(signals.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
+    expect(signals.alerts!.map((a) => a.title)).toContain(title);
+    expect(signals.alerts!.find((a) => a.title === title)?.type).toBe('park_closure');
   });
 });

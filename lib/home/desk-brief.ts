@@ -21,7 +21,7 @@ import { loadSvodka, type Svodka } from '@/lib/svodka/svodka';
 /** Сколько строк «Что меняет план» на главной; остальные — по ссылке. */
 export const DESK_CHANGES_LIMIT = 4;
 
-export type ChangeKind = 'road' | 'volcano' | 'water' | 'snow' | 'weather' | 'bear' | 'other';
+export type ChangeKind = 'road' | 'volcano' | 'water' | 'snow' | 'weather' | 'bear' | 'park' | 'other';
 
 export interface PlanChange {
   /** Где — часть заголовка до двоеточия или тире; null — заголовок не делится. */
@@ -48,6 +48,7 @@ const KIND: Record<string, { kind: ChangeKind; label: string }> = {
   landslide: { kind: 'other', label: 'оползни' },
   weather: { kind: 'weather', label: 'погода' },
   bear: { kind: 'bear', label: 'медведи' },
+  park_closure: { kind: 'park', label: 'парк закрыт' },
 };
 
 /** «Халактырский пляж: дорога перекрыта» → место и суть; не делится — всё сутью. */

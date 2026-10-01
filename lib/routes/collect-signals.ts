@@ -183,7 +183,7 @@ function alertFingerprint(title: string): string {
 }
 
 async function loadAlerts(
-  zones: string[], points: Array<{ lat: number; lng: number }>, q: QueryFn,
+  zones: string[], points: Array<{ lat: number; lng: number }>, routeId: string, q: QueryFn,
 ): Promise<Array<{ title: string; severity: number; type: string | null }> | null> {
   try {
     const lats = points.map((p) => p.lat);
@@ -202,22 +202,37 @@ async function loadAlerts(
        SELECT title, severity::int AS severity, alert_type
          FROM external_alerts ea
         WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
-          AND ea.affected_zones && $1::text[]
-          AND (
-            ea.lat IS NULL OR ea.lng IS NULL
-            OR NOT EXISTS (SELECT 1 FROM anchor)
-            OR EXISTS (
-              SELECT 1 FROM anchor a
-               WHERE 2 * 6371 * asin(sqrt(
-                       power(sin(radians((ea.lat::float8 - a.lat) / 2)), 2)
-                       + cos(radians(a.lat)) * cos(radians(ea.lat::float8))
-                         * power(sin(radians((ea.lng::float8 - a.lng) / 2)), 2)
-                     )) <= $4
+          AND ((
+            ea.affected_zones && $1::text[]
+            AND (
+              ea.lat IS NULL OR ea.lng IS NULL
+              OR NOT EXISTS (SELECT 1 FROM anchor)
+              OR EXISTS (
+                SELECT 1 FROM anchor a
+                 WHERE 2 * 6371 * asin(sqrt(
+                         power(sin(radians((ea.lat::float8 - a.lat) / 2)), 2)
+                         + cos(radians(a.lat)) * cos(radians(ea.lat::float8))
+                           * power(sin(radians((ea.lng::float8 - a.lng) / 2)), 2)
+                       )) <= $4
+              )
             )
-          )
+          ) OR (
+            -- Закрытие парка (#2133) — по парку маршрута, не по зоне: у такой
+            -- тревоги зон нет вовсе. Правило то же, что у мест
+            -- (PARK_SCOPED_SQL): park_name маршрута против parks.search_term.
+            ea.alert_type = 'park_closure'
+            AND ea.affected_parks IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+                FROM parks pk
+                JOIN kamchatka_routes kr ON kr.id::text = $5
+               WHERE pk.slug = ANY(ea.affected_parks)
+                 AND kr.park_name ILIKE '%' || pk.search_term || '%'
+            )
+          ))
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT 50`,
-      [zones, lats, lngs, CORRIDOR_ALERT_KM],
+      [zones, lats, lngs, CORRIDOR_ALERT_KM, routeId],
     );
     // Порядок из запроса (важность, затем свежесть) сохраняется, поэтому
     // первой остаётся самая тяжёлая копия дубля, а не случайная.
@@ -359,7 +374,7 @@ export async function collectRouteSignals(
   }
 
   const [alerts, volcanoes, closures] = await Promise.all([
-    loadAlerts(shape.zones, shape.points, q),
+    loadAlerts(shape.zones, shape.points, routeId, q),
     loadVolcanoes(shape.points, q),
     loadClosures(routeId, q),
   ]);

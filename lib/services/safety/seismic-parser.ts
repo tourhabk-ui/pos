@@ -8,6 +8,7 @@
  *   affected_zones: ['avachinsky','northern','eastern','western']
  */
 
+import { detectParkClosure, parkClosureHours } from '@/lib/safety/park-closure';
 import { query } from '@/lib/database';
 import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
 import { zonesForEpicenter, distanceKm, PETROPAVLOVSK } from '@/lib/services/safety/seismic-zones';
@@ -22,11 +23,13 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
   affected_zones: string[];
+  /** Слаги закрытых парков (parks.slug) — только у park_closure (#2133). */
+  affected_parks?: string[];
   // Для землетрясений
   magnitude?: number;
   depth_km?: number;
@@ -772,8 +775,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at,
         source_url, external_id,
-        magnitude, lat, lng, volcano_name
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        magnitude, lat, lng, volcano_name, affected_parks
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
       [
@@ -790,6 +793,7 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
         event.lat ?? null,
         event.lng ?? null,
         event.volcano_name ?? null,
+        event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null,
       ]
     );
 
@@ -1763,10 +1767,21 @@ export function classifyMchsItem(
   // нет» проходит дальше по веткам — у такого поста обычно нет другой
   // категории, и он отбрасывается как неинтересный.
   const tsunami = tsunamiStatus(text);
+  const parkClosure = detectParkClosure(text);
   if (tsunami === 'warning') {
     alert_type = 'tsunami_warning'; severity = 3; expires_hours = 12;
   } else if (tsunami === 'all_clear') {
     alert_type = 'info'; severity = 0; expires_hours = 1;
+  } else if (parkClosure) {
+    // Закрытие маршрутов парка (#2133) — ДО погодных и дорожных веток: циклон
+    // закрывает парк вместе с ветром и дождём, и ветка «ветер» или «маршрут
+    // закрыт» забрала бы текст себе — без парка, то есть без адресата. 30.09
+    // «приостановлено посещение маршрутов в парках Налычево и Южно-Камчатский»
+    // не дошло ни до одного места. Решение властей о территории — 2, как
+    // режим повышенной готовности у медведей: ниже двойки нет ни пуша, ни
+    // красного статуса. Срок — до названной даты включительно.
+    alert_type = 'park_closure'; severity = 2;
+    expires_hours = parkClosureHours(text, new Date(pubDate));
   } else if (/лавин/.test(text)) {
     // Лавины — ДО погодной ветки, а не после: лавинное предупреждение МЧС
     // почти всегда идёт вместе с метелью и сильным ветром, и ветка «ураган |
@@ -1963,7 +1978,10 @@ export function classifyMchsItem(
     severity,
     title:         effectiveTitle.slice(0, 200),
     description:   description.slice(0, 800),
-    affected_zones: mchs_zones(`${title} ${description}`),
+    // Закрытие парка привязывается ПАРКОМ, не зоной (#2133): зона
+    // «avachinsky» — это и Налычево, и город. Пустые зоны совпадают ни с кем.
+    affected_zones: parkClosure && alert_type === 'park_closure' ? [] : mchs_zones(`${title} ${description}`),
+    ...(parkClosure && alert_type === 'park_closure' ? { affected_parks: parkClosure.parks } : {}),
     expires_hours,
   };
 }
