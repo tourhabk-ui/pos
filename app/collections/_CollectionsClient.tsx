@@ -1,21 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, Mountain, Flame, Leaf, Users } from 'lucide-react';
+import { plural } from '@/lib/home/data-freshness';
+import type { CollectionCardData } from '@/lib/collections/list';
 
-interface Collection {
-  id: string;
-  slug: string;
-  title: string;
-  description: string;
-  cover_image: string | null;
-  tags: string[];
-  view_count: number;
-  place_count: number | null;
-  route_count: number | null;
-  item_count?: number | null;
-}
+type Collection = CollectionCardData;
 
 const TAG_ICONS: Record<string, React.ElementType> = {
   вулканы: Flame,
@@ -28,7 +19,7 @@ const TAG_ICONS: Record<string, React.ElementType> = {
 };
 
 function CollectionCard({ col }: { col: Collection }) {
-  const itemCount = col.item_count ?? ((col.place_count ?? 0) + (col.route_count ?? 0));
+  const itemCount = col.item_count;
   return (
     <Link
       href={`/collections/${col.slug}`}
@@ -54,7 +45,7 @@ function CollectionCard({ col }: { col: Collection }) {
           <p className="text-[var(--text-secondary)] text-sm line-clamp-2 mb-3">{col.description}</p>
         )}
         <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-          <span>{itemCount > 0 ? `${itemCount} объектов` : 'Подборка'}</span>
+          <span>{itemCount > 0 ? `${itemCount} ${plural(itemCount, 'объект', 'объекта', 'объектов')}` : 'Подборка'}</span>
           <span>{col.view_count.toLocaleString('ru')} просмотров</span>
         </div>
       </div>
@@ -62,25 +53,20 @@ function CollectionCard({ col }: { col: Collection }) {
   );
 }
 
-export function CollectionsClient() {
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [loading, setLoading] = useState(true);
+/**
+ * Список приходит с сервера (page.tsx → lib/collections/list): прежде его
+ * тянул браузер, и поисковик видел 21–23 слова (аудит 01.10). Фильтр по теме —
+ * в памяти: подборок десятки, а теги считаются по ПОЛНОМУ списку — прежде они
+ * брались из отфильтрованного, и после выбора темы остальные исчезали.
+ */
+export function CollectionsClient({ collections: all, failed }: { collections: Collection[]; failed: boolean }) {
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
-  useEffect(() => {
-    const url = activeTag
-      ? `/api/collections?tag=${encodeURIComponent(activeTag)}`
-      : '/api/collections';
-    fetch(url)
-      .then(r => r.json())
-      .then(d => setCollections(d.collections ?? []))
-      .finally(() => setLoading(false));
-  }, [activeTag]);
-
-  const allTags = Array.from(new Set(collections.flatMap(c => c.tags)));
+  const allTags = Array.from(new Set(all.flatMap(c => c.tags)));
+  const collections = activeTag ? all.filter(c => c.tags.includes(activeTag)) : all;
 
   return (
-    <main className="ds-page min-h-screen py-12">
+    <main className="ds-page min-h-screen pb-12">
       <div className="max-w-6xl mx-auto px-4">
         <header className="mb-10">
           <p className="text-[var(--accent)] font-semibold text-sm uppercase tracking-widest mb-2">Подборки</p>
@@ -110,18 +96,10 @@ export function CollectionsClient() {
           </div>
         )}
 
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="ds-card">
-                <div className="ds-skeleton h-48 rounded-t-lg" />
-                <div className="p-5 space-y-3">
-                  <div className="ds-skeleton h-4 w-2/3" />
-                  <div className="ds-skeleton h-6 w-full" />
-                  <div className="ds-skeleton h-4 w-full" />
-                </div>
-              </div>
-            ))}
+        {failed ? (
+          <div className="text-center py-20 text-[var(--text-muted)]">
+            <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40" />
+            <p>Не удалось загрузить подборки. Обновите страницу.</p>
           </div>
         ) : collections.length === 0 ? (
           <div className="text-center py-20 text-[var(--text-muted)]">

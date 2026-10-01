@@ -124,6 +124,9 @@ describe('потребители берут слова из источника',
     ['lib/pdf/place-card-generator.ts', 'locationTypeLabel'],
     ['lib/agents/kuzmich-place-enricher.ts', 'locationTypeLabelLower'],
     ['app/hub/admin/content/tours/page.tsx', 'locationTypeLabel'],
+    // Седьмая копия — словарь из девяти типов в трендах: «waterfall» уходил
+    // на экран капсом латиницей (аудит 01.10).
+    ['app/trending/_TrendingClient.tsx', 'locationTypeLabel'],
   ];
 
   for (const [file, fn] of consumers) {

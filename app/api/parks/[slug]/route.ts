@@ -1,109 +1,31 @@
 /**
  * GET /api/parks/[slug]
  * Публичный. Данные парка (справочник parks, migration 712) + маршруты внутри.
+ * Загрузчик общий со страницей /park/[slug] — lib/parks/park-page.ts.
+ *
+ * `mchs_phone` НЕ отдаётся намеренно (15.09): региональный номер берётся из
+ * единого проверенного источника, а не из колонки парка — второй источник
+ * того же факта это два разных факта, и в ЧП цена расхождения — чужой гудок.
  */
 import { NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
+import { loadParkPage } from '@/lib/parks/park-page';
 
 export const dynamic = 'force-dynamic';
-
-interface ParkRow {
-  slug: string;
-  display_name: string;
-  description: string | null;
-  zone: string | null;
-  permit_url: string | null;
-  permit_email: string | null;
-  permit_office_address: string | null;
-  permit_office_hours: string | null;
-  permit_gosuslugi_url: string | null;
-  permit_online_url: string | null;
-  search_term: string;
-}
-
-interface RouteRow {
-  id: string;
-  title: string;
-  description: string | null;
-  distance_km: string | null;
-  elevation_gain_m: number | null;
-  duration_hours: string | null;
-  difficulty: string | null;
-  season: string | null;
-  mchs_registration_required: boolean | null;
-  hazards: string[] | null;
-}
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  if (!/^[a-z0-9-]{1,64}$/.test(slug)) {
-    return NextResponse.json({ error: 'Парк не найден' }, { status: 404 });
-  }
-
   try {
-    const parkResult = await pool.query<ParkRow>(
-      `SELECT slug, display_name, description, zone, permit_url,
-              permit_email, permit_office_address, permit_office_hours,
-              permit_gosuslugi_url, permit_online_url, search_term
-       FROM parks
-       WHERE slug = $1 AND is_active = true
-       LIMIT 1`,
-      [slug]
-    );
-    const park = parkResult.rows[0];
+    const park = await loadParkPage(slug);
     if (!park) {
       return NextResponse.json({ error: 'Парк не найден' }, { status: 404 });
     }
-
-    // Связь с маршрутами через ILIKE: park_name в kamchatka_routes заполнен
-    // свободным текстом из visitkamchatka.ru
-    let routes: RouteRow[] = [];
-    try {
-      const { rows } = await pool.query<RouteRow>(`
-        SELECT id::text, title, description,
-               distance_km::text, elevation_gain_m,
-               duration_hours::text, difficulty, season,
-               mchs_registration_required,
-               COALESCE(hazards, ARRAY[]::TEXT[]) AS hazards
-        FROM kamchatka_routes
-        WHERE park_name ILIKE $1
-          AND is_visible = TRUE
-        ORDER BY view_count DESC NULLS LAST, title
-        LIMIT 12
-      `, [`%${park.search_term}%`]);
-      routes = rows;
-    } catch {
-      // Маршруты не критичны для карточки парка — отдаём парк без них
-    }
-
-    return NextResponse.json({
-      slug: park.slug,
-      displayName: park.display_name,
-      description: park.description,
-      zone: park.zone,
-      // `mchs_phone` НЕ отдаётся намеренно (15.09). Колонка несёт
-      // `+7 (4152) 23-53-62` у трёх парков и NULL у двух; первый номер
-      // назван в `lib/safety/emergency-numbers.ts` среди пяти разъехавшихся
-      // «номеров МЧС», которые владелец 17.07 подтвердить не смог, второй
-      // давал на экране «МЧС:» и пустоту. Региональный номер берётся из
-      // единого проверенного источника, а не отсюда: второй источник того же
-      // факта — это два разных факта, и в ЧП цена расхождения — чужой гудок.
-      permit_url: park.permit_url,
-      // Каналы получения разрешения (issue #367); NULL — данных нет,
-      // UI показывает только заполненные
-      permitChannels: {
-        email: park.permit_email,
-        officeAddress: park.permit_office_address,
-        officeHours: park.permit_office_hours,
-        gosuslugiUrl: park.permit_gosuslugi_url,
-        onlineUrl: park.permit_online_url,
-      },
-      routes,
-    });
-  } catch {
+    return NextResponse.json(park);
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    console.error('[api/parks] парк не прочитан:', slug, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     return NextResponse.json({ error: 'Ошибка загрузки парка' }, { status: 500 });
   }
 }
