@@ -13,6 +13,7 @@ import {
   manualRefreshNote,
   ingestFinishedSince,
   screenIsStale,
+  SCREEN_AUTO_CHECK_MS,
   MANUAL_REFRESH_FOLLOWUP_MS,
   MANUAL_REFRESH_FOLLOWUP_TRIES,
   MANUAL_REFRESH_GAVE_UP_NOTE,
@@ -375,18 +376,27 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     if (followUpTimer.current) clearTimeout(followUpTimer.current);
   }, []);
 
-  // Возврат на вкладку, открытую давно, перечитывает экран сам: телефон
-  // держит вкладку часами, и радар на ней показывает час открытия. Без сети
-  // не трогаем — на маршруте это норма, и сохранённое лучше пустого.
+  // Экран перечитывается сам, пока на него смотрят (01.10, владелец: «почему
+  // сам перестал обновляться?»). Сбор на сервере идёт каждые 5 минут, а
+  // открытая вкладка его не видела вовсе: перечитывали только кнопка и
+  // возврат на вкладку. Раз в SCREEN_AUTO_CHECK_MS экран спрашивает себя,
+  // не устарел ли он, и перечитывается не чаще раза в SCREEN_STALE_MS.
+  // Скрытую вкладку не трогаем (батарея), без сети тоже — на маршруте это
+  // норма, и сохранённое лучше пустого. Возврат на вкладку, открытую давно,
+  // перечитывает сразу, не дожидаясь следующего тика.
   useEffect(() => {
-    const onVisible = () => {
+    const maybeReload = () => {
       if (document.visibilityState !== 'visible') return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       if (!screenIsStale(lastScreenLoad.current, Date.now())) return;
       void reloadScreen(false);
     };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    const tick = setInterval(maybeReload, SCREEN_AUTO_CHECK_MS);
+    document.addEventListener('visibilitychange', maybeReload);
+    return () => {
+      clearInterval(tick);
+      document.removeEventListener('visibilitychange', maybeReload);
+    };
   }, [reloadScreen]);
 
   const handleRefresh = useCallback(async () => {
