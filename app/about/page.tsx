@@ -6,6 +6,7 @@ import { Footer } from '@/components/layout/Footer';
 import { getPlatformCounts } from '@/lib/stats/platform-counts';
 import { queryCatalogSummaryForPage } from '@/lib/search';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -174,7 +175,7 @@ export default async function AboutPage() {
                 </div>
                 <div>
                   <dt className="text-[var(--text-muted)]">Телефон</dt>
-                  <dd className="text-[var(--text-primary)] font-medium">+7 (914) 782-22-22</dd>
+                  <dd className="text-[var(--text-primary)] font-medium">{REQUISITES.phone}</dd>
                 </div>
                 <div>
                   <dt className="text-[var(--text-muted)]">Email</dt>

@@ -36,7 +36,7 @@ export default function OfferPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Стороны и предмет договора</h2>
             <p>
               <strong>Исполнитель (Платформа):</strong> {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn}),
-              осуществляющее деятельность под торговой маркой TourHab, далее — «Платформа».
+              осуществляющее деятельность под торговой маркой {REQUISITES.brand}, далее — «Платформа».
             </p>
             <p>
               <strong>Заказчик (Партнёр):</strong> юридическое лицо или индивидуальный предприниматель,

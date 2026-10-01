@@ -29,8 +29,8 @@ export default function AgentAgreementPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Предмет договора</h2>
             <p>
-              {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn}), действующее под брендом
-              TourHab (далее &mdash; Агент), и туроператор (далее &mdash; Принципал) заключают настоящий
+              {REQUISITES.shortName} (ОГРН {REQUISITES.ogrn}, ИНН {REQUISITES.inn}), действующее под брендом{' '}
+              {REQUISITES.brand} (далее &mdash; Агент), и туроператор (далее &mdash; Принципал) заключают настоящий
               агентский договор в соответствии со ст. 1005-1011 ГК РФ,
               Федеральным законом от 24.11.1996 No 132-ФЗ &laquo;Об основах туристской деятельности
               в Российской Федерации&raquo;, Федеральным законом от 22.05.2003 No 54-ФЗ

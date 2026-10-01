@@ -34,18 +34,22 @@ export interface LegalRequisites {
   director: string;
   emailPrivacy: string;
   emailSupport: string;
+  /** Телефон для связи. Решение владельца 01.10: номер наш; сменится, когда подключим номер Кузьмича. */
+  phone: string;
   site: string;
 }
 
 export const REQUISITES: LegalRequisites = {
   fullName: 'ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ «ПОС-СЕРВИС»',
   shortName: 'ООО «ПОС-СЕРВИС»',
-  brand: 'TourHab',
+  // Решение владельца 01.10: торговая марка в документах — Ведар (было TourHab).
+  brand: 'Ведар',
   inn: '4101147649',
   ogrn: '1114101005952',
   address: '683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1',
   director: 'Асеев Андрей Валерьевич',
   emailPrivacy: 'info@vedarai.ru',
   emailSupport: 'info@vedarai.ru',
+  phone: '+7 (914) 782-22-22',
   site: 'vedarai.ru',
 };
