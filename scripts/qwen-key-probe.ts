@@ -27,6 +27,15 @@ const BASES = {
 
 /** Что зовёт код сегодня: дефолт цикла инструментов и зрение. */
 const ALWAYS = ['qwen-plus', 'qwen-vl-max'];
+
+/**
+ * Зрение (01.10): qwen-vl-max в списке Alibaba на отключение 10.10.2026.
+ * Кандидаты на замену спрашиваются НАСТОЯЩЕЙ картинкой, а не словом «ping»:
+ * модель, принявшая текст, может не принять снимок. Картинка — красный
+ * квадрат 64×64 (у DashScope есть нижний порог размера снимка), ответ сверяется со словом «красн»/«red».
+ */
+const VISION_CANDIDATES = ['qwen-vl-max', 'qwen3-vl-plus', 'qwen3-vl-flash', 'qwen-vl-plus', 'qwen-vl-max-latest'];
+const RED_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC';
 /** Сколько сильнейших текстовых моделей каталога опрашивать. */
 const TOP_N = 25;
 
@@ -54,6 +63,37 @@ async function ping(base: string, key: string, model: string): Promise<string> {
   }
 }
 
+async function pingVision(base: string, key: string, model: string): Promise<string> {
+  const started = Date.now();
+  try {
+    const r = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        max_tokens: 20,
+        messages: [{ role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${RED_PNG}` } },
+          { type: 'text', text: 'Какого цвета этот квадрат? Одно слово.' },
+        ] }],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const b = await r.text();
+    const ms = Date.now() - started;
+    if (!r.ok) {
+      const code = b.match(/"code"\s*:\s*"([^"]{1,60})"/)?.[1] ?? '';
+      return `HTTP ${r.status} ${code} — ${short(b)}`;
+    }
+    const text = (JSON.parse(b) as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content;
+    const said = typeof text === 'string' ? text.trim().slice(0, 40) : '';
+    const sees = /красн|red/i.test(said);
+    return `${sees ? 'ВИДИТ' : 'ОТВЕТИЛ, НО НЕ ТО'} (${ms} мс): «${said}»`;
+  } catch (err) {
+    return `сеть не дошла — ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 async function main(): Promise<number> {
   const raw = (process.env.DASHSCOPE_API_KEY ?? '').trim();
   const id = keyIdentity(raw);
@@ -76,6 +116,11 @@ async function main(): Promise<number> {
     } catch (err) {
       console.log(`${region}: сеть не дошла — ${err instanceof Error ? err.message : String(err)}`);
       continue;
+    }
+    const vlInCatalog = ids.filter((m) => /(^|-)(vl|omni)(-|$)/i.test(m)).sort();
+    console.log(`  ${region} зрение в каталоге (${vlInCatalog.length}): ${vlInCatalog.join(', ') || 'нет'}`);
+    for (const model of [...new Set([...VISION_CANDIDATES, ...vlInCatalog.filter((m) => !/\d{4}-\d{2}-\d{2}|realtime|thinking|ocr|captioner/.test(m))])]) {
+      console.log(`  ${region} зрение ${model}: ${await pingVision(base, raw, model)}`);
     }
     const top = classifyModels(ids).filter((m) => m.eligible).slice(0, TOP_N).map((m) => m.id);
     const models = [...new Set([...ALWAYS, ...top])];
