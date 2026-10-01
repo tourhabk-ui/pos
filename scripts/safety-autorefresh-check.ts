@@ -106,11 +106,13 @@ async function main(): Promise<number> {
     if (refresh > 0) { console.log('ПЛОХО: экран сам пошёл к источникам — это работа кнопки'); failed = true; }
 
     // Скрытая вкладка — батарея: ни одного перечитывания.
-    await page.evaluate(() => {
+    // Строкой, а не функцией: tsx при сборке оборачивает функции в __name(),
+    // которого в странице нет (прогон 1 упал ровно на этом).
+    await page.evaluate(`
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
       document.dispatchEvent(new Event('visibilitychange'));
-    });
+    `);
     const tHidden = Date.now();
     await sleep(6 * MIN);
     const hidden = after(tHidden, Date.now(), 'rsc') + after(tHidden, Date.now(), 'seismic');
