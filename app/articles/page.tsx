@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { BookOpen, ArrowRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { listArticles, groupByTopic } from '@/lib/articles/queries';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: 'https://vedarai.ru/articles' },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Статьи о Камчатке',
     description: 'Природа, край, сезоны — справочные материалы о полуострове.',
     url: 'https://vedarai.ru/articles',

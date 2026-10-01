@@ -17,6 +17,7 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU } from '@/lib/mcp/connect';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -26,6 +27,7 @@ export const metadata: Metadata = {
     'У Ведара есть публичный MCP-сервер для ИИ-агентов: endpoint https://vedarai.ru/api/mcp, Streamable HTTP, без авторизации. Туры, реальная доступность, безопасность Камчатки, погода, планирование и заявки с подтверждением человеком.',
   alternates: { canonical: `${SITE}/mcp` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'MCP-сервер Ведара для ИИ-агентов',
     description:
       'Публичный MCP-сервер: туры, доступность, безопасность Камчатки, планирование. Endpoint: vedarai.ru/api/mcp, Streamable HTTP, без авторизации.',

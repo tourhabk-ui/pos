@@ -15,6 +15,7 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PLAN_PRESETS, plansHubLastModified } from '@/lib/plans/presets';
 import { buildPlansFaq } from '@/lib/plans/faq';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -23,6 +24,7 @@ export const metadata: Metadata = {
   description: 'Готовые планы поездки на Камчатку по дням: вулканы, рыбалка, медведи, океан. У каждого дня — реальный тур оператора с ценой и датой, статус безопасности и бронь.',
   alternates: { canonical: `${SITE}/plans` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Туры на Камчатку: готовые планы поездки',
     description: 'Планы на 5, 7, 10 и 14 дней с реальными турами, ценами и статусом безопасности.',
     url: `${SITE}/plans`,

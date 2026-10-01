@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import OperatorsPageClient from '@/app/marketplace/operators/_OperatorsClient';
 import { queryOperatorsForPage, type OperatorsFilters, type OperatorsResult } from '@/lib/operators/list-query';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 12;
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
     'Проверенные туристические операторы Камчатки. Рыболовные туры, треккинг к вулканам, вертолётные экскурсии, медвежье сафари — выбирайте лицензированных профессионалов.',
   alternates: { canonical: `${SITE}/operators` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Операторы Камчатки',
     description: 'Проверенные туроператоры Камчатки — от рыбалки до вулканов.',
     url: `${SITE}/operators`,

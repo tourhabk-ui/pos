@@ -72,6 +72,13 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
     // Памятка перед поездкой (30.09): факты — импортом из справочников МЧС, парка, SOS.
     { url: `${BASE}/prepare`,             lastModified: new Date('2026-09-30'), changeFrequency: 'monthly', priority: 0.8 },
+    // Сводка дня (аудит 01.10): живая, на неё ведут двадцать три страницы, а в
+    // sitemap её не было. Собирается на каждый запрос (force-dynamic), поэтому
+    // дата — сегодняшняя. /emergency сюда НЕ внесена намеренно: сторож
+    // mobile-two-taps требует у каждой страницы sitemap ссылку в меню, а
+    // страница SOS открывается кнопкой в шапке — вторая дорога к тому же
+    // действию расходилась бы с ней поведением (§2, #887).
+    { url: `${BASE}/svodka`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают

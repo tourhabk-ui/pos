@@ -11,6 +11,7 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { getArticle } from '@/lib/articles/queries';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: description || `${article.title}: материал о Камчатке.`,
     alternates: { canonical: `https://vedarai.ru/articles/${article.slug}` },
     openGraph: {
+      images: defaultOgImages(),
       title: article.title,
       description: description || undefined,
       url: `https://vedarai.ru/articles/${article.slug}`,

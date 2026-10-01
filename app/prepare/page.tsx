@@ -13,6 +13,7 @@ import { DIFFICULTY_SCALE } from '@/lib/routes/difficulty-scale';
 import { DIFFICULTY_WORDS } from '@/lib/tours/describe';
 import { alertGuidance } from '@/lib/safety/alert-guidance';
 import { EMERGENCY_NUMBERS, EMERGENCY_PRIMARY, telHref } from '@/lib/safety/emergency-numbers';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 /**
  * «Как подготовиться к поездке на Камчатку» — общая памятка (решение владельца
@@ -39,6 +40,7 @@ export const metadata: Metadata = {
   description: DESCRIPTION,
   alternates: { canonical: `${SITE}/prepare` },
   openGraph: {
+    images: defaultOgImages(),
     title: TITLE,
     description: DESCRIPTION,
     url: `${SITE}/prepare`,

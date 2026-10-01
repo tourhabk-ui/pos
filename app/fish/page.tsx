@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Fish, Calendar, Trophy } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
   title: 'Рыбы Камчатки — справочник видов',
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: 'https://vedarai.ru/fish' },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Рыбы Камчатки — справочник видов',
     description: '15 видов промысловых рыб Камчатки: сезоны, методы ловли, рекорды.',
     url: 'https://vedarai.ru/fish',

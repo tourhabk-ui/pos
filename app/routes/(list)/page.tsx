@@ -12,6 +12,7 @@ import RoutesPageClient from '../_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
 import { findToursForQuery } from '@/lib/search/tour-query-match';
 import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -35,6 +36,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: `${SITE}/routes` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Маршруты по Камчатке',
     description: 'Пешие и автомобильные маршруты к вулканам, источникам и озёрам Камчатки.',
     url: `${SITE}/routes`,

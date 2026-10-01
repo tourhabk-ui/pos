@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import { AIToolsClient } from './_AIToolsClient';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
   title: 'AI-арсенал Камчатки — инструменты для туриста',
   description: '48 проверенных AI-инструментов для путешествия на Камчатку: безопасность, навигация, определение растений и животных, офлайн-карты.',
   openGraph: {
+    images: defaultOgImages(),
     title: 'AI-арсенал Камчатки',
     description: 'Кураторский каталог инструментов для путешественников: от лавинных прогнозов до определения растений.',
     type: 'website',

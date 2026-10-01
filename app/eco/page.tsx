@@ -3,6 +3,7 @@ import { Header } from '@/components/layout/Header';
 import {
   Leaf, Map, Footprints, Trash2, Mountain, Eye, Users, BookOpen,
 } from 'lucide-react';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
   title: 'Экотуризм на Камчатке — памятка бережного путешествия',
@@ -17,6 +18,7 @@ export const metadata: Metadata = {
     'бережное путешествие',
   ],
   openGraph: {
+    images: defaultOgImages(),
     title: 'Экотуризм: путешествуйте и сохраняйте природу',
     description:
       'Осознанный подход помогает сохранить первозданную красоту Камчатки. Семь принципов бережного путешествия.',

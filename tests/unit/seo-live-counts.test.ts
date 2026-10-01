@@ -35,7 +35,10 @@ describe('/about: цифры из базы', () => {
   it('места, маршруты, профили — счётом главной; туры — сводкой каталога', () => {
     expect(about).toMatch(/getPlatformCounts\(\)/);
     expect(about).toMatch(/queryCatalogSummaryForPage\(\)/);
-    expect(about).toMatch(/export const revalidate = \d+;/);
+    // На запросе, а не ISR: revalidate отдавал первую версию со сборки, где
+    // базы нет, — страницу без цифр (аудит 01.10). Счёт кэширует platform-counts.
+    expect(about).toMatch(/export const dynamic = 'force-dynamic';/);
+    expect(about).not.toMatch(/export const revalidate = \d+;/);
   });
 
   it('в тексте страницы нет замороженных чисел платформы', () => {
