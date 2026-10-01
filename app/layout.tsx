@@ -1,5 +1,5 @@
 import { Metadata, Viewport } from 'next';
-import { Inter, Playfair_Display, Manrope, JetBrains_Mono, Unbounded } from 'next/font/google';
+import { Inter, Playfair_Display, JetBrains_Mono } from 'next/font/google';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
 
@@ -11,28 +11,26 @@ const playfairDisplay = Playfair_Display({
   variable: '--font-playfair',
 });
 
-// Редизайн v8: Unbounded — смелые заголовки главной (жирный геометрический дисплей).
-// Само-хостинг через next/font (не Google-CDN <link>), правило §2 соблюдено.
-const unbounded = Unbounded({
-  subsets: ['latin', 'cyrillic'],
-  weight: ['500', '600', '700', '800'],
-  display: 'swap',
-  variable: '--font-unbounded',
-});
-
-// Редизайн v7 «Воронка»: Manrope — текст, JetBrains Mono — метки/цифры/координаты.
-// Само-хостинг на билде через next/font (не Google-CDN <link>), правило §2 соблюдено.
-const manrope = Manrope({
-  subsets: ['latin', 'cyrillic'],
-  weight: ['400', '500', '600', '700', '800'],
-  display: 'swap',
-  variable: '--font-manrope',
-});
-
+/*
+ * Шрифты — по §2: Playfair Display (заголовки) и Inter под переменной
+ * --font-outfit (текст). JetBrains Mono — метки и цифры на главной и в
+ * карточке тура (--font-jetbrains).
+ *
+ * Unbounded и Manrope (редизайны v7/v8) сняты 01.10: переменные
+ * --font-unbounded и --font-manrope не читал ни один стиль, а preload
+ * скачивал четыре их файла на КАЖДОЙ странице — из 12 предзагрузок треть
+ * была мёртвым весом (аудит vedarai.ru 01.10). Сторож:
+ * tests/unit/fonts-have-consumers.test.ts.
+ *
+ * Preload только у шрифтов, которые читает каждая страница. JetBrains Mono
+ * нужен двум экранам — без preload браузер скачает его там, где он
+ * встретился в стилях, и нигде больше (display: swap — текст не ждёт).
+ */
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin', 'cyrillic'],
   weight: ['300', '400', '500'],
   display: 'swap',
+  preload: false,
   variable: '--font-jetbrains',
 });
 
@@ -193,7 +191,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
       </head>
-      <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable} ${manrope.variable} ${jetbrainsMono.variable} ${unbounded.variable}`}>
+      <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
         <Providers>
           <OfflineBanner />
           {children}

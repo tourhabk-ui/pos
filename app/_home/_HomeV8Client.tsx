@@ -323,6 +323,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           датами, заголовок — название, «День N из M» — только из tripProgress
           (during) и только при непустых day/total. after/unknown сюда не
           попадают — гейт на fetch выше. */}
+      {/* Фото героя — элемент LCP главной, но фон из CSS браузер находит
+          только после разбора стилей: замер 01.10 (Pixel 7) — заголовок
+          на 2,2 с, фото на 3,8 с. Предзагрузка с высоким приоритетом
+          ставит его в очередь вместе с HTML. React поднимает <link> в
+          <head>; путь тот же, что у фона, — второй загрузки нет. */}
+      <link rel="preload" as="image" href={heroImg} fetchPriority="high" />
       <header className="hero-photo" style={{ backgroundImage: `url('${heroImg}')` }}>
         <div className="hero-shade" aria-hidden />
         <div className="hero-fade" aria-hidden />

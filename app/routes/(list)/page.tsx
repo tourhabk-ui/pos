@@ -15,6 +15,7 @@ import { ToursForQuery, type ToursForQueryState } from '@/components/search/Tour
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
+import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -157,6 +158,12 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     return null;
   });
 
+  // Живые категории — ссылками в первом HTML: снаружи на них не вёл никто.
+  const categoriesPromise = listLiveCategories().catch((err: unknown): CategoryLink[] | null => {
+    console.error('[routes] категории каталога не прочитаны:', err instanceof Error ? err.message : String(err));
+    return null;
+  });
+
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
@@ -169,6 +176,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
   }
   const toursState = await toursPromise;
   const parks = await parksPromise;
+  const categories = await categoriesPromise;
 
   const initialKey = JSON.stringify({
     kind,
@@ -209,6 +217,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
           initialError={initial === null}
           initialKey={initialKey}
           initialParks={parks}
+          initialCategories={categories}
           toursSlot={toursState ? <ToursForQuery q={q} state={toursState} /> : null}
         />
       </Suspense>

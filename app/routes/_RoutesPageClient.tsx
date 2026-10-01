@@ -12,6 +12,8 @@ import {
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import ParksStrip from '@/components/routes/ParksStrip';
 import type { ParkLite } from '@/lib/parks/list';
+import CategoriesStrip from '@/components/routes/CategoriesStrip';
+import type { CategoryLink } from '@/lib/routes/live-categories';
 import { pageSlots } from '@/lib/seo/catalog-paging';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
@@ -161,9 +163,11 @@ interface RoutesPageClientProps {
   toursSlot?: React.ReactNode;
   /** Парки с сервера — ссылками в первом HTML; `null` — сервер не прочитал. */
   initialParks?: ParkLite[] | null;
+  /** Живые категории с сервера (/routes/<slug>); `null` — не прочитал. */
+  initialCategories?: CategoryLink[] | null;
 }
 
-export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null }: RoutesPageClientProps) {
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null, initialCategories = null }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -441,6 +445,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {/* ── Природные парки ───────────────────────────────── */}
         <ParksStrip initialParks={initialParks} />
+        <CategoriesStrip categories={initialCategories} />
 
         {/* ── Search + controls ─────────────────────────────── */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">

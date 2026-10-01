@@ -29,11 +29,13 @@ describe('fitTitle', () => {
     expect(fitTitle(long, PLAN_TITLE_TAILS)).toBe(long);
   });
 
-  it('карточки места и маршрута — тем же правилом: длинное имя остаётся без хвоста', () => {
+  // Маршрут с 01.10 — обязательным хвостом (fitTitleRequired, ниже): без него
+  // маршрут к источнику выходил в выдачу под именем самого места.
+  it('карточка места: длинное имя остаётся без хвоста; маршрут — с обязательным', () => {
     const place = readFileSync(join(process.cwd(), 'app/places/[id]/page.tsx'), 'utf-8');
     const route = readFileSync(join(process.cwd(), 'app/routes/[id]/page.tsx'), 'utf-8');
     expect(place).toMatch(/title: fitTitle\(r\.name as string, \[' — место на Камчатке'\]\)/);
-    expect(route).toMatch(/const title = fitTitle\(route\.title, \[' — маршрут на Камчатке'\]\)/);
+    expect(route).toMatch(/const title = fitTitleRequired\(route\.title, ROUTE_TITLE_TAILS\)/);
     const longName = 'Командорский государственный природный биосферный заповедник';
     expect(fitTitle(longName, [' — место на Камчатке'])).toBe(longName);
     expect(fitTitle('Вулкан Горелый', [' — место на Камчатке'])).toBe('Вулкан Горелый — место на Камчатке');
@@ -43,5 +45,33 @@ describe('fitTitle', () => {
     const page = readFileSync(join(process.cwd(), 'app/plans/[slug]/page.tsx'), 'utf-8');
     expect(page).toMatch(/title: fitTitle\(preset\.title, PLAN_TITLE_TAILS\)/);
     expect(page).not.toMatch(/— готовый план с турами и ценами`/);
+  });
+});
+
+describe('обязательный хвост маршрута (аудит 01.10)', () => {
+  it('маршрут с именем места не совпадает с местом даже при длинном имени', async () => {
+    const { fitTitleRequired, ROUTE_TITLE_TAILS } = await import('@/lib/seo/title-fit');
+    const twins = [
+      'Большие Тюшевские термальные источники',
+      'Нижне-Щапинские (Кипелые) термальные источники',
+      'Верхне-Кошелевские парогидротермальные источники',
+    ];
+    for (const name of twins) {
+      const route = fitTitleRequired(name, ROUTE_TITLE_TAILS);
+      const place = fitTitle(name, [' — место на Камчатке']);
+      expect(route, name).not.toBe(place);
+      expect(route, name).toMatch(/ — маршрут/);
+    }
+  });
+
+  it('помещается полный хвост — полный; короткое имя не теряет его', async () => {
+    const { fitTitleRequired, ROUTE_TITLE_TAILS } = await import('@/lib/seo/title-fit');
+    expect(fitTitleRequired('Вулкан Горелый', ROUTE_TITLE_TAILS)).toBe('Вулкан Горелый — маршрут на Камчатке');
+    expect(fitTitleRequired('Большие Тюшевские термальные источники', ROUTE_TITLE_TAILS))
+      .toBe('Большие Тюшевские термальные источники — маршрут');
+  });
+
+  it('страница маршрута зовёт обязательный хвост', () => {
+    expect(readFileSync('app/routes/[id]/page.tsx', 'utf-8')).toMatch(/fitTitleRequired\(route\.title, ROUTE_TITLE_TAILS\)/);
   });
 });

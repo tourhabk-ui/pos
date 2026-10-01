@@ -5,6 +5,7 @@ import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
+import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -96,6 +97,12 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     return null;
   });
 
+  // Живые категории — ссылками в первом HTML (аудит 01.10), см. /routes.
+  const categoriesPromise = listLiveCategories().catch((err: unknown): CategoryLink[] | null => {
+    console.error('[places] категории каталога не прочитаны:', err instanceof Error ? err.message : String(err));
+    return null;
+  });
+
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
@@ -147,6 +154,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
           initialKey={initialKey}
           lockedKind="place"
           initialParks={await parksPromise}
+          initialCategories={await categoriesPromise}
         />
       </Suspense>
     </>
