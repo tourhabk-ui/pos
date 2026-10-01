@@ -59,15 +59,37 @@ async function main(): Promise<number> {
     }
   });
 
+  // Телефон владельца — мобильная сеть: на быстрой сети раннера страница
+  // успевает всё, и момент «Загрузка…» со скрина не воспроизводится.
+  if (process.argv.includes('--slow')) {
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', {
+      offline: false, latency: 150, downloadThroughput: 1_600_000 / 8, uploadThroughput: 750_000 / 8,
+    });
+    console.log('сеть: медленная (1,6 Мбит/с, 150 мс)');
+  }
+
   try {
-    await page.goto(`${SITE}${path}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(`${SITE}${path}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   } catch (err) {
     console.log(`страница не открылась: ${err instanceof Error ? err.message : String(err)}`);
     await browser.close();
     return 2;
   }
 
-  for (const wait of [15_000, 30_000]) {
+  // Окно согласия закрывает нижнюю половину экрана — юг, где почти все
+  // места «с маршрутом» (прогон 1 принял это за пустую карту).
+  await page.waitForTimeout(3_000);
+  await page.getByRole('button', { name: 'Только необходимое' }).click({ timeout: 5_000 })
+    .then(() => console.log(`[${at()}] окно согласия закрыто`), () => console.log(`[${at()}] окна согласия нет`));
+  if (process.argv.includes('--dark')) {
+    await page.getByRole('button', { name: 'Переключить тему' }).first().click({ timeout: 5_000 })
+      .then(() => console.log(`[${at()}] тема переключена`), () => console.log(`[${at()}] кнопки темы нет`));
+  }
+
+  const shots: string[] = [];
+  for (const wait of [7_000, 30_000]) {
     await page.waitForTimeout(wait);
     const state = await page.evaluate(() => {
       const chips = Array.from(document.querySelectorAll('button'))
@@ -80,12 +102,16 @@ async function main(): Promise<number> {
       return { chips, counter, canvases };
     });
     console.log(`[${at()}] счётчик: ${state.counter ?? 'нет'} · чипы: ${state.chips.join(' | ') || 'нет'} · canvas: ${state.canvases}`);
+    const file = shot.replace(/\.jpg$/, `-${shots.length + 1}.jpg`);
+    await page.screenshot({ path: file, type: 'jpeg', quality: 50 });
+    shots.push(file);
   }
 
-  await page.screenshot({ path: shot, type: 'jpeg', quality: 55 });
-  const b64 = readFileSync(shot).toString('base64');
-  console.log(`КАДР ${shot} base64, ${b64.length} знаков:`);
-  for (let i = 0; i < b64.length; i += 4000) console.log(`B64:${b64.slice(i, i + 4000)}`);
+  for (const [n, file] of shots.entries()) {
+    const b64 = readFileSync(file).toString('base64');
+    console.log(`КАДР ${n + 1} base64, ${b64.length} знаков:`);
+    for (let i = 0; i < b64.length; i += 4000) console.log(`B${n + 1}:${b64.slice(i, i + 4000)}`);
+  }
   console.log('КАДР КОНЕЦ');
   await browser.close();
   return 0;

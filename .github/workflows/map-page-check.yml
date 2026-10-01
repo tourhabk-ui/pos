@@ -37,4 +37,5 @@ jobs:
         run: |
           P=$(python3 -c "import json;print(json.load(open('.github/triggers/map-page-check.json')).get('path','/map'))")
           mkdir -p .cache
-          npx tsx scripts/map-tiles/map-page-check.ts --path "$P" --shot .cache/map-page.jpg
+          FLAGS=$(python3 -c "import json;print(' '.join(json.load(open('.github/triggers/map-page-check.json')).get('flags',[])))")
+          npx tsx scripts/map-tiles/map-page-check.ts --path "$P" --shot .cache/map-page.jpg $FLAGS
