@@ -34,3 +34,22 @@ export const PARK_TITLE_TAILS = [
   ' — маршруты и офлайн-карты',
   ' — маршруты',
 ] as const;
+
+/**
+ * Хвост, без которого заголовок не отличить от соседа (аудит 01.10).
+ *
+ * Шесть маршрутов к термальным источникам носят ровно имя своего места, и
+ * при длинном имени `fitTitle` отбрасывал хвост целиком: страница маршрута
+ * и страница места выходили в выдачу под ОДНИМ заголовком. Здесь, если не
+ * поместился ни один хвост, ставится самый короткий — сверх предела
+ * обрежется « | Ведар», а не слово, отличающее маршрут от места.
+ */
+export function fitTitleRequired(base: string, tails: readonly string[], limit: number = TITLE_LIMIT): string {
+  const fitted = fitTitle(base, tails, limit);
+  if (fitted !== base || tails.length === 0) return fitted;
+  const shortest = [...tails].sort((a, b) => a.length - b.length)[0];
+  return base + shortest;
+}
+
+/** Хвосты заголовка маршрута — от полного к короткому. */
+export const ROUTE_TITLE_TAILS = [' — маршрут на Камчатке', ' — маршрут'] as const;
