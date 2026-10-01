@@ -10,7 +10,7 @@
  * откажет — и откажет молча, уйдя на Pollinations. Поэтому каждый id
  * спрашивается ОБОИМИ путями, и исход у каждого назван отдельно.
  *
- * Тратит не больше четырёх картинок (две модели × два пути). В режиме «только
+ * Тратит не больше пяти картинок (две модели × два пути + функция кода). В режиме «только
  * бесплатная квота» платный вызов невозможен — шлюз отвечает 403, а не
  * списывает. Ключ наружу не выходит; URL картинки не печатается (он
  * подписан и временный) — только факт, что он есть.
@@ -18,9 +18,7 @@
  *   DASHSCOPE_API_KEY=... npx tsx scripts/qwen-image-probe.ts
  */
 
-// Модуль, а не глобальный скрипт: без import/export его main столкнулся бы
-// с main соседних скриптов в общей проверке типов.
-export {};
+import { generateQwenImageUrl } from '@/lib/notifications/cover-image';
 
 const BASE = 'https://dashscope-intl.aliyuncs.com';
 const MODELS = ['qwen-image', 'qwen-image-3.0'];
@@ -129,7 +127,14 @@ async function main(): Promise<number> {
     console.log(`${model} · multimodal-generation: ${m}`);
     if (a.startsWith('РИСУЕТ')) drawn += 1;
   }
-  console.log(`ИТОГ: путём кода рисуют ${drawn} из ${MODELS.length}.`);
+  console.log(`ИТОГ: путём кода (text2image) рисуют ${drawn} из ${MODELS.length}.`);
+
+  // Прогон 2: сама функция кода обложек — тем телом запроса, что уходит с
+  // прода (в том числе negative_prompt, которого в ручных запросах выше нет).
+  process.env.QWEN_IMAGE_MODEL = 'qwen-image-3.0';
+  const started = Date.now();
+  const url = await generateQwenImageUrl(PROMPT);
+  console.log(`generateQwenImageUrl · qwen-image-3.0: ${url ? `РИСУЕТ (${Math.round((Date.now() - started) / 1000)} с)` : 'null — откат на Pollinations (причина — строкой [cover-image] выше)'}`);
   return 0;
 }
 

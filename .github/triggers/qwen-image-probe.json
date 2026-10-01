@@ -1,5 +1,7 @@
 {
   "note": "Пуш этого файла гоняет qwen-image-probe.yml: рисуют ли qwen-image и qwen-image-3.0 на ключе DASHSCOPE_API_KEY путём кода обложек (text2image, асинхронная задача) и синхронным multimodal-generation.",
-  "run": 1,
-  "why": "01.10: на проде QWEN_IMAGE_MODEL=qwen-image (timeweb-app-info прогон 2), Alibaba отключает её 10.10.2026. Владелец: «прогони пробу qwen-image-3.0» — прежде чем менять переменную в Timeweb. Владелец переключил QWEN_IMAGE_MODEL на qwen-image-3.0 до пробы — теперь она проверяет, что прод рисует обложки на новой модели, а не молча уходит на Pollinations."
+  "run": 2,
+  "why": "01.10: на проде QWEN_IMAGE_MODEL=qwen-image (timeweb-app-info прогон 2), Alibaba отключает её 10.10.2026. Владелец: «прогони пробу qwen-image-3.0» — прежде чем менять переменную в Timeweb. Владелец переключил QWEN_IMAGE_MODEL на qwen-image-3.0 до пробы — теперь она проверяет, что прод рисует обложки на новой модели, а не молча уходит на Pollinations.",
+  "run1_result": "qwen-image: 403 FreeTierOnly на обоих путях (квота кончилась — обложки и до 01.10 уходили на Pollinations). qwen-image-3.0: text2image — 400 InvalidParameter «url error», multimodal-generation — РИСУЕТ за 43 с. Путём кода не рисует ни одна: код обложек переведён на multimodal-generation для семейства qwen-image.",
+  "why2": "Прогон 2: та же проба плюс вызов самой generateQwenImageUrl с QWEN_IMAGE_MODEL=qwen-image-3.0 — тело запроса кода, включая negative_prompt."
 }
