@@ -8,6 +8,7 @@
  */
 
 import { stripHtmlTags } from '@/lib/text/strip-html';
+import type { OfferAvailability } from '@/lib/tours/open-dates';
 
 export interface TourSeoInput {
   id: string | number;
@@ -63,6 +64,12 @@ export interface TourSeoOpts {
   siteUrl: string;
   /** Человекочитаемая метка активности (touristType/category). */
   activityLabel: string;
+  /**
+   * Offer.availability по датам тура (lib/tours/open-dates). `null` — дат не
+   * записано или их не удалось сосчитать: тогда поля нет вовсе. Прежде здесь
+   * стояло `InStock` всегда — и у тура, все даты которого разобраны.
+   */
+  availability: OfferAvailability | null;
 }
 
 function isoDate(d: string | Date): string {
@@ -194,7 +201,7 @@ export function buildTourStructuredData(
   reviews: TourReviewSeoInput[],
   opts: TourSeoOpts,
 ): Record<string, unknown> {
-  const { canonicalUrl, siteUrl, activityLabel } = opts;
+  const { canonicalUrl, siteUrl, activityLabel, availability } = opts;
   const price = parseFloat(String(tour.base_price));
   // Абсолютные URL картинок — требование Google для rich results: проверка
   // прода 08.08 показала относительные пути («/images/...») в @graph, из-за
@@ -223,7 +230,7 @@ export function buildTourStructuredData(
     '@type': 'Offer',
     price,
     priceCurrency: 'RUB',
-    availability: 'https://schema.org/InStock',
+    ...(availability ? { availability } : {}),
     url: canonicalUrl,
     seller: { '@type': 'Organization', name: tour.operator_name },
     ...(seasonMonth(tour.season_start) && seasonMonth(tour.season_end)

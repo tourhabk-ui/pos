@@ -61,6 +61,7 @@ const SURFACES = [
   'lib/search/tour-search.ts',                    // поиск туров
   'lib/octo/service.ts',                          // внешний канал
   'lib/kuzmich/core.ts',                          // каталог для агентов (get_tours): места и ближайшая дата
+  'lib/tours/open-dates.ts',                      // availability в разметке карточки тура
 ];
 
 describe('правило интервала', () => {

@@ -341,6 +341,25 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ? staticPages
     : staticPages.filter((p) => p.url !== `${BASE}/accommodations`);
 
+  // Страница-список меняется, когда меняется её содержимое. `new Date()` у
+  // /places, /routes, /catalog говорил «изменено сейчас» на каждом запросе
+  // sitemap — и поисковик учится не верить lastmod сайта целиком (аудит
+  // 01.10). Секция не прочиталась — у списка остаётся прежняя дата.
+  const listOf: Array<[string, MetadataRoute.Sitemap]> = [
+    [`${BASE}/places`, placesPages],
+    [`${BASE}/routes`, routePages],
+    [`${BASE}/catalog`, marketplacePages],
+    [`${BASE}/hub/fishing`, marketplacePages],
+    [`${BASE}/accommodations`, accommodationPages],
+    [`${BASE}/collections`, collectionPages],
+    [`${BASE}/operators`, operatorPages],
+  ];
+  for (const [url, section] of listOf) {
+    const at = latestModified(section);
+    const page = staticLive.find((e) => e.url === url);
+    if (at && page) page.lastModified = at;
+  }
+
   const entries: MetadataRoute.Sitemap = [
     ...staticLive,
     ...categoryPages,
@@ -360,4 +379,15 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
 /** Только записи — для IndexNow bulk, которому полнота не нужна для ответа. */
 export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   return (await collectSitemapEntriesWithStatus()).entries;
+}
+
+/** Самая поздняя дата изменения в секции; `null` — дат нет. */
+export function latestModified(section: MetadataRoute.Sitemap): Date | null {
+  let max: number | null = null;
+  for (const e of section) {
+    if (e.lastModified == null) continue;
+    const t = new Date(e.lastModified).getTime();
+    if (!Number.isNaN(t) && (max === null || t > max)) max = t;
+  }
+  return max === null ? null : new Date(max);
 }

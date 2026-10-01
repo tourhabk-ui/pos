@@ -107,7 +107,9 @@ export default async function FishingPage() {
           '@type': 'Offer',
           price: t.base_price,
           priceCurrency: 'RUB',
-          availability: 'https://schema.org/InStock',
+          // availability не объявляется: даты здесь не считались, а «в наличии»
+          // у тура без свободных дат — обещание выдачи, которого нет (аудит 01.10).
+          // Честный ответ по датам — на карточке тура (lib/tours/open-dates).
           url: `${SITE}${tourPath(t)}`,
         },
         ...(t.duration_hours && {
