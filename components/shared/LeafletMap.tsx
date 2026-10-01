@@ -797,7 +797,7 @@ export default function LeafletMap({
     if (!map || !L) return;
 
     const cluster = clusterRef.current as
-      | { clearLayers: () => void; addLayer: (l: unknown) => void }
+      | { clearLayers: () => void; addLayer: (l: unknown) => void; addLayers: (l: unknown[]) => void }
       | null;
 
     // Снять прошлый набор.
@@ -815,6 +815,11 @@ export default function LeafletMap({
 
     const allCoords: [number, number][] = [];
     const drawn: Array<{ remove: () => void }> = [];
+    // Маркеры кластера копятся и уходят ОДНИМ addLayers: порционная загрузка
+    // (chunkedLoading) работает только в пакетном добавлении, а addLayer по
+    // одному пересчитывал кластеры 1500 раз подряд. Замер 01.10: /map держал
+    // главный поток 4,9 с, и набор пересобирается на каждом GPS-фиксе.
+    const toCluster: unknown[] = [];
 
     markers.forEach((marker, idx) => {
       const hex = resolveColor(marker.color, 'blue');
@@ -876,18 +881,22 @@ export default function LeafletMap({
       const m = L.marker(marker.coords, { icon });
 
       if (!marker.suppressBalloon) {
-        m.bindPopup(buildPopupHtml(marker), { maxWidth: 260 });
+        // HTML попапа — при открытии, а не для всех маркеров заранее:
+        // открывается один из полутора тысяч.
+        m.bindPopup(() => buildPopupHtml(marker), { maxWidth: 260 });
       }
 
       // Через ref: обработчик мог смениться без перерисовки маркеров.
       m.on('click', () => onMarkerClickRef.current?.(markerId));
 
       if (cluster) {
-        cluster.addLayer(m);
+        toCluster.push(m);
       } else {
         drawn.push(m.addTo(map));
       }
     });
+
+    if (cluster && toCluster.length > 0) cluster.addLayers(toCluster);
 
     drawnRef.current = drawn;
 
