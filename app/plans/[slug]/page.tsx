@@ -22,6 +22,7 @@ import { recommendTrip, ACTIVITY_CONSTRAINTS, type DayPlan } from '@/lib/planner
 import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activity';
 import { tourPath } from '@/lib/tours/tour-url';
 import { PLAN_PRESETS, findPlanPreset, planLastModified } from '@/lib/plans/presets';
+import { fitTitle, PLAN_TITLE_TAILS } from '@/lib/seo/title-fit';
 
 export const revalidate = 86400;
 export const dynamicParams = true;
@@ -42,7 +43,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const preset = findPlanPreset(slug);
   if (!preset) return { title: 'План поездки' };
   return {
-    title: `${preset.title} — готовый план с турами и ценами`,
+    // Хвост — по длине: целиком в выдачу, а не с многоточием (аудит 01.10:
+    // заголовки планов были по 86–91 знаку при видимых ~60).
+    title: fitTitle(preset.title, PLAN_TITLE_TAILS),
     description: preset.description,
     alternates: { canonical: `${SITE}/plans/${preset.slug}` },
     openGraph: {

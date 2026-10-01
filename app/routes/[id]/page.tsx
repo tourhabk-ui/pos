@@ -13,6 +13,7 @@ import { stripTags } from '@/lib/html/text';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { fitTitle } from '@/lib/seo/title-fit';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -220,7 +221,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // Канонический URL — всегда по slug (если он есть), даже если пришли по UUID
   const canonicalId = route.slug ?? id;
 
-  const title = `${route.title} — маршрут на Камчатке`;
+  // Хвост — только если помещается в выдачу (аудит 01.10, lib/seo/title-fit).
+  const title = fitTitle(route.title, [' — маршрут на Камчатке']);
   // По предложению или слову, а не slice(0, 180) посреди слова (Н11).
   const desc = metaDescription(route.description)
     || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
