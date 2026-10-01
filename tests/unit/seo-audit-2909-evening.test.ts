@@ -95,7 +95,7 @@ describe('машинные файлы отдаются со своим Cache-Con
 });
 
 describe('/routes и /places — разные страницы с разными заголовками', () => {
-  const titleOf = (p: string) => code(p).match(/export const metadata[\s\S]*?title:\s*'([^']+)'/)?.[1] ?? '';
+  const titleOf = (p: string) => code(p).match(/const BASE_METADATA[\s\S]*?title:\s*'([^']+)'/)?.[1] ?? '';
 
   it('title /routes говорит «маршруты» и не совпадает с /places', () => {
     const routes = titleOf('app/routes/(list)/page.tsx');

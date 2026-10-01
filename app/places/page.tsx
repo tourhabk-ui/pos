@@ -3,11 +3,13 @@ import { Suspense } from 'react';
 import RoutesPageClient from '../routes/_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
+import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
 
-export const metadata: Metadata = {
+const BASE_METADATA: Metadata = {
   title: 'Места Камчатки — вулканы, источники, озёра, бухты',
   description:
     'Каталог природных мест Камчатки: вулканы, термальные источники, гейзеры, озёра, бухты, горные реки. Координаты, описания, безопасность, лучшие сезоны для посещения.',
@@ -44,6 +46,22 @@ function first(v: string | string[] | undefined): string {
   return Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
 }
 
+/** Страница N — свой canonical и заголовок; см. lib/seo/catalog-paging. */
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const sp = await searchParams;
+  const page = parsePage(first(sp.page));
+  const hasFilters = ['q', 'location_type', 'difficulty'].some(k => first(sp[k]) !== '');
+  const canonical = catalogCanonical(SITE, '/places', page, hasFilters);
+  if (page <= 1 || hasFilters) return { ...BASE_METADATA, alternates: { canonical } };
+  const title = `Места Камчатки — страница ${page}`;
+  return {
+    ...BASE_METADATA,
+    title,
+    alternates: { canonical },
+    openGraph: { ...BASE_METADATA.openGraph, images: defaultOgImages(), title, url: canonical },
+  };
+}
+
 /**
  * Отдельный раздел «Места» (/places). В отличие от /routes, kind жёстко
  * зафиксирован на 'place' — переключателя на маршруты нет. SSR первого рендера
@@ -60,8 +78,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   const difficultyRaw = first(sp.difficulty);
   const difficulty: '' | 'easy' | 'medium' | 'hard' =
     difficultyRaw === 'easy' || difficultyRaw === 'medium' || difficultyRaw === 'hard' ? difficultyRaw : '';
-  const pageNumRaw = parseInt(first(sp.page) || '1', 10);
-  const page = Number.isFinite(pageNumRaw) && pageNumRaw >= 1 ? pageNumRaw : 1;
+  const page = parsePage(first(sp.page));
 
   const filters: CatalogFilters = {
     ...(q ? { q } : {}),
@@ -72,6 +89,12 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     limit: LIMIT,
     sort: 'recommended',
   };
+
+  // Парки — ссылками в первом HTML (аудит 01.10), см. /routes.
+  const parksPromise = listActiveParks().catch((err: unknown): ParkLite[] | null => {
+    console.error('[places] список парков не прочитан:', err instanceof Error ? err.message : String(err));
+    return null;
+  });
 
   let initial: CatalogResult | null = null;
   try {
@@ -123,6 +146,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
           initialError={initial === null}
           initialKey={initialKey}
           lockedKind="place"
+          initialParks={await parksPromise}
         />
       </Suspense>
     </>

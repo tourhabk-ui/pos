@@ -4,27 +4,30 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { TreePine } from 'lucide-react';
 
-interface ParkLite {
-  slug: string;
-  displayName: string;
-}
+import type { ParkLite } from '@/lib/parks/list';
 
 /**
- * Полоса-навигация по природным паркам (GET /api/parks).
- * Fail-silent: ошибка/пустой список — не рендерится ничего,
- * каталог работает как раньше.
+ * Полоса-навигация по природным паркам.
+ * Список приходит с сервера (`initialParks`), чтобы ссылки были в первом
+ * HTML: собранная в браузере полоса была единственным входом на карточки
+ * парков, и обход сайта не находил их ни с одной страницы (аудит 01.10).
+ * `null` — сервер не прочитал список, тогда спрашиваем GET /api/parks.
+ * Пустой список или отказ — не рендерится ничего, каталог работает как раньше.
  */
-export default function ParksStrip() {
-  const [parks, setParks] = useState<ParkLite[]>([]);
+export default function ParksStrip({ initialParks = null }: { initialParks?: ParkLite[] | null }) {
+  const [parks, setParks] = useState<ParkLite[]>(initialParks ?? []);
 
   useEffect(() => {
+    if (initialParks !== null) return;
     fetch('/api/parks')
       .then(r => (r.ok ? r.json() : null))
       .then((d: { parks?: ParkLite[] } | null) => {
         if (d?.parks?.length) setParks(d.parks);
       })
-      .catch(() => {});
-  }, []);
+      .catch((err: unknown) => {
+        console.error('[ParksStrip] список парков не получен:', err instanceof Error ? err.message : String(err));
+      });
+  }, [initialParks]);
 
   if (parks.length === 0) return null;
 
