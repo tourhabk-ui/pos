@@ -122,8 +122,10 @@ describe('роут переписи', () => {
     expect(src).toMatch(/e\.event_type = 'published'/);
   });
 
-  it('время очага приводится к поясу в самой базе, а не в процессе Node', () => {
-    expect(src).toMatch(/ea\.created_at::timestamptz AS event_at/);
+  it('время очага читается как UTC явно, а не в поясе сессии базы (+03 на проде)', () => {
+    expect(src).toMatch(/\(ea\.created_at AT TIME ZONE 'UTC'\) AS event_at/);
+    expect(src).not.toMatch(/created_at::timestamptz/);
+    expect(src).toMatch(/ea\.created_at > \(NOW\(\) AT TIME ZONE 'UTC'\)/);
   });
 
   it('окно — через Zod и умножение интервала, без склейки строки', () => {

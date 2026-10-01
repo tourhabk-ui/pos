@@ -260,6 +260,17 @@ describe('«тот же толчок» — по физике, и афтершо�
     expect(body).toMatch(/\$3::int \* INTERVAL '1 second'/);
     expect(body).not.toMatch(/\|\|\s*' second/);
   });
+
+  it('окно сверки — в UTC без пояса, как пишется created_at, а не в поясе сессии', () => {
+    // 01.10: сессия базы на проде в +03, created_at без пояса записан в UTC.
+    // Сравнение с голым timestamptz сдвигало окно ±30 с на три часа, и сверка
+    // не узнавала ни одного толчка — пять записей на три толчка 30.09.
+    const src = readFileSync(join(process.cwd(), 'lib/services/safety/seismic-parser.ts'), 'utf-8');
+    const at = src.indexOf('export async function findSameQuake');
+    const body = src.slice(at, src.indexOf('\n}\n', at)).replace(/--[^\n]*/g, '');
+    expect(body).toMatch(/created_at BETWEEN \(\$1::timestamptz AT TIME ZONE 'UTC'\) - /);
+    expect(body).toMatch(/AND \(\$1::timestamptz AT TIME ZONE 'UTC'\) \+ /);
+  });
 });
 
 describe('сверка — во ВСЕХ путях записи землетрясений', () => {

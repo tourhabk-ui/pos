@@ -998,8 +998,14 @@ export async function findSameQuake(event: SeismicEvent): Promise<string | null 
         WHERE alert_type = 'earthquake'
           AND lat IS NOT NULL
           AND lng IS NOT NULL
-          AND created_at BETWEEN $1::timestamptz - ($3::int * INTERVAL '1 second')
-                             AND $1::timestamptz + ($3::int * INTERVAL '1 second')
+          -- created_at — время без пояса, записанное в UTC (node-pg отдаёт
+          -- строку с офсетом, колонка без пояса офсет отбрасывает). Сессия
+          -- базы на проде живёт в +03, и сравнение с timestamptz приводило
+          -- created_at к +03: окно в ±30 с стояло на три часа мимо, и
+          -- сверка не узнавала ни одного толчка (перепись задержки 01.10).
+          -- Приводим ПАРАМЕТР к UTC без пояса — от пояса сессии не зависит.
+          AND created_at BETWEEN ($1::timestamptz AT TIME ZONE 'UTC') - ($3::int * INTERVAL '1 second')
+                             AND ($1::timestamptz AT TIME ZONE 'UTC') + ($3::int * INTERVAL '1 second')
           AND external_id IS DISTINCT FROM $2`,
       [event.published_at, event.source_id, SAME_QUAKE_SECONDS],
     );

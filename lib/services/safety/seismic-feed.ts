@@ -66,7 +66,8 @@ async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kb
       SELECT id::text, title, description, created_at, magnitude, lat, lng
       FROM external_alerts
       WHERE alert_type = 'earthquake'
-        AND created_at > NOW() - INTERVAL '48 hours'
+        -- created_at без пояса, в UTC; NOW() — в поясе сессии (+03 на проде).
+        AND created_at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '48 hours'
       ORDER BY created_at DESC
       LIMIT 15
     `);
