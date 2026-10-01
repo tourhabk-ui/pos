@@ -76,10 +76,11 @@ export async function GET(request: NextRequest) {
     }>(
       `SELECT ea.id::text AS id, ea.external_id,
               ea.magnitude::float8 AS magnitude, ea.lat::float8 AS lat, ea.lng::float8 AS lng,
-              -- created_at без часового пояса, журнал — с поясом: приведение
-              -- явное и в сессии базы, тем же правилом, каким строку писали.
-              -- Иначе задержку считал бы часовой пояс процесса Node.
-              ea.created_at::timestamptz AS event_at, led.first_published AS ingested_at
+              -- created_at без пояса и записан в UTC; сессия базы на проде
+              -- в +03. Приведение «::timestamptz» трактовало бы его как +03 и
+              -- сдвинуло на три часа — первый прогон 01.10 так и показал
+              -- задержку 180 мин у каждой записи EQKam. Пояс назван явно.
+              (ea.created_at AT TIME ZONE 'UTC') AS event_at, led.first_published AS ingested_at
          FROM external_alerts ea
          LEFT JOIN LATERAL (
            SELECT MIN(e.occurred_at) AS first_published
@@ -89,7 +90,7 @@ export async function GET(request: NextRequest) {
               AND e.event_type = 'published'
          ) led ON TRUE
         WHERE ea.alert_type = 'earthquake'
-          AND ea.created_at > NOW() - ($1::int * INTERVAL '1 hour')
+          AND ea.created_at > (NOW() AT TIME ZONE 'UTC') - ($1::int * INTERVAL '1 hour')
         ORDER BY ea.created_at DESC
         LIMIT 200`,
       [hours],
