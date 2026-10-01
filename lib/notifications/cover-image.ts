@@ -26,6 +26,7 @@ import {
 } from '@/lib/notifications/post-image';
 import { buildPollinationsUrl } from '@/lib/services/ingest/pollinations-url';
 import { callAIFastOrNull } from '@/lib/ai/providers';
+import { isQwenRetired } from '@/lib/ai/qwen-retired';
 import { stripTags } from '@/lib/html/text';
 
 export type CoverChannel = 'ai' | 'travel';
@@ -115,6 +116,12 @@ const NEGATIVE_PROMPT =
 export async function generateQwenImageUrl(prompt: string): Promise<string | null> {
   const { apiKey, base, model, size } = getDashScopeImageConfig();
   if (!apiKey || !model) return null;
+  // Модель в списке Alibaba на отключение 10.10.2026 (qwen-image, -plus,
+  // -max; замена — qwen-image-3.0). После этой даты вызов вернёт отказ, а
+  // вызывающий молча уйдёт на Pollinations — поэтому говорим вслух (§4.0).
+  if (isQwenRetired(model)) {
+    console.error(`[cover-image] QWEN_IMAGE_MODEL=${model} отключается Alibaba 10.10.2026 — задайте qwen-image-3.0`);
+  }
 
   let taskId: string | null = null;
   try {
@@ -135,7 +142,10 @@ export async function generateQwenImageUrl(prompt: string): Promise<string | nul
         signal: AbortSignal.timeout(20_000),
       },
     );
-    if (!createRes.ok) return null;
+    if (!createRes.ok) {
+      console.error(`[cover-image] ${model}: создание задачи — HTTP ${createRes.status}`);
+      return null;
+    }
     const created = (await createRes.json()) as { output?: { task_id?: string } };
     taskId = created?.output?.task_id ?? null;
   } catch {

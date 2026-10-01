@@ -29,6 +29,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import {
   probeProviderModels, getQwenConfig, qwenRefusalKind, probeQwenKeyStatus,
   resolveChatModel, resolveContentModel, resolveDecisionModel,
+  qwenVisionModel,
 } from '@/lib/ai/providers';
 import { pickBestModel } from '@/lib/ai/model-resolver';
 
@@ -140,7 +141,7 @@ export async function GET(request: NextRequest) {
     const q = providers.find(p => p.provider === 'qwen');
     const wanted = [
       q?.configured, q?.resolved.chat, q?.resolved.content, q?.resolved.decision,
-      process.env.QWEN_VISION_MODEL || 'qwen-vl-max',
+      qwenVisionModel(),
     ].filter((m): m is string => typeof m === 'string' && m.length > 0);
     const models = [...new Set(wanted)];
     // Цикл инструментов той же цепочкой, что живой путь: исчерпанная бесплатная

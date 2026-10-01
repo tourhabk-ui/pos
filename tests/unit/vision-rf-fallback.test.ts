@@ -40,8 +40,11 @@ const fn = src.slice(
 describe('зрение Кузьмича — RF-фолбэк', () => {
   it('есть Qwen-VL фолбэк на DashScope', () => {
     expect(fn).toContain('getQwenConfig()');
-    expect(fn).toMatch(/qwen-vl-max/);
-    expect(fn).toContain('QWEN_VISION_MODEL');
+    // Модель — из одного места (01.10): qwen-vl-max Alibaba отключает
+    // 10.10.2026, умолчание и проверка QWEN_VISION_MODEL — в qwenVisionModel()
+    // (сторож самого выбора — tests/unit/qwen-retired.test.ts).
+    expect(fn).toContain('qwenVisionModel()');
+    expect(src).toContain('QWEN_VISION_MODEL');
   });
   it('Qwen-VL достижим даже без ключа OpenRouter (не ранний return null)', () => {
     // Прежде было `if (!apiKey) return null;` — Qwen никогда не пробовался.
