@@ -34,7 +34,7 @@ export interface LegalRequisites {
   director: string;
   emailPrivacy: string;
   emailSupport: string;
-  /** Телефон для связи. Решение владельца 01.10: номер наш; сменится, когда подключим номер Кузьмича. */
+  /** Телефон для связи — номер владельца 01.10. Сменится, когда подключим номер Кузьмича. */
   phone: string;
   site: string;
 }
@@ -50,6 +50,6 @@ export const REQUISITES: LegalRequisites = {
   director: 'Асеев Андрей Валерьевич',
   emailPrivacy: 'info@vedarai.ru',
   emailSupport: 'info@vedarai.ru',
-  phone: '+7 (914) 782-22-22',
+  phone: '+7 (4152) 26-05-40',
   site: 'vedarai.ru',
 };
