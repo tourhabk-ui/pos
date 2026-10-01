@@ -10,6 +10,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { CatalogQuerySchema, queryCatalog } from '@/lib/routes/catalog-query';
+import { clipAtWord } from '@/lib/text/clip-at-word';
+
+/**
+ * `brief=1` — только первая строка описания, до 200 знаков (аудит 01.10).
+ * Карта берёт 1500 мест разом, а показывает из описания первую строку в
+ * попапе (до 120 знаков); полный текст панель места дозапрашивает сама.
+ * Целые описания весили 653 КБ на каждое открытие /map. Без параметра ответ
+ * прежний: каталог читают ещё шесть экранов.
+ */
+const BRIEF_DESCRIPTION_MAX = 200;
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +33,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const { items, meta } = await queryCatalog(parsed.data);
-    const response = NextResponse.json({ success: true, data: items, meta });
+    const brief = new URL(request.url).searchParams.get('brief') === '1';
+    const data = brief
+      ? items.map((it) => ({ ...it, description: clipAtWord((it.description ?? '').split('\n')[0], BRIEF_DESCRIPTION_MAX) }))
+      : items;
+    const response = NextResponse.json({ success: true, data, meta });
     response.headers.set('Cache-Control', 'private, no-cache');
     return response;
   } catch (error) {

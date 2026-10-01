@@ -16,6 +16,9 @@ name: Снимки мест — пережать снятое, удалить с
 #   oversize   — тот же роут, scope oversize: показываемые снимки, уехавшие
 #                в хранилище байтами как были и тяжелее 450 КБ (вес — HEAD к
 #                объекту). Копия ложится рядом, прежний объект не удаляется.
+#   thumb      — тот же роут, scope thumb: копия 480 px для карточек рядом с
+#                оригиналом, адрес — в thumb_url (миграция 1138). Оригинал
+#                не трогается (аудит 01.10: 1,95 МБ снимков на главной).
 #
 # Почему workflow, а не маркер prod-check: тот умеет один GET и тела не шлёт,
 # а оба разбора — POST с обязательной причиной. Без актуатора работа была бы
@@ -80,7 +83,7 @@ jobs:
               print(f'::error::mode должен быть dry или apply, а не {mode!r}')
               sys.exit(1)
           tasks = marker.get('tasks') or ['recompress', 'generated']
-          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3', 'hero', 'oversize')]
+          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3', 'hero', 'oversize', 'thumb')]
           if bad:
               print(f'::error::неизвестная задача: {bad}')
               sys.exit(1)
@@ -159,6 +162,11 @@ jobs:
               # Тот же роут, второй класс: тяжёлые объекты хранилища.
               PATH_="/api/cron/hero-web-variant"
               EXTRA="\"scope\": \"oversize\","
+              LEFT_KEY='pending'
+            elif [ "$TASK" = 'thumb' ]; then
+              # Тот же роут, копии для карточек: оригинал не трогается.
+              PATH_="/api/cron/hero-web-variant"
+              EXTRA="\"scope\": \"thumb\","
               LEFT_KEY='pending'
             else
               PATH_="/api/cron/images-generated"

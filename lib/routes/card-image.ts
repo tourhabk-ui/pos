@@ -163,7 +163,8 @@ export interface CardImage {
 
 export function cardImage(input: CardImageInput): CardImage {
   if (input.hasShownPhoto) {
-    return { kind: 'own', url: `/api/images/route/${input.id}` };
+    // ?size=card — копия 480 px, когда она есть (миграция 1138, аудит 01.10).
+    return { kind: 'own', url: `/api/images/route/${input.id}?size=card` };
   }
 
   const fromPayload = pickPayloadImage(input.payload ?? {});
@@ -210,7 +211,7 @@ export function cardImage(input: CardImageInput): CardImage {
   const kind = input.kind ?? 'place';
   if (kind === 'route') {
     if (input.waypointPhotoId) {
-      return { kind: 'waypoint_place', url: `/api/images/route/${input.waypointPhotoId}` };
+      return { kind: 'waypoint_place', url: `/api/images/route/${input.waypointPhotoId}?size=card` };
     }
     return { kind: 'gradient', url: null };
   }
