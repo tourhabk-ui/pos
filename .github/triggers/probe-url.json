@@ -1,13 +1,21 @@
 {
-  "note": "01.10, прогон 633. ТОЛЬКО ЧТЕНИЕ. Легли ли кадры Алины Гусаковой на Мутновскую ГеоЭС (1125) и Дачные источники (1126).",
-  "run": 633,
+  "note": "01.10, прогон 634. ТОЛЬКО ЧТЕНИЕ. Скрин владельца 19:00: /map не показывает точек вовсе, счётчик «Загрузка…». Что отдают: список мест страницы (/api/routes?kind=place), слой мест обзора и Авачинской группы в хранилище (?v=23), сама страница /map.",
+  "run": 634,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 4000,
+  "bytes": 700,
+  "count": [
+    "\"on_route\":true",
+    "\"type\":\"Feature\"",
+    "\"onRoute\":true",
+    "\"id\":"
+  ],
   "urls": [
-    "https://vedarai.ru/api/places/84f12e37-fd15-44e7-b60e-063f176d059e",
-    "https://vedarai.ru/api/places/2bf92082-0daf-4770-8031-a51c0f355be8"
+    "https://vedarai.ru/api/routes?hasCoords=true&limit=1500&sort=title&kind=place",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/krai-overview.places.geojson?v=23",
+    "https://s3.twcstorage.ru/6e853f7f-a464-4845-bec6-d3f0a4caf6d5/map-packs/avacha-group.places.geojson?v=23",
+    "https://vedarai.ru/map"
   ]
 }
