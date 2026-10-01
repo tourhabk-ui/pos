@@ -65,7 +65,8 @@ type SeismicEvent = import('@/lib/services/safety/seismic-parser').SeismicEvent;
  * DDL external_alerts — из САМИХ миграций, а не переписан руками: тест
  * обязан видеть те же колонки, что и прод, иначе он снова проверял бы
  * не то. Берётся блок CREATE TABLE из 070 плюс колонки 687 (magnitude,
- * lat, lng) и 1044 (volcano_name, volcano_ark_id) — всё, что пишет saveEvent.
+ * lat, lng), 1044 (volcano_name, volcano_ark_id) и 1124 (affected_parks) — всё,
+ * что пишет saveEvent.
  *
  * Список ведётся вручную по необходимости, и это видно сразу: 27.09 привязка
  * вулканического алерта к вулкану добавила две колонки, saveEvent начал их
@@ -79,7 +80,13 @@ function externalAlertsDdl(): string {
   if (!block) throw new Error('в миграции 070 не найден CREATE TABLE external_alerts');
   const m687 = readFileSync(join(process.cwd(), 'migrations', '687_external_alerts_coords.sql'), 'utf-8');
   const m1044 = readFileSync(join(process.cwd(), 'migrations', '1102_alert_volcano_anchor.sql'), 'utf-8');
-  return `${block[0]}\n${m687}\n${m1044}`;
+  // 1124 (#2133): affected_parks — saveEvent пишет её с закрытием парков.
+  // Из файла берётся только ALTER этой таблицы: остальное в 1124 пишет в
+  // parks, которой в этой базе нет.
+  const m1124 = readFileSync(join(process.cwd(), 'migrations', '1124_park_closure_alerts.sql'), 'utf-8');
+  const parksCol = m1124.match(/ALTER TABLE external_alerts ADD COLUMN IF NOT EXISTS affected_parks [^;]+;/);
+  if (!parksCol) throw new Error('в миграции 1124 не найдена колонка affected_parks');
+  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}`;
 }
 
 // Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила
