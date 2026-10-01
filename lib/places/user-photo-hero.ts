@@ -14,12 +14,19 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { heroVariantFor, heroVariantKey } from '@/lib/places/hero-variant';
 
 export interface PromoteResult {
   status: 'applied' | 'not_found' | 'no_ark_id' | 'needs_author';
   /** Чем снимок подписан на карточке; null — перенос не состоялся. */
   author: string | null;
   placeName: string | null;
+  /**
+   * Что с веб-копией героя (аудит 01.10): сделана; не нужна — оригинал и так
+   * лёгкий; не сделана — герой встал оригиналом, причина здесь и в логе.
+   * Нет поля — переноса не было.
+   */
+  variant?: { status: 'made' | 'not_needed' | 'failed'; reason?: string };
 }
 
 /**
@@ -81,8 +88,20 @@ export async function promoteUserPhotoToHero(
     return { status: 'needs_author', author: null, placeName: row.place_name };
   }
 
+  // Герой — веб-копия, а не оригинал загрузки (аудит 01.10: оригинал
+  // туриста 3000x4000 весил 6,1 МБ и делал главную тяжелее восьми
+  // мегабайт). Копия не вышла — герой встаёт оригиналом, как раньше, но
+  // отказ виден в логе и в ответе: действие владельца не блокируется
+  // из-за копии, а её можно доделать починкой /api/cron/hero-web-variant.
+  const variant = await heroVariantFor(row.url, heroVariantKey(row.ark_id, photoId));
+  if (variant.status === 'failed') {
+    console.error('[user-photo-hero] веб-копия не сделана, герой — оригинал:', photoId, variant.reason);
+  }
+  const made = variant.status === 'made' ? variant : null;
+
   // Переносится ССЫЛКА, не байты: у ai_route_images есть s3_url, и раздача
-  // (/api/images/route/[routeId]) отдаёт его редиректом.
+  // (/api/images/route/[routeId]) отдаёт его редиректом. source_url — всегда
+  // оригинал загрузки: из него копию можно пересоздать.
   //
   // Четыре поля прав перечислены и в INSERT, и в DO UPDATE — иначе прежний
   // герой оставил бы свою подпись под новым снимком (разбор 14.09).
@@ -90,10 +109,13 @@ export async function promoteUserPhotoToHero(
   // который раздача всё равно не отдаст (s3_url имеет приоритет).
   await pool.query(
     `INSERT INTO ai_route_images
-       (route_id, s3_url, image_data, mime_type, prompt, model, author, license, license_url, source_url)
-     VALUES ($1, $2, NULL, 'image/jpeg', $3, 'manual-upload', $4, NULL, NULL, $2)
+       (route_id, s3_url, s3_key, image_data, mime_type, prompt, model, author, license, license_url, source_url,
+        width, height)
+     VALUES ($1, $2, $6, NULL, 'image/jpeg', $3, 'manual-upload', $4, NULL, NULL, $5,
+             COALESCE($7::int, 1280), COALESCE($8::int, 720))
      ON CONFLICT (route_id) DO UPDATE
        SET s3_url      = EXCLUDED.s3_url,
+           s3_key      = EXCLUDED.s3_key,
            image_data  = NULL,
            mime_type   = EXCLUDED.mime_type,
            prompt      = EXCLUDED.prompt,
@@ -102,8 +124,13 @@ export async function promoteUserPhotoToHero(
            license     = EXCLUDED.license,
            license_url = EXCLUDED.license_url,
            source_url  = EXCLUDED.source_url,
+           width       = EXCLUDED.width,
+           height      = EXCLUDED.height,
            created_at  = now()`,
-    [row.ark_id, row.url, `hero from user photo ${photoId}`, author ?? null],
+    [
+      row.ark_id, made?.url ?? row.url, `hero from user photo ${photoId}`, author ?? null, row.url,
+      made?.key ?? null, made?.width ?? null, made?.height ?? null,
+    ],
   );
 
   // Одобрение идёт ВМЕСТЕ с переносом: снимок на карточке и «ждёт проверки» —
@@ -115,5 +142,12 @@ export async function promoteUserPhotoToHero(
     [opts.actorUserId, photoId],
   );
 
-  return { status: 'applied', author: author ?? null, placeName: row.place_name };
+  return {
+    status: 'applied',
+    author: author ?? null,
+    placeName: row.place_name,
+    variant: variant.status === 'made'
+      ? { status: 'made' }
+      : { status: variant.status, reason: variant.reason },
+  };
 }
