@@ -131,10 +131,11 @@ describe('W8/W12/W14: отказы — внятные и по-русски', () 
 });
 
 describe('W9: лимит записи называет своё окно', () => {
-  it('шестая заявка с адреса — «подождите 10 минут»', async () => {
+  // Окно — час (решение владельца 01.10: 5 заявок в час с адреса).
+  it('шестая заявка с адреса — «подождите час»', async () => {
     let last: { isError?: boolean; content: Array<{ text: string }> } | null = null;
     for (let i = 0; i < 6; i++) last = await result(await call('create_lead', LEAD, '10.66.66.66'));
     expect(last!.isError).toBe(true);
-    expect(last!.content[0]!.text).toMatch(/10 минут/);
+    expect(last!.content[0]!.text).toMatch(/подождите час/);
   });
 });

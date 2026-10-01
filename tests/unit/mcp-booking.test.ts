@@ -71,7 +71,8 @@ describe('п.4: заявка на бронь — не бронь и не опл�
 describe('п.4: rate-limit по IP', () => {
   it('чтение и запись тормозятся раздельно, запись жёстче', () => {
     expect(ROUTE).toMatch(/readLimiter = createRateLimiter\(\{ windowMs: 60_000, max: 30 \}\)/);
-    expect(ROUTE).toMatch(/writeLimiter = createRateLimiter\(\{ windowMs: 600_000, max: 5 \}\)/);
+    // Окно записи — час (решение владельца 01.10: 5 заявок в час с адреса).
+    expect(ROUTE).toMatch(/writeLimiter = createRateLimiter\(\{ windowMs: 3_600_000, max: 5 \}\)/);
     // С 17.09 состав пишущих задаёт аннотация `readOnlyHint: false` в
     // lib/mcp/public-tools.ts, а роут берёт готовое множество: свой список из
     // двух имён здесь разошёлся бы с подсказкой хосту. Что множество — ровно
