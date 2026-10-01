@@ -45,6 +45,36 @@ function expectedWebhookUrl(): string {
   return maxWebhookUrl();
 }
 
+/**
+ * Снять НАШИ старые подписки: тот же адрес /api/max/kuzmich, но не тот, что
+ * ждём (обычно — без секрета, заведённый до MAX_WEBHOOK_SECRET). Без этого MAX
+ * шлёт каждое сообщение на оба адреса: человек получает два ответа, а
+ * незаверенная копия идёт мимо проверки источника. Чужие адреса не трогаем.
+ * Зовётся только когда ожидаемый адрес уже точно зарегистрирован — иначе
+ * бот остался бы без подписки вовсе.
+ */
+async function removeStale(
+  current: MaxSubscription[],
+  webhookUrl: string,
+  headers: Record<string, string>,
+): Promise<{ removed: string[]; failed: string[] }> {
+  const ours = webhookUrl.split('?')[0];
+  const stale = current
+    .map((s) => s.url ?? '')
+    .filter((u) => u !== webhookUrl && u.split('?')[0] === ours);
+  const removed: string[] = [];
+  const failed: string[] = [];
+  for (const url of stale) {
+    try {
+      const res = await maxFetch(`${MAX_API_BASE}/subscriptions?url=${encodeURIComponent(url)}`, { method: 'DELETE', headers });
+      (res.ok ? removed : failed).push(redactWebhookUrl(url));
+    } catch {
+      failed.push(redactWebhookUrl(url));
+    }
+  }
+  return { removed, failed };
+}
+
 export async function GET(req: Request): Promise<NextResponse> {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -83,12 +113,15 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   // 2. Уже на месте — ничего не трогаем
   if (alreadyRegistered) {
+    const stale = await removeStale(current, webhookUrl, headers);
     return NextResponse.json({
-      ok: true,
-      action: 'noop',
+      ok: stale.failed.length === 0,
+      action: stale.removed.length > 0 ? 'removed_stale' : 'noop',
       webhook_url: redactWebhookUrl(webhookUrl),
       subscriptions: current.length,
-    });
+      stale_removed: stale.removed,
+      stale_failed: stale.failed,
+    }, { status: stale.failed.length === 0 ? 200 : 502 });
   }
 
   // 3. Подписки нет — регистрируем заново (самолечение)
@@ -115,13 +148,16 @@ export async function GET(req: Request): Promise<NextResponse> {
     );
   }
 
+  const stale = await removeStale(current, webhookUrl, headers);
   return NextResponse.json({
-    ok: true,
+    ok: stale.failed.length === 0,
+    stale_removed: stale.removed,
+    stale_failed: stale.failed,
     action: 'registered',
     reason: listOk ? 'subscription_missing' : 'list_unavailable',
     webhook_url: redactWebhookUrl(webhookUrl),
     update_types: UPDATE_TYPES,
     register_status: registerStatus,
     response: registerResponse,
-  });
+  }, { status: stale.failed.length === 0 ? 200 : 502 });
 }

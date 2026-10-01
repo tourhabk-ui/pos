@@ -73,6 +73,33 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
     expect(posted).toBe(true);
   });
 
+  it('появился секрет: адрес с секретом регистрируется, наш старый без секрета снимается, чужой остаётся', async () => {
+    process.env.MAX_WEBHOOK_SECRET = 'sec';
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string, opts?: { method?: string }) => {
+      calls.push(`${opts?.method ?? 'GET'} ${url}`);
+      if (opts?.method === 'POST') return new Response(JSON.stringify({ success: true }), { status: 200 });
+      if (opts?.method === 'DELETE') return new Response(JSON.stringify({ success: true }), { status: 200 });
+      return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK }, { url: 'https://other.example/hook' }] }), { status: 200 });
+    });
+    vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
+    try {
+      const res = await callRoute();
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.action).toBe('registered');
+      const deletes = calls.filter((c) => c.startsWith('DELETE'));
+      // Ровно один: наш старый адрес без секрета. Чужой не тронут.
+      expect(deletes).toEqual([`DELETE https://platform-api2.max.ru/subscriptions?url=${encodeURIComponent(WEBHOOK)}`]);
+      // Снятие — только ПОСЛЕ регистрации нового: иначе бот остался бы без подписки.
+      expect(calls.findIndex((c) => c.startsWith('POST'))).toBeLessThan(calls.findIndex((c) => c.startsWith('DELETE')));
+      expect(JSON.stringify(body)).not.toContain('sec&');
+      expect(body.stale_removed).toEqual([WEBHOOK]);
+    } finally {
+      delete process.env.MAX_WEBHOOK_SECRET;
+    }
+  });
+
   it('нет MAX_BOT_TOKEN → 500, не молчит зелёным', async () => {
     delete process.env.MAX_BOT_TOKEN;
     const res = await callRoute();
