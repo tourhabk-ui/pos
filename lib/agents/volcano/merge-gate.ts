@@ -82,6 +82,25 @@ function repoBase(repo: string): string {
 /** Задержки между попытками — 3 попытки всего, короткий бюджет внутри HTTP-запроса. */
 const RETRY_DELAYS_MS = [300, 900];
 
+/**
+ * Предел одной попытки (01.10). У `fetch` без сигнала предела нет: зависший
+ * запрос с прода к GitHub не бросает, а ждёт — до 300 с встроенного таймаута
+ * Node. Повторов тогда нет, `GitHubUnavailableError` не наступает, и вместо
+ * задуманного «не смогли спросить» workflow ловит свой таймаут curl (150 с) и
+ * красит PR: так дважды подряд упал gate у #2167, где эндпоинту нужен был
+ * ОДИН запрос (метки volcano-agent у PR нет). Обрыв по пределу — тот же
+ * сетевой сбой: повтор, затем unavailable. GitHub отвечает за доли секунды;
+ * три попытки по 15 с укладываются в бюджет workflow.
+ */
+export const GH_ATTEMPT_TIMEOUT_MS = 15_000;
+
+/** Сигнал, который обрывает запрос по пределу; `clear` — снять таймер. */
+function attemptSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return { signal: ctrl.signal, clear: () => clearTimeout(timer) };
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -89,18 +108,39 @@ function sleep(ms: number): Promise<void> {
 interface GhAttemptOk<T> { ok: true; data: T }
 interface GhAttemptFail { ok: false; transient: boolean; error: string }
 
-/** Одна попытка. Сетевой throw и 5xx — transient (стоит повторить); 4xx — решение (не повторяем). */
+/**
+ * Одна попытка. Сетевой throw, обрыв по пределу и 5xx — transient (стоит
+ * повторить); 4xx — решение (не повторяем).
+ */
 async function ghAttempt<T>(repo: string, path: string, init?: RequestInit): Promise<GhAttemptOk<T> | GhAttemptFail> {
-  let res: Response;
+  const method = init?.method ?? 'GET';
+  const { signal, clear } = attemptSignal(GH_ATTEMPT_TIMEOUT_MS);
+  const timedOut = (): GhAttemptFail => ({
+    ok: false, transient: true, error: `GitHub ${method} ${path}: нет ответа за ${GH_ATTEMPT_TIMEOUT_MS / 1000} с`,
+  });
   try {
-    res = await fetch(`${repoBase(repo)}${path}`, { ...init, headers: ghHeaders() });
-  } catch (err) {
-    return { ok: false, transient: true, error: err instanceof Error ? err.message : String(err) };
+    let res: Response;
+    try {
+      res = await fetch(`${repoBase(repo)}${path}`, { ...init, headers: ghHeaders(), signal });
+    } catch (err) {
+      if (signal.aborted) return timedOut();
+      return { ok: false, transient: true, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (res.ok) {
+      try {
+        return { ok: true, data: (await res.json()) as T };
+      } catch (err) {
+        // Тело оборвалось на пределе — тот же сбой связи; иначе — битый ответ, не повторяем.
+        if (signal.aborted) return timedOut();
+        throw err;
+      }
+    }
+    const body = await res.text().catch(() => '');
+    const error = `GitHub ${method} ${path}: HTTP ${res.status} ${body.slice(0, 200)}`;
+    return { ok: false, transient: res.status >= 500, error };
+  } finally {
+    clear();
   }
-  if (res.ok) return { ok: true, data: (await res.json()) as T };
-  const body = await res.text().catch(() => '');
-  const error = `GitHub ${init?.method ?? 'GET'} ${path}: HTTP ${res.status} ${body.slice(0, 200)}`;
-  return { ok: false, transient: res.status >= 500, error };
 }
 
 async function gh<T>(repo: string, path: string, init?: RequestInit): Promise<T> {
@@ -246,9 +286,11 @@ async function addLabel(repo: string, prNumber: number, label: string): Promise<
 }
 
 async function removeLabel(repo: string, prNumber: number, label: string): Promise<void> {
+  const { signal, clear } = attemptSignal(GH_ATTEMPT_TIMEOUT_MS);
   await fetch(`${repoBase(repo)}/issues/${prNumber}/labels/${encodeURIComponent(label)}`, {
-    method: 'DELETE', headers: ghHeaders(),
-  }).catch(() => undefined); // отсутствующий label — не ошибка
+    method: 'DELETE', headers: ghHeaders(), signal,
+  }).catch(() => undefined) // отсутствующий label — не ошибка
+    .finally(clear);
 }
 
 /** Файлы миграций в diff — человеку важно видеть их до merge. */
@@ -273,9 +315,12 @@ async function notifyOwnerOnce(
   const chatId = process.env.TELEGRAM_OWNER_ID;
   if (!token || !chatId) return { sent: false, reason: 'TELEGRAM_BOT_TOKEN/TELEGRAM_OWNER_ID не настроены' };
 
+  // Тот же предел, что у GitHub: зависший Telegram держал бы весь gate.
+  const { signal, clear } = attemptSignal(GH_ATTEMPT_TIMEOUT_MS);
   try {
     const res = await fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
+      signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
@@ -293,7 +338,10 @@ async function notifyOwnerOnce(
     if (!res.ok) return { sent: false, reason: `Telegram HTTP ${res.status}` };
     return { sent: true };
   } catch (err) {
+    if (signal.aborted) return { sent: false, reason: `Telegram: нет ответа за ${GH_ATTEMPT_TIMEOUT_MS / 1000} с` };
     return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  } finally {
+    clear();
   }
 }
 
