@@ -250,6 +250,24 @@ export function composeVolcanoReport(input: VolcanoInput, query: string | undefi
   ].join('\n');
 }
 
+/**
+ * Вулкан, которого нет в справочнике мест, но который есть в сводках
+ * (#2134, 30.09): `get_guardian_context("Чикурачки")` отвечал «ни места, ни
+ * предупреждений нет», хотя `get_volcano_status` знал его оранжевый код
+ * KVERT. Человек читал отсутствие данных как отсутствие опасности.
+ *
+ * Возвращает строки сводок по этому вулкану или null — вулкана нет и в
+ * сводках. Статуса МЕСТА здесь нет и не выдумывается: его считает крон по
+ * справочнику, а записи в справочнике нет.
+ */
+export function volcanoLinesForName(input: VolcanoInput, query: string, nowMs: number = Date.now()): string[] | null {
+  if (!query.trim()) return null;
+  const found = mergeVolcanoes(input, nowMs).filter((m) => matches(m, query));
+  if (found.length === 0) return null;
+  const fresh = input.kfegs !== null && input.kfegsDate !== null && kfegsIsFresh(input.kfegsDate, nowMs);
+  return [sourcesLine(input, nowMs).text, ...found.slice(0, 3).map((m) => volcanoLine(m, nowMs, fresh)), FOOTER];
+}
+
 /** Прочитать обе сводки. Каждый источник — своим try: отказ одного не гасит другой. */
 export async function loadVolcanoInput(): Promise<VolcanoInput> {
   let kvert: KvertRow[] | null = null;

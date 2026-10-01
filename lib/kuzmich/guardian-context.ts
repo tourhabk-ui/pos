@@ -11,6 +11,8 @@ import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { isVolcanoObservationStale, VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
+import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
+import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 
 interface GuardianPlaceRow {
   name: string;
@@ -325,7 +327,20 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     ),
   ]);
 
-  if (placesRes.rows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0) {
+  // Места нет — спросить сводки вулканов (#2134): вулкан без записи в
+  // справочнике (Чикурачки на Парамушире) есть в KVERT, и ответ «ничего нет»
+  // при оранжевом коде читался как «там спокойно». Отказ чтения сводок — в
+  // лог и дальше без них: «не смогли спросить» не равно «вулкана нет».
+  let volcanoLines: string[] | null = null;
+  if (placesRes.rows.length === 0) {
+    try {
+      volcanoLines = volcanoLinesForName(await loadVolcanoInput(), placeName);
+    } catch (err) {
+      console.error('[guardian] сводки вулканов не прочитаны:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (placesRes.rows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines) {
     return '';
   }
 
@@ -335,7 +350,14 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   // #2063): без этой строки ответ из одной этнографии читался как полный —
   // турист не видел, что статуса, KVERT и опасностей в нём нет вовсе. «Не
   // знаю» говорится словами (§4.0), а не подменяется тем, что нашлось.
-  if (placesRes.rows.length === 0) {
+  if (placesRes.rows.length === 0 && volcanoLines) {
+    parts.push(
+      `Места «${placeName}» в справочнике Ведара нет, поэтому статус безопасности места не рассчитан — ` +
+      `это НЕ значит, что там безопасно. Вулкан есть в сводках вулканов:`,
+      ...volcanoLines,
+      `Экстренный вызов на Камчатке — ${EMERGENCY_PRIMARY.phone}.`,
+    );
+  } else if (placesRes.rows.length === 0) {
     parts.push(
       `Места «${placeName}» в справочнике не нашлось — статуса, кодов KVERT и КФ ЕГС ` +
       `и опасностей по этому названию нет. Ниже только то, где название упомянуто; ` +
