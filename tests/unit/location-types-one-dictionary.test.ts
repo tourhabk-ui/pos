@@ -127,6 +127,8 @@ describe('потребители берут слова из источника',
     // Седьмая копия — словарь из девяти типов в трендах: «waterfall» уходил
     // на экран капсом латиницей (аудит 01.10).
     ['app/trending/_TrendingClient.tsx', 'locationTypeLabel'],
+    // Восьмая — в карточке подборки (аудит 01.10, вместе со ссылками по ЧПУ).
+    ['app/collections/[slug]/_CollectionDetailClient.tsx', 'locationTypeLabel'],
   ];
 
   for (const [file, fn] of consumers) {

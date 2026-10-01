@@ -44,6 +44,8 @@ export type StageProximity = 'on_line' | 'near_line';
 
 export interface DerivedStage {
   placeId: string;
+  /** ЧПУ места для ссылки; null — ссылка по id (аудит 01.10: UUID уходил редиректом). */
+  slug: string | null;
   name: string;
   locationType: string | null;
   /** Порядок вдоль линии, 0 — ближе к началу. */
@@ -66,7 +68,7 @@ export interface DerivedStagesInput {
   /** Линия маршрута; меньше двух точек — вычислять нечего. */
   track: GeoPoint[];
   /** Кандидаты — места с координатами. */
-  places: Array<{ id: string; name: string; lat: number; lng: number; locationType?: string | null }>;
+  places: Array<{ id: string; name: string; lat: number; lng: number; locationType?: string | null; slug?: string | null }>;
   /**
    * Места, у которых уже ЕСТЬ установленная связь с маршрутом.
    *
@@ -129,6 +131,7 @@ export function deriveStages(i: DerivedStagesInput): DerivedStagesResult {
     const offLineKm = Math.round(proj.offTrackKm * 1000) / 1000;
     const stage: DerivedStage = {
       placeId: pl.id,
+      slug: pl.slug ?? null,
       name: pl.name,
       locationType: pl.locationType ?? null,
       // Порядок вдоль линии: номер звена плюс доля внутри него. Сортировка по

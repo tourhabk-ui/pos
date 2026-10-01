@@ -23,6 +23,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 // что перепись рассказывала владельцу про градиент.
 import { cardImage } from '@/lib/routes/card-image';
 import { placeOnLiveRouteSql } from '@/lib/places/on-route';
+import { arkUrlSlugSql } from '@/lib/routes/url-slug';
 
 
 /** Определение опасностей на основе данных точки/маршрута. */
@@ -81,7 +82,10 @@ export type CatalogFilters = z.infer<typeof CatalogQuerySchema>;
 export interface CatalogItem {
   imageUrl?: string;
   id: string;
+  /** Ключ дедупликации (route_dedupe_key), НЕ адрес — адрес в urlSlug. */
   slug: string;
+  /** ЧПУ карточки (lib/routes/url-slug); null — ссылка по id. */
+  urlSlug: string | null;
   kind: 'place' | 'route' | 'tour';
   category: string;
   locationType: string | null;
@@ -340,6 +344,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       `SELECT
          ark.id,
          ark.route_dedupe_key,
+         -- Адрес карточки (lib/routes/url-slug): во VIEW ЧПУ нет, ссылки по
+         -- UUID уходили редиректом 308 (аудит 01.10: 477 адресов).
+         ${arkUrlSlugSql('ark')} AS url_slug,
          ark.kind,
          ark.category,
          ark.location_type,
@@ -435,6 +442,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       ...(imageUrl ? { imageUrl } : {}),
       id:           r.id as string,
       slug:         r.route_dedupe_key as string,
+      urlSlug:      (r.url_slug as string | null) ?? null,
       kind:         ((r.kind as 'place' | 'route' | 'tour' | null) ?? 'place'),
       category:     r.category as string,
       locationType: (r.location_type as string | null) ?? null,

@@ -4,6 +4,7 @@ import { CATEGORY_PAGES, categoryListingHref } from '@/lib/routes/category-meta'
 import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
+import { arkUrlSlugSql, catalogHref } from '@/lib/routes/url-slug';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
@@ -24,8 +25,10 @@ export default async function CategoryPage({ category, zone }: { category: strin
       id: string; title: string; description: string; category: string;
       lat: unknown; lng: unknown; price_from: unknown; difficulty: string | null;
       duration_days: unknown; source_name: string | null;
+      kind: string | null; url_slug: string | null;
     }>(
-      `SELECT id, title, description, category, lat, lng,
+      `SELECT id, title, description, category, lat, lng, kind,
+              ${arkUrlSlugSql('agent_route_knowledge')} AS url_slug,
               NULLIF(payload->>'price_from', '')::numeric AS price_from,
               payload->>'difficulty' AS difficulty,
               NULLIF(payload->>'duration_days', '')::numeric::int AS duration_days,
@@ -72,7 +75,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
       : Promise.resolve({ rows: [] as { slug: string; display_name: string }[] }),
     // Живые категории — для блока «Другие виды». Тот же счёт, что у самой
     // страницы категории: ссылка на тонкую категорию вела в 404 (аудит 01.10:
-    // 12 битых ссылок с семи страниц /routes/*).
+    // 12 битых ссылок с семи страниц категорий).
     pool.query<{ category: string; count: string }>(
       `SELECT category, COUNT(*) AS count FROM agent_route_knowledge
        WHERE is_visible = TRUE AND category IS NOT NULL
@@ -86,6 +89,9 @@ export default async function CategoryPage({ category, zone }: { category: strin
 
   const routes: RouteItem[] = routeResult.rows.map(r => ({
     id: r.id,
+    // Адрес — по роду и ЧПУ (lib/routes/url-slug); вид карточки не меняется:
+    // род в саму карточку не передаётся, только в ссылку.
+    href: catalogHref({ id: r.id, kind: r.kind, urlSlug: r.url_slug }, '/routes'),
     category: r.category,
     title: r.title,
     description: r.description,

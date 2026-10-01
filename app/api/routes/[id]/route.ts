@@ -257,7 +257,7 @@ export async function GET(
       // связь честно станет `unknown` — прежним поведением.
       `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
               to_jsonb(rw)->>'link_kind' AS link_kind,
-         p.ark_id AS place_id, p.name AS place_name, p.location_type,
+         p.ark_id AS place_id, p.slug AS place_slug, p.name AS place_name, p.location_type,
          p.lat AS place_lat, p.lng AS place_lng, p.coord_source,
          sp.altitude_m, sp.hazard_types, sp.profile_source
        FROM route_waypoints rw
@@ -418,7 +418,7 @@ export async function GET(
       const padLat = (NEAR_LINE_KM + 0.5) / 111.32;
       const padLng = padLat / Math.max(0.2, Math.cos((Math.max(Math.abs(latMin), Math.abs(latMax)) * Math.PI) / 180));
       const nearby = await query(
-        `SELECT p.id, p.name, p.lat::float8 AS lat, p.lng::float8 AS lng,
+        `SELECT p.id, p.slug, p.name, p.lat::float8 AS lat, p.lng::float8 AS lng,
                 p.location_type AS "locationType"
            FROM places p
           WHERE p.lat BETWEEN $1 AND $2
@@ -434,7 +434,7 @@ export async function GET(
       });
       derivedStages = deriveStages({
         track,
-        places: (nearby.rows as Array<{ id: string; name: string; lat: number; lng: number; locationType: string | null }>),
+        places: (nearby.rows as Array<{ id: string; slug: string | null; name: string; lat: number; lng: number; locationType: string | null }>),
         establishedPlaceIds: waypointsResult.rows.map(w => String(w.place_id)),
       });
     }
@@ -618,6 +618,9 @@ export async function GET(
           isEnd:        w.is_end as boolean,
           notes:        w.notes as string | null,
           placeId:      w.place_id as string,
+          // ЧПУ для ссылки на карточку: ссылка по id уходила редиректом 308
+          // (аудит 01.10 — 501 такая ссылка с карточек маршрутов).
+          placeSlug:    (w.place_slug as string | null) ?? null,
           placeName:    w.place_name as string,
           locationType: w.location_type as string | null,
           lat:          w.place_lat != null ? parseFloat(w.place_lat as string) : null,
