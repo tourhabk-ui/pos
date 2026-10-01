@@ -1,0 +1,42 @@
+name: Qwen — проба генерации картинки с раннера
+
+# 01.10: на проде QWEN_IMAGE_MODEL=qwen-image, а Alibaba отключает её
+# 10.10.2026; замена — qwen-image-3.0. Проба рисует обеими моделями тем же
+# путём, что код обложек (асинхронная задача text2image), и синхронным
+# multimodal-generation — для сравнения. Не больше четырёх картинок; ключ
+# наружу не выходит, URL картинок не печатаются.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/qwen-image-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Проба картинки
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Скрипт зовёт код обложек, а тот тянет водопад моделей: если по
+          # дороге сработает сочинение промпта, расход дойдёт до книг только
+          # через CRON_SECRET (tests/unit/llm-usage-reaches-books.test.ts).
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: npx tsx scripts/qwen-image-probe.ts | tee probe.log
+      - name: Итог — в аннотацию
+        if: always()
+        run: |
+          body=$(sed -e 's/%/%25/g' probe.log 2>/dev/null | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=qwen-image-probe::${body}"

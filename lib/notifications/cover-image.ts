@@ -108,10 +108,57 @@ const NEGATIVE_PROMPT =
   'text, words, letters, watermark, logo, signature, caption, blurry, deformed, extra limbs';
 
 /**
- * Рисует картинку через async text2image DashScope: создать задачу → опрашивать
- * статус до SUCCEEDED. Возвращает URL картинки (OSS, живёт ~24ч — потребитель
- * успевает забрать) либо null при любом сбое/таймауте. Экспортируется для
- * переиспользования (обложки постов + фото точек через ai-image-generator).
+ * Семейство qwen-image рисует синхронным multimodal-generation, а не
+ * асинхронной задачей text2image (01.10, qwen-image-probe прогон 1):
+ * qwen-image-3.0 на text2image отвечает 400 InvalidParameter «url error»,
+ * а синхронно рисует 1280*720 за 43–57 с (функция кода — 46 с, прогон 2). Владелец перевёл QWEN_IMAGE_MODEL на
+ * qwen-image-3.0 (замена отключаемой 10.10.2026 qwen-image) — без этого
+ * разветвления обложки молча ушли бы на Pollinations.
+ */
+export function usesMultimodalImageApi(model: string): boolean {
+  return /^qwen-image/i.test(model);
+}
+
+/** Синхронный путь qwen-image: один запрос, картинка в ответе. */
+async function generateViaMultimodal(apiKey: string, base: string, model: string, size: string, prompt: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${base}/api/v1/services/aigc/multimodal-generation/generation`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        input: { messages: [{ role: 'user', content: [{ text: prompt.slice(0, 800) }] }] },
+        parameters: { size, negative_prompt: NEGATIVE_PROMPT },
+      }),
+      // Как и у пути с задачей (20 с + 35 с опроса), держимся ниже 60 с —
+      // лимит эндпоинта и curl в workflow. Замеры 01.10: 43, 46 и 57 с;
+      // не успела — откат на Pollinations со строкой в лог.
+      signal: AbortSignal.timeout(55_000),
+    });
+    if (!res.ok) {
+      console.error(`[cover-image] ${model}: multimodal-generation — HTTP ${res.status}`);
+      return null;
+    }
+    const data = (await res.json()) as {
+      output?: { choices?: Array<{ message?: { content?: Array<{ image?: unknown }> } }> };
+    };
+    const url = data.output?.choices?.[0]?.message?.content?.find((c) => typeof c.image === 'string')?.image;
+    if (typeof url === 'string' && /^https?:\/\//.test(url)) return url;
+    console.error(`[cover-image] ${model}: ответ без картинки`);
+    return null;
+  } catch (err) {
+    console.error(`[cover-image] ${model}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Рисует картинку DashScope. Семейство qwen-image — синхронно
+ * (multimodal-generation), прочие (wan*) — async text2image: создать задачу →
+ * опрашивать статус до SUCCEEDED. Возвращает URL картинки (OSS, живёт ~24ч —
+ * потребитель успевает забрать) либо null при любом сбое/таймауте.
+ * Экспортируется для переиспользования (обложки постов + фото точек через
+ * ai-image-generator).
  */
 export async function generateQwenImageUrl(prompt: string): Promise<string | null> {
   const { apiKey, base, model, size } = getDashScopeImageConfig();
@@ -122,6 +169,7 @@ export async function generateQwenImageUrl(prompt: string): Promise<string | nul
   if (isQwenRetired(model)) {
     console.error(`[cover-image] QWEN_IMAGE_MODEL=${model} отключается Alibaba 10.10.2026 — задайте qwen-image-3.0`);
   }
+  if (usesMultimodalImageApi(model)) return generateViaMultimodal(apiKey, base, model, size, prompt);
 
   let taskId: string | null = null;
   try {
