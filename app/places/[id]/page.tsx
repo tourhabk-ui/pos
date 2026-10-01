@@ -14,6 +14,7 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 import { loadPlaceDetail } from '@/lib/places/place-detail';
 import { metaDescription } from '@/lib/seo/meta-description';
 import type { PlaceData } from '@/components/places/types';
+import { fitTitle } from '@/lib/seo/title-fit';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -52,7 +53,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const imgUrl = (r.photo_url ?? imagesFirst ?? r.real_photo) as string | null;
 
     return {
-      title: `${r.name} — место на Камчатке`,
+      // Хвост — только если помещается в выдачу (аудит 01.10, lib/seo/title-fit).
+      title: fitTitle(r.name as string, [' — место на Камчатке']),
       description: desc,
       alternates: { canonical },
       openGraph: {

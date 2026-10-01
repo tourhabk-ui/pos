@@ -7,7 +7,7 @@ import { THIRD_PARTIES, crossBorderRecipients } from '@/lib/legal/third-party-re
 export const metadata = {
   alternates: { canonical: '/legal/privacy' },
   title: 'Политика конфиденциальности',
-  description: 'Политика обработки персональных данных платформы Ведар',
+  description: 'Политика обработки персональных данных Ведара: какие данные обрабатываются, цели и основания, хранение и защита, передача третьим лицам, права субъекта.',
 };
 
 export default function PrivacyPage() {

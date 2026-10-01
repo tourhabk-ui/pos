@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   alternates: { canonical: '/trending' },
   title: 'Популярные маршруты и места Камчатки',
-  description: 'Самые популярные места и маршруты Камчатки прямо сейчас',
+  // По счётчику просмотров за всё время, а не «прямо сейчас» (lib/trending/load).
+  description: 'Самые просматриваемые места и маршруты Камчатки на Ведаре: что открывают чаще всего, с переходом на карточку места или маршрута.',
 };
 
 export default async function TrendingPage() {

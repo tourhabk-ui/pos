@@ -10,6 +10,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 import { query } from '@/lib/database';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { fishMetaDescription } from '@/lib/seo/fish-description';
 
 // Рендер на запросе. Прежде generateStaticParams + revalidate = 3600: двенадцать
 // карточек собирались на сборке Docker без базы, и блок туров на рыбалку
@@ -31,7 +32,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!species) return { title: 'Вид не найден' };
 
   const title = `${species.name} на Камчатке — ${species.nameLatin}`;
-  const desc = `${species.shortDesc} Сезон: ${species.season}. Рекорд: ${species.recordKg}. Место: ${species.habitat}.`;
+  // Сезон — первым и в пределах выдачи (аудит vedarai.ru 01.10).
+  const desc = fishMetaDescription(species);
 
   return {
     title,

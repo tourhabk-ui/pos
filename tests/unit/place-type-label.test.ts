@@ -65,7 +65,6 @@ describe('placeTypeLabel — три исхода', () => {
  */
 const KNOWN_COPIES = new Set([
   'app/api/search/route.ts',
-  'app/collections/[slug]/_CollectionDetailClient.tsx',
   'app/hub/admin/places-photos/_PlacesPhotosClient.tsx',
   'app/tools/safety/_SafetyClient.tsx',
   'components/map/PlaceMapSheet.tsx',

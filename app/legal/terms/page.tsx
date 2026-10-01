@@ -6,7 +6,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 export const metadata = {
   alternates: { canonical: '/legal/terms' },
   title: 'Пользовательское соглашение',
-  description: 'Условия использования платформы Ведар',
+  description: 'Пользовательское соглашение платформы Ведар: регистрация, бронирование и оплата, правила использования, ответственность сторон, разрешение споров и реквизиты.',
 };
 
 export default function TermsPage() {

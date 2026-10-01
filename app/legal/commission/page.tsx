@@ -6,7 +6,7 @@ import { REQUISITES } from '@/lib/legal/requisites';
 export const metadata = {
   alternates: { canonical: '/legal/commission' },
   title: 'Условия комиссионного вознаграждения',
-  description: 'Подробные условия комиссии платформы Ведар для партнёров',
+  description: 'Условия комиссионного вознаграждения платформы Ведар для партнёров: тарифные планы, что входит в комиссию, пример расчёта, порядок выплат и налогообложение.',
 };
 
 export default function CommissionPage() {

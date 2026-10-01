@@ -8,7 +8,7 @@ import { HELP_ARTICLES, type HelpArticle } from '@/lib/help/content';
 export const metadata: Metadata = {
   alternates: { canonical: '/help' },
   title: 'Центр помощи',
-  description: 'Инструкции для туристов, операторов и гидов платформы Ведар',
+  description: 'Центр помощи Ведара: как туристу забронировать и оплатить тур, как оператору завести тур и подтверждать заявки, как гиду заполнить профиль и войти в команду.',
 };
 
 const ICONS: Record<HelpArticle['slug'], LucideIcon> = {

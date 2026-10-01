@@ -212,7 +212,8 @@ describe('поведение выдач: null на входе — null на вы
 });
 
 describe('карточка жилья и список жилья говорят одно и то же', () => {
-  const detail = readFileSync(join(API, 'accommodations/[id]/route.ts'), 'utf-8');
+  // Карточку собирает общий загрузчик страницы и API (аудит 01.10).
+  const detail = readFileSync(join(process.cwd(), 'lib/stay/accommodation-detail.ts'), 'utf-8');
   const list = readFileSync(join(API, 'accommodations/route.ts'), 'utf-8');
   const client = readFileSync(
     join(process.cwd(), 'app/accommodations/[id]/_AccommodationDetailClient.tsx'), 'utf-8');

@@ -75,6 +75,24 @@ describe('openGraph без картинки не остаётся', () => {
     expect(HAS_IMAGES.test(topLevel(' url: x, images,'))).toBe(true);
   });
 
+  // Ключ на месте, а картинки нет: `images: x ? [x] : []` — у шести подборок
+  // ссылка уходила без превью (аудит vedarai.ru 01.10). Запас — defaultOgImages().
+  const EMPTY_FALLBACK = /\bimages\s*:[^\n]*(?::|\?\?|\|\|)\s*\[\s*\]/;
+
+  it('пустой массив как запас не засчитывается', () => {
+    const bad: string[] = [];
+    for (const f of files(join(ROOT, 'app'))) {
+      const src = readFileSync(f, 'utf-8');
+      for (const body of objectBodies(src)) {
+        if (EMPTY_FALLBACK.test(body)) bad.push(relative(ROOT, f));
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(EMPTY_FALLBACK.test(' images: col.cover_image ? [col.cover_image] : [],')).toBe(true);
+    expect(EMPTY_FALLBACK.test(' images: list ?? [],')).toBe(true);
+    expect(EMPTY_FALLBACK.test(' images: col.cover_image ? [col.cover_image] : defaultOgImages(),')).toBe(false);
+  });
+
   it('картинка по умолчанию лежит в public и отдаётся новым массивом', () => {
     const [img] = defaultOgImages();
     expect(existsSync(join(ROOT, 'public', img.url))).toBe(true);

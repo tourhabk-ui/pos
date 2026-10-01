@@ -83,12 +83,17 @@ function toHHMM(t: string | null): string | null {
   return t ? String(t).slice(0, 5) : null;
 }
 
-export default function AccommodationDetailClient({ accommodationId }: { accommodationId: string }) {
-  const [data, setData] = useState<AccommodationDetail | null>(null);
+export default function AccommodationDetailClient({ accommodationId, initialData }: {
+  accommodationId: string;
+  /** Карточка с сервера (page.tsx). Нет — сервер не смог прочитать, клиент пробует сам. */
+  initialData?: AccommodationDetail;
+}) {
+  const [data, setData] = useState<AccommodationDetail | null>(initialData ?? null);
   const [notFound, setNotFound] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (initialData) return;
     fetch(`/api/accommodations/${accommodationId}`)
       .then(r => {
         if (r.status === 404) { setNotFound(true); return null; }
@@ -100,7 +105,7 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
         else setFailed(true);
       })
       .catch(() => setFailed(true));
-  }, [accommodationId]);
+  }, [accommodationId, initialData]);
 
   if (notFound) {
     return (

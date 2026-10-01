@@ -37,6 +37,8 @@ export interface CollectionRow {
 
 export interface CollectionPlace {
   id: string;
+  /** ЧПУ места; null — ссылка по id (аудит 01.10: UUID уходил редиректом 308). */
+  slug: string | null;
   name: string;
   location_type: string;
   lat: number | null;
@@ -46,7 +48,9 @@ export interface CollectionPlace {
 }
 
 export interface CollectionRouteItem {
+  /** id в пространстве карточки маршрута: COALESCE(ark_id, id). */
   id: string;
+  slug: string | null;
   title: string;
   difficulty: string | null;
   distance_km: number | null;
@@ -82,6 +86,7 @@ export function collectionRuleToFilters(row: Pick<CollectionRow,
 function itemToPlace(it: CatalogItem): CollectionPlace {
   return {
     id: it.id,
+    slug: it.urlSlug,
     name: it.title,
     location_type: it.locationType ?? 'other',
     lat: it.lat,
@@ -94,6 +99,7 @@ function itemToPlace(it: CatalogItem): CollectionPlace {
 function itemToRoute(it: CatalogItem): CollectionRouteItem {
   return {
     id: it.id,
+    slug: it.urlSlug,
     title: it.title,
     difficulty: it.difficulty,
     distance_km: null,
@@ -106,10 +112,17 @@ function itemToRoute(it: CatalogItem): CollectionRouteItem {
 async function manualPlaces(ids: string[]): Promise<CollectionPlace[]> {
   if (!ids.length) return [];
   const { rows } = await pool.query<CollectionPlace>(
-    `SELECT p.id, p.name, p.location_type, p.lat, p.lng, p.description,
-            (SELECT CASE WHEN ${shownPhotoSql('ai.model')} THEN '/api/images/route/' || p.ark_id END
-             FROM ai_route_images ai WHERE ai.route_id = p.ark_id LIMIT 1) AS image_url
-       FROM places p WHERE p.id = ANY($1::uuid[])`,
+    // Только видимые и не слитые: ссылка на скрытое место отвечает 404.
+    // Снимок — только показываемого рода; произвольная строка ai_route_images
+    // могла оказаться нарисованной и спрятать настоящую (аудит 01.10).
+    `SELECT p.id, p.slug, p.name, p.location_type, p.lat, p.lng, p.description,
+            CASE WHEN EXISTS (SELECT 1 FROM ai_route_images ai
+                               WHERE ai.route_id = p.ark_id AND ${shownPhotoSql('ai.model')})
+                 THEN '/api/images/route/' || p.ark_id END AS image_url
+       FROM places p
+      WHERE p.id = ANY($1::uuid[])
+        AND p.is_visible = TRUE
+        AND p.merged_into_id IS NULL`,
     [ids],
   );
   return rows;
@@ -118,9 +131,13 @@ async function manualPlaces(ids: string[]): Promise<CollectionPlace[]> {
 async function manualRoutes(ids: string[]): Promise<CollectionRouteItem[]> {
   if (!ids.length) return [];
   const { rows } = await pool.query<CollectionRouteItem>(
-    `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, description
+    // id — в пространстве карточки маршрута (COALESCE(ark_id, id)): голый id
+    // у записи с ark_id карточка не находит, и ссылка отвечала бы 404.
+    `SELECT COALESCE(ark_id, id) AS id, slug, title, difficulty, distance_km, duration_hours,
+            activity_type, description
        FROM kamchatka_routes
-      WHERE id = ANY($1::uuid[]) AND (is_visible = TRUE OR is_visible IS NULL)`,
+      WHERE id = ANY($1::uuid[]) AND (is_visible = TRUE OR is_visible IS NULL)
+        AND merged_into_id IS NULL`,
     [ids],
   );
   return rows;

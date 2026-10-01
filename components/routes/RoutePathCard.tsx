@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { Heart, Clock, Footprints, ChevronUp, ChevronsUp, AlertTriangle, MapPin } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
@@ -45,7 +46,7 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   return (
     <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden transition-all duration-200 hover:border-[var(--accent)]/40 hover:shadow-sm">
       {/* ── Фото маршрута ─────────────────────────────────── */}
-      <Link href={`/routes/${route.id}`} className="block relative" style={{ height: 148 }}>
+      <Link href={route.href ?? catalogHref(route, '/routes')} className="block relative" style={{ height: 148 }}>
         {photoSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -89,7 +90,7 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
       </Link>
 
       {/* ── Тело ──────────────────────────────────────────── */}
-      <Link href={`/routes/${route.id}`} className="block p-3 space-y-1.5">
+      <Link href={route.href ?? catalogHref(route, '/routes')} className="block p-3 space-y-1.5">
         <h3
           className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
           style={{ fontFamily: 'var(--font-playfair)', fontSize: '1rem' }}
