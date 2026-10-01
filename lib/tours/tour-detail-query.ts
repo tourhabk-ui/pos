@@ -87,6 +87,12 @@ export interface TourCardRow {
    */
   operator_verified: boolean | null;
   /**
+   * Адрес страницы оператора (`partners.slug`) и открыта ли она
+   * (`partners.is_public`) — для ссылки на организацию в разметке тура.
+   */
+  operator_slug: string | null;
+  operator_public: boolean | null;
+  /**
    * Связь тура с маршрутом — `operator_tours.route_id`. Только при ней
    * карточка вправе сказать, что маршрут проходит через контур безопасности
    * платформы: без маршрута контуру не на что опереться.
@@ -162,7 +168,8 @@ function buildSql(withOptional: boolean): string {
       p.name AS operator_name, p.id AS operator_id,
       p.logo_image AS operator_logo,
       p.contacts AS operator_contacts,
-      p.is_verified AS operator_verified
+      p.is_verified AS operator_verified,
+      p.slug AS operator_slug, p.is_public AS operator_public
     FROM operator_tours ot
     JOIN partners p ON ot.operator_id = p.id
     WHERE ot.id = $1

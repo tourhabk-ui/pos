@@ -16,6 +16,9 @@ import {
 } from '@/lib/operators/profile-parse';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { defaultOgImages } from '@/lib/seo/og-image';
+import { operatorOrgId } from '@/lib/seo/tour-structured-data';
+import { JsonLd } from '@/components/seo/JsonLd';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,7 +146,9 @@ export async function generateMetadata(
       siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'website',
-      images: profile.hero_image ? [{ url: profile.hero_image }] : undefined,
+      // Нет своего снимка — картинка сайта: `undefined` снимал og:image вовсе
+      // (аудит 01.10, /operators/kamchatka-rafting).
+      images: profile.hero_image ? [{ url: profile.hero_image }] : defaultOgImages(),
     },
   };
 }
@@ -170,8 +175,25 @@ export default async function OperatorProfilePage(
   const heroImage = profile.hero_image ?? gallery[0] ?? null;
   const tours = await getOperatorTours(profile.id);
 
+  // Организация оператора — тот же @id, на который ссылаются provider и
+  // seller в разметке его туров (lib/seo/tour-structured-data, аудит 01.10).
+  const pageUrl = `${SITE}/operators/${profile.slug}`;
+  const orgDescription = profile.short_description ?? profile.description;
+  const orgJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    '@id': operatorOrgId(SITE, profile.slug),
+    name: profile.name,
+    url: pageUrl,
+    ...(orgDescription ? { description: orgDescription.slice(0, 500) } : {}),
+    ...(profile.logo_image
+      ? { logo: profile.logo_image.startsWith('http') ? profile.logo_image : `${SITE}${profile.logo_image.startsWith('/') ? '' : '/'}${profile.logo_image}` }
+      : {}),
+  };
+
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh]">
+      <JsonLd data={orgJsonLd} />
       <Header />
       <main className="pt-16">
         <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">

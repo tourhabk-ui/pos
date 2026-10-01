@@ -77,7 +77,9 @@ describe('openGraph без картинки не остаётся', () => {
 
   // Ключ на месте, а картинки нет: `images: x ? [x] : []` — у шести подборок
   // ссылка уходила без превью (аудит vedarai.ru 01.10). Запас — defaultOgImages().
-  const EMPTY_FALLBACK = /\bimages\s*:[^\n]*(?::|\?\?|\|\|)\s*\[\s*\]/;
+  // `undefined` и `null` — то же самое: ключ есть, картинки нет (аудит 01.10,
+  // /operators/kamchatka-rafting).
+  const EMPTY_FALLBACK = /\bimages\s*:[^\n]*(?::|\?\?|\|\|)\s*(?:\[\s*\]|undefined\b|null\b)/;
 
   it('пустой массив как запас не засчитывается', () => {
     const bad: string[] = [];
@@ -90,6 +92,8 @@ describe('openGraph без картинки не остаётся', () => {
     expect(bad).toEqual([]);
     expect(EMPTY_FALLBACK.test(' images: col.cover_image ? [col.cover_image] : [],')).toBe(true);
     expect(EMPTY_FALLBACK.test(' images: list ?? [],')).toBe(true);
+    expect(EMPTY_FALLBACK.test(' images: x ? [{ url: x }] : undefined,')).toBe(true);
+    expect(EMPTY_FALLBACK.test(' images: x ?? null,')).toBe(true);
     expect(EMPTY_FALLBACK.test(' images: col.cover_image ? [col.cover_image] : defaultOgImages(),')).toBe(false);
   });
 
