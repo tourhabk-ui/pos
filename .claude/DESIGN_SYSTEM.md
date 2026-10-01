@@ -19,7 +19,7 @@
 | `--bg-hover` | hover | #30363D | #F0ECE7 |
 | `--text-primary` | заголовки | #F0F6FC | #1A1714 |
 | `--text-secondary` | подписи | #8B949E | #6B6560 |
-| `--text-muted` | плейсхолдеры | #484F58 | #9A9590 |
+| `--text-muted` | плейсхолдеры, подписи (AA 4,5:1, 01.10) | #838D9A | #736D68 |
 | `--accent` | CTA, лава | #E8734A | #D44A0C |
 | `--accent-hover` | hover CTA | #d4623c | #B83E0A |
 | `--accent-muted` | фон-акцент | rgba(232,115,74,.1) | rgba(212,74,12,.1) |

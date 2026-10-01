@@ -21,12 +21,12 @@ npm run lint     # Линтинг
 ```css
 /* Light (default) */
 --bg-primary: #F5F0EB;    --bg-card: #FFFFFF;
---text-primary: #1A1714;   --text-muted: #9A9590;
+--text-primary: #1A1714;   --text-muted: #736D68;
 --accent: #D44A0C;         --ocean: #2568B0;
 
 /* Dark */
 --bg-primary: #0D1117;    --bg-card: #21262D;
---text-primary: #F0F6FC;   --text-muted: #484F58;
+--text-primary: #F0F6FC;   --text-muted: #838D9A;
 --accent: #E8734A;         --ocean: #00A8CC;
 ```
 
