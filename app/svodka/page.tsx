@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { SvodkaCopy } from '@/components/svodka/SvodkaCopy';
 import { loadSvodka, svodkaText, volcanoPhrase, weatherPhrase, type VolcanoLine } from '@/lib/svodka/svodka';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 /**
  * Сводка дня для гидов и операторов. Шапка и источники — lib/svodka/svodka.ts.
@@ -24,6 +25,7 @@ export const metadata: Metadata = {
     'Утренняя сводка для гидов и туроператоров Камчатки: предупреждения МЧС и закрытые дороги, вулканы по KVERT и КФ ЕГС, погода у Авачинского, Мутновского и в Эссо.',
   alternates: { canonical: 'https://vedarai.ru/svodka' },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Сводка для гидов Камчатки',
     description: 'Что меняет планы сегодня: МЧС, вулканы, погода. С источником у каждой строки.',
     url: 'https://vedarai.ru/svodka',

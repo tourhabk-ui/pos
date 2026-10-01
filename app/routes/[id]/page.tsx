@@ -11,6 +11,8 @@ import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { defaultOgImages } from '@/lib/seo/og-image';
+import { shownPhotoSql } from '@/lib/images/origin';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -118,7 +120,12 @@ async function getRouteRaw(idOrSlug: string) {
   try {
     const result = await query(
       `SELECT id, category, title, description, lat, lng, source_url, payload,
-              location_type, activity_type
+              location_type, activity_type,
+              -- Есть ли настоящий снимок (не нарисованный моделью) — для
+              -- превью ссылки; правило показа то же, что у карточки места.
+              EXISTS (SELECT 1 FROM ai_route_images ai
+                       WHERE ai.route_id = agent_route_knowledge.id
+                         AND ${shownPhotoSql('ai.model')}) AS has_real_photo
        FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`,
       [realId]
     );
@@ -153,6 +160,7 @@ async function getRouteRaw(idOrSlug: string) {
       difficulty: (payload.difficulty as string | null) ?? null,
       bestMonths: Array.isArray(payload.best_months) ? payload.best_months as string[] : null,
       photos: Array.isArray(payload.photos) ? payload.photos as string[] : null,
+      hasRealPhoto: r.has_real_photo === true,
       locationType: (r.location_type as string | null) ?? null,
       activityType: (r.activity_type as string | null) ?? null,
       slug,
@@ -195,6 +203,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       keywords: catMeta.keywords,
       alternates: { canonical: `https://vedarai.ru/routes/${id}` },
       openGraph: {
+        images: defaultOgImages(),
         title: catMeta.title,
         description: catMeta.description,
         url: `https://vedarai.ru/routes/${id}`,
@@ -247,9 +256,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     'путешествия',
   ].filter(Boolean) as string[];
 
+  // Превью: фото маршрута → его настоящий снимок из хранилища → картинка
+  // сайта. Без последней ссылка раскрывалась голым текстом: openGraph
+  // страницы заменяет картинку layout целиком (аудит 01.10, 397 маршрутов).
   const images = route.photos?.length
     ? route.photos.slice(0, 1).map(url => ({ url, width: 1200, height: 630, alt: route.title }))
-    : [];
+    : route.hasRealPhoto
+      ? [{ url: `/api/images/route/${route.id}`, alt: route.title }]
+      : defaultOgImages();
 
   return {
     title,
@@ -263,7 +277,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
-      ...(images.length > 0 ? { images } : {}),
+      images,
     },
   };
 }

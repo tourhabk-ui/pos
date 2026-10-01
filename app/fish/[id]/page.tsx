@@ -9,8 +9,14 @@ import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { query } from '@/lib/database';
 import { tourPath } from '@/lib/tours/tour-url';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
-export const revalidate = 3600;
+// Рендер на запросе. Прежде generateStaticParams + revalidate = 3600: двенадцать
+// карточек собирались на сборке Docker без базы, и блок туров на рыбалку
+// пропадал у каждой до первой перегенерации (аудит 01.10). Справочник видов —
+// константа, а туры живые; сборка их знать не может.
+// Сторож: tests/unit/no-build-time-db.test.ts.
+export const dynamic = 'force-dynamic';
 
 const MONTH_FULL = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
@@ -18,10 +24,6 @@ const MONTH_SHORT = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн',
   'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
 
 interface Props { params: Promise<{ id: string }> }
-
-export async function generateStaticParams() {
-  return FISH_SPECIES.map(f => ({ id: f.id }));
-}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -40,6 +42,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     ],
     alternates: { canonical: `https://vedarai.ru/fish/${id}` },
     openGraph: {
+      images: defaultOgImages(),
       title,
       description: desc,
       url: `https://vedarai.ru/fish/${id}`,
@@ -75,7 +78,10 @@ async function getFishingTours(): Promise<FishingTour[]> {
       LIMIT 6
     `);
     return result.rows;
-  } catch {
+  } catch (e) {
+    // Без блока туров, а не с выдуманным, — но отказ виден (§4.0).
+    const err = e as { code?: string; message?: string };
+    console.error('[fish] туры на рыбалку не прочитаны:', `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     return [];
   }
 }

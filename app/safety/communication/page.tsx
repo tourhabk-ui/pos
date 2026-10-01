@@ -5,6 +5,7 @@ import {
   ShieldAlert, ClipboardCheck, MapPinned,
 } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
   title: 'Связь и навигация на маршрутах Камчатки',
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
     'связь в походе без сотовой сети',
   ],
   openGraph: {
+    images: defaultOgImages(),
     title: 'Связь и навигация на маршрутах Камчатки',
     description:
       'На большинстве маршрутов Камчатки сотовой связи нет. Разбор способов передать координаты: PLB, inReach, «Вензор», рации — и честный рейтинг надёжности.',

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { pool } from '@/lib/db-pool';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 import { Shield, Award, Star, ArrowLeft, Languages, Mountain, BadgeCheck, Phone, Clock } from 'lucide-react';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 // Публичный профиль гида — витрина доверия (паттерн 57hours): турист видит
 // ПОДТВЕРЖДЁННЫЕ аттестаты до брони, а не просто «112 аттестованных» цифрой.
@@ -104,7 +105,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return {
     title,
     description,
-    openGraph: { title, description, url: `https://vedarai.ru/guides/${id}`, siteName: 'Ведар', locale: 'ru_RU', type: 'profile' },
+    openGraph: { title, description, url: `https://vedarai.ru/guides/${id}`, siteName: 'Ведар', locale: 'ru_RU', type: 'profile', images: defaultOgImages() },
   };
 }
 

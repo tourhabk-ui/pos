@@ -3,6 +3,11 @@ import JoinClient from './_JoinClient';
 import { getPlatformCounts } from '@/lib/stats/platform-counts';
 import { plural } from '@/lib/home/data-freshness';
 
+// Рендер на каждый запрос: без этого Next собирал страницу на сборке Docker,
+// где базы нет, и до следующей сборки отдавал страницу без строки о маршрутах (аудит 01.10).
+// Сторож: tests/unit/no-build-time-db.test.ts.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Стать оператором',
   description: 'Зарегистрируйтесь как туроператор Камчатки. Первый месяц без комиссии.',

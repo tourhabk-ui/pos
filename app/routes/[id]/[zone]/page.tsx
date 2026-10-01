@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import { ZONE_PAGES } from '@/lib/routes/zone-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 /**
  * Зонный срез категории: /routes/[category]/[zone]
@@ -35,6 +36,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description,
     alternates: { canonical: url },
     openGraph: {
+      images: defaultOgImages(),
       title,
       description,
       url,

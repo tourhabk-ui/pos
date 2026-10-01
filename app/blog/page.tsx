@@ -6,6 +6,7 @@ import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { stripTags } from '@/lib/html/text';
 import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: `${SITE}/blog` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Блог Ведара — Камчатка',
     description: 'Актуальные материалы о путешествиях и безопасности на Камчатке.',
     url: `${SITE}/blog`,

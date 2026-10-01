@@ -1,5 +1,6 @@
 import { Metadata, Viewport } from 'next';
 import { Inter, Playfair_Display, Manrope, JetBrains_Mono, Unbounded } from 'next/font/google';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin', 'cyrillic'],
@@ -111,20 +112,15 @@ export const metadata: Metadata = {
     siteName: 'Ведар',
     title: 'Ведар — помощник по Камчатке',
     description: 'Помощник, планировщик и безопасный проводник к реальным турам по Камчатке.',
-    images: [
-      {
-        url: '/images/hero/hero-light.jpeg',
-        width: 1024,
-        height: 1024,
-        alt: 'Ведар — Туры на Камчатку',
-      },
-    ],
+    // Та же картинка, что подставляют страницы со своим openGraph: Next
+    // заменяет openGraph страницы целиком, и наследования отсюда у них нет.
+    images: defaultOgImages(),
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Ведар — помощник по Камчатке',
     description: 'Помогаем спланировать маршрут и выйти на реальный тур без обманов и серых схем.',
-    images: ['/images/hero/hero-light.jpeg'],
+    images: defaultOgImages().map((i) => i.url),
   },
   // index/follow по умолчанию и так разрешены — явное «index, follow» здесь
   // наследовала каждая страница, и на «не найдено» рядом с noindex от Next
@@ -216,6 +212,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "url": BASE_URL,
                 "description": "Сервис планирования путешествий по Камчатке: маршруты, карта, безопасность, AI-помощник и реальные туры от проверенных операторов.",
                 "inLanguage": "ru",
+                "publisher": { "@id": `${BASE_URL}/#organization` },
                 "potentialAction": {
                   "@type": "SearchAction",
                   "target": {
@@ -225,29 +222,33 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   "query-input": "required name=search_term_string"
                 }
               },
+              // Организация, а не «местное заведение» (аудит 01.10). Прежде здесь
+              // стояли TouristInformationCenter и LocalBusiness с часами
+              // 00:00–23:59 семь дней в неделю и priceRange «$$»: офиса с
+              // часами приёма у платформы нет, а цены — у туров операторов.
+              // Реквизиты — те же, что на /about. sameAs — живой канал
+              // платформы; vk.com/kamchatourhub отвечал 404, а
+              // t.me/kamchatourhub — канал старого имени с одним подписчиком.
               {
                 "@context": "https://schema.org",
-                "@type": "TouristInformationCenter",
+                "@type": "Organization",
+                "@id": `${BASE_URL}/#organization`,
                 "name": "Ведар",
-                "description": "Помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам проверенных операторов.",
+                "legalName": "ООО «ПОС-СЕРВИС»",
+                "taxID": "4101147649",
+                "description": "Туристическая платформа Камчатки: места и маршруты, офлайн-карта, сводка обстановки, помощник Кузьмич и туры местных операторов.",
                 "url": BASE_URL,
                 "logo": `${BASE_URL}/icons/icon-512.png`,
+                "email": "info@vedarai.ru",
+                "telephone": "+7 (914) 782-22-22",
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
                   "addressRegion": "Камчатский край",
-                  "addressLocality": "Петропавловск-Камчатский"
+                  "addressLocality": "Петропавловск-Камчатский",
+                  "postalCode": "683024"
                 },
-                "geo": {
-                  "@type": "GeoCoordinates",
-                  "latitude": 53.0444,
-                  "longitude": 158.6483
-                },
-                "telephone": "+7 (914) 782-22-22",
-                "speakable": {
-                  "@type": "SpeakableSpecification",
-                  "cssSelector": ["h1", "h2", ".ds-h1", ".ds-h2", "article p:first-of-type", "[data-speakable]"]
-                },
+                "areaServed": "Камчатский край",
                 "knowsAbout": [
                   "туры на Камчатку",
                   "вулканы Камчатки",
@@ -260,41 +261,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   "экотуризм Камчатки"
                 ],
                 "sameAs": [
-                  "https://t.me/kamchatourhub",
-                  "https://vk.com/kamchatourhub"
-                ]
-              },
-              {
-                "@context": "https://schema.org",
-                "@type": "LocalBusiness",
-                "@id": `${BASE_URL}/#localbusiness`,
-                "name": "Ведар",
-                "description": "Туристический сервис Камчатки: маршруты, планирование поездки, поддержка и честные предложения реальных туров.",
-                "url": BASE_URL,
-                "logo": `${BASE_URL}/icons/icon-512.png`,
-                "telephone": "+7 (914) 782-22-22",
-                "email": "info@vedarai.ru",
-                "address": {
-                  "@type": "PostalAddress",
-                  "addressCountry": "RU",
-                  "addressRegion": "Камчатский край",
-                  "addressLocality": "Петропавловск-Камчатский"
-                },
-                "geo": {
-                  "@type": "GeoCoordinates",
-                  "latitude": 53.0444,
-                  "longitude": 158.6483
-                },
-                "priceRange": "$$",
-                "openingHoursSpecification": {
-                  "@type": "OpeningHoursSpecification",
-                  "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],
-                  "opens": "00:00",
-                  "closes": "23:59"
-                },
-                "sameAs": [
-                  "https://t.me/kamchatourhub",
-                  "https://vk.com/kamchatourhub"
+                  "https://t.me/kamchatka_real"
                 ]
               }
             ])

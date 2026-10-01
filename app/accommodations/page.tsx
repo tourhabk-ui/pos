@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import { AccommodationsClient } from './_AccommodationsClient';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
   title: 'Жильё на Камчатке — отели, хостелы, глэмпинг',
   description: 'Проверенные отели, хостелы, кемпинги и глэмпинг на Камчатке. Бронирование с подтверждением, реальные цены.',
   openGraph: {
+    images: defaultOgImages(),
     title: 'Жильё на Камчатке',
     description: 'Отели, хостелы, глэмпинг и кемпинги — от центра Петропавловска до природных парков.',
     type: 'website',

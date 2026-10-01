@@ -19,6 +19,7 @@ import {
   type CatalogSummary,
 } from '@/lib/search';
 import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/tours/marketplace-page';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +39,7 @@ export const metadata: Metadata = {
     canonical: `${SITE}/catalog`,
   },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Туры на Камчатку — реальные предложения операторов',
     description: 'Проверенные операторы, реальные предложения и честные условия без серых схем.',
     type: 'website',

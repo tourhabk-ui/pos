@@ -19,7 +19,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
   const zoneMeta = zone ? ZONE_PAGES[zone] : null;
   if (!meta || (zone && !zoneMeta)) notFound();
 
-  const [routeResult, countResult, zonesResult, parksResult] = await Promise.all([
+  const [routeResult, countResult, zonesResult, parksResult, categoriesResult] = await Promise.all([
     pool.query<{
       id: string; title: string; description: string; category: string;
       lat: unknown; lng: unknown; price_from: unknown; difficulty: string | null;
@@ -70,6 +70,14 @@ export default async function CategoryPage({ category, zone }: { category: strin
           [zone]
         )
       : Promise.resolve({ rows: [] as { slug: string; display_name: string }[] }),
+    // Живые категории — для блока «Другие виды». Тот же счёт, что у самой
+    // страницы категории: ссылка на тонкую категорию вела в 404 (аудит 01.10:
+    // 12 битых ссылок с семи страниц /routes/*).
+    pool.query<{ category: string; count: string }>(
+      `SELECT category, COUNT(*) AS count FROM agent_route_knowledge
+       WHERE is_visible = TRUE AND category IS NOT NULL
+       GROUP BY category`
+    ),
   ]);
 
   const total = Number(countResult.rows[0].count);
@@ -89,7 +97,13 @@ export default async function CategoryPage({ category, zone }: { category: strin
     sourceName: r.source_name,
   }));
 
-  const otherCategories = Object.values(CATEGORY_PAGES).filter(c => c.slug !== category);
+  const liveCategories = new Set(
+    categoriesResult.rows
+      .filter(r => Number(r.count) >= MIN_ITEMS_FOR_PAGE)
+      .map(r => r.category),
+  );
+  const otherCategories = Object.values(CATEGORY_PAGES)
+    .filter(c => c.slug !== category && liveCategories.has(c.slug));
   const liveZones = zonesResult.rows
     .filter(z => Number(z.count) >= MIN_ITEMS_FOR_PAGE && ZONE_PAGES[z.zone])
     .map(z => ({ ...ZONE_PAGES[z.zone], count: Number(z.count) }));
@@ -210,23 +224,25 @@ export default async function CategoryPage({ category, zone }: { category: strin
           )}
         </div>
 
-        {/* Other categories */}
-        <div className="border-t border-[var(--border)] pt-8">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
-            Другие виды туров на Камчатке
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {otherCategories.map(c => (
-              <Link
-                key={c.slug}
-                href={`/routes/${c.slug}`}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-              >
-                {c.name}
-              </Link>
-            ))}
+        {/* Other categories — только живые (≥3), иначе ссылка ведёт в 404 */}
+        {otherCategories.length > 0 && (
+          <div className="border-t border-[var(--border)] pt-8">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Другие виды туров на Камчатке
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {otherCategories.map(c => (
+                <Link
+                  key={c.slug}
+                  href={`/routes/${c.slug}`}
+                  className="px-4 py-2 rounded-xl text-sm font-medium bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                >
+                  {c.name}
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
     </>

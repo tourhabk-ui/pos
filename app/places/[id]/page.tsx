@@ -10,6 +10,7 @@ import { stripTags } from '@/lib/html/text';
 // Словарь разделов — общий с контекстом Хранителя (lib/places/type-label.ts).
 import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { defaultOgImages } from '@/lib/seo/og-image';
 import { loadPlaceDetail } from '@/lib/places/place-detail';
 import { metaDescription } from '@/lib/seo/meta-description';
 import type { PlaceData } from '@/components/places/types';
@@ -58,7 +59,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         url: canonical,
         title: r.name as string,
         description: desc,
-        ...(imgUrl ? { images: [{ url: imgUrl }] } : {}),
+        // Нет снимка места — картинка сайта, а не голая ссылка: openGraph
+        // страницы заменяет картинку layout целиком (аудит 01.10).
+        images: imgUrl ? [{ url: imgUrl }] : defaultOgImages(),
       },
     };
   } catch {

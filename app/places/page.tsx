@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import RoutesPageClient from '../routes/_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: `${SITE}/places` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Места Камчатки',
     description: 'Природные места Камчатки: вулканы, гейзеры, источники, озёра, бухты.',
     url: `${SITE}/places`,

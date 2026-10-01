@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
 import ContactClient from './_ContactClient';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
   title: 'Оставить заявку',
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: 'https://vedarai.ru/contact' },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Оставить заявку на тур по Камчатке',
     description: 'Подбор маршрута по Камчатке: вулканы, рыбалка, горячие источники, экспедиции с локальными операторами.',
     url: 'https://vedarai.ru/contact',
@@ -29,36 +31,23 @@ export const metadata: Metadata = {
 };
 
 export default function ContactPage() {
-  const localBusinessSchema = {
+  // Страница контактов организации, а не второе «местное заведение»
+  // (аудит 01.10): сама организация описана один раз в app/layout.tsx, здесь —
+  // ссылка на неё. Прежний блок повторял LocalBusiness со ссылкой на
+  // vk.com/kamchatourhub, который отвечает 404.
+  const contactPageSchema = {
     '@context': 'https://schema.org',
-    '@type': 'LocalBusiness',
-    name: 'Ведар',
+    '@type': 'ContactPage',
     url: 'https://vedarai.ru/contact',
-    image: 'https://vedarai.ru/images/hero/hero-light.jpeg',
-    telephone: '+7 (914) 782-22-22',
-    address: {
-      '@type': 'PostalAddress',
-      addressCountry: 'RU',
-      addressRegion: 'Камчатский край',
-      addressLocality: 'Петропавловск-Камчатский',
-    },
-    geo: {
-      '@type': 'GeoCoordinates',
-      latitude: 53.0444,
-      longitude: 158.6483,
-    },
-    areaServed: 'Камчатский край',
-    sameAs: [
-      'https://t.me/kamchatourhub',
-      'https://vk.com/kamchatourhub',
-    ],
+    name: 'Связаться с Ведаром',
+    about: { '@id': 'https://vedarai.ru/#organization' },
   };
 
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessSchema) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(contactPageSchema) }}
       />
       <Header />
       <ContactClient />
