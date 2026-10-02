@@ -1,13 +1,18 @@
 {
-  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Перепись живых тревог через пробу (workflow alerts-census не дождался сборки из-за чужих пушей): полный текст поста МЧС, записанного тревогой цунами, его важность и пуш.",
-  "run": 639,
+  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Полный текст поста МЧС «Два ощущаемых сейсмособытия…» в первоисточнике: в базе он обрезан до 800 знаков, а слово «цунами», давшее тревогу важности 3, стоит в хвосте.",
+  "run": 640,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 60000,
-  "grep": ["tsunami_warning", "Угроза цунами", "угроза цунами", "цунами не"],
+  "bytes": 3000,
+  "grep": [
+    "цунами",
+    "Цунами"
+  ],
   "urls": [
-    "https://vedarai.ru/api/cron/alerts-census"
+    "https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss",
+    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss",
+    "https://m.vk.com/mchs_kamchatka"
   ]
 }
