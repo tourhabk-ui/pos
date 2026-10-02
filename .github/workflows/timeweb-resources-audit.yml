@@ -65,8 +65,24 @@ jobs:
           ask images          "$B/images"
           ask ssh_keys        "$B/ssh-keys"
           ask mail            "$B/mail/domains"
-          ask ai_agents       "https://agent.timeweb.cloud/api/v1/cloud-ai/agents"
+          # AI-разделы живут на api.timeweb.cloud (спецификация bundle.json, 02.10);
+          # прогон 1 спрашивал agent.timeweb.cloud и получил 404 — это хост
+          # чата с агентом, не каталога.
+          ask ai_agents       "$B/cloud-ai/agents"
+          ask ai_kbs          "$B/../v2/cloud-ai/knowledge-bases"
+          ask ai_models       "$B/../v3/cloud-ai/models"
+          ask notifications   "$B/account/notification-settings"
+          ask cdn             "$B/cdn/http-resources"
           ask app_198048      "$B/apps/198048"
+          # Статистика приложения за 7 дней и бэкапы базы — по id из ответов выше.
+          ask app_stats       "$B/apps/198048/statistics?date_from=$(date -u -d '7 days ago' +%Y-%m-%d)&date_to=$(date -u +%Y-%m-%d)"
+          for db in $(python3 -c 'import json
+          try:
+              d = json.load(open("/tmp/tw/dbs.json")); print(" ".join(str(x.get("id")) for x in (d.get("dbs") or []) if isinstance(x, dict) and x.get("id")))
+          except Exception: pass'); do
+            ask "db_${db}_autobackups" "$B/dbs/$db/auto-backups"
+            ask "db_${db}_backups"     "$B/../v2/databases/$db/backups"
+          done
           # DNS — у каждого домена аккаунта из ответа выше, а не у одного
           # вписанного руками: аудит должен видеть и www, и забытые домены.
           for fqdn in $(python3 -c 'import json,sys
@@ -209,7 +225,48 @@ jobs:
           section('Образы', 'images', 'images', ['id', 'name', 'status', 'size', 'created_at'])
           section('SSH-ключи (только имена)', 'ssh_keys', 'ssh_keys', ['id', 'name', 'is_default', 'created_at'])
           section('Почта', 'mail', 'domains', ['id', 'fqdn', 'email_count'])
-          section('AI-агенты (Timeweb Cloud AI)', 'ai_agents', 'agents', ['id', 'name', 'model', 'status', 'created_at'])
+          section('AI-агенты (Timeweb Cloud AI)', 'ai_agents', 'agents', ['id', 'name', 'model_id', 'provider_id', 'status', 'created_at'],
+                  lambda a: print(f"    модель: {((a.get('settings') or {}).get('model') or {})!r}"[:300]))
+          section('Базы знаний (Cloud AI)', 'ai_kbs', 'knowledge_bases', ['id', 'name', 'status', 'documents_count', 'created_at'])
+
+          # Каталог моделей шлюза — ради вопроса «какие флагманы достижимы без
+          # хопа за границей» (CLAUDE.md §8): имя, идентификатор для поля model
+          # и цены из parameter_values, если они там есть.
+          code, data = load('ai_models')
+          print('\n## Модели Cloud AI (каталог шлюза)')
+          if code == '200' and isinstance(data, dict):
+              ms = data.get('models') or []
+              print(f'всего: {len(ms)}')
+              for m in ms:
+                  if not isinstance(m, dict): continue
+                  pv = m.get('parameter_values') or {}
+                  price = {k: v for k, v in pv.items() if isinstance(k, str) and ('price' in k or 'cost' in k or 'token' in k)}
+                  print(f"- {m.get('public_name')!r} · model={m.get('model_name')!r} · type={m.get('type')!r} · {json.dumps(price, ensure_ascii=False)[:160]}")
+          else:
+              print(f'не ответил: HTTP {code}')
+
+          section('Уведомления аккаунта', 'notifications', 'notification_settings', ['group', 'type', 'channels'])
+          section('CDN-ресурсы', 'cdn', 'http_resources', ['id', 'name', 'source', 'status', 'traffic_usage'])
+
+          for f in sorted(os.listdir('/tmp/tw')):
+              if f.startswith('db_') and f.endswith('_autobackups.json'):
+                  section(f'Автобэкапы базы {f[3:-17]}', f[:-5], 'auto_backups_settings', ['is_enabled', 'interval', 'day_of_week', 'copy_count', 'creation_start_at'])
+              if f.startswith('db_') and f.endswith('_backups.json'):
+                  section(f'Бэкапы базы {f[3:-13]}', f[:-5], 'backups', ['id', 'name', 'status', 'type', 'size', 'created_at'])
+
+          code, data = load('app_stats')
+          print('\n## Нагрузка приложения за 7 дней')
+          if code == '200' and isinstance(data, dict):
+              for key in ('cpu', 'ram', 'disk', 'network_traffic'):
+                  rows = [r for r in (data.get(key) or []) if isinstance(r, dict)]
+                  if not rows: print(f'- {key}: нет данных'); continue
+                  nums = {}
+                  for r in rows:
+                      for k, v in r.items():
+                          if isinstance(v, (int, float)) and k != 'logged_at': nums.setdefault(k, []).append(v)
+                  print(f'- {key} ({len(rows)} точек): ' + ', '.join(f'{k} средн. {sum(v)/len(v):.3f} макс. {max(v):.3f}' for k, v in nums.items()))
+          else:
+              print(f'не ответил: HTTP {code}')
 
           print('\n## Коды ответов по разделам')
           for f in sorted(os.listdir('/tmp/tw')):
