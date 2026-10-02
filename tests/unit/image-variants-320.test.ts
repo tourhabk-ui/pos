@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 import manifest from '@/lib/images/photo-variants.json';
 
-const CARD = readFileSync('app/marketplace/tours/[id]/_TourDetailClient.tsx', 'utf8');
+const CARD = readFileSync('app/catalog/tours/[id]/_TourDetailClient.tsx', 'utf8');
 const CATALOG = readFileSync('components/marketplace/MarketplaceClient.tsx', 'utf8');
 const SCRIPT = readFileSync('scripts/optimize-images.mjs', 'utf8');
 

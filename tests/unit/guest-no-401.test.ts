@@ -33,7 +33,7 @@ describe('данные пользователя — только после «в
     ['app/_home/_HomeV8Client.tsx', '/api/trips/active'],
     ['hooks/useMyReferralCode.ts', '/api/referral/my-code'],
     ['components/marketplace/MarketplaceClient.tsx', '/api/tourist/wishlist?type=tour'],
-    ['app/marketplace/tours/[id]/_TourDetailClient.tsx', '/api/tourist/wishlist?type=tour'],
+    ['app/catalog/tours/[id]/_TourDetailClient.tsx', '/api/tourist/wishlist?type=tour'],
     ['app/accommodations/_AccommodationsClient.tsx', '/api/tourist/wishlist?type=accommodation'],
   ];
   for (const [file, url] of GATED) {
