@@ -18,6 +18,7 @@ import { DeskTours } from '@/components/homepage/desk/DeskTours'
 import { DeskHelp } from '@/components/homepage/desk/DeskHelp'
 import { DeskAbout } from '@/components/homepage/desk/DeskAbout'
 import { getPlatformCounts } from '@/lib/stats/platform-counts'
+import { defaultOgImages, DEFAULT_OG_IMAGE } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic'
 
@@ -48,10 +49,10 @@ export const metadata: Metadata = {
     url: '/',
     title: HOME_TITLE,
     description: HOME_DESCRIPTION,
-    images: [{ url: '/images/hero/hero-light.jpeg', width: 1024, height: 1024, alt: 'Камчатка' }],
+    images: defaultOgImages(),
     type: 'website', locale: 'ru_RU', siteName: 'Ведар',
   },
-  twitter: { card: 'summary_large_image', title: HOME_TITLE, description: HOME_DESCRIPTION, images: ['/images/hero/hero-light.jpeg'] },
+  twitter: { card: 'summary_large_image', title: HOME_TITLE, description: HOME_DESCRIPTION, images: [DEFAULT_OG_IMAGE] },
   robots: { index: true, follow: true },
   alternates: { canonical: '/' },
 }

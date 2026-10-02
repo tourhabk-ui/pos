@@ -6,6 +6,7 @@ import { PLAN_PRESETS } from '@/lib/plans/presets';
 import { activityLabel } from '@/lib/tours/labels';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 const BASE = 'https://vedarai.ru';
 
@@ -44,9 +45,8 @@ export async function GET() {
     const { rows } = await pool.query<typeof tours[number]>(`
       SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name
       FROM operator_tours ot
-      LEFT JOIN partners p ON p.id = ot.operator_id
-      WHERE ot.is_active = TRUE AND ot.deleted_at IS NULL
-        AND COALESCE(ot.is_published, TRUE) = TRUE
+      JOIN partners p ON p.id = ot.operator_id
+      WHERE ${publicTourSql('ot')}
       ORDER BY ot.base_price ASC
       LIMIT 40
     `);

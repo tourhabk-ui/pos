@@ -12,9 +12,10 @@ import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { loadPlaceDetail } from '@/lib/places/place-detail';
-import { metaDescription } from '@/lib/seo/meta-description';
 import type { PlaceData } from '@/components/places/types';
-import { fitTitle } from '@/lib/seo/title-fit';
+import { placeTitle, placeDescription } from '@/lib/seo/place-meta';
+import { locationTypeLabelLower } from '@/lib/places/location-types';
+import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -31,20 +32,41 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       // CLAUDE.md §9 — географический факт; фото в превью должно быть фото.
       `SELECT p.name, p.essence, p.description, p.photo_url, p.location_type, p.images,
               p.slug, p.ark_id::text AS ark_id,
+              p.zone, p.best_season,
+              -- Факты для заголовка и сниппета (lib/seo/place-meta): те же
+              -- таблицы, что кормят блоки «Что знать» и «Сейчас» карточки.
+              sp.altitude_m, sp.hazard_types, sp.registration_required, sp.profile_source,
+              rs.is_open,
               (CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai
                                  WHERE ai.route_id = p.ark_id
                                    AND ${shownPhotoSql('ai.model')})
                     THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS real_photo
        FROM places p
+       LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
+       LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
        WHERE (p.ark_id::text = $1 OR p.id = $1 OR p.slug = $1) AND p.is_visible = true`,
       [id]
     );
     const r = result.rows[0];
     if (!r) return { title: 'Место не найдено' };
 
-    // По границе предложения/слова, а не slice(0, 150) посреди слова (Н11).
-    const desc = metaDescription((r.essence as string | null) || (r.description as string | null))
-      || 'Место на Камчатке';
+    // Заголовок и сниппет — из фактов карточки, очерк добирает остаток
+    // (срез 02.10: «место на Камчатке» и первая фраза очерка не отвечали ни
+    // на один запрос человека). Опасности из шаблона фактом не считаются
+    // (profile-source) — как и на самой карточке.
+    const hazards = Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [];
+    const facts = {
+      name: r.name as string,
+      typeLabel: locationTypeLabelLower(r.location_type as string | null),
+      zone: (r.zone as string | null) ?? null,
+      bestSeason: (r.best_season as string | null) ?? null,
+      altitudeM: r.altitude_m != null ? Number(r.altitude_m) : null,
+      hazardsRecorded: hazards.length > 0 && mayStateAsFact(asProfileSource(r.profile_source)),
+      registrationRequired: r.registration_required === true,
+      isOpen: typeof r.is_open === 'boolean' ? r.is_open : null,
+      essence: ((r.essence as string | null) || (r.description as string | null)) ?? null,
+    };
+    const desc = placeDescription(facts) || 'Место на Камчатке';
     // Canonical — ЧПУ места. До 29.09 его не было у всех 379 карточек (Н4):
     // место открывается по ark_id, id и slug, и без canonical это три адреса.
     const canonical = `/places/${(r.slug as string | null) ?? (r.ark_id as string)}`;
@@ -53,8 +75,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const imgUrl = (r.photo_url ?? imagesFirst ?? r.real_photo) as string | null;
 
     return {
-      // Хвост — только если помещается в выдачу (аудит 01.10, lib/seo/title-fit).
-      title: fitTitle(r.name as string, [' — место на Камчатке']),
+      // Хвост — из ответов карточки, и только если помещается в выдачу
+      // (lib/seo/place-meta поверх lib/seo/title-fit).
+      title: placeTitle(facts),
       description: desc,
       alternates: { canonical },
       openGraph: {

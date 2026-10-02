@@ -11,7 +11,7 @@ import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
-import { metaDescription } from '@/lib/seo/meta-description';
+import { routeDescription } from '@/lib/seo/place-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
@@ -146,14 +146,21 @@ async function getRouteRaw(idOrSlug: string) {
   const realId = resolved.id;
   try {
     const result = await query(
-      `SELECT id, category, title, description, lat, lng, source_url, payload,
-              location_type, activity_type,
+      `SELECT k.id, k.category, k.title, k.description, k.lat, k.lng, k.source_url, k.payload,
+              k.location_type, k.activity_type,
               -- Есть ли настоящий снимок (не нарисованный моделью) — для
               -- превью ссылки; правило показа то же, что у карточки места.
               EXISTS (SELECT 1 FROM ai_route_images ai
-                       WHERE ai.route_id = agent_route_knowledge.id
-                         AND ${shownPhotoSql('ai.model')}) AS has_real_photo
-       FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`,
+                       WHERE ai.route_id = k.id
+                         AND ${shownPhotoSql('ai.model')}) AS has_real_photo,
+              -- Факты маршрута для сниппета (lib/seo/place-meta): во VIEW их
+              -- нет (payload — это metadata), берём из мастер-таблицы.
+              kr.zone AS kr_zone, kr.distance_km, kr.duration_hours, kr.duration_days AS kr_duration_days,
+              kr.elevation_gain_m, kr.difficulty AS kr_difficulty, kr.season AS kr_season,
+              kr.mchs_registration_required
+       FROM agent_route_knowledge k
+       LEFT JOIN kamchatka_routes kr ON COALESCE(kr.ark_id, kr.id) = k.id
+       WHERE k.id = $1 AND k.is_visible = TRUE`,
       [realId]
     );
     if (!result.rows[0]) return null;
@@ -184,9 +191,15 @@ async function getRouteRaw(idOrSlug: string) {
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl: (r.source_url as string | null) ?? null,
       priceFrom: payload.price_from != null ? Number(payload.price_from) : null,
-      durationDays: payload.duration_days != null ? Number(payload.duration_days) : null,
-      season: (payload.season as string | null) ?? null,
-      difficulty: (payload.difficulty as string | null) ?? null,
+      durationDays: payload.duration_days != null ? Number(payload.duration_days)
+        : r.kr_duration_days != null ? Number(r.kr_duration_days) : null,
+      season: (payload.season as string | null) ?? (r.kr_season as string | null) ?? null,
+      difficulty: (payload.difficulty as string | null) ?? (r.kr_difficulty as string | null) ?? null,
+      zone: (r.kr_zone as string | null) ?? null,
+      distanceKm: r.distance_km != null ? Number(r.distance_km) : null,
+      durationHours: r.duration_hours != null ? Number(r.duration_hours) : null,
+      elevationGainM: r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
+      mchsRequired: r.mchs_registration_required === true,
       bestMonths: Array.isArray(payload.best_months) ? payload.best_months as string[] : null,
       photos: Array.isArray(payload.photos) ? payload.photos as string[] : null,
       hasRealPhoto: r.has_real_photo === true,
@@ -252,9 +265,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // Хвост обязателен: маршрут к источнику часто носит имя самого места, и без
   // хвоста заголовки страницы маршрута и места совпадали (аудит 01.10).
   const title = fitTitleRequired(route.title, ROUTE_TITLE_TAILS);
-  // По предложению или слову, а не slice(0, 180) посреди слова (Н11).
-  const desc = metaDescription(route.description)
-    || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
+  // Сниппет: сначала факты (км, набор, время, сложность, сезон, МЧС), потом
+  // описание — пока помещается (lib/seo/place-meta, срез 02.10). Для места,
+  // открытого по адресу маршрута, фактов маршрута нет — остаётся описание.
+  const desc = routeDescription({
+    title: route.title,
+    zone: route.zone,
+    distanceKm: route.distanceKm,
+    durationHours: route.durationHours,
+    durationDays: route.durationDays,
+    elevationGainM: route.elevationGainM,
+    difficulty: route.difficulty,
+    season: route.season,
+    mchsRequired: route.mchsRequired,
+    description: route.description,
+  }) || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
 
   // SEO keywords: города + типы активностей + регион
   const baseKeywords = [

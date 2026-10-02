@@ -34,7 +34,9 @@ describe('fitTitle', () => {
   it('карточка места: длинное имя остаётся без хвоста; маршрут — с обязательным', () => {
     const place = readFileSync(join(process.cwd(), 'app/places/[id]/page.tsx'), 'utf-8');
     const route = readFileSync(join(process.cwd(), 'app/routes/[id]/page.tsx'), 'utf-8');
-    expect(place).toMatch(/title: fitTitle\(r\.name as string, \[' — место на Камчатке'\]\)/);
+    // 02.10: заголовок места собирает lib/seo/place-meta (хвост из ответов
+    // карточки, по приоритету); fitTitle остался у планов, парков, маршрутов.
+    expect(place).toMatch(/title: placeTitle\(facts\)/);
     expect(route).toMatch(/const title = fitTitleRequired\(route\.title, ROUTE_TITLE_TAILS\)/);
     const longName = 'Командорский государственный природный биосферный заповедник';
     expect(fitTitle(longName, [' — место на Камчатке'])).toBe(longName);

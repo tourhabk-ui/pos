@@ -593,7 +593,7 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div>
           <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
-          <h1 className="ds-h1" style={{ marginBottom: 8 }}>Безопасность</h1>
+          <h1 className="ds-h1" style={{ marginBottom: 8 }}>Безопасно ли сейчас на Камчатке</h1>
         </div>
         <EmergencyAction />
       </div>

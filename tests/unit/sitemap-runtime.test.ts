@@ -31,8 +31,7 @@ describe('sitemap — runtime, не build-time', () => {
 
   it('сборщик записей сохранил туры с витринными флагами (#1049)', () => {
     expect(ENTRIES).toMatch(/tourPath\(row\)/);
-    expect(ENTRIES).toMatch(/is_active = TRUE/);
-    expect(ENTRIES).toMatch(/COALESCE\(is_published, TRUE\) = TRUE/);
+    expect(ENTRIES).toMatch(/\$\{publicTourSql\('ot'\)\}/);
   });
 
   it('IndexNow bulk переехал на общий сборщик', () => {
