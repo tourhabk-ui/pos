@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-01 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1138_route_image_thumbs.sql`.
+> Снято 2026-10-02 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1141_mcp_tool_calls_requested_tool.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3365 |
+| Колонок | 3366 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 74 |
 
@@ -1009,9 +1009,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `token_hash character!` `mcp_session_id text` `mcp_invocation_id uuid` `tool_name text!` `target_path text!` `target_type text!` `created_at timestamptz!=` `expires_at timestamptz!` `first_opened_at timestamptz` `last_opened_at timestamptz` `open_count integer!=`
 
-**mcp_tool_calls** · 7 кол. · PK id · индексов 3
+**mcp_tool_calls** · 8 кол. · PK id · индексов 3
 
-`id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=`
+`id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=` `requested_tool varchar`
 
 **mcp_write_attempts** · 6 кол. · PK id · индексов 4
 

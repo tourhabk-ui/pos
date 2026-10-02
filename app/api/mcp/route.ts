@@ -564,7 +564,7 @@ async function handleToolsCall(
   // tools, «Error Handling»): агент, перепутавший имя, должен перечитать
   // tools/list, а не пересказывать человеку «инструмент не сработал».
   if (!PUBLIC_MCP_TOOL_NAMES.has(toolName)) {
-    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', ip, userAgent });
+    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', requestedTool: toolName, ip, userAgent });
     return jsonrpcError(id, -32602, `Unknown tool: ${toolName.slice(0, 80)}`);
   }
 

@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { safeToolName } from '@/lib/mcp/call-log';
+import { safeToolName, safeRequestedName } from '@/lib/mcp/call-log';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const ROUTE = read('app/api/mcp/route.ts');
@@ -23,7 +23,8 @@ const MIGRATION = read('migrations/861_mcp_tool_calls.sql');
 describe('журнал вызовов без ПД', () => {
   it('в INSERT журнала нет аргументов инструмента', () => {
     // Колонки фиксированы: tool, ok, error_kind, duration_ms, caller_hash.
-    expect(LOG).toMatch(/INSERT INTO mcp_tool_calls \(tool, ok, error_kind, duration_ms, caller_hash\)/);
+    // requested_tool (1141) — имя несуществующего инструмента, только при unknown_tool.
+    expect(LOG).toMatch(/INSERT INTO mcp_tool_calls \(tool, ok, error_kind, duration_ms, caller_hash, requested_tool\)/);
     expect(LOG).not.toMatch(/args|arguments|params/i);
   });
 
@@ -70,6 +71,13 @@ describe('все исходы вызова видны', () => {
 describe('имя инструмента — только из реестра', () => {
   it('safeToolName пропускает реестровые и клеймит прочие', () => {
     expect(safeToolName('create_lead')).toBe('create_lead');
+    // Запрошенное имя — отдельно и только если похоже на идентификатор.
+    expect(safeRequestedName('getTours')).toBe('getTours');
+    expect(safeRequestedName('get-weather.v2')).toBe('get-weather.v2');
+    expect(safeRequestedName('<script>alert(1)</script>')).toBe('не-идентификатор');
+    expect(safeRequestedName('x'.repeat(41))).toBe('не-идентификатор');
+    expect(ROUTE).toMatch(/errorKind: 'unknown_tool', requestedTool: toolName/);
+    expect(read('migrations/1141_mcp_tool_calls_requested_tool.sql')).toMatch(/ADD COLUMN IF NOT EXISTS requested_tool VARCHAR\(40\)/);
     expect(safeToolName('nonexistent_evil_tool_'.repeat(10))).toBe('unknown');
     expect(safeToolName('')).toBe('unknown');
   });

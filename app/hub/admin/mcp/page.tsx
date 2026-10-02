@@ -42,6 +42,7 @@ interface ToolRow {
 
 interface DayRow { day: string; calls: number; errors: number; caller_days: number }
 interface ErrorRow { kind: string; d30: number }
+interface UnknownToolRow { requested_tool: string; d30: number; last_seen: string }
 interface ClientRow {
   client: string;
   /** Откуда известно имя: представился сам, опознан по заголовку или никак. */
@@ -55,6 +56,8 @@ interface McpData {
   by_tool_30d: ToolRow[];
   daily_14d: DayRow[];
   errors_by_kind_30d: ErrorRow[];
+  /** Имена несуществующих инструментов, которые просили (миграция 1141); до неё поля нет — массив пуст. */
+  unknown_tools_30d?: UnknownToolRow[];
   by_client_30d: ClientRow[];
   window_note: string;
 }
@@ -266,6 +269,24 @@ export default function AdminMcpPage() {
                           {ERROR_KIND_LABELS[e.kind] ?? e.kind}
                         </span>
                         <span className="text-[var(--text-primary)] font-medium">{e.d30}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {(data.unknown_tools_30d ?? []).length > 0 && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Какие несуществующие инструменты просили, 30 дней</p>
+                  <p className="text-[11px] text-[var(--text-muted)] mb-2">
+                    Имя из запроса клиента, если похоже на идентификатор. Чаще всего это старое имя из чужого каталога или llms.txt — повод для алиаса или правки описания.
+                  </p>
+                  <ul className="space-y-1">
+                    {(data.unknown_tools_30d ?? []).map(u => (
+                      <li key={u.requested_tool} className="flex items-baseline justify-between text-xs gap-3">
+                        <span className="font-mono text-[var(--text-secondary)] truncate">{u.requested_tool}</span>
+                        <span className="text-[var(--text-muted)] shrink-0">{u.last_seen}</span>
+                        <span className="text-[var(--text-primary)] font-medium shrink-0">{u.d30}</span>
                       </li>
                     ))}
                   </ul>

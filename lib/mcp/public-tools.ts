@@ -151,8 +151,8 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   search_transfers:      { title: 'Transfers',             lead: 'Transfers in Kamchatka from platform partners.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability.' },
-  create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no specific tour or date is chosen yet; human-confirmed by a manager; not a booking, no payment.' },
-  create_booking_request: { title: 'Booking request',      lead: 'Booking request for a specific Kamchatka tour on a date; live availability checked first, human-confirmed by the operator; no payment. No tour chosen yet — use create_lead. No schedule: asks operator.' },
+  create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true from the traveller, otherwise refused and nothing is stored.' },
+  create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
 };
 
 /**

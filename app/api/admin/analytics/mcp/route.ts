@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [byTool, daily, errors, clients] = await Promise.all([
+    const [byTool, daily, errors, clients, unknownTools] = await Promise.all([
       pool.query<{
         tool: string; calls_7d: string; errors_7d: string; calls_30d: string;
         errors_30d: string; avg_ms: string | null; max_ms: string | null; callers_30d: string;
@@ -79,6 +79,16 @@ export async function GET(request: NextRequest) {
           GROUP BY 1, 2
           ORDER BY COUNT(*) DESC`,
       ),
+      // Какие НЕСУЩЕСТВУЮЩИЕ инструменты просили (миграция 1141). До неё все
+      // такие запросы были одной строкой 'unknown' — переименовывать или
+      // заводить алиас было нечего.
+      pool.query<{ requested_tool: string; d30: string; last_seen: string }>(
+        `SELECT requested_tool, COUNT(*) AS d30, to_char(MAX(created_at), 'YYYY-MM-DD') AS last_seen
+           FROM mcp_tool_calls
+          WHERE error_kind = 'unknown_tool' AND requested_tool IS NOT NULL
+            AND created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY requested_tool ORDER BY COUNT(*) DESC LIMIT 20`,
+      ),
     ]);
 
     return NextResponse.json({
@@ -101,6 +111,11 @@ export async function GET(request: NextRequest) {
       errors_by_kind_30d: errors.rows.map((r) => ({
         kind: r.error_kind,
         d30: Number(r.d30),
+      })),
+      unknown_tools_30d: unknownTools.rows.map((r) => ({
+        requested_tool: r.requested_tool,
+        d30: Number(r.d30),
+        last_seen: r.last_seen,
       })),
       by_client_30d: clients.rows.map((r) => ({
         client: r.client,
