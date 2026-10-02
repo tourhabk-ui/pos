@@ -24,7 +24,8 @@ describe('журнал вызовов без ПД', () => {
   it('в INSERT журнала нет аргументов инструмента', () => {
     // Колонки фиксированы: tool, ok, error_kind, duration_ms, caller_hash.
     // requested_tool (1141) — имя несуществующего инструмента, только при unknown_tool.
-    expect(LOG).toMatch(/INSERT INTO mcp_tool_calls \(tool, ok, error_kind, duration_ms, caller_hash, requested_tool\)/);
+    // is_self (1142) — метка владельца из адреса коннектора; свои вызовы отделяются, не прячутся.
+    expect(LOG).toMatch(/INSERT INTO mcp_tool_calls \(tool, ok, error_kind, duration_ms, caller_hash, requested_tool, is_self\)/);
     expect(LOG).not.toMatch(/args|arguments|params/i);
   });
 

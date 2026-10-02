@@ -257,11 +257,11 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     measure('page_views', async () => (await exec.query<{
       visits: number; tour_views: number; plan_views: number; plan_to_tour: number; bot_views: number;
     }>(
-      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE)::int AS visits,
-              COUNT(*) FILTER (WHERE is_bot = FALSE AND ${TOUR_PATH})::int AS tour_views,
-              COUNT(*) FILTER (WHERE is_bot = FALSE
+      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND is_self = FALSE)::int AS visits,
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND ${TOUR_PATH})::int AS tour_views,
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE
                                  AND (path LIKE '/trip/%' OR path LIKE '/plans/%'))::int AS plan_views,
-              COUNT(*) FILTER (WHERE is_bot = FALSE AND ${TOUR_PATH}
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND ${TOUR_PATH}
                                  AND (from_path LIKE '/trip/%' OR from_path LIKE '/plans/%'))::int AS plan_to_tour,
               COUNT(*) FILTER (WHERE is_bot = TRUE)::int AS bot_views
          FROM page_views
@@ -271,7 +271,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
 
     measure('funnel_events.booking_start', async () => (await exec.query<{ n: number }>(
       `SELECT COUNT(*)::int AS n FROM funnel_events
-        WHERE step = 'booking_start' AND ${WINDOW_SQL}`,
+        WHERE step = 'booking_start' AND is_self = FALSE AND ${WINDOW_SQL}`,
       p,
     )).rows[0]?.n ?? 0),
 
@@ -304,7 +304,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
               COUNT(*)::int                     AS views,
               COUNT(DISTINCT visitor_hash)::int AS visitors
          FROM page_views
-        WHERE ${WINDOW_SQL} AND is_bot = FALSE
+        WHERE ${WINDOW_SQL} AND is_bot = FALSE AND is_self = FALSE
         GROUP BY path
         ORDER BY views DESC
         LIMIT 20`,
@@ -328,7 +328,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
               ) AS from_path,
               COUNT(*)::int AS views
          FROM page_views
-        WHERE ${WINDOW_SQL} AND is_bot = FALSE AND ${TOUR_PATH}
+        WHERE ${WINDOW_SQL} AND is_bot = FALSE AND is_self = FALSE AND ${TOUR_PATH}
         GROUP BY 1
         ORDER BY views DESC
         LIMIT 15`,
@@ -460,8 +460,8 @@ export async function funnelByDay(
   const [views, bookStarts, leadRows, bookingRows] = await Promise.all([
     measure('daily.page_views', async () => (await exec.query<{ i: number; visits: number; tour_views: number }>(
       `SELECT d.i::int AS i,
-              COUNT(DISTINCT pv.visitor_hash) FILTER (WHERE pv.is_bot = FALSE)::int AS visits,
-              COUNT(*) FILTER (WHERE pv.is_bot = FALSE
+              COUNT(DISTINCT pv.visitor_hash) FILTER (WHERE pv.is_bot = FALSE AND pv.is_self = FALSE)::int AS visits,
+              COUNT(*) FILTER (WHERE pv.is_bot = FALSE AND pv.is_self = FALSE
                                  AND (pv.path LIKE '/catalog/tours/%' OR pv.path LIKE '/marketplace/tours/%'))::int AS tour_views
          ${FROM}
          LEFT JOIN page_views pv ON pv.created_at >= d.s AND pv.created_at < d.e

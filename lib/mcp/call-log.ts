@@ -35,6 +35,8 @@ export interface McpCallLogEntry {
   userAgent: string;
   /** Имя, которое просил клиент, когда инструмента нет (unknown_tool). */
   requestedTool?: string;
+  /** Свой клиент: метка владельца в адресе коннектора (self-visit, 02.10). */
+  self?: boolean;
 }
 
 /**
@@ -109,8 +111,8 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
   const hash = mcpCallerHash(entry.ip, entry.userAgent);
   void pool
     .query(
-      `INSERT INTO mcp_tool_calls (tool, ok, error_kind, duration_ms, caller_hash, requested_tool)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO mcp_tool_calls (tool, ok, error_kind, duration_ms, caller_hash, requested_tool, is_self)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         safeToolName(entry.tool),
         entry.ok,
@@ -118,6 +120,7 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
         entry.durationMs ?? null,
         hash,
         entry.errorKind === 'unknown_tool' && entry.requestedTool ? safeRequestedName(entry.requestedTool) : null,
+        entry.self === true,
       ],
     )
     .catch((err: unknown) => logMcpFailure('запись вызова mcp_tool_calls', err));

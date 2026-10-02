@@ -30,8 +30,12 @@ export const dynamic = 'force-dynamic';
 /** Свои хосты в SQL-регулярке — источник правды тот же, что у lib/analytics/bot-detect. */
 const OWN_HOST_RE = 'vedarai\\.ru|tourhab\\.ru|tourhabk\\.ru|localhost';
 
-/** Людские строки: во всех поведенческих выборках отсекаем ботов. */
-const HUMAN = 'is_bot = FALSE';
+/**
+ * Людские ВНЕШНИЕ строки: во всех поведенческих выборках отсекаем ботов и
+ * свои заходы (cookie владельца, lib/analytics/self-visit, 02.10). Своё
+ * считается отдельно ниже — отделяется, не прячется.
+ */
+const HUMAN = 'is_bot = FALSE AND is_self = FALSE';
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request);
@@ -44,6 +48,8 @@ export async function GET(request: NextRequest) {
         week_hits: string; week_visitor_days: string;
         month_hits: string; month_visitor_days: string;
         month_bot_hits: string;
+        month_self_hits: string;
+        self_since: string | null;
       }>(`
         SELECT
           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND ${HUMAN}) AS today_hits,
@@ -52,7 +58,9 @@ export async function GET(request: NextRequest) {
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND ${HUMAN} AND visitor_hash IS NOT NULL) AS week_visitor_days,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN}) AS month_hits,
           COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND ${HUMAN} AND visitor_hash IS NOT NULL) AS month_visitor_days,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND is_bot) AS month_bot_hits
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND is_bot) AS month_bot_hits,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND is_self) AS month_self_hits,
+          to_char(MIN(created_at) FILTER (WHERE is_self), 'YYYY-MM-DD') AS self_since
         FROM page_views
       `),
       pool.query<{ day: string; hits: string; uniques: string }>(`
@@ -240,6 +248,9 @@ export async function GET(request: NextRequest) {
           month: { hits: Number(t.month_hits), visitorDays: Number(t.month_visitor_days) },
         },
         bots: { month_hits: Number(t.month_bot_hits) },
+        // Свои заходы за 30 дней и с какого дня метка вообще ставилась: до
+        // этого дня свои и чужие в цифрах выше неразличимы.
+        self: { month_hits: Number(t.month_self_hits), since: t.self_since },
         daily: daily.rows.map(r => ({ day: r.day, hits: Number(r.hits), uniques: Number(r.uniques) })),
         top_paths: topPaths.rows.map(r => ({ path: r.path, hits: Number(r.hits) })),
         top_referrers: topReferrers.rows.map(r => ({ referrer: r.referrer, hits: Number(r.hits) })),

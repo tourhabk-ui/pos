@@ -37,6 +37,7 @@ import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
@@ -534,6 +535,9 @@ async function handleToolsCall(
   // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
   const ip = clientIp(request);
   const userAgent = request.headers.get('user-agent') ?? '';
+  // Свой клиент (метка владельца в адресе коннектора) пишется с флагом и
+  // в спрос не считается — lib/analytics/self-visit, решение 02.10.
+  const self = isSelfMcpCaller(request.nextUrl);
 
   // Rate-limit до исполнения и до любой записи в базу: превышение — обычный
   // tool-ответ с isError, агент его прочитает и подождёт (429 на JSON-RPC
@@ -543,7 +547,7 @@ async function handleToolsCall(
   const limiter = isWrite ? writeLimiter : readLimiter;
   if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
-      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent });
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent, self });
     }
     // Окно записи — десять минут, чтения — минута; общий текст «подождите
     // минуту» на записи обещал неправду (проверка MCP 29.09).
@@ -564,7 +568,7 @@ async function handleToolsCall(
   // tools, «Error Handling»): агент, перепутавший имя, должен перечитать
   // tools/list, а не пересказывать человеку «инструмент не сработал».
   if (!PUBLIC_MCP_TOOL_NAMES.has(toolName)) {
-    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', requestedTool: toolName, ip, userAgent });
+    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', requestedTool: toolName, ip, userAgent, self });
     return jsonrpcError(id, -32602, `Unknown tool: ${toolName.slice(0, 80)}`);
   }
 
@@ -578,13 +582,13 @@ async function handleToolsCall(
     // панель MCP и сторож молчания), и никакой ссылки «продолжить» к
     // несостоявшемуся ответу (проверка MCP 29.09).
     if (text === TOOL_EXECUTION_FAILED) {
-      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', durationMs: Date.now() - startedAt, ip, userAgent });
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', durationMs: Date.now() - startedAt, ip, userAgent, self });
       return jsonrpcSuccess(id, {
         content: [{ type: 'text', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' }],
         isError: true,
       });
     }
-    logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent });
+    logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent, self });
 
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
@@ -622,6 +626,7 @@ async function handleToolsCall(
       durationMs: Date.now() - startedAt,
       ip,
       userAgent,
+      self,
     });
     return jsonrpcSuccess(id, {
       content: [{ type: 'text', text: userFacing ? toolErr.message : MCP_INTERNAL_ERROR_TEXT }],

@@ -40,6 +40,9 @@ interface ToolRow {
   caller_days_30d: number;
 }
 
+/** Род вызова: откуда он на самом деле (решение владельца 02.10). */
+const ORIGIN_LABELS: Record<string, string> = { self: 'свой', probe: 'проверка', external: 'внешний' };
+
 interface DayRow { day: string; calls: number; errors: number; caller_days: number }
 interface ErrorRow { kind: string; d30: number }
 interface UnknownToolRow { requested_tool: string; d30: number; last_seen: string }
@@ -47,6 +50,8 @@ interface ClientRow {
   client: string;
   /** Откуда известно имя: представился сам, опознан по заголовку или никак. */
   kind: string;
+  /** external — внешний спрос; self — метка владельца; probe — смоук, пробы, curl. */
+  origin?: 'external' | 'self' | 'probe' | string;
   calls: number;
   caller_days: number;
   last_seen: string | null;
@@ -59,6 +64,8 @@ interface McpData {
   /** Имена несуществующих инструментов, которые просили (миграция 1141); до неё поля нет — массив пуст. */
   unknown_tools_30d?: UnknownToolRow[];
   by_client_30d: ClientRow[];
+  /** Внешние / свои / проверки за 30 дней (02.10). self_since — с какого дня метка владельца ставилась. */
+  origins_30d?: { external: number; self: number; probe: number; self_since: string | null };
   window_note: string;
 }
 
@@ -130,7 +137,8 @@ export default function AdminMcpPage() {
       <p className="text-xs text-[var(--text-muted)] max-w-2xl">
         Журнал фактов вызова инструментов внешними клиентами: что звали, чем кончилось,
         сколько заняло. Аргументы не пишутся — в них уходят имена и телефоны туристов,
-        а канал внешний.
+        а канал внешний. Таблицы ниже — только внешние вызовы: свои (метка владельца в
+        адресе коннектора) и проверки (смоук деплоя, пробы, curl) вынесены отдельными числами.
       </p>
 
       {loading && (
@@ -157,11 +165,31 @@ export default function AdminMcpPage() {
             </div>
           ) : (
             <>
+              {data.origins_30d && (
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Внешних за 30 дней', value: data.origins_30d.external },
+                    { label: 'Своих (метка владельца)', value: data.origins_30d.self },
+                    { label: 'Проверок (смоук, пробы, curl)', value: data.origins_30d.probe },
+                  ].map(k => (
+                    <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+                      <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
+                      <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
+                    </div>
+                  ))}
+                  <p className="col-span-3 text-[10px] text-[var(--text-muted)]">
+                    {data.origins_30d.self_since
+                      ? <>Метка «свой» ставится с {data.origins_30d.self_since}: вызовы раньше этого дня в числе внешних неотличимы от своих.</>
+                      : <>Метка «свой» ещё ни разу не ставилась: свои вызовы пока сидят в числе внешних. Нужны MCP_SELF_TAG в env и ?self=&lt;метка&gt; в адресе коннектора.</>}
+                  </p>
+                </div>
+              )}
+
               {totals && (
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Вызовов за 7 дней', value: totals.calls7 },
-                    { label: 'Вызовов за 30 дней', value: totals.calls30 },
+                    { label: 'Внешних за 7 дней', value: totals.calls7 },
+                    { label: 'Внешних за 30 дней', value: totals.calls30 },
                     { label: 'Из них с ошибкой', value: totals.errors30 },
                   ].map(k => (
                     <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
@@ -247,10 +275,15 @@ export default function AdminMcpPage() {
                   </p>
                   <ul className="space-y-1">
                     {data.by_client_30d.map(c => (
-                      <li key={`${c.client}:${c.kind}`} className="flex items-baseline justify-between gap-3 text-xs">
+                      <li key={`${c.client}:${c.kind}:${c.origin ?? ''}`} className="flex items-baseline justify-between gap-3 text-xs">
                         <span className="text-[var(--text-secondary)] truncate">
                           {c.client}
                           <span className="text-[10px] text-[var(--text-muted)] ml-2">{c.kind}</span>
+                          {c.origin && c.origin !== 'external' && (
+                            <span className="text-[10px] ml-2" style={{ color: 'var(--warning)' }}>
+                              {ORIGIN_LABELS[c.origin] ?? c.origin}
+                            </span>
+                          )}
                         </span>
                         <span className="text-[var(--text-primary)] font-medium shrink-0">{c.calls}</span>
                       </li>
