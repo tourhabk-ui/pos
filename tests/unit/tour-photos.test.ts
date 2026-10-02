@@ -69,8 +69,8 @@ describe('фото не режутся по центру — голова ост
   });
 
   it('у филмстрипа тоже', () => {
-    const film = CARD.slice(CARD.indexOf('photoSrc(src, 640)') - 300,
-      CARD.indexOf('photoSrc(src, 640)') + 400);
+    const film = CARD.slice(CARD.indexOf('photoSrc(src, 320)') - 300,
+      CARD.indexOf('photoSrc(src, 320)') + 400);
     expect(film).toContain("objectPosition: '50% 30%'");
   });
 });
@@ -98,7 +98,7 @@ describe('все поверхности с фото туров держат го
     it(f, () => {
       const src = readFileSync(f, 'utf8');
       // Пейзажи — герой каталога и фото мест/маршрутов — не портреты туров.
-      const imgs = coverImages(src).filter((t) => !/hero-marketplace\.jpg|route\.imageUrl/.test(t));
+      const imgs = coverImages(src).filter((t) => !/hero-marketplace\.jpg|HERO_SRC|route\.imageUrl/.test(t));
       expect(imgs.length, `${f}: не нашёл ни одного фото — сторож смотрит не туда`).toBeGreaterThan(0);
       for (const t of imgs) expect(t, `${f}: фото без точки кадрирования`).toMatch(/objectPosition:\s*TOUR_PHOTO_POSITION/);
       expect(src).toMatch(/from '@\/lib\/tours\/photo-focus'/);
