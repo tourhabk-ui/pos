@@ -283,28 +283,44 @@ export default async function OperatorProfilePage(
                 {tours.map(t => {
                   const img = t.photos?.[0] ?? t.tour_image ?? null;
                   const duration = tourDurationText(t);
+                  // Карточка — не одна большая ссылка: у каждого тура своя
+                  // кнопка «Забронировать» (владелец 02.10: «нет кнопки
+                  // забронировать на каждом туре»). Ведёт на единственную
+                  // форму брони карточки тура (#booking, §11); вкладывать
+                  // <a> в <a> нельзя, поэтому обёртка — div.
                   return (
-                    <Link
+                    <div
                       key={t.id}
-                      href={tourPath(t)}
                       className="group bg-[var(--bg-hover)] rounded-lg overflow-hidden flex flex-col hover:ring-1 hover:ring-[var(--accent)] transition-all duration-200"
                     >
-                      {img && (
-                        <div className="relative h-36">
-                          <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 640px) 100vw, 33vw" />
+                      <Link href={tourPath(t)} className="flex flex-col flex-1">
+                        {img && (
+                          <div className="relative h-36">
+                            <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 640px) 100vw, 33vw" />
+                          </div>
+                        )}
+                        <div className="p-4 pb-2 space-y-1.5 flex-1">
+                          <p className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)]">{t.title}</p>
+                          {t.season_start && t.season_end && (
+                            <p className="text-xs text-[var(--text-muted)]">{t.season_start} — {t.season_end}{duration ? ` · ${duration}` : ''}</p>
+                          )}
+                          {t.short_description && (
+                            <p className="text-sm text-[var(--text-secondary)] line-clamp-2">{t.short_description}</p>
+                          )}
+                          <p className="text-sm font-medium text-[var(--accent)]">{tourPriceText(t)}</p>
                         </div>
-                      )}
-                      <div className="p-4 space-y-1.5 flex-1">
-                        <p className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)]">{t.title}</p>
-                        {t.season_start && t.season_end && (
-                          <p className="text-xs text-[var(--text-muted)]">{t.season_start} — {t.season_end}{duration ? ` · ${duration}` : ''}</p>
-                        )}
-                        {t.short_description && (
-                          <p className="text-sm text-[var(--text-secondary)] line-clamp-2">{t.short_description}</p>
-                        )}
-                        <p className="text-sm font-medium text-[var(--accent)]">{tourPriceText(t)}</p>
+                      </Link>
+                      <div className="px-4 pb-4">
+                        <Link
+                          href={`${tourPath(t)}#booking`}
+                          className="ds-btn ds-btn-primary w-full justify-center text-sm"
+                          style={{ minHeight: 44 }}
+                          aria-label={`Забронировать: ${t.title}`}
+                        >
+                          Забронировать
+                        </Link>
                       </div>
-                    </Link>
+                    </div>
                   );
                 })}
               </div>
