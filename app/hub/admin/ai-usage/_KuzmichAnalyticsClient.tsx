@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   MessageSquare, Users, Brain, CreditCard, RefreshCw,
   TrendingUp, Sparkles, BarChart2, Activity, ThumbsUp, ThumbsDown, Globe,
-  ChevronDown, ChevronRight, Send, User, Copy, Check,
+  ChevronDown, ChevronRight, Send, User, Copy, Check, type LucideIcon,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -152,14 +152,14 @@ function fmtDate(iso: string | null): string {
 
 // ─── Channel card ─────────────────────────────────────────────────────────────
 
-const CHANNEL_META: Record<string, { label: string; color: string; emoji: string }> = {
-  telegram: { label: 'Telegram', color: 'var(--ocean)',   emoji: '✈' },
-  max:      { label: 'Max',      color: 'var(--accent)',  emoji: 'M' },
-  web:      { label: 'Сайт',    color: 'var(--success)', emoji: '🌐' },
+const CHANNEL_META: Record<string, { label: string; color: string; mark: string | LucideIcon }> = {
+  telegram: { label: 'Telegram', color: 'var(--ocean)',   mark: Send },
+  max:      { label: 'Max',      color: 'var(--accent)',  mark: 'M' },
+  web:      { label: 'Сайт',    color: 'var(--success)', mark: Globe },
 };
 
 function ChannelCard({ id, stats }: { id: string; stats: ChannelStats }) {
-  const meta = CHANNEL_META[id] ?? { label: id, color: 'var(--text-secondary)', emoji: '?' };
+  const meta = CHANNEL_META[id] ?? { label: id, color: 'var(--text-secondary)', mark: '?' };
   return (
     <div className="ds-card p-5 flex flex-col gap-3">
       <div className="flex items-center gap-2">
@@ -167,7 +167,7 @@ function ChannelCard({ id, stats }: { id: string; stats: ChannelStats }) {
           className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0"
           style={{ background: meta.color }}
         >
-          {meta.emoji}
+          {typeof meta.mark === 'string' ? meta.mark : <meta.mark size={16} aria-hidden />}
         </div>
         <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{meta.label}</span>
       </div>

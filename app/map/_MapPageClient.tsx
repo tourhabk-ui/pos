@@ -544,7 +544,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           </div>
         )}
 
-        {/* 🔴 SOS-панель — экстренные номера (tel: ссылки работают без интернета!) */}
+        {/* SOS-панель — экстренные номера (tel: ссылки работают без интернета!) */}
         {showSos && (
           <div className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/85  border border-red-500/40 shadow-2xl shadow-red-900/20">
             <div className="p-4">

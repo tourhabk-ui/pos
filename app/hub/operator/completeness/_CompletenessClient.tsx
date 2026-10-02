@@ -172,7 +172,7 @@ export default function CompletenessClient() {
 
   const handleAutoFillAI = async (tourId: string, tourTitle: string) => {
     try {
-      const loadingToast = toast.loading(`🤖 AI заполняет ${tourTitle}...`);
+      const loadingToast = toast.loading(`AI заполняет ${tourTitle}...`);
       const res = await fetch('/api/operator/tours/auto-fill-ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -186,7 +186,7 @@ export default function CompletenessClient() {
       toast.dismiss(loadingToast);
 
       if (filled > 0) {
-        toast.success(`✨ AI заполнил ${filled} полей!`);
+        toast.success(`AI заполнил полей: ${filled}`);
         await fetchData();
       } else {
         toast.error('Нечего заполнять');

@@ -217,7 +217,9 @@ const nextConfig = {
       { source: '/home-v7',            destination: '/',                               permanent: true },
       // /dashboard — осиротевший «командный центр», перекрыт Главной v8 (реорг
       // Этап 9). Раньше страница делала runtime redirect('/') (307); постоянный
-      // 301 здесь — SEO-корректно и убирает stub-роут. _DashboardClient сохранён.
+      // 301 здесь — SEO-корректно и убирает stub-роут. _DashboardClient удалён
+      // 02.10 (внутренний аудит): не рендерился нигде и держал выдуманные
+      // статусы («Вулканы: норма», «Связь: 3G», прилив по часам).
       { source: '/dashboard',          destination: '/',                               permanent: true },
     ];
   },
