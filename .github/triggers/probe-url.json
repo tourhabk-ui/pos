@@ -1,18 +1,19 @@
 {
-  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Адрес статьи МЧС «Два ощущаемых сейсмособытия…» в ленте оперативной информации: в ленте фраза о цунами стоит в длинной строке и обрезается.",
-  "run": 643,
+  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Статья МЧС «Два ощущаемых сейсмособытия…» (5836160): фраза со словом «цунами», давшая тревогу важности 3.",
+  "run": 644,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
   "bytes": 200,
   "around": [
-    "Два ощущаемых"
+    "цунами",
+    "Цунами"
   ],
-  "aroundBefore": 0,
-  "aroundLines": 12,
-  "aroundHits": 3,
+  "aroundBefore": 3,
+  "aroundLines": 3,
+  "aroundHits": 4,
   "urls": [
-    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss"
+    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5836160"
   ]
 }
