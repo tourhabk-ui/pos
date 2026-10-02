@@ -14,6 +14,7 @@ import { findToursForQuery } from '@/lib/search/tour-query-match';
 import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
+import { clampPage } from '@/lib/routes/catalog-return';
 import { withCardExcerpts } from '@/lib/routes/card-excerpt';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
@@ -74,7 +75,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const sp = await searchParams;
   const page = parsePage(first(sp.page));
   const isPlaces = first(sp.kind) === 'place';
-  const hasFilters = ['q', 'activity_type', 'location_type', 'difficulty'].some(k => first(sp[k]) !== '');
+  const hasFilters = ['q', 'activity_type', 'location_type', 'difficulty', 'price', 'radius', 'sort'].some(k => first(sp[k]) !== '');
   const canonical = catalogCanonical(SITE, isPlaces ? '/places' : '/routes', page, hasFilters);
   if (page <= 1 || hasFilters) return { ...BASE_METADATA, alternates: { canonical } };
   const title = `Маршруты по Камчатке — страница ${page}`;
@@ -109,7 +110,8 @@ export default async function RoutesPage({ searchParams }: PageProps) {
   // ни он, ни сервер не читали обратно — ссылка выглядела рабочей и не была.
   const difficulty: '' | 'easy' | 'medium' | 'hard' =
     difficultyRaw === 'easy' || difficultyRaw === 'medium' || difficultyRaw === 'hard' ? difficultyRaw : '';
-  const page = parsePage(first(sp.page));
+  const requestedPage = parsePage(first(sp.page));
+  let page = requestedPage;
 
   // Зеркало initial-состояния клиента: sort и цена в URL по-прежнему не живут.
   const filters: CatalogFilters = {
@@ -168,6 +170,13 @@ export default async function RoutesPage({ searchParams }: PageProps) {
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
+    // Страницы с таким номером нет (выдача стала короче, пока карточка была
+    // открыта) — последняя существующая, не первая и не пустая (01.10).
+    const last = clampPage(requestedPage, initial.meta.pages);
+    if (last !== requestedPage) {
+      page = last;
+      initial = await queryCatalogForPage({ ...filters, page });
+    }
   } catch (err) {
     // Честно отдаём клиенту флаг ошибки — он покажет состояние и даст повторить.
     // Отказ не глушится: имя и SQLSTATE — в лог (§4.0).
@@ -188,6 +197,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     sort: 'recommended',
     difficulty,
     priceRange: '',
+    radius: '',
   });
 
   const itemListJsonLd = initial && initial.items.length > 0
@@ -217,6 +227,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
           initialMeta={initial ? { total: initial.meta.total, pages: initial.meta.pages } : { total: 0, pages: 1 }}
           initialError={initial === null}
           initialKey={initialKey}
+          initialPage={page}
           initialParks={parks}
           initialCategories={categories}
           toursSlot={toursState ? <ToursForQuery q={q} state={toursState} /> : null}

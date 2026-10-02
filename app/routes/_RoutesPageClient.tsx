@@ -14,6 +14,7 @@ import ParksStrip from '@/components/routes/ParksStrip';
 import type { ParkLite } from '@/lib/parks/list';
 import CategoriesStrip from '@/components/routes/CategoriesStrip';
 import type { CategoryLink } from '@/lib/routes/live-categories';
+import { clampPage, rememberCatalogReturn, takeCatalogScroll } from '@/lib/routes/catalog-return';
 import { pageSlots } from '@/lib/seo/catalog-paging';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
@@ -165,9 +166,15 @@ interface RoutesPageClientProps {
   initialParks?: ParkLite[] | null;
   /** Живые категории с сервера (/routes/<slug>); `null` — не прочитал. */
   initialCategories?: CategoryLink[] | null;
+  /**
+   * Страница, которую сервер отрисовал на самом деле: запросили седьмую из
+   * пяти — отдана пятая, и клиент обязан начать с неё, а не с номера из
+   * адреса (lib/routes/catalog-return, clampPage).
+   */
+  initialPage?: number;
 }
 
-export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null, initialCategories = null }: RoutesPageClientProps) {
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null, initialCategories = null, initialPage }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -181,7 +188,13 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [query,        setQuery]        = useState(searchParams.get('q') ?? '');
   const [activityType, setActivityType] = useState(searchParams.get('activity_type') ?? '');
   const [locationType, setLocationType] = useState(searchParams.get('location_type') ?? '');
-  const [sort,         setSort]         = useState<SortValue>('recommended');
+  // Сортировка, цена и радиус — тоже из адреса (возврат из карточки 01.10):
+  // пока они жили только в состоянии, кнопка «назад» их теряла, и турист
+  // возвращался в другой список. Неизвестное значение — умолчание.
+  const [sort,         setSort]         = useState<SortValue>(() => {
+    const v = searchParams.get('sort');
+    return SORT_OPTIONS.some(o => o.value === v) ? (v as SortValue) : 'recommended';
+  });
   // Сложность читается из URL, а не начинается с пустой. Клиент её туда ПИСАЛ
   // (см. params.set('difficulty', …) ниже), но при перезагрузке или переходе по
   // ссылке терял: фильтр был виден в адресе и не действовал. Чипы главной
@@ -190,14 +203,22 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     const d = searchParams.get('difficulty');
     return (d === 'easy' || d === 'medium' || d === 'hard') ? d : '';
   });
-  const [priceRange,   setPriceRange]   = useState('');
+  const [priceRange,   setPriceRange]   = useState(() => {
+    const v = searchParams.get('price') ?? '';
+    return PRICE_RANGES.some(r => r.value === v) ? v : '';
+  });
   // Фильтр «Рядом»: радиус от якоря. Якорь — позиция туриста (геолокация по
   // явному выбору радиуса), при отказе — честно Петропавловск.
-  const [nearRadius,   setNearRadius]   = useState('');
+  const [nearRadius,   setNearRadius]   = useState(() => {
+    const v = searchParams.get('radius') ?? '';
+    return NEAR_OPTIONS.some(o => o.value === v) ? v : '';
+  });
   const [nearAnchor,   setNearAnchor]   = useState<{ lat: number; lng: number }>(NEAR_PK);
   const [nearLabel,    setNearLabel]    = useState('от Петропавловска');
   const geoRequestedRef = useRef(false);
   const [page,         setPage]         = useState(() => {
+    // Сервер уже ужал номер до существующей страницы — начинаем с неё.
+    if (initialPage != null && Number.isFinite(initialPage) && initialPage >= 1) return initialPage;
     // Deep-link на страницу пагинации должен работать и для SSR, и для клиента.
     const p = parseInt(searchParams.get('page') ?? '1', 10);
     return Number.isFinite(p) && p >= 1 ? p : 1;
@@ -269,9 +290,17 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
       const res  = await fetch(`/api/routes?${params}`);
       const json: RoutesResponse = await res.json();
       if (json.success) {
-        setRoutes(json.data);
         setMeta({ total: json.meta.total, pages: json.meta.pages });
         setDbError(false);
+        // Страницы с таким номером больше нет (фильтр сузил выдачу, пока
+        // карточка была открыта) — показываем последнюю существующую, а не
+        // первую и не пустую. Смена номера сама запросит её.
+        const last = clampPage(pg, json.meta.pages);
+        if (last !== pg) {
+          setPage(last);
+        } else {
+          setRoutes(json.data);
+        }
       } else {
         setDbError(true);
       }
@@ -322,6 +351,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         sort,
         difficulty,
         priceRange,
+        radius: nearRadius,
       });
       const matched = initialKeyRef.current === currentKey;
       initialKeyRef.current = null;
@@ -345,15 +375,52 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // Раздел /places живёт по своему адресу: прежде клиент переписывал его
   // в /routes?kind=place, и ссылки пагинации вели туда же (аудит 01.10).
   const basePath = lockedKind === 'place' ? '/places' : '/routes';
-  useEffect(() => {
+  // Адрес списка — ОДИН сборщик для строки браузера, ссылок пагинации и
+  // записи возврата из карточки: три копии уже расходились (сложность
+  // читалась из адреса, но в него не писалась). Фильтры в адресе — чтобы
+  // системная кнопка «назад» вернула тот же список, а не похожий.
+  const listUrl = useCallback((pg: number) => {
     const p = new URLSearchParams();
     if (!lockedKind && kind !== 'route') p.set('kind', kind);
     if (query)             p.set('q', query);
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);
-    if (page > 1)          p.set('page', String(page));
-    router.replace(`${basePath}${p.size ? '?' + p : ''}`, { scroll: false });
-  }, [query, activityType, locationType, page, kind, router, basePath, lockedKind]);
+    if (difficulty)        p.set('difficulty', difficulty);
+    if (kind === 'route' && priceRange) p.set('price', priceRange);
+    if (nearRadius)        p.set('radius', nearRadius);
+    if (sort !== 'recommended') p.set('sort', sort);
+    if (pg > 1)            p.set('page', String(pg));
+    return `${basePath}${p.size ? '?' + p : ''}`;
+  }, [lockedKind, kind, query, activityType, locationType, difficulty, priceRange, nearRadius, sort, basePath]);
+
+  useEffect(() => {
+    router.replace(listUrl(page), { scroll: false });
+  }, [listUrl, page, router]);
+
+  // Возврат из карточки: прокрутка списка восстанавливается после отрисовки
+  // страницы — скелет `loading.tsx` короче списка, и браузерное восстановление
+  // до него не дотягивалось. Запись одноразовая и только для того же адреса.
+  useEffect(() => {
+    const y = takeCatalogScroll(listUrl(page));
+    if (y == null) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => window.scrollTo(0, y));
+    });
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+    // Только на монтировании: позже прокрутку меняет сам турист.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Уход в карточку из сетки: запомнить адрес списка и прокрутку. Перехват на
+  // контейнере, а не в RouteCard — карточка общая и про каталог знать не должна.
+  const rememberBeforeCard = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const a = (e.target as HTMLElement | null)?.closest?.('a[href]');
+    if (!a) return;
+    const href = a.getAttribute('href') ?? '';
+    if (!/^\/(routes|places)\/./.test(href)) return;
+    rememberCatalogReturn(listUrl(page), window.scrollY);
+  }, [listUrl, page]);
 
   const resetFilters = () => { setDifficulty(''); setPriceRange(''); setNearRadius(''); setPage(1); };
 
@@ -365,15 +432,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // Href страницы пагинации — зеркало URL-sync выше. Реальные ссылки нужны
   // ботам (Google не кликает JS-кнопки); клик человека перехватываем и
   // остаёмся в SPA-режиме без перезагрузки.
-  const pageHref = (pg: number) => {
-    const p = new URLSearchParams();
-    if (!lockedKind && kind !== 'route') p.set('kind', kind);
-    if (query)             p.set('q', query);
-    if (kind === 'route' && activityType) p.set('activity_type', activityType);
-    if (kind === 'place' && locationType) p.set('location_type', locationType);
-    if (pg > 1)            p.set('page', String(pg));
-    return `${basePath}${p.size ? '?' + p : ''}`;
-  };
+  const pageHref = listUrl;
 
   const handleKindChange = (k: KindValue) => {
     setKind(k);
@@ -685,7 +744,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
                 {routes.map(route => (
                   <RouteCard key={route.id} route={route} />
                 ))}
