@@ -1,13 +1,16 @@
 {
-  "note": "01.10, прогон 636. ТОЛЬКО ЧТЕНИЕ. Что стоит героем и в галерее у «Водопада Спокойного» (a532f015) и «Водопада Снежный барс» (0d08e60d) перед кадрами Алины Гусаковой.",
-  "run": 636,
+  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Какая запись «Смотровая Три брата» живая перед кадром Алины Гусаковой: четыре кандидата из миграции 094 и поиск по имени.",
+  "run": 637,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 3000,
+  "bytes": 1500,
   "urls": [
-    "https://vedarai.ru/api/places/a532f015-d208-48d7-8a26-01345a0e1edc",
-    "https://vedarai.ru/api/places/0d08e60d-838b-411c-bfa5-fdb7c40d8609"
+    "https://vedarai.ru/api/places/0005d451-57cc-43f8-bddb-05f701dcbaa8",
+    "https://vedarai.ru/api/places/26fef61c-5d61-434f-bc16-b63c6bdfd560",
+    "https://vedarai.ru/api/places/6292fc3b-2133-44f6-ad5b-7bcfecd22237",
+    "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739",
+    "https://vedarai.ru/api/search?q=%D0%A1%D0%BC%D0%BE%D1%82%D1%80%D0%BE%D0%B2%D0%B0%D1%8F%20%D0%A2%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82%D0%B0"
   ]
 }
