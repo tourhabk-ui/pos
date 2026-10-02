@@ -83,7 +83,10 @@ async function entryFor(
       details: { label, errors: result.errors },
     });
   }
-  return { key, label, status, rawItems, inserted };
+  // Чем источник доказывает живость — из его ожидания (лента — постами,
+  // превью Telegram — вставкой); ключ без ожидания судится по inserted.
+  const aliveBy = SAFETY_SOURCE_EXPECTATIONS.find((e) => e.key === key)?.aliveBy;
+  return { key, label, status, rawItems, inserted, ...(aliveBy ? { aliveBy } : {}) };
 }
 
 /** Источник, чьё молчание принято решением (knownDormant), — для тела ответа. */
@@ -1333,8 +1336,17 @@ export async function POST(req: Request) {
     ...(kamgovFetch && kamgovFetch.length > 0
       ? [entryFor('kamgov', 'kamgov.ru — сводки Минтура', kamgovResult)]
       : []),
-    ...(kamtodayFetch
-      ? [entryFor('kamtoday', 'kamtoday.ru — пересказ сводки Минтура', kamtodayResult)]
+    // kamtoday — два вопроса с разными сроками: лента читается (посты есть)
+    // и сводка в ней была (статьи, прошедшие isMinturBulletin). До 02.10 был
+    // один ключ по вставленным тревогам, и неделя честного чтения ленты без
+    // выпуска сводки звучала как «парс сломан».
+    ...(kamtodayFetch && kamtodayResult
+      ? [
+        entryFor('kamtoday', 'kamtoday.ru — лента новостей', kamtodayResult),
+        entryFor('kamtoday_bulletin', 'Сводка Минтура на kamtoday.ru', {
+          ...kamtodayResult, rawItems: kamtodayResult.bulletins,
+        }),
+      ]
       : []),
   ]));
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.

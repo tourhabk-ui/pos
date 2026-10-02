@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { kamtodayArticleText, KAMTODAY_PREFIX } from '@/lib/services/safety/kamtoday';
 import { classifyMchsItems, isMinturBulletin } from '@/lib/services/safety/seismic-parser';
 import { alertOrigin } from '@/lib/safety/alert-origin';
-import { SAFETY_SOURCE_EXPECTATIONS } from '@/lib/services/safety/source-health';
+import { SAFETY_SOURCE_EXPECTATIONS, formatDeadSourceAlert } from '@/lib/services/safety/source-health';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 
@@ -111,9 +111,13 @@ describe('обычная новость ленты тревогой не ста�
     expect(K).toMatch(/if \(!isMinturBulletin\(`\$\{a\.title\} \$\{text\}`\)\) continue;/);
   });
 
-  it('раннер открывает только статьи с «Минтуриз…» в заголовке и только на kamtoday.ru', () => {
+  it('раннер открывает статьи, где заголовок или анонс называют Минтур или сводку, и только на kamtoday.ru', () => {
     const WF = read('.github/workflows/cron-safety-ingest.yml');
-    expect(WF).toContain('/минтуриз|министерств[а-я]* туризма/i.test(i.title)');
+    // 02.10: узкий фильтр «Минтуриз…» только по заголовку мог пропустить
+    // выпуск, озаглавленный иначе; анонс (description) RSS тоже читается.
+    expect(WF).toContain('const BULLETIN_RE = /минтур|министерств[а-я]* туризма|оперативн[а-я]* сводк|доступност[а-я]* туристическ/i;');
+    expect(WF).toContain('BULLETIN_RE.test(i.title + " " + i.description)');
+    expect(WF).toContain('description: tag(b, "description")');
     expect(WF).toContain('matched.slice(0, 3)');
   });
 });
@@ -129,15 +133,32 @@ describe('связка раннер → прод → здоровье источ
     expect(WF).toContain('|| echo "kamtoday: разбор ленты упал');
   });
 
-  it('прод разбирает статьи и пишет здоровье kamtoday, только если раннер ходил', () => {
+  it('прод разбирает статьи и пишет здоровье kamtoday двумя ключами, только если раннер ходил', () => {
     expect(ROUTE).toContain('ingestKamtodayArticles(parsed.data.kamtoday_articles ?? [], kamtodayFetch)');
-    expect(ROUTE).toMatch(/\.\.\.\(kamtodayFetch\s*\? \[entryFor\('kamtoday', 'kamtoday\.ru — пересказ сводки Минтура', kamtodayResult\)\]/);
+    // 02.10: лента и сводка — два вопроса. Лента жива постами; сводка —
+    // статьями, прошедшими isMinturBulletin (rawItems = bulletins).
+    expect(ROUTE).toMatch(/\.\.\.\(kamtodayFetch && kamtodayResult\s*\? \[\s*entryFor\('kamtoday', '[^']+', kamtodayResult\),\s*entryFor\('kamtoday_bulletin', '[^']+', \{\s*\.\.\.kamtodayResult, rawItems: kamtodayResult\.bulletins,/);
   });
 
-  it('kamtoday судится порогом тишины; kamgov принят молчащим решением владельца', () => {
+  it('сводка считается, даже если тревог из неё не вышло', () => {
+    const K = read('lib/services/safety/kamtoday.ts');
+    expect(K).toMatch(/if \(!isMinturBulletin\([^)]*\)\) continue;\s*(?:\/\/[^\n]*\n\s*)*result\.bulletins\+\+;/);
+    expect(K).toContain('export type KamtodayParseResult = ParseResult & { bulletins: number }');
+  });
+
+  it('лента жива постами, сводка — выпусками: два ключа, два срока, свои объяснения', () => {
     const kt = SAFETY_SOURCE_EXPECTATIONS.find((e) => e.key === 'kamtoday');
     expect(kt?.maxSilenceHours).toBe(48);
+    expect(kt?.aliveBy).toBe('raw_items');
+    expect(kt?.deadHint).toBeTruthy();
     expect(kt?.knownDormant).toBeUndefined();
+    const kb = SAFETY_SOURCE_EXPECTATIONS.find((e) => e.key === 'kamtoday_bulletin');
+    expect(kb?.maxSilenceHours).toBe(240);
+    expect(kb?.aliveBy).toBe('raw_items');
+    expect(kb?.deadHint).toMatch(/сводки/);
+    // Общая фраза «парс сломан?» про еженедельную сводку — ложь (02.10).
+    expect(formatDeadSourceAlert([{ key: 'kamtoday_bulletin', label: kb!.label, reason: 'never', silentHours: null, hint: kb!.deadHint }]))
+      .not.toContain('парс сломан');
     const kg = SAFETY_SOURCE_EXPECTATIONS.find((e) => e.key === 'kamgov');
     expect(kg?.knownDormant?.reason).toContain('решение владельца 26.09');
     expect(kg?.knownDormant?.reason).toContain('kamtoday.ru');

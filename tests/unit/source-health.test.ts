@@ -111,6 +111,47 @@ describe('formatDeadSourceAlert', () => {
     expect(msg).toContain('MAX: молчит 80 ч');
     expect(msg).toContain('МЧС RSS: ни разу');
   });
+
+  it('своё объяснение источника (deadHint) вытесняет общую догадку про парсер (02.10)', () => {
+    const msg = formatDeadSourceAlert([
+      { key: 'kb', label: 'Сводка', reason: 'never', silentHours: null, hint: 'выпуска не было' },
+      { key: 'kt', label: 'Лента', reason: 'silent', silentHours: 50, hint: 'проверь RSS' },
+    ]);
+    expect(msg).toContain('Сводка: выпуска не было');
+    expect(msg).not.toContain('парс сломан');
+    expect(msg).toContain('Лента: молчит 50 ч — проверь RSS');
+  });
+});
+
+describe('deadHint доходит от ожидания до мёртвого источника', () => {
+  const EXP_H: SourceExpectation[] = [{ key: 'kb', label: 'Сводка', maxSilenceHours: 240, aliveBy: 'raw_items', deadHint: 'выпуска не было' }];
+  it('never — с подсказкой', () => {
+    const dead = evaluateDeadSources([row({ source_key: 'kb', last_status: 'ok', first_seen_at: new Date(NOW - 300 * H).toISOString() })], EXP_H, NOW);
+    expect(dead).toEqual([{ key: 'kb', label: 'Сводка', reason: 'never', silentHours: null, hint: 'выпуска не было' }]);
+  });
+  it('silent — с подсказкой', () => {
+    const dead = evaluateDeadSources([row({ source_key: 'kb', last_status: 'ok', last_nonempty_at: new Date(NOW - 300 * H).toISOString() })], EXP_H, NOW);
+    expect(dead[0]).toMatchObject({ reason: 'silent', silentHours: 300, hint: 'выпуска не было' });
+  });
+  it('без deadHint поля hint нет вовсе — старые ожидания не меняются', () => {
+    const dead = evaluateDeadSources([row({ source_key: 'mchs_rss', last_status: 'ok', first_seen_at: new Date(NOW - 300 * H).toISOString() })], EXP, NOW);
+    expect(dead[0]).not.toHaveProperty('hint');
+  });
+});
+
+describe('живость по постам ленты (aliveBy) — запись в БД', () => {
+  it('recordSourceHealth решает «жив» в TS и передаёт булево шестым параметром', async () => {
+    const calls: unknown[][] = [];
+    const pool = { query: async (_sql: string, params: unknown[]) => { calls.push(params); return { rows: [] }; } };
+    const { recordSourceHealth } = await import('@/lib/services/safety/source-health');
+    await recordSourceHealth(pool as never, [
+      { key: 'kt', label: 'Лента', status: 'ok', rawItems: 46, inserted: 0, aliveBy: 'raw_items' },
+      { key: 'tg', label: 'Превью', status: 'ok', rawItems: 250, inserted: 0 },
+      { key: 'kb', label: 'Сводка', status: 'ok', rawItems: 0, inserted: 0, aliveBy: 'raw_items' },
+    ]);
+    // лента с постами — жива; превью Telegram с постами, но без вставки — нет (урок 07.09); сводки не было — нет
+    expect(calls.map((p) => p[5])).toEqual([true, false, false]);
+  });
 });
 
 describe('splitKnownDormant — принятое молчание не будит, но и не исчезает (17.09)', () => {

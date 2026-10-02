@@ -67,17 +67,26 @@ describe('замолчавший источник безопасности об�
 describe('отметка жизни двигается по НОВОМУ, а не по факту ответа страницы', () => {
   const SRC = readFileSync(join(process.cwd(), 'lib/services/safety/source-health.ts'), 'utf-8');
 
-  it('условие требует inserted > 0, а не только статус ok', () => {
+  it('условие требует inserted > 0, а не только статус ok (по умолчанию)', () => {
     // Ключевое место всей починки. Без `inserted > 0` отметка двигалась бы
     // каждым прогоном, и тест выше никогда не смог бы воспроизвестись на проде:
     // строки с last_nonempty_at недельной давности просто не возникало.
-    expect(SRC).toMatch(/last_nonempty_at\s*=\s*CASE WHEN EXCLUDED\.last_status = 'ok' AND EXCLUDED\.inserted > 0/);
+    // 02.10 правило переехало из SQL в TS (`alive`): по умолчанию — по
+    // вставке; только явный aliveBy: 'raw_items' (бегущая RSS-лента) считает
+    // живостью сами посты. Превью Telegram такого флага не имеет.
+    expect(SRC).toMatch(/const alive = e\.status === 'ok' && \(e\.aliveBy === 'raw_items' \? e\.rawItems > 0 : e\.inserted > 0\);/);
+    expect(SRC).toMatch(/last_nonempty_at\s*=\s*CASE WHEN \$6::boolean THEN NOW\(\) ELSE safety_source_health\.last_nonempty_at END/);
   });
 
   it('на вставке новой строки — то же правило', () => {
     // Иначе первый же прогон нового источника ставил бы ему отметку жизни
     // авансом, и отсчёт тишины начинался бы с выдуманного события.
-    expect(SRC).toMatch(/CASE WHEN \$3 = 'ok' AND \$5 > 0 THEN NOW\(\)/);
+    expect(SRC).toMatch(/CASE WHEN \$6::boolean THEN NOW\(\) ELSE NULL END/);
+  });
+
+  it('aliveBy по постам есть только у бегущих лент, не у превью Telegram', () => {
+    const raw = [...SRC.matchAll(/key: '([a-z_]+)'[\s\S]{0,400}?aliveBy: 'raw_items'/g)].map((m) => m[1]);
+    expect(raw.sort()).toEqual(['kamtoday', 'kamtoday_bulletin']);
   });
 
   it('«разобрано со страницы» больше не считается признаком жизни', () => {

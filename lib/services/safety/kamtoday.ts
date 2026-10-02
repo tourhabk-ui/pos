@@ -34,6 +34,9 @@ export interface KamtodayArticle { url: string; title: string; pubDate: string; 
 /** Что увидел раннер в ленте — для честного исхода и здоровья источника. */
 export interface KamtodayFetch { http: number; rss_items: number; matched: number }
 
+/** Разбор плюс счёт статей, оказавшихся сводкой: «сводки не было» ≠ «тревог не вышло». */
+export type KamtodayParseResult = ParseResult & { bulletins: number };
+
 /**
  * Текст статьи строками — так его режет splitSummaryItems (по «\n»).
  *
@@ -77,8 +80,8 @@ function articleId(url: string): string {
 export async function ingestKamtodayArticles(
   articles: KamtodayArticle[],
   fetch: KamtodayFetch,
-): Promise<ParseResult> {
-  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [], rawItems: fetch.rss_items };
+): Promise<KamtodayParseResult> {
+  const result: KamtodayParseResult = { events: [], inserted: 0, skipped: 0, errors: [], rawItems: fetch.rss_items, bulletins: 0 };
   if (fetch.http < 200 || fetch.http >= 300) {
     result.errors.push(`kamtoday.ru: лента ответила раннеру ${fetch.http === 0 ? 'ничем' : `HTTP ${fetch.http}`}`);
     return result;
@@ -94,6 +97,9 @@ export async function ingestKamtodayArticles(
     }
     // Статья «про Минтур», но не сводка (интервью, итоги сезона) — не тревога.
     if (!isMinturBulletin(`${a.title} ${text}`)) continue;
+    // Сводка была — даже если ни одного пункта не стало тревогой («маршруты
+    // открыты» тоже сводка). По этому счёту судится здоровье kamtoday_bulletin.
+    result.bulletins++;
     for (const event of classifyMchsItems(articleId(a.url), a.title, text, a.pubDate, a.url, KAMTODAY_PREFIX)) {
       result.events.push(event);
       try {
