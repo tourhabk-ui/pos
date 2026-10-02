@@ -105,7 +105,7 @@ function exclusiveByTab(path: string, src: string): boolean {
     && /\{tab === 'planning' && <Header \/>\}/.test(src)
     && /\{tab === 'trail' && \(\s*<div[^>]*>\s*<EmergencyAction \/>/.test(src);
 }
-const TOUR_CARD = 'app/marketplace/tours/[id]/_TourDetailClient.tsx';
+const TOUR_CARD = 'app/catalog/tours/[id]/_TourDetailClient.tsx';
 
 describe('SOS — в общей шапке (§2, #1775)', () => {
   /**

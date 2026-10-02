@@ -32,8 +32,7 @@ describe('B-3: дата дня доезжает до формы брони', () 
 
   it('карточка тура осталась на ISR — серверного searchParams нет', () => {
     const CATALOG_PAGE = readFileSync(join(ROOT, 'app/catalog/tours/[id]/page.tsx'), 'utf-8');
-    const MARKET_PAGE = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/page.tsx'), 'utf-8');
-    for (const src of [CATALOG_PAGE, MARKET_PAGE]) {
+    for (const src of [CATALOG_PAGE]) {
       expect(src).toMatch(/export const revalidate = 3600/);
       expect(src).not.toMatch(/searchParams/);
     }

@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const src = readFileSync(join(process.cwd(), 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
+const src = readFileSync(join(process.cwd(), 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
 
 describe('подробная карточка тура — колонки + Ведар', () => {
   it('двухколоночная раскладка (контент + сайдбар)', () => {

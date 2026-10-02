@@ -58,7 +58,7 @@ describe('правила ручки', () => {
 });
 
 describe('фото не режутся по центру — голова остаётся в кадре', () => {
-  const CARD = readFileSync('app/marketplace/tours/[id]/_TourDetailClient.tsx', 'utf8');
+  const CARD = readFileSync('app/catalog/tours/[id]/_TourDetailClient.tsx', 'utf8');
 
   it('у героя задана точка кадрирования', () => {
     // Фото операторов портретные (960x1280). object-cover без objectPosition

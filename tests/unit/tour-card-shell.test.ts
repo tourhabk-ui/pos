@@ -33,7 +33,7 @@ const code = (p: string) => read(p)
   .filter(l => !/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(l))
   .join('\n');
 
-const CARD_PATH = 'app/marketplace/tours/[id]/_TourDetailClient.tsx';
+const CARD_PATH = 'app/catalog/tours/[id]/_TourDetailClient.tsx';
 const CARD = code(CARD_PATH);
 const WARN = code('components/safety/SafetyWarnings.tsx');
 const MSG = code('components/marketplace/MessageOperatorButton.tsx');

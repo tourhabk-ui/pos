@@ -149,6 +149,22 @@ const nextConfig = {
       { source: '/tours/:slug',        destination: '/catalog/tours/:slug',            permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
+      // Перепись страниц 01.10: девять папок в app/ держали по одной строке
+      // redirect() — старые адреса из закладок, писем и уведомлений. Папка ради
+      // редиректа — это роут, сборка и место в переписи; строка здесь делает
+      // то же одним ответом 308 и до роутера. Сторож: tests/unit/legacy-redirects.
+      { source: '/auth/register-operator', destination: '/operators/join',            permanent: true },
+      { source: '/hub/operator/register',  destination: '/operators/join',            permanent: true },
+      { source: '/cart',                   destination: '/hub/tourist/cart',          permanent: true },
+      { source: '/hub/tourist/eco-points', destination: '/hub/tourist/loyalty',       permanent: true },
+      // Заявки платформы агентам закрыты 26.09 — ссылки ведут в «Клиенты».
+      { source: '/hub/agent/leads',        destination: '/hub/agent/clients',         permanent: true },
+      // «Открыть в CRM» из Telegram-уведомлений — карточка лида у оператора.
+      { source: '/hub/admin/leads/:id',    destination: '/hub/operator/leads/:id',    permanent: true },
+      { source: '/kuzmich/hub',            destination: '/',                          permanent: true },
+      // Один полевой экран на платформу (field-cockpit): /on-route упразднён.
+      { source: '/on-route',               destination: '/planning?mode=trail',       permanent: true },
+      { source: '/routes/detail/:id',      destination: '/routes/:id',                permanent: true },
       // Перепись админ-панели 03.09: «AI Кузьмич» и «Расходы AI» читали одну
       // таблицу ai_actions_log с двух страниц в разных разделах меню. Теперь
       // одна страница с вкладками; старый адрес живёт в закладках и в

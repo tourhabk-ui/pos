@@ -91,8 +91,11 @@ describe('«Условия» — внутренний слой, не внешн�
 });
 
 describe('один полевой экран на платформу', () => {
-  it('/on-route — redirect, клиент-копия удалена', () => {
-    expect(read('app/on-route/page.tsx')).toMatch(/redirect\('\/planning\?mode=trail'\)/);
+  it('/on-route — редирект в next.config, папки и клиент-копии нет', () => {
+    // Перепись страниц 01.10: папка с одной строкой redirect() заменена
+    // правилом next.config — адрес отвечает 308 до роутера.
+    expect(read('next.config.js')).toMatch(/source: '\/on-route',\s+destination: '\/planning\?mode=trail'/);
+    expect(() => read('app/on-route/page.tsx')).toThrow();
     expect(() => read('app/on-route/_OnRouteClient.tsx')).toThrow();
   });
 

@@ -32,7 +32,7 @@ describe('колонка и чтение', () => {
 });
 
 describe('карточка тура', () => {
-  const card = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+  const card = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 
   it('блок «Отмена и возврат» только при записи оператора', () => {
     expect(card).toMatch(/\{tour\.cancellation_policy && \(/);

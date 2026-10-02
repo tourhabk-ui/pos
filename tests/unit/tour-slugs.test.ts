@@ -60,7 +60,7 @@ describe('карточка по адресу', () => {
 });
 
 describe('страницы карточки', () => {
-  for (const f of ['app/catalog/tours/[id]/page.tsx', 'app/marketplace/tours/[id]/page.tsx']) {
+  for (const f of ['app/catalog/tours/[id]/page.tsx']) {
     it(`${f}: адрес, 308 с числа, canonical на адрес`, () => {
       const src = read(f);
       expect(src).toMatch(/loadTourCard\(id\)/);

@@ -126,7 +126,7 @@ describe('статус берёт источник у верхней трево�
     // серверный статус главной. Своего умолчания ни у кого больше нет.
     for (const f of [
       'components/homepage/desk/DeskHero.tsx',
-      'app/marketplace/tours/[id]/_TourDetailClient.tsx',
+      'app/catalog/tours/[id]/_TourDetailClient.tsx',
       'app/page.tsx',
     ]) {
       expect(read(f), `${f}: своё умолчание источника`).not.toMatch(/['"]КБГС РАН['"]/);

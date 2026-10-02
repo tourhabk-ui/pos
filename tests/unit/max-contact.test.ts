@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const CARD = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
+const CARD = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
 
 describe('MAX: ссылка только из данных партнёра', () => {
   it('кнопка читает contacts.max и подписана «Написать в MAX»', () => {

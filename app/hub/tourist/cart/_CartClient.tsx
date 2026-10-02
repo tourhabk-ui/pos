@@ -40,7 +40,7 @@ export default function CartClient() {
           <p className="text-[var(--text-secondary)] text-sm">
             Добавляйте туры из каталога и возвращайтесь сюда для бронирования
           </p>
-          <button onClick={() => router.push('/marketplace')} className="ds-btn ds-btn-primary px-6 py-2.5">
+          <button onClick={() => router.push('/catalog')} className="ds-btn ds-btn-primary px-6 py-2.5">
             Перейти в каталог
           </button>
         </div>

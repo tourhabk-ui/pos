@@ -72,7 +72,7 @@ describe('Н9: sitemap не предлагает адресов с 404 и 308', 
 describe('Н12: хлебные крошки тура ведут на каталог, а не на редирект', () => {
   it('JSON-LD и видимые крошки', () => {
     expect(code('lib/seo/tour-structured-data.ts')).not.toMatch(/siteUrl\}\/marketplace/);
-    expect(code('app/marketplace/tours/[id]/_TourDetailClient.tsx')).not.toMatch(/href=\{`\/marketplace\?activity_type/);
+    expect(code('app/catalog/tours/[id]/_TourDetailClient.tsx')).not.toMatch(/href=\{`\/marketplace\?activity_type/);
   });
 });
 

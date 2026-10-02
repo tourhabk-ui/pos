@@ -22,7 +22,7 @@ const SIDEBAR_ITEMS = [
 
   { href: '/hub/tourist/safety',           label: 'Контрольный срок',  icon: ShieldCheck,   section: 'Безопасность' },
 
-  { href: '/marketplace',              label: 'Найти тур',         icon: Star,          section: 'Покупки' },
+  { href: '/catalog',              label: 'Найти тур',         icon: Star,          section: 'Покупки' },
   { href: '/hub/tourist/cart',         label: 'Корзина',           icon: ShoppingCart,  section: 'Покупки' },
   { href: '/hub/tourist/wishlist',     label: 'Избранное',         icon: Heart,         section: 'Покупки' },
 

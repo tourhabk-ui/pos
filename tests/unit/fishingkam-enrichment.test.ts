@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const MIG = readFileSync(join(ROOT, 'migrations/842_fishingkam_enrichment.sql'), 'utf-8');
-const CARD = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
+const CARD = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
 
 describe('842: условия с цифрами и порогами', () => {
   it('минимальная группа 5 — как на сайте партнёра', () => {

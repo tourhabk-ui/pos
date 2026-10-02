@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const MIG = readFileSync(join(ROOT, 'migrations/840_kamfishing_phones.sql'), 'utf-8');
-const CARD = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
+const CARD = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
 
 describe('840: телефоны партнёра', () => {
   it('оба номера владельца, нормализованные для tel:', () => {

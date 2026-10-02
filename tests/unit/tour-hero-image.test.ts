@@ -40,7 +40,7 @@ describe('главный кадр тура', () => {
   it('главная, каталог и метаданные страницы берут кадр из общего правила', () => {
     expect(code('app/_home/data.ts')).toMatch(/tourHeroImageSql\('ot'\)[^\n]*AS image_url/);
     expect(code('lib/search/tour-search.ts')).toMatch(/tourHeroImageSql\('ot'\)\} AS tour_image/);
-    expect(code('app/marketplace/tours/[id]/page.tsx')).toMatch(/tourHeroImage\(tour\.photos, tour\.tour_image\)/);
+    expect(code('app/catalog/tours/[id]/page.tsx')).toMatch(/tourHeroImage\(tour\.photos, tour\.tour_image\)/);
   });
 
   it('своей копии «обложка раньше галереи» на главной не осталось', () => {

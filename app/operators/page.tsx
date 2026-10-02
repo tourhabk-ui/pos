@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import OperatorsPageClient from '@/app/marketplace/operators/_OperatorsClient';
+import OperatorsPageClient from './_OperatorsClient';
 import { queryOperatorsForPage, type OperatorsFilters, type OperatorsResult } from '@/lib/operators/list-query';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';

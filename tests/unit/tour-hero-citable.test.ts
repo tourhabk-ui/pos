@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const CARD = readFileSync(
-  join(process.cwd(), 'app/marketplace/tours/[id]/_TourDetailClient.tsx'),
+  join(process.cwd(), 'app/catalog/tours/[id]/_TourDetailClient.tsx'),
   'utf-8',
 );
 

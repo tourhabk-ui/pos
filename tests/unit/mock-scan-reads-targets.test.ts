@@ -34,7 +34,7 @@ const SRC = readFileSync('lib/agents/evo/growth-agent.ts', 'utf8');
 const SAMPLE_TARGETS = [
   'app/places/[id]/_PlaceClient.tsx',
   'components/map/MapThreatChip.tsx',
-  'app/marketplace/tours/[id]/_TourDetailClient.tsx',
+  'app/catalog/tours/[id]/_TourDetailClient.tsx',
 ];
 
 describe('правило чтения мок-сканера', () => {

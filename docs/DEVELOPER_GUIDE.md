@@ -115,7 +115,7 @@ KERNEL_PG_TEST_URL=postgresql://user:pass@localhost:5432/vedar_test bash scripts
 ```
 app/                    Next.js 15 App Router: страницы и API
   page.tsx              главная (components/homepage/*)
-  routes/ places/ catalog/ marketplace/ map/ on-route/ sos/ offline/ …   ← экраны туриста
+  routes/ places/ catalog/ map/ sos/ offline/ …   ← экраны туриста
   hub/<роль>/           кабинеты: tourist admin operator guide agent stay gear carrier
   api/**/route.ts       759 API-роутов (cron 183, admin 155, operator 36, safety 21, …)
 components/             174 React-компонента по доменам (field/ safety/ map/ booking/ homepage/ shared/ …)
@@ -167,7 +167,7 @@ docs/                   этот файл, DB_SCHEMA.md, ARCHITECTURE.md и ис
 | Шаг | Экран | Что происходит | Где |
 |---|---|---|---|
 | Витрина | `/catalog` (SSR) | `lib/search/tour-search` по `operator_tours` (только `is_active`, не удалённые) | `lib/tours/marketplace-page.ts` |
-| Карточка | `/catalog/tours/[id]` = `/marketplace/tours/[id]` → `_TourDetailClient.tsx` | единственная реализация карточки (CLAUDE.md §11); статус дня из `/api/public/safety-status` | `components/marketplace/BookingFormClient.tsx` (та же форма в модалке `TourPaymentModal` на /calendar и /routes/[id]) |
+| Карточка | `/catalog/tours/[id]` → `_TourDetailClient.tsx` (старый `/marketplace/tours/[id]` — редирект в next.config) | единственная реализация карточки (CLAUDE.md §11); статус дня из `/api/public/safety-status` | `components/marketplace/BookingFormClient.tsx` (та же форма в модалке `TourPaymentModal` на /calendar и /routes/[id]) |
 | Даты | `GET /api/tours/[id]/slots` | реальная занятость из `tour_availability` | `lib/services/tours/*` |
 | Бронь | `POST /api/hub/bookings/create` (турист), `POST /api/agent/bookings` (агент за клиента) | единственный писатель `reserveBooking`: `operator_bookings` в статусе `new`, код агентской ссылки → `referral_link_id` + `agent_user_id`; оплата — только после подтверждения оператором | `lib/bookings/reserve.ts` |
 | Оплата | CloudPayments / СБП Точка | вебхуки в `app/api/payments/*` (§7, не трогать): ставят `paid_at`, комиссия — ТОЛЬКО `recordCommissionFromBooking()` | `lib/payments/*` |

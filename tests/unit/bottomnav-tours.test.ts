@@ -14,7 +14,8 @@ const items = src.slice(src.indexOf('const ITEMS'), src.indexOf('interface Botto
 describe('таб-бар: вход в туры', () => {
   it('есть пункт «Туры» на /catalog', () => {
     expect(items).toMatch(/label: 'Туры',\s*href: '\/catalog'/);
-    expect(items).toContain("activeOn: ['/catalog', '/marketplace']");
+    // /marketplace с 01.10 — редирект в next.config, текущим путём быть не может.
+    expect(items).toContain("activeOn: ['/catalog']");
   });
   it('«Поездки» больше не в таб-баре (доступны из ЛК)', () => {
     expect(items).not.toContain("label: 'Поездки'");

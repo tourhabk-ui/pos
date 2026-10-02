@@ -72,7 +72,7 @@ describe('честные цифры витрины и главной (#1780)', (
     const search = read('lib/search/tour-search.ts');
     expect(search).toMatch(/export async function queryCatalogSummary\(/);
     expect(search).toMatch(/GROUP BY ot\.activity_type/);
-    for (const page of ['app/catalog/(list)/page.tsx', 'app/marketplace/page.tsx']) {
+    for (const page of ['app/catalog/(list)/page.tsx']) {
       expect(read(page)).toMatch(/queryCatalogSummaryForPage\(\)/);
       expect(read(page)).toMatch(/summary=\{summary\}/);
     }

@@ -71,10 +71,9 @@ describe('канонический адрес тура один — /catalog/tou
     expect(lib).not.toMatch(/\/marketplace\/tours\//);
   });
 
-  it('обе страницы тура объявляют каноном /catalog/tours/', () => {
+  it('страница тура объявляет каноном /catalog/tours/', () => {
     for (const file of [
       'app/catalog/tours/[id]/page.tsx',
-      'app/marketplace/tours/[id]/page.tsx',
     ]) {
       const src = read(file);
       // Канон строит tourPath() — он всегда ведёт на /catalog/tours/ (ЧПУ, 1114).

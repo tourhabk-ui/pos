@@ -14,7 +14,7 @@ import { join } from 'node:path';
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
-const CARD = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+const CARD = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 const FORM = read('components/marketplace/TourReviewForm.tsx');
 
 describe('отзыв: действие, а не картинка кнопки', () => {

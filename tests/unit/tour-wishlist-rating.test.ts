@@ -28,13 +28,13 @@ describe('избранное: контракт удаления и честно�
   });
 
   it('карточка читает реальное состояние избранного при загрузке', () => {
-    const src = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(src).toMatch(/\/api\/tourist\/wishlist\?type=tour/);
     expect(src).toMatch(/setWishlisted\(true\)/);
   });
 
   it('отказ сервера показывается словами, а не глотается', () => {
-    const src = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(src).toMatch(/setWishlistError\(data\.error/);
     expect(src).toMatch(/\{wishlistError\}/);
     // Молчаливого catch в обработчике избранного больше нет.
@@ -52,7 +52,7 @@ describe('рейтинг живёт от отзывов', () => {
   });
 
   it('секция отзывов показывает сводку рейтинга при наличии отзывов', () => {
-    const src = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(src).toMatch(/reviews\.length > 0 && rating > 0 &&/);
     // Склонение — общим хелпером, не своей копией (урок «1 событий»).
     expect(src).toMatch(/plural\(tour\.review_count/);

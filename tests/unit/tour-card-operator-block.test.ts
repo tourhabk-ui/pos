@@ -22,7 +22,7 @@ import { toContactsRecord } from '@/lib/tours/tour-detail-query';
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const QUERY = read('lib/tours/tour-detail-query.ts');
-const CARD = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+const CARD = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 const INSPECT = read('app/api/cron/inspect-tour-card/route.ts');
 
 describe('контакты приводятся к объекту у границы данных', () => {

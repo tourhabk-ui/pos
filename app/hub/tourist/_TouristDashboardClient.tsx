@@ -83,7 +83,7 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
   {
     title: 'Покупки',
     items: [
-      { href: '/marketplace',            label: 'Найти тур',  icon: Star },
+      { href: '/catalog',            label: 'Найти тур',  icon: Star },
       { href: '/hub/tourist/cart',       label: 'Корзина',    icon: ShoppingCart },
       { href: '/hub/tourist/wishlist',   label: 'Избранное',  icon: Heart },
     ],
@@ -451,7 +451,7 @@ export default function TouristDashboardClient() {
           <div className="px-5 py-12 text-center">
             <Calendar className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
             <p className="text-sm text-[var(--text-muted)] mb-2">Бронирований пока нет</p>
-            <Link href="/marketplace" className="text-sm text-[var(--accent)] hover:underline font-medium">
+            <Link href="/catalog" className="text-sm text-[var(--accent)] hover:underline font-medium">
               Найти тур
             </Link>
           </div>
@@ -503,7 +503,7 @@ export default function TouristDashboardClient() {
             <Target className="w-5 h-5 text-[var(--accent)]" />
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">Рекомендуем вам</h2>
           </div>
-          <Link href="/marketplace" className="text-sm text-[var(--accent)] hover:underline font-medium">
+          <Link href="/catalog" className="text-sm text-[var(--accent)] hover:underline font-medium">
             Все туры →
           </Link>
         </div>

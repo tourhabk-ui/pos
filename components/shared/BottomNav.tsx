@@ -36,7 +36,7 @@ const ITEMS: NavItem[] = [
   { icon: House,      label: 'Дом',         href: '/',                    activeOn: ['/'] },
   { icon: Map,        label: 'Карта',       href: '/map',                 activeOn: ['/map'] },
   { icon: Compass,    label: 'Кузьмич',     href: '/kuzmich',             activeOn: ['/kuzmich', '/ai-assistant'] },
-  { icon: Ticket,     label: 'Туры',        href: '/catalog',             activeOn: ['/catalog', '/marketplace'] },
+  { icon: Ticket,     label: 'Туры',        href: '/catalog',             activeOn: ['/catalog'] },
   { icon: Navigation, label: 'На маршруте', href: '/planning?mode=trail', activeOn: ['/planning'] },
 ];
 
