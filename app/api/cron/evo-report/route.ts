@@ -19,7 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, isAutoRunnable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
 import { verifyAgainstSource, isCredibleFinding } from '@/lib/agents/evo/finding-guard';
-import { decidePublish, applyPublishDecision, issueVerdict, nextPublishGateStreak, PRECISION_WINDOW_DAYS } from '@/lib/agents/evo/precision';
+import { decidePublish, applyPublishDecision, issueVerdict, nextPublishGateStreak, PRECISION_WINDOW_DAYS, FALLBACK_RUNG_STAMP, isFallbackRungGuess } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
 
@@ -291,10 +291,14 @@ export async function GET(req: NextRequest) {
       AND github_issue_url IS NULL
       AND severity <> 'low'
     ORDER BY
+      -- Догадки запасной ступени (их applyPublishDecision не публикует) идут
+      -- ПОСЛЕДНИМИ: иначе накопившиеся «придержанные» заняли бы все 50 мест
+      -- выборки и новые находки флагмана до решения не дошли бы.
+      (COALESCE(model, '') ~* $1) ASC,
       CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
       created_at ASC
     LIMIT 50
-  `);
+  `, [FALLBACK_RUNG_STAMP.source]);
 
   // Сверка с ЖИВЫМ исходником перед публикацией. Инцидент 24.07: наружу ушли
   // 10 issues про booking-роут — «нет requireAuth/try-catch/FOR UPDATE», хотя в
@@ -353,6 +357,7 @@ export async function GET(req: NextRequest) {
   // по опубликованному, иначе точность по догадкам не восстановится никогда.
   const publishable = applyPublishDecision(verified, decision);
   const guessesHeld = verified.length - publishable.length;
+  const fallbackSkipped = verified.filter((f) => isFallbackRungGuess(f)).length;
 
   // Плавающая бронь разведки: пока человек не разобрал висящие intel-задачи,
   // новые слоты ей не бронируются (см. outwardReserve). «Висит» = вынесена в
@@ -397,6 +402,9 @@ export async function GET(req: NextRequest) {
     // Сколько догадок придержано тормозом и сколько пропущено пробником —
     // иначе «0 находок» и «догадки заглушены» снаружи неразличимы.
     guesses_held: guessesHeld,
+    // Из них сочинено запасной ступенью (DeepSeek) и не публикуется вовсе —
+    // решение владельца 02.10; остальные придержаны тормозом точности.
+    fallback_rung_guesses_skipped: fallbackSkipped,
     probe_slots: decision.allowGuesses ? 0 : decision.probeSlots,
     precision_note: decision.reason,
     precision_window_days: PRECISION_WINDOW_DAYS,

@@ -77,6 +77,31 @@ export function isModelGuessLocated(f: { category: string; fault_side?: string |
 }
 
 /**
+ * Нижняя ступень лестницы решателя (CLAUDE.md §8: Timeweb → флагман через
+ * OpenRouter → Anthropic напрямую → xAI → DeepSeek). Догадка с её штампом
+ * означает, что флагман не ответил и находку сочинил запасной сток.
+ *
+ * Решение владельца 02.10 («догадки deepseek-flash отбрасывать, публиковать
+ * только то, что дал Opus»): такая догадка НЕ публикуется вовсе — ни обычной,
+ * ни пробником. Причина в данных: за окно точность запасных моделей —
+ * deepseek-flash 40%, deepseek-chat 57% — тянет общую ниже порога 50%, а
+ * пробник под тормозом доставался именно им (issue 2156 — «пустой if в
+ * sms.ts», уже исправленный, найден deepseek-flash).
+ *
+ * Признак — форма штампа, а не id модели (§8 запрещает привязку к id):
+ * штамп запасной ступени начинается с `deepseek`. Не знаем, кто автор (штампа
+ * нет) — это «не знаю», а не «плохо»: такая находка не отбрасывается
+ * (§4.0, третье состояние).
+ */
+export const FALLBACK_RUNG_STAMP = /^deepseek/i;
+
+/** Догадка модели, сочинённая запасной ступенью (см. FALLBACK_RUNG_STAMP). */
+export function isFallbackRungGuess(f: { category: string; fault_side?: string | null; model?: string | null }): boolean {
+  if (!isModelGuessLocated(f)) return false;
+  return typeof f.model === 'string' && FALLBACK_RUNG_STAMP.test(f.model);
+}
+
+/**
  * Вердикт человека, снятый с закрытой задачи GitHub.
  *
  * Значение — ровно тот статус, который `evo-report` ставит находке в
@@ -236,18 +261,22 @@ export function nextPublishGateStreak(allowGuesses: boolean, prevStreak: number)
  * плюс пробник — самую тяжёлую догадку (см. GUESS_PROBE). Порядок исходного
  * массива сохраняется: выбор пробника не должен переставлять остальное.
  */
-export function applyPublishDecision<T extends { category: string; severity?: string; fault_side?: string | null }>(
+export function applyPublishDecision<T extends { category: string; severity?: string; fault_side?: string | null; model?: string | null }>(
   findings: T[],
   decision: PublishDecision,
 ): T[] {
-  if (decision.allowGuesses) return findings;
+  // Догадки запасной ступени не публикуются при любой точности: иначе, когда
+  // окно переписи выветрится и точность станет «не измерена», тормоз
+  // отпустится и они хлынули бы в трекер снова. Остальное — по решению.
+  const eligible = findings.filter((f) => !isFallbackRungGuess(f));
+  if (decision.allowGuesses) return eligible;
 
   const probes = new Set(
-    findings
+    eligible
       .filter((f) => isModelGuessLocated(f))
       .sort((a, b) => severityRank(a.severity ?? 'medium') - severityRank(b.severity ?? 'medium'))
       .slice(0, Math.max(0, decision.probeSlots)),
   );
 
-  return findings.filter((f) => !isModelGuessLocated(f) || probes.has(f));
+  return eligible.filter((f) => !isModelGuessLocated(f) || probes.has(f));
 }
