@@ -88,16 +88,24 @@ async function main(): Promise<number> {
       .then(() => console.log(`[${at()}] тема переключена`), () => console.log(`[${at()}] кнопки темы нет`));
   }
 
+  // Чип фильтра по началу подписи (02.10: «Землетрясения» на /map).
+  const chip = arg('--chip', '');
+  if (chip) {
+    await page.waitForTimeout(6_000);
+    await page.locator('button', { hasText: chip }).first().click({ timeout: 10_000 })
+      .then(() => console.log(`[${at()}] чип «${chip}» нажат`), () => console.log(`[${at()}] чипа «${chip}» нет`));
+  }
+
   const shots: string[] = [];
   for (const wait of [7_000, 30_000]) {
     await page.waitForTimeout(wait);
     const state = await page.evaluate(() => {
       const chips = Array.from(document.querySelectorAll('button'))
         .map(b => (b.textContent ?? '').replace(/\s+/g, ' ').trim())
-        .filter(t => /^(Все|С маршрутом|Вулканы|Озёра|Источники)/.test(t));
+        .filter(t => /^(Все|С маршрутом|Землетрясения|Вулканы|Озёра|Источники)/.test(t));
       const counter = Array.from(document.querySelectorAll('p'))
         .map(p => (p.textContent ?? '').trim())
-        .find(t => t.startsWith('Точек') || t.startsWith('Загрузка')) ?? null;
+        .find(t => t.startsWith('Точек') || t.startsWith('Толч') || t.startsWith('Загрузка')) ?? null;
       const canvases = document.querySelectorAll('canvas').length;
       // Снимки мест — их настоящий размер (01.10: кадры Алины переложены в 3:4).
       const photos = Array.from(document.querySelectorAll('img'))
