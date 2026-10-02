@@ -49,7 +49,7 @@ export async function fetchEmsdPage(url: string, timeoutMs = 20_000): Promise<Em
       signal: AbortSignal.timeout(timeoutMs),
       headers: {
         'user-agent': 'Mozilla/5.0 (compatible; VedarBot/1.0; +https://vedarai.ru)',
-        accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        accept: 'text/html,application/xhtml+xml',
         'accept-language': 'ru-RU,ru;q=0.9',
       },
     });

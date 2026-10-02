@@ -50,8 +50,9 @@ describe('AI-канал: причина «модель не вернула по�
     expect(synth).toMatch(/synthFailure\.push/);
   });
 
-  it('перед сдачей — один повтор без размышления', () => {
-    expect(synth).toMatch(/deepThinking:\s*false/);
+  it('перед сдачей — один повтор, и размышление остаётся включённым', () => {
+    expect(synth.match(/callAIQualityOrNull\(aiMessages/g)?.length).toBe(2);
+    expect(synth).not.toMatch(/deepThinking:\s*false/);
   });
 
   it('причина уходит в ai_channel_skip_detail и в лог', () => {

@@ -1465,9 +1465,9 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
       // глотал отказ, и в журнал уходило «модель не вернула AI-пост» без
       // причины (алерт health 02.10: десять часов подряд, а ответить на «почему»
       // было нечем, §4.0). Теперь отказ называется, а перед сдачей идёт ОДИН
-      // повтор без размышления: размышление растягивается под бюджет токенов и
-      // может съесть весь ответ (ai-debug run 7: без него ~320 мс), а на
-      // человека-читателя повтор не влияет — все ворота правдивости ниже те же.
+      // повтор. Размышление при этом остаётся включённым: для прозы канала это
+      // решение владельца (04.08, сторож deepseek-thinking-opt), и повтор без
+      // него было бы тихой подменой качества.
       const synthFailure: string[] = [];
       let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((e: unknown) => {
         synthFailure.push(`исключение: ${e instanceof Error ? e.name : 'неизвестно'}`);
@@ -1476,7 +1476,7 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
       if (!aiDigest) {
         const firstWhy = describeRecentAiFailures();
         if (firstWhy) synthFailure.push(firstWhy);
-        aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600, deepThinking: false }).catch((e: unknown) => {
+        aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((e: unknown) => {
           synthFailure.push(`повтор, исключение: ${e instanceof Error ? e.name : 'неизвестно'}`);
           return null;
         });
