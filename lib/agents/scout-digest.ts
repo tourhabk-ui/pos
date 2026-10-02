@@ -1461,8 +1461,37 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
           content: `Сигналы:\n\n${wrapUntrusted('сигналы AI-лент', aiSignals)}`,
         },
       ];
-      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
-      if (!aiDigest) aiSkip = 'ai_synthesis_null';
+      // Исход «модель не вернула пост» раньше был глухим: `.catch(() => null)`
+      // глотал отказ, и в журнал уходило «модель не вернула AI-пост» без
+      // причины (алерт health 02.10: десять часов подряд, а ответить на «почему»
+      // было нечем, §4.0). Теперь отказ называется, а перед сдачей идёт ОДИН
+      // повтор без размышления: размышление растягивается под бюджет токенов и
+      // может съесть весь ответ (ai-debug run 7: без него ~320 мс), а на
+      // человека-читателя повтор не влияет — все ворота правдивости ниже те же.
+      const synthFailure: string[] = [];
+      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((e: unknown) => {
+        synthFailure.push(`исключение: ${e instanceof Error ? e.name : 'неизвестно'}`);
+        return null;
+      });
+      if (!aiDigest) {
+        const firstWhy = describeRecentAiFailures();
+        if (firstWhy) synthFailure.push(firstWhy);
+        aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600, deepThinking: false }).catch((e: unknown) => {
+          synthFailure.push(`повтор, исключение: ${e instanceof Error ? e.name : 'неизвестно'}`);
+          return null;
+        });
+        if (!aiDigest) {
+          const retryWhy = describeRecentAiFailures();
+          if (retryWhy && retryWhy !== firstWhy) synthFailure.push(`повтор: ${retryWhy}`);
+        }
+      }
+      if (!aiDigest) {
+        aiSkip = 'ai_synthesis_null';
+        aiSkipDetail = synthFailure.length > 0
+          ? synthFailure.join(' | ').slice(0, 300)
+          : 'провайдеры ответили пустотой, причин в следе отказа нет';
+        console.error('[scout-digest] AI-пост: модель не вернула текст —', aiSkipDetail);
+      }
 
       // Реплика модели вместо поста. Ровно это 04.09 и ушло в канал на 1800
       // подписчиков: «не вижу текста статьи в сигнале… пришли выдержки».

@@ -187,9 +187,13 @@ async function checkDB(): Promise<HealthIssue[]> {
         const why = typeof aiSkip === 'string' && aiSkip
           ? (SKIP_REASON_LABELS[aiSkip] ?? aiSkip)
           : 'причина не записана';
+        // Причина из журнала выпуска: без неё алерт повторялся каждый прогон,
+        // ничего не объясняя (02.10: «модель не вернула AI-пост» часами).
+        const aiDetail = (meta as { ai_channel_skip_detail?: unknown }).ai_channel_skip_detail;
+        const detail = typeof aiDetail === 'string' && aiDetail ? ` (${aiDetail.slice(0, 200)})` : '';
         issues.push({
           level: 'warn',
-          text: `AI-канал молчит: пост не ушёл в выпуске ${slugDate} — ${why}`,
+          text: `AI-канал молчит: пост не ушёл в выпуске ${slugDate} — ${why}${detail}`,
         });
       }
     }
