@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Search, ShieldCheck, ChevronRight, MapPin } from 'lucide-react';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 
@@ -50,18 +50,26 @@ export default function OperatorsPageClient({
 }: OperatorsPageClientProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
 
-  // Deep-link фильтры должны работать одинаково для SSR и клиента.
+  // Первый рендер — список по умолчанию, тот же, что отдал сервер (страница
+  // без `searchParams` не стримится, см. app/operators/page.tsx). Фильтры из
+  // адреса читаются ПОСЛЕ монтирования: `useSearchParams` на сервере дал бы
+  // другой первый HTML, чем у страницы, — расхождение гидратации.
   const [operators, setOperators] = useState<Operator[]>(initialItems ?? []);
   const [meta, setMeta] = useState<ApiMeta | null>(initialMeta);
   const [loading, setLoading] = useState(initialKey === null);
-  const [search, setSearch] = useState(searchParams.get('search') ?? '');
-  const [category, setCategory] = useState(searchParams.get('category') ?? '');
-  const [page, setPage] = useState(() => {
-    const p = parseInt(searchParams.get('page') ?? '1', 10);
-    return Number.isFinite(p) && p >= 1 ? p : 1;
-  });
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Deep-link: ?search=&category=&page= применяются один раз при входе.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    setSearch(sp.get('search') ?? '');
+    setCategory(sp.get('category') ?? '');
+    const p = parseInt(sp.get('page') ?? '1', 10);
+    setPage(Number.isFinite(p) && p >= 1 ? p : 1);
+  }, []);
 
   // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
   // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
@@ -108,8 +116,12 @@ export default function OperatorsPageClient({
     return `${pathname}${p.size ? '?' + p : ''}`;
   }, [pathname]);
 
-  // Sync URL — deep-link на текущие фильтры всегда актуален.
+  // Sync URL — deep-link на текущие фильтры всегда актуален. Первый прогон
+  // пропускается: состояние ещё умолчательное, а адрес мог нести фильтры —
+  // переписать его здесь значило бы стереть их раньше, чем они применились.
+  const urlSyncArmedRef = useRef(false);
   useEffect(() => {
+    if (!urlSyncArmedRef.current) { urlSyncArmedRef.current = true; return; }
     router.replace(filterHref(search, category, page), { scroll: false });
   }, [search, category, page, filterHref, router]);
 

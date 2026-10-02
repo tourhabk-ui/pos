@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import MarketplaceClient from '@/components/marketplace/MarketplaceClient';
 import BottomNav from '@/components/shared/BottomNav';
@@ -44,18 +43,8 @@ export const metadata: Metadata = {
   },
 };
 
-interface PageProps {
-  // Next 15: searchParams — Promise, обязателен await.
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-/**
- * Страница-близнец /catalog (см. комментарий там): один запрос через общий
- * data-слой кормит и JSON-LD, и видимую разметку первого рендера.
- */
-export default async function MarketplacePage({ searchParams }: PageProps) {
-  const sp = await searchParams;
-  const { filters, initialKey } = parseMarketplaceSearchParams(sp);
+export default async function MarketplacePage() {
+  const { filters, initialKey } = parseMarketplaceSearchParams({});
 
   // Отказ не глушится (§4.0): null — «не знаю», клиент дозапросит туры сам,
   // а в лог уходит имя запроса и SQLSTATE.
@@ -83,14 +72,12 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
         />
       )}
       <Header />
-      <Suspense>
-        <MarketplaceClient
-          initialTours={initial?.tours ?? []}
-          initialTotal={initial?.total ?? 0}
-          initialKey={initial === null ? null : initialKey}
-          summary={summary}
-        />
-      </Suspense>
+      <MarketplaceClient
+        initialTours={initial?.tours ?? []}
+        initialTotal={initial?.total ?? 0}
+        initialKey={initial === null ? null : initialKey}
+        summary={summary}
+      />
       <CatalogFooter />
       {/* Таб-бар с активным «Туры»: пункт объявлен activeOn для этих путей
           (BottomNav.tsx), а страницы его не рендерили — подсветка не

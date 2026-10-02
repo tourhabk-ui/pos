@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
 import {
   MapPin, ChevronRight, Heart, BadgeCheck,
@@ -519,7 +519,6 @@ export default function MarketplaceClient({
 }: MarketplaceClientProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const urlParams = useSearchParams();
 
   const [tours, setTours] = useState<Tour[]>(initialTours ?? []);
   const [total, setTotal] = useState(initialTotal);
@@ -527,22 +526,35 @@ export default function MarketplaceClient({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<Notice>(null);
 
-  // Search (deep-link параметры должны работать одинаково для SSR и клиента)
-  const initialSearch = urlParams.get('search') ?? '';
-  const [searchTerm, setSearchTerm] = useState(initialSearch);
-  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+  // Первый рендер — список по умолчанию, тот же, что отдал сервер (страница
+  // без `searchParams` не стримится, см. app/catalog/(list)/page.tsx).
+  // Фильтры из адреса читаются ПОСЛЕ монтирования: `useSearchParams` на
+  // сервере дал бы другой первый HTML, чем у страницы, — расхождение гидратации.
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filters
-  const [activityFilter, setActivityFilter] = useState(urlParams.get('activity_type') ?? '');
-  const [sort, setSort] = useState(urlParams.get('sort') ?? 'recommended');
-  const [difficulty, setDifficulty] = useState(urlParams.get('difficulty') ?? '');
-  const [priceRange, setPriceRange] = useState(() => {
-    const p = urlParams.get('price') ?? '';
-    return PRICE_RANGES.some(r => r.value === p) ? p : '';
-  });
-  const [durationType, setDurationType] = useState(urlParams.get('duration_type') ?? '');
+  const [activityFilter, setActivityFilter] = useState('');
+  const [sort, setSort] = useState('recommended');
+  const [difficulty, setDifficulty] = useState('');
+  const [priceRange, setPriceRange] = useState('');
+  const [durationType, setDurationType] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+
+  // Deep-link: параметры адреса применяются один раз при входе.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const search = sp.get('search') ?? '';
+    setSearchTerm(search);
+    setDebouncedSearch(search);
+    setActivityFilter(sp.get('activity_type') ?? '');
+    setSort(sp.get('sort') ?? 'recommended');
+    setDifficulty(sp.get('difficulty') ?? '');
+    const price = sp.get('price') ?? '';
+    setPriceRange(PRICE_RANGES.some(r => r.value === price) ? price : '');
+    setDurationType(sp.get('duration_type') ?? '');
+  }, []);
 
   // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
   // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
@@ -649,8 +661,12 @@ export default function MarketplaceClient({
       .finally(() => setLoading(false));
   }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, getPriceParams]);
 
-  // Sync URL — deep-link на текущие фильтры всегда актуален.
+  // Sync URL — deep-link на текущие фильтры всегда актуален. Первый прогон
+  // пропускается: состояние ещё умолчательное, а адрес мог нести фильтры —
+  // переписать его здесь значило бы стереть их раньше, чем они применились.
+  const urlSyncArmedRef = useRef(false);
   useEffect(() => {
+    if (!urlSyncArmedRef.current) { urlSyncArmedRef.current = true; return; }
     const p = new URLSearchParams();
     if (debouncedSearch) p.set('search', debouncedSearch);
     if (activityFilter) p.set('activity_type', activityFilter);

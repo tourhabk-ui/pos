@@ -7,7 +7,6 @@
  * меняет адрес, а скелет списка остаётся мгновенным (navigation-loading).
  */
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import MarketplaceClient from '@/components/marketplace/MarketplaceClient';
 import BottomNav from '@/components/shared/BottomNav';
@@ -52,20 +51,22 @@ export const metadata: Metadata = {
   },
 };
 
-interface PageProps {
-  // Next 15: searchParams — Promise, обязателен await.
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
 /**
- * SSR первого рендера (шаг 3 аудита 11.07): раньше сервер собирал JSON-LD
- * отдельным запросом, а видимый HTML оставался пустым каркасом (карточки
- * туров рисовал только клиентский fetch). Теперь один запрос через общий
- * data-слой кормит и JSON-LD, и видимую разметку.
+ * Сервер НЕ читает `searchParams` (аудит 02.10): ожидание этого промиса
+ * само по себе делает страницу потоковой — в первом HTML пустой каркас с
+ * `<template>`, а туры приезжают отдельным куском, который робот без JS не
+ * собирает. Сервер рендерит список по умолчанию, фильтры из адреса применяет
+ * клиент после монтирования (`MarketplaceClient`).
+ *
+ * У /catalog остаётся ВТОРАЯ граница — скелет `loading.tsx` в группе (list):
+ * он нужен переходу с таб-бара на медленной сети (navigation-loading, полевой
+ * прогон 04.08), и из-за него список по-прежнему уезжает вторым куском. Снять
+ * скелет ради роботов без JS — решение владельца, не этой правки; /operators,
+ * где скелета нет, отдаёт список в первом HTML. Сторож:
+ * tests/unit/list-pages-not-streamed.test.ts.
  */
-export default async function CatalogPage({ searchParams }: PageProps) {
-  const sp = await searchParams;
-  const { filters, initialKey } = parseMarketplaceSearchParams(sp);
+export default async function CatalogPage() {
+  const { filters, initialKey } = parseMarketplaceSearchParams({});
 
   // Отказ не глушится (§4.0): null — «не знаю», клиент дозапросит туры сам,
   // а в лог уходит имя запроса и SQLSTATE.
@@ -93,14 +94,12 @@ export default async function CatalogPage({ searchParams }: PageProps) {
         />
       )}
       <Header />
-      <Suspense>
-        <MarketplaceClient
-          initialTours={initial?.tours ?? []}
-          initialTotal={initial?.total ?? 0}
-          initialKey={initial === null ? null : initialKey}
-          summary={summary}
-        />
-      </Suspense>
+      <MarketplaceClient
+        initialTours={initial?.tours ?? []}
+        initialTotal={initial?.total ?? 0}
+        initialKey={initial === null ? null : initialKey}
+        summary={summary}
+      />
       <CatalogFooter />
       {/* Таб-бар с активным «Туры»: пункт объявлен activeOn для этих путей
           (BottomNav.tsx), а страницы его не рендерили — подсветка не
