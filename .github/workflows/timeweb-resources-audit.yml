@@ -1,0 +1,226 @@
+# Перепись ресурсов Timeweb Cloud (вручную, только чтение).
+#
+# Владелец 02.10: «посмотри, может нам нужно что-то перенастроить в Timeweb,
+# там появились новые сервисы… сделай аудит наших ресурсов». Токен лежит в
+# секретах репозитория (TIMEWEB_TOKEN), поэтому спрашивать API можно только
+# отсюда, с раннера. Все вызовы — GET; ничего не создаётся и не меняется.
+#
+# Что печатается: имена, статусы, тарифы, адреса, даты — то, по чему видно,
+# за что платим и что лежит без дела. Что НЕ печатается никогда: значения
+# ключей, паролей и переменных окружения (только их имена) — редактор ниже
+# режет любое поле, в имени которого есть password/secret/token/key.
+#
+# Запуск: правка .github/triggers/timeweb-resources-audit.json в main или
+# кнопка. Итог — в сводке задачи и в аннотации (логи Actions из контейнера
+# агента закрыты прокси; аннотация доходит).
+name: Перепись ресурсов Timeweb (вручную)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/timeweb-resources-audit.json'
+
+permissions: {}
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Спросить API Timeweb (только GET)
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+        run: |
+          set -u
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "::error::TIMEWEB_TOKEN не задан в секретах репозитория — спросить нечего."
+            exit 1
+          fi
+          mkdir -p /tmp/tw
+          # Каждый адрес — отдельный файл; код ответа — рядом. 404 значит
+          # «такого раздела у аккаунта нет» и так и печатается.
+          ask() {
+            local name="$1" url="$2"
+            local code
+            code=$(curl -sS -o "/tmp/tw/$name.json" -w '%{http_code}' --max-time 60 \
+              -H "Authorization: Bearer $TIMEWEB_TOKEN" "$url" || echo 000)
+            echo "$code" > "/tmp/tw/$name.code"
+          }
+          B=https://api.timeweb.cloud/api/v1
+          ask finances        "$B/account/finances"
+          ask status          "$B/account/status"
+          ask projects        "$B/projects"
+          ask apps            "$B/apps"
+          ask servers         "$B/servers"
+          ask dbs             "$B/dbs"
+          ask balancers       "$B/balancers"
+          ask buckets         "$B/storages/buckets"
+          ask domains         "$B/domains"
+          ask vpcs            "$B/vpcs"
+          ask floating_ips    "$B/floating-ips"
+          ask firewall        "$B/firewall/groups"
+          ask k8s             "$B/k8s/clusters"
+          ask images          "$B/images"
+          ask ssh_keys        "$B/ssh-keys"
+          ask mail            "$B/mail/domains"
+          ask ai_agents       "https://agent.timeweb.cloud/api/v1/cloud-ai/agents"
+          ask app_198048      "$B/apps/198048"
+          # DNS — у каждого домена аккаунта из ответа выше, а не у одного
+          # вписанного руками: аудит должен видеть и www, и забытые домены.
+          for fqdn in $(python3 -c 'import json,sys
+          try:
+              d = json.load(open("/tmp/tw/domains.json"))
+              print(" ".join(str(x.get("fqdn")) for x in (d.get("domains") or []) if isinstance(x, dict) and x.get("fqdn")))
+          except Exception:
+              pass'); do
+            ask "dns_$fqdn" "$B/domains/$fqdn/dns-records"
+          done
+          python3 - <<'PY' | tee /tmp/tw/summary.md
+          import json, os, re, datetime
+
+          # Поле «key» в списке переменных окружения — это ИМЯ переменной (его
+          # показываем), а «value» — значение (его не показываем никогда).
+          SECRET = re.compile(r'(password|secret|token|api_key|apikey|private|credential|_key$|^value$|^envs?$)', re.I)
+
+          def load(name):
+              code = open(f'/tmp/tw/{name}.code').read().strip()
+              try:
+                  data = json.load(open(f'/tmp/tw/{name}.json'))
+              except Exception:
+                  data = None
+              return code, data
+
+          def clean(v, depth=0):
+              """Снять всё, что похоже на секрет, на любой глубине."""
+              if isinstance(v, dict):
+                  return {k: ('<скрыто>' if SECRET.search(str(k)) else clean(x, depth + 1)) for k, x in v.items()}
+              if isinstance(v, list):
+                  return [clean(x, depth + 1) for x in v]
+              return v
+
+          def pick(d, keys):
+              return {k: d.get(k) for k in keys if k in d}
+
+          def money(x):
+              try:
+                  return f'{float(x):.2f} ₽'
+              except Exception:
+                  return str(x)
+
+          def section(title, name, list_key, keys, extra=None):
+              code, data = load(name)
+              print(f'\n## {title}')
+              if code == '404':
+                  print('раздела нет у аккаунта (404)'); return []
+              if code != '200' or not isinstance(data, dict):
+                  print(f'не ответил: HTTP {code}'); return []
+              def keep_env_names(obj):
+                  if isinstance(obj, dict):
+                      envs = obj.get('envs')
+                      if isinstance(envs, dict): obj['_env_names'] = [str(k) for k in envs]
+                      elif isinstance(envs, list): obj['_env_names'] = [str(e.get('key') or e.get('name') or '') for e in envs if isinstance(e, dict)]
+                      for v in obj.values(): keep_env_names(v)
+                  elif isinstance(obj, list):
+                      for v in obj: keep_env_names(v)
+              keep_env_names(data)
+              data = clean(data)
+              items = data.get(list_key)
+              if items is None:
+                  # Одиночный объект (счёт, статус, приложение)
+                  obj = data.get(list_key.rstrip('s')) if list_key.endswith('s') else None
+                  obj = obj or {k: v for k, v in data.items() if k != 'meta'}
+                  for k, v in pick(obj if isinstance(obj, dict) else {}, keys).items():
+                      print(f'- {k}: {v!r}')
+                  if extra: extra(obj)
+                  return [obj]
+              if not items:
+                  print('пусто'); return []
+              print(f'всего: {len(items)}')
+              for it in items:
+                  if not isinstance(it, dict): continue
+                  row = pick(it, keys)
+                  print('- ' + ' · '.join(f'{k}={v!r}' for k, v in row.items()))
+                  if extra: extra(it)
+              return items
+
+          print('# Перепись ресурсов Timeweb Cloud')
+          print(f'снято {datetime.datetime.utcnow():%Y-%m-%d %H:%M} UTC, только чтение')
+
+          def fin(obj):
+              # Баланс и расход — ключ к вопросу «за что платим».
+              for k in ('balance', 'monthly_cost', 'hourly_cost', 'currency', 'autopay_card_info', 'billing_period_end'):
+                  if k in obj: print(f'- {k}: {money(obj[k]) if "cost" in k or k == "balance" else obj[k]!r}')
+          code, data = load('finances')
+          print('\n## Счёт')
+          if code == '200' and isinstance(data, dict):
+              fin(clean(data).get('finances') or clean(data))
+          else:
+              print(f'не ответил: HTTP {code}')
+
+          section('Статус аккаунта', 'status', 'status', ['is_blocked', 'is_permanent_blocked', 'is_send_bill_letters', 'company_info', 'last_password_changed_at'])
+          section('Проекты', 'projects', 'projects', ['id', 'name', 'is_default', 'description'])
+
+          def app_extra(a):
+              doms = a.get('domains') or a.get('domain') or []
+              if isinstance(doms, dict): doms = [doms]
+              if doms:
+                  print('    домены: ' + ', '.join(str((d.get('fqdn') or d.get('domain') or d.get('name') or d) if isinstance(d, dict) else d) + (' (ssl: ' + str(d.get('ssl') or d.get('is_ssl') or d.get('ssl_status')) + ')' if isinstance(d, dict) and ('ssl' in d or 'is_ssl' in d or 'ssl_status' in d) else '') for d in doms))
+              envs = a.get('_env_names')
+              if isinstance(envs, list):
+                  print('    переменные окружения (только имена): ' + ', '.join(sorted(envs)))
+              elif isinstance(envs, dict):
+                  print('    переменные окружения (только имена): ' + ', '.join(sorted(map(str, envs))))
+              elif isinstance(envs, list):
+                  print('    переменные окружения (только имена): ' + ', '.join(sorted(str(e.get('key') or e.get('name') or '') for e in envs if isinstance(e, dict))))
+              conf = a.get('configuration') or {}
+              if isinstance(conf, dict) and conf:
+                  print('    конфигурация: ' + ', '.join(f'{k}={v!r}' for k, v in pick(conf, ['cpu', 'ram', 'disk', 'network_bandwidth', 'preset_id', 'price']).items()))
+          section('Приложения (App Platform)', 'apps', 'apps', ['id', 'name', 'status', 'type', 'framework', 'branch_name', 'is_auto_deploy', 'preset_id', 'location', 'created_at'], app_extra)
+          section('Приложение 198048 (Tourhab) подробно', 'app_198048', 'app', ['id', 'name', 'status', 'type', 'framework', 'branch_name', 'is_auto_deploy', 'preset_id', 'location', 'updated_at'], app_extra)
+
+          def server_extra(s):
+              conf = s.get('configuration') or {}
+              if isinstance(conf, dict) and conf:
+                  print('    ' + ', '.join(f'{k}={v!r}' for k, v in pick(conf, ['cpu', 'ram', 'disk', 'network_bandwidth']).items()))
+              nets = s.get('networks') or []
+              ips = [ip.get('ip') for n in nets if isinstance(n, dict) for ip in (n.get('ips') or []) if isinstance(ip, dict)]
+              if ips: print('    ip: ' + ', '.join(map(str, ips)))
+          section('Серверы (VPS)', 'servers', 'servers', ['id', 'name', 'status', 'os', 'preset_id', 'location', 'created_at', 'is_ddos_guard'], server_extra)
+
+          def db_extra(d):
+              for k in ('type', 'preset_id', 'disk_stats', 'location', 'is_enabled_public_network'):
+                  if k in d: print(f'    {k}: {d[k]!r}')
+              h = d.get('host') or (d.get('networks') or [{}])[0] if d.get('networks') else None
+              if h: print(f'    host: {h!r}')
+          section('Базы данных', 'dbs', 'dbs', ['id', 'name', 'status', 'type', 'preset_id', 'location', 'created_at'], db_extra)
+          section('Балансировщики', 'balancers', 'balancers', ['id', 'name', 'status', 'preset_id', 'location', 'ip'])
+          section('Хранилище S3 (бакеты)', 'buckets', 'buckets', ['id', 'name', 'status', 'type', 'location', 'preset_id', 'created_at'],
+                  lambda b: print(f"    занято: {b.get('disk_stats')!r}" if 'disk_stats' in b else ''))
+          section('Домены', 'domains', 'domains', ['id', 'fqdn', 'is_premium', 'expiration', 'is_autoprolong_enabled', 'provider', 'linked_ip'])
+          for f in sorted(os.listdir('/tmp/tw')):
+              if f.startswith('dns_') and f.endswith('.json'):
+                  section(f'DNS {f[4:-5]}', f[:-5], 'dns_records', ['id', 'type', 'data', 'ttl'])
+          section('Приватные сети (VPC)', 'vpcs', 'vpcs', ['id', 'name', 'location', 'subnet_v4'])
+          section('Плавающие IP', 'floating_ips', 'ips', ['id', 'ip', 'is_ddos_guard', 'resource_type', 'resource_id'])
+          section('Файрвол', 'firewall', 'groups', ['id', 'name', 'description', 'policy'])
+          section('Kubernetes', 'k8s', 'clusters', ['id', 'name', 'status', 'preset_id', 'created_at'])
+          section('Образы', 'images', 'images', ['id', 'name', 'status', 'size', 'created_at'])
+          section('SSH-ключи (только имена)', 'ssh_keys', 'ssh_keys', ['id', 'name', 'is_default', 'created_at'])
+          section('Почта', 'mail', 'domains', ['id', 'fqdn', 'email_count'])
+          section('AI-агенты (Timeweb Cloud AI)', 'ai_agents', 'agents', ['id', 'name', 'model', 'status', 'created_at'])
+
+          print('\n## Коды ответов по разделам')
+          for f in sorted(os.listdir('/tmp/tw')):
+              if f.endswith('.code'):
+                  print(f'- {f[:-5]}: HTTP {open("/tmp/tw/" + f).read().strip()}')
+          PY
+          {
+            echo '## Перепись ресурсов Timeweb'
+            echo '```'
+            cat /tmp/tw/summary.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          BODY=$(head -c 3500 /tmp/tw/summary.md | python3 -c 'import sys;print(sys.stdin.read().replace(chr(10), "%0A"))')
+          echo "::notice title=timeweb-resources-audit::$BODY"

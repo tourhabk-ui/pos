@@ -61,7 +61,7 @@ describe('акцентные токены держат AA в обеих тема
       expect(contrast(token(b, 'on-accent'), accent), 'on-accent на accent').toBeGreaterThanOrEqual(4.5);
       expect(contrast(accent, page), 'accent текстом на странице').toBeGreaterThanOrEqual(4.5);
       expect(contrast(accent, card), 'accent текстом на карточке').toBeGreaterThanOrEqual(4.5);
-      for (const name of ['success', 'danger']) {
+      for (const name of ['success', 'danger', 'warning']) {
         expect(contrast(token(b, name), page), `${name} на странице`).toBeGreaterThanOrEqual(4.5);
         expect(contrast(token(b, name), card), `${name} на карточке`).toBeGreaterThanOrEqual(4.5);
       }
@@ -77,7 +77,7 @@ describe('акцентные токены держат AA в обеих тема
     const b = block(':root[data-theme="light"]');
     const claude = readFileSync('CLAUDE.md', 'utf-8');
     const ds = readFileSync('.claude/DESIGN_SYSTEM.md', 'utf-8');
-    for (const name of ['accent', 'success', 'danger']) {
+    for (const name of ['accent', 'success', 'danger', 'warning']) {
       const v = token(b, name);
       expect(claude, `CLAUDE.md --${name}`).toContain(`| \`--${name}\` | \`${v}\``);
       expect(ds, `DESIGN_SYSTEM.md --${name}`).toContain(v);
