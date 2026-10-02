@@ -1,18 +1,18 @@
 {
-  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Полный текст поста МЧС «Два ощущаемых сейсмособытия…» в первоисточнике: в базе он обрезан до 800 знаков, а слово «цунами», давшее тревогу важности 3, стоит в хвосте.",
-  "run": 640,
+  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Фраза со словом «цунами» в посте МЧС о толчках 02-03.10 (оперативная информация, проба 640 нашла слово, но не показала его).",
+  "run": 641,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 3000,
-  "grep": [
-    "цунами",
-    "Цунами"
+  "bytes": 200,
+  "around": [
+    "цунами"
   ],
+  "aroundBefore": 6,
+  "aroundLines": 4,
+  "aroundHits": 6,
   "urls": [
-    "https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss",
-    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss",
-    "https://m.vk.com/mchs_kamchatka"
+    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss"
   ]
 }
