@@ -794,8 +794,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             <Navigation size={18} />
           </button>
 
-          {/* Top-left: обстановка в крае (#1428) и погода под ней */}
-          <div className="absolute top-3 left-3 z-[500] flex flex-col items-start gap-2">
+          {/* Сверху: обстановка в крае (#1428) и погода под ней. Слева от
+              плашки — колонка масштаба карты (left 12, ширина 44), справа —
+              кнопка «моё место»: плашка встаёт между ними, а не поверх
+              «+»/«−» (владелец 02.10: «тревоги перекрывают кнопку масштаб»). */}
+          <div className="absolute top-3 left-16 right-16 z-[500] flex flex-col items-start gap-2">
             <MapThreatChip />
             {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
           </div>
