@@ -1610,6 +1610,19 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
   try {
     const dateKey = new Date().toISOString().slice(0, 10);
     const slug = `intel/scout/${dateKey}`;
+    // Слаг один на UTC-сутки, а выпусков два (05:03 и 17:03): upsert сливает
+    // метаданные, и вечерний выпуск без AI-поста затирал утреннее «ушёл». Health
+    // читал последнюю запись и будил «AI-канал молчит» при канале, который
+    // сегодня уже получил пост. «Ушёл» теперь значит «ушёл хотя бы в одном
+    // выпуске суток»; что сделал именно этот прогон — в отдельном поле.
+    let aiSentEarlierToday = false;
+    try {
+      const prev = await knowledgeBase.get(slug);
+      aiSentEarlierToday = (prev?.metadata as { ai_channel_sent?: unknown } | undefined)?.ai_channel_sent === true;
+    } catch (err) {
+      console.error('[scout-digest] прежняя запись суток не прочитана, считаю по этому выпуску:', err instanceof Error ? err.message : err);
+    }
+    const aiSentToday = aiSent || aiSentEarlierToday;
     await knowledgeBase.upsert({
       slug,
       type: 'intel',
@@ -1627,7 +1640,9 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
         // Второй канал — в том же артефакте. Health читает именно артефакт, и
         // без этих полей он видел бы «дайджест свежий» при канале, молчащем
         // неделю: свежесть основного выпуска ничего не говорит о втором.
-        ai_channel_sent: aiSent,
+        ai_channel_sent: aiSentToday,
+        ai_channel_sent_by_this_run: aiSent,
+        // Причина и деталь — факт ЭТОГО прогона; за сутки решает ai_channel_sent.
         ai_channel_skip_reason: aiSkip ?? null,
         ai_channel_skip_detail: aiSkipDetail ?? null,
         // Выпуск ушёл не целиком: сколько пунктов вычеркнуто и каких (02.09).
@@ -1650,8 +1665,10 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
       source: 'scout_digest_cron',
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     });
-  } catch {
-    // Non-critical
+  } catch (err) {
+    // Не критично для выпуска, но молчать нельзя: без записи health не видит
+    // ни свежести дайджеста, ни состояния второго канала (§4.0).
+    console.error('[scout-digest] запись выпуска в журнал не удалась:', err instanceof Error ? err.message : err);
   }
 
   return {
