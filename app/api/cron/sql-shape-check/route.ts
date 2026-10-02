@@ -69,8 +69,8 @@ export const SHAPES: ShapeEntry[] = [
   {
     name: 'маяк воронки',
     source: 'app/api/funnel/route.ts',
-    sql: `INSERT INTO funnel_events (step, entity_id, visitor_hash)
-       SELECT $1::varchar, $2::text, $3::varchar
+    sql: `INSERT INTO funnel_events (step, entity_id, visitor_hash, is_self)
+       SELECT $1::varchar, $2::text, $3::varchar, $4::boolean
         WHERE NOT EXISTS (
           SELECT 1 FROM funnel_events
            WHERE step = $1::varchar

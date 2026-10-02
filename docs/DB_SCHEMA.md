@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-02 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1141_mcp_tool_calls_requested_tool.sql`.
+> Снято 2026-10-02 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1143_mcp_tool_calls_error_code.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3366 |
+| Колонок | 3372 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 74 |
 
@@ -929,9 +929,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `booking_id uuid!` `sender_id uuid!` `recipient_id uuid!` `message text!` `is_read boolean=` `is_system_message boolean=` `attachments jsonb=` `metadata jsonb=` `created_at timestamptz=` `read_at timestamptz`
 
-**funnel_events** · 5 кол. · PK id · индексов 3
+**funnel_events** · 6 кол. · PK id · индексов 3
 
-`id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=`
+`id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=` `is_self boolean!=`
 
 **lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 3
 
@@ -1009,9 +1009,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `token_hash character!` `mcp_session_id text` `mcp_invocation_id uuid` `tool_name text!` `target_path text!` `target_type text!` `created_at timestamptz!=` `expires_at timestamptz!` `first_opened_at timestamptz` `last_opened_at timestamptz` `open_count integer!=`
 
-**mcp_tool_calls** · 8 кол. · PK id · индексов 3
+**mcp_tool_calls** · 12 кол. · PK id · индексов 3
 
-`id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=` `requested_tool varchar`
+`id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=` `requested_tool varchar` `is_self boolean!=` `error_code varchar` `arg_key varchar` `arg_value varchar`
 
 **mcp_write_attempts** · 6 кол. · PK id · индексов 4
 
@@ -1243,9 +1243,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `user_id uuid!` `type varchar!` `title varchar!` `message text!` `data jsonb=` `is_read boolean=` `is_archived boolean=` `priority varchar=` `action_url text` `created_at timestamptz=` `read_at timestamptz` `expires_at timestamptz` `updated_at timestamptz=`
 
-**page_views** · 10 кол. · PK id · индексов 6
+**page_views** · 11 кол. · PK id · индексов 6
 
-`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=`
+`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=`
 
 **platform_settings** · 3 кол. · PK key · индексов 1
 

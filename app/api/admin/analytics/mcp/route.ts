@@ -10,6 +10,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { PROBE_CLIENT_NAMES, PROBE_UA_FAMILIES, probeCallSql } from '@/lib/mcp/probe-clients';
+
+/**
+ * Внешний вызов — не свой (метка владельца, is_self) и не проверка (смоук,
+ * пробы, curl — реестр lib/mcp/probe-clients). Решение владельца 02.10: три
+ * числа вместо одного, иначе 416 вызовов смоука читались как спрос.
+ */
+const PROBE_PARAMS = [PROBE_CLIENT_NAMES as string[], PROBE_UA_FAMILIES as string[]];
+const EXTERNAL = (t: string) => `${t}.is_self = FALSE AND NOT ${probeCallSql(t, '$1', '$2')}`;
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [byTool, daily, errors, clients, unknownTools] = await Promise.all([
+    const [byTool, daily, errors, clients, unknownTools, origins, errorDetail] = await Promise.all([
       pool.query<{
         tool: string; calls_7d: string; errors_7d: string; calls_30d: string;
         errors_30d: string; avg_ms: string | null; max_ms: string | null; callers_30d: string;
@@ -31,24 +40,27 @@ export async function GET(request: NextRequest) {
                 ROUND(AVG(duration_ms) FILTER (WHERE ok))                                       AS avg_ms,
                 MAX(duration_ms)                                                                AS max_ms,
                 COUNT(DISTINCT caller_hash)                                                     AS callers_30d
-           FROM mcp_tool_calls
-          WHERE created_at >= NOW() - INTERVAL '30 days'
+           FROM mcp_tool_calls t
+          WHERE created_at >= NOW() - INTERVAL '30 days' AND ${EXTERNAL('t')}
           GROUP BY tool ORDER BY COUNT(*) DESC`,
+        PROBE_PARAMS,
       ),
       pool.query<{ day: string; calls: string; errors: string; callers: string }>(
         `SELECT to_char(created_at::date, 'YYYY-MM-DD') AS day,
                 COUNT(*) AS calls,
                 COUNT(*) FILTER (WHERE NOT ok) AS errors,
                 COUNT(DISTINCT caller_hash) AS callers
-           FROM mcp_tool_calls
-          WHERE created_at >= NOW() - INTERVAL '14 days'
+           FROM mcp_tool_calls t
+          WHERE created_at >= NOW() - INTERVAL '14 days' AND ${EXTERNAL('t')}
           GROUP BY created_at::date ORDER BY created_at::date`,
+        PROBE_PARAMS,
       ),
       pool.query<{ error_kind: string; d30: string }>(
         `SELECT error_kind, COUNT(*) AS d30
-           FROM mcp_tool_calls
-          WHERE NOT ok AND created_at >= NOW() - INTERVAL '30 days'
+           FROM mcp_tool_calls t
+          WHERE NOT ok AND created_at >= NOW() - INTERVAL '30 days' AND ${EXTERNAL('t')}
           GROUP BY error_kind ORDER BY COUNT(*) DESC`,
+        PROBE_PARAMS,
       ),
       /**
        * КТО звал. Соединение по суточному ключу (caller_hash, day) — тому же,
@@ -63,11 +75,15 @@ export async function GET(request: NextRequest) {
        * котором мы ничего не знаем), обязаны остаться в счёте под честным
        * «не представился», а не исчезнуть из отчёта.
        */
-      pool.query<{ client: string; kind: string; calls: string; caller_days: string; last_seen: string | null }>(
+      pool.query<{ client: string; kind: string; origin: string; calls: string; caller_days: string; last_seen: string | null }>(
         `SELECT COALESCE(c.client_name, c.ua_family, 'не представился') AS client,
                 CASE WHEN c.client_name IS NOT NULL THEN 'представился'
                      WHEN c.ua_family  IS NOT NULL THEN 'по заголовку'
                      ELSE 'неизвестно' END                              AS kind,
+                CASE WHEN t.is_self THEN 'self'
+                     WHEN c.client_name = ANY($1::text[])
+                       OR (c.client_name IS NULL AND c.ua_family = ANY($2::text[])) THEN 'probe'
+                     ELSE 'external' END                                AS origin,
                 COUNT(*)                                                AS calls,
                 COUNT(DISTINCT t.caller_hash)                           AS caller_days,
                 to_char(MAX(c.last_seen), 'YYYY-MM-DD HH24:MI')         AS last_seen
@@ -76,18 +92,45 @@ export async function GET(request: NextRequest) {
                   ON c.caller_hash = t.caller_hash
                  AND c.day = t.created_at::date
           WHERE t.created_at >= NOW() - INTERVAL '30 days'
-          GROUP BY 1, 2
+          GROUP BY 1, 2, 3
           ORDER BY COUNT(*) DESC`,
+        PROBE_PARAMS,
       ),
       // Какие НЕСУЩЕСТВУЮЩИЕ инструменты просили (миграция 1141). До неё все
       // такие запросы были одной строкой 'unknown' — переименовывать или
       // заводить алиас было нечего.
       pool.query<{ requested_tool: string; d30: string; last_seen: string }>(
         `SELECT requested_tool, COUNT(*) AS d30, to_char(MAX(created_at), 'YYYY-MM-DD') AS last_seen
-           FROM mcp_tool_calls
+           FROM mcp_tool_calls t
           WHERE error_kind = 'unknown_tool' AND requested_tool IS NOT NULL
-            AND created_at >= NOW() - INTERVAL '30 days'
+            AND created_at >= NOW() - INTERVAL '30 days' AND ${EXTERNAL('t')}
           GROUP BY requested_tool ORDER BY COUNT(*) DESC LIMIT 20`,
+        PROBE_PARAMS,
+      ),
+      // Три числа вместо одного: внешние, свои (метка владельца), проверки.
+      // И с какого дня метка «свой» ставилась: до него свои и чужие в
+      // журнале неразличимы, и перепись за прошлое остаётся смешанной.
+      pool.query<{ external: string; self: string; probe: string; self_since: string | null }>(
+        `SELECT COUNT(*) FILTER (WHERE ${EXTERNAL('t')})                 AS external,
+                COUNT(*) FILTER (WHERE t.is_self)                        AS self,
+                COUNT(*) FILTER (WHERE t.is_self = FALSE AND ${probeCallSql('t', '$1', '$2')}) AS probe,
+                to_char(MIN(t.created_at) FILTER (WHERE t.is_self), 'YYYY-MM-DD') AS self_since
+           FROM mcp_tool_calls t
+          WHERE t.created_at >= NOW() - INTERVAL '30 days'`,
+        PROBE_PARAMS,
+      ),
+      // Причина, не только счётчик (1143): код и главный аргумент. Значение
+      // аргумента есть только у читающих инструментов и не бывает телефоном —
+      // так пишет lib/mcp/call-reason, панель это не переделывает.
+      pool.query<{ tool: string; error_kind: string | null; error_code: string | null; arg_key: string | null; arg_value: string | null; n: string; last_at: string }>(
+        `SELECT t.tool, t.error_kind, t.error_code, t.arg_key, t.arg_value,
+                COUNT(*) AS n, to_char(MAX(t.created_at), 'YYYY-MM-DD') AS last_at
+           FROM mcp_tool_calls t
+          WHERE NOT t.ok AND t.created_at >= NOW() - INTERVAL '30 days' AND ${EXTERNAL('t')}
+          GROUP BY 1, 2, 3, 4, 5
+          ORDER BY COUNT(*) DESC, MAX(t.created_at) DESC
+          LIMIT 40`,
+        PROBE_PARAMS,
       ),
     ]);
 
@@ -112,14 +155,30 @@ export async function GET(request: NextRequest) {
         kind: r.error_kind,
         d30: Number(r.d30),
       })),
+      errors_detail_30d: errorDetail.rows.map((r) => ({
+        tool: r.tool,
+        error_kind: r.error_kind,
+        error_code: r.error_code,
+        arg_key: r.arg_key,
+        arg_value: r.arg_value,
+        n: Number(r.n),
+        last_at: r.last_at,
+      })),
       unknown_tools_30d: unknownTools.rows.map((r) => ({
         requested_tool: r.requested_tool,
         d30: Number(r.d30),
         last_seen: r.last_seen,
       })),
+      origins_30d: {
+        external: Number(origins.rows[0]?.external ?? 0),
+        self: Number(origins.rows[0]?.self ?? 0),
+        probe: Number(origins.rows[0]?.probe ?? 0),
+        self_since: origins.rows[0]?.self_since ?? null,
+      },
       by_client_30d: clients.rows.map((r) => ({
         client: r.client,
         kind: r.kind,
+        origin: r.origin,
         calls: Number(r.calls),
         caller_days: Number(r.caller_days),
         last_seen: r.last_seen,
@@ -127,7 +186,9 @@ export async function GET(request: NextRequest) {
       window_note:
         'caller_hash суточный (152-ФЗ): caller_days — человеко-дни, ' +
         'а не уникальные вызывающие за период. Имя клиента — из его ' +
-        'самопредставления при рукопожатии MCP: это имя программы, не человека.',
+        'самопредставления при рукопожатии MCP: это имя программы, не человека. ' +
+        'Таблицы по инструментам, дням и ошибкам — только внешние вызовы: без своих ' +
+        '(метка владельца) и без проверок (смоук, пробы, curl).',
     });
   } catch {
     return NextResponse.json({ error: 'Не удалось построить срез MCP' }, { status: 500 });

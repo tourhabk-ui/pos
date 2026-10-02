@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
     }>(
       `SELECT MIN(created_at)::text AS first_at,
               COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE step = 'booking_start')::int AS touches
+              COUNT(*) FILTER (WHERE step = 'booking_start' AND is_self = FALSE)::int AS touches
          FROM funnel_events`,
     )).rows[0]),
 

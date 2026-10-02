@@ -58,8 +58,8 @@ export function jsonrpcSuccess(id: JsonRpcId, result: unknown) {
   return { jsonrpc: '2.0' as const, id, result };
 }
 
-export function jsonrpcError(id: JsonRpcId, code: number, message: string) {
-  return { jsonrpc: '2.0' as const, id, error: { code, message } };
+export function jsonrpcError(id: JsonRpcId, code: number, message: string, data?: unknown) {
+  return { jsonrpc: '2.0' as const, id, error: data === undefined ? { code, message } : { code, message, data } };
 }
 
 /**
@@ -68,6 +68,13 @@ export function jsonrpcError(id: JsonRpcId, code: number, message: string) {
  * TypeError) наружу уходит общим текстом, а подробность — в лог: до 29.09
  * анонимный клиент получал err.message как есть, вплоть до адреса базы.
  */
-export class McpUserError extends Error {}
+export class McpUserError extends Error {
+  /** Машинный код причины для журнала (миграция 1143): no_consent, bad_phone, … */
+  readonly code: string;
+  constructor(message: string, code: string = 'refused') {
+    super(message);
+    this.code = code;
+  }
+}
 
 export const MCP_INTERNAL_ERROR_TEXT = 'Внутренняя ошибка сервера — повторите позже.';

@@ -40,13 +40,20 @@ interface ToolRow {
   caller_days_30d: number;
 }
 
+/** Род вызова: откуда он на самом деле (решение владельца 02.10). */
+const ORIGIN_LABELS: Record<string, string> = { self: 'свой', probe: 'проверка', external: 'внешний' };
+
 interface DayRow { day: string; calls: number; errors: number; caller_days: number }
 interface ErrorRow { kind: string; d30: number }
 interface UnknownToolRow { requested_tool: string; d30: number; last_seen: string }
+/** Ошибка с причиной (1143): код и главный аргумент; error_code пуст у строк до миграции. */
+interface ErrorDetailRow { tool: string; error_kind: string | null; error_code: string | null; arg_key: string | null; arg_value: string | null; n: number; last_at: string }
 interface ClientRow {
   client: string;
   /** Откуда известно имя: представился сам, опознан по заголовку или никак. */
   kind: string;
+  /** external — внешний спрос; self — метка владельца; probe — смоук, пробы, curl. */
+  origin?: 'external' | 'self' | 'probe' | string;
   calls: number;
   caller_days: number;
   last_seen: string | null;
@@ -58,7 +65,11 @@ interface McpData {
   errors_by_kind_30d: ErrorRow[];
   /** Имена несуществующих инструментов, которые просили (миграция 1141); до неё поля нет — массив пуст. */
   unknown_tools_30d?: UnknownToolRow[];
+  /** Ошибки с причиной и аргументом (миграция 1143); до неё — пустой код. */
+  errors_detail_30d?: ErrorDetailRow[];
   by_client_30d: ClientRow[];
+  /** Внешние / свои / проверки за 30 дней (02.10). self_since — с какого дня метка владельца ставилась. */
+  origins_30d?: { external: number; self: number; probe: number; self_since: string | null };
   window_note: string;
 }
 
@@ -130,7 +141,8 @@ export default function AdminMcpPage() {
       <p className="text-xs text-[var(--text-muted)] max-w-2xl">
         Журнал фактов вызова инструментов внешними клиентами: что звали, чем кончилось,
         сколько заняло. Аргументы не пишутся — в них уходят имена и телефоны туристов,
-        а канал внешний.
+        а канал внешний. Таблицы ниже — только внешние вызовы: свои (метка владельца в
+        адресе коннектора) и проверки (смоук деплоя, пробы, curl) вынесены отдельными числами.
       </p>
 
       {loading && (
@@ -157,11 +169,31 @@ export default function AdminMcpPage() {
             </div>
           ) : (
             <>
+              {data.origins_30d && (
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Внешних за 30 дней', value: data.origins_30d.external },
+                    { label: 'Своих (метка владельца)', value: data.origins_30d.self },
+                    { label: 'Проверок (смоук, пробы, curl)', value: data.origins_30d.probe },
+                  ].map(k => (
+                    <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+                      <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
+                      <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
+                    </div>
+                  ))}
+                  <p className="col-span-3 text-[10px] text-[var(--text-muted)]">
+                    {data.origins_30d.self_since
+                      ? <>Метка «свой» ставится с {data.origins_30d.self_since}: вызовы раньше этого дня в числе внешних неотличимы от своих.</>
+                      : <>Метка «свой» ещё ни разу не ставилась: свои вызовы пока сидят в числе внешних. Нужны MCP_SELF_TAG в env и ?self=&lt;метка&gt; в адресе коннектора.</>}
+                  </p>
+                </div>
+              )}
+
               {totals && (
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Вызовов за 7 дней', value: totals.calls7 },
-                    { label: 'Вызовов за 30 дней', value: totals.calls30 },
+                    { label: 'Внешних за 7 дней', value: totals.calls7 },
+                    { label: 'Внешних за 30 дней', value: totals.calls30 },
                     { label: 'Из них с ошибкой', value: totals.errors30 },
                   ].map(k => (
                     <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
@@ -247,15 +279,61 @@ export default function AdminMcpPage() {
                   </p>
                   <ul className="space-y-1">
                     {data.by_client_30d.map(c => (
-                      <li key={`${c.client}:${c.kind}`} className="flex items-baseline justify-between gap-3 text-xs">
+                      <li key={`${c.client}:${c.kind}:${c.origin ?? ''}`} className="flex items-baseline justify-between gap-3 text-xs">
                         <span className="text-[var(--text-secondary)] truncate">
                           {c.client}
                           <span className="text-[10px] text-[var(--text-muted)] ml-2">{c.kind}</span>
+                          {c.origin && c.origin !== 'external' && (
+                            <span className="text-[10px] ml-2" style={{ color: 'var(--warning)' }}>
+                              {ORIGIN_LABELS[c.origin] ?? c.origin}
+                            </span>
+                          )}
                         </span>
                         <span className="text-[var(--text-primary)] font-medium shrink-0">{c.calls}</span>
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {(data.errors_detail_30d ?? []).length > 0 && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
+                  <p className="px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] border-b border-[var(--border)]">
+                    Ошибки с причиной, 30 дней
+                  </p>
+                  <p className="px-3 pt-2 text-[10px] text-[var(--text-muted)]">
+                    Код причины и главный аргумент пишутся с миграции 1143; у строк раньше неё
+                    причина пуста. Значение аргумента есть только у читающих инструментов и
+                    никогда не бывает телефоном или именем.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-[var(--text-muted)]">
+                          <th className="px-3 py-2 font-medium">Инструмент</th>
+                          <th className="px-3 py-2 font-medium">Род</th>
+                          <th className="px-3 py-2 font-medium">Причина</th>
+                          <th className="px-3 py-2 font-medium">Аргумент</th>
+                          <th className="px-3 py-2 font-medium text-right">Раз</th>
+                          <th className="px-3 py-2 font-medium text-right">Последний</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(data.errors_detail_30d ?? []).map((e, i) => (
+                          <tr key={i} className="border-t border-[var(--border)]">
+                            <td className="px-3 py-2 text-[var(--text-primary)] font-medium">{e.tool}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">{e.error_kind ? (ERROR_KIND_LABELS[e.error_kind] ?? e.error_kind) : '—'}</td>
+                            <td className="px-3 py-2 font-mono text-[var(--text-secondary)]">{e.error_code ?? <span className="text-[var(--text-muted)]">не записана</span>}</td>
+                            <td className="px-3 py-2 text-[var(--text-secondary)]">
+                              {e.arg_key ? <>{e.arg_key}{e.arg_value ? <span className="text-[var(--text-muted)]"> = {e.arg_value}</span> : null}</> : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right text-[var(--text-primary)] font-medium">{e.n}</td>
+                            <td className="px-3 py-2 text-right text-[var(--text-muted)]">{e.last_at}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 

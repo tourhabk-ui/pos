@@ -49,6 +49,8 @@ interface Report {
   top_paths: Array<{ path: string; views: number; visitors: number }> | null;
   tour_entry_edges: Array<{ from_path: string | null; views: number }> | null;
   leads_by_status: Array<{ status: string | null; n: number }> | null;
+  /** Откуда заявки (source_channel или source_url); null — замер не удался. */
+  leads_by_source?: Array<{ source: string; n: number }> | null;
   bookings_by_status: Array<{ booking_status: string | null; n: number }> | null;
 }
 interface DayRow extends Counts { date: string; partial: boolean }
@@ -252,10 +254,13 @@ export default function FunnelWindow() {
             </p>
           </div>
 
-          {(r.leads_by_status?.length || r.bookings_by_status?.length) ? (
+          {(r.leads_by_status?.length || r.bookings_by_status?.length || r.leads_by_source?.length) ? (
             <p className="text-[11px] text-[var(--text-muted)] mt-1">
               {r.leads_by_status && r.leads_by_status.length > 0 && (
                 <>Заявки по статусам: {r.leads_by_status.map((x) => `${leadStatusLabel(x.status)} — ${x.n}`).join(', ')}. </>
+              )}
+              {r.leads_by_source && r.leads_by_source.length > 0 && (
+                <>Откуда заявки: {r.leads_by_source.map((x) => `${x.source} — ${x.n}`).join(', ')}. </>
               )}
               {r.bookings_by_status && r.bookings_by_status.length > 0 && (
                 <>Брони по статусам: {r.bookings_by_status.map((x) => `${x.booking_status ?? 'без статуса'} — ${x.n}`).join(', ')}.</>

@@ -250,18 +250,18 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
 
   const [
     views, starts, leadRows, bookingRows,
-    viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, bookingStatuses,
+    viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, leadSources, bookingStatuses,
   ] = await Promise.all([
     // Верх воронки — собственная метрика. Пути обеих публичных карточек тура:
     // /catalog и /marketplace рендерят одну реализацию (§11).
     measure('page_views', async () => (await exec.query<{
       visits: number; tour_views: number; plan_views: number; plan_to_tour: number; bot_views: number;
     }>(
-      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE)::int AS visits,
-              COUNT(*) FILTER (WHERE is_bot = FALSE AND ${TOUR_PATH})::int AS tour_views,
-              COUNT(*) FILTER (WHERE is_bot = FALSE
+      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND is_self = FALSE)::int AS visits,
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND ${TOUR_PATH})::int AS tour_views,
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE
                                  AND (path LIKE '/trip/%' OR path LIKE '/plans/%'))::int AS plan_views,
-              COUNT(*) FILTER (WHERE is_bot = FALSE AND ${TOUR_PATH}
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND ${TOUR_PATH}
                                  AND (from_path LIKE '/trip/%' OR from_path LIKE '/plans/%'))::int AS plan_to_tour,
               COUNT(*) FILTER (WHERE is_bot = TRUE)::int AS bot_views
          FROM page_views
@@ -271,7 +271,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
 
     measure('funnel_events.booking_start', async () => (await exec.query<{ n: number }>(
       `SELECT COUNT(*)::int AS n FROM funnel_events
-        WHERE step = 'booking_start' AND ${WINDOW_SQL}`,
+        WHERE step = 'booking_start' AND is_self = FALSE AND ${WINDOW_SQL}`,
       p,
     )).rows[0]?.n ?? 0),
 
@@ -304,7 +304,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
               COUNT(*)::int                     AS views,
               COUNT(DISTINCT visitor_hash)::int AS visitors
          FROM page_views
-        WHERE ${WINDOW_SQL} AND is_bot = FALSE
+        WHERE ${WINDOW_SQL} AND is_bot = FALSE AND is_self = FALSE
         GROUP BY path
         ORDER BY views DESC
         LIMIT 20`,
@@ -328,7 +328,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
               ) AS from_path,
               COUNT(*)::int AS views
          FROM page_views
-        WHERE ${WINDOW_SQL} AND is_bot = FALSE AND ${TOUR_PATH}
+        WHERE ${WINDOW_SQL} AND is_bot = FALSE AND is_self = FALSE AND ${TOUR_PATH}
         GROUP BY 1
         ORDER BY views DESC
         LIMIT 15`,
@@ -338,6 +338,14 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     measure('leads_by_status', async () => (await exec.query<{ status: string | null; n: number }>(
       `SELECT status, COUNT(*)::int AS n FROM leads
         WHERE ${WINDOW_SQL} GROUP BY status ORDER BY n DESC`,
+      p,
+    )).rows),
+
+    // Откуда заявки: одна заявка мимо «начали бронь» — это другой вход (Кузьмич,
+    // подбор, MCP), а не дыра воронки. Без источника это вывод, с ним — число (02.10).
+    measure('leads_by_source', async () => (await exec.query<{ source: string; n: number }>(
+      `SELECT COALESCE(NULLIF(source_channel, ''), NULLIF(source_url, ''), 'не записан') AS source, COUNT(*)::int AS n
+         FROM leads WHERE ${WINDOW_SQL} GROUP BY 1 ORDER BY n DESC LIMIT 12`,
       p,
     )).rows),
 
@@ -366,7 +374,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     ['operator_bookings', bookingRows], ['page_views.alive', viewsAlive],
     ['funnel_events.alive', beaconAlive], ['top_paths', topPaths],
     ['tour_edges', tourEdges], ['leads_by_status', leadStatuses],
-    ['bookings_by_status', bookingStatuses],
+    ['leads_by_source', leadSources], ['bookings_by_status', bookingStatuses],
   ];
   const failed = measures.filter(([, m]) => m.failed !== null);
 
@@ -407,6 +415,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     top_paths:          topPaths.value,
     tour_entry_edges:   tourEdges.value,
     leads_by_status:    leadStatuses.value,
+    leads_by_source:    leadSources.value,
     bookings_by_status: bookingStatuses.value,
     // Судить не по чему — это отказ переписи, а не «всё хорошо».
     meaningful: failed.length === 0 && unknown.length === 0,
@@ -460,8 +469,8 @@ export async function funnelByDay(
   const [views, bookStarts, leadRows, bookingRows] = await Promise.all([
     measure('daily.page_views', async () => (await exec.query<{ i: number; visits: number; tour_views: number }>(
       `SELECT d.i::int AS i,
-              COUNT(DISTINCT pv.visitor_hash) FILTER (WHERE pv.is_bot = FALSE)::int AS visits,
-              COUNT(*) FILTER (WHERE pv.is_bot = FALSE
+              COUNT(DISTINCT pv.visitor_hash) FILTER (WHERE pv.is_bot = FALSE AND pv.is_self = FALSE)::int AS visits,
+              COUNT(*) FILTER (WHERE pv.is_bot = FALSE AND pv.is_self = FALSE
                                  AND (pv.path LIKE '/catalog/tours/%' OR pv.path LIKE '/marketplace/tours/%'))::int AS tour_views
          ${FROM}
          LEFT JOIN page_views pv ON pv.created_at >= d.s AND pv.created_at < d.e

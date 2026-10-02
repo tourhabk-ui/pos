@@ -81,10 +81,10 @@ export async function GET(req: NextRequest) {
       list_views: number; list_visitor_days: number;
       card_views: number; card_visitor_days: number; bot_views: number;
     }>(
-      `SELECT COUNT(*) FILTER (WHERE is_bot = FALSE AND path = '/accommodations')::int AS list_views,
-              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND path = '/accommodations')::int AS list_visitor_days,
-              COUNT(*) FILTER (WHERE is_bot = FALSE AND path LIKE '/accommodations/%')::int AS card_views,
-              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND path LIKE '/accommodations/%')::int AS card_visitor_days,
+      `SELECT COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND path = '/accommodations')::int AS list_views,
+              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND path = '/accommodations')::int AS list_visitor_days,
+              COUNT(*) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND path LIKE '/accommodations/%')::int AS card_views,
+              COUNT(DISTINCT visitor_hash) FILTER (WHERE is_bot = FALSE AND is_self = FALSE AND path LIKE '/accommodations/%')::int AS card_visitor_days,
               COUNT(*) FILTER (WHERE is_bot = TRUE)::int AS bot_views
          FROM page_views
         WHERE created_at > ${W}
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
     measure('stay_search', async () => (await pool.query<StaySearchRow>(
       `SELECT entity_id, COUNT(*)::int AS searches
          FROM funnel_events
-        WHERE step = 'stay_search' AND created_at > ${W}
+        WHERE step = 'stay_search' AND created_at > ${W} AND is_self = FALSE
         GROUP BY entity_id`,
       [days],
     )).rows),
@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
     measure('stay_search_web_days', async () => (await pool.query<{ visitor_days: number }>(
       `SELECT COUNT(DISTINCT visitor_hash)::int AS visitor_days
          FROM funnel_events
-        WHERE step = 'stay_search' AND entity_id LIKE 'web:%' AND created_at > ${W}`,
+        WHERE step = 'stay_search' AND entity_id LIKE 'web:%' AND created_at > ${W} AND is_self = FALSE`,
       [days],
     )).rows[0]),
 
@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
               COUNT(DISTINCT visitor_hash)::int AS visitor_days,
               COUNT(DISTINCT entity_id)::int    AS listings
          FROM funnel_events
-        WHERE step = 'stay_booking_start' AND created_at > ${W}`,
+        WHERE step = 'stay_booking_start' AND created_at > ${W} AND is_self = FALSE`,
       [days],
     )).rows[0]),
 
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
               COUNT(DISTINCT visitor_hash)::int AS visitor_days,
               COUNT(DISTINCT entity_id)::int    AS listings
          FROM funnel_events
-        WHERE step = 'stay_external_booking' AND created_at > ${W}`,
+        WHERE step = 'stay_external_booking' AND created_at > ${W} AND is_self = FALSE`,
       [days],
     )).rows[0]),
 

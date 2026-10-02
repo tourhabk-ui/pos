@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut } from 'lucide-react';
 import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
 import FunnelWindow from './_FunnelWindow';
+import SelfVisitToggle from './_SelfVisitToggle';
 
 interface TrafficData {
   totals: {
@@ -12,6 +13,8 @@ interface TrafficData {
     month: { hits: number; visitorDays: number };
   };
   bots: { month_hits: number };
+  /** Свои заходы (cookie владельца) за 30 дней и с какого дня метка ставилась. */
+  self?: { month_hits: number; since: string | null };
   daily: Array<{ day: string; hits: number; uniques: number }>;
   top_paths: Array<{ path: string; hits: number }>;
   top_referrers: Array<{ referrer: string; hits: number }>;
@@ -112,6 +115,9 @@ export default function AdminTrafficPage() {
           писался, ретроактивно посчитать нельзя — только просмотры).</>
         )}
       </p>
+
+      {/* Свои заходы — отдельно от внешних (владелец 02.10): метка в этом браузере */}
+      <SelfVisitToggle selfMonthHits={data?.self?.month_hits ?? null} selfSince={data?.self?.since ?? null} />
 
       {/* Воронка за день, вчера, неделю, месяц или любые сутки — владелец 29.09 */}
       <FunnelWindow />

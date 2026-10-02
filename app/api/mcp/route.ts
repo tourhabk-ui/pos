@@ -37,6 +37,9 @@ import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
+import { primaryArg, classifyExecutionError } from '@/lib/mcp/call-reason';
+import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
@@ -111,7 +114,7 @@ async function admitWrite(
   // а не сторожа: анонимный приём ПД — не то место, где непроверенное
   // пропускают. Потери нет: счёт живёт в той же базе, что и лид.
   if (verdict.decision !== 'allow') {
-    throw new McpUserError(verdict.message);
+    throw new McpUserError(verdict.message, 'write_guard');
   }
   return buildConsentRecord(true, ctx.ip, 'mcp');
 }
@@ -195,7 +198,7 @@ async function requestSeatsFromOperator(a: {
   name: string; phone: string; hasComment: boolean; consent: boolean | undefined;
 }): Promise<string> {
   const pd_consent = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent);
-  if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.');
+  if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
   const result = await createSeatRequest({
     tourId: a.tourId,
     date: a.date,
@@ -215,7 +218,7 @@ async function requestSeatsFromOperator(a: {
     // ok=false в журнале (до 29.09 журнал считал его успехом).
     if (reason === 'check_failed' || reason === 'delivery_failed') {
       const failure = SEAT_REQUEST_FAILURE[reason]!;
-      throw new McpUserError(`${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead.`);
+      throw new McpUserError(`${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead.`, `seats_${reason}`);
     }
     const failure = reason === 'duplicate'
       ? { error: 'По этому телефону запрос на этот тур и дату уже есть — повторно не отправляю; ответ придёт по ссылке, выданной в первый раз.' }
@@ -233,7 +236,7 @@ async function requestSeatsFromOperator(a: {
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
   const { tour: tourQuery, date, participants, name, comment } = parsed.data;
 
@@ -241,14 +244,14 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // заявка без дозвонного номера бесполезна менеджеру.
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
 
   const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
   // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
   // это сбой, а не отсутствие тура (проверка MCP 29.09).
   const tour = await resolveTourByQuery(tourQuery).catch(() => {
-    throw new McpUserError('Не удалось проверить тур — заявка не создана, повторите позже.');
+    throw new McpUserError('Не удалось проверить тур — заявка не создана, повторите позже.', 'tour_lookup_failed');
   });
   if (!tour) {
     return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
@@ -257,7 +260,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // Несуществующая дата (2027-02-30) проходила регулярку и падала в базе
   // с 22008 — общим «внутренняя ошибка» вместо внятного отказа (29.09).
   if (!isRealDate(date)) {
-    throw new McpUserError(`Даты ${date} нет в календаре — заявка не создана. Проверьте дату.`);
+    throw new McpUserError(`Даты ${date} нет в календаре — заявка не создана. Проверьте дату.`, 'date_not_in_calendar');
   }
 
   // Прошедшая дата — по Камчатке: по UTC с 12:00 до 24:00 заявка на уже
@@ -277,7 +280,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     // ложью, и вместо отказа уходит запрос оператору.
     const keepsSchedule = await tourKeepsSchedule(Number(tour.id));
     if (keepsSchedule === null) {
-      throw new McpUserError('Не удалось проверить расписание тура — заявка не создана, попробуйте позже.');
+      throw new McpUserError('Не удалось проверить расписание тура — заявка не создана, попробуйте позже.', 'schedule_lookup_failed');
     }
     if (!keepsSchedule) {
       return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent });
@@ -338,7 +341,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     pd_consent,
   });
   if (!leadId) {
-    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже');
+    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
   return accepted;
 }
@@ -346,12 +349,12 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
   const { name, comment, interest } = parsed.data;
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
   const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
   refuseSilentLead(name, phone, leadComment, { source: 'mcp' });
@@ -365,7 +368,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     pd_consent,
   });
   if (!leadId) {
-    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже');
+    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
   // Номер не называется, как и у заявки на бронь: createLead на точном дубле
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
@@ -384,6 +387,7 @@ function refuseSilentLead(name: string, phone: string, comment: string, sourceDa
     throw new McpUserError(
       'Заявка слишком неполная — менеджер её не увидит, поэтому не создаю. Укажите имя и фамилию человека '
       + 'и опишите запрос подробнее: даты, число людей, что интересует.',
+      'silent_lead',
     );
   }
 }
@@ -408,7 +412,7 @@ async function executeTool(
   // trim, обрезка длины), затем тот же исполнитель.
   const validation = validateToolArgs(name, rawArgs as Record<string, string>);
   if (!validation.ok) {
-    throw new McpUserError(validation.error);
+    throw new McpUserError(validation.error, 'invalid_args');
   }
   return executeKuzmichTool(name, validation.args, { surface: 'mcp' });
 }
@@ -534,6 +538,9 @@ async function handleToolsCall(
   // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
   const ip = clientIp(request);
   const userAgent = request.headers.get('user-agent') ?? '';
+  // Свой клиент (метка владельца в адресе коннектора) пишется с флагом и
+  // в спрос не считается — lib/analytics/self-visit, решение 02.10.
+  const self = isSelfMcpCaller(request.nextUrl);
 
   // Rate-limit до исполнения и до любой записи в базу: превышение — обычный
   // tool-ответ с isError, агент его прочитает и подождёт (429 на JSON-RPC
@@ -541,9 +548,12 @@ async function handleToolsCall(
   // запрос флуда писал строку в mcp_clients мимо тормоза.
   const isWrite = WRITE_TOOLS.has(toolName);
   const limiter = isWrite ? writeLimiter : readLimiter;
+  // Главный аргумент для журнала: имя всегда, значение — только у читающих
+  // инструментов и не похожее на телефон (lib/mcp/call-reason, 1143).
+  const arg = primaryArg(toolArgs, isWrite);
   if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
-      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent });
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
     }
     // Окно записи — десять минут, чтения — минута; общий текст «подождите
     // минуту» на записи обещал неправду (проверка MCP 29.09).
@@ -564,8 +574,11 @@ async function handleToolsCall(
   // tools, «Error Handling»): агент, перепутавший имя, должен перечитать
   // tools/list, а не пересказывать человеку «инструмент не сработал».
   if (!PUBLIC_MCP_TOOL_NAMES.has(toolName)) {
-    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', requestedTool: toolName, ip, userAgent });
-    return jsonrpcError(id, -32602, `Unknown tool: ${toolName.slice(0, 80)}`);
+    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', errorCode: 'unknown_tool', requestedTool: toolName, argKey: arg.key, ip, userAgent, self });
+    // Списком живых имён и ближайшим по написанию, а не голым отказом:
+    // клиенты зовут старые названия и не узнают, чем заменить (02.10).
+    const unknown = unknownToolResponse(toolName);
+    return jsonrpcError(id, -32602, unknown.message, unknown.data);
   }
 
   const startedAt = Date.now();
@@ -578,13 +591,13 @@ async function handleToolsCall(
     // панель MCP и сторож молчания), и никакой ссылки «продолжить» к
     // несостоявшемуся ответу (проверка MCP 29.09).
     if (text === TOOL_EXECUTION_FAILED) {
-      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', durationMs: Date.now() - startedAt, ip, userAgent });
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', errorCode: 'tool_failed', durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
       return jsonrpcSuccess(id, {
         content: [{ type: 'text', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' }],
         isError: true,
       });
     }
-    logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent });
+    logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
 
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
@@ -619,9 +632,15 @@ async function handleToolsCall(
       tool: toolName,
       ok: false,
       errorKind: userFacing ? 'refused' : 'execution',
+      // Причина — машинным кодом: у отказа её называет сам McpUserError, у
+      // падения выводится из исключения (SQLSTATE, таймаут) — 1143.
+      errorCode: userFacing ? toolErr.code : classifyExecutionError(toolErr),
       durationMs: Date.now() - startedAt,
+      argKey: arg.key,
+      argValue: arg.value,
       ip,
       userAgent,
+      self,
     });
     return jsonrpcSuccess(id, {
       content: [{ type: 'text', text: userFacing ? toolErr.message : MCP_INTERNAL_ERROR_TEXT }],
