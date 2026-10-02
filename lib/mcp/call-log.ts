@@ -17,7 +17,14 @@ import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
 import { PUBLIC_MCP_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { normalizeClientName, normalizeClientVersion, uaFamily } from '@/lib/mcp/client-id';
 
-export type McpErrorKind = 'rate_limited' | 'unknown_tool' | 'execution';
+/**
+ * `refused` — отказ ПО ВХОДУ, написанный для агента (McpUserError): кривой
+ * телефон, нет согласия, слишком пустая заявка, не те аргументы. До 02.10 он
+ * писался как `execution`, и панель MCP показывала «инструмент упал» там, где
+ * инструмент сработал правильно и отказал. Два create_lead «с ошибкой» за
+ * месяц были неотличимы от двух падений.
+ */
+export type McpErrorKind = 'rate_limited' | 'unknown_tool' | 'execution' | 'refused';
 
 export interface McpCallLogEntry {
   tool: string;
