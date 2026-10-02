@@ -15,7 +15,9 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 const BUTTON = strip(read('components/PWA/PushSubscribeButton.tsx'));
 const ROUTE = strip(read('app/api/push/vapid-public-key/route.ts'));
-const REGISTRY = strip(read('lib/auth/public-api-routes.ts'));
+// Реестр — без блочной вырезки: пути вида '/api/places/*/reviews' содержат «/*»,
+// и strip() принял бы их за начало комментария, съев соседние записи (02.10).
+const REGISTRY = read('lib/auth/public-api-routes.ts').replace(/^\s*\/\/.*$/gm, '');
 const SOS = strip(read('app/sos/page.tsx'));
 
 describe('ключ спрашивается у сервера, сборочный — запасной', () => {

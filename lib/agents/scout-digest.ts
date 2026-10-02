@@ -1461,8 +1461,18 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
           content: `Сигналы:\n\n${wrapUntrusted('сигналы AI-лент', aiSignals)}`,
         },
       ];
-      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch(() => null);
-      if (!aiDigest) aiSkip = 'ai_synthesis_null';
+      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((err: unknown) => {
+        console.error('[scout-digest] AI-пост: запрос к модели упал:', err instanceof Error ? err.message : err);
+        return null;
+      });
+      if (!aiDigest) {
+        // Тот же след отказов, что у основного выпуска (29.08). До 02.10 здесь
+        // стоял голый `.catch(() => null)`: владелец получал «модель не вернула
+        // AI-пост» каждый час, а чинить провайдера или промпт — понять было не
+        // из чего.
+        aiSkip = 'ai_synthesis_null';
+        aiSkipDetail = describeRecentAiFailures() ?? 'провайдеры отказа не записали — ответ пустой или заглушка водопада';
+      }
 
       // Реплика модели вместо поста. Ровно это 04.09 и ушло в канал на 1800
       // подписчиков: «не вижу текста статьи в сигнале… пришли выдержки».

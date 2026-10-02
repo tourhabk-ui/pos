@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Link2, Copy, Check, Eye, MousePointerClick,
   ShoppingBag, Clock, Trash2, Search, X, ChevronRight,
-  Send, AlertCircle, Users,
+  Send, AlertCircle, Users, Flame, Pencil, PartyPopper,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -92,12 +92,12 @@ function SelectionCard({ sel, onCopy }: { sel: Selection; onCopy: (code: string)
             </span>
             {isHot && (
               <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(var(--danger-rgb,220,38,38),0.1)', color: 'var(--danger)' }}>
-                🔥 ЗАЯВКА
+                <Flame size={10} style={{ display: 'inline', verticalAlign: '-1px' }} /> ЗАЯВКА
               </span>
             )}
             {isWarm && !isHot && (
               <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(var(--warning-rgb,210,153,34),0.1)', color: 'var(--warning)' }}>
-                👀 СМОТРИТ
+                <Eye size={10} style={{ display: 'inline', verticalAlign: '-1px' }} /> СМОТРИТ
               </span>
             )}
           </div>
@@ -223,7 +223,9 @@ function TourPickerItem({ tour, selected, note, onToggle, onNote }: {
               onClick={() => setEditNote(true)}
               style={{ fontSize: '12px', color: 'var(--ocean)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}
             >
-              {note ? `✏️ ${note}` : '+ Добавить заметку клиенту'}
+              {note
+                ? <><Pencil size={11} style={{ display: 'inline', verticalAlign: '-1px' }} /> {note}</>
+                : '+ Добавить заметку клиенту'}
             </button>
           )}
         </div>
@@ -371,7 +373,7 @@ export default function SelectionsClient() {
           {created ? (
             /* ── Success screen ── */
             <div style={{ textAlign: 'center', padding: '12px 0' }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎉</div>
+              <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center', color: 'var(--accent)' }}><PartyPopper size={40} aria-hidden /></div>
               <h2 className="ds-h2" style={{ marginBottom: '8px' }}>Подборка создана!</h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>
                 Отправьте ссылку клиенту — он увидит карточки туров и сможет записаться.
