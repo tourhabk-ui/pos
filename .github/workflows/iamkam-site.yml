@@ -1,0 +1,110 @@
+# Сайт партнёра «Я Камчатка» (iamkam.ru) на хостинге REG.RU — по маркеру.
+#
+# Слово владельца 02.10: аудит сайта сделан, Ирина подтвердила сайт, доступ
+# есть только к хостингу. Из среды разработчика до хостинга не достать, и
+# реквизиты в переписке запрещены правилом владельца, поэтому единственная
+# дверь — секреты репозитория и раннер GitHub.
+#
+# Секреты (значения не печатаются никогда; в логе только имена):
+#   IAMKAM_HOST  — хост хостинга (например, server123.hosting.reg.ru)
+#   IAMKAM_USER  — пользователь
+#   IAMKAM_PASS  — пароль
+#   IAMKAM_ROOT  — корень сайта на хостинге (например, /www/iamkam.ru)
+#   IAMKAM_PORT  — порт, по желанию (22 для sftp, 21 для ftp)
+#   IAMKAM_PROTO — sftp (умолчание) или ftp
+#
+# Умолчание маркера без `mode` — dry: прогон читает и печатает, ничего не
+# меняет. Задача inventory — перепись файлов (имена и размеры, без содержимого)
+# и сверка index.html с тем, что отдаёт публичный сайт: «это тот же сайт»
+# должно быть проверено, а не предположено (§4.0). Задачи правок заводятся
+# отдельными коммитами вместе с кодом, который их делает.
+#
+# Сторож: tests/unit/iamkam-site.test.ts.
+name: Сайт iamkam.ru на хостинге (вручную, по маркеру)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/iamkam-site.json'
+
+permissions: {}
+
+concurrency:
+  group: iamkam-site
+  cancel-in-progress: false
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Инструменты
+        run: sudo apt-get install -y -qq lftp >/dev/null
+      - name: Перепись хостинга
+        env:
+          IAMKAM_HOST: ${{ secrets.IAMKAM_HOST }}
+          IAMKAM_USER: ${{ secrets.IAMKAM_USER }}
+          IAMKAM_PASS: ${{ secrets.IAMKAM_PASS }}
+          IAMKAM_ROOT: ${{ secrets.IAMKAM_ROOT }}
+          IAMKAM_PORT: ${{ secrets.IAMKAM_PORT }}
+          IAMKAM_PROTO: ${{ secrets.IAMKAM_PROTO }}
+          MARKER: .github/triggers/iamkam-site.json
+          SITE_URL: https://iamkam.ru
+        run: |
+          set -u
+          MODE=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"])).get("mode","dry"))')
+          TASKS=$(python3 -c 'import json,os;print(" ".join(json.load(open(os.environ["MARKER"])).get("tasks",[])))')
+          echo "режим: $MODE; задачи: $TASKS"
+          missing=""
+          for v in IAMKAM_HOST IAMKAM_USER IAMKAM_PASS IAMKAM_ROOT; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты:$missing — подключаться нечем. Ничего не сделано."
+            exit 1
+          fi
+          PROTO="${IAMKAM_PROTO:-sftp}"
+          PORT="${IAMKAM_PORT:-}"
+          [ -z "$PORT" ] && { [ "$PROTO" = ftp ] && PORT=21 || PORT=22; }
+          # Пароль уходит в lftp через переменную, не через аргументы
+          # командной строки: аргументы видны в ps и в логе шага, переменная — нет.
+          export LFTP_PASSWORD="$IAMKAM_PASS"
+          lf() {
+            lftp -u "$IAMKAM_USER" --env-password -e "set net:timeout 30; set net:max-retries 2; set sftp:auto-confirm yes; set ftp:ssl-force true; set ssl:verify-certificate yes; $1; bye" "$PROTO://$IAMKAM_HOST:$PORT"
+          }
+          mkdir -p /tmp/ik
+          echo "## Перепись хостинга iamkam.ru (только чтение)" > /tmp/ik/summary.md
+          echo "- протокол: $PROTO, порт $PORT, корень: $IAMKAM_ROOT" >> /tmp/ik/summary.md
+          if ! lf "cd \"$IAMKAM_ROOT\"; cls -1" > /tmp/ik/top.txt 2> /tmp/ik/err.txt; then
+            echo "::error::Хостинг не ответил или корень не найден: $(head -c 300 /tmp/ik/err.txt | tr '\n' ' ')"
+            echo "- подключение: ОТКАЗ — $(head -c 300 /tmp/ik/err.txt | tr '\n' ' ')" >> /tmp/ik/summary.md
+            cat /tmp/ik/summary.md >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- в корне: $(wc -l < /tmp/ik/top.txt) записей" >> /tmp/ik/summary.md
+          echo '```' >> /tmp/ik/summary.md; cat /tmp/ik/top.txt >> /tmp/ik/summary.md; echo '```' >> /tmp/ik/summary.md
+          if echo "$TASKS" | grep -qw inventory; then
+            lf "cd \"$IAMKAM_ROOT\"; find" > /tmp/ik/find.txt 2>/dev/null || true
+            total=$(grep -vc '/$' /tmp/ik/find.txt || true)
+            echo "- файлов всего: $total; из них html: $(grep -c '\.html$' /tmp/ik/find.txt || true), картинок: $(grep -Eic '\.(jpe?g|png|webp|svg)$' /tmp/ik/find.txt || true)" >> /tmp/ik/summary.md
+            echo "- каталоги верхнего уровня: $(grep -E '^[^/]+/$' /tmp/ik/find.txt | tr '\n' ' ')" >> /tmp/ik/summary.md
+            # Сверка: index.html с хостинга и index.html с публичного сайта
+            lf "cd \"$IAMKAM_ROOT\"; get -O /tmp/ik index.html" >/dev/null 2>&1 || true
+            if [ -f /tmp/ik/index.html ]; then
+              curl -sS --max-time 30 -o /tmp/ik/public.html "$SITE_URL/index.html" || true
+              a=$(md5sum /tmp/ik/index.html | cut -c1-12); b=$(md5sum /tmp/ik/public.html 2>/dev/null | cut -c1-12)
+              if [ "$a" = "$b" ]; then echo "- сверка: index.html на хостинге СОВПАДАЕТ с публичным сайтом (md5 $a)" >> /tmp/ik/summary.md
+              else echo "- сверка: index.html на хостинге НЕ совпадает с публичным ($a против $b) — либо другой корень, либо кэш/CDN" >> /tmp/ik/summary.md; fi
+            else
+              echo "- сверка: index.html в корне не найден — корень указан неверно" >> /tmp/ik/summary.md
+            fi
+            echo "- список путей (первые 120):" >> /tmp/ik/summary.md
+            echo '```' >> /tmp/ik/summary.md; head -120 /tmp/ik/find.txt >> /tmp/ik/summary.md; echo '```' >> /tmp/ik/summary.md
+          fi
+          echo "- режим $MODE: записи не было ни одной (задачи правок ещё не заведены)" >> /tmp/ik/summary.md
+          cat /tmp/ik/summary.md >> "$GITHUB_STEP_SUMMARY"
+          BODY=$(head -c 3500 /tmp/ik/summary.md | python3 -c 'import sys;print(sys.stdin.read().replace(chr(10), "%0A"))')
+          echo "::notice title=iamkam-site::$BODY"
