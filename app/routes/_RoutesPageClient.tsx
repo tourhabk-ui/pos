@@ -469,6 +469,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           </div>
 
           <select
+            aria-label="Сортировка маршрутов"
             value={sort}
             onChange={e => { setSort(e.target.value as SortValue); setPage(1); }}
             className="ds-input w-auto pr-8 text-sm"
