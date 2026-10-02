@@ -21,8 +21,10 @@ const LLMS = readFileSync(join(ROOT, 'app/llms.txt/route.ts'), 'utf-8');
 describe('sitemap: туры существуют для обходчиков', () => {
   it('фильтр — витринные флаги туров, а не фантомный is_visible', () => {
     const toursBlock = SITEMAP.slice(SITEMAP.indexOf('Маркетплейс-туры'), SITEMAP.indexOf('Подборки'));
-    expect(toursBlock).toMatch(/is_active = TRUE/);
-    expect(toursBlock).toMatch(/COALESCE\(is_published, TRUE\) = TRUE/);
+    // Предикат витрины — один на sitemap, карточку и каталог (02.10: 12 туров
+    // в sitemap против 11 на /about — разные условия и без связки с партнёром).
+    expect(toursBlock).toMatch(/\$\{publicTourSql\('ot'\)\}/);
+    expect(toursBlock).toMatch(/JOIN partners p ON ot\.operator_id = p\.id/);
     // Комментарий-история упоминает слово — запрещаем именно SQL-условие.
     expect(toursBlock).not.toMatch(/is_visible\s*=/);
   });
@@ -35,8 +37,8 @@ describe('sitemap: туры существуют для обходчиков', (
 describe('llms.txt: коммерческий слой виден моделям', () => {
   it('живой каталог туров — та же витрина, что у sitemap и MCP', () => {
     expect(LLMS).toMatch(/FROM operator_tours ot/);
-    expect(LLMS).toMatch(/LEFT JOIN partners p ON p\.id = ot\.operator_id/);
-    expect(LLMS).toMatch(/COALESCE\(ot\.is_published, TRUE\) = TRUE/);
+    expect(LLMS).toMatch(/JOIN partners p ON p\.id = ot\.operator_id/);
+    expect(LLMS).toMatch(/\$\{publicTourSql\('ot'\)\}/);
     expect(LLMS).toMatch(/Актуальные туры операторов/);
   });
 

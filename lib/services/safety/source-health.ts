@@ -32,6 +32,20 @@ export interface SourceExpectation {
    * В теле ответа инжеста он виден списком known_dormant_sources.
    */
   knownDormant?: { since: string; reason: string };
+  /**
+   * Чем источник доказывает, что жив (02.10). По умолчанию — вставленным
+   * событием (`inserted`): превью Telegram каждый прогон отдаёт одни и те же
+   * старые посты, и «постов разобрано» там ничего не значит (урок 07.09).
+   * У бегущей RSS-ленты посты свежие по построению — там живость считается
+   * по `raw_items`, а «событий нет» значит «в ленте нет угроз», не «не читаем».
+   */
+  aliveBy?: 'inserted' | 'raw_items';
+  /**
+   * Чем молчание ЭТОГО источника объяснять в тревоге вместо общего
+   * «скрейп/парс сломан?». У еженедельной сводки тишина — это «выпуска не
+   * было», а не поломка; общая фраза здесь врала (02.10).
+   */
+  deadHint?: string;
 }
 
 /**
@@ -66,9 +80,23 @@ export const SAFETY_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
     knownDormant: { since: '2026-09-26', reason: 'kamgov.ru отвечает раннеру 403 (проба 605); сводку Минтура берём с kamtoday.ru — решение владельца 26.09' },
   },
   {
-    // Пересказ сводки Минтура в «Новостях Камчатки» (#2064). Лента общая и
-    // пишет каждый день: 48 ч без единого поста — мы её не читаем.
-    key: 'kamtoday', label: 'kamtoday.ru — пересказ сводки Минтура', maxSilenceHours: 48,
+    // Лента «Новостей Камчатки» (#2064) — общая и пишет каждый день: 48 ч без
+    // единого поста — мы её не читаем. Живость — по постам ленты (RSS бегущая,
+    // старое из неё уходит), а не по вставленным тревогам: до 02.10 считалось
+    // по тревогам, и шесть дней работающего чтения ленты, в которой не было
+    // сводки, уходили в Telegram как «ни разу не дал данных (парс сломан?)».
+    key: 'kamtoday', label: 'kamtoday.ru — лента новостей', maxSilenceHours: 48,
+    aliveBy: 'raw_items',
+    deadHint: 'лента не отдаёт постов — проверь адрес RSS и ответ раннера',
+  },
+  {
+    // Сама сводка Минтура в этой ленте — отдельный вопрос с отдельным сроком.
+    // Выпуск еженедельный; «сводки не было» считается по статьям, прошедшим
+    // isMinturBulletin, даже если тревог из них не вышло (все маршруты
+    // открыты — тоже сводка). Десять суток — неделя и запас на задержку.
+    key: 'kamtoday_bulletin', label: 'Сводка Минтура на kamtoday.ru', maxSilenceHours: 240,
+    aliveBy: 'raw_items',
+    deadHint: 'лента читается, но статьи-сводки в ней не было; возможно, выпуск не выходил или заголовок не содержит «Минтур»/«сводка»',
   },
   {
     // Таблица землетрясений с главной emsd.ru (24.09, решение владельца:
@@ -107,6 +135,8 @@ export interface DeadSource {
   reason: 'not_configured' | 'silent' | 'never';
   /** Часов тишины (для 'silent'/'never' — от last_nonempty_at; иначе null). */
   silentHours: number | null;
+  /** Объяснение из ожидания (deadHint), если у источника оно своё. */
+  hint?: string;
 }
 
 export interface SourceHealthEntry {
@@ -115,6 +145,8 @@ export interface SourceHealthEntry {
   status: SourceStatus;
   rawItems: number;
   inserted: number;
+  /** Чем доказана живость (см. SourceExpectation.aliveBy); нет — по inserted. */
+  aliveBy?: 'inserted' | 'raw_items';
   /** Причина сбоя ЭТОГО прогона (HTTP-код / текст ошибки) — только при 'error'.
       Без неё отчёт говорил «error» и молчал, чем именно болен источник, —
       диагноз требовал лезть в логи сервера (которых у cron-прогона нет). */
@@ -162,14 +194,14 @@ export function evaluateDeadSources(
       // Опрашивался, но НИ РАЗУ не дал сырых данных — «мёртв» только если наблюдаем
       // его уже дольше порога тишины (иначе ещё рано судить).
       if (observedHours > exp.maxSilenceHours) {
-        dead.push({ key: exp.key, label: exp.label, reason: 'never', silentHours: null });
+        dead.push({ key: exp.key, label: exp.label, reason: 'never', silentHours: null, ...(exp.deadHint ? { hint: exp.deadHint } : {}) });
       }
       continue;
     }
 
     const silentHours = (now - lastNonEmpty) / 3_600_000;
     if (silentHours > exp.maxSilenceHours) {
-      dead.push({ key: exp.key, label: exp.label, reason: 'silent', silentHours: Math.round(silentHours) });
+      dead.push({ key: exp.key, label: exp.label, reason: 'silent', silentHours: Math.round(silentHours), ...(exp.deadHint ? { hint: exp.deadHint } : {}) });
     }
   }
 
@@ -220,22 +252,24 @@ export function dueForAlert(
  */
 export async function recordSourceHealth(pool: Pool, entries: SourceHealthEntry[]): Promise<void> {
   for (const e of entries) {
+    // Чем источник доказал живость в ЭТОМ прогоне — решается здесь, по
+    // ожиданию, а не в SQL: у ленты это посты, у превью Telegram — вставка.
+    const alive = e.status === 'ok' && (e.aliveBy === 'raw_items' ? e.rawItems > 0 : e.inserted > 0);
     await pool.query(
       `INSERT INTO safety_source_health
          (source_key, label, last_run_at, last_status, raw_items, inserted,
           last_nonempty_at, first_seen_at, updated_at)
-       VALUES ($1, $2, NOW(), $3, $4, $5, CASE WHEN $3 = 'ok' AND $5 > 0 THEN NOW() ELSE NULL END, NOW(), NOW())
+       VALUES ($1, $2, NOW(), $3, $4, $5, CASE WHEN $6::boolean THEN NOW() ELSE NULL END, NOW(), NOW())
        ON CONFLICT (source_key) DO UPDATE SET
          label            = EXCLUDED.label,
          last_run_at      = NOW(),
          last_status      = EXCLUDED.last_status,
          raw_items        = EXCLUDED.raw_items,
          inserted         = EXCLUDED.inserted,
-         last_nonempty_at = CASE WHEN EXCLUDED.last_status = 'ok' AND EXCLUDED.inserted > 0
-                                 THEN NOW() ELSE safety_source_health.last_nonempty_at END,
+         last_nonempty_at = CASE WHEN $6::boolean THEN NOW() ELSE safety_source_health.last_nonempty_at END,
          first_seen_at    = COALESCE(safety_source_health.first_seen_at, NOW()),
          updated_at       = NOW()`,
-      [e.key, e.label, e.status, e.rawItems, e.inserted],
+      [e.key, e.label, e.status, e.rawItems, e.inserted, alive],
     );
   }
 }
@@ -285,8 +319,9 @@ export function splitKnownDormant(
 export function formatDeadSourceAlert(dead: DeadSource[]): string {
   const lines = dead.map((d) => {
     if (d.reason === 'not_configured') return `• ${d.label}: не настроен (нет env-ключа)`;
-    if (d.reason === 'never') return `• ${d.label}: ни разу не дал данных (скрейп/парс сломан?)`;
-    return `• ${d.label}: молчит ${d.silentHours} ч`;
+    // Своё объяснение у источника важнее общей догадки про парсер.
+    if (d.reason === 'never') return `• ${d.label}: ${d.hint ?? 'ни разу не дал данных (скрейп/парс сломан?)'}`;
+    return `• ${d.label}: молчит ${d.silentHours} ч${d.hint ? ` — ${d.hint}` : ''}`;
   });
   return `Safety-ingest: источники не дают данных\n${lines.join('\n')}\n\nЛента безопасности может отставать. Проверь канал/ключ.`;
 }

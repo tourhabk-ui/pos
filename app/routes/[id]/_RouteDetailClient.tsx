@@ -51,6 +51,7 @@ import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } f
 // прямо в списке путевых точек.
 import { locationTypeLabel } from '@/lib/places/location-types';
 import BottomNav from '@/components/shared/BottomNav';
+import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -437,6 +438,8 @@ function OfferCard({ offer, activityType, onBook }: {
 }
 
 export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }: { id: string; mapPackBaseUrl: string | null; summary?: RouteSummary | null }) {
+  // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
+  const backHref = useCatalogReturnHref('/routes');
   const router = useRouter();
   const [route, setRoute] = useState<RouteDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -719,7 +722,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
         <Header />
         <div className="ds-page pt-32 text-center space-y-4">
           <p className="text-[var(--text-secondary)]">Маршрут не найден</p>
-          <Link href="/routes" className="ds-btn ds-btn-secondary">Назад к каталогу</Link>
+          <Link href={backHref} className="ds-btn ds-btn-secondary">Назад к каталогу</Link>
         </div>
       </>
     );
@@ -804,7 +807,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
         {/* Навигация */}
         <div className="absolute top-20 left-0 right-0 px-4 md:px-8 flex items-center justify-between">
           <Link
-            href="/routes"
+            href={backHref}
             className="inline-flex items-center gap-1.5 text-sm text-[var(--text-primary)] hover:text-[var(--accent)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] px-3 py-1.5 rounded-lg transition-all border border-[var(--border)]"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Маршруты

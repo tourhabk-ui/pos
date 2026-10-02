@@ -20,12 +20,19 @@ export interface OgImage {
   alt: string;
 }
 
+/**
+ * Кадр 1200×630 (срез 02.10: квадрат 1024×1024 героя в сниппете мессенджеров
+ * и соцсетей обрезался по бокам). Сделан из того же снимка героя:
+ * `sharp(hero-light.jpeg).resize(1200, 630, { fit: 'cover' })`.
+ */
+export const DEFAULT_OG_IMAGE = '/images/og/vedar-1200x630.jpg';
+
 export function defaultOgImages(): OgImage[] {
   return [
     {
-      url: '/images/hero/hero-light.jpeg',
-      width: 1024,
-      height: 1024,
+      url: DEFAULT_OG_IMAGE,
+      width: 1200,
+      height: 630,
       alt: 'Ведар — Туры на Камчатку',
     },
   ];

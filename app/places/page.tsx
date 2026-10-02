@@ -4,6 +4,7 @@ import RoutesPageClient from '../routes/_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
+import { clampPage } from '@/lib/routes/catalog-return';
 import { withCardExcerpts } from '@/lib/routes/card-excerpt';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
@@ -52,7 +53,7 @@ function first(v: string | string[] | undefined): string {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const sp = await searchParams;
   const page = parsePage(first(sp.page));
-  const hasFilters = ['q', 'location_type', 'difficulty'].some(k => first(sp[k]) !== '');
+  const hasFilters = ['q', 'location_type', 'difficulty', 'radius', 'sort'].some(k => first(sp[k]) !== '');
   const canonical = catalogCanonical(SITE, '/places', page, hasFilters);
   if (page <= 1 || hasFilters) return { ...BASE_METADATA, alternates: { canonical } };
   const title = `Места Камчатки — страница ${page}`;
@@ -80,7 +81,8 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   const difficultyRaw = first(sp.difficulty);
   const difficulty: '' | 'easy' | 'medium' | 'hard' =
     difficultyRaw === 'easy' || difficultyRaw === 'medium' || difficultyRaw === 'hard' ? difficultyRaw : '';
-  const page = parsePage(first(sp.page));
+  const requestedPage = parsePage(first(sp.page));
+  let page = requestedPage;
 
   const filters: CatalogFilters = {
     ...(q ? { q } : {}),
@@ -107,6 +109,12 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
+    // Номера больше нет — последняя существующая страница (см. /routes).
+    const last = clampPage(requestedPage, initial.meta.pages);
+    if (last !== requestedPage) {
+      page = last;
+      initial = await queryCatalogForPage({ ...filters, page });
+    }
   } catch (err) {
     // Клиент покажет состояние ошибки, но отказ не глушится: без строки в логе
     // пустой первый экран у поисковика неотличим от «мест нет» (§4.0).
@@ -124,6 +132,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     sort: 'recommended',
     difficulty,
     priceRange: '',
+    radius: '',
   });
 
   const itemListJsonLd = initial && initial.items.length > 0
@@ -153,6 +162,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
           initialMeta={initial ? { total: initial.meta.total, pages: initial.meta.pages } : { total: 0, pages: 1 }}
           initialError={initial === null}
           initialKey={initialKey}
+          initialPage={page}
           lockedKind="place"
           initialParks={await parksPromise}
           initialCategories={await categoriesPromise}

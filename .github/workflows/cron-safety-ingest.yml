@@ -80,8 +80,11 @@ jobs:
 
           # Сводка Минтура пересказом kamtoday.ru (#2064, решение владельца
           # 26.09): kamgov.ru закрыт и раннеру. Лента — общие новости края,
-          # поэтому открываются ТОЛЬКО статьи с «Минтуриз…» в заголовке (до
-          # трёх); сервер разберёт лишь те, что окажутся сводкой. Что увидели в
+          # поэтому открываются ТОЛЬКО статьи, где заголовок или анонс называют
+          # Минтур или сводку о доступности (до трёх); сервер разберёт лишь те,
+          # что окажутся сводкой (isMinturBulletin). Фильтр широкий намеренно
+          # (02.10): узкий «Минтуриз…» только по заголовку мог пропустить выпуск,
+          # озаглавленный иначе, и неделю никто бы не узнал. Что увидели в
           # ленте — kamtoday_fetch: отказ ленты не должен читаться как «сводки нет».
           kt_code=$(curl -s --max-time 30 -o /tmp/kamtoday_rss.xml -w "%{http_code}" \
             -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
@@ -100,9 +103,10 @@ jobs:
               return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
             };
             const items = xml.split(/<item[\s>]/i).slice(1).map((b) => ({
-              title: tag(b, "title"), url: tag(b, "link"), pubDate: tag(b, "pubDate"),
+              title: tag(b, "title"), url: tag(b, "link"), pubDate: tag(b, "pubDate"), description: tag(b, "description"),
             }));
-            const matched = items.filter((i) => /минтуриз|министерств[а-я]* туризма/i.test(i.title) && /^https:\/\/kamtoday\.ru\//.test(i.url));
+            const BULLETIN_RE = /минтур|министерств[а-я]* туризма|оперативн[а-я]* сводк|доступност[а-я]* туристическ/i;
+            const matched = items.filter((i) => BULLETIN_RE.test(i.title + " " + i.description) && /^https:\/\/kamtoday\.ru\//.test(i.url));
             const articles = [];
             for (const it of matched.slice(0, 3)) {
               try {

@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { TripShareClient } from './_TripShareClient';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 interface PageProps {
   params: Promise<{ token: string }>;
@@ -31,7 +32,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     openGraph: {
       title: `${trip.title} — маршрут по Камчатке`,
       description: `${Array.isArray(trip.days) ? trip.days.length : 0} дней · vedarai.ru`,
-      images: [{ url: '/images/hero/hero-light.jpeg', width: 1024, height: 1024 }],
+      images: defaultOgImages(),
     },
   };
 }

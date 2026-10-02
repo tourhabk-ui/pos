@@ -214,7 +214,12 @@ describe('размеры картинки для ссылок совпадают
         checked++;
       }
     }
-    expect(checked).toBeGreaterThanOrEqual(5);
+    // 02.10: размеры объявлены ОДИН раз — в og-image.ts (1200×630 из героя);
+    // страницы берут defaultOgImages() и своих чисел не держат.
+    expect(checked).toBeGreaterThanOrEqual(1);
+    for (const f of ['app/page.tsx', 'app/plans/[slug]/page.tsx', 'app/trip/[token]/page.tsx']) {
+      expect(read(f), f).not.toMatch(/url:\s*'\/images\/[^']+\.jpe?g',\s*width:/);
+    }
   });
 });
 

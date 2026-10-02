@@ -23,6 +23,7 @@ import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activi
 import { tourPath } from '@/lib/tours/tour-url';
 import { PLAN_PRESETS, findPlanPreset, planLastModified } from '@/lib/plans/presets';
 import { fitTitle, PLAN_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const revalidate = 86400;
 export const dynamicParams = true;
@@ -52,7 +53,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: preset.title,
       description: preset.description,
       url: `${SITE}/plans/${preset.slug}`,
-      images: [{ url: '/images/hero/hero-light.jpeg', width: 1024, height: 1024 }],
+      images: defaultOgImages(),
     },
   };
 }

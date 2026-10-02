@@ -14,6 +14,7 @@ import { HazardPhraseList } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { distanceToCity } from '@/lib/places/distance-to-city';
+import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -170,6 +171,8 @@ function lsWrite(id: string, data: PlaceData) {
 }
 
 export default function PlaceDetailClient({ id, initialPlace = null }: { id: string; initialPlace?: PlaceData | null }) {
+  // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
+  const backHref = useCatalogReturnHref('/places');
   // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
   // приехал сюда за путём. Читается из location, а не через useSearchParams:
   // хук заставил бы обернуть страницу в Suspense ради одного булева флага.
@@ -240,7 +243,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
         <Header />
         <div className="max-w-3xl mx-auto px-4 py-24 text-center">
           <p className="text-[var(--text-secondary)] mb-4">{error ?? 'Место не найдено'}</p>
-          <Link href="/routes?kind=place" className="ds-btn ds-btn-secondary">← Все места</Link>
+          <Link href={backHref} className="ds-btn ds-btn-secondary">← Все места</Link>
         </div>
       </>
     );
