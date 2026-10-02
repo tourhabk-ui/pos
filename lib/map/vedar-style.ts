@@ -40,6 +40,7 @@
 import { PLACES_ATTRIBUTION, OVERVIEW_MAX_ZOOM, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { calculatedCarLine } from '@/lib/map/line-standard';
 import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
+import { landGeoJSON } from '@/lib/geo/land';
 
 /**
  * Верхний зум СЛОЁВ обзорного яруса (гипсометрия, тень, океан) — на единицу
@@ -111,6 +112,12 @@ export const NODATA_TRANSPARENT = 'rgba(0,0,0,0)';
 interface MapPalette {
   /** Фон под всем — там, где нет ни рельефа, ни воды. */
   background: string;
+  /**
+   * Суша края до прихода рельефа (03.10, владелец: «сначала прорисовывать
+   * контур и потом заполнять рельеф»). Чуть отличается от «не знаю», чтобы
+   * край читался формой, а берег — линией горизонталей (contourMajor).
+   */
+  landHint: string;
   /**
    * «Не знаю» — цвет дыры покрытия DEM. Лежит ФОНОМ карты, а не ступенью
    * гипсометрии (05.09): пакеты соседей накладываются, и тайл z8 одной
@@ -200,6 +207,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   dark: {
     background: '#0D1117',   // --bg-primary dark
     nodata: '#3D3A35',
+    landHint: '#4A463F',
     shadow: '#05070A',
     // Первый живой рендер 02.09 (Авачинский перевал): рельеф «почти
     // чёрный» — подсветка гребня #2A3B33 от фона #0D1117 не отличалась.
@@ -282,6 +290,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   light: {
     background: '#F5F0EB',   // --bg-primary light
     nodata: '#DAD5C9',
+    landHint: '#C9BFAE',
     shadow: '#6B6560',
     highlight: '#FFFFFF',
     accentShadow: '#8A7F72',
@@ -487,11 +496,17 @@ export function buildVedarStyle(
       ...r.sources(),
       ...vedarOceanSource(sources, ''),
       ...vedarPlacesSource(sources, ''),
+      // Контур края — данными в самом стиле, не адресом: рисуется сразу и
+      // без сети, пока рельеф и море едут из хранилища (см. landOutlineLayers).
+      [LAND_OUTLINE_SOURCE]: { type: 'geojson', data: landGeoJSON() },
     },
     layers: [
       // Фон — «не знаю»: сквозь прозрачные дыры покрытия и за краем пакетов
       // виден он, а не цвет страницы.
       { id: 'bg', type: 'background', paint: { 'background-color': p.nodata } },
+      // Контур края — сразу над фоном, под всем остальным: первое, что видно,
+      // и первое, что закрывает пришедший рельеф.
+      ...landOutlineLayers(p),
       // Вода с z8 — под всем рельефом: проступает только в дырах DEM над
       // морем (см. vedarOceanUnderLayers).
       ...vedarOceanUnderLayers(sources, p, ''),
@@ -1158,6 +1173,34 @@ function vedarOceanLayers(sources: VedarStyleSources, p: MapPalette, ns: string)
 }
 
 /** Префикс заливки квадратов без DEM — её не перекрывает ничья тень. */
+/**
+ * Контур края раньше рельефа (03.10, скрин владельца с 4G: пустой бежевый
+ * прямоугольник, пока подложка не пришла — «сначала прорисовывать контур и
+ * потом заполнять рельеф»). Суша — заливкой чуть темнее «не знаю», берег —
+ * линией. Данные — кольца lib/geo/land (Natural Earth 10m, упрощение ~1 км),
+ * то есть настоящий берег, а не рисунок: ни форм, ни подробностей сверх
+ * источника. Рельеф непрозрачен на суше и закрывает контур целиком, океан
+ * ложится поверх моря — заглушка уходит сама, по мере прихода данных.
+ */
+export const LAND_OUTLINE_SOURCE = 'land-outline';
+export function landOutlineLayers(p: MapPalette): Array<Record<string, unknown>> {
+  return [
+    {
+      id: 'land-outline-fill', type: 'fill', source: LAND_OUTLINE_SOURCE,
+      paint: { 'fill-color': p.landHint, 'fill-opacity': 1, 'fill-antialias': true },
+    },
+    {
+      id: 'land-outline-coast', type: 'line', source: LAND_OUTLINE_SOURCE,
+      layout: { 'line-join': 'round' },
+      paint: {
+        'line-color': p.contourMajor,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 8, 1.4],
+        'line-opacity': 0.9,
+      },
+    },
+  ];
+}
+
 export const OCEAN_VOID_PREFIX = 'vedar-ocean-void';
 
 /** Префикс подложки воды — по нему карта и снимки кладут её под весь рельеф. */

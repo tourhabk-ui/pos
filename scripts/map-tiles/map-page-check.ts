@@ -70,6 +70,15 @@ async function main(): Promise<number> {
     console.log('сеть: медленная (1,6 Мбит/с, 150 мс)');
   }
 
+  // Хранилище не отвечает — как на телефоне владельца 03.10 (код 0 на файлы
+  // обзора): все запросы к хосту обрываются, и видно, что карта рисует без
+  // него (контур края раньше рельефа).
+  const blocked = arg('--block', '');
+  if (blocked) {
+    await page.route((u) => u.hostname === blocked, (r) => r.abort('connectionfailed'));
+    console.log(`хост ${blocked}: все запросы обрываются`);
+  }
+
   try {
     await page.goto(`${SITE}${path}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   } catch (err) {
