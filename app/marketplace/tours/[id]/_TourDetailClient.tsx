@@ -13,7 +13,7 @@ import {
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import { pickupForCard } from '@/lib/tours/pickup';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
-import { photoSrc } from '@/lib/images/variant';
+import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
@@ -690,7 +690,12 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                     <button key={i} onClick={() => setLightbox(i + 1)} className="relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-hover)] group">
                       {/* Та же причина, что у героя: центровка режет головы на
                           портретных кадрах, а в филмстрипе плитка ещё уже. */}
-                      <Image src={photoSrc(src, 640)} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" loading="lazy" style={{ objectPosition: '50% 30%' }} className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                      {/* Плитка 80–100 px: 640-вариант шёл сюда в 7 раз больше нужного
+                          (153 КБ на клетку 89×89, аудит 02.10). srcSet из нарезанных
+                          ширин — браузер берёт 320 на телефоне. Снимок с S3 без
+                          вариантов едет оригиналом. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photoSrc(src, 320)} srcSet={photoSrcSet(src)} sizes="(max-width: 640px) 25vw, 15vw" alt={`${tour.title} — фото ${i + 2}`} loading="lazy" decoding="async" style={{ objectPosition: '50% 30%' }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       {i === 5 && stripPhotos.length > 6 && (
                         <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-sm font-semibold">+{stripPhotos.length - 6}</span>
                       )}

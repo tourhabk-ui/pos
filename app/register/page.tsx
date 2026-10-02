@@ -448,8 +448,9 @@ export default function RegisterRoutePage() {
             </div>
 
             <div>
-              <label className="text-xs text-[var(--text-muted)] mb-1 block">Регион</label>
+              <label htmlFor="reg-region" className="text-xs text-[var(--text-muted)] mb-1 block">Регион</label>
               <input
+                id="reg-region"
                 type="text"
                 value={region}
                 onChange={e => setRegion(e.target.value)}
@@ -460,8 +461,9 @@ export default function RegisterRoutePage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-[var(--text-muted)] mb-1 block">Дата выхода *</label>
+                <label htmlFor="reg-start" className="text-xs text-[var(--text-muted)] mb-1 block">Дата выхода *</label>
                 <input
+                  id="reg-start"
                   type="date"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
@@ -470,8 +472,9 @@ export default function RegisterRoutePage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-[var(--text-muted)] mb-1 block">Дата возврата *</label>
+                <label htmlFor="reg-end" className="text-xs text-[var(--text-muted)] mb-1 block">Дата возврата *</label>
                 <input
+                  id="reg-end"
                   type="date"
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
@@ -483,10 +486,11 @@ export default function RegisterRoutePage() {
             </div>
 
             <div>
-              <label className="text-xs text-[var(--text-muted)] mb-1 block">
+              <label htmlFor="reg-return-time" className="text-xs text-[var(--text-muted)] mb-1 block">
                 Контрольное время возврата {isDay ? '*' : '(необязательно)'}
               </label>
               <input
+                id="reg-return-time"
                 type="time"
                 value={expectedReturnTime}
                 onChange={e => setExpectedReturnTime(e.target.value)}
@@ -555,7 +559,7 @@ export default function RegisterRoutePage() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-[var(--text-muted)] w-5">#{idx + 1}</span>
                   {members.length > 1 && (
-                    <button onClick={() => removeMember(idx)} className="ml-auto p-1 text-[var(--text-muted)] hover:text-red-400">
+                    <button type="button" onClick={() => removeMember(idx)} aria-label={`Убрать участника ${idx + 1}`} className="ml-auto p-1 text-[var(--text-muted)] hover:text-red-400">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}

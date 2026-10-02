@@ -25,9 +25,10 @@ function variantPath(src: string, width: number): string {
 
 /**
  * Путь к варианту нужной ширины. Нет варианта — оригинал.
- * Ширина 1280 при отсутствии (узкий исходник) деградирует до 640.
+ * Ширина 1280 при отсутствии (узкий исходник) деградирует до самой широкой
+ * из нарезанных; 320 — для плиток 80–100 px (филмстрип тура).
  */
-export function photoSrc(src: string | null | undefined, width: 640 | 1280): string {
+export function photoSrc(src: string | null | undefined, width: 320 | 640 | 1280): string {
   if (!src) return '';
   const widths = VARIANTS.get(src);
   if (!widths) return src;

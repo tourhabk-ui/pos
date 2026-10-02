@@ -2,18 +2,21 @@
   {
     "src": "/images/_1ed9f28f-5844-4994-b7b6-263c2fc93ca8.jpeg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/dogsled.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/fishing.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -21,36 +24,42 @@
   {
     "src": "/images/activities/helicopter.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/hotsprings.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/jeep.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/rafting.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/sea.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/activities/snowmobile.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -58,6 +67,7 @@
   {
     "src": "/images/activities/volcanoes.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -65,6 +75,7 @@
   {
     "src": "/images/bento/cape.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -72,12 +83,14 @@
   {
     "src": "/images/bento/khalaktyr.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/bento/laguna.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -85,18 +98,21 @@
   {
     "src": "/images/bento/mutnovsky.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/bento/paratunka.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/bg/dark-1920.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -104,36 +120,42 @@
   {
     "src": "/images/bg/light-768.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/bg/light-832.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/categories/medvedi.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/categories/morskie.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/categories/rybalka.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/categories/termy.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -141,18 +163,21 @@
   {
     "src": "/images/categories/vertolety.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/__.jpeg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/_-min.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -160,6 +185,7 @@
   {
     "src": "/images/fishingkam/_.jpeg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -167,36 +193,42 @@
   {
     "src": "/images/fishingkam/2025-01-09_113928_1_.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-09_113932-mi.png",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-09_114326-mi.png",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-09_114531_1.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-09_114821_1.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-27_142444.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -204,24 +236,28 @@
   {
     "src": "/images/fishingkam/2025-01-27_142510_1.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-27_142551_1.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-27_142551.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-27_142653.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -229,18 +265,21 @@
   {
     "src": "/images/fishingkam/2025-01-27_142814.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-01-27_142818_1.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-02-10_151416.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -248,6 +287,7 @@
   {
     "src": "/images/fishingkam/2025-02-10_151421.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -255,12 +295,14 @@
   {
     "src": "/images/fishingkam/2025-02-10_151433.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2025-02-10_151441.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -268,6 +310,7 @@
   {
     "src": "/images/fishingkam/2025-02-10_151450.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -275,78 +318,91 @@
   {
     "src": "/images/fishingkam/2026-08-23_autumn-1.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2026-08-23_autumn-2.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2026-08-23_autumn-3.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/2026-08-23_autumn-4.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/catch-01.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/catch-02.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/catch-03.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/catch-04.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/catch-05.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/catch-06.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/image_6-min_1.png",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/image_8-min_1.png",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/fishingkam/image_8.png",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -354,12 +410,14 @@
   {
     "src": "/images/fishingkam/logo.png",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/gallery/aurora.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -367,6 +425,7 @@
   {
     "src": "/images/gallery/bay-sunset.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -374,6 +433,7 @@
   {
     "src": "/images/gallery/camp-sunset.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -381,6 +441,7 @@
   {
     "src": "/images/gallery/road-winter.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -388,6 +449,7 @@
   {
     "src": "/images/gallery/stela.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -395,6 +457,7 @@
   {
     "src": "/images/gallery/sunset-clouds.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -402,6 +465,7 @@
   {
     "src": "/images/hero/bears-kurilskoye.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -409,84 +473,98 @@
   {
     "src": "/images/hero/hero-dark.jpeg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/hero-light.jpeg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133026.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133037.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133103.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133133.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133142.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133152.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133213.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133221.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133229.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/hero/IMG_20260316_133241.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/light.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/marketplace/avachinsky_climb.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -494,12 +572,14 @@
   {
     "src": "/images/marketplace/bears_kurilskoye.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/marketplace/dachny_hotsprings.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -507,6 +587,7 @@
   {
     "src": "/images/marketplace/gorely_crater.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -514,6 +595,7 @@
   {
     "src": "/images/marketplace/hero-marketplace.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -521,18 +603,21 @@
   {
     "src": "/images/marketplace/paratunka_thermal.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/marketplace/rafting_bystraya.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/marketplace/sea_fishing_avacha.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -540,6 +625,7 @@
   {
     "src": "/images/marketplace/vachkazhets.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -547,42 +633,49 @@
   {
     "src": "/images/marketplace/valley_geysers_heli.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/avacha-winter.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/cape.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/dog-sled.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/gorely.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/helicopter.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/intro.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -590,48 +683,56 @@
   {
     "src": "/images/partners/kamchatintour/laguna-winter.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/rafting.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/seo2.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/seo3.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/seo4.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/snowmobile.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/spa-summer.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatintour/thermal.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -639,18 +740,21 @@
   {
     "src": "/images/partners/kamchatintour/winter-adventures.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/partners/kamchatka-fishing/chavycha.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/social/agent-orchestration.png",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -658,6 +762,7 @@
   {
     "src": "/images/tours/bystraya-rafting/01-river-volcanoes.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -665,6 +770,7 @@
   {
     "src": "/images/tours/bystraya-rafting/02-rafting.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -672,18 +778,21 @@
   {
     "src": "/images/tours/bystraya-rafting/03-salmon-catch.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/tours/bystraya-rafting/04-shore-lunch.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/tours/bystraya-rafting/05-char-catch.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -691,30 +800,35 @@
   {
     "src": "/images/tours/bystraya-rafting/06-fishing-group.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/tours/bystraya-rafting/07-bear-river.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/tours/bystraya-rafting/08-bear-fish.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/tours/bystraya-rafting/09-caviar.jpg",
     "widths": [
+      320,
       640
     ]
   },
   {
     "src": "/images/tours/bystraya-rafting/10-camp-lunch-1.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -722,6 +836,7 @@
   {
     "src": "/images/tours/bystraya-rafting/11-camp-lunch-2.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -729,6 +844,7 @@
   {
     "src": "/images/tours/bystraya-rafting/12-rafting-crew-1.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -736,6 +852,7 @@
   {
     "src": "/images/tours/bystraya-rafting/13-rafting-crew-2.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -743,6 +860,7 @@
   {
     "src": "/images/tours/bystraya-rafting/14-rafting-crew-3.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -750,6 +868,7 @@
   {
     "src": "/images/tours/bystraya-rafting/15-camp-lunch-3.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -757,6 +876,7 @@
   {
     "src": "/images/tours/bystraya-rafting/16-yurt-camp-wide.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -764,6 +884,7 @@
   {
     "src": "/images/tours/bystraya-rafting/17-shore-landing.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -771,6 +892,7 @@
   {
     "src": "/images/tours/bystraya-rafting/18-group-finish-1.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -778,6 +900,7 @@
   {
     "src": "/images/tours/bystraya-rafting/19-group-finish-2.jpg",
     "widths": [
+      320,
       640,
       1280
     ]
@@ -785,6 +908,7 @@
   {
     "src": "/images/tours/bystraya-rafting/20-group-finish-3.jpg",
     "widths": [
+      320,
       640,
       1280
     ]

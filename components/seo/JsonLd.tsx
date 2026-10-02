@@ -38,10 +38,11 @@ export function BreadcrumbJsonLd({ items }: BreadcrumbJsonLdProps) {
     })),
   };
 
+  // То же экранирование «<», что у JsonLd: имена мест приходят из БД.
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
     />
   );
 }
@@ -67,10 +68,11 @@ export function FAQJsonLd({ questions }: FAQJsonLdProps) {
     })),
   };
 
+  // То же экранирование «<», что у JsonLd: имена мест приходят из БД.
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
     />
   );
 }

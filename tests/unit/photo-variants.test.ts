@@ -119,7 +119,8 @@ describe('поверхности с жалобы владельца подклю
   it('карточка тура: герой и филмстрип идут через photoSrc', () => {
     const src = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
     expect(src).toMatch(/Image src=\{photoSrc\(heroImg, 1280\)\}/);
-    expect(src).toMatch(/Image src=\{photoSrc\(src, 640\)\}/);
+    // Филмстрип — плитка 80–100 px: 320 по умолчанию и srcSet (аудит 02.10).
+    expect(src).toMatch(/img src=\{photoSrc\(src, 320\)\} srcSet=\{photoSrcSet\(src\)\}/);
   });
 
   it('каталог туров идёт через photoSrc', () => {

@@ -216,6 +216,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
         -- Двойник места отвечает 308 на /places/{slug} (решение владельца
         -- 29.09): адрес с редиректом sitemap не предлагает.
         AND NOT EXISTS (SELECT 1 FROM places tp WHERE tp.slug = kr.slug AND tp.is_visible = TRUE)
+        -- Статья-двойник «kl-*» отвечает 308 на /articles/{slug} (аудит 02.10):
+        -- тот же текст лежал под двумя адресами, второй — с разметкой маршрута.
+        AND NOT EXISTS (SELECT 1 FROM articles ta WHERE ta.is_visible = TRUE AND kr.slug = 'kl-' || ta.slug)
       ORDER BY kr.updated_at DESC
       LIMIT 2000
     `);
