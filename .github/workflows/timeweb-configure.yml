@@ -9,9 +9,12 @@
 # и НИЧЕГО не меняет. Боевой прогон — `mode: apply`, и маркер возвращается в
 # dry следующим коммитом: файл, забытый в apply, однажды уехал бы правкой сам.
 #
-# Воркфлоу только ДОБАВЛЯЕТ. Удалений в нём нет по построению: освобождение
-# плавающего IP, снос групп файрвола и SSH-ключей — необратимые действия, их
-# делает владелец в панели своей рукой. Сторож: tests/unit/timeweb-configure.test.ts.
+# Удаления — по слову владельца 02.10: «удаляй IP, файрволы и ключи через
+# API». Они идут отдельной дверью remove(): только в apply, только по явно
+# перечисленной задаче, и только то, что ни к чему не привязано — свободный
+# плавающий IP, группа файрвола без единого ресурса, дубль SSH-ключа по имени
+# (новейший остаётся). Привязанное не трогается никогда.
+# Сторож: tests/unit/timeweb-configure.test.ts.
 #
 # Задача www сперва спрашивает состояние (GET) и действует только там, где
 # нужно: уже привязанный поддомен не трогается. Что НЕ печатается никогда:
@@ -21,6 +24,9 @@
 #   GET  /api/v1/apps/{app_id}                          — ip и домены приложения
 #   POST /api/v1/domains/{fqdn}/subdomains/{sub}        — поддомен
 #   POST /api/v2/domains/{fqdn}/dns-records {A, app_id} — A-запись с привязкой к приложению
+#   GET  /api/v1/floating-ips · DELETE /api/v1/floating-ips/{id}
+#   GET  /api/v1/firewall/groups, /firewall/groups/{id}/resources · DELETE /firewall/groups/{id}
+#   GET  /api/v1/ssh-keys · DELETE /api/v1/ssh-keys/{id}
 name: Настройка Timeweb (вручную, по маркеру)
 
 on:
@@ -90,6 +96,16 @@ jobs:
               failed.append(f'{label} — HTTP {code} {json.dumps(data, ensure_ascii=False)[:200]}')
               print(f'  ОТКАЗ ({code}): {label} — {json.dumps(data, ensure_ascii=False)[:200]}'); return None
 
+          def remove(label, path):
+              """Единственная дверь для удаления (слово владельца 02.10): в dry — только план."""
+              if not APPLY:
+                  planned.append(label); print(f'  ПЛАН: {label}'); return False
+              code, data = api('DELETE', path)
+              if 200 <= code < 300:
+                  changed.append(label); print(f'  УДАЛЕНО ({code}): {label}'); return True
+              failed.append(f'{label} — HTTP {code} {json.dumps(data, ensure_ascii=False)[:200]}')
+              print(f'  ОТКАЗ ({code}): {label} — {json.dumps(data, ensure_ascii=False)[:200]}'); return False
+
           print(f'# Настройка Timeweb — режим {MODE}, задачи: {", ".join(TASKS) or "нет"}')
 
           if 'www' in TASKS:
@@ -121,6 +137,40 @@ jobs:
                   if APPLY:
                       code, app2 = api('GET', f'/api/v1/apps/{APP_ID}')
                       print('  домены приложения после: ' + str([d.get('fqdn') for d in ((app2.get('app') or {}).get('domains') or []) if isinstance(d, dict)]))
+
+          if 'release_ip' in TASKS:
+              print('\n## Плавающие IP')
+              code, data = api('GET', '/api/v1/floating-ips')
+              if code != 200: failed.append(f'floating-ips не прочитаны (HTTP {code})')
+              for ip in data.get('ips') or []:
+                  bound = ip.get('resource_type') or ip.get('resource_id')
+                  print(f'  {ip.get("ip")} — ' + (f'привязан к {ip.get("resource_type")} {ip.get("resource_id")} — не трогается' if bound else 'ни к чему не привязан'))
+                  if not bound:
+                      remove(f'освободить IP {ip.get("ip")} ({ip.get("id")})', f'/api/v1/floating-ips/{ip.get("id")}')
+
+          if 'firewall_cleanup' in TASKS:
+              print('\n## Группы файрвола')
+              code, data = api('GET', '/api/v1/firewall/groups')
+              if code != 200: failed.append(f'firewall/groups не прочитаны (HTTP {code})')
+              for g in data.get('groups') or []:
+                  c, res = api('GET', f'/api/v1/firewall/groups/{g.get("id")}/resources')
+                  n = len(res.get('resources') or []) if c == 200 else None
+                  print(f'  «{g.get("name")}» ({g.get("id")}): ресурсов ' + ('НЕ ПРОЧИТАНО — не трогается' if n is None else str(n)))
+                  if n == 0:
+                      remove(f'удалить группу «{g.get("name")}» ({g.get("id")}) — ресурсов нет', f'/api/v1/firewall/groups/{g.get("id")}')
+
+          if 'ssh_cleanup' in TASKS:
+              print('\n## SSH-ключи')
+              code, data = api('GET', '/api/v1/ssh-keys')
+              if code != 200: failed.append(f'ssh-keys не прочитаны (HTTP {code})')
+              by_name = {}
+              for k in data.get('ssh_keys') or []:
+                  by_name.setdefault(k.get('name'), []).append(k)
+              for name, keys in by_name.items():
+                  keys.sort(key=lambda k: str(k.get('created_at')))
+                  print(f'  «{name}»: {len(keys)} шт.' + ('' if len(keys) > 1 else ' — единственный, остаётся'))
+                  for k in keys[:-1]:
+                      remove(f'удалить дубль ключа «{name}» ({k.get("id")}, {k.get("created_at")}); новейший остаётся', f'/api/v1/ssh-keys/{k.get("id")}')
 
           print('\n## Итог')
           print(f'- режим: {MODE}')

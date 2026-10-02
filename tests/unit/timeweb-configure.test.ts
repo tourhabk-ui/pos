@@ -5,9 +5,10 @@
  * правила, каждое из которых держится здесь, а не абзацем:
  *  - маркер в репозитории лежит в dry: файл, забытый в apply, однажды уехал бы
  *    правкой сам (тот же урок, что у images-repack);
- *  - воркфлоу только ДОБАВЛЯЕТ — ни одного DELETE в нём нет по построению;
- *    освобождение IP, снос групп файрвола и ключей необратимы и делаются
- *    владельцем в панели;
+ *  - удаления (слово владельца 02.10 «удаляй IP, файрволы и ключи через
+ *    API») идут одной дверью `remove()`: только в apply, только по явной
+ *    задаче, и только над непривязанным — свободный IP, группа без ресурсов,
+ *    дубль ключа; привязанное не трогается никогда;
  *  - запись идёт через одну дверь `write()`, которая в dry печатает план и
  *    не зовёт API.
  * Домен берётся из маркера, а не вписан в воркфлоу: сторож
@@ -38,13 +39,19 @@ describe('timeweb-configure: маркер', () => {
 });
 
 describe('timeweb-configure: воркфлоу', () => {
-  it('только добавляет: ни одного DELETE и ни одного PATCH', () => {
-    expect(CODE).not.toMatch(/['"]DELETE['"]/);
+  it('удаление — одной дверью remove(), DELETE больше нигде, PATCH нет вовсе', () => {
+    expect(CODE).toMatch(/def remove\(label, path\):/);
+    expect(CODE).toMatch(/api\('DELETE', path\)/);
+    expect((CODE.match(/['"]DELETE['"]/g) ?? []).length).toBe(1);
     expect(CODE).not.toMatch(/['"]PATCH['"]/);
+    // Привязанное не трогается: удаление только при отсутствии привязки/ресурсов/дубля.
+    expect(CODE).toMatch(/if not bound:\s*\n\s*remove\(/);
+    expect(CODE).toMatch(/if n == 0:\s*\n\s*remove\(/);
+    expect(CODE).toMatch(/for k in keys\[:-1\]:\s*\n\s*remove\(/);
   });
   it('запись — одной дверью write(), и в dry она не зовёт API', () => {
     expect(CODE).toMatch(/def write\(label, path, body=None\):/);
-    expect(CODE).toMatch(/if not APPLY:\s*\n\s*planned\.append\(label\)/);
+    expect((CODE.match(/if not APPLY:\s*\n\s*planned\.append\(label\)/g) ?? []).length).toBe(2);
     expect(CODE).toMatch(/api\('POST', path, body\)/);
     // Прямых POST мимо write() нет.
     expect(CODE).not.toMatch(/api\('POST', f'/);
