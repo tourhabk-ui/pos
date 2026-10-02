@@ -1,0 +1,140 @@
+# Настройка ресурсов Timeweb Cloud по маркеру (слово владельца 02.10: «добавь
+# www и если сможешь настрой timeweb под нас»).
+#
+# Токен лежит в секретах репозитория (TIMEWEB_TOKEN), прод и панель из среды
+# разработчика недостижимы — поэтому правка делается отсюда, с раннера, и
+# только по явному маркеру .github/triggers/timeweb-configure.json.
+#
+# Умолчание маркера без `mode` — dry: прогон читает состояние, печатает план
+# и НИЧЕГО не меняет. Боевой прогон — `mode: apply`, и маркер возвращается в
+# dry следующим коммитом: файл, забытый в apply, однажды уехал бы правкой сам.
+#
+# Воркфлоу только ДОБАВЛЯЕТ. Удалений в нём нет по построению: освобождение
+# плавающего IP, снос групп файрвола и SSH-ключей — необратимые действия, их
+# делает владелец в панели своей рукой. Сторож: tests/unit/timeweb-configure.test.ts.
+#
+# Задача www сперва спрашивает состояние (GET) и действует только там, где
+# нужно: уже привязанный поддомен не трогается. Что НЕ печатается никогда:
+# токен и значения переменных окружения — скрипт их не читает вовсе.
+#
+# Адреса API — из спецификации timeweb.cloud/api-docs-data/bundle.json (02.10):
+#   GET  /api/v1/apps/{app_id}                          — ip и домены приложения
+#   POST /api/v1/domains/{fqdn}/subdomains/{sub}        — поддомен
+#   POST /api/v2/domains/{fqdn}/dns-records {A, app_id} — A-запись с привязкой к приложению
+name: Настройка Timeweb (вручную, по маркеру)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/timeweb-configure.json'
+
+permissions: {}
+
+concurrency:
+  group: timeweb-configure
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Применить маркер к API Timeweb
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+          MARKER: .github/triggers/timeweb-configure.json
+        run: |
+          set -u
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "::error::TIMEWEB_TOKEN не задан в секретах репозитория — настраивать нечем."
+            exit 1
+          fi
+          python3 - <<'PY' | tee /tmp/tw-configure.md
+          import json, os, sys, urllib.request, urllib.error
+
+          marker = json.load(open(os.environ['MARKER']))
+          MODE = marker.get('mode', 'dry')
+          APPLY = MODE == 'apply'
+          DOMAIN = marker['domain']
+          APP_ID = int(marker['app_id'])
+          TASKS = marker.get('tasks', [])
+          TOKEN = os.environ['TIMEWEB_TOKEN']
+          B = 'https://api.timeweb.cloud'
+          changed, planned, failed = [], [], []
+
+          def api(method, path, body=None):
+              req = urllib.request.Request(B + path, method=method,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers={'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json'})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      raw = r.read()
+                      return r.status, (json.loads(raw) if raw else {})
+              except urllib.error.HTTPError as e:
+                  raw = e.read()
+                  try: return e.code, json.loads(raw)
+                  except Exception: return e.code, {'raw': raw[:300].decode('utf-8', 'replace')}
+              except Exception as e:
+                  return 0, {'error': str(e)[:200]}
+
+          def write(label, path, body=None):
+              """Единственная дверь для записи — и только POST: в dry печатается план."""
+              if not APPLY:
+                  planned.append(label); print(f'  ПЛАН: {label}'); return None
+              code, data = api('POST', path, body)
+              if 200 <= code < 300:
+                  changed.append(label); print(f'  СДЕЛАНО ({code}): {label}'); return data
+              failed.append(f'{label} — HTTP {code} {json.dumps(data, ensure_ascii=False)[:200]}')
+              print(f'  ОТКАЗ ({code}): {label} — {json.dumps(data, ensure_ascii=False)[:200]}'); return None
+
+          print(f'# Настройка Timeweb — режим {MODE}, задачи: {", ".join(TASKS) or "нет"}')
+
+          if 'www' in TASKS:
+              print('\n## www')
+              target = 'www.' + DOMAIN
+              code, app = api('GET', f'/api/v1/apps/{APP_ID}')
+              app = app.get('app') or {}
+              ip = app.get('ip'); doms = [d.get('fqdn') for d in (app.get('domains') or []) if isinstance(d, dict)]
+              print(f'  приложение {APP_ID}: ip {ip!r}, домены {doms}')
+              if code != 200 or not ip:
+                  failed.append(f'www: приложение не прочитано (HTTP {code})')
+              elif target in doms:
+                  print(f'  {target} уже привязан к приложению — делать нечего')
+              else:
+                  code, dom = api('GET', f'/api/v1/domains/{DOMAIN}')
+                  subs = [s.get('fqdn') for s in ((dom.get('domain') or {}).get('subdomains') or []) if isinstance(s, dict)]
+                  print(f'  поддомены {DOMAIN}: {subs}')
+                  if target not in subs:
+                      write(f'создать поддомен {target}', f'/api/v1/domains/{DOMAIN}/subdomains/www')
+                  code, recs = api('GET', f'/api/v1/domains/{target}/dns-records')
+                  a_recs = [r for r in (recs.get('dns_records') or []) if r.get('type') == 'A']
+                  print(f'  A-записи {target}: {[(r.get("data") or {}).get("value") for r in a_recs]}')
+                  # Привязка к приложению делается A-записью с app_id — даже если
+                  # запись с тем же адресом уже есть: именно app_id, а не адрес,
+                  # ставит имя в домены приложения и даёт сертификат.
+                  write(f'A-запись {target} -> {ip} с привязкой к приложению {APP_ID}',
+                        f'/api/v2/domains/{target}/dns-records',
+                        {'type': 'A', 'value': ip, 'ttl': 600, 'app_id': APP_ID})
+                  if APPLY:
+                      code, app2 = api('GET', f'/api/v1/apps/{APP_ID}')
+                      print('  домены приложения после: ' + str([d.get('fqdn') for d in ((app2.get('app') or {}).get('domains') or []) if isinstance(d, dict)]))
+
+          print('\n## Итог')
+          print(f'- режим: {MODE}')
+          print(f'- запланировано (dry): {len(planned)}')
+          print(f'- сделано: {len(changed)}')
+          print(f'- отказов: {len(failed)}')
+          for f in failed: print(f'  - {f}')
+          if failed: sys.exit(1)
+          PY
+          {
+            echo '## Настройка Timeweb'
+            echo '```'
+            cat /tmp/tw-configure.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          BODY=$(head -c 3500 /tmp/tw-configure.md | python3 -c 'import sys;print(sys.stdin.read().replace(chr(10), "%0A"))')
+          echo "::notice title=timeweb-configure::$BODY"

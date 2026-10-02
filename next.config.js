@@ -135,6 +135,36 @@ const nextConfig = {
         destination: 'https://vedarai.ru/:path',
         permanent: true,
       },
+      // www.vedarai.ru (02.10): перепись Timeweb показала, что имя резолвится
+      // на приложение, но в его доменах не числилось — сертификата не было, и
+      // адрес с www не открывался вовсе. Маркер timeweb-configure.json
+      // добавляет поддомен к приложению; дальше та же пара правил, что у
+      // tourhab.ru, сводит www к канону одним хопом. /api исключён по той же
+      // причине, что выше.
+      {
+        source: '/',
+        has: [{ type: 'host', value: 'www\\.vedarai\\.ru' }],
+        destination: 'https://vedarai.ru/',
+        permanent: true,
+      },
+      {
+        source: '/:path((?!api/).*)',
+        has: [{ type: 'host', value: 'www\\.vedarai\\.ru' }],
+        destination: 'https://vedarai.ru/:path',
+        permanent: true,
+      },
+      {
+        source: '/',
+        has: [{ type: 'header', key: 'x-forwarded-host', value: 'www\\.vedarai\\.ru' }],
+        destination: 'https://vedarai.ru/',
+        permanent: true,
+      },
+      {
+        source: '/:path((?!api/).*)',
+        has: [{ type: 'header', key: 'x-forwarded-host', value: 'www\\.vedarai\\.ru' }],
+        destination: 'https://vedarai.ru/:path',
+        permanent: true,
+      },
       { source: '/emergency.html',      destination: '/emergency',                       permanent: true },
       { source: '/fishingkam',          destination: '/operators/kamchatskaya-rybalka',  permanent: true },
       // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
