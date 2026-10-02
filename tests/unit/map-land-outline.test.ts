@@ -8,7 +8,7 @@
  * рельефом и морем, которые закроют его, когда придут.
  */
 import { describe, it, expect } from 'vitest';
-import { buildVedarStyle, LAND_OUTLINE_SOURCE } from '@/lib/map/vedar-style';
+import { buildVedarStyle, LAND_OUTLINE_SOURCE, OCEAN_UNDER_PREFIX } from '@/lib/map/vedar-style';
 import { landGeoJSON, landVerdict } from '@/lib/geo/land';
 
 type Style = {
@@ -26,15 +26,14 @@ describe('контур края в стиле карты', () => {
       expect(typeof src?.data).toBe('object');
     });
 
-    it(`${theme}: слои контура — сразу над фоном, ниже рельефа`, () => {
+    it(`${theme}: слои контура — над фоном и подложкой воды, ниже рельефа`, () => {
       const ids = (buildVedarStyle(theme, base) as unknown as Style).layers.map(l => l.id);
-      const bg = ids.indexOf('bg');
       const fill = ids.indexOf('land-outline-fill');
       const coast = ids.indexOf('land-outline-coast');
       const relief = ids.findIndex(id => id.startsWith('relief'));
-      expect(bg).toBe(0);
-      expect(fill).toBe(1);
-      expect(coast).toBe(2);
+      // Под контуром — только фон и подложка воды (она в море, контур на суше).
+      expect(ids.slice(0, fill).every(id => id === 'bg' || id.startsWith(OCEAN_UNDER_PREFIX))).toBe(true);
+      expect(coast).toBe(fill + 1);
       expect(relief).toBeGreaterThan(coast);
     });
   }
