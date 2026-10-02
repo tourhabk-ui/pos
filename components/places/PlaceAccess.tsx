@@ -13,11 +13,10 @@ interface Props {
   name: string;
   lat: number;
   lng: number;
-  accessInfo: string | null;
   nearbyMarkers: { id: string; name: string; lat: number; lng: number; locationType: string | null }[];
 }
 
-export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearbyMarkers }: Props) {
+export default function PlaceAccess({ placeId, name, lat, lng, nearbyMarkers }: Props) {
   // Кнопки «Organic Maps» и «Яндекс.Карты» сняты 13.09 (владелец: «кнопка
   // навигация до сих пор открывает сторонние сервисы»). Дорогу считает свой
   // граф — блок PlaceOwnRoute под шапкой этой же карточки; здесь остаются
@@ -54,11 +53,8 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
           от чего страница читалась как каша. Название группы даёт раздел,
           блок внутри подписывается только когда блоков в разделе несколько. */}
 
-      {accessInfo && (
-        <p className="text-[var(--text-secondary)] leading-relaxed" style={{ fontSize: '17px', lineHeight: '1.7', maxWidth: '68ch' }}>
-          {accessInfo}
-        </p>
-      )}
+      {/* Текст «Как добраться» рисует сама карточка (_PlaceDetailClient) —
+          этот блок грузится без SSR, а текст обязан лежать в первом HTML. */}
 
       {/* Map */}
       <div className="w-full rounded-lg overflow-hidden border border-[var(--border)]">

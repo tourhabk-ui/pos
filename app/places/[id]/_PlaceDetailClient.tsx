@@ -15,6 +15,7 @@ import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { distanceToCity } from '@/lib/places/distance-to-city';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
+import { composeAccessText } from '@/lib/places/access-text';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -546,12 +547,30 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
               разным концам страницы, хотя отвечают на один вопрос.
               Чужих навигаторов здесь нет с 13.09 (решение владельца). */}
           <Section title="Как добраться">
+            {/* Текст — из данных карточки, собирает lib/places/access-text
+                (решение владельца 02.10): расстояние и сторона от города,
+                записанный access_info, маршруты с километрами, МЧС,
+                территория, туры. Рисуется здесь, а не в PlaceAccess: тот
+                грузится без SSR, а текст обязан быть в первом HTML. */}
+            <p className="text-[var(--text-secondary)] leading-relaxed" style={{ fontSize: '17px', lineHeight: '1.7', maxWidth: '68ch' }}>
+              {composeAccessText({
+                name: place.name,
+                lat: place.lat,
+                lng: place.lng,
+                district: place.district,
+                zone: place.zone,
+                accessInfo: place.accessInfo,
+                routes: place.routes,
+                registrationRequired: place.safety.registrationRequired,
+                eco: place.eco ? { zone: place.eco.zone, permitRequired: place.eco.permitRequired } : null,
+                toursCount: place.tours.length,
+              }).join(' ')}
+            </p>
             <PlaceAccess
               placeId={place.id}
               name={place.name}
               lat={place.lat}
               lng={place.lng}
-              accessInfo={place.accessInfo}
               nearbyMarkers={place.nearby}
             />
           </Section>
