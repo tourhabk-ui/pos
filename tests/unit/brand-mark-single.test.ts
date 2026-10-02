@@ -46,6 +46,18 @@ describe('знак Ведара — один', () => {
     for (const l of logos) expect(l).toContain('/icons/icon-512.png');
   });
 
+  it('герой главной и экран маршрута — тот же знак, а не свой (02.10)', () => {
+    // Владелец 02.10 «лого везде разный»: герой главной рисовал свой знак —
+    // два вулкана и «Vedarai» (решение 01.08, пережившее решение 30.09), а
+    // экран «На маршруте» вместо знака показывал домик.
+    const home = read('app/_home/_HomeV8Client.tsx');
+    expect(home).toMatch(/<div className="hero-brand">\s*<Logo size=\{30\} mono \/>/);
+    expect(home).toMatch(/className="hb-word"[^>]*>Ведар</);
+    expect(home).not.toMatch(/hb-mark|>Vedarai</);
+    const field = read('app/planning/_PlanningClient.tsx');
+    expect(field).toMatch(/aria-label="На главную"[\s\S]{0,400}<Logo size=\{26\} \/>/);
+  });
+
   it('знак по умолчанию — цвет акцента, хардкода hex в компоненте нет', () => {
     const logo = read('components/shared/Logo.tsx');
     expect(logo).toContain("'var(--accent)'");

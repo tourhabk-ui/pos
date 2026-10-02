@@ -3,12 +3,13 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import Logo from '@/components/shared/Logo';
 import Image from 'next/image';
 import {
   Check, ChevronRight, ChevronUp, ChevronDown, ChevronLeft, Navigation, MapPin,
   Map as MapIcon, CloudSun, Phone,
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
-  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search, Plus, Home,
+  Trash2, Binoculars, MapPinPlus, Square, Route, Crosshair, Search, Plus,
 } from 'lucide-react';
 import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
 import { useTrackRecorder } from '@/hooks/useTrackRecorder';
@@ -5913,7 +5914,9 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
             <Link href="/" aria-label="На главную" title="На главную"
               className="self-center shrink-0 flex items-center justify-center rounded-lg transition-colors duration-200"
               style={{ width: 44, height: 44, color: 'var(--text-secondary)' }}>
-              <Home className="w-5 h-5" />
+              {/* Знак Ведара вместо домика (02.10): тот же, что в шапке и на
+                  иконке приложения, — и он же ведёт на главную. */}
+              <Logo size={26} />
             </Link>
           )}
           <button
