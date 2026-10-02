@@ -7,6 +7,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { lastIngestAt } from '@/lib/safety/ingest-run';
+import { distanceKm } from '@/lib/services/safety/seismic-zones';
 
 export interface SeismicEvent {
   id: string;
@@ -158,4 +159,83 @@ export async function getSeismicFeed(opts: { fresh?: boolean } = {}): Promise<Se
     // «данные сейчас»: пустая лента со свежим временем врёт дважды.
     return { events: [], source: 'none', updatedAt: new Date().toISOString(), checkedAt: null, fromCache: false };
   }
+}
+
+
+// ── Толчки на карту за окно (02.10) ──────────────────────────────────────
+
+/**
+ * Владелец 02.10, скрины eqkam: за вечер шесть толчков у Авачинского залива
+ * (M6.2 и повторные), а на /map их не было ни одного. Лента выше отдаёт
+ * 15 последних за 48 ч — для строки на экране безопасности, не для карты.
+ * Карте нужны ВСЕ толчки с координатами за окно, одной точкой на толчок.
+ */
+export const QUAKE_MAP_MAX_HOURS = 72;
+/** Предохранитель от рояля на пол: рой афтершоков — десятки, не тысячи. */
+const QUAKE_MAP_CAP = 500;
+/** Один толчок из разных источников: время ближе 2 мин и место ближе 50 км. */
+export const SAME_QUAKE_SECONDS = 120;
+export const SAME_QUAKE_KM = 50;
+
+export interface MapQuake {
+  id: string;
+  magnitude: number;
+  time: number;
+  depth: number | null;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Склейка дублей: eqkam, КБГС, EMSD и USGS пишут один толчок отдельными
+ * строками с немного разными временем, местом и магнитудой. Остаётся
+ * запись с наибольшей магнитудой — на карте страшнее правда, чем занижение.
+ * Чистая функция: вход отсортирован как угодно, выход — по времени, новые
+ * первыми.
+ */
+export function mergeSameQuakes(events: MapQuake[]): MapQuake[] {
+  const byMag = events.slice().sort((a, b) => b.magnitude - a.magnitude);
+  const kept: MapQuake[] = [];
+  for (const e of byMag) {
+    const twin = kept.some(k =>
+      Math.abs(k.time - e.time) <= SAME_QUAKE_SECONDS * 1000
+      && distanceKm(k.lat, k.lng, e.lat, e.lng) <= SAME_QUAKE_KM);
+    if (!twin) kept.push(e);
+  }
+  return kept.sort((a, b) => b.time - a.time);
+}
+
+/**
+ * Все толчки с координатами за последние `hours` часов. Исход «не смог»
+ * не глушится: упавший запрос бросает, вызывающий отвечает 502, а не
+ * пустой картой (§4.0) — «толчков не было» и «не прочитали» разные вещи.
+ */
+export async function getQuakesForMap(hours: number): Promise<MapQuake[]> {
+  const h = Math.min(Math.max(Math.round(hours), 1), QUAKE_MAP_MAX_HOURS);
+  const { rows } = await pool.query<{
+    id: string; title: string; created_at: Date; magnitude: string | null;
+    lat: string | null; lng: string | null; description: string | null;
+  }>(`
+    SELECT id::text, title, created_at, magnitude, lat, lng, description
+      FROM external_alerts
+     WHERE alert_type = 'earthquake'
+       -- created_at без пояса, в UTC; NOW() — в поясе сессии (+03 на проде).
+       AND created_at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 hour' * $1
+       AND lat IS NOT NULL AND lng IS NOT NULL
+     ORDER BY created_at DESC
+     LIMIT ${QUAKE_MAP_CAP}
+  `, [h]);
+  const events: MapQuake[] = [];
+  for (const r of rows) {
+    const magnitude = r.magnitude != null ? parseFloat(r.magnitude) : parseTitleKbgsras(r.title).magnitude;
+    const lat = parseFloat(String(r.lat));
+    const lng = parseFloat(String(r.lng));
+    if (!(magnitude > 0) || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    events.push({
+      id: r.id, magnitude, lat, lng,
+      time: new Date(r.created_at).getTime(),
+      depth: parseDepth(r.description),
+    });
+  }
+  return mergeSameQuakes(events);
 }

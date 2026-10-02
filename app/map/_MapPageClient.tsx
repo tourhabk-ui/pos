@@ -44,7 +44,9 @@ import EmergencyAction from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
-import type { VedarMapPlaceHit } from '@/components/shared/VedarMap';
+import type { VedarMapPlaceHit, VedarMapQuake } from '@/components/shared/VedarMap';
+import { useMapQuakes, MAP_QUAKE_HOURS } from '@/hooks/useMapQuakes';
+import { QuakeCard } from '@/components/map/QuakeCard';
 import { trackLine } from '@/lib/map/line-standard';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { resolvePackSource, BUILT_PACK_REGIONS, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
@@ -220,6 +222,9 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   const vedarReady = overviewSource.state === 'ready';
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMyLocation, setShowMyLocation] = useState(false);
+  // Толчки за сутки — слой поверх мест (владелец 02.10).
+  const { quakes, state: quakesState } = useMapQuakes();
+  const [quakeHit, setQuakeHit] = useState<VedarMapQuake | null>(null);
   const [showSos, setShowSos] = useState(false);
   const [sosSending, setSosSending] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
@@ -761,6 +766,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               // (владелец 06.09, «замкнуть /map на VedarMap», решение
               // «сначала просто карта-подложка»).
               onPlaceClick={setVedarPlaceHit}
+              quakes={quakes}
+              onQuakeClick={setQuakeHit}
               // Фильтр-чипсы над картой должны действовать на саму карту —
               // владелец 06.09, скрин: «нет точек мест» (фильтр выбран, а
               // карта по-прежнему рисует все места разом). vedar-places
@@ -803,6 +810,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
           </div>
 
+          {quakeHit && <QuakeCard quake={quakeHit} onClose={() => setQuakeHit(null)} />}
+
           {/* Счётчик */}
           <div className="absolute bottom-3 left-3 z-[500] bg-[var(--bg-card)] rounded-lg px-3 py-1.5 border border-[var(--border)] shadow-sm">
             <p className="text-sm text-[var(--text-secondary)]">
@@ -810,6 +819,14 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                 ? 'Загрузка...'
                 : <>Точек: <span className="font-bold text-[var(--accent)]">{filtered.length}</span></>
               }
+            </p>
+            {/* Толчки за сутки — числом и честным «не прочитаны» (§4.0). */}
+            <p className="text-xs text-[var(--text-muted)]">
+              {quakesState === 'failed'
+                ? 'Толчки: не прочитаны'
+                : quakesState === 'loading'
+                  ? 'Толчки: …'
+                  : `Толчков за ${MAP_QUAKE_HOURS} ч: ${quakes.length}`}
             </p>
           </div>
         </div>

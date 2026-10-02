@@ -34,7 +34,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap, GeoJSONSource, Marker } from 'maplibre-gl';
 import {
   buildVedarStyle, buildRegionOverlay, vedarMapPalette, sourceUrlIndex, DETAIL_MIN_ZOOM,
-  neighborLayerAnchor, PLACE_ICON_MIN_ZOOM,
+  neighborLayerAnchor, PLACE_ICON_MIN_ZOOM, QUAKES_SOURCE, QUAKES_LAYER,
   type RegionTier, type VedarMapTheme, type VedarStyleSources,
 } from '@/lib/map/vedar-style';
 import { regionsIntersecting, type RegionPack } from '@/lib/map/field-base-map';
@@ -79,6 +79,19 @@ export interface VedarMapPoint {
   coordinates: [number, number];
   kind: 'calculated_end';
   label: string;
+}
+
+/**
+ * Толчок на карте (02.10). Время — момент толчка, epoch ms; глубина может
+ * быть неизвестна (null), магнитуда — всегда (без неё толчок не рисуется).
+ */
+export interface VedarMapQuake {
+  id: string;
+  lat: number;
+  lng: number;
+  magnitude: number;
+  time: number;
+  depth: number | null;
 }
 
 /** Место платформы, отданное тапом — то, что уже лежит в свойствах точки слоя. */
@@ -164,6 +177,12 @@ interface VedarMapProps {
    * ним.
    */
   onPlaceClick?: (place: VedarMapPlaceHit) => void;
+  /**
+   * Толчки за последние сутки — слой поверх мест (владелец 02.10). Пусто —
+   * слоя не видно. Тап по кружку отдаёт толчок ПЕРЕД местом под ним.
+   */
+  quakes?: VedarMapQuake[];
+  onQuakeClick?: (quake: VedarMapQuake) => void;
   /** Булавка выбранной точки; null — булавки нет. */
   pin?: { lat: number; lng: number } | null;
   /**
@@ -547,6 +566,8 @@ export default function VedarMap({
   onMapClick,
   onUserClick,
   onPlaceClick,
+  quakes,
+  onQuakeClick,
   pin = null,
   placesFilter = null,
   placesVisible = true,
@@ -559,6 +580,10 @@ export default function VedarMap({
   onUserClickRef.current = onUserClick;
   const onPlaceClickRef = useRef(onPlaceClick);
   onPlaceClickRef.current = onPlaceClick;
+  const onQuakeClickRef = useRef(onQuakeClick);
+  onQuakeClickRef.current = onQuakeClick;
+  const quakesRef = useRef(quakes);
+  quakesRef.current = quakes;
   const placesFilterRef = useRef(placesFilter);
   placesFilterRef.current = placesFilter;
   const placesVisibleRef = useRef(placesVisible);
@@ -721,7 +746,16 @@ export default function VedarMap({
         // Место платформы — первым: круг `vedar-places*` (базовый стиль и
         // подложенные соседи несут разные ns) важнее голой точки под ним.
         map.on('click', (e) => {
-          const hit = map.queryRenderedFeatures(e.point)
+          const under = map.queryRenderedFeatures(e.point);
+          // Толчок — поверх мест и тапом раньше них: кружок тревоги лежит над
+          // точкой места, и палец попал именно в него.
+          const quakeHit = under.find(f => f.layer?.id === QUAKES_LAYER);
+          const quakeId = quakeHit?.properties?.id;
+          if (typeof quakeId === 'string' && onQuakeClickRef.current) {
+            const q = quakesRef.current?.find(x => x.id === quakeId);
+            if (q) { onQuakeClickRef.current(q); return; }
+          }
+          const hit = under
             .find(f => typeof f.layer?.id === 'string' && f.layer.id.startsWith('vedar-places'));
           const placeId = hit?.properties?.id;
           const coords = hit?.geometry?.type === 'Point' ? hit.geometry.coordinates : null;
@@ -1181,6 +1215,30 @@ export default function VedarMap({
       ],
     });
   }, [lines, points, pin, ready]);
+
+  // ── Толчки за сутки ─────────────────────────────────────────────────────
+  // setData, как у маршрута: набор меняется при каждом опросе ленты, а слой и
+  // его вид живут в стиле (lib/map/vedar-style, quakeLayer). Давность в
+  // часах считается здесь — стиль по ней гасит вчерашний толчок.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const src = map.getSource(QUAKES_SOURCE) as GeoJSONSource | undefined;
+    if (!src) return;
+    const now = Date.now();
+    src.setData({
+      type: 'FeatureCollection',
+      features: (quakes ?? []).map(q => ({
+        type: 'Feature' as const,
+        properties: {
+          id: q.id,
+          mag: q.magnitude,
+          age_h: Math.max(0, (now - q.time) / 3_600_000),
+        },
+        geometry: { type: 'Point' as const, coordinates: [q.lng, q.lat] },
+      })),
+    });
+  }, [quakes, ready]);
 
   // ── Своё положение ──────────────────────────────────────────────────────
   useEffect(() => {
