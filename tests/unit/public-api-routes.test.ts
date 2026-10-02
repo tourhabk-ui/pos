@@ -48,6 +48,12 @@ describe('isPublicApiPath — кого Edge пускает без токена',
     expect(isPublicApiPath('/api/routes/build', 'DELETE')).toBe(false);
   });
 
+  it('отзыв о месте гостем — публичен на POST (был 401), но не на DELETE (аудит 02.10)', () => {
+    expect(isPublicApiPath('/api/places/abc-123/reviews', 'POST')).toBe(true);
+    expect(isPublicApiPath('/api/places/abc-123/reviews', 'GET')).toBe(true);
+    expect(isPublicApiPath('/api/places/abc-123/reviews', 'DELETE')).toBe(false);
+  });
+
   it('метод вне списка не проходит: карточка места только на чтение', () => {
     expect(isPublicApiPath('/api/places/abc-123', 'GET')).toBe(true);
     expect(isPublicApiPath('/api/places/abc-123', 'DELETE')).toBe(false);
