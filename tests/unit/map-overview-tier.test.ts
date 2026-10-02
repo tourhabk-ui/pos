@@ -144,6 +144,17 @@ describe('обзорный ярус: карта', () => {
     expect(MAP).toMatch(/const hasOverview = packs\.some\(p => p\.region === OVERVIEW_ID\);/);
     expect(MAP).toMatch(/if \(zoom < PACK_MIN_ZOOM && !hasOverview\)/);
   });
+
+  it('на обзоре районы и клетки не подкладываются — места несёт обзор (01.10)', () => {
+    // Скрин владельца 01.10: /map без единой точки на мобильной сети. На
+    // открытии обзора страница тянула слой мест у всех 123 пакетов разом.
+    // Пропуск обязан стоять ДО `added.add`: иначе район, пропущенный на
+    // обзоре, не подложится и при приближении.
+    const loop = MAP.slice(MAP.indexOf('for (const region of hit)'), MAP.indexOf('added.add(key)'));
+    expect(loop).toMatch(/if \(hasOverview && region !== OVERVIEW_ID && zoom < PACK_MIN_ZOOM\) continue;/);
+    // Подкладка повторяется на каждом moveend — так район и приходит вблизи.
+    expect(MAP).toMatch(/map\.on\('moveend', ensure\)/);
+  });
 });
 
 describe('workflow обзора: каталог для лога существует ДО tee (04.09)', () => {

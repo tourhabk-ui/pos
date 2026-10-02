@@ -322,7 +322,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
 
       // Онлайн-режим: обычный API
       try {
-        const res = await fetch('/api/routes?hasCoords=true&limit=1500&sort=title&kind=place');
+        const res = await fetch('/api/routes?hasCoords=true&limit=1500&sort=title&kind=place&brief=1');
         if (!res.ok) return;
         const data = await res.json();
         if (!data.success) return;

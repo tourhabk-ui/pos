@@ -18,6 +18,7 @@ import {
   buildDecisionCard,
   extractSection,
   fetchPr,
+  GH_ATTEMPT_TIMEOUT_MS,
   GitHubUnavailableError,
   VOLCANO_CARD_MARKER,
 } from '@/lib/agents/volcano/merge-gate';
@@ -233,6 +234,55 @@ describe('gh(): retry/backoff — сеть и 5xx повторяются, 4xx н
 
     await expect(fetchPr('owner/repo', 1)).rejects.toThrow(/HTTP 404/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Зависший запрос (01.10). У fetch без сигнала предела нет: запрос с прода
+   * к GitHub не бросал, а ждал, и gate у #2167 дважды упал по таймауту curl
+   * вместо задуманного unavailable. Обрыв по пределу — сетевой сбой.
+   */
+  const hangingFetch = () => vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new Error('This operation was aborted')));
+  }));
+
+  it('зависший запрос обрывается по пределу и повторяется; все три зависли — GitHubUnavailableError', async () => {
+    const fetchMock = hangingFetch();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = fetchPr('owner/repo', 1);
+    const assertion = expect(promise).rejects.toThrow(GitHubUnavailableError);
+    await vi.runAllTimersAsync();
+    await assertion;
+    await expect(promise).rejects.toThrow(new RegExp(`нет ответа за ${GH_ATTEMPT_TIMEOUT_MS / 1000} с`));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('первая попытка зависла, вторая ответила — результат есть', async () => {
+    const hang = hangingFetch();
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(hang)
+      .mockResolvedValueOnce(okResponse);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = fetchPr('owner/repo', 1);
+    await vi.runAllTimersAsync();
+    expect((await promise).number).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('предел попытки укладывается в бюджет workflow: три попытки с паузами короче таймаута curl', () => {
+    const wf = read('.github/workflows/volcano-merge-gate.yml');
+    const curlMax = Number(wf.match(/--max-time (\d+)/)?.[1]);
+    expect(curlMax).toBeGreaterThan(0);
+    expect((3 * GH_ATTEMPT_TIMEOUT_MS + 300 + 900) / 1000).toBeLessThan(curlMax);
+  });
+
+  it('у всех вызовов наружу есть предел: gh, снятие метки, Telegram', () => {
+    const src = read('lib/agents/volcano/merge-gate.ts');
+    const fetchCalls = src.match(/await fetch\(/g) ?? [];
+    const withSignal = src.match(/attemptSignal\(GH_ATTEMPT_TIMEOUT_MS\)/g) ?? [];
+    expect(fetchCalls.length).toBe(3);
+    expect(withSignal.length).toBe(fetchCalls.length);
   });
 
   it('4xx не оборачивается в GitHubUnavailableError — это разные классы отказа', async () => {

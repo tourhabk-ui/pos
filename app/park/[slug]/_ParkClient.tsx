@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone } from 'lucide-react';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
+import type { ParkPageData } from '@/lib/parks/park-page';
 
 /**
  * Региональный номер МЧС на карточке экстренного вызова берётся из ЕДИНОГО
@@ -33,37 +33,6 @@ import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
  */
 const REGIONAL_MCHS = VERIFIED_REGIONAL[0] ?? null;
 
-interface Route {
-  id: string;
-  title: string;
-  description: string | null;
-  distance_km: string | null;
-  elevation_gain_m: number | null;
-  duration_hours: string | null;
-  difficulty: string | null;
-  season: string | null;
-  mchs_registration_required: boolean | null;
-  hazards: string[];
-}
-
-interface PermitChannels {
-  email: string | null;
-  officeAddress: string | null;
-  officeHours: string | null;
-  gosuslugiUrl: string | null;
-  onlineUrl: string | null;
-}
-
-interface ParkData {
-  slug: string;
-  displayName: string;
-  description: string;
-  zone: string;
-  permit_url: string | null;
-  permitChannels?: PermitChannels;
-  routes: Route[];
-}
-
 const DIFFICULTY_LABELS: Record<string, string> = {
   easy:   'Лёгкий',
   medium: 'Средний',
@@ -78,38 +47,13 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   expert: 'var(--danger)',
 };
 
-export default function ParkClient({ slug }: { slug: string }) {
-  const [park, setPark] = useState<ParkData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-
-  useEffect(() => {
-    fetch(`/api/parks/${slug}`)
-      .then(r => { if (!r.ok) { setNotFound(true); return null; } return r.json(); })
-      .then((d: ParkData | null) => { if (d) setPark(d); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [slug]);
-
-  if (loading) {
-    return (
-      <div className="ds-page" style={{ maxWidth: 720, margin: '0 auto' }}>
-        <div className="ds-skeleton" style={{ height: 120, borderRadius: 12, marginBottom: 16 }} />
-        <div className="ds-skeleton" style={{ height: 60, borderRadius: 10, marginBottom: 12 }} />
-        <div className="ds-skeleton" style={{ height: 60, borderRadius: 10, marginBottom: 12 }} />
-      </div>
-    );
-  }
-
-  if (notFound || !park) {
-    return (
-      <div className="ds-page" style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center', paddingTop: 80 }}>
-        <p style={{ color: 'var(--text-secondary)' }}>Парк не найден</p>
-        <Link href="/" className="ds-btn ds-btn-secondary" style={{ marginTop: 16 }}>На главную</Link>
-      </div>
-    );
-  }
-
+/**
+ * Карточка парка. Данные приходят с сервера (page.tsx → lib/parks/park-page),
+ * а не из запроса в браузере: так их видит и человек до загрузки скриптов, и
+ * поисковик (аудит 01.10 — прежде 12–13 слов без заголовка).
+ */
+export default function ParkClient({ park }: { park: ParkPageData }) {
+  const slug = park.slug;
   return (
     <div className="ds-page" style={{ maxWidth: 720, margin: '0 auto' }}>
 
@@ -214,7 +158,9 @@ export default function ParkClient({ slug }: { slug: string }) {
         {park.routes.length === 0 ? (
           <div className="ds-card" style={{ padding: 24, textAlign: 'center' }}>
             <MapPin size={24} color="var(--text-muted)" style={{ marginBottom: 8 }} />
-            <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Маршруты уточняются</p>
+            <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+              {park.routesFailed ? 'Маршруты парка не загрузились. Обновите страницу.' : 'Маршруты уточняются'}
+            </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -224,7 +170,7 @@ export default function ParkClient({ slug }: { slug: string }) {
               return (
                 <Link
                   key={route.id}
-                  href={`/routes/${route.id}`}
+                  href={`/routes/${route.slug ?? route.id}`}
                   className="ds-card"
                   style={{ padding: '14px 16px', textDecoration: 'none', display: 'block' }}
                 >

@@ -137,4 +137,33 @@ jobs:
                   print('  ' + ', '.join(hit))
               else:
                   print('  ни одной — переменной с SHA коммита в настройках приложения нет')
+
+          # Переменные ВЫБОРА МОДЕЛИ (01.10): Alibaba отключает часть моделей
+          # DashScope 10.10.2026, и надо знать, на какой id смотрит прод. Это
+          # не секреты, а имена моделей вида qwen-image-plus. Белый список
+          # имён, и значение печатается, только если оно целиком похоже на id
+          # модели; всё прочее называется «задана», без значения.
+          import re
+          MODEL_VARS = ['QWEN_IMAGE_MODEL', 'QWEN_VISION_MODEL', 'QWEN_MODEL']
+          MODEL_ID_RE = re.compile(r'^[A-Za-z0-9._-]{1,64}$')
+
+          def model_var(name):
+              if isinstance(envs, dict):
+                  return envs.get(name)
+              if isinstance(envs, list):
+                  for e in envs:
+                      if isinstance(e, dict) and (e.get('key') or e.get('name')) == name:
+                          return e.get('value')
+              return None
+
+          print('')
+          print('Переменные выбора модели (значение — только если это id модели):')
+          for name in MODEL_VARS:
+              value = model_var(name)
+              if value is None or str(value).strip() == '':
+                  print(f'  {name}: не задана')
+              elif MODEL_ID_RE.match(str(value).strip()):
+                  print(f'  {name}: {str(value).strip()}')
+              else:
+                  print(f'  {name}: задана, но не похожа на id модели — значение не печатается')
           PY

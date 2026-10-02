@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
@@ -188,7 +189,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
       )}
 
       {/* ── Небо: фото/градиент + вырубка-горизонт ──────── */}
-      <Link href={`/places/${route.id}`} className="block">
+      <Link href={route.href ?? catalogHref(route, '/places')} className="block">
         <div className="pc-sky relative overflow-hidden" style={{ height: 132 }}>
           {photoSrc ? (
             <img
@@ -305,7 +306,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             </span>
           )}
         </div>
-        <Link href={`/places/${route.id}`} className="block">
+        <Link href={route.href ?? catalogHref(route, '/places')} className="block">
           <b
             className="block text-[var(--text-primary)] line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
             style={{ fontFamily: 'var(--font-playfair)', fontSize: 14, lineHeight: 1.22, fontWeight: 600, letterSpacing: '-0.01em', textWrap: 'balance' }}

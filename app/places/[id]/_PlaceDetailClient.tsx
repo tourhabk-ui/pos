@@ -22,8 +22,11 @@ import { distanceToCity } from '@/lib/places/distance-to-city';
 // и всё, что трогает браузерные API, по-прежнему только на клиенте.
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'));
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
-const PlaceRealtimeStatus   = dynamic(() => import('@/components/places/PlaceRealtimeStatus'),   { ssr: false });
-const VolcanoAccBadge       = dynamic(() => import('@/components/places/VolcanoAccBadge'),       { ssr: false });
+// Статус «сейчас» и код вулкана рендерятся сервером: оба трогают window
+// только в useEffect, а с ssr:false они вставлялись после загрузки чанка и
+// сдвигали всё ниже — CLS 0,16 на карточке места (аудит 02.10).
+const PlaceRealtimeStatus   = dynamic(() => import('@/components/places/PlaceRealtimeStatus'));
+const VolcanoAccBadge       = dynamic(() => import('@/components/places/VolcanoAccBadge'));
 const PlaceDescription      = dynamic(() => import('@/components/places/PlaceDescription'));
 const PlaceFacts            = dynamic(() => import('@/components/places/PlaceFacts'));
 const PlaceSafety           = dynamic(() => import('@/components/places/PlaceSafety'),           { ssr: false });

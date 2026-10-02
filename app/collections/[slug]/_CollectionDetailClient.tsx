@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { MapPin, Route, Eye, ArrowLeft, Share2, Copy } from 'lucide-react';
 import { useState } from 'react';
+import { locationTypeLabel } from '@/lib/places/location-types';
 
 interface Place {
   id: string;
+  slug?: string | null;
   name: string;
   location_type: string;
   lat: number;
@@ -16,6 +18,7 @@ interface Place {
 
 interface RouteItem {
   id: string;
+  slug?: string | null;
   title: string;
   difficulty: string | null;
   distance_km: number | null;
@@ -43,14 +46,9 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   extreme: 'Экстрим',
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  volcano: 'Вулкан', lake: 'Озеро', hot_spring: 'Горячий источник',
-  mountain: 'Гора', geyser: 'Гейзер', river: 'Река', beach: 'Пляж', forest: 'Лес', valley: 'Долина',
-};
-
 function PlaceCard({ place }: { place: Place }) {
   return (
-    <Link href={`/places/${place.id}`} className="ds-card group block hover:shadow-md transition-all duration-200">
+    <Link href={`/places/${place.slug ?? place.id}`} className="ds-card group block hover:shadow-md transition-all duration-200">
       {place.image_url ? (
         <img src={place.image_url} alt={place.name} className="w-full h-40 object-cover rounded-t-lg" />
       ) : (
@@ -60,7 +58,7 @@ function PlaceCard({ place }: { place: Place }) {
       )}
       <div className="p-4">
         <p className="text-xs text-[var(--accent)] font-semibold uppercase tracking-wide mb-1">
-          {TYPE_LABELS[place.location_type] ?? place.location_type}
+          {locationTypeLabel(place.location_type)}
         </p>
         <h3 className="font-playfair font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
           {place.name}
@@ -75,7 +73,7 @@ function PlaceCard({ place }: { place: Place }) {
 
 function RouteCard({ route }: { route: RouteItem }) {
   return (
-    <Link href={`/routes/${route.id}`} className="ds-card group block hover:shadow-md transition-all duration-200 p-4">
+    <Link href={`/routes/${route.slug ?? route.id}`} className="ds-card group block hover:shadow-md transition-all duration-200 p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="font-playfair font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
           {route.title}

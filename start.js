@@ -1,7 +1,31 @@
 #!/usr/bin/env node
 const http = require('http');
 const { spawn } = require('child_process');
+const zlib = require('zlib');
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// ── Сжатие ответов, которые Next отдаёт несжатыми ─────────────────────────
+// Замер 02.10 на проде: страницы и /_next/static приходят gzip, а ответы
+// Route Handlers (весь /api/*, sitemap.xml, llms.txt) — сырыми, хотя
+// compress: true стоит в next.config.js. /map тянул 341 КБ JSON маршрутов
+// там, где gzip даёт 73 КБ; sitemap.xml — 176 КБ. Сжимаем здесь, на прокси,
+// только то, что Next не сжал сам (нет content-encoding), только текстовые
+// типы и без text/event-stream: SSE через сжатие рвётся у промежуточных
+// узлов. Каждая порция сбрасывается сразу (Z_SYNC_FLUSH), поэтому потоковые
+// ответы чата остаются потоковыми. Сторож: tests/unit/proxy-compress.test.ts.
+// <shouldGzip>
+const GZIP_TYPES = /^(application\/(json|xml|javascript|geo\+json|manifest\+json|ld\+json|rss\+xml|atom\+xml)|text\/(plain|xml|css|javascript|csv|html)|image\/svg\+xml)\b/i;
+function shouldGzip(method, status, headers, acceptEncoding) {
+  if (method === 'HEAD') return false;
+  if (status < 200 || status === 204 || status === 206 || status === 304) return false;
+  if (headers['content-encoding']) return false;
+  if (!/\bgzip\b/i.test(String(acceptEncoding || ''))) return false;
+  if (!GZIP_TYPES.test(String(headers['content-type'] || ''))) return false;
+  if (/no-transform/i.test(String(headers['cache-control'] || ''))) return false;
+  if (headers['content-length'] !== undefined && Number(headers['content-length']) < 1024) return false;
+  return true;
+}
+// </shouldGzip>
 const proxy = http.createServer((req, res) => {
   if (['/api/health','/api/ready','/health','/ready'].includes(req.url)) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -18,7 +42,20 @@ const proxy = http.createServer((req, res) => {
     'x-forwarded-for':   req.headers['x-forwarded-for']   || req.socket.remoteAddress || '127.0.0.1',
   };
   const p = http.request({ hostname:'127.0.0.1', port:3001, path:req.url, method:req.method, headers:forwardedHeaders },
-    r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    r => {
+      if (shouldGzip(req.method, r.statusCode, r.headers, req.headers['accept-encoding'])) {
+        const headers = { ...r.headers, 'content-encoding': 'gzip' };
+        delete headers['content-length'];
+        headers['vary'] = headers['vary'] ? `${headers['vary']}, Accept-Encoding` : 'Accept-Encoding';
+        if (typeof headers['etag'] === 'string' && !headers['etag'].startsWith('W/')) headers['etag'] = `W/${headers['etag']}`;
+        res.writeHead(r.statusCode, headers);
+        const gz = zlib.createGzip({ level: 6, flush: zlib.constants.Z_SYNC_FLUSH });
+        gz.on('error', (e) => { console.error('[proxy] gzip error:', e.message); res.destroy(); });
+        r.pipe(gz).pipe(res);
+        return;
+      }
+      res.writeHead(r.statusCode, r.headers); r.pipe(res);
+    });
   p.on('error', () => { res.writeHead(503); res.end('starting'); });
   req.pipe(p);
 });
@@ -186,3 +223,49 @@ if (process.env.CRON_SECRET) {
 } else {
   console.error('[safety-heartbeat] CRON_SECRET not set — in-process heartbeat disabled');
 }
+
+// ── Прогрев планов после деплоя ───────────────────────────────────────────
+// /plans/[slug] стоит на revalidate 86400, но кэш ISR живёт в контейнере и
+// после каждого деплоя пуст: первый посетитель каждой из 17 страниц ждал
+// 6–8 с, повторный — 0,45 с (аудит 02.10; деплоев бывает несколько в день).
+// Через 90 с после старта читаем /plans, вынимаем ссылки /plans/<slug> и
+// обходим их ПО ОДНОЙ: два ядра на контейнер, залп из 17 тяжёлых страниц
+// конкурировал бы с живыми запросами. Список планов не дублируется сюда из
+// lib/plans/presets (tsx в runner недоступен) — его называет сама страница.
+// Сторож: tests/unit/plans-warmup.test.ts.
+// <warmPlans>
+function fetchLocal(path, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const r = http.request({
+      hostname: '127.0.0.1', port: 3001, path, method: 'GET',
+      headers: { 'host': '127.0.0.1:3001', 'accept': 'text/html' },
+      timeout: timeoutMs,
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    r.on('timeout', () => { r.destroy(new Error('timeout')); });
+    r.on('error', reject);
+    r.end();
+  });
+}
+
+async function warmPlans() {
+  const hub = await fetchLocal('/plans', 30000);
+  if (hub.status !== 200) { console.error(`[warm-plans] /plans HTTP ${hub.status} — прогрев не начат`); return; }
+  const slugs = [...new Set([...hub.body.matchAll(/href="\/plans\/([a-z0-9-]+)"/g)].map(m => m[1]))];
+  if (slugs.length === 0) { console.error('[warm-plans] на /plans не нашлось ссылок /plans/<slug> — прогревать нечего'); return; }
+  let ok = 0, bad = 0;
+  const t0 = Date.now();
+  for (const slug of slugs) {
+    try {
+      const r = await fetchLocal(`/plans/${slug}`, 45000);
+      if (r.status === 200) ok++; else { bad++; console.error(`[warm-plans] /plans/${slug} HTTP ${r.status}`); }
+    } catch (e) { bad++; console.error(`[warm-plans] /plans/${slug} error:`, e.message); }
+  }
+  console.log(`[warm-plans] прогрето ${ok} из ${slugs.length}, отказов ${bad}, за ${Math.round((Date.now() - t0) / 1000)} с`);
+}
+
+setTimeout(() => { warmPlans().catch(e => console.error('[warm-plans] error:', e.message)); }, 90000);
+// </warmPlans>

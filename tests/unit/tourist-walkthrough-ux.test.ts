@@ -143,7 +143,10 @@ describe('тач-цели и плавающие кнопки (#1780)', () => {
 
 describe('мелочи кода (#1780)', () => {
   it('шапка спрашивает /api/auth/state (200 у гостя), а не /api/auth/me (401)', () => {
-    expect(read('components/layout/Header.tsx')).toMatch(/fetch\('\/api\/auth\/state'/);
+    // С 01.10 шапка спрашивает через общий lib/auth/session-state — один
+    // запрос на экран для шапки, AuthContext и блоков страницы.
+    expect(read('components/layout/Header.tsx')).toMatch(/sessionState\(\)/);
+    expect(read('lib/auth/session-state.ts')).toMatch(/fetch\('\/api\/auth\/state'/);
     expect(read('components/layout/Header.tsx')).not.toMatch(/fetch\('\/api\/auth\/me'/);
     expect(existsSync(join(process.cwd(), 'app/api/auth/state/route.ts'))).toBe(true);
     const route = read('app/api/auth/state/route.ts');

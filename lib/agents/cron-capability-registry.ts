@@ -130,6 +130,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'images-oversize': ['db_read'],
   'images-recompress': ['db_read', 'db_write'],
   'images-to-s3': ['db_read', 'db_write', 'net_out'],
+  // 01.10: веб-копия героев из снимков туристов — качает оригинал из
+  // хранилища, заливает копию и читает её обратно (net_out), переписывает
+  // s3_url героя (db_write).
+  'hero-web-variant': ['db_read', 'db_write', 'net_out'],
   'import-route-passports': ['db_read', 'db_write', 'net_out', 'ai', 'pd_direct'],
   'import-routes': ['db_read', 'db_write', 'net_out'],
   // 18.09: пинг IndexNow по /plans после деплоя правок текстов; db_write — журнал отказов пинга (ai_actions_log) внутри lib/seo/indexnow.

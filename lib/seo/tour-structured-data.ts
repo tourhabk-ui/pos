@@ -8,6 +8,7 @@
  */
 
 import { stripHtmlTags } from '@/lib/text/strip-html';
+import type { OfferAvailability } from '@/lib/tours/open-dates';
 
 export interface TourSeoInput {
   id: string | number;
@@ -46,6 +47,9 @@ export interface TourSeoInput {
   meeting_point?: string | null;
   /** Сложность тура — гейт для тега «Семья» в touristType (hard — не семейный). */
   difficulty?: string | null;
+  /** Адрес страницы оператора и открыта ли она — см. operatorOrganization. */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
 }
 
 export interface TourReviewSeoInput {
@@ -63,6 +67,37 @@ export interface TourSeoOpts {
   siteUrl: string;
   /** Человекочитаемая метка активности (touristType/category). */
   activityLabel: string;
+  /**
+   * Offer.availability по датам тура (lib/tours/open-dates). `null` — дат не
+   * записано или их не удалось сосчитать: тогда поля нет вовсе. Прежде здесь
+   * стояло `InStock` всегда — и у тура, все даты которого разобраны.
+   */
+  availability: OfferAvailability | null;
+}
+
+/** @id организации оператора — один для карточки тура и страницы оператора. */
+export function operatorOrgId(siteUrl: string, slug: string): string {
+  return `${siteUrl}/operators/${slug}#organization`;
+}
+
+/**
+ * Оператор тура в разметке (аудит vedarai.ru 01.10).
+ *
+ * Прежде provider был `TouristInformationCenter` с именем оператора и адресом
+ * НАШЕГО сайта: поисковик связывал тур не с тем, кто его проводит, а с
+ * витриной. Теперь это организация оператора: открыта его страница — с её
+ * адресом и `@id`, который та же страница объявляет у себя; не открыта —
+ * только имя, без чужого адреса.
+ */
+export function operatorOrganization(
+  siteUrl: string,
+  tour: Pick<TourSeoInput, 'operator_name' | 'operator_slug' | 'operator_public'>,
+): Record<string, unknown> {
+  if (tour.operator_slug && tour.operator_public) {
+    const url = `${siteUrl}/operators/${tour.operator_slug}`;
+    return { '@type': 'Organization', '@id': operatorOrgId(siteUrl, tour.operator_slug), name: tour.operator_name, url };
+  }
+  return { '@type': 'Organization', name: tour.operator_name };
 }
 
 function isoDate(d: string | Date): string {
@@ -194,7 +229,7 @@ export function buildTourStructuredData(
   reviews: TourReviewSeoInput[],
   opts: TourSeoOpts,
 ): Record<string, unknown> {
-  const { canonicalUrl, siteUrl, activityLabel } = opts;
+  const { canonicalUrl, siteUrl, activityLabel, availability } = opts;
   const price = parseFloat(String(tour.base_price));
   // Абсолютные URL картинок — требование Google для rich results: проверка
   // прода 08.08 показала относительные пути («/images/...») в @graph, из-за
@@ -218,14 +253,15 @@ export function buildTourStructuredData(
       }
     : undefined;
 
+  const operator = operatorOrganization(siteUrl, tour);
   const year = new Date().getFullYear();
   const offer = {
     '@type': 'Offer',
     price,
     priceCurrency: 'RUB',
-    availability: 'https://schema.org/InStock',
+    ...(availability ? { availability } : {}),
     url: canonicalUrl,
-    seller: { '@type': 'Organization', name: tour.operator_name },
+    seller: operator,
     ...(seasonMonth(tour.season_start) && seasonMonth(tour.season_end)
       ? {
           availabilityStarts: `${year}-${String(seasonMonth(tour.season_start)).padStart(2, '0')}-01`,
@@ -292,7 +328,7 @@ export function buildTourStructuredData(
       : tour.duration_hours
         ? { duration: `PT${Math.round(Number(tour.duration_hours))}H` }
         : {}),
-    provider: { '@type': 'TouristInformationCenter', name: tour.operator_name, url: siteUrl },
+    provider: operator,
     offers: offer,
     ...(aggregateRating ? { aggregateRating } : {}),
     location: {

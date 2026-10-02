@@ -6,6 +6,7 @@ import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -25,6 +26,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: `${SITE}/safety/incidents` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Инциденты и предупреждения — Камчатка',
     description: 'Актуальные алерты, закрытые маршруты и экстренные контакты Камчатки.',
     url: `${SITE}/safety/incidents`,

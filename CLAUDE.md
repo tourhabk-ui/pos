@@ -40,12 +40,14 @@
 | `--bg-hover` | `#F0ECE7` | `#30363D` | Hover |
 | `--text-primary` | `#1A1714` | `#F0F6FC` | Заголовки |
 | `--text-secondary` | `#6B6560` | `#8B949E` | Подписи |
-| `--text-muted` | `#9A9590` | `#484F58` | Плейсхолдеры |
-| `--accent` | `#D44A0C` | `#E8734A` | CTA, активные состояния |
+| `--text-muted` | `#736D68` | `#838D9A` | Плейсхолдеры, подписи (AA 4,5:1 — решение владельца 01.10) |
+
+> Светлые `--accent`, `--success`, `--danger` затемнены 02.10 по аудиту: белый на `#D44A0C` давал 4,39:1 (ниже AA 4,5) на каждой кнопке, `#3FB950` текстом на кремовом — 2,2:1, подпись SOS на тинте — 3,8:1. Тёмная тема не менялась. Сторож: `tests/unit/text-muted-contrast.test.ts`.
+| `--accent` | `#C2410A` | `#E8734A` | CTA, активные состояния |
 | `--ocean` | `#2568B0` | `#00A8CC` | Ссылки, иконки |
-| `--success` | `#3FB950` | `#3FB950` | Eco, успех |
+| `--success` | `#1A7A34` | `#3FB950` | Eco, успех |
 | `--warning` | `#D29922` | `#D29922` | Предупреждения |
-| `--danger` | `#DC2626` | `#F85149` | SOS, ошибки |
+| `--danger` | `#B91C1C` | `#F85149` | SOS, ошибки |
 | `--border` | `rgba(0,0,0,0.07)` | `rgba(255,255,255,0.08)` | Границы |
 
 **DS-утилиты:** `ds-page` `ds-card` `ds-input` `ds-btn` `ds-btn-primary` `ds-btn-secondary` `ds-btn-danger` `ds-section` `ds-badge` `ds-h1` `ds-h2` `ds-label` `ds-skeleton`

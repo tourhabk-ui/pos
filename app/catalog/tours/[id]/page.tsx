@@ -6,6 +6,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import TourDetailClient from './_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 import { tourHeroImage } from '@/lib/tours/hero-image';
+import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
 
 export const revalidate = 3600;
 
@@ -65,12 +66,13 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   // Пришли по числу, а у тура есть адрес — 308 на адрес: в выдаче и у
   // людей должен жить один адрес карточки (ЧПУ туров, 30.09).
   if (loaded.byId && tour.slug) permanentRedirect(tourPath(tour));
-  const reviews = await getReviews(tour.id);
+  const [reviews, dates] = await Promise.all([getReviews(tour.id), countTourDates(tour.id)]);
 
   const structuredData = buildTourStructuredData(tour, reviews, {
     canonicalUrl: `${SITE}${tourPath(tour)}`,
     siteUrl: SITE,
     activityLabel: activityLabel(tour.activity_type),
+    availability: availabilityFromDates(dates),
   });
 
   return (

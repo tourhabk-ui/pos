@@ -27,6 +27,7 @@ const bare: RouteRow = {
   difficulty_level: null, nearest_medical_km: null,
   distance_km: null, elevation_gain_m: null, duration_hours: null,
   season: null, route_type: null, hazards: null, equipment: null, park_name: null,
+  waypoints: null,
 };
 
 describe('в промпт уходит то, что есть, и только оно', () => {
@@ -50,6 +51,17 @@ describe('в промпт уходит то, что есть, и только о
   it('пустой массив опасностей не превращается в факт', () => {
     expect(buildFacts({ ...bare, hazard_types: [] })).toEqual([]);
     expect(buildFacts({ ...bare, hazard_types: ['камнепад'] }).join(' ')).toContain('камнепад');
+  });
+
+  it('точки пути — источник: порядок и выдержка описания каждой; без точек — ни слова', () => {
+    expect(buildFacts({ ...bare, waypoints: [] })).toEqual([]);
+    const facts = buildFacts({ ...bare, waypoints: [
+      { name: 'Парковка', excerpt: null },
+      { name: 'Перевал', excerpt: 'Седловина между двумя вершинами, ветер.' },
+    ] });
+    expect(facts.join('\n')).toContain('точки маршрута по порядку: Парковка → Перевал');
+    expect(facts.join('\n')).toContain('о точке «Перевал»: Седловина между двумя вершинами, ветер.');
+    expect(facts.join('\n')).not.toContain('о точке «Парковка»');
   });
 
   it('факты маршрута и факты точки собираются одним списком', () => {

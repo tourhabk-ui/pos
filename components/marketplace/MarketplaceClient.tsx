@@ -68,11 +68,14 @@ interface Tour {
  * направлениям, где туры ЕСТЬ, со счётчиком из серверной сводки.
  */
 import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
-import { photoSrc } from '@/lib/images/variant';
+import { photoSrc, photoSrcSet } from '@/lib/images/variant';
+
+const HERO_SRC = '/images/marketplace/hero-marketplace.jpg';
 import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { sessionState } from '@/lib/auth/session-state';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -180,13 +183,17 @@ function HeroSection({ summary }: { summary: CatalogSummary | null }) {
     : null;
   return (
     <section className="relative overflow-hidden mb-4 sm:mb-8" aria-label="Туры на Камчатку">
-      <Image
-        src="/images/marketplace/hero-marketplace.jpg"
-        alt="Камчатка — земля вулканов"
-        fill
-        priority
-        className="object-cover"
+      {/* Герой шёл оригиналом JPEG 1280 px, 576 КБ, в клетку 412×151 на телефоне
+          (аудит 02.10). srcSet из нарезанных WebP: 640 — 46 КБ, 1280 — 260 КБ. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={photoSrc(HERO_SRC, 1280)}
+        srcSet={photoSrcSet(HERO_SRC)}
         sizes="100vw"
+        alt="Камчатка — земля вулканов"
+        fetchPriority="high"
+        decoding="async"
+        className="absolute inset-0 w-full h-full object-cover"
       />
       <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/55 to-black/20" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-12 lg:py-14">
@@ -580,10 +587,12 @@ export default function MarketplaceClient({
     return () => clearTimeout(t);
   }, [notice]);
 
-  // Load wishlist. У гостя 401 — ожидаемый ответ «не вошёл», не поломка.
+  // Load wishlist — только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
   useEffect(() => {
-    fetch('/api/tourist/wishlist?type=tour')
-      .then(r => r.ok ? r.json() : null)
+    sessionState()
+      .then(authed => (authed === true
+        ? fetch('/api/tourist/wishlist?type=tour').then(r => (r.ok ? r.json() : null))
+        : null))
       .then(data => {
         if (data?.data) {
           const map = new Map<number, string>();

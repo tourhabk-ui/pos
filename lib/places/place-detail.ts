@@ -175,6 +175,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     const nearbyResult = await query(
       `SELECT
          p.ark_id AS id,
+         p.slug,
          p.name,
          p.location_type,
          p.lat,
@@ -486,6 +487,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 
         nearby: nearbyResult.rows.map(n => ({
           id: n.id as string,
+          slug: (n.slug as string | null) ?? null,
           name: n.name as string,
           locationType: n.location_type as string | null,
           lat: parseFloat(n.lat as string),

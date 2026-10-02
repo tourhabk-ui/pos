@@ -29,7 +29,7 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
         {nearby.map(n => (
           <Link
             key={n.id}
-            href={`/places/${n.id}`}
+            href={`/places/${n.slug ?? n.id}`}
             className="group w-44 flex-shrink-0 overflow-hidden rounded-lg bg-[var(--bg-card)] transition-colors md:w-auto"
           >
             {/* Thumb */}

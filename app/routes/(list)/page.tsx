@@ -12,6 +12,11 @@ import RoutesPageClient from '../_RoutesPageClient';
 import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
 import { findToursForQuery } from '@/lib/search/tour-query-match';
 import { ToursForQuery, type ToursForQueryState } from '@/components/search/ToursForQuery';
+import { defaultOgImages } from '@/lib/seo/og-image';
+import { catalogCanonical, parsePage } from '@/lib/seo/catalog-paging';
+import { withCardExcerpts } from '@/lib/routes/card-excerpt';
+import { listActiveParks, type ParkLite } from '@/lib/parks/list';
+import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -22,7 +27,7 @@ const TOURS_LIMIT = 9;
 // описание совпадали с /places дословно — две страницы соперничали за один
 // запрос, и ни одна не отвечала «маршруты» (аудит SEO 29.09, вечер).
 // Сторож: tests/unit/seo-audit-2909-evening.test.ts.
-export const metadata: Metadata = {
+const BASE_METADATA: Metadata = {
   title: 'Маршруты по Камчатке — к вулканам, источникам и озёрам',
   description:
     'Маршруты по Камчатке: пешие и автомобильные пути к вулканам, термальным источникам и озёрам. Точки пути, сложность, сезон и опасности на маршруте.',
@@ -35,6 +40,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: `${SITE}/routes` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'Маршруты по Камчатке',
     description: 'Пешие и автомобильные маршруты к вулканам, источникам и озёрам Камчатки.',
     url: `${SITE}/routes`,
@@ -56,6 +62,28 @@ interface PageProps {
 
 function first(v: string | string[] | undefined): string {
   return Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+}
+
+/**
+ * Страница каталога N — своя страница со своим canonical и заголовком
+ * (аудит 01.10): с canonical на первую поисковик выбрасывал вторую и
+ * дальше как дубль, а вместе с ними ссылки на их карточки. Вкладка мест
+ * (`?kind=place`) — дубль раздела /places, canonical туда.
+ */
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const sp = await searchParams;
+  const page = parsePage(first(sp.page));
+  const isPlaces = first(sp.kind) === 'place';
+  const hasFilters = ['q', 'activity_type', 'location_type', 'difficulty'].some(k => first(sp[k]) !== '');
+  const canonical = catalogCanonical(SITE, isPlaces ? '/places' : '/routes', page, hasFilters);
+  if (page <= 1 || hasFilters) return { ...BASE_METADATA, alternates: { canonical } };
+  const title = `Маршруты по Камчатке — страница ${page}`;
+  return {
+    ...BASE_METADATA,
+    title,
+    alternates: { canonical },
+    openGraph: { ...BASE_METADATA.openGraph, images: defaultOgImages(), title, url: canonical },
+  };
 }
 
 /**
@@ -81,8 +109,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
   // ни он, ни сервер не читали обратно — ссылка выглядела рабочей и не была.
   const difficulty: '' | 'easy' | 'medium' | 'hard' =
     difficultyRaw === 'easy' || difficultyRaw === 'medium' || difficultyRaw === 'hard' ? difficultyRaw : '';
-  const pageNumRaw = parseInt(first(sp.page) || '1', 10);
-  const page = Number.isFinite(pageNumRaw) && pageNumRaw >= 1 ? pageNumRaw : 1;
+  const page = parsePage(first(sp.page));
 
   // Зеркало initial-состояния клиента: sort и цена в URL по-прежнему не живут.
   const filters: CatalogFilters = {
@@ -125,6 +152,19 @@ export default async function RoutesPage({ searchParams }: PageProps) {
       )
     : Promise.resolve(null);
 
+  // Парки — ссылками в первом HTML: полоса собиралась в браузере, и шесть
+  // карточек парков не были достижимы обходом ни с одной страницы (аудит 01.10).
+  const parksPromise = listActiveParks().catch((err: unknown): ParkLite[] | null => {
+    console.error('[routes] список парков не прочитан:', err instanceof Error ? err.message : String(err));
+    return null;
+  });
+
+  // Живые категории — ссылками в первом HTML: снаружи на них не вёл никто.
+  const categoriesPromise = listLiveCategories().catch((err: unknown): CategoryLink[] | null => {
+    console.error('[routes] категории каталога не прочитаны:', err instanceof Error ? err.message : String(err));
+    return null;
+  });
+
   let initial: CatalogResult | null = null;
   try {
     initial = await queryCatalogForPage(filters);
@@ -136,6 +176,8 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     initial = null;
   }
   const toursState = await toursPromise;
+  const parks = await parksPromise;
+  const categories = await categoriesPromise;
 
   const initialKey = JSON.stringify({
     kind,
@@ -171,10 +213,12 @@ export default async function RoutesPage({ searchParams }: PageProps) {
       )}
       <Suspense>
         <RoutesPageClient
-          initialItems={initial?.items ?? []}
+          initialItems={withCardExcerpts(initial?.items ?? [])}
           initialMeta={initial ? { total: initial.meta.total, pages: initial.meta.pages } : { total: 0, pages: 1 }}
           initialError={initial === null}
           initialKey={initialKey}
+          initialParks={parks}
+          initialCategories={categories}
           toursSlot={toursState ? <ToursForQuery q={q} state={toursState} /> : null}
         />
       </Suspense>

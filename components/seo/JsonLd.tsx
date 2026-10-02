@@ -15,164 +15,9 @@ export function JsonLd({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-interface OrganizationJsonLdProps {
-  name: string;
-  url: string;
-  logo?: string;
-  description?: string;
-  phone?: string;
-  email?: string;
-  address?: {
-    streetAddress?: string;
-    addressLocality: string;
-    addressRegion: string;
-    postalCode?: string;
-    addressCountry: string;
-  };
-  sameAs?: string[];
-}
-
-export function OrganizationJsonLd({
-  name,
-  url,
-  logo,
-  description,
-  phone,
-  email,
-  address,
-  sameAs,
-}: OrganizationJsonLdProps) {
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'TravelAgency',
-    name,
-    url,
-    logo,
-    description,
-    telephone: phone,
-    email,
-    address: address
-      ? {
-          '@type': 'PostalAddress',
-          ...address,
-        }
-      : undefined,
-    sameAs,
-    areaServed: {
-      '@type': 'Place',
-      name: 'Камчатский край',
-      geo: {
-        '@type': 'GeoCoordinates',
-        latitude: 53.0452,
-        longitude: 158.6511,
-      },
-    },
-  };
-
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-    />
-  );
-}
-
-interface TourJsonLdProps {
-  name: string;
-  description: string;
-  url: string;
-  image?: string;
-  price: number;
-  priceCurrency?: string;
-  duration: string; // ISO 8601 format, e.g., "P3D" for 3 days
-  provider: {
-    name: string;
-    url?: string;
-  };
-  location: {
-    name: string;
-    latitude?: number;
-    longitude?: number;
-  };
-  rating?: {
-    value: number;
-    count: number;
-  };
-  availability?: 'InStock' | 'OutOfStock' | 'PreOrder';
-}
-
-export function TourJsonLd({
-  name,
-  description,
-  url,
-  image,
-  price,
-  priceCurrency = 'RUB',
-  duration,
-  provider,
-  location,
-  rating,
-  availability = 'InStock',
-}: TourJsonLdProps) {
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'TouristTrip',
-    name,
-    description,
-    url,
-    image,
-    touristType: 'Adventure',
-    offers: {
-      '@type': 'Offer',
-      price,
-      priceCurrency,
-      availability: `https://schema.org/${availability}`,
-      validFrom: new Date().toISOString(),
-    },
-    itinerary: {
-      '@type': 'ItemList',
-      numberOfItems: 1,
-      itemListElement: [
-        {
-          '@type': 'ListItem',
-          position: 1,
-          item: {
-            '@type': 'TouristAttraction',
-            name: location.name,
-            geo: location.latitude
-              ? {
-                  '@type': 'GeoCoordinates',
-                  latitude: location.latitude,
-                  longitude: location.longitude,
-                }
-              : undefined,
-          },
-        },
-      ],
-    },
-    provider: {
-      '@type': 'TravelAgency',
-      name: provider.name,
-      url: provider.url,
-    },
-    aggregateRating: rating
-      ? {
-          '@type': 'AggregateRating',
-          ratingValue: rating.value,
-          reviewCount: rating.count,
-          bestRating: 5,
-          worstRating: 1,
-        }
-      : undefined,
-  };
-
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-    />
-  );
-}
+// OrganizationJsonLd и TourJsonLd сняты 01.10: их не звал никто, а второй по
+// умолчанию объявлял туру InStock — тот самый ответ без данных, который
+// убран из разметки карточки (lib/tours/open-dates).
 
 interface BreadcrumbJsonLdProps {
   items: Array<{
@@ -193,10 +38,11 @@ export function BreadcrumbJsonLd({ items }: BreadcrumbJsonLdProps) {
     })),
   };
 
+  // То же экранирование «<», что у JsonLd: имена мест приходят из БД.
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
     />
   );
 }
@@ -222,10 +68,11 @@ export function FAQJsonLd({ questions }: FAQJsonLdProps) {
     })),
   };
 
+  // То же экранирование «<», что у JsonLd: имена мест приходят из БД.
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
     />
   );
 }

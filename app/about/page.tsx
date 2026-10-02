@@ -5,13 +5,19 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { getPlatformCounts } from '@/lib/stats/platform-counts';
 import { queryCatalogSummaryForPage } from '@/lib/search';
+import { defaultOgImages } from '@/lib/seo/og-image';
+import { REQUISITES } from '@/lib/legal/requisites';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 // Цифры страницы — из базы, а не из текста: прежние «779 / 294» стояли здесь
 // с мая и расходились с главной (замер 30.09: 380 мест, 391 маршрут).
-// Счёт кэшируется на час там же, где его берёт главная.
-export const revalidate = 3600;
+// Счёт кэшируется на час там же, где его берёт главная (unstable_cache), —
+// поэтому страница рендерится на запросе. `revalidate = 3600` здесь не спасал:
+// первая версия собиралась на сборке Docker без базы, и до первой
+// перегенерации «О платформе» отдавала страницу без цифр (аудит 01.10, STALE).
+// Сторож: tests/unit/no-build-time-db.test.ts.
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'О платформе Ведар — честный проводник по Камчатке',
@@ -25,6 +31,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: `${SITE}/about` },
   openGraph: {
+    images: defaultOgImages(),
     title: 'О платформе Ведар',
     description: 'Честный проводник по Камчатке: AI, безопасность, проверенные операторы.',
     url: `${SITE}/about`,
@@ -168,7 +175,7 @@ export default async function AboutPage() {
                 </div>
                 <div>
                   <dt className="text-[var(--text-muted)]">Телефон</dt>
-                  <dd className="text-[var(--text-primary)] font-medium">+7 (914) 782-22-22</dd>
+                  <dd className="text-[var(--text-primary)] font-medium">{REQUISITES.phone}</dd>
                 </div>
                 <div>
                   <dt className="text-[var(--text-muted)]">Email</dt>

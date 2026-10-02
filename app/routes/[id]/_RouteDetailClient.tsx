@@ -149,6 +149,8 @@ interface RouteWaypoint {
   isEnd: boolean;
   notes: string | null;
   placeId: string;
+  /** ЧПУ места; нет — ссылка по id (аудит 01.10). */
+  placeSlug?: string | null;
   placeName: string;
   locationType: string | null;
   lat: number | null;
@@ -165,6 +167,7 @@ interface RouteWaypoint {
 /** Один вычисленный ориентир — форма из lib/routes/derived-stages. */
 interface DerivedStage {
   placeId: string;
+  slug?: string | null;
   name: string;
   locationType: string | null;
   position: number;
@@ -667,7 +670,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
       ...navWaypoints.map(w => ({
         coords: [w.lat, w.lng] as [number, number],
         title: w.placeName,
-        href: `/places/${w.placeId}`,
+        href: `/places/${w.placeSlug ?? w.placeId}`,
         color: 'blue',
         type: MarkerType.POI,
         category: w.locationType ?? 'other',
@@ -1057,7 +1060,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                       <span className="w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                         {i + 1}
                       </span>
-                      <Link href={`/places/${wp.placeId}`} className="flex-1 min-w-0 group">
+                      <Link href={`/places/${wp.placeSlug ?? wp.placeId}`} className="flex-1 min-w-0 group">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             {wp.locationType && (
@@ -1104,7 +1107,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                   {nearbyWaypoints.map((wp, i) => (
                     <li key={wp.placeId ?? i}>
                       <Link
-                        href={`/places/${wp.placeId}`}
+                        href={`/places/${wp.placeSlug ?? wp.placeId}`}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--ocean)] transition-colors"
                       >
                         {wp.placeName}
@@ -1148,7 +1151,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                 <ul className="space-y-2">
                   {derivedOnLine.map((st) => (
                     <li key={st.placeId}>
-                      <Link href={`/places/${st.placeId}`} className="flex items-start gap-3 group">
+                      <Link href={`/places/${st.slug ?? st.placeId}`} className="flex items-start gap-3 group">
                         <span className="w-6 h-6 rounded-full border border-dashed border-[var(--text-muted)] text-[var(--text-muted)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                           {st.position + 1}
                         </span>

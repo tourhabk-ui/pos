@@ -2,12 +2,20 @@ import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { Shield, Award, Star } from 'lucide-react';
 import { publicGuideWhere } from '@/lib/guides/visibility';
+import { defaultOgImages } from '@/lib/seo/og-image';
+
+// Рендер на каждый запрос: без этого Next собирал страницу на сборке Docker,
+// где базы нет, и до следующей сборки отдавал «Не удалось загрузить реестр гидов»
+// (аудит 01.10: x-nextjs-prerender, x-nextjs-cache: HIT).
+// Сторож: tests/unit/no-build-time-db.test.ts.
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/guides' },
   title: 'Сертифицированные гиды Камчатки',
   description: 'Гиды Камчатки, проверенные платформой Ведар: аттестаты, специализации, отзывы туристов. Выбирайте проверенного гида для безопасного путешествия.',
   openGraph: {
+    images: defaultOgImages(),
     title: 'Сертифицированные гиды Камчатки',
     description: 'Гиды Камчатки, проверенные платформой: аттестаты и отзывы туристов.',
     url: 'https://vedarai.ru/guides',

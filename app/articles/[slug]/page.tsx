@@ -11,6 +11,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { getArticle } from '@/lib/articles/queries';
+import { defaultOgImages } from '@/lib/seo/og-image';
+import { metaDescription } from '@/lib/seo/meta-description';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +23,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article = await getArticle(slug);
   if (!article) return { title: 'Статья не найдена' };
 
-  const description = (article.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  // По предложению или слову, а не slice(0, 160) посреди слова (lib/seo/meta-description).
+  const description = metaDescription(article.body);
   return {
     title: article.title,
     description: description || `${article.title}: материал о Камчатке.`,
     alternates: { canonical: `https://vedarai.ru/articles/${article.slug}` },
     openGraph: {
+      images: defaultOgImages(),
       title: article.title,
       description: description || undefined,
       url: `https://vedarai.ru/articles/${article.slug}`,

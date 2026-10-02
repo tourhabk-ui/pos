@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 
-const src = readFileSync(join(process.cwd(), 'app/api/accommodations/[id]/route.ts'), 'utf-8');
+// Отзывы карточки читает общий загрузчик страницы и API (аудит 01.10).
+const src = readFileSync(join(process.cwd(), 'lib/stay/accommodation-detail.ts'), 'utf-8');
 
 describe('отзывы о жилье без ПД', () => {
   it('email автора не выбирается и не отдаётся', () => {

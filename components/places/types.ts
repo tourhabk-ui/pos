@@ -66,6 +66,8 @@ export interface PlaceRoute {
 
 export interface NearbyPlace {
   id: string;
+  /** ЧПУ места; null — ссылка по id (аудит 01.10: UUID уходил редиректом 308). */
+  slug: string | null;
   name: string;
   locationType: string | null;
   lat: number;

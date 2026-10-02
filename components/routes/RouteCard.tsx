@@ -1,12 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
 
 export interface RouteItem {
   id: string;
   kind?: 'place' | 'tour' | 'route';
+  /** ЧПУ карточки (lib/routes/url-slug); нет — ссылка по id. */
+  urlSlug?: string | null;
+  /** Готовый адрес карточки, если вызывающий знает его лучше (страница категории). */
+  href?: string;
   imageUrl?: string;
   hasRealImage?: boolean;
   category: string;
@@ -119,7 +124,7 @@ function LegacyCard({ route }: { route: RouteItem }) {
         </div>
       </div>
 
-      <Link href={`/routes/${route.id}`} className="block space-y-1">
+      <Link href={route.href ?? catalogHref(route, '/routes')} className="block space-y-1">
         <h3
           className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
           style={{ fontFamily: 'var(--font-playfair)', fontSize: '1rem' }}

@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-01 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1124_park_closure_alerts.sql`.
+> Снято 2026-10-01 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1138_route_image_thumbs.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3364 |
+| Колонок | 3365 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 74 |
 
@@ -417,9 +417,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `key text!` `title text!` `icon_bytes bytea` `icon_mime text` `icon_sha256 text` `icon_url text` `created_at timestamptz=`
 
-**ai_route_images** · 19 кол. · PK id · индексов 5
+**ai_route_images** · 20 кол. · PK id · индексов 5
 
-`id uuid!=` `route_id uuid!` `image_data bytea` `mime_type varchar=` `prompt text` `model varchar=` `width integer=` `height integer=` `created_at timestamptz=` `photo_verified boolean` `ai_audit_reason text` `ai_audit_at timestamptz` `manually_reviewed boolean=` `source_url text` `author text` `license text` `license_url text` `s3_key text` `s3_url text`
+`id uuid!=` `route_id uuid!` `image_data bytea` `mime_type varchar=` `prompt text` `model varchar=` `width integer=` `height integer=` `created_at timestamptz=` `photo_verified boolean` `ai_audit_reason text` `ai_audit_at timestamptz` `manually_reviewed boolean=` `source_url text` `author text` `license text` `license_url text` `s3_key text` `s3_url text` `thumb_url text`
 
 **collections** · 20 кол. · PK id · created_by → users.id · индексов 5
 

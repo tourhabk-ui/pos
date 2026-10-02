@@ -51,6 +51,7 @@ import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-
 import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key-identity';
 import { openRouterAttribution } from '@/lib/ai/attribution';
 import { isFreeQuotaExhausted, markFreeQuotaExhausted, isMarkedExhausted, exhaustedModels, freeQuotaSiblings, firstUnexhausted } from '@/lib/ai/qwen-free-quota';
+import { isQwenRetired } from '@/lib/ai/qwen-retired';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -2112,7 +2113,9 @@ async function resolveBestModel(
   // час после отметки вызов стучался бы в ту же стену.
   if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS && !isMarkedExhausted(cached.id)) return cached.id;
 
-  const ids = (await getProviderModelIds(provider)).filter((id) => !isMarkedExhausted(id));
+  // Отключаемое Alibaba 10.10.2026 не выбираем (lib/ai/qwen-retired): каталог
+  // отдаёт его до последнего дня, а после — вызов вернёт отказ.
+  const ids = (await getProviderModelIds(provider)).filter((id) => !isMarkedExhausted(id) && !(provider === 'qwen' && isQwenRetired(id)));
   const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
   PURPOSE_MODEL_CACHE.set(cacheKey, { id: picked, at: Date.now() });
   return picked;
@@ -3627,6 +3630,34 @@ export interface VisionOptions {
 }
 
 /** Имя модели: буквы, цифры, точка, дефис, подчёркивание. Слэша и двоеточия нет. */
+/**
+ * Зрение Кузьмича на Qwen — одно умолчание на весь код (01.10).
+ *
+ * До 01.10 здесь стоял qwen-vl-max, а Alibaba отключает его 10.10.2026
+ * (уведомление id=2000; lib/ai/qwen-retired). Это единственное зрение,
+ * достижимое с прода (§8), — после даты Кузьмич перестал бы разбирать снимки.
+ * Замена выбрана замером на нашем ключе (qwen-key-probe, прогон 3, 01.10):
+ * qwen3-vl-plus видит красный квадрат и называет цвет за 0,6 с, в списке на
+ * отключение её нет (уходят только её датированные снимки). Id без резолва —
+ * ради задержки живого пути, как и было.
+ */
+const QWEN_VISION_DEFAULT = 'qwen3-vl-plus';
+
+/**
+ * Модель зрения: QWEN_VISION_MODEL, если задана и не отключается; иначе —
+ * умолчание. Заданная, но отключаемая — не молчаливый отказ после 10.10, а
+ * замена сейчас и строка в лог, чтобы переменную в Timeweb поправили.
+ */
+export function qwenVisionModel(): string {
+  const env = process.env.QWEN_VISION_MODEL?.trim();
+  if (!env) return QWEN_VISION_DEFAULT;
+  if (isQwenRetired(env)) {
+    console.error(`[vision] QWEN_VISION_MODEL=${env} отключается Alibaba 10.10.2026 — беру ${QWEN_VISION_DEFAULT}`);
+    return QWEN_VISION_DEFAULT;
+  }
+  return env;
+}
+
 const VISION_MODEL_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 const VISION_SYSTEM_HINT =
@@ -3766,7 +3797,7 @@ export async function callVisionDetailed(
   {
     const t = Date.now();
     const { apiKey: qwenKey, base: qwenBase } = getQwenConfig();
-    const model = process.env.QWEN_VISION_MODEL ?? 'qwen-vl-max';
+    const model = qwenVisionModel();
     if (!qwenKey) {
       add('qwen_vl', model, 'skipped', 'ключ Qwen/DashScope не задан', t);
     } else {

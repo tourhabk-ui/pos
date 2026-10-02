@@ -1,18 +1,13 @@
 {
-  "note": "30.09, прогон 631. ТОЛЬКО ЧТЕНИЕ. После выката 1119: «Урочище Аквариум» на проде. И живые записи мест под кадры Алины Гусаковой: водопад Спокойный (Снежный Барс), лавовые пещеры Горелого, Мутновская ГеоЭС, Дачные источники, Каменные поленницы.",
-  "run": 631,
+  "note": "01.10, прогон 636. ТОЛЬКО ЧТЕНИЕ. Что стоит героем и в галерее у «Водопада Спокойного» (a532f015) и «Водопада Снежный барс» (0d08e60d) перед кадрами Алины Гусаковой.",
+  "run": 636,
   "timeout": 60,
-  "retries": 2,
-  "retryDelay": 20,
+  "retries": 1,
+  "retryDelay": 15,
   "allowStale": true,
-  "bytes": 9000,
+  "bytes": 3000,
   "urls": [
-    "https://vedarai.ru/api/places/fe3e16a9-bf51-4df9-aed1-27e6b15bf4cf",
-    "https://vedarai.ru/api/places?limit=20&q=%D0%A1%D0%BF%D0%BE%D0%BA%D0%BE%D0%B9%D0%BD",
-    "https://vedarai.ru/api/places?limit=20&q=%D0%91%D0%B0%D1%80%D1%81",
-    "https://vedarai.ru/api/places/f0ecf463-c804-44de-9b51-7a1642eaccc3",
-    "https://vedarai.ru/api/places?limit=20&q=%D0%93%D0%B5%D0%BE%D0%AD%D0%A1",
-    "https://vedarai.ru/api/places?limit=20&q=%D0%94%D0%B0%D1%87%D0%BD",
-    "https://vedarai.ru/api/places?limit=20&q=%D0%BF%D0%BE%D0%BB%D0%B5%D0%BD%D0%BD%D0%B8%D1%86"
+    "https://vedarai.ru/api/places/a532f015-d208-48d7-8a26-01345a0e1edc",
+    "https://vedarai.ru/api/places/0d08e60d-838b-411c-bfa5-fdb7c40d8609"
   ]
 }

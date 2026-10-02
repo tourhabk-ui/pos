@@ -7,10 +7,14 @@ import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
+import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { defaultOgImages } from '@/lib/seo/og-image';
+import { shownPhotoSql } from '@/lib/images/origin';
+import { fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -72,13 +76,38 @@ async function findPlaceTwin(slug: string): Promise<string | null> {
   }
 }
 
+/**
+ * Статья-двойник маршрута «kl-*». «Камчатский лексикон» лежит в двух
+ * таблицах: `articles` (slug `zima`) и `kamchatka_routes` (slug `kl-zima`,
+ * тот же текст, но заголовок «— маршрут на Камчатке» и разметка
+ * TouristTrip). 26 пар соперничали в выдаче, и статья выдавалась за маршрут
+ * (аудит 02.10). Отвечаем 308 на статью, когда она видима. Отказ БД — null с
+ * записью в лог: не смогли проверить — показываем маршрут, как раньше.
+ */
+async function findArticleTwin(slug: string): Promise<string | null> {
+  if (!slug.startsWith('kl-')) return null;
+  const articleSlug = slug.slice(3);
+  if (!articleSlug) return null;
+  try {
+    const r = await query(`SELECT slug FROM articles WHERE slug = $1 AND is_visible = TRUE LIMIT 1`, [articleSlug]);
+    return (r.rows[0]?.slug as string | undefined) ?? null;
+  } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[routes/[id]] проверка статьи-двойника упала', { slug, sqlstate: e?.code, message: e?.message });
+    return null;
+  }
+}
+
 interface RouteWaypointRow { name: string; slug: string | null; lat: number | null; lng: number | null; position: number }
 
 /** Точки маршрута по порядку (route_waypoints → places). Ошибка БД → []. */
 async function getRouteWaypoints(viewId: string): Promise<RouteWaypointRow[]> {
   try {
     const r = await query(
-      `SELECT p.name, p.slug, p.lat, p.lng, rw.position
+      // Скрытое место остаётся точкой пути, но ссылка на него отвечала бы 404
+      // (аудит 02.10: два маршрута вели на скрытую «Самые высокие вулканы…»);
+      // без slug список покажет имя текстом.
+      `SELECT p.name, CASE WHEN p.is_visible IS NOT FALSE THEN p.slug END AS slug, p.lat, p.lng, rw.position
          FROM route_waypoints rw
          JOIN kamchatka_routes kr ON kr.id = rw.route_id
          JOIN places p ON p.id = rw.place_id
@@ -118,7 +147,12 @@ async function getRouteRaw(idOrSlug: string) {
   try {
     const result = await query(
       `SELECT id, category, title, description, lat, lng, source_url, payload,
-              location_type, activity_type
+              location_type, activity_type,
+              -- Есть ли настоящий снимок (не нарисованный моделью) — для
+              -- превью ссылки; правило показа то же, что у карточки места.
+              EXISTS (SELECT 1 FROM ai_route_images ai
+                       WHERE ai.route_id = agent_route_knowledge.id
+                         AND ${shownPhotoSql('ai.model')}) AS has_real_photo
        FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`,
       [realId]
     );
@@ -143,7 +177,9 @@ async function getRouteRaw(idOrSlug: string) {
       id: r.id as string,
       category: r.category as string,
       title: r.title as string,
-      description: stripSourceAttribution((r.description as string | null) ?? ''),
+      // Заглушка «Это X в Камчатском крае. Место, которое стоит посмотреть.»
+      // в начале скачанных описаний — не текст (аудит 01.10, lib/text/filler-lead).
+      description: stripFillerLead(stripSourceAttribution((r.description as string | null) ?? '')),
       lat: r.lat != null ? parseFloat(r.lat as string) : null,
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl: (r.source_url as string | null) ?? null,
@@ -153,6 +189,7 @@ async function getRouteRaw(idOrSlug: string) {
       difficulty: (payload.difficulty as string | null) ?? null,
       bestMonths: Array.isArray(payload.best_months) ? payload.best_months as string[] : null,
       photos: Array.isArray(payload.photos) ? payload.photos as string[] : null,
+      hasRealPhoto: r.has_real_photo === true,
       locationType: (r.location_type as string | null) ?? null,
       activityType: (r.activity_type as string | null) ?? null,
       slug,
@@ -195,6 +232,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       keywords: catMeta.keywords,
       alternates: { canonical: `https://vedarai.ru/routes/${id}` },
       openGraph: {
+        images: defaultOgImages(),
         title: catMeta.title,
         description: catMeta.description,
         url: `https://vedarai.ru/routes/${id}`,
@@ -211,7 +249,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // Канонический URL — всегда по slug (если он есть), даже если пришли по UUID
   const canonicalId = route.slug ?? id;
 
-  const title = `${route.title} — маршрут на Камчатке`;
+  // Хвост обязателен: маршрут к источнику часто носит имя самого места, и без
+  // хвоста заголовки страницы маршрута и места совпадали (аудит 01.10).
+  const title = fitTitleRequired(route.title, ROUTE_TITLE_TAILS);
   // По предложению или слову, а не slice(0, 180) посреди слова (Н11).
   const desc = metaDescription(route.description)
     || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
@@ -247,9 +287,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     'путешествия',
   ].filter(Boolean) as string[];
 
+  // Превью: фото маршрута → его настоящий снимок из хранилища → картинка
+  // сайта. Без последней ссылка раскрывалась голым текстом: openGraph
+  // страницы заменяет картинку layout целиком (аудит 01.10, 397 маршрутов).
   const images = route.photos?.length
     ? route.photos.slice(0, 1).map(url => ({ url, width: 1200, height: 630, alt: route.title }))
-    : [];
+    : route.hasRealPhoto
+      ? [{ url: `/api/images/route/${route.id}`, alt: route.title }]
+      : defaultOgImages();
 
   return {
     title,
@@ -263,7 +308,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
-      ...(images.length > 0 ? { images } : {}),
+      images,
     },
   };
 }
@@ -312,6 +357,13 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     : (route.slug ? await findPlaceTwin(route.slug) : null);
   if (twinOf) {
     permanentRedirect(`/places/${twinOf}`);
+  }
+
+  // Статья под адресом маршрута (kl-*) — 308 на /articles/{slug}: статья не
+  // маршрут (§9–10), а двойник делит с ней выдачу.
+  const articleTwin = route.slug ? await findArticleTwin(route.slug) : null;
+  if (articleTwin) {
+    permanentRedirect(`/articles/${articleTwin}`);
   }
 
   // Точки маршрута по порядку — для itinerary в JSON-LD: без ItemList с
@@ -435,7 +487,8 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         '@type': 'Offer',
         price: route.priceFrom,
         priceCurrency: 'RUB',
-        availability: 'https://schema.org/InStock',
+        // availability не объявляется: цена «от» маршрута — не предложение с
+        // датами; честный ответ по датам — на карточке тура (аудит 01.10).
         url: `https://vedarai.ru/routes/${id}`,
         seller: {
           '@type': 'TravelAgency',

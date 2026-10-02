@@ -79,7 +79,8 @@ describe('условие витрины', () => {
   it('каждый читатель витрины жилья спрашивает одобрение, а не только is_active', () => {
     const readers = [
       'app/api/accommodations/route.ts',
-      'app/api/accommodations/[id]/route.ts',
+      // Карточка: GET и страница читают общий загрузчик (аудит 01.10).
+      'lib/stay/accommodation-detail.ts',
       'app/accommodations/[id]/page.tsx',
       'app/api/trip/plan/route.ts',
       'lib/kuzmich/accommodation-search.ts',
@@ -152,8 +153,10 @@ describe('витрина не показывает неодобренное', ()
       { params: Promise.resolve({ id: ACC_ID }) });
     expect(res.status).toBe(404);
     expect(String(queryMock.mock.calls[0][0])).toContain("a.moderation_status = 'approved'");
-    const src = read('app/api/accommodations/[id]/route.ts');
+    // Запрос карточки живёт в общем загрузчике (страница и API, аудит 01.10).
+    const src = read('lib/stay/accommodation-detail.ts');
     expect(src.match(/publicAccommodationSql\('a'\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(read('app/api/accommodations/[id]/route.ts')).toMatch(/loadAccommodationDetail\(id\)/);
   });
 });
 

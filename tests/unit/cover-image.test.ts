@@ -127,6 +127,53 @@ describe('умный путь DashScope (async task)', () => {
   });
 });
 
+describe('умный путь DashScope: семейство qwen-image — синхронно (01.10)', () => {
+  // qwen-image-probe прогон 1: qwen-image-3.0 на text2image — 400
+  // InvalidParameter, синхронным multimodal-generation — рисует за 43 с.
+  beforeEach(() => {
+    process.env.DASHSCOPE_API_KEY = 'k';
+    process.env.QWEN_IMAGE_MODEL = 'qwen-image-3.0';
+  });
+
+  const ok = (url: string) => ({
+    ok: true,
+    json: async () => ({ output: { choices: [{ message: { content: [{ image: url }] } }] } }),
+  });
+
+  it('qwen-image* идёт в multimodal-generation одним запросом, без задачи', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(ok('https://oss.example/q3.png'));
+    vi.stubGlobal('fetch', fetchMock);
+    const cover = await resolveCoverImage(AI_TEXT, 'ai', 1);
+    expect(cover.source).toBe('qwen-image');
+    expect(cover.url).toBe('https://oss.example/q3.png');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/v1/services/aigc/multimodal-generation/generation');
+    const headers = (init as { headers: Record<string, string> }).headers;
+    expect(headers['X-DashScope-Async']).toBeUndefined();
+    const body = JSON.parse((init as { body: string }).body);
+    expect(body.model).toBe('qwen-image-3.0');
+    expect(body.input.messages[0].content[0].text.length).toBeGreaterThan(0);
+  });
+
+  it('отказ шлюза — откат на Pollinations', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({}) }));
+    expect((await resolveCoverImage(AI_TEXT, 'ai', 3)).source).toBe('pollinations');
+  });
+
+  it('ответ без картинки — откат на Pollinations, а не пустой URL', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ output: { choices: [] } }) }));
+    expect((await resolveCoverImage(AI_TEXT, 'ai', 4)).source).toBe('pollinations');
+  });
+
+  it('разветвление — по имени модели: wan* остаётся на задаче', async () => {
+    const { usesMultimodalImageApi } = await import('@/lib/notifications/cover-image');
+    expect(usesMultimodalImageApi('qwen-image-3.0')).toBe(true);
+    expect(usesMultimodalImageApi('qwen-image')).toBe(true);
+    expect(usesMultimodalImageApi('wan2.2-t2i-flash')).toBe(false);
+  });
+});
+
 describe('D2 / 152-ФЗ: хост DashScope под надзором', () => {
   it('dashscope-intl.aliyuncs.com внесён в реестр как зарубежный', () => {
     const ep = LLM_ENDPOINTS.find((e) => e.host === 'dashscope-intl.aliyuncs.com');

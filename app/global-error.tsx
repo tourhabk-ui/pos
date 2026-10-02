@@ -15,8 +15,8 @@ export default function GlobalError({
             --bg-primary: #F5F0EB;
             --text-primary: #1A1714;
             --text-secondary: #6B6560;
-            --text-muted: #9A9590;
-            --accent: #D44A0C;
+            --text-muted: #736D68;
+            --accent: #C2410A;
           }
         `}</style>
       </head>

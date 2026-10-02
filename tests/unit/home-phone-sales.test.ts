@@ -203,7 +203,8 @@ describe('два направления и безопасность одним �
     expect(pos('id="radar"')).toBeLessThan(pos('<h2>Исследовать</h2>'));
     const at = pos('className="plates explore"');
     const explore = JSX.slice(at, JSX.indexOf('</section>', at));
-    expect(explore).toContain('href={`/places/${pl.id}`}');
+    // Ссылка по ЧПУ, по id — только без slug (аудит 02.10, home-explore-slug).
+    expect(explore).toContain('href={`/places/${pl.urlSlug ?? pl.id}`}');
     expect(explore).not.toMatch(/price|buy-cta|Забронировать|marketplace/);
   });
 });

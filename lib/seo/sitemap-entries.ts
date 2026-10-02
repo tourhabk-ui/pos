@@ -72,6 +72,13 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
     // Памятка перед поездкой (30.09): факты — импортом из справочников МЧС, парка, SOS.
     { url: `${BASE}/prepare`,             lastModified: new Date('2026-09-30'), changeFrequency: 'monthly', priority: 0.8 },
+    // Сводка дня (аудит 01.10): живая, на неё ведут двадцать три страницы, а в
+    // sitemap её не было. Собирается на каждый запрос (force-dynamic), поэтому
+    // дата — сегодняшняя. /emergency сюда НЕ внесена намеренно: сторож
+    // mobile-two-taps требует у каждой страницы sitemap ссылку в меню, а
+    // страница SOS открывается кнопкой в шапке — вторая дорога к тому же
+    // действию расходилась бы с ней поведением (§2, #887).
+    { url: `${BASE}/svodka`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают
@@ -209,6 +216,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
         -- Двойник места отвечает 308 на /places/{slug} (решение владельца
         -- 29.09): адрес с редиректом sitemap не предлагает.
         AND NOT EXISTS (SELECT 1 FROM places tp WHERE tp.slug = kr.slug AND tp.is_visible = TRUE)
+        -- Статья-двойник «kl-*» отвечает 308 на /articles/{slug} (аудит 02.10):
+        -- тот же текст лежал под двумя адресами, второй — с разметкой маршрута.
+        AND NOT EXISTS (SELECT 1 FROM articles ta WHERE ta.is_visible = TRUE AND kr.slug = 'kl-' || ta.slug)
       ORDER BY kr.updated_at DESC
       LIMIT 2000
     `);
@@ -309,11 +319,49 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('операторы', e);
   }
 
+  // Карточки парков (01.10): с серверной отрисовкой у них есть содержимое —
+  // прежде страница собиралась в браузере, и поисковик видел 12–13 слов.
+  let parkPages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
+      `SELECT slug, updated_at FROM parks
+       WHERE is_active = true
+       ORDER BY display_name LIMIT 50`
+    );
+    parkPages = rows.map(row => ({
+      url: `${BASE}/park/${row.slug}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'monthly' as const,
+      priority: 0.75,
+    }));
+  } catch (e) {
+    fail('парки', e);
+  }
+
   // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет
   // ни одного опубликованного объекта, в sitemap её не предлагаем (Н9).
   const staticLive = accommodationPages.length > 0
     ? staticPages
     : staticPages.filter((p) => p.url !== `${BASE}/accommodations`);
+
+  // Страница-список меняется, когда меняется её содержимое. `new Date()` у
+  // /places, /routes, /catalog говорил «изменено сейчас» на каждом запросе
+  // sitemap — и поисковик учится не верить lastmod сайта целиком (аудит
+  // 01.10). Секция не прочиталась — у списка остаётся прежняя дата.
+  const listOf: Array<[string, MetadataRoute.Sitemap]> = [
+    [`${BASE}/places`, placesPages],
+    [`${BASE}/routes`, routePages],
+    [`${BASE}/catalog`, marketplacePages],
+    [`${BASE}/hub/fishing`, marketplacePages],
+    [`${BASE}/accommodations`, accommodationPages],
+    [`${BASE}/collections`, collectionPages],
+    [`${BASE}/operators`, operatorPages],
+  ];
+  for (const [url, section] of listOf) {
+    const at = latestModified(section);
+    const page = staticLive.find((e) => e.url === url);
+    if (at && page) page.lastModified = at;
+  }
 
   const entries: MetadataRoute.Sitemap = [
     ...staticLive,
@@ -325,6 +373,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ...marketplacePages,
     ...collectionPages,
     ...operatorPages,
+    ...parkPages,
   ];
   return { entries, degraded };
 }
@@ -333,4 +382,15 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
 /** Только записи — для IndexNow bulk, которому полнота не нужна для ответа. */
 export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   return (await collectSitemapEntriesWithStatus()).entries;
+}
+
+/** Самая поздняя дата изменения в секции; `null` — дат нет. */
+export function latestModified(section: MetadataRoute.Sitemap): Date | null {
+  let max: number | null = null;
+  for (const e of section) {
+    if (e.lastModified == null) continue;
+    const t = new Date(e.lastModified).getTime();
+    if (!Number.isNaN(t) && (max === null || t > max)) max = t;
+  }
+  return max === null ? null : new Date(max);
 }

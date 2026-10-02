@@ -95,7 +95,8 @@ export function buildToursItemListJsonLd(
           '@type': 'Offer',
           price: parseFloat(String(t.base_price)),
           priceCurrency: 'RUB',
-          availability: 'https://schema.org/InStock',
+          // availability не объявляется: даты здесь не считались (аудит 01.10);
+          // честный ответ — на карточке тура (lib/tours/open-dates).
           url: `${site}${basePath}/tours/${t.id}`,
         },
       },

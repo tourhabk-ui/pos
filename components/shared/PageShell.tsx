@@ -21,7 +21,9 @@ export default function PageShell({ title, children }: PageShellProps) {
           <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
             <Logo size={28} />
           </Link>
-          <h1 className="text-lg font-bold text-[var(--text-primary)] hidden sm:block">{title}</h1>
+          {/* Подпись в шапке, а не заголовок страницы: H1 — у самого документа.
+              Иначе у каждого правового документа два H1 (аудит vedarai.ru 01.10). */}
+          <p className="text-lg font-bold text-[var(--text-primary)] hidden sm:block">{title}</p>
           <div className="flex items-center gap-3">
             <button onClick={toggleTheme} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}

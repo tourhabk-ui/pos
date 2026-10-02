@@ -1,0 +1,54 @@
+name: Экран безопасности перечитывается сам — проверка делом на проде
+
+# 01.10 (#2146): открытый /safety раз в минуту спрашивает себя, не старше
+# ли он пяти минут, и перечитывается целиком. Этот прогон открывает экран на
+# проде в настоящем Chromium, ничего не нажимает и считает перечитывания:
+# рано — нет, к седьмой минуте — да, к источникам — нет, скрытая вкладка —
+# нет. Только чтение: на проде ничего не пишется.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/safety-autorefresh-check.json'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Открыть экран и не трогать
+        run: |
+          SINCE=$(python3 -c "import json;print(json.load(open('.github/triggers/safety-autorefresh-check.json')).get('since',''))")
+          mkdir -p .cache
+          set +e
+          SINCE="$SINCE" npx tsx scripts/safety-autorefresh-check.ts | tee check.log
+          code=${PIPESTATUS[0]}
+          set -e
+          body=$(sed -e 's/%/%25/g' check.log | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=safety-autorefresh-check::${body}"
+          exit $code
+
+      - name: Кадр экрана
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: safety-autorefresh
+          path: .cache/safety-autorefresh.png
+          if-no-files-found: ignore

@@ -95,7 +95,7 @@ describe('машинные файлы отдаются со своим Cache-Con
 });
 
 describe('/routes и /places — разные страницы с разными заголовками', () => {
-  const titleOf = (p: string) => code(p).match(/export const metadata[\s\S]*?title:\s*'([^']+)'/)?.[1] ?? '';
+  const titleOf = (p: string) => code(p).match(/const BASE_METADATA[\s\S]*?title:\s*'([^']+)'/)?.[1] ?? '';
 
   it('title /routes говорит «маршруты» и не совпадает с /places', () => {
     const routes = titleOf('app/routes/(list)/page.tsx');
@@ -201,7 +201,9 @@ describe('размеры картинки для ссылок совпадают
   // hero-light.jpeg объявлялся 1200×630 на четырёх страницах, а файл 1024×1024:
   // превью в мессенджерах и выдаче обрезало бы картинку по чужим размерам.
   it('каждое объявление { url: /images/….jpg, width, height } в метаданных равно файлу', () => {
-    const files = ['app/page.tsx', 'app/layout.tsx', 'app/plans/[slug]/page.tsx', 'app/trip/[token]/page.tsx', 'app/hub/fishing/page.tsx'];
+    // Картинка по умолчанию с 01.10 объявлена в lib/seo/og-image.ts — её
+    // берут layout и все страницы со своим openGraph.
+    const files = ['app/page.tsx', 'lib/seo/og-image.ts', 'app/plans/[slug]/page.tsx', 'app/trip/[token]/page.tsx', 'app/hub/fishing/page.tsx'];
     let checked = 0;
     for (const f of files) {
       const src = read(f);

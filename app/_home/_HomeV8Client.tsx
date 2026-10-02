@@ -41,6 +41,7 @@ import { ShareButton } from '@/components/shared/ShareButton';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
 import { tourPath } from '@/lib/tours/tour-url';
+import { sessionState } from '@/lib/auth/session-state';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -118,8 +119,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/trips/active', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
+    // Только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
+    sessionState()
+      .then((authed) => (authed === true
+        ? fetch('/api/trips/active', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null))
+        : null))
       .then((j: { data?: ActiveTrip | null } | null) => {
         const d = j?.data;
         if (cancelled || !d || !d.progress) return;
@@ -319,6 +323,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           датами, заголовок — название, «День N из M» — только из tripProgress
           (during) и только при непустых day/total. after/unknown сюда не
           попадают — гейт на fetch выше. */}
+      {/* Фото героя — элемент LCP главной, но фон из CSS браузер находит
+          только после разбора стилей: замер 01.10 (Pixel 7) — заголовок
+          на 2,2 с, фото на 3,8 с. Предзагрузка с высоким приоритетом
+          ставит его в очередь вместе с HTML. React поднимает <link> в
+          <head>; путь тот же, что у фона, — второй загрузки нет. */}
+      <link rel="preload" as="image" href={heroImg} fetchPriority="high" />
       <header className="hero-photo" style={{ backgroundImage: `url('${heroImg}')` }}>
         <div className="hero-shade" aria-hidden />
         <div className="hero-fade" aria-hidden />
@@ -654,7 +664,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes?kind=place">Все места</Link></div>
             <div className="plates explore">
               {explore.map((pl, i) => (
-                <Link key={pl.id} href={`/places/${pl.id}`} className="plate place" aria-label={`${pl.title}, место ${i + 1} из ${explore.length}`}>
+                <Link key={pl.id} href={`/places/${pl.urlSlug ?? pl.id}`} className="plate place" aria-label={`${pl.title}, место ${i + 1} из ${explore.length}`}>
                   <div className="img" style={pl.imageUrl ? { backgroundImage: `url('${photoSrc(pl.imageUrl, 640)}')` } : undefined}>
                     {!pl.imageUrl && <span className="noimg" />}
                   </div>

@@ -41,11 +41,13 @@ const MANIFEST = path.join(ROOT, 'lib', 'images', 'photo-variants.json');
 
 /** Легче этого — не трогаем: иконки и плейсхолдеры и так быстрые. */
 const MIN_BYTES = 50 * 1024;
-const WIDTHS = [640, 1280];
-const QUALITY = { 640: 72, 1280: 74 };
+// 320 — для плиток 80–100 px (филмстрип тура, миниатюры): 640 туда шёл
+// в 7 раз больше нужного (аудит 02.10).
+const WIDTHS = [320, 640, 1280];
+const QUALITY = { 320: 70, 640: 72, 1280: 74 };
 
 /** Наши же сгенерированные варианты — не входы. */
-const VARIANT_RE = /\.(640|1280)\.webp$/;
+const VARIANT_RE = /\.(320|640|1280)\.webp$/;
 const SOURCE_RE = /\.(jpe?g|png)$/i;
 
 async function* walk(dir) {

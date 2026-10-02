@@ -1570,17 +1570,17 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   .subtitle { color: #6b6560; font-size: 13px; margin-bottom: 24px; }
   .day { border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; page-break-inside: avoid; }
   .day-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  .day-num { width: 26px; height: 26px; border-radius: 50%; background: #D44A0C; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .day-num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
   .day-title { font-weight: 600; font-size: 14px; flex: 1; }
   .day-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #f0f0f0; }
-  .day-price { font-size: 12px; color: #D44A0C; font-weight: 600; white-space: nowrap; }
+  .day-price { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
   .day-desc { font-size: 12px; color: #6b6560; margin-top: 4px; }
   .day-meta { font-size: 11px; color: #9a9590; margin-top: 4px; }
   .day-warn { font-size: 11px; color: #d29922; margin-top: 4px; padding: 4px 8px; background: #fef9ec; border-radius: 4px; }
-  .confirmed { border-color: #3fb950; border-width: 2px; }
+  .confirmed { border-color: var(--success); border-width: 2px; }
   .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e5e5; font-size: 12px; color: #6b6560; }
   .price-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
-  .price-total { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e5e5; color: #D44A0C; }
+  .price-total { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e5e5; color: var(--accent); }
   .warnings { margin-top: 16px; }
   .warning { padding: 6px 10px; border-radius: 6px; font-size: 12px; margin-bottom: 6px; }
   .warning-critical { background: #fde8e8; color: #dc2626; }

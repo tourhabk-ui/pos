@@ -4,6 +4,8 @@ import { CATEGORY_PAGES, categoryListingHref } from '@/lib/routes/category-meta'
 import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
+import { arkUrlSlugSql, catalogHref } from '@/lib/routes/url-slug';
+import { stripFillerLead } from '@/lib/text/filler-lead';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
@@ -19,13 +21,15 @@ export default async function CategoryPage({ category, zone }: { category: strin
   const zoneMeta = zone ? ZONE_PAGES[zone] : null;
   if (!meta || (zone && !zoneMeta)) notFound();
 
-  const [routeResult, countResult, zonesResult, parksResult] = await Promise.all([
+  const [routeResult, countResult, zonesResult, parksResult, categoriesResult] = await Promise.all([
     pool.query<{
       id: string; title: string; description: string; category: string;
       lat: unknown; lng: unknown; price_from: unknown; difficulty: string | null;
       duration_days: unknown; source_name: string | null;
+      kind: string | null; url_slug: string | null;
     }>(
-      `SELECT id, title, description, category, lat, lng,
+      `SELECT id, title, description, category, lat, lng, kind,
+              ${arkUrlSlugSql('agent_route_knowledge')} AS url_slug,
               NULLIF(payload->>'price_from', '')::numeric AS price_from,
               payload->>'difficulty' AS difficulty,
               NULLIF(payload->>'duration_days', '')::numeric::int AS duration_days,
@@ -70,6 +74,14 @@ export default async function CategoryPage({ category, zone }: { category: strin
           [zone]
         )
       : Promise.resolve({ rows: [] as { slug: string; display_name: string }[] }),
+    // Живые категории — для блока «Другие виды». Тот же счёт, что у самой
+    // страницы категории: ссылка на тонкую категорию вела в 404 (аудит 01.10:
+    // 12 битых ссылок с семи страниц категорий).
+    pool.query<{ category: string; count: string }>(
+      `SELECT category, COUNT(*) AS count FROM agent_route_knowledge
+       WHERE is_visible = TRUE AND category IS NOT NULL
+       GROUP BY category`
+    ),
   ]);
 
   const total = Number(countResult.rows[0].count);
@@ -78,9 +90,12 @@ export default async function CategoryPage({ category, zone }: { category: strin
 
   const routes: RouteItem[] = routeResult.rows.map(r => ({
     id: r.id,
+    // Адрес — по роду и ЧПУ (lib/routes/url-slug); вид карточки не меняется:
+    // род в саму карточку не передаётся, только в ссылку.
+    href: catalogHref({ id: r.id, kind: r.kind, urlSlug: r.url_slug }, '/routes'),
     category: r.category,
     title: r.title,
-    description: r.description,
+    description: stripFillerLead(r.description),
     lat: r.lat != null ? Number(r.lat) : null,
     lng: r.lng != null ? Number(r.lng) : null,
     priceFrom: r.price_from != null ? Number(r.price_from) : null,
@@ -89,7 +104,13 @@ export default async function CategoryPage({ category, zone }: { category: strin
     sourceName: r.source_name,
   }));
 
-  const otherCategories = Object.values(CATEGORY_PAGES).filter(c => c.slug !== category);
+  const liveCategories = new Set(
+    categoriesResult.rows
+      .filter(r => Number(r.count) >= MIN_ITEMS_FOR_PAGE)
+      .map(r => r.category),
+  );
+  const otherCategories = Object.values(CATEGORY_PAGES)
+    .filter(c => c.slug !== category && liveCategories.has(c.slug));
   const liveZones = zonesResult.rows
     .filter(z => Number(z.count) >= MIN_ITEMS_FOR_PAGE && ZONE_PAGES[z.zone])
     .map(z => ({ ...ZONE_PAGES[z.zone], count: Number(z.count) }));
@@ -210,23 +231,25 @@ export default async function CategoryPage({ category, zone }: { category: strin
           )}
         </div>
 
-        {/* Other categories */}
-        <div className="border-t border-[var(--border)] pt-8">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
-            Другие виды туров на Камчатке
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {otherCategories.map(c => (
-              <Link
-                key={c.slug}
-                href={`/routes/${c.slug}`}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-              >
-                {c.name}
-              </Link>
-            ))}
+        {/* Other categories — только живые (≥3), иначе ссылка ведёт в 404 */}
+        {otherCategories.length > 0 && (
+          <div className="border-t border-[var(--border)] pt-8">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Другие виды туров на Камчатке
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {otherCategories.map(c => (
+                <Link
+                  key={c.slug}
+                  href={`/routes/${c.slug}`}
+                  className="px-4 py-2 rounded-xl text-sm font-medium bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                >
+                  {c.name}
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
     </>

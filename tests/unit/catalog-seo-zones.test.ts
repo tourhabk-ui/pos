@@ -25,6 +25,20 @@ beforeEach(() => {
   poolQueryMock.mockReset();
 });
 
+/** Все href в дереве элементов, без рендера компонентов. */
+function collectHrefs(node: unknown, acc: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    for (const n of node) collectHrefs(n, acc);
+    return acc;
+  }
+  if (node && typeof node === 'object' && 'props' in node) {
+    const props = (node as { props: Record<string, unknown> }).props;
+    if (typeof props.href === 'string') acc.push(props.href);
+    collectHrefs(props.children, acc);
+  }
+  return acc;
+}
+
 describe('getCatalogPages — правило ≥3 в sitemap', () => {
   it('живые категории и зоны попадают, тонкие и неизвестные — нет', async () => {
     const may = new Date('2026-05-01');
@@ -70,6 +84,30 @@ describe('CategoryPage — тонкая страница отдаёт 404', () =
 
     // notFound() бросает NEXT_NOT_FOUND
     await expect(CategoryPage({ category: 'vulkani' })).rejects.toThrow();
+  });
+
+  it('«Другие виды» ссылаются только на живые категории (≥3), тонкая отдала бы 404', async () => {
+    poolQueryMock.mockImplementation((sql: string) => {
+      if (sql.includes('COUNT(*) AS count') && !sql.includes('GROUP BY')) {
+        return Promise.resolve({ rows: [{ count: '5' }] });
+      }
+      if (sql.includes('GROUP BY category')) {
+        return Promise.resolve({
+          rows: [
+            { category: 'vulkani', count: '5' },
+            { category: 'rybalka', count: '3' },
+            { category: 'eco', count: '2' },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const hrefs = collectHrefs(await CategoryPage({ category: 'vulkani' }));
+    expect(hrefs).toContain('/routes/rybalka');
+    expect(hrefs).not.toContain('/routes/eco');
+    expect(hrefs).not.toContain('/routes/geyzery'); // в данных нет вовсе
+    expect(hrefs).not.toContain('/routes/vulkani'); // себя не повторяет
   });
 
   it('несуществующая категория → notFound без запросов к БД', async () => {

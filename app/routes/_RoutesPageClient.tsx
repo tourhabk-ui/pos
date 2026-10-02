@@ -11,6 +11,10 @@ import {
 } from 'lucide-react';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import ParksStrip from '@/components/routes/ParksStrip';
+import type { ParkLite } from '@/lib/parks/list';
+import CategoriesStrip from '@/components/routes/CategoriesStrip';
+import type { CategoryLink } from '@/lib/routes/live-categories';
+import { pageSlots } from '@/lib/seo/catalog-paging';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
 import { MarkerType } from '@/components/shared/leaflet-types';
@@ -157,9 +161,13 @@ interface RoutesPageClientProps {
    * над вкладками — сам туры не ищет.
    */
   toursSlot?: React.ReactNode;
+  /** Парки с сервера — ссылками в первом HTML; `null` — сервер не прочитал. */
+  initialParks?: ParkLite[] | null;
+  /** Живые категории с сервера (/routes/<slug>); `null` — не прочитал. */
+  initialCategories?: CategoryLink[] | null;
 }
 
-export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot }: RoutesPageClientProps) {
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null, initialCategories = null }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -334,15 +342,18 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   }, [view, fetchMapRoutes]);
 
   // ── Sync URL ─────────────────────────────────────────────────
+  // Раздел /places живёт по своему адресу: прежде клиент переписывал его
+  // в /routes?kind=place, и ссылки пагинации вели туда же (аудит 01.10).
+  const basePath = lockedKind === 'place' ? '/places' : '/routes';
   useEffect(() => {
     const p = new URLSearchParams();
-    if (kind !== 'route')  p.set('kind', kind);
+    if (!lockedKind && kind !== 'route') p.set('kind', kind);
     if (query)             p.set('q', query);
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);
     if (page > 1)          p.set('page', String(page));
-    router.replace(`/routes${p.size ? '?' + p : ''}`, { scroll: false });
-  }, [query, activityType, locationType, page, kind, router]);
+    router.replace(`${basePath}${p.size ? '?' + p : ''}`, { scroll: false });
+  }, [query, activityType, locationType, page, kind, router, basePath, lockedKind]);
 
   const resetFilters = () => { setDifficulty(''); setPriceRange(''); setNearRadius(''); setPage(1); };
 
@@ -356,12 +367,12 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // остаёмся в SPA-режиме без перезагрузки.
   const pageHref = (pg: number) => {
     const p = new URLSearchParams();
-    if (kind !== 'route')  p.set('kind', kind);
+    if (!lockedKind && kind !== 'route') p.set('kind', kind);
     if (query)             p.set('q', query);
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);
     if (pg > 1)            p.set('page', String(pg));
-    return `/routes${p.size ? '?' + p : ''}`;
+    return `${basePath}${p.size ? '?' + p : ''}`;
   };
 
   const handleKindChange = (k: KindValue) => {
@@ -433,7 +444,8 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         )}
 
         {/* ── Природные парки ───────────────────────────────── */}
-        <ParksStrip />
+        <ParksStrip initialParks={initialParks} />
+        <CategoriesStrip categories={initialCategories} />
 
         {/* ── Search + controls ─────────────────────────────── */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -457,6 +469,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           </div>
 
           <select
+            aria-label="Сортировка маршрутов"
             value={sort}
             onChange={e => { setSort(e.target.value as SortValue); setPage(1); }}
             className="ds-input w-auto pr-8 text-sm"
@@ -696,9 +709,34 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                     <ChevronLeft className="w-4 h-4" />
                   </span>
                 )}
-                <span className="text-sm text-[var(--text-secondary)] px-2">
-                  {page} / {meta.pages}
-                </span>
+                {/* Номера страниц ссылками: одна цепочка «вперёд» держала
+                    маршрут с 17-й страницы в восемнадцати переходах от
+                    главной, и обход не доходил (аудит 01.10). */}
+                <nav aria-label="Страницы каталога" className="flex flex-wrap items-center justify-center gap-1">
+                  {pageSlots(page, meta.pages).map((slot, i) =>
+                    slot === 'gap' ? (
+                      <span key={`gap-${i}`} className="px-1 text-sm text-[var(--text-muted)]" aria-hidden="true">…</span>
+                    ) : slot === page ? (
+                      <span
+                        key={slot}
+                        aria-current="page"
+                        className="min-w-9 rounded-lg px-2 py-1.5 text-center text-sm font-semibold bg-[var(--accent)] text-[var(--bg-card)]"
+                      >
+                        {slot}
+                      </span>
+                    ) : (
+                      <Link
+                        key={slot}
+                        href={pageHref(slot)}
+                        onClick={e => { e.preventDefault(); setPage(slot); }}
+                        className="min-w-9 rounded-lg px-2 py-1.5 text-center text-sm text-[var(--text-secondary)] transition-all duration-200 hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                        aria-label={`Страница ${slot}`}
+                      >
+                        {slot}
+                      </Link>
+                    ),
+                  )}
+                </nav>
                 {page < meta.pages ? (
                   <Link
                     href={pageHref(page + 1)}

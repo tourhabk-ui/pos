@@ -18,10 +18,13 @@ interface FaqCategory {
 
 interface Props {
   initialItems?: FaqItem[];
+  /** Сервер не смог прочитать вопросы — это не «вопросов нет» (§4.0). */
+  initialFailed?: boolean;
 }
 
-export default function FaqClient({ initialItems = [] }: Props) {
+export default function FaqClient({ initialItems = [], initialFailed = false }: Props) {
   const [items, setItems] = useState<FaqItem[]>(initialItems);
+  const [fetchFailed, setFetchFailed] = useState(false);
   const [categories, setCategories] = useState<FaqCategory[]>(() => {
     const map: Record<string, number> = {};
     for (const item of initialItems) {
@@ -34,8 +37,10 @@ export default function FaqClient({ initialItems = [] }: Props) {
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
 
+  const filtered = Boolean(activeCategory || search);
+
   const fetchFaq = useCallback(async () => {
-    if (!activeCategory && !search) return; // используем initialItems
+    if (!activeCategory && !search) return; // без фильтра — список с сервера
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -45,12 +50,23 @@ export default function FaqClient({ initialItems = [] }: Props) {
       const json = await res.json();
       if (json.success) {
         setItems(json.data.items);
+        setFetchFailed(false);
+      } else {
+        setFetchFailed(true);
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error('[faq] поиск по вопросам не выполнен', e instanceof Error ? e.message : String(e));
+      setFetchFailed(true);
+    }
     setLoading(false);
   }, [activeCategory, search]);
 
   useEffect(() => { fetchFaq(); }, [fetchFaq]);
+
+  // Фильтр снят — снова весь список с сервера. Прежде после «Все» оставался
+  // последний отфильтрованный список.
+  const shown = filtered ? items : initialItems;
+  const failed = filtered ? fetchFailed : initialFailed;
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
@@ -110,17 +126,26 @@ export default function FaqClient({ initialItems = [] }: Props) {
               <div key={i} className="h-14 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg animate-pulse" />
             ))}
           </div>
-        ) : items.length === 0 ? (
+        ) : failed ? (
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
             <HelpCircle className="w-6 h-6 text-[var(--text-muted)] mx-auto mb-2" />
-            <p className="text-sm text-[var(--text-muted)]">Вопросов пока нет</p>
+            <p className="text-sm text-[var(--text-muted)]">Не удалось загрузить вопросы. Обновите страницу.</p>
+          </div>
+        ) : shown.length === 0 ? (
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
+            <HelpCircle className="w-6 h-6 text-[var(--text-muted)] mx-auto mb-2" />
+            <p className="text-sm text-[var(--text-muted)]">
+              {filtered ? 'По запросу ничего не нашлось' : 'Вопросов пока нет'}
+            </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {items.map(item => (
+            {shown.map(item => (
               <div key={item.id} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
                 <button
                   onClick={() => setOpenId(openId === item.id ? null : item.id)}
+                  aria-expanded={openId === item.id}
+                  aria-controls={`faq-answer-${item.id}`}
                   className="w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-[var(--bg-hover)] transition-colors"
                 >
                   <span className="text-sm font-medium text-[var(--text-primary)] pr-4">{item.question}</span>
@@ -130,23 +155,23 @@ export default function FaqClient({ initialItems = [] }: Props) {
                     <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
                   )}
                 </button>
-                {openId === item.id && (
-                  <div className="px-4 pb-4 pt-0">
-                    <div className="border-t border-[var(--border)] pt-3">
-                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line">{item.answer}</p>
-                      {item.category && (
-                        <span className="inline-block mt-3 px-2 py-0.5 text-[10px] text-[var(--text-muted)] bg-[var(--bg-hover)] rounded">
-                          {item.category}
-                        </span>
-                      )}
-                      {item.helpful > 0 && (
-                        <span className="inline-flex items-center gap-1 mt-3 ml-2 text-[10px] text-[var(--text-muted)]">
-                          <ThumbsUp className="w-2.5 h-2.5" /> {item.helpful} считают полезным
-                        </span>
-                      )}
-                    </div>
+                {/* Ответ в разметке всегда, свёрнут до клика: одна копия текста
+                    и для человека, и для поиска (прежде — скрытый дубль). */}
+                <div id={`faq-answer-${item.id}`} hidden={openId !== item.id} className="px-4 pb-4 pt-0">
+                  <div className="border-t border-[var(--border)] pt-3">
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line">{item.answer}</p>
+                    {item.category && (
+                      <span className="inline-block mt-3 px-2 py-0.5 text-[10px] text-[var(--text-muted)] bg-[var(--bg-hover)] rounded">
+                        {item.category}
+                      </span>
+                    )}
+                    {item.helpful > 0 && (
+                      <span className="inline-flex items-center gap-1 mt-3 ml-2 text-[10px] text-[var(--text-muted)]">
+                        <ThumbsUp className="w-2.5 h-2.5" /> {item.helpful} считают полезным
+                      </span>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             ))}
           </div>
