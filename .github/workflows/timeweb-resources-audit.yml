@@ -143,6 +143,14 @@ jobs:
               keep_env_names(data)
               data = clean(data)
               items = data.get(list_key)
+              if isinstance(items, dict):
+                  # Одиночный объект под ключом списка (например, настройки
+                  # автобэкапов): прогон 2 печатал «всего: 4» — число ключей,
+                  # а не значения. Печатаем поля.
+                  for k, v in pick(items, keys).items():
+                      print(f'- {k}: {v!r}')
+                  if extra: extra(items)
+                  return [items]
               if items is None:
                   # Одиночный объект (счёт, статус, приложение)
                   obj = data.get(list_key.rstrip('s')) if list_key.endswith('s') else None
