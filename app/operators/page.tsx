@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import OperatorsPageClient from '@/app/marketplace/operators/_OperatorsClient';
@@ -8,6 +7,10 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 12;
+
+// Сборка Docker идёт без БД (Dockerfile): статический пререндер запёк бы
+// пустой список. Страница динамическая, данные кэширует data-слой (600 с).
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Операторы Камчатки — туры, рыбалка, треккинг, вертолёты',
@@ -25,35 +28,25 @@ export const metadata: Metadata = {
   },
 };
 
-interface PageProps {
-  // Next 15: searchParams — Promise, обязателен await.
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-function first(v: string | string[] | undefined): string {
-  return Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
-}
-
 /**
  * SSR первого рендера (шаг 3 аудита 11.07): до этого листинг операторов
  * рендерился только клиентским fetch — в первом HTML не было ни одной
- * карточки. Сервер применяет те же deep-link-параметры, что читает клиент
- * (search/category/page), данные кэшируются на 600с.
+ * карточки.
+ *
+ * Сервер НЕ читает `searchParams` (аудит 02.10): ожидание этого промиса
+ * делает страницу потоковой — в первом HTML остаётся пустая `<main>` с
+ * `<template>`, а список приезжает отдельным куском, который робот без JS не
+ * собирает (/articles, где промиса нет, отдавал список целиком; /operators,
+ * /catalog — ноль слов). Поэтому сервер всегда рендерит список по умолчанию
+ * (страница 1, без фильтров), а фильтры из адреса применяет клиент после
+ * монтирования (`OperatorsPageClient`). Сторож:
+ * tests/unit/list-pages-not-streamed.test.ts.
  */
-export default async function OperatorsPage({ searchParams }: PageProps) {
-  const sp = await searchParams;
-
-  const search = first(sp.search).slice(0, 200);
-  const category = first(sp.category).slice(0, 60);
-  const pageNumRaw = parseInt(first(sp.page) || '1', 10);
-  const page = Number.isFinite(pageNumRaw) && pageNumRaw >= 1 ? pageNumRaw : 1;
-
-  const filters: OperatorsFilters = {
-    ...(search ? { search } : {}),
-    ...(category ? { category } : {}),
-    page,
-    limit: LIMIT,
-  };
+export default async function OperatorsPage() {
+  const search = '';
+  const category = '';
+  const page = 1;
+  const filters: OperatorsFilters = { page, limit: LIMIT };
 
   let initial: OperatorsResult | null = null;
   try {
@@ -87,13 +80,11 @@ export default async function OperatorsPage({ searchParams }: PageProps) {
       )}
       <Header />
       <main className="pt-16">
-        <Suspense>
-          <OperatorsPageClient
-            initialItems={initial?.items ?? []}
-            initialMeta={initial?.meta ?? null}
-            initialKey={initialKey}
-          />
-        </Suspense>
+        <OperatorsPageClient
+          initialItems={initial?.items ?? []}
+          initialMeta={initial?.meta ?? null}
+          initialKey={initialKey}
+        />
       </main>
       <Footer />
     </div>
