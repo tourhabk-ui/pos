@@ -314,7 +314,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     // (evo-findings) — сам модель не зовёт, telemetry по agentId не пишет.
     key: 'evo-review', label: 'Evo Review',
     description: 'AI-ревью кода Growth Scan на раннере (без гео-блока) + запись находок.',
-    workflow: 'evo-review.yml', cron: '50 5 * * *', schedule: 'ежедневно · 05:50 UTC',
+    workflow: 'evo-review.yml', cron: '11 19 * * *', schedule: 'ежедневно · 19:11 UTC (07:11 по Камчатке)',
     everyMin: DAY, tier: 'growth', agentId: null, triggerable: false,
   },
   {

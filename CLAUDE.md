@@ -978,7 +978,7 @@ GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-
   `callAIFast`/`console.error` заклеймены нарушением, «X вместо X»).
 - **`intel-bridge` (`lib/agents/evo/intel-bridge.ts`)** — дайджест Scout →
   находки категории `intel` в `evo_growth_issues`.
-- **Рука → GitHub Issues.** `issue-reporter` (крон `evo-report.yml`, 05:37 UTC)
+- **Рука → GitHub Issues.** `issue-reporter` (крон `evo-report.yml`, 19:31 UTC = 07:31 по Камчатке — решение владельца 02.10; ревью `evo-review.yml` идёт перед ним, 19:11 UTC)
   выносит находки `suggested` в Issues (метка `evo`). Оттуда их берёт **Claude
   Code** и реализует. Финальное решение по находке — за человеком/Claude, не за
   движком (движок сам чинит только детерминированное — `add_index`).
