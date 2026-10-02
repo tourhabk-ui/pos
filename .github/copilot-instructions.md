@@ -22,7 +22,7 @@ npm run lint     # Линтинг
 /* Light (default) */
 --bg-primary: #F5F0EB;    --bg-card: #FFFFFF;
 --text-primary: #1A1714;   --text-muted: #736D68;
---accent: #D44A0C;         --ocean: #2568B0;
+--accent: #C2410A;         --ocean: #2568B0;
 
 /* Dark */
 --bg-primary: #0D1117;    --bg-card: #21262D;

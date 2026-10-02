@@ -68,17 +68,17 @@
      2,6 и 3,0 (аудит 01.10, решение владельца). */
   --text-muted: #736D68;
 
-  --accent: #D44A0C;
+  --accent: #C2410A;
   --accent-hover: #B83E0A;
-  --accent-muted: rgba(212,74,12,0.1);
+  --accent-muted: rgba(194,65,10,0.1);
   --on-accent: #FFFFFF;
   --ocean: #2568B0;
   /* До 24.09 светлого --telegram не было: кнопка Telegram в «Хочу тур»
      становилась прозрачной с белым текстом на белой карточке (аудит П1, #102). */
   --telegram: #2AABEE;     /* Telegram brand color */
-  --success: #3FB950;
+  --success: #1A7A34;
   --warning: #D29922;
-  --danger: #DC2626;
+  --danger: #B91C1C;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
 
   --border: rgba(0,0,0,0.07);
@@ -103,15 +103,15 @@
   --text-primary: #1A1714;
   --text-secondary: #6B6560;
   --text-muted: #736D68;
-  --accent: #D44A0C;
+  --accent: #C2410A;
   --accent-hover: #B83E0A;
-  --accent-muted: rgba(212,74,12,0.1);
+  --accent-muted: rgba(194,65,10,0.1);
   --on-accent: #FFFFFF;
   --ocean: #2568B0;
   --telegram: #2AABEE;
-  --success: #3FB950;
+  --success: #1A7A34;
   --warning: #D29922;
-  --danger: #DC2626;
+  --danger: #B91C1C;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
   --border: rgba(0,0,0,0.07);
   --border-strong: rgba(0,0,0,0.12);
