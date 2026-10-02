@@ -67,7 +67,16 @@ jobs:
           ask mail            "$B/mail/domains"
           ask ai_agents       "https://agent.timeweb.cloud/api/v1/cloud-ai/agents"
           ask app_198048      "$B/apps/198048"
-          ask dns_vedarai     "$B/domains/vedarai.ru/dns-records"
+          # DNS — у каждого домена аккаунта из ответа выше, а не у одного
+          # вписанного руками: аудит должен видеть и www, и забытые домены.
+          for fqdn in $(python3 -c 'import json,sys
+          try:
+              d = json.load(open("/tmp/tw/domains.json"))
+              print(" ".join(str(x.get("fqdn")) for x in (d.get("domains") or []) if isinstance(x, dict) and x.get("fqdn")))
+          except Exception:
+              pass'); do
+            ask "dns_$fqdn" "$B/domains/$fqdn/dns-records"
+          done
           python3 - <<'PY' | tee /tmp/tw/summary.md
           import json, os, re, datetime
 
@@ -190,8 +199,9 @@ jobs:
           section('Хранилище S3 (бакеты)', 'buckets', 'buckets', ['id', 'name', 'status', 'type', 'location', 'preset_id', 'created_at'],
                   lambda b: print(f"    занято: {b.get('disk_stats')!r}" if 'disk_stats' in b else ''))
           section('Домены', 'domains', 'domains', ['id', 'fqdn', 'is_premium', 'expiration', 'is_autoprolong_enabled', 'provider', 'linked_ip'])
-          section('DNS vedarai.ru', 'dns_vedarai', 'dns_records', ['id', 'type', 'data', 'ttl'],
-                  lambda r: print(f"    {r.get('data')!r}") if False else None)
+          for f in sorted(os.listdir('/tmp/tw')):
+              if f.startswith('dns_') and f.endswith('.json'):
+                  section(f'DNS {f[4:-5]}', f[:-5], 'dns_records', ['id', 'type', 'data', 'ttl'])
           section('Приватные сети (VPC)', 'vpcs', 'vpcs', ['id', 'name', 'location', 'subnet_v4'])
           section('Плавающие IP', 'floating_ips', 'ips', ['id', 'ip', 'is_ddos_guard', 'resource_type', 'resource_id'])
           section('Файрвол', 'firewall', 'groups', ['id', 'name', 'description', 'policy'])
