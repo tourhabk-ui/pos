@@ -33,6 +33,8 @@ export interface McpCallLogEntry {
   durationMs?: number;
   ip: string;
   userAgent: string;
+  /** Имя, которое просил клиент, когда инструмента нет (unknown_tool). */
+  requestedTool?: string;
 }
 
 /**
@@ -42,6 +44,17 @@ export interface McpCallLogEntry {
  */
 export function safeToolName(name: string): string {
   return PUBLIC_MCP_TOOL_NAMES.has(name) ? name : 'unknown';
+}
+
+/**
+ * Запрошенное имя для колонки requested_tool (миграция 1141): только если
+ * похоже на идентификатор — латиница, цифры, `_ . -`, до 40 знаков. Всё
+ * прочее — 'не-идентификатор': факт запроса виден, мусор в панель не идёт.
+ * Панель 02.10: 21 запрос несуществующих инструментов одной строкой 'unknown',
+ * и какие имена просили — неизвестно.
+ */
+export function safeRequestedName(name: string): string {
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/.test(name) ? name : 'не-идентификатор';
 }
 
 /**
@@ -96,14 +109,15 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
   const hash = mcpCallerHash(entry.ip, entry.userAgent);
   void pool
     .query(
-      `INSERT INTO mcp_tool_calls (tool, ok, error_kind, duration_ms, caller_hash)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO mcp_tool_calls (tool, ok, error_kind, duration_ms, caller_hash, requested_tool)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         safeToolName(entry.tool),
         entry.ok,
         entry.errorKind ?? null,
         entry.durationMs ?? null,
         hash,
+        entry.errorKind === 'unknown_tool' && entry.requestedTool ? safeRequestedName(entry.requestedTool) : null,
       ],
     )
     .catch((err: unknown) => logMcpFailure('запись вызова mcp_tool_calls', err));
