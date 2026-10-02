@@ -1,14 +1,13 @@
 {
-  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Текст поста МЧС, записанного тревогой цунами (важность 3), и оценка зон после деплоя расчёта риска 61032aef.",
-  "run": 638,
+  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Перепись живых тревог через пробу (workflow alerts-census не дождался сборки из-за чужих пушей): полный текст поста МЧС, записанного тревогой цунами, его важность и пуш.",
+  "run": 639,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 5000,
-  "grep": ["цунами", "tsunami_warning"],
+  "bytes": 60000,
+  "grep": ["tsunami_warning", "Угроза цунами", "угроза цунами", "цунами не"],
   "urls": [
-    "https://vedarai.ru/api/safety/alerts",
-    "https://vedarai.ru/api/public/danger-summary"
+    "https://vedarai.ru/api/cron/alerts-census"
   ]
 }
