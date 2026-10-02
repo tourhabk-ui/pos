@@ -79,11 +79,18 @@ describe('карта: слой и страница', () => {
     expect(click.indexOf('QUAKES_LAYER')).toBeLessThan(click.indexOf("startsWith('vedar-places')"));
   });
 
-  it('/map просит сутки и передаёт толчки карте', () => {
+  it('/map просит сутки; толчки — только на своём фильтре, места там спрятаны', () => {
+    // Владелец 02.10: «отдельный фильтр, чтобы не нагородить огород».
     expect(HOOK).toMatch(/MAP_QUAKE_HOURS = 24/);
     expect(HOOK).toMatch(/\/api\/safety\/seismic\?hours=\$\{MAP_QUAKE_HOURS\}/);
-    expect(PAGE).toMatch(/quakes=\{quakes\}/);
+    expect(PAGE).toMatch(/\{ id: QUAKES_FILTER, +label: 'Землетрясения'/);
+    expect(PAGE).toMatch(/quakes=\{quakesMode \? quakes : undefined\}/);
+    expect(PAGE).toMatch(/placesVisible=\{!quakesMode\}/);
     expect(PAGE).toMatch(/onQuakeClick=\{setQuakeHit\}/);
+  });
+
+  it('первый экран — по-прежнему места с маршрутом, не толчки', () => {
+    expect(PAGE).toMatch(/useState<string>\(ON_ROUTE_FILTER\)/);
   });
 
   it('«не прочитали» называется словами, а не нулём', () => {

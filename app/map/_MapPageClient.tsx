@@ -34,7 +34,7 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
 import {
   Sun, Moon, User, X, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle, Route,
   Sparkles, Flame, Droplet, Anchor, Waves, Mountain, Droplets, Zap, CloudRain, Binoculars, Gem,
-  Palmtree, Umbrella, TreePine, Landmark, History, Home,
+  Palmtree, Umbrella, TreePine, Landmark, History, Home, Activity,
 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
@@ -82,12 +82,21 @@ const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').t
 // фильтр-панель не отличалась от списка ссылок. Цвет группы — на самой
 // карте (lib/map/place-marker-icons.ts, PLACE_KIND_COLOR), здесь остаётся
 // форма: другой набор виджетов, тот же принцип «своё лицо на категорию».
+/**
+ * Землетрясения — отдельным фильтром, а не слоем поверх мест (владелец
+ * 02.10: «или добавить отдельный фильтр, чтобы не нагородить огород»).
+ * На нём карта показывает только толчки за сутки — данные того же приёма
+ * сейсмики, что у радара безопасности, — а места прячет.
+ */
+const QUAKES_FILTER = 'quakes';
+
 const LOCATION_FILTERS = [
   // Первый экран — места, куда есть живой маршрут (владелец 29.09: «при
   // открытии популярные места, с формой места; по фильтрам — остальные,
   // а то человек в первый раз просто потеряется»). Правило — lib/places/on-route.
   { id: ON_ROUTE_FILTER,        label: 'С маршрутом',    icon: Route },
   { id: 'all',                  label: 'Все',            icon: Target },
+  { id: QUAKES_FILTER,          label: 'Землетрясения',  icon: Activity },
   { id: 'activity:esoteric',    label: 'Места силы',     icon: Sparkles },
   { id: 'volcano',              label: 'Вулканы',        icon: Flame },
   { id: 'hot_spring',           label: 'Источники',      icon: Droplet },
@@ -380,8 +389,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
     ? 'all'
     : activeFilter;
 
+  const quakesMode = filterNow === QUAKES_FILTER;
   const filtered = useMemo(() =>
-    filterNow === 'all'
+    filterNow === QUAKES_FILTER
+      ? []
+      : filterNow === 'all'
       ? allRoutes
       : filterNow === ON_ROUTE_FILTER
         ? allRoutes.filter(r => r.onRoute === true)
@@ -393,9 +405,10 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   const countFor = useCallback((id: string) => {
     if (id === 'all') return allRoutes.length;
     if (id === ON_ROUTE_FILTER) return allRoutes.filter(r => r.onRoute === true).length;
+    if (id === QUAKES_FILTER) return quakes.length;
     if (id.startsWith('activity:')) return allRoutes.filter(r => r.activityType === id.slice(9)).length;
     return allRoutes.filter(r => r.locationType === id).length;
-  }, [allRoutes]);
+  }, [allRoutes, quakes]);
 
   // Маркеры пиров меш-сети (другие устройства в группе)
   const peerMarkers = useMemo(() =>
@@ -766,14 +779,15 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               // (владелец 06.09, «замкнуть /map на VedarMap», решение
               // «сначала просто карта-подложка»).
               onPlaceClick={setVedarPlaceHit}
-              quakes={quakes}
+              quakes={quakesMode ? quakes : undefined}
               onQuakeClick={setQuakeHit}
               // Фильтр-чипсы над картой должны действовать на саму карту —
               // владелец 06.09, скрин: «нет точек мест» (фильтр выбран, а
               // карта по-прежнему рисует все места разом). vedar-places
               // несёт kind = location_type, тот же столбец, что и фильтр;
               // activity:* фильтров у слоя нет — на них показываем как есть.
-              placesFilter={filterNow !== 'all' && !filterNow.startsWith('activity:') ? filterNow : null}
+              placesFilter={filterNow !== 'all' && !quakesMode && !filterNow.startsWith('activity:') ? filterNow : null}
+              placesVisible={!quakesMode}
             />
           ) : (
             <LeafletMap
@@ -810,23 +824,22 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
           </div>
 
-          {quakeHit && <QuakeCard quake={quakeHit} onClose={() => setQuakeHit(null)} />}
+          {quakesMode && quakeHit && <QuakeCard quake={quakeHit} onClose={() => setQuakeHit(null)} />}
 
           {/* Счётчик */}
           <div className="absolute bottom-3 left-3 z-[500] bg-[var(--bg-card)] rounded-lg px-3 py-1.5 border border-[var(--border)] shadow-sm">
             <p className="text-sm text-[var(--text-secondary)]">
-              {loading
-                ? 'Загрузка...'
-                : <>Точек: <span className="font-bold text-[var(--accent)]">{filtered.length}</span></>
+              {quakesMode
+                // Толчки — числом и честным «не прочитаны» (§4.0).
+                ? (quakesState === 'failed'
+                    ? 'Толчки: не прочитаны'
+                    : quakesState === 'loading'
+                      ? 'Загрузка...'
+                      : <>Толчков за {MAP_QUAKE_HOURS} ч: <span className="font-bold text-[var(--danger)]">{quakes.length}</span></>)
+                : loading
+                  ? 'Загрузка...'
+                  : <>Точек: <span className="font-bold text-[var(--accent)]">{filtered.length}</span></>
               }
-            </p>
-            {/* Толчки за сутки — числом и честным «не прочитаны» (§4.0). */}
-            <p className="text-xs text-[var(--text-muted)]">
-              {quakesState === 'failed'
-                ? 'Толчки: не прочитаны'
-                : quakesState === 'loading'
-                  ? 'Толчки: …'
-                  : `Толчков за ${MAP_QUAKE_HOURS} ч: ${quakes.length}`}
             </p>
           </div>
         </div>
