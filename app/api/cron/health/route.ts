@@ -18,6 +18,15 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { SKIP_REASON_LABELS } from '@/lib/agents/scout-digest';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { agentMemory } from '@/lib/agents/memory/agent-memory';
+import { hashPayload } from '@/lib/safety/ledger';
+
+/** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
+const HEALTH_WARN_DEBOUNCE_HOURS = 12;
+
+function healthDebounceKey(text: string): string {
+  return `warn:${hashPayload({ text }).slice(0, 16)}`;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -183,13 +192,17 @@ async function checkDB(): Promise<HealthIssue[]> {
       const meta = lastDigest.rows[0]?.metadata ?? {};
       const aiSent = (meta as { ai_channel_sent?: unknown }).ai_channel_sent;
       const aiSkip = (meta as { ai_channel_skip_reason?: unknown }).ai_channel_skip_reason;
+      const aiDetail = (meta as { ai_channel_skip_detail?: unknown }).ai_channel_skip_detail;
       if (aiSent !== true && ageH <= 48) {
         const why = typeof aiSkip === 'string' && aiSkip
           ? (SKIP_REASON_LABELS[aiSkip] ?? aiSkip)
           : 'причина не записана';
+        // Деталь (какой провайдер и чем ответил) уже лежит в журнале выпуска —
+        // без неё алерт называет исход, но не то, что чинить.
+        const detail = typeof aiDetail === 'string' && aiDetail ? ` (${aiDetail.slice(0, 300)})` : '';
         issues.push({
           level: 'warn',
-          text: `AI-канал молчит: пост не ушёл в выпуске ${slugDate} — ${why}`,
+          text: `AI-канал молчит: пост не ушёл в выпуске ${slugDate} — ${why}${detail}`,
         });
       }
     }
@@ -619,19 +632,49 @@ export async function GET(request: NextRequest) {
   const warns = issues.filter(i => i.level === 'warn');
   const known = issues.filter(i => i.level === 'known');
 
-  if (crits.length > 0 || warns.length > 0) {
+  // Дебаунс WARN (02.10) — тот же приём, что у Watchdog (06.09). Владелец на
+  // скрине: «AI-канал молчит … выпуск 2026-10-01» дословно четыре раза подряд,
+  // каждый час: факт про вчерашний выпуск не меняется до следующего прогона,
+  // а повтор приучает пролистывать весь канал тревог, заодно и CRIT.
+  // Ключ — хэш ТЕКСТА: изменилась причина или число — это новое сообщение и
+  // оно уходит сразу. CRIT не дебаунсится никогда. Отказ памяти — не повод
+  // молчать: тогда шлём, как раньше.
+  const warnsDue: typeof warns = [];
+  const warnsRepeated: typeof warns = [];
+  for (const w of warns) {
+    const seen = await agentMemory.get('health', 'alert_sent', healthDebounceKey(w.text)).catch((err: unknown) => {
+      console.error('[cron/health] память дебаунса не прочитана:', err instanceof Error ? err.message : err);
+      return null;
+    });
+    (seen ? warnsRepeated : warnsDue).push(w);
+  }
+
+  if (crits.length > 0 || warnsDue.length > 0) {
     const lines: string[] = [
       crits.length > 0
         ? '<b>TourHab ALERT</b> — критические проблемы'
         : '<b>TourHab</b> — предупреждения системы',
       '',
       ...crits.map(i => `CRIT: ${i.text}`),
-      ...warns.map(i => `WARN: ${i.text}`),
+      ...warnsDue.map(i => `WARN: ${i.text}`),
+      ...(warnsRepeated.length > 0
+        ? [`(и ещё ${warnsRepeated.length} без изменений — писали в последние ${HEALTH_WARN_DEBOUNCE_HOURS} ч, не повторяю)`]
+        : []),
       '',
       `Проверено: ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' })} (KMT)`,
     ];
 
     await tgAlert(lines.join('\n'));
+    const expires = new Date(Date.now() + HEALTH_WARN_DEBOUNCE_HOURS * 3_600_000);
+    await Promise.all(warnsDue.map((w) => agentMemory.remember({
+      agent_id: 'health',
+      memory_type: 'alert_sent',
+      key: healthDebounceKey(w.text),
+      value: { sent_at: new Date().toISOString() },
+      expires_at: expires,
+    }).catch((err: unknown) => {
+      console.error('[cron/health] память дебаунса не записана:', err instanceof Error ? err.message : err);
+    })));
   }
 
   recordCronRun('health', started, 'success', { items: issues.length });
@@ -642,6 +685,8 @@ export async function GET(request: NextRequest) {
     // счёте. Их не видно в Telegram, и единственное место, где их можно
     // пересмотреть, — здесь.
     known_states: known.map(i => i.text),
+    // Повторы, не ушедшие в Telegram, остаются видны здесь (§4.0).
+    warns_repeated: warnsRepeated.map(i => i.text),
     ai: { qwen: qwenOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     openrouter_key_diag: orKeyDiag,
     integrations: {

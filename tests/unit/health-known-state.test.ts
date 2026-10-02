@@ -111,7 +111,10 @@ describe('Anthropic с прода: принят отказ в доступе, о
 
 describe('known не уходит в Telegram, но остаётся в ответе', () => {
   it('алерт собирается только из crit и warn', () => {
-    expect(HEALTH).toMatch(/if \(crits\.length > 0 \|\| warns\.length > 0\)/);
+    // С 02.10 warn проходит через дебаунс: в Telegram идут crit и warnsDue,
+    // а warnsDue набирается только из warns — known туда не попадает.
+    expect(HEALTH).toMatch(/if \(crits\.length > 0 \|\| warnsDue\.length > 0\)/);
+    expect(HEALTH).toMatch(/for \(const w of warns\)/);
     // Прежнее условие отправляло всё подряд: с ним `known` уехал бы в Telegram
     // ровно так же, как warn, и правка не изменила бы ничего.
     expect(HEALTH).not.toMatch(/if \(issues\.length > 0\) \{\s*\n\s*const crits/);
@@ -195,5 +198,35 @@ describe('пять отказов разом — CRIT с причинами, а 
     const reasons = (block.match(/\breason: [`']/g) ?? []).length;
     expect(pushes).toBeGreaterThanOrEqual(5);
     expect(reasons).toBe(pushes);
+  });
+});
+
+describe('повтор WARN не долбит канал тревог (02.10)', () => {
+  // Владелец: «AI-канал молчит … выпуск 2026-10-01» дословно каждый час.
+  it('дословно тот же warn в окне дебаунса не уходит, но виден в ответе', () => {
+    expect(HEALTH).toMatch(/agentMemory\.get\('health', 'alert_sent', healthDebounceKey\(w\.text\)\)/);
+    expect(HEALTH).toMatch(/warns_repeated: warnsRepeated\.map/);
+    expect(HEALTH).toMatch(/memory_type: 'alert_sent'/);
+  });
+  it('ключ — хэш текста: изменившаяся причина уходит сразу', () => {
+    expect(HEALTH).toMatch(/hashPayload\(\{ text \}\)/);
+  });
+  it('crit не дебаунсится', () => {
+    expect(HEALTH).toMatch(/\.\.\.crits\.map\(i => `CRIT: \$\{i\.text\}`\)/);
+    expect(HEALTH).not.toMatch(/critsDue|critsRepeated/);
+  });
+  it('отказ памяти не глушит тревогу: неудача чтения — значит слать', () => {
+    expect(HEALTH).toMatch(/память дебаунса не прочитана[\s\S]{0,120}return null;/);
+  });
+});
+
+describe('AI-пост называет, кто не ответил (02.10)', () => {
+  const SCOUT = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+  it('отказ синтеза AI-поста несёт след провайдеров, а не голый код', () => {
+    expect(SCOUT).toMatch(/aiSkip = 'ai_synthesis_null';\s*\n\s*aiSkipDetail = describeRecentAiFailures\(\)/);
+    expect(SCOUT).not.toMatch(/callAIQualityOrNull\(aiMessages, \{ maxTokens: 1600 \}\)\.catch\(\(\) => null\)/);
+  });
+  it('health показывает деталь из журнала выпуска', () => {
+    expect(HEALTH).toMatch(/ai_channel_skip_detail/);
   });
 });
