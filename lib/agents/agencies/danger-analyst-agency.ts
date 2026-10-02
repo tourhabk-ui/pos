@@ -23,6 +23,7 @@ import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness, type LivenessStatus } from '@/lib/agents/cron-liveness';
 import { lastIngestAt, INGEST_AGENT_ID } from '@/lib/safety/ingest-run';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { kmToNearestTouristArea } from '@/lib/services/safety/seismic-zones';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -54,15 +55,19 @@ const RISK_THRESHOLDS = {
 
 // ── Контекст для аналитика ────────────────────────────────────────────────
 
+export interface SeismicInput {
+  title: string;
+  description: string;
+  magnitude?: number;
+  /** До ближайшего туристического района, км; null — координат у события нет. */
+  distance_km: number | null;
+  published_at: string;
+  severity: number;
+}
+
 interface ZoneRawData {
   zone: Zone;
-  seismic_events: Array<{
-    title: string;
-    description: string;
-    magnitude?: number;
-    published_at: string;
-    severity: number;
-  }>;
+  seismic_events: SeismicInput[];
   volcanic_alerts: Array<{
     title: string;
     description: string;
@@ -100,8 +105,10 @@ async function loadZoneData(zone: Zone): Promise<ZoneRawData> {
     query<{
       alert_type: string; title: string; description: string;
       severity: number; created_at: string; source_url: string;
+      magnitude: number | null; lat: number | null; lng: number | null;
     }>(
-      `SELECT alert_type, title, description, severity, created_at, COALESCE(source_url, '') as source_url
+      `SELECT alert_type, title, description, severity, created_at, COALESCE(source_url, '') as source_url,
+              magnitude::float8 AS magnitude, lat::float8 AS lat, lng::float8 AS lng
        FROM external_alerts
        WHERE $1 = ANY(affected_zones)
          AND expires_at > NOW()
@@ -129,7 +136,8 @@ async function loadZoneData(zone: Zone): Promise<ZoneRawData> {
   ).map(a => ({
     title: a.title,
     description: a.description.slice(0, 300),
-    magnitude: extractMagnitude(a.title),
+    magnitude: a.magnitude ?? extractMagnitude(a.title),
+    distance_km: a.lat !== null && a.lng !== null ? kmToNearestTouristArea(a.lat, a.lng) : null,
     published_at: a.created_at,
     severity: a.severity,
   }));
@@ -222,14 +230,76 @@ function extractAshHeight(title: string): number | undefined {
 
 // ── Быстрый расчёт риска (до AI) ─────────────────────────────────────────
 
-function quickRiskScore(data: ZoneRawData): number {
-  let score = 0;
+//
+// Сейсмика (вопрос владельца 02.10: «как считает 100, из чего это
+// складывается?»). Прежде каждый толчок за 48 часов ДОБАВЛЯЛ баллы по одной
+// магнитуде: M6 — 25, M5 — 15, M4 — 8. Рой афтершоков в океане за 170-200 км
+// от Петропавловска (ML 6.2 и семнадцать толчков слабее) набрал 189, обрезался
+// до 100, и Авачинская зона встала «Критической» с командой «Немедленная
+// эвакуация» — при зелёном KVERT и фоновой сейсмичности по КФ ЕГС. Два
+// дефекта: расстояние не учитывалось вовсе, а сила роя росла с числом толчков,
+// хотя тряски от двенадцати слабых не больше, чем от самого сильного из них.
+//
+// Теперь зона судится по САМОМУ СИЛЬНОМУ сотрясению там, где туристы, а рой
+// добавляет не больше SWARM_BONUS_MAX сверху. Землетрясение само по себе не
+// поднимает зону выше «высокой» (SEISMIC_MAX): немедленную эвакуацию объявляют
+// извержение или официальная тревога, а не расчётная тряска.
 
-  // Сейсмика
-  for (const eq of data.seismic_events) {
-    const mag = eq.magnitude ?? 0;
-    score += mag >= 7 ? 40 : mag >= 6 ? 25 : mag >= 5 ? 15 : mag >= 4 ? 8 : 3;
+/** Ближе этого расстояние не берётся: формула ниже на нуле уходит в бесконечность. */
+const MIN_INTENSITY_KM = 10;
+export const SEISMIC_MAX = 70;
+/** Порог «критической» зоны — она же команда «немедленная эвакуация». */
+const CRITICAL_FROM = 75;
+const SWARM_BONUS_PER_EVENT = 1;
+const SWARM_BONUS_MAX = 5;
+
+/**
+ * Балл сотрясения (MSK-64) на расстоянии `km` от эпицентра: уравнение
+ * макросейсмического поля Шебалина в общем виде, I = 1.5M − 3.5·lg R + 3.0.
+ * Коэффициенты общие, не калиброванные под Камчатку, а глубина очага не
+ * учитывается — R берётся эпицентральным, то есть меньше настоящего, и балл
+ * выходит ВЫШЕ: ошибка в сторону осторожности. Это оценка для сравнения зон,
+ * не прогноз тряски.
+ */
+export function shakingIntensity(magnitude: number, km: number): number {
+  const r = Math.max(km, MIN_INTENSITY_KM);
+  return 1.5 * magnitude - 3.5 * Math.log10(r) + 3.0;
+}
+
+/** Баллы риска за одно событие. */
+export function seismicEventPoints(magnitude: number | undefined, km: number | null): number {
+  const mag = magnitude ?? 0;
+  if (km === null) {
+    // Координат нет — расстояние неизвестно. Прежняя шкала по одной
+    // магнитуде: она не знает расстояния, но и не выдумывает его. Её верх
+    // (40) ниже «высокой» — неизвестное расстояние эвакуацию не объявляет.
+    return mag >= 7 ? 40 : mag >= 6 ? 25 : mag >= 5 ? 15 : mag >= 4 ? 8 : 3;
   }
+  const i = shakingIntensity(mag, km);
+  if (i >= 8) return 70; // разрушения
+  if (i >= 7) return 55; // повреждения, обвалы на склонах
+  if (i >= 6) return 45; // испуг, лёгкие повреждения, камнепады возможны
+  if (i >= 5) return 35; // ощущается всеми
+  if (i >= 4) return 30; // ощущается многими — «Внимание»
+  return 3;
+}
+
+/** Ощутимое там, где туристы, — то, что вообще идёт в счёт роя. */
+function isFelt(e: SeismicInput): boolean {
+  return seismicEventPoints(e.magnitude, e.distance_km) >= 8;
+}
+
+export function seismicScore(events: SeismicInput[]): number {
+  if (events.length === 0) return 0;
+  const strongest = Math.max(...events.map(e => seismicEventPoints(e.magnitude, e.distance_km)));
+  const others = Math.max(events.filter(isFelt).length - 1, 0);
+  const swarm = Math.min(others * SWARM_BONUS_PER_EVENT, SWARM_BONUS_MAX);
+  return Math.min(strongest + swarm, SEISMIC_MAX);
+}
+
+export function quickRiskScore(data: Pick<ZoneRawData, 'seismic_events' | 'volcanic_alerts' | 'tourists_in_zone'>): number {
+  const seismic = seismicScore(data.seismic_events);
+  let score = seismic;
 
   // Вулканы
   for (const v of data.volcanic_alerts) {
@@ -242,11 +312,14 @@ function quickRiskScore(data: ZoneRawData): number {
   else if (data.tourists_in_zone > 50) score += 10;
   else if (data.tourists_in_zone > 10) score += 5;
 
+  // Без вулкана «критической» зоне не быть: надбавка за туристов не должна
+  // дотягивать расчётную тряску до команды «немедленная эвакуация».
+  if (data.volcanic_alerts.length === 0) return Math.min(score, CRITICAL_FROM - 1);
   return Math.min(score, 100);
 }
 
-function riskLevel(score: number): 'low' | 'moderate' | 'high' | 'critical' {
-  if (score >= 75) return 'critical';
+export function riskLevel(score: number): 'low' | 'moderate' | 'high' | 'critical' {
+  if (score >= CRITICAL_FROM) return 'critical';
   if (score >= 55) return 'high';
   if (score >= 30) return 'moderate';
   return 'low';
