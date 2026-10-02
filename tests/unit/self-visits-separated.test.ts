@@ -146,5 +146,12 @@ describe('панель MCP: внешние, свои, проверки', () => {
     // Представившийся клиент не становится проверкой из-за заголовка curl.
     expect(isProbeClient('claude-ai', 'curl')).toBe(false);
     expect(isProbeClient('claude-ai', 'claude')).toBe(false);
+    // Образец имени (перепись run 78): верификаторы каталогов приходят новыми, список за ними не поспеет.
+    for (const n of ['katalir-readonly-verifier', 'agent-index-prober', 'glama-mcp-inspector', 'mcphub-probe', 'vouch-census', 'grok-audit', 'tendle-review', 'probe', 'connectors-manager']) {
+      expect(isProbeClient(n, null), n).toBe(true);
+    }
+    for (const n of ['claude', 'Anthropic/ClaudeAI', 'claude-code', 'brick.blue', 'Tendle', 'mira-bot', 'lmstudio-mcp-server-session', 'cursor']) {
+      expect(isProbeClient(n, null), n).toBe(false);
+    }
   });
 });
