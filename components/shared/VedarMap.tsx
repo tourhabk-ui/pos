@@ -304,6 +304,12 @@ export { DETAIL_MIN_ZOOM } from '@/lib/map/vedar-style';
 export const PACK_MIN_ZOOM = 8;
 
 /**
+ * Масштаб «вот вы» — до него камера приближается при включении своего
+ * положения (владелец 02.10, «хотя бы 7.5»). Ближе не отдаляет.
+ */
+export const USER_FOCUS_ZOOM = 7.5;
+
+/**
  * Атрибуция своей карты словами — для экранов, которые выводят её сами
  * (`attributionOutside`). Те же правообладатели, что в источниках стиля:
  * OSM (векторный пакет, ODbL) и Copernicus DEM (рельеф). По лицензии ODbL
@@ -1181,6 +1187,9 @@ export default function VedarMap({
     const map = mapRef.current;
     if (!map || !ready || !showUserLocation) return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    // Каждое включение кнопки «моё место» — снова «вот вы»: повторное нажатие
+    // обязано вернуть камеру к человеку, а не молчать.
+    autoCenterDoneRef.current = false;
 
     let marker: Marker | null = null;
     const watchId = navigator.geolocation.watchPosition(
@@ -1191,22 +1200,36 @@ export default function VedarMap({
           const maplibre = await import('maplibre-gl');
           const el = document.createElement('div');
           el.className = 'kh-vedar-user';
+          // Точка «я» крупнее любого значка места и с ореолом (владелец 02.10:
+          // «моя геолокация плохо различима на карте»): 18 px без ореола
+          // терялась среди кружков мест того же размера. Ореол 44 px — цвет
+          // ссылок (--ocean), точка 22 px с белой кромкой; цвета — токены.
           el.style.cssText =
-            'width:18px;height:18px;border-radius:50%;background:#4285f4;' +
-            'border:3px solid #fff;box-shadow:0 0 8px rgba(66,133,244,0.6);' +
+            'width:44px;height:44px;border-radius:50%;display:grid;place-items:center;' +
+            'background:color-mix(in srgb, var(--ocean) 22%, transparent);' +
+            'border:2px solid color-mix(in srgb, var(--ocean) 55%, transparent);' +
             // Плавный проезд между фиксами вместо телепорта — та же правка,
             // что для синей точки Leaflet (владелец 31.08, GPS ±46 м).
             'transition:transform 0.6s ease-out;cursor:pointer;';
+          const dot = document.createElement('div');
+          dot.style.cssText =
+            'width:22px;height:22px;border-radius:50%;background:var(--ocean);' +
+            'border:3px solid white;box-shadow:0 1px 6px rgba(0,0,0,0.45);';
+          el.appendChild(dot);
           // Тап по своей точке — карточка «я» с координатами (как тап по
           // стрелке положения в навигаторе). stopPropagation — иначе тот же
           // тап дошёл бы до карты и поставил булавку под ногами.
           el.addEventListener('click', (ev) => { ev.stopPropagation(); onUserClickRef.current?.(); });
           marker = new maplibre.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
           userMarkerRef.current = marker;
-          // Центрируем РОВНО ОДИН раз — «вот вы». Дальше камера человека.
+          // Центрируем РОВНО ОДИН раз на включение — «вот вы». Дальше камера
+          // человека. С обзора края приближаем до USER_FOCUS_ZOOM (владелец
+          // 02.10: «при нажатии приближать масштаб хотя бы 7.5 с центром моя
+          // локация»): на зуме 4 точка терялась на полуострове. Ближе, чем
+          // человек уже стоит, не отдаляем.
           if (!autoCenterDoneRef.current) {
             autoCenterDoneRef.current = true;
-            map.easeTo({ center: [lng, lat], duration: 500 });
+            map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), USER_FOCUS_ZOOM), duration: 700 });
           }
         } else {
           marker.setLngLat([lng, lat]);
