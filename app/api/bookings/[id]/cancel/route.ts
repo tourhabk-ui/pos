@@ -34,6 +34,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { ApiResponse } from '@/types';
 import { verifyAuth } from '@/lib/auth';
 import { query, transaction } from '@/lib/database';
@@ -43,6 +44,11 @@ import type { AuthRole } from '@/lib/auth';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import { recordRefundDue } from '@/lib/payments/record-refund-due';
 import { escapeHtml } from '@/lib/text/escape-html';
+
+// Тело необязательно; если есть — причина отмены строкой разумной длины.
+const CancelBodySchema = z.object({
+  reason: z.string().trim().max(1000, 'Причина длиннее 1000 символов').optional(),
+}).passthrough();
 
 export async function POST(
   request: NextRequest,
@@ -60,12 +66,20 @@ export async function POST(
 
     const { id: bookingId } = await params;
 
-    let body: Record<string, unknown> = {};
+    let rawBody: unknown = {};
     try {
-      body = await request.json();
+      rawBody = await request.json();
     } catch {
-      // Тело необязательно
+      // Тело необязательно: пустое или не-JSON тело — отмена без причины.
     }
+    const parsedBody = CancelBodySchema.safeParse(rawBody ?? {});
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { success: false, error: parsedBody.error.issues[0]?.message ?? 'Некорректные данные' } as ApiResponse<null>,
+        { status: 400 }
+      );
+    }
+    const body = parsedBody.data;
 
     // Operator marketplace bookings have the "op-" prefix
     if (bookingId.startsWith('op-')) {
@@ -139,7 +153,7 @@ export async function POST(
       });
     }
 
-    const reason = typeof body.reason === 'string' ? body.reason : undefined;
+    const reason = body.reason || undefined;
 
     // 2. Проверка доступа: турист — только свои, оператор — свои туры, админ — всё
     const role = auth.role as AuthRole;
@@ -215,8 +229,9 @@ export async function POST(
             <p>Если у вас есть вопросы — <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>
           `,
         });
-      } catch {
-        // Не прерываем выполнение при ошибке email
+      } catch (err) {
+        // Не прерываем отмену из-за письма, но и не молчим: турист не узнал об отмене (§4.0).
+        console.error('[bookings/cancel] письмо об отмене не отправлено:', err instanceof Error ? err.message : err);
       }
     }
 
