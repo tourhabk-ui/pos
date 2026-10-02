@@ -223,3 +223,49 @@ if (process.env.CRON_SECRET) {
 } else {
   console.error('[safety-heartbeat] CRON_SECRET not set — in-process heartbeat disabled');
 }
+
+// ── Прогрев планов после деплоя ───────────────────────────────────────────
+// /plans/[slug] стоит на revalidate 86400, но кэш ISR живёт в контейнере и
+// после каждого деплоя пуст: первый посетитель каждой из 17 страниц ждал
+// 6–8 с, повторный — 0,45 с (аудит 02.10; деплоев бывает несколько в день).
+// Через 90 с после старта читаем /plans, вынимаем ссылки /plans/<slug> и
+// обходим их ПО ОДНОЙ: два ядра на контейнер, залп из 17 тяжёлых страниц
+// конкурировал бы с живыми запросами. Список планов не дублируется сюда из
+// lib/plans/presets (tsx в runner недоступен) — его называет сама страница.
+// Сторож: tests/unit/plans-warmup.test.ts.
+// <warmPlans>
+function fetchLocal(path, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const r = http.request({
+      hostname: '127.0.0.1', port: 3001, path, method: 'GET',
+      headers: { 'host': '127.0.0.1:3001', 'accept': 'text/html' },
+      timeout: timeoutMs,
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    r.on('timeout', () => { r.destroy(new Error('timeout')); });
+    r.on('error', reject);
+    r.end();
+  });
+}
+
+async function warmPlans() {
+  const hub = await fetchLocal('/plans', 30000);
+  if (hub.status !== 200) { console.error(`[warm-plans] /plans HTTP ${hub.status} — прогрев не начат`); return; }
+  const slugs = [...new Set([...hub.body.matchAll(/href="\/plans\/([a-z0-9-]+)"/g)].map(m => m[1]))];
+  if (slugs.length === 0) { console.error('[warm-plans] на /plans не нашлось ссылок /plans/<slug> — прогревать нечего'); return; }
+  let ok = 0, bad = 0;
+  const t0 = Date.now();
+  for (const slug of slugs) {
+    try {
+      const r = await fetchLocal(`/plans/${slug}`, 45000);
+      if (r.status === 200) ok++; else { bad++; console.error(`[warm-plans] /plans/${slug} HTTP ${r.status}`); }
+    } catch (e) { bad++; console.error(`[warm-plans] /plans/${slug} error:`, e.message); }
+  }
+  console.log(`[warm-plans] прогрето ${ok} из ${slugs.length}, отказов ${bad}, за ${Math.round((Date.now() - t0) / 1000)} с`);
+}
+
+setTimeout(() => { warmPlans().catch(e => console.error('[warm-plans] error:', e.message)); }, 90000);
+// </warmPlans>
