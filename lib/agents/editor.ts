@@ -119,6 +119,14 @@ export interface RouteRow {
   hazards: string[] | null;
   equipment: string[] | null;
   park_name: string | null;
+  /**
+   * Точки пути маршрута по порядку (route_waypoints → places, без «рядом»),
+   * с выдержкой из описания каждой. Аудит 02.10: 131 маршрут короче 100
+   * слов, а Editor не давал модели ни одной точки пути — при том что у ~150
+   * маршрутов они размечены и у мест есть свои описания. Это источник, а не
+   * просьба «написать подлиннее»: длина по-прежнему следует за фактами.
+   */
+  waypoints?: Array<{ name: string; excerpt: string | null }> | null;
 }
 
 /**
@@ -151,6 +159,12 @@ export function buildFacts(route: RouteRow): string[] {
   put('снаряжение', route.equipment);
   put('природный парк', route.park_name);
   put('источник данных', route.source_name);
+  if (route.waypoints && route.waypoints.length > 0) {
+    f.push(`точки маршрута по порядку: ${route.waypoints.map((w) => w.name).join(' → ')}`);
+    for (const w of route.waypoints) {
+      if (w.excerpt && w.excerpt.trim()) f.push(`о точке «${w.name}»: ${w.excerpt.trim()}`);
+    }
+  }
   return f;
 }
 
@@ -175,7 +189,16 @@ export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
       lsp.altitude_m, lsp.terrain_type, lsp.hazard_types,
       lsp.difficulty_level, lsp.nearest_medical_km,
       kr.distance_km, kr.elevation_gain_m, kr.duration_hours,
-      kr.season, kr.route_type, kr.hazards, kr.equipment, kr.park_name
+      kr.season, kr.route_type, kr.hazards, kr.equipment, kr.park_name,
+      -- Точки пути с выдержкой описания (до 400 знаков): источник для текста
+      -- маршрута. «Рядом» не точка пути (§4.1), скрытые и слитые места — не
+      -- источник. NULL, когда точек нет: отсутствующее не упоминается.
+      (SELECT json_agg(json_build_object('name', p.name, 'excerpt', LEFT(p.description, 400)) ORDER BY rw.position)
+         FROM route_waypoints rw
+         JOIN places p ON p.id = rw.place_id
+        WHERE kr.id IS NOT NULL AND rw.route_id = kr.id
+          AND COALESCE(rw.link_kind, 'unknown') <> 'nearby'
+          AND p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL) AS waypoints
     FROM agent_route_knowledge ark
     LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
     LEFT JOIN kamchatka_routes        kr  ON kr.ark_id = ark.id

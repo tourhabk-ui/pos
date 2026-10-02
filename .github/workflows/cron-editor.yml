@@ -4,12 +4,31 @@ on:
   schedule:
     - cron: '0 22 * * *'  # 22:00 UTC — off-peak DeepSeek; окна пика — lib/ai/deepseek-peak.ts, не повторять здесь
   workflow_dispatch:
+  # Ручной прогон маркером (аудит 02.10): запуск по кнопке с раннера агента
+  # недоступен (403), а ждать 22:00 UTC, когда 131 маршрут короче 100 слов,
+  # незачем. Правка .github/triggers/editor.json в main — один прогон.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/editor.json'
 
 jobs:
   editor:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 50
     steps:
+      # По маркеру прогон идёт на свежем коде: иначе Editor стартовал бы на
+      # проде до выката правки, ради которой маркер и тронули.
+      - name: Checkout
+        if: github.event_name == 'push'
+        uses: actions/checkout@v7
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
       - name: Editor — AI улучшение описаний туров
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
