@@ -47,7 +47,8 @@ describe('/map — фильтр-чипсы доходят до карты', () =
     // filterNow — выбранный фильтр с честным откатом «с маршрутом» → «все»,
     // когда признака нет (29.09, сторож map-on-route-first).
     expect(CLIENT).toMatch(
-      /placesFilter=\{filterNow !== 'all' && !filterNow\.startsWith\('activity:'\) \? filterNow : null\}/,
+      // На чипе «Землетрясения» (02.10) места спрятаны — фильтр слою не нужен.
+      /placesFilter=\{filterNow !== 'all' && !quakesMode && !filterNow\.startsWith\('activity:'\) \? filterNow : null\}/,
     );
   });
 });
