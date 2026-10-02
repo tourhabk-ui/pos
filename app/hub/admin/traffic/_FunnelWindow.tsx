@@ -242,7 +242,7 @@ export default function FunnelWindow() {
                   ? `Оценка воронки: ${(r.insufficient_sample ?? 'наблюдений слишком мало, чтобы судить').replace(/[.\s]+$/, '')}.${r.window.kind === 'day' ? ' На одних сутках это обычное дело — смотрите неделю.' : ''}`
                   : r.verdict_state === 'unknown'
                     ? `Не смог оценить воронку: не сосчитано ${r.unknown_inputs.join(', ')}.`
-                    : 'Поток до денег есть — сломанного звена воронка не показывает.'}
+                    : `Сломанного звена не видно. За окно: заявок ${num(r.counts.leads)}, броней ${num(r.counts.bookings)}, оплат ${num(r.counts.paid)}${(r.counts.bookings ?? 0) === 0 ? ' — до брони в системе поток пока не дошёл' : ''}.`}
             </p>
             <p className="text-[11px] text-[var(--text-muted)]">
               {r.bot_views !== null && `Краулеры: ${r.bot_views.toLocaleString('ru-RU')} просмотров — в цифры выше не входят. `}

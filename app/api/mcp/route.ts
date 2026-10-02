@@ -613,10 +613,12 @@ async function handleToolsCall(
       const code = (toolErr as { code?: unknown })?.code;
       console.error('[mcp] инструмент упал:', logText(toolName), typeof code === 'string' ? logText(code, 10) : '', logText(toolErr instanceof Error ? toolErr.message : toolErr, 300));
     }
+    // Отказ по входу и падение — разные исходы журнала (§4.0): первый
+    // говорит «агент передал не то», второй — «наш код упал».
     logMcpToolCall({
       tool: toolName,
       ok: false,
-      errorKind: 'execution',
+      errorKind: userFacing ? 'refused' : 'execution',
       durationMs: Date.now() - startedAt,
       ip,
       userAgent,

@@ -313,10 +313,23 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
 
     // Откуда приходят В карточку тура: какая поверхность кормит коммерцию.
     measure('tour_edges', async () => (await exec.query<{ from_path: string | null; views: number }>(
-      `SELECT from_path, COUNT(*)::int AS views
+      // from_path — переход внутри приложения; его нет у прямой загрузки.
+      // Тогда источник — внешний referrer по хосту (панель 02.10: 11 из 12
+      // заходов в карточку тура читались как «без источника», хотя у части
+      // был внешний хост — Telegram, поиск). Свой хост при прямой загрузке —
+      // «внутри сайта (перезагрузка)». Пусто — честное «без источника».
+      `SELECT COALESCE(
+                from_path,
+                CASE
+                  WHEN referrer IS NULL OR referrer = '' THEN NULL
+                  WHEN substring(referrer from '^[a-z]+://([^/]+)') LIKE '%vedarai.ru' THEN 'внутри сайта (прямая загрузка)'
+                  ELSE 'внешний: ' || substring(referrer from '^[a-z]+://([^/]+)')
+                END
+              ) AS from_path,
+              COUNT(*)::int AS views
          FROM page_views
         WHERE ${WINDOW_SQL} AND is_bot = FALSE AND ${TOUR_PATH}
-        GROUP BY from_path
+        GROUP BY 1
         ORDER BY views DESC
         LIMIT 15`,
       p,
