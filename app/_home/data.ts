@@ -109,6 +109,8 @@ export interface ExplorePlace {
   description: string;
   /** null — снимка нет; карточка рисует честную заглушку, не чужой кадр. */
   imageUrl: string | null;
+  /** ЧПУ карточки места; null — ссылка по id (тот же источник, что у каталога). */
+  urlSlug: string | null;
 }
 
 export interface FeedItem { text: string }
@@ -409,6 +411,7 @@ export async function fetchExplore(): Promise<ExplorePlace[]> {
       typeLabel: locationTypeLabel(it.locationType),
       description: (it.description || '').slice(0, 140),
       imageUrl: it.imageUrl ?? null,
+      urlSlug: it.urlSlug ?? null,
     }));
   } catch (err) {
     // Пусто — блок не рисуется; но «мест нет» и «запрос упал» различимы только

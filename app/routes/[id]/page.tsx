@@ -104,7 +104,10 @@ interface RouteWaypointRow { name: string; slug: string | null; lat: number | nu
 async function getRouteWaypoints(viewId: string): Promise<RouteWaypointRow[]> {
   try {
     const r = await query(
-      `SELECT p.name, p.slug, p.lat, p.lng, rw.position
+      // Скрытое место остаётся точкой пути, но ссылка на него отвечала бы 404
+      // (аудит 02.10: два маршрута вели на скрытую «Самые высокие вулканы…»);
+      // без slug список покажет имя текстом.
+      `SELECT p.name, CASE WHEN p.is_visible IS NOT FALSE THEN p.slug END AS slug, p.lat, p.lng, rw.position
          FROM route_waypoints rw
          JOIN kamchatka_routes kr ON kr.id = rw.route_id
          JOIN places p ON p.id = rw.place_id

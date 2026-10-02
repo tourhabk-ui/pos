@@ -664,7 +664,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes?kind=place">Все места</Link></div>
             <div className="plates explore">
               {explore.map((pl, i) => (
-                <Link key={pl.id} href={`/places/${pl.id}`} className="plate place" aria-label={`${pl.title}, место ${i + 1} из ${explore.length}`}>
+                <Link key={pl.id} href={`/places/${pl.urlSlug ?? pl.id}`} className="plate place" aria-label={`${pl.title}, место ${i + 1} из ${explore.length}`}>
                   <div className="img" style={pl.imageUrl ? { backgroundImage: `url('${photoSrc(pl.imageUrl, 640)}')` } : undefined}>
                     {!pl.imageUrl && <span className="noimg" />}
                   </div>

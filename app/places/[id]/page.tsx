@@ -5,7 +5,7 @@ import PlaceDetailClient from './_PlaceDetailClient';
 import PlaceSOS from '@/components/places/PlaceSOS';
 import { isUuid } from '@/lib/text/slugify';
 import { resolveMergedTarget } from '@/lib/places/aliases';
-import { JsonLd } from '@/components/seo/JsonLd';
+import { JsonLd, BreadcrumbJsonLd } from '@/components/seo/JsonLd';
 import { stripTags } from '@/lib/html/text';
 // Словарь разделов — общий с контекстом Хранителя (lib/places/type-label.ts).
 import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
@@ -138,6 +138,7 @@ export default async function PlaceDetailPage({ params }: Props) {
 
   // JSON-LD для поисковых систем
   let jsonLd: Record<string, unknown> | null = null;
+  let breadcrumbItems: Array<{ name: string; url: string }> | null = null;
   try {
     const result = await query(
       `SELECT p.name, p.description, p.essence, p.location_type, p.lat, p.lng,
@@ -205,15 +206,15 @@ export default async function PlaceDetailPage({ params }: Props) {
           name: 'Ведар',
           url: BASE,
         },
-        breadcrumb: {
-          '@type': 'BreadcrumbList',
-          itemListElement: [
-            { '@type': 'ListItem', position: 1, name: 'Главная', item: BASE },
-            { '@type': 'ListItem', position: 2, name: 'Карта мест', item: `${BASE}/map` },
-            { '@type': 'ListItem', position: 3, name: r.name as string, item: `${BASE}/places/${canonicalId}` },
-          ],
-        },
       };
+      // Хлебные крошки — отдельным узлом, а не свойством TouristAttraction:
+      // у этого типа такого свойства нет, и поисковик их не читал (аудит 02.10:
+      // BreadcrumbList был у 389 маршрутов и у 0 из 382 мест).
+      breadcrumbItems = [
+        { name: 'Главная', url: BASE },
+        { name: 'Карта мест', url: `${BASE}/map` },
+        { name: r.name as string, url: `${BASE}/places/${canonicalId}` },
+      ];
     }
   } catch { /* JSON-LD не критичен */ }
 
@@ -222,6 +223,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       {jsonLd && (
         <JsonLd data={jsonLd} />
       )}
+      {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
       <PlaceDetailClient id={arkId} initialPlace={initialPlace} />
       <PlaceSOS />
     </>
