@@ -76,6 +76,28 @@ async function findPlaceTwin(slug: string): Promise<string | null> {
   }
 }
 
+/**
+ * Статья-двойник маршрута «kl-*». «Камчатский лексикон» лежит в двух
+ * таблицах: `articles` (slug `zima`) и `kamchatka_routes` (slug `kl-zima`,
+ * тот же текст, но заголовок «— маршрут на Камчатке» и разметка
+ * TouristTrip). 26 пар соперничали в выдаче, и статья выдавалась за маршрут
+ * (аудит 02.10). Отвечаем 308 на статью, когда она видима. Отказ БД — null с
+ * записью в лог: не смогли проверить — показываем маршрут, как раньше.
+ */
+async function findArticleTwin(slug: string): Promise<string | null> {
+  if (!slug.startsWith('kl-')) return null;
+  const articleSlug = slug.slice(3);
+  if (!articleSlug) return null;
+  try {
+    const r = await query(`SELECT slug FROM articles WHERE slug = $1 AND is_visible = TRUE LIMIT 1`, [articleSlug]);
+    return (r.rows[0]?.slug as string | undefined) ?? null;
+  } catch (error) {
+    const e = error as Error & { code?: string };
+    console.error('[routes/[id]] проверка статьи-двойника упала', { slug, sqlstate: e?.code, message: e?.message });
+    return null;
+  }
+}
+
 interface RouteWaypointRow { name: string; slug: string | null; lat: number | null; lng: number | null; position: number }
 
 /** Точки маршрута по порядку (route_waypoints → places). Ошибка БД → []. */
@@ -332,6 +354,13 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     : (route.slug ? await findPlaceTwin(route.slug) : null);
   if (twinOf) {
     permanentRedirect(`/places/${twinOf}`);
+  }
+
+  // Статья под адресом маршрута (kl-*) — 308 на /articles/{slug}: статья не
+  // маршрут (§9–10), а двойник делит с ней выдачу.
+  const articleTwin = route.slug ? await findArticleTwin(route.slug) : null;
+  if (articleTwin) {
+    permanentRedirect(`/articles/${articleTwin}`);
   }
 
   // Точки маршрута по порядку — для itinerary в JSON-LD: без ItemList с
