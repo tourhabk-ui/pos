@@ -37,8 +37,8 @@ export const maxDuration = 30;
 
 /** Тот же INSERT, что у приёмника. Расходиться им нельзя — иначе проба врёт. */
 const RECEIVER_INSERT = `
-  INSERT INTO funnel_events (step, entity_id, visitor_hash)
-  SELECT $1::varchar, $2::text, $3::varchar
+  INSERT INTO funnel_events (step, entity_id, visitor_hash, is_self)
+  SELECT $1::varchar, $2::text, $3::varchar, $4::boolean
    WHERE NOT EXISTS (
      SELECT 1 FROM funnel_events
       WHERE step = $1::varchar
@@ -78,6 +78,8 @@ export async function GET(req: NextRequest) {
       // будет опознаваема как проба, а не притворится касанием карточки.
       'beacon-check-rollback',
       'beacon-check-rollback',
+      // Проба — свой заход по определению (миграция 1142), хотя строка и откатывается.
+      true,
     ]);
     insertedRows = res.rowCount ?? 0;
     writePath = 'ok';
