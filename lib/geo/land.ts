@@ -168,6 +168,30 @@ export function distanceToCoastKm(lat: number, lng: number): number {
   return best;
 }
 
+/**
+ * Суша края как GeoJSON — контур, который карта рисует РАНЬШЕ рельефа (03.10).
+ *
+ * Скрин владельца 03.10 11:45, телефон на 4G: подложка из хранилища не
+ * пришла, и карта стояла пустым бежевым прямоугольником — ни края, ни моря,
+ * непонятно даже, куда смотришь. Владелец: «сначала прорисовывать контур и
+ * потом заполнять рельеф». Контур едет вместе со страницей (21 КБ Natural
+ * Earth), поэтому есть сразу и без сети; рельеф и море ложатся поверх, когда
+ * придут. Кольца — те же, что судят «суша или море» выше: второго контура нет.
+ */
+export function landGeoJSON(): {
+  type: 'FeatureCollection';
+  features: Array<{ type: 'Feature'; properties: Record<string, never>; geometry: { type: 'Polygon'; coordinates: CoastPoint[][] } }>;
+} {
+  return {
+    type: 'FeatureCollection',
+    features: RINGS.map((ring) => ({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [ring] },
+    })),
+  };
+}
+
 /** Для тестов сборки: все кольца замкнуты, ничего не потеряно. */
 export function ringStats(): { rings: number; allClosed: boolean; points: number } {
   return {
