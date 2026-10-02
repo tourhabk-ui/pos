@@ -39,7 +39,20 @@ export interface EmsdFetchResult {
  */
 export async function fetchEmsdPage(url: string, timeoutMs = 20_000): Promise<EmsdFetchResult> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    // Заголовки обычного браузера: голый запрос Node (`user-agent: node`) сайты
+    // КФ ФИЦ ЕГС режут 403 раньше, чем смотрят на адрес. Проба 74 (01.10): с
+    // прода emsd.ru отвечал 403, и таблица землетрясений не прочитана ни разу
+    // с 24.09. Поможет ли это — скажет `emsd_fetch` в ответе safety-ingest;
+    // если 403 остаётся, это блок по адресу, и источник числится в
+    // `knownDormant` (source-health), а не будит каждые 12 часов.
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: {
+        'user-agent': 'Mozilla/5.0 (compatible; VedarBot/1.0; +https://vedarai.ru)',
+        accept: 'text/html,application/xhtml+xml',
+        'accept-language': 'ru-RU,ru;q=0.9',
+      },
+    });
     if (!res.ok) {
       return { html: null, status: res.status, decodedBy: null, bytes: null, error: `HTTP ${res.status}` };
     }

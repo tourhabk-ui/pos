@@ -1465,6 +1465,16 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
         console.error('[scout-digest] AI-пост: запрос к модели упал:', err instanceof Error ? err.message : err);
         return null;
       });
+      // Один повтор перед сдачей: пустой ответ бывает разовым (таймаут ноги,
+      // перегрузка провайдера), а следующий выпуск только через полдня.
+      // Размышление остаётся включённым — для прозы канала это решение
+      // владельца (04.08, сторож deepseek-thinking-opt).
+      if (!aiDigest) {
+        aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((err: unknown) => {
+          console.error('[scout-digest] AI-пост: повтор запроса к модели упал:', err instanceof Error ? err.message : err);
+          return null;
+        });
+      }
       if (!aiDigest) {
         // Тот же след отказов, что у основного выпуска (29.08). До 02.10 здесь
         // стоял голый `.catch(() => null)`: владелец получал «модель не вернула
