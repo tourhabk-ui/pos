@@ -25,7 +25,8 @@ describe('журнал вызовов без ПД', () => {
     // Колонки фиксированы: tool, ok, error_kind, duration_ms, caller_hash.
     // requested_tool (1141) — имя несуществующего инструмента, только при unknown_tool.
     // is_self (1142) — метка владельца из адреса коннектора; свои вызовы отделяются, не прячутся.
-    expect(LOG).toMatch(/INSERT INTO mcp_tool_calls \(tool, ok, error_kind, duration_ms, caller_hash, requested_tool, is_self\)/);
+    // error_code, arg_key, arg_value (1143) — причина и ИМЯ аргумента; значение только у читающих (lib/mcp/call-reason).
+    expect(LOG).toMatch(/INSERT INTO mcp_tool_calls \(tool, ok, error_kind, duration_ms, caller_hash, requested_tool, is_self, error_code, arg_key, arg_value\)/);
     expect(LOG).not.toMatch(/args|arguments|params/i);
   });
 
@@ -77,7 +78,7 @@ describe('имя инструмента — только из реестра', (
     expect(safeRequestedName('get-weather.v2')).toBe('get-weather.v2');
     expect(safeRequestedName('<script>alert(1)</script>')).toBe('не-идентификатор');
     expect(safeRequestedName('x'.repeat(41))).toBe('не-идентификатор');
-    expect(ROUTE).toMatch(/errorKind: 'unknown_tool', requestedTool: toolName/);
+    expect(ROUTE).toMatch(/errorKind: 'unknown_tool', errorCode: 'unknown_tool', requestedTool: toolName/);
     expect(read('migrations/1141_mcp_tool_calls_requested_tool.sql')).toMatch(/ADD COLUMN IF NOT EXISTS requested_tool VARCHAR\(40\)/);
     expect(safeToolName('nonexistent_evil_tool_'.repeat(10))).toBe('unknown');
     expect(safeToolName('')).toBe('unknown');

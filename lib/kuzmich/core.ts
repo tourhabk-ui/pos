@@ -2114,6 +2114,9 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
     const code = (err as { code?: unknown })?.code;
     console.error('[kuzmich-tool] исполнение упало:', logText(name), typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
+    // На MCP причина нужна журналу (SQLSTATE, таймаут — lib/mcp/call-reason):
+    // роут ловит исключение сам и отвечает агенту тем же текстом отказа.
+    if (opts.surface === 'mcp') throw err;
     return TOOL_EXECUTION_FAILED;
   }
 }

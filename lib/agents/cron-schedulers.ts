@@ -118,6 +118,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'channel-photo-check':       { kind: 'manual', writes: false, note: 'почему посты канала уходят без картинок: откаты sendPhoto с ответом Telegram' },
   'channel-readiness':         { kind: 'manual', writes: false, note: 'сколько туров годится к выкладке на чужую витрину и что мешает каждому' },
   'channel-parity':            { kind: 'manual', writes: false, note: 'снимок «MCP против сайта»: 8 туров, обстановка и 8 вулканов с двух сторон на один момент, расхождения списком' },
+  'mcp-census':                { kind: 'manual', writes: false, note: 'перепись журнала MCP с раннера: внешние/свои/проверки, причина ошибки по инструменту, пишущие вызовы поимённо; панель закрыта admin-JWT, prod-check ходит только в /api/cron/*' },
   'seismic-latency-census':    { kind: 'manual', writes: false, note: 'как быстро толчок доходит до ленты: по каждому толчку окна — источник, время очага, время записи (журнал 925) и задержка против нормы 15 мин; разрывы прогонов приёма по путям; пары записей, похожие на один толчок дважды. Заведена 01.10: M5.0 30.09 владелец увидел через пять часов, и «опоздал приём» от «не перечитался экран» отличить было нечем' },
   // 'funnel-census', 'operator-reach' и 'beacon-check' объявлений здесь не
   // несут: с 14.09 их зовёт funnel-census.yml по маркеру — объявление было бы

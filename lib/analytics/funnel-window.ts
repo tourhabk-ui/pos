@@ -250,7 +250,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
 
   const [
     views, starts, leadRows, bookingRows,
-    viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, bookingStatuses,
+    viewsAlive, beaconAlive, topPaths, tourEdges, leadStatuses, leadSources, bookingStatuses,
   ] = await Promise.all([
     // Верх воронки — собственная метрика. Пути обеих публичных карточек тура:
     // /catalog и /marketplace рендерят одну реализацию (§11).
@@ -341,6 +341,14 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
       p,
     )).rows),
 
+    // Откуда заявки: одна заявка мимо «начали бронь» — это другой вход (Кузьмич,
+    // подбор, MCP), а не дыра воронки. Без источника это вывод, с ним — число (02.10).
+    measure('leads_by_source', async () => (await exec.query<{ source: string; n: number }>(
+      `SELECT COALESCE(NULLIF(source_channel, ''), NULLIF(source_url, ''), 'не записан') AS source, COUNT(*)::int AS n
+         FROM leads WHERE ${WINDOW_SQL} GROUP BY 1 ORDER BY n DESC LIMIT 12`,
+      p,
+    )).rows),
+
     measure('bookings_by_status', async () => (await exec.query<{ booking_status: string | null; n: number }>(
       `SELECT booking_status, COUNT(*)::int AS n FROM operator_bookings
         WHERE ${WINDOW_SQL} GROUP BY booking_status ORDER BY n DESC`,
@@ -366,7 +374,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     ['operator_bookings', bookingRows], ['page_views.alive', viewsAlive],
     ['funnel_events.alive', beaconAlive], ['top_paths', topPaths],
     ['tour_edges', tourEdges], ['leads_by_status', leadStatuses],
-    ['bookings_by_status', bookingStatuses],
+    ['leads_by_source', leadSources], ['bookings_by_status', bookingStatuses],
   ];
   const failed = measures.filter(([, m]) => m.failed !== null);
 
@@ -407,6 +415,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     top_paths:          topPaths.value,
     tour_entry_edges:   tourEdges.value,
     leads_by_status:    leadStatuses.value,
+    leads_by_source:    leadSources.value,
     bookings_by_status: bookingStatuses.value,
     // Судить не по чему — это отказ переписи, а не «всё хорошо».
     meaningful: failed.length === 0 && unknown.length === 0,

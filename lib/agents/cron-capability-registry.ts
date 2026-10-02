@@ -65,6 +65,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // tests/unit/channel-parity.test.ts, — но перепись судит по достижимости, а
   // не по намерению, поэтому объявлено то, что она видит.
   'channel-parity': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  // pd_direct здесь — слово, не данные: перепись читает mcp_clients.client_name,
+  // а это имя ПРОГРАММЫ-клиента MCP из её рукопожатия (lib/mcp/client-id), не
+  // человека. D1 судит по имени поля и иначе не может; объявляем, чтобы это
+  // было видно, а не спрятано переименованием колонки в запросе.
+  'mcp-census': ['db_read', 'pd_direct'],
   'seismic-latency-census': ['db_read'],
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],

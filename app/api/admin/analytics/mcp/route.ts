@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [byTool, daily, errors, clients, unknownTools, origins] = await Promise.all([
+    const [byTool, daily, errors, clients, unknownTools, origins, errorDetail] = await Promise.all([
       pool.query<{
         tool: string; calls_7d: string; errors_7d: string; calls_30d: string;
         errors_30d: string; avg_ms: string | null; max_ms: string | null; callers_30d: string;
@@ -119,6 +119,19 @@ export async function GET(request: NextRequest) {
           WHERE t.created_at >= NOW() - INTERVAL '30 days'`,
         PROBE_PARAMS,
       ),
+      // Причина, не только счётчик (1143): код и главный аргумент. Значение
+      // аргумента есть только у читающих инструментов и не бывает телефоном —
+      // так пишет lib/mcp/call-reason, панель это не переделывает.
+      pool.query<{ tool: string; error_kind: string | null; error_code: string | null; arg_key: string | null; arg_value: string | null; n: string; last_at: string }>(
+        `SELECT t.tool, t.error_kind, t.error_code, t.arg_key, t.arg_value,
+                COUNT(*) AS n, to_char(MAX(t.created_at), 'YYYY-MM-DD') AS last_at
+           FROM mcp_tool_calls t
+          WHERE NOT t.ok AND t.created_at >= NOW() - INTERVAL '30 days' AND ${EXTERNAL('t')}
+          GROUP BY 1, 2, 3, 4, 5
+          ORDER BY COUNT(*) DESC, MAX(t.created_at) DESC
+          LIMIT 40`,
+        PROBE_PARAMS,
+      ),
     ]);
 
     return NextResponse.json({
@@ -141,6 +154,15 @@ export async function GET(request: NextRequest) {
       errors_by_kind_30d: errors.rows.map((r) => ({
         kind: r.error_kind,
         d30: Number(r.d30),
+      })),
+      errors_detail_30d: errorDetail.rows.map((r) => ({
+        tool: r.tool,
+        error_kind: r.error_kind,
+        error_code: r.error_code,
+        arg_key: r.arg_key,
+        arg_value: r.arg_value,
+        n: Number(r.n),
+        last_at: r.last_at,
       })),
       unknown_tools_30d: unknownTools.rows.map((r) => ({
         requested_tool: r.requested_tool,

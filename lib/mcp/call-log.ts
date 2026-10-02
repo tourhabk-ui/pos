@@ -37,6 +37,11 @@ export interface McpCallLogEntry {
   requestedTool?: string;
   /** Свой клиент: метка владельца в адресе коннектора (self-visit, 02.10). */
   self?: boolean;
+  /** Причина ошибки машинным кодом (1143): no_consent, pg:42P08, timeout… */
+  errorCode?: string;
+  /** Главный аргумент: имя всегда, значение — только у читающих (lib/mcp/call-reason). */
+  argKey?: string | null;
+  argValue?: string | null;
 }
 
 /**
@@ -111,8 +116,8 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
   const hash = mcpCallerHash(entry.ip, entry.userAgent);
   void pool
     .query(
-      `INSERT INTO mcp_tool_calls (tool, ok, error_kind, duration_ms, caller_hash, requested_tool, is_self)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO mcp_tool_calls (tool, ok, error_kind, duration_ms, caller_hash, requested_tool, is_self, error_code, arg_key, arg_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         safeToolName(entry.tool),
         entry.ok,
@@ -121,6 +126,9 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
         hash,
         entry.errorKind === 'unknown_tool' && entry.requestedTool ? safeRequestedName(entry.requestedTool) : null,
         entry.self === true,
+        entry.ok ? null : (entry.errorCode ?? entry.errorKind ?? null)?.slice(0, 40) ?? null,
+        entry.argKey?.slice(0, 40) ?? null,
+        entry.argValue?.slice(0, 40) ?? null,
       ],
     )
     .catch((err: unknown) => logMcpFailure('запись вызова mcp_tool_calls', err));
