@@ -93,8 +93,8 @@ export interface TourCardRow {
   operator_slug: string | null;
   operator_public: boolean | null;
   /**
-   * Кто продавец по закону — `partners.legal_info.companyName`, ИНН и ОГРН
-   * (`company_inn`/`company_ogrn`, запасом — `legal_info`) (02.10, ЗоЗПП ст. 12 п. 2.1: владелец агрегатора обязан
+   * Кто продавец по закону — `partners.legal_info` (companyName, inn, ogrn)
+   * (02.10, ЗоЗПП ст. 12 п. 2.1: владелец агрегатора обязан
    * показать потребителю наименование и регистрационные данные исполнителя).
    * Адрес намеренно не берём: у ИП это может быть домашний адрес человека, а
    * закон от ИП его не требует. NULL — «не записано», карточка так и говорит.
@@ -184,8 +184,11 @@ function buildSql(withOptional: boolean): string {
       -- партнёра). partners.company_name НЕ подходит: триггер 052 держит его
       -- равным витринному name, и «исполнителем» стала бы вывеска, а не юрлицо.
       NULLIF(btrim(p.legal_info->>'companyName'), '') AS operator_legal_name,
-      COALESCE(NULLIF(btrim(p.company_inn), ''), NULLIF(btrim(p.legal_info->>'inn'), '')) AS operator_inn,
-      COALESCE(NULLIF(btrim(p.company_ogrn), ''), NULLIF(btrim(p.legal_info->>'ogrn'), '')) AS operator_ogrn
+      -- ИНН и ОГРН — тоже из legal_info: их туда пишет регистрация партнёра.
+      -- Колонки company_inn/company_ogrn есть только в снимке прода, ни одна
+      -- миграция их не создаёт и ни один код не пишет (sql-phantom-columns).
+      NULLIF(btrim(p.legal_info->>'inn'), '') AS operator_inn,
+      NULLIF(btrim(p.legal_info->>'ogrn'), '') AS operator_ogrn
     FROM operator_tours ot
     JOIN partners p ON ot.operator_id = p.id
     WHERE ot.id = $1

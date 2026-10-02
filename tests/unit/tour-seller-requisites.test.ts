@@ -31,7 +31,8 @@ describe('карточка тура и запрос', () => {
   const CARD = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
   it('запрос берёт наименование, ИНН и ОГРН партнёра, но не адрес', () => {
     expect(QUERY).toMatch(/NULLIF\(btrim\(p\.legal_info->>'companyName'\), ''\) AS operator_legal_name/);
-    expect(QUERY).toMatch(/COALESCE\(NULLIF\(btrim\(p\.company_inn\), ''\), NULLIF\(btrim\(p\.legal_info->>'inn'\), ''\)\) AS operator_inn/);
+    expect(QUERY).toMatch(/NULLIF\(btrim\(p\.legal_info->>'inn'\), ''\) AS operator_inn/);
+    expect(QUERY).toMatch(/NULLIF\(btrim\(p\.legal_info->>'ogrn'\), ''\) AS operator_ogrn/);
     expect(QUERY).toMatch(/AS operator_ogrn/);
     expect(QUERY).not.toMatch(/legal_address|legalAddress/);
   });
