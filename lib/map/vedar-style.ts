@@ -142,6 +142,8 @@ interface MapPalette {
   calculated: string;
   /** Булавка выбранной точки (тап по карте) — акцент лавы, --accent. */
   pin: string;
+  /** Толчок за последние сутки (02.10) — тревожный, --danger. */
+  quake: string;
   /** OSM (02.09): заливки и линии. Приглушённые — карта полевая, не городская. */
   water: string;
   waterway: string;
@@ -217,6 +219,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     trail: '#00A8CC',       // --ocean dark; тот же голубой, что у следа на Leaflet
     calculated: calculatedCarLine().style.color,
     pin: '#E8734A',         // --accent dark
+    quake: '#F85149',       // --danger dark
     // OSM: вода холодная, лес чуть теплее фона, ледник светлее гребня,
     // тропа — тёплая (как на референсе владельца 31.08), дорога — серая.
     water: '#12303F',
@@ -293,6 +296,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
     trail: '#2568B0',       // --ocean light
     calculated: calculatedCarLine().style.color,
     pin: '#D44A0C',         // --accent light
+    quake: '#DC2626',       // --danger light
     water: '#BFD9E8',
     waterway: '#4F88A8',
     wood: '#D9E4CC',
@@ -477,6 +481,8 @@ export function buildVedarStyle(
       // Маршрут и след кладёт компонент: их геометрия приходит из БД и
       // меняется на ходу, стилю о ней знать нечего, кроме вида линии.
       route: { type: 'geojson', data: emptyFeatureCollection() },
+      // Толчки за сутки кладёт компонент (VedarMap `quakes`), как и маршрут.
+      [QUAKES_SOURCE]: { type: 'geojson', data: emptyFeatureCollection() },
       // Линии и площади: один векторный пакет либо GeoJSON по слоям.
       ...r.sources(),
       ...vedarOceanSource(sources, ''),
@@ -655,6 +661,8 @@ export function buildVedarStyle(
       // безопасности точки — то, о чём человек в поле спрашивает первым.
       // Вершины и посёлки OSM отсюда убраны 13.09 — см. OSM_LAYERS_NOT_DRAWN.
       ...vedarPlaceLayers(sources, p, ''),
+      // Толчки — поверх мест: это не география, а тревога последних суток.
+      quakeLayer(p),
     ],
   };
 }
@@ -1304,6 +1312,28 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * 'vedar-place') в VedarMap ловили его без правки.
  */
 export const PLACE_ICON_MIN_ZOOM = 9;
+
+/**
+ * Толчки за последние сутки на карте (владелец 02.10: «не все толчки попадают
+ * на карту, нужно показывать за последние сутки»). Кружок — размер по
+ * магнитуде, прозрачность — по давности: свежий толчок ярче вчерашнего.
+ * Свойства точки кладёт VedarMap (`mag`, `age_h`); стиль их только читает.
+ */
+export const QUAKES_SOURCE = 'quakes';
+export const QUAKES_LAYER = 'vedar-quakes';
+
+function quakeLayer(p: MapPalette): unknown {
+  return {
+    id: QUAKES_LAYER, type: 'circle', source: QUAKES_SOURCE,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['get', 'mag'], 2, 4, 4, 6.5, 5, 9, 6, 13, 7, 17],
+      'circle-color': p.quake,
+      'circle-opacity': ['interpolate', ['linear'], ['get', 'age_h'], 0, 0.9, 24, 0.4],
+      'circle-stroke-color': p.contourLabelHalo,
+      'circle-stroke-width': 1.5,
+    },
+  };
+}
 
 function placeKindColor(): unknown {
   const pairs: unknown[] = [];
