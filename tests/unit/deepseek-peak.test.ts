@@ -22,7 +22,8 @@ describe('окно пика DeepSeek', () => {
     expect(isDeepSeekPeak(new Date('2026-09-10T02:30:00Z'))).toBe(true);
     expect(isDeepSeekPeak(new Date('2026-09-10T06:20:00Z'))).toBe(true);  // судья
     expect(isDeepSeekPeak(new Date('2026-09-10T04:00:00Z'))).toBe(false); // граница: пик [1,4)
-    expect(isDeepSeekPeak(new Date('2026-09-10T05:50:00Z'))).toBe(false); // ревью
+    expect(isDeepSeekPeak(new Date('2026-09-10T05:50:00Z'))).toBe(false); // граница после пика (бывшее время ревью)
+    expect(isDeepSeekPeak(new Date('2026-09-10T19:11:00Z'))).toBe(false); // ревью (с 02.10)
     expect(isDeepSeekPeak(new Date('2026-09-10T17:13:00Z'))).toBe(false); // эволюция
     expect(isDeepSeekPeak(new Date('2026-09-10T22:00:00Z'))).toBe(false); // Editor
   });
