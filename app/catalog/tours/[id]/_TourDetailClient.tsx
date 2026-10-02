@@ -1,5 +1,6 @@
 'use client';
 
+import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -118,6 +119,13 @@ interface TourFull {
   operator_verified?: boolean | null;
   /** operator_tours.route_id: без маршрута нет и «контура безопасности». */
   route_id?: string | null;
+  /**
+   * Кто продавец по закону — partners.company_name / company_inn /
+   * company_ogrn (ЗоЗПП ст. 12 п. 2.1, 02.10). Не записано — так и говорим.
+   */
+  operator_legal_name?: string | null;
+  operator_inn?: string | null;
+  operator_ogrn?: string | null;
 }
 
 interface TourReview {
@@ -982,6 +990,12 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   <div className="flex-1 min-w-[10rem]">
                     <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5">Проводит этот тур сам</p>
+                    {/* Продавец по закону (ЗоЗПП ст. 12 п. 2.1): платформа —
+                        агрегатор, исполнитель — оператор, и турист видит, кто
+                        именно. Реквизиты не записаны — говорим это, не прячем. */}
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      Исполнитель: {sellerRequisitesLine(tour) ?? 'реквизиты оператора не записаны на платформе'}
+                    </p>
                     {/* Отметка — из partners.is_verified, а не литерал у любого
                         оператора (аудит П6, #68/#138). Не записано — отметки нет. */}
                     {tour.operator_verified === true && (
