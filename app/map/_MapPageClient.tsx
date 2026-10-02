@@ -234,6 +234,10 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   // Толчки за сутки — слой поверх мест (владелец 02.10).
   const { quakes, state: quakesState } = useMapQuakes();
   const [quakeHit, setQuakeHit] = useState<VedarMapQuake | null>(null);
+  // Отчёт своей карты о себе (VedarMap.onDiagnostic). Собственная строка
+  // карты стоит в её углу и накрыта плашкой тревог — скрин владельца 03.10:
+  // «Своя карта не отрисовалась… — качаем заново» читалась обрывками.
+  const [mapDiag, setMapDiag] = useState<string | null>(null);
   const [showSos, setShowSos] = useState(false);
   const [sosSending, setSosSending] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
@@ -788,6 +792,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               // activity:* фильтров у слоя нет — на них показываем как есть.
               placesFilter={filterNow !== 'all' && !quakesMode && !filterNow.startsWith('activity:') ? filterNow : null}
               placesVisible={!quakesMode}
+              onDiagnostic={setMapDiag}
             />
           ) : (
             <LeafletMap
@@ -822,6 +827,17 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           <div className="absolute top-3 left-16 right-16 z-[500] flex flex-col items-start gap-2">
             <MapThreatChip />
             {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
+            {/* Сбой своей карты — здесь, в той же колонке, что и тревоги:
+                в углу карты строку накрывает эта колонка (тот же урок, что
+                на полевом экране 01.09, см. VedarMap.onDiagnostic).
+                Предупреждение на стекле — кромкой --warning (§2). */}
+            {mapDiag && (
+              <p role="status" data-theme="dark"
+                className="fx-glass-dense max-w-full px-3 py-2 rounded-2xl text-[11px] leading-snug break-words"
+                style={{ borderColor: 'var(--warning)', color: 'var(--glass-fg)' }}>
+                {mapDiag}
+              </p>
+            )}
           </div>
 
           {quakesMode && quakeHit && <QuakeCard quake={quakeHit} onClose={() => setQuakeHit(null)} />}
