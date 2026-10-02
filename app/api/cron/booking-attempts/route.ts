@@ -125,7 +125,7 @@ export async function GET(req: NextRequest) {
 
     measure('leads', async () => (await pool.query<{ status: string | null; n: number }>(
       `SELECT status, COUNT(*)::int AS n FROM leads
-        WHERE created_at > ${W} GROUP BY status ORDER BY n DESC`,
+        WHERE is_self = FALSE AND created_at > ${W} GROUP BY status ORDER BY n DESC`,
       [days],
     )).rows),
   ]);

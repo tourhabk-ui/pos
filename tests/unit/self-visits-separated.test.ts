@@ -120,6 +120,33 @@ describe('читатели считают внешних без своих', () 
   });
 });
 
+describe('свои заявки отделены (1145)', () => {
+  it('миграция даёт is_self заявкам; создание пишет флаг; сайт и MCP его передают', () => {
+    expect(read('migrations/1145_leads_is_self.sql')).toMatch(/ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_self BOOLEAN NOT NULL DEFAULT FALSE/);
+    const create = read('lib/leads/create.ts');
+    expect(create).toMatch(/INSERT INTO leads \([^)]*is_self\)/);
+    expect(create).toContain('is_self === true');
+    expect(create).toContain('isSelf: is_self === true');
+    expect(read('app/api/leads/route.ts')).toContain("is_self: isSelfVisit(req.headers.get('cookie'))");
+    const mcp = read('app/api/mcp/route.ts');
+    expect(mcp).toMatch(/interface McpCallContext \{[^}]*self: boolean/);
+    expect((mcp.match(/is_self: ctx\.self/g) ?? []).length).toBe(2);
+    expect(mcp).toContain('executeTool(toolName, toolArgs, { ip, userAgent, self })');
+  });
+
+  it('follow-up по своей заявке не шлётся; счёт заявок — без своих; уведомление с пометкой, не спрятано', () => {
+    expect(read('app/api/cron/followups/route.ts')).toContain('AND l.is_self = FALSE');
+    const fw = read('lib/analytics/funnel-window.ts');
+    expect((fw.match(/FROM leads WHERE is_self = FALSE/g) ?? []).length).toBe(2);
+    expect(fw).toContain('FROM leads\n        WHERE is_self = FALSE');
+    expect(fw).toContain('LEFT JOIN leads l ON l.created_at >= d.s AND l.created_at < d.e AND l.is_self = FALSE');
+    expect(read('lib/agents/evo/growth-agent.ts')).toContain('FROM leads WHERE is_self = FALSE');
+    expect(read('app/api/cron/booking-attempts/route.ts')).toContain('FROM leads\n        WHERE is_self = FALSE');
+    const tg = read('lib/notifications/telegram-channel.ts');
+    expect(tg).toContain("lead.isSelf ? 'Свой тест · ' : ''");
+  });
+});
+
 describe('панель MCP: внешние, свои, проверки', () => {
   const slice = read('app/api/admin/analytics/mcp/route.ts');
 

@@ -1083,7 +1083,7 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
         WHERE step = 'booking_start' AND is_self = FALSE AND created_at > NOW() - INTERVAL '7 days'`,
     ),
     pool.query<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM leads WHERE created_at > NOW() - INTERVAL '7 days'`,
+      `SELECT COUNT(*)::int AS n FROM leads WHERE is_self = FALSE AND created_at > NOW() - INTERVAL '7 days'`,
     ),
     pool.query<{ bookings: number; paid: number }>(
       `SELECT COUNT(*)::int AS bookings, COUNT(paid_at)::int AS paid

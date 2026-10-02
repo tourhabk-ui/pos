@@ -276,7 +276,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     )).rows[0]?.n ?? 0),
 
     measure('leads', async () => (await exec.query<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM leads WHERE ${WINDOW_SQL}`,
+      `SELECT COUNT(*)::int AS n FROM leads WHERE is_self = FALSE AND ${WINDOW_SQL}`,
       p,
     )).rows[0]?.n ?? 0),
 
@@ -337,7 +337,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
 
     measure('leads_by_status', async () => (await exec.query<{ status: string | null; n: number }>(
       `SELECT status, COUNT(*)::int AS n FROM leads
-        WHERE ${WINDOW_SQL} GROUP BY status ORDER BY n DESC`,
+        WHERE is_self = FALSE AND ${WINDOW_SQL} GROUP BY status ORDER BY n DESC`,
       p,
     )).rows),
 
@@ -345,7 +345,7 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
     // подбор, MCP), а не дыра воронки. Без источника это вывод, с ним — число (02.10).
     measure('leads_by_source', async () => (await exec.query<{ source: string; n: number }>(
       `SELECT COALESCE(NULLIF(source_channel, ''), NULLIF(source_url, ''), 'не записан') AS source, COUNT(*)::int AS n
-         FROM leads WHERE ${WINDOW_SQL} GROUP BY 1 ORDER BY n DESC LIMIT 12`,
+         FROM leads WHERE is_self = FALSE AND ${WINDOW_SQL} GROUP BY 1 ORDER BY n DESC LIMIT 12`,
       p,
     )).rows),
 
@@ -487,7 +487,7 @@ export async function funnelByDay(
     measure('daily.leads', async () => (await exec.query<{ i: number; n: number }>(
       `SELECT d.i::int AS i, COUNT(l.id)::int AS n
          ${FROM}
-         LEFT JOIN leads l ON l.created_at >= d.s AND l.created_at < d.e
+         LEFT JOIN leads l ON l.created_at >= d.s AND l.created_at < d.e AND l.is_self = FALSE
         GROUP BY d.i`,
       p,
     )).rows),
