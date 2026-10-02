@@ -19,7 +19,6 @@ const CARDS = [
   'app/routes/[id]',
   'app/places/[id]',
   'app/catalog/tours/[id]',
-  'app/marketplace/tours/[id]',
 ];
 
 describe.each(CARDS)('%s', (dir) => {
@@ -31,12 +30,7 @@ describe.each(CARDS)('%s', (dir) => {
   });
 
   it('свой not-found.tsx лежит рядом', () => {
-    // Карточка тура живёт по двум адресам одной реализацией (§11): свой
-    // not-found есть хотя бы у канона /catalog/tours, второй адрес наследует
-    // ближайший not-found вверх по дереву.
-    const own = existsSync(join(ROOT, dir, 'not-found.tsx'));
-    const canon = dir === 'app/marketplace/tours/[id]' && existsSync(join(ROOT, 'app/catalog/tours/[id]/not-found.tsx'));
-    expect(own || canon, `${dir}: нет not-found.tsx`).toBe(true);
+    expect(existsSync(join(ROOT, dir, 'not-found.tsx')), `${dir}: нет not-found.tsx`).toBe(true);
   });
 });
 

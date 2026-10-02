@@ -476,7 +476,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                 <div className="ml-9 w-full max-w-[80%] space-y-2">
                   <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Подходящие туры</p>
                   {msg.tours.map(tour => <TourCard key={tour.id} tour={tour} />)}
-                  <Link href="/marketplace" className="block text-xs text-[var(--ocean)] hover:underline pt-1">
+                  <Link href="/catalog" className="block text-xs text-[var(--ocean)] hover:underline pt-1">
                     Все туры на Камчатке
                   </Link>
                 </div>

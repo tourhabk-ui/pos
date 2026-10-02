@@ -568,7 +568,7 @@ export default function BookingSuccessClient() {
               Мои бронирования
             </Link>
           )}
-          <Link href="/marketplace" className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">
+          <Link href="/catalog" className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">
             <Home size={16} />
             В каталог
           </Link>

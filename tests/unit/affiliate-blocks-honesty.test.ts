@@ -28,7 +28,7 @@ const read = (p: string) => readFileSync(abs(p), 'utf-8');
 const PARTNERS_PAGE = read('app/partners/_PartnersClient.tsx');
 const AFFILIATE = read('components/routes/RouteAffiliateBlock.tsx');
 const YANDEX = read('components/routes/YandexTravelBlock.tsx');
-const TOUR = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+const TOUR = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 
 const REMOVED = [
   'components/routes/FlightsBlock.tsx',

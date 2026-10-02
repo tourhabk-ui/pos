@@ -23,7 +23,7 @@ const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
 const M = read('migrations/817_bystraya_description_dedup.sql');
-const CARD = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+const CARD = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 const CLAUDE = read('CLAUDE.md');
 
 /** SQL без строк-комментариев: пояснения не должны считаться кодом. */

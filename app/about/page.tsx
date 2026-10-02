@@ -219,7 +219,7 @@ export default async function AboutPage() {
               <ChevronRight className="w-4 h-4" />
             </Link>
             <Link
-              href="/marketplace"
+              href="/catalog"
               className="ds-btn ds-btn-secondary inline-flex items-center gap-2"
             >
               Туры от операторов

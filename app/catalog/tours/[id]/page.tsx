@@ -3,8 +3,9 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { loadTourCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import { tourPath } from '@/lib/tours/tour-url';
-import TourDetailClient from '@/app/marketplace/tours/[id]/_TourDetailClient';
+import TourDetailClient from './_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
+import { tourHeroImage } from '@/lib/tours/hero-image';
 import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
 
 export const revalidate = 3600;
@@ -37,7 +38,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const desc = (short.length >= 110 ? metaDescription(short) : full)
     || `${activity} на Камчатке. Реальный тур от проверенного оператора.`;
 
-  const images = tour.tour_image ? [{ url: tour.tour_image }] : [];
+  // Кадр для OG — по общему правилу (обложка раньше галереи). До 02.10 это
+  // правило стояло только в мёртвой копии страницы под /marketplace, а живая
+  // страница брала tour_image напрямую: ровно та болезнь двух карточек (§11).
+  const hero = tourHeroImage(tour.photos, tour.tour_image);
+  const images = hero ? [{ url: hero }] : [];
 
   return {
     title: `${tour.title} | Реальные туры Камчатки`,

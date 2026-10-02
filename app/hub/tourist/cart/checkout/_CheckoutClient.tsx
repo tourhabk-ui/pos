@@ -182,7 +182,7 @@ export default function CheckoutClient() {
               </Link>
             ))}
           </div>
-          <button onClick={() => router.push('/marketplace')} className="ds-btn ds-btn-secondary px-6 py-2.5">
+          <button onClick={() => router.push('/catalog')} className="ds-btn ds-btn-secondary px-6 py-2.5">
             Вернуться в каталог
           </button>
         </div>
@@ -197,7 +197,7 @@ export default function CheckoutClient() {
         <div className="max-w-xl mx-auto text-center py-24 space-y-4">
           <ShoppingCart className="w-12 h-12 mx-auto text-[var(--text-muted)]" />
           <h1 className="ds-h2">Корзина пуста</h1>
-          <button onClick={() => router.push('/marketplace')} className="ds-btn ds-btn-primary px-6 py-2.5">
+          <button onClick={() => router.push('/catalog')} className="ds-btn ds-btn-primary px-6 py-2.5">
             Перейти в каталог
           </button>
         </div>

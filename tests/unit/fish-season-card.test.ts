@@ -87,7 +87,7 @@ describe('справочник пригоден для сетки', () => {
 
 describe('карточка тура', () => {
   it('блок подключён в единственную карточку тура и fail-soft', () => {
-    const src = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(src).toMatch(/FishSeasonCalendar/);
     expect(src).toMatch(/detectFishSpecies/);
     expect(src).toMatch(/fishSpecies\.length > 0 &&/);

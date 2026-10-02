@@ -127,7 +127,7 @@ export default function WishlistClient() {
               Сохраните понравившиеся туры
             </p>
             <Link
-              href="/marketplace"
+              href="/catalog"
               className="ds-btn ds-btn-primary mt-4 px-6 py-3"
             >
               Смотреть туры

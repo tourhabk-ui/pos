@@ -51,7 +51,7 @@ describe('строка доходит до формы', () => {
     expect(q).toContain('ot.cancellation_free_days, ot.cancellation_late_refund_percent');
   });
   it('карточка передаёт их в форму, форма рисует строку под итогом', () => {
-    expect(read('app/marketplace/tours/[id]/_TourDetailClient.tsx')).toContain('cancellationTerms={{');
+    expect(read('app/catalog/tours/[id]/_TourDetailClient.tsx')).toContain('cancellationTerms={{');
     const form = read('components/marketplace/BookingFormClient.tsx');
     expect(form).toContain('cancellationTermsLine(cancellationTerms, formData.booking_date || null)');
   });

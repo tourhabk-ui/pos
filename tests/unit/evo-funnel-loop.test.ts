@@ -28,7 +28,7 @@ import { OUTWARD_CATEGORIES } from '@/lib/agents/evo/issue-reporter';
 const ROOT = process.cwd();
 const GROWTH = readFileSync(join(ROOT, 'lib/agents/evo/growth-agent.ts'), 'utf-8');
 const API = readFileSync(join(ROOT, 'app/api/funnel/route.ts'), 'utf-8');
-const TOUR = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
+const TOUR = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
 const CATALOG = readFileSync(join(ROOT, 'components/marketplace/MarketplaceClient.tsx'), 'utf-8');
 const BOOKING = readFileSync(join(ROOT, 'components/marketplace/BookingFormClient.tsx'), 'utf-8');
 

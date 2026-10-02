@@ -21,8 +21,8 @@ import { join } from 'path';
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-const LIST_PAGES = ['app/operators/page.tsx', 'app/catalog/(list)/page.tsx', 'app/marketplace/page.tsx'];
-const LIST_CLIENTS = ['app/marketplace/operators/_OperatorsClient.tsx', 'components/marketplace/MarketplaceClient.tsx'];
+const LIST_PAGES = ['app/operators/page.tsx', 'app/catalog/(list)/page.tsx'];
+const LIST_CLIENTS = ['app/operators/_OperatorsClient.tsx', 'components/marketplace/MarketplaceClient.tsx'];
 
 describe('страницы списков не ждут searchParams', () => {
   for (const p of LIST_PAGES) {

@@ -46,7 +46,7 @@ describe('разметка карточки тура', () => {
   });
 
   it('обе страницы тура считают даты и передают ответ', () => {
-    for (const f of ['app/catalog/tours/[id]/page.tsx', 'app/marketplace/tours/[id]/page.tsx']) {
+    for (const f of ['app/catalog/tours/[id]/page.tsx']) {
       const src = read(f);
       expect(src, f).toMatch(/countTourDates\(tour\.id\)/);
       expect(src, f).toMatch(/availability: availabilityFromDates\(dates\)/);

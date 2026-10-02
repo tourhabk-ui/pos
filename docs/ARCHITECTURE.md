@@ -21,7 +21,7 @@
 | **Маршрут** | `kamchatka_routes` | Путь между точками. Может меняться. |
 | **Тур** | `operator_tours` | Коммерческий продукт оператора. Цена, слоты, бронь. |
 
-Карточки: точка — `app/places/[id]`, маршрут — `app/routes/[id]`, тур — `app/marketplace|catalog/tours/[id]`.
+Карточки: точка — `app/places/[id]`, маршрут — `app/routes/[id]`, тур — `app/catalog/tours/[id]`.
 `agent_route_knowledge` — VIEW (UNION `places` + `kamchatka_routes`), писать в master-таблицы.
 
 ---

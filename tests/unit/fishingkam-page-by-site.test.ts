@@ -77,7 +77,7 @@ describe('страница оператора: контакты объектом
     expect(withMax).toContainEqual({ label: 'Написать в MAX', href: 'https://max.ru/u/abc123' });
   });
   it('карточка тура строит Telegram тем же разборщиком', () => {
-    const card = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+    const card = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(card).toMatch(/telegramContactHref\(o\.telegram_contact\)/);
   });
   it('планер читает телефон общим разборщиком, а не только из массива', () => {

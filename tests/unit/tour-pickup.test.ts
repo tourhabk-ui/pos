@@ -25,7 +25,7 @@ const MIGRATION = read('migrations/932_operator_tours_pickup.sql');
 // пользуются и перепись, и ленты Авито с Яндексом. Сторож смотрит на правило,
 // а не на его прежний адрес.
 const CENSUS = read('lib/tours/readiness.ts');
-const CARD = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+const CARD = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 
 describe('словарь один на все поверхности', () => {
   it('три ответа, и каждый говорит туристу разное', () => {

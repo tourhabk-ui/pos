@@ -16,11 +16,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 
-const CARD = join(process.cwd(), 'app/marketplace/tours/[id]/_TourDetailClient.tsx');
+const CARD = join(process.cwd(), 'app/catalog/tours/[id]/_TourDetailClient.tsx');
 const src = readFileSync(CARD, 'utf-8');
 
 const catalogPage = readFileSync(join(process.cwd(), 'app/catalog/tours/[id]/page.tsx'), 'utf-8');
-const marketPage = readFileSync(join(process.cwd(), 'app/marketplace/tours/[id]/page.tsx'), 'utf-8');
 
 /** SQL карточки живёт В ОДНОМ месте — копии в двух страницах уже разъезжались. */
 const query = readFileSync(join(process.cwd(), 'lib/tours/tour-detail-query.ts'), 'utf-8');
@@ -49,7 +48,7 @@ describe('стандарт карточки тура — безопасност�
   });
 
   it('обе страницы читают тур ОДНИМ общим запросом, без своего SQL', () => {
-    for (const page of [catalogPage, marketPage]) {
+    for (const page of [catalogPage]) {
       // loadTourCard — обёртка над getTourForCard (адрес или число, миграция 1114)
       expect(page).toContain('loadTourCard');
       expect(page).toContain('getTourReviews');

@@ -16,7 +16,7 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const M830 = readFileSync(join(ROOT, 'migrations/830_rafting_second_phone.sql'), 'utf-8');
-const CARD = readFileSync(join(ROOT, 'app/marketplace/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
+const CARD = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
 const sql = M830.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n');
 
 describe('миграция 830', () => {

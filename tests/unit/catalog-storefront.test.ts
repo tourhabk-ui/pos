@@ -215,7 +215,7 @@ describe('избранное у гостя — голос, а не молчал�
 });
 
 describe('каркас страниц каталога', () => {
-  for (const [page, active] of [['app/catalog/(list)/page.tsx', '/catalog'], ['app/marketplace/page.tsx', '/marketplace']] as const) {
+  for (const [page, active] of [['app/catalog/(list)/page.tsx', '/catalog']] as const) {
     it(`${page}: таб-бар с «Туры», футер, отказ SSR в лог`, () => {
       const src = read(page);
       expect(src).toContain(`<BottomNav activePath="${active}" />`);

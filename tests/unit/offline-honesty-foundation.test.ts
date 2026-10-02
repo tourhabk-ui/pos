@@ -92,7 +92,7 @@ describe('safety-status: «нет данных» не выглядит как «
   });
 
   it.each([
-    'app/marketplace/tours/[id]/_TourDetailClient.tsx',
+    'app/catalog/tours/[id]/_TourDetailClient.tsx',
     'app/trip/[token]/_TripShareClient.tsx',
     'components/map/MapThreatChip.tsx',
   ])('потребитель %s не рисует спокойствие из недоступности', (p) => {

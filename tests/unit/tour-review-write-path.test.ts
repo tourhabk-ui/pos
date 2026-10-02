@@ -76,7 +76,7 @@ describe('форма и показ', () => {
   });
 
   it('форма доступна и при существующих отзывах, не только в пустом состоянии', () => {
-    const src = read('app/marketplace/tours/[id]/_TourDetailClient.tsx');
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     const count = (src.match(/<TourReviewForm/g) ?? []).length;
     expect(count, 'форма должна быть в обеих ветках отзывов').toBeGreaterThanOrEqual(2);
   });
