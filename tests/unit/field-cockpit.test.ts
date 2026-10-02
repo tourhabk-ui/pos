@@ -104,8 +104,11 @@ describe('один полевой экран на платформу', () => {
     expect(sw).not.toMatch(/'\/on-route'/);
   });
 
-  it('входные ссылки ведут в единый полевой режим', () => {
-    expect(read('app/dashboard/_DashboardClient.tsx')).toMatch(/href="\/planning\?mode=trail"/);
+  it('осиротевший «командный центр» с выдуманными статусами удалён (аудит 02.10)', () => {
+    // Не рендерился ни одним роутом, а показывал «Вулканы: норма» и «Связь: 3G»
+    // константами (§4.0). Адрес /dashboard ведёт на главную правилом next.config.
+    expect(() => read('app/dashboard/_DashboardClient.tsx')).toThrow();
+    expect(read('next.config.js')).toMatch(/source: '\/dashboard',\s+destination: '\/'/);
   });
 });
 

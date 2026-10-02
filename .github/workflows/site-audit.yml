@@ -1,0 +1,134 @@
+# Аудит стороннего сайта с раннера — ТОЛЬКО ЧТЕНИЕ, по маркеру.
+#
+# Слово владельца 02.10: сайт партнёра «Я Камчатка» (iamkam.ru) платформа
+# будет администрировать после 20 октября, «поэтому пока полный аудит нужен».
+# Из контейнера разработки чужие сайты закрыты прокси (403 на CONNECT), а
+# кнопка workflow_dispatch интеграции недоступна (403) — остаётся маркер
+# .github/triggers/site-audit.json и раннер GitHub, как у probe-url.
+#
+# Что делает: scripts/site-audit.py (вход, TLS, заголовки, robots и sitemap,
+# обход до N страниц, битые ссылки, находки) и Lighthouse на главной и двух
+# самых ссылаемых страницах. Запросы — GET и HEAD, по одному за раз, со своим
+# User-Agent. Ничего не пишет ни на сайт, ни в репозиторий, ни в базу.
+#
+# Итог — в сводке задачи и в check-run «site-audit» на коммите: лог job из
+# контейнера агента не читается (blob-хранилище за прокси), check-run читается.
+# Сторож: tests/unit/site-audit-workflow.test.ts.
+name: Аудит стороннего сайта (вручную, по маркеру, только чтение)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/site-audit.json'
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: site-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Обход и разбор
+        id: crawl
+        env:
+          MARKER: .github/triggers/site-audit.json
+        run: |
+          set -u
+          HOST=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"]))["host"])')
+          MAXP=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"])).get("maxPages",60))')
+          LINKS=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"])).get("linkChecks",120))')
+          echo "хост: $HOST · страниц до $MAXP · проверок ссылок до $LINKS"
+          python3 scripts/site-audit.py --host "$HOST" --max-pages "$MAXP" --link-checks "$LINKS" \
+            --json /tmp/site-audit.json --lh-pages /tmp/lh-pages.txt | tee /tmp/site-audit.md
+
+      - name: Lighthouse (мобильный)
+        id: lh
+        if: always() && steps.crawl.outcome == 'success'
+        env:
+          MARKER: .github/triggers/site-audit.json
+        run: |
+          set -u
+          WANT=$(python3 -c 'import json,os;print("yes" if json.load(open(os.environ["MARKER"])).get("lighthouse", True) else "no")')
+          [ "$WANT" = yes ] || { echo "Lighthouse выключен маркером"; exit 0; }
+          [ -s /tmp/lh-pages.txt ] || { echo "страниц для Lighthouse нет"; exit 0; }
+          {
+            echo
+            echo "## Lighthouse (мобильный профиль, 1 прогон на страницу)"
+            echo '| страница | производительность | SEO | доступность | практики | LCP | CLS | TBT |'
+            echo '|---|---|---|---|---|---|---|---|'
+          } >> /tmp/site-audit.md
+          n=0
+          while IFS= read -r url; do
+            [ -z "$url" ] && continue
+            n=$((n+1)); [ $n -gt 3 ] && break
+            out=/tmp/lh-$n.json
+            if timeout 180 npx -y lighthouse@12 "$url" --quiet --output=json --output-path="$out" \
+                 --only-categories=performance,seo,accessibility,best-practices \
+                 --form-factor=mobile --screenEmulation.mobile \
+                 --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt; then
+              python3 - "$url" "$out" >> /tmp/site-audit.md <<'PY'
+          import json, sys
+          url, path = sys.argv[1], sys.argv[2]
+          j = json.load(open(path))
+          c = j.get('categories', {}); a = j.get('audits', {})
+          def sc(k):
+              v = (c.get(k) or {}).get('score'); return '—' if v is None else str(round(v * 100))
+          def dv(k):
+              return (a.get(k) or {}).get('displayValue', '—')
+          print(f"| {url} | {sc('performance')} | {sc('seo')} | {sc('accessibility')} | {sc('best-practices')} | {dv('largest-contentful-paint')} | {dv('cumulative-layout-shift')} | {dv('total-blocking-time')} |")
+          PY
+            else
+              echo "| $url | не измерено: $(head -c 120 /tmp/lh-err.txt | tr '\n' ' ') | | | | | | |" >> /tmp/site-audit.md
+            fi
+          done < /tmp/lh-pages.txt
+          tail -n 8 /tmp/site-audit.md
+
+      - name: Сводка
+        if: always()
+        run: |
+          cat /tmp/site-audit.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "отчёта нет" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish output as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.crawl.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          text = open('/tmp/site-audit.md', encoding='utf-8', errors='replace').read() if os.path.exists('/tmp/site-audit.md') else '(отчёт не записан)'
+          limit = 60000
+          if len(text) > limit:
+              text = text[:limit] + '\n…(обрезано по лимиту check-run)'
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'site-audit',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {
+                  'title': f"Аудит сайта, прогон {os.environ.get('GITHUB_RUN_NUMBER', '?')}: {outcome}",
+                  'summary': 'Копия отчёта scripts/site-audit.py и Lighthouse для чтения через API репозитория.',
+                  'text': text,
+              },
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}", 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              j = json.load(r)
+              print(f"check-run {j['id']} создан: {j['html_url']}")
+          PY

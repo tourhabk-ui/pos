@@ -1461,36 +1461,27 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
           content: `Сигналы:\n\n${wrapUntrusted('сигналы AI-лент', aiSignals)}`,
         },
       ];
-      // Исход «модель не вернула пост» раньше был глухим: `.catch(() => null)`
-      // глотал отказ, и в журнал уходило «модель не вернула AI-пост» без
-      // причины (алерт health 02.10: десять часов подряд, а ответить на «почему»
-      // было нечем, §4.0). Теперь отказ называется, а перед сдачей идёт ОДИН
-      // повтор. Размышление при этом остаётся включённым: для прозы канала это
-      // решение владельца (04.08, сторож deepseek-thinking-opt), и повтор без
-      // него было бы тихой подменой качества.
-      const synthFailure: string[] = [];
-      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((e: unknown) => {
-        synthFailure.push(`исключение: ${e instanceof Error ? e.name : 'неизвестно'}`);
+      let aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((err: unknown) => {
+        console.error('[scout-digest] AI-пост: запрос к модели упал:', err instanceof Error ? err.message : err);
         return null;
       });
+      // Один повтор перед сдачей: пустой ответ бывает разовым (таймаут ноги,
+      // перегрузка провайдера), а следующий выпуск только через полдня.
+      // Размышление остаётся включённым — для прозы канала это решение
+      // владельца (04.08, сторож deepseek-thinking-opt).
       if (!aiDigest) {
-        const firstWhy = describeRecentAiFailures();
-        if (firstWhy) synthFailure.push(firstWhy);
-        aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((e: unknown) => {
-          synthFailure.push(`повтор, исключение: ${e instanceof Error ? e.name : 'неизвестно'}`);
+        aiDigest = await callAIQualityOrNull(aiMessages, { maxTokens: 1600 }).catch((err: unknown) => {
+          console.error('[scout-digest] AI-пост: повтор запроса к модели упал:', err instanceof Error ? err.message : err);
           return null;
         });
-        if (!aiDigest) {
-          const retryWhy = describeRecentAiFailures();
-          if (retryWhy && retryWhy !== firstWhy) synthFailure.push(`повтор: ${retryWhy}`);
-        }
       }
       if (!aiDigest) {
+        // Тот же след отказов, что у основного выпуска (29.08). До 02.10 здесь
+        // стоял голый `.catch(() => null)`: владелец получал «модель не вернула
+        // AI-пост» каждый час, а чинить провайдера или промпт — понять было не
+        // из чего.
         aiSkip = 'ai_synthesis_null';
-        aiSkipDetail = synthFailure.length > 0
-          ? synthFailure.join(' | ').slice(0, 300)
-          : 'провайдеры ответили пустотой, причин в следе отказа нет';
-        console.error('[scout-digest] AI-пост: модель не вернула текст —', aiSkipDetail);
+        aiSkipDetail = describeRecentAiFailures() ?? 'провайдеры отказа не записали — ответ пустой или заглушка водопада';
       }
 
       // Реплика модели вместо поста. Ровно это 04.09 и ушло в канал на 1800

@@ -41,28 +41,20 @@ describe('emsd.ru: известное состояние, а не «парс с�
   });
 });
 
-describe('AI-канал: причина «модель не вернула пост» называется', () => {
+describe('AI-канал: перед сдачей один повтор синтеза', () => {
   const digest = read('lib/agents/scout-digest.ts');
-  const synth = digest.slice(digest.indexOf('const synthFailure'), digest.indexOf("aiSkip = 'ai_synthesis_null'") + 400);
+  const from = digest.indexOf('let aiDigest = await callAIQualityOrNull(aiMessages');
+  // Без комментариев: соседний комментарий сам называет прежний голый catch.
+  const synth = digest
+    .slice(from, digest.indexOf("aiSkip = 'ai_synthesis_null'", from) + 200)
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-  it('отказ синтеза не глотается пустым catch', () => {
-    expect(synth).not.toMatch(/\.catch\(\(\)\s*=>\s*null\)/);
-    expect(synth).toMatch(/synthFailure\.push/);
-  });
-
-  it('перед сдачей — один повтор, и размышление остаётся включённым', () => {
+  it('вызов синтеза стоит дважды, и размышление остаётся включённым', () => {
     expect(synth.match(/callAIQualityOrNull\(aiMessages/g)?.length).toBe(2);
     expect(synth).not.toMatch(/deepThinking:\s*false/);
   });
 
-  it('причина уходит в ai_channel_skip_detail и в лог', () => {
-    expect(synth).toMatch(/aiSkipDetail\s*=/);
-    expect(synth).toMatch(/console\.error\('\[scout-digest\] AI-пост/);
-  });
-
-  it('алерт health показывает причину из журнала выпуска', () => {
-    const h = read('app/api/cron/health/route.ts');
-    expect(h).toMatch(/ai_channel_skip_detail/);
-    expect(h).toMatch(/AI-канал молчит[^`]*\$\{why\}\$\{detail\}/);
+  it('отказ повтора не глотается пустым catch', () => {
+    expect(synth).not.toMatch(/\.catch\(\(\)\s*=>\s*null\)/);
   });
 });

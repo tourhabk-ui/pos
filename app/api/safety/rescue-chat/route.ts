@@ -190,7 +190,11 @@ export async function POST(req: NextRequest) {
             },
           });
         }
-      } catch { /* fallback below */ }
+        console.error('[rescue-chat] потоковый ответ отклонён, переход на водопад: HTTP', orRes.status);
+      } catch (err) {
+        // Поток не открылся — идём в водопад ниже, но причину пишем (§4.0).
+        console.error('[rescue-chat] потоковый ответ не получен, переход на водопад:', err instanceof Error ? err.message : err);
+      }
     }
   }
 
@@ -207,7 +211,8 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json({ reply });
-  } catch {
+  } catch (err) {
+    console.error('[rescue-chat] водопад упал:', err instanceof Error ? err.message : err);
     return NextResponse.json(
       { error: 'AI Спасатель временно недоступен. Звоните 112 — работает без баланса и SIM.' },
       { status: 503 }

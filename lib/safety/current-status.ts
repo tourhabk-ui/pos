@@ -129,7 +129,9 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       feedCount,
       feedTitles,
     };
-  } catch {
+  } catch (err) {
+    // null — честное «не знаю» для вызывающего, но отказ чтения виден в логе (§4.0).
+    console.error('[current-status] статус не прочитан:', err instanceof Error ? err.message : err);
     return null;
   }
 }

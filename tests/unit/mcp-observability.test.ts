@@ -54,6 +54,7 @@ describe('все исходы вызова видны', () => {
     expect(ROUTE).toMatch(/ok: true, durationMs/);
     expect(ROUTE).toMatch(/errorKind: 'rate_limited'/);
     expect(ROUTE).toMatch(/errorKind: 'unknown_tool'/);
+    expect(ROUTE).toMatch(/errorKind: userFacing \? 'refused' : 'execution'/);
     expect(ROUTE).toMatch(/errorKind: 'execution'/);
   });
 
