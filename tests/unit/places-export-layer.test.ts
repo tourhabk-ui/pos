@@ -185,7 +185,10 @@ describe('слой мест в стиле карты', () => {
     expect(ids.indexOf('osm-shelters')).toBeGreaterThan(-1);
     expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-shelters'));
     expect(ids.indexOf('vedar-places')).toBeGreaterThan(ids.indexOf('osm-passes'));
-    expect(ids.at(-1)).toBe('vedar-places');
+    // Выше мест — только толчки за сутки (02.10): тревога, а не география.
+    // Любой другой слой над местами — красный.
+    expect(ids.at(-1)).toBe('vedar-quakes');
+    expect(ids.at(-2)).toBe('vedar-places');
   });
 
   it('без глифов — только кружки, подписи не просятся (иначе MapLibre отвергает весь стиль)', () => {
