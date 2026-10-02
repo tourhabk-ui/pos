@@ -1,7 +1,31 @@
 #!/usr/bin/env node
 const http = require('http');
 const { spawn } = require('child_process');
+const zlib = require('zlib');
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// ── Сжатие ответов, которые Next отдаёт несжатыми ─────────────────────────
+// Замер 02.10 на проде: страницы и /_next/static приходят gzip, а ответы
+// Route Handlers (весь /api/*, sitemap.xml, llms.txt) — сырыми, хотя
+// compress: true стоит в next.config.js. /map тянул 341 КБ JSON маршрутов
+// там, где gzip даёт 73 КБ; sitemap.xml — 176 КБ. Сжимаем здесь, на прокси,
+// только то, что Next не сжал сам (нет content-encoding), только текстовые
+// типы и без text/event-stream: SSE через сжатие рвётся у промежуточных
+// узлов. Каждая порция сбрасывается сразу (Z_SYNC_FLUSH), поэтому потоковые
+// ответы чата остаются потоковыми. Сторож: tests/unit/proxy-compress.test.ts.
+// <shouldGzip>
+const GZIP_TYPES = /^(application\/(json|xml|javascript|geo\+json|manifest\+json|ld\+json|rss\+xml|atom\+xml)|text\/(plain|xml|css|javascript|csv|html)|image\/svg\+xml)\b/i;
+function shouldGzip(method, status, headers, acceptEncoding) {
+  if (method === 'HEAD') return false;
+  if (status < 200 || status === 204 || status === 206 || status === 304) return false;
+  if (headers['content-encoding']) return false;
+  if (!/\bgzip\b/i.test(String(acceptEncoding || ''))) return false;
+  if (!GZIP_TYPES.test(String(headers['content-type'] || ''))) return false;
+  if (/no-transform/i.test(String(headers['cache-control'] || ''))) return false;
+  if (headers['content-length'] !== undefined && Number(headers['content-length']) < 1024) return false;
+  return true;
+}
+// </shouldGzip>
 const proxy = http.createServer((req, res) => {
   if (['/api/health','/api/ready','/health','/ready'].includes(req.url)) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -18,7 +42,20 @@ const proxy = http.createServer((req, res) => {
     'x-forwarded-for':   req.headers['x-forwarded-for']   || req.socket.remoteAddress || '127.0.0.1',
   };
   const p = http.request({ hostname:'127.0.0.1', port:3001, path:req.url, method:req.method, headers:forwardedHeaders },
-    r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    r => {
+      if (shouldGzip(req.method, r.statusCode, r.headers, req.headers['accept-encoding'])) {
+        const headers = { ...r.headers, 'content-encoding': 'gzip' };
+        delete headers['content-length'];
+        headers['vary'] = headers['vary'] ? `${headers['vary']}, Accept-Encoding` : 'Accept-Encoding';
+        if (typeof headers['etag'] === 'string' && !headers['etag'].startsWith('W/')) headers['etag'] = `W/${headers['etag']}`;
+        res.writeHead(r.statusCode, headers);
+        const gz = zlib.createGzip({ level: 6, flush: zlib.constants.Z_SYNC_FLUSH });
+        gz.on('error', (e) => { console.error('[proxy] gzip error:', e.message); res.destroy(); });
+        r.pipe(gz).pipe(res);
+        return;
+      }
+      res.writeHead(r.statusCode, r.headers); r.pipe(res);
+    });
   p.on('error', () => { res.writeHead(503); res.end('starting'); });
   req.pipe(p);
 });
