@@ -144,6 +144,8 @@ export interface PlaceData {
   sourceName: string | null;
   updatedAt: string | null;
   kuzmichReview: string | null;
+  /** Статьи «Летописи Камчатки» об этом месте (lib/chronicle) — только адрес и заголовок. */
+  chronicle: Array<{ slug: string; title: string }>;
   eco: PlaceEco | null;
   indigenous: PlaceIndigenous | null;
   safety: PlaceSafety;

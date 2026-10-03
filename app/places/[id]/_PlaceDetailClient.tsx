@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Navigation, Download, Video, ChevronDown } from 'lucide-react';
+import { Navigation, Download, Video, ChevronDown, ScrollText } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 import { DIFFICULTY_LABELS } from '@/components/places/types';
 import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
@@ -502,6 +502,23 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 descriptionSource={place.descriptionSource}
                 placeId={place.id}
               />
+
+              {/* Летопись Камчатки: статья об истории места целиком — своей
+                  страницей, как справочник рыб (владелец 03.10). */}
+              {place.chronicle.length > 0 && (
+                <div className="mt-3 flex flex-col gap-2">
+                  {place.chronicle.map((c) => (
+                    <Link
+                      key={c.slug}
+                      href={`/letopis/${c.slug}`}
+                      className="inline-flex items-center gap-2 text-sm font-medium text-[var(--ocean)] hover:underline"
+                    >
+                      <ScrollText className="w-4 h-4" aria-hidden="true" />
+                      Летопись Камчатки: {c.title}
+                    </Link>
+                  ))}
+                </div>
+              )}
 
               {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
 
