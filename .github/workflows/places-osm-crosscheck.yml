@@ -96,7 +96,7 @@ jobs:
         run: |
           set -u
           URL="https://vedarai.ru/api/cron/places-osm-crosscheck?part=${PART}&min_sim=${MIN_SIM}&limit=${LIMIT}&offset=${OFFSET}"
-          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 150 "$URL") || RESP=""
+          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 300 "$URL") || RESP=""
           # ── ОТКАЗ НЕ ВЫДАЁТСЯ ЗА УСПЕХ (правка 20.09) ─────────────────────
           #
           # Прогон 5 вернул `{"success": false, "error": ...}` (роут отвечает
@@ -111,7 +111,7 @@ jobs:
           # обязана быть НАПЕЧАТАНА, иначе следующий прогон начинается с
           # гадания.
           if [ -z "$RESP" ]; then
-            echo "::error::Сверка не ответила вовсе: curl не дошёл (таймаут 150 с или сеть). Это «не смогли спросить», а не «расхождений нет»."
+            echo "::error::Сверка не ответила вовсе: curl не дошёл (таймаут 300 с или сеть). Это «не смогли спросить», а не «расхождений нет»."
             exit 1
           fi
           echo "$RESP" | python3 -c "
