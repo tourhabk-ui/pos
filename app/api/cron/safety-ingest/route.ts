@@ -16,7 +16,7 @@ import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { pool } from '@/lib/db-pool';
 import { buildAnchorIndex, matchAlertAnchor } from '@/lib/safety/alert-anchor';
 import { buildVolcanoIndex, matchVolcanoPlace } from '@/lib/services/safety/volcano-match';
-import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
+import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL, TOURIST_BAN_SQL } from '@/lib/services/safety/alert-place-scope';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
@@ -347,7 +347,9 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           ea.severity,
           -- Пришёл ли алерт только по зоне края (решение владельца 03.10,
           -- #2195): зональный уровня 2 даёт жёлтый, а не красный.
-          COALESCE(${ALERT_ZONAL_ONLY_SQL}, false) AS zonal
+          -- Прямой запрет туристам зональным не считается: он красный и по
+          -- зоне (TOURIST_BAN_SQL).
+          COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false) AS zonal
         FROM location_real_time_status lrs
         LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
         LEFT JOIN external_alerts ea

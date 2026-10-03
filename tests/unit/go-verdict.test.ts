@@ -273,3 +273,37 @@ describe('закрытая точка пути (#2079)', () => {
     expect(v.unknown).toContain('закрытые точки');
   });
 });
+
+// Решение владельца 03.10 (#2195): региональная двойка — «Осторожно», а не «нет».
+describe('зональное предупреждение не запрещает маршрут само', () => {
+  it('экстренное о дожде по зоне — «Осторожно» с названием, а не «Не сегодня»', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [{ title: 'Экстренное предупреждение (сильный дождь)', severity: 2, type: 'weather', zonal: true }],
+    });
+    expect(v.status).toBe('caution');
+    expect(v.code).toBe('alert_warning');
+    expect(v.reason).toContain('сильный дождь');
+  });
+
+  it('та же двойка, привязанная к маршруту, по-прежнему запрет', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [{ title: 'Пожар у тропы', severity: 2, type: 'fire_danger', zonal: false }],
+    });
+    expect(v.code).toBe('alert_ban');
+  });
+
+  it('зональная тройка (цунами) — запрет', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [{ title: 'Угроза цунами', severity: 3, type: 'tsunami_warning', zonal: true }],
+    });
+    expect(v.code).toBe('alert_ban');
+  });
+
+  it('признак не пришёл — судится как свой, строже', () => {
+    const v = goVerdict({ ...CLEAR, alerts: [{ title: 'Неизвестно откуда', severity: 2 }] });
+    expect(v.code).toBe('alert_ban');
+  });
+});

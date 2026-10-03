@@ -31,6 +31,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
+import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -230,6 +231,40 @@ withPg('кого накрывает предупреждение', () => {
   it('толчок без координаты пришёл зоной — зональный', async () => {
     const id = await insertAlert({ type: 'earthquake', title: 'Землетрясение ML 5 (тест зональности, без координат)', zones: ['avachinsky'], magnitude: 5 });
     expect(await zonalFor(id, CITY.id)).toBe(true);
+  });
+
+  // ── Прямой запрет туристам не понижается до жёлтого (поправка 03.10) ──────
+  it('сервер признаёт запретом то же, что классификатор, — на формулировках МЧС', async () => {
+    const texts = [
+      'Тургруппам и охотникам воздержаться от выхода на маршруты',
+      'Экстренное предупреждение на 3 октября 2026 г. (сильный дождь)',
+      'Выход тургрупп не рекомендуется',
+      'Сплавы на рафтах по рекам зоны предупреждения необходимо исключить',
+      'Не исключается сход лавин; туристам быть внимательнее',
+      'Просьба к тургруппам зарегистрироваться в МЧС',
+    ];
+    for (const t of texts) {
+      const { rows } = await pool.query<{ ban: boolean }>(
+        `SELECT ${TOURIST_BAN_SQL} AS ban FROM (SELECT $1::text AS title, NULL::text AS description) ea`,
+        [t],
+      );
+      const js = BAN_AUDIENCE.test(t.toLowerCase()) && BAN_VERB.test(t.toLowerCase());
+      expect(rows[0].ban, t).toBe(js);
+    }
+  });
+
+  it('зональный запрет туристам — не зональный для цвета: место остаётся красным', async () => {
+    const id = await insertAlert({ type: 'weather', title: 'Тургруппам воздержаться от выхода на маршруты (тест)', zones: ['avachinsky'] });
+    const { rows } = await pool.query<{ zonal: boolean }>(
+      `SELECT COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false) AS zonal
+         FROM location_real_time_status lrs
+         JOIN places p ON p.ark_id = lrs.agent_route_id
+         LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
+         JOIN external_alerts ea ON (${ALERT_MATCH_SQL})
+        WHERE ea.id::text = $1 AND p.id = $2`,
+      [id, CITY.id],
+    );
+    expect(rows[0]?.zonal).toBe(false);
   });
 
   // ── Землетрясение: сила сотрясения, а не зона (03.10, #2195) ──────────────

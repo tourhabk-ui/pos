@@ -23,6 +23,7 @@
 
 import { pool } from '@/lib/db-pool';
 import type { RouteSignals, Acc } from '@/lib/routes/go-verdict';
+import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 
 /** Минимальный контракт запроса — ровно то, что нужно сборщику. */
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -89,7 +90,7 @@ export function isInSeason(season: string | null, month: number): boolean | null
 
 interface RouteRow { zone: string | null; season: string | null; lat: string | null; lng: string | null }
 interface PointRow { zone: string | null; lat: string | null; lng: string | null }
-interface AlertRow { title: string; severity: number | null; alert_type: string | null }
+interface AlertRow { title: string; severity: number | null; alert_type: string | null; zonal: boolean | null }
 interface VolcanoRow { name: string; acc: string }
 interface ClosureRow { name: string; reason: string | null }
 
@@ -184,7 +185,7 @@ function alertFingerprint(title: string): string {
 
 async function loadAlerts(
   zones: string[], points: Array<{ lat: number; lng: number }>, routeId: string, q: QueryFn,
-): Promise<Array<{ title: string; severity: number; type: string | null }> | null> {
+): Promise<Array<{ title: string; severity: number; type: string | null; zonal: boolean }> | null> {
   try {
     const lats = points.map((p) => p.lat);
     const lngs = points.map((p) => p.lng);
@@ -199,7 +200,21 @@ async function loadAlerts(
       `WITH anchor AS (
          SELECT unnest($2::float8[]) AS lat, unnest($3::float8[]) AS lng
        )
-       SELECT title, severity::int AS severity, alert_type
+       SELECT title, severity::int AS severity, alert_type,
+              -- Пришёл ли алерт к маршруту только по зоне (решение владельца
+              -- 03.10, #2195): без координаты рядом с маршрутом, не закрытие
+              -- парка и не прямой запрет туристам. Такой алерт уровня 2 даёт
+              -- «Осторожно», а не «нет» — то же правило, что у статуса места.
+              (
+                (ea.lat IS NULL OR ea.lng IS NULL OR NOT EXISTS (SELECT 1 FROM anchor))
+                AND ea.alert_type IS DISTINCT FROM 'park_closure'
+                -- Прямой запрет туристам — те же шаблоны, что у классификатора
+                -- (lib/services/safety/tourist-ban), параметрами $6 и $7.
+                AND NOT (
+                  lower(COALESCE(ea.title, '') || ' ' || COALESCE(ea.description, '')) ~ $6
+                  AND lower(COALESCE(ea.title, '') || ' ' || COALESCE(ea.description, '')) ~ $7
+                )
+              ) AS zonal
          FROM external_alerts ea
         WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
           AND ((
@@ -232,12 +247,12 @@ async function loadAlerts(
           ))
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT 50`,
-      [zones, lats, lngs, CORRIDOR_ALERT_KM, routeId],
+      [zones, lats, lngs, CORRIDOR_ALERT_KM, routeId, BAN_AUDIENCE.source, BAN_VERB.source],
     );
     // Порядок из запроса (важность, затем свежесть) сохраняется, поэтому
     // первой остаётся самая тяжёлая копия дубля, а не случайная.
     const seen = new Set<string>();
-    const out: Array<{ title: string; severity: number; type: string | null }> = [];
+    const out: Array<{ title: string; severity: number; type: string | null; zonal: boolean }> = [];
     for (const r of rows) {
       const key = alertFingerprint(r.title);
       if (key === '' || seen.has(key)) continue;
@@ -248,6 +263,9 @@ async function loadAlerts(
           ? Number(r.severity)
           : SEVERITY_WHEN_UNSET,
         type: r.alert_type,
+        // «Не установлено» не равно «зональное»: без ответа сервера алерт
+        // судится как свой, то есть строже (§4.0).
+        zonal: r.zonal === true,
       });
     }
     return out;
