@@ -170,7 +170,7 @@ withPg('кого накрывает предупреждение', () => {
   async function insertAlert(fields: {
     type: string; title: string; zones: string[];
     lat?: number; lng?: number; volcanoName?: string; volcanoArk?: string;
-    parks?: string[] | null;
+    parks?: string[] | null; magnitude?: number;
   }): Promise<string> {
     const { rows } = await pool.query<{ id: string }>(
       // external_id отдельным параметром, а не `$2 || '-' || ...`: у параметра
@@ -180,9 +180,9 @@ withPg('кого накрывает предупреждение', () => {
       // выполнялся никогда.
       `INSERT INTO external_alerts
          (alert_type, severity, title, description, affected_zones, created_at, expires_at,
-          source_url, external_id, lat, lng, volcano_name, volcano_ark_id, affected_parks)
+          source_url, external_id, lat, lng, volcano_name, volcano_ark_id, affected_parks, magnitude)
        VALUES ($1, 2, $2, $9, $3, NOW(), NOW() + INTERVAL '1 day',
-               'https://example.test', $8, $4, $5, $6, $7, $10)
+               'https://example.test', $8, $4, $5, $6, $7, $10, $11)
        RETURNING id::text AS id`,
       [fields.type, fields.title, fields.zones, fields.lat ?? null, fields.lng ?? null,
         fields.volcanoName ?? null, fields.volcanoArk ?? null,
@@ -190,10 +190,36 @@ withPg('кого накрывает предупреждение', () => {
         // Заголовок и описание — РАЗНЫМИ параметрами: title это varchar, а
         // description text, и один $2 на оба даёт тот же 42P08.
         fields.title,
-        fields.parks ?? null],
+        fields.parks ?? null,
+        fields.magnitude ?? null],
     );
     return rows[0].id;
   }
+
+  // ── Землетрясение: сила сотрясения, а не зона (03.10, #2195) ──────────────
+  it('ML 6.2 в океане за 182 км город не красит (было: «Сегодня сюда — нет» на Никольской сопке)', async () => {
+    // Эпицентр 51.566/159.674 — второй толчок поста МЧС 03.10, 182 км от ПК.
+    const id = await insertAlert({
+      type: 'earthquake', title: 'Землетрясение ML 6.2 — 182 км (тест)', zones: ['avachinsky'],
+      lat: 51.566, lng: 159.674, magnitude: 6.2,
+    });
+    expect(await coveredBy(id)).not.toContain(CITY.id);
+  });
+
+  it('сильный близкий толчок город красит — сигнал не погашен', async () => {
+    const id = await insertAlert({
+      type: 'earthquake', title: 'Землетрясение ML 6.5 — 20 км (тест)', zones: ['avachinsky'],
+      lat: 52.9, lng: 158.85, magnitude: 6.5,
+    });
+    expect(await coveredBy(id)).toContain(CITY.id);
+  });
+
+  it('толчок без координаты судится зоной, как раньше — «не измерили» ≠ «далеко»', async () => {
+    const id = await insertAlert({
+      type: 'earthquake', title: 'Землетрясение ML 5 (тест, без координат)', zones: ['avachinsky'], magnitude: 5,
+    });
+    expect(await coveredBy(id)).toContain(CITY.id);
+  });
 
   it('извержение без привязки к вулкану не красит НИКОГО (было: всю северную зону)', async () => {
     const id = await insertAlert({
