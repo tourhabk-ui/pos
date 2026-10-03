@@ -18,6 +18,7 @@ import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
 import { approachPlan, notOnRoute, ON_ROUTE_ENTRY_KM } from '@/lib/on-route/approach';
+import { calculatedRemaining } from '@/lib/on-route/calculated-remaining';
 import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
 import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
 import {
@@ -2309,14 +2310,31 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * («Рассчитан…»).
    */
   const calcDest = calculatedPreview?.route.destinationSnapped ?? null;
-  const calcDistKm = calcDest && coords ? haversine(coords.lat, coords.lng, calcDest.lat, calcDest.lon) : null;
+  // Главная цифра — остаток ВДОЛЬ посчитанного пути, не прямая (скрин
+  // владельца 03.10, «Дикие озерки»: на карте петля по дорогам, а лист
+  // показывал «1.9 км до цели» — прямую — рядом с «~44 мин» всего пути.
+  // «Человек может не рассчитать силы»). Прямая остаётся только у компаса:
+  // он и есть направление на цель, а не путь к ней.
+  const calcLeft = calculatedPreview && coords
+    ? calculatedRemaining(calculatedPreview.route, { lat: coords.lat, lng: coords.lng })
+    : null;
+  const calcDistKm = calcLeft ? calcLeft.remainingKm : null;
   const calcBearing = calcDest && coords && fixUsableForNavigation(coords.accuracy ?? null)
     ? bearingDeg({ lat: coords.lat, lng: coords.lng }, { lat: calcDest.lat, lng: calcDest.lon })
     : null;
   const calcDistLabel = calcDistKm === null ? null
     : calcDistKm < 1 ? `${Math.round(calcDistKm * 1000)} м`
     : `${calcDistKm.toFixed(1)} км`;
-  const calcEtaLabel = calculatedPreview ? `~${formatEta(calculatedPreview.route.durationS / 3600)}` : null;
+  // Время — та же доля durationS провайдера, что и оставшаяся доля пути:
+  // число провайдера остаётся единственным темпом, но не описывает пройденное.
+  const calcEtaLabel = calculatedPreview
+    ? `~${formatEta((calculatedPreview.route.durationS * (calcLeft ? calcLeft.fractionAhead : 1)) / 3600)}`
+    : null;
+  // В стороне от линии пути — подход к ней по прямой входит в цифру, и это
+  // сказано словами: иначе «по пути» читалось бы как «весь путь по дороге».
+  const calcCaption = calcLeft && calcLeft.offRouteKm >= 0.3
+    ? `по пути · ${fmtKm(calcLeft.offRouteKm)} до линии по прямой`
+    : 'до цели по пути';
 
   // ─── Слой хода: осталось · когда придём · сколько прошли ───────────────────
   // Одна большая цифра «осталось» не отвечает на вопрос туриста в поле: идти
@@ -4343,7 +4361,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                   <FieldDistance compact
                     distanceLabel={calcDistLabel}
                     live={figuresLive}
-                    caption="до цели"
+                    caption={calcCaption}
                     pointName={null}
                     etaLabel={calcEtaLabel}
                     ascentLabel={null}
@@ -4466,7 +4484,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                   <FieldDistance
                     distanceLabel={calcDistLabel}
                     live={figuresLive}
-                    caption="до цели"
+                    caption={calcCaption}
                     pointName={calculatedPreview.title}
                     etaLabel={calcEtaLabel}
                     ascentLabel={null}
