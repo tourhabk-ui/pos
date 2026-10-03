@@ -1,13 +1,11 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 8,
-  "why": "Проверка присланного владельцем текста о визитах членов правящих домов на Камчатку: принц Филипп 1997, князь Альберт II 2007, Мария Романова 2015 — по названным в тексте источникам.",
+  "batch": 9,
+  "why": "Вопрос владельца: адмирал англо-французской эскадры 1854 — Дэвид Прайс и Феврие де Пуант.",
   "urls": [
-    "https://kamchatinfo.com/news/detail/42898/",
-    "https://www.hab.kp.ru/daily/27264/4397220/",
-    "https://kamchatka.aif.ru/archive/1780325",
-    "https://ria.ru/20070820/72543566.html",
-    "https://kamchatka.aif.ru/society/knyaginya_mariya_romanova_pribyla_na_kamchatku_s_chastnym_vizitom",
-    "http://www.viluchinsk-city.ru/about/info/news/1667/"
+    "https://ru.wikipedia.org/wiki/Прайс,_Дэвид",
+    "https://en.wikipedia.org/wiki/David_Price_(Royal_Navy_officer)",
+    "https://ru.wikipedia.org/wiki/Феврие_Де_Пуант,_Огюст",
+    "https://en.wikipedia.org/wiki/Auguste_Febvrier_Despointes"
   ]
 }
