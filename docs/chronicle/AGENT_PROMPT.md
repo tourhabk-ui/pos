@@ -195,6 +195,17 @@ npx vitest run tests/unit/chronicle-articles.test.ts
 Проверка голоса — `descriptionVoice()` из `lib/places/description-voice.ts`:
 у всех предлагаемых текстов `voice === 'plain'`.
 
+**Защита от переписывания машинами.** Описание в `places.description` берут
+в работу две очереди: Editor (`lib/agents/editor.ts` — пустое или короче 300
+знаков после недели покоя) и `enrich-places` (короче 250). Сверенную справку
+они перепишут, если она короткая, — так 27.09 Editor дописал Микиже
+«добраться можно на автомобиле». Поэтому миграция, которая понесёт справку
+на сайт (это делает главная сессия, не агент), обязана в той же транзакции
+записать строку в `description_provenance` с `written_by = 'owner-decision'`
+(`OWNER_DECISION_WRITER`, `lib/places/owner-decided.ts`): такие описания обе
+очереди не трогают при любой длине. Агент в `places.md` для каждой справки
+отмечает, что она предназначена к записи именно так.
+
 ## 8. Топонимика
 
 Серия «Что значит имя» — отдельный промпт `docs/chronicle/TOPONYMY_PROMPT.md`;
