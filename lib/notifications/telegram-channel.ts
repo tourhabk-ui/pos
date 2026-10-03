@@ -1555,6 +1555,8 @@ export async function notifyAdminNewLead(lead: {
   sourceData?: Record<string, unknown> | null;
   score?: number;
   labelRu?: string;
+  /** Свой лид (проверка владельца): уведомление идёт с пометкой, не прячется. */
+  isSelf?: boolean;
 }): Promise<void> {
   const sd = lead.sourceData as LeadSourceData | null | undefined;
   const interests = sd?.interests ?? [];
@@ -1564,9 +1566,10 @@ export async function notifyAdminNewLead(lead: {
 
   const scoreText = lead.score != null ? ` \u00b7 ${lead.score}/100` : '';
   const label = lead.labelRu ? ` (${lead.labelRu})` : '';
+  const selfMark = lead.isSelf ? 'Свой тест · ' : '';
   const title = source
-    ? `<b>Лид — ${esc(source)}${label}${scoreText}</b>`
-    : `<b>Новый лид${label}${scoreText}</b>`;
+    ? `<b>${selfMark}Лид — ${esc(source)}${label}${scoreText}</b>`
+    : `<b>${selfMark}Новый лид${label}${scoreText}</b>`;
 
   const baseUrl = getPublicBaseUrl();
 

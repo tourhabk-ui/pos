@@ -88,6 +88,8 @@ function clientIp(request: NextRequest): string {
 interface McpCallContext {
   ip: string;
   userAgent: string;
+  /** Метка владельца в адресе коннектора: свой лид, вне счёта спроса (1145). */
+  self: boolean;
 }
 
 /**
@@ -339,6 +341,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     source_url: 'mcp://vedar/booking',
     source_data: leadSource,
     pd_consent,
+    is_self: ctx.self,
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
@@ -366,6 +369,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     source_url: 'mcp://vedar',
     source_data: { source: 'mcp' },
     pd_consent,
+    is_self: ctx.self,
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
@@ -584,7 +588,7 @@ async function handleToolsCall(
   const startedAt = Date.now();
   const invocationId = randomUUID();
   try {
-    const text = await executeTool(toolName, toolArgs, { ip, userAgent });
+    const text = await executeTool(toolName, toolArgs, { ip, userAgent, self });
 
     // Исполнитель Кузьмича ловит своё падение и возвращает этот текст — для
     // модели в чате. Здесь это отказ: isError, ok=false в журнале (его читают

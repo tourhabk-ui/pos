@@ -20,14 +20,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { PROBE_CLIENT_NAMES, PROBE_UA_FAMILIES, probeCallSql } from '@/lib/mcp/probe-clients';
+import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
 import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const PROBE_PARAMS = [PROBE_CLIENT_NAMES as string[], PROBE_UA_FAMILIES as string[]];
-const PROBE = probeCallSql('t', '$1', '$2');
+const PROBE = probeCallSql('t', '$1', '$2', '$3');
 const ORIGIN = `CASE WHEN t.is_self THEN 'self' WHEN ${PROBE} THEN 'probe' ELSE 'external' END`;
 
 interface Measured<T> { value: T | null; failed: string | null }
@@ -49,7 +48,11 @@ export async function GET(req: NextRequest) {
   }
   const daysRaw = Number(req.nextUrl.searchParams.get('days') ?? '30');
   const days = Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 90 ? Math.floor(daysRaw) : 30;
-  const W = `t.created_at >= NOW() - ($3 || ' days')::interval`;
+  // Окно — $4; $1..$3 заняты реестром проверок. Запрос, которому реестр не
+  // нужен (marks), параметры реестра НЕ получает: PostgreSQL не выводит тип
+  // параметра, которого нет в тексте (42P18, run 78), а PREPARE с явными
+  // типами на локальной базе эту ошибку не показал.
+  const W = `t.created_at >= NOW() - ($4 || ' days')::interval`;
   const p = [...PROBE_PARAMS, String(days)];
   const startedAt = Date.now();
 
@@ -84,15 +87,16 @@ export async function GET(req: NextRequest) {
     // Пишущие — поимённо: их за месяц единицы, и каждый стоит разбора.
     measure('write_calls', async () => (await pool.query<{ at: string; tool: string; ok: boolean; error_kind: string | null; error_code: string | null; arg_key: string | null; origin: string; duration_ms: number | null }>(
       `SELECT to_char(t.created_at, 'YYYY-MM-DD HH24:MI') AS at, t.tool, t.ok, t.error_kind, t.error_code, t.arg_key, ${ORIGIN} AS origin, t.duration_ms
-         FROM mcp_tool_calls t WHERE ${W} AND t.tool = ANY($4::text[])
+         FROM mcp_tool_calls t WHERE ${W} AND t.tool = ANY($5::text[])
         ORDER BY t.created_at DESC LIMIT 100`, [...p, [...WRITE_TOOL_NAMES]])).rows),
+
 
     measure('marks', async () => (await pool.query<{ self_since: string | null; code_since: string | null; rows_total: string; rows_without_code: string }>(
       `SELECT to_char(MIN(t.created_at) FILTER (WHERE t.is_self), 'YYYY-MM-DD') AS self_since,
               to_char(MIN(t.created_at) FILTER (WHERE t.error_code IS NOT NULL), 'YYYY-MM-DD') AS code_since,
               COUNT(*) AS rows_total,
               COUNT(*) FILTER (WHERE NOT t.ok AND t.error_code IS NULL) AS rows_without_code
-         FROM mcp_tool_calls t WHERE ${W}`, p)).rows[0]),
+         FROM mcp_tool_calls t WHERE t.created_at >= NOW() - ($1 || ' days')::interval`, [String(days)])).rows[0]),
   ]);
 
   const failed = ([['origins', origins], ['by_tool_external', byTool], ['errors_external', errors], ['requested_unknown', requested], ['clients', clients], ['write_calls', writes], ['marks', marks]] as const)

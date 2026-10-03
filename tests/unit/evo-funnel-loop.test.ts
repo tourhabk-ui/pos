@@ -182,7 +182,8 @@ describe('контур подключён', () => {
     expect(GROWTH).toMatch(/lens\(lenses, 'воронка', scanFunnel/);
     expect(GROWTH).toMatch(/FROM page_views/);
     expect(GROWTH).toMatch(/FROM funnel_events/);
-    expect(GROWTH).toMatch(/FROM leads WHERE created_at/);
+    // Свои заявки (1145) в счёт спроса не идут — предикат стоит перед окном.
+    expect(GROWTH).toMatch(/FROM leads WHERE is_self = FALSE AND created_at/);
     expect(GROWTH).toMatch(/FROM operator_bookings/);
   });
 

@@ -10,15 +10,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { PROBE_CLIENT_NAMES, PROBE_UA_FAMILIES, probeCallSql } from '@/lib/mcp/probe-clients';
+import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
 
 /**
  * Внешний вызов — не свой (метка владельца, is_self) и не проверка (смоук,
  * пробы, curl — реестр lib/mcp/probe-clients). Решение владельца 02.10: три
  * числа вместо одного, иначе 416 вызовов смоука читались как спрос.
  */
-const PROBE_PARAMS = [PROBE_CLIENT_NAMES as string[], PROBE_UA_FAMILIES as string[]];
-const EXTERNAL = (t: string) => `${t}.is_self = FALSE AND NOT ${probeCallSql(t, '$1', '$2')}`;
+const EXTERNAL = (t: string) => `${t}.is_self = FALSE AND NOT ${probeCallSql(t, '$1', '$2', '$3')}`;
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +81,7 @@ export async function GET(request: NextRequest) {
                      ELSE 'неизвестно' END                              AS kind,
                 CASE WHEN t.is_self THEN 'self'
                      WHEN c.client_name = ANY($1::text[])
+                       OR c.client_name ~* $3::text
                        OR (c.client_name IS NULL AND c.ua_family = ANY($2::text[])) THEN 'probe'
                      ELSE 'external' END                                AS origin,
                 COUNT(*)                                                AS calls,
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
       pool.query<{ external: string; self: string; probe: string; self_since: string | null }>(
         `SELECT COUNT(*) FILTER (WHERE ${EXTERNAL('t')})                 AS external,
                 COUNT(*) FILTER (WHERE t.is_self)                        AS self,
-                COUNT(*) FILTER (WHERE t.is_self = FALSE AND ${probeCallSql('t', '$1', '$2')}) AS probe,
+                COUNT(*) FILTER (WHERE t.is_self = FALSE AND ${probeCallSql('t', '$1', '$2', '$3')}) AS probe,
                 to_char(MIN(t.created_at) FILTER (WHERE t.is_self), 'YYYY-MM-DD') AS self_since
            FROM mcp_tool_calls t
           WHERE t.created_at >= NOW() - INTERVAL '30 days'`,

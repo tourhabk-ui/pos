@@ -53,6 +53,8 @@ export async function GET(req: NextRequest) {
     WHERE f.status = 'pending'
       AND f.scheduled_at <= NOW()
       AND l.status NOT IN ('converted', 'rejected', 'ai_processing')
+      -- Свой лид (проверка владельца, 1145): напоминать некому — он сам его оставил.
+      AND l.is_self = FALSE
     ORDER BY f.scheduled_at ASC
     LIMIT 10
   `);
