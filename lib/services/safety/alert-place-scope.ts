@@ -24,6 +24,7 @@
  */
 import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/routes/collect-signals';
+import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
 
 /**
  * Когда у события и у точки есть координаты И тип события таков, что
@@ -170,6 +171,25 @@ export const PARK_SCOPED_SQL = `
 `;
 
 /**
+ * Землетрясение накрывает место, где ТРЯХНЁТ, а не всю зону (03.10, #2195).
+ *
+ * Карточка Никольской сопки в Петропавловске: «Сегодня сюда — нет» из-за ML
+ * 6.2 в океане за 182 км — по зоне «avachinsky», в которую попадает всё в 250
+ * км от туристических районов. Теперь, когда у события есть координата и
+ * магнитуда, место накрывается только при расчётном сотрясении не ниже
+ * SEISMIC_PLACE_MIN_INTENSITY (lib/services/safety/shaking.ts): сила тряски
+ * растёт с магнитудой сама, придуманного радиуса здесь нет.
+ *
+ * Без координаты или магнитуды землетрясение судится зоной, как раньше:
+ * «не смогли измерить» не равно «далеко» (§4.0).
+ */
+export const QUAKE_SCOPED_SQL = `
+  ea.alert_type = 'earthquake'
+  AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL AND ea.magnitude IS NOT NULL
+  AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+`;
+
+/**
  * Радиус по роду события, км.
  *
  * Пожар — 50: шире 10-километрового кластера FIRMS, уже зоны (инженерная
@@ -190,6 +210,10 @@ export const ALERT_MATCH_SQL = `
               END
   )
   OR (
+    ${QUAKE_SCOPED_SQL}
+    AND ${shakingIntensitySql('ea.magnitude', distanceKmSql('ark.lat', 'ark.lng', 'ea.lat', 'ea.lng'))} >= ${SEISMIC_PLACE_MIN_INTENSITY}
+  )
+  OR (
     ${VOLCANO_SCOPED_SQL}
   )
   OR (
@@ -202,6 +226,9 @@ export const ALERT_MATCH_SQL = `
     -- (решение владельца 27.09, см. шапку PLACE_SCOPED_SQL). До этого
     -- неприбитый дорожный алерт шумел на всю зону.
     AND NOT (${PLACE_SCOPED_SQL})
+    -- Землетрясение с координатой и магнитудой судится силой сотрясения
+    -- выше (QUAKE_SCOPED_SQL), в зональную ветку не падает (#2195).
+    AND NOT (${QUAKE_SCOPED_SQL})
     -- Пустые/NULL зоны совпадают НИ С КЕМ (17.09). Раньше здесь стояло
     -- «IS NULL OR = '{}' OR …» — пустота читалась как «весь край», и любое
     -- предупреждение, у которого зона не распозналась, красило каждое место

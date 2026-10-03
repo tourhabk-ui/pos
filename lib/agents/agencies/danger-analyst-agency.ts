@@ -24,6 +24,7 @@ import { computeLiveness, type LivenessStatus } from '@/lib/agents/cron-liveness
 import { lastIngestAt, INGEST_AGENT_ID } from '@/lib/safety/ingest-run';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { kmToNearestTouristArea } from '@/lib/services/safety/seismic-zones';
+import { shakingIntensity } from '@/lib/services/safety/shaking';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -245,26 +246,15 @@ function extractAshHeight(title: string): number | undefined {
 // поднимает зону выше «высокой» (SEISMIC_MAX): немедленную эвакуацию объявляют
 // извержение или официальная тревога, а не расчётная тряска.
 
-/** Ближе этого расстояние не берётся: формула ниже на нуле уходит в бесконечность. */
-const MIN_INTENSITY_KM = 10;
 export const SEISMIC_MAX = 70;
 /** Порог «критической» зоны — она же команда «немедленная эвакуация». */
 const CRITICAL_FROM = 75;
 const SWARM_BONUS_PER_EVENT = 1;
 const SWARM_BONUS_MAX = 5;
 
-/**
- * Балл сотрясения (MSK-64) на расстоянии `km` от эпицентра: уравнение
- * макросейсмического поля Шебалина в общем виде, I = 1.5M − 3.5·lg R + 3.0.
- * Коэффициенты общие, не калиброванные под Камчатку, а глубина очага не
- * учитывается — R берётся эпицентральным, то есть меньше настоящего, и балл
- * выходит ВЫШЕ: ошибка в сторону осторожности. Это оценка для сравнения зон,
- * не прогноз тряски.
- */
-export function shakingIntensity(magnitude: number, km: number): number {
-  const r = Math.max(km, MIN_INTENSITY_KM);
-  return 1.5 * magnitude - 3.5 * Math.log10(r) + 3.0;
-}
+// Балл сотрясения — общий с привязкой землетрясений к местам
+// (lib/services/safety/shaking.ts): второй копии формулы быть не должно (§12).
+export { shakingIntensity };
 
 /** Баллы риска за одно событие. */
 export function seismicEventPoints(magnitude: number | undefined, km: number | null): number {
