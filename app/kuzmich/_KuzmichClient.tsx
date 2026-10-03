@@ -1,5 +1,6 @@
 'use client';
 
+import ChatText from '@/components/kuzmich/ChatText';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import Link from 'next/link';
@@ -501,7 +502,8 @@ export default function KuzmichClient() {
                         ? 'bg-[var(--accent)] text-white rounded-br-sm self-end'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-bl-sm'
                     }`}>
-                      {msg.content}
+                      {/* Ссылки — только в ответе Кузьмича (владелец 03.10). */}
+                      {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                     </div>
                   )}
                   {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
