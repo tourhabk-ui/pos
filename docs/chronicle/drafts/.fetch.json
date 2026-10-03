@@ -1,12 +1,11 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 17,
-  "why": "Паратунка: этимология (Википедия село и река, Елизовский район, topkam, piragis) и id мест каталога.",
+  "batch": 18,
+  "why": "Паратунка: id мест с корнем Паратун (без к) и ещё источник имени.",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Паратунка_(село)",
-    "https://ru.wikipedia.org/wiki/Паратунка_(река)",
-    "https://ru.wikipedia.org/wiki/Паратунка",
-    "https://www.topkam.ru/attractions/rivers/reka_paratunka.html",
-    "https://vedarai.ru/api/places?q=%D0%9F%D0%B0%D1%80%D0%B0%D1%82%D1%83%D0%BD%D0%BA"
+    "https://vedarai.ru/api/places?q=%D0%9F%D0%B0%D1%80%D0%B0%D1%82%D1%83%D0%BD",
+    "https://vedarai.ru/api/places?q=%D0%9D%D0%B8%D0%B6%D0%BD%D0%B5-%D0%9F%D0%B0%D1%80%D0%B0%D1%82%D1%83%D0%BD%D1%81%D0%BA",
+    "https://ru.wikipedia.org/wiki/Паратунские_источники",
+    "https://ru.wikipedia.org/wiki/Нижне-Паратунские_источники"
   ]
 }
