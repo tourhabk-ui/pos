@@ -14,9 +14,18 @@ const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'app/api/cron/places-osm-crosscheck/route.ts'), 'utf-8');
 
 describe('places-osm-crosscheck — только чтение', () => {
-  it('экспортирует только GET', () => {
+  it('GET и POST; POST принимает объекты OSM с раннера и проверяет их Zod (03.10)', () => {
+    // POST — не запись: тело — данные для сравнения, выбранные на раннере,
+    // потому что публичные Overpass перестали отдавать край проду.
     expect(SRC).toMatch(/export async function GET/);
-    expect(SRC).not.toMatch(/export async function (POST|PUT|PATCH|DELETE)/);
+    expect(SRC).toMatch(/export async function POST/);
+    expect(SRC).not.toMatch(/export async function (PUT|PATCH|DELETE)/);
+    expect(SRC).toContain('RunnerFeaturesSchema.safeParse(raw)');
+    expect(SRC).toMatch(/\.max\(60_000\)/);
+  });
+
+  it('ответ говорит, откуда объекты OSM: спрошены продом или присланы раннером', () => {
+    expect(SRC).toContain("osm_source: featuresSource ?? 'prod'");
   });
 
   it('нет ни одного write-запроса', () => {
@@ -83,5 +92,27 @@ describe('прогон сверки не выдаёт отказ за успех
 
   it('неразобранный ответ показывается куском, а не глотается', () => {
     expect(WF).toContain('Ответ не разобрался как JSON');
+  });
+});
+
+describe('выборка OSM — на раннере, сравнение — на проде (03.10)', () => {
+  const WF = readFileSync(join(process.cwd(), '.github/workflows/places-osm-crosscheck.yml'), 'utf-8');
+  const FETCH = readFileSync(join(process.cwd(), 'lib/geo/osm-overpass-fetch.ts'), 'utf-8');
+  const SCRIPT = readFileSync(join(process.cwd(), 'scripts/osm-crosscheck-fetch.ts'), 'utf-8');
+
+  it('workflow выбирает объекты скриптом и шлёт их POST-ом', () => {
+    expect(WF).toContain('npx tsx scripts/osm-crosscheck-fetch.ts /tmp/osm-features.json');
+    expect(WF).toContain('--data-binary @/tmp/osm-features.json');
+    expect(WF.indexOf('osm-crosscheck-fetch.ts')).toBeLessThan(WF.indexOf('--data-binary'));
+  });
+
+  it('модуль сети не тянет пул БД: на раннере DATABASE_URL нет', () => {
+    expect(FETCH).not.toMatch(/from '@\/lib\/db-pool'/);
+    expect(SCRIPT).not.toMatch(/db-pool|lib\/database/);
+  });
+
+  it('скрипт: ноль объектов на весь край и непрочитанный квадрат — выход 1, не пустой файл', () => {
+    expect(SCRIPT).toMatch(/features\.length === 0[\s\S]{0,300}return 1/);
+    expect(SCRIPT).toMatch(/catch \(err\)[\s\S]{0,200}return 1/);
   });
 });
