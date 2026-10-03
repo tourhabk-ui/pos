@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SHOWN_MODELS, shownPhotoSql } from '@/lib/images/origin';
+import { SHOWN_MODELS, KEEP_MODELS, shownPhotoSql, keepPhotoSql } from '@/lib/images/origin';
 import { isFreeLicense, buildCandidate } from '@/lib/services/ingest/wikimedia-photos';
 import { thumbMime } from '@/app/api/cron/place-photos-commons/route';
 
@@ -35,7 +35,7 @@ describe('предохранитель 1: свой снимок не затир�
     // Проверка «сначала спросим, потом вставим» такую гонку не закрывает.
     const save = SRC.slice(SRC.indexOf('async function saveToStorageIfStillFree'));
     expect(save).toContain('ON CONFLICT (route_id) DO UPDATE');
-    expect(save).toContain("shownPhotoSql('ai_route_images.model')");
+    expect(save).toContain("keepPhotoSql('ai_route_images.model')");
     expect(save).toMatch(/WHERE\s+ai_route_images\.model IS NULL/);
   });
 
@@ -45,9 +45,12 @@ describe('предохранитель 1: свой снимок не затир�
     expect(SRC).toMatch(/ai_route_images\.model IS NULL\s*\n\s*OR NOT/);
   });
 
-  it('фото владельца входит в показываемые — то есть под защиту', () => {
-    expect(SHOWN_MODELS).toContain('real-photo');
-    expect(shownPhotoSql('x')).toContain("'real-photo'");
+  it('пачка real-photo под защитой от перезаписи, хотя из показа выведена (1150)', () => {
+    expect(SHOWN_MODELS).not.toContain('real-photo');
+    expect(KEEP_MODELS).toContain('real-photo');
+    expect(keepPhotoSql('x')).toContain("'real-photo'");
+    // Защищает ЗАПИСЬ именно расширенный список: стереть улику до разбора нельзя.
+    expect(SRC).toContain("keepPhotoSql('ai_route_images.model')");
   });
 });
 
