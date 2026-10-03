@@ -102,12 +102,15 @@ describe('компас и главная цифра — тот же расчёт
     expect(CARD).toContain("const title = kind === 'me' ? 'Я' : (name ?? 'Точка на карте');");
   });
 
-  it('калькулятор компаса/дистанции для calculatedPreview — геометрия (haversine/bearingDeg), не хожалый темп', () => {
+  it('калькулятор компаса/дистанции для calculatedPreview — геометрия пути, не хожалый темп', () => {
     expect(TRAIL).toContain('const calcDest = calculatedPreview?.route.destinationSnapped ?? null;');
-    expect(TRAIL).toContain('const calcDistKm = calcDest && coords ? haversine(coords.lat, coords.lng, calcDest.lat, calcDest.lon) : null;');
+    // 03.10 («Дикие озерки»): дистанция — остаток ВДОЛЬ посчитанного пути
+    // (calculatedRemaining), не прямая до цели. Прямая осталась у компаса.
+    expect(TRAIL).toContain('const calcDistKm = calcLeft ? calcLeft.remainingKm : null;');
     expect(TRAIL).toMatch(/const calcBearing = calcDest && coords && fixUsableForNavigation\(coords\.accuracy \?\? null\)/);
-    // ETA — durationS самого провайдера (то же число, что в карточке предпросмотра), не paceFromTrack.
-    expect(TRAIL).toContain("const calcEtaLabel = calculatedPreview ? `~${formatEta(calculatedPreview.route.durationS / 3600)}` : null;");
+    // ETA — durationS самого провайдера, срезанное долей оставшегося пути; не paceFromTrack.
+    expect(TRAIL).toMatch(/calculatedPreview\.route\.durationS \* \(calcLeft \? calcLeft\.fractionAhead : 1\)/);
+    expect(TRAIL).not.toContain('paceFromTrack(calculatedPreview');
   });
 
   it('компас переключается на calcBearing, пока автопуть на карте', () => {
@@ -120,7 +123,7 @@ describe('компас и главная цифра — тот же расчёт
     // approach?.dataConflict) остаются, просто уже не первыми в цепочке.
     const occurrences = [...TRAIL.matchAll(/\{calculatedPreview \? \(/g)];
     expect(occurrences.length).toBeGreaterThanOrEqual(2);
-    expect(TRAIL).toContain('caption="до цели"');
+    expect(TRAIL).toContain('caption={calcCaption}');
   });
 
   it('«N из M» в шапке молчит, пока на карте расчётный автопуть — он про другой маршрут', () => {
