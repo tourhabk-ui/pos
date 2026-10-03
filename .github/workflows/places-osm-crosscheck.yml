@@ -136,6 +136,27 @@ jobs:
               print(json.dumps(d, ensure_ascii=False)[:4000])
               sys.exit(1)
           "
+          # ── ТОЧКА OSM ДАЛЬШЕ КИЛОМЕТРА (03.10) ──────────────────────────
+          # Пометка «[протяжённый]» берётся из НАШЕГО рода места и гасила
+          # улику у гор: «Гора Замок» стояла в 6.2 км от вершины Замок
+          # (natural=peak) с 10.09, и её отложили как широкую гору, пока
+          # турист не показал точку из Maps.me. Здесь отдельный список по
+          # тегу САМОГО объекта OSM: вершина, вулкан, водопад, источник,
+          # маяк, памятник — точка, и расстояние до неё — улика при любом
+          # нашем роде. Решает человек: тёзки с тем же именем бывают.
+          echo "── Точечный тёзка OSM дальше 1 км — кандидаты на правку координаты ──"
+          echo "$RESP" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          strong = d.get('strong_sim') or 0.5
+          rows = [it for it in (d.get('items') or []) if (it.get('nearestStrongPointKm') or 0) >= 1]
+          rows.sort(key=lambda it: -it['nearestStrongPointKm'])
+          for it in rows:
+              km = it['nearestStrongPointKm']
+              c = next((c for c in it.get('candidates') or [] if c.get('distanceKm') == km and (c.get('nameSim') or 0) >= strong), {})
+              print(f\"{km} км | {it.get('name')} [{it.get('placeId')}] @ {it.get('ourLat')},{it.get('ourLng')} -> {c.get('osmName')} @ {c.get('osmLat')},{c.get('osmLng')} ({c.get('matchedTag')}, {c.get('osmKind')} {c.get('osmId')}, sim={c.get('nameSim')})\")
+          print(f'Всего: {len(rows)}')
+          "
           echo "── Ближайший одноимённый объект OSM (sim >= strong_sim), самые дальние первыми ──"
           echo "$RESP" | python3 -c "
           import json, sys

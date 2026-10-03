@@ -7,9 +7,12 @@
  * отделяющего ошибку от однофамильца, не существует.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   buildOsmCrosscheckQuery, parseOsmFeatures, buildCrosscheckItems,
   type PlaceInput, type OsmFeature, type SimilarityRow,
+  isOsmPointTag,
 } from '@/lib/geo/osm-crosscheck';
 
 describe('Overpass-запрос', () => {
@@ -153,5 +156,41 @@ describe('сборка кандидатов — сегодняшние (10.09) �
     const sinichkinoItem = items.find(i => i.placeId === 'sinichkino')!;
     expect(golubyeItem.isExtendedObject).toBe(true); // 'lake' не в POINT_TYPES
     expect(sinichkinoItem.isExtendedObject).toBe(false); // 'viewpoint' — точка
+  });
+});
+
+describe('точечный тёзка OSM — улика при любом нашем роде (03.10, «Гора Замок»)', () => {
+  // 10.09 сверка нашла «6.2 км → Замок (natural=peak)», но пометка
+  // «[протяжённый]» из нашего рода «mountain» спрятала её при разборе.
+  const zamok = { id: 'zamok', name: 'Гора Замок', locationType: 'mountain', lat: 53.182842, lng: 158.286467 };
+  const peak = { id: 7178874096, kind: 'node' as const, name: 'Замок', lat: 53.1778026, lng: 158.1944257, matchedTag: 'natural=peak' };
+
+  it('гора «протяжённая», но вершина OSM — точка: расстояние до неё отдаётся отдельной уликой', () => {
+    const r = buildCrosscheckItems([zamok], [peak], [{ placeId: 'zamok', osmId: peak.id, osmKind: 'node', sim: 0.55 }]);
+    expect(r.items[0].isExtendedObject).toBe(true);
+    expect(r.items[0].nearestStrongPointKm).toBeCloseTo(6.2, 1);
+  });
+
+  it('смотровая площадка с именем озера — не точка самого озера', () => {
+    const lake = { id: 'k', name: 'Озеро Костакан', locationType: 'lake', lat: 53.295, lng: 158.2786 };
+    const vp = { id: 1, kind: 'node' as const, name: 'Озеро Костакан', lat: 53.836, lng: 158.0485, matchedTag: 'tourism=viewpoint' };
+    const r = buildCrosscheckItems([lake], [vp], [{ placeId: 'k', osmId: 1, osmKind: 'node', sim: 1 }]);
+    expect(r.items[0].nearestStrongKm).toBeGreaterThan(50);
+    expect(r.items[0].nearestStrongPointKm).toBeNull();
+  });
+
+  it('точечные теги: вершина, вулкан, водопад, источник, маяк, памятник', () => {
+    for (const t of ['natural=peak', 'natural=volcano', 'waterway=waterfall', 'natural=hot_spring', 'man_made=lighthouse', 'historic=memorial']) {
+      expect(isOsmPointTag(t)).toBe(true);
+    }
+    for (const t of ['natural=water', 'leisure=nature_reserve', 'tourism=viewpoint', 'natural=ridge', 'place=locality']) {
+      expect(isOsmPointTag(t)).toBe(false);
+    }
+  });
+
+  it('workflow печатает список точечных расхождений, а не только общий', () => {
+    const wf = readFileSync(join(process.cwd(), '.github/workflows/places-osm-crosscheck.yml'), 'utf8');
+    expect(wf).toContain('Точечный тёзка OSM дальше 1 км');
+    expect(wf).toContain("nearestStrongPointKm");
   });
 });
