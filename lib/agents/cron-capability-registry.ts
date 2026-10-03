@@ -134,6 +134,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'images-in-s3': ['db_read', 'net_out'],
   'images-oversize': ['db_read'],
   'images-recompress': ['db_read', 'db_write'],
+  // ai — зрение (callVisionDetailed), net_out — байты снимков из хранилища.
+  'photo-audit': ['db_read', 'db_write', 'net_out', 'ai'],
   'images-to-s3': ['db_read', 'db_write', 'net_out'],
   // 01.10: веб-копия героев из снимков туристов — качает оригинал из
   // хранилища, заливает копию и читает её обратно (net_out), переписывает
