@@ -9,6 +9,7 @@ import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ing
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
+import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
@@ -725,6 +726,9 @@ function buildResponse(
   // То же про вулканы: сколько извержений привязано к своему конусу, сколько
   // осталось без привязки (и потому не красит места вовсе) и почему.
   volcanoAnchors?: VolcanoAnchorResult | { error: string },
+  // Предупреждения, назвавшие свой день: сколько живых проверено и скольким
+  // срок сокращён до конца этого дня (lib/safety/dated-warning.ts).
+  datedCaps?: DatedCapResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -740,6 +744,7 @@ function buildResponse(
     ...(pruned && 'error' in pruned ? [pruned.error] : []),
     ...(roadAnchors && 'error' in roadAnchors && roadAnchors.error ? [roadAnchors.error] : []),
     ...(volcanoAnchors && 'error' in volcanoAnchors && volcanoAnchors.error ? [volcanoAnchors.error] : []),
+    ...(datedCaps && 'error' in datedCaps ? [datedCaps.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -836,6 +841,7 @@ function buildResponse(
     // что такой точки у нас нет. Три исхода видны раздельно: «не привязали»
     // по разным причинам чинится по-разному.
     road_anchors: roadAnchors ?? null,
+    dated_caps: datedCaps ?? null,
     // Вулканическая привязка теми же тремя исходами: привязано / имя
     // неоднозначно / такого вулкана нет в каталоге. Непривязанное извержение
     // не красит места — цифра здесь единственный способ это заметить.
@@ -1040,6 +1046,9 @@ export async function GET(req: Request) {
   // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
   // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
+  // ДО пересчёта статуса: предупреждение «на 3 октября» после конца дня не
+  // должно красить места ещё один прогон.
+  const datedCaps = await safely('dated-cap', () => capDatedWarnings(query));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
@@ -1144,7 +1153,7 @@ export async function GET(req: Request) {
         skipped_same_quake: emsdOk ? emsdResult.skippedSameQuake : null,
         problems: emsdOk ? emsdResult.table.problems : [],
       },
-    }, pruned, roadAnchors, volcanoAnchors);
+    }, pruned, roadAnchors, volcanoAnchors, datedCaps);
 }
 
 const HtmlBodySchema = z.object({
@@ -1309,6 +1318,9 @@ export async function POST(req: Request) {
   // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
   // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
+  // ДО пересчёта статуса: предупреждение «на 3 октября» после конца дня не
+  // должно красить места ещё один прогон.
+  const datedCaps = await safely('dated-cap', () => capDatedWarnings(query));
   // ДО раскладки по точкам: привязка даёт дорожному предупреждению
   // координаты, а радиусную ветку ALERT_MATCH_SQL включает именно их
   // наличие. После — предупреждение ушло бы по зоне ещё на один прогон.
@@ -1364,5 +1376,5 @@ export async function POST(req: Request) {
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
     knownDormantSources: knownDormantPost,
-  }, pruned, roadAnchors, volcanoAnchors);
+  }, pruned, roadAnchors, volcanoAnchors, datedCaps);
 }

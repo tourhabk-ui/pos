@@ -17,6 +17,7 @@ import { decodeHtmlEntities } from '@/lib/html/entities';
 import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
+import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -1966,6 +1967,16 @@ export function classifyMchsItem(
 
   const publishedAt = new Date(pubDate);
   if (isNaN(publishedAt.getTime())) return null;
+
+  // Предупреждение, назвавшее свой день («Экстренное предупреждение на 3
+  // октября»), живёт до конца этого дня по Камчатке — не 24 часа от поста и
+  // не паводковые 120 (случай 03.10, lib/safety/dated-warning.ts). У постов
+  // без заголовка дата стоит в начале текста.
+  if ((DATED_WARNING_TYPES as readonly string[]).includes(alert_type)) {
+    const dated = datedWarningHours(title || description.slice(0, 200), publishedAt);
+    // Потолок запрета (48 ч) остаётся в силе и для датированного поста.
+    if (dated !== null) expires_hours = addressesTouristsWithBan(text) ? Math.min(dated, 48) : dated;
+  }
 
   // У постов ВК и МАХ заголовка нет — весь текст приходит в description. Пустой
   // title означал две поломки сразу, обе проверены запуском классификатора:
