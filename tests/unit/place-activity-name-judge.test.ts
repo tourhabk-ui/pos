@@ -38,6 +38,13 @@ describe('активность в имени — подозрение', () => {
     expect(judgePlaceActivityName('Дайвинг у мыса Лопатка').ok).toBe(false);
   });
 
+  it('случай 03.10: «Зимнее сап путешествие по реке Паратунка» и «Зимние приключения»', () => {
+    expect(judgePlaceActivityName('Зимнее сап путешествие по реке Паратунка').matched.sort())
+      .toEqual(['путешествие', 'сап']);
+    expect(judgePlaceActivityName('Зимние приключения').matched).toEqual(['приключения']);
+    expect(judgePlaceActivityName('Скитур на Мутновский вулкан').ok).toBe(false);
+  });
+
   it('несколько слов — matched без дублей', () => {
     const v = judgePlaceActivityName('Поход и рыбалка на озере');
     expect(v.matched.sort()).toEqual(['поход', 'рыбалка']);
