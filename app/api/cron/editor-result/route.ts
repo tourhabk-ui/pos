@@ -9,6 +9,10 @@
  * Приёмник ничему не верит на слово:
  *  - текст короче порога отвергается тем же `MIN_GENERATION_LENGTH`, что у
  *    прод-пути;
+ *  - текст проходит ту же проверку правды, что у прод-пути
+ *    (`judgeGeneratedDescription`): числа и опасности только из источника,
+ *    голос справки, без рекламных эпитетов. Раннер — другая модель, но
+ *    правило записи одно;
  *  - запись должна БЫТЬ в очереди на описание — иначе раннер мог бы переписать
  *    любую строку базы, прислав чужой id;
  *  - происхождение пишется рядом с текстом (`description_provenance`), и в нём
@@ -23,6 +27,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { findRoutesNeedingDescription, buildFacts, MIN_GENERATION_LENGTH, type RouteRow } from '@/lib/agents/editor';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -90,6 +95,13 @@ export async function POST(req: NextRequest) {
     const text = item.description.trim();
     if (text.length < MIN_GENERATION_LENGTH) {
       rejected.push({ id: item.id, reason: `короче порога ${MIN_GENERATION_LENGTH}` });
+      continue;
+    }
+    const verdict = judgeGeneratedDescription(text, {
+      facts: buildFacts(route), title: route.title, previous: route.description,
+    });
+    if (!verdict.ok) {
+      rejected.push({ id: item.id, reason: `проверка правды: ${verdict.reasons.join('; ')}` });
       continue;
     }
 
