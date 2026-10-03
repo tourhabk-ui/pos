@@ -49,6 +49,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          # История за час — для CODE_PATHS в wait-for-deploy.sh.
+          fetch-depth: 200
 
       # ── Почему ожидание появилось только 20.09 ──────────────────────────────
       #
@@ -75,6 +78,9 @@ jobs:
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
+          # 03.10: пушится только маркер — код роута на проде тот же, и
+          # ожидание по сломанному маркеру сборки отсиживало 35 минут впустую.
+          CODE_PATHS: 'app/api/cron/place-coords lib/places lib/geo lib/db-pool.ts lib/database.ts'
         run: bash scripts/wait-for-deploy.sh
 
       - name: Параметры — из ввода или из маркера
