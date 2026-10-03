@@ -92,8 +92,24 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
 
-      - name: Объекты OSM по краю — с раннера
-        run: npx tsx scripts/osm-crosscheck-fetch.ts /tmp/osm-features.json
+      # 03.10, run 10: Overpass квадратами прошёл 38 из 42 и упал на 504 у
+      # всех четырёх серверов. Выгрузка Geofabrik — файл, а не чужая очередь:
+      # скачать, вырезать край, отфильтровать те же теги, что спрашивались у
+      # Overpass (matchesCrosscheckTags), центр — середина охвата, как `out center`.
+      - name: Объекты OSM по краю — выгрузка Geofabrik
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+          curl -fsSL --retry 3 -o /tmp/fe.osm.pbf \
+            https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf
+          ls -lh /tmp/fe.osm.pbf
+          osmium extract -b 155,50,167,64 /tmp/fe.osm.pbf -o /tmp/kam.osm.pbf --overwrite
+          osmium tags-filter /tmp/kam.osm.pbf \
+            nwr/natural nwr/waterway nwr/place nwr/tourism nwr/historic nwr/leisure \
+            nwr/boundary=protected_area nwr/man_made=lighthouse \
+            -o /tmp/kam-f.osm.pbf --overwrite
+          osmium export /tmp/kam-f.osm.pbf -f geojsonseq -u type_id -o /tmp/kam.geojsonseq --overwrite
+          npx tsx scripts/osm-crosscheck-from-geojson.ts /tmp/kam.geojsonseq /tmp/osm-features.json
 
       # Маркер едет в main тем же пушем, что и роут /api/cron/places-osm-crosscheck,
       # а Timeweb собирает образ 5–20 минут. Эндпоинт этого прогона едет ТЕМ ЖЕ

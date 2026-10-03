@@ -6,8 +6,9 @@
  *
  *   - прод (GET /api/cron/places-osm-crosscheck) — короткие таймауты: запрос
  *     живёт под потолком роута;
- *   - раннер GitHub (scripts/osm-crosscheck-fetch.ts) — долгие таймауты и
- *     мелкие квадраты, а готовый список уходит на прод POST-ом.
+ *   - раннер GitHub — прежде здесь; 03.10 раннер перешёл на выгрузку
+ *     Geofabrik (scripts/osm-crosscheck-from-geojson.ts): Overpass квадратами
+ *     прошёл 38 из 42 и упал на 504 у всех четырёх серверов.
  *
  * Повод для второго пути. 03.10 публичные Overpass (overpass-api.de, kumi,
  * private.coffee, maps.mail.ru) не отдали за 40 секунд даже один квадрат
@@ -30,12 +31,6 @@ export const OVERPASS_ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
 ];
 
-/** Раннер: все известные публичные серверы с полной базой планеты. */
-export const OVERPASS_ENDPOINTS_WIDE = [
-  ...OVERPASS_ENDPOINTS,
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-];
 
 const OSM_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded',
