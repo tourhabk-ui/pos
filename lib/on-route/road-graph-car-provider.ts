@@ -25,12 +25,24 @@ import type { CarRouteProvider, CarRouteProviderResult, CarRouteQuery } from '@/
 import type { CalculatedCarRoute } from '@/lib/on-route/calculated-route';
 
 export const ROAD_GRAPH_CAR_PROVIDER_LABEL = 'Ведар — свой дорожный граф Камчатки';
+/**
+ * Пеший режим (PR 5B-2, 03.10). Тот же граф: импорт с Overpass кладёт в него
+ * и тропы (`path`, `footway`, `track`, `bridleway` — scripts/road-graph-builder.js),
+ * а A* уже умел режим `foot` (lib/routing/astar.ts). Не хватало одной двери:
+ * /api/routes/build отвечал «пеший путь не строим». Решение 28.08 — «пешком
+ * только по известной сети троп»; тропы OSM и есть такая сеть: по ней же
+ * строит MAPS.ME (скрин владельца 03.10: к «Диким озеркам» 5.3 км пешком,
+ * а у нас — автопетля по дорогам). По бездорожью линия по-прежнему не
+ * рисуется: точку дальше MAX_CAR_SNAP_M от сети отсекает тот же snap-guard.
+ */
+export const ROAD_GRAPH_FOOT_PROVIDER_LABEL = 'Ведар — тропы и дороги Камчатки (OSM)';
 
-export const roadGraphCarProvider: CarRouteProvider = {
+function makeRoadGraphProvider(mode: 'car' | 'foot', label: string): CarRouteProvider {
+  return {
   async route(query: CarRouteQuery): Promise<CarRouteProviderResult> {
     let result: Awaited<ReturnType<typeof roadGraphRoute>>;
     try {
-      result = await roadGraphRoute(query.originLat, query.originLon, query.destLat, query.destLon, 'car');
+      result = await roadGraphRoute(query.originLat, query.originLon, query.destLat, query.destLon, mode);
     } catch (err) {
       return {
         status: 'error',
@@ -59,7 +71,8 @@ export const roadGraphCarProvider: CarRouteProvider = {
       // пинов «Старт/Цель на дороге» на клиенте ждёт именно точку привязки.
       originSnapped: { lat: result.start.lat, lon: result.start.lng, snapDistanceM: result.start.snapM },
       destinationSnapped: { lat: result.goal.lat, lon: result.goal.lng, snapDistanceM: result.goal.snapM },
-      provider: ROAD_GRAPH_CAR_PROVIDER_LABEL,
+      provider: label,
+      travelMode: mode,
       builtAt: new Date().toISOString(),
       // Граф статический — живого трафика нет и не будет, пока не появится
       // отдельный источник; врать «пробки учтены» нельзя.
@@ -71,4 +84,8 @@ export const roadGraphCarProvider: CarRouteProvider = {
 
     return { status: 'found', route };
   },
-};
+  };
+}
+
+export const roadGraphCarProvider: CarRouteProvider = makeRoadGraphProvider('car', ROAD_GRAPH_CAR_PROVIDER_LABEL);
+export const roadGraphFootProvider: CarRouteProvider = makeRoadGraphProvider('foot', ROAD_GRAPH_FOOT_PROVIDER_LABEL);

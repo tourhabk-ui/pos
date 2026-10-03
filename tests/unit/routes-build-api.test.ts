@@ -1,8 +1,8 @@
 /**
  * POST /api/routes/build (владелец 28.08, PR 5B-1) — сервер как единственная
  * дверь до маршрутизатора. Сторож держит форму ответа (RouteBuildResult,
- * тот же тип, что уже понимает экран из PR 5A), gate по режиму (car — зовёт
- * провайдера, foot — честный unsupported: 5B-2 не построен), конверт края и
+ * тот же тип, что уже понимает экран из PR 5A), выбор провайдера по режиму
+ * (car — дорожный, foot — сеть троп OSM, PR 5B-2 с 03.10), конверт края и
  * нормализацию found/not_found/error — включая snap-guard: путь с ненадёжной
  * привязкой к дороге (> MAX_CAR_SNAP_M) понижается в not_found ЗДЕСЬ, а не
  * рисуется как есть (см. lib/on-route/calculated-route.ts).
@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const routeMock = vi.fn();
+const footRouteMock = vi.fn();
 // Подменяем провайдера целиком (28.08: эндпоинт зовёт roadGraphCarProvider,
 // не notWiredCarRouteProvider) — applySnapGuard (и его фиксация not_found
 // при ненадёжной привязке) остаётся настоящей, импортируется отдельно и не
@@ -19,6 +20,7 @@ const routeMock = vi.fn();
 // road-graph-car-provider.test.ts).
 vi.mock('@/lib/on-route/road-graph-car-provider', () => ({
   roadGraphCarProvider: { route: (...a: unknown[]) => routeMock(...a) },
+  roadGraphFootProvider: { route: (...a: unknown[]) => footRouteMock(...a) },
 }));
 
 const rateCheckMock = vi.fn(() => true);
@@ -42,6 +44,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   rateCheckMock.mockReturnValue(true);
   routeMock.mockResolvedValue({ status: 'not_wired', message: 'источник не выбран' });
+  footRouteMock.mockResolvedValue({ status: 'not_wired', message: 'источник не выбран' });
 });
 
 describe('форма запроса', () => {
@@ -65,14 +68,40 @@ describe('форма запроса', () => {
   });
 });
 
-describe('режим foot — честный unsupported, провайдер не зовётся', () => {
-  it('5B-2 не построен: pedestrian off-trail routing не обещан', async () => {
-    const res = await POST(req({ origin: PPK, destination: AVACHA, mode: 'foot' }));
-    expect(res.status).toBe(200);
+describe('режим foot — по сети троп OSM (PR 5B-2, 03.10: «Дикие озерки» от Малинки)', () => {
+  const footRoute = (snapGoalM: number) => ({
+    kind: 'calculated_car', travelMode: 'foot',
+    geometry: { type: 'LineString', coordinates: [[158.4214, 53.2569], [158.3874, 53.2669]] },
+    distanceM: 5300, durationS: 4240,
+    originSnapped: { lat: 53.2569, lon: 158.4214, snapDistanceM: 40 },
+    destinationSnapped: { lat: 53.2669, lon: 158.3874, snapDistanceM: snapGoalM },
+    provider: 'test', builtAt: '2026-10-03T00:00:00Z', traffic: false,
+    mayDisplay: true, mayNavigate: false, mayPersist: false,
+  });
+  const DIKIE = { kind: 'place' as const, id: 'p2', title: 'Дикие озерки', lat: 53.2669, lon: 158.3874 };
+
+  it('зовёт пешего провайдера, автомобильного — нет', async () => {
+    footRouteMock.mockResolvedValue({ status: 'found', route: footRoute(20) });
+    const res = await POST(req({ origin: PPK, destination: DIKIE, mode: 'foot' }));
     const json = await res.json();
-    expect(json.result.status).toBe('unsupported');
-    expect(json.result.reason).toMatch(/троп/);
+    expect(footRouteMock).toHaveBeenCalledTimes(1);
     expect(routeMock).not.toHaveBeenCalled();
+    expect(json.result.status).toBe('found');
+    expect(json.result.options[0].id).toBe('calculated-foot');
+    expect(json.result.options[0].title).toBe('Дикие озерки');
+  });
+
+  it('тропа не доходит до цели — остаток назван «без тропы», а не «подъездом»', async () => {
+    footRouteMock.mockResolvedValue({ status: 'found', route: footRoute(1600) });
+    const json = await (await POST(req({ origin: PPK, destination: DIKIE, mode: 'foot' }))).json();
+    expect(json.result.options[0].title).toMatch(/по тропам — последние .* без тропы/);
+    expect(json.result.options[0].title).not.toMatch(/Подъезд/);
+  });
+
+  it('точка дальше порога от сети — not_found тем же snap-guard, линия по бездорожью не рисуется', async () => {
+    footRouteMock.mockResolvedValue({ status: 'found', route: { ...footRoute(20), originSnapped: { lat: 53.2, lon: 158.4, snapDistanceM: 5000 } } });
+    const json = await (await POST(req({ origin: PPK, destination: DIKIE, mode: 'foot' }))).json();
+    expect(json.result.status).toBe('not_found');
   });
 });
 

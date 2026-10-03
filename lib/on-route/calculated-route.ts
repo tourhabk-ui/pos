@@ -40,6 +40,13 @@ export interface CalculatedCarRoute {
   destinationSnapped: SnappedPoint;
   provider: string;
   builtAt: string;
+  /**
+   * Каким способом посчитан путь. `kind` исторически называет автопуть, но с
+   * 03.10 тот же контракт несёт и пеший путь по тропам OSM (PR 5B-2): отсутствие
+   * поля — старый ответ, это 'car'. Поле решает слова экрана («подъезд» —
+   * только у машины) и темп: у пешего durationS посчитан на 4.5 км/ч без набора.
+   */
+  travelMode?: 'car' | 'foot';
   /** Учитывался ли трафик при расчёте — влияет на то, насколько устареет durationS. */
   traffic: boolean;
   mayDisplay: boolean;

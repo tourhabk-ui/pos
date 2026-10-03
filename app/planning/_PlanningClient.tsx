@@ -790,9 +790,9 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   /**
    * Способ передвижения для ПОСТРОЕНИЯ ПУТИ Origin → Destination (владелец
    * 28.08) — НЕ то же самое, что `travelMode` выше (тот выбирает пеший/
-   * авто темп для уже идущей навигации по активному маршруту). Сервер 5B-1
-   * подключает провайдера ТОЛЬКО для mode: 'car' — режим 'foot' остаётся
-   * честным unsupported до PR 5B-2. Дефолт — 'car' (владелец 05.09,
+   * авто темп для уже идущей навигации по активному маршруту). С 03.10
+   * (PR 5B-2) сервер строит оба: 'foot' — по тропам и дорогам OSM того же
+   * графа. Дефолт — 'car' (владелец 05.09,
    * «маршруты не прокладываются»): с дефолтом 'foot' экран отвечал
    * «Построение пути пока недоступно» каждому, кто не тронул переключатель,
    * то есть почти всем, — при живом дорожном графе за режимом 'car'.
@@ -2259,15 +2259,20 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       },
       {
         coords: [route.originSnapped.lat, route.originSnapped.lon],
-        title: 'Старт на дороге',
-        description: `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
+        // Пешком сеть — это тропы и дороги вместе: «на дороге» соврало бы.
+        title: route.travelMode === 'foot' ? 'Начало пути' : 'Старт на дороге',
+        description: route.travelMode === 'foot'
+          ? `Путь начинается в ${Math.round(route.originSnapped.snapDistanceM)} м от вас`
+          : `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
         color: 'orange',
         type: MarkerType.POI,
       },
       {
         coords: [route.destinationSnapped.lat, route.destinationSnapped.lon],
-        title: 'Цель на дороге',
-        description: `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
+        title: route.travelMode === 'foot' ? 'Конец пути' : 'Цель на дороге',
+        description: route.travelMode === 'foot'
+          ? `Путь кончается в ${Math.round(route.destinationSnapped.snapDistanceM)} м от цели`
+          : `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
         color: 'green',
         type: MarkerType.POI,
       },
@@ -2810,10 +2815,8 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
         {renderOriginPicker()}
 
-        {/* Выбор способа передвижения (владелец 28.08) — сервер 5B-1
-            подключает провайдера только для mode: 'car'; 'foot' остаётся
-            честным unsupported до 5B-2. Без явного выбора экран посылал бы
-            'foot' всегда, и ветка calculated_car была бы недостижима. */}
+        {/* Выбор способа передвижения (владелец 28.08). С 03.10 (PR 5B-2)
+            сервер строит оба: 'foot' — по тропам и дорогам OSM. */}
         {selectedOrigin && (
           <div className="flex gap-2 mb-3">
             {(['car', 'foot'] as const).map(m => (
@@ -2830,9 +2833,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
         {/* Построение пути (Origin → Destination) — машина состояний PR 5A,
             транспорт до сервера — PR 5B-1 (httpRouteBuilder, /api/routes/build):
-            idle/building/found/not_found/unsupported/failed. Провайдер за
-            сервером не выбран для 'foot' — сегодня этот режим всегда
-            unsupported, но уже настоящим сетевым запросом, а не заглушкой. */}
+            idle/building/found/not_found/unsupported/failed. */}
         {renderBuildStatus()}
 
         {hasOptions ? (
@@ -3480,7 +3481,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       // запись из каталога готовых туристических путей, а это не так.
       const heading = buildTravelMode === 'car'
         ? 'Автомобильный путь от вашего старта'
-        : 'Путь от вашего старта';
+        : 'Пеший путь по тропам и дорогам';
       return (
         <div className="mb-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
