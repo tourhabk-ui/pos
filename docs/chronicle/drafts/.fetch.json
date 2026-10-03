@@ -1,10 +1,10 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 6,
-  "why": "Вопрос владельца: визит члена британской королевской семьи на Камчатку — принц Филипп, герцог Эдинбургский, июль 1995 (WWF).",
+  "batch": 7,
+  "why": "Принц Филипп на Камчатке: 1995 или 1997 — русская Википедия, РИА Новости (Хабаровск 1997), sakhaday (Якутия 1995).",
   "urls": [
-    "https://www.themoscowtimes.com/2021/04/13/in-photos-prince-philips-russia-visits-a73573",
-    "https://www.rbth.com/history/334088-prince-philips-visit-to-russias",
-    "https://en.wikipedia.org/wiki/Prince_Philip,_Duke_of_Edinburgh"
+    "https://ru.wikipedia.org/wiki/Филипп,_герцог_Эдинбургский",
+    "https://ria.ru/20210412/khabarovsk-1727879175.html",
+    "https://sakhaday.ru/news/blyuda-tarbahova-orkestr-vshm-i-ledokol-kak-v-yakutii-v-1995-godu-vstrechali-princa-filippa"
   ]
 }
