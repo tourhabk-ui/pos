@@ -62,7 +62,7 @@ export interface VedarMapLine {
    * пунктиром; след — своя тонкая линия другого цвета. Если не задан,
    * выводится из connector/dashArray (совместимость).
    */
-  kind?: 'track' | 'sketch' | 'connector' | 'trail' | 'calculated';
+  kind?: 'track' | 'sketch' | 'connector' | 'trail' | 'calculated' | 'calculated_foot';
   /** Построение (подход, связка) против снятого пути — §12. */
   connector?: boolean;
   /** Пунктир из lib/map/line-standard: набросок и импорт не сплошные. */

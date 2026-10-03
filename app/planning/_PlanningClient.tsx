@@ -36,7 +36,7 @@ import {
   trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, isLegacyCrumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
-import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedCarLine } from '@/lib/map/line-standard';
+import { connectorLine, CONNECTOR_TITLES, TRAIL_TITLE, trackLine, calculatedLine } from '@/lib/map/line-standard';
 import { builtRegionPacks, chooseFieldBaseMap, fieldMapStartCenter } from '@/lib/map/field-base-map';
 import type { PackFile } from '@/lib/offline/pack-files';
 import { planRouteMap, saveRouteMap } from '@/lib/offline/route-map-save';
@@ -2032,7 +2032,8 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     // ещё раз: линия, которую показывать нельзя, не рисуется молча.
     const calc = mapCalculated;
     if (calc && calc.mayDisplay && calc.geometry.type === 'LineString' && calc.geometry.coordinates.length >= 2) {
-      out.push({ coordinates: calc.geometry.coordinates, kind: 'calculated' });
+      // Пеший путь (03.10) — свой род: пунктир, а не сплошная (§12).
+      out.push({ coordinates: calc.geometry.coordinates, kind: calc.travelMode === 'foot' ? 'calculated_foot' : 'calculated' });
     }
     return out;
   }, [fieldBaseMap.kind, mapMarkers, mapCalculated]);
@@ -2040,11 +2041,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const vedarPoints: VedarMapPoint[] = useMemo(() => {
     const calc = mapCalculated;
     if (fieldBaseMap.kind !== 'vedar' || !calc || !calc.mayDisplay) return [];
+    const foot = calc.travelMode === 'foot';
     return [
       { coordinates: [calc.originSnapped.lon, calc.originSnapped.lat], kind: 'calculated_end',
-        label: `Старт на дороге · ${Math.round(calc.originSnapped.snapDistanceM)} м` },
+        label: `${foot ? 'Начало тропы' : 'Старт на дороге'} · ${Math.round(calc.originSnapped.snapDistanceM)} м` },
       { coordinates: [calc.destinationSnapped.lon, calc.destinationSnapped.lat], kind: 'calculated_end',
-        label: `Цель на дороге · ${Math.round(calc.destinationSnapped.snapDistanceM)} м` },
+        label: `${foot ? 'Конец тропы' : 'Цель на дороге'} · ${Math.round(calc.destinationSnapped.snapDistanceM)} м` },
     ];
   }, [fieldBaseMap.kind, mapCalculated]);
   // Новый автопуть — в кадр целиком, один раз на путь: дальше человек
@@ -2104,14 +2106,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   ), [coords]);
   /**
    * «Проложить сюда» с карточки точки: старт — мой фикс, цель — булавка,
-   * способ — автомобиль (граф дорог). Дальше работает та же машина
+   * способ — тот, что выбран кнопкой: пешком или на машине (03.10). Дальше работает та же машина
    * состояний build(), что и в планировщике: второго пути к серверу нет.
    */
-  const routeFromCard = useCallback(() => {
+  const routeFromCard = useCallback((mode: RouteBuildMode) => {
     if (!pointCard || pointCard.kind !== 'pin' || !coords) return;
     cardBuildRef.current = true;
     setCardRoute({ phase: 'building' });
-    setBuildTravelMode('car');
+    setBuildTravelMode(mode);
     setSelectedOrigin({ kind: 'current', lat: coords.lat, lon: coords.lng, accuracyM: coords.accuracy ?? undefined });
     setSelectedDestination({ destination: { kind: 'coordinate', lat: pointCard.lat, lon: pointCard.lng, title: pointCard.name ?? 'Точка на карте' }, routeOptions: [] });
   }, [pointCard, coords]);
@@ -2125,7 +2127,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       const withLine = r.options.find(o => o.calculated);
       if (withLine) {
         openPreview(routeOptionToPreview(withLine));
-        setCardRoute({ phase: 'found' });
+        setCardRoute({ phase: 'found', mode: withLine.calculated?.travelMode ?? 'car' });
       } else {
         setCardRoute({ phase: 'failed', text: 'Готовые треки нашлись, а дороги по графу нет — откройте «Куда хотите пойти?»' });
       }
@@ -2170,7 +2172,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     if (calc && calc.mayDisplay) {
       const leafletLine = calculatedCarToLeafletCoordinates(calc);
       if (leafletLine) {
-        const line = calculatedCarLine();
+        const line = calculatedLine(calc.travelMode);
         out.push({
           coords: leafletLine[Math.floor(leafletLine.length / 2)],
           title: line.title,
@@ -2279,7 +2281,8 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     const { route } = calculatedPreview;
     const leafletLine = calculatedCarToLeafletCoordinates(route);
     if (!leafletLine) return null;
-    const line = calculatedCarLine();
+    const line = calculatedLine(route.travelMode);
+    const foot = route.travelMode === 'foot';
     const center: [number, number] = leafletLine[Math.floor(leafletLine.length / 2)];
     const markers: MapMarker[] = [
       {
@@ -2295,15 +2298,19 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       },
       {
         coords: [route.originSnapped.lat, route.originSnapped.lon],
-        title: 'Старт на дороге',
-        description: `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
+        title: foot ? 'Начало тропы' : 'Старт на дороге',
+        description: foot
+          ? `До тропы или дороги от вас ${Math.round(route.originSnapped.snapDistanceM)} м`
+          : `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
         color: 'orange',
         type: MarkerType.POI,
       },
       {
         coords: [route.destinationSnapped.lat, route.destinationSnapped.lon],
-        title: 'Цель на дороге',
-        description: `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
+        title: foot ? 'Конец тропы' : 'Цель на дороге',
+        description: foot
+          ? `От конца тропы до цели ${Math.round(route.destinationSnapped.snapDistanceM)} м`
+          : `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
         color: 'green',
         type: MarkerType.POI,
       },
@@ -2846,10 +2853,9 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
         {renderOriginPicker()}
 
-        {/* Выбор способа передвижения (владелец 28.08) — сервер 5B-1
-            подключает провайдера только для mode: 'car'; 'foot' остаётся
-            честным unsupported до 5B-2. Без явного выбора экран посылал бы
-            'foot' всегда, и ветка calculated_car была бы недостижима. */}
+        {/* Выбор способа передвижения (владелец 28.08). С 03.10 сервер
+            считает оба: машину по дорожному графу, пешком — по тропам и
+            дорогам того же графа (5B-2). */}
         {selectedOrigin && (
           <div className="flex gap-2 mb-3">
             {(['car', 'foot'] as const).map(m => (
@@ -3516,7 +3522,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       // запись из каталога готовых туристических путей, а это не так.
       const heading = buildTravelMode === 'car'
         ? 'Автомобильный путь от вашего старта'
-        : 'Путь от вашего старта';
+        : 'Пеший путь от вашего старта';
       return (
         <div className="mb-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
