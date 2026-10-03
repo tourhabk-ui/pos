@@ -1,12 +1,9 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 11,
-  "why": "Владелец: Беринг и Крашенинников — биографии и экспедиции для летописи.",
+  "batch": 12,
+  "why": "Вулкан Крашенинникова — в честь кого назван, когда; id места в каталоге.",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Беринг,_Витус_Ионассен",
-    "https://ru.wikipedia.org/wiki/Крашенинников,_Степан_Петрович",
-    "https://ru.wikipedia.org/wiki/Описание_земли_Камчатки",
-    "https://ru.wikipedia.org/wiki/Вторая_Камчатская_экспедиция",
-    "https://ru.wikipedia.org/wiki/Первая_Камчатская_экспедиция"
+    "https://ru.wikipedia.org/wiki/Крашенинникова_(вулкан)",
+    "https://vedarai.ru/api/places?q=%D0%9A%D1%80%D0%B0%D1%88%D0%B5%D0%BD%D0%B8%D0%BD%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2%D0%B0"
   ]
 }
