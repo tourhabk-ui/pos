@@ -1,20 +1,17 @@
 {
-  "note": "03.10. Радар «9 ч назад»: подпись свежести плитки на главной (aria-label «Радар обстановки. …»), без вызова ingest. Предыдущий ручной ingest — 08:27 UTC.",
-  "run": 664,
+  "note": "03.10. После деплоя fcdbc913: подпись свежести радара на мобильной главной (было «Обстановка недоступна» на сервере / «9 ч назад» на телефоне).",
+  "run": 665,
   "timeout": 60,
   "retries": 0,
   "bytes": 200,
   "allowStale": true,
+  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36",
   "urls": [
     "https://vedarai.ru/"
   ],
   "around": [
-    "Радар обстановки",
-    "ч назад",
-    "мин назад"
+    "Радар обстановки"
   ],
   "aroundLines": 0,
-  "aroundBefore": 0,
-  "aroundHits": 2,
-  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36"
+  "aroundHits": 1
 }
