@@ -140,6 +140,13 @@ describe('статьи летописи', () => {
     expect(t).toContain('1737 по 1741');
     expect(t).toContain('25 773');
   });
+
+  it('Паратунка: связана с источниками; версия шамана и расхождение «ительменский / айнский»', () => {
+    expect(chronicleForPlace('af073d1b-d101-4fce-9197-4ea6a84340af').map((a) => a.slug)).toContain('toponim-paratunka');
+    const t = text('toponim-paratunka');
+    expect(t).toContain('Паратун — ительменского шамана');
+    expect(t).toContain('айнского');
+  });
 });
 
 
