@@ -103,9 +103,31 @@ jobs:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
-          REQUIRE_FRESH: '1'
-          ATTEMPTS: '110'
+          # 03.10: ожидание больше не приговор. Маркер сборки отдаёт built_at
+          # НАЧАЛА сборки (+25 с от пуша), а скрипт требует +600 с — run 8
+          # просидел 55 минут при давно выкатанном коде. Приговор выносит
+          # следующий шаг по признаку самого кода, а не по времени.
+          REQUIRE_FRESH: '0'
+          ATTEMPTS: '40'
         run: bash scripts/wait-for-deploy.sh
+
+      # Признак КОДА, а не времени сборки: POST появился в v4 (03.10). Новый
+      # код на пустое тело отвечает 400 (Zod), старый — 405 (метода нет).
+      - name: На проде код сверки с POST
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          for i in $(seq 1 40); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${CRON_SECRET}" -H "Content-Type: application/json" \
+              --data '{}' --max-time 30 "https://vedarai.ru/api/cron/places-osm-crosscheck") || CODE=000
+            if [ "$CODE" = "400" ]; then echo "код с POST на проде (400 на пустое тело)"; exit 0; fi
+            echo "ещё не тот код: HTTP $CODE, жду 30 с ($i/40)"
+            sleep 30
+          done
+          echo "::error::Код сверки с POST на прод не доехал за 20 минут (последний ответ HTTP $CODE). Это «не смогли спросить», а не «расхождений нет»."
+          exit 1
 
       - name: Сверка
         env:
