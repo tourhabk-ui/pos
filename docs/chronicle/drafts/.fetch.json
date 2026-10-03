@@ -1,18 +1,12 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts: раннер читает перечисленные страницы и печатает их текст в лог и в check-runs chronicle-page-NN.",
-  "batch": 3,
-  "why": "Летопись: кладбище кораблей Северо-Курильска (fishnews, vladnews, sakh.online, eastrussia), маяк Станицкого у штурманов ТОФ, Бечевинка/Финвал по координате «Карымского», населённые пункты Камчатки у Пирагиса, музей Северо-Курильска (museum.ru N47761), Гундзи.",
+  "batch": 4,
+  "why": "Летопись: история застройки Никольского (Алеутский музей — дом дьякона, уездный суд, фактория), Бечевинка по верному заголовку, мемориал Беринга в Никольском, Петропавловская оборона для привязки памятника.",
   "urls": [
-    "https://fishnews.ru/news/50724",
-    "https://vladnews.ru/2022-10-17/208829/kladbishche_zatonuvshih",
-    "https://sakh.online/news/18/2022-03-22/videofakt-kak-vyglyadit-kladbische-korabley-na-kurilah-333868",
-    "https://www.eastrussia.ru/material/bereg-pogibshikh-korabley-/",
-    "http://shturman-tof.ru/Morskay/mayki/stanickogo_mayk.htm",
-    "https://ru.wikipedia.org/wiki/Бечевинка",
-    "https://ru.wikipedia.org/wiki/Финвал_(Камчатский_край)",
-    "https://www.piragis.ru/history/naselennye-punkty-kamchatka.html",
-    "http://www.museum.ru/N47761",
-    "https://ru.wikipedia.org/wiki/Гундзи,_Сигэтада",
-    "https://ru.wikipedia.org/wiki/Байково_(Сахалинская_область)"
+    "https://bering-museum.ru/istoriya-zastrojki-sela-nikolskoe/",
+    "https://ru.wikipedia.org/wiki/Бечевинка_(Камчатский_край)",
+    "https://petersmonuments.ru/russia/memorials/memorial-v-beringa-nikolskoe-kamchatskiy-kray/",
+    "https://bering-museum.ru/",
+    "https://sakh.online/news/18/2022-03-22/videofakt-kak-vyglyadit-kladbische-korabley-na-kurilah-333868/"
   ]
 }
