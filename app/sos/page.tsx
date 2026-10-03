@@ -25,7 +25,7 @@ type GeoErrorInfo = { code: number | string; reason: string; hint: string; retry
 
 type LocatorState =
   | { phase: 'locating'; seconds: number }
-  | { phase: 'found'; seconds: number; coords: { lat: number; lng: number; acc: number; timestamp: number | null } }
+  | { phase: 'found'; seconds: number; refining?: boolean; coords: { lat: number; lng: number; acc: number; timestamp: number | null } }
   | { phase: 'error'; seconds: number; error: GeoErrorInfo };
 
 type LastKnown = {
@@ -38,6 +38,7 @@ interface VedarGeoAPI {
   readLastKnown: (now?: number) => LastKnown | null;
   attachDistance: (last: LastKnown | null, curLat: number | null, curLng: number | null) => LastKnown | null;
   progressLabel: (seconds: number) => string;
+  accuracyLabel: (acc: number | null, refining?: boolean) => string;
   createLocator: (opts: { onState: (s: LocatorState) => void; onFix?: (p: GeolocationPosition) => void })
     => { start: () => void; retry: () => void; stop: () => void };
 }
@@ -111,6 +112,13 @@ function ensureQrModule(): Promise<QrFactory | null> {
 export default function SosPage() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [coordsText, setCoordsText] = useState('Определяем...');
+  // Точность показанной точки словами: «±1,2 км — уточняем» у быстрой точки
+  // по вышкам, «±8 м» у спутниковой. Без неё грубая точка выглядела бы
+  // такой же уверенной, как точная (03.10, см. geo-degradation.js).
+  const [accText, setAccText] = useState<string | null>(null);
+  // Последняя точка локатора — её и шлёт SOS, не заставляя человека ждать
+  // ещё один поиск, когда место уже известно.
+  const bestFixRef = useRef<{ lat: number; lng: number; acc: number | null } | null>(null);
   const [geoError, setGeoError] = useState<GeoErrorInfo | null>(null);
   const [lastKnown, setLastKnown] = useState<LastKnown | null>(null);
   // Блок «последний сигнал сети» — страховка для ОФЛАЙНА. При живой сети он
@@ -149,11 +157,17 @@ export default function SosPage() {
           if (cancelled) return;
           if (s.phase === 'locating') {
             setGeoError(null);
+            setAccText(null);
             setCoordsText(api.progressLabel(s.seconds));
           } else if (s.phase === 'found') {
             setGeoError(null);
             setCoords({ lat: s.coords.lat, lng: s.coords.lng });
+            bestFixRef.current = {
+              lat: s.coords.lat, lng: s.coords.lng,
+              acc: Number.isFinite(s.coords.acc) ? s.coords.acc : null,
+            };
             setCoordsText(`${s.coords.lat.toFixed(5)}°N, ${s.coords.lng.toFixed(5)}°E`);
+            setAccText(api.accuracyLabel(Number.isFinite(s.coords.acc) ? s.coords.acc : null, s.refining === true));
             const fresh = api.readLastKnown();
             setLastKnown(fresh ? api.attachDistance(fresh, s.coords.lat, s.coords.lng) : null);
           } else if (s.phase === 'error') {
@@ -214,7 +228,7 @@ export default function SosPage() {
         sos_id: qrSosIdRef.current,
         lat: coords.lat,
         lng: coords.lng,
-        accuracy: null,
+        accuracy: bestFixRef.current?.acc ?? null,
         tourist_name: name.trim() || null,
         tourist_phone: phone.trim() || null,
         message: null,
@@ -247,7 +261,10 @@ export default function SosPage() {
     setSendStatus('locating');
 
     let position: GeolocationPosition | null = null;
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    // Место уже известно локатору — шлём его сразу. Прежде отправка всякий
+    // раз начинала свой поиск (до 8 секунд) даже при координатах на экране.
+    const known = bestFixRef.current;
+    if (!known && typeof navigator !== 'undefined' && navigator.geolocation) {
       try {
         position = await new Promise<GeolocationPosition>((resolve, reject) => {
           navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -263,9 +280,9 @@ export default function SosPage() {
     setSendStatus('sending');
 
     const sosPayload = {
-      lat: position?.coords.latitude ?? null,
-      lng: position?.coords.longitude ?? null,
-      accuracy: position?.coords.accuracy ?? null,
+      lat: known?.lat ?? position?.coords.latitude ?? null,
+      lng: known?.lng ?? position?.coords.longitude ?? null,
+      accuracy: known ? known.acc : position?.coords.accuracy ?? null,
       tourist_name: name.trim() || null,
       tourist_phone: phone.trim() || null,
     };
@@ -413,9 +430,16 @@ export default function SosPage() {
                 </p>
               </>
             ) : (
-              <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'white' }}>
-                {coordsText}
-              </p>
+              <>
+                <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'white' }}>
+                  {coordsText}
+                </p>
+                {accText && (
+                  <p style={{ fontSize: '11px', margin: '2px 0 0', color: 'rgba(255,255,255,0.6)', lineHeight: 1.4 }}>
+                    {accText}
+                  </p>
+                )}
+              </>
             )}
           </div>
           {geoError && geoError.retryable && (

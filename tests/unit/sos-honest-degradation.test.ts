@@ -13,7 +13,7 @@
  * уважение флага retryable обоими экранами, чтение точки только через валидатор
  * и отсутствие гонки между попытками поиска.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -36,6 +36,8 @@ const VedarGeo = requireCjs(join(ROOT, 'public/safety/geo-degradation.js')) as {
   attachDistance: (last: unknown, curLat: number | null, curLng: number | null) => unknown;
   describeError: (code: number | string) => { code: number | string; reason: string; hint: string; retryable: boolean };
   progressLabel: (seconds: number) => string;
+  accuracyLabel: (acc: number | null, refining?: boolean) => string;
+  HARD_TIMEOUT_MS: number;
   createLocator: (opts: { onState: (s: LocState) => void; geolocation?: unknown }) => { start: () => void; retry: () => void; stop: () => void };
 };
 
@@ -55,13 +57,16 @@ function fakeStorage(initial: string | null) {
 
 /** Управляемая заглушка geolocation: callbacks вызываем вручную. */
 function fakeGeo() {
-  const calls: { get: Array<{ succ: (p: unknown) => void; err: (e: unknown) => void }>; watch: number; cleared: number[] } = {
-    get: [], watch: 0, cleared: [],
+  type Cb = { succ: (p: unknown) => void; err: (e: unknown) => void; opts?: PositionOptions };
+  const calls: { get: Cb[]; watches: Cb[]; watch: number; cleared: number[] } = {
+    get: [], watches: [], watch: 0, cleared: [],
   };
   return {
     _calls: calls,
-    getCurrentPosition(succ: (p: unknown) => void, err: (e: unknown) => void) { calls.get.push({ succ, err }); },
-    watchPosition(_succ: (p: unknown) => void, _err: (e: unknown) => void) { calls.watch++; return 100 + calls.watch; },
+    getCurrentPosition(succ: (p: unknown) => void, err: (e: unknown) => void, opts?: PositionOptions) { calls.get.push({ succ, err, opts }); },
+    watchPosition(succ: (p: unknown) => void, err: (e: unknown) => void, opts?: PositionOptions) {
+      calls.watches.push({ succ, err, opts }); calls.watch++; return 100 + calls.watch;
+    },
     clearWatch(id: number) { calls.cleared.push(id); },
   };
 }
@@ -175,13 +180,13 @@ describe('причина отказа различима и повтор чес�
 });
 
 describe('локатор: честная оркестрация', () => {
-  it('отказ в разрешении (code 1) не уходит в 30-секундный watch', () => {
+  it('отказ в разрешении (code 1) не ждёт 30 секунд — причина сразу, слежение снято', () => {
     const geo = fakeGeo();
     const states: LocState[] = [];
     const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
     loc.start();
     geo._calls.get[0].err({ code: 1 });
-    expect(geo._calls.watch, 'watch при отказе разрешения не нужен').toBe(0);
+    expect(geo._calls.cleared, 'слежение при отказе разрешения должно сниматься').toContain(101);
     const last = states[states.length - 1];
     expect(last.phase).toBe('error');
     expect(last.phase === 'error' && last.error.code).toBe(1);
@@ -205,6 +210,90 @@ describe('локатор: честная оркестрация', () => {
     expect(found.length).toBe(1);
     expect(found[0].coords.lat).toBe(53);
     loc.stop();
+  });
+});
+
+describe('локатор: быстрая точка сразу, спутник уточняет (03.10)', () => {
+  // Скрин владельца 03.10: «очень долго определяет координаты, почему другие
+  // приложения делают это моментально?». Прежде строгий спутниковый запрос
+  // ждал до 10 с, и только после его отказа спрашивалась быстрая позиция.
+  const pos = (lat: number, acc: number) => ({ coords: { latitude: lat, longitude: 158, accuracy: acc }, timestamp: 0 });
+  type Found = Extract<LocState, { phase: 'found' }> & { refining?: boolean };
+  const founds = (st: LocState[]) => st.filter((s): s is Found => s.phase === 'found');
+
+  it('оба запроса уходят сразу: быстрый по сети и точный по спутникам', () => {
+    const geo = fakeGeo();
+    const loc = VedarGeo.createLocator({ geolocation: geo, onState: () => {} });
+    loc.start();
+    expect(geo._calls.get.length).toBe(1);
+    expect(geo._calls.watches.length, 'спутник не должен ждать отказа быстрого').toBe(1);
+    expect(geo._calls.get[0].opts?.enableHighAccuracy).toBe(false);
+    expect(geo._calls.watches[0].opts?.enableHighAccuracy).toBe(true);
+    loc.stop();
+  });
+
+  it('грубая точка показывается сразу и с пометкой «уточняем»', () => {
+    const geo = fakeGeo();
+    const states: LocState[] = [];
+    const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+    loc.start();
+    geo._calls.get[0].succ(pos(53, 1200));
+    const f = founds(states);
+    expect(f.length).toBe(1);
+    expect(f[0].refining).toBe(true);
+    expect(f[0].coords.acc).toBe(1200);
+    expect(geo._calls.cleared, 'уточнение не должно сниматься на грубой точке').toEqual([]);
+    loc.stop();
+  });
+
+  it('спутник уточняет, а грубая точка после него точную не перетирает', () => {
+    const geo = fakeGeo();
+    const states: LocState[] = [];
+    const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+    loc.start();
+    geo._calls.watches[0].succ(pos(53.1, 60));
+    geo._calls.get[0].succ(pos(53.5, 1500));
+    const f = founds(states);
+    expect(f.length).toBe(1);
+    expect(f[0].coords.lat).toBe(53.1);
+    loc.stop();
+  });
+
+  it('хорошая точность — уточнение закончено, слежение снято', () => {
+    const geo = fakeGeo();
+    const states: LocState[] = [];
+    const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+    loc.start();
+    geo._calls.get[0].succ(pos(53, 900));
+    geo._calls.watches[0].succ(pos(53.01, 8));
+    const f = founds(states);
+    expect(f[f.length - 1].coords.acc).toBe(8);
+    expect(f[f.length - 1].refining).toBe(false);
+    expect(geo._calls.cleared).toContain(101);
+  });
+
+  it('без единой точки — честный отказ по таймеру, а не вечное «ищем»', () => {
+    vi.useFakeTimers();
+    try {
+      const geo = fakeGeo();
+      const states: LocState[] = [];
+      const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+      loc.start();
+      geo._calls.get[0].err({ code: 2 });
+      expect(states[states.length - 1].phase, 'один отказ не рвёт поиск: спутник ещё может ответить').toBe('locating');
+      vi.advanceTimersByTime(VedarGeo.HARD_TIMEOUT_MS + 1);
+      const last = states[states.length - 1];
+      expect(last.phase).toBe('error');
+      expect(last.phase === 'error' && last.error.code).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('точность словами: километры, метры и «уточняем»', () => {
+    expect(VedarGeo.accuracyLabel(1200, true)).toBe('±1.2 км — уточняем');
+    expect(VedarGeo.accuracyLabel(8, false)).toBe('±8 м');
+    expect(VedarGeo.accuracyLabel(null, false)).toMatch(/неизвестна/);
   });
 });
 

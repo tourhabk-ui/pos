@@ -121,6 +121,17 @@
     }
   }
 
+  /*
+   * Точность словами — общая для обоих экранов. Грубая точка по вышке без
+   * этой приписки выглядела бы такой же уверенной, как спутниковая, и
+   * диспетчер 112 искал бы человека в круге километр, думая, что в метрах.
+   */
+  function accuracyLabel(acc, refining) {
+    if (typeof acc !== 'number' || !isFinite(acc)) return refining ? 'точность неизвестна — уточняем' : 'точность неизвестна';
+    var m = acc >= 1000 ? (Math.round(acc / 100) / 10) + ' км' : Math.round(acc) + ' м';
+    return '±' + m + (refining ? ' — уточняем' : '');
+  }
+
   /* Текст прогресса поиска по числу секунд — общий для обоих экранов. */
   function progressLabel(seconds) {
     if (seconds <= 0) return 'Определяем GPS…';
@@ -130,16 +141,33 @@
   }
 
   /*
+   * Точность, при которой уточнять дальше незачем: спутниковый фикс под
+   * открытым небом. Достигли — слежение снимается (батарея в поле дороже).
+   */
+  var GOOD_ACC_M = 25;
+  /* Сколько уточнять после первой точки, если хорошей точности так и нет. */
+  var REFINE_MS = 60000;
+  /* Сколько ждать хоть какой-то точки, прежде чем назвать причину отказа. */
+  var HARD_TIMEOUT_MS = 30000;
+
+  /*
    * Локатор: одна оркестрация поиска для обоих экранов.
    *
    * Эмитит состояния через onState:
-   *   { phase: 'locating', seconds }             — идёт поиск, тикает секундами
-   *   { phase: 'found', seconds, coords }        — координаты получены
-   *   { phase: 'error', seconds, error }         — отказ с человеческой причиной
+   *   { phase: 'locating', seconds }                       — идёт поиск, тикает секундами
+   *   { phase: 'found', seconds, coords, refining }        — координаты получены;
+   *                                                          refining — ещё уточняем
+   *   { phase: 'error', seconds, error }                   — отказ с человеческой причиной
    *
-   * Сначала строгий getCurrentPosition с кешем до 5 мин (мгновенный ответ,
-   * если телефон уже знает где он), при отказе — мягкий watchPosition. Так же,
-   * как это делает честный /emergency; /sos раньше делал одну попытку и сдавался.
+   * Два запроса СРАЗУ, а не по очереди (скрин владельца 03.10: «очень долго
+   * определяет координаты, почему другие приложения делают это моментально?»).
+   * Прежде строгий спутниковый запрос ждал до 10 секунд, и только после его
+   * отказа спрашивалась быстрая позиция — человек у SOS смотрел на «Слабый
+   * сигнал» там, где телефон по вышкам и Wi-Fi знал место за секунду. Так,
+   * как делают карты: быстрая грубая точка — сразу, с честной точностью
+   * («±1200 м»), спутниковая — уточняет её следом. Каждая следующая точка
+   * принимается, только если она ТОЧНЕЕ показанной: грубая вышка не
+   * перетирает пришедший спутник.
    *
    * Модуль НЕ пишет позицию в localStorage: единственный writer точки —
    * components/tracking/LastPositionTracker (пишет при онлайн-геолокации на
@@ -159,6 +187,7 @@
     var watchId = null;
     var timer = null;
     var hardTimer = null;
+    var refineTimer = null;
     var seconds = 0;
     var done = false;
     var generation = 0;
@@ -166,6 +195,7 @@
     function clearTimers() {
       if (timer) { clearInterval(timer); timer = null; }
       if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+      if (refineTimer) { clearTimeout(refineTimer); refineTimer = null; }
       if (watchId != null && geo) { try { geo.clearWatch(watchId); } catch (e) {} watchId = null; }
     }
 
@@ -174,24 +204,41 @@
       var myGen = ++generation;
       done = false;
       seconds = 0;
+      var best = null;      // показанная точка: { lat, lng, acc, timestamp }
+      var lastErr = null;   // последняя причина отказа — для честного сообщения
 
       // true, если этот callback принадлежит уже отменённой попытке.
       function stale() { return myGen !== generation; }
 
-      function success(position) {
-        if (done || stale()) return;
+      function emitFound(refining) {
+        onState({ phase: 'found', seconds: seconds, refining: refining, coords: best });
+      }
+
+      // Уточнение закончено: хорошая точность или вышло время. Показанная
+      // точка остаётся, слежение и таймеры снимаются.
+      function finish() {
+        if (done) return;
         done = true;
         clearTimers();
-        onState({
-          phase: 'found',
-          seconds: seconds,
-          coords: {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            acc: position.coords.accuracy,
-            timestamp: position.timestamp || null
-          }
-        });
+        if (best) emitFound(false);
+      }
+
+      function fix(position) {
+        if (done || stale()) return;
+        var c = position && position.coords;
+        if (!c || !isFinite(c.latitude) || !isFinite(c.longitude)) return;
+        var acc = isFinite(c.accuracy) ? c.accuracy : Infinity;
+        // Точку грубее показанной не берём: вышка не перетирает спутник.
+        if (best && !(acc < best.acc)) return;
+        var first = !best;
+        best = { lat: c.latitude, lng: c.longitude, acc: acc, timestamp: position.timestamp || null };
+        if (first) {
+          if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+          if (timer) { clearInterval(timer); timer = null; }
+          refineTimer = setTimeout(function () { if (!stale()) finish(); }, REFINE_MS);
+        }
+        if (acc <= GOOD_ACC_M) { finish(); return; }
+        emitFound(true);
       }
 
       function fail(err) {
@@ -199,6 +246,14 @@
         done = true;
         clearTimers();
         onState({ phase: 'error', seconds: seconds, error: describeError(err && err.code) });
+      }
+
+      function soft(err) {
+        if (done || stale()) return;
+        // Отказ в разрешении повтором и ожиданием не лечится — сразу причина.
+        if (err && err.code === 1) { fail(err); return; }
+        lastErr = err || lastErr;
+        // Прочие отказы ждут: второй запрос ещё может ответить (hardTimer).
       }
 
       if (!geo) {
@@ -209,29 +264,23 @@
 
       onState({ phase: 'locating', seconds: 0 });
       timer = setInterval(function () {
-        if (done || stale()) return;
+        if (done || stale() || best) return;
         seconds++;
         onState({ phase: 'locating', seconds: seconds });
       }, 1000);
 
-      geo.getCurrentPosition(
-        success,
-        function (firstErr) {
-          if (done || stale()) return;
-          // Отказ в разрешении повтором не лечится — не ждём 30 сек впустую.
-          if (firstErr && firstErr.code === 1) { fail(firstErr); return; }
-          // Строгая попытка не удалась — переключаемся на менее строгий watch.
-          try {
-            watchId = geo.watchPosition(
-              success,
-              function () { /* ждём hardTimer, а не рвём поиск на первой ошибке watch */ },
-              { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 }
-            );
-          } catch (e) { /* watch не поддержан — упадём в fail по таймеру */ }
-          hardTimer = setTimeout(function () { if (!done && !stale()) fail(firstErr); }, 30000);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-      );
+      // Быстрая: вышки и Wi-Fi, кеш до 5 минут — за секунду, если телефон
+      // хоть что-то знает о месте.
+      geo.getCurrentPosition(fix, soft,
+        { enableHighAccuracy: false, timeout: HARD_TIMEOUT_MS, maximumAge: 300000 });
+      // Точная: спутники, уточняет быструю по мере прихода.
+      try {
+        watchId = geo.watchPosition(fix, soft,
+          { enableHighAccuracy: true, timeout: HARD_TIMEOUT_MS, maximumAge: 0 });
+      } catch (e) { /* watch не поддержан — остаётся быстрая */ }
+      hardTimer = setTimeout(function () {
+        if (!done && !stale() && !best) fail(lastErr || { code: 3 });
+      }, HARD_TIMEOUT_MS);
     }
 
     return { start: start, retry: start, stop: clearTimers };
@@ -240,6 +289,10 @@
   var API = {
     LAST_POS_KEY: LAST_POS_KEY,
     MAX_AGE_MS: MAX_AGE_MS,
+    GOOD_ACC_M: GOOD_ACC_M,
+    REFINE_MS: REFINE_MS,
+    HARD_TIMEOUT_MS: HARD_TIMEOUT_MS,
+    accuracyLabel: accuracyLabel,
     haversineKm: haversineKm,
     formatAge: formatAge,
     readLastKnown: readLastKnown,
