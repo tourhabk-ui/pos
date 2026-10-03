@@ -1,10 +1,13 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 7,
-  "why": "Принц Филипп на Камчатке: 1995 или 1997 — русская Википедия, РИА Новости (Хабаровск 1997), sakhaday (Якутия 1995).",
+  "batch": 8,
+  "why": "Проверка присланного владельцем текста о визитах членов правящих домов на Камчатку: принц Филипп 1997, князь Альберт II 2007, Мария Романова 2015 — по названным в тексте источникам.",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Филипп,_герцог_Эдинбургский",
-    "https://ria.ru/20210412/khabarovsk-1727879175.html",
-    "https://sakhaday.ru/news/blyuda-tarbahova-orkestr-vshm-i-ledokol-kak-v-yakutii-v-1995-godu-vstrechali-princa-filippa"
+    "https://kamchatinfo.com/news/detail/42898/",
+    "https://www.hab.kp.ru/daily/27264/4397220/",
+    "https://kamchatka.aif.ru/archive/1780325",
+    "https://ria.ru/20070820/72543566.html",
+    "https://kamchatka.aif.ru/society/knyaginya_mariya_romanova_pribyla_na_kamchatku_s_chastnym_vizitom",
+    "http://www.viluchinsk-city.ru/about/info/news/1667/"
   ]
 }
