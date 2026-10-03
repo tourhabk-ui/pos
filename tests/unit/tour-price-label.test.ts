@@ -128,7 +128,7 @@ describe('единицы цены не вшиты ни в одну поверх�
 
   it('оба запроса резолвера выбирают price_unit', () => {
     // Иначе единица снова «отбрасывается», а не «неизвестна».
-    const selects = tool.match(/SELECT id, title, operator_id, base_price, price_unit, slug FROM operator_tours/g) ?? [];
+    const selects = tool.match(/SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours FROM operator_tours/g) ?? [];
     expect(selects.length).toBe(2);
   });
 

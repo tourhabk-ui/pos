@@ -173,6 +173,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     tour: { lead: 'Tour title, keyword or numeric ID from get_tours.' },
     date_from: { lead: 'Start of the window, YYYY-MM-DD; default today.', example: '2027-07-15' },
     days: { lead: 'Window length in days, 1–31; default 14.', example: '14' },
+    people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses.', example: '2' },
   },
   get_guardian_context: {
     place: { lead: 'Place or route name.', example: 'Авачинский вулкан' },
