@@ -1384,6 +1384,42 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     window.addEventListener('deviceorientationabsolute', handleAbsolute as EventListener, true);
     window.addEventListener('deviceorientation', handleRelative as EventListener);
     if ('geolocation' in navigator) {
+      /**
+       * Первая точка — сразу, не дожидаясь спутников (03.10, владелец: «SOS
+       * открывает координаты моментально, а на маршруте долго ищет»).
+       *
+       * Слежение ниже просит точный фикс не старше 5 с — его телефон отдаёт
+       * только после спутников, а до того экран стоял на «GPS не получен» и
+       * «Ждём сигнал GPS». SOS ту же задачу решает тремя запросами разом
+       * (public/safety/geo-degradation.js), здесь — двумя первыми из них:
+       *   - последняя точка, которую телефон уже знает (maximumAge: Infinity,
+       *     ответ за доли секунды);
+       *   - сетевая точка не старше 5 минут (вышки, Wi-Fi).
+       * Старая точка не выдаётся за живую: её возраст берётся из
+       * pos.timestamp, и fixInfo подписывает её «сигнал потерян N мин назад».
+       * Свежая точка не затирается старой — побеждает больший timestamp;
+       * живой фикс слежения всегда новее. В след и крошки такие точки не
+       * идут: это не движение человека.
+       *
+       * Отказы этих двух запросов не показываются: про «GPS не отвечает»
+       * говорит слежение, и третий голос о том же только путал бы.
+       */
+      const seedFix = (pos: GeolocationPosition) => {
+        if (typeof pos.coords.accuracy === 'number' && !fixAccuracyPlausible(pos.coords.accuracy)) return;
+        const t = pos.timestamp ?? Date.now();
+        setCoords(prev => (prev && prev.t >= t) ? prev : {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          alt: pos.coords.altitude,
+          accuracy: typeof pos.coords.accuracy === 'number' ? pos.coords.accuracy : null,
+          t,
+        });
+      };
+      const seedSilent = () => { /* голос об отказе — у слежения ниже */ };
+      navigator.geolocation.getCurrentPosition(seedFix, seedSilent,
+        { enableHighAccuracy: false, maximumAge: Infinity, timeout: 1_000 });
+      navigator.geolocation.getCurrentPosition(seedFix, seedSilent,
+        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 15_000 });
       watchRef.current = navigator.geolocation.watchPosition(
         pos => {
           // Свежий timestamp с точностью в десятки километров — не GPS, а

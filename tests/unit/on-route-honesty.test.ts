@@ -106,11 +106,18 @@ describe('точность в десятки километров — не GPS, 
   });
 
   it('экран отбрасывает неправдоподобный фикс у источника (watchPosition), не пускает его в coords', () => {
-    // Единственное место, где coords вообще устанавливается — если бы
-    // проверка стояла в каком-то из потребителей (approach, distToNext,
-    // RecoveryCard), та же ложь могла бы всплыть в другом месте экрана.
-    const setCoordsCalls = SCREEN.match(/setCoords\(/g) ?? [];
-    expect(setCoordsCalls).toHaveLength(1);
+    // Проверка стоит у ИСТОЧНИКА, а не у потребителей (approach, distToNext,
+    // RecoveryCard): иначе та же ложь всплыла бы в другом месте экрана.
+    // Источников с 03.10 два — слежение и первая точка без ожидания
+    // спутников (seedFix, tests/unit/field-first-fix.test.ts), — и у
+    // КАЖДОЙ установки coords проверка обязана стоять в том же колбэке.
+    const setCoordsAts = [...SCREEN.matchAll(/setCoords\(/g)].map((m) => m.index ?? 0);
+    expect(setCoordsAts).toHaveLength(2);
+    for (const at of setCoordsAts) {
+      const cbStart = Math.max(SCREEN.lastIndexOf('pos => {', at), SCREEN.lastIndexOf('const seedFix = (pos', at));
+      expect(cbStart).toBeGreaterThan(0);
+      expect(SCREEN.slice(cbStart, at)).toContain('fixAccuracyPlausible(pos.coords.accuracy)');
+    }
     const watchAt = SCREEN.indexOf('navigator.geolocation.watchPosition(');
     const setCoordsAt = SCREEN.indexOf('setCoords(', watchAt);
     const guardAt = SCREEN.indexOf('fixAccuracyPlausible(pos.coords.accuracy)', watchAt);
