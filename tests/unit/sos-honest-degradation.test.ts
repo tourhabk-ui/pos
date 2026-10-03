@@ -197,15 +197,15 @@ describe('локатор: честная оркестрация', () => {
     const geo = fakeGeo();
     const states: LocState[] = [];
     const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
-    loc.start(); // попытка 1 → get[0]
-    loc.start(); // попытка 2 (retry) → get[1]
+    loc.start(); // попытка 1 → get[0] (кеш), get[1] (сеть)
+    loc.start(); // попытка 2 (retry) → get[2] (кеш), get[3] (сеть)
 
     // Поздний успех попытки 1 не должен завершить свежий retry.
     geo._calls.get[0].succ({ coords: { latitude: 1, longitude: 2, accuracy: 5 }, timestamp: 0 });
     expect(states.some((s) => s.phase === 'found'), 'stale-callback просочился').toBe(false);
 
     // Успех актуальной попытки 2 — принимаем ровно один раз.
-    geo._calls.get[1].succ({ coords: { latitude: 53, longitude: 158, accuracy: 5 }, timestamp: 0 });
+    geo._calls.get[3].succ({ coords: { latitude: 53, longitude: 158, accuracy: 5 }, timestamp: 0 });
     const found = states.filter((s): s is Extract<LocState, { phase: 'found' }> => s.phase === 'found');
     expect(found.length).toBe(1);
     expect(found[0].coords.lat).toBe(53);
@@ -221,15 +221,60 @@ describe('локатор: быстрая точка сразу, спутник �
   type Found = Extract<LocState, { phase: 'found' }> & { refining?: boolean };
   const founds = (st: LocState[]) => st.filter((s): s is Found => s.phase === 'found');
 
-  it('оба запроса уходят сразу: быстрый по сети и точный по спутникам', () => {
+  it('все запросы уходят сразу: кеш браузера, быстрый по сети и точный по спутникам', () => {
     const geo = fakeGeo();
     const loc = VedarGeo.createLocator({ geolocation: geo, onState: () => {} });
     loc.start();
-    expect(geo._calls.get.length).toBe(1);
+    expect(geo._calls.get.length).toBe(2);
     expect(geo._calls.watches.length, 'спутник не должен ждать отказа быстрого').toBe(1);
-    expect(geo._calls.get[0].opts?.enableHighAccuracy).toBe(false);
+    // Первым — последняя известная точка любой давности (как у навигаторов).
+    expect(geo._calls.get[0].opts?.maximumAge).toBe(Infinity);
+    expect(geo._calls.get[0].opts?.timeout).toBeLessThanOrEqual(1000);
+    expect(geo._calls.get[1].opts?.enableHighAccuracy).toBe(false);
     expect(geo._calls.watches[0].opts?.enableHighAccuracy).toBe(true);
     loc.stop();
+  });
+
+  describe('последняя известная точка из кеша (03.10, «моментально, как у навигаторов»)', () => {
+    const at = (lat: number, acc: number, agoMs: number) =>
+      ({ coords: { latitude: lat, longitude: 158, accuracy: acc }, timestamp: Date.now() - agoMs });
+
+    it('показывается сразу, с меткой времени снятия — экран называет возраст', () => {
+      const geo = fakeGeo();
+      const states: LocState[] = [];
+      const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+      loc.start();
+      geo._calls.get[0].succ(at(53.2, 40, 12 * 60_000));
+      const f = founds(states);
+      expect(f.length).toBe(1);
+      expect(f[0].refining).toBe(true);
+      expect(Date.now() - (f[0].coords.timestamp ?? Date.now())).toBeGreaterThan(11 * 60_000);
+      loc.stop();
+    });
+
+    it('свежая точка заменяет старую, даже если грубее: старая могла быть снята в другом месте', () => {
+      const geo = fakeGeo();
+      const states: LocState[] = [];
+      const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+      loc.start();
+      geo._calls.get[0].succ(at(53.2, 20, 30 * 60_000));
+      geo._calls.get[1].succ(at(53.9, 900, 0));
+      const f = founds(states);
+      expect(f[f.length - 1].coords.lat).toBe(53.9);
+      loc.stop();
+    });
+
+    it('старая точная точка не завершает уточнение — спутник продолжает искать', () => {
+      const geo = fakeGeo();
+      const states: LocState[] = [];
+      const loc = VedarGeo.createLocator({ geolocation: geo, onState: (s) => states.push(s) });
+      loc.start();
+      geo._calls.get[0].succ(at(53.2, 5, 30 * 60_000));
+      expect(geo._calls.cleared, 'слежение снялось на старой точке').toEqual([]);
+      const f = founds(states);
+      expect(f[f.length - 1].refining).toBe(true);
+      loc.stop();
+    });
   });
 
   it('грубая точка показывается сразу и с пометкой «уточняем»', () => {

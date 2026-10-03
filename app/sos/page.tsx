@@ -167,7 +167,12 @@ export default function SosPage() {
               acc: Number.isFinite(s.coords.acc) ? s.coords.acc : null,
             };
             setCoordsText(`${s.coords.lat.toFixed(5)}°N, ${s.coords.lng.toFixed(5)}°E`);
-            setAccText(api.accuracyLabel(Number.isFinite(s.coords.acc) ? s.coords.acc : null, s.refining === true));
+            // Точка из кеша браузера приходит мгновенно, но может быть снята
+            // раньше (03.10): её возраст пишется словами, как на /emergency.html,
+            // чтобы старое место не выдавало себя за текущее.
+            const ageMin = s.coords.timestamp != null ? Math.round((Date.now() - s.coords.timestamp) / 60000) : 0;
+            const agePrefix = ageMin >= 1 ? `точка ${ageMin} мин назад · ` : '';
+            setAccText(agePrefix + api.accuracyLabel(Number.isFinite(s.coords.acc) ? s.coords.acc : null, s.refining === true));
             const fresh = api.readLastKnown();
             setLastKnown(fresh ? api.attachDistance(fresh, s.coords.lat, s.coords.lng) : null);
           } else if (s.phase === 'error') {
