@@ -1428,7 +1428,12 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                   <Navigation className="w-3.5 h-3.5 text-[var(--accent)]" /> Навигация
                 </h2>
                 <div className="flex flex-col gap-2">
-                  {navWaypoints.length >= 2 && (
+                  {/* Кнопка — при ЛЮБОЙ линии, а не при двух путевых точках
+                      (скрин владельца 03.10, «Гора Замок»: снятый трек на
+                      6.9 км есть, путевая точка одна — и кнопки не было).
+                      Полевой экран ведёт по треку сам: без точек он берёт
+                      начало и конец линии (_PlanningClient, fetchRouteWaypoints). */}
+                  {hasTrack && (
                     <button
                       onClick={handleStartNavigation}
                       className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors"
@@ -1455,7 +1460,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                       именно тому, кто уже вышел и как раз узнал про запрет.
                       Бан адресован тому, кто ещё дома. Поэтому строка, а не
                       disabled: сказать обязаны, отобрать инструменты — нет. */}
-                  {navWaypoints.length >= 2 && verdictData
+                  {hasTrack && verdictData
                     && verdictInlineNote(verdictData.verdict.status, verdictData.verdict.reason) && (
                     <p
                       className="text-xs leading-snug pl-3"
@@ -1631,7 +1636,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                     <Navigation className="w-3 h-3" /> Навигация
                   </h2>
                   <div className="flex flex-col gap-2">
-                    {navWaypoints.length >= 2 && (
+                    {hasTrack && (
                       <button
                         onClick={handleStartNavigation}
                         className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors"

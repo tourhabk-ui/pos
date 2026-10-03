@@ -23,7 +23,7 @@
  * `tests/unit/alert-zone-unknown.test.ts`.
  */
 import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
-import { CORRIDOR_VOLCANO_KM } from '@/lib/routes/collect-signals';
+import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
 import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 

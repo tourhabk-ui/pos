@@ -33,6 +33,8 @@ import { join } from 'node:path';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals';
+import { ACTIVE_ZONE_ALERTS_SQL, UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alerts';
+import { readFileSync } from 'node:fs';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -410,5 +412,99 @@ withPg('кого накрывает предупреждение', () => {
     expect(signals.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
     expect(signals.alerts!.map((a) => a.title)).toContain(title);
     expect(signals.alerts!.find((a) => a.title === title)?.type).toBe('park_closure');
+  });
+
+  /**
+   * Маршрут «Гора Замок» (скрин владельца 03.10). Карточка места уже судила
+   * тревоги правилом мест, а карточка маршрута — своим: дорожное в 40 км и
+   * непривязанное дорожное висели в «Осторожно · на сегодня».
+   */
+  describe('маршрут судится правилом мест (03.10, «Гора Замок»)', () => {
+    const ROUTE = '66061e18-77ba-433f-b812-81e138266b2e';
+    const PLACE = 'da81b46f-29dc-42e8-8137-ed2107347a68';
+    const q: QueryFn = (sql, params) => pool.query(sql, params) as never;
+    const titles = async (routeId: string) => {
+      const s = await collectRouteSignals(routeId, { query: q, month: 10 });
+      expect(s.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
+      return s.alerts!;
+    };
+
+    beforeAll(async () => {
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, lat, lng, is_visible)
+         VALUES ($1, 'trekking', 'Гора Замок', 'avachinsky', 53.182662, 158.233294, TRUE)`,
+        [ROUTE],
+      );
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, 'Гора Замок', 53.1778026, 158.1944257, gen_random_uuid(), 'mountain', 'avachinsky', TRUE)`,
+        [PLACE],
+      );
+      await pool.query(
+        `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1, $2, 1, 'nearby')`,
+        [ROUTE, PLACE],
+      );
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible)
+         VALUES ('d0000000-0000-4000-8000-0000000000aa', 'trekking', 'Маршрут без координат (тест)', 'avachinsky', TRUE)`,
+      );
+    });
+
+    it('дорожное за 40 км (Халактырский пляж) — не про этот маршрут: дорога судится в 30 км', async () => {
+      const t = 'Халактырский пляж: дорога перекрыта (тест маршрута)';
+      await insertAlert({ type: 'road_closure', title: t, zones: ['avachinsky'], lat: 53.08, lng: 158.83 });
+      expect((await titles(ROUTE)).map((a) => a.title)).not.toContain(t);
+    });
+
+    it('дорожное без привязки — не красит никого, и маршрут тоже (27.09)', async () => {
+      const t = 'Перевал: проезд по пропускам (тест маршрута)';
+      await insertAlert({ type: 'road_closure', title: t, zones: ['avachinsky'] });
+      expect((await titles(ROUTE)).map((a) => a.title)).not.toContain(t);
+    });
+
+    it('дорожное у самого маршрута доходит, и не как зональное', async () => {
+      const t = 'Дорога к подножию Замка размыта (тест маршрута)';
+      await insertAlert({ type: 'road_closure', title: t, zones: ['avachinsky'], lat: 53.19, lng: 158.30 });
+      const a = (await titles(ROUTE)).find((x) => x.title === t);
+      expect(a).toBeDefined();
+      expect(a!.zonal).toBe(false);
+    });
+
+    it('зональное (паводок без координаты) доходит и помечено зональным', async () => {
+      const t = 'Паводок в Авачинской зоне (тест маршрута)';
+      await insertAlert({ type: 'flood', title: t, zones: ['avachinsky'] });
+      const a = (await titles(ROUTE)).find((x) => x.title === t);
+      expect(a?.zonal).toBe(true);
+      // Маршрут без единой координаты зональное тоже получает: мерить нечем,
+      // но зона известна.
+      expect((await titles('d0000000-0000-4000-8000-0000000000aa')).map((x) => x.title)).toContain(t);
+    });
+
+    it('миграция 1153 делает «Гору Замок» точкой пути своего маршрута', async () => {
+      const sql = readFileSync(join(process.cwd(), 'migrations', '1153_zamok_route_waypoint.sql'), 'utf8');
+      await pool.query(sql);
+      const { rows } = await pool.query<{ link_kind: string }>(
+        `SELECT link_kind FROM route_waypoints WHERE route_id = $1 AND place_id = $2`, [ROUTE, PLACE],
+      );
+      expect(rows).toEqual([{ link_kind: 'waypoint' }]);
+    });
+  });
+
+  /**
+   * Предупреждение без срока — снимок дня публикации (03.10). Сводка АТК от
+   * 23.08 «до ручного снятия» стояла в октябре на каждом маршруте края.
+   */
+  it('safety_alerts: без срока — показывается UNDATED_ALERT_HORIZON_DAYS суток, не дольше', async () => {
+    await pool.query(
+      `INSERT INTO safety_alerts (zone, severity, title, message, source, active_from, active_until)
+       VALUES ('all', 'important', 'Старая сводка без срока (тест)', 'Проезд перекрыт, тест', 'тест', NOW() - INTERVAL '41 days', NULL),
+              ('all', 'important', 'Свежая сводка без срока (тест)', 'Проезд перекрыт, тест', 'тест', NOW() - INTERVAL '1 day', NULL),
+              ('all', 'important', 'Старая сводка со сроком (тест)', 'Проезд перекрыт, тест', 'тест', NOW() - INTERVAL '41 days', NOW() + INTERVAL '5 days')`,
+    );
+    const { rows } = await pool.query<{ title: string }>(ACTIVE_ZONE_ALERTS_SQL, ['avachinsky', UNDATED_ALERT_HORIZON_DAYS]);
+    const got = rows.map((r) => r.title);
+    expect(got).toContain('Свежая сводка без срока (тест)');
+    expect(got).toContain('Старая сводка со сроком (тест)');
+    expect(got).not.toContain('Старая сводка без срока (тест)');
   });
 });

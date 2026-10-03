@@ -96,11 +96,15 @@ describe('оба SQL-предиката читают пустые зоны ка�
     expect(src).toMatch(/PLACE_SCOPED_TYPES = \['road_closure', 'fire_danger', 'volcanic_eruption', 'park_closure'\]/);
   });
 
-  it('collect-signals: совпадение только по пересечению зон маршрута', () => {
-    // Псевдоним таблицы (`ea.`) появился 19.09, когда к зональному отбору
-    // добавилась проверка расстояния для событий С КООРДИНАТОЙ. Зональное
-    // условие при этом осталось тем же и таким же обязательным.
-    expect(read(FILES[1])).toMatch(/AND \(\(\s*ea\.affected_zones && \$1::text\[\]/);
+  it('collect-signals: зональная ветка — та же, что у мест (03.10)', () => {
+    // До 03.10 у маршрута была своя копия предиката (`ea.affected_zones &&
+    // зоны маршрута`), и она разошлась с правилом мест. Теперь маршрут
+    // предъявляет ALERT_MATCH_SQL псевдо-места со своими зонами: совпадение
+    // зоны — `ark.zone = ANY(ea.affected_zones)` из FILES[0], а нет зон —
+    // зона NULL, и ветка молчит.
+    const cs = read(FILES[1]);
+    expect(cs).toMatch(/JOIN ark ON \(\$\{ALERT_MATCH_SQL\}\)/);
+    expect(cs).toMatch(/ELSE ARRAY\[NULL\]::text\[\]/);
   });
 });
 

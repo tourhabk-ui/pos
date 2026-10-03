@@ -20,6 +20,7 @@
 
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 
 /** Зоны из CHECK миграции 065. `all` — вся Камчатка. */
 export const ALERT_ZONES = ['avachinsky', 'western', 'eastern', 'northern', 'all'] as const;
@@ -72,8 +73,9 @@ export const alertInputSchema = z.object({
   source: z.string().trim().min(3, 'Назовите источник').max(100),
   /**
    * Когда перестаёт действовать. Поле ОБЯЗАТЕЛЬНО, `null` — законный ответ
-   * «срок неизвестен, снимем вручную». Умолчания нет намеренно: «до какого
-   * числа это верно» надо сказать вслух, а не забыть (§4.0).
+   * «срок неизвестен»: тогда туристу оно показывается
+   * UNDATED_ALERT_HORIZON_DAYS суток от публикации. Умолчания нет намеренно:
+   * «до какого числа это верно» надо сказать вслух, а не забыть (§4.0).
    */
   active_until: z.string().datetime({ offset: true }).nullable(),
 });
@@ -126,6 +128,26 @@ export async function listAlerts(includeInactive = false): Promise<SafetyAlert[]
   return rows;
 }
 
+export { UNDATED_ALERT_HORIZON_DAYS };
+
+/**
+ * $1 — зона маршрута, $2 — UNDATED_ALERT_HORIZON_DAYS. Отдельной константой,
+ * чтобы правило исполнялось на настоящем PostgreSQL в тесте
+ * (tests/integration/alert-place-scope.pg.test.ts), а не читалось глазами.
+ */
+export const ACTIVE_ZONE_ALERTS_SQL = `
+  SELECT id, zone, severity, title, message, source,
+         active_from, active_until, is_active, created_at
+    FROM safety_alerts
+   WHERE is_active = TRUE
+     AND (zone = $1 OR zone = 'all')
+     AND active_from <= NOW()
+     AND (active_until > NOW()
+          OR (active_until IS NULL
+              AND active_from > NOW() - make_interval(days => $2::int)))
+   ORDER BY severity = 'critical' DESC, created_at DESC
+   LIMIT 10`;
+
 /**
  * Действующие предупреждения для зоны — то, что видит турист на карточке
  * маршрута и тура. `all` попадает в любую зону.
@@ -135,16 +157,8 @@ export async function listAlerts(includeInactive = false): Promise<SafetyAlert[]
  */
 export async function activeAlertsForZone(zone: string | null): Promise<SafetyAlert[]> {
   const { rows } = await pool.query<SafetyAlert>(
-    `SELECT id, zone, severity, title, message, source,
-            active_from, active_until, is_active, created_at
-     FROM safety_alerts
-     WHERE is_active = TRUE
-       AND (zone = $1 OR zone = 'all')
-       AND active_from <= NOW()
-       AND (active_until IS NULL OR active_until > NOW())
-     ORDER BY severity = 'critical' DESC, created_at DESC
-     LIMIT 10`,
-    [zone ?? 'all'],
+    ACTIVE_ZONE_ALERTS_SQL,
+    [zone ?? 'all', UNDATED_ALERT_HORIZON_DAYS],
   );
   return rows;
 }
