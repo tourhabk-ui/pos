@@ -41,6 +41,10 @@ async function main(): Promise<number> {
     hasTouch: true,
     locale: 'ru-RU',
     colorScheme: 'dark',
+    // С отрезанным хранилищем service worker отключён: его запросы мимо
+    // page.route, и офлайн-кэш сайта отдал бы рельеф, будто связь есть
+    // (прогон 7: «отрезанный» вариант нарисовал всё из кэша).
+    ...(process.argv.includes('--block') ? { serviceWorkers: 'block' as const } : {}),
   });
   const page = await ctx.newPage();
   const t0 = Date.now();
