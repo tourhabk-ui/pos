@@ -1,18 +1,23 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts: раннер читает перечисленные страницы и печатает их текст в лог и в check-runs chronicle-page-NN.",
-  "batch": 1,
-  "why": "Летопись: Беринг и памятник, маяк Станицкого, Никольское и Командоры, фактория Гутчинсона, крейсер Ниитака, Северо-Курильск, Шумшу.",
+  "batch": 2,
+  "why": "Летопись: маяк Станицкого (архив mayaki-sssr, мыс), музей Северо-Курильска, Большерецкий маяк и цунами 1952 (для справок мест), Кайныран, Эссо, Жупаново/Карымский, Ниитака по-английски и по-японски, Алеуты.",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Памятник_Витусу_Берингу",
-    "https://piragis.ru/history/pamyatnik-beringu-petropavlovsk-kamchatsky.html",
-    "https://ru.wikipedia.org/wiki/Петропавловск-Камчатский",
-    "http://mayaki-sssr.spb.ru/mayaki-dalnii-vostok/524/",
-    "https://ru.wikipedia.org/wiki/Станицкий,_Фёдор_Ефимович",
-    "https://ru.wikipedia.org/wiki/Никольское_(Камчатский_край)",
-    "https://ru.wikipedia.org/wiki/Командорские_острова",
-    "https://www.nps.gov/articles/000/aps-20-2-9.htm",
-    "https://ru.wikipedia.org/wiki/Ниитака_(крейсер)",
-    "https://ru.wikipedia.org/wiki/Северо-Курильск",
-    "https://ru.wikipedia.org/wiki/Шумшу"
+    "https://web.archive.org/web/2024/http://mayaki-sssr.spb.ru/mayaki-dalnii-vostok/524/",
+    "https://ru.wikipedia.org/wiki/Мыс_Станицкого",
+    "https://ru.wikipedia.org/wiki/Маяк_Станицкого",
+    "http://www.museum.ru/M2259",
+    "https://sevkur.sakhalin.gov.ru/adm/history/",
+    "https://ru.wikipedia.org/wiki/Большерецкий_маяк",
+    "https://ru.wikipedia.org/wiki/Северо-Курильское_цунами_(1952)",
+    "https://visitkamchatka.ru/camps/etnokulturnyy-kompleks-kaynyran/",
+    "https://ru.wikipedia.org/wiki/Эссо",
+    "https://essobmr.ru/city/history/",
+    "https://ru.wikipedia.org/wiki/Жупаново",
+    "https://ru.wikipedia.org/wiki/Карымский_(вулкан)",
+    "https://en.wikipedia.org/wiki/Japanese_cruiser_Niitaka",
+    "https://ja.wikipedia.org/wiki/新高_(防護巡洋艦)",
+    "https://ru.wikipedia.org/wiki/Алеуты",
+    "https://ru.wikipedia.org/wiki/Остров_Беринга"
   ]
 }
