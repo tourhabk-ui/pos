@@ -469,16 +469,42 @@ export async function probeFetch(
   url: string,
   range: string,
   fetchImpl: typeof fetch = fetch,
+  timeoutMs = 10000,
 ): Promise<string> {
   const started = Date.now();
   const secs = () => ((Date.now() - started) / 1000).toFixed(1);
+  // Висящий запрос — третий исход рядом с «ответил» и «упал» (§4.0). Скрин
+  // владельца 03.10 12:58: строка сторожа так и осталась первой половиной —
+  // самопроверка ждала ответа хранилища без срока и не сказала ничего.
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const hang = new Promise<string>((resolve) => {
+    timer = setTimeout(() => { ctrl?.abort(); resolve(`нет ответа за ${secs()} с`); }, timeoutMs);
+  });
+  const ask = (async () => {
+    try {
+      const res = await fetchImpl(url, { headers: { range }, cache: 'no-store', mode: 'cors', signal: ctrl?.signal });
+      return `HTTP ${res.status} за ${secs()} с`;
+    } catch (err) {
+      const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      return `${name.slice(0, 80)} через ${secs()} с`;
+    }
+  })();
   try {
-    const res = await fetchImpl(url, { headers: { range }, cache: 'no-store', mode: 'cors' });
-    return `HTTP ${res.status} за ${secs()} с`;
-  } catch (err) {
-    const name = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-    return `${name.slice(0, 80)} через ${secs()} с`;
+    return await Promise.race([ask, hang]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Обслуживает ли страницу офлайн-кэш (service worker) — и значит, идут ли
+ * файлы карты через него. Самопроверка выше ходит МИМО него (no-store), а
+ * карта — через него: разные ответы двух путей указывают на кэш телефона.
+ */
+export function swReport(): string {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return 'офлайн-кэш: нет в браузере';
+  return navigator.serviceWorker.controller ? 'офлайн-кэш: обслуживает страницу' : 'офлайн-кэш: не обслуживает';
 }
 
 /**
@@ -910,6 +936,7 @@ export default function VedarMap({
             `воркер MapLibre: ${maplibre.getWorkerUrl() || 'адрес пуст'}`,
             `тайлов рельефа запрошено ${seen.terrainRequested}, пришло ${seen.terrain}`,
             w,
+            swReport(),
             webglReport(),
             cspHits.length ? `CSP: ${cspHits.join('; ')}` : 'CSP: нарушений нет',
           ].join(' · ');
