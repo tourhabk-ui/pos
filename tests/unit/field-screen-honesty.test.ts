@@ -139,7 +139,9 @@ describe('рассчитанный путь на фоновой карте', () 
     // трижды, — это три правила.
     const bg = src.slice(src.indexOf('const backgroundMapMarkers'), src.indexOf('const backgroundMapMarkers') + 1400);
     expect(bg).toMatch(/calculatedCarToLeafletCoordinates\(calc\)/);
-    expect(bg).toMatch(/calculatedCarLine\(\)/);
+    // С 03.10 род линии — по режиму расчёта (пешком — пунктир), тем же
+    // стандартом line-standard, что и превью.
+    expect(bg).toMatch(/calculatedLine\(calc\.travelMode\)/);
     expect(bg).toMatch(/mapCalculated/);
   });
 
