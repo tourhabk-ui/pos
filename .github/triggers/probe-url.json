@@ -1,17 +1,15 @@
 {
-  "note": "03.10. После деплоя fcdbc913: подпись свежести радара на мобильной главной (было «Обстановка недоступна» на сервере / «9 ч назад» на телефоне).",
-  "run": 665,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Маршрут «Гора Замок»: откуда тревога 23.08 в октябре, что в «Осторожно на сегодня», какая координата у маршрута.",
+  "run": 666,
   "timeout": 60,
-  "retries": 0,
-  "bytes": 200,
+  "retries": 1,
+  "retryDelay": 15,
   "allowStale": true,
-  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36",
+  "bytes": 12000,
   "urls": [
-    "https://vedarai.ru/"
-  ],
-  "around": [
-    "Радар обстановки"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 1
+    "https://vedarai.ru/api/cron/safety-alert",
+    "https://vedarai.ru/api/safety/warnings?route_id=66061e18-77ba-433f-b812-81e138266b2e",
+    "https://vedarai.ru/api/routes/66061e18-77ba-433f-b812-81e138266b2e/verdict",
+    "https://vedarai.ru/api/routes/66061e18-77ba-433f-b812-81e138266b2e"
+  ]
 }
