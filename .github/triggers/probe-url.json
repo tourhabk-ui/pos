@@ -1,15 +1,17 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Тот же квадрат сверки (50–53.5 × 155–159), который прод за 45 с не получил ни с одного Overpass, — с раннера GitHub. Если здесь быстро, тормозит дорога Timeweb → Overpass, и выборку надо перенести на раннер.",
-  "run": 658,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Плотный квадрат сверки с ЯВНЫМИ ключами вместо шаблона по ключу (проба 658: шаблон — внутренний таймаут Overpass).",
+  "run": 659,
   "timeout": 90,
   "retries": 0,
   "bytes": 300,
   "allowStale": true,
   "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A40%5D%3B%0A%28%0A%20%20nwr%5B~%22%5E%28natural%7Cwaterway%7Cplace%7Ctourism%7Chistoric%7Cleisure%29%24%22~%22.%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22man_made%22%3D%22lighthouse%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%29%3B%0Aout%20center%3B"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A40%5D%3B%0A%28%0A%20%20nwr%5B%22natural%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22waterway%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22place%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22tourism%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22historic%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22leisure%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22man_made%22%3D%22lighthouse%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%29%3B%0Aout%20center%3B"
   ],
   "count": [
-    "\"type\":"
+    "\"type\":",
+    "\"natural\": \"peak\"",
+    "remark"
   ]
 }
