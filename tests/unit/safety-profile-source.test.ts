@@ -79,8 +79,6 @@ const KNOWN_RAW_READERS: Record<string, string> = {
     'аналитика нагрузки COALESCE(capacity_per_day, 50) — внутренний отчёт, туристу не показывается',
   'lib/agents/editor.ts':
     'промпт переписывания описания тура: подаёт рельеф и опасности маршрута модели; нужна отдельная проверка, что чистка не обеднит текст',
-  'lib/agents/kuzmich-place-enricher.ts':
-    'обогащение места моделью: читает профиль, чтобы ДОПОЛНИТЬ его, — здесь сырое значение и есть предмет работы',
 };
 
 function routeFiles(dir: string): string[] {
