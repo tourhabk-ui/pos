@@ -89,6 +89,17 @@ function refusalText(result: Extract<RouteBuildResult, { status: 'not_found' | '
   return result.message;
 }
 
+/** Сколько ждать координату для подъезда, мс. */
+export const LOCATE_TIMEOUT_MS = 20_000;
+
+/** Отказ геолокации — словами, по коду GeolocationPositionError. */
+export function locateFailureText(code: number | undefined): string {
+  if (code === 1) return 'Доступ к геопозиции запрещён — разрешите его для сайта в настройках браузера';
+  if (code === 2) return 'Телефон не смог определить место — включите геолокацию и выйдите под открытое небо';
+  if (code === 3) return `Телефон не отдал координату за ${LOCATE_TIMEOUT_MS / 1000} с — попробуйте ещё раз`;
+  return 'Не удалось определить ваше местоположение';
+}
+
 export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigger = false }: Props) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
@@ -130,8 +141,16 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
           })
           .catch(() => setState({ phase: 'error', message: 'Ошибка сети — проверьте соединение' }));
       },
-      () => setState({ phase: 'error', message: 'Не удалось определить ваше местоположение' }),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
+      // Причина — словами по коду отказа (03.10, скрин владельца на маршруте
+      // «Гора Замок»: «Не удалось определить ваше местоположение» без единого
+      // намёка, что делать). Запрет, «нет спутников» и таймаут лечатся
+      // по-разному, а одна фраза на все три оставляла человека гадать.
+      (err) => setState({ phase: 'error', message: locateFailureText(err?.code) }),
+      // Для подъезда на машине хватает и точки десятиминутной давности:
+      // ошибка в сотни метров дорогу не меняет. Ждём дольше прежних 8 с —
+      // в машине и в посёлке телефон отдаёт первый фикс небыстро (SOS на том
+      // же телефоне 03.10 искал 11 с).
+      { enableHighAccuracy: false, timeout: LOCATE_TIMEOUT_MS, maximumAge: 10 * 60_000 },
     );
   }, [lat, lng, name]);
 
@@ -181,7 +200,10 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
       <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
         <p className="text-sm text-[var(--text-secondary)]">{state.message}</p>
         <p className="mt-2 text-xs text-[var(--text-secondary)]">
-          Координаты места: <span className="font-semibold text-[var(--text-primary)]">{coords}</span>
+          {/* Чья координата — названо (03.10): на карточке маршрута это
+              старт тропы, и «координаты места» без имени владелец прочёл
+              как старую координату самой горы. */}
+          Координаты места «{name}»: <span className="font-semibold text-[var(--text-primary)]">{coords}</span>
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <button type="button" onClick={build} className="text-xs font-semibold text-[var(--accent)]">

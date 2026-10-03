@@ -123,7 +123,7 @@ describe('замена на месте: своё вместо чужого', () 
     // навигатор». Их больше нет — значит отказ обязан оставить человека с
     // тем, что работает всегда.
     const own = readFileSync(join(ROOT, 'components/places/PlaceOwnRoute.tsx'), 'utf-8');
-    expect(own).toContain('Координаты места:');
+    expect(own).toContain('Координаты места «{name}»:');
     expect(own).toContain('Скопировать координаты');
   });
 });
