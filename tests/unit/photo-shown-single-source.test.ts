@@ -25,7 +25,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { SHOWN_MODELS, shownPhotoSql, isGenerated } from '@/lib/images/origin';
+import { SHOWN_MODELS, KEEP_MODELS, shownPhotoSql, isGenerated } from '@/lib/images/origin';
+
+const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
 const ROOT = process.cwd();
 const SCAN_DIRS = ['app', 'lib'];
@@ -60,9 +62,12 @@ describe('список показываемых снимков — один', ()
     expect(offenders, 'условие показа обязано браться из SHOWN_MODELS, а не переписываться заново').toEqual([]);
   });
 
-  it('снимки владельца (real-photo) показываются', () => {
-    // Слово владельца 18.09: «это мои фото влиты». Авторство — миграция 978.
-    expect(SHOWN_MODELS).toContain('real-photo');
+  it('пачка real-photo НЕ показывается: подпись владельца снята 03.10', () => {
+    // 978 подписала её владельцем по слову 18.09 о ДРУГИХ снимках; 03.10
+    // владелец: «я их точно не загружал». Без автора и источника — не показ.
+    expect(SHOWN_MODELS).not.toContain('real-photo');
+    expect(KEEP_MODELS).toContain('real-photo');
+    expect(read('migrations/1150_real_photo_authorship_revoked.sql')).toMatch(/SET author = NULL\s+WHERE model = 'real-photo'\s+AND author = 'владелец платформы'/);
   });
 
   it('чужие wikimedia-commons НЕ показываются, пока не подписаны', () => {
@@ -87,6 +92,6 @@ describe('предикат безопасен по построению', () => 
 
   it('предикат подставляет переданное выражение и перечисляет все роды', () => {
     const sql = shownPhotoSql('ai.model');
-    expect(sql).toBe("ai.model IN ('wikimedia', 'manual-upload', 'real-photo')");
+    expect(sql).toBe("ai.model IN ('wikimedia', 'manual-upload')");
   });
 });
