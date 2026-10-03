@@ -39,11 +39,26 @@ export async function onRequestError(
       errorLoggedAt.set(route, now);
 
       const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+      // Ошибка рендера в боевой сборке приходит с замазанным текстом («The
+      // specific message is omitted in production builds»): 4 ошибки
+      // /routes/[id] за неделю (prod-check run 85, 03.10) нельзя было ни
+      // воспроизвести, ни сличить с логом сервера. Поэтому рядом пишутся
+      // КОНКРЕТНЫЙ адрес (без query — там может быть что угодно), digest —
+      // ключ, по которому Next печатает настоящую ошибку в лог контейнера, —
+      // и первые кадры стека, если они есть.
+      const path = (request?.path ?? '').split('?')[0].slice(0, 200) || null;
+      const digest = typeof (err as { digest?: unknown })?.digest === 'string'
+        ? ((err as { digest: string }).digest).slice(0, 64) : null;
+      const stack = err instanceof Error && typeof err.stack === 'string'
+        ? err.stack.split('\n').slice(1, 4).map(l => l.trim()).join(' | ').slice(0, 400) : null;
       const { query } = await import('@/lib/database');
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
         ['server_error', JSON.stringify({
           route,
+          path,
+          digest,
+          stack,
           method: request?.method ?? null,
           kind: context?.routeType ?? null,
           message,
