@@ -1,16 +1,15 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Пеший путь после выката: /api/routes/build mode=foot — старт тропы → вершина Замка и короткий городской.",
-  "run": 668,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Откуда Кузьмич взял «в полутора километрах — Скалы Три Брата» у Батареи Максутова: маршруты места, их длина и род связи.",
+  "run": 669,
   "timeout": 60,
-  "retries": 35,
-  "retryDelay": 60,
-  "allowStale": false,
-  "bytes": 1500,
-  "until": "calculated-foot",
-  "urls": [],
-  "post": [
-    {"url": "https://vedarai.ru/api/routes/build", "body": {"origin": {"kind": "current", "lat": 53.182842, "lon": 158.286467}, "destination": {"kind": "coordinate", "lat": 53.1778026, "lon": 158.1944257, "title": "Гора Замок"}, "mode": "foot"}},
-    {"url": "https://vedarai.ru/api/routes/build", "body": {"origin": {"kind": "current", "lat": 53.0195, "lon": 158.6494}, "destination": {"kind": "coordinate", "lat": 53.0118, "lon": 158.6520, "title": "Городская точка"}, "mode": "foot"}},
-    {"url": "https://vedarai.ru/api/routes/build", "body": {"origin": {"kind": "current", "lat": 53.182842, "lon": 158.286467}, "destination": {"kind": "coordinate", "lat": 53.1778026, "lon": 158.1944257, "title": "Гора Замок"}, "mode": "car"}}
-  ]
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
+  "bytes": 400,
+  "urls": [
+    "https://vedarai.ru/api/places/a2b3c4d5-e6f7-4890-bcde-f01234567890"
+  ],
+  "around": ["Три Брата"],
+  "aroundLines": 0,
+  "aroundHits": 3
 }
