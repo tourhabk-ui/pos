@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  dataFreshness, freshnessShort, humanAgeShort, geometryCoverage, coverageShort,
+  dataFreshness, freshnessShort, humanAgeShort,
 } from '@/lib/home/data-freshness';
 
 const HOME = readFileSync(join(process.cwd(), 'app/_home/_HomeV8Client.tsx'), 'utf-8');
@@ -34,19 +34,11 @@ describe('короткие подписи', () => {
     expect(freshnessShort(dataFreshness({ updatedAt: null, now: NOW }))).toBe('нет данных');
   });
 
-  it('покрытие: процент с положительного конца; «не посчитано» — не 0%', () => {
-    expect(coverageShort(geometryCoverage({ total: 392, withoutTrack: 102 }))).toBe('офлайн 74%');
-    expect(coverageShort(geometryCoverage({ total: null, withoutTrack: null }))).toBe('офлайн: н/д');
-    expect(coverageShort(geometryCoverage({ total: 0, withoutTrack: 0 }))).toBe('офлайн: н/д');
-  });
-
   it('короткие подписи не длиннее 16 знаков — столько входит в плитку на 360px', () => {
     const samples = [
       freshnessShort(dataFreshness({ updatedAt: ago(59), now: NOW })),
       freshnessShort(dataFreshness({ updatedAt: ago(23 * 60), now: NOW })),
       freshnessShort(dataFreshness({ updatedAt: ago(40 * 24 * 60), now: NOW })),
-      coverageShort(geometryCoverage({ total: 10, withoutTrack: 0 })),
-      coverageShort(geometryCoverage({ total: null, withoutTrack: null })),
     ];
     for (const t of samples) expect(t.length, t).toBeLessThanOrEqual(16);
   });
@@ -70,8 +62,13 @@ describe('плитки на главной', () => {
     expect(HOME).not.toMatch(/radarOpen|id="radar-panel"|radarAlertsLine|radarVolcanoLine/);
   });
 
-  it('полная строка приборов — в aria-label радара, а не только сокращение', () => {
-    expect(tools).toContain('aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}');
+  it('полная строка свежести — в aria-label радара, а не только сокращение', () => {
+    expect(tools).toContain('aria-label={`Радар обстановки. ${fresh.label}`}');
+  });
+
+  it('«офлайн 74%» снято с плитки радара (владелец 03.10)', () => {
+    expect(tools).not.toMatch(/coverage|qt-cov|офлайн \d/);
+    expect(HOME).not.toMatch(/geometryCoverage|coverageShort|coverageDot/);
   });
 
   it('иконки — lucide, без эмодзи', () => {
@@ -87,9 +84,8 @@ describe('радар зелёный, но цвет не выдаёт себя з
     expect(HOME).toMatch(/\.v7 \.qt-radar \.qt-ic\{color:color-mix\(in srgb,var\(--success\)/);
   });
 
-  it('состояние по-прежнему несут точки свежести и покрытия, а не зелень плитки', () => {
+  it('состояние по-прежнему несёт точка свежести, а не зелень плитки', () => {
     expect(HOME).toContain('freshnessDot(fresh.state)');
-    expect(HOME).toContain('coverageDot(coverage.state)');
     // «нет данных» — контур без заливки, а не зелёная точка.
     expect(HOME).toMatch(/: \{ border: '1px solid var\(--text-muted\)', background: 'var\(--bg-card\)' \}/);
   });
