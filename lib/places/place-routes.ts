@@ -59,13 +59,20 @@ export function routePageUrl(r: Pick<PlaceRouteRow, 'id' | 'slug'>): string {
 export function placeRoutesLines(routes: PlaceRouteRow[]): string[] {
   const through = routes.filter((r) => r.link_kind !== 'nearby');
   const nearby = routes.filter((r) => r.link_kind === 'nearby');
+  // Длина — словом «длина маршрута», не голым «N км» (03.10). Кузьмич на
+  // Батарее Максутова сказал «рядом, в полутора километрах, маршрут „Скалы
+  // Три Брата“»: «, 1.5 км» стояло после имени маршрута в строке «Рядом
+  // проходят», и модель прочла ДЛИНУ маршрута как РАССТОЯНИЕ до него.
   const fmt = (r: PlaceRouteRow) => {
-    const km = r.distance_km != null && Number.isFinite(Number(r.distance_km)) ? `, ${Number(r.distance_km)} км` : '';
+    const km = r.distance_km != null && Number.isFinite(Number(r.distance_km)) ? `, длина маршрута ${Number(r.distance_km)} км` : '';
     return `«${r.title}»${km} — ${routePageUrl(r)}`;
   };
   const lines: string[] = [];
   if (through.length) lines.push(`Маршруты через это место на сайте: ${through.map(fmt).join('; ')}`);
-  if (nearby.length) lines.push(`Рядом проходят (через само место не идут): ${nearby.map(fmt).join('; ')}`);
+  // Связь «рядом» — миграция 167, «в 15 км от центра маршрута» (§4.1):
+  // сколько от места до маршрута, она не знает. Сказано прямо, чтобы число
+  // не досочинялось.
+  if (nearby.length) lines.push(`Рядом проходят (через само место не идут; расстояние от места до них не измерено): ${nearby.map(fmt).join('; ')}`);
   return lines;
 }
 

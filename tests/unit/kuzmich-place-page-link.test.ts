@@ -117,7 +117,7 @@ describe('маршруты места: Кузьмич видит то же, чт
   it('маршрут через место — со ссылкой на его карточку', async () => {
     placesReturn([zamok], [zamokRoute]);
     const ctx = await getGuardianContext('гора Замок', { pageLinks: true });
-    expect(ctx).toContain(`Маршруты через это место на сайте: «Гора Замок», 12 км — ${routePageUrl(zamokRoute)}`);
+    expect(ctx).toContain(`Маршруты через это место на сайте: «Гора Замок», длина маршрута 12 км — ${routePageUrl(zamokRoute)}`);
   });
 
   it('маршрутов нет — так и сказано; база отказала — «проверить не удалось», не «нет»', async () => {
@@ -133,7 +133,15 @@ describe('маршруты места: Кузьмич видит то же, чт
     const lines = placeRoutesLines([zamokRoute, { ...zamokRoute, id: 'x', slug: 'sosed', title: 'Соседний', link_kind: 'nearby' }]);
     expect(lines[0]).toContain('Маршруты через это место');
     expect(lines[0]).not.toContain('Соседний');
-    expect(lines[1]).toMatch(/^Рядом проходят \(через само место не идут\): «Соседний»/);
+    expect(lines[1]).toMatch(/^Рядом проходят \(через само место не идут; расстояние от места до них не измерено\): «Соседний»/);
+  });
+
+  it('длина маршрута названа длиной, а не голым «N км» (03.10, Батарея Максутова)', () => {
+    // «, 1.5 км» после имени в строке «Рядом» модель прочла как расстояние:
+    // «рядом, в полутора километрах, маршрут „Скалы Три Брата“».
+    const lines = placeRoutesLines([{ ...zamokRoute, link_kind: 'nearby', distance_km: 1.5 }]);
+    expect(lines[0]).toContain('длина маршрута 1.5 км');
+    expect(lines[0]).not.toMatch(/», 1\.5 км/);
   });
 
   it('в карточке get_place_info маршруты стоят внутри карточки, до списка тёзок', () => {
