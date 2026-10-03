@@ -52,7 +52,9 @@ describe('Двойники мест под /routes/ — 308 на карточк�
   it('ни sitemap, ни карточка места не ссылаются на двойников', () => {
     const twin = /NOT EXISTS \(SELECT 1 FROM places tp WHERE tp\.slug = kr\.slug AND tp\.is_visible = TRUE\)/;
     expect(code('lib/seo/sitemap-entries.ts')).toMatch(twin);
-    expect(code('lib/places/place-detail.ts')).toMatch(twin);
+    // Отбор маршрутов места — общий модуль (03.10), карточка берёт его оттуда.
+    expect(code('lib/places/place-routes.ts')).toMatch(twin);
+    expect(code('lib/places/place-detail.ts')).toContain('PLACE_ROUTES_SQL');
   });
 });
 

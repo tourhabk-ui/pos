@@ -10,6 +10,7 @@
 
 import { query } from '@/lib/database';
 import { chronicleForPlace } from '@/lib/chronicle/articles';
+import { PLACE_ROUTES_SQL } from '@/lib/places/place-routes';
 import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
@@ -240,21 +241,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     // голый kr.id у маршрута с заполненным ark_id карточка /routes/[id] не
     // находит (404), а UUID при живом slug стоил обходчику лишнего 308
     // (аудит SEO 29.09, вечер; тот же дефект чинили в /api/trending).
-    const routesResult = await query(
-      `SELECT COALESCE(kr.ark_id, kr.id) AS id, kr.slug, kr.title, kr.activity_type, kr.difficulty, kr.distance_km, kr.duration_hours
-       FROM route_waypoints rw
-       JOIN kamchatka_routes kr ON kr.id = rw.route_id
-       WHERE rw.place_id = $1
-         AND kr.is_visible = TRUE
-         AND kr.merged_into_id IS NULL
-         -- Двойник места (маршрут с тем же slug, что у видимого места)
-         -- отвечает 308 на карточку места — ссылка на него вела бы по кругу
-         -- (решение владельца 29.09, аудит SEO).
-         AND NOT EXISTS (SELECT 1 FROM places tp WHERE tp.slug = kr.slug AND tp.is_visible = TRUE)
-       ORDER BY (kr.geometry IS NOT NULL) DESC, (kr.distance_km IS NOT NULL) DESC, kr.title
-       LIMIT 10`,
-      [r.place_pk]
-    );
+    // Отбор — общий с Кузьмичом (lib/places/place-routes): одна копия фильтра.
+    const routesResult = await query(PLACE_ROUTES_SQL, [r.place_pk]);
 
     // Tours to this place (via route_waypoints → kamchatka_routes → operator_tours)
     const toursResult = await query(

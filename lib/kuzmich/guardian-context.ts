@@ -14,6 +14,7 @@ import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { getPublicBaseUrl } from '@/lib/config';
+import { placeRoutesFor, placeRoutesLines } from '@/lib/places/place-routes';
 
 interface GuardianPlaceRow {
   /** id места — для ссылки на его карточку (только в чате, см. pageLinks). */
@@ -244,6 +245,18 @@ export async function resolvePlaceForLink(placeNameRaw: string): Promise<string 
   } catch {
     return null;
   }
+}
+
+/**
+ * Маршруты места строками для Кузьмича. Без них на «дай маршрут к горе» он
+ * отвечал «не оцифрован», хотя на карточке маршрут был (снимок владельца
+ * 03.10, «Гора Замок»). Отказ базы — словами, не тишиной (§4.0).
+ */
+export async function routesLinesForKuzmich(placeId: string): Promise<string[]> {
+  const routes = await placeRoutesFor(placeId);
+  if (routes === null) return ['Маршруты этого места проверить не удалось — не говори, что их нет.'];
+  if (routes.length === 0) return ['Маршрутов через это место в каталоге нет.'];
+  return placeRoutesLines(routes);
 }
 
 /** Адрес карточки места на сайте — один для всех ответов Кузьмича. */
@@ -543,7 +556,10 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
       const lat = p.lat != null ? Number(p.lat) : NaN;
       const lng = p.lng != null ? Number(p.lng) : NaN;
       if (Number.isFinite(lat) && Number.isFinite(lng)) parts.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-      if (opts.pageLinks && p.id) parts.push(`Страница места на сайте: ${placePageUrl(p.id)}`);
+      if (opts.pageLinks && p.id) {
+        parts.push(`Страница места на сайте: ${placePageUrl(p.id)}`);
+        parts.push(...await routesLinesForKuzmich(p.id));
+      }
     }
 
     // Тот же фильтр голоса, что у get_place_info: путевая заметка не
