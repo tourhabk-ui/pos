@@ -16,6 +16,7 @@ import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plans/presets';
 import { NOT_MERGED } from '@/lib/places/aliases';
 import { FISH_SPECIES } from '@/lib/fish-species';
+import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -101,6 +102,11 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/fish`,                 lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.7 },
     ...FISH_SPECIES.map((f) => ({
       url: `${BASE}/fish/${f.id}`, lastModified: STABLE, changeFrequency: 'monthly' as const, priority: 0.6,
+    })),
+    // Летопись Камчатки (03.10): оглавление и статьи; дата — последней сверки с источниками.
+    { url: `${BASE}/letopis`,              lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.6 },
+    ...CHRONICLE_ARTICLES.map((a) => ({
+      url: `${BASE}/letopis/${a.slug}`, lastModified: new Date(a.checkedAt), changeFrequency: 'monthly' as const, priority: 0.6,
     })),
     { url: `${BASE}/accommodations`,       lastModified: RECENT,      changeFrequency: 'daily',   priority: 0.8 },
     // Витрина мест в поездках перевозчиков (схема 926, экран 02.09).

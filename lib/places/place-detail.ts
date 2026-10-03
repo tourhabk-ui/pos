@@ -9,6 +9,7 @@
  */
 
 import { query } from '@/lib/database';
+import { chronicleForPlace } from '@/lib/chronicle/articles';
 import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
@@ -389,6 +390,12 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         sourceName: r.source_name as string | null,
         updatedAt: r.updated_at as string | null,
         kuzmichReview: (r.kuzmich_review as string | null) ?? null,
+        // Связь статьи с местом — по places.id или по ark_id: в каталоге оба
+        // встречаются как «id места», а карточка знает ark_id.
+        chronicle: [...new Map(
+          [...chronicleForPlace(String(r.place_pk)), ...chronicleForPlace(String(r.ark_id))]
+            .map((a) => [a.slug, { slug: a.slug, title: a.title }]),
+        ).values()],
 
         eco: r.eco_zone ? {
           zone: r.eco_zone as string,
