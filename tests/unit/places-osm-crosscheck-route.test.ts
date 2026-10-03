@@ -115,4 +115,10 @@ describe('выборка OSM — на раннере, сравнение — н�
     expect(SCRIPT).toMatch(/features\.length === 0[\s\S]{0,300}return 1/);
     expect(SCRIPT).toMatch(/catch \(err\)[\s\S]{0,200}return 1/);
   });
+
+  it('приговор «код на проде» — по ответу эндпоинта (400 на пустой POST), а не по built_at', () => {
+    expect(WF).toContain("--data '{}'");
+    expect(WF).toContain('[ "$CODE" = "400" ]');
+    expect(WF).toMatch(/REQUIRE_FRESH: '0'/);
+  });
 });
