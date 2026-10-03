@@ -1,6 +1,6 @@
 {
   "note": "03.10. Радар «9 ч назад»: подпись свежести плитки на главной (aria-label «Радар обстановки. …»), без вызова ingest. Предыдущий ручной ingest — 08:27 UTC.",
-  "run": 663,
+  "run": 664,
   "timeout": 60,
   "retries": 0,
   "bytes": 200,
@@ -9,9 +9,12 @@
     "https://vedarai.ru/"
   ],
   "around": [
-    "Радар обстановки."
+    "Радар обстановки",
+    "ч назад",
+    "мин назад"
   ],
   "aroundLines": 0,
   "aroundBefore": 0,
-  "aroundHits": 2
+  "aroundHits": 2,
+  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36"
 }
