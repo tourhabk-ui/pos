@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ScrollText, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
+import { articlesByKind } from '@/lib/chronicle/articles';
+import { kindLabel } from '@/lib/chronicle/kinds';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const metadata: Metadata = {
@@ -38,30 +39,37 @@ export default function ChronicleIndexPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 max-w-3xl">
-          {CHRONICLE_ARTICLES.map((a) => (
-            <Link
-              key={a.slug}
-              href={`/letopis/${a.slug}`}
-              className="ds-card group flex items-start gap-4 hover:shadow-md transition-all duration-200"
-            >
-              <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--bg-hover)]">
-                <ScrollText className="w-6 h-6 text-[var(--accent)]" aria-hidden="true" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-[var(--text-muted)] mb-1">{a.period}</p>
-                <h2
-                  className="text-lg font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors"
-                  style={{ fontFamily: 'var(--font-playfair)' }}
+        {articlesByKind().map((group) => (
+          <section key={group.kind} className="max-w-3xl mb-10">
+            <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-3">
+              {kindLabel(group.kind)}
+            </h2>
+            <div className="grid grid-cols-1 gap-4">
+              {group.articles.map((a) => (
+                <Link
+                  key={a.slug}
+                  href={`/letopis/${a.slug}`}
+                  className="ds-card group flex items-start gap-4 hover:shadow-md transition-all duration-200"
                 >
-                  {a.title}
-                </h2>
-                <p className="text-sm text-[var(--text-secondary)] leading-relaxed mt-1">{a.lead}</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0 mt-1" aria-hidden="true" />
-            </Link>
-          ))}
-        </div>
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--bg-hover)]">
+                    <ScrollText className="w-6 h-6 text-[var(--accent)]" aria-hidden="true" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-[var(--text-muted)] mb-1">{a.period}</p>
+                    <h3
+                      className="text-lg font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors"
+                      style={{ fontFamily: 'var(--font-playfair)' }}
+                    >
+                      {a.title}
+                    </h3>
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed mt-1">{a.lead}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0 mt-1" aria-hidden="true" />
+                </Link>
+              ))}
+            </div>
+          </section>
+        ))}
       </main>
     </>
   );

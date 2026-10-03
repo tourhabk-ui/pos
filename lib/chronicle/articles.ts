@@ -14,6 +14,8 @@
  * существуют в нескольких записях.
  */
 
+import type { ArticleKind } from './kinds';
+
 export interface ChronicleSection {
   heading: string;
   /** Абзацы. Цитата — абзац, начинающийся с «» и помеченный quote. */
@@ -38,6 +40,8 @@ export interface ChronicleArticle {
   placeIds: string[];
   /** Когда статья последний раз сверялась с источниками (ISO-дата). */
   checkedAt: string;
+  /** Род статьи (lib/chronicle/kinds.ts). Не задан — событие. */
+  kind?: ArticleKind;
 }
 
 export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
@@ -360,6 +364,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   // ---------------------------------------------------------------------
   {
     slug: 'osnovanie-petropavlovska-1740',
+    kind: 'event',
     title: 'Основание Петропавловска и памятник Берингу',
     period: '1697 — 1970-е',
     lead:
@@ -406,6 +411,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   },
   {
     slug: 'mayak-stanitskogo',
+    kind: 'place',
     title: 'Маяк Станицкого',
     period: '1740 — наши дни',
     lead:
@@ -461,6 +467,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   },
   {
     slug: 'nikolskoe-i-komandory',
+    kind: 'place',
     title: 'Никольское и Командорские острова',
     period: '1741 — 1911',
     lead:
@@ -520,6 +527,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   },
   {
     slug: 'gibel-kreysera-niitaka-1922',
+    kind: 'event',
     title: 'Гибель крейсера «Ниитака», 1922',
     period: '1902 — 1924',
     lead:
@@ -557,6 +565,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   },
   {
     slug: 'severo-kurilsk-kasivabara-i-korabli',
+    kind: 'place',
     title: 'Северо-Курильск: Касивабара, цунами и кладбище кораблей',
     period: '1898 — 2025',
     lead:
@@ -597,6 +606,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   },
   {
     slug: 'vitus-bering-kamchatskie-ekspedicii',
+    kind: 'person',
     title: 'Витус Беринг и Камчатские экспедиции',
     period: '1681 — 1742',
     lead:
@@ -645,6 +655,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
   },
   {
     slug: 'krasheninnikov-opisanie-zemli-kamchatki',
+    kind: 'person',
     title: 'Степан Крашенинников и «Описание земли Камчатки»',
     period: '1711 — 1755',
     lead:
@@ -695,4 +706,17 @@ export const CHRONICLE_BY_SLUG: Record<string, ChronicleArticle> = Object.fromEn
 /** Статьи летописи, связанные с местом каталога. */
 export function chronicleForPlace(placeId: string): ChronicleArticle[] {
   return CHRONICLE_ARTICLES.filter((a) => a.placeIds.includes(placeId));
+}
+
+/** Род статьи; у статей без поля — событие (так писались первые пять). */
+export function articleKind(a: ChronicleArticle): ArticleKind {
+  return a.kind ?? 'event';
+}
+
+/** Статьи по родам в порядке рубрик оглавления; пустые рубрики опущены. */
+export function articlesByKind(list: ChronicleArticle[] = CHRONICLE_ARTICLES): Array<{ kind: ArticleKind; articles: ChronicleArticle[] }> {
+  const kinds: ArticleKind[] = ['event', 'person', 'place', 'toponym'];
+  return kinds
+    .map((kind) => ({ kind, articles: list.filter((a) => articleKind(a) === kind) }))
+    .filter((g) => g.articles.length > 0);
 }

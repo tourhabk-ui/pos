@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG } from '@/lib/chronicle/articles';
+import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG, articleKind } from '@/lib/chronicle/articles';
+import { kindLabel } from '@/lib/chronicle/kinds';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 // Статьи — константа в коде, базы страница не трогает: собрать их на сборке
@@ -66,7 +67,7 @@ export default async function ChronicleArticlePage({ params }: Props) {
             Летопись Камчатки
           </Link>
 
-          <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">{a.period}</p>
+          <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">{kindLabel(articleKind(a))} · {a.period}</p>
           <h1
             className="text-4xl md:text-5xl font-bold text-[var(--text-primary)] leading-tight mb-4"
             style={{ fontFamily: 'var(--font-playfair)' }}

@@ -1,9 +1,10 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 15,
-  "why": "id мест каталога с корнем «Авача» для статьи toponim-avacha.",
+  "batch": 16,
+  "why": "id вулкана Авачинская сопка и реки Авача в каталоге.",
   "urls": [
-    "https://vedarai.ru/api/places?q=%D0%90%D0%B2%D0%B0%D1%87",
-    "https://vedarai.ru/api/places?q=%D0%90%D0%B2%D0%B0%D1%87%D0%B8%D0%BD%D1%81%D0%BA"
+    "https://vedarai.ru/api/places?q=%D0%90%D0%B2%D0%B0%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B0%D1%8F%20%D1%81%D0%BE%D0%BF%D0%BA%D0%B0",
+    "https://vedarai.ru/api/places?q=%D0%A0%D0%B5%D0%BA%D0%B0%20%D0%90%D0%B2%D0%B0%D1%87%D0%B0",
+    "https://vedarai.ru/api/places?q=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%20%D0%90%D0%B2%D0%B0%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9"
   ]
 }

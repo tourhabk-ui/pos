@@ -9,7 +9,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG, chronicleForPlace } from '@/lib/chronicle/articles';
+import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG, chronicleForPlace, articleKind, articlesByKind } from '@/lib/chronicle/articles';
+import { ARTICLE_KINDS, TOPONYM_SECTIONS, isHedged } from '@/lib/chronicle/kinds';
 import { descriptionVoice } from '@/lib/places/description-voice';
 
 const ROOT = process.cwd();
@@ -138,6 +139,32 @@ describe('статьи летописи', () => {
     const t = text('krasheninnikov-opisanie-zemli-kamchatki');
     expect(t).toContain('1737 по 1741');
     expect(t).toContain('25 773');
+  });
+});
+
+
+describe('каркас серии: роды статей', () => {
+  it('у каждой статьи известный род, оглавление покрывает все статьи', () => {
+    for (const a of CHRONICLE_ARTICLES) expect(Object.keys(ARTICLE_KINDS)).toContain(articleKind(a));
+    const listed = articlesByKind().flatMap((g) => g.articles.map((a) => a.slug));
+    expect(listed.sort()).toEqual(CHRONICLE_ARTICLES.map((a) => a.slug).sort());
+  });
+
+  for (const a of CHRONICLE_ARTICLES.filter((x) => articleKind(x) === 'toponym')) {
+    it(`${a.slug}: топоним — обязательные секции и слово-ограничитель`, () => {
+      const headings = a.sections.map((s) => s.heading);
+      for (const h of TOPONYM_SECTIONS) expect(headings).toContain(h);
+      // Этимология без «предположительно» — уверенный тон там, где источник
+      // не уверен; в лиде тоже нельзя выбирать версию.
+      expect(isHedged(text(a.slug))).toBe(true);
+      expect(isHedged(a.lead)).toBe(true);
+      expect(a.placeIds.length).toBeGreaterThan(0);
+    });
+  }
+
+  it('сторож топонима краснеет на уверенном тексте', () => {
+    expect(isHedged('Название означает «отец заливов».')).toBe(false);
+    expect(isHedged('Название предположительно от ительменского «эвыч».')).toBe(true);
   });
 });
 
