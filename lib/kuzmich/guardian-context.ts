@@ -1,4 +1,5 @@
 import { pool } from '@/lib/db-pool';
+import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsPhrase, kfegsIsFresh, levelForColor, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { placeTypeLabel } from '@/lib/places/type-label';
@@ -298,7 +299,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
          lsp.capacity_per_day, lsp.open_from_date, lsp.open_to_date,
          lrs.is_open, lrs.current_crowds, lrs.active_alerts,
          lrs.recommender_status, lrs.alert_message, lrs.alert_severity,
-         lrs.updated_at::text AS status_updated_at,
+         ${isoUtcSql('lrs.updated_at')} AS status_updated_at,
          lrs.tourists_today,
          vs.aviation_color_code AS volcano_acc,
          vs.ash_height_m        AS volcano_ash_height_m,

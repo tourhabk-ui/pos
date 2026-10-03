@@ -12,6 +12,7 @@
  * Каждая выборка в своём try/catch: сбой одного блока не роняет страницу.
  */
 
+import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { query } from '@/lib/database';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import {
@@ -252,7 +253,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
           LIMIT 12`,
       ),
       query<{ last_update: string | null }>(
-        `SELECT MAX(updated_at)::text AS last_update FROM location_real_time_status`,
+        `SELECT ${isoUtcSql('MAX(updated_at)')} AS last_update FROM location_real_time_status`,
       ),
     ]);
 
@@ -286,7 +287,7 @@ async function fetchZones(): Promise<ZonesSnapshot> {
     const r = await query<{ open: string; total: string; last_update: string | null }>(
       `SELECT COUNT(*) FILTER (WHERE is_open IS TRUE)::text AS open,
               COUNT(*)::text                          AS total,
-              MAX(updated_at)::text                   AS last_update
+              ${isoUtcSql('MAX(updated_at)')}          AS last_update
          FROM location_real_time_status`,
     );
     const row = r.rows[0];

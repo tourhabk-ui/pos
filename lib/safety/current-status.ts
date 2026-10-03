@@ -19,6 +19,7 @@
  * перечислены как есть; происхождение не узнано — так и сказано.
  */
 
+import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { query } from '@/lib/database';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { RESOLUTION_SQL_PATTERN } from '@/lib/safety/resolution-notice';
@@ -86,7 +87,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       `, [RESOLUTION_SQL_PATTERN]),
       // Время последнего запуска ingest-крона — маркер свежести данных
       query<{ last_update: string | null }>(`
-        SELECT MAX(updated_at)::text AS last_update FROM location_real_time_status
+        SELECT ${isoUtcSql('MAX(updated_at)')} AS last_update FROM location_real_time_status
       `),
     ]);
 
