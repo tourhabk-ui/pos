@@ -125,6 +125,20 @@ describe('статьи летописи', () => {
     expect(t).toContain('1898');
     expect(t).toContain('28 затонувших объектов');
   });
+
+  it('Беринг связан с памятником; даты смерти и выхода к Америке из источника', () => {
+    expect(chronicleForPlace('c4d5e6f7-a8b9-4012-defa-123456789012').map((a) => a.slug)).toContain('vitus-bering-kamchatskie-ekspedicii');
+    const t = text('vitus-bering-kamchatskie-ekspedicii');
+    expect(t).toContain('8 (19) декабря 1741');
+    expect(t).toContain('16 июля 1741');
+  });
+
+  it('Крашенинников: четыре года на Камчатке и 25 773 версты', () => {
+    expect(CHRONICLE_BY_SLUG['krasheninnikov-opisanie-zemli-kamchatki']).toBeDefined();
+    const t = text('krasheninnikov-opisanie-zemli-kamchatki');
+    expect(t).toContain('1737 по 1741');
+    expect(t).toContain('25 773');
+  });
 });
 
 describe('страницы, навигация и sitemap', () => {
