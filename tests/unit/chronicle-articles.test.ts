@@ -152,6 +152,14 @@ describe('статьи летописи', () => {
     expect(chronicleForPlace('ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e').map((a) => a.slug)).toContain('toponim-nalychevo');
     expect(text('toponim-nalychevo')).toContain('Налачь Тынбалова');
   });
+
+  it('Камчатка (река): связана с рекой; версии Кончат и Иван Камчатый, расхождение дат карты', () => {
+    expect(chronicleForPlace('9ad01c57-7c24-4515-b92d-698bd9a1cb5f').map((a) => a.slug)).toContain('toponim-kamchatka-reka');
+    const t = text('toponim-kamchatka-reka');
+    expect(t).toContain('Кончат');
+    expect(t).toContain('Ивана Камчатого');
+    expect(t).toContain('не позднее 1697');
+  });
 });
 
 
