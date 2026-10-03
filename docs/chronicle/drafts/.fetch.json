@@ -1,9 +1,12 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 10,
-  "why": "Адмирал Прайс — русская статья целиком (гибель, погребение в Тарьинской бухте).",
+  "batch": 11,
+  "why": "Владелец: Беринг и Крашенинников — биографии и экспедиции для летописи.",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Прайс,_Дэвид_Пауэлл",
-    "https://ru.wikipedia.org/wiki/Фебврье-Деспуант,_Огюст"
+    "https://ru.wikipedia.org/wiki/Беринг,_Витус_Ионассен",
+    "https://ru.wikipedia.org/wiki/Крашенинников,_Степан_Петрович",
+    "https://ru.wikipedia.org/wiki/Описание_земли_Камчатки",
+    "https://ru.wikipedia.org/wiki/Вторая_Камчатская_экспедиция",
+    "https://ru.wikipedia.org/wiki/Первая_Камчатская_экспедиция"
   ]
 }
