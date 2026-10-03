@@ -154,9 +154,9 @@ describe('слой мест в стиле карты', () => {
     expect(style.layers.map((l) => l.id)).toEqual(
       expect.arrayContaining(['vedar-places']),
     );
-    // Текстовой подписи имени больше нет (решение владельца 13.09 —
-    // точечные подписи закрывали маркер на плотном зуме, см. vedar-style.ts).
-    expect(style.layers.some((l) => l.id === 'vedar-place-labels')).toBe(false);
+    // Подпись имени вернулась 03.10 (владелец: «пропали надписи мест») —
+    // слоем ПОД значками и с вытеснением, см. отдельный блок ниже.
+    expect(style.layers.some((l) => l.id === 'vedar-place-labels')).toBe(true);
     const bare = buildVedarStyle('dark', { ...STYLE_SRC, placesUrl: null }) as { sources: Record<string, unknown>; layers: Layer[] };
     expect(bare.sources['vedar-places']).toBeUndefined();
     expect(bare.layers.some((l) => l.id.startsWith('vedar-place'))).toBe(false);
@@ -189,6 +189,30 @@ describe('слой мест в стиле карты', () => {
     // Любой другой слой над местами — красный.
     expect(ids.at(-1)).toBe('vedar-quakes');
     expect(ids.at(-2)).toBe('vedar-places');
+  });
+
+  /**
+   * Подпись места не закрывает маркер (13.09 → 03.10).
+   *
+   * 13.09 подписи сняли: значок стоял с icon-ignore-placement: true, текст не
+   * видел его препятствием и ложился на соседний маркер — тапнуть было нечем.
+   * 03.10 владелец на поле: «пропали надписи мест». Вернули так, чтобы
+   * прежний дефект был невозможен по построению: значок — препятствие и
+   * рисуется всегда, подпись — слоем ниже и уступает.
+   */
+  it('подпись места: под значком, уступает ему, значок — препятствие', () => {
+    type L = Layer & { layout?: Record<string, unknown>; minzoom?: number };
+    const style = buildVedarStyle('dark', STYLE_SRC) as { layers: L[] };
+    const ids = style.layers.map((l) => l.id);
+    const icon = style.layers.find((l) => l.id === 'vedar-places')!;
+    const label = style.layers.find((l) => l.id === 'vedar-place-labels')!;
+    expect(ids.indexOf('vedar-place-labels')).toBeLessThan(ids.indexOf('vedar-places'));
+    expect(icon.layout!['icon-allow-overlap']).toBe(true);
+    expect(icon.layout!['icon-ignore-placement']).toBe(false);
+    expect(label.layout!['text-allow-overlap']).toBe(false);
+    expect(label.layout!['text-ignore-placement']).toBe(false);
+    expect(label.layout!['text-field']).toEqual(['get', 'name']);
+    expect(label.minzoom).toBeGreaterThanOrEqual(10);
   });
 
   it('без глифов — только кружки, подписи не просятся (иначе MapLibre отвергает весь стиль)', () => {

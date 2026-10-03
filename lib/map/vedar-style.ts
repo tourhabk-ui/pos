@@ -663,11 +663,15 @@ export function buildVedarStyle(
         layout: {
           'text-field': ['get', 'label'],
           'text-font': [font],
-          'text-size': 11,
+          'text-size': 13,
           'text-offset': [0, 1.2],
           'text-anchor': 'top',
         },
-        paint: { 'text-color': p.calculated, 'text-halo-color': p.contourLabelHalo, 'text-halo-width': 1.2 },
+        // Цвет текста — цвет подписи места, а не синий линии (03.10, владелец:
+        // «надпись цель на дороге не читается»): синий по тёмно-зелёному
+        // рельефу сливался, и тонкий ореол его не спасал. Принадлежность к
+        // автопути и так видна — кольцо этого цвета прямо над подписью.
+        paint: { 'text-color': p.place, 'text-halo-color': p.contourLabelHalo, 'text-halo-width': 2 },
       }] : []),
       // Имя реки — под символами: подписывается вдоль русла и уступает
       // место ориентирам.
@@ -677,7 +681,7 @@ export function buildVedarStyle(
       // Места платформы — над всем: ради них карту и открывают, а профиль
       // безопасности точки — то, о чём человек в поле спрашивает первым.
       // Вершины и посёлки OSM отсюда убраны 13.09 — см. OSM_LAYERS_NOT_DRAWN.
-      ...vedarPlaceLayers(sources, p, ''),
+      ...vedarPlaceLayers(sources, p, '', glyphs, font),
       // Толчки — поверх мест: это не география, а тревога последних суток.
       quakeLayer(p),
     ],
@@ -784,7 +788,7 @@ export function buildRegionOverlay(
         reliefLayer(p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         hillshadeLayer(theme, p, ns, tierMaxzoom(sources), tierMinzoom(sources)),
         ...vedarOceanLayers(sources, p, ns),
-        ...vedarPlaceLayers(sources, p, ns),
+        ...vedarPlaceLayers(sources, p, ns, glyphs, font),
       ] as Array<Record<string, unknown>>,
     };
   }
@@ -1335,12 +1339,13 @@ function vedarPlacesSource(sources: VedarStyleSources, ns: string): Record<strin
  * иконки при столкновении на обзоре, где 383 точки густо стоят на крае —
  * это была бы новая, никем не просимая потеря точек.
  *
- * Текстовой подписи имени больше нет (решение владельца 13.09, вместе со
- * всеми точечными подписями карты): `icon-ignore-placement: true` выше
- * выводит иконку из вытеснения MapLibre, и подпись рисовалась поверх
- * СОСЕДНЕЙ точки без проверки коллизии — на зуме ≥8.5 текст «Синичкина 279»
- * и подобные полностью закрывали маркер, и тапнуть по нему было нечем. Имя
- * места теперь узнаётся тапом, не текстом на карте. Второй шаг того же дня —
+ * Текстовую подпись имени 13.09 снимали (вместе со всеми точечными
+ * подписями карты): `icon-ignore-placement: true` выводил иконку из
+ * вытеснения MapLibre, и подпись рисовалась поверх СОСЕДНЕЙ точки без
+ * проверки коллизии — на зуме ≥8.5 текст «Синичкина 279» закрывал маркер, и
+ * тапнуть по нему было нечем. 03.10 подпись вернулась по слову владельца
+ * («пропали надписи мест») — с z11 и так, что маркер она закрыть не может:
+ * см. слой `vedar-place-labels` в vedarPlaceLayers. Второй шаг 13.09 —
  * снятие самих кружков вершин и посёлков, см. OSM_LAYERS_NOT_DRAWN.
  *
  * ── Обзор — точками, значки — вблизи (решение владельца 29.09) ────────────
@@ -1391,8 +1396,15 @@ function placeKindColor(): unknown {
   return ['match', ['coalesce', ['get', 'kind'], 'other'], ...pairs, PLACE_KIND_COLOR.other];
 }
 
+/**
+ * С какого зума у места подпись (03.10). Ниже — значок без имени: на z9-10
+ * в кадре десятки мест, и имена там — каша, а не ответ.
+ */
+export const PLACE_LABEL_MIN_ZOOM = 11;
+
 function vedarPlaceLayers(
   sources: VedarStyleSources, p: MapPalette, ns: string,
+  glyphs: string | null, font: string,
 ): unknown[] {
   if (!sources.placesUrl) return [];
   const source = `vedar-places${ns}`;
@@ -1411,7 +1423,38 @@ function vedarPlaceLayers(
       'circle-color': placeKindColor(),
       'circle-opacity': 0.9,
     },
-  }, {
+  },
+  // Имя места — ПОД значками (03.10, владелец на экране «На маршруте»:
+  // «пропали надписи мест»). 13.09 подписи сняли, потому что текст ложился
+  // на соседний маркер: значок стоял с `icon-ignore-placement: true` и
+  // препятствием для текста не был. Теперь наоборот: значок занимает место
+  // в раскладке (`icon-ignore-placement: false`) и рисуется всегда
+  // (`icon-allow-overlap: true`), а подпись слоем НИЖЕ раскладывается после
+  // значков и уступает им. Не влезла — не рисуется; маркер не закрывается
+  // никогда, имя по-прежнему узнаётся тапом. Тап ловит только префикс
+  // `vedar-places`, подпись под него не попадает.
+  ...(glyphs ? [{
+    id: `vedar-place-labels${ns}`, type: 'symbol', source,
+    minzoom: PLACE_LABEL_MIN_ZOOM,
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-font': [font],
+      'text-size': ['interpolate', ['linear'], ['zoom'], PLACE_LABEL_MIN_ZOOM, 11, 14, 13],
+      // Значок стоит НАД точкой (icon-anchor bottom) — имя под ней.
+      'text-anchor': 'top',
+      'text-offset': [0, 0.3],
+      'text-max-width': 9,
+      'text-padding': 2,
+      'text-allow-overlap': false,
+      'text-ignore-placement': false,
+    },
+    paint: {
+      'text-color': p.place,
+      'text-halo-color': p.contourLabelHalo,
+      'text-halo-width': 1.6,
+    },
+  }] : []),
+  {
     id: `vedar-places${ns}`, type: 'symbol', source,
     minzoom: PLACE_ICON_MIN_ZOOM,
     layout: {
@@ -1419,7 +1462,9 @@ function vedarPlaceLayers(
       'icon-size': ['interpolate', ['linear'], ['zoom'], PLACE_ICON_MIN_ZOOM, 0.6, 13, 0.9],
       'icon-anchor': 'bottom',
       'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
+      // Препятствие для подписей (03.10): рисуется всегда, но текст, свой и
+      // чужой, обходит значок, а не ложится на него.
+      'icon-ignore-placement': false,
     },
   }];
 }

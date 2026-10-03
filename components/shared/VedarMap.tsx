@@ -904,11 +904,22 @@ export default function VedarMap({
          */
         watchdog = setTimeout(async () => {
           if (cancelled) return;
-          if (loaded && seen.terrain > 0) return;
+          // Источник готов: архив прочитан, ждать от него нечего. Отсутствие
+          // события при этом — не отказ (03.10, скрин владельца на «На
+          // маршруте»: «рельеф не пришёл — HTTP 206 за 0.4 с · тайлов
+          // запрошено 0» на кадре, где рельеф через минуту был). Ноль
+          // запросов при НЕготовом источнике — по-прежнему тревога: это
+          // TileJSON, который не дошёл.
+          const sourceReady = (id: string): boolean => {
+            try { return map.getSource(id) != null && map.isSourceLoaded(id); } catch { return false; }
+          };
+          const terrainIdle = loaded && seen.terrainRequested === 0 && sourceReady('terrain');
+          const contoursOk = seen.contours > 0 || sourceReady('contours');
+          if (loaded && (seen.terrain > 0 || terrainIdle)) return;
           const parts: string[] = [];
           if (!loaded) parts.push('стиль не загрузился');
-          if (seen.terrain === 0) parts.push('рельеф не пришёл');
-          if (seen.contours === 0) parts.push('горизонтали не пришли');
+          if (seen.terrain === 0 && !terrainIdle) parts.push('рельеф не пришёл');
+          if (!contoursOk) parts.push('горизонтали не пришли');
           // Приговор целиком собирается здесь, а не у того, кто его рисует:
           // строку показывают ДВА места (сама карта и приборная колонка), и
           // разъехавшиеся формулировки — та же беда, что три реализации
