@@ -69,7 +69,7 @@ describe('карта: слой и страница', () => {
   const HOOK = read('hooks/useMapQuakes.ts');
 
   it('слой толчков — поверх мест в базовом стиле', () => {
-    const places = STYLE.indexOf("...vedarPlaceLayers(sources, p, ''),\n      // Толчки");
+    const places = STYLE.indexOf("...vedarPlaceLayers(sources, p, '', glyphs, font),\n      // Толчки");
     expect(places).toBeGreaterThan(0);
     expect(STYLE.indexOf('quakeLayer(p)')).toBeGreaterThan(places);
   });
