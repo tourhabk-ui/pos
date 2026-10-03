@@ -1,23 +1,18 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts: раннер читает перечисленные страницы и печатает их текст в лог и в check-runs chronicle-page-NN.",
-  "batch": 2,
-  "why": "Летопись: маяк Станицкого (архив mayaki-sssr, мыс), музей Северо-Курильска, Большерецкий маяк и цунами 1952 (для справок мест), Кайныран, Эссо, Жупаново/Карымский, Ниитака по-английски и по-японски, Алеуты.",
+  "batch": 3,
+  "why": "Летопись: кладбище кораблей Северо-Курильска (fishnews, vladnews, sakh.online, eastrussia), маяк Станицкого у штурманов ТОФ, Бечевинка/Финвал по координате «Карымского», населённые пункты Камчатки у Пирагиса, музей Северо-Курильска (museum.ru N47761), Гундзи.",
   "urls": [
-    "https://web.archive.org/web/2024/http://mayaki-sssr.spb.ru/mayaki-dalnii-vostok/524/",
-    "https://ru.wikipedia.org/wiki/Мыс_Станицкого",
-    "https://ru.wikipedia.org/wiki/Маяк_Станицкого",
-    "http://www.museum.ru/M2259",
-    "https://sevkur.sakhalin.gov.ru/adm/history/",
-    "https://ru.wikipedia.org/wiki/Большерецкий_маяк",
-    "https://ru.wikipedia.org/wiki/Северо-Курильское_цунами_(1952)",
-    "https://visitkamchatka.ru/camps/etnokulturnyy-kompleks-kaynyran/",
-    "https://ru.wikipedia.org/wiki/Эссо",
-    "https://essobmr.ru/city/history/",
-    "https://ru.wikipedia.org/wiki/Жупаново",
-    "https://ru.wikipedia.org/wiki/Карымский_(вулкан)",
-    "https://en.wikipedia.org/wiki/Japanese_cruiser_Niitaka",
-    "https://ja.wikipedia.org/wiki/新高_(防護巡洋艦)",
-    "https://ru.wikipedia.org/wiki/Алеуты",
-    "https://ru.wikipedia.org/wiki/Остров_Беринга"
+    "https://fishnews.ru/news/50724",
+    "https://vladnews.ru/2022-10-17/208829/kladbishche_zatonuvshih",
+    "https://sakh.online/news/18/2022-03-22/videofakt-kak-vyglyadit-kladbische-korabley-na-kurilah-333868",
+    "https://www.eastrussia.ru/material/bereg-pogibshikh-korabley-/",
+    "http://shturman-tof.ru/Morskay/mayki/stanickogo_mayk.htm",
+    "https://ru.wikipedia.org/wiki/Бечевинка",
+    "https://ru.wikipedia.org/wiki/Финвал_(Камчатский_край)",
+    "https://www.piragis.ru/history/naselennye-punkty-kamchatka.html",
+    "http://www.museum.ru/N47761",
+    "https://ru.wikipedia.org/wiki/Гундзи,_Сигэтада",
+    "https://ru.wikipedia.org/wiki/Байково_(Сахалинская_область)"
   ]
 }
