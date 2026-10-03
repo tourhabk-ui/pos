@@ -18,7 +18,7 @@
 | `gibel-kreysera-niitaka-1922` | Кенотаф крейсера «Ниитака» | 3 (ru, en, ja) |
 | `severo-kurilsk-kasivabara-i-korabli` | кладбище кораблей, Остов корабля | 3 |
 
-Справочные описания — `docs/chronicle/drafts/places.md`: 12 текстов из 14 (875–1236 знаков; текст памятника Берингу — 1236, на 36 знаков длиннее нормы, сокращать дальше — терять расхождение дат), у всех голос `plain` по `descriptionVoice()`. Тест `tests/unit/chronicle-articles.test.ts` дополнен пятью утверждениями (связь с местом + ключевое число); `npx vitest run tests/unit/chronicle-articles.test.ts` — 55 passed; `npx tsc --noEmit` — 0 ошибок.
+Справочные описания — `docs/chronicle/drafts/places.md`: 12 текстов из 14 (875–1166 знаков), у всех голос `plain` по `descriptionVoice()`. Тест `tests/unit/chronicle-articles.test.ts` дополнен пятью утверждениями (связь с местом + ключевое число); `npx vitest run tests/unit/chronicle-articles.test.ts` — 55 passed; `npx tsc --noEmit` — 0 ошибок.
 
 ## По каким местам источников не нашлось
 
