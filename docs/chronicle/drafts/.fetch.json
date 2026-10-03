@@ -1,11 +1,9 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 9,
-  "why": "Вопрос владельца: адмирал англо-французской эскадры 1854 — Дэвид Прайс и Феврие де Пуант.",
+  "batch": 10,
+  "why": "Адмирал Прайс — русская статья целиком (гибель, погребение в Тарьинской бухте).",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Прайс,_Дэвид",
-    "https://en.wikipedia.org/wiki/David_Price_(Royal_Navy_officer)",
-    "https://ru.wikipedia.org/wiki/Феврие_Де_Пуант,_Огюст",
-    "https://en.wikipedia.org/wiki/Auguste_Febvrier_Despointes"
+    "https://ru.wikipedia.org/wiki/Прайс,_Дэвид_Пауэлл",
+    "https://ru.wikipedia.org/wiki/Фебврье-Деспуант,_Огюст"
   ]
 }
