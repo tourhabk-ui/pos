@@ -203,7 +203,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       type: 'function',
       function: {
         name: 'get_place_info',
-        description: 'Найти базовую информацию о месте из базы данных (используй get_guardian_context для полного контекста с безопасностью и алертами).',
+        description: 'Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Для полного контекста с безопасностью и алертами — get_guardian_context.',
         parameters: { type: 'object', properties: { name: { type: 'string', description: 'Название объекта' } }, required: ['name'] },
       },
     },
