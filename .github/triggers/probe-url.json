@@ -1,18 +1,11 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. uuid записи «Гора Замок» из страницы карточки (API /api/places/[id] slug не принимает).",
-  "run": 656,
-  "timeout": 60,
-  "retries": 1,
-  "retryDelay": 20,
-  "bytes": 300,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Сверка мест с OSM (квадратами, 166d3ddb на проде — деплой подтверждён) напрямую: ожидатель workflow run 8 не узнал свою сборку (built_at = начало сборки, +25 с от пуша при запасе 600 с).",
+  "run": 657,
+  "timeout": 300,
+  "retries": 0,
+  "bytes": 400000,
   "allowStale": true,
   "urls": [
-    "https://vedarai.ru/places/gora-zamok"
-  ],
-  "around": [
-    "\\\"id\\\":\\\"",
-    "\"id\":\""
-  ],
-  "aroundLines": 0,
-  "aroundHits": 4
+    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&min_sim=0.3&limit=400&offset=0"
+  ]
 }
