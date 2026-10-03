@@ -1,33 +1,12 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Летопись Камчатки на проде после деплоя b08a6313: оглавление, пять статей, sitemap, карточка Батареи Максутова (фото владельца 1147 и ссылка на статью).",
-  "run": 651,
-  "timeout": 60,
-  "retries": 2,
-  "retryDelay": 30,
-  "bytes": 600,
+  "note": "03.10. ТОЛЬКO ЧТЕНИЕ. Гора Замок: у нас 53.18284/158.28647, Maps.me (OSM) — 53.177803/158.194426, 1036 м, разница 6.2 км. Объекты OSM с именем «Замок» вокруг и id места в каталоге.",
+  "run": 652,
+  "timeout": 90,
+  "retries": 1,
+  "retryDelay": 20,
+  "bytes": 8000,
   "urls": [
-    "https://vedarai.ru/letopis",
-    "https://vedarai.ru/letopis/petropavlovskaya-oborona-1854",
-    "https://vedarai.ru/letopis/petropavlovskiy-mayak",
-    "https://vedarai.ru/letopis/severo-kurilskoe-cunami-1952",
-    "https://vedarai.ru/letopis/vzyatie-shumshu-1945",
-    "https://vedarai.ru/letopis/bolsheretskiy-mayak",
-    "https://vedarai.ru/sitemap.xml",
-    "https://vedarai.ru/api/places/a2b3c4d5-e6f7-4890-bcde-f01234567890"
-  ],
-  "grep": [
-    "Петропавловская оборона",
-    "Петропавловский маяк",
-    "Северо-Курильское цунами",
-    "Взятие Шумшу",
-    "Большерецкий маяк",
-    "Источники",
-    "application/ld+json",
-    "владелец платформы",
-    "petropavlovskaya-oborona-1854"
-  ],
-  "count": [
-    "/letopis",
-    "place-gallery"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28nwr%5B%22name%22~%22%D0%97%D0%B0%D0%BC%D0%BE%D0%BA%22%2Ci%5D%2852.8%2C157.6%2C53.6%2C159.0%29%3B%29%3Bout%20center%20tags%3B",
+    "https://vedarai.ru/api/search?q=%D0%93%D0%BE%D1%80%D0%B0%20%D0%97%D0%B0%D0%BC%D0%BE%D0%BA"
   ]
 }
