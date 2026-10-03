@@ -75,6 +75,23 @@ jobs:
           print(f'min_sim={min_sim} part={part} limit={limit} offset={offset}')
           PY
 
+      # ── Объекты OSM выбираются ЗДЕСЬ, на раннере (03.10) ─────────────────
+      # Публичные Overpass перестали отдавать край за то время, что живёт
+      # запрос прода: с 10.09 сверка не проходила ни разу, 03.10 — таймаут
+      # и 504 на всех четырёх серверах даже на один квадрат. Раннер ждёт
+      # минутами, берёт квадраты 2° × 2° и обходит серверы по кругу; прод
+      # получает готовый список POST-ом и сравнивает имена в базе.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Объекты OSM по краю — с раннера
+        run: npx tsx scripts/osm-crosscheck-fetch.ts /tmp/osm-features.json
+
       # Маркер едет в main тем же пушем, что и роут /api/cron/places-osm-crosscheck,
       # а Timeweb собирает образ 5–20 минут. Эндпоинт этого прогона едет ТЕМ ЖЕ
       # коммитом (REQUIRE_FRESH=1): не дождались сборки — спрашивать нечего,
@@ -96,7 +113,8 @@ jobs:
         run: |
           set -u
           URL="https://vedarai.ru/api/cron/places-osm-crosscheck?part=${PART}&min_sim=${MIN_SIM}&limit=${LIMIT}&offset=${OFFSET}"
-          RESP=$(curl -H "Authorization: Bearer ${CRON_SECRET}" -s --max-time 300 "$URL") || RESP=""
+          RESP=$(curl -X POST -H "Authorization: Bearer ${CRON_SECRET}" -H "Content-Type: application/json" \
+            --data-binary @/tmp/osm-features.json -s --max-time 300 "$URL") || RESP=""
           # ── ОТКАЗ НЕ ВЫДАЁТСЯ ЗА УСПЕХ (правка 20.09) ─────────────────────
           #
           # Прогон 5 вернул `{"success": false, "error": ...}` (роут отвечает

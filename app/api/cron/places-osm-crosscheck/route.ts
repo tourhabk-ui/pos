@@ -26,13 +26,21 @@
  * отдельный: «озёр с кандидатами N» и «всего мест с кандидатами M» — разные
  * числа, и подменять второе первым нельзя.
  *
+ * POST (03.10) — тот же ответ, но объекты OSM приходят в теле, выбранные на
+ * раннере GitHub (scripts/osm-crosscheck-fetch.ts): публичные Overpass
+ * перестали отдавать край за то время, что живёт запрос прода. POST тоже
+ * ТОЛЬКО ЧИТАЕТ: тело — данные для сравнения, в базу из него не пишется
+ * ничего.
+ *
  * Bearer CRON_SECRET.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runOsmCrosscheck } from '@/lib/geo/osm-crosscheck-runner';
+import type { OsmFeature } from '@/lib/geo/osm-crosscheck';
 import { STRONG_SIM } from '@/lib/geo/osm-crosscheck';
 import { KAMCHATKA_BOUNDS } from '@/lib/services/routes/geocode';
 
@@ -58,12 +66,52 @@ const ITEMS_PAGE_DEFAULT = 30;
  */
 const ITEMS_PAGE_MAX = 400;
 
+/** Объекты OSM, выбранные на раннере. Потолок — с запасом над 8379 (10.09). */
+const RunnerFeaturesSchema = z.object({
+  features: z.array(z.object({
+    id: z.number().int().positive(),
+    kind: z.enum(['node', 'way', 'relation']),
+    name: z.string().min(1).max(300),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    matchedTag: z.string().min(1).max(200),
+  })).min(1).max(60_000),
+  source: z.string().max(500).optional(),
+});
+
+function authorized(request: NextRequest): boolean {
+  return timingSafeCompare(getCronSecret(request), process.env.CRON_SECRET ?? '');
+}
+
 export async function GET(request: NextRequest) {
-  const secret = getCronSecret(request);
-  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
+  if (!authorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  return respond(request);
+}
 
+export async function POST(request: NextRequest) {
+  if (!authorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Тело не разобралось как JSON' }, { status: 400 });
+  }
+  const parsed = RunnerFeaturesSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({
+      success: false,
+      error: 'Список объектов OSM не прошёл проверку',
+      issues: parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`),
+    }, { status: 400 });
+  }
+  return respond(request, parsed.data.features, parsed.data.source ?? 'runner');
+}
+
+async function respond(request: NextRequest, features?: OsmFeature[], featuresSource?: string) {
   const partParam = request.nextUrl.searchParams.get('part') ?? 'both';
   const part = ['both', 'summary', 'items'].includes(partParam) ? partParam : 'both';
 
@@ -85,12 +133,14 @@ export async function GET(request: NextRequest) {
     : ITEMS_PAGE_DEFAULT;
 
   try {
-    const result = await runOsmCrosscheck({ minSim });
+    const result = await runOsmCrosscheck({ minSim, features });
     const items = kind ? result.items.filter((it) => it.locationType === kind) : result.items;
 
     return NextResponse.json({
       success: true,
-      probe: 'places_osm_crosscheck_v3',
+      probe: 'places_osm_crosscheck_v4',
+      // Откуда объекты OSM: спрошены продом или выбраны раннером и присланы.
+      osm_source: featuresSource ?? 'prod',
       part,
       kind: kind || null,
       items_kind_total: kind ? items.length : null,
