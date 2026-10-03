@@ -98,12 +98,13 @@ describe('прогон сверки не выдаёт отказ за успех
 describe('выборка OSM — на раннере, сравнение — на проде (03.10)', () => {
   const WF = readFileSync(join(process.cwd(), '.github/workflows/places-osm-crosscheck.yml'), 'utf-8');
   const FETCH = readFileSync(join(process.cwd(), 'lib/geo/osm-overpass-fetch.ts'), 'utf-8');
-  const SCRIPT = readFileSync(join(process.cwd(), 'scripts/osm-crosscheck-fetch.ts'), 'utf-8');
+  const SCRIPT = readFileSync(join(process.cwd(), 'scripts/osm-crosscheck-from-geojson.ts'), 'utf-8');
 
   it('workflow выбирает объекты скриптом и шлёт их POST-ом', () => {
-    expect(WF).toContain('npx tsx scripts/osm-crosscheck-fetch.ts /tmp/osm-features.json');
+    expect(WF).toContain('npx tsx scripts/osm-crosscheck-from-geojson.ts /tmp/kam.geojsonseq /tmp/osm-features.json');
+    expect(WF).toContain('download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf');
     expect(WF).toContain('--data-binary @/tmp/osm-features.json');
-    expect(WF.indexOf('osm-crosscheck-fetch.ts')).toBeLessThan(WF.indexOf('--data-binary'));
+    expect(WF.indexOf('osm-crosscheck-from-geojson.ts')).toBeLessThan(WF.indexOf('--data-binary'));
   });
 
   it('модуль сети не тянет пул БД: на раннере DATABASE_URL нет', () => {
@@ -111,9 +112,17 @@ describe('выборка OSM — на раннере, сравнение — н�
     expect(SCRIPT).not.toMatch(/db-pool|lib\/database/);
   });
 
-  it('скрипт: ноль объектов на весь край и непрочитанный квадрат — выход 1, не пустой файл', () => {
+  it('скрипт: ноль объектов или битые строки выгрузки — выход 1, не пустой файл', () => {
     expect(SCRIPT).toMatch(/features\.length === 0[\s\S]{0,300}return 1/);
-    expect(SCRIPT).toMatch(/catch \(err\)[\s\S]{0,200}return 1/);
+    expect(SCRIPT).toMatch(/broken > 0[\s\S]{0,300}return 1/);
+  });
+
+  it('фильтр osmium и matchesCrosscheckTags — те же ключи, что запрос Overpass', () => {
+    for (const k of ['natural', 'waterway', 'place', 'tourism', 'historic', 'leisure']) {
+      expect(WF).toContain(`nwr/${k}`);
+    }
+    expect(WF).toContain('nwr/boundary=protected_area');
+    expect(WF).toContain('nwr/man_made=lighthouse');
   });
 
   it('приговор «код на проде» — по ответу эндпоинта (400 на пустой POST), а не по built_at', () => {

@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import {
   buildOsmCrosscheckQuery, parseOsmFeatures, buildCrosscheckItems,
   type PlaceInput, type OsmFeature, type SimilarityRow,
-  isOsmPointTag,
+  isOsmPointTag, geojsonFeatureToElement, matchesCrosscheckTags,
 } from '@/lib/geo/osm-crosscheck';
 
 describe('Overpass-запрос', () => {
@@ -192,5 +192,36 @@ describe('точечный тёзка OSM — улика при любом на�
     const wf = readFileSync(join(process.cwd(), '.github/workflows/places-osm-crosscheck.yml'), 'utf8');
     expect(wf).toContain('Точечный тёзка OSM дальше 1 км');
     expect(wf).toContain("nearestStrongPointKm");
+  });
+});
+
+describe('выгрузка Geofabrik → форма Overpass (03.10)', () => {
+  it('узел — точка; линия и область — середина охвата, как `out center`', () => {
+    const node = geojsonFeatureToElement({ id: 'n7178874096', properties: { name: 'Замок', natural: 'peak', ele: '1036' }, geometry: { type: 'Point', coordinates: [158.1944257, 53.1778026] } });
+    expect(node).toEqual({ type: 'node', id: 7178874096, lat: 53.1778026, lon: 158.1944257, tags: { name: 'Замок', natural: 'peak', ele: '1036' } });
+    const lake = geojsonFeatureToElement({ id: 'w5', properties: { name: 'Озеро', natural: 'water' }, geometry: { type: 'Polygon', coordinates: [[[158, 53], [158.2, 53], [158.2, 53.4], [158, 53.4], [158, 53]]] } });
+    expect(lake?.center).toEqual({ lat: 53.2, lon: 158.1 });
+    expect(parseOsmFeatures({ elements: [node, lake] })).toHaveLength(2);
+  });
+
+  it('id без рода и пустая геометрия — не элемент', () => {
+    expect(geojsonFeatureToElement({ id: 'a12', properties: {}, geometry: { type: 'Point', coordinates: [1, 2] } })).toBeNull();
+    expect(geojsonFeatureToElement({ id: 'n1', properties: {}, geometry: null })).toBeNull();
+  });
+
+  it('отбор тот же, что у запроса Overpass: ключ из списка или заповедник/маяк, и обязательно имя', () => {
+    expect(matchesCrosscheckTags({ name: 'Замок', natural: 'peak' })).toBe(true);
+    expect(matchesCrosscheckTags({ name: 'Налычево', boundary: 'protected_area' })).toBe(true);
+    expect(matchesCrosscheckTags({ name: 'Маяк', man_made: 'lighthouse' })).toBe(true);
+    expect(matchesCrosscheckTags({ natural: 'peak' })).toBe(false);
+    expect(matchesCrosscheckTags({ name: 'Дом', building: 'yes' })).toBe(false);
+    expect(matchesCrosscheckTags({ name: 'Граница', boundary: 'administrative' })).toBe(false);
+  });
+
+  it('ключи предиката совпадают с ключами запроса Overpass', () => {
+    const q = buildOsmCrosscheckQuery({ latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 });
+    expect(q).toContain('natural|waterway|place|tourism|historic|leisure');
+    expect(q).toContain('"boundary"="protected_area"');
+    expect(q).toContain('"man_made"="lighthouse"');
   });
 });

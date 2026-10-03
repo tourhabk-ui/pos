@@ -80,7 +80,7 @@ export interface OsmFeature {
   matchedTag: string;
 }
 
-interface OverpassElement {
+export interface OverpassElement {
   type?: string;
   id?: number;
   lat?: number;
@@ -99,6 +99,55 @@ function pickMatchedTag(tags: Record<string, string>): string {
     if (tags[key]) return `${key}=${tags[key]}`;
   }
   return 'unknown';
+}
+
+/**
+ * Тот же отбор, что у запроса Overpass (buildOsmCrosscheckQuery), но по
+ * тегам одного объекта — для выгрузки Geofabrik (03.10). Одно правило в двух
+ * формах: меняется одно — меняется и другое (сторож osm-crosscheck.test).
+ */
+export function matchesCrosscheckTags(tags: Record<string, string> | null | undefined): boolean {
+  if (!tags || !tags.name) return false;
+  if (['natural', 'waterway', 'place', 'tourism', 'historic', 'leisure'].some((k) => Boolean(tags[k]))) return true;
+  return tags.boundary === 'protected_area' || tags.man_made === 'lighthouse';
+}
+
+interface GeoJsonFeatureLike {
+  id?: string | number;
+  properties?: Record<string, unknown> | null;
+  geometry?: { type?: string; coordinates?: unknown } | null;
+}
+
+/**
+ * Объект `osmium export -u type_id` («n123», «w45», «r6») → элемент в форме
+ * ответа Overpass с `out center;`: точка у узла, середина охватывающего
+ * прямоугольника у линии и области — ровно так `center` считает Overpass.
+ * Дальше его разбирает тот же parseOsmFeatures: правило одно.
+ */
+export function geojsonFeatureToElement(f: GeoJsonFeatureLike): OverpassElement | null {
+  const m = /^([nwr])(\d+)$/.exec(String(f.id ?? ''));
+  if (!m) return null;
+  const type = m[1] === 'n' ? 'node' : m[1] === 'w' ? 'way' : 'relation';
+  const tags: Record<string, string> = {};
+  for (const [k, v] of Object.entries(f.properties ?? {})) if (typeof v === 'string') tags[k] = v;
+  let latMin = Infinity, latMax = -Infinity, lngMin = Infinity, lngMax = -Infinity;
+  const walk = (c: unknown): void => {
+    if (!Array.isArray(c)) return;
+    if (c.length >= 2 && typeof c[0] === 'number' && typeof c[1] === 'number') {
+      const [lng, lat] = c as number[];
+      if (lat < latMin) latMin = lat; if (lat > latMax) latMax = lat;
+      if (lng < lngMin) lngMin = lng; if (lng > lngMax) lngMax = lng;
+      return;
+    }
+    for (const x of c) walk(x);
+  };
+  walk(f.geometry?.coordinates);
+  if (!Number.isFinite(latMin) || !Number.isFinite(lngMin)) return null;
+  const lat = (latMin + latMax) / 2;
+  const lon = (lngMin + lngMax) / 2;
+  return type === 'node'
+    ? { type, id: Number(m[2]), lat, lon, tags }
+    : { type, id: Number(m[2]), center: { lat, lon }, tags };
 }
 
 /**
