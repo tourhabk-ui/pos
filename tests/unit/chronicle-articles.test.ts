@@ -61,6 +61,22 @@ describe('статьи летописи', () => {
     expect(t).toContain('1 июля 1850');
   });
 
+  it('цунами 1952: число погибших дано всеми оценками, а не одной', () => {
+    const t = text('severo-kurilskoe-cunami-1952');
+    for (const n of ['1200', '2336', '4000', '14 000']) expect(t).toContain(n);
+    expect(chronicleForPlace('34785d3a-1b13-4390-86b8-9c83ea234724').length).toBeGreaterThan(0);
+  });
+
+  it('Шумшу: итоговые потери обеих сторон из источника', () => {
+    const t = text('vzyatie-shumshu-1945');
+    expect(t).toContain('1567');
+    expect(t).toContain('1018');
+  });
+
+  it('Большерецкий маяк связан с местом каталога', () => {
+    expect(chronicleForPlace('f970acdd-e9f4-44f9-a678-279c0efe2c68').map((a) => a.slug)).toContain('bolsheretskiy-mayak');
+  });
+
   it('Дмитрий Максутов — младший брат Александра (источник), не наоборот', () => {
     expect(text('petropavlovskaya-oborona-1854')).toContain('Александр Максутов, старший брат Дмитрия');
   });
