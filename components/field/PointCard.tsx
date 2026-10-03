@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Check, Navigation, X } from 'lucide-react';
+import { Copy, Check, Footprints, Car, X } from 'lucide-react';
 import { distanceM, formatCoords, type CoordFormat, type LatLng } from '@/lib/geo/format-coords';
 
 const FORMAT_KEY = 'vedar:coord-format';
@@ -31,7 +31,7 @@ const FORMAT_KEY = 'vedar:coord-format';
 export type PointCardRouteState =
   | { phase: 'idle' }
   | { phase: 'building' }
-  | { phase: 'found' }
+  | { phase: 'found'; mode?: 'foot' | 'car' }
   | { phase: 'failed'; text: string };
 
 export interface PointCardProps {
@@ -47,7 +47,8 @@ export interface PointCardProps {
   /** Мой фикс; null — фикса нет (тогда ни расстояния, ни прокладки). */
   me: LatLng | null;
   route: PointCardRouteState;
-  onRoute: () => void;
+  /** Проложить сюда — пешком или на машине (03.10, как у навигаторов). */
+  onRoute: (mode: 'foot' | 'car') => void;
   onClose: () => void;
 }
 
@@ -117,8 +118,14 @@ export function PointCard({ kind, point, name, me, route, onRoute, onClose }: Po
         </button>
       </div>
 
-      {route.phase === 'building' && <p className="text-xs text-white/70 mt-2">Ищем дорогу по нашим данным…</p>}
-      {route.phase === 'found' && <p className="text-xs mt-2" style={{ color: 'var(--success)' }}>Путь на карте — синяя линия по дорожной сети.</p>}
+      {route.phase === 'building' && <p className="text-xs text-white/70 mt-2">Ищем путь по нашим данным…</p>}
+      {route.phase === 'found' && (
+        <p className="text-xs mt-2" style={{ color: 'var(--success)' }}>
+          {route.mode === 'foot'
+            ? 'Путь на карте — синий пунктир по тропам и дорогам. На месте не проверен.'
+            : 'Путь на карте — синяя линия по дорожной сети.'}
+        </p>
+      )}
       {route.phase === 'failed' && <p className="text-xs mt-2" style={{ color: 'var(--warning)' }}>{route.text}</p>}
 
       <div className="flex items-center gap-2 mt-3">
@@ -128,15 +135,19 @@ export function PointCard({ kind, point, name, me, route, onRoute, onClose }: Po
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           {copied ? 'Скопировано' : 'Скопировать'}
         </button>
-        {kind === 'pin' && (
-          <button type="button" onClick={onRoute} disabled={!me || route.phase === 'building'}
+        {/* Проложить сюда — двумя кнопками, как у навигаторов (03.10,
+            владелец со снимком Яндекса: «даже у яндекса это уже есть»).
+            Пешком — по тропам и дорогам OSM, машиной — по дорожному графу. */}
+        {kind === 'pin' && (['foot', 'car'] as const).map((m) => (
+          <button key={m} type="button" onClick={() => onRoute(m)} disabled={!me || route.phase === 'building'}
             title={me ? undefined : 'Нет фикса GPS — откуда прокладывать, неизвестно'}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 rounded-lg transition-all duration-200 active:opacity-70 disabled:opacity-50"
+            aria-label={m === 'foot' ? 'Проложить сюда пешком' : 'Проложить сюда на машине'}
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold px-3 rounded-lg transition-all duration-200 active:opacity-70 disabled:opacity-50"
             style={{ minHeight: 44, background: 'var(--accent)', color: '#fff' }}>
-            <Navigation className="w-4 h-4" />
-            Проложить сюда
+            {m === 'foot' ? <Footprints className="w-4 h-4" /> : <Car className="w-4 h-4" />}
+            {m === 'foot' ? 'Пешком' : 'На машине'}
           </button>
-        )}
+        ))}
       </div>
       {/* Ряд марок чужих навигаторов (Organic Maps / Яндекс / 2ГИС) стоял
           здесь до 13.09 — снят по слову владельца «кнопка навигация до сих пор

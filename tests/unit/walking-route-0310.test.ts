@@ -5,6 +5,7 @@
  * выбора режима на экране.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { calculatedFootLine, calculatedCarLine, calculatedLine } from '@/lib/map/line-standard';
 import { footRouteReach, MAX_FOOT_DEST_SNAP_M, MAX_CAR_SNAP_M } from '@/lib/on-route/calculated-route';
 import { defaultMode, formatDuration, FOOT_DEFAULT_MAX_M } from '@/components/places/PlaceOwnRoute';
@@ -58,5 +59,28 @@ describe('какой режим открыть первым', () => {
     expect(formatDuration(3780)).toBe('1 ч 3 мин');
     expect(formatDuration(900)).toBe('15 мин');
     expect(formatDuration(10)).toBe('1 мин');
+  });
+});
+
+describe('экран «На маршруте»: пешком — тем же правилом', () => {
+  const read = (p: string) => readFileSync(`${process.cwd()}/${p}`, 'utf8');
+
+  it('большая карта рисует пеший путь пунктиром своим слоем', async () => {
+    const { buildVedarStyle } = await import('@/lib/map/vedar-style');
+    const style = buildVedarStyle('dark', {} as never) as { layers: Array<{ id: string; filter?: unknown; paint?: Record<string, unknown> }> };
+    const foot = style.layers.find((l) => l.id === 'route-calculated-foot');
+    expect(foot).toBeDefined();
+    expect(foot!.filter).toEqual(['==', ['get', 'kind'], 'calculated_foot']);
+    expect(foot!.paint!['line-dasharray']).toBeTruthy();
+    expect(style.layers.find((l) => l.id === 'route-calculated')!.paint!['line-dasharray']).toBeUndefined();
+  });
+
+  it('карточка точки: две кнопки, режим уходит в построение', () => {
+    const card = read('components/field/PointCard.tsx');
+    expect(card).toMatch(/onRoute: \(mode: 'foot' \| 'car'\) => void;/);
+    expect(card).toContain("onClick={() => onRoute(m)}");
+    const screen = read('app/planning/_PlanningClient.tsx');
+    expect(screen).toMatch(/const routeFromCard = useCallback\(\(mode: RouteBuildMode\) => \{/);
+    expect(screen).toContain('setBuildTravelMode(mode);');
   });
 });

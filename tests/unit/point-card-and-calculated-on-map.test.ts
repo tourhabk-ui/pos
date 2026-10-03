@@ -89,7 +89,8 @@ describe('автопуть на большой карте', () => {
   });
 
   it('экран кладёт автопуть в vedarLines родом calculated, концы — точками, и подводит кадр', () => {
-    expect(TRAIL).toMatch(/out\.push\(\{ coordinates: calc\.geometry\.coordinates, kind: 'calculated' \}\)/);
+    // Пеший путь (03.10) — свой род 'calculated_foot', стиль рисует его пунктиром.
+    expect(TRAIL).toMatch(/out\.push\(\{ coordinates: calc\.geometry\.coordinates, kind: calc\.travelMode === 'foot' \? 'calculated_foot' : 'calculated' \}\)/);
     expect(TRAIL).toMatch(/kind: 'calculated_end'/);
     expect(TRAIL).toMatch(/mapCtl\.fitLine\(calc\.geometry\.coordinates\)/);
     expect(TRAIL).toMatch(/points=\{vedarPoints\}/);

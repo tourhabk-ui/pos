@@ -628,6 +628,22 @@ export function buildVedarStyle(
         },
       },
       {
+        // Пеший путь по тропам OSM (03.10) — тот же синий, но ПУНКТИРОМ
+        // (calculatedFootLine): посчитан маршрутизатором, на месте никем не
+        // проверен. Сплошная обещала бы больше, чем мы знаем (§12).
+        id: 'route-calculated-foot',
+        type: 'line',
+        source: 'route',
+        filter: ['==', ['get', 'kind'], 'calculated_foot'],
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+          'line-color': p.calculated,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5],
+          'line-dasharray': [2, 1.5],
+          'line-opacity': 0.95,
+        },
+      },
+      {
         // Концы автопути — «старт на дороге» и «цель на дороге»: точка
         // привязки к графу, не сама цель. Кольцо цвета линии на фоне карты.
         id: 'route-calculated-end',

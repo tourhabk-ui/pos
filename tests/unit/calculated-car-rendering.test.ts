@@ -54,7 +54,8 @@ describe('линия calculated_car строится по стандарту, н
     const memoEnd = TRAIL.indexOf('}, [calculatedPreview]);', memoAt);
     const body = TRAIL.slice(memoAt, memoEnd);
     expect(body).toContain('calculatedCarToLeafletCoordinates(route)');
-    expect(body).toContain('calculatedCarLine()');
+    // С 03.10 род линии — по режиму расчёта (пешком — пунктир).
+    expect(body).toContain('calculatedLine(route.travelMode)');
     expect(body).not.toContain('trackLine(');
     expect(body).not.toMatch(/\.wps\b/);
   });
