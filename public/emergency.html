@@ -345,12 +345,15 @@ function showLastSignal(){
 
 // Принимает coords из состояния локатора: { lat, lng, acc, timestamp }.
 // Остановку поиска и запись последней онлайн-позиции делает сам локатор.
-function onGPSSuccess(c){
+function onGPSSuccess(c,refining){
   lat=c.lat.toFixed(5);
   lng=c.lng.toFixed(5);
   var age=c.timestamp?Math.round((Date.now()-c.timestamp)/1000):null;
   var ageNote=age&&age>60?' ('+Math.round(age/60)+' мин назад)':'';
-  document.getElementById('coords-value').textContent=lat+', '+lng+ageNote;
+  // Точность словами (03.10): быстрая точка по вышкам приходит первой и
+  // грубой — «±1,2 км — уточняем», спутниковая следом её уточняет.
+  var accNote=' · '+window.VedarGeo.accuracyLabel(c.acc,refining===true);
+  document.getElementById('coords-value').textContent=lat+', '+lng+ageNote+accNote;
   document.getElementById('coords-hint').style.display='';
   document.getElementById('retry-btn').style.display='none';
   var maps=document.getElementById('maps-btn');
@@ -536,7 +539,7 @@ var _locator=window.VedarGeo.createLocator({
       document.getElementById('coords-hint').style.display='none';
       document.getElementById('maps-btn').style.display='none';
     } else if(s.phase==='found'){
-      onGPSSuccess(s.coords);
+      onGPSSuccess(s.coords,s.refining);
     } else if(s.phase==='error'){
       onGPSError(s.error);
     }
