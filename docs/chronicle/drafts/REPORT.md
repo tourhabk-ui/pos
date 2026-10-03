@@ -18,7 +18,7 @@
 | `gibel-kreysera-niitaka-1922` | Кенотаф крейсера «Ниитака» | 3 (ru, en, ja) |
 | `severo-kurilsk-kasivabara-i-korabli` | кладбище кораблей, Остов корабля | 3 |
 | `vitus-bering-kamchatskie-ekspedicii` (по просьбе владельца, партия 11) | Памятник Витусу Берингу | 2 |
-| `krasheninnikov-opisanie-zemli-kamchatki` (по просьбе владельца; места в списке нет, `placeIds` пуст) | — | 1 |
+| `krasheninnikov-opisanie-zemli-kamchatki` (по просьбе владельца) | Вулкан Крашенинникова `20d7b84d…` (вне списка промпта, id подтверждён API) | 2 |
 
 Справочные описания — `docs/chronicle/drafts/places.md`: 12 текстов из 14 (875–1166 знаков), у всех голос `plain` по `descriptionVoice()`. Тест `tests/unit/chronicle-articles.test.ts` дополнен пятью утверждениями (связь с местом + ключевое число); `npx vitest run tests/unit/chronicle-articles.test.ts` — 65 passed; `npx tsc --noEmit` — 0 ошибок.
 

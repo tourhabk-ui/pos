@@ -134,7 +134,7 @@ describe('статьи летописи', () => {
   });
 
   it('Крашенинников: четыре года на Камчатке и 25 773 версты', () => {
-    expect(CHRONICLE_BY_SLUG['krasheninnikov-opisanie-zemli-kamchatki']).toBeDefined();
+    expect(chronicleForPlace('20d7b84d-8145-48a3-9177-3d7f40ec9915').map((a) => a.slug)).toContain('krasheninnikov-opisanie-zemli-kamchatki');
     const t = text('krasheninnikov-opisanie-zemli-kamchatki');
     expect(t).toContain('1737 по 1741');
     expect(t).toContain('25 773');
