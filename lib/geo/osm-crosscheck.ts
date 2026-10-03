@@ -150,6 +150,34 @@ export interface CrosscheckCandidate {
  */
 export const STRONG_SIM = 0.5;
 
+/**
+ * Теги OSM, у которых объект — ТОЧКА по смыслу: вершина, кратер-вершина
+ * вулкана, водопад, источник, маяк, памятник (03.10).
+ *
+ * Повод — «Гора Замок». Сверка 10.09 нашла её: «6.2 км → Замок
+ * (natural=peak)», — но пометила «[протяжённый]», и при разборе её отложили
+ * как гору, у которой центр законно далеко. Пометка бралась из НАШЕГО рода
+ * места (isExtendedObject, lib/places/coord-source), а тот написан под другой
+ * вопрос: можно ли по расстоянию судить, проходит ли маршрут через место, —
+ * и там гора действительно широка. Здесь вопрос иной: где точка объекта. Если
+ * одноимённый объект OSM — вершина, то и наша запись про гору значит её
+ * вершину, и шесть километров между двумя вершинами — ошибка, а не ширина
+ * горы. Через полгода турист с телефона показал то же самое из Maps.me.
+ *
+ * Точечность судится по тегу САМОГО объекта OSM, а не по нашему роду.
+ * tourism=* сюда не входит намеренно: «Озеро Костакан» в OSM — смотровая
+ * площадка, а не озеро, и её точка о самом озере не говорит.
+ */
+const OSM_POINT_TAGS = new Set([
+  'natural=peak', 'natural=volcano', 'natural=hot_spring', 'natural=spring',
+  'natural=geyser', 'natural=cave_entrance', 'natural=saddle', 'natural=stone',
+  'waterway=waterfall', 'man_made=lighthouse',
+]);
+
+export function isOsmPointTag(matchedTag: string): boolean {
+  return OSM_POINT_TAGS.has(matchedTag) || matchedTag.startsWith('historic=');
+}
+
 export interface CrosscheckItem {
   placeId: string;
   name: string;
@@ -165,6 +193,13 @@ export interface CrosscheckItem {
    * это место, стоит вот настолько далеко». null — сильных совпадений нет.
    */
   nearestStrongKm: number | null;
+  /**
+   * Расстояние до ближайшего сильного тёзки, который в OSM — ТОЧКА
+   * (isOsmPointTag). Улика, которую пометка «протяжённый» не гасит: две
+   * вершины с одним именем в шести километрах друг от друга — это ошибка
+   * координаты. null — сильных точечных тёзок нет.
+   */
+  nearestStrongPointKm: number | null;
   /** Наибольшее расстояние среди показанных кандидатов — для полноты картины. */
   worstDistanceKm: number | null;
   candidates: CrosscheckCandidate[];
@@ -246,6 +281,10 @@ export function buildCrosscheckItems(
       return acc == null ? c.distanceKm : Math.min(acc, c.distanceKm);
     }, null);
     if (nearestStrong == null) weakOnlyTotal += 1; else strongTotal += 1;
+    const nearestStrongPoint = candidates.reduce<number | null>((acc, c) => {
+      if (c.nameSim < STRONG_SIM || c.distanceKm == null || !isOsmPointTag(c.matchedTag)) return acc;
+      return acc == null ? c.distanceKm : Math.min(acc, c.distanceKm);
+    }, null);
 
     const top = candidates.slice(0, limit);
     const worst = top.reduce<number | null>((acc, c) => (
@@ -258,6 +297,7 @@ export function buildCrosscheckItems(
       ourLat: place.lat ?? NaN, ourLng: place.lng ?? NaN,
       bestSim: candidates[0].nameSim,
       nearestStrongKm: nearestStrong,
+      nearestStrongPointKm: nearestStrongPoint,
       worstDistanceKm: worst,
       candidates: top,
     });
