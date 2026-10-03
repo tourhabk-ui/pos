@@ -65,3 +65,14 @@ describe('предупреждение без срока — снимок дня
     expect(read('components/admin/ZoneAlertsPanel.tsx')).not.toContain('Срок неизвестен — снимем вручную');
   });
 });
+
+describe('подъезд к старту: отказ геолокации назван причиной', () => {
+  it('три кода — три разных совета, а не одна фраза на все', async () => {
+    const { locateFailureText, LOCATE_TIMEOUT_MS } = await import('@/components/places/PlaceOwnRoute');
+    const texts = [1, 2, 3].map((c) => locateFailureText(c));
+    expect(new Set(texts).size).toBe(3);
+    expect(texts[0]).toMatch(/запрещён/);
+    expect(texts[2]).toContain(String(LOCATE_TIMEOUT_MS / 1000));
+    expect(LOCATE_TIMEOUT_MS).toBeGreaterThanOrEqual(15_000);
+  });
+});
