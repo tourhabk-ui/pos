@@ -1,12 +1,13 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Откуда Кузьмич взял «в полутора километрах — Скалы Три Брата» у Батареи Максутова: маршруты места, их длина и род связи.",
-  "run": 670,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Какие снимки у живой записи «Скалы Три Брата» (e265d0f0) перед кадрами владельца.",
+  "run": 673,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 40000,
+  "bytes": 60000,
   "urls": [
-    "https://vedarai.ru/api/places/a2b3c4d5-e6f7-4890-bcde-f01234567890"
+    "https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+    "https://vedarai.ru/api/places/fd3feffa-0e07-4a29-b4c8-216666dfe1e8"
   ]
 }
