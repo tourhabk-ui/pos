@@ -113,7 +113,11 @@ describe('пожарный алерт — радиус вместо зоны', (
   });
 
   it('порог красного статуса (severity >= 2) не тронут рефакторингом', () => {
-    expect(CODE).toMatch(/agg\.max_severity\s*>=\s*2\s+THEN\s+'red'/);
+    // С 03.10 (решение владельца, #2195) двойка красит по алертам, привязанным
+    // к самому месту; зональная двойка — жёлтый, зональная тройка — красный.
+    expect(CODE).toMatch(/agg\.place_severity\s*>=\s*2\s+THEN\s+'red'/);
+    expect(CODE).toMatch(/agg\.zonal_severity\s*>=\s*3\s+THEN\s+'red'/);
+    expect(CODE).toMatch(/agg\.zonal_severity\s*>=\s*2\s+THEN\s+'yellow'/);
   });
 
   it('вместимость (capacity_per_day) по-прежнему определяет yellow/red', () => {

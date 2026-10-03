@@ -16,7 +16,7 @@ import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { pool } from '@/lib/db-pool';
 import { buildAnchorIndex, matchAlertAnchor } from '@/lib/safety/alert-anchor';
 import { buildVolcanoIndex, matchVolcanoPlace } from '@/lib/services/safety/volcano-match';
-import { ALERT_MATCH_SQL } from '@/lib/services/safety/alert-place-scope';
+import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
@@ -344,7 +344,10 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         SELECT
           lrs.id AS lrs_id,
           ea.title,
-          ea.severity
+          ea.severity,
+          -- Пришёл ли алерт только по зоне края (решение владельца 03.10,
+          -- #2195): зональный уровня 2 даёт жёлтый, а не красный.
+          COALESCE(${ALERT_ZONAL_ONLY_SQL}, false) AS zonal
         FROM location_real_time_status lrs
         LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
         LEFT JOIN external_alerts ea
@@ -357,9 +360,9 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         -- Теперь дедуп отдельным шагом, чтобы ниже осталась ВОЗМОЖНОСТЬ
         -- отсортировать: у array_agg(DISTINCT ...) порядок задать нечем,
         -- кроме самого title.
-        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity
+        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity, zonal
         FROM matched
-        ORDER BY lrs_id, title, severity DESC
+        ORDER BY lrs_id, title, severity DESC, zonal
       ),
       agg AS (
         -- ПОРЯДОК ПО ОПАСНОСТИ, а не по алфавиту (правка 15.09).
@@ -381,7 +384,11 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
               FILTER (WHERE title IS NOT NULL),
             '{}'
           ) AS alerts,
-          COALESCE(MAX(severity), 0) AS max_severity
+          COALESCE(MAX(severity), 0) AS max_severity,
+          -- Уровень по алертам, привязанным к САМОМУ месту, и по зональным —
+          -- раздельно: красный от зоны только при уровне 3 (цунами).
+          COALESCE(MAX(severity) FILTER (WHERE NOT zonal), 0) AS place_severity,
+          COALESCE(MAX(severity) FILTER (WHERE zonal), 0) AS zonal_severity
         FROM dedup
         GROUP BY lrs_id
       ),
@@ -442,7 +449,8 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         active_alerts = agg.alerts,
         alert_severity = agg.max_severity,
         recommender_status = CASE
-          WHEN agg.max_severity >= 2 THEN 'red'
+          WHEN agg.place_severity >= 2 THEN 'red'
+          WHEN agg.zonal_severity >= 3 THEN 'red'
           WHEN volc.level >= 2 THEN 'red'
           WHEN lrs.tourists_today >= COALESCE(
             (SELECT capacity_per_day FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
@@ -453,6 +461,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
             35
           ) THEN 'yellow'
           WHEN volc.level >= 1 THEN 'yellow'
+          WHEN agg.zonal_severity >= 2 THEN 'yellow'
           ELSE 'green'
         END,
         updated_at = NOW()
