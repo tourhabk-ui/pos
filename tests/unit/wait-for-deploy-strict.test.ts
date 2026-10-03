@@ -116,3 +116,23 @@ describe('пробы, чей эндпоинт едет с ними, ждут с�
     });
   }
 });
+
+describe('код эндпоинта давно не менялся — ждать нечего (03.10)', () => {
+  const SH = readFileSync(join(process.cwd(), 'scripts/wait-for-deploy.sh'), 'utf8');
+  const PC = readFileSync(join(process.cwd(), '.github/workflows/place-coords.yml'), 'utf8');
+
+  it('пропуск — только по окну без правок кода, а не по одному последнему коммиту', () => {
+    expect(SH).toMatch(/git log --since="@\$SINCE"[^\n]*-- \$CODE_PATHS/);
+    expect(SH).toContain('CODE_STABLE_MINUTES:-60');
+  });
+
+  it('истории короче окна — ждём по-старому, а не пропускаем', () => {
+    expect(SH).toMatch(/"\$OLDEST" -lt "\$SINCE"/);
+    expect(SH).toContain('ждём по-старому');
+  });
+
+  it('place-coords передаёт пути своего кода и тянет историю за окно', () => {
+    expect(PC).toMatch(/CODE_PATHS: 'app\/api\/cron\/place-coords /);
+    expect(PC).toMatch(/fetch-depth: 200/);
+  });
+});

@@ -36,7 +36,8 @@
 #
 # Переменные: BASE (https://vedarai.ru), WANT_SHA (sha коммита прогона),
 # NEED_AFTER (ISO-время коммита; пусто при workflow_dispatch — тогда только
-# исход 1), MIN_BUILD_SECONDS (600), ATTEMPTS (70), SLEEP (30).
+# исход 1), MIN_BUILD_SECONDS (600), ATTEMPTS (70), SLEEP (30), CODE_PATHS
+# и CODE_STABLE_MINUTES (60) — см. ниже «код эндпоинта давно не менялся».
 set -u
 BASE="${BASE:-https://vedarai.ru}"
 WANT_SHA="${WANT_SHA:-${GITHUB_SHA:-}}"
@@ -56,6 +57,36 @@ v=(sys.argv[1] or "").strip()
 try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestamp()))
 except Exception: print(0)' "$1"
 }
+
+# ── Код эндпоинта давно не менялся — ждать нечего (03.10) ─────────────────
+# Маркер сборки сейчас не отличает свою сборку от чужой: commit «unknown»,
+# built_at то на 25 с позже пуша, то на 20 минут раньше. Ожидание по нему
+# 03.10 трижды отсидело весь срок (place-coords run 20, сверка с OSM run 8),
+# хотя пушился только маркер, а код эндпоинта на проде был тот же.
+#
+# CODE_PATHS — файлы, от которых зависит ответ прода этому прогону. Если ни
+# один коммит за CODE_STABLE_MINUTES (60, заметно дольше самой долгой
+# сборки — 26 мин) их не трогал, прод уже несёт этот код. Смотрится окно, а
+# не один коммит: правка роута за две минуты до маркера окном ловится, а
+# одним последним коммитом — нет. Истории не хватает, чтобы покрыть окно, —
+# ждём по-старому.
+if [ -n "${CODE_PATHS:-}" ]; then
+  WINDOW_MIN="${CODE_STABLE_MINUTES:-60}"
+  OLDEST=$(git log --format=%ct --reverse 2>/dev/null | head -1)
+  SINCE=$(( $(date +%s) - WINDOW_MIN * 60 ))
+  if [ -n "$OLDEST" ] && [ "$OLDEST" -lt "$SINCE" ]; then
+    # shellcheck disable=SC2086
+    TOUCHED=$(git log --since="@$SINCE" --format='%h %s' -- $CODE_PATHS 2>/dev/null)
+    if [ -z "$TOUCHED" ]; then
+      echo "код эндпоинта ($CODE_PATHS) не менялся ${WINDOW_MIN} мин — прод уже несёт его, ждать нечего"
+      exit 0
+    fi
+    echo "код эндпоинта менялся за ${WINDOW_MIN} мин — ждём сборку:"
+    echo "$TOUCHED"
+  else
+    echo "история короче окна ${WINDOW_MIN} мин — не могу сказать, менялся ли код; ждём по-старому"
+  fi
+fi
 
 NEED=$(iso2epoch "$NEED_AFTER")
 echo "ждём прод на ${WANT_SHA:0:7} (или сборку не раньше чем через ${MIN_BUILD_SECONDS}с после $NEED_AFTER, epoch $NEED)"
