@@ -2043,7 +2043,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // Об ОДНОМ месте: соседи по названию — именами, заметки — только по
       // заголовку (lib/kuzmich/place-info-tool, сверка MCP 25.09).
       const { placeInfoForKuzmich } = await import('@/lib/kuzmich/place-info-tool');
-      const info = await placeInfoForKuzmich(placeName);
+      const info = await placeInfoForKuzmich(placeName, { pageLinks: opts.surface !== 'mcp' });
       if (info) return info;
       // На публичном MCP веб-поиска нет: он платный (Tavily/Brave), а шапка
       // роута обещает, что квоты анонимный вызов не жжёт (проверка MCP 29.09).
@@ -2055,7 +2055,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     if (name === 'get_guardian_context') {
       const { getGuardianContext } = await import('@/lib/kuzmich/guardian-context');
-      const ctx = await getGuardianContext(args.place ?? args.name ?? '');
+      const ctx = await getGuardianContext(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' });
       // «Попробую поискать через другие источники» — подсказка модели чата,
       // у которой есть веб-поиск. На MCP никакого поиска нет, и обещание
       // действия, которого сервер не совершит, было бы ложью (проверка 29.09).

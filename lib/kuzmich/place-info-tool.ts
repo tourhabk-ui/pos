@@ -27,7 +27,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
-import { gradeNameMatch } from '@/lib/kuzmich/guardian-context';
+import { gradeNameMatch, placePageUrl } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
@@ -36,6 +36,8 @@ import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 
 export interface PlaceRow {
+  /** id места — для ссылки на карточку (только в чате, см. pageLinks). */
+  id?: string;
   name: string; description: string | null; category: string | null; district: string | null; is_visible?: boolean | null;
   location_type?: string | null;
   lat?: string | number | null; lng?: string | number | null;
@@ -97,7 +99,17 @@ export function placeFactLines(p: PlaceRow): string[] {
 }
 export interface NoteRow { title: string; compiled_truth: string }
 
-export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[]): string | null {
+export interface PlaceInfoOptions {
+  /**
+   * Дописать ссылку на карточку места (чат Кузьмича). Без неё модель на
+   * просьбу «дай ссылку на место» отвечала, что страницы нет (скрин владельца
+   * 03.10, «гора Замок»). На MCP не пишем: там своя ссылка
+   * «Продолжить в Ведаре» (lib/mcp/handoff-targets).
+   */
+  pageLinks?: boolean;
+}
+
+export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[], opts: PlaceInfoOptions = {}): string | null {
   const [primary, ...rest] = places;
   // Скрытое место в «похожих» не называется (решение владельца 25.09): список
   // зовёт спросить о нём отдельно, а скрытые — это мусор вроде «Долина
@@ -122,6 +134,11 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
     // поездке, которой не было, и его «вчера», «фумаролы работают» агент
     // принял бы за наблюдение о сегодняшнем состоянии места. Не отдаём и
     // говорим почему; ощущения отдаём, но подписанными.
+    // Ссылка — на ЭТУ запись, а не на первое видимое по имени; скрытое место
+    // ссылки не получает (страницы у него нет).
+    if (opts.pageLinks && primary.id && primary.is_visible !== false) {
+      card.push(`Страница места на сайте: ${placePageUrl(primary.id)}`);
+    }
     const descLine = describeForAgent(primary.description, PLACE_DESCRIPTION_MAX);
     if (descLine) card.push(descLine);
     parts.push(card.join('\n'));
@@ -134,7 +151,7 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   return parts.join('\n\n');
 }
 
-export async function placeInfoForKuzmich(placeName: string): Promise<string | null> {
+export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOptions = {}): Promise<string | null> {
   // Слова, не буквальная фраза (issue #1987): «Горелый вулкан» не содержится
   // подстрокой в «Вулкан Горелый».
   // И псевдонимы (issue #2063): «Ключевской вулкан» — записанное имя
@@ -146,7 +163,7 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
       // resolvePlaceForLink, и та же сортировка «кратчайшее имя первым».
       // is_visible не фильтруется намеренно: у стража это записанное решение
       // («может знать скрытое место, но ссылку на невидимую страницу не даём»).
-      `SELECT p.name, p.description, p.category, p.district, p.is_visible,
+      `SELECT p.id::text AS id, p.name, p.description, p.category, p.district, p.is_visible,
               p.location_type, p.lat, p.lng,
               lsp.altitude_m, lsp.hazard_types, lsp.profile_source, lsp.nearest_medical_km,
               lsp.sat_communicator_required, lsp.registration_required
@@ -168,5 +185,5 @@ export async function placeInfoForKuzmich(placeName: string): Promise<string | n
       [containsPattern(placeName)],
     ),
   ]);
-  return composePlaceInfo(placeName, pr.rows, kr.rows);
+  return composePlaceInfo(placeName, pr.rows, kr.rows, opts);
 }
