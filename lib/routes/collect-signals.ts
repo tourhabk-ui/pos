@@ -23,7 +23,9 @@
 
 import { pool } from '@/lib/db-pool';
 import type { RouteSignals, Acc } from '@/lib/routes/go-verdict';
-import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
+import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
+import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
+import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 
 /** Минимальный контракт запроса — ровно то, что нужно сборщику. */
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -34,46 +36,34 @@ export interface CollectDeps {
   month: number;
 }
 
-/**
- * Радиус, в котором вулкан считается «на коридоре».
- *
- * Не про геологию, а про то, что видно и слышно с маршрута: пеплопад,
- * газовый шлейф, перекрытые подходы. Двадцать пять километров — расстояние,
- * на котором оранжевый код меняет решение идти.
- */
-export const CORRIDOR_VOLCANO_KM = 25;
+export { CORRIDOR_VOLCANO_KM };
 
-/**
- * Радиус, в котором событие С КООРДИНАТОЙ считается относящимся к маршруту.
+/*
+ * Кого из маршрутов накрывает предупреждение — то же правило, что у мест
+ * (`ALERT_MATCH_SQL`, lib/services/safety/alert-place-scope), а не своё.
  *
- * ── Откуда взялся ─────────────────────────────────────────────────────────
+ * До 03.10 здесь жила своя редакция: всё с координатой — в 60 км от любой
+ * опорной точки, всё без координаты — по зоне. Правило мест за это время
+ * ушло вперёд решениями владельца, а маршрут остался на старом:
  *
- * 19.09 владелец прислал карточку «Ночное восхождение на Авачинский вулкан».
- * В блоке «Осторожно · на сегодня» первой строкой стояло: «Термоточки
- * (возможен пожар): 2 очаг(ов), 54.61°N 160.30°E». Это 178 км от Авачинского
- * — другой конец Ключевской группы, другая дорога, другой день пути.
+ *   15.09 — дорожное ограничение судится в 30 км от своей точки;
+ *   27.09 — дорога, пожар, извержение и закрытие парка, не привязанные к
+ *           месту, не красят никого: «не установлено» ≠ «везде»;
+ *   03.10 — землетрясение судится силой сотрясения, а не зоной (#2195).
  *
- * Дошло оно так: у термоточек зона считается функцией `zonesFor`
- * (lib/services/safety/wildfire-firms.ts), и её последняя ветка — `return
- * ['avachinsky']` без условия. То есть «авачинская зона» работает ОСТАТКОМ:
- * всё, что не север и не восток, объявляется окрестностями города. При длине
- * полуострова больше тысячи километров туда проваливается его середина.
+ * Скрин владельца 03.10, маршрут «Гора Замок», блок «Осторожно · на
+ * сегодня»: «Халактырский пляж: дорога со стороны Дальнего перекрыта» (пляж
+ * в 40 км, по другую сторону города) и «Вилючинский перевал: проезд по
+ * пропускам» (привязки нет вовсе — висел зоной). Карточка места «Гора Замок»
+ * обоих уже не показывала, карточка маршрута к ней — показывала. Две копии
+ * одного правила разошлись молча, ровно как предупреждает шапка
+ * alert-place-scope.
  *
- * Зональный отбор сам по себе не виноват: у большинства предупреждений МЧС
- * координаты нет вовсе, и зона — единственное, чем их можно привязать.
- * Виновата пара «грубая зона» + «точная координата, которую никто не
- * спросил»: у термоточки lat/lng ЕСТЬ, и расстояние можно было измерить.
- *
- * Поэтому правило здесь такое: есть координата — меряем; нет координаты —
- * судим по зоне, как раньше. Это не ужесточение и не послабление, а отказ
- * гадать там, где можно знать.
- *
- * Шире вулканного коридора намеренно: пожар, перекрытая дорога и паводок
- * меняют решение с большего расстояния, чем газовый шлейф. Но не «весь край»:
- * предупреждение, до которого сутки пути, на карточке маршрута — шум, а шум
- * учит не читать предупреждения вовсе.
+ * Поэтому здесь нет ни своего радиуса, ни своей ветки зоны: маршрут
+ * предъявляется предикату как набор «мест» — каждая опорная точка с каждой
+ * зоной маршрута, — и предупреждение относится к маршруту, если относится
+ * хоть к одной.
  */
-export const CORRIDOR_ALERT_KM = 60;
 
 const KM_PER_DEG_LAT = 111.32;
 
@@ -109,10 +99,14 @@ async function loadRouteShape(routeId: string, q: QueryFn): Promise<RouteShape |
         [routeId],
       ),
       q<PointRow>(
+        // «Рядом» не опора маршрута (§4.1): место в 15 км от центра (миграция
+        // 167) расширяло коридор, по которому меряются вулканы и тревоги, на
+        // то, куда маршрут не ходит. Тем же приёмом, что закрытия ниже.
         `SELECT DISTINCT p.zone, p.lat::text, p.lng::text
            FROM route_waypoints rw
            JOIN places p ON p.id = rw.place_id
-          WHERE rw.route_id = $1`,
+          WHERE rw.route_id = $1
+            AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'`,
         [routeId],
       ),
     ]);
@@ -170,6 +164,8 @@ const SEVERITY_WHEN_UNSET = 1;
  * Бессрочный алерт (`expires_at IS NULL`) — действующий. Так же его читают
  * Кузьмич и guardian-context; условие «expires_at > NOW()» в одиночку молча
  * выкидывает целый класс записей.
+ *
+ * С 03.10 отбор — предикатом мест (`ALERT_MATCH_SQL`), см. шапку файла.
  */
 /**
  * Отпечаток для дедупликации.
@@ -190,64 +186,43 @@ async function loadAlerts(
     const lats = points.map((p) => p.lat);
     const lngs = points.map((p) => p.lng);
     const { rows } = await q<AlertRow>(
-      // Зона отбирает как раньше. Координата, если она у события ЕСТЬ,
-      // добавляет второе условие: расстояние до ближайшей опорной точки
-      // маршрута. Событие без координаты этим условием не отсекается —
-      // мерить нечем, и «не смогли измерить» не равно «далеко» (§4.0).
+      // Маршрут предъявляется предикату мест как набор псевдо-мест `ark`:
+      // каждая опорная точка × каждая зона маршрута. Нет опорных точек —
+      // одна строка без координаты (зональные тревоги доходят, привязанные к
+      // месту — нет: мерить нечем, и это то же «не установлено ≠ везде»,
+      // что у мест). Нет зон — зона NULL, зональная ветка молчит (17.09).
       //
-      // Форма расстояния та же, что у вулканов ниже: haversine прямо в
-      // запросе. Своей копии формулы здесь нет.
+      // `id` — в пространстве VIEW (COALESCE(ark_id, id)): так закрытие
+      // парка находит маршрут по park_name тем же условием, что у мест.
       `WITH anchor AS (
          SELECT unnest($2::float8[]) AS lat, unnest($3::float8[]) AS lng
+       ),
+       ark AS (
+         SELECT kr.view_id AS id, kr.title, z.zone, a.lat, a.lng
+           FROM (SELECT COALESCE(ark_id, id) AS view_id, title
+                   FROM kamchatka_routes WHERE id::text = $4) kr
+          CROSS JOIN unnest(
+                 CASE WHEN cardinality($1::text[]) > 0 THEN $1::text[] ELSE ARRAY[NULL]::text[] END
+               ) AS z(zone)
+          CROSS JOIN (
+                 SELECT lat, lng FROM anchor
+                 UNION ALL
+                 SELECT NULL::float8, NULL::float8 WHERE NOT EXISTS (SELECT 1 FROM anchor)
+               ) a
        )
-       SELECT title, severity::int AS severity, alert_type,
+       SELECT ea.title, ea.severity::int AS severity, ea.alert_type,
               -- Пришёл ли алерт к маршруту только по зоне (решение владельца
-              -- 03.10, #2195): без координаты рядом с маршрутом, не закрытие
-              -- парка и не прямой запрет туристам. Такой алерт уровня 2 даёт
-              -- «Осторожно», а не «нет» — то же правило, что у статуса места.
-              (
-                (ea.lat IS NULL OR ea.lng IS NULL OR NOT EXISTS (SELECT 1 FROM anchor))
-                AND ea.alert_type IS DISTINCT FROM 'park_closure'
-                -- Прямой запрет туристам — те же шаблоны, что у классификатора
-                -- (lib/services/safety/tourist-ban), параметрами $6 и $7.
-                AND NOT (
-                  lower(COALESCE(ea.title, '') || ' ' || COALESCE(ea.description, '')) ~ $6
-                  AND lower(COALESCE(ea.title, '') || ' ' || COALESCE(ea.description, '')) ~ $7
-                )
-              ) AS zonal
+              -- 03.10, #2195): такой уровня 2 даёт «Осторожно», а не «нет».
+              -- Прямой запрет туристам зональным не считается. Признак тот
+              -- же, что у статуса места (safety-ingest).
+              bool_and(COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false)) AS zonal
          FROM external_alerts ea
+         JOIN ark ON (${ALERT_MATCH_SQL})
         WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
-          AND ((
-            ea.affected_zones && $1::text[]
-            AND (
-              ea.lat IS NULL OR ea.lng IS NULL
-              OR NOT EXISTS (SELECT 1 FROM anchor)
-              OR EXISTS (
-                SELECT 1 FROM anchor a
-                 WHERE 2 * 6371 * asin(sqrt(
-                         power(sin(radians((ea.lat::float8 - a.lat) / 2)), 2)
-                         + cos(radians(a.lat)) * cos(radians(ea.lat::float8))
-                           * power(sin(radians((ea.lng::float8 - a.lng) / 2)), 2)
-                       )) <= $4
-              )
-            )
-          ) OR (
-            -- Закрытие парка (#2133) — по парку маршрута, не по зоне: у такой
-            -- тревоги зон нет вовсе. Правило то же, что у мест
-            -- (PARK_SCOPED_SQL): park_name маршрута против parks.search_term.
-            ea.alert_type = 'park_closure'
-            AND ea.affected_parks IS NOT NULL
-            AND EXISTS (
-              SELECT 1
-                FROM parks pk
-                JOIN kamchatka_routes kr ON kr.id::text = $5
-               WHERE pk.slug = ANY(ea.affected_parks)
-                 AND kr.park_name ILIKE '%' || pk.search_term || '%'
-            )
-          ))
-        ORDER BY severity DESC NULLS LAST, created_at DESC
+        GROUP BY ea.id, ea.title, ea.severity, ea.alert_type, ea.created_at
+        ORDER BY severity DESC NULLS LAST, ea.created_at DESC
         LIMIT 50`,
-      [zones, lats, lngs, CORRIDOR_ALERT_KM, routeId, BAN_AUDIENCE.source, BAN_VERB.source],
+      [zones, lats, lngs, routeId],
     );
     // Порядок из запроса (важность, затем свежесть) сохраняется, поэтому
     // первой остаётся самая тяжёлая копия дубля, а не случайная.

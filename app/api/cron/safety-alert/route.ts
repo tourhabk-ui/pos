@@ -25,8 +25,10 @@
  * слуха, а решение по нему принимает человек в поле.
  *
  * `active_until` обязателен как ПОЛЕ, но `null` — законное значение: «срок
- * неизвестен, снимем вручную». Умолчания нет намеренно — «до какого числа
- * это верно» надо сказать вслух, а не забыть (§4.0).
+ * неизвестен». Умолчания нет намеренно — «до какого числа это верно» надо
+ * сказать вслух, а не забыть (§4.0). Без срока туристу оно показывается
+ * UNDATED_ALERT_HORIZON_DAYS суток от публикации (03.10): «снимем вручную»
+ * не снял никто, и сводка 23.08 висела в октябре.
  *
  * Снятие — отдельным действием, а не удалением строки: история предупреждений
  * это история решений, и стирать её нельзя.
@@ -40,7 +42,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import {
   ALERT_ZONES, ALERT_SEVERITIES, alertInputSchema,
-  createAlert, deactivateAlert, listAlerts,
+  createAlert, deactivateAlert, listAlerts, UNDATED_ALERT_HORIZON_DAYS,
 } from '@/lib/safety/alerts';
 
 export const dynamic = 'force-dynamic';
@@ -143,9 +145,11 @@ export async function POST(request: NextRequest) {
       created: created.id,
       zone: d.zone,
       severity: d.severity,
-      // Названо вслух: бессрочное предупреждение снимает человек, и об этом
-      // надо помнить, а не обнаружить через месяц.
-      until: d.active_until ?? 'до ручного снятия',
+      // Названо вслух: предупреждение без срока туристу показывается не
+      // дольше UNDATED_ALERT_HORIZON_DAYS суток от публикации (03.10 — сводка
+      // 23.08 «до ручного снятия» простояла полтора месяца, снять её не
+      // вспомнил никто). Нужно дольше — срок или повторная публикация.
+      until: d.active_until ?? `${UNDATED_ALERT_HORIZON_DAYS} суток от публикации, если не снять раньше`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка записи предупреждения';

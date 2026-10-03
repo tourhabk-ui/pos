@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  collectRouteSignals, isInSeason, CORRIDOR_VOLCANO_KM, CORRIDOR_ALERT_KM, type QueryFn,
+  collectRouteSignals, isInSeason, CORRIDOR_VOLCANO_KM, type QueryFn,
 } from '@/lib/routes/collect-signals';
 import { goVerdict } from '@/lib/routes/go-verdict';
 
@@ -317,59 +317,54 @@ describe('код сборщика не имеет права молча верн
   });
 
   it('SQL параметризован — конкатенации значений нет', () => {
+    // В текст запроса подставляются ТОЛЬКО предикаты платформы — константы
+    // кода, объявленные один раз для мест и маршрутов (03.10). Значения —
+    // параметрами, как прежде.
+    const PREDICATES = /\$\{(ALERT_MATCH_SQL|ALERT_ZONAL_ONLY_SQL|TOURIST_BAN_SQL)\}/g;
     expect(SRC).toMatch(/\$1/);
-    expect(SRC).not.toMatch(/`[^`]*SELECT[^`]*\$\{/);
+    expect(SRC.replace(PREDICATES, '')).not.toMatch(/`[^`]*SELECT[^`]*\$\{/);
   });
 });
 
 /**
- * Предупреждение с координатой судится расстоянием, а не только зоной (19.09).
+ * Кого из маршрутов накрывает предупреждение — правилом мест (03.10).
  *
- * Владелец прислал карточку «Ночное восхождение на Авачинский вулкан», где
- * первой строкой блока «Осторожно · на сегодня» стояли термоточки в точке
- * 54.61°N 160.30°E — за 178 км, в Ключевской группе.
+ * 19.09 здесь завели свой отбор: всё с координатой — в 60 км, без неё — по
+ * зоне (термоточки за 178 км на «Ночном восхождении на Авачинский»). Правило
+ * мест потом ушло дальше решениями владельца (дорога — 30 км, 15.09;
+ * непривязанное к месту — никого, 27.09; землетрясение — силой сотрясения,
+ * 03.10), а маршрут остался на своём. Скрин 03.10, «Гора Замок»: карточка
+ * места дорожных тревог не показывала, карточка маршрута к ней — показывала
+ * две (пляж в 40 км и перевал без привязки).
  *
- * Дошло оно зоной: у термоточек зона считается функцией `zonesFor`
- * (wildfire-firms), и её последняя ветка — `return ['avachinsky']` БЕЗ
- * условия. «Авачинская зона» работает остатком, и в неё проваливается вся
- * середина полуострова.
- *
- * Чинить деление на зоны нельзя — у зон нет координат, и придумать якорь для
- * шестисоткилометровой «западной зоны» значило бы выдать догадку за геодезию
- * в системе безопасности (это прямо оговорено в шапке seismic-zones).
- * Поэтому меряется то, что измеримо: у термоточки координата ЕСТЬ.
+ * Своей копии больше нет: маршрут предъявляется ALERT_MATCH_SQL набором
+ * псевдо-мест. Поведение исполняется на PostgreSQL в
+ * tests/integration/alert-place-scope.pg.test.ts — здесь держится только то,
+ * что копия не вернулась.
  */
-describe('координата важнее зоны, когда она есть', () => {
+describe('маршрут судится правилом мест, а не своей копией', () => {
   const SRC = readFileSync(join(process.cwd(), 'lib/routes/collect-signals.ts'), 'utf-8');
+  const alertsFn = SRC.split('async function loadAlerts')[1]?.split('async function loadVolcanoes')[0] ?? '';
 
-  it('у события с координатой проверяется расстояние до маршрута', () => {
-    const alertsSql = SRC.split('external_alerts')[1]?.slice(0, 1200) ?? '';
-    expect(alertsSql).toMatch(/asin\(sqrt\(/);
-    expect(alertsSql).toContain('6371');
+  it('отбор предупреждений — ALERT_MATCH_SQL, общий с местами', () => {
+    expect(SRC).toMatch(/import \{ ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL \} from '@\/lib\/services\/safety\/alert-place-scope'/);
+    expect(alertsFn).toMatch(/JOIN ark ON \(\$\{ALERT_MATCH_SQL\}\)/);
   });
 
-  it('событие БЕЗ координаты расстоянием не отсекается', () => {
-    // Мерить нечем. «Не смогли измерить» не равно «далеко» (§4.0), и
-    // предупреждение МЧС без координат обязано доезжать по зоне, как раньше.
-    const alertsSql = SRC.split('external_alerts')[1]?.slice(0, 1200) ?? '';
-    expect(alertsSql).toMatch(/ea\.lat IS NULL OR ea\.lng IS NULL/);
+  it('своего радиуса и своей формулы расстояния у тревог нет', () => {
+    expect(SRC).not.toContain('CORRIDOR_ALERT_KM');
+    expect(alertsFn).not.toMatch(/asin\(sqrt\(/);
   });
 
-  it('маршрут без опорных точек не теряет предупреждения', () => {
-    // У части маршрутов координат нет вовсе (перепись 19.09: линии нет у 103
-    // из 389). Пустой якорь не должен молча обнулять ленту предупреждений —
-    // иначе экран станет спокойным именно там, где о маршруте известно
-    // меньше всего.
-    const alertsSql = SRC.split('external_alerts')[1]?.slice(0, 1200) ?? '';
-    expect(alertsSql).toMatch(/NOT EXISTS \(SELECT 1 FROM anchor\)/);
+  it('маршрут без опорных точек не теряет зональных предупреждений', () => {
+    // Одна строка псевдо-места без координаты: зональная ветка жива,
+    // привязанное к месту не доходит — мерить нечем (как у мест).
+    expect(alertsFn).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM anchor\)/);
   });
 
-  it('радиус назван числом и шире вулканного', () => {
-    // Пожар и перекрытая дорога меняют решение с большего расстояния, чем
-    // газовый шлейф; но не «весь край» — шум учит не читать предупреждения.
-    expect(CORRIDOR_ALERT_KM).toBeGreaterThan(CORRIDOR_VOLCANO_KM);
-    expect(CORRIDOR_ALERT_KM).toBeLessThan(250);
-    expect(SRC).toContain('CORRIDOR_ALERT_KM');
+  it('связи «рядом» не расширяют коридор маршрута (§4.1)', () => {
+    const shape = SRC.split('async function loadRouteShape')[1]?.split('const SEVERITY_WHEN_UNSET')[0] ?? '';
+    expect(shape).toMatch(/link_kind', 'unknown'\) <> 'nearby'/);
   });
 
   it('отказ запроса предупреждений пишется в лог, а не глушится', () => {

@@ -46,6 +46,7 @@ import { tourDaySpan } from '@/lib/planner/tour-span';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
+import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -443,8 +444,8 @@ interface SafetyAlertRow {
  * (/api/cron/safety-alert), а до него слой предупреждений был пуст и
  * выглядел работающим.
  */
-/** Сколько дней вперёд действует тревога без срока окончания. */
-export const UNDATED_ALERT_HORIZON_DAYS = 14;
+/** Число одно на платформу — lib/safety/alert-horizon. */
+export { UNDATED_ALERT_HORIZON_DAYS };
 
 async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): Promise<SafetyAlert[]> {
   try {
@@ -457,9 +458,14 @@ async function fetchSafetyAlerts(arrivalDate?: string, departureDate?: string): 
       // 2027 (аудит MCP 29.09). Такая тревога идёт только в план поездки,
       // начинающейся в ближайшие UNDATED_ALERT_HORIZON_DAYS дней; у датированной —
       // её собственный срок, как прежде.
+      //
+      // И только пока сама не устарела (03.10): та же сводка 23.08 в октябре
+      // проходила это условие — поездка «в ближайшие две недели» есть всегда,
+      // а возраст тревоги не спрашивался вовсе.
       dateFilter = `AND (active_until >= $1::date
                          OR (active_until IS NULL
-                             AND $1::date <= CURRENT_DATE + $3::int))
+                             AND $1::date <= CURRENT_DATE + $3::int
+                             AND active_from > NOW() - make_interval(days => $3::int)))
                     AND active_from <= $2::date`;
     }
     const { rows } = await pool.query<SafetyAlertRow>(

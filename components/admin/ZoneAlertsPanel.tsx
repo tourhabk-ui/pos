@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Plus, X, Loader2 } from 'lucide-react';
+import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 
 const ZONES = [
   { value: 'northern',   label: 'Северная Камчатка (Ключевская группа, Шивелуч, Толбачик)' },
@@ -195,7 +196,7 @@ export function ZoneAlertsPanel() {
               />
               <span className="flex items-center gap-2 mt-1.5 text-xs text-[var(--text-secondary)]">
                 <input type="checkbox" checked={noDeadline} onChange={e => setNoDeadline(e.target.checked)} />
-                Срок неизвестен — снимем вручную
+                Срок неизвестен — туристам покажем {UNDATED_ALERT_HORIZON_DAYS} суток от публикации
               </span>
             </label>
           </div>

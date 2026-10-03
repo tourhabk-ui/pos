@@ -35,12 +35,11 @@ describe('запрет туристам не бывает зональным', (
   });
   it('вердикт маршрута: зональный признак исключает запрет и закрытие парка', () => {
     const cs = read('lib/routes/collect-signals.ts');
-    // Здесь шаблоны идут параметрами ($6, $7): сторож collect-signals
-    // запрещает подстановку в текст SQL.
-    expect(cs).toMatch(/import \{ BAN_AUDIENCE, BAN_VERB \} from '@\/lib\/services\/safety\/tourist-ban'/);
-    expect(cs).toMatch(/~ \$6\s*\n\s*AND lower\(COALESCE\(ea\.title, ''\) \|\| ' ' \|\| COALESCE\(ea\.description, ''\)\) ~ \$7/);
-    expect(cs).toMatch(/routeId, BAN_AUDIENCE\.source, BAN_VERB\.source\]/);
-    expect(cs).toMatch(/ea\.alert_type IS DISTINCT FROM 'park_closure'/);
+    // С 03.10 маршрут считает признак ТЕМ ЖЕ выражением, что статус места:
+    // закрытие парка, дорога и пожар в ALERT_ZONAL_ONLY_SQL не зональные по
+    // построению, запрет туристам — по TOURIST_BAN_SQL.
+    expect(cs).toMatch(/import \{ TOURIST_BAN_SQL \} from '@\/lib\/services\/safety\/tourist-ban'/);
+    expect(cs).toMatch(/bool_and\(COALESCE\(\$\{ALERT_ZONAL_ONLY_SQL\} AND NOT \$\{TOURIST_BAN_SQL\}, false\)\) AS zonal/);
     // Пропуск ответа сервера — не «зональное»: судится строже.
     expect(cs).toMatch(/zonal: r\.zonal === true/);
   });
