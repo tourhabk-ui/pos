@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
-import EmergencyAction from '@/components/shared/EmergencyAction';
+import { Header } from '@/components/layout/Header';
 import { zoneName } from '@/lib/safety/zone-names';
 import { plural } from '@/lib/home/data-freshness';
 import {
@@ -587,15 +587,18 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     // paddingBottom — под фиксированный таб-бар: без него последняя карточка
     // (контакты) пряталась за панелью. Сам таб-бар — ЕДИНЫЙ BottomNav
     // платформы: с /safety не было пути домой (полевой скриншот 01.08).
-    <div className="ds-page" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
-      {/* Заголовок. SOS в шапке обязателен на каждом экране с навигацией
-          (решение владельца #887, сторож sos-always-reachable). */}
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
-          <h1 className="ds-h1" style={{ marginBottom: 8 }}>Безопасно ли сейчас на Камчатке</h1>
-        </div>
-        <EmergencyAction />
+    <>
+    {/* Общая шапка платформы: логотип, тема, ЛК и SOS (EmergencyAction
+        внутри Header, сторож sos-always-reachable). До 03.10 /safety рисовала
+        свою SOS-пилюлю рядом с заголовком, а шапки не было вовсе: сверху
+        оставались пустые 64px отступа под хедер без логотипа (скрин владельца). */}
+    <Header />
+    <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
+      {/* Заголовок. На телефоне — 1.6rem: в 2.25rem он занимал три строки и
+          треть первого экрана, выталкивая радар вниз (скрин владельца 03.10). */}
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
+        <h1 className="ds-h1 !text-[1.6rem] sm:!text-[2.25rem]" style={{ marginBottom: 4 }}>Безопасно ли сейчас на Камчатке</h1>
       </div>
 
       {/* Промпт подписки на push. Прежде кнопка жила только в
@@ -1002,5 +1005,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
 
       <BottomNav activePath="/safety" />
     </div>
+    </>
   );
 }
