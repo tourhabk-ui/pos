@@ -149,6 +149,12 @@
   var REFINE_MS = 60000;
   /* Сколько ждать хоть какой-то точки, прежде чем назвать причину отказа. */
   var HARD_TIMEOUT_MS = 30000;
+  /*
+   * Точка старше этого — «последняя известная», а не «где я сейчас»
+   * (03.10, второй снимок владельца: «координаты должны ставиться моментально,
+   * как у других навигаторов» — 13 с «Слабый сигнал» и ни одной точки).
+   */
+  var FRESH_MS = 60000;
 
   /*
    * Локатор: одна оркестрация поиска для обоих экранов.
@@ -228,16 +234,27 @@
         var c = position && position.coords;
         if (!c || !isFinite(c.latitude) || !isFinite(c.longitude)) return;
         var acc = isFinite(c.accuracy) ? c.accuracy : Infinity;
-        // Точку грубее показанной не берём: вышка не перетирает спутник.
-        if (best && !(acc < best.acc)) return;
+        var ts = position.timestamp || null;
+        // Свежесть — по времени самой точки: кеш браузера отдаёт её с меткой
+        // того момента, когда она была снята.
+        var fresh = ts == null || (Date.now() - ts) <= FRESH_MS;
+        if (best) {
+          // Свежая точка всегда заменяет старую из кеша, даже если грубее:
+          // старая могла быть снята в другом месте. Среди равных по свежести —
+          // только точнее: вышка не перетирает спутник.
+          var replace = (fresh && !best.fresh) || (fresh === best.fresh && acc < best.acc);
+          if (!replace) return;
+        }
         var first = !best;
-        best = { lat: c.latitude, lng: c.longitude, acc: acc, timestamp: position.timestamp || null };
+        best = { lat: c.latitude, lng: c.longitude, acc: acc, timestamp: ts, fresh: fresh };
         if (first) {
           if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
           if (timer) { clearInterval(timer); timer = null; }
           refineTimer = setTimeout(function () { if (!stale()) finish(); }, REFINE_MS);
         }
-        if (acc <= GOOD_ACC_M) { finish(); return; }
+        // Завершает только СВЕЖАЯ точная точка: старая из кеша могла быть
+        // точной там, где человека уже нет.
+        if (fresh && acc <= GOOD_ACC_M) { finish(); return; }
         emitFound(true);
       }
 
@@ -269,6 +286,12 @@
         onState({ phase: 'locating', seconds: seconds });
       }, 1000);
 
+      // Мгновенная: последняя точка, которую браузер уже знает, любой
+      // давности — так навигаторы показывают место сразу. Кеша нет — отказ
+      // за секунду, и он ничего не решает (soft). Показывается с возрастом
+      // («N мин назад») и сменяется первой свежей точкой.
+      geo.getCurrentPosition(fix, soft,
+        { enableHighAccuracy: false, timeout: 1000, maximumAge: Infinity });
       // Быстрая: вышки и Wi-Fi, кеш до 5 минут — за секунду, если телефон
       // хоть что-то знает о месте.
       geo.getCurrentPosition(fix, soft,
@@ -292,6 +315,7 @@
     GOOD_ACC_M: GOOD_ACC_M,
     REFINE_MS: REFINE_MS,
     HARD_TIMEOUT_MS: HARD_TIMEOUT_MS,
+    FRESH_MS: FRESH_MS,
     accuracyLabel: accuracyLabel,
     haversineKm: haversineKm,
     formatAge: formatAge,
