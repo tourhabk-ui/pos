@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
                 COUNT(*)                    FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS events_30d,
                 COUNT(DISTINCT visitor_hash) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS days_30d
            FROM funnel_events
-          WHERE created_at >= NOW() - INTERVAL '30 days'
+          WHERE created_at >= NOW() - INTERVAL '30 days' AND is_self = FALSE
           GROUP BY step`,
       ),
       // NSM: человеко-дни, где в ОДИН день есть результат планировщика и
@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
            FROM funnel_events r
           WHERE r.step = 'planner_result_viewed'
             AND r.created_at >= NOW() - INTERVAL '30 days'
+            AND r.is_self = FALSE
             AND EXISTS (
               SELECT 1 FROM funnel_events e
                WHERE e.visitor_hash = r.visitor_hash
@@ -62,6 +63,7 @@ export async function GET(request: NextRequest) {
            FROM funnel_events r
           WHERE r.step = 'planner_result_viewed'
             AND r.created_at >= NOW() - INTERVAL '14 days'
+            AND r.is_self = FALSE
             AND EXISTS (
               SELECT 1 FROM funnel_events e
                WHERE e.visitor_hash = r.visitor_hash

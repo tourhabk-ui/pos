@@ -26,6 +26,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
 import { isBotUserAgent } from '@/lib/analytics/bot-detect';
 import { FUNNEL_STEPS } from '@/lib/funnel/steps';
+import { isSelfVisit } from '@/lib/analytics/self-visit';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +58,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const hash = visitorHash(ip, userAgent, currentDay(), process.env.CRON_SECRET ?? 'vedar');
+    // Своё касание пишется с флагом, не выбрасывается (self-visit, 02.10).
+    const isSelf = isSelfVisit(request.headers.get('cookie'));
     await pool.query(
       // Приведение типов у КАЖДОГО употребления параметра — не украшение.
       // Без него PostgreSQL выводит для $1 два разных типа: в списке SELECT
@@ -66,8 +69,8 @@ export async function POST(request: NextRequest) {
       // 839). Пустой catch делал этот отказ невидимым: витрине уходило 204,
       // таблица оставалась пустой, и «никто не трогал форму» звучало как
       // факт о туристах. Проба /api/cron/beacon-check 24.08 назвала SQLSTATE.
-      `INSERT INTO funnel_events (step, entity_id, visitor_hash)
-       SELECT $1::varchar, $2::text, $3::varchar
+      `INSERT INTO funnel_events (step, entity_id, visitor_hash, is_self)
+       SELECT $1::varchar, $2::text, $3::varchar, $4::boolean
         WHERE NOT EXISTS (
           SELECT 1 FROM funnel_events
            WHERE step = $1::varchar
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
              AND visitor_hash = $3::varchar
              AND created_at > NOW() - INTERVAL '60 minutes'
         )`,
-      [parsed.step, parsed.entity_id ?? null, hash],
+      [parsed.step, parsed.entity_id ?? null, hash, isSelf],
     );
   } catch (err) {
     // Витрине по-прежнему 204: маяк не должен ронять страницу. Но МОЛЧАТЬ

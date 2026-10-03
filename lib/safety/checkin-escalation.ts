@@ -174,6 +174,12 @@ export interface EscalationMessageInput {
   returnUrl: string;
   /** Ссылка «Мы в порядке, ещё в пути» — vedarai.ru/checkin-ok?id=<регистрация>. */
   checkinUrl?: string;
+  /**
+   * Страница контроля для контакта — vedarai.ru/watch?id=<регистрация>:
+   * последняя точка и состояние, обновляется сама (разбор конкурентов 03.10).
+   * Та же проверка номера руководителя, что у отметок.
+   */
+  statusUrl?: string;
   /** Часы с последней отметки «в порядке»; null/undefined — отметки не было. */
   hoursSinceConfirm?: number | null;
   /**
@@ -254,12 +260,16 @@ export function buildEscalationMessage(
   // Две отметки — два разных события, и путать их нельзя: «вернулись» закрывает
   // маршрут, «в порядке» только отодвигает следующий шаг. Обе просят номер
   // руководителя, и об этом сказано один раз, отдельной строкой.
+  const statusLine = input.statusUrl
+    ? `Где группа была последний раз и что с контролем (обновляется):\n${input.statusUrl}\n`
+    : '';
   const marksBlock =
+    statusLine +
     `Если группа вернулась — отметьте возвращение:\n${input.returnUrl}\n` +
     (input.checkinUrl
       ? `Если группа ещё в пути и всё в порядке — отметьте это:\n${input.checkinUrl}\n`
       : '') +
-    `Для отметки понадобится номер телефона руководителя.`;
+    `Для отметки и страницы понадобится номер телефона руководителя.`;
 
   if (step === 'soft') {
     return (
@@ -295,6 +305,7 @@ export function buildEscalationMessage(
     `Экстренный контакт: ${input.emergencyContactName} (${input.emergencyContactPhone}).\n` +
     `Последняя известная позиция: ${input.positionText}.\n` +
     `Отметка о возвращении (если группа нашлась): ${input.returnUrl}\n` +
+    statusLine +
     // Правило решения, а не «немедленно в МЧС»: тишина — ещё не беда (Cal OES:
     // не дозвонились ни до туриста, ни до контакта или неясно, что с ним, —
     // считать ЧС). Номер — только проверенный (lib/safety/emergency-numbers.ts).

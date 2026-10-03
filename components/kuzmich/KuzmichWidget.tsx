@@ -1,5 +1,6 @@
 'use client';
 
+import ChatText from '@/components/kuzmich/ChatText';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import { isWidgetPath } from '@/lib/embed/widget-frame';
@@ -451,7 +452,8 @@ export default function KuzmichWidget() {
                         ? 'bg-[var(--accent)] text-white rounded-br-sm'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-bl-sm'
                     }`}>
-                      {msg.content}
+                      {/* Ссылки — только в ответе Кузьмича (владелец 03.10). */}
+                      {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                     </div>
                   )}
                   {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}

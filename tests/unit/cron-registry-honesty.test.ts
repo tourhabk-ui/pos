@@ -98,6 +98,24 @@ describe('cron-registry: покрыты все платформенные кро
   });
 });
 
+/** Имя агента строковым литералом в роутах джобы или в модулях lib, которые они импортируют напрямую. */
+function agentIdLiteralReachable(endpoints: string[], agentId: string): boolean {
+  const lit = new RegExp(`['"\`]${agentId.replace(/[-_]/g, (c) => `\\${c}`)}['"\`]`);
+  for (const ep of endpoints) {
+    const routeFile = join(process.cwd(), 'app', 'api', 'cron', ep, 'route.ts');
+    if (!existsSync(routeFile)) continue;
+    const src = readFileSync(routeFile, 'utf8');
+    if (lit.test(src)) return true;
+    for (const m of src.matchAll(/from '@\/(lib\/[^']+)'/g)) {
+      for (const cand of [`${m[1]}.ts`, `${m[1]}/index.ts`]) {
+        const f = join(process.cwd(), cand);
+        if (existsSync(f) && lit.test(readFileSync(f, 'utf8'))) return true;
+      }
+    }
+  }
+  return false;
+}
+
 describe('cron-registry: agentId соответствует телеметрии своей джобы', () => {
   it('agentId записи реально пишется эндпоинтом её же workflow', () => {
     const problems: string[] = [];
@@ -127,7 +145,21 @@ describe('cron-registry: agentId соответствует телеметрии
           written.add(m[1]); written.add(m[2]);
         }
       }
-      if (!anyRouteFound || written.size === 0) continue; // нечего сверять
+      if (!anyRouteFound) continue; // роута в app/api/cron нет — сверять нечем
+      // Роут не пишет НИЧЕГО, а реестр ждёт телеметрию — это не «нечего
+      // сверять», а вечное «не запускался» на панели живости (03.10: три
+      // зелёных крона числились мёртвыми). Честный ответ — agentId: null или
+      // писатель в роуте; молча пропускать нельзя.
+      if (written.size === 0) {
+        // Многие роуты пишут телеметрию через помощник из lib (аренда окна,
+        // общий раннер), и прямого `agent_id:` в самом роуте нет. Поэтому
+        // ищем имя агента строковым литералом в роуте и в модулях lib, которые
+        // он импортирует напрямую. Не нашлось и там — писателя нет.
+        if (!agentIdLiteralReachable(endpoints, e.agentId)) {
+          problems.push(`${e.key} (${e.workflow}): реестр ждёт '${e.agentId}', а роуты ${endpoints.join('/')} и их модули lib его не пишут`);
+        }
+        continue;
+      }
 
       if (!written.has(e.agentId)) {
         problems.push(

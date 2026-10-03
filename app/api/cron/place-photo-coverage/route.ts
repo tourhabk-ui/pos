@@ -18,7 +18,7 @@
  *   pollinations-flux  75 — генерация, не показывается (решение 17.07)
  *   wikimedia-commons  23 — чужие, автор не записан, показывать нельзя
  *   manual-upload      33 — показывается
- *   real-photo         81 — показывается с 18.09
+ *   real-photo         81 — показывался 18.09–03.10, подпись владельца снята (1150)
  *   wikimedia           1 — показывается
  *
  * (числа из шапки lib/images/origin.ts, перепись 18.09)
@@ -116,17 +116,41 @@ export async function GET(req: NextRequest) {
   try {
     // ── Вопрос про ОДНО место ────────────────────────────────────────────
     if (name) {
+      // Отпечаток снимка — чтобы увидеть ОДИН КАДР у разных мест (владелец
+      // 03.10: Ходуткинские и Нижне-Вилючинские источники на витрине с одной
+      // фотографией). Отпечатков три, и они честно разной силы: md5 байтов,
+      // пока байты в базе; адрес объекта в хранилище; адрес источника. У
+      // снимка, уехавшего в S3 своим объектом и без source_url, отпечатка
+      // нет — дубль по нему НЕ виден, и ответ это называет (fingerprint null),
+      // а не выдаёт «дублей нет» (§4.0).
+      const FINGERPRINT = `COALESCE(md5(i.image_data), NULLIF(btrim(i.s3_url), ''), NULLIF(btrim(i.source_url), ''))`;
       const { rows } = await pool.query<{
-        id: string; place: string; category: string | null;
+        id: string; ark_id: string | null; place: string; category: string | null;
         model: string | null; shown: boolean; has_bytes: boolean; in_s3: boolean;
+        source_url: string | null; author: string | null; license: string | null;
+        width: number | null; height: number | null; created_at: string | null;
+        fingerprint: string | null; same_photo_as: string[] | null;
       }>(
         `SELECT p.id::text,
+                p.ark_id::text AS ark_id,
                 p.name AS place,
                 p.category,
                 i.model,
                 ${shownPhotoSql('i.model')} AS shown,
                 (i.image_data IS NOT NULL)  AS has_bytes,
-                (i.s3_url IS NOT NULL AND btrim(i.s3_url) <> '') AS in_s3
+                (i.s3_url IS NOT NULL AND btrim(i.s3_url) <> '') AS in_s3,
+                i.source_url, i.author, i.license, i.width, i.height,
+                to_char(i.created_at, 'YYYY-MM-DD') AS created_at,
+                CASE WHEN i.image_data IS NOT NULL THEN 'md5'
+                     WHEN NULLIF(btrim(i.s3_url), '') IS NOT NULL THEN 's3'
+                     WHEN NULLIF(btrim(i.source_url), '') IS NOT NULL THEN 'source'
+                     END AS fingerprint,
+                (SELECT array_agg(p2.name ORDER BY p2.name)
+                   FROM ai_route_images i2
+                   JOIN places p2 ON p2.ark_id = i2.route_id
+                  WHERE i.id IS NOT NULL AND i2.id <> i.id
+                    AND p2.is_visible IS NOT FALSE AND p2.merged_into_id IS NULL
+                    AND ${FINGERPRINT.replace(/\bi\./g, 'i2.')} = ${FINGERPRINT}) AS same_photo_as
            FROM places p
            LEFT JOIN ai_route_images i ON i.route_id = p.ark_id
           WHERE p.name ILIKE '%' || $1 || '%'
@@ -160,6 +184,16 @@ export async function GET(req: NextRequest) {
               ? `снимка нет вовсе — ${cardShows(r.category)}`
               : `снимок ЕСТЬ, но скрыт: ${whyHidden(r.model)}; вместо него ${cardShows(r.category)}`,
           model: r.model,
+          image_url: r.ark_id && r.model !== null ? `/api/images/route/${r.ark_id}` : null,
+          source_url: r.source_url,
+          author: r.author,
+          license: r.license,
+          size: r.width && r.height ? `${r.width}x${r.height}` : null,
+          uploaded: r.created_at,
+          // Тот же кадр у других живых мест — по отпечатку (см. выше). null у
+          // fingerprint значит «сравнить не с чем», а не «дублей нет».
+          fingerprint: r.fingerprint,
+          same_photo_as: r.same_photo_as ?? [],
           // Что увидит турист, а не что лежит в таблице. До 20.09 перепись
           // отвечала «покажет градиент, и это правда» всем без снимка —
           // и это была неправда у каждого места, чья категория попадает в
@@ -234,6 +268,54 @@ export async function GET(req: NextRequest) {
           license: r.license,
           storage: r.in_s3 ? 's3' : r.has_bytes ? 'байты в базе' : 'ни байтов, ни ссылки',
         })),
+      });
+    }
+
+    // ── Дубли: один кадр у нескольких мест ──────────────────────────────
+    //
+    // Среди ПОКАЗЫВАЕМЫХ снимков — группы с одинаковым отпечатком у разных
+    // живых мест. Отпечаток тот же, что в ответе про одно место; снимки без
+    // отпечатка сосчитаны отдельно (`unfingerprinted`): это «не проверено»,
+    // а не «уникально».
+    if (list === 'duplicates') {
+      const FP = `COALESCE(md5(i.image_data), NULLIF(btrim(i.s3_url), ''), NULLIF(btrim(i.source_url), ''))`;
+      const { rows: groups } = await pool.query<{ fingerprint: string; places: string[]; ark_ids: string[]; models: string[] }>(
+        `SELECT fp AS fingerprint,
+                array_agg(place ORDER BY place) AS places,
+                array_agg(ark_id ORDER BY place) AS ark_ids,
+                array_agg(DISTINCT model) AS models
+           FROM (
+             SELECT ${FP} AS fp, p.name AS place, p.ark_id::text AS ark_id, i.model
+               FROM places p
+               JOIN ai_route_images i ON i.route_id = p.ark_id
+              WHERE p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+                AND ${shownPhotoSql('i.model')}
+           ) t
+          WHERE fp IS NOT NULL
+          GROUP BY fp
+         HAVING count(*) > 1
+          ORDER BY count(*) DESC, min(place)
+          LIMIT $1`,
+        [limit],
+      );
+      const { rows: unf } = await pool.query<{ n: string; shown: string }>(
+        `SELECT count(*) FILTER (WHERE ${FP} IS NULL)::text AS n, count(*)::text AS shown
+           FROM places p
+           JOIN ai_route_images i ON i.route_id = p.ark_id
+          WHERE p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+            AND ${shownPhotoSql('i.model')}`,
+      );
+      return NextResponse.json({
+        ok: true, probe: 'place_photo_coverage_v1', list: 'duplicates',
+        shown_total: Number(unf[0]?.shown ?? 0),
+        unfingerprinted: Number(unf[0]?.n ?? 0),
+        groups: groups.map(g => ({
+          places: g.places,
+          models: g.models,
+          image_urls: g.ark_ids.map(a => `/api/images/route/${a}`),
+        })),
+        note: 'Отпечаток: md5 байтов в базе, иначе адрес объекта S3, иначе адрес источника. ' +
+          'Снимок без отпечатка в группы не попадает — это «не проверено», а не «уникален».',
       });
     }
 

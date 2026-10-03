@@ -1,16 +1,15 @@
 {
-  "note": "02.10. ТОЛЬКО ЧТЕНИЕ. Какая запись «Смотровая Три брата» живая перед кадром Алины Гусаковой: четыре кандидата из миграции 094 и поиск по имени.",
-  "run": 637,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Маршрут «Гора Замок»: откуда тревога 23.08 в октябре, что в «Осторожно на сегодня», какая координата у маршрута.",
+  "run": 666,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 1500,
+  "bytes": 12000,
   "urls": [
-    "https://vedarai.ru/api/places/0005d451-57cc-43f8-bddb-05f701dcbaa8",
-    "https://vedarai.ru/api/places/26fef61c-5d61-434f-bc16-b63c6bdfd560",
-    "https://vedarai.ru/api/places/6292fc3b-2133-44f6-ad5b-7bcfecd22237",
-    "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739",
-    "https://vedarai.ru/api/search?q=%D0%A1%D0%BC%D0%BE%D1%82%D1%80%D0%BE%D0%B2%D0%B0%D1%8F%20%D0%A2%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82%D0%B0"
+    "https://vedarai.ru/api/cron/safety-alert",
+    "https://vedarai.ru/api/safety/warnings?route_id=66061e18-77ba-433f-b812-81e138266b2e",
+    "https://vedarai.ru/api/routes/66061e18-77ba-433f-b812-81e138266b2e/verdict",
+    "https://vedarai.ru/api/routes/66061e18-77ba-433f-b812-81e138266b2e"
   ]
 }

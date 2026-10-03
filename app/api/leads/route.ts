@@ -8,6 +8,7 @@ import { notifyOperatorNewLead } from '@/lib/notifications/lead-notify';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
+import { isSelfVisit } from '@/lib/analytics/self-visit';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
@@ -151,6 +152,8 @@ export async function POST(req: NextRequest) {
     pd_consent: buildConsentRecord(true, getTrustedClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
     source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
     operator_id: operatorId,
+    // Свой заход (cookie владельца) — лид с пометкой, вне счёта спроса (1145).
+    is_self: isSelfVisit(req.headers.get('cookie')),
   });
 
   if (!leadId) {

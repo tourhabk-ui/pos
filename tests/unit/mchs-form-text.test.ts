@@ -77,3 +77,26 @@ describe('кабинет оператора', () => {
     expect(PANEL).not.toMatch(/fetch\([^)]*mchs\.gov\.ru/);
   });
 });
+
+describe('самостоятельная группа (/register, 03.10)', () => {
+  it('руководитель не называется гидом, год рождения — годом', async () => {
+    const { mchsFormText } = await import('@/lib/safety/mchs-form-text');
+    const t = mchsFormText({
+      route: 'Вулкан Горелый', startDate: '2026-10-05', endDate: '2026-10-05', leaderRole: 'self',
+      guideContacts: { name: 'Иванов Иван', phone: '+7 900 000-00-01' },
+      groupComposition: [{ fullName: 'Иванов Иван', birthDate: '1990' }],
+      emergencyContacts: [],
+    });
+    expect(t).toContain('Руководитель группы: Иванов Иван');
+    expect(t).not.toContain('(гид)');
+    expect(t).toContain('год рождения 1990');
+  });
+
+  it('экран регистрации отдаёт текст формы и ссылку для контакта', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/register/page.tsx', 'utf8');
+    expect(src).toMatch(/mchsFormText\(\{/);
+    expect(src).toMatch(/leaderRole: 'self'/);
+    expect(src).toMatch(/\/watch\?id=\$\{registrationId\}/);
+  });
+});

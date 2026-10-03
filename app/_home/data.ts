@@ -34,7 +34,6 @@ import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
 import { varietyByType } from '@/lib/home/explore-variety';
-import { countRoutesWithoutGeometry, type RouteGeometryGap } from '@/lib/services/routes/routes-geometry-health';
 
 export interface SafetyAlert {
   title: string;
@@ -205,11 +204,6 @@ export interface HomeV8Data {
   feed: FeedItem[];
   stats: Stat[];
   elements: Element[];
-  /**
-   * Наличие линии у маршрутов для офлайн-карты (#1643). null — счётчик не
-   * выполнился: главная скажет «не посчитано», а не нарисует зелёную точку.
-   */
-  geometry: RouteGeometryGap | null;
 }
 
 // Центр радара по умолчанию — Петропавловск-Камчатский (клиент заменит на геолокацию).
@@ -802,16 +796,14 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
 }
 
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, explore, feedItems, counts, geometry] = await Promise.all([
+  const [live, zones, plates, explore, feedItems, counts] = await Promise.all([
     getSafetyLiveData(),
     fetchZones(), fetchPlates(), fetchExplore(), fetchFeed(),
     getPlatformCounts().catch(() => null),
-    // Сам пишет в лог и отдаёт null при отказе — своего catch здесь не нужно.
-    countRoutesWithoutGeometry(),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, explore, feed: feedItems, stats, elements, geometry };
+  return { ...live, zones, plates, explore, feed: feedItems, stats, elements };
 }

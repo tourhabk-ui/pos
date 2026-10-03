@@ -65,6 +65,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // tests/unit/channel-parity.test.ts, — но перепись судит по достижимости, а
   // не по намерению, поэтому объявлено то, что она видит.
   'channel-parity': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  // pd_direct здесь — слово, не данные: перепись читает mcp_clients.client_name,
+  // а это имя ПРОГРАММЫ-клиента MCP из её рукопожатия (lib/mcp/client-id), не
+  // человека. D1 судит по имени поля и иначе не может; объявляем, чтобы это
+  // было видно, а не спрятано переименованием колонки в запросе.
+  'mcp-census': ['db_read', 'pd_direct'],
   'seismic-latency-census': ['db_read'],
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
@@ -129,6 +134,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'images-in-s3': ['db_read', 'net_out'],
   'images-oversize': ['db_read'],
   'images-recompress': ['db_read', 'db_write'],
+  // ai — зрение (callVisionDetailed), net_out — байты снимков из хранилища.
+  'photo-audit': ['db_read', 'db_write', 'net_out', 'ai'],
   'images-to-s3': ['db_read', 'db_write', 'net_out'],
   // 01.10: веб-копия героев из снимков туристов — качает оригинал из
   // хранилища, заливает копию и читает её обратно (net_out), переписывает
@@ -226,7 +233,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'route-core-ocr-peek': ['db_read'],
   'route-core-sources': ['db_read', 'pd_direct'],
   'route-corpus': ['db_read'],
-  'route-data-audit': ['db_read'],
+  // db_write с 03.10: строка прогона в agent_run_history (телеметрия переписи
+  // 'routes-census' для панели живости). Данных маршрутов роут не пишет.
+  'route-data-audit': ['db_read', 'db_write'],
   'route-desc-census': ['db_read', 'db_write', 'net_out', 'ai'],
   'route-desc-read': ['db_read'],
   'route-endpoints': ['db_read', 'db_write', 'net_out', 'ai'],

@@ -90,7 +90,9 @@ describe('validateToolArgs', () => {
   it('tolerates get_guardian_context called with "name" instead of "place" (existing executeTool fallback)', () => {
     const r = validateToolArgs('get_guardian_context', { name: 'Толбачик' });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.args.name).toBe('Толбачик');
+    // С 02.10 синоним сводится к каноническому place до исполнителя
+    // (tests/unit/mcp-arg-aliases.test.ts).
+    if (r.ok) expect(r.args.place).toBe('Толбачик');
   });
 
   it('rejects get_guardian_context with neither place nor name', () => {

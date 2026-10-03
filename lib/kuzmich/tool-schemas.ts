@@ -38,6 +38,40 @@ function looseString(max: number) {
   );
 }
 
+/**
+ * Синонимы имён аргументов у публичного MCP (02.10).
+ *
+ * Владелец прислал панель MCP: у get_place_info 13 ошибок из 87, у
+ * get_tour_details 6, у get_tour_availability и get_guardian_context по 3.
+ * «Места нет» пишется в журнал успехом, значит ошибки — отказы схемы:
+ * чужой агент передаёт `place` туда, где ждём `name` (у соседнего
+ * get_guardian_context поле места называется именно `place`), `tour_id`
+ * вместо `tour`, `query` вместо `name`. Ответ «аргументы не прошли проверку»
+ * для агента тупик: он не знает нашего имени поля.
+ *
+ * Синонимы принимаются и сводятся к одному каноническому имени ДО
+ * исполнителя: исполнитель по-прежнему читает одно поле. В JSON-схеме для
+ * модели объявлено только каноническое имя — синонимы не рекламируются,
+ * они лишь не наказывают за угаданное. Список явный: угадывать любое поле
+ * со строкой значило бы принять за название места, например, телефон.
+ * Сторож: tests/unit/mcp-arg-aliases.test.ts.
+ */
+const PLACE_ALIASES = ['query', 'location', 'place_name', 'title'] as const;
+const TOUR_ALIASES = ['tour_id', 'id', 'tour_name', 'title'] as const;
+const DATE_FROM_ALIASES = ['from', 'start_date', 'date'] as const;
+
+function aliasFields(names: readonly string[], max: number) {
+  return Object.fromEntries(names.map(n => [n, looseString(max).optional()])) as Record<string, z.ZodOptional<ReturnType<typeof looseString>>>;
+}
+
+function firstOf(v: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const k of keys) {
+    const x = v[k];
+    if (typeof x === 'string' && x.length > 0) return x;
+  }
+  return undefined;
+}
+
 // ── search_kamchatka ──────────────────────────────────────────────────────
 const searchKamchatkaSchema = z.object({
   query: looseString(300),
@@ -55,7 +89,9 @@ const getToursSchema = z.object({
 const getTourDetailsSchema = z.object({
   name: looseString(200).optional(),
   query: looseString(200).optional(),
-}).refine(v => !!(v.name || v.query), { message: 'нужно указать name (название или ключевое слово тура)' });
+  ...aliasFields(TOUR_ALIASES, 200),
+}).transform(v => ({ name: firstOf(v, ['name', 'query', ...TOUR_ALIASES]) }))
+  .refine(v => !!v.name, { message: 'нужно указать name (название или ключевое слово тура)' });
 
 // ── get_guardian_context ──────────────────────────────────────────────────
 // executeTool исторически принимает `place` ИЛИ `name` (args.place ?? args.name) —
@@ -63,12 +99,17 @@ const getTourDetailsSchema = z.object({
 const getGuardianContextSchema = z.object({
   place: looseString(200).optional(),
   name: looseString(200).optional(),
-}).refine(v => !!(v.place || v.name), { message: 'нужно указать place (название места)' });
+  ...aliasFields(PLACE_ALIASES, 200),
+}).transform(v => ({ place: firstOf(v, ['place', 'name', ...PLACE_ALIASES]) }))
+  .refine(v => !!v.place, { message: 'нужно указать place (название места)' });
 
 // ── get_place_info ────────────────────────────────────────────────────────
 const getPlaceInfoSchema = z.object({
-  name: looseString(200),
-});
+  name: looseString(200).optional(),
+  place: looseString(200).optional(),
+  ...aliasFields(PLACE_ALIASES, 200),
+}).transform(v => ({ name: firstOf(v, ['name', 'place', ...PLACE_ALIASES]) }))
+  .refine(v => !!v.name, { message: 'нужно указать name (название места)' });
 
 // ── get_weather ───────────────────────────────────────────────────────────
 // Место или точка (25.09): до этого схема была пустой, и спросить погоду на
@@ -109,10 +150,21 @@ const makeTripPlanSchema = z.object({
 // Свободные даты и места тура (Эволюция 3.0, п.4). Даты/числа приходят
 // строками (как все args) — executor валидирует и клампит сам.
 const getTourAvailabilitySchema = z.object({
-  tour: looseString(200),
+  tour: looseString(200).optional(),
+  name: looseString(200).optional(),
+  query: looseString(200).optional(),
+  ...aliasFields(TOUR_ALIASES, 200),
   date_from: looseString(20).optional(),
+  ...aliasFields(DATE_FROM_ALIASES, 20),
   days: looseString(10).optional(),
-});
+  people: looseString(10).optional(),
+}).transform(v => ({
+  tour: firstOf(v, ['tour', 'name', 'query', ...TOUR_ALIASES]),
+  date_from: firstOf(v, ['date_from', ...DATE_FROM_ALIASES]),
+  days: v.days,
+  people: v.people,
+}))
+  .refine(v => !!v.tour, { message: 'нужно указать tour (название, ключевое слово или ID тура)' });
 
 // ── search_taaft ──────────────────────────────────────────────────────────
 // executeTool принимает `task` ИЛИ `query` (args.task ?? args.query).
@@ -352,6 +404,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
             tour: { type: 'string', description: 'Название тура, ключевое слово или числовой ID' },
             date_from: { type: 'string', description: 'С какой даты смотреть, YYYY-MM-DD. Не сказано — с сегодня.' },
             days: { type: 'string', description: 'Окно в днях (1–31). Не сказано — 14.' },
+            people: { type: 'string', description: 'Сколько человек (1–30). Дано — к каждой дате итоговая сумма брони, тем же расчётом, что у самой брони.' },
           },
           required: ['tour'],
         },

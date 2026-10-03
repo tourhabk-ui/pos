@@ -165,6 +165,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/geofence-zones': ['GET'],// геозоны безопасности
   '/api/safety/return': ['GET', 'POST'],// отметка о возвращении — проверка внутри хендлера
   '/api/safety/checkin': ['POST'],      // «я в порядке» — анонимно, как safety/reports (issue #1420)
+  '/api/safety/watch-status': ['POST'],  // состояние контроля для контакта — телефон руководителя проверяется внутри (openRegistrationForMark)
   // Отметки на КОНКРЕТНОЙ регистрации маршрута. Публичны по той же причине,
   // что и сама регистрация: тревога уходит экстренному контакту, аккаунта у
   // него нет. Внутри — rate-limit и второй ключ (номер руководителя).

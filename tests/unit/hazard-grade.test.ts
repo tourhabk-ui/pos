@@ -136,6 +136,9 @@ describe('пороги, ради которых всё это делается',
     // Если пороги когда-нибудь сдвинут, этот сторож обязан покраснеть вместе с
     // ними: повышение до 2 имеет смысл ровно потому, что 2 — граница.
     expect(ingest).toMatch(/severity >= 2 OR alert_type = 'tsunami_warning'/);
-    expect(ingest).toMatch(/max_severity >= 2 THEN 'red'/);
+    // Красный — двойка по алертам самого места (03.10, решение владельца,
+    // #2195: зональная двойка даёт жёлтый, зональная тройка — красный).
+    expect(ingest).toMatch(/place_severity >= 2 THEN 'red'/);
+    expect(ingest).toMatch(/zonal_severity >= 3 THEN 'red'/);
   });
 });

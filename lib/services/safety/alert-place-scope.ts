@@ -25,6 +25,7 @@
 import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/routes/collect-signals';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
+import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 
 /**
  * Когда у события и у точки есть координаты И тип события таков, что
@@ -243,4 +244,26 @@ export const ALERT_MATCH_SQL = `
     AND ark.zone = ANY(ea.affected_zones)
   )
 `;
+
+export { TOURIST_BAN_SQL };
+
+/**
+ * Алерт пришёл к месту ТОЛЬКО по зоне края — не по координате, не по силе
+ * сотрясения, не по вулкану или парку (решение владельца 03.10, вариант 2,
+ * #2195). Тот же предикат, что открывает зональную ветку ALERT_MATCH_SQL,
+ * без самого совпадения зоны: ветки взаимоисключающие по типу, и совпавший
+ * алерт с этим признаком мог прийти только через зону.
+ *
+ * Зачем: экстренное предупреждение МЧС о дожде по зоне красило КРАСНЫМ все
+ * горы этой зоны разом — владелец 03.10 на Горе Замок: «статус опасности не
+ * снят». Когда красное всё, настоящий красный (Шивелуч под оранжевым KVERT)
+ * не выделяется. Зональный алерт уровня 2 теперь даёт жёлтый, уровня 3
+ * (цунами) — по-прежнему красный. Текст алерта в карточке остаётся.
+ */
+export const ALERT_ZONAL_ONLY_SQL = `(
+  NOT (${GEO_SCOPED_SQL})
+  AND NOT (${PLACE_SCOPED_SQL})
+  AND NOT (${QUAKE_SCOPED_SQL})
+)`;
+
 

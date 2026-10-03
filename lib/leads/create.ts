@@ -39,6 +39,12 @@ export interface CreateLeadParams {
    * лид создаётся, но обстоятельства согласия остаются пустыми и видимыми.
    */
   pd_consent?: PdConsentRecord | null;
+  /**
+   * Свой лид (владелец проверяет форму или коннектор): cookie vedar_self на
+   * сайте, метка ?self= в MCP — lib/analytics/self-visit. Виден в кабинете
+   * и в уведомлении с пометкой, в счёт спроса не идёт, follow-up не шлётся.
+   */
+  is_self?: boolean;
 }
 
 /**
@@ -90,6 +96,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
     telegram_chat_id,
     status = 'new',
     pd_consent = null,
+    is_self = false,
   } = params;
 
   // ── 1. Скоринг ──────────────────────────────────────────────────────────
@@ -148,8 +155,8 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
   try {
     const res = await pool.query<{ id: string }>(
       `INSERT INTO leads (name, phone, comment, route_id, route_title, source_url, source_data, source_channel, ai_score, processed_at, operator_id, telegram_chat_id, status,
-                          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, is_self)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING id`,
       [
         name,
@@ -169,6 +176,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
         pd_consent?.ip ?? null,
         pd_consent?.source ?? null,
         pd_consent?.version ?? null,
+        is_self === true,
       ],
     );
     leadId = res.rows[0]?.id ?? null;
@@ -195,6 +203,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
       sourceData: source_data,
       score: quickScore,
       labelRu: quality.labelRu,
+      isSelf: is_self === true,
     }).catch((e) => console.error('[createLead] notifyAdminNewLead failed:', e));
   }
 

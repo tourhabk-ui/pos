@@ -77,7 +77,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { shownPhotoSql } from '@/lib/images/origin';
+import { shownPhotoSql, keepPhotoSql } from '@/lib/images/origin';
 import { searchCommonsPhotos, downloadPhotoBytes } from '@/lib/services/ingest/wikimedia-photos';
 import { uploadToS3, deleteFromS3, extFor, isS3Configured } from '@/lib/storage/s3';
 import { randomUUID } from 'node:crypto';
@@ -267,7 +267,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         WHERE ${LIVE_PLACE}
           AND p.ark_id IS NOT NULL
           AND p.lat IS NOT NULL AND p.lng IS NOT NULL
-          AND (img.route_id IS NULL OR NOT ${shownPhotoSql('img.model')})
+          AND (img.route_id IS NULL OR NOT ${keepPhotoSql('img.model')})
           AND NOT EXISTS (
             SELECT 1 FROM agent_memory m
              WHERE m.agent_id = $1 AND m.memory_type = $2
@@ -483,7 +483,7 @@ async function saveToStorageIfStillFree(
            s3_url      = EXCLUDED.s3_url,
            created_at  = now()
        WHERE ai_route_images.model IS NULL
-          OR NOT (${shownPhotoSql('ai_route_images.model')})`,
+          OR NOT (${keepPhotoSql('ai_route_images.model')})`,
     [
       place.ark_id,
       mime,

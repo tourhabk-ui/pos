@@ -37,6 +37,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logAgentRun } from '@/lib/agents/run-logger';
+
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -158,6 +160,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const { reason, limit, dry_run } = parsed.data;
+  const started_at = new Date();
 
   try {
     // Тот же сбор, что у GET: план и перенос обязаны смотреть на одно.
@@ -218,6 +221,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Телеметрия прогона: реестр (cron-registry, agentId 'images-to-s3') ждёт
+    // её, а писателя не было — панель живости вечно показывала «не
+    // запускался» при зелёном workflow (03.10). Сухой прогон не пишется: он
+    // ничего не делает и не должен выглядеть работой.
+    void logAgentRun({
+      agent_id: 'images-to-s3',
+      status: failed.length === 0 ? 'success' : moved.length > 0 ? 'partial' : 'failed',
+      started_at,
+      duration_ms: Date.now() - started_at.getTime(),
+      items_processed: rows.length,
+      items_created: moved.length,
+      errors_count: failed.length,
+      error_msg: failed.length > 0 ? failed.slice(0, 3).map(f => f.reason).join('; ') : undefined,
+      metadata: { pending_before: pending },
+    });
+
     return NextResponse.json({
       ok: true,
       probe: 'images_to_s3_v1',
@@ -233,6 +252,11 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
     console.error(`[images-to-s3] разбор не выполнен, SQLSTATE ${code}:`, err);
+    void logAgentRun({
+      agent_id: 'images-to-s3', status: 'failed', started_at,
+      duration_ms: Date.now() - started_at.getTime(), errors_count: 1,
+      error_msg: `разбор не выполнен, SQLSTATE ${code}`,
+    });
     return NextResponse.json(
       { ok: false, probe: 'images_to_s3_v1', error: 'разбор не выполнен', sqlstate: code },
       { status: 503 },

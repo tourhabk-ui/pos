@@ -1076,14 +1076,14 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
               COUNT(*) FILTER (WHERE (path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')
                                  AND (from_path LIKE '/trip/%' OR from_path LIKE '/plans/%'))::int AS plan_to_tour
          FROM page_views
-        WHERE created_at > NOW() - INTERVAL '7 days' AND is_bot = FALSE`,
+        WHERE created_at > NOW() - INTERVAL '7 days' AND is_bot = FALSE AND is_self = FALSE`,
     ),
     pool.query<{ n: number }>(
       `SELECT COUNT(*)::int AS n FROM funnel_events
-        WHERE step = 'booking_start' AND created_at > NOW() - INTERVAL '7 days'`,
+        WHERE step = 'booking_start' AND is_self = FALSE AND created_at > NOW() - INTERVAL '7 days'`,
     ),
     pool.query<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM leads WHERE created_at > NOW() - INTERVAL '7 days'`,
+      `SELECT COUNT(*)::int AS n FROM leads WHERE is_self = FALSE AND created_at > NOW() - INTERVAL '7 days'`,
     ),
     pool.query<{ bookings: number; paid: number }>(
       `SELECT COUNT(*)::int AS bookings, COUNT(paid_at)::int AS paid

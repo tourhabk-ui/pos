@@ -8,6 +8,7 @@
  *  - Проактивное предложение бронирования после AI-ответа
  */
 
+import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
@@ -1283,10 +1284,20 @@ export async function getTourDetails(query: string): Promise<string> {
       safety_notes: string[] | null;
       pickup_type: string | null;
       pickup_details: string | null;
+      operator_name: string | null;
+      operator_legal_name: string | null;
+      operator_inn: string | null;
+      operator_ogrn: string | null;
     }>(
+      // Продавец — подзапросами, а не JOIN: publicTourSql('') пишет колонки
+      // без алиаса, и JOIN с partners сделал бы их неоднозначными.
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
-              program, safety_notes, pickup_type, pickup_details
+              program, safety_notes, pickup_type, pickup_details,
+              (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
+              (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
+              (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
+              (SELECT NULLIF(btrim(p.legal_info->>'ogrn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_ogrn
          FROM operator_tours
         WHERE id = $1 AND ${publicTourSql('')}`,
       [resolved.id],
@@ -1333,6 +1344,15 @@ export async function getTourDetails(query: string): Promise<string> {
     parts.push(t.cancellation_policy?.trim()
       ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${t.cancellation_policy.trim()}`
       : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
+    // Кто продаёт (03.10, разбор UCP: ассистент, бронирующий за человека,
+    // обязан назвать продавца до подтверждения). Тот же источник и та же
+    // строка, что «Исполнитель:» на карточке тура (lib/tours/seller-requisites).
+    // Реквизитов нет — так и сказано, имя витрины за реквизиты не выдаётся.
+    const requisites = sellerRequisitesLine(t);
+    parts.push(`Продавец (исполнитель тура): ${requisites
+      ?? `${t.operator_name ? `оператор «${t.operator_name}», ` : ''}реквизиты на платформе не записаны`}. `
+      + 'Договор о туре заключается с исполнителем; Ведар — агент, принимает оплату по его поручению. '
+      + 'Итоговую сумму за людей и дату даёт get_tour_availability с параметром people.');
     return parts.join('\n');
   } catch (err) {
     // Отказ базы — исключение, а не пустая строка: исполнитель вернёт
@@ -2107,13 +2127,16 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     if (name === 'get_tour_availability') {
       const { getTourAvailabilityForKuzmich } = await import('@/lib/kuzmich/tour-availability-tool');
-      return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days });
+      return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days, people: args.people });
     }
     return 'Неизвестный инструмент.';
   } catch (err) {
     // Раньше — пустой catch: ни имени инструмента, ни SQLSTATE (§4.0).
     const code = (err as { code?: unknown })?.code;
     console.error('[kuzmich-tool] исполнение упало:', logText(name), typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
+    // На MCP причина нужна журналу (SQLSTATE, таймаут — lib/mcp/call-reason):
+    // роут ловит исключение сам и отвечает агенту тем же текстом отказа.
+    if (opts.surface === 'mcp') throw err;
     return TOOL_EXECUTION_FAILED;
   }
 }

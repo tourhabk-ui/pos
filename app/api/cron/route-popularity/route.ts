@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
            FROM page_views
           WHERE path LIKE $1
             AND created_at > NOW() - ($2 || ' days')::interval
-            AND is_bot = FALSE
+            AND is_bot = FALSE AND is_self = FALSE
           GROUP BY 1
          HAVING split_part(ltrim(path, '/'), '/', 2) <> ''
           ORDER BY COUNT(DISTINCT visitor_hash) DESC

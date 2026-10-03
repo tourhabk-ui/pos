@@ -7,7 +7,9 @@
  * возвращаем 'uncertain' — не говорим «снаружи», когда не уверены.
  */
 
-export type ZoneHazard = 'volcano' | 'thermal' | 'geyser' | 'avalanche' | 'wildlife' | 'tsunami';
+// `trail` — наблюдения туристов о самой тропе (брод, завал, камнепад),
+// производитель — lib/safety/trail-observation-zones.ts (03.10).
+export type ZoneHazard = 'volcano' | 'thermal' | 'geyser' | 'avalanche' | 'wildlife' | 'tsunami' | 'trail';
 export type ZoneLevel  = 'warning' | 'danger' | 'critical';
 export type BreachState = 'inside' | 'near' | 'uncertain';
 

@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-02 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1141_mcp_tool_calls_requested_tool.sql`.
+> Снято 2026-10-03 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1150_real_photo_authorship_revoked.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3366 |
+| Колонок | 3377 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 74 |
 
@@ -417,9 +417,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `key text!` `title text!` `icon_bytes bytea` `icon_mime text` `icon_sha256 text` `icon_url text` `created_at timestamptz=`
 
-**ai_route_images** · 20 кол. · PK id · индексов 5
+**ai_route_images** · 24 кол. · PK id · индексов 6
 
-`id uuid!=` `route_id uuid!` `image_data bytea` `mime_type varchar=` `prompt text` `model varchar=` `width integer=` `height integer=` `created_at timestamptz=` `photo_verified boolean` `ai_audit_reason text` `ai_audit_at timestamptz` `manually_reviewed boolean=` `source_url text` `author text` `license text` `license_url text` `s3_key text` `s3_url text` `thumb_url text`
+`id uuid!=` `route_id uuid!` `image_data bytea` `mime_type varchar=` `prompt text` `model varchar=` `width integer=` `height integer=` `created_at timestamptz=` `photo_verified boolean` `ai_audit_reason text` `ai_audit_at timestamptz` `manually_reviewed boolean=` `source_url text` `author text` `license text` `license_url text` `s3_key text` `s3_url text` `thumb_url text` `phash varchar` `phash_at timestamptz` `vision_verdict jsonb` `vision_at timestamptz`
 
 **collections** · 20 кол. · PK id · created_by → users.id · индексов 5
 
@@ -929,9 +929,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `booking_id uuid!` `sender_id uuid!` `recipient_id uuid!` `message text!` `is_read boolean=` `is_system_message boolean=` `attachments jsonb=` `metadata jsonb=` `created_at timestamptz=` `read_at timestamptz`
 
-**funnel_events** · 5 кол. · PK id · индексов 3
+**funnel_events** · 6 кол. · PK id · индексов 3
 
-`id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=`
+`id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=` `is_self boolean!=`
 
 **lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 3
 
@@ -945,9 +945,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `lead_id uuid!` `operator_id uuid` `primary_tour_id text` `alt_tour_ids text[]=` `headline varchar!` `summary text!` `highlights jsonb=` `price_from integer` `price_to integer` `duration_days smallint` `ai_model varchar` `generation_ms integer` `pdf_url text` `status varchar=` `sent_at timestamp` `accepted_at timestamp` `expires_at timestamp=` `created_at timestamp=` `updated_at timestamp=` `bull_signals jsonb=` `bear_risks jsonb=` `conversion_prob smallint` `recommended_action varchar=` `call_strategy text` `verdict_urgency varchar=`
 
-**leads** · 29 кол. · PK id · operator_id → partners.id, proposal_id → lead_proposals.id · на неё ссылаются: lead_activity_log, lead_followups, lead_proposals · индексов 8 · триггеры: trg_leads_updated_at
+**leads** · 30 кол. · PK id · operator_id → partners.id, proposal_id → lead_proposals.id · на неё ссылаются: lead_activity_log, lead_followups, lead_proposals · индексов 8 · триггеры: trg_leads_updated_at
 
-`id uuid!=` `name varchar!` `phone varchar!` `comment text` `route_id uuid` `route_title varchar` `source_url varchar` `status varchar!=` `created_at timestamptz!=` `updated_at timestamptz!=` `source_data jsonb` `notes text` `ai_score smallint` `ai_summary text` `ai_intent jsonb=` `matched_tour_ids text[]=` `operator_id uuid` `processed_at timestamp` `email varchar` `telegram_chat_id varchar` `group_size smallint=` `budget_rub integer` `desired_dates text` `proposal_id uuid` `source_channel varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar`
+`id uuid!=` `name varchar!` `phone varchar!` `comment text` `route_id uuid` `route_title varchar` `source_url varchar` `status varchar!=` `created_at timestamptz!=` `updated_at timestamptz!=` `source_data jsonb` `notes text` `ai_score smallint` `ai_summary text` `ai_intent jsonb=` `matched_tour_ids text[]=` `operator_id uuid` `processed_at timestamp` `email varchar` `telegram_chat_id varchar` `group_size smallint=` `budget_rub integer` `desired_dates text` `proposal_id uuid` `source_channel varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `is_self boolean!=`
 
 **outreach_queue** · 14 кол. · PK id · индексов 3
 
@@ -1009,9 +1009,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `token_hash character!` `mcp_session_id text` `mcp_invocation_id uuid` `tool_name text!` `target_path text!` `target_type text!` `created_at timestamptz!=` `expires_at timestamptz!` `first_opened_at timestamptz` `last_opened_at timestamptz` `open_count integer!=`
 
-**mcp_tool_calls** · 8 кол. · PK id · индексов 3
+**mcp_tool_calls** · 12 кол. · PK id · индексов 3
 
-`id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=` `requested_tool varchar`
+`id bigint!=` `tool varchar!` `ok boolean!` `error_kind varchar` `duration_ms integer` `caller_hash varchar` `created_at timestamptz!=` `requested_tool varchar` `is_self boolean!=` `error_code varchar` `arg_key varchar` `arg_value varchar`
 
 **mcp_write_attempts** · 6 кол. · PK id · индексов 4
 
@@ -1243,9 +1243,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `user_id uuid!` `type varchar!` `title varchar!` `message text!` `data jsonb=` `is_read boolean=` `is_archived boolean=` `priority varchar=` `action_url text` `created_at timestamptz=` `read_at timestamptz` `expires_at timestamptz` `updated_at timestamptz=`
 
-**page_views** · 10 кол. · PK id · индексов 6
+**page_views** · 11 кол. · PK id · индексов 6
 
-`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=`
+`id bigint!=` `path varchar!` `referrer varchar` `created_at timestamptz=` `visitor_hash text` `session_id text` `from_path text` `dwell_ms integer` `is_bot boolean!=` `is_not_found boolean!=` `is_self boolean!=`
 
 **platform_settings** · 3 кол. · PK key · индексов 1
 

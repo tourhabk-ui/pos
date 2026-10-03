@@ -224,6 +224,7 @@ function buildMessage(
       // неё единственным способом снять тревогу была отметка о ВОЗВРАТЕ, то
       // есть ложь, выключающая сторожа.
       checkinUrl: `${SITE_BASE}/checkin-ok?id=${reg.id}`,
+      statusUrl: `${SITE_BASE}/watch?id=${reg.id}`,
       hoursSinceConfirm,
       mchsInformedText: reg.mchs_informed_at ? formatKamchatkaTime(new Date(reg.mchs_informed_at)) : null,
     },

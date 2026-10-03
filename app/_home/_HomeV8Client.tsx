@@ -32,12 +32,13 @@ import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import {
-  dataFreshness, freshnessDot, freshnessShort, geometryCoverage, coverageDot, coverageShort, plural,
+  dataFreshness, freshnessDot, freshnessShort, plural,
 } from '@/lib/home/data-freshness';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
+import Logo from '@/components/shared/Logo';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -91,7 +92,7 @@ interface ActiveTrip {
 }
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, radar, plates, explore, feed, stats, elements, geometry } = data;
+  const { safety, seismic, radar, plates, explore, feed, stats, elements } = data;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
   // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
@@ -141,13 +142,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // Свежесть передаётся внутрь (аудит 24.09, #44): «Спокойно» в шапке при
   // «Обстановка недоступна» строкой ниже — это незнание, выданное за покой.
   const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity, degraded: safety.degraded, freshness: fresh.state });
-  // Наличие линии у маршрута (#1643): без связи карта покажет только её.
-  // Считается НАЛИЧИЕ, не право вести — право вести решает §12/navigability.
-  // null от счётчика — «не посчитано», без точки; не ноль и не 100%.
-  const coverage = geometryCoverage({
-    total: geometry?.total ?? null,
-    withoutTrack: geometry?.without_track ?? null,
-  });
 
   // Поиск ведёт в тот же SSR-листинг, который турист увидит по любой ссылке
   // каталога: одна выдача, а не отдельная «поисковая» ветка со своей правдой.
@@ -333,23 +327,20 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <div className="hero-shade" aria-hidden />
         <div className="hero-fade" aria-hidden />
         <div className="hero-in">
-          {/* Лого — два вулкана (Корякский и Авачинский силуэтом) тонким
-              штрихом в гравюрной манере бренда + вордмарк мельче. Текст
-              VEDARAI один смотрелся безлико — решение владельца 01.08.
+          {/* Знак — тот же, что в шапке, футере и на иконке приложения:
+              силуэт Камчатки и слово «Ведар» (решение владельца 30.09, «нашу
+              иконку — чем не лого»). До 02.10 здесь жил свой знак — два
+              вулкана и «Vedarai» (решение 01.08), и владелец увидел на трёх
+              экранах три разных логотипа. Поверх фото знак одноцветный (mono).
               Справа — «поделиться». Место выбрано не по вкусу: в шапке при
               360 px уже стоят пилюля статуса, СОС, тема и ЛК — пятая иконка
               переносила бы ряд на две строки (шапка потому и умеет
               flex-wrap, что однажды вылезла за экран). В герое ширина
               свободна, а стекло поверх фото разрешено §2. */}
           <div className="hero-top">
-            <div className="hero-brand" role="img" aria-label="Vedarai">
-              <svg className="hb-mark" viewBox="0 0 72 26" aria-hidden>
-                <path d="M1 25 L14 7 L18 12 L22 5 L30 14 L36 25" />
-                <path d="M32 25 L46 11 L51 16 L57 10 L71 25" />
-                <path d="M20 8 L22 5 L24 8" />
-                <path d="M22 5 C21 3 23 2 22 0" opacity=".65" />
-              </svg>
-              <span className="hb-word">Vedarai</span>
+            <div className="hero-brand">
+              <Logo size={30} mono />
+              <span className="hb-word" aria-hidden>Ведар</span>
             </div>
             <ShareButton
               className="hero-share"
@@ -417,13 +408,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
             чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
 
-            Радар несёт оба прибора бывшего блока обстановки, и ни один не
-            сокращён до украшения: свежесть — оценкой-точкой на иконке и
-            возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
-            точки нет — только контур); доля линий для офлайн-карты — второй
-            строкой со своей точкой (#1643, мягкая формулировка владельца
-            06.09). Полные строки — в aria-label и title: сокращён
-            вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
+            Радар несёт свежесть обстановки, не сокращённую до украшения:
+            оценкой-точкой на иконке и возрастом словами (три состояния:
+            зелёная, жёлтая, у «нет данных» точки нет — только контур). Вторая
+            строка «офлайн 74%» (доля маршрутов с линией, #1643) снята
+            владельцем 03.10: читалась как «ваш офлайн готов на 74%», а радар —
+            про опасность сейчас. Полная строка — в aria-label и title. Ведёт на /safety#radar — туда же, куда вела
             строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
         <nav className="qtools qt-top" aria-label="Инструменты поездки">
           {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
@@ -440,8 +430,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <Link
             href="/safety#radar"
             className="qt qt-radar"
-            aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
-            title={`${fresh.label}. ${coverage.label}`}
+            aria-label={`Радар обстановки. ${fresh.label}`}
+            title={fresh.label}
           >
             <span className="qt-ic">
               <Radar size={19} strokeWidth={1.8} aria-hidden />
@@ -455,14 +445,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <span className="qt-tx">
               <b>Радар</b>
               <span className="qt-st">{freshnessShort(fresh)}</span>
-              <span className="qt-st qt-cov">
-                <i
-                  style={coverageDot(coverage.state)
-                    ? { background: coverageDot(coverage.state) as string }
-                    : { border: '1px solid var(--text-muted)' }}
-                />
-                {coverageShort(coverage)}
-              </span>
             </span>
           </Link>
         </nav>
@@ -1037,12 +1019,11 @@ const CSS = `
 /* Лого — вулканы штрихом + вордмарк. Живёт на фото: в шапке ему не
    хватало бюджета ширины (см. комментарий у .topbar). */
 .v7 .hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;width:100%}
-.v7 .hero-brand{display:flex;flex-direction:column;gap:7px;filter:drop-shadow(0 1px 10px rgba(0,0,0,.45))}
+.v7 .hero-brand{display:flex;align-items:center;gap:9px;color:rgba(255,255,255,.95);filter:drop-shadow(0 1px 10px rgba(0,0,0,.45))}
 /* Стекло — поверх фото, где ему и место по §2. */
 .v7 .hero-share{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:999px;background:rgba(0,0,0,.40);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.95);cursor:pointer;transition:background .2s}
 .v7 .hero-share:hover{background:rgba(0,0,0,.55)}
-.v7 .hb-mark{width:52px;height:auto;stroke:rgba(255,255,255,.95);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.v7 .hb-word{font:600 11px/1 var(--font-playfair),Georgia,serif;letter-spacing:.38em;text-transform:uppercase;color:rgba(255,255,255,.95)}
+.v7 .hb-word{font:700 24px/1 var(--font-playfair),Georgia,serif;color:rgba(255,255,255,.95)}
 .v7 .hero-sp{flex:1;min-height:28px}
 /* Display-типографика — главный визуальный удар макета. clamp: на 320px не
    рвёт слова, на 480px не превращается в плакат. */
@@ -1090,8 +1071,6 @@ const CSS = `
 .v7 .qt-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
 .v7 .qt-tx b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .qt-tx > span{font:500 10.5px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .qt-cov{display:flex;align-items:center;gap:5px}
-.v7 .qt-cov i{width:6px;height:6px;border-radius:50%;flex:none;box-sizing:border-box}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
 @media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}
@@ -1356,7 +1335,6 @@ const CSS = `
   .v7 .hero-photo{min-height:78vh;min-height:78dvh}
   .v7 .hero-photo h1{font-size:clamp(56px,5vw,78px);max-width:16ch}
   .v7 .hero-photo .sub{font-size:18px;max-width:52ch}
-  .v7 .hb-mark{width:60px}
   .v7 section{margin-top:52px}
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto}

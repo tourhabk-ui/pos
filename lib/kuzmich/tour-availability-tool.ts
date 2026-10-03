@@ -18,6 +18,7 @@ import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { honestTourPrice } from '@/lib/tours/honest-price';
 
 export interface ResolvedTour {
   id: number;
@@ -28,6 +29,9 @@ export interface ResolvedTour {
   base_price: number | null;
   /** За что назначена цена; null — не записано. */
   price_unit: string | null;
+  /** Длительность — для цены «за человека в день» (tourDurationDays). */
+  multi_day_count?: number | null;
+  duration_hours?: number | null;
 }
 
 /**
@@ -45,7 +49,7 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
   try {
     if (/^\d+$/.test(q)) {
       const { rows } = await pool.query<ResolvedTour>(
-        `SELECT id, title, operator_id, base_price, price_unit, slug FROM operator_tours
+        `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours FROM operator_tours
           WHERE id = $1 AND ${publicTourSql('')}`,
         [Number(q)],
       );
@@ -55,7 +59,7 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
       return rows[0] ?? null;
     }
     const { rows } = await pool.query<ResolvedTour>(
-      `SELECT id, title, operator_id, base_price, price_unit, slug FROM operator_tours
+      `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours FROM operator_tours
         WHERE ${publicTourSql('')}
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
@@ -75,7 +79,21 @@ function shortDate(iso: string): string {
   return `${d}.${m}`;
 }
 
-export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_from?: string; days?: string }): Promise<string> {
+/**
+ * Сколько человек: 1–30 (тот же потолок, что у группы в регистрации и брони).
+ * Не дано или не число — null: итог не считается, а не считается «за одного».
+ */
+export function parsePeople(raw: string | undefined): number | null {
+  if (raw == null || raw.trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  const k = Math.trunc(n);
+  return k >= 1 && k <= 30 ? k : null;
+}
+
+const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+
+export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_from?: string; days?: string; people?: string }): Promise<string> {
   const tourQuery = (args.tour ?? '').trim();
   if (!tourQuery) return 'Укажи тур: название, ключевое слово или ID.';
 
@@ -129,12 +147,42 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       ].join('\n');
     }
     const SHOWN = 12;
-    const lines = slots.slice(0, SHOWN).map((s) => {
+    const people = parsePeople(args.people);
+    if (args.people != null && args.people.trim() !== '' && people === null) {
+      notes.push(`Число людей «${args.people}» не распознано (нужно 1–30) — итог не посчитан.`);
+    }
+    const shown = slots.slice(0, SHOWN);
+    // Итог — ТЕМ ЖЕ расчётом, что у самой брони (honestTourPrice → reserveBooking):
+    // правила цены тура и заполненность даты. Свой расчёт здесь разошёлся бы
+    // с суммой брони, и ассистент назвал бы человеку не ту цифру (разбор UCP
+    // 03.10: полная стоимость — до подтверждения). Отказ расчёта на дате —
+    // «итог не посчитан», а не пропуск строки и не «от».
+    const totals = people !== null && tour.base_price != null
+      ? await Promise.all(shown.map(async (s) => {
+          try {
+            const p = await honestTourPrice({
+              tourId: tour.id, tourDate: s.date,
+              baseUnitPrice: Number(tour.base_price), priceUnit: tour.price_unit,
+              participants: people,
+              duration: { multi_day_count: tour.multi_day_count ?? null, duration_hours: tour.duration_hours ?? null },
+            });
+            return p.total;
+          } catch (err) {
+            const e = err as { code?: string; message?: string };
+            console.error('[tour-availability] итог не посчитан', { tourId: tour.id, date: s.date, sqlstate: e?.code, message: e?.message });
+            return null;
+          }
+        }))
+      : null;
+    const lines = shown.map((s, i) => {
       // Единица — из тура, а не «р/чел»: у многодневок цена за группу, и
       // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
       // Цена на дату может быть переопределена, но единица у неё та же.
       const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
-      return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}`;
+      const total = totals
+        ? (totals[i] != null ? `; итого за ${people} чел.: ${rub(totals[i] as number)}` : '; итог не посчитан')
+        : '';
+      return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}${total}`;
     });
     const more = slots.length > SHOWN
       ? [`…и ещё ${slots.length - SHOWN} дат с местами до ${shortDate(to)} — чтобы увидеть их, сдвиньте date_from.`]
@@ -147,6 +195,9 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       // Ссылка — полным адресом: относительная у внешнего агента никуда не
       // ведёт (проверка MCP 29.09).
       `Бронь на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
+      ...(totals
+        ? ['Итог — сумма, которую посчитает бронь на эту дату и число людей (правила цены тура и заполненность даты). Трансферы и услуги из «не входит» в неё не включены.']
+        : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
     ].join('\n');
   } catch (err) {
     const e = err as { code?: string; message?: string };
