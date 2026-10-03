@@ -80,6 +80,51 @@ describe('статьи летописи', () => {
   it('Дмитрий Максутов — младший брат Александра (источник), не наоборот', () => {
     expect(text('petropavlovskaya-oborona-1854')).toContain('Александр Максутов, старший брат Дмитрия');
   });
+
+  // Черновики агента-летописца 03.10 (docs/chronicle/AGENT_PROMPT.md):
+  // статья связана со своим местом, ключевое число таблицы фактов — в тексте.
+  it('основание Петропавловска связано с памятником Берингу; обе даты переноса памятника названы', () => {
+    expect(chronicleForPlace('c4d5e6f7-a8b9-4012-defa-123456789012').map((a) => a.slug))
+      .toContain('osnovanie-petropavlovska-1740');
+    const t = text('osnovanie-petropavlovska-1740');
+    expect(t).toContain('17 октября');
+    expect(t).toContain('16 октября 1945');
+    expect(t).toContain('1946');
+  });
+
+  it('маяк Станицкого связан с местом; дата каменной башни и дальность огня 1956 года', () => {
+    expect(chronicleForPlace('efebd626-8fce-48d5-8d6d-b1db7149d270').map((a) => a.slug)).toContain('mayak-stanitskogo');
+    const t = text('mayak-stanitskogo');
+    expect(t).toContain('7 декабря 1953');
+    expect(t).toContain('20 миль');
+  });
+
+  it('Никольское связано с тремя зданиями; аренда 1871–1891 и число шкур из источника', () => {
+    for (const id of ['583c8f78-d82d-4021-8b59-84c8616065b0', '4c6fc28d-9158-4e9a-8889-f4a817406b85', 'd851e5bb-e21a-4a07-90b2-165969fe34a8']) {
+      expect(chronicleForPlace(id).map((a) => a.slug)).toContain('nikolskoe-i-komandory');
+    }
+    const t = text('nikolskoe-i-komandory');
+    expect(t).toContain('1826');
+    expect(t).toContain('1871');
+    expect(t).toContain('769 893');
+  });
+
+  it('«Ниитака»: число погибших дано обеими версиями — 284 и 328', () => {
+    expect(chronicleForPlace('9545339a-8dd2-44a1-9439-4bc150162dc1').map((a) => a.slug)).toContain('gibel-kreysera-niitaka-1922');
+    const t = text('gibel-kreysera-niitaka-1922');
+    expect(t).toContain('284');
+    expect(t).toContain('328');
+    expect(t).toContain('26 августа 1922');
+  });
+
+  it('Северо-Курильск связан с кладбищем кораблей и остовом; 28 объектов 2024 года и 1898', () => {
+    for (const id of ['5056db1d-9180-4a26-9dc3-427572c93b7f', 'cf5695b1-429c-4658-a9a2-32c206599f30']) {
+      expect(chronicleForPlace(id).map((a) => a.slug)).toContain('severo-kurilsk-kasivabara-i-korabli');
+    }
+    const t = text('severo-kurilsk-kasivabara-i-korabli');
+    expect(t).toContain('1898');
+    expect(t).toContain('28 затонувших объектов');
+  });
 });
 
 describe('страницы, навигация и sitemap', () => {
