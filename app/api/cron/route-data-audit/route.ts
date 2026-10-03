@@ -14,6 +14,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logAgentRun } from '@/lib/agents/run-logger';
+
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { runGeometryAudit } from '@/lib/routes/geometry-audit';
@@ -71,10 +73,24 @@ export async function GET(request: NextRequest) {
   const parsed = raw === null ? NaN : parseInt(raw, 10);
   const limit = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 
+  const started_at = new Date();
   try {
     const audit = await runGeometryAudit(limit);
+    // Телеметрия переписи: реестр ждёт agentId 'routes-census', писателя не
+    // было (03.10) — панель живости считала еженедельную перепись «не
+    // запускался» при зелёном workflow routes-audit.yml.
+    void logAgentRun({
+      agent_id: 'routes-census', status: 'success', started_at,
+      duration_ms: Date.now() - started_at.getTime(),
+      metadata: { v: AUDIT_SHAPE_VERSION, limit: limit ?? null },
+    });
     return NextResponse.json({ success: true, v: AUDIT_SHAPE_VERSION, ...audit });
   } catch (err) {
+    void logAgentRun({
+      agent_id: 'routes-census', status: 'failed', started_at,
+      duration_ms: Date.now() - started_at.getTime(), errors_count: 1,
+      error_msg: err instanceof Error ? err.message.slice(0, 200) : 'аудит не выполнен',
+    });
     // Пустой аудит читался бы как «маршрутов нет» — то есть как «всё хорошо».
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : 'Аудит не выполнен' },

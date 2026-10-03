@@ -14,6 +14,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { logAgentRun } from '@/lib/agents/run-logger';
+
 import { pool } from '@/lib/db-pool';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -33,6 +35,7 @@ export async function GET(request: NextRequest) {
     if (!secret) console.error('[operator-site-audit] CRON_SECRET не настроен: проверка не выполнится');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const started_at = new Date();
 
   try {
     // Дольше всех не проверявшиеся — первыми. LEFT JOIN, потому что у ни разу
@@ -89,6 +92,15 @@ export async function GET(request: NextRequest) {
       report.push({ partner: p.name, verdict, bad: badCount, unknown: unknownCount });
     }
 
+    // Телеметрия: реестр ждёт agentId 'operator-site-audit', писателя не было
+    // (03.10) — панель живости считала аудит «не запускался».
+    void logAgentRun({
+      agent_id: 'operator-site-audit', status: 'success', started_at,
+      duration_ms: Date.now() - started_at.getTime(),
+      items_processed: report.length,
+      metadata: { bad: report.filter(r => r.verdict === 'bad').length, unknown: report.filter(r => r.verdict === 'unknown').length },
+    });
+
     // Ноль операторов при непустом реестре — отказ, а не успех (CLAUDE.md §4.0).
     return NextResponse.json({
       success: true,
@@ -98,6 +110,11 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('[operator-site-audit] отказ:', err instanceof Error ? err.message : err);
+    void logAgentRun({
+      agent_id: 'operator-site-audit', status: 'failed', started_at,
+      duration_ms: Date.now() - started_at.getTime(), errors_count: 1,
+      error_msg: err instanceof Error ? err.message.slice(0, 200) : 'отказ',
+    });
     return NextResponse.json({ error: 'Проверка сайтов операторов не выполнена' }, { status: 500 });
   }
 }

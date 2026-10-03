@@ -233,7 +233,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'route-core-ocr-peek': ['db_read'],
   'route-core-sources': ['db_read', 'pd_direct'],
   'route-corpus': ['db_read'],
-  'route-data-audit': ['db_read'],
+  // db_write с 03.10: строка прогона в agent_run_history (телеметрия переписи
+  // 'routes-census' для панели живости). Данных маршрутов роут не пишет.
+  'route-data-audit': ['db_read', 'db_write'],
   'route-desc-census': ['db_read', 'db_write', 'net_out', 'ai'],
   'route-desc-read': ['db_read'],
   'route-endpoints': ['db_read', 'db_write', 'net_out', 'ai'],
