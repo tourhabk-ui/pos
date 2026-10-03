@@ -1,19 +1,13 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. После 1155: у «Скал Три Брата» (e265d0f0) герой и два кадра владельца.",
-  "run": 674,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Факты о Памятнике Витусу Берингу (источник для замены сочинённого описания): ruwiki + текущее описание места на проде.",
+  "run": 675,
   "timeout": 60,
-  "retries": 35,
-  "retryDelay": 60,
-  "allowStale": false,
-  "bytes": 300,
-  "until": "Три Брата с борта судна",
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
+  "bytes": 60000,
   "urls": [
-    "https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0"
-  ],
-  "grep": [
-    "владелец платформы",
-    "photoCount",
-    "Три Брата с борта судна",
-    "Три Брата на закатном свету"
+    "https://ru.wikipedia.org/w/index.php?title=%D0%9F%D0%B0%D0%BC%D1%8F%D1%82%D0%BD%D0%B8%D0%BA_%D0%92%D0%B8%D1%82%D1%83%D1%81%D1%83_%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D1%83&action=raw",
+    "https://vedarai.ru/api/places/c4d5e6f7-a8b9-4012-defa-123456789012"
   ]
 }
