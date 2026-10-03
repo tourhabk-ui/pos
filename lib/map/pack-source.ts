@@ -237,7 +237,7 @@ export const PLACES_BUILT: readonly PackRegionId[] = [
  * адресе снимает вопрос: новая заливка — новый адрес, старому файлу неоткуда
  * взяться. Чтение обратно в скрипте заливки ходит ПО ЭТОМУ ЖЕ адресу.
  */
-export const PLACES_LAYER_VERSION = 24;
+export const PLACES_LAYER_VERSION = 25;
 
 /** Адрес слоя мест — одно правило на все три ветки resolvePackSource. */
 function placesUrlFor(region: PackRegionId, base: string): string | null {
