@@ -147,6 +147,11 @@ describe('статьи летописи', () => {
     expect(t).toContain('Паратун — ительменского шамана');
     expect(t).toContain('айнского');
   });
+
+  it('Налычево: связано с парком; версия имени от ительмена Налачь Тынбалова', () => {
+    expect(chronicleForPlace('ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e').map((a) => a.slug)).toContain('toponim-nalychevo');
+    expect(text('toponim-nalychevo')).toContain('Налачь Тынбалова');
+  });
 });
 
 
