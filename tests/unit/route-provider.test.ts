@@ -96,7 +96,9 @@ describe('applySnapGuard — центральная политика, одна �
 describe('тестовые адаптеры — не подключены к продовому эндпоинту', () => {
   it('app/api/routes/build/route.ts зовёт roadGraphCarProvider, не notWired/fake*', () => {
     const src = readFileSync(join(process.cwd(), 'app/api/routes/build/route.ts'), 'utf-8');
-    expect(src).toContain('roadGraphCarProvider.route(');
+    // С 03.10 провайдер выбирается по режиму: машина или пешком, оба — свой граф.
+    expect(src).toContain("const provider = mode === 'foot' ? roadGraphFootProvider : roadGraphCarProvider;");
+    expect(src).toContain('provider.route(');
     expect(src).not.toMatch(/notWiredCarRouteProvider|fakeCarRouteProvider|fakeFarSnapCarRouteProvider/);
   });
 });

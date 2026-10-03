@@ -420,3 +420,39 @@ export function calculatedCarLine(): CalculatedCarLine {
     caption: CALCULATED_CAR_CAPTION,
   };
 }
+
+/**
+ * Пятый род линии — рассчитанный ПЕШИЙ путь (03.10, владелец: «даже у
+ * яндекса это уже есть»). Считает тот же граф, что автопуть, но по тропам,
+ * грунтовкам и пешеходным дорожкам OpenStreetMap.
+ *
+ * Пунктир, а не сплошная, — и это не вкус. Сплошная зелёная обещает «здесь
+ * шли» (§12), сплошная синяя — «по дороге проедешь». Пеший путь по OSM не
+ * обещает ни того, ни другого: тропа в OSM бывает заросшей, сезонной или
+ * снесённой паводком, и никто из нас её не проходил. Цвет — синий, как у
+ * автопути: тот же род («посчитано маршрутизатором»), другая уверенность.
+ * Подпись обязательна и неизменна, как у автопути.
+ */
+export interface CalculatedFootLine {
+  kind: 'calculated_foot';
+  style: LineStyle;
+  title: 'Пеший путь, рассчитанный по тропам и дорогам';
+  caption: string;
+}
+
+const CALCULATED_FOOT_CAPTION =
+  'Пеший путь рассчитан по тропам и дорогам OpenStreetMap. На месте его никто не проверял — сверяйтесь с местностью. Время — без учёта подъёмов.';
+
+export function calculatedFootLine(): CalculatedFootLine {
+  return {
+    kind: 'calculated_foot',
+    style: { color: calculatedCarLine().style.color, weight: 4, dashArray: '8 6' },
+    title: 'Пеший путь, рассчитанный по тропам и дорогам',
+    caption: CALCULATED_FOOT_CAPTION,
+  };
+}
+
+/** Линия посчитанного пути — по режиму, которым его считали. Нет режима — машина. */
+export function calculatedLine(travelMode: 'car' | 'foot' | undefined): CalculatedCarLine | CalculatedFootLine {
+  return travelMode === 'foot' ? calculatedFootLine() : calculatedCarLine();
+}

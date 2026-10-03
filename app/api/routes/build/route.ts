@@ -6,9 +6,9 @@
  * серверный адаптер, не вызывать провайдера напрямую из браузера»).
  *
  * Отвечает RouteBuildResult (lib/on-route/route-build.ts) — тем же типом,
- * что уже понимает экран (PR 5A). Режимы: foot — не построен (5B-2,
- * нужна сеть троп для произвольной точки, здесь этого шага нет — честный
- * unsupported, а не тихая линия напрямую); car — зовёт CarRouteProvider
+ * что уже понимает экран (PR 5A). Режимы: foot — по тропам и дорогам
+ * того же графа (5B-2, 03.10; тропа не дошла до цели — остаток назван, а не
+ * дорисован прямой); car — зовёт CarRouteProvider
  * (lib/on-route/route-provider.ts), пропускает ответ через applySnapGuard
  * (ненадёжная привязка к дороге → not_found, не рисованный путь) и
  * нормализует found/not_found/error в RouteBuildResult.
@@ -32,9 +32,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { applySnapGuard } from '@/lib/on-route/route-provider';
-import { roadGraphCarProvider } from '@/lib/on-route/road-graph-car-provider';
+import { roadGraphCarProvider, roadGraphFootProvider } from '@/lib/on-route/road-graph-car-provider';
 import type { RouteBuildResult } from '@/lib/on-route/route-build';
-import { carRouteReach, carApproachGapM, formatApproachGap } from '@/lib/on-route/calculated-route';
+import { carRouteReach, carApproachGapM, footRouteReach, formatApproachGap } from '@/lib/on-route/calculated-route';
 import type { RouteOption } from '@/lib/on-route/destination';
 import {
   KRAI_LAT_MIN, KRAI_LAT_MAX, KRAI_LNG_MIN, KRAI_LNG_MAX,
@@ -92,12 +92,12 @@ export async function POST(request: NextRequest) {
     return unsupported('Точка вне Камчатского края — маршрутизация здесь не предлагается.');
   }
 
-  if (mode === 'foot') {
-    return unsupported('Пеший путь по бездорожью платформа не строит — только по известной сети троп (следующий шаг, PR 5B-2).');
-  }
-
-  // mode === 'car'
-  const raw = await roadGraphCarProvider.route({
+  // Пешком — по тому же графу: тропы, грунтовки и пешеходные дорожки OSM
+  // (03.10, PR 5B-2). По бездорожью путь по-прежнему не рисуется: тропа не
+  // дошла до цели — остаток назван числом и словами «по азимуту», а не
+  // дорисован прямой через реку или обрыв.
+  const provider = mode === 'foot' ? roadGraphFootProvider : roadGraphCarProvider;
+  const raw = await provider.route({
     originLat: origin.lat, originLon: origin.lon,
     destLat: destination.lat, destLon: destination.lon,
   });
@@ -123,6 +123,27 @@ export async function POST(request: NextRequest) {
       // (destinationSnapped.snapDistanceM), экран показывает его словами:
       // выдавать подъезд за путь до вершины нельзя, но и молчать о нём —
       // значит отвечать «пути нет» там, где люди ездят каждый день.
+      if (mode === 'foot') {
+        const reachFoot = footRouteReach(providerResult.route);
+        const targetFoot = destination.title ?? 'Пеший путь';
+        const gapFoot = reachFoot === 'approach' ? providerResult.route.destinationSnapped.snapDistanceM : 0;
+        result = {
+          status: 'found',
+          options: [{
+            id: 'calculated-foot',
+            title: reachFoot === 'approach'
+              ? `Пешком к «${targetFoot}» — последние ${formatApproachGap(gapFoot)} без тропы, по азимуту`
+              : targetFoot,
+            distanceKm: providerResult.route.distanceM / 1000,
+            lineGrade: null,
+            difficulty: null,
+            elevationGainM: null,
+            waypointNames: [],
+            calculated: providerResult.route,
+          }],
+        };
+        break;
+      }
       const reach = carRouteReach(providerResult.route);
       const gap = carApproachGapM(providerResult.route);
       const target = destination.title ?? 'Путь на автомобиле';
