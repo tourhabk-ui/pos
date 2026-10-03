@@ -28,6 +28,8 @@ describe('статьи летописи', () => {
     it(`${a.slug}: у статьи названы источники со ссылками`, () => {
       expect(a.sources.length).toBeGreaterThan(0);
       for (const s of a.sources) expect(s.url).toMatch(/^https:\/\//);
+      // Адрес источника — ключ строки списка на странице.
+      expect(new Set(a.sources.map((s) => s.url)).size).toBe(a.sources.length);
     });
 
     it(`${a.slug}: голос справки, не путевой заметки`, () => {
@@ -49,6 +51,14 @@ describe('статьи летописи', () => {
     expect(chronicleForPlace('a2b3c4d5-e6f7-4890-bcde-f01234567890').map((a) => a.slug))
       .toContain('petropavlovskaya-oborona-1854');
     expect(chronicleForPlace('51598b80-6b92-48d9-beb4-019f824524c9').length).toBeGreaterThan(0);
+  });
+
+  it('маяк связан с местом «Маяк Петропавловский»; две даты основания названы обе', () => {
+    expect(chronicleForPlace('0aa97c3c-c4d7-496d-a879-7fa065d7f8de').map((a) => a.slug))
+      .toContain('petropavlovskiy-mayak');
+    const t = text('petropavlovskiy-mayak');
+    expect(t).toContain('1738–1740');
+    expect(t).toContain('1 июля 1850');
   });
 
   it('Дмитрий Максутов — младший брат Александра (источник), не наоборот', () => {
