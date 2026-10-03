@@ -88,10 +88,17 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: '/language:${{ matrix.language }}'
-          # SARIF остаётся на диске рядом с загрузкой в Security-таб: один и
-          # тот же результат, две двери. Загрузку не отключаем — вкладка
-          # Security нужна для истории и дедупликации алертов.
+          # SARIF остаётся на диске и разбирается шагом ниже в сводку прогона.
+          #
+          # Загрузка в Security-таб выключена 03.10 решением владельца: с 09:11
+          # UTC GitHub отвечал «Code scanning is not enabled for this
+          # repository», и шаг Analyze краснел на КАЖДОМ прогоне, включая main,
+          # — без единой находки. Красная проверка, которая ничего не нашла,
+          # учит не смотреть на красное (CLAUDE.md §4.0). Вторая дверь
+          # (сводка + лог) осталась; включат code scanning в настройках —
+          # вернуть `upload: always` и строку сторожа codeql-report.
           output: sarif-results
+          upload: never
 
       - name: Находки CodeQL — в сводку прогона и в лог
         # `always()`: разбор нужен и тогда, когда анализ упал. Молчащий шаг

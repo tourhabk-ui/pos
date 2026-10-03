@@ -215,8 +215,13 @@ describe('workflow действительно зовёт разбор', () => {
       .toHaveLength(2);
   });
 
-  it('загрузка в Security-таб не отключена — двери две, а не одна', () => {
-    // `upload: false` оставил бы историю алертов и дедупликацию без источника.
-    expect(WF).not.toMatch(/upload:\s*false/);
+  it('загрузка в Security-таб выключена ОСОЗНАННО, а разбор находок остался', () => {
+    // 03.10, решение владельца: code scanning в репозитории выключен, и
+    // загрузка роняла Analyze на каждом прогоне без находок. Выключать её
+    // молча нельзя — причина обязана стоять рядом, а сводка (вторая дверь)
+    // обязана работать при любом исходе анализа.
+    expect(WF).toMatch(/upload: never/);
+    expect(WF).toContain('Code scanning is not enabled for this');
+    expect(WF).toMatch(/if: always\(\)\s*\n\s*run: node scripts\/codeql-report\.js sarif-results/);
   });
 });
