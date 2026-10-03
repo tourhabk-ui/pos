@@ -13,14 +13,39 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   hard: 'text-[var(--danger)]',
 };
 
+/**
+ * Маршруты места — двумя списками (03.10). Связь «рядом» (миграция 167, «в
+ * 15 км от центра маршрута», §4.1) через место не идёт, и под заголовком
+ * «Маршруты через это место» она врала: у Батареи Максутова там стояли
+ * «Скалы Три Брата» и Халактырский пляж. Расстояния до них в данных нет —
+ * поэтому у «рядом» его и не пишется; км в строке — длина самого маршрута.
+ */
 export default function PlaceRoutes({ routes, placeId: _ }: Props) {
   if (!routes.length) return null;
+  const through = routes.filter(r => r.linkKind !== 'nearby');
+  const nearby = routes.filter(r => r.linkKind === 'nearby');
 
+  return (
+    <>
+      {through.length > 0 && <RouteList title="Маршруты через это место" routes={through} />}
+      {nearby.length > 0 && (
+        <RouteList
+          title="Маршруты в окрестностях"
+          note="Через само место они не проходят. Километры — длина маршрута, а не расстояние до него."
+          routes={nearby}
+        />
+      )}
+    </>
+  );
+}
+
+function RouteList({ title, note, routes }: { title: string; note?: string; routes: PlaceRoute[] }) {
   return (
     <section className="space-y-3">
       <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2" style={{ fontFamily: 'var(--font-playfair)' }}>
-        <Route className="w-5 h-5 text-[var(--accent)]" /> Маршруты через это место
+        <Route className="w-5 h-5 text-[var(--accent)]" /> {title}
       </h2>
+      {note && <p className="text-xs text-[var(--text-muted)]">{note}</p>}
       <div className="space-y-2">
         {routes.map(r => (
           <Link
@@ -38,7 +63,7 @@ export default function PlaceRoutes({ routes, placeId: _ }: Props) {
                     {r.difficulty}
                   </span>
                 )}
-                {r.distanceKm != null && <span>{r.distanceKm} км</span>}
+                {r.distanceKm != null && <span>длина {r.distanceKm} км</span>}
                 {r.durationHours != null && <span>{r.durationHours} ч</span>}
               </div>
             </div>

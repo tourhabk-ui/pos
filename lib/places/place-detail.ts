@@ -255,6 +255,10 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
        JOIN partners p ON p.id = ot.operator_id
        WHERE rw.place_id = $1
          AND kr.merged_into_id IS NULL
+         -- «Туры сюда» — только по маршрутам, которые сюда ИДУТ (03.10):
+         -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
+         -- месту в 15 км от центра своего маршрута.
+         AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
          AND ot.is_active = true AND ot.is_published = true
        ORDER BY ot.id, ot.base_price ASC
        LIMIT 5`,
@@ -460,6 +464,9 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           difficulty: rt.difficulty as string | null,
           distanceKm: rt.distance_km != null ? Number(rt.distance_km) : null,
           durationHours: rt.duration_hours != null ? Number(rt.duration_hours) : null,
+          // Род связи — до экрана (03.10): без него «рядом, в 15 км от центра
+          // маршрута» печаталось как «через место проходят 3 маршрута».
+          linkKind: (rt.link_kind as 'waypoint' | 'nearby' | 'unknown' | null) ?? null,
         })),
 
         tours: toursResult.rows.map(t => ({

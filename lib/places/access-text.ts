@@ -37,6 +37,8 @@ export interface AccessRoute {
   distanceKm: number | null;
   durationHours: number | null;
   difficulty: string | null;
+  /** `nearby` — маршрут через место не идёт (§4.1); в «Как добраться» не участвует. */
+  linkKind?: string | null;
 }
 
 export interface AccessFacts {
@@ -127,8 +129,12 @@ export function composeAccessText(f: AccessFacts): string[] {
   // 2. Записанный человеком текст — дословно.
   if (f.accessInfo?.trim()) out.push(sentence(f.accessInfo));
 
-  // 3. Маршруты каталога через место.
-  const routes = f.routes.filter(r => r.title?.trim());
+  // 3. Маршруты каталога через место. Связи «рядом» (миграция 167, «в 15 км
+  // от центра маршрута») сюда не идут (03.10, владелец на Батарее Максутова:
+  // «это всё далеко, а не 1.6 км»): «через место проходят 3 маршрута; самый
+  // короткий — „Скалы Три Брата“, 1,6 км» складывало чужие маршруты и их
+  // ДЛИНУ в ответ на вопрос, как сюда добраться.
+  const routes = f.routes.filter(r => r.title?.trim() && r.linkKind !== 'nearby');
   if (routes.length > 0) {
     const n = routes.length;
     const withKm = routes.filter(r => r.distanceKm != null && r.distanceKm > 0)
