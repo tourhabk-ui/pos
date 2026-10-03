@@ -13,8 +13,13 @@ import { isVolcanoObservationStale, VOLCANO_STALE_DAYS } from '@/lib/services/sa
 import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
+import { getPublicBaseUrl } from '@/lib/config';
 
 interface GuardianPlaceRow {
+  /** id места — для ссылки на его карточку (только в чате, см. pageLinks). */
+  id?: string;
+  /** Скрытое место: ни координаты, ни ссылки (правило place-info-tool). */
+  is_visible?: boolean | null;
   name: string;
   description: string | null;
   location_type: string | null;
@@ -241,7 +246,20 @@ export async function resolvePlaceForLink(placeNameRaw: string): Promise<string 
   }
 }
 
-export async function getGuardianContext(placeNameRaw: string): Promise<string> {
+/** Адрес карточки места на сайте — один для всех ответов Кузьмича. */
+export function placePageUrl(placeId: string): string {
+  return `${getPublicBaseUrl()}/places/${placeId}`;
+}
+
+export interface GuardianContextOptions {
+  /**
+   * Дописать ссылку на карточку места на сайте (чат Кузьмича). На MCP её не
+   * пишем: там своя ссылка «Продолжить в Ведаре» (lib/mcp/handoff-targets).
+   */
+  pageLinks?: boolean;
+}
+
+export async function getGuardianContext(placeNameRaw: string, opts: GuardianContextOptions = {}): Promise<string> {
   // Обезвреживаем ввод до подстановки в промпт (issue #328). Название места
   // и так уходит эхом в hedge-строки контекста для callAIFast/callAIWaterfall.
   // Флаг injectionSuspected доступен через sanitizePromptInput для логирования
@@ -260,6 +278,7 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   const [placesRes, alertsRes, knowledgeRes] = await Promise.all([
     pool.query<GuardianPlaceRow>(
       `SELECT
+         p.id::text AS id, p.is_visible,
          p.name, p.description, p.location_type, p.lat, p.lng,
          lsp.hazard_types, lsp.difficulty_level, lsp.altitude_m, lsp.profile_source,
          lsp.nearest_medical_km, lsp.sat_communicator_required,
@@ -508,7 +527,23 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       const hazards = honest.hazardTypes.map((h) => hazardLabelLower(h)).join(', ');
       parts.push(`Опасности: ${hazards}.`);
     } else if (!p.altitude_m && !p.nearest_medical_km && !p.sat_communicator_required) {
-      parts.push('Профиль безопасности для этого места не оцифрован.');
+      // «Профиль безопасности не оцифрован» модель читала как «место не
+      // оцифровано» и отвечала туристу, что горы Замок на платформе нет
+      // (скрин владельца 03.10), — при живой карточке с координатами.
+      // Отсутствие разметки опасностей называется так, чтобы его нельзя было
+      // принять ни за отсутствие места, ни за отсутствие опасностей.
+      parts.push('Опасности этого места в базе не размечены — это не значит, что их нет. Само место в справочнике есть.');
+    }
+
+    // Координаты и ссылка — у того места, о котором ответ, а не у первого
+    // видимого по имени: при скрытом месте общий поиск увёл бы ссылку на
+    // соседа. Скрытое место не называет ни того, ни другого
+    // (place-info-tool: скрывают в том числе за ложную координату).
+    if (p.is_visible !== false) {
+      const lat = p.lat != null ? Number(p.lat) : NaN;
+      const lng = p.lng != null ? Number(p.lng) : NaN;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) parts.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      if (opts.pageLinks && p.id) parts.push(`Страница места на сайте: ${placePageUrl(p.id)}`);
     }
 
     // Тот же фильтр голоса, что у get_place_info: путевая заметка не
