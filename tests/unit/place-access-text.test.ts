@@ -90,3 +90,48 @@ describe('связка с карточкой', () => {
     expect(access).not.toContain('accessInfo');
   });
 });
+
+/**
+ * Батарея Максутова, 03.10 (владелец: «это всё далеко, а не 1.6 км»): «Как
+ * добраться» печатало «через место проходят 3 маршрута каталога; самый
+ * короткий — „Скалы Три Брата“, 1,6 км». Все три были связью «рядом»
+ * (миграция 167, «в 15 км от центра маршрута»), а 1,6 км — длина самого
+ * маршрута. Через место «рядом» не идёт (§4.1).
+ */
+describe('«рядом» не выдаётся за маршрут через место', () => {
+  it('только «рядом» — предложения о маршрутах нет вовсе', () => {
+    const text = composeAccessText({
+      name: 'Батарея Максутова', lat: 53.0203, lng: 158.6422, district: null, zone: null, accessInfo: null,
+      routes: [
+        { title: 'Скалы Три Брата', distanceKm: 1.6, durationHours: null, difficulty: 'easy', linkKind: 'nearby' },
+        { title: 'Озеро Приливное – Халактырский пляж', distanceKm: 11.3, durationHours: 3, difficulty: 'easy', linkKind: 'nearby' },
+      ],
+      registrationRequired: false, eco: null, toursCount: 0,
+    }).join(' ');
+    expect(text).not.toMatch(/Через место/);
+    expect(text).not.toMatch(/Три Брата/);
+  });
+
+  it('путевые и неразмеченные считаются, «рядом» — нет', () => {
+    const text = composeAccessText({
+      name: 'X', lat: 53.0203, lng: 158.6422, district: null, zone: null, accessInfo: null,
+      routes: [
+        { title: 'Путь', distanceKm: 5, durationHours: null, difficulty: null, linkKind: 'waypoint' },
+        { title: 'Рядом', distanceKm: 1, durationHours: null, difficulty: null, linkKind: 'nearby' },
+      ],
+      registrationRequired: false, eco: null, toursCount: 0,
+    }).join(' ');
+    expect(text).toContain('Через место проходит маршрут каталога «Путь»');
+    expect(text).not.toContain('Рядом');
+  });
+
+  it('род связи доходит до карточки, список делится, туры «рядом» не берут', () => {
+    const detail = readFileSync(`${process.cwd()}/lib/places/place-detail.ts`, 'utf8');
+    expect(detail).toMatch(/linkKind: \(rt\.link_kind as/);
+    const toursAt = detail.indexOf('const toursResult = await query(');
+    expect(detail.slice(toursAt, toursAt + 1200)).toContain("COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'");
+    const list = readFileSync(`${process.cwd()}/components/places/PlaceRoutes.tsx`, 'utf8');
+    expect(list).toContain("routes.filter(r => r.linkKind !== 'nearby')");
+    expect(list).toContain('Через само место они не проходят');
+  });
+});

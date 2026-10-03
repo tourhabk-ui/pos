@@ -62,6 +62,11 @@ export interface PlaceRoute {
   difficulty: string | null;
   distanceKm: number | null;
   durationHours: number | null;
+  /**
+   * Род связи (миграция 874, §4.1): `nearby` — «в 15 км от центра маршрута»
+   * (миграция 167), через место маршрут НЕ идёт. Нет поля — не размечено.
+   */
+  linkKind?: 'waypoint' | 'nearby' | 'unknown' | null;
 }
 
 export interface NearbyPlace {
