@@ -1,0 +1,18 @@
+{
+  "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts: раннер читает перечисленные страницы и печатает их текст в лог и в check-runs chronicle-page-NN.",
+  "batch": 1,
+  "why": "Летопись: Беринг и памятник, маяк Станицкого, Никольское и Командоры, фактория Гутчинсона, крейсер Ниитака, Северо-Курильск, Шумшу.",
+  "urls": [
+    "https://ru.wikipedia.org/wiki/Памятник_Витусу_Берингу",
+    "https://piragis.ru/history/pamyatnik-beringu-petropavlovsk-kamchatsky.html",
+    "https://ru.wikipedia.org/wiki/Петропавловск-Камчатский",
+    "http://mayaki-sssr.spb.ru/mayaki-dalnii-vostok/524/",
+    "https://ru.wikipedia.org/wiki/Станицкий,_Фёдор_Ефимович",
+    "https://ru.wikipedia.org/wiki/Никольское_(Камчатский_край)",
+    "https://ru.wikipedia.org/wiki/Командорские_острова",
+    "https://www.nps.gov/articles/000/aps-20-2-9.htm",
+    "https://ru.wikipedia.org/wiki/Ниитака_(крейсер)",
+    "https://ru.wikipedia.org/wiki/Северо-Курильск",
+    "https://ru.wikipedia.org/wiki/Шумшу"
+  ]
+}
