@@ -21,6 +21,7 @@ import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
+import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
@@ -220,6 +221,15 @@ interface RouteDetail {
   track?: [number, number][] | null;
   /** Происхождение линии, как записано в геометрии; null — записи нет. */
   geometrySource?: string | null;
+  /**
+   * Профиль высот, посчитанный сервером по полному треку (app/api/routes/[id]).
+   * `reliable: false` — высот в данных нет, графика не будет.
+   */
+  relief?: {
+    reliable: boolean; elevationSource: string | null;
+    minM: number | null; maxM: number | null;
+    points: { dM: number; zM: number }[];
+  } | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
   /**
@@ -729,6 +739,12 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
   }
 
   const hasGeo = route.lat != null && route.lng != null;
+  // Профиль для графика — только надёжный и с конечными числами: форма
+  // ответа проверяется защитно, ответ мог прийти из старого кэша карточки.
+  const reliefPointsAll = route.relief?.reliable === true && Array.isArray(route.relief.points)
+    ? route.relief.points.filter(p => Number.isFinite(p?.dM) && Number.isFinite(p?.zM))
+    : null;
+  const reliefPoints = reliefPointsAll && reliefPointsAll.length >= 2 ? reliefPointsAll : null;
   const { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track } = mapData;
   const hasTrack = trackCoords != null;
   const locLabel = locationTypeLabel(route.locationType, 'Маршрут');
@@ -979,10 +995,21 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
           {/* ── Левая колонка ───────────────────────────────────────────────── */}
           <div className="space-y-8">
 
-            {/* Высотный профиль и покрытие — только реальные данные из трека,
-                без графика; где null — блок честно не показывается */}
-            {(route.elevationGainM != null || (route.surfaceTypes?.length ?? 0) > 0) && (
+            {/* Высотный профиль и покрытие — только реальные данные из трека;
+                где null — блок честно не показывается. График — с 03.10
+                (ReliefChart), только для профиля с реальными высотами. */}
+            {(route.elevationGainM != null || (route.surfaceTypes?.length ?? 0) > 0 || reliefPoints) && (
               <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+                {reliefPoints && (
+                  <div className="mb-3">
+                    <ReliefChart
+                      points={reliefPoints}
+                      minM={route.relief?.minM ?? null}
+                      maxM={route.relief?.maxM ?? null}
+                      source={route.relief?.elevationSource ?? null}
+                    />
+                  </div>
+                )}
                 {route.elevationGainM != null && route.elevationLossM != null && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-1">
                     <div>
