@@ -83,7 +83,7 @@ jobs:
               print(f'::error::mode должен быть dry или apply, а не {mode!r}')
               sys.exit(1)
           tasks = marker.get('tasks') or ['recompress', 'generated']
-          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3', 'hero', 'oversize', 'thumb', 'phash', 'vision')]
+          bad = [t for t in tasks if t not in ('recompress', 'generated', 's3', 'hero', 'phash', 'vision', 'oversize', 'thumb')]
           if bad:
               print(f'::error::неизвестная задача: {bad}')
               sys.exit(1)
