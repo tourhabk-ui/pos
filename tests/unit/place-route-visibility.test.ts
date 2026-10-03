@@ -15,10 +15,18 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const placeCard = readFileSync(join(ROOT, 'lib/places/place-detail.ts'), 'utf-8');
+// Отбор маршрутов места живёт в общем модуле (03.10): его берут и карточка,
+// и Кузьмич. Карточка обязана брать его оттуда, а не держать свою копию.
+const placeCard = readFileSync(join(ROOT, 'lib/places/place-routes.ts'), 'utf-8');
+const placeDetail = readFileSync(join(ROOT, 'lib/places/place-detail.ts'), 'utf-8');
 const routeCard = readFileSync(join(ROOT, 'app/api/routes/[id]/route.ts'), 'utf-8');
 
 describe('карточка места — блок «Маршруты»', () => {
+  it('карточка берёт отбор из общего модуля, своей копии SQL нет', () => {
+    expect(placeDetail).toContain('query(PLACE_ROUTES_SQL, [r.place_pk])');
+    expect(placeDetail).not.toContain('FROM route_waypoints rw\n       JOIN kamchatka_routes kr ON kr.id = rw.route_id\n       WHERE rw.place_id = $1');
+  });
+
   it('берёт только видимые и не слитые маршруты', () => {
     const start = placeCard.indexOf('FROM route_waypoints rw');
     const block = placeCard.slice(start, placeCard.indexOf('LIMIT 10', start));

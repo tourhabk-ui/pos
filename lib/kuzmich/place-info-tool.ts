@@ -27,7 +27,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
-import { gradeNameMatch, placePageUrl } from '@/lib/kuzmich/guardian-context';
+import { gradeNameMatch, placePageUrl, routesLinesForKuzmich } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
@@ -107,6 +107,8 @@ export interface PlaceInfoOptions {
    * «Продолжить в Ведаре» (lib/mcp/handoff-targets).
    */
   pageLinks?: boolean;
+  /** Строки маршрутов этого места (routesLinesForKuzmich) — внутрь карточки. */
+  routeLines?: string[];
 }
 
 export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[], opts: PlaceInfoOptions = {}): string | null {
@@ -138,6 +140,7 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
     // ссылки не получает (страницы у него нет).
     if (opts.pageLinks && primary.id && primary.is_visible !== false) {
       card.push(`Страница места на сайте: ${placePageUrl(primary.id)}`);
+      card.push(...(opts.routeLines ?? []));
     }
     const descLine = describeForAgent(primary.description, PLACE_DESCRIPTION_MAX);
     if (descLine) card.push(descLine);
@@ -185,5 +188,11 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
       [containsPattern(placeName)],
     ),
   ]);
-  return composePlaceInfo(placeName, pr.rows, kr.rows, opts);
+  // Маршруты — у той же записи, что в карточке, и только там, где дана ссылка:
+  // скрытое место ссылки и маршрутов не получает.
+  const primary = pr.rows[0];
+  const routeLines = opts.pageLinks && primary?.id && primary.is_visible !== false
+    ? await routesLinesForKuzmich(primary.id)
+    : undefined;
+  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines });
 }

@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getGuardianContext, placePageUrl } from '@/lib/kuzmich/guardian-context';
 import { composePlaceInfo } from '@/lib/kuzmich/place-info-tool';
+import { placeRoutesLines, routePageUrl } from '@/lib/places/place-routes';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({
@@ -32,10 +33,18 @@ const zamok = {
   lat: 53.18284, lng: 158.28647, recommender_status: 'yellow', description: null,
 };
 
-function placesReturn(rows: unknown[]) {
-  mockQuery.mockImplementation((sql: string) =>
-    Promise.resolve({ rows: sql.includes('FROM places') ? rows : [] }));
+// Запрос маршрутов тоже содержит «FROM places» (отсев двойников), поэтому
+// он распознаётся первым.
+function placesReturn(rows: unknown[], routes: unknown[] | Error = []) {
+  mockQuery.mockImplementation((sql: string) => {
+    if (sql.includes('FROM route_waypoints')) {
+      return routes instanceof Error ? Promise.reject(routes) : Promise.resolve({ rows: routes });
+    }
+    return Promise.resolve({ rows: sql.includes('FROM places') ? rows : [] });
+  });
 }
+
+const zamokRoute = { id: '66061e18-77ba-433f-b812-81e138266b2e', slug: 'gora-zamok-marshrut', title: 'Гора Замок', distance_km: 12, link_kind: 'waypoint' };
 
 describe('страж места: координаты и ссылка', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -99,5 +108,44 @@ describe('провод: чат просит ссылку, MCP — нет', () =>
 
   it('модель знает, что ссылка в ответе есть', () => {
     expect(read('lib/kuzmich/tool-schemas.ts')).toContain('ссылка на страницу места на сайте');
+  });
+});
+
+describe('маршруты места: Кузьмич видит то же, что карточка', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('маршрут через место — со ссылкой на его карточку', async () => {
+    placesReturn([zamok], [zamokRoute]);
+    const ctx = await getGuardianContext('гора Замок', { pageLinks: true });
+    expect(ctx).toContain(`Маршруты через это место на сайте: «Гора Замок», 12 км — ${routePageUrl(zamokRoute)}`);
+  });
+
+  it('маршрутов нет — так и сказано; база отказала — «проверить не удалось», не «нет»', async () => {
+    placesReturn([zamok], []);
+    expect(await getGuardianContext('гора Замок', { pageLinks: true })).toContain('Маршрутов через это место в каталоге нет.');
+    placesReturn([zamok], new Error('57014 canceling statement'));
+    const failed = await getGuardianContext('гора Замок', { pageLinks: true });
+    expect(failed).toContain('Маршруты этого места проверить не удалось');
+    expect(failed).not.toContain('в каталоге нет');
+  });
+
+  it('«рядом» не выдаётся за маршрут через место (§4.1)', () => {
+    const lines = placeRoutesLines([zamokRoute, { ...zamokRoute, id: 'x', slug: 'sosed', title: 'Соседний', link_kind: 'nearby' }]);
+    expect(lines[0]).toContain('Маршруты через это место');
+    expect(lines[0]).not.toContain('Соседний');
+    expect(lines[1]).toMatch(/^Рядом проходят \(через само место не идут\): «Соседний»/);
+  });
+
+  it('в карточке get_place_info маршруты стоят внутри карточки, до списка тёзок', () => {
+    const row = { id: ZAMOK_ID, name: 'Гора Замок', description: null, category: 'mountain', district: null, is_visible: true };
+    const twin = { ...row, id: 'y', name: 'Скала Черный замок' };
+    const out = composePlaceInfo('Замок', [row, twin], [], { pageLinks: true, routeLines: ['Маршруты через это место на сайте: «Гора Замок»'] }) ?? '';
+    expect(out.indexOf('Маршруты через это место')).toBeGreaterThan(-1);
+    expect(out.indexOf('Маршруты через это место')).toBeLessThan(out.indexOf('Другие объекты'));
+  });
+
+  it('карточка места и Кузьмич берут один отбор маршрутов', () => {
+    expect(read('lib/places/place-detail.ts')).toContain('query(PLACE_ROUTES_SQL, [r.place_pk])');
+    expect(read('lib/places/place-routes.ts')).toContain('pool.query<PlaceRouteRow>(PLACE_ROUTES_SQL, [placeId])');
   });
 });
