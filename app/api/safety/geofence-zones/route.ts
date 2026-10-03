@@ -24,6 +24,11 @@ import {
   FRESH_APPROVED_SQL,
   SIGHTING_WINDOW_DAYS,
 } from '@/lib/safety/bear-sightings';
+import {
+  isTrailHazardType,
+  trailObservationZone,
+  TRAIL_HAZARD_REPORT_TYPES,
+} from '@/lib/safety/trail-observation-zones';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +56,15 @@ interface TsunamiRow {
   name: string;
   lat: string | number;
   lng: string | number;
+}
+
+interface TrailObsRow {
+  id: string;
+  report_type: string;
+  text: string | null;
+  lat: string | number;
+  lng: string | number;
+  hours_ago: string | number;
 }
 
 interface BearRow {
@@ -101,7 +115,7 @@ export async function GET() {
   let fallback = false;
 
   try {
-    const [volcanoRes, thermalRes, tsunamiRes, bearRes] = await Promise.all([
+    const [volcanoRes, thermalRes, tsunamiRes, bearRes, trailRes] = await Promise.all([
       // Только вулканы с повышенным кодом KVERT (реально активные). Потухшие
       // сопки без повышенного ACC красной зоны не получают.
       pool.query<VolcanoRow>(`
@@ -144,6 +158,18 @@ export async function GET() {
          ORDER BY created_at DESC
          LIMIT 50
       `, [SIGHTING_WINDOW_DAYS]),
+      // Опасности самой тропы (брод, завал, камнепад) — тем же предикатом и
+      // окном, что медведи (lib/safety/trail-observation-zones.ts).
+      pool.query<TrailObsRow>(`
+        SELECT id::text, report_type, text, lat, lng,
+               EXTRACT(EPOCH FROM (NOW() - created_at))::float8 / 3600 AS hours_ago
+          FROM trail_reports
+         WHERE report_type = ANY($2::text[])
+           AND lat IS NOT NULL AND lng IS NOT NULL
+           AND ${FRESH_APPROVED_SQL}
+         ORDER BY created_at DESC
+         LIMIT 100
+      `, [SIGHTING_WINDOW_DAYS, [...TRAIL_HAZARD_REPORT_TYPES]]),
     ]);
 
     for (const row of volcanoRes.rows) {
@@ -185,6 +211,18 @@ export async function GET() {
         level:   'critical',
         message: `ЦУНАМИ-ЗОНА (${row.name}). При землетрясении — немедленно уходите вверх ≥30 м от уровня моря.`,
       });
+    }
+
+    for (const row of trailRes.rows) {
+      if (!isTrailHazardType(row.report_type)) continue;
+      zones.push(trailObservationZone({
+        id:       row.id,
+        type:     row.report_type,
+        lat:      Number(row.lat),
+        lng:      Number(row.lng),
+        text:     row.text,
+        hoursAgo: Number(row.hours_ago),
+      }));
     }
 
     for (const row of bearRes.rows) {
