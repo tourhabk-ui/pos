@@ -24,6 +24,7 @@
 | Новый срок | `extendTripWatch`: `ladder_reset_at` — лестница начинается заново с вопроса туристу, пройденными считаются только шаги после него |
 | Дежурному | `alertDuty` в `lib/safety/trip-watch.ts`: данные — только в MAX (`sendPdAlert`), в Telegram — заглушка без имён и телефонов |
 | Последняя точка | `last_position_lat/lng/at/source` (трекер: `/api/safety/tracker/[token]`) |
+| Страница контакта | `/watch?id=` (`POST /api/safety/watch-status`, `lib/safety/watch-status.ts`): состояние и последняя точка, пока контроль открыт; вход — номером руководителя, как у отметок; ссылка — в тревоге сторожа |
 | Сторож | `app/api/cron/checkin-watchdog` — **единственный**, каждый час |
 | Лестница | `lib/safety/checkin-escalation.ts`: однодневка 1/3/8 ч, многодневка 3/6/18 ч |
 | Журнал доставки | `route_registration_notifications` |

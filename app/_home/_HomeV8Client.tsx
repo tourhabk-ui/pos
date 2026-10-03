@@ -32,7 +32,7 @@ import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import {
-  dataFreshness, freshnessDot, freshnessShort, geometryCoverage, coverageDot, coverageShort, plural,
+  dataFreshness, freshnessDot, freshnessShort, plural,
 } from '@/lib/home/data-freshness';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
@@ -92,7 +92,7 @@ interface ActiveTrip {
 }
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, radar, plates, explore, feed, stats, elements, geometry } = data;
+  const { safety, seismic, radar, plates, explore, feed, stats, elements } = data;
   // Все туры витрины — одной лентой. Крупной карточки первого тура над ней
   // больше нет (владелец 30.09: «Туры сезона … ниже дублируются туры, наверное
   // этот блок лишний»): крупно «Зимняя рыбалка: февраль — апрель», а сразу под
@@ -142,13 +142,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // Свежесть передаётся внутрь (аудит 24.09, #44): «Спокойно» в шапке при
   // «Обстановка недоступна» строкой ниже — это незнание, выданное за покой.
   const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity, degraded: safety.degraded, freshness: fresh.state });
-  // Наличие линии у маршрута (#1643): без связи карта покажет только её.
-  // Считается НАЛИЧИЕ, не право вести — право вести решает §12/navigability.
-  // null от счётчика — «не посчитано», без точки; не ноль и не 100%.
-  const coverage = geometryCoverage({
-    total: geometry?.total ?? null,
-    withoutTrack: geometry?.without_track ?? null,
-  });
 
   // Поиск ведёт в тот же SSR-листинг, который турист увидит по любой ссылке
   // каталога: одна выдача, а не отдельная «поисковая» ветка со своей правдой.
@@ -415,13 +408,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Планировщик — по-прежнему дверь с честным именем (владелец 01.08:
             чип «На 3–5 дней» планировщиком не читался). Движок lib/planner.
 
-            Радар несёт оба прибора бывшего блока обстановки, и ни один не
-            сокращён до украшения: свежесть — оценкой-точкой на иконке и
-            возрастом словами (три состояния: зелёная, жёлтая, у «нет данных»
-            точки нет — только контур); доля линий для офлайн-карты — второй
-            строкой со своей точкой (#1643, мягкая формулировка владельца
-            06.09). Полные строки — в aria-label и title: сокращён
-            вид, а не утверждение. Ведёт на /safety#radar — туда же, куда вела
+            Радар несёт свежесть обстановки, не сокращённую до украшения:
+            оценкой-точкой на иконке и возрастом словами (три состояния:
+            зелёная, жёлтая, у «нет данных» точки нет — только контур). Вторая
+            строка «офлайн 74%» (доля маршрутов с линией, #1643) снята
+            владельцем 03.10: читалась как «ваш офлайн готов на 74%», а радар —
+            про опасность сейчас. Полная строка — в aria-label и title. Ведёт на /safety#radar — туда же, куда вела
             строка «Радар обстановки» в секции ниже; строка снята как дубль. */}
         <nav className="qtools qt-top" aria-label="Инструменты поездки">
           {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
@@ -438,8 +430,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <Link
             href="/safety#radar"
             className="qt qt-radar"
-            aria-label={`Радар обстановки. ${fresh.label}. ${coverage.label}`}
-            title={`${fresh.label}. ${coverage.label}`}
+            aria-label={`Радар обстановки. ${fresh.label}`}
+            title={fresh.label}
           >
             <span className="qt-ic">
               <Radar size={19} strokeWidth={1.8} aria-hidden />
@@ -453,14 +445,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <span className="qt-tx">
               <b>Радар</b>
               <span className="qt-st">{freshnessShort(fresh)}</span>
-              <span className="qt-st qt-cov">
-                <i
-                  style={coverageDot(coverage.state)
-                    ? { background: coverageDot(coverage.state) as string }
-                    : { border: '1px solid var(--text-muted)' }}
-                />
-                {coverageShort(coverage)}
-              </span>
             </span>
           </Link>
         </nav>
@@ -1087,8 +1071,6 @@ const CSS = `
 .v7 .qt-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
 .v7 .qt-tx b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .qt-tx > span{font:500 10.5px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.v7 .qt-cov{display:flex;align-items:center;gap:5px}
-.v7 .qt-cov i{width:6px;height:6px;border-radius:50%;flex:none;box-sizing:border-box}
 @media (prefers-reduced-motion: reduce){.v7 .qt:active{transform:none}}
 /* Самые узкие телефоны (320px): подписи чипов и плиток не входят — чуть мельче, а не многоточие. Стоит ПОСЛЕ правил .qt, иначе те перекрывают. */
 @media (max-width:340px){.v7 .hero-chips{gap:4px}.v7 .hchip{font-size:9.5px}.v7 .qtools{gap:6px}.v7 .qt{gap:6px;padding:8px 6px}.v7 .qt-ic{width:32px;height:32px;border-radius:10px}.v7 .qt-tx b{font-size:11.5px}.v7 .qt-tx > span{font-size:9.5px}}

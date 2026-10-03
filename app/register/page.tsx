@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2, Search, ChevronDown } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { mchsFormText } from '@/lib/safety/mchs-form-text';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 
 interface RouteOption {
@@ -32,6 +33,8 @@ export default function RegisterRoutePage() {
   const [submitted, setSubmitted] = useState(false);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   const [returnLinkCopied, setReturnLinkCopied] = useState(false);
+  const [watchLinkCopied, setWatchLinkCopied] = useState(false);
+  const [mchsTextCopied, setMchsTextCopied] = useState<'yes' | 'failed' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Шаг 1: Маршрут
@@ -272,6 +275,30 @@ export default function RegisterRoutePage() {
             </div>
           )}
 
+          {/* Страница для экстренного контакта (/watch) — до выхода, а не в
+              момент тревоги (WATCH_MANIFEST, правило 7: контакт знает, что он
+              контакт). Номер руководителя он спросит у вас — это и есть ключ. */}
+          {registrationId && (
+            <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] mb-6 text-left">
+              <p className="font-semibold text-sm mb-1">Ссылка для экстренного контакта</p>
+              <p className="text-xs text-[var(--text-muted)] mb-3">
+                Перешлите её {emergencyName.trim() || 'контакту'} до выхода. По ней видно, отметились ли вы и
+                где были последний раз, пока контроль открыт. Для входа нужен номер руководителя группы.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(`${window.location.origin}/watch?id=${registrationId}`)
+                    .then(() => setWatchLinkCopied(true))
+                    .catch(() => {});
+                }}
+                className="w-full py-2.5 rounded-lg border border-[var(--border)] text-sm font-medium hover:bg-[var(--bg-hover)]"
+              >
+                {watchLinkCopied ? 'Скопировано' : 'Скопировать ссылку для контакта'}
+              </button>
+            </div>
+          )}
+
           {/* Срок — первым, до способов подачи. Способ бесполезен, если о
               сроке узнали накануне выхода: заявка подаётся за 10 РАБОЧИХ дней. */}
           <div className="mb-4 p-3 rounded-lg text-left"
@@ -287,6 +314,38 @@ export default function RegisterRoutePage() {
                  className="text-[var(--accent)] text-xs font-medium mt-2 inline-block hover:underline">
                 Открыть форму МЧС →
               </a>
+              {/* Данные регистрации одним текстом — переносить в онлайн-форму,
+                  а не перепечатывать (тот же текст, что у оператора,
+                  lib/safety/mchs-form-text). Отправляет турист сам. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const text = mchsFormText({
+                    route: routeName,
+                    startDate,
+                    endDate,
+                    leaderRole: 'self',
+                    guideContacts: leaderName.trim() ? { name: leaderName, phone: leaderPhone } : null,
+                    groupComposition: members
+                      .filter(m => m.name.trim())
+                      .map(m => ({ fullName: m.name, phone: m.phone, birthDate: m.birth_year })),
+                    emergencyContacts: emergencyName.trim()
+                      ? [{ name: emergencyName, phone: emergencyPhone, relation: emergencyRelation }]
+                      : [],
+                  });
+                  navigator.clipboard?.writeText(text)
+                    .then(() => setMchsTextCopied('yes'))
+                    .catch(() => setMchsTextCopied('failed'));
+                }}
+                className="block mt-2 text-xs font-medium text-[var(--accent)] hover:underline"
+              >
+                {mchsTextCopied === 'yes' ? 'Текст для формы скопирован' : 'Скопировать данные для формы'}
+              </button>
+              {mchsTextCopied === 'failed' && (
+                <p className="text-xs text-[var(--warning)] mt-1">
+                  Браузер не дал скопировать — данные есть в скачанной PDF-заявке.
+                </p>
+              )}
             </div>
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
               <p className="font-semibold text-sm mb-1">Почтой (заказное с уведомлением)</p>

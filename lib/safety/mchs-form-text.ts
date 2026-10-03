@@ -22,6 +22,12 @@ export interface MchsFormInput {
   endDate: string;
   groupComposition: ReadonlyArray<{ fullName: string; phone?: string; birthDate?: string }>;
   guideContacts: { name: string; phone: string } | null;
+  /**
+   * Кто руководитель: гид оператора (по умолчанию — кабинет оператора) или
+   * сам турист самостоятельной группы (/register). Назвать туриста «гидом» в
+   * заявке МЧС — неправда о группе.
+   */
+  leaderRole?: 'guide' | 'self';
   emergencyContacts: ReadonlyArray<{ name: string; phone: string; relation?: string }>;
 }
 
@@ -49,14 +55,17 @@ export function mchsFormText(r: MchsFormInput): string {
   out.push('');
 
   out.push(r.guideContacts
-    ? `Руководитель группы (гид): ${clean(r.guideContacts.name)}, тел. ${clean(r.guideContacts.phone)}`
+    ? `Руководитель группы${r.leaderRole === 'self' ? '' : ' (гид)'}: ${clean(r.guideContacts.name)}, тел. ${clean(r.guideContacts.phone)}`
     : 'Руководитель группы: не указан');
   out.push('');
 
   out.push(`Участники (${r.groupComposition.length}):`);
   r.groupComposition.forEach((m, i) => {
     const bits = [clean(m.fullName)];
-    if (clean(m.birthDate)) bits.push(`дата рождения ${ruDate(clean(m.birthDate))}`);
+    // Форма /register спрашивает только год — и называть его «датой» нельзя.
+    const born = clean(m.birthDate);
+    if (/^\d{4}$/.test(born)) bits.push(`год рождения ${born}`);
+    else if (born) bits.push(`дата рождения ${ruDate(born)}`);
     if (clean(m.phone)) bits.push(`тел. ${clean(m.phone)}`);
     out.push(`${i + 1}. ${bits.join(', ')}`);
   });

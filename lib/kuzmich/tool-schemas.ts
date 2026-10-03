@@ -157,10 +157,12 @@ const getTourAvailabilitySchema = z.object({
   date_from: looseString(20).optional(),
   ...aliasFields(DATE_FROM_ALIASES, 20),
   days: looseString(10).optional(),
+  people: looseString(10).optional(),
 }).transform(v => ({
   tour: firstOf(v, ['tour', 'name', 'query', ...TOUR_ALIASES]),
   date_from: firstOf(v, ['date_from', ...DATE_FROM_ALIASES]),
   days: v.days,
+  people: v.people,
 }))
   .refine(v => !!v.tour, { message: 'нужно указать tour (название, ключевое слово или ID тура)' });
 
@@ -402,6 +404,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
             tour: { type: 'string', description: 'Название тура, ключевое слово или числовой ID' },
             date_from: { type: 'string', description: 'С какой даты смотреть, YYYY-MM-DD. Не сказано — с сегодня.' },
             days: { type: 'string', description: 'Окно в днях (1–31). Не сказано — 14.' },
+            people: { type: 'string', description: 'Сколько человек (1–30). Дано — к каждой дате итоговая сумма брони, тем же расчётом, что у самой брони.' },
           },
           required: ['tour'],
         },

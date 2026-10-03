@@ -57,7 +57,11 @@ const BEAR_SRC = read('lib/safety/bear-sightings.ts');
  * Строитель, не вызванный роутом, производителем не считается — это был бы
  * тот же провод в никуда, только этажом ниже.
  */
-const BUILDERS: Record<string, string> = { 'lib/safety/bear-sightings.ts': 'bearSightingZone(' };
+const BUILDERS: Record<string, string> = {
+  'lib/safety/bear-sightings.ts': 'bearSightingZone(',
+  // 03.10: брод, завал, камнепад из наблюдений туристов.
+  'lib/safety/trail-observation-zones.ts': 'trailObservationZone(',
+};
 
 /** Комментарии вырезаны: род, упомянутый в объяснении, производителем не является. */
 const code = (s: string) =>

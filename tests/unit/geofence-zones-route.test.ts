@@ -28,9 +28,9 @@ describe('GET /api/safety/geofence-zones', () => {
     queryMock.mockResolvedValue({ rows: [] });
     await GET();
 
-    // Четыре запроса: вулканы (JOIN volcano_status), термальные/гейзеры,
-    // цунами, медвежьи наблюдения.
-    expect(queryMock).toHaveBeenCalledTimes(4);
+    // Пять запросов: вулканы (JOIN volcano_status), термальные/гейзеры,
+    // цунами, медвежьи наблюдения, наблюдения о тропе (03.10).
+    expect(queryMock).toHaveBeenCalledTimes(5);
 
     const sql = queryMock.mock.calls.map((c) => String(c[0]).toLowerCase());
     const find = (needle: string) => {
@@ -45,11 +45,15 @@ describe('GET /api/safety/geofence-zones', () => {
     expect(find('tsunami_risk')).toContain('is_visible');
 
     // Сообщения людей: гейт — ручная модерация, колонки is_visible там нет.
-    const bear = find('trail_reports');
-    expect(bear, 'наблюдение без модерации стало бы тревогой в поле')
-      .toContain("status = 'approved'");
-    expect(bear, 'без срока годности наблюдение предупреждало бы вечно')
-      .toContain("interval '1 day' * $1");
+    // Оба источника из сообщений людей — медведь и тропа — под одним гейтом.
+    const reports = sql.filter((q) => q.includes('trail_reports'));
+    expect(reports).toHaveLength(2);
+    for (const q of reports) {
+      expect(q, 'наблюдение без модерации стало бы тревогой в поле')
+        .toContain("status = 'approved'");
+      expect(q, 'без срока годности наблюдение предупреждало бы вечно')
+        .toContain("interval '1 day' * $1");
+    }
   });
 
   it('вулкан с повышенным кодом KVERT (orange) → критическая зона', async () => {
