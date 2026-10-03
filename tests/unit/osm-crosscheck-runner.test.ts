@@ -12,6 +12,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { runOsmCrosscheck, fetchOsmFeatures } from '@/lib/geo/osm-crosscheck-runner';
+import { splitBounds } from '@/lib/geo/osm-crosscheck';
 
 const PLACE_ROW = {
   id: 'p1', name: 'Голубые озёра', location_type: 'lake',
@@ -46,14 +47,14 @@ afterEach(() => {
 
 describe('runOsmCrosscheck', () => {
   it('только читает — ни одного write-запроса', async () => {
-    await runOsmCrosscheck({ minSim: 0.3 });
+    await runOsmCrosscheck({ minSim: 0.3, tilePauseMs: 0 });
     expect(
       queryMock.mock.calls.every(([sql]) => !/UPDATE|INSERT|DELETE/i.test(sql as string)),
     ).toBe(true);
   });
 
   it('находит кандидата и считает расстояние', async () => {
-    const result = await runOsmCrosscheck({ minSim: 0.3 });
+    const result = await runOsmCrosscheck({ minSim: 0.3, tilePauseMs: 0 });
     expect(result.checkedPlacesTotal).toBe(1);
     expect(result.osmFeaturesTotal).toBe(1);
     expect(result.items).toHaveLength(1);
@@ -61,7 +62,7 @@ describe('runOsmCrosscheck', () => {
   });
 
   it('запрос мест ограничен живыми и с координатами', async () => {
-    await runOsmCrosscheck({ minSim: 0.3 });
+    await runOsmCrosscheck({ minSim: 0.3, tilePauseMs: 0 });
     const placesSql = queryMock.mock.calls.find(c => /FROM places/.test(c[0] as string))?.[0] as string;
     expect(placesSql).toMatch(/is_visible = true/);
     expect(placesSql).toMatch(/merged_into_id IS NULL/);
@@ -77,15 +78,31 @@ describe('fetchOsmFeatures — фолбэк на зеркало Overpass', () =>
       if (calls === 1) return { ok: false, status: 504, json: async () => ({}) };
       return { ok: true, json: async () => ({ elements: OVERPASS_ELEMENTS }) };
     });
-    const features = await fetchOsmFeatures({ latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 });
-    expect(calls).toBe(2);
+    const features = await fetchOsmFeatures({ latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 }, { tilePauseMs: 0 });
+    // Край — 12 квадратов: первый прочитан со второй попытки (зеркало),
+    // остальные одиннадцать — с первой. Объект, пришедший во всех, — один.
+    expect(calls).toBe(13);
     expect(features).toHaveLength(1);
   });
 
   it('оба эндпоинта отказали — бросает ошибку', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     await expect(
-      fetchOsmFeatures({ latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 }),
-    ).rejects.toThrow();
+      fetchOsmFeatures({ latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 }, { tilePauseMs: 0 }),
+    ).rejects.toThrow(/квадрат 50–53\.5° × 155–159°: overpass-api\.de: HTTP 500; overpass\.kumi\.systems: HTTP 500/);
+  });
+
+  it('Overpass ответил 200 с собственным таймаутом — это отказ, а не «объектов нет»', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ elements: [], remark: 'runtime error: Query timed out in "query" at line 1 after 41 seconds.' }) });
+    await expect(
+      fetchOsmFeatures({ latMin: 50, latMax: 53.5, lngMin: 155, lngMax: 159 }, { tilePauseMs: 0 }),
+    ).rejects.toThrow(/Query timed out/);
+  });
+
+  it('край режется на 12 квадратов без щелей', () => {
+    const tiles = splitBounds({ latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 });
+    expect(tiles).toHaveLength(12);
+    expect(tiles[0]).toEqual({ latMin: 50, latMax: 53.5, lngMin: 155, lngMax: 159 });
+    expect(tiles[tiles.length - 1]).toEqual({ latMin: 60.5, latMax: 64, lngMin: 163, lngMax: 167 });
   });
 });
