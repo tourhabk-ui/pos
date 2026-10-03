@@ -44,14 +44,36 @@ export async function GET(request: NextRequest) {
           GROUP BY tool ORDER BY COUNT(*) DESC`,
         PROBE_PARAMS,
       ),
-      pool.query<{ day: string; calls: string; errors: string; callers: string }>(
-        `SELECT to_char(created_at::date, 'YYYY-MM-DD') AS day,
-                COUNT(*) AS calls,
-                COUNT(*) FILTER (WHERE NOT ok) AS errors,
-                COUNT(DISTINCT caller_hash) AS callers
-           FROM mcp_tool_calls t
-          WHERE created_at >= NOW() - INTERVAL '14 days' AND ${EXTERNAL('t')}
-          GROUP BY created_at::date ORDER BY created_at::date`,
+      // Динамика по КАМЧАТСКИМ суткам за 30 дней (владелец 03.10: «добавь за
+      // день, хочу посмотреть динамику»). Сутки — камчатские (UTC+12), а не
+      // UTC и не МСК: иначе вечерние вызовы владельца попадали бы в «завтра»
+      // (lib/analytics/kamchatka-day.ts). Тихий день — строка с нулями из
+      // generate_series, а не пропуск: пропуск на графике читается как «нет
+      // данных», ноль — как «никто не звал», и это разные ответы. Своих и
+      // проверок не прячем, а кладём рядом: по ним видно, чей это всплеск.
+      pool.query<{ day: string; calls: string; errors: string; callers: string; self: string; probe: string }>(
+        `WITH days AS (
+           SELECT generate_series(
+                    ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date - 29),
+                    (NOW() AT TIME ZONE 'Asia/Kamchatka')::date,
+                    INTERVAL '1 day')::date AS day
+         ),
+         calls AS (
+           SELECT (t.created_at AT TIME ZONE 'Asia/Kamchatka')::date AS day,
+                  t.ok, t.caller_hash, t.is_self,
+                  ${probeCallSql('t', '$1', '$2', '$3')} AS is_probe
+             FROM mcp_tool_calls t
+            WHERE t.created_at >= NOW() - INTERVAL '31 days'
+         )
+         SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
+                COUNT(c.day) FILTER (WHERE NOT c.is_self AND NOT c.is_probe)                AS calls,
+                COUNT(c.day) FILTER (WHERE NOT c.is_self AND NOT c.is_probe AND NOT c.ok)   AS errors,
+                COUNT(DISTINCT c.caller_hash) FILTER (WHERE NOT c.is_self AND NOT c.is_probe) AS callers,
+                COUNT(c.day) FILTER (WHERE c.is_self)                                       AS self,
+                COUNT(c.day) FILTER (WHERE NOT c.is_self AND c.is_probe)                    AS probe
+           FROM days d
+           LEFT JOIN calls c ON c.day = d.day
+          GROUP BY d.day ORDER BY d.day`,
         PROBE_PARAMS,
       ),
       pool.query<{ error_kind: string; d30: string }>(
@@ -145,11 +167,14 @@ export async function GET(request: NextRequest) {
         max_ms: r.max_ms === null ? null : Number(r.max_ms),
         caller_days_30d: Number(r.callers_30d),
       })),
-      daily_14d: daily.rows.map((r) => ({
+      // Последняя строка — камчатское «сегодня» (неполные сутки), предпоследняя — «вчера».
+      daily_30d: daily.rows.map((r) => ({
         day: r.day,
         calls: Number(r.calls),
         errors: Number(r.errors),
         caller_days: Number(r.callers),
+        self: Number(r.self),
+        probe: Number(r.probe),
       })),
       errors_by_kind_30d: errors.rows.map((r) => ({
         kind: r.error_kind,

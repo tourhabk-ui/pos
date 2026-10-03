@@ -43,7 +43,8 @@ interface ToolRow {
 /** Род вызова: откуда он на самом деле (решение владельца 02.10). */
 const ORIGIN_LABELS: Record<string, string> = { self: 'свой', probe: 'проверка', external: 'внешний' };
 
-interface DayRow { day: string; calls: number; errors: number; caller_days: number }
+/** Камчатские сутки: calls/errors/caller_days — внешние; self и probe — рядом, чтобы видеть, чей всплеск. */
+interface DayRow { day: string; calls: number; errors: number; caller_days: number; self: number; probe: number }
 interface ErrorRow { kind: string; d30: number }
 interface UnknownToolRow { requested_tool: string; d30: number; last_seen: string }
 /** Ошибка с причиной (1143): код и главный аргумент; error_code пуст у строк до миграции. */
@@ -61,7 +62,8 @@ interface ClientRow {
 
 interface McpData {
   by_tool_30d: ToolRow[];
-  daily_14d: DayRow[];
+  /** 30 камчатских суток подряд, тихие дни — нулями; последняя строка — сегодня (неполные сутки). */
+  daily_30d: DayRow[];
   errors_by_kind_30d: ErrorRow[];
   /** Имена несуществующих инструментов, которые просили (миграция 1141); до неё поля нет — массив пуст. */
   unknown_tools_30d?: UnknownToolRow[];
@@ -120,7 +122,10 @@ export default function AdminMcpPage() {
       )
     : null;
 
-  const maxDaily = data ? Math.max(...data.daily_14d.map(d => d.calls), 1) : 1;
+  const days = data?.daily_30d ?? [];
+  const maxDaily = Math.max(...days.map(d => d.calls + d.self + d.probe), 1);
+  const today = days.length > 0 ? days[days.length - 1] : null;
+  const yesterday = days.length > 1 ? days[days.length - 2] : null;
   const silent = data !== null && data.by_tool_30d.length === 0;
 
   return (
@@ -169,6 +174,25 @@ export default function AdminMcpPage() {
             </div>
           ) : (
             <>
+              {today && (
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Внешних сегодня', value: today.calls, sub: `ошибок ${today.errors} · человеко-дней ${today.caller_days}` },
+                    { label: 'Внешних вчера', value: yesterday?.calls ?? 0, sub: `ошибок ${yesterday?.errors ?? 0} · человеко-дней ${yesterday?.caller_days ?? 0}` },
+                    { label: 'Сегодня своих / проверок', value: `${today.self} / ${today.probe}`, sub: 'в число внешних не входят' },
+                  ].map(k => (
+                    <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+                      <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
+                      <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
+                      <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{k.sub}</p>
+                    </div>
+                  ))}
+                  <p className="col-span-3 text-[10px] text-[var(--text-muted)]">
+                    Сутки камчатские (UTC+12): «сегодня» — с полуночи по Камчатке до этой минуты, сутки ещё не закончились.
+                  </p>
+                </div>
+              )}
+
               {data.origins_30d && (
                 <div className="grid grid-cols-3 gap-3">
                   {[
@@ -246,23 +270,70 @@ export default function AdminMcpPage() {
               </div>
 
               <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
-                <p className="text-xs font-semibold text-[var(--text-secondary)] mb-2">Динамика, 14 дней</p>
-                {data.daily_14d.length === 0 ? (
-                  <p className="text-xs text-[var(--text-muted)]">За две недели вызовов не было.</p>
+                <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Динамика по дням, 30 дней</p>
+                <div className="flex flex-wrap gap-3 mb-2 text-[10px] text-[var(--text-muted)]">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--ocean)' }} />внешние</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />из них с ошибкой</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--accent)' }} />свои</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--text-muted)' }} />проверки</span>
+                </div>
+                {days.every(d => d.calls + d.self + d.probe === 0) ? (
+                  <p className="text-xs text-[var(--text-muted)]">За 30 дней вызовов не было.</p>
                 ) : (
-                  <div className="flex items-end gap-1 h-24">
-                    {data.daily_14d.map(d => (
-                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1" title={`${d.day}: ${d.calls} вызовов, ошибок ${d.errors}`}>
-                        <div className="w-full rounded-t transition-all duration-200"
-                          style={{
-                            height: `${Math.max((d.calls / maxDaily) * 100, 3)}%`,
-                            background: d.errors > 0 ? 'var(--warning)' : 'var(--ocean)',
-                          }} />
-                        <span className="text-[10px] text-[var(--text-muted)]">{fmtDay(d.day)}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    <div className="flex items-end gap-px h-28">
+                      {days.map((d, i) => {
+                        const total = d.calls + d.self + d.probe;
+                        const pct = (n: number) => `${(n / maxDaily) * 100}%`;
+                        return (
+                          <div
+                            key={d.day}
+                            className="flex-1 h-full flex flex-col justify-end"
+                            title={`${fmtDay(d.day)}${i === days.length - 1 ? ' (сегодня, неполные сутки)' : ''}: внешних ${d.calls}, ошибок ${d.errors}, своих ${d.self}, проверок ${d.probe}`}
+                          >
+                            {total === 0 && <div className="w-full h-px bg-[var(--border)]" />}
+                            <div className="w-full" style={{ height: pct(d.probe), background: 'var(--text-muted)', opacity: 0.5 }} />
+                            <div className="w-full" style={{ height: pct(d.self), background: 'var(--accent)' }} />
+                            <div className="w-full" style={{ height: pct(d.calls - d.errors), background: 'var(--ocean)' }} />
+                            <div className="w-full rounded-b-sm" style={{ height: pct(d.errors), background: 'var(--danger)' }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between mt-1 text-[10px] text-[var(--text-muted)]">
+                      <span>{days.length > 0 ? fmtDay(days[0].day) : ''}</span>
+                      <span>{days.length > 15 ? fmtDay(days[15].day) : ''}</span>
+                      <span>сегодня</span>
+                    </div>
+                  </>
                 )}
+                <div className="overflow-x-auto mt-3">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-[var(--text-muted)]">
+                        <th className="px-2 py-1 font-medium">День</th>
+                        <th className="px-2 py-1 font-medium text-right">Внешних</th>
+                        <th className="px-2 py-1 font-medium text-right">Ошибок</th>
+                        <th className="px-2 py-1 font-medium text-right">Чел.-дней</th>
+                        <th className="px-2 py-1 font-medium text-right">Своих</th>
+                        <th className="px-2 py-1 font-medium text-right">Проверок</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...days].reverse().slice(0, 14).map((d, i) => (
+                        <tr key={d.day} className="border-t border-[var(--border)]">
+                          <td className="px-2 py-1 text-[var(--text-secondary)]">{i === 0 ? `${fmtDay(d.day)}, сегодня` : fmtDay(d.day)}</td>
+                          <td className="px-2 py-1 text-right text-[var(--text-primary)]">{d.calls}</td>
+                          <td className="px-2 py-1 text-right" style={{ color: d.errors > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>{d.errors}</td>
+                          <td className="px-2 py-1 text-right text-[var(--text-secondary)]">{d.caller_days}</td>
+                          <td className="px-2 py-1 text-right text-[var(--text-secondary)]">{d.self}</td>
+                          <td className="px-2 py-1 text-right text-[var(--text-muted)]">{d.probe}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">Таблица — последние 14 дней; весь месяц — на графике.</p>
+                </div>
               </div>
 
               {(data.by_client_30d ?? []).length > 0 && (
