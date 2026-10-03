@@ -17,6 +17,7 @@ import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
 import { sanitizeGarbageDescriptions } from '@/lib/agents/evo/content-sanitizer';
+import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
 // (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
@@ -47,6 +48,12 @@ export interface EditorResult {
    * сразу и «модель молчит», и «фактов нет»: лечится это разными вещами.
    */
   no_source: number;
+  /**
+   * Сколько текстов модели НЕ записано, потому что не прошли проверку правды
+   * (`editor-truth-gate`): числа или опасности не из источника, голос
+   * путевой заметки, рекламные эпитеты. Не ошибка генерации — отказ записи.
+   */
+  truth_rejected: number;
   duration_ms: number;
 }
 
@@ -280,7 +287,7 @@ function describeShortText(text: string | null): string {
  */
 export type EditorPromptVariant = 'full' | 'lean';
 
-const SYSTEM_LEAN = `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы TourHab, главная задача которой — безопасность туристов.
+const SYSTEM_LEAN = `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы Ведар, главная задача которой — безопасность туристов.
 
 Стиль и формат:
 - Фактически точный, спокойный, без рекламных штампов ("захватывающий", "незабываемый", "уникальный", "райский", "must-see").
@@ -300,7 +307,7 @@ export function buildDescriptionMessages(route: RouteRow, variant: EditorPromptV
   return [
     {
       role: 'system',
-      content: variant === 'lean' ? SYSTEM_LEAN : `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы TourHab. Главная задача платформы — безопасность туристов, поэтому каждое слово должно быть либо проверяемым фактом, либо честным обобщением без выдуманной конкретики.
+      content: variant === 'lean' ? SYSTEM_LEAN : `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы Ведар. Главная задача платформы — безопасность туристов, поэтому каждое слово должно быть либо проверяемым фактом, либо честным обобщением без выдуманной конкретики.
 
 КРИТИЧНО — пиши ТОЛЬКО из переданных фактов:
 - Ниже тебе дан список фактов из базы. Это ВЕСЬ твой источник. Чего в списке нет — того не существует для тебя: не упоминай, не выводи, не додумывай.
@@ -411,6 +418,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   let errors    = 0;
   let generationFailed = 0;
   let noSource = 0;
+  let truthRejected = 0;
   let dbUpdateFailed   = 0;
   const errorSamples: string[] = [];
   const addErrorSample = (s: string) => {
@@ -448,7 +456,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     return {
       processed: 0, improved: 0, improved_titles: [], improved_ids: [], errors: 1,
       stopped_early: false,
-      generation_failed: 0, db_update_failed: 0, no_source: 0,
+      generation_failed: 0, db_update_failed: 0, no_source: 0, truth_rejected: 0,
       error_samples: [`db_select: ${err instanceof Error ? err.message : String(err)}`],
       sanitized,
       duration_ms: Date.now() - start,
@@ -477,6 +485,16 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       errors++;
       generationFailed++;
       addErrorSample(failReason ?? 'генерация: причина неизвестна');
+      continue;
+    }
+    // Проверка правды ДО записи (решение владельца 03.10). Не прошёл — текст
+    // не пишется; прежнее описание остаётся, запись вернётся в очередь.
+    const verdict = judgeGeneratedDescription(newDescription, {
+      facts: buildFacts(route), title: route.title, previous: route.description,
+    });
+    if (!verdict.ok) {
+      truthRejected++;
+      addErrorSample(`не записано «${route.title}»: ${verdict.reasons.join('; ')}`);
       continue;
     }
     try {
@@ -511,7 +529,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     }
   }
 
-  if (improved > 0 || sanitized > 0) {
+  if (improved > 0 || sanitized > 0 || truthRejected > 0) {
     // Два числа вместо одного: queue — сколько Editor реально возьмёт на
     // следующих прогонах (NULL + короткие «отдохнувшие»); total_short — общий
     // разрыв качества, который плато на честно-неизвестных маршрутах (их
@@ -536,6 +554,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       `<b>Editor</b> — улучшил ${improved} описаний\n` +
       `(обработано: ${processed}, ошибок: ${errors})\n` +
       (sanitized > 0 ? `Санитар откатил мусор: ${sanitized} описаний → чистая регенерация\n` : '') +
+      (truthRejected > 0 ? `Не записано по проверке правды: ${truthRejected}\n` : '') +
       (stoppedEarly ? `Остановлен по бюджету времени — остаток доберёт следующий прогон\n` : '') +
       `В очереди на обработку: ${queue >= 0 ? queue : '?'} · всего коротких: ${totalShort >= 0 ? totalShort : '?'}\n\n` +
       (titlesList ? `<b>Улучшенные маршруты и локации:</b>\n${titlesList}` : ''),
@@ -547,6 +566,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     stopped_early: stoppedEarly,
     generation_failed: generationFailed, db_update_failed: dbUpdateFailed,
     no_source: noSource,
+    truth_rejected: truthRejected,
     error_samples: errorSamples,
     sanitized,
     duration_ms: Date.now() - start,
