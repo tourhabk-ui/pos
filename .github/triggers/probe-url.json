@@ -1,11 +1,15 @@
 {
-  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Сверка мест с OSM (квадратами, 166d3ddb на проде — деплой подтверждён) напрямую: ожидатель workflow run 8 не узнал свою сборку (built_at = начало сборки, +25 с от пуша при запасе 600 с).",
-  "run": 657,
-  "timeout": 300,
+  "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Тот же квадрат сверки (50–53.5 × 155–159), который прод за 45 с не получил ни с одного Overpass, — с раннера GitHub. Если здесь быстро, тормозит дорога Timeweb → Overpass, и выборку надо перенести на раннер.",
+  "run": 658,
+  "timeout": 90,
   "retries": 0,
-  "bytes": 400000,
+  "bytes": 300,
   "allowStale": true,
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://vedarai.ru/api/cron/places-osm-crosscheck?part=items&min_sim=0.3&limit=400&offset=0"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A40%5D%3B%0A%28%0A%20%20nwr%5B~%22%5E%28natural%7Cwaterway%7Cplace%7Ctourism%7Chistoric%7Cleisure%29%24%22~%22.%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%20%20nwr%5B%22man_made%22%3D%22lighthouse%22%5D%5B%22name%22%5D%2850%2C155%2C53.5%2C159%29%3B%0A%29%3B%0Aout%20center%3B"
+  ],
+  "count": [
+    "\"type\":"
   ]
 }
