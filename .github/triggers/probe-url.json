@@ -1,6 +1,6 @@
 {
-  "note": "03.10. Радар «9 ч назад»: снять метку updatedAt с главной (без вызова ingest). Повтор через ~12 мин покажет, двигает ли её супервизор start.js.",
-  "run": 662,
+  "note": "03.10. Радар «9 ч назад»: подпись свежести плитки на главной (aria-label «Радар обстановки. …»), без вызова ingest. Предыдущий ручной ingest — 08:27 UTC.",
+  "run": 663,
   "timeout": 60,
   "retries": 0,
   "bytes": 200,
@@ -9,8 +9,9 @@
     "https://vedarai.ru/"
   ],
   "around": [
-    "updatedAt"
+    "Радар обстановки."
   ],
   "aroundLines": 0,
-  "aroundHits": 3
+  "aroundBefore": 0,
+  "aroundHits": 2
 }
