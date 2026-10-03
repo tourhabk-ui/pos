@@ -1,15 +1,12 @@
 {
   "note": "03.10. ТОЛЬКО ЧТЕНИЕ. Откуда Кузьмич взял «в полутора километрах — Скалы Три Брата» у Батареи Максутова: маршруты места, их длина и род связи.",
-  "run": 669,
+  "run": 670,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 400,
+  "bytes": 40000,
   "urls": [
     "https://vedarai.ru/api/places/a2b3c4d5-e6f7-4890-bcde-f01234567890"
-  ],
-  "around": ["Три Брата"],
-  "aroundLines": 0,
-  "aroundHits": 3
+  ]
 }
