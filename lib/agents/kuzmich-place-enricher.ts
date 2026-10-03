@@ -14,6 +14,7 @@
  * 4. Сохраняет в places.kuzmich_review
  */
 
+import { honestSafetyFields, asProfileSource } from '@/lib/safety/profile-source';
 import { pool } from '@/lib/db-pool';
 import { callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -42,6 +43,7 @@ interface PlaceRow {
   hazard_types: string[] | null;
   nearest_medical_km: number | null;
   terrain_type: string | null;
+  profile_source: string | null;
 }
 
 
@@ -59,7 +61,8 @@ async function loadPlacesNeedingReview(limit: number): Promise<PlaceRow[]> {
        lsp.difficulty_level,
        lsp.hazard_types,
        lsp.nearest_medical_km,
-       lsp.terrain_type
+       lsp.terrain_type,
+       lsp.profile_source
      FROM places p
      LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
      WHERE p.kuzmich_review IS NULL
@@ -89,10 +92,23 @@ async function generateKuzmichReview(place: PlaceRow, extraContext: string | nul
     ? locationTypeLabelLower(place.location_type)
     : 'место';
 
+  // Опасности и сложность — только если профиль не шаблон по типу места
+  // (03.10). Никольская сопка числилась вулканом, промпт получил шаблонные
+  // «avalanche, rockfall, thermal, altitude», и модель честно пересказала их:
+  // «сход лавин, камнепады, жар» на городском холме. Запрет выдумки в
+  // промпте бессилен, когда ложь приходит во входных данных.
+  const honest = honestSafetyFields({
+    hazardTypes: place.hazard_types ?? [],
+    capacityPerDay: null,
+    optimalGroupSize: null,
+    difficultyLevel: place.difficulty_level === null ? null : Number(place.difficulty_level),
+    terrainType: place.terrain_type,
+  }, asProfileSource(place.profile_source));
+
   const safetyParts: string[] = [];
   if (place.altitude_m) safetyParts.push(`высота ${place.altitude_m}м`);
-  if (place.difficulty_level) safetyParts.push(`сложность: ${place.difficulty_level}`);
-  if (place.hazard_types?.length) safetyParts.push(`опасности: ${place.hazard_types.join(', ')}`);
+  if (honest.difficultyLevel !== null) safetyParts.push(`сложность: ${place.difficulty_level}`);
+  if (honest.hazardTypes.length) safetyParts.push(`опасности: ${honest.hazardTypes.join(', ')}`);
   if (place.nearest_medical_km) safetyParts.push(`до медпомощи ${place.nearest_medical_km}км`);
 
   const safetyLine = safetyParts.length ? `\nБезопасность: ${safetyParts.join('; ')}` : '';
