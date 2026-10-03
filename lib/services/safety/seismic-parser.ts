@@ -16,6 +16,8 @@ import { parseEmsdQuakes, EMSD_HOME_URL, type EmsdQuakeTable } from '@/lib/servi
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
+import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
+import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -1423,7 +1425,6 @@ function attachRiverBan(items: string[], events: SeismicEvent[]): void {
 // Сплав — тоже адресат: «сплавы на рафтах и резиновых лодках по рекам зоны
 // предупреждения необходимо исключить» (сводка Минтура 25.09) обращён к тем,
 // кого мы возим по рекам, хотя слова «турист» в нём нет.
-const BAN_AUDIENCE = /тургрупп|турист|охотник|маломерн|рыбак|восходител|сплав|рафт/;
 // Основа, а не словарная форма: список ловил «воздержаться», но не
 // «воздержитесь» — то есть прямое повеление МЧС проходило мимо запрета.
 // «Не рекомендуется выход на маршруты» — самая частая формула МЧС, и её в
@@ -1433,7 +1434,8 @@ const BAN_AUDIENCE = /тургрупп|турист|охотник|маломе�
 // «Исключить» — только инфинитив-повеление той же сводки 25.09. Основа
 // «исключ» поймала бы «не исключается сход лавин» (это «возможно», а не
 // запрет) и «за исключением».
-const BAN_VERB = /воздерж|не рекоменду|не выходить|не выезжать|не выход[аи]|не совершать|не планировать|отказаться от|не подниматься|не приближ|запрещ|не выпускать|не выходите|(?<!не\s)исключить(?![а-яё])/;
+// Сами шаблоны BAN_AUDIENCE и BAN_VERB — в lib/services/safety/tourist-ban.ts
+// (03.10): ими же пользуются правила цвета места и вердикт маршрута.
 
 /**
  * Разбивка на фразы. Точка внутри «06.00 (кмч)» и «11.08.2026» границей не
@@ -1965,6 +1967,16 @@ export function classifyMchsItem(
 
   const publishedAt = new Date(pubDate);
   if (isNaN(publishedAt.getTime())) return null;
+
+  // Предупреждение, назвавшее свой день («Экстренное предупреждение на 3
+  // октября»), живёт до конца этого дня по Камчатке — не 24 часа от поста и
+  // не паводковые 120 (случай 03.10, lib/safety/dated-warning.ts). У постов
+  // без заголовка дата стоит в начале текста.
+  if ((DATED_WARNING_TYPES as readonly string[]).includes(alert_type)) {
+    const dated = datedWarningHours(title || description.slice(0, 200), publishedAt);
+    // Потолок запрета (48 ч) остаётся в силе и для датированного поста.
+    if (dated !== null) expires_hours = addressesTouristsWithBan(text) ? Math.min(dated, 48) : dated;
+  }
 
   // У постов ВК и МАХ заголовка нет — весь текст приходит в description. Пустой
   // title означал две поломки сразу, обе проверены запуском классификатора:

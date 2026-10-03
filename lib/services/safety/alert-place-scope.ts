@@ -25,6 +25,7 @@
 import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/routes/collect-signals';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
+import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 
 /**
  * Когда у события и у точки есть координаты И тип события таков, что
@@ -243,6 +244,8 @@ export const ALERT_MATCH_SQL = `
     AND ark.zone = ANY(ea.affected_zones)
   )
 `;
+
+export { TOURIST_BAN_SQL };
 
 /**
  * Алерт пришёл к месту ТОЛЬКО по зоне края — не по координате, не по силе

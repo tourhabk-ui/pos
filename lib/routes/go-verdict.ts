@@ -88,7 +88,7 @@ export interface RouteSignals {
    * `road_closure`, `info`…). Нужна не для правил, а для выбора того, ЧТО
    * показать человеку, когда запретов несколько.
    */
-  alerts: Array<{ title: string; severity: number; type?: string | null }> | null;
+  alerts: Array<{ title: string; severity: number; type?: string | null; zonal?: boolean }> | null;
   /** Коды KVERT вулканов на коридоре маршрута. */
   volcanoes: Array<{ name: string; acc: Acc }> | null;
   /** Маршрут в своём сезоне сейчас. `null` — сезон в данных не задан. */
@@ -190,7 +190,13 @@ export function goVerdict(s: RouteSignals): Verdict {
   // ── Запреты ─────────────────────────────────────────────────────────────
   // Severity 2 у нас означает прямой запрет либо угрозу жизни: этот порог
   // выставляет классификатор МЧС (см. addressesTouristsWithBan).
-  const ban = mostSpecific(s.alerts ?? [], 2);
+  //
+  // С 03.10 (решение владельца, #2195) двойка, пришедшая к маршруту только
+  // по зоне края, запретом не считается — она уходит в «Осторожно» ниже.
+  // Зональная тройка (цунами) и прямой запрет туристам (zonal=false по
+  // построению, TOURIST_BAN_SQL) — по-прежнему запрет. То же правило, что у
+  // статуса места в safety-ingest.
+  const ban = mostSpecific((s.alerts ?? []).filter((a) => a.severity >= 3 || !a.zonal), 2);
   if (ban) {
     return { status: 'no', code: 'alert_ban', reason: `МЧС: ${ban.title}`, unknown };
   }
