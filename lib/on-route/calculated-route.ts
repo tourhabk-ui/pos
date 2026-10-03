@@ -45,6 +45,30 @@ export interface CalculatedCarRoute {
   mayDisplay: boolean;
   mayNavigate: boolean;
   mayPersist: boolean;
+  /**
+   * Чем считали (03.10, пеший путь). Нет поля — машина: так путь
+   * записывался до появления пешего режима, и старый ответ читается верно.
+   */
+  travelMode?: 'car' | 'foot';
+}
+
+/**
+ * Пеший путь «доходит до цели», только если конец тропы ближе этого к ней
+ * (03.10). Машине прощается километр — дальше «подъезд, потом пешком»;
+ * пешеходу километр без тропы — это уже не путь, а бездорожье, и линия,
+ * обрывающаяся за километр до цели, не должна читаться как «дошли».
+ */
+export const MAX_FOOT_DEST_SNAP_M = 300;
+
+/**
+ * Пеший путь: дошла ли тропа до цели. Старт судится тем же порогом, что у
+ * машины (нет сети рядом — идти не с чего); цель — своим, пешим.
+ */
+export function footRouteReach(
+  route: Pick<CalculatedCarRoute, 'originSnapped' | 'destinationSnapped'>,
+): CarRouteReach {
+  if (route.originSnapped.snapDistanceM > MAX_CAR_SNAP_M) return 'unusable';
+  return route.destinationSnapped.snapDistanceM <= MAX_FOOT_DEST_SNAP_M ? 'reaches' : 'approach';
 }
 
 /**

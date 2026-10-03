@@ -21,10 +21,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Navigation } from 'lucide-react';
+import { Navigation, Footprints, Car } from 'lucide-react';
 import type { MapMarker, MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { MarkerType } from '@/components/shared/leaflet-types';
-import { calculatedCarLine } from '@/lib/map/line-standard';
+import { calculatedLine } from '@/lib/map/line-standard';
 import { calculatedCarToLeafletCoordinates, type CalculatedCarRoute } from '@/lib/on-route/calculated-route';
 import type { RouteBuildResult } from '@/lib/on-route/route-build';
 
@@ -74,9 +74,36 @@ type State =
   | { phase: 'idle' }
   | { phase: 'locating' }
   | { phase: 'building' }
-  | { phase: 'found'; route: CalculatedCarRoute }
+  | { phase: 'found'; car: ModeOutcome; foot: ModeOutcome; selected: TravelMode }
   | { phase: 'refused'; message: string }
   | { phase: 'error'; message: string };
+
+type TravelMode = 'foot' | 'car';
+
+/** Итог одного режима: путь, отказ словами или непригодный ответ. */
+type ModeOutcome =
+  | { kind: 'route'; route: CalculatedCarRoute; title: string | null }
+  | { kind: 'refused'; message: string };
+
+/**
+ * Какой режим показать первым, когда посчитаны оба (03.10, как у Яндекса):
+ * пешком — если пеший путь есть и не длиннее этого; иначе машина. Человек
+ * переключит сам — выбор по умолчанию только экономит тап.
+ */
+export const FOOT_DEFAULT_MAX_M = 8_000;
+
+export function defaultMode(car: ModeOutcome, foot: ModeOutcome): TravelMode {
+  if (foot.kind === 'route' && foot.route.distanceM <= FOOT_DEFAULT_MAX_M) return 'foot';
+  if (car.kind === 'route') return 'car';
+  return foot.kind === 'route' ? 'foot' : 'car';
+}
+
+/** «1 ч 3 мин» / «28 мин» — как у навигаторов. */
+export function formatDuration(seconds: number): string {
+  const m = Math.max(1, Math.round(seconds / 60));
+  if (m < 60) return `${m} мин`;
+  return `${Math.floor(m / 60)} ч ${m % 60} мин`;
+}
 
 /**
  * Три честных отказа контракта RouteBuildResult сведены к одному тексту
@@ -112,34 +139,40 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setState({ phase: 'building' });
-        fetch('/api/routes/build', {
+        // Оба режима сразу (03.10): человек выбирает, видя время каждого, —
+        // как в навигаторах. Отказ одного режима не гасит другой.
+        const origin = { kind: 'current', lat: pos.coords.latitude, lon: pos.coords.longitude };
+        const destination = { kind: 'coordinate', lat, lon: lng, title: name };
+        const one = (mode: TravelMode): Promise<ModeOutcome> => fetch('/api/routes/build', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            origin: { kind: 'current', lat: pos.coords.latitude, lon: pos.coords.longitude },
-            destination: { kind: 'coordinate', lat, lon: lng, title: name },
-            mode: 'car',
-          }),
+          body: JSON.stringify({ origin, destination, mode }),
         })
           .then(r => r.json())
-          .then((json: { success: boolean; result?: RouteBuildResult; error?: string }) => {
+          .then((json: { success: boolean; result?: RouteBuildResult; error?: string }): ModeOutcome => {
             if (!json.success || !json.result) {
-              setState({ phase: 'error', message: json.error ?? 'Сервер не ответил' });
-              return;
+              return { kind: 'refused', message: json.error ?? 'Сервер не ответил' };
             }
             const { result } = json;
             if (result.status === 'found') {
-              const calculated = result.options[0]?.calculated;
-              if (!calculated) {
-                setState({ phase: 'error', message: 'Ответ сервера не содержит рассчитанного пути' });
-                return;
+              const option = result.options[0];
+              if (!option?.calculated) {
+                return { kind: 'refused', message: 'Ответ сервера не содержит рассчитанного пути' };
               }
-              setState({ phase: 'found', route: calculated });
-              return;
+              // Заголовок сервера несёт остаток без тропы/дороги («последние
+              // 700 м без тропы, по азимуту») — показывается как есть.
+              return { kind: 'route', route: option.calculated, title: option.title !== name ? option.title : null };
             }
-            setState({ phase: 'refused', message: refusalText(result) });
+            return { kind: 'refused', message: refusalText(result) };
           })
-          .catch(() => setState({ phase: 'error', message: 'Ошибка сети — проверьте соединение' }));
+          .catch((): ModeOutcome => ({ kind: 'refused', message: 'Ошибка сети — проверьте соединение' }));
+        Promise.all([one('car'), one('foot')]).then(([car, foot]) => {
+          if (car.kind === 'refused' && foot.kind === 'refused') {
+            setState({ phase: 'refused', message: `Пешком: ${foot.message}. На машине: ${car.message}.` });
+            return;
+          }
+          setState({ phase: 'found', car, foot, selected: defaultMode(car, foot) });
+        });
       },
       // Причина — словами по коду отказа (03.10, скрин владельца на маршруте
       // «Гора Замок»: «Не удалось определить ваше местоположение» без единого
@@ -176,7 +209,7 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
       <button type="button" onClick={build}
         className="w-full flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--accent)]">
         <Navigation className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-        Построить свой путь на автомобиле
+        Построить путь — пешком или на машине
       </button>
     );
   }
@@ -184,7 +217,7 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
   if (state.phase === 'locating' || state.phase === 'building') {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-        {state.phase === 'locating' ? 'Определяем ваше местоположение…' : 'Считаем путь по дорожной сети…'}
+        {state.phase === 'locating' ? 'Определяем ваше местоположение…' : 'Считаем путь пешком и на машине…'}
       </div>
     );
   }
@@ -222,20 +255,56 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
   }
 
   // state.phase === 'found'
-  const { route } = state;
-  const leafletLine = calculatedCarToLeafletCoordinates(route);
-  if (!leafletLine || !route.mayDisplay) {
+  const outcome = state[state.selected];
+  const tabs = (
+    <div className="mb-3 grid grid-cols-2 gap-2" role="tablist" aria-label="Как добираться">
+      {(['foot', 'car'] as const).map((m) => {
+        const o = state[m];
+        const active = state.selected === m;
+        const Icon = m === 'foot' ? Footprints : Car;
+        return (
+          <button key={m} type="button" role="tab" aria-selected={active}
+            onClick={() => setState({ ...state, selected: m })}
+            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+              active
+                ? 'bg-[var(--accent)] text-[var(--text-primary)]'
+                : 'border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-primary)]'
+            }`}>
+            <Icon className="h-4 w-4" aria-hidden />
+            {o.kind === 'route' ? formatDuration(o.route.durationS) : (m === 'foot' ? 'Пешком — нет' : 'Машина — нет')}
+          </button>
+        );
+      })}
+    </div>
+  );
+  if (outcome.kind === 'refused') {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
-        <p className="text-sm text-[var(--text-secondary)]">
-          {!route.mayDisplay
-            ? 'Провайдер не разрешил показать геометрию этого пути.'
-            : 'Путь посчитан, но геометрия непригодна для отображения.'}
-        </p>
+      <div>
+        {tabs}
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <p className="text-sm text-[var(--text-secondary)]">{outcome.message}</p>
+        </div>
       </div>
     );
   }
-  const line = calculatedCarLine();
+  const { route } = outcome;
+  const foot = state.selected === 'foot';
+  const leafletLine = calculatedCarToLeafletCoordinates(route);
+  if (!leafletLine || !route.mayDisplay) {
+    return (
+      <div>
+        {tabs}
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <p className="text-sm text-[var(--text-secondary)]">
+            {!route.mayDisplay
+              ? 'Провайдер не разрешил показать геометрию этого пути.'
+              : 'Путь посчитан, но геометрия непригодна для отображения.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  const line = calculatedLine(route.travelMode ?? state.selected);
   const center: [number, number] = leafletLine[Math.floor(leafletLine.length / 2)];
   const markers: MapMarker[] = [
     {
@@ -247,15 +316,19 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
     },
     {
       coords: [route.originSnapped.lat, route.originSnapped.lon],
-      title: 'Старт на дороге',
-      description: `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
+      title: foot ? 'Начало пути' : 'Старт на дороге',
+      description: foot
+        ? `До тропы или дороги от вас ${Math.round(route.originSnapped.snapDistanceM)} м`
+        : `Старт привязан к дороге в ${Math.round(route.originSnapped.snapDistanceM)} м`,
       color: 'orange',
       type: MarkerType.POI,
     },
     {
       coords: [route.destinationSnapped.lat, route.destinationSnapped.lon],
-      title: 'Цель на дороге',
-      description: `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
+      title: foot ? 'Конец тропы' : 'Цель на дороге',
+      description: foot
+        ? `От конца тропы до места ${Math.round(route.destinationSnapped.snapDistanceM)} м`
+        : `Цель привязана к дороге в ${Math.round(route.destinationSnapped.snapDistanceM)} м`,
       color: 'green',
       type: MarkerType.POI,
     },
@@ -263,21 +336,28 @@ export function PlaceOwnRoute({ lat, lng, name, autoStart = false, hideIdleTrigg
 
   return (
     <div>
+      {tabs}
+      {outcome.title && (
+        <p className="text-sm font-semibold mb-2 text-[var(--text-primary)]">{outcome.title}</p>
+      )}
       <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
         <LeafletMap markers={markers} center={center} zoom={11} height="220px" showUserLocation />
       </div>
-      {/* Подпись линии — НЕИЗМЕННА по контракту calculatedCarLine() (§12). */}
+      {/* Подпись линии — НЕИЗМЕННА по контракту calculatedCarLine() /
+          calculatedFootLine() (§12). */}
       <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>{line.caption}</p>
       <div className="space-y-1 mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {(route.distanceM / 1000).toFixed(1)} км · {Math.round(route.durationS / 60)} мин
+          {(route.distanceM / 1000).toFixed(1)} км · {formatDuration(route.durationS)}
         </p>
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
           Построил {route.provider}
         </p>
-        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          Пробки {route.traffic ? 'учтены' : 'не учитывались'}
-        </p>
+        {!foot && (
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Пробки {route.traffic ? 'учтены' : 'не учитывались'}
+          </p>
+        )}
       </div>
       {/* Кнопки «Начать маршрут» здесь нет НАМЕРЕННО — mayNavigate: false у
           первого провайдера (см. шапку файла): передавать эту линию в

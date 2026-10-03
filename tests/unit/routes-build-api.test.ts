@@ -1,8 +1,8 @@
 /**
  * POST /api/routes/build (владелец 28.08, PR 5B-1) — сервер как единственная
  * дверь до маршрутизатора. Сторож держит форму ответа (RouteBuildResult,
- * тот же тип, что уже понимает экран из PR 5A), gate по режиму (car — зовёт
- * провайдера, foot — честный unsupported: 5B-2 не построен), конверт края и
+ * тот же тип, что уже понимает экран из PR 5A), gate по режиму (car и foot —
+ * каждый своего провайдера; foot с 03.10, 5B-2), конверт края и
  * нормализацию found/not_found/error — включая snap-guard: путь с ненадёжной
  * привязкой к дороге (> MAX_CAR_SNAP_M) понижается в not_found ЗДЕСЬ, а не
  * рисуется как есть (см. lib/on-route/calculated-route.ts).
@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const routeMock = vi.fn();
+const footMock = vi.fn();
 // Подменяем провайдера целиком (28.08: эндпоинт зовёт roadGraphCarProvider,
 // не notWiredCarRouteProvider) — applySnapGuard (и его фиксация not_found
 // при ненадёжной привязке) остаётся настоящей, импортируется отдельно и не
@@ -19,6 +20,7 @@ const routeMock = vi.fn();
 // road-graph-car-provider.test.ts).
 vi.mock('@/lib/on-route/road-graph-car-provider', () => ({
   roadGraphCarProvider: { route: (...a: unknown[]) => routeMock(...a) },
+  roadGraphFootProvider: { route: (...a: unknown[]) => footMock(...a) },
 }));
 
 const rateCheckMock = vi.fn(() => true);
@@ -65,14 +67,47 @@ describe('форма запроса', () => {
   });
 });
 
-describe('режим foot — честный unsupported, провайдер не зовётся', () => {
-  it('5B-2 не построен: pedestrian off-trail routing не обещан', async () => {
-    const res = await POST(req({ origin: PPK, destination: AVACHA, mode: 'foot' }));
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.result.status).toBe('unsupported');
-    expect(json.result.reason).toMatch(/троп/);
+/**
+ * Пешком (03.10, владелец: «даже у яндекса это уже есть»). Провайдер свой,
+ * машина не зовётся; тропа, не дошедшая до цели, называет остаток словами
+ * «без тропы, по азимуту», а не рисуется прямой (MAX_FOOT_DEST_SNAP_M).
+ */
+describe('режим foot — по тропам и дорогам, своим провайдером', () => {
+  const footRoute = (destSnapM: number) => ({
+    status: 'found',
+    route: {
+      kind: 'calculated_car',
+      geometry: { type: 'LineString', coordinates: [[158.64, 53.02], [158.70, 53.10]] },
+      distanceM: 5000, durationS: 4000,
+      originSnapped: { lat: 53.02, lon: 158.64, snapDistanceM: 30 },
+      destinationSnapped: { lat: 53.10, lon: 158.70, snapDistanceM: destSnapM },
+      provider: 'Ведар — тропы и дороги OpenStreetMap', builtAt: '2026-10-03T00:00:00Z',
+      traffic: false, mayDisplay: true, mayNavigate: false, mayPersist: false, travelMode: 'foot',
+    },
+  });
+
+  it('зовёт пешего провайдера, не машинного', async () => {
+    footMock.mockResolvedValue(footRoute(40));
+    const json = await (await POST(req({ origin: PPK, destination: AVACHA, mode: 'foot' }))).json();
+    expect(footMock).toHaveBeenCalledTimes(1);
     expect(routeMock).not.toHaveBeenCalled();
+    expect(json.result.status).toBe('found');
+    expect(json.result.options[0].id).toBe('calculated-foot');
+    expect(json.result.options[0].title).toBe('Вулкан Авачинский');
+  });
+
+  it('тропа кончилась в 700 м от цели — остаток назван, «по азимуту»', async () => {
+    footMock.mockResolvedValue(footRoute(700));
+    const json = await (await POST(req({ origin: PPK, destination: AVACHA, mode: 'foot' }))).json();
+    expect(json.result.options[0].title).toBe('Пешком к «Вулкан Авачинский» — последние 700 м без тропы, по азимуту');
+  });
+
+  it('старт дальше километра от любой тропы — not_found, путь не рисуется', async () => {
+    const far = footRoute(40);
+    far.route.originSnapped.snapDistanceM = 2500;
+    footMock.mockResolvedValue(far);
+    const json = await (await POST(req({ origin: PPK, destination: AVACHA, mode: 'foot' }))).json();
+    expect(json.result.status).toBe('not_found');
   });
 });
 

@@ -26,49 +26,64 @@ import type { CalculatedCarRoute } from '@/lib/on-route/calculated-route';
 
 export const ROAD_GRAPH_CAR_PROVIDER_LABEL = 'Ведар — свой дорожный граф Камчатки';
 
-export const roadGraphCarProvider: CarRouteProvider = {
-  async route(query: CarRouteQuery): Promise<CarRouteProviderResult> {
-    let result: Awaited<ReturnType<typeof roadGraphRoute>>;
-    try {
-      result = await roadGraphRoute(query.originLat, query.originLon, query.destLat, query.destLon, 'car');
-    } catch (err) {
-      return {
-        status: 'error',
-        retryable: true,
-        message: err instanceof Error ? err.message : 'Не удалось построить путь по дорожному графу',
-      };
-    }
+/**
+ * Пеший режим (03.10, владелец: «даже у яндекса это уже есть»). Граф тот же
+ * — в нём с самого начала лежат тропы, грунтовки и пешеходные дорожки OSM
+ * (scripts/build-road-graph.js, HIGHWAY_RE), а A* умел режим `foot` (4.5
+ * км/ч). Не хватало одного: /api/routes/build отвечал на `foot` отказом.
+ * Подъёмы в скорость не входят — так и сказано человеку под линией.
+ */
+export const ROAD_GRAPH_FOOT_PROVIDER_LABEL = 'Ведар — тропы и дороги OpenStreetMap';
 
-    if (!result.ok) {
-      return { status: 'not_found', reason: result.message };
-    }
+function roadGraphProvider(mode: 'car' | 'foot'): CarRouteProvider {
+  return { route: (query) => routeByGraph(query, mode) };
+}
 
-    const route: CalculatedCarRoute = {
-      kind: 'calculated_car',
-      // findPath отдаёт [lat,lng]; контракт CalculatedCarRoute — GeoJSON
-      // [lng,lat] (RFC 7946). Единственное место конвертации на сервере,
-      // симметричное calculatedCarToLeafletCoordinates на клиенте, которая
-      // переворачивает координаты обратно для Leaflet.
-      geometry: {
-        type: 'LineString',
-        coordinates: result.geometry.map(([lat, lng]) => [lng, lat]),
-      },
-      distanceM: result.distanceM,
-      durationS: result.durationS,
-      // Снапнутая ТОЧКА НА ГРАФЕ, не исходная координата запроса — контракт
-      // пинов «Старт/Цель на дороге» на клиенте ждёт именно точку привязки.
-      originSnapped: { lat: result.start.lat, lon: result.start.lng, snapDistanceM: result.start.snapM },
-      destinationSnapped: { lat: result.goal.lat, lon: result.goal.lng, snapDistanceM: result.goal.snapM },
-      provider: ROAD_GRAPH_CAR_PROVIDER_LABEL,
-      builtAt: new Date().toISOString(),
-      // Граф статический — живого трафика нет и не будет, пока не появится
-      // отдельный источник; врать «пробки учтены» нельзя.
-      traffic: false,
-      mayDisplay: true,
-      mayNavigate: false,
-      mayPersist: false,
+export const roadGraphCarProvider: CarRouteProvider = roadGraphProvider('car');
+export const roadGraphFootProvider: CarRouteProvider = roadGraphProvider('foot');
+
+async function routeByGraph(query: CarRouteQuery, mode: 'car' | 'foot'): Promise<CarRouteProviderResult> {
+  let result: Awaited<ReturnType<typeof roadGraphRoute>>;
+  try {
+    result = await roadGraphRoute(query.originLat, query.originLon, query.destLat, query.destLon, mode);
+  } catch (err) {
+    return {
+      status: 'error',
+      retryable: true,
+      message: err instanceof Error ? err.message : 'Не удалось построить путь по дорожному графу',
     };
+  }
 
-    return { status: 'found', route };
-  },
-};
+  if (!result.ok) {
+    return { status: 'not_found', reason: result.message };
+  }
+
+  const route: CalculatedCarRoute = {
+    kind: 'calculated_car',
+    // findPath отдаёт [lat,lng]; контракт CalculatedCarRoute — GeoJSON
+    // [lng,lat] (RFC 7946). Единственное место конвертации на сервере,
+    // симметричное calculatedCarToLeafletCoordinates на клиенте, которая
+    // переворачивает координаты обратно для Leaflet.
+    geometry: {
+      type: 'LineString',
+      coordinates: result.geometry.map(([lat, lng]) => [lng, lat]),
+    },
+    distanceM: result.distanceM,
+    durationS: result.durationS,
+    // Снапнутая ТОЧКА НА ГРАФЕ, не исходная координата запроса — контракт
+    // пинов «Старт/Цель на дороге» на клиенте ждёт именно точку привязки.
+    originSnapped: { lat: result.start.lat, lon: result.start.lng, snapDistanceM: result.start.snapM },
+    destinationSnapped: { lat: result.goal.lat, lon: result.goal.lng, snapDistanceM: result.goal.snapM },
+    provider: mode === 'foot' ? ROAD_GRAPH_FOOT_PROVIDER_LABEL : ROAD_GRAPH_CAR_PROVIDER_LABEL,
+    builtAt: new Date().toISOString(),
+    // Граф статический — живого трафика нет и не будет, пока не появится
+    // отдельный источник; врать «пробки учтены» нельзя.
+    traffic: false,
+    mayDisplay: true,
+    mayNavigate: false,
+    mayPersist: false,
+    travelMode: mode,
+  };
+
+  return { status: 'found', route };
+}
