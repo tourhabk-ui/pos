@@ -71,6 +71,12 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      # Analyze читает свой прогон (GET actions/runs/{id}). С 03.10 без этого
+      # права шаг падает «Resource not accessible by integration» на каждом
+      # прогоне, включая main; раньше это было лишь предупреждением телеметрии.
+      # Права только на чтение — то, что документация CodeQL требует для
+      # приватных репозиториев.
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -90,13 +96,15 @@ jobs:
           category: '/language:${{ matrix.language }}'
           # SARIF остаётся на диске и разбирается шагом ниже в сводку прогона.
           #
-          # Загрузка в Security-таб выключена 03.10 решением владельца: с 09:11
-          # UTC GitHub отвечал «Code scanning is not enabled for this
-          # repository», и шаг Analyze краснел на КАЖДОМ прогоне, включая main,
-          # — без единой находки. Красная проверка, которая ничего не нашла,
-          # учит не смотреть на красное (CLAUDE.md §4.0). Вторая дверь
-          # (сводка + лог) осталась; включат code scanning в настройках —
-          # вернуть `upload: always` и строку сторожа codeql-report.
+          # Загрузка в Security-таб выключена 03.10 решением владельца: API
+          # отвечает «Code scanning is not enabled for this repository» —
+          # загружать некуда. С 09:11 UTC шаг Analyze краснел на каждом прогоне,
+          # включая main, без единой находки; роняло его отсутствие права
+          # `actions: read` (добавлено выше), отказ загрузки ждал следом.
+          # Красная проверка, которая ничего не нашла, учит не смотреть на
+          # красное (CLAUDE.md §4.0). Вторая дверь (сводка + лог) осталась;
+          # включат code scanning в настройках — вернуть `upload: always` и
+          # строку сторожа codeql-report.
           output: sarif-results
           upload: never
 
