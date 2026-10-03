@@ -37,7 +37,7 @@ import { STRONG_SIM } from '@/lib/geo/osm-crosscheck';
 import { KAMCHATKA_BOUNDS } from '@/lib/services/routes/geocode';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const ITEMS_PAGE_DEFAULT = 30;
 /**

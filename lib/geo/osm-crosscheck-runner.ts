@@ -14,8 +14,8 @@
 import { pool } from '@/lib/db-pool';
 import { KAMCHATKA_BOUNDS } from '@/lib/services/routes/geocode';
 import {
-  buildOsmCrosscheckQuery, parseOsmFeatures, buildCrosscheckItems,
-  type OsmFeature, type PlaceInput, type SimilarityRow, type CrosscheckResult,
+  buildOsmCrosscheckQuery, parseOsmFeatures, buildCrosscheckItems, splitBounds,
+  type GeoBounds, type OsmFeature, type PlaceInput, type SimilarityRow, type CrosscheckResult,
 } from '@/lib/geo/osm-crosscheck';
 
 // Тот же двухзеркальный фолбэк, что у импорта геометрии маршрутов
@@ -32,14 +32,22 @@ const OSM_HEADERS = {
   'User-Agent': 'KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)',
 };
 
-/** Один большой запрос, а не много мелких — таймаут щедрее, чем у осмимпорта треков. */
-const OVERPASS_TIMEOUT_MS = 90_000;
+/** На один квадрат края (splitBounds); серверный таймаут запроса — меньше. */
+const OVERPASS_TIMEOUT_MS = 45_000;
+const OVERPASS_QUERY_TIMEOUT_S = 40;
+/** Пауза между квадратами: у публичного Overpass два слота на адрес. */
+const TILE_PAUSE_MS = 1_000;
 
-export async function fetchOsmFeatures(bounds = KAMCHATKA_BOUNDS): Promise<OsmFeature[]> {
-  const body = `data=${encodeURIComponent(buildOsmCrosscheckQuery(bounds))}`;
-  let lastError: Error = new Error('Overpass: нет доступных эндпоинтов');
-
+/**
+ * Один квадрат: оба сервера по очереди. Отказ — со ВСЕМИ причинами: прежде
+ * печаталась только последняя (504 зеркала), а причина отказа основного
+ * сервера терялась.
+ */
+async function fetchTile(tile: GeoBounds): Promise<OsmFeature[]> {
+  const body = `data=${encodeURIComponent(buildOsmCrosscheckQuery(tile, OVERPASS_QUERY_TIMEOUT_S))}`;
+  const errors: string[] = [];
   for (const endpoint of OVERPASS_ENDPOINTS) {
+    const host = new URL(endpoint).host;
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -47,21 +55,47 @@ export async function fetchOsmFeatures(bounds = KAMCHATKA_BOUNDS): Promise<OsmFe
         body,
         signal: AbortSignal.timeout(OVERPASS_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        lastError = new Error(`Overpass HTTP ${res.status} (${new URL(endpoint).host})`);
+      if (!res.ok) { errors.push(`${host}: HTTP ${res.status}`); continue; }
+      const data = (await res.json()) as { remark?: string };
+      // Overpass отвечает 200 и при собственном таймауте — с remark и пустым
+      // списком. Пустота здесь — «не смог», а не «объектов нет».
+      if (typeof data.remark === 'string' && /error|timed out/i.test(data.remark)) {
+        errors.push(`${host}: ${data.remark.slice(0, 120)}`);
         continue;
       }
-      return parseOsmFeatures(await res.json());
+      return parseOsmFeatures(data);
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
+      errors.push(`${host}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  const box = `${tile.latMin}–${tile.latMax}° × ${tile.lngMin}–${tile.lngMax}°`;
+  throw new Error(`Overpass, квадрат ${box}: ${errors.join('; ')}`);
+}
 
-  throw lastError;
+/**
+ * Все именованные объекты края — квадратами (splitBounds). Хоть один
+ * квадрат не прочитан — отказ целиком с его именем: неполный список выглядел
+ * бы как «в этом районе расхождений нет» (§4.0).
+ */
+export async function fetchOsmFeatures(
+  bounds: GeoBounds = KAMCHATKA_BOUNDS,
+  opts: { tilePauseMs?: number } = {},
+): Promise<OsmFeature[]> {
+  const pauseMs = opts.tilePauseMs ?? TILE_PAUSE_MS;
+  const byKey = new Map<string, OsmFeature>();
+  const tiles = splitBounds(bounds);
+  for (let i = 0; i < tiles.length; i += 1) {
+    if (i > 0 && pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+    // Объект на границе квадратов приходит дважды — склеиваем по роду и id.
+    for (const f of await fetchTile(tiles[i])) byKey.set(`${f.kind}:${f.id}`, f);
+  }
+  return [...byKey.values()];
 }
 
 export interface OsmCrosscheckParams {
   minSim: number;
+  /** Пауза между квадратами Overpass; в тестах — 0. */
+  tilePauseMs?: number;
   bounds?: typeof KAMCHATKA_BOUNDS;
 }
 
@@ -88,7 +122,7 @@ export async function runOsmCrosscheck(params: OsmCrosscheckParams): Promise<Osm
     lng: p.lng == null ? null : Number(p.lng),
   }));
 
-  const features = await fetchOsmFeatures(bounds);
+  const features = await fetchOsmFeatures(bounds, { tilePauseMs: params.tilePauseMs });
 
   let simRows: SimilarityRow[] = [];
   if (places.length > 0 && features.length > 0) {

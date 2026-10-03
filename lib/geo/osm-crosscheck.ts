@@ -34,11 +34,11 @@ export interface GeoBounds {
 }
 
 /** Overpass QL: именованные природные/туристические/исторические объекты в bbox. */
-export function buildOsmCrosscheckQuery(bounds: GeoBounds): string {
+export function buildOsmCrosscheckQuery(bounds: GeoBounds, timeoutSec = 90): string {
   const { latMin, lngMin, latMax, lngMax } = bounds;
   const bbox = `${latMin},${lngMin},${latMax},${lngMax}`;
   return (
-    `[out:json][timeout:90];\n` +
+    `[out:json][timeout:${timeoutSec}];\n` +
     `(\n` +
     `  nwr[~"^(natural|waterway|place|tourism|historic|leisure)$"~"."]["name"](${bbox});\n` +
     `  nwr["boundary"="protected_area"]["name"](${bbox});\n` +
@@ -46,6 +46,28 @@ export function buildOsmCrosscheckQuery(bounds: GeoBounds): string {
     `);\n` +
     `out center;`
   );
+}
+
+/**
+ * Край — квадратами, а не одним запросом (03.10).
+ *
+ * Один запрос на весь край (50–64° × 155–167°) с шаблоном по ключу тега
+ * публичные серверы Overpass перестали тянуть: 20.09 — отказ, 24.09 —
+ * таймаут, 03.10 — HTTP 504. Сверки не было три недели, и «Гору Замок» за
+ * это время нашёл турист. Квадрат 3.5° × 4° — лёгкий запрос; над морем он
+ * пуст и отвечает сразу.
+ */
+export function splitBounds(bounds: GeoBounds, latStep = 3.5, lngStep = 4): GeoBounds[] {
+  const tiles: GeoBounds[] = [];
+  for (let lat = bounds.latMin; lat < bounds.latMax; lat += latStep) {
+    for (let lng = bounds.lngMin; lng < bounds.lngMax; lng += lngStep) {
+      tiles.push({
+        latMin: lat, latMax: Math.min(lat + latStep, bounds.latMax),
+        lngMin: lng, lngMax: Math.min(lng + lngStep, bounds.lngMax),
+      });
+    }
+  }
+  return tiles;
 }
 
 export interface OsmFeature {
