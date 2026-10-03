@@ -163,6 +163,16 @@ describe('молчание карты кончается самопроверк�
     expect(out).toMatch(/^TypeError: Failed to fetch через \d+\.\d с$/);
   });
 
+  it('probeFetch не ждёт вечно: висящий запрос — «нет ответа», а не молчание (03.10)', async () => {
+    let aborted = false;
+    const fake = ((_u: string, init?: RequestInit) => new Promise<Response>(() => {
+      init?.signal?.addEventListener('abort', () => { aborted = true; });
+    })) as unknown as typeof fetch;
+    const out = await probeFetch('https://s3.example.ru/b/a.pmtiles', 'bytes=0-1', fake, 30);
+    expect(out).toMatch(/^нет ответа за \d+\.\d с$/);
+    expect(aborted, 'висящий запрос должен сниматься').toBe(true);
+  });
+
   it('probeFetch отдаёт 403/404 кодом, не исключением — у них другое лекарство', async () => {
     const fake = (async () => ({ status: 403 }) as Response) as unknown as typeof fetch;
     const out = await probeFetch('https://s3.example.ru/b/a.pmtiles', 'bytes=0-1', fake);
