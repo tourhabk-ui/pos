@@ -1,13 +1,10 @@
 {
   "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
-  "batch": 5,
-  "why": "Вопрос владельца: часовня на Никольской сопке и могилы англо-французов 1854; визит британского принца в Петропавловск-Камчатский.",
+  "batch": 6,
+  "why": "Вопрос владельца: визит члена британской королевской семьи на Камчатку — принц Филипп, герцог Эдинбургский, июль 1995 (WWF).",
   "urls": [
-    "https://ru.wikipedia.org/wiki/Никольская_сопка",
-    "https://www.culture.ru/objects/1279/chasovnya-v-petropavlovske-kamchatskom",
-    "https://www.piragis.ru/history/nikolskaya-sopka-petropavlovsk-kamchatsky.html",
-    "https://ru.wikipedia.org/wiki/Петропавловская_оборона",
-    "https://kamchatkaland.ru/note/nikolskaya-sopka",
-    "https://ru.wikipedia.org/wiki/Часовня_(Петропавловск-Камчатский)"
+    "https://www.themoscowtimes.com/2021/04/13/in-photos-prince-philips-russia-visits-a73573",
+    "https://www.rbth.com/history/334088-prince-philips-visit-to-russias",
+    "https://en.wikipedia.org/wiki/Prince_Philip,_Duke_of_Edinburgh"
   ]
 }
