@@ -44,10 +44,36 @@ describe('контур — тот же берег, что судит «суша 
     expect(landVerdict(53.02, 158.65)).toBe('land');
     expect(landVerdict(52.8, 159.2)).toBe('sea');
     const fc = landGeoJSON();
-    expect(fc.features.length).toBeGreaterThan(0);
-    for (const f of fc.features) {
+    const land = fc.features.filter(f => f.properties.kind === 'land');
+    expect(land.length).toBeGreaterThan(0);
+    for (const f of land) {
+      if (f.geometry.type !== 'Polygon') throw new Error('суша — не полигон');
       const ring = f.geometry.coordinates[0];
       expect(ring[0]).toEqual(ring[ring.length - 1]);
     }
+  });
+
+  it('берег рисуется исходными кусками — без швов по рамке (прогон 8)', () => {
+    const coast = landGeoJSON().features.filter(f => f.properties.kind === 'coast');
+    expect(coast.length).toBeGreaterThan(0);
+    // Ни одно звено берега не идёт вдоль рамки: шов замыкания материка
+    // (154° / 63.5°) — не берег, и обводить его нельзя.
+    for (const f of coast) {
+      if (f.geometry.type !== 'LineString') throw new Error('берег — не линия');
+      const pts = f.geometry.coordinates;
+      for (let i = 1; i < pts.length; i++) {
+        const [x1, y1] = pts[i - 1];
+        const [x2, y2] = pts[i];
+        const alongWest = x1 === 154 && x2 === 154;
+        const alongNorth = y1 === 63.5 && y2 === 63.5;
+        expect(alongWest || alongNorth).toBe(false);
+      }
+    }
+  });
+
+  it('заливка берёт только сушу, обводка — только берег', () => {
+    const layers = (buildVedarStyle('dark', base) as unknown as { layers: Array<{ id: string; filter?: unknown }> }).layers;
+    expect(JSON.stringify(layers.find(l => l.id === 'land-outline-fill')?.filter)).toContain('land');
+    expect(JSON.stringify(layers.find(l => l.id === 'land-outline-coast')?.filter)).toContain('coast');
   });
 });

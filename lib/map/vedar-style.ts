@@ -207,7 +207,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   dark: {
     background: '#0D1117',   // --bg-primary dark
     nodata: '#3D3A35',
-    landHint: '#4A463F',
+    landHint: '#5C564C',
     shadow: '#05070A',
     // Первый живой рендер 02.09 (Авачинский перевал): рельеф «почти
     // чёрный» — подсветка гребня #2A3B33 от фона #0D1117 не отличалась.
@@ -290,7 +290,7 @@ const PALETTES: Record<VedarMapTheme, MapPalette> = {
   light: {
     background: '#F5F0EB',   // --bg-primary light
     nodata: '#DAD5C9',
-    landHint: '#C9BFAE',
+    landHint: '#BFB39E',
     shadow: '#6B6560',
     highlight: '#FFFFFF',
     accentShadow: '#8A7F72',
@@ -1189,10 +1189,12 @@ export function landOutlineLayers(p: MapPalette): Array<Record<string, unknown>>
   return [
     {
       id: 'land-outline-fill', type: 'fill', source: LAND_OUTLINE_SOURCE,
+      filter: ['==', ['get', 'kind'], 'land'],
       paint: { 'fill-color': p.landHint, 'fill-opacity': 1, 'fill-antialias': true },
     },
     {
       id: 'land-outline-coast', type: 'line', source: LAND_OUTLINE_SOURCE,
+      filter: ['==', ['get', 'kind'], 'coast'],
       layout: { 'line-join': 'round' },
       paint: {
         'line-color': p.contourMajor,

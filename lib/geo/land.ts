@@ -180,15 +180,29 @@ export function distanceToCoastKm(lat: number, lng: number): number {
  */
 export function landGeoJSON(): {
   type: 'FeatureCollection';
-  features: Array<{ type: 'Feature'; properties: Record<string, never>; geometry: { type: 'Polygon'; coordinates: CoastPoint[][] } }>;
+  features: Array<
+    | { type: 'Feature'; properties: { kind: 'land' }; geometry: { type: 'Polygon'; coordinates: CoastPoint[][] } }
+    | { type: 'Feature'; properties: { kind: 'coast' }; geometry: { type: 'LineString'; coordinates: CoastPoint[] } }
+  >;
 } {
   return {
     type: 'FeatureCollection',
-    features: RINGS.map((ring) => ({
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'Polygon', coordinates: [ring] },
-    })),
+    features: [
+      // Суша — кольцами: материк замкнут через рамку, иначе его не залить.
+      ...RINGS.map((ring) => ({
+        type: 'Feature' as const,
+        properties: { kind: 'land' as const },
+        geometry: { type: 'Polygon' as const, coordinates: [ring] },
+      })),
+      // Берег — исходными кусками, БЕЗ швов по рамке: прогон 8 проверки
+      // браузером показал прямые линии по 154° и 63.5° — обводка кольца
+      // рисовала замыкание материка как будто это берег.
+      ...COASTLINE.parts.map((part) => ({
+        type: 'Feature' as const,
+        properties: { kind: 'coast' as const },
+        geometry: { type: 'LineString' as const, coordinates: part },
+      })),
+    ],
   };
 }
 
