@@ -1,12 +1,13 @@
 {
-  "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts: раннер читает перечисленные страницы и печатает их текст в лог и в check-runs chronicle-page-NN.",
-  "batch": 4,
-  "why": "Летопись: история застройки Никольского (Алеутский музей — дом дьякона, уездный суд, фактория), Бечевинка по верному заголовку, мемориал Беринга в Никольском, Петропавловская оборона для привязки памятника.",
+  "note": "Маркер запуска chronicle-fetch.yml в ветке claude/chronicle-drafts.",
+  "batch": 5,
+  "why": "Вопрос владельца: часовня на Никольской сопке и могилы англо-французов 1854; визит британского принца в Петропавловск-Камчатский.",
   "urls": [
-    "https://bering-museum.ru/istoriya-zastrojki-sela-nikolskoe/",
-    "https://ru.wikipedia.org/wiki/Бечевинка_(Камчатский_край)",
-    "https://petersmonuments.ru/russia/memorials/memorial-v-beringa-nikolskoe-kamchatskiy-kray/",
-    "https://bering-museum.ru/",
-    "https://sakh.online/news/18/2022-03-22/videofakt-kak-vyglyadit-kladbische-korabley-na-kurilah-333868/"
+    "https://ru.wikipedia.org/wiki/Никольская_сопка",
+    "https://www.culture.ru/objects/1279/chasovnya-v-petropavlovske-kamchatskom",
+    "https://www.piragis.ru/history/nikolskaya-sopka-petropavlovsk-kamchatsky.html",
+    "https://ru.wikipedia.org/wiki/Петропавловская_оборона",
+    "https://kamchatkaland.ru/note/nikolskaya-sopka",
+    "https://ru.wikipedia.org/wiki/Часовня_(Петропавловск-Камчатский)"
   ]
 }
