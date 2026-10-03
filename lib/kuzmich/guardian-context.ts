@@ -454,7 +454,17 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       parts.push(`Алерт: ${p.alert_message}`);
     } else if (p.active_alerts?.length) {
       const fresh = freshAlerts(p.active_alerts);
+      const repeated = p.active_alerts.length - fresh.length;
       if (fresh.length) parts.push(`Активные алерты: ${fresh.join(', ')}.`);
+      // Повторы убраны ради объёма, но причина цвета обязана остаться видна:
+      // 03.10 «Скала Черный замок [КРАСНЫЙ]» шла без единого алерта — те же
+      // алерты уже были напечатаны у Горы Замок выше, и красный читался как
+      // необъяснённый (владелец: «статус опасности не снят»).
+      if (repeated > 0) {
+        parts.push(fresh.length
+          ? `И ещё ${repeated} — те же, что у места выше.`
+          : `Активные алерты: те же, что у места выше (${repeated}).`);
+      }
     }
 
     // Авиационный цветовой код вулкана (KVERT, migration 728) — сразу после

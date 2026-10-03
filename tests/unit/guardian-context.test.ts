@@ -223,6 +223,34 @@ describe('getGuardianContext — чистка контекста (#63, проб�
     expect(ctx).toContain('Камнепад на верхнем участке');
   });
 
+  // 03.10: «Скала Черный замок [КРАСНЫЙ]» без единого алерта — те же алерты
+  // уже стояли у Горы Замок, и дедуп убирал у второго места причину цвета.
+  it('место с одними повторами говорит, что алерты те же, а не молчит', async () => {
+    const shared = ['Экстренное предупреждение (сильный дождь)'];
+    mockDb({
+      places: [
+        { ...placeBase, name: 'Гора Замок', active_alerts: shared },
+        { ...placeBase, name: 'Скала Черный замок', active_alerts: shared },
+      ],
+    });
+    const ctx = await getGuardianContext('Замок');
+    expect(ctx.split('Экстренное предупреждение (сильный дождь)').length - 1).toBe(1);
+    const second = ctx.slice(ctx.indexOf('Скала Черный замок'));
+    expect(second).toMatch(/Активные алерты: те же, что у места выше \(1\)\./);
+  });
+
+  it('при смеси новых и повторных алертов число повторов названо', async () => {
+    mockDb({
+      places: [
+        { ...placeBase, name: 'Вулкан Авачинский', active_alerts: ['Общий'] },
+        { ...placeBase, name: 'Авачинский перевал', active_alerts: ['Общий', 'Камнепад'] },
+      ],
+    });
+    const ctx = await getGuardianContext('Авачинский');
+    expect(ctx).toContain('Активные алерты: Камнепад.');
+    expect(ctx).toContain('И ещё 1 — те же, что у места выше.');
+  });
+
   // С 29.09 источник — по ленте (alertOrigin), а не одна подпись «КБГС/МЧС».
   it('блок предупреждений не повторяет алерт, уже показанный в строке места', async () => {
     mockDb({

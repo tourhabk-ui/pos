@@ -431,7 +431,12 @@ export default function KuzmichClient() {
   const hasMessages = messages.length > 0;
 
   return (
-    <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-4 pb-6 pt-20">
+    <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
+      {/* Поля на телефоне (владелец 03.10: «поля забирают очень много полезного
+          места»). Отступ страницы, рамка карточки, внутренний отступ, аватар с
+          зазором и предел 85 % складывались: из 390 px под ответ оставалось
+          около 230. На телефоне ответ Кузьмича — во всю ширину карточки, без
+          аватара; пузырь пользователя справа, как был. С sm: — прежняя раскладка. */}
 
       {/* Навигация */}
       <div className="flex items-center gap-4 mb-6">
@@ -468,16 +473,16 @@ export default function KuzmichClient() {
 
         {/* Сообщения */}
         {hasMessages && (
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="flex-1 overflow-y-auto px-3 py-4 sm:p-5 space-y-4">
             {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start gap-3'}`}>
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start sm:gap-3'}`}>
                 {msg.role === 'assistant' && (
-                  <div className="w-7 h-7 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="hidden sm:flex w-7 h-7 rounded-lg bg-[var(--accent)]/10 items-center justify-center shrink-0 mt-0.5">
                     <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
                   </div>
                 )}
 
-                <div className="flex flex-col gap-2 max-w-[85%]">
+                <div className={`flex flex-col gap-2 ${msg.role === 'user' ? 'max-w-[85%]' : 'w-full sm:w-auto sm:max-w-[85%]'}`}>
                   {/* Фото пользователя */}
                   {msg.imagePreview && (
                     <div className="self-end">
@@ -491,7 +496,7 @@ export default function KuzmichClient() {
 
                   {/* Текст */}
                   {msg.content && (
-                    <div className={`px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap rounded-xl ${
+                    <div className={`px-3.5 sm:px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap rounded-xl ${
                       msg.role === 'user'
                         ? 'bg-[var(--accent)] text-white rounded-br-sm self-end'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-bl-sm'
@@ -541,11 +546,11 @@ export default function KuzmichClient() {
             ))}
 
             {loading && (
-              <div className="flex gap-3">
-                <div className="w-7 h-7 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
+              <div className="flex sm:gap-3">
+                <div className="hidden sm:flex w-7 h-7 rounded-lg bg-[var(--accent)]/10 items-center justify-center shrink-0">
                   <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
                 </div>
-                <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
+                <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3.5 sm:px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
                   <Loader2 size={14} className="animate-spin" /> думаю...
                 </div>
               </div>
