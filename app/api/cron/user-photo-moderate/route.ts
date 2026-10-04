@@ -28,6 +28,7 @@ import { dHash, hamming, visionCopy, DUPLICATE_MAX_DISTANCE } from '@/lib/images
 import { decideUserPhoto, parseUserPhotoVerdict, userPhotoPrompt } from '@/lib/images/user-photo-moderation';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { tgSend } from '@/lib/notifications/tg-send';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -77,24 +78,14 @@ async function findDuplicate(c: Candidate, phash: string): Promise<string | null
   return hit ? hit.src : null;
 }
 
-async function notifyAdmin(lines: string[]): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId || lines.length === 0) return;
-  try {
-    await fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        parse_mode: 'HTML',
-        text: ['<b>Модерация фото туристов</b>', '', ...lines, '', 'Очередь: /hub/admin/user-photos'].join('\n'),
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (err) {
-    console.error('[user-photo-moderate] сводка в Telegram не ушла:', err instanceof Error ? err.message : err);
-  }
+/** Сводка админу общим отправителем (lib/notifications/tg-send): отказ доставки назван, а не проглочен. */
+async function notifyAdmin(lines: string[]): Promise<boolean | null> {
+  if (lines.length === 0) return null;
+  const out = await tgSend(
+    'user-photo-moderate',
+    ['<b>Модерация фото туристов</b>', '', ...lines, '', 'Очередь: /hub/admin/user-photos'].join('\n'),
+  );
+  return out.ok;
 }
 
 export async function GET(req: NextRequest) {
@@ -187,7 +178,7 @@ export async function POST(req: NextRequest) {
     }
 
     const word = { approved: 'одобрено', rejected: 'отклонено', human: 'человеку' } as const;
-    await notifyAdmin([
+    const notified = await notifyAdmin([
       ...done.map((d) => `• ${escapeHtml(String(d.place))}: ${word[d.decision as keyof typeof word]} — ${escapeHtml(String(d.reason))}`),
       ...failed.map((f) => `• ${escapeHtml(f.place)}: не смог — ${escapeHtml(f.reason)}`),
     ]);
@@ -205,7 +196,7 @@ export async function POST(req: NextRequest) {
       error_msg: failed.length > 0 ? failed.slice(0, 3).map((f) => f.reason).join('; ') : undefined,
     });
 
-    return NextResponse.json({ ok: true, dry_run: false, reason, moderated: done.length, failed_count: failed.length, done, failed });
+    return NextResponse.json({ ok: true, dry_run: false, reason, notified, moderated: done.length, failed_count: failed.length, done, failed });
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[user-photo-moderate] партия не выполнилась:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
