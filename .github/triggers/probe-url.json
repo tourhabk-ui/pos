@@ -1,15 +1,12 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Текущее описание и отзыв Кузьмича у «Скал Три Брата» (снять «30–40 мин пешком от набережной»).",
-  "run": 689,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Полный текст описания и отзыва Кузьмича у «Скал Три Брата».",
+  "run": 690,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 100,
+  "bytes": 5000,
   "urls": [
     "https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0"
-  ],
-  "around": ["\"description\":", "\"kuzmichReview\":", "\"essence\":", "\"accessInfo\":", "мин"],
-  "aroundLines": 0,
-  "aroundHits": 10
+  ]
 }
