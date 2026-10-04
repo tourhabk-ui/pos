@@ -1,20 +1,22 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1157: Зеленовские озерки — описание из источников, тип hot_spring, профиль безопасности.",
-  "run": 679,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Дочитать обрезанные строки портала о Кайныране: перевод названия, питомник.",
+  "run": 683,
   "timeout": 60,
-  "retries": 40,
-  "retryDelay": 60,
-  "allowStale": false,
-  "bytes": 300,
-  "until": "термоминеральные источники",
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
+  "bytes": 100,
   "urls": [
-    "https://vedarai.ru/api/places/f31f3774-65d4-47b7-a03e-4e3d4a575100"
+    "https://visitkamchatka.ru/camps/etnokulturnyy-kompleks-kaynyran/"
   ],
-  "grep": [
-    "группа живописных озёр",
-    "без тропы не суйся",
-    "\"locationType\":\"hot_spring\"",
-    "скважина К-01",
-    "Сероводородные ванны"
-  ]
+  "around": [
+    "Медвеж",
+    "ездовых",
+    "означает",
+    "переводе с корякского языка",
+    "Елизово",
+    "Петропавловск"
+  ],
+  "aroundLines": 1,
+  "aroundHits": 3
 }
