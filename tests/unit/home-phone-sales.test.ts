@@ -178,7 +178,12 @@ describe('мелочи с видимой ценой', () => {
 describe('два направления и безопасность одним местом (владелец 25.09)', () => {
   it('тур показывается один раз: одна лента всех туров витрины', () => {
     expect(CODE).toMatch(/const tours = plates;/);
-    expect((JSX.match(/\{tours\.map\(\(p, i\) =>/g) ?? []).length).toBe(1);
+    // Одна лента. С 04.10 при дрейфе она рендерится дважды подряд — петля
+    // (hooks/use-plate-drift), вторая копия aria-hidden: та же лента, не
+    // второй блок туров.
+    const ribbons = (JSX.match(/\{tours\.map\(\(p, i\) =>/g) ?? []).length
+      + (JSX.match(/\{\(drift\.looping \? \[\.\.\.tours, \.\.\.tours\] : tours\)\.map\(/g) ?? []).length;
+    expect(ribbons).toBe(1);
   });
 
   it('лента туров — внутри «Туров сезона»; направления — под лентой (владелец 30.09)', () => {

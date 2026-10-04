@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -42,6 +42,7 @@ import Logo from '@/components/shared/Logo';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
 import { tourPath } from '@/lib/tours/tour-url';
+import { usePlateDrift } from '@/hooks/use-plate-drift';
 import { sessionState } from '@/lib/auth/session-state';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
@@ -161,9 +162,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     try { localStorage.setItem(THEME_STORAGE_KEY, t); } catch { /* приватный режим */ }
   };
 
-  // Карусель туров: свайп + точки. Автопрокрутки НЕТ (аудит 24.09, #42):
-  // карточка уезжала из-под пальца каждые 5 с, пока человек читал цену, а
-  // кнопки паузы не было (WCAG 2.2.2). Смещение считается по offsetLeft
+  // Карусель туров: свайп + точки + медленный дрейф справа налево (решение
+  // владельца 04.10, hooks/use-plate-drift). Прыжков каждые 5 с, снятых
+  // аудитом 24.09 (#42, WCAG 2.2.2), нет: лента плывёт непрерывно, стоит под
+  // пальцем и мышью, и у неё есть кнопка остановки. Смещение считается по offsetLeft
   // карточки, а не `i * ширина`: вместе с scroll-padding-inline это держит
   // текст карточки на отступе страницы, а не у самой кромки экрана (#38).
   const PLATES_GUTTER = 20;
@@ -171,6 +173,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     const el = c.children[i] as HTMLElement | undefined;
     return el ? Math.max(0, el.offsetLeft - PLATES_GUTTER) : 0;
   };
+  const drift = usePlateDrift(platesRef, tours.length);
   useEffect(() => {
     const c = platesRef.current;
     if (!c || tours.length < 2) return;
@@ -183,7 +186,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         for (let i = 0; i < c.children.length; i++) {
           if (Math.abs(plateLeft(c, i) - c.scrollLeft) < Math.abs(plateLeft(c, best) - c.scrollLeft)) best = i;
         }
-        setPlateIdx(best);
+        // Вторая копия ленты (петля дрейфа) — те же туры: точка по модулю.
+        setPlateIdx(best % tours.length);
       }, 90);
     };
     c.addEventListener('scroll', onScroll, { passive: true });
@@ -193,6 +197,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const goPlate = (i: number) => {
     const c = platesRef.current;
     if (!c) return;
+    drift.holdNow();
     const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
     c.scrollTo({ left: plateLeft(c, i), behavior: rm ? 'auto' : 'smooth' });
     setPlateIdx(i);
@@ -459,12 +464,16 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <section className="fp-sec">
             <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
             <div className="plates more-tours" ref={platesRef}>
-              {tours.map((p, i) => {
+              {(drift.looping ? [...tours, ...tours] : tours).map((p, k) => {
+                // Вторая половина — копия для бесшовной петли дрейфа: экранному
+                // чтению и клавиатуре её нет.
+                const i = k % tours.length;
+                const clone = k >= tours.length;
                 const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
                 const pf = plateFacts(p);
                 const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
                 return (
-                  <figure className="plate" key={p.id} role="group" aria-label={`Тур ${i + 1} из ${tours.length}`}>
+                  <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Тур ${i + 1} из ${tours.length}`} aria-hidden={clone || undefined}>
                     <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
                     </div></Link>
@@ -479,7 +488,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                     {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
                     {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
                     <div className="buy">
-                      <Link className="buy-cta" href={href}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
+                      <Link className="buy-cta" href={href} tabIndex={clone ? -1 : undefined}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
                     </div>
                   </figure>
                 );
@@ -490,6 +499,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 {tours.map((_, i) => (
                   <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 1} из ${tours.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
                 ))}
+                {drift.looping && (
+                  <button type="button" className="pl-pause" onClick={drift.toggle} aria-label={drift.drifting ? 'Остановить ленту туров' : 'Запустить ленту туров'}>
+                    {drift.drifting ? <Pause size={14} aria-hidden /> : <Play size={14} aria-hidden />}
+                  </button>
+                )}
               </div>
             )}
             {intentChips}
@@ -1161,6 +1175,8 @@ const CSS = `
 .v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
 .v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .2s,transform .2s}
 .v7 .pl-dots button.on::after{background:var(--accent);transform:scale(1.25)}
+.v7 .pl-dots button.pl-pause{width:44px;color:var(--text-secondary)}
+.v7 .pl-dots button.pl-pause::after{content:none}
 /* Кроп прижат к ВЕРХУ, а не по центру. Рамка здесь горизонтальная (4:3), а
    фотографии туров сплошь вертикальные: рыбак во весь рост с лососем. При
    центрировании кадр отрезал голову сверху и ноги снизу — на витрине оставалось
