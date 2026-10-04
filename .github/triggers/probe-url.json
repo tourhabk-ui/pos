@@ -1,12 +1,24 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Полный текст описания и отзыва Кузьмича у «Скал Три Брата».",
-  "run": 690,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1160/1161: тип ethnic у Кайнырана и Ительменской деревни, Три Брата без «30–40 мин».",
+  "run": 691,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 15,
-  "allowStale": true,
-  "bytes": 5000,
+  "retries": 40,
+  "retryDelay": 60,
+  "allowStale": false,
+  "bytes": 100,
+  "until": "\"locationType\":\"ethnic\"",
   "urls": [
-    "https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0"
+    "https://vedarai.ru/api/places/eaab2afe-577e-4532-b5b5-93ace0018f00",
+    "https://vedarai.ru/api/places/b8663d1c-33f6-4aec-a086-cfb3d10268a8",
+    "https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+    "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00"
+  ],
+  "grep": [
+    "\"locationType\":\"ethnic\"",
+    "\"locationType\":\"historical\"",
+    "\"locationType\":\"settlement\"",
+    "30–40 мин",
+    "тридцатиминутный",
+    "Этнокультурное место"
   ]
 }
