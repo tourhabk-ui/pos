@@ -28,6 +28,8 @@ interface BookingData {
   sbp_available: boolean;
   /** Есть ли у брони email — единственный другой способ вернуться к ссылке (#1889). */
   has_email: boolean;
+  /** Дойдёт ли заявка до оператора мессенджером; null — не знаем. */
+  operator_reachable?: boolean | null;
 }
 
 declare global {
@@ -383,6 +385,15 @@ export default function BookingSuccessClient() {
                       Если оператор не подтвердит заявку за сутки, её увидит администратор платформы.
                     </li>
                   </ol>
+                  {/* Канала у оператора нет — заявку ему передаёт администратор
+                      (notifyNewBooking, no_channel). Сказать об этом честнее,
+                      чем дать ждать обычного ответа (04.10). */}
+                  {booking.operator_reachable === false && (
+                    <p className="mt-2 text-xs text-[var(--text-secondary)] leading-relaxed">
+                      У оператора пока не подключён мессенджер: заявку ему передаст администрация платформы,
+                      поэтому ответ может прийти позже обычного. Оператор также увидит её при входе в свой кабинет.
+                    </p>
+                  )}
                 </div>
               )}
 
