@@ -30,9 +30,12 @@ describe('дрейф', () => {
   });
 
   it('под пальцем, мышью и фокусом стоит, отпустили — ждёт', () => {
-    for (const ev of ['pointerdown', 'touchstart', 'wheel', 'focusin', 'mouseenter']) {
+    for (const ev of ['pointerdown', 'touchstart', 'wheel', 'focusin', 'pointerenter', 'pointerleave']) {
       expect(HOOK).toContain(`'${ev}'`);
     }
+    // Эмулированный касанием mouseenter не должен вставать навсегда.
+    expect(HOOK).not.toContain("'mouseenter'");
+    expect(HOOK).toContain("e.pointerType === 'mouse'");
     expect(RESUME_AFTER_MS).toBeGreaterThanOrEqual(3000);
   });
 
