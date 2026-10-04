@@ -1,12 +1,21 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Карточка Козельского: id места, снимки, авторы.",
-  "run": 694,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1162: кадр Ильи Оноприйчука на Козельском и его имя в подписи.",
+  "run": 695,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 15,
-  "allowStale": true,
-  "bytes": 60000,
+  "retries": 40,
+  "retryDelay": 60,
+  "allowStale": false,
+  "bytes": 100,
+  "until": "Илья Оноприйчук",
   "urls": [
-    "https://vedarai.ru/api/places/7190e0a4-52f1-47fb-ba17-0fcb493d99df"
+    "https://vedarai.ru/api/places/7190e0a4-52f1-47fb-ba17-0fcb493d99df",
+    "https://vedarai.ru/api/images/place-gallery/7190e0a4-52f1-47fb-ba17-0fcb493d99df/2",
+    "https://vedarai.ru/places/7190e0a4-52f1-47fb-ba17-0fcb493d99df"
+  ],
+  "grep": [
+    "Илья Оноприйчук",
+    "\"otherAuthors\":[\"Илья Оноприйчук\"]",
+    "place-gallery/7190e0a4-52f1-47fb-ba17-0fcb493d99df/2",
+    "\"photoCount\":3"
   ]
 }
