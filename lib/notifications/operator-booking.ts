@@ -83,6 +83,7 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
 
   const viaLabel: Record<string, string> = {
     website: 'Сайт',
+    website_auto_confirmed: 'Сайт — подтверждена автоматически (ваша настройка: дата из расписания, места есть)',
     direct_contact: 'Телефон/мессенджер',
     api: 'API',
     agent: 'Агент платформы (за клиента)',

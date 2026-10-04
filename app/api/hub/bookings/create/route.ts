@@ -14,6 +14,8 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
 import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
+import { autoConfirmIfAllowed } from '@/lib/bookings/auto-confirm';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,6 +131,13 @@ export async function POST(req: NextRequest) {
       referralCode:    data.referral_code ?? null,
     });
 
+    // Автоподтверждение по выбору оператора (решение владельца 04.10): дата
+    // из его расписания, места есть, настройка включена — бронь сразу
+    // 'confirmed', и оплата открывается на странице брони. Иначе — 'new',
+    // как раньше (lib/bookings/auto-confirm).
+    const bookingStatus = await autoConfirmIfAllowed(result.bookingId, data.tour_id, data.booking_date);
+    const autoConfirmed = bookingStatus === 'confirmed';
+
     // Турист узнаёт, что заявка дошла. Раньше уведомление шло только
     // ОПЕРАТОРУ: человек отправлял бронь и молчал до подтверждения, а
     // Watchdog бьёт тревогу лишь через сутки. Функция для этого была написана
@@ -162,7 +171,7 @@ export async function POST(req: NextRequest) {
       touristPhone:    data.tourist_phone,
       touristEmail:    data.tourist_email,
       specialRequests: data.special_requests,
-      via:             'website',
+      via:             autoConfirmed ? 'website_auto_confirmed' : 'website',
     });
 
     // Email туристу — не блокирует ответ. Отказ не глушится: sendEmail не
@@ -171,7 +180,9 @@ export async function POST(req: NextRequest) {
     if (data.tourist_email) {
       void sendTouristMail('bookings/create', result.bookingId, {
         to: data.tourist_email,
-        subject: `Заявка №${result.bookingId} — ${result.tourTitle}`,
+        subject: autoConfirmed
+          ? `Бронь №${result.bookingId} подтверждена — ${result.tourTitle}`
+          : `Заявка №${result.bookingId} — ${result.tourTitle}`,
         // Письмо — носитель политики, а не квитанция. До 14.09 оно говорило
         // «перейдите по ссылке и ОПЛАТИТЕ ТУР» кнопкой «Оплатить тур» — то
         // есть торопило с оплатой ДО того, как оператор подтвердил дату. На
@@ -179,15 +190,19 @@ export async function POST(req: NextRequest) {
         // подтверждаются перед оплатой». Два голоса об одном, и громче звучал
         // тот, который человек читает без нас.
         html: `
-          <h2>Заявка принята</h2>
+          <h2>${autoConfirmed ? 'Бронь подтверждена' : 'Заявка принята'}</h2>
           <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
-          <p><strong>Тур:</strong> ${result.tourTitle}</p>
+          <p><strong>Тур:</strong> ${escapeHtml(String(result.tourTitle))}</p>
           <p><strong>Дата:</strong> ${data.booking_date}</p>
           <p><strong>Участники:</strong> ${data.participants_count}</p>
           <p><strong>Сумма:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
-          <p>Оператор получил заявку и свяжется с вами, чтобы подтвердить дату и детали поездки.</p>
+          ${autoConfirmed
+            ? `<p>Дата есть в расписании оператора, места есть — оператор подтверждает такие брони автоматически. Оплатить можно сразу:</p>
+          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть бронь и перейти к оплате</a></p>
+          <p>Сохраните эту ссылку: по одному номеру бронь не открывается.</p>`
+            : `<p>Оператор получил заявку и свяжется с вами, чтобы подтвердить дату и детали поездки.</p>
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть заявку</a></p>
-          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.</p>
+          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.</p>`}
         `,
       });
     }
@@ -197,7 +212,10 @@ export async function POST(req: NextRequest) {
       booking_id:   result.bookingId,
       access_token: result.accessToken,
       total_price:  result.totalPrice,
-      message:     'Заявка создана. Перед оплатой проверьте детали и условия тура.',
+      booking_status: bookingStatus,
+      message:     autoConfirmed
+        ? 'Бронь подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплатить можно сразу.'
+        : 'Заявка создана. Перед оплатой проверьте детали и условия тура.',
     });
 
   } catch (err) {
