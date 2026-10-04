@@ -19,9 +19,16 @@ const SURFACES = [
   'app/_home/_HomeV8Client.tsx',
   'app/safety/offline/page.tsx',
   'app/api/safety/rescue-chat/route.ts',
+  // Офлайн-протоколы радара, хаба и /sos — один список с 04.10.
+  'lib/safety/rescue-protocols.ts',
+  'public/emergency.html',
+];
+
+/** Экраны, которые раньше держали СВОЮ копию протоколов (и копии разошлись). */
+const PROTOCOL_CONSUMERS = [
   'app/safety/_SafetyClient.tsx',
   'app/hub/safety/_SafetyHubClient.tsx',
-  'public/emergency.html',
+  'components/safety/RescueChat.tsx',
 ];
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -44,6 +51,12 @@ describe('медвежья тактика едина на всех поверх�
     const src = code(read(p));
     expect(src, 'пропал вердикт «сгруппируйся»').toMatch(/сгруппир/i);
     expect(src, 'пропало «не сопротивляйся»').toMatch(/не сопротивля/i);
+  });
+
+  it.each(PROTOCOL_CONSUMERS)('%s: протоколы из общего списка, своей копии нет', (p) => {
+    const src = read(p);
+    expect(src).not.toMatch(/const LOCAL_PROTOCOLS/);
+    expect(src).toMatch(/from '@\/lib\/safety\/rescue-protocols'|from '@\/components\/safety\/RescueChat'/);
   });
 
   it('офлайн-копия дойдёт до людей: CACHE_NAME поднят минимум до v21', () => {
