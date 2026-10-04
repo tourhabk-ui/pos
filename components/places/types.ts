@@ -120,12 +120,6 @@ export interface PlacePhotoAttribution {
   license: string | null;
   licenseUrl: string | null;
   sourceUrl: string | null;
-  /**
-   * Авторы кадров галереи, кроме автора героя, — по порядку первого кадра.
-   * До 04.10 подпись называла только героя, и чужой кадр в галерее (Козельский,
-   * снимок Ильи Оноприйчука) выходил под именем владельца героя.
-   */
-  otherAuthors: string[];
 }
 
 export interface PlaceData {
@@ -148,6 +142,11 @@ export interface PlaceData {
   images: unknown[];
   photoCount: number;
   photoAttribution: PlacePhotoAttribution | null;
+  /**
+   * Автор каждого своего кадра по его адресу в images (04.10). Подпись под
+   * фото называет автора того кадра, что на экране; null — автора не знаем.
+   */
+  photoCredits: Record<string, string | null>;
   bestSeason: string | null;
   seasonalNotes: Record<string, string> | null;
   accessInfo: string | null;

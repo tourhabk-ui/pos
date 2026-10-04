@@ -172,6 +172,11 @@ function lsWrite(id: string, data: PlaceData) {
   } catch { /* localStorage full */ }
 }
 
+/** Герой места отдаётся этим адресом; его подпись — полная (автор, лицензия, источник). */
+function isHeroPhoto(src: string): boolean {
+  return src.startsWith('/api/images/route/');
+}
+
 export default function PlaceDetailClient({ id, initialPlace = null }: { id: string; initialPlace?: PlaceData | null }) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/places');
@@ -184,6 +189,8 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
   const [loading, setLoading] = useState(!initialPlace);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
+  // Кадр героя на экране — подпись «Фото:» называет его автора (04.10).
+  const [currentPhoto, setCurrentPhoto] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -314,6 +321,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
         photoCount={place.photoCount}
         images={place.images as string[]}
         facts={heroFacts}
+        onCurrentChange={setCurrentPhoto}
       />
 
       {/* Атрибуция фото. Автор и лицензия — что записано, без умолчаний.
@@ -323,7 +331,16 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
           взятым у правообладателя (ИВиС ДВО РАН / КВЕРТ), она стала бы ложью
           вдвойне: чужое имя и намёк на свободную лицензию, которой нет.
           Не знаем автора — не называем его (§4.0). */}
-      {place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license || place.photoAttribution.otherAuthors.length > 0) && (
+      {/* Кадр галереи — подпись его автора и только его (04.10, владелец:
+          «если фото Ильи — то и подпись его, если моя — владелец платформы»).
+          Автора кадра не знаем — подписи нет, имя героя ему не приписываем. */}
+      {currentPhoto && currentPhoto in place.photoCredits && !isHeroPhoto(currentPhoto) ? (
+        place.photoCredits[currentPhoto] ? (
+          <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
+            Фото: <span>{place.photoCredits[currentPhoto]}</span>
+          </div>
+        ) : null
+      ) : place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license) && (
         <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
           Фото:{' '}
           {place.photoAttribution.author && (
@@ -346,14 +363,6 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 <span>{place.photoAttribution.license}</span>
               )}
             </>
-          )}
-          {/* Авторы кадров галереи (04.10): чужой кадр без своего имени здесь
-              выходил под именем автора героя. */}
-          {place.photoAttribution.otherAuthors.length > 0 && (
-            <span>
-              {place.photoAttribution.author || place.photoAttribution.license ? ', ' : ''}
-              {place.photoAttribution.otherAuthors.join(', ')}
-            </span>
           )}
           {/* Источник без автора и лицензии подписью не является, но ссылка
               на него полезна — она есть в блоке выше, когда автор известен. */}

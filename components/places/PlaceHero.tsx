@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowLeft, Copy, Check, Images } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { LOCATION_TYPE_LABELS } from './types';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 
@@ -30,9 +30,14 @@ interface Props {
    * карточка, и «не знаем» — это отсутствие строки, а не прочерк (§4.0).
    */
   facts?: Array<{ label: string; value: string }>;
+  /**
+   * Какой кадр сейчас на экране — карточке, чтобы подпись «Фото:» называла
+   * автора именно его (04.10, владелец: «если фото Ильи — то и подпись его»).
+   */
+  onCurrentChange?: (src: string | null) => void;
 }
 
-export default function PlaceHero({ placeId, name, locationType, lat, lng, photoUrl, photoCount, images, facts }: Props) {
+export default function PlaceHero({ placeId, name, locationType, lat, lng, photoUrl, photoCount, images, facts, onCurrentChange }: Props) {
   const [copied, setCopied] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -68,6 +73,8 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
   const gallery = allSources.filter(s => !broken.has(s));
   const isGallery = gallery.length > 1;
   const markBroken = (src: string) => setBroken(prev => (prev.has(src) ? prev : new Set(prev).add(src)));
+  const currentSrc = gallery[Math.min(currentIdx, gallery.length - 1)] ?? null;
+  useEffect(() => { onCurrentChange?.(currentSrc); }, [currentSrc, onCurrentChange]);
 
   function copyCoords() {
     navigator.clipboard?.writeText(coordStr).then(() => {

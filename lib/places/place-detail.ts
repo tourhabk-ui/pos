@@ -118,12 +118,11 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
                  ), '[]'::json)
             FROM place_gallery_photos g
            WHERE g.ark_id = p.ark_id) AS gallery_urls,
-         -- Авторы галереи — в подпись «Фото:» рядом с автором героя (04.10).
-         (SELECT COALESCE(json_agg(ga.author ORDER BY ga.first_pos), '[]'::json)
-            FROM (SELECT btrim(g.author) AS author, MIN(g.position) AS first_pos
-                    FROM place_gallery_photos g
-                   WHERE g.ark_id = p.ark_id AND NULLIF(btrim(g.author), '') IS NOT NULL
-                   GROUP BY btrim(g.author)) ga) AS gallery_authors,
+         -- Автор каждого кадра галереи, тем же порядком, что gallery_urls:
+         -- подпись под фото называет автора ТОГО кадра, что на экране (04.10).
+         (SELECT COALESCE(json_agg(NULLIF(btrim(g.author), '') ORDER BY g.position), '[]'::json)
+            FROM place_gallery_photos g
+           WHERE g.ark_id = p.ark_id) AS gallery_authors,
          ai.model      AS photo_model,
          ai.author     AS photo_author,
          ai.license    AS photo_license,
@@ -377,6 +376,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // «возьму фотки у вулканологов»), это прямое нарушение условий:
         // лицензия почти всегда требует видимого указания автора.
         photoAttribution: photoAttributionOf(r),
+        photoCredits: photoCreditsOf(r),
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
         accessInfo: r.access_info as string | null,
@@ -517,23 +517,42 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 }
 
 /**
- * Подпись «Фото:» — автор героя, лицензия и авторы галереи. Чужой кадр в
- * галерее без своего имени в подписи выходил бы под именем автора героя
- * (04.10, Козельский). Не знаем никого — подписи нет (§4.0).
+ * Подпись «Фото:» героя — автор, лицензия, источник. Не знаем ни автора, ни
+ * лицензии — подписи нет (§4.0).
  */
 export function photoAttributionOf(r: Record<string, unknown>): PlacePhotoAttribution | null {
   const author = typeof r.photo_author === 'string' && r.photo_author.trim() ? r.photo_author.trim() : null;
   const license = typeof r.photo_license === 'string' && r.photo_license ? r.photo_license : null;
-  const gallery = Array.isArray(r.gallery_authors) ? r.gallery_authors : [];
-  const otherAuthors = gallery
-    .filter((a): a is string => typeof a === 'string' && a.trim() !== '' && a.trim() !== author)
-    .map(a => a.trim());
-  if (!author && !license && otherAuthors.length === 0) return null;
+  if (!author && !license) return null;
   return {
     author,
     license,
     licenseUrl: (r.photo_license_url as string | null) ?? null,
     sourceUrl: (r.photo_source_url as string | null) ?? null,
-    otherAuthors,
   };
+}
+
+/**
+ * Автор КАЖДОГО кадра — по адресу, которым кадр отдаётся в images (04.10).
+ *
+ * Владелец: «если фото Ильи — то и подпись его, если моя — владелец
+ * платформы». Подпись одна на героя и галерею называла автора героя под
+ * любым кадром. Адрес без автора — null: под таким кадром подписи нет, чужое
+ * имя ему не приписывается.
+ */
+export function photoCreditsOf(r: Record<string, unknown>): Record<string, string | null> {
+  const credits: Record<string, string | null> = {};
+  const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
+  if (Number(r.photo_count) > 0) {
+    credits[`/api/images/route/${String(r.ark_id)}${v}`] =
+      typeof r.photo_author === 'string' && r.photo_author.trim() ? r.photo_author.trim() : null;
+  }
+  const urls = Array.isArray(r.gallery_urls) ? r.gallery_urls : [];
+  const authors = Array.isArray(r.gallery_authors) ? r.gallery_authors : [];
+  urls.forEach((u, i) => {
+    if (typeof u !== 'string') return;
+    const a = authors[i];
+    credits[u] = typeof a === 'string' && a.trim() ? a.trim() : null;
+  });
+  return credits;
 }

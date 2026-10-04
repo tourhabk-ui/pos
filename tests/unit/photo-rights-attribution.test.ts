@@ -102,8 +102,8 @@ describe('ручная загрузка записывает права', () => 
 
 describe('подпись следует за данными, а не за именем модели', () => {
   it('условие атрибуции не упоминает wikimedia', () => {
-    // С 04.10 условие живёт в photoAttributionOf: к автору и лицензии героя
-    // добавились авторы галереи (кадр Ильи Оноприйчука на Козельском).
+    // С 04.10 условие живёт в photoAttributionOf; авторы кадров галереи —
+    // отдельно, по кадру (photoCreditsOf).
     expect(API).toContain('photoAttribution: photoAttributionOf(r)');
     const at = API.indexOf('export function photoAttributionOf');
     expect(at).toBeGreaterThan(-1);
@@ -111,7 +111,7 @@ describe('подпись следует за данными, а не за име
     expect(fn, 'снимок ручной загрузки обязан подписываться так же')
       .not.toContain("'wikimedia'");
     expect(fn).not.toContain('photo_model');
-    expect(fn).toContain('if (!author && !license && otherAuthors.length === 0) return null;');
+    expect(fn).toContain('if (!author && !license) return null;');
   });
 });
 

@@ -23,6 +23,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { stripFillerLead } from '@/lib/text/filler-lead';
+import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 
 export const dynamic = 'force-dynamic';
 
@@ -286,6 +287,14 @@ export async function GET(
       throw err;
     });
 
+    // Своих кадров нет — кадры точек пути (§10, 04.10: «Вулкан Козельский»
+    // открывался компасом при трёх снимках места). Отказ не роняет карточку,
+    // но и не глушится: в лог с именем части, на экране — честная заглушка.
+    const ownPhotos = (Array.isArray(payload.photos) && payload.photos.length > 0) || Boolean(r.has_real_image);
+    const waypointPhotos: WaypointPhotos | null = ownPhotos ? null : await query(WAYPOINT_PHOTOS_SQL, [routeDbId])
+      .then(res => toWaypointPhotos(res.rows as Array<{ url: unknown; author: unknown; place_name: unknown }>))
+      .catch((err: unknown) => { logQueryFailure('waypoint_photos', err, id); return null; });
+
     // Оперативные ограничения точек маршрута: точечные сообщения
     // (alert_message из PATCH /api/admin/places/[id]/status и миграций),
     // закрытия (is_open=false) и зонные алерты (active_alerts из
@@ -468,6 +477,7 @@ export async function GET(
         photos:      (payload.photos as string[] | null) ?? null,
         kuzmichReview: (r.kuzmich_review as string | null) ?? null,
         hasRealImage: Boolean(r.has_real_image),
+        waypointPhotos: waypointPhotos && waypointPhotos.urls.length > 0 ? waypointPhotos : null,
         mchsRequired:    (r.mchs_registration_required as boolean | null) ?? false,
         mchsPhone:       (r.mchs_phone as string | null) ?? null,
         parkName:        (r.park_name as string | null) ?? null,
