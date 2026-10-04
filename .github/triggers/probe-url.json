@@ -1,10 +1,13 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Карточка «Скалы Три Брата»: маршруты места (ищем маршрут поля и его точки).",
-  "run": 700,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Маршрут «Скалы Три Брата» (7ae7d778): точки, линия, координаты.",
+  "run": 701,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 90000,
-  "urls": ["https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0"]
+  "bytes": 100,
+  "urls": ["https://vedarai.ru/api/routes/7ae7d778-2cdc-4655-8c9c-0dc36713a278"],
+  "around": ["\"waypoints\":", "\"placeName\":", "\"geometry\":", "\"lat\":"],
+  "aroundLines": 0,
+  "aroundHits": 12
 }
