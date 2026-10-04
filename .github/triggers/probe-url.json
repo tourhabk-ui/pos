@@ -1,18 +1,15 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Погода по районам: наши зоны (wttr.in) против Open-Meteo в тех же точках; что отдают meteoalert.meteoinfo.ru и kammeteo.ru.",
-  "run": 708,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Откуда kammeteo.ru берёт предупреждения (meteoa_script.js) — адрес JSON meteoalert.",
+  "run": 709,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 4000,
+  "bytes": 6000,
   "urls": [
-    "https://vedarai.ru/api/weather/zones",
-    "https://api.open-meteo.com/v1/forecast?latitude=52.4,53.5,55.8,56.3,53.3,52.1&longitude=158.3,159.0,160.3,160.8,158.8,157.8&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,weather_code&wind_speed_unit=kmh&timezone=Asia%2FKamchatka",
-    "https://meteoalert.meteoinfo.ru/",
-    "http://www.kammeteo.ru/"
+    "http://www.kammeteo.ru/meteoa_script.js"
   ],
-  "around": ["json", "api", "Камчат", "ветер", "Петропавловск"],
-  "aroundLines": 0,
-  "aroundHits": 6
+  "around": ["http", "json", "url", ".php", "fetch", "ajax"],
+  "aroundLines": 1,
+  "aroundHits": 10
 }
