@@ -1,18 +1,23 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Повтор 680 после выката: герой Кайнырана без двойного имени (ждём, пока исчезнет имя внутри заглушки), затем перепись профилей.",
-  "run": 681,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Источник для замены сочинённого описания «Этническое стойбище Кайныран»: официальный портал visitkamchatka.ru.",
+  "run": 682,
   "timeout": 60,
   "retries": 1,
-  "retryDelay": 60,
+  "retryDelay": 15,
   "allowStale": true,
-  "bytes": 800,
+  "bytes": 200,
   "urls": [
-    "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00",
-    "https://vedarai.ru/api/cron/safety-profile-census"
+    "https://visitkamchatka.ru/camps/etnokulturnyy-kompleks-kaynyran/"
   ],
-  "grep": [
-    "line-clamp-3\">Этническое",
-    "\"unknown\":43",
-    "type_template"
-  ]
+  "around": [
+    "Кайныран",
+    "коряк",
+    "Раздольн",
+    "медвеж",
+    "озер",
+    "собак",
+    "км"
+  ],
+  "aroundLines": 2,
+  "aroundHits": 6
 }
