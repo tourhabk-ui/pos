@@ -335,9 +335,11 @@ describe('дружелюбие не отменило тревогу', () => {
 
 describe('район называется словами, а не кодом (аудит UI/UX 29.09)', () => {
   const FACTS = readFileSync(join(process.cwd(), 'components/places/PlaceFacts.tsx'), 'utf-8');
+  const LABELS = readFileSync(join(process.cwd(), 'lib/places/zone-labels.ts'), 'utf-8');
   it('коды сейсмо-зон подписаны', () => {
-    expect(FACTS).toMatch(/eastern:\s*'Восточное побережье'/);
-    expect(FACTS).toMatch(/western:\s*'Западное побережье'/);
+    expect(FACTS).toContain("from '@/lib/places/zone-labels'");
+    expect(LABELS).toMatch(/eastern:\s*'Восточное побережье'/);
+    expect(LABELS).toMatch(/western:\s*'Западное побережье'/);
   });
   it('неподписанный код не выводится как есть', () => {
     expect(FACTS).not.toMatch(/ZONE_LABELS\[zone\] \?\? zone/);

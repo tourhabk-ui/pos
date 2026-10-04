@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Route, ChevronRight } from 'lucide-react';
 import type { PlaceRoute } from './types';
+import { routeDifficultyLabel } from '@/lib/places/zone-labels';
 
 interface Props {
   routes: PlaceRoute[];
@@ -58,9 +59,9 @@ function RouteList({ title, note, routes }: { title: string; note?: string; rout
                 {r.title}
               </p>
               <div className="flex items-center gap-3 mt-1 text-xs text-[var(--text-muted)]">
-                {r.difficulty && (
+                {r.difficulty && routeDifficultyLabel(r.difficulty) && (
                   <span className={DIFFICULTY_COLORS[r.difficulty] ?? ''}>
-                    {r.difficulty}
+                    {routeDifficultyLabel(r.difficulty)}
                   </span>
                 )}
                 {r.distanceKm != null && <span>длина {r.distanceKm} км</span>}
