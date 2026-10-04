@@ -1,15 +1,12 @@
 {
   "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Козельский вулкан: id и текущие снимки (под кадр Ильи Оноприйчука).",
-  "run": 692,
+  "run": 693,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 100,
+  "bytes": 60000,
   "urls": [
-    "https://vedarai.ru/api/routes?kind=place&q=%D0%9A%D0%BE%D0%B7%D0%B5%D0%BB%D1%8C%D1%81%D0%BA&limit=10"
-  ],
-  "around": ["\"id\":", "\"title\":", "\"locationType\":"],
-  "aroundLines": 0,
-  "aroundHits": 20
+    "https://vedarai.ru/api/routes?kind=place&q=%D0%9A%D0%BE%D0%B7%D0%B5%D0%BB%D1%8C%D1%81%D0%BA%D0%B8%D0%B9&limit=3"
+  ]
 }
