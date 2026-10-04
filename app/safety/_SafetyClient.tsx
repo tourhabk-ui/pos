@@ -931,9 +931,12 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {EMERGENCY_CONTACTS.map(c => (
-            <div key={c.number} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{c.name}</span>
-              <a href={`tel:${c.number.replace(/\s/g, '')}`} style={{ fontWeight: 700, color: 'var(--danger)', fontSize: 13, textDecoration: 'none' }}>{c.number}</a>
+            <div key={c.number} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              {/* Номер — одной строкой (04.10, владелец: «не на 2 строчки сам
+                  номер»): переносится подпись, а не цифры. Разорванный номер
+                  читается как два и набирается с ошибкой. */}
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, flex: 1, minWidth: 0 }}>{c.name}</span>
+              <a href={`tel:${c.number.replace(/\s/g, '')}`} style={{ fontWeight: 700, color: 'var(--danger)', fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{c.number}</a>
             </div>
           ))}
         </div>
