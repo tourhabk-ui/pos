@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const res = await fetch(
-      'https://wttr.in/Petropavlovsk-Kamchatsky?format=j1',
+      // lang=ru: без него wttr.in не отдаёт lang_ru, и на радаре стояло «Sunny» (04.10).
+      'https://wttr.in/Petropavlovsk-Kamchatsky?format=j1&lang=ru',
       { signal: AbortSignal.timeout(8000) }
     );
     if (!res.ok) {
@@ -42,7 +43,9 @@ export async function GET(request: NextRequest) {
     const data = {
       tempC: cur.temp_C,
       feelsLikeC: cur.FeelsLikeC,
-      desc: cur.lang_ru?.[0]?.value || cur.weatherDesc?.[0]?.value || '—',
+      // Описание — только по-русски. Нет русского — пусто, а не английское
+      // слово посреди русского экрана: температура и ветер говорят сами.
+      desc: cur.lang_ru?.[0]?.value?.trim() || '',
       humidity: cur.humidity,
       windKmph: cur.windspeedKmph,
       updatedAt: new Date().toISOString(),
@@ -50,7 +53,8 @@ export async function GET(request: NextRequest) {
     const ts = Date.now();
     cache = { data, ts };
     return NextResponse.json({ ...data, checked_at: new Date(ts).toISOString(), from_cache: false });
-  } catch {
+  } catch (err) {
+    console.error('[safety/weather] wttr.in не ответил', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'Не удалось загрузить прогноз погоды' }, { status: 502 });
   }
 }
