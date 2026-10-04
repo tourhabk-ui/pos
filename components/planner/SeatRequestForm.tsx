@@ -64,12 +64,14 @@ interface Created {
 }
 
 export function SeatRequestForm({
-  tour, defaultDate, defaultParticipants, onClose,
+  tour, defaultDate, defaultParticipants, onClose, source = 'planner',
 }: {
   tour: { id: string; title: string };
   defaultDate: string;
   defaultParticipants: number;
   onClose: () => void;
+  /** Откуда открыта форма — пишется в запрос (карточка тура или планер). */
+  source?: 'planner' | 'tour_card';
 }) {
   const [date, setDate] = useState(defaultDate);
   // Строка, а не число: поле можно стереть и набрать заново; «пустое» не
@@ -153,6 +155,7 @@ export function SeatRequestForm({
           tourist_name: name, tourist_phone: phone,
           reply_channel: channel, pd_consent: consent,
           referral_code: agentReferralForBooking(window.location.search, Date.now()) ?? undefined,
+          source,
         }),
       });
       const body = await res.json().catch(() => null) as

@@ -7,6 +7,7 @@ import { tourDurationDays } from '@/lib/bookings/duration';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
+import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
@@ -34,6 +35,15 @@ interface BookingFormProps {
    * «не записаны», и строка честно говорит о полном возврате.
    */
   cancellationTerms?: TourRefundTerms | null;
+  /**
+   * У тура нет расписания, а у оператора есть мессенджер (решает страница
+   * тура, 04.10). Тогда первый путь — спросить места: оператор отвечает
+   * кнопкой до 2 часов, «Есть места» сразу заводит подтверждённую бронь и
+   * открывает оплату. Раньше карточка давала ввести дату вслепую и заводила
+   * обычную заявку, которую оператор видел как бронь на неизвестно чью дату.
+   * Обычная заявка остаётся одной кнопкой ниже.
+   */
+  askSeatsFirst?: boolean;
 }
 
 /** Неразрывный пробел перед ₽: «52 000 / ₽» на двух строках — аудит 24.09. */
@@ -59,8 +69,10 @@ interface FormError {
   kind: 'validation' | 'send';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate, cancellationTerms }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate, cancellationTerms, askSeatsFirst = false }: BookingFormProps) {
   const router = useRouter();
+  const [plainBooking, setPlainBooking] = useState(!askSeatsFirst);
+  const [seatsOpen, setSeatsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -303,6 +315,37 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   };
 
   const maxOpts = Math.min(maxParticipants, 12);
+
+  if (!plainBooking) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="ds-h2 mb-0.5">Спросить свободные места</h2>
+          {tourTitle && <p className="text-sm text-[var(--text-secondary)]">{tourTitle}</p>}
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+          У этого тура нет расписания: оператор собирает группы под запрос. Назовите дату и число людей —
+          оператор ответит в мессенджер в течение 2 часов. Если места есть, бронь сразу станет подтверждённой,
+          и по ссылке из ответа её можно будет оплатить.
+        </p>
+        <button type="button" className="ds-btn ds-btn-primary w-full" onClick={() => { markFunnelStart(); setSeatsOpen(true); }}>
+          Спросить места у оператора
+        </button>
+        <button type="button" className="inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline" onClick={() => setPlainBooking(true)}>
+          Оставить обычную заявку
+        </button>
+        {seatsOpen && (
+          <SeatRequestForm
+            tour={{ id: String(tourId), title: tourTitle ?? 'Тур' }}
+            defaultDate={initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : ''}
+            defaultParticipants={1}
+            onClose={() => setSeatsOpen(false)}
+            source="tour_card"
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     // Без ds-card: форма стоит внутри карточки aside (_TourDetailClient), и
