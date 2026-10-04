@@ -14,13 +14,14 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 const SOS = read('app/sos/page.tsx');
 
 describe('/sos: чат на экране', () => {
-  it('есть, и в тёмной теме — экран SOS тёмный всегда', () => {
+  it('есть, в манере экрана SOS — без острова темы, который переопределил бы --accent/--danger', () => {
     expect(SOS).toContain("import RescueChat from '@/components/safety/RescueChat'");
-    expect(SOS).toMatch(/<div data-theme="dark">\s*<RescueChat \/>/);
+    expect(SOS).toContain('<RescueChat surface="sos" />');
+    expect(SOS).not.toMatch(/<[a-z]+[^>]*\sdata-theme="dark"/);
   });
 
   it('ниже звонка 112, отправки координат и шагов «Что делать»', () => {
-    const chat = SOS.indexOf('<RescueChat />');
+    const chat = SOS.indexOf('<RescueChat surface="sos" />');
     for (const before of ['Позвонить', 'Что делать\n', 'SosQrScanner />']) {
       const at = SOS.indexOf(before);
       expect(at, `не найдено «${before.trim()}»`).toBeGreaterThan(-1);

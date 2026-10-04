@@ -22,7 +22,32 @@ interface RescueMsg {
   streaming?: boolean;
 }
 
-export default function RescueChat({ className, style }: { className?: string; style?: React.CSSProperties }) {
+/**
+ * Поверхность. `card` — карточка дизайн-системы (радар). `sos` — экран SOS,
+ * тёмный всегда, в той же манере, что остальные блоки /sos (белая альфа на
+ * тёмном). Не `data-theme="dark"`: он переопределял бы --accent и --danger на
+ * острове, а на экране SOS цвет тревоги и кнопок обязан быть одним (token-gate).
+ */
+type Surface = 'card' | 'sos';
+
+const SKIN: Record<Surface, {
+  box: React.CSSProperties; title: string; sub: string; muted: string; line: string;
+  bubble: string; bubbleText: string; input: React.CSSProperties;
+}> = {
+  card: {
+    box: {}, title: 'var(--text-primary)', sub: 'var(--text-secondary)', muted: 'var(--text-muted)',
+    line: '1px solid var(--border)', bubble: 'var(--bg-hover)', bubbleText: 'var(--text-primary)', input: {},
+  },
+  sos: {
+    box: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12 },
+    title: 'rgba(255,255,255,0.92)', sub: 'rgba(255,255,255,0.55)', muted: 'rgba(255,255,255,0.45)',
+    line: '1px solid rgba(255,255,255,0.1)', bubble: 'rgba(255,255,255,0.08)', bubbleText: 'rgba(255,255,255,0.9)',
+    input: { background: 'rgba(255,255,255,0.06)', color: 'white', borderColor: 'rgba(255,255,255,0.15)' },
+  },
+};
+
+export default function RescueChat({ className, style, surface = 'card' }: { className?: string; style?: React.CSSProperties; surface?: Surface }) {
+  const k = SKIN[surface];
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<RescueMsg[]>([]);
@@ -99,7 +124,7 @@ export default function RescueChat({ className, style }: { className?: string; s
   }, [input, loading, messages]);
 
   return (
-    <div className={`ds-card ${className ?? ''}`} style={{ overflow: 'hidden', ...style }}>
+    <div className={`${surface === 'card' ? 'ds-card ' : ''}${className ?? ''}`} style={{ overflow: 'hidden', ...k.box, ...style }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -108,26 +133,26 @@ export default function RescueChat({ className, style }: { className?: string; s
       >
         <Bot size={16} color="var(--ocean)" />
         <div style={{ textAlign: 'left' }}>
-          <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>AI Спасатель</div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Экстренные протоколы · работает офлайн</div>
+          <div style={{ fontWeight: 600, color: k.title, fontSize: 14 }}>AI Спасатель</div>
+          <div style={{ color: k.sub, fontSize: 11 }}>Экстренные протоколы · работает офлайн</div>
         </div>
-        <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>
+        <span style={{ marginLeft: 'auto', color: k.sub }}>
           {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </span>
       </button>
 
       {open && (
-        <div style={{ borderTop: '1px solid var(--border)' }}>
+        <div style={{ borderTop: k.line }}>
           <div style={{ height: 240, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {messages.length === 0 && (
-              <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>Опишите ситуацию: медведь, травма, потеря, гипотермия, землетрясение...</p>
+              <p style={{ color: k.muted, fontSize: 12, margin: 0 }}>Опишите ситуацию: медведь, травма, потеря, гипотермия, землетрясение...</p>
             )}
             {messages.map((m, i) => (
               <div key={i} style={{
                 alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                 maxWidth: '85%',
-                background: m.role === 'user' ? 'var(--ocean)' : 'var(--bg-hover)',
-                color: m.role === 'user' ? '#fff' : 'var(--text-primary)',
+                background: m.role === 'user' ? 'var(--ocean)' : k.bubble,
+                color: m.role === 'user' ? '#fff' : k.bubbleText,
                 padding: '8px 12px',
                 borderRadius: 10,
                 fontSize: 13,
@@ -138,10 +163,10 @@ export default function RescueChat({ className, style }: { className?: string; s
             ))}
             <div ref={endRef} />
           </div>
-          <div style={{ borderTop: '1px solid var(--border)', display: 'flex', gap: 8, padding: '10px 12px' }}>
+          <div style={{ borderTop: k.line, display: 'flex', gap: 8, padding: '10px 12px' }}>
             <input
               className="ds-input"
-              style={{ flex: 1, fontSize: 13 }}
+              style={{ flex: 1, fontSize: 13, ...k.input }}
               placeholder="Что происходит?"
               aria-label="Опишите ситуацию"
               value={input}
