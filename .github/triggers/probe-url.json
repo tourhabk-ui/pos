@@ -1,6 +1,6 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Смотровая на Три Брата (60b06659) — координата; Халактырский пляж (49a1d46a) — маршруты места.",
-  "run": 703,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Долгота смотровой на Три Брата; точки маршрута поля «Скалы Три Брата» с координатами.",
+  "run": 704,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
@@ -8,9 +8,13 @@
   "bytes": 100,
   "urls": [
     "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739",
-    "https://vedarai.ru/api/places/49a1d46a-704b-4307-bb6a-fea5988ec4f8"
+    "https://vedarai.ru/api/routes/7ae7d778-2cdc-4655-8c9c-0dc36713a278"
   ],
-  "around": ["\"lat\":", "\"coordSource\":", "\"routes\":"],
+  "around": [
+    "\"lng\":",
+    "\"linkKind\":",
+    "\"isStart\":"
+  ],
   "aroundLines": 0,
-  "aroundHits": 2
+  "aroundHits": 14
 }
