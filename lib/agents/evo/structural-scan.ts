@@ -234,10 +234,10 @@ export function findUnattributedAffiliateLinks(bodies: Map<string, string>): Gro
         description:
           `${path} ведёт на партнёрские сервисы, но в файле нет ни erid, ни пометки «Реклама». ` +
           `Для рекламы в интернете маркировка обязательна; соседние блоки платформы ` +
-          `(RouteAffiliateBlock, YandexTravelBlock) её несут — расхождение механическое.`,
+          `(RouteAffiliateBlock) её несут — расхождение механическое.`,
         suggestion:
           `Добавить erid в ссылки и подпись «Реклама» с реквизитами рекламодателя — по образцу ` +
-          `YandexTravelBlock. Если erid не получен, ссылку не публиковать.`,
+          `RouteAffiliateBlock. Если erid не получен, ссылку не публиковать.`,
       });
     }
   }

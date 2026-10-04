@@ -16,7 +16,7 @@ interface Service {
   activities?: string[];
 }
 
-// 8 сервисов, все работают в РФ. Порядок = приоритет для туриста на Камчатке.
+// 7 сервисов, все работают в РФ (Яндекс Путешествия сняты 04.10 — соглашение прекращено). Порядок = приоритет для туриста на Камчатке.
 const SERVICES: Service[] = [
   {
     key: 'aviasales',
@@ -25,14 +25,6 @@ const SERVICES: Service[] = [
     desc: 'Aviasales — лучшие цены на рейсы до PKC',
     url: `https://www.aviasales.ru/search/MOW0000PKC1?marker=${MARKER}`,
     color: 'var(--ocean)',
-  },
-  {
-    key: 'yandex_travel',
-    icon: Navigation,
-    label: 'Яндекс Путешествия',
-    desc: 'Отели, билеты, туры — всё в одном',
-    url: `https://yandex.travel/hotels/petropavlovsk-kamchatsky/?clid=4910087&affiliate_vid=${MARKER}&erid=2VtzqvFodjU&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedarai.ru&utm_medium=cpa&utm_source=travelpayouts`,
-    color: 'var(--accent)',
   },
   {
     key: 'ostrovok',
@@ -154,7 +146,7 @@ export default function RouteAffiliateBlock({ activityType, routeId }: Props) {
       </div>
       <p className="mt-3 text-[9px] leading-relaxed" style={{ color: 'var(--text-muted)', opacity: 0.55 }}>
         Реклама. ООО «КЕХ еКоммерц», ИНН: 7710668349. Go Travel Un Limited, ИНН: 9909520797.
-        Flight Marketplace Admin FZE, ИНН: 9909618947. ООО «Яндекс Вертикали», ИНН: 7736207543.
+        Flight Marketplace Admin FZE, ИНН: 9909618947.
         ООО «Спутник», ИНН: 7814547081.
       </p>
     </section>

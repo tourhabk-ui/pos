@@ -27,7 +27,6 @@ const read = (p: string) => readFileSync(abs(p), 'utf-8');
 
 const PARTNERS_PAGE = read('app/partners/_PartnersClient.tsx');
 const AFFILIATE = read('components/routes/RouteAffiliateBlock.tsx');
-const YANDEX = read('components/routes/YandexTravelBlock.tsx');
 const TOUR = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 
 const REMOVED = [
@@ -56,16 +55,16 @@ describe('выдуманные блоки не вернулись', () => {
 
   it('вместо них — блок с реальными партнёрскими ссылками', () => {
     expect(PARTNERS_PAGE).toContain('RouteAffiliateBlock');
-    expect(PARTNERS_PAGE).toContain('YandexTravelBlock');
+  });
+
+  it('Яндекс Путешествия сняты: соглашение прекращено Яндексом (04.10)', () => {
+    expect(existsSync(abs('components/routes/YandexTravelBlock.tsx'))).toBe(false);
+    expect(PARTNERS_PAGE).not.toContain('YandexTravelBlock');
+    expect(AFFILIATE).not.toMatch(/yandex\.travel|clid=|Яндекс Вертикали/);
   });
 });
 
 describe('живые блоки размечены как реклама', () => {
-  it('Яндекс-блок несёт erid и пометку', () => {
-    expect(YANDEX).toContain('erid=');
-    expect(YANDEX).toContain('Реклама');
-  });
-
   it('партнёрский блок несёт пометку с реквизитами', () => {
     expect(AFFILIATE).toContain('Реклама');
     expect(AFFILIATE).toContain('ИНН');
