@@ -32,6 +32,9 @@ interface ErrorRow {
   first_at: string;
   last_at: string;
   last_message: string | null;
+  paths: string[] | null;
+  last_digest: string | null;
+  last_stack: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -54,7 +57,12 @@ export async function GET(request: NextRequest) {
               COUNT(*)::int AS n,
               MIN(created_at)::text AS first_at,
               MAX(created_at)::text AS last_at,
-              (ARRAY_AGG(metadata->>'message' ORDER BY created_at DESC))[1] AS last_message
+              (ARRAY_AGG(metadata->>'message' ORDER BY created_at DESC))[1] AS last_message,
+              -- Конкретные адреса и digest (с 03.10): без них замазанная
+              -- ошибка рендера не воспроизводится. Старые строки — NULL.
+              (ARRAY_REMOVE(ARRAY_AGG(DISTINCT metadata->>'path'), NULL))[1:10] AS paths,
+              (ARRAY_AGG(metadata->>'digest' ORDER BY created_at DESC))[1] AS last_digest,
+              (ARRAY_AGG(metadata->>'stack' ORDER BY created_at DESC))[1] AS last_stack
          FROM ai_actions_log
         WHERE action_type = 'server_error'
           AND created_at > NOW() - make_interval(hours => $1)

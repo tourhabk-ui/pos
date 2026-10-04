@@ -1,11 +1,11 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 85,
-  "why": "03.10: (1) повтор отменённого run 83 — журнал ошибок 500 /routes/[id] за неделю; (2) маршрут «Дикие озерки» f047831e — откуда начинается линия (старт от Кеткино или Малинки).",
+  "run": 86,
+  "why": "04.10 01:20: после смены пароля gen_user прод не ходит в БД (MCP: «внутренняя ошибка», safety_status — источник недоступен). Нужна причина отказа: prod-errors отдаёт текст ошибки pg при сбое запроса.",
   "urls": [
-    "https://vedarai.ru/api/cron/prod-errors?hours=168&route=%2Froutes%2F%5Bid%5D",
-    "https://vedarai.ru/api/cron/prod-errors?hours=168",
-    "https://vedarai.ru/api/routes/f047831e-8d23-49fc-8ca4-4e23970ef0c6"
+    "https://vedarai.ru/api/health/db",
+    "https://vedarai.ru/api/cron/prod-errors?hours=1",
+    "https://vedarai.ru/api/health"
   ],
   "run67_result": "ПЕРВЫЙ ПРОД-ЗАМЕР СНИМКА (workflow run 36558603194, 29.09 11:31 UTC, HTTP 200, 16587 байт): ok true, failed []. Туры 8 из 8: цена, единица (per_person / per_day_per_person / per_tour), оператор, тип, места и ближайшая дата у MCP и сайта совпали. Даты тура 27: 29.09 и 30.09, по 12 мест, обе стороны. Вулканы: цвета KVERT и КФ ЕГС, пепел, дата наблюдения у всех восьми совпали, Чикурачки по-русски; aggregates: kvert_watched 20 и elevated_kvert_only 5 у обеих сторон, elevated_any_scale 8 у MCP (у сайта null: радар degraded из-за Чикурачки без места). ЕДИНСТВЕННОЕ расхождение: safety alert_count 14 (MCP) против 5 (сайт) — разные величины (все активные против ленты решающих типов с потолком 5); исправлено разбивкой в ответе MCP (#2096). egs_events пуст у всех вулканов на обеих сторонах — разбор не знал фразы «Количество событий в районе вулкана N»; исправлено в #2096.",
   "run66_result": "ОТВЕТ ПОЛУЧЕН (workflow run 36551725462, 29.09 10:26 UTC, HTTP 200): abandoned-bookings?dry=1 — dry_run true, reminded 0, no_telegram 0, send_failed 0, mark_failed 0, cancelled 0. Сейчас нет ни брошенных броней, ни напоминаний: второй ноге мешать нечему, решение о ней за владельцем. Отметка Watchdog сухим прогоном не поставлена (проверено правкой #2088).",
