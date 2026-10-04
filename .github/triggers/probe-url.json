@@ -1,13 +1,23 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Точки маршрута «Вулкан Козельский»: род связи, имена.",
-  "run": 697,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1163: маршрут «Вулкан Козельский» берёт кадры места, автор у каждого.",
+  "run": 698,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 15,
-  "allowStale": true,
+  "retries": 40,
+  "retryDelay": 60,
+  "allowStale": false,
   "bytes": 100,
-  "urls": ["https://vedarai.ru/api/routes/a5161175-4d8b-4711-925a-de5ec03fa041"],
-  "around": ["\"linkKind\":", "\"placeName\":", "\"name\":", "\"hasRealImage\":", "\"photos\":"],
+  "urls": [
+    "https://vedarai.ru/api/routes/a5161175-4d8b-4711-925a-de5ec03fa041"
+  ],
+  "around": [
+    "\"waypointPhotos\":"
+  ],
   "aroundLines": 0,
-  "aroundHits": 12
+  "aroundHits": 1,
+  "until": "\"waypointPhotos\":{",
+  "grep": [
+    "\"waypointPhotos\":{",
+    "Илья Оноприйчук",
+    "\"linkKind\":\"waypoint\""
+  ]
 }
