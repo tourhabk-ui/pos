@@ -147,6 +147,25 @@ async function main(): Promise<number> {
     }
   }
 
+  // AI Спасатель (04.10, /sos): открыть, спросить, прочитать ответ.
+  const rescueAsk = arg('--rescue', '');
+  if (rescueAsk) {
+    await page.waitForTimeout(3_000);
+    const head = page.getByRole('button', { name: /AI Спасатель/ }).first();
+    const found = await head.scrollIntoViewIfNeeded({ timeout: 15_000 }).then(() => true, () => false);
+    console.log(`[${at()}] AI Спасатель на странице: ${found ? 'есть' : 'НЕТ'}`);
+    if (found) {
+      await head.click();
+      const input = page.getByPlaceholder('Что происходит?');
+      await input.fill(rescueAsk);
+      await input.press('Enter');
+      await page.waitForTimeout(2_500);
+      const replies = await page.locator('div[style*="pre-wrap"]').allInnerTexts();
+      console.log(`[${at()}] вопрос «${rescueAsk}» → ${replies.map(r => r.replace(/\s+/g, ' ').slice(0, 160)).join(' | ')}`);
+      await input.scrollIntoViewIfNeeded();
+    }
+  }
+
   // Долистать до блока по тексту (04.10: «Экстренные контакты» на радаре —
   // номера ниже первого экрана).
   const scrollText = arg('--scroll-text', '');
