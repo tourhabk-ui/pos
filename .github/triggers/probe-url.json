@@ -1,10 +1,18 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Перепись мест «рядом», которых маршрут называет по имени (link-kind-name-census).",
-  "run": 707,
-  "timeout": 90,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Погода по районам: наши зоны (wttr.in) против Open-Meteo в тех же точках; что отдают meteoalert.meteoinfo.ru и kammeteo.ru.",
+  "run": 708,
+  "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
-  "bytes": 60000,
-  "urls": ["https://vedarai.ru/api/cron/link-kind-name-census"]
+  "bytes": 4000,
+  "urls": [
+    "https://vedarai.ru/api/weather/zones",
+    "https://api.open-meteo.com/v1/forecast?latitude=52.4,53.5,55.8,56.3,53.3,52.1&longitude=158.3,159.0,160.3,160.8,158.8,157.8&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,weather_code&wind_speed_unit=kmh&timezone=Asia%2FKamchatka",
+    "https://meteoalert.meteoinfo.ru/",
+    "http://www.kammeteo.ru/"
+  ],
+  "around": ["json", "api", "Камчат", "ветер", "Петропавловск"],
+  "aroundLines": 0,
+  "aroundHits": 6
 }
