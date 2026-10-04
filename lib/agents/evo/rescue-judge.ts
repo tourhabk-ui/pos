@@ -18,6 +18,7 @@
 import type { ForecastResult } from '@/lib/planner/intelligence';
 import { DANGEROUS_WMO_CODES, FOG_WMO_CODES, wmoHazardLabel } from '@/lib/weather/wmo-hazard';
 import { HAZARD_THRESHOLDS, isoDate } from '@/lib/weather/ensemble';
+import { KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
 
 export type DayVerdict =
   | { kind: 'hazard'; labels: string[] }
@@ -146,7 +147,10 @@ export function matchOfficialAlerts(
     }
     for (const alert of alerts) {
       if (!activeOn(alert, day)) continue;
-      const zones = alert.affected_zones ?? [];
+      // «Юг до Петропавловска» — охват по широте, а не зона (04.10,
+      // lib/safety/krai-south.ts); зоны брони с ним не сравнить, координаты
+      // тура здесь нет — судим как неразмещённое, а не молча мимо.
+      const zones = (alert.affected_zones ?? []).filter((z) => z !== KRAI_SOUTH_ZONE);
       const flood = alert.alert_type === 'flood';
       if (zones.length === 0) {
         if (flood && water && alert.severity >= 2) matches.push({ booking, alert, unplaced: true });

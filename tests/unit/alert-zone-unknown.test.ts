@@ -84,7 +84,7 @@ describe('оба SQL-предиката читают пустые зоны ка�
   }
 
   it('незональная ветка совпадает только по ark.zone = ANY(ea.affected_zones)', () => {
-    expect(read(FILES[0])).toMatch(/AND ark\.zone = ANY\(ea\.affected_zones\)/);
+    expect(read(FILES[0])).toMatch(/AND \(\s*ark\.zone = ANY\(ea\.affected_zones\)/);
   });
 
   it('рода с точным местом в зональную ветку не падают (27.09)', () => {
