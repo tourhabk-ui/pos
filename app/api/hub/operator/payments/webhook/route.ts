@@ -10,6 +10,8 @@ import { notifyBookingPaid } from '@/lib/notifications/operator-booking';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment } from '@/lib/payments/hold-tour-payment';
 import { query, transaction } from '@/lib/database';
+import { canOfferPayment } from '@/lib/bookings/success-view';
+import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,19 +78,19 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
   // как правильный исход дубля — no-op, а не сбой.
   const inserted = await transaction(async (client) => {
     const locked = await client.query(
-      `SELECT final_price, payment_status
+      `SELECT final_price, payment_status, booking_status
          FROM operator_bookings
         WHERE id = $1 AND deleted_at IS NULL
         FOR UPDATE`,
       [bookingId],
     );
     if (locked.rows.length === 0) throw new Error(`Booking ${bookingId} not found`);
-    const booking = locked.rows[0] as { final_price: string; payment_status: string };
+    const booking = locked.rows[0] as { final_price: string; payment_status: string; booking_status: string | null };
 
     // Идемпотентность под блокировкой: решение читается уже после того, как
     // строка закреплена за нами, поэтому «уже оплачено» — окончательный факт,
     // а не гонка.
-    if (booking.payment_status === 'paid') return false;
+    if (booking.payment_status === 'paid') return null;
 
     // Защита от подмены суммы в вебхуке — на закреплённой строке.
     const expectedAmount = parseFloat(booking.final_price);
@@ -99,7 +101,10 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
     await client.query(
       `UPDATE operator_bookings
        SET payment_status = 'paid',
-           booking_status = 'confirmed',
+           -- Подтверждает оператор, не оплата: неподтверждённая бронь
+           -- остаётся в своём статусе (04.10), см. reportPaidUnconfirmed.
+           booking_status = CASE WHEN booking_status IN ('confirmed', 'pending_payment')
+                                 THEN 'confirmed' ELSE booking_status END,
            payment_id = $2,
            paid_at = NOW(),
            updated_at = NOW()
@@ -130,12 +135,20 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
       [bookingId],
     );
 
-    return true;
+    return { before: booking.booking_status };
   });
 
   // Дубль или уже оплачено — дальше идти незачем: комиссия и уведомление уже
   // были при первой обработке (оба идемпотентны, но лишний Telegram — шум).
   if (!inserted) return;
+
+  // Деньги пришли на бронь, которую нельзя было платить (обычно её отклоняет
+  // Check до списания, /api/payments/check). Факт оплаты записан выше; бронь
+  // не подтверждаем, комиссию не начисляем — решает человек.
+  if (!canOfferPayment(inserted.before)) {
+    await reportPaidUnconfirmed('operator-payments-webhook', bookingId, inserted.before, webhook.Amount);
+    return;
+  }
 
   // Комиссия платформы. Раньше этот вебхук её НЕ начислял вовсе: попадёт ли
   // оплата в учёт комиссий, зависело от того, какой из двух URL прописан в

@@ -8,11 +8,12 @@ import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
 import { z } from 'zod';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
-import { emailService } from '@/lib/notifications/email-service';
+import { sendTouristMail } from '@/lib/notifications/tourist-mail';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
+import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,6 +99,13 @@ export async function POST(req: NextRequest) {
   const authedUser = await getUserFromRequest(req);
   const userId = authedUser?.userId ?? null;
 
+  if (userId === null && !data.tourist_email) {
+    return NextResponse.json(
+      { error: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email' },
+      { status: 400 },
+    );
+  }
+
   try {
     // Бронь заводит общий модуль — тот же самый, которым бронирует Кузьмич.
     // Раньше здесь лежала своя копия транзакции, и копии разошлись: чат не
@@ -157,9 +165,11 @@ export async function POST(req: NextRequest) {
       via:             'website',
     });
 
-    // Email туристу — fire-and-forget, не блокирует ответ
+    // Email туристу — не блокирует ответ. Отказ не глушится: sendEmail не
+    // бросает, а возвращает { success: false }, и прежний .catch не ловил
+    // ничего (04.10). Лог, повтор и тревога — lib/notifications/tourist-mail.
     if (data.tourist_email) {
-      void emailService.sendEmail({
+      void sendTouristMail('bookings/create', result.bookingId, {
         to: data.tourist_email,
         subject: `Заявка №${result.bookingId} — ${result.tourTitle}`,
         // Письмо — носитель политики, а не квитанция. До 14.09 оно говорило
@@ -179,15 +189,6 @@ export async function POST(req: NextRequest) {
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть заявку</a></p>
           <p>Сохраните эту ссылку: по одному номеру заявка не открывается. Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.</p>
         `,
-      }).catch((err: unknown) => {
-        // Это письмо — единственное, что возвращает туриста к оплате: ссылка
-        // на /booking-success живёт только в нём. Молча потерять его значит
-        // молча потерять продажу.
-        console.error(
-          '[bookings/create] письмо туристу не ушло, бронь',
-          String(result.bookingId),
-          err instanceof Error ? err.message : err,
-        );
       });
     }
 

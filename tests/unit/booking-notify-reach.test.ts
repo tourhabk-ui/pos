@@ -47,7 +47,10 @@ describe('создание брони: отказ уведомления не г
     // неполной картине. Письмо туристу: ссылка на оплату живёт ТОЛЬКО в нём,
     // потерять его молча значит молча потерять продажу.
     expect(NOTIFY_OP).toMatch(/\[notify-operator\] синк U-ON не прошёл/);
-    expect(CREATE).toMatch(/\[bookings\/create\] письмо туристу не ушло/);
+    // Строка лога живёт в lib/notifications/tourist-mail (scope — имя двери):
+    // прежний .catch с этой строкой не срабатывал никогда — sendEmail не
+    // бросает, а возвращает { success: false } (04.10).
+    expect(CREATE).toMatch(/sendTouristMail\('bookings\/create'/);
   });
 
   it('на пути «заявка → оператор → оплата» не осталось пустых catch', () => {

@@ -3,6 +3,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { loadTourCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import { tourPath } from '@/lib/tours/tour-url';
+import { reachForTour } from '@/lib/partners/reach';
 import TourDetailClient from './_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 import { tourHeroImage } from '@/lib/tours/hero-image';
@@ -66,7 +67,11 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   // Пришли по числу, а у тура есть адрес — 308 на адрес: в выдаче и у
   // людей должен жить один адрес карточки (ЧПУ туров, 30.09).
   if (loaded.byId && tour.slug) permanentRedirect(tourPath(tour));
-  const [reviews, dates] = await Promise.all([getReviews(tour.id), countTourDates(tour.id)]);
+  const [reviews, dates, reach] = await Promise.all([getReviews(tour.id), countTourDates(tour.id), reachForTour(tour.id)]);
+  // Расписания нет, а оператору есть куда написать — первым путём на карточке
+  // идёт запрос мест (04.10). «Не смог прочитать» (null) — не повод менять
+  // путь: остаётся обычная заявка.
+  const askSeatsFirst = dates?.recorded === 0 && reach?.reachable === true;
 
   const structuredData = buildTourStructuredData(tour, reviews, {
     canonicalUrl: `${SITE}${tourPath(tour)}`,
@@ -81,7 +86,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <TourDetailClient tour={tour} reviews={reviews} />
+      <TourDetailClient tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} />
     </>
   );
 }

@@ -409,7 +409,7 @@ export async function answerSeatRequest(
         touristPhone: claimed.tourist_phone,
         participants: claimed.participants,
         date: claimed.tour_date,
-        specialRequests: 'Запрос свободных мест из планера: места подтверждены оператором в мессенджере.',
+        specialRequests: 'Запрос свободных мест: места подтверждены оператором в мессенджере.',
         createdVia: 'seat_request',
         metadata: { seat_request_id: claimed.id },
         referralCode: claimed.referral_code,

@@ -169,14 +169,16 @@ export default function SelectionClient({ code }: { code: string }) {
   // Booking form state
   const [name, setName]       = useState('');
   const [phone, setPhone]     = useState('');
+  const [email, setEmail]     = useState('');
   const [date, setDate]       = useState('');
   const [people, setPeople]   = useState(1);
   const [sending, setSending] = useState(false);
   const [sent, setSent]       = useState(false);
   const [bookErr, setBookErr] = useState<string | null>(null);
-  // Эта форма email не спрашивает вовсе — значит письма со ссылкой на бронь
-  // не будет никогда, а без ссылки заявку не открыть по номеру (#1889).
-  // Ключ раньше не читался из ответа совсем: турист уходил с одним «✓».
+  // До 04.10 эта форма email не спрашивала вовсе — письма со ссылкой на бронь
+  // не было никогда, а без ссылки заявку не открыть по номеру (#1889). Теперь
+  // почта обязательна (владелец 04.10): по ней приходит ссылка на оплату после
+  // подтверждения. Ссылка на экране успеха остаётся — вкладка ближе почты.
   const [bookedLink, setBookedLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -218,6 +220,7 @@ export default function SelectionClient({ code }: { code: string }) {
           tour_id:            bookTour.tour_id,
           tourist_name:       name,
           tourist_phone:      phone,
+          tourist_email:      email.trim(),
           participants_count: people,
           booking_date:       date,
         }),
@@ -387,6 +390,13 @@ export default function SelectionClient({ code }: { code: string }) {
                     <div>
                       <label className="ds-label">Телефон *</label>
                       <input className="ds-input" required type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 900 000 00 00" />
+                    </div>
+                    <div>
+                      <label className="ds-label">Email *</label>
+                      <input className="ds-input" required type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="mail@example.com" />
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        Пришлём ссылку на оплату, когда оператор подтвердит заявку.
+                      </p>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <div>

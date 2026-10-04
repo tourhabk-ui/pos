@@ -91,6 +91,7 @@ const VALID_BODY = {
   tour_id: 1,
   tourist_name: 'Иван Иванов',
   tourist_phone: '+79991234567',
+  tourist_email: 'guest@example.com',
   participants_count: 2,
   booking_date: '2099-01-01',
 };
@@ -130,6 +131,24 @@ beforeEach(() => {
 });
 
 describe('POST /api/hub/bookings/create — user_id linkage', () => {
+  it('гость без почты — 400 на поле tourist_email, бронь не создаётся (владелец 04.10)', async () => {
+    getUserFromRequestMock.mockResolvedValue(null);
+    const { tourist_email: _drop, ...noEmail } = VALID_BODY;
+    void _drop;
+    const res = await POST(postReq(noEmail));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ field: 'tourist_email' });
+    expect(clientQueryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
+  });
+
+  it('вошедший без почты — бронь создаётся: у него есть каналы аккаунта', async () => {
+    getUserFromRequestMock.mockResolvedValue({ userId: 'user-123', email: 'a@b.com', role: 'tourist' });
+    const { tourist_email: _drop, ...noEmail } = VALID_BODY;
+    void _drop;
+    const res = await POST(postReq(noEmail, { Authorization: 'Bearer faketoken' }));
+    expect(res.status).toBe(200);
+  });
+
   it('авторизованный юзер → user_id пишется в INSERT', async () => {
     getUserFromRequestMock.mockResolvedValue({ userId: 'user-123', email: 'a@b.com', role: 'tourist' });
 
