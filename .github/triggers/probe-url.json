@@ -1,22 +1,17 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Страница Кайнырана после правки сниппета: без avachinsky, с подписью района.",
-  "run": 686,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Какие ещё места каталога — стойбища и этнокомплексы (для нового типа ethnic).",
+  "run": 687,
   "timeout": 60,
-  "retries": 40,
-  "retryDelay": 60,
-  "allowStale": false,
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
   "bytes": 100,
-  "until": "на Камчатке, Авачинский.",
   "urls": [
-    "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00"
+    "https://vedarai.ru/api/routes?kind=place&q=%D1%81%D1%82%D0%BE%D0%B9%D0%B1%D0%B8%D1%89&limit=50",
+    "https://vedarai.ru/api/routes?kind=place&q=%D1%8D%D1%82%D0%BD%D0%BE&limit=50",
+    "https://vedarai.ru/api/routes?kind=place&location_type=historical&limit=100"
   ],
-  "grep": [
-    "на Камчатке, Авачинский.",
-    "avachinsky.",
-    "район: Авачинский",
-    "Медвежий угол",
-    "духи Кайнырана",
-    "Сорок километров гравия",
-    ">easy<"
-  ]
+  "around": ["\"title\":"],
+  "aroundLines": 0,
+  "aroundHits": 100
 }
