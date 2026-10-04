@@ -11,6 +11,7 @@ import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
 import { EMERGENCY_NUMBERS, EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
+import RescueChat from '@/components/safety/RescueChat';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -776,6 +777,15 @@ export default function SosPage() {
           </div>
         </div>
 
+        {/* AI Спасатель — прямо здесь (владелец 04.10: «в сос нет ai
+            спасателя»). Раньше вела ссылка в хаб: человеку в беде предлагали
+            уйти со страницы с координатами и 112. Ниже звонка, координат,
+            отправки и шагов — они главнее. Без сети отвечают офлайн-протоколы.
+            Экран SOS тёмный всегда — токены чата берём тёмные. */}
+        <div data-theme="dark">
+          <RescueChat />
+        </div>
+
         {/* Инструкции выживания — офлайн, всегда доступны */}
         <a
           href="/safety/offline"
@@ -820,7 +830,7 @@ export default function SosPage() {
           touristPhone={phone}
         />
 
-        {/* Хаб безопасности — погода, вулканы, сейсмика, AI спасатель */}
+        {/* Хаб безопасности — погода, вулканы, сейсмика (AI Спасатель — выше, на этом экране) */}
         <a
           href="/hub/safety"
           style={{
@@ -838,7 +848,7 @@ export default function SosPage() {
             fontSize: '13px',
           }}
         >
-          Вулканы · Погода · AI Спасатель
+          Вулканы · Погода · Сейсмика
         </a>
 
 
