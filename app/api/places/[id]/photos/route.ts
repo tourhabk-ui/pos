@@ -86,6 +86,15 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'Максимальный размер 10 МБ' }, { status: 400 });
   }
 
+  // Разрешение автора на публикацию — обязательно (решение владельца 04.10).
+  // Проверяется ДО хранилища: без согласия байты не должны никуда уехать.
+  if (formData.get('publish_consent') !== 'yes') {
+    return NextResponse.json(
+      { success: false, error: 'Нужно разрешение на публикацию снимка' },
+      { status: 400 },
+    );
+  }
+
   const captionRaw = formData.get('caption');
   const caption = CaptionSchema.safeParse(typeof captionRaw === 'string' ? captionRaw : undefined);
   const captionValue = caption.success ? caption.data : undefined;
@@ -148,8 +157,8 @@ export async function POST(
   const status = isAdmin ? 'approved' : 'pending';
 
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO user_place_photos (place_id, user_id, url, caption, status)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO user_place_photos (place_id, user_id, url, caption, status, publish_consent_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
      RETURNING id`,
     [placeId, auth.userId, url, captionValue ?? null, status],
   );
