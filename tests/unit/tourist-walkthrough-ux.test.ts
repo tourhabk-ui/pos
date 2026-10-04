@@ -26,18 +26,21 @@ describe('экран SOS: позвонить — первым (#1779)', () => {
     expect(coords).toBeLessThan(mesh);
   });
 
-  it('эстафета, меш и сканер — под заголовком «Если связи нет» после номеров', () => {
-    const numbers = src.indexOf('Другие службы');
+  it('эстафета, меш и сканер — под заголовком «Если связи нет» после AI Спасателя', () => {
+    // С 04.10 под шагами стоит AI Спасатель, а не список «Другие службы»
+    // (владелец: «этот блок не нужен, есть общий номер 112»).
+    const rescue = src.indexOf('<RescueChat surface="sos" />');
     const section = src.indexOf('Если связи нет');
     const scanner = src.indexOf('<SosQrScanner />');
-    expect(numbers).toBeGreaterThan(-1);
-    expect(section).toBeGreaterThan(numbers);
+    expect(rescue).toBeGreaterThan(-1);
+    expect(section).toBeGreaterThan(rescue);
     expect(scanner).toBeGreaterThan(section);
   });
 
-  it('главный номер берётся из единого источника, а не дублируется списком', () => {
+  it('на экране один номер — 112 из единого источника; списка прочих служб нет', () => {
     expect(src).toMatch(/EMERGENCY_PRIMARY/);
-    expect(src).toMatch(/SOS_CONTACTS\.filter\(\(c\) => !c\.primary\)/);
+    expect(src).not.toContain('Другие службы');
+    expect(src).not.toMatch(/SOS_CONTACTS|EMERGENCY_NUMBERS/);
   });
 
   it('серверное «уведомления не настроены» туристу не показывается', () => {

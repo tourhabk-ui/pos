@@ -20,9 +20,10 @@ describe('/sos: чат на экране', () => {
     expect(SOS).not.toMatch(/<[a-z]+[^>]*\sdata-theme="dark"/);
   });
 
-  it('ниже звонка 112, отправки координат и шагов «Что делать»', () => {
+  it('сразу под шагами «Что делать» — ниже звонка и координат, выше «Если связи нет» (владелец 04.10: «сложно найти»)', () => {
+    expect(SOS.indexOf('<RescueChat surface="sos" />')).toBeLessThan(SOS.indexOf('Если связи нет'));
     const chat = SOS.indexOf('<RescueChat surface="sos" />');
-    for (const before of ['Позвонить', 'Что делать\n', 'SosQrScanner />']) {
+    for (const before of ['Позвонить', 'Что делать\n']) {
       const at = SOS.indexOf(before);
       expect(at, `не найдено «${before.trim()}»`).toBeGreaterThan(-1);
       expect(at, `«${before.trim()}» должно стоять выше чата`).toBeLessThan(chat);
