@@ -35,9 +35,20 @@
  * глаголов пополняется в одном месте, и хранилище догоняет само.
  */
 
-import { isDailyBulletin, isRescueOperationReport, isServiceStatistics } from '@/lib/services/safety/seismic-parser';
+import { isDailyBulletin, isRescueOperationReport, isServiceStatistics, isServiceDuties, isRetrospectivePost } from '@/lib/services/safety/seismic-parser';
+import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 
-export type RejectedGenre = 'daily_bulletin' | 'rescue_report' | 'service_statistics';
+export type RejectedGenre =
+  | 'daily_bulletin' | 'rescue_report' | 'service_statistics'
+  | 'service_duties' | 'retrospective' | 'warning_ended' | 'past_forecast';
+
+/** Пустой счёт по всем жанрам — один, чтобы новый жанр не забыть в отчёте. */
+export function emptyGenreCounts(): Record<RejectedGenre, number> {
+  return {
+    daily_bulletin: 0, rescue_report: 0, service_statistics: 0,
+    service_duties: 0, retrospective: 0, warning_ended: 0, past_forecast: 0,
+  };
+}
 
 /**
  * Какой жанр отбраковал бы текст сегодня. `null` — запись законная.
@@ -52,6 +63,9 @@ function genreOf(text: string): RejectedGenre | null {
   // 07.09: отчёт службы о собственной работе за сутки. На главной висели
   // «привлекались один раз» и «…два раза» — счёт выездов там, где стоят угрозы.
   if (isServiceStatistics(text)) return 'service_statistics';
+  // 04.10: описание профессии из очерка МЧС («Спасатели участвуют в
+  // противопаводковых мероприятиях…») висело паводком на главной.
+  if (isServiceDuties(text)) return 'service_duties';
   return null;
 }
 
@@ -91,14 +105,28 @@ function genreOf(text: string): RejectedGenre | null {
  * сегодняшний страж не пропустил бы. Настоящая тревога, случайно оказавшаяся
  * в теле такой сводки, придёт своей записью со своим заголовком.
  */
-export function rejectedGenre(title: string, description = ''): RejectedGenre | null {
+export function rejectedGenre(
+  title: string,
+  description = '',
+  publishedAt: Date | null = null,
+): RejectedGenre | null {
   const head = title.trim();
   if (head !== '') {
     const byTitle = genreOf(head);
     if (byTitle) return byTitle;
+    // Окончание предупреждения и прошедший прогноз судятся ЗАГОЛОВКОМ: тело
+    // сводки может рядом объявлять новое (04.10, #2195).
+    if (isWarningEnded(head)) return 'warning_ended';
+    if (isPastForecast(head, description)) return 'past_forecast';
   }
   const whole = `${head} ${description}`.trim();
-  return whole === '' ? null : genreOf(whole);
+  if (whole === '') return null;
+  const byWhole = genreOf(whole);
+  if (byWhole) return byWhole;
+  // Очерк о прошлом событии (04.10): нужна дата публикации — без неё «давно»
+  // не от чего отсчитать, и вердикта нет (§4.0).
+  if (publishedAt && isRetrospectivePost(whole, publishedAt)) return 'retrospective';
+  return null;
 }
 
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -112,7 +140,7 @@ export interface PruneResult {
   by_genre: Record<RejectedGenre, number>;
 }
 
-interface AlertRow { id: string; title: string | null; description: string | null }
+interface AlertRow { id: string; title: string | null; description: string | null; created_at: Date | string | null }
 
 /**
  * Убирает из хранилища то, что сегодняшний страж не пропустил бы.
@@ -123,13 +151,13 @@ interface AlertRow { id: string; title: string | null; description: string | nul
  */
 export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> {
   const res = await query<AlertRow>(
-    `SELECT id::text, title, description
+    `SELECT id::text, title, description, created_at
        FROM external_alerts
       WHERE (expires_at IS NULL OR expires_at > NOW())`,
     [],
   );
 
-  const by_genre: Record<RejectedGenre, number> = { daily_bulletin: 0, rescue_report: 0, service_statistics: 0 };
+  const by_genre = emptyGenreCounts();
   const doomedIds: string[] = [];
   const doomedTitles: string[] = [];
 
@@ -137,7 +165,8 @@ export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> 
     const title = row.title ?? '';
     const description = row.description ?? '';
     if (`${title} ${description}`.trim() === '') continue;
-    const genre = rejectedGenre(title, description);
+    const published = row.created_at == null ? null : new Date(row.created_at);
+    const genre = rejectedGenre(title, description, published && !Number.isNaN(published.getTime()) ? published : null);
     if (!genre) continue;
     by_genre[genre] += 1;
     doomedIds.push(row.id);
