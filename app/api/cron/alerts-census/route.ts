@@ -60,6 +60,13 @@ import { isFeedAlertType } from '@/lib/services/safety/feed-types';
 import { isResolutionNotice } from '@/lib/safety/resolution-notice';
 
 export const dynamic = 'force-dynamic';
+
+/** Дата публикации записи для стража ретроспективы; не разобралась — null (вердикта нет). */
+function publishedOf(createdAt: string | null): Date | null {
+  if (!createdAt) return null;
+  const d = new Date(createdAt);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 export const maxDuration = 30;
 
 /**
@@ -147,7 +154,7 @@ export async function GET(request: NextRequest) {
         in_feed: isFeedAlertType(r.alert_type),
         // Приговор ТОГО ЖЕ стража, что чистит хранилище каждые пять минут.
         // null здесь при жанровом тексте на экране = страж его не узнаёт.
-        rejected_genre: `${title} ${description}`.trim() === '' ? null : rejectedGenre(title, description),
+        rejected_genre: `${title} ${description}`.trim() === '' ? null : rejectedGenre(title, description, publishedOf(r.created_at)),
         // Приговор по одному заголовку — отдельным полем. Прогон 1 показал
         // записи, где заголовок отчёт, а тело говорит о другом: разойтись эти
         // два приговора могут только так, и тогда это видно, а не гадается.
