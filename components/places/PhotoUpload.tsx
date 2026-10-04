@@ -53,7 +53,12 @@ interface Shot {
 export function PhotoUpload({ placeId, placeName }: PhotoUploadProps) {
   const [auth, setAuth] = useState<AuthState>('unknown');
   const [shots, setShots] = useState<Shot[]>([]);
-  const [caption, setCaption] = useState('');
+  // Подпись — с названием места по умолчанию (решение владельца 04.10):
+  // снимок подписан местом, даже если автор ничего не допишет.
+  const [caption, setCaption] = useState(placeName);
+  // Разрешение на публикацию — обязательная галочка (04.10); сервер без неё
+  // отказывает 400.
+  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentCount, setSentCount] = useState(0);
@@ -103,7 +108,7 @@ export function PhotoUpload({ placeId, placeName }: PhotoUploadProps) {
   };
 
   const submit = async () => {
-    if (shots.length === 0 || busy) return;
+    if (shots.length === 0 || busy || !consent) return;
     setBusy(true);
     setError(null);
 
@@ -118,6 +123,7 @@ export function PhotoUpload({ placeId, placeName }: PhotoUploadProps) {
       const fd = new FormData();
       fd.append('file', next[i].file);
       if (caption.trim()) fd.append('caption', caption.trim());
+      fd.append('publish_consent', 'yes');
       try {
         const res = await fetch(`/api/places/${placeId}/photos`, {
           method: 'POST', body: fd, credentials: 'include',
@@ -249,14 +255,30 @@ export function PhotoUpload({ placeId, placeName }: PhotoUploadProps) {
           )}
 
           {shots.length > 0 && (
-            <div className="mt-3">
-              <input
-                value={caption}
-                onChange={e => setCaption(e.target.value)}
-                placeholder="Подпись ко всем снимкам (необязательно)"
-                maxLength={300}
-                className="ds-input w-full text-sm"
-              />
+            <div className="mt-3 space-y-3">
+              <label className="block">
+                <span className="ds-label">Подпись</span>
+                <input
+                  value={caption}
+                  onChange={e => setCaption(e.target.value)}
+                  placeholder={placeName}
+                  maxLength={300}
+                  className="ds-input w-full text-sm"
+                />
+              </label>
+              <label className="flex items-start gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={e => setConsent(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+                />
+                <span>
+                  Разрешаю опубликовать эти снимки на Ведаре после проверки. Проверку
+                  ведёт и сервис распознавания изображений за пределами России — если
+                  на снимке люди, он их тоже увидит.
+                </span>
+              </label>
             </div>
           )}
 
@@ -270,8 +292,8 @@ export function PhotoUpload({ placeId, placeName }: PhotoUploadProps) {
           {shots.length > 0 && (
             <button
               onClick={() => void submit()}
-              disabled={busy}
-              className="mt-3 ds-btn ds-btn-primary w-full flex items-center justify-center gap-2"
+              disabled={busy || !consent}
+              className="mt-3 ds-btn ds-btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {busy ? (
                 <><Loader2 size={16} className="animate-spin" /> Отправляем…</>

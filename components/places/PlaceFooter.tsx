@@ -1,4 +1,5 @@
-import { ExternalLink, Send } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
+import AddPhotoLink from '@/components/places/AddPhotoLink';
 
 interface Props {
   sourceUrl: string | null;
@@ -49,15 +50,7 @@ export default function PlaceFooter({ sourceUrl, sourceName, updatedAt }: Props)
         {updatedStr && (
           <p>Обновлено: {updatedStr}</p>
         )}
-        <a
-          href="https://t.me/kamchatka_real"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 hover:text-[var(--ocean)] transition-colors"
-        >
-          <Send className="w-3 h-3" />
-          Был тут? Поделись фото в @kamchatka_real
-        </a>
+        <AddPhotoLink />
       </div>
     </footer>
   );
