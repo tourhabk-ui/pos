@@ -41,6 +41,9 @@ async function main(): Promise<number> {
     hasTouch: true,
     locale: 'ru-RU',
     colorScheme: 'dark',
+    // Часовой пояс телефона (04.10, React #418 на главной): сервер рендерит в
+    // UTC, телефон владельца — на Камчатке. По умолчанию — Камчатка.
+    timezoneId: arg('--tz', 'Asia/Kamchatka'),
     // Телефонный UA: главная выбирает дерево по User-Agent (lib/home/
     // device-tree), и с UA раннера отдавала десктоп — ленты туров там нет
     // (прогон 10, 04.10: «лента туров не найдена» при правильном коде).
