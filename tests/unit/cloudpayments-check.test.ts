@@ -93,7 +93,7 @@ describe('Pay-приёмники не подтверждают бронь опл
       expect(src).not.toMatch(/THEN booking_status ELSE 'confirmed'/);
       // Неподтверждённая оплата — тревога человеку, не тишина.
       expect(src).toMatch(/canOfferPayment\(/);
-      expect(src).toMatch(/tgSend\(/);
+      expect(src).toMatch(/reportPaidUnconfirmed\(/);
     });
   }
 });

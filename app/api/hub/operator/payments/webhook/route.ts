@@ -11,7 +11,7 @@ import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment } from '@/lib/payments/hold-tour-payment';
 import { query, transaction } from '@/lib/database';
 import { canOfferPayment } from '@/lib/bookings/success-view';
-import { tgSend } from '@/lib/notifications/tg-send';
+import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -146,19 +146,7 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
   // Check до списания, /api/payments/check). Факт оплаты записан выше; бронь
   // не подтверждаем, комиссию не начисляем — решает человек.
   if (!canOfferPayment(inserted.before)) {
-    console.error('[operator-payments-webhook] оплата пришла на бронь, которую нельзя было платить:',
-      `booking=${bookingId}`, `status=${inserted.before ?? 'нет'}`);
-    const out = await tgSend('operator-payments-webhook', [
-      '<b>CloudPayments оператора: деньги пришли на неподтверждённую бронь</b>',
-      '',
-      `Бронирование: #${bookingId}`,
-      `Статус брони: ${inserted.before ?? 'не записан'}`,
-      `Оплачено: ${Number(webhook.Amount).toLocaleString('ru-RU')} р.`,
-      '',
-      'Факт оплаты записан, статус брони не менялся, комиссия не начислена.',
-      'Решение — подтвердить бронь или вернуть деньги — за человеком.',
-    ].join('\n'));
-    if (!out.ok) console.error('[operator-payments-webhook] тревога владельцу не ушла:', out.reason);
+    await reportPaidUnconfirmed('operator-payments-webhook', bookingId, inserted.before, webhook.Amount);
     return;
   }
 

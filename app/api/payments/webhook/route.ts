@@ -9,7 +9,7 @@ import { addBookingContribution } from '@/lib/compute-fund';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment, RELEASE_AFTER_SQL } from '@/lib/payments/hold-tour-payment';
 import { canOfferPayment } from '@/lib/bookings/success-view';
-import { tgSend } from '@/lib/notifications/tg-send';
+import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -329,7 +329,7 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
 
   if (outcome.kind === 'not_found') return false;
   if (outcome.kind === 'held' && !canOfferPayment(outcome.before)) {
-    await reportPaidUnconfirmed(outcome.bookingId, outcome.before, webhook.Amount);
+    await reportPaidUnconfirmed('payments/webhook', outcome.bookingId, outcome.before, webhook.Amount);
     return true;
   }
   if (outcome.kind === 'held') {
@@ -368,28 +368,6 @@ async function markBookingPaid(client: Pick<PoolClient, 'query'>, bookingId: str
     [paymentId, bookingId],
   );
   return prev.rows[0]?.booking_status ?? null;
-}
-
-/**
- * Деньги пришли на бронь, которую нельзя было платить. Комиссию не начисляем
- * (она берётся с состоявшейся брони — так же, как СБП в handleLostRace), бронь
- * не подтверждаем; владельцу — тревога, в лог — строка.
- */
-async function reportPaidUnconfirmed(bookingId: string, status: string | null, amount: number) {
-  console.error('[payments/webhook] оплата пришла на бронь, которую нельзя было платить:',
-    `booking=${bookingId}`, `status=${status ?? 'нет'}`);
-  const out = await tgSend('payments-webhook', [
-    '<b>CloudPayments: деньги пришли на неподтверждённую бронь</b>',
-    '',
-    `Бронирование: #${escapeHtml(bookingId)}`,
-    `Статус брони: ${escapeHtml(status ?? 'не записан')}`,
-    `Оплачено: ${Number(amount).toLocaleString('ru-RU')} р.`,
-    '',
-    'Факт оплаты записан, статус брони не менялся, комиссия не начислена.',
-    'Решение — подтвердить бронь или вернуть деньги — за человеком.',
-    'Если такое повторяется — проверьте, что Check-уведомление CloudPayments указывает на /api/payments/check.',
-  ].join('\n'));
-  if (!out.ok) console.error('[payments/webhook] тревога владельцу не ушла:', out.reason);
 }
 
 /**
@@ -433,7 +411,7 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
   if (!outcome) return;
   const b = outcome;
   if (!canOfferPayment(b.before)) {
-    await reportPaidUnconfirmed(b.id, b.before, webhook.Amount);
+    await reportPaidUnconfirmed('payments/webhook', b.id, b.before, webhook.Amount);
     return;
   }
 
