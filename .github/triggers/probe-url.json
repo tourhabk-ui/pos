@@ -1,13 +1,14 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Маршрут при месте «Халактырский пляж» (7412e1c7): название, линия, точки, фото.",
-  "run": 705,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Маршруты «Халактыр…»: id и названия.",
+  "run": 706,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
   "bytes": 100,
-  "urls": ["https://vedarai.ru/api/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff"],
-  "around": ["\"title\":", "\"placeName\":", "\"linkKind\":", "\"lineGrade\":", "\"source\":", "\"waypointPhotos\":", "\"distanceKm\":", "\"travelMode\":", "\"navigability\":"],
+  "urls": ["https://vedarai.ru/api/routes?kind=route&q=%D0%A5%D0%B0%D0%BB%D0%B0%D0%BA%D1%82%D1%8B%D1%80&limit=10"],
+  "around": ["\"title\":"],
   "aroundLines": 0,
-  "aroundHits": 6
+  "aroundHits": 10,
+  "grep": ["\"id\":"]
 }
