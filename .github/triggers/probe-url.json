@@ -1,22 +1,24 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Дочитать обрезанные строки портала о Кайныране: перевод названия, питомник.",
-  "run": 683,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1159: описание Кайнырана из источника, без кодов avachinsky/easy на карточке.",
+  "run": 684,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 15,
-  "allowStale": true,
-  "bytes": 100,
+  "retries": 40,
+  "retryDelay": 60,
+  "allowStale": false,
+  "bytes": 1500,
+  "until": "Медвежий угол",
   "urls": [
-    "https://visitkamchatka.ru/camps/etnokulturnyy-kompleks-kaynyran/"
+    "https://vedarai.ru/api/places/eaab2afe-577e-4532-b5b5-93ace0018f00",
+    "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00"
   ],
-  "around": [
-    "Медвеж",
-    "ездовых",
-    "означает",
-    "переводе с корякского языка",
-    "Елизово",
-    "Петропавловск"
-  ],
-  "aroundLines": 1,
-  "aroundHits": 3
+  "grep": [
+    "Медвежий угол",
+    "духи Кайнырана",
+    "Сорок километров гравия",
+    "ительмен",
+    "район: Авачинский",
+    "avachinsky.",
+    ">easy<",
+    "visitkamchatka.ru"
+  ]
 }
