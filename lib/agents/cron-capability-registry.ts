@@ -167,6 +167,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'legacy-tours-census': ['db_read'],
   'legacy-tours-cleanup': ['db_write'],
   'legislation-sync': ['db_read', 'db_write', 'net_out', 'ai'],
+  'link-kind-name-census': ['db_read'],
   'llm-budget-check': ['db_read', 'db_write', 'net_out', 'telegram'],
   'locked-out-partners': ['db_read'],
   // Проба канала КБГС в MAX (24.09): читает страницу (net_out) и гоняет
