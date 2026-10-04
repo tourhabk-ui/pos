@@ -237,6 +237,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'places-candidates':         { kind: 'manual', writes: false, note: 'кандидаты в места' },
   'places-no-track-census':    { kind: 'manual', writes: false, note: 'места без трека' },
   'places-routes-census':      { kind: 'manual', writes: false, note: 'связи мест и маршрутов' },
+  'link-kind-name-census':     { kind: 'manual', writes: false, note: 'места «рядом», которых маршрут называет по имени' },
   'prod-errors':               { kind: 'manual', writes: false, note: 'серверные ошибки прода списком, только чтение' },
   'prospect-scan':             { kind: 'manual', writes: false, note: 'скан проспектов' },
   'relief-sanity':             { kind: 'manual', writes: false, note: 'проверка рельефа' },
