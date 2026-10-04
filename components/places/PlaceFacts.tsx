@@ -46,6 +46,7 @@
  */
 
 import { HAZARD_LABELS, LOCATION_TYPE_LABELS, DIFFICULTY_LABELS } from './types';
+import { placeZoneLabel } from '@/lib/places/zone-labels';
 import type { PlaceSafety } from './types';
 
 interface Props {
@@ -55,22 +56,6 @@ interface Props {
   terrainType?: string | null;
 }
 
-const ZONE_LABELS: Record<string, string> = {
-  avachinsky:    'Авачинский',
-  mutnovsky:     'Мутновский',
-  klyuchevsky:   'Ключевская группа',
-  nalychevo:     'Налычево',
-  kronotsky:     'Кроноцкий',
-  southern:      'Южная Камчатка',
-  central:       'Центральная',
-  northern:      'Северная',
-  petropavlovsk: 'Петропавловск',
-  commander:     'Командорские о-ва',
-  // Коды зон сейсмо-разбора (lib/services/safety/seismic-zones) лежат в той же
-  // колонке; без подписи карточка показывала «Район: eastern» (аудит 29.09).
-  eastern:       'Восточное побережье',
-  western:       'Западное побережье',
-};
 
 /**
  * Рельеф словами (04.10, снимок владельца: «Рельеф: forest»). Коды — те, что
@@ -121,7 +106,7 @@ export default function PlaceFacts({ locationType, zone, safety, terrainType }: 
 
   // Код без подписи туристу не показываем: «Район: xyz» — служебная строка,
   // а не факт о месте.
-  if (zone && ZONE_LABELS[zone]) facts.push({ label: 'Район', value: ZONE_LABELS[zone] });
+  if (placeZoneLabel(zone)) facts.push({ label: 'Район', value: placeZoneLabel(zone)! });
   if (terrainType && TERRAIN_LABELS[terrainType]) facts.push({ label: 'Рельеф', value: TERRAIN_LABELS[terrainType] });
 
   if (safety.altitudeM != null) {

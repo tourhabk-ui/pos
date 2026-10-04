@@ -28,6 +28,7 @@
  * координаты у места обязательны.
  */
 import { distanceKm } from '@/lib/geo/kamchatka';
+import { PLACE_ZONE_LABELS, placeZoneLabel, ROUTE_DIFFICULTY_RU as DIFFICULTY_RU } from '@/lib/places/zone-labels';
 
 /** Петропавловск-Камчатский — точка отсчёта «от города». */
 export const PK = { lat: 53.0195, lng: 158.6483 } as const;
@@ -60,10 +61,6 @@ const ECO_ZONE_GENITIVE: Record<string, string> = {
   regional_reserve: 'регионального заповедника',
   natural_park: 'природного парка',
   zakaznik: 'государственного заказника',
-};
-
-const DIFFICULTY_RU: Record<string, string> = {
-  easy: 'лёгкий', medium: 'средней сложности', hard: 'сложный', extreme: 'экстремальный',
 };
 
 /** Азимут от a к b, градусы 0..360 (0 — север). */
@@ -118,7 +115,9 @@ export function composeAccessText(f: AccessFacts): string[] {
 
   // 1. Где — считается всегда: координаты обязательны.
   const km = Math.round(distanceKm(PK, { lat: f.lat, lng: f.lng }));
-  const where = f.district?.trim() || f.zone?.trim() || '';
+  // Код зоны — только подписью (04.10, Кайныран: «…, avachinsky.»).
+  const zoneLabel = placeZoneLabel(f.zone);
+  const where = f.district?.trim() || (zoneLabel && PLACE_ZONE_LABELS[f.zone!.trim()] ? `район: ${zoneLabel}` : zoneLabel ?? '');
   if (km < 15) {
     out.push(`${f.name} — в черте Петропавловска-Камчатского или рядом с ним${where ? ` (${where})` : ''}.`);
   } else {
