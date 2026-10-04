@@ -1,20 +1,13 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Долгота смотровой на Три Брата; точки маршрута поля «Скалы Три Брата» с координатами.",
-  "run": 704,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Маршрут при месте «Халактырский пляж» (7412e1c7): название, линия, точки, фото.",
+  "run": 705,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 15,
   "allowStale": true,
   "bytes": 100,
-  "urls": [
-    "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739",
-    "https://vedarai.ru/api/routes/7ae7d778-2cdc-4655-8c9c-0dc36713a278"
-  ],
-  "around": [
-    "\"lng\":",
-    "\"linkKind\":",
-    "\"isStart\":"
-  ],
+  "urls": ["https://vedarai.ru/api/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff"],
+  "around": ["\"title\":", "\"placeName\":", "\"linkKind\":", "\"lineGrade\":", "\"source\":", "\"waypointPhotos\":", "\"distanceKm\":", "\"travelMode\":", "\"navigability\":"],
   "aroundLines": 0,
-  "aroundHits": 14
+  "aroundHits": 6
 }
