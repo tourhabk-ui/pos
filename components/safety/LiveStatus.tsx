@@ -46,11 +46,18 @@ function fmtDate(iso: string | null): string {
   // Год печатаем, когда он не текущий. Без него «1 июл.» в августе читается как
   // прошедшая дата — владелец так и прочитал ленту 05.08 («не удаляет старые»),
   // хотя запись была действующей: просто срок у неё в следующем году.
-  const sameYear = d.getFullYear() === new Date().getFullYear();
+  //
+  // Часовой пояс — Камчатки, явно (04.10). Без него сервер (UTC) и телефон на
+  // Камчатке печатали разный день для событий второй половины суток по UTC:
+  // React ронял гидратацию (#418), а дата на сервере была не камчатской.
+  const year = (x: Date) => x.toLocaleDateString('ru-RU', { year: 'numeric', timeZone: KAMCHATKA_TZ });
+  const sameYear = year(d) === year(new Date());
   return d.toLocaleDateString('ru-RU', sameYear
-    ? { day: 'numeric', month: 'short' }
-    : { day: 'numeric', month: 'short', year: 'numeric' });
+    ? { day: 'numeric', month: 'short', timeZone: KAMCHATKA_TZ }
+    : { day: 'numeric', month: 'short', year: 'numeric', timeZone: KAMCHATKA_TZ });
 }
+
+const KAMCHATKA_TZ = 'Asia/Kamchatka';
 
 /**
  * Наши технические TTL из ingest (lib/services/safety/seismic-parser.ts):
@@ -555,7 +562,9 @@ export function AlertsTicker({ alerts, lines }: { alerts: SafetyAlert[]; lines?:
         {a.title}
         {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
       </span>
-      <span className="ago">{alertStamp(a)}</span>
+      {/* «N мин назад» считается от часов: сервер и браузер расходятся на
+          секунды, и на границе минуты текст разный (#418, 04.10). */}
+      <span className="ago" suppressHydrationWarning>{alertStamp(a)}</span>
     </li>
   );
   const cls = `ticker${scroll ? ' scroll' : ''}${open ? ' open' : ''}${compact ? ' compact' : ''}`;
@@ -600,7 +609,7 @@ export function SeismicPulse({ events, source }: { events: PulseQuake[]; source:
       <div className="phead">
         <div className="pbig">
           <b>M{strongest.magnitude.toFixed(1)}</b>
-          <span>сильнейший · {strongest.depth != null ? `${Math.round(strongest.depth)} км · ` : ''}{fmtAgo(new Date(strongest.time).toISOString())}</span>
+          <span suppressHydrationWarning>сильнейший · {strongest.depth != null ? `${Math.round(strongest.depth)} км · ` : ''}{fmtAgo(new Date(strongest.time).toISOString())}</span>
         </div>
         <div className="psrc">Пульс полуострова<i>{source}</i></div>
       </div>
@@ -615,7 +624,7 @@ export function SeismicPulse({ events, source }: { events: PulseQuake[]; source:
       {selected ? (
         <button className="psel" onClick={() => setSel(null)}>
           <span className="pmag" style={{ background: magColor(selected.magnitude) }}>{selected.magnitude.toFixed(1)}</span>
-          <span className="ptx"><b>{selected.place}</b><span>{selected.depth != null ? `${Math.round(selected.depth)} км · ` : ''}{fmtAgo(new Date(selected.time).toISOString())}</span></span>
+          <span className="ptx"><b>{selected.place}</b><span suppressHydrationWarning>{selected.depth != null ? `${Math.round(selected.depth)} км · ` : ''}{fmtAgo(new Date(selected.time).toISOString())}</span></span>
         </button>
       ) : (
         <div className="psum">за ~48 ч — {events.length} толчков · макс M{strongest.magnitude.toFixed(1)}</div>
@@ -713,7 +722,7 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
         ) : (
           <div className="pbig">
             <b>{top.name.replace(/^Вулкан\s+/i, '')}</b>
-            <span>{meta(top.acc).short.toLowerCase()} · {top.ashHeightM != null ? `пепел до ${(top.ashHeightM / 1000).toFixed(1)} км · ` : ''}{ageOf(top)}</span>
+            <span suppressHydrationWarning>{meta(top.acc).short.toLowerCase()} · {top.ashHeightM != null ? `пепел до ${(top.ashHeightM / 1000).toFixed(1)} км · ` : ''}{ageOf(top)}</span>
           </div>
         )}
         <div className="psrc">Пульс вулканов<i>KVERT</i></div>
@@ -733,7 +742,7 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
           <span className="pmag" style={{ background: meta(selected.acc).token }}>{meta(selected.acc).short.slice(0, 1)}</span>
           <span className="ptx">
             <b>{selected.name}</b>
-            <span>{meta(selected.acc).label}{selected.ashHeightM != null ? ` · пепел до ${(selected.ashHeightM / 1000).toFixed(1)} км` : ''} · {ageOf(selected)}</span>
+            <span suppressHydrationWarning>{meta(selected.acc).label}{selected.ashHeightM != null ? ` · пепел до ${(selected.ashHeightM / 1000).toFixed(1)} км` : ''} · {ageOf(selected)}</span>
           </span>
         </SelWrap>
       ) : (
