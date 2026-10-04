@@ -1,5 +1,6 @@
 'use client';
 
+import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 import { useEffect, useRef, useState } from 'react';
 import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
 import { tourDurationDays } from '@/lib/bookings/duration';
@@ -218,6 +219,10 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
      * выдуманный номер. Четвёртую нормализацию заводить нельзя: в репозитории
      * их уже три, и одна из них обслуживает телефоны спасения.
      */
+    if (!formData.tourist_email.trim()) {
+      setError({ message: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email', kind: 'validation' });
+      return;
+    }
     const phone = normalizePhone(formData.tourist_phone);
     if (!phone) {
       setError({ message: 'Проверьте телефон: нужен номер из 10–15 цифр, например +7 900 000 00 00', field: 'tourist_phone', kind: 'validation' });
@@ -385,18 +390,19 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           />
         </div>
         <div>
-          {/* Почта необязательна (решение владельца 24.09): сервер принимает
-              её как optional, у страницы успеха есть ветка без почты. Подпись
-              говорит, ЗАЧЕМ она: письмо со ссылкой — путь назад к заявке. */}
+          {/* Почта обязательна (решение владельца 04.10, пересматривает 24.09):
+              подтверждение оператора и ссылка на оплату доходят до гостя
+              только письмом. Без неё подтверждённую заявку оплатить нечем. */}
           <label htmlFor="booking-email" className="ds-label flex items-center gap-1.5 mb-1.5">
             <Mail className="w-3.5 h-3.5" />
-            Email (необязательно)
+            Email
           </label>
           <input
             id="booking-email"
             type="email"
             name="tourist_email"
             autoComplete="email"
+            required
             value={formData.tourist_email}
             onChange={handleChange}
             placeholder="ivan@example.com"
@@ -405,7 +411,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             {...invalidProps('tourist_email')}
           />
           <p id="booking-email-hint" className="mt-1.5 text-xs text-[var(--text-secondary)]">
-            Пришлём ссылку на заявку, чтобы к ней можно было вернуться.
+            Пришлём ссылку на заявку, а когда оператор подтвердит — на оплату.
           </p>
         </div>
       </div>

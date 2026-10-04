@@ -13,6 +13,7 @@ import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
+import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +98,13 @@ export async function POST(req: NextRequest) {
   // (signout) не привязывала бронь чужому аккаунту по мёртвому токену.
   const authedUser = await getUserFromRequest(req);
   const userId = authedUser?.userId ?? null;
+
+  if (userId === null && !data.tourist_email) {
+    return NextResponse.json(
+      { error: GUEST_EMAIL_REQUIRED_MESSAGE, field: 'tourist_email' },
+      { status: 400 },
+    );
+  }
 
   try {
     // Бронь заводит общий модуль — тот же самый, которым бронирует Кузьмич.

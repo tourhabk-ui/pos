@@ -8,6 +8,8 @@ import { PaymentWebhookReturnRow, PaymentRow, EmailRow } from '@/lib/types/db-ro
 import { addBookingContribution } from '@/lib/compute-fund';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment, RELEASE_AFTER_SQL } from '@/lib/payments/hold-tour-payment';
+import { canOfferPayment } from '@/lib/bookings/success-view';
+import { tgSend } from '@/lib/notifications/tg-send';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,7 +123,10 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
       case 'tour':
         updateBookingQuery = `
           UPDATE operator_bookings
-          SET payment_status = 'paid', booking_status = 'confirmed', updated_at = NOW()
+          SET payment_status = 'paid',
+              booking_status = CASE WHEN booking_status IN ('confirmed', 'pending_payment')
+                                    THEN 'confirmed' ELSE booking_status END,
+              updated_at = NOW()
           WHERE id = $1
         `;
         break;
@@ -318,11 +323,15 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
         WHERE tp.id = $4 AND ob.id = tp.booking_id`,
       [transactionId, invoiceId, webhook.CardType ?? 'card', invoiceId],
     );
-    await markBookingPaid(client, tp.booking_id, invoiceId);
-    return { kind: 'held' as const, bookingId: tp.booking_id };
+    const before = await markBookingPaid(client, tp.booking_id, invoiceId);
+    return { kind: 'held' as const, bookingId: tp.booking_id, before };
   });
 
   if (outcome.kind === 'not_found') return false;
+  if (outcome.kind === 'held' && !canOfferPayment(outcome.before)) {
+    await reportPaidUnconfirmed(outcome.bookingId, outcome.before, webhook.Amount);
+    return true;
+  }
   if (outcome.kind === 'held') {
     void addBookingContribution('booking_operator', outcome.bookingId, webhook.Amount, 'operator booking confirmed');
     await createCommissionRecord(outcome.bookingId, invoiceId);
@@ -331,24 +340,56 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
 }
 
 /**
- * Отметить бронь оплаченной. Отменённую не воскрешаем: деньги записаны
- * (payment_status, paid_at), статус остаётся — возврат решает человек
- * (tour_payments в HELD по отменённой брони видит «Ждут возврата»). Раньше
- * отменённая бронь либо молча становилась confirmed, либо не менялась вовсе,
- * и оплата терялась.
+ * Отметить бронь оплаченной и вернуть статус, который был ДО оплаты.
+ *
+ * Статус меняется только у брони, которую можно было платить
+ * (`confirmed`/`pending_payment`, lib/bookings/success-view). Остальные
+ * сохраняют свой: отменённую не воскрешаем, а НЕПОДТВЕРЖДЁННУЮ (`new`) оплата
+ * не подтверждает — до 04.10 здесь стояло «всё, кроме отменённых, —
+ * confirmed», и деньги за заявку подменяли согласие оператора. Деньги при этом
+ * записаны всегда (payment_status, paid_at): банк их уже взял, и решать —
+ * подтвердить или вернуть — человеку (reportPaidUnconfirmed). Обычно до этого
+ * не доходит: Check (/api/payments/check) отклоняет такой платёж до списания.
  */
-async function markBookingPaid(client: Pick<PoolClient, 'query'>, bookingId: string, paymentId: string) {
+async function markBookingPaid(client: Pick<PoolClient, 'query'>, bookingId: string, paymentId: string): Promise<string | null> {
+  const prev = await client.query<{ booking_status: string | null }>(
+    `SELECT booking_status FROM operator_bookings WHERE id = $1::bigint FOR UPDATE`,
+    [bookingId],
+  );
   await client.query(
     `UPDATE operator_bookings
         SET payment_status = 'paid',
             payment_id = $1,
             paid_at = COALESCE(paid_at, NOW()),
-            booking_status = CASE WHEN booking_status IN ('cancelled', 'rejected')
-                                  THEN booking_status ELSE 'confirmed' END,
+            booking_status = CASE WHEN booking_status IN ('confirmed', 'pending_payment')
+                                  THEN 'confirmed' ELSE booking_status END,
             updated_at = NOW()
       WHERE id = $2::bigint`,
     [paymentId, bookingId],
   );
+  return prev.rows[0]?.booking_status ?? null;
+}
+
+/**
+ * Деньги пришли на бронь, которую нельзя было платить. Комиссию не начисляем
+ * (она берётся с состоявшейся брони — так же, как СБП в handleLostRace), бронь
+ * не подтверждаем; владельцу — тревога, в лог — строка.
+ */
+async function reportPaidUnconfirmed(bookingId: string, status: string | null, amount: number) {
+  console.error('[payments/webhook] оплата пришла на бронь, которую нельзя было платить:',
+    `booking=${bookingId}`, `status=${status ?? 'нет'}`);
+  const out = await tgSend('payments-webhook', [
+    '<b>CloudPayments: деньги пришли на неподтверждённую бронь</b>',
+    '',
+    `Бронирование: #${escapeHtml(bookingId)}`,
+    `Статус брони: ${escapeHtml(status ?? 'не записан')}`,
+    `Оплачено: ${Number(amount).toLocaleString('ru-RU')} р.`,
+    '',
+    'Факт оплаты записан, статус брони не менялся, комиссия не начислена.',
+    'Решение — подтвердить бронь или вернуть деньги — за человеком.',
+    'Если такое повторяется — проверьте, что Check-уведомление CloudPayments указывает на /api/payments/check.',
+  ].join('\n'));
+  if (!out.ok) console.error('[payments/webhook] тревога владельцу не ушла:', out.reason);
 }
 
 /**
@@ -380,17 +421,21 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
         `booking=${b.id}`, `expected=${b.final_price}`, `paid=${Number(webhook.Amount).toFixed(2)}`);
       return null;
     }
-    await markBookingPaid(client, b.id, transactionId);
+    const before = await markBookingPaid(client, b.id, transactionId);
     await holdTourPayment(client, b.id, {
       transactionId,
       invoiceId,
       method: webhook.CardType ?? 'card',
     });
-    return b;
+    return { ...b, before };
   });
 
   if (!outcome) return;
   const b = outcome;
+  if (!canOfferPayment(b.before)) {
+    await reportPaidUnconfirmed(b.id, b.before, webhook.Amount);
+    return;
+  }
 
   void addBookingContribution('booking_operator', b.id, webhook.Amount, 'hub booking confirmed');
   await createCommissionRecord(b.id, invoiceId);
