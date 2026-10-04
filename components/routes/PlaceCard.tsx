@@ -33,6 +33,7 @@ const LOCATION_ICONS: Record<string, React.ElementType> = {
   forest:     TreePine,
   museum:     Landmark,
   historical: Landmark,
+  ethnic:     Landmark,
   rock:       MapPin,
   viewpoint:  Eye,
   settlement: Home,

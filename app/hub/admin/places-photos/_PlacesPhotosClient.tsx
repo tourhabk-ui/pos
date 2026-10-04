@@ -46,7 +46,7 @@ interface PlaceEdit {
 const LOCATION_TYPE_OPTIONS = [
   'volcano', 'lake', 'hot_spring', 'mountain', 'river', 'bay', 'cape', 'island',
   'glacier', 'forest', 'beach', 'waterfall', 'rock', 'viewpoint', 'settlement',
-  'museum', 'historical', 'geyser', 'other',
+  'museum', 'historical', 'ethnic', 'geyser', 'other',
 ];
 
 interface WikiCandidate {
@@ -112,7 +112,7 @@ const LOCATION_LABELS: Record<string, string> = {
   river: 'Река', bay: 'Бухта', cape: 'Мыс', island: 'Остров',
   glacier: 'Ледник', forest: 'Лес', beach: 'Пляж', waterfall: 'Водопад',
   rock: 'Скала', viewpoint: 'Смотровая', settlement: 'Поселение',
-  museum: 'Музей', historical: 'Историческое',
+  museum: 'Музей', historical: 'Историческое', ethnic: 'Этнокультурное',
 };
 
 export default function PlacesPhotosClient() {

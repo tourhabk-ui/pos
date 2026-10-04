@@ -39,7 +39,7 @@ const LOCATION_LABELS: Record<string, string> = {
   volcano: 'Вулкан', lake: 'Озеро', hot_spring: 'Источник', mountain: 'Гора',
   geyser: 'Гейзер', waterfall: 'Водопад', beach: 'Пляж', valley: 'Долина',
   river: 'Река', cave: 'Пещера', bay: 'Бухта', forest: 'Лес',
-  historical: 'Историческое место', museum: 'Музей', rock: 'Скала',
+  historical: 'Историческое место', ethnic: 'Этнокультурное место', museum: 'Музей', rock: 'Скала',
   viewpoint: 'Смотровая', cape: 'Мыс', island: 'Остров', other: 'Место',
   // Перевал заведён 20.09 вместе с миграцией 992: «Каньон Сноубордистов»
   // оказался перевалом над Эссо, а не ущельем, и без этой строки лист карты

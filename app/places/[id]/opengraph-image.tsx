@@ -13,13 +13,14 @@ const TYPE_COLOR: Record<string, string> = {
   lake: '#2568B0',
   mountain: '#6B6560',
   historical: '#8B4513',
+  ethnic: '#B45309',
   museum: '#5B2D8E',
 };
 
 const TYPE_LABEL: Record<string, string> = {
   volcano: 'ВУЛКАН', geyser: 'ГЕЙЗЕР', hot_spring: 'ТЕРМАЛЬНЫЙ ИСТОЧНИК',
   lake: 'ОЗЕРО', mountain: 'ГОРА', bay: 'БУХТА', river: 'РЕКА',
-  waterfall: 'ВОДОПАД', historical: 'ИСТОРИЯ', museum: 'МУЗЕЙ',
+  waterfall: 'ВОДОПАД', historical: 'ИСТОРИЯ', ethnic: 'ЭТНОКУЛЬТУРА', museum: 'МУЗЕЙ',
   viewpoint: 'СМОТРОВАЯ', cape: 'МЫС', island: 'ОСТРОВ',
 };
 

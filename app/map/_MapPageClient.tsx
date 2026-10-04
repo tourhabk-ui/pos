@@ -34,7 +34,7 @@ class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
 import {
   Sun, Moon, User, X, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle, Route,
   Sparkles, Flame, Droplet, Anchor, Waves, Mountain, Droplets, Zap, CloudRain, Binoculars, Gem,
-  Palmtree, Umbrella, TreePine, Landmark, History, Home, Activity,
+  Palmtree, Umbrella, TreePine, Landmark, History, Home, Activity, Tent,
 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
@@ -113,6 +113,7 @@ const LOCATION_FILTERS = [
   { id: 'forest',               label: 'Леса и парки',   icon: TreePine },
   { id: 'museum',               label: 'Музеи',          icon: Landmark },
   { id: 'historical',           label: 'История',        icon: History },
+  { id: 'ethnic',               label: 'Этнокультура',   icon: Tent },
 ];
 
 // Фильтры для офлайн-режима (только критичные для безопасности)

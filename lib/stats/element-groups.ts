@@ -101,7 +101,7 @@ export function getElementForType(
  */
 export const EXCLUDED_TYPES: readonly string[] = [
   'viewpoint', 'settlement', 'museum', 'historical', 'rock', 'other',
-  'park', 'pass', 'plateau', 'valley', 'cave',
+  'park', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
 ];
 
 export interface ElementCount { key: string; label: string; count: number; href: string; }

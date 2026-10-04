@@ -72,7 +72,7 @@ const TYPE_RU: Record<string, string> = {
   cape: 'мыс', river: 'река / каньон', cave: 'пещера', beach: 'пляж',
   viewpoint: 'смотровая площадка', island: 'остров', forest: 'природный парк',
   geyser: 'гейзерное поле', glacier: 'ледник', rock: 'скальный объект',
-  historical: 'историческое место', other: 'природный объект',
+  historical: 'историческое место', ethnic: 'этнокультурное место', other: 'природный объект',
 };
 
 const ECO_NOTE: Record<string, string> = {
