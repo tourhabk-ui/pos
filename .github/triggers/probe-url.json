@@ -1,24 +1,18 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1159: описание Кайнырана из источника, без кодов avachinsky/easy на карточке.",
-  "run": 684,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Где на странице Кайнырана ещё «ительмен» и «avachinsky.».",
+  "run": 685,
   "timeout": 60,
-  "retries": 40,
-  "retryDelay": 60,
-  "allowStale": false,
-  "bytes": 1500,
-  "until": "Медвежий угол",
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
+  "bytes": 100,
   "urls": [
-    "https://vedarai.ru/api/places/eaab2afe-577e-4532-b5b5-93ace0018f00",
     "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00"
   ],
-  "grep": [
-    "Медвежий угол",
-    "духи Кайнырана",
-    "Сорок километров гравия",
+  "around": [
     "ительмен",
-    "район: Авачинский",
-    "avachinsky.",
-    ">easy<",
-    "visitkamchatka.ru"
-  ]
+    "avachinsky."
+  ],
+  "aroundLines": 2,
+  "aroundHits": 6
 }
