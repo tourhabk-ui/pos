@@ -62,6 +62,7 @@ interface Props {
   activityType?: string | null;
   locationType?: string | null;
   className?: string;
+  /** false — внутри плитки ни рода, ни имени: экран пишет имя сам (герой, соседи). */
   showLabel?: boolean;
   /** Миниатюра: без водяного знака и с мелкой иконкой. */
   compact?: boolean;
@@ -99,7 +100,11 @@ export function RouteGradientPlaceholder({ title, activityType, locationType, cl
             176-пиксельной плитки Playfair в 18 пунктов не помещался и лез
             за край. Дважды одно имя в двух строках — это и есть та каша,
             от которой всю карточку переделывали. */}
-        {!compact && (
+        {/* showLabel={false} гасит и имя (04.10, владелец: «название места
+            задваивается»): этот флаг ставят ровно те экраны, что пишут имя
+            сами — герой места и маршрута, плитка соседей. Раньше он прятал
+            только род, а имя рисовалось поверх собственного заголовка героя. */}
+        {!compact && showLabel && (
           <p className="font-playfair text-lg font-bold leading-tight max-w-xs opacity-90 line-clamp-3">
             {title}
           </p>
