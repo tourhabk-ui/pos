@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { House, Map, Compass, Navigation, Ticket, type LucideIcon } from 'lucide-react';
+import { Map, Compass, Navigation, Ticket, type LucideIcon } from 'lucide-react';
+import { HomeVolcanoesIcon } from '@/components/shared/HomeVolcanoesIcon';
 
 // Единая мобильная навигация (решение владельца 2026-07-18): на /map и
 // /ai-assistant была другая навигация, чем на главной — набор пунктов,
@@ -19,7 +20,8 @@ import { House, Map, Compass, Navigation, Ticket, type LucideIcon } from 'lucide
 const FO = "var(--font-outfit,'Outfit',sans-serif)";
 
 interface NavItem {
-  icon: LucideIcon;
+  /** lucide или своя иконка по той же сетке (size/strokeWidth). */
+  icon: LucideIcon | typeof HomeVolcanoesIcon;
   label: string;
   href: string;
   /** Пути, на которых пункт подсвечен (дубль /ai-assistant ↔ /kuzmich — Этап 9) */
@@ -33,7 +35,8 @@ interface NavItem {
 // в шапке. Профиль и СОС пятыми быть НЕ могут: ЛК только в шапке (§2), СОС
 // только в шапке (#887).
 const ITEMS: NavItem[] = [
-  { icon: House,      label: 'Дом',         href: '/',                    activeOn: ['/'] },
+  // Дом — домашние вулканы Петропавловска (владелец 04.10).
+  { icon: HomeVolcanoesIcon, label: 'Дом',         href: '/',                    activeOn: ['/'] },
   { icon: Map,        label: 'Карта',       href: '/map',                 activeOn: ['/map'] },
   { icon: Compass,    label: 'Кузьмич',     href: '/kuzmich',             activeOn: ['/kuzmich', '/ai-assistant'] },
   { icon: Ticket,     label: 'Туры',        href: '/catalog',             activeOn: ['/catalog'] },
