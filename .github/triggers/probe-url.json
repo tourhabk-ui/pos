@@ -1,18 +1,22 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Где на странице Кайнырана ещё «ительмен» и «avachinsky.».",
-  "run": 685,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Страница Кайнырана после правки сниппета: без avachinsky, с подписью района.",
+  "run": 686,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 15,
-  "allowStale": true,
+  "retries": 40,
+  "retryDelay": 60,
+  "allowStale": false,
   "bytes": 100,
+  "until": "на Камчатке, Авачинский.",
   "urls": [
     "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00"
   ],
-  "around": [
-    "ительмен",
-    "avachinsky."
-  ],
-  "aroundLines": 2,
-  "aroundHits": 6
+  "grep": [
+    "на Камчатке, Авачинский.",
+    "avachinsky.",
+    "район: Авачинский",
+    "Медвежий угол",
+    "духи Кайнырана",
+    "Сорок километров гравия",
+    ">easy<"
+  ]
 }
