@@ -72,6 +72,19 @@ const ZONE_LABELS: Record<string, string> = {
   western:       'Западное побережье',
 };
 
+/**
+ * Рельеф словами (04.10, снимок владельца: «Рельеф: forest»). Коды — те, что
+ * писал шаблон 070/0645 (mountain / thermal / water / forest). Код без
+ * подписи туристу не показывается — тем же правилом, что район: служебное
+ * слово по-английски не факт о месте.
+ */
+const TERRAIN_LABELS: Record<string, string> = {
+  mountain: 'Горы',
+  thermal:  'Термальное поле',
+  water:    'Водоём',
+  forest:   'Лес',
+};
+
 /** Сложность — единственное место, где значение красится: это состояние. */
 const DIFFICULTY_TONE: Record<number, string> = {
   1: 'text-[var(--success)]',
@@ -109,7 +122,7 @@ export default function PlaceFacts({ locationType, zone, safety, terrainType }: 
   // Код без подписи туристу не показываем: «Район: xyz» — служебная строка,
   // а не факт о месте.
   if (zone && ZONE_LABELS[zone]) facts.push({ label: 'Район', value: ZONE_LABELS[zone] });
-  if (terrainType) facts.push({ label: 'Рельеф', value: terrainType });
+  if (terrainType && TERRAIN_LABELS[terrainType]) facts.push({ label: 'Рельеф', value: TERRAIN_LABELS[terrainType] });
 
   if (safety.altitudeM != null) {
     facts.push({ label: 'Высота', value: `${safety.altitudeM.toLocaleString('ru-RU')} м` });
