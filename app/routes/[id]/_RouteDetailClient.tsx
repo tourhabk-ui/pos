@@ -201,6 +201,11 @@ interface RouteDetail {
   photos: string[] | null; offers: Offer[];
   /** Есть реальное фото (wikimedia) в хранилище — AI-генерации не показываются */
   hasRealImage: boolean;
+  /**
+   * Кадры точек пути, когда своих у маршрута нет (04.10, lib/routes/
+   * waypoint-photos). Автор и место — у каждого кадра свои, тем же порядком.
+   */
+  waypointPhotos?: { urls: string[]; authors: Array<string | null>; placeNames: string[] } | null;
   mchsRequired: boolean;
   mchsPhone: string | null;
   parkName: string | null;
@@ -783,7 +788,10 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
     : 500000;
   // Hero: реальные фото → реальное фото из хранилища (wikimedia) → честный
   // градиент по типу места. AI-картинки чужих пейзажей больше не показываем.
-  const photos = [...new Set(route.photos ?? [])];
+  const ownPhotos = [...new Set(route.photos ?? [])];
+  // Своих кадров нет — кадры точек пути (§10: «без своего — фото точки»).
+  const wpPhotos = ownPhotos.length === 0 && !route.hasRealImage ? route.waypointPhotos ?? null : null;
+  const photos = wpPhotos ? wpPhotos.urls : ownPhotos;
   const storedImageUrl = `/api/images/route/${route.id}`;
   const heroImage = photos[galleryIdx] ?? photos[0] ?? (route.hasRealImage ? storedImageUrl : null);
   const useGradient = heroImage == null;
@@ -845,6 +853,20 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
           )}
         </div>
       </div>
+
+      {/* Кадр взят у места на пути — подпись говорит чей и откуда, под ТЕМ
+          кадром, что на экране (04.10, владелец: «если фото Ильи — то и
+          подпись его, если моя — владелец платформы»). */}
+      {wpPhotos && heroImage && (() => {
+        const i = Math.max(0, photos.indexOf(heroImage));
+        const place = wpPhotos.placeNames[i];
+        const author = wpPhotos.authors[i];
+        return (
+          <div className="mx-auto w-full max-w-5xl px-4 md:px-8 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
+            {place ? `Фото места «${place}»` : 'Фото места на маршруте'}{author ? `: ${author}` : ''}
+          </div>
+        );
+      })()}
 
       {/* ── МЕТА-ИНФОРМАЦИЯ (переместили из hero) ───────────────────────────
           НЕ sticky: два липких блока на одном top-16 наезжали друг на друга,
