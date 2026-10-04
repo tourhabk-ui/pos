@@ -125,6 +125,11 @@ async function main(): Promise<number> {
         const el = document.querySelector(q) as HTMLElement | null;
         return el ? { left: Math.round(el.scrollLeft), cards: el.children.length, max: el.scrollWidth - el.clientWidth } : null;
       }, sel);
+      // Виртуальная мышь Playwright остаётся там, где нажала «согласие»; если
+      // под ней лента — это наведение, и лента правильно стоит (прогон 12).
+      // Уводим курсор в угол и ждём конца паузы после ухода мыши.
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(4_500);
       const a = await left();
       await page.waitForTimeout(8_000);
       const b = await left();
@@ -137,6 +142,15 @@ async function main(): Promise<number> {
       const pause = page.getByRole('button', { name: 'Остановить ленту туров' });
       console.log(`[${at()}] кнопка остановки: ${await pause.count() > 0 ? 'есть' : 'НЕТ'}`);
     }
+  }
+
+  // Долистать до блока по тексту (04.10: «Экстренные контакты» на радаре —
+  // номера ниже первого экрана).
+  const scrollText = arg('--scroll-text', '');
+  if (scrollText) {
+    await page.waitForTimeout(4_000);
+    await page.getByText(scrollText, { exact: false }).first().scrollIntoViewIfNeeded({ timeout: 15_000 })
+      .then(() => console.log(`[${at()}] долистано до «${scrollText}»`), () => console.log(`[${at()}] текста «${scrollText}» нет`));
   }
 
   const shots: string[] = [];
