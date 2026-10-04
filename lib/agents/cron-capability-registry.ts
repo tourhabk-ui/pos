@@ -50,6 +50,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // net_out — удаление в хранилище и проверка HEAD по публичному адресу.
   's3-object-delete': ['db_read', 'net_out'],
   'user-photo-hero': ['db_read', 'db_write', 'pd_direct'],
+  'user-photo-moderate': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'build-sha-probe': [],
   'catalog-census': ['db_read'],
   'pricing-rules-census': ['db_read'],

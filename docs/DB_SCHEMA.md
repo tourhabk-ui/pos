@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-03 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1150_real_photo_authorship_revoked.sql`.
+> Снято 2026-10-04 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1165_user_place_photos_agent_moderation.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 251 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3377 |
+| Колонок | 3383 |
 | Внешних ключей | 284 |
 | Таблиц без единого FK в обе стороны | 74 |
 
@@ -545,9 +545,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `report_type varchar!` `text text!` `lat float8` `lng float8` `user_id uuid` `status varchar!=` `created_at timestamptz!=`
 
-**user_place_photos** · 9 кол. · PK id · индексов 4
+**user_place_photos** · 15 кол. · PK id · индексов 5
 
-`id uuid!=` `place_id text!` `user_id uuid` `url text!` `caption text` `status text!=` `created_at timestamptz=` `reviewed_at timestamptz` `reviewed_by uuid`
+`id uuid!=` `place_id text!` `user_id uuid` `url text!` `caption text` `status text!=` `created_at timestamptz=` `reviewed_at timestamptz` `reviewed_by uuid` `publish_consent_at timestamptz` `phash text` `vision_verdict jsonb` `agent_decision text` `agent_reason text` `agent_at timestamptz`
 
 ## Туры и брони
 
