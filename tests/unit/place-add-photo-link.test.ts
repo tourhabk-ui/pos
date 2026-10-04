@@ -31,7 +31,7 @@ describe('«Был тут? Добавь фото»', () => {
 describe('подпись места и разрешение на публикацию (владелец 04.10)', () => {
   const FORM = readFileSync('components/places/PhotoUpload.tsx', 'utf8');
   const API = readFileSync('app/api/places/[id]/photos/route.ts', 'utf8');
-  const MIG = readFileSync('migrations/1163_user_place_photos_publish_consent.sql', 'utf8');
+  const MIG = readFileSync('migrations/1164_user_place_photos_publish_consent.sql', 'utf8');
 
   it('подпись по умолчанию — название места', () => {
     expect(FORM).toMatch(/useState\(placeName\)/);
