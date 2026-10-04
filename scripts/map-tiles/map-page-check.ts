@@ -41,6 +41,10 @@ async function main(): Promise<number> {
     hasTouch: true,
     locale: 'ru-RU',
     colorScheme: 'dark',
+    // Телефонный UA: главная выбирает дерево по User-Agent (lib/home/
+    // device-tree), и с UA раннера отдавала десктоп — ленты туров там нет
+    // (прогон 10, 04.10: «лента туров не найдена» при правильном коде).
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
     // С отрезанным хранилищем service worker отключён: его запросы мимо
     // page.route, и офлайн-кэш сайта отдал бы рельеф, будто связь есть
     // (прогон 7: «отрезанный» вариант нарисовал всё из кэша).
