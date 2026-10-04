@@ -109,6 +109,32 @@ async function main(): Promise<number> {
       .then(() => console.log(`[${at()}] чип «${chip}» нажат`), () => console.log(`[${at()}] чипа «${chip}» нет`));
   }
 
+  // Лента туров на главной плывёт сама (04.10): позиция прокрутки ленты
+  // замеряется дважды с паузой — растёт ли она, и не стоит ли под пальцем.
+  if (process.argv.includes('--drift')) {
+    const sel = '.plates.more-tours';
+    const ok = await page.locator(sel).first().scrollIntoViewIfNeeded({ timeout: 15_000 }).then(() => true, () => false);
+    if (!ok) {
+      console.log(`[${at()}] лента туров не найдена`);
+    } else {
+      const left = () => page.evaluate((q) => {
+        const el = document.querySelector(q) as HTMLElement | null;
+        return el ? { left: Math.round(el.scrollLeft), cards: el.children.length, max: el.scrollWidth - el.clientWidth } : null;
+      }, sel);
+      const a = await left();
+      await page.waitForTimeout(8_000);
+      const b = await left();
+      console.log(`[${at()}] лента: scrollLeft ${a?.left} → ${b?.left} за 8 с (карточек ${b?.cards}, предел ${b?.max})`);
+      await page.locator(sel).first().dispatchEvent('pointerdown');
+      const c = await left();
+      await page.waitForTimeout(2_000);
+      const d = await left();
+      console.log(`[${at()}] после касания: ${c?.left} → ${d?.left} за 2 с (должна стоять)`);
+      const pause = page.getByRole('button', { name: 'Остановить ленту туров' });
+      console.log(`[${at()}] кнопка остановки: ${await pause.count() > 0 ? 'есть' : 'НЕТ'}`);
+    }
+  }
+
   const shots: string[] = [];
   for (const wait of [7_000, 30_000]) {
     await page.waitForTimeout(wait);
