@@ -1,20 +1,21 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1157: Зеленовские озерки — описание из источников, тип hot_spring, профиль безопасности.",
-  "run": 679,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1158 и правки заглушки: перепись профилей (type_template растёт) и герой Кайнырана без двойного имени.",
+  "run": 680,
   "timeout": 60,
   "retries": 40,
   "retryDelay": 60,
   "allowStale": false,
-  "bytes": 300,
-  "until": "термоминеральные источники",
+  "bytes": 2500,
+  "until": "type_template",
   "urls": [
-    "https://vedarai.ru/api/places/f31f3774-65d4-47b7-a03e-4e3d4a575100"
+    "https://vedarai.ru/api/cron/safety-profile-census",
+    "https://vedarai.ru/places/eaab2afe-577e-4532-b5b5-93ace0018f00"
   ],
   "grep": [
-    "группа живописных озёр",
-    "без тропы не суйся",
-    "\"locationType\":\"hot_spring\"",
-    "скважина К-01",
-    "Сероводородные ванны"
+    "line-clamp-3\">Этническое",
+    "Этническое стойбище Кайныран"
+  ],
+  "count": [
+    "Этническое стойбище Кайныран"
   ]
 }
