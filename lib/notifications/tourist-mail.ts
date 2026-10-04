@@ -37,30 +37,44 @@ export interface TouristMail {
   html: string;
 }
 
+/**
+ * Одна попытка. Не бросает ни при каком ответе: вызывающие зовут отправку
+ * через `void`, и брошенное здесь стало бы необработанным отказом процесса.
+ */
+async function attempt(mail: TouristMail): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const r = await emailService.sendEmail(mail);
+    if (r && r.success) return { ok: true };
+    return { ok: false, error: r?.error ?? 'почтовый сервис не ответил' };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function sendTouristMail(
   scope: string,
   bookingId: string | number,
   mail: TouristMail,
   retryDelayMs: number = RETRY_DELAY_MS,
 ): Promise<TouristMailOutcome> {
-  const first = await emailService.sendEmail(mail);
-  if (first.success) return 'sent';
+  const first = await attempt(mail);
+  if (first.ok) return 'sent';
 
   console.error(`[${scope}] письмо туристу не ушло, повтор через ${Math.round(retryDelayMs / 1000)} с:`,
-    `booking=${bookingId}`, first.error ?? 'причина не названа');
+    `booking=${bookingId}`, first.error);
 
   const timer = setTimeout(() => {
     void (async () => {
-      const second = await emailService.sendEmail(mail);
-      if (second.success) return;
+      const second = await attempt(mail);
+      if (second.ok) return;
       console.error(`[${scope}] письмо туристу не ушло и со второй попытки:`,
-        `booking=${bookingId}`, second.error ?? 'причина не названа');
+        `booking=${bookingId}`, second.error);
       const out = await tgSend(scope, [
         '<b>Письмо туристу не ушло дважды</b>',
         '',
         `Бронирование: #${escapeHtml(String(bookingId))}`,
         `Письмо: ${escapeHtml(mail.subject)}`,
-        `Причина: ${escapeHtml(second.error ?? 'не названа')}`,
+        `Причина: ${escapeHtml(second.error)}`,
         '',
         'Турист не получил ссылку на свою бронь. Передайте её вручную:',
         `${getPublicBaseUrl()}/hub/admin/bookings`,
