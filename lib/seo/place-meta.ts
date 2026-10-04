@@ -19,6 +19,7 @@
  */
 import { TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { metaDescription, META_DESCRIPTION_MAX } from '@/lib/seo/meta-description';
+import { placeZoneLabel } from '@/lib/places/zone-labels';
 
 export interface PlaceMetaFacts {
   name: string;
@@ -76,7 +77,9 @@ function sentence(s: string): string {
  */
 export function placeDescription(f: PlaceMetaFacts, max: number = META_DESCRIPTION_MAX): string {
   const type = f.typeLabel && f.typeLabel !== 'место' ? f.typeLabel : null;
-  const where = f.zone ? `, ${f.zone.trim()}` : '';
+  // Код зоны — подписью или никак (04.10, Кайныран: «…на Камчатке, avachinsky.»).
+  const zoneLabel = placeZoneLabel(f.zone);
+  const where = zoneLabel ? `, ${zoneLabel}` : '';
   const facts: string[] = [
     type ? `${f.name} — ${type} на Камчатке${where}.` : `${f.name} — место на Камчатке${where}.`,
   ];
@@ -130,7 +133,9 @@ export function routeFactsLine(f: RouteMetaFacts): string {
 }
 
 export function routeDescription(f: RouteMetaFacts, max: number = META_DESCRIPTION_MAX): string {
-  const where = f.zone ? `, ${f.zone.trim()}` : '';
+  // Код зоны — подписью или никак (04.10, Кайныран: «…на Камчатке, avachinsky.»).
+  const zoneLabel = placeZoneLabel(f.zone);
+  const where = zoneLabel ? `, ${zoneLabel}` : '';
   const facts = routeFactsLine(f);
   const head = facts
     ? `Маршрут на Камчатке${where}: ${facts}.`

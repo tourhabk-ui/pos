@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { composeAccessText, type AccessFacts } from '@/lib/places/access-text';
 import { placeZoneLabel, routeDifficultyLabel } from '@/lib/places/zone-labels';
+import { placeDescription, routeDescription } from '@/lib/seo/place-meta';
 
 const base: AccessFacts = {
   name: 'Этническое стойбище Кайныран',
@@ -49,5 +50,22 @@ describe('сложность маршрута места — по-русски',
     const src = readFileSync(join(process.cwd(), 'components/places/PlaceRoutes.tsx'), 'utf8');
     expect(src).toContain('{routeDifficultyLabel(r.difficulty)}');
     expect(src).not.toMatch(/>\s*\{r\.difficulty\}\s*</);
+  });
+});
+
+describe('сниппет для поиска — тоже словами', () => {
+  it('описание места и маршрута не несут латинского кода зоны', () => {
+    const d = placeDescription({
+      name: 'Этническое стойбище Кайныран', typeLabel: 'историческое место', zone: 'avachinsky',
+      bestSeason: null, altitudeM: null, hazardsRecorded: false, registrationRequired: false,
+      isOpen: null, essence: null,
+    });
+    expect(d).toContain('на Камчатке, Авачинский.');
+    expect(d).not.toContain('avachinsky');
+    const r = routeDescription({
+      title: 'X', zone: 'zzz_code', distanceKm: 5, durationHours: null, durationDays: null,
+      elevationGainM: null, difficulty: 'easy', season: null, mchsRequired: false, description: null,
+    });
+    expect(r).not.toContain('zzz_code');
   });
 });
