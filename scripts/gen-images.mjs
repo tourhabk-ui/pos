@@ -6,7 +6,15 @@
 
 import pg from 'pg';
 
-const DB_URL = process.env.DATABASE_URL || 'postgresql://gen_user:b%3E%3DPHE1g40PUL%23@8ad609fcbfd2ad0bd069be47.twc1.net:5432/default_db?sslmode=no-verify';
+// Адрес базы — только из окружения. До 04.10 здесь стоял запасной адрес
+// боевой базы с паролем открытым текстом. Строка удалена, но остаётся в
+// истории git — пароль этого пользователя нужно сменить в Timeweb.
+// Без DATABASE_URL скрипт падает, а не идёт «куда-то по умолчанию».
+const DB_URL = process.env.DATABASE_URL;
+if (!DB_URL) {
+  console.error('DATABASE_URL не задан — укажите адрес базы в окружении.');
+  process.exit(1);
+}
 const BATCH = parseInt(process.env.BATCH ?? '20', 10);
 
 const pool = new pg.Pool({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
