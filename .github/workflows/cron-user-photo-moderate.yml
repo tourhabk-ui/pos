@@ -1,0 +1,46 @@
+# Агент модерации снимков туристов (user_place_photos).
+#
+# Решение владельца 04.10: «модерирует пусть кто-то из наших агентов по
+# расписанию». До этого снимки ждали человека на /hub/admin/user-photos, и
+# ни одно правило наших фото мест (повтор по dHash, водяной знак, род места)
+# их не касалось. Правило решения — lib/images/user-photo-moderation.ts.
+#
+# Каждые ~3 часа вне пика DeepSeek (lib/ai/deepseek-peak.ts: 1–4 и 6–10 UTC
+# по будням): зрение — тот же водопад, и спешки нет — снимок, полежавший в
+# очереди три часа, ничего не ломает. Партия — до 5 снимков.
+name: Cron — модерация фото туристов
+
+on:
+  schedule:
+    - cron: '23 0,5,11,14,17,20,23 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: user-photo-moderate
+  cancel-in-progress: false
+
+jobs:
+  moderate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Партия модерации
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo '::error::CRON_SECRET не задан в секретах репозитория'
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/out.json -w '%{http_code}' --max-time 300 \
+            -X POST 'https://vedarai.ru/api/cron/user-photo-moderate' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'Content-Type: application/json' \
+            -d '{"reason": "Плановая модерация снимков туристов агентом: решение владельца 04.10", "dry_run": false}' || echo 000)
+          head -c 3000 /tmp/out.json || true
+          echo
+          if [ "$CODE" != '200' ]; then
+            echo "::error::модерация ответила HTTP $CODE"
+            exit 1
+          fi

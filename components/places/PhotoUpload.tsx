@@ -273,7 +273,11 @@ export function PhotoUpload({ placeId, placeName }: PhotoUploadProps) {
                   onChange={e => setConsent(e.target.checked)}
                   className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
                 />
-                <span>Разрешаю опубликовать эти снимки на Ведаре после проверки</span>
+                <span>
+                  Разрешаю опубликовать эти снимки на Ведаре после проверки. Проверку
+                  ведёт и сервис распознавания изображений за пределами России — если
+                  на снимке люди, он их тоже увидит.
+                </span>
               </label>
             </div>
           )}

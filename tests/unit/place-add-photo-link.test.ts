@@ -47,7 +47,7 @@ describe('подпись места и разрешение на публика�
     const uploadAt = API.indexOf('uploadToS3(');
     expect(consentAt).toBeGreaterThan(-1);
     expect(consentAt).toBeLessThan(uploadAt);
-    expect(API).toMatch(/publish_consent_at\)\s*VALUES \(\$1, \$2, \$3, \$4, \$5, NOW\(\)\)/);
+    expect(API).toMatch(/publish_consent_at, phash\)\s*VALUES \(\$1, \$2, \$3, \$4, \$5, NOW\(\), \$6\)/);
   });
 
   it('колонка заведена миграцией, у старых строк — NULL, а не выдуманное «да»', () => {
