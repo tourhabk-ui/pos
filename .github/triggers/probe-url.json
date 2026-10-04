@@ -1,23 +1,16 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1163: маршрут «Вулкан Козельский» берёт кадры места, автор у каждого.",
-  "run": 698,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. Маршрут «Скалы Три Брата»: точки пути и смотровая (владелец: точка смотровой не там; Maps.me 52.897007, 158.713522).",
+  "run": 699,
   "timeout": 60,
-  "retries": 40,
-  "retryDelay": 60,
-  "allowStale": false,
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
   "bytes": 100,
   "urls": [
-    "https://vedarai.ru/api/routes/a5161175-4d8b-4711-925a-de5ec03fa041"
+    "https://vedarai.ru/api/routes?kind=route&q=%D0%A2%D1%80%D0%B8%20%D0%91%D1%80%D0%B0%D1%82%D0%B0&limit=10",
+    "https://vedarai.ru/api/routes?kind=place&q=%D1%81%D0%BC%D0%BE%D1%82%D1%80%D0%BE%D0%B2&limit=30"
   ],
-  "around": [
-    "\"waypointPhotos\":"
-  ],
+  "around": ["\"id\":"],
   "aroundLines": 0,
-  "aroundHits": 1,
-  "until": "\"waypointPhotos\":{",
-  "grep": [
-    "\"waypointPhotos\":{",
-    "Илья Оноприйчук",
-    "\"linkKind\":\"waypoint\""
-  ]
+  "aroundHits": 40
 }
