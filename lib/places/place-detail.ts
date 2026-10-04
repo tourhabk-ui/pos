@@ -16,6 +16,7 @@ import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
+import type { PlacePhotoAttribution } from '@/components/places/types';
 
 export interface PlaceDetailResult {
   status: number;
@@ -117,6 +118,12 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
                  ), '[]'::json)
             FROM place_gallery_photos g
            WHERE g.ark_id = p.ark_id) AS gallery_urls,
+         -- Авторы галереи — в подпись «Фото:» рядом с автором героя (04.10).
+         (SELECT COALESCE(json_agg(ga.author ORDER BY ga.first_pos), '[]'::json)
+            FROM (SELECT btrim(g.author) AS author, MIN(g.position) AS first_pos
+                    FROM place_gallery_photos g
+                   WHERE g.ark_id = p.ark_id AND NULLIF(btrim(g.author), '') IS NOT NULL
+                   GROUP BY btrim(g.author)) ga) AS gallery_authors,
          ai.model      AS photo_model,
          ai.author     AS photo_author,
          ai.license    AS photo_license,
@@ -369,12 +376,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // записаны. Для фото, взятого у правообладателя (владелец 14.09:
         // «возьму фотки у вулканологов»), это прямое нарушение условий:
         // лицензия почти всегда требует видимого указания автора.
-        photoAttribution: (r.photo_author || r.photo_license) ? {
-          author: (r.photo_author as string | null) ?? null,
-          license: (r.photo_license as string | null) ?? null,
-          licenseUrl: (r.photo_license_url as string | null) ?? null,
-          sourceUrl: (r.photo_source_url as string | null) ?? null,
-        } : null,
+        photoAttribution: photoAttributionOf(r),
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
         accessInfo: r.access_info as string | null,
@@ -512,4 +514,26 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     });
     return { status: 500, body: { success: false, error: 'Не удалось загрузить место. Мы записали отказ.' } };
   }
+}
+
+/**
+ * Подпись «Фото:» — автор героя, лицензия и авторы галереи. Чужой кадр в
+ * галерее без своего имени в подписи выходил бы под именем автора героя
+ * (04.10, Козельский). Не знаем никого — подписи нет (§4.0).
+ */
+export function photoAttributionOf(r: Record<string, unknown>): PlacePhotoAttribution | null {
+  const author = typeof r.photo_author === 'string' && r.photo_author.trim() ? r.photo_author.trim() : null;
+  const license = typeof r.photo_license === 'string' && r.photo_license ? r.photo_license : null;
+  const gallery = Array.isArray(r.gallery_authors) ? r.gallery_authors : [];
+  const otherAuthors = gallery
+    .filter((a): a is string => typeof a === 'string' && a.trim() !== '' && a.trim() !== author)
+    .map(a => a.trim());
+  if (!author && !license && otherAuthors.length === 0) return null;
+  return {
+    author,
+    license,
+    licenseUrl: (r.photo_license_url as string | null) ?? null,
+    sourceUrl: (r.photo_source_url as string | null) ?? null,
+    otherAuthors,
+  };
 }

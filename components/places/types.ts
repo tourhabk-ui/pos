@@ -120,6 +120,12 @@ export interface PlacePhotoAttribution {
   license: string | null;
   licenseUrl: string | null;
   sourceUrl: string | null;
+  /**
+   * Авторы кадров галереи, кроме автора героя, — по порядку первого кадра.
+   * До 04.10 подпись называла только героя, и чужой кадр в галерее (Козельский,
+   * снимок Ильи Оноприйчука) выходил под именем владельца героя.
+   */
+  otherAuthors: string[];
 }
 
 export interface PlaceData {

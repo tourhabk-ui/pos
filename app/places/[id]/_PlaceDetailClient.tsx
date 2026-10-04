@@ -322,7 +322,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
           взятым у правообладателя (ИВиС ДВО РАН / КВЕРТ), она стала бы ложью
           вдвойне: чужое имя и намёк на свободную лицензию, которой нет.
           Не знаем автора — не называем его (§4.0). */}
-      {place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license) && (
+      {place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license || place.photoAttribution.otherAuthors.length > 0) && (
         <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
           Фото:{' '}
           {place.photoAttribution.author && (
@@ -345,6 +345,14 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 <span>{place.photoAttribution.license}</span>
               )}
             </>
+          )}
+          {/* Авторы кадров галереи (04.10): чужой кадр без своего имени здесь
+              выходил под именем автора героя. */}
+          {place.photoAttribution.otherAuthors.length > 0 && (
+            <span>
+              {place.photoAttribution.author || place.photoAttribution.license ? ', ' : ''}
+              {place.photoAttribution.otherAuthors.join(', ')}
+            </span>
           )}
           {/* Источник без автора и лицензии подписью не является, но ссылка
               на него полезна — она есть в блоке выше, когда автор известен. */}
