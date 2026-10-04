@@ -10,6 +10,8 @@
  * Список имён раньше жил локально в /api/public/danger-summary — второй
  * потребитель завёл бы вторую копию, и они бы разъехались.
  */
+import { KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
+
 export const ZONE_NAMES: Record<string, string> = {
   avachinsky: 'Авачинско-Петропавловский',
   northern:   'Северная Камчатка',
@@ -17,7 +19,13 @@ export const ZONE_NAMES: Record<string, string> = {
   western:    'Западное побережье',
 };
 
-/** Имя зоны для показа человеку; незнакомый слаг возвращается как есть. */
+/**
+ * Имя зоны для показа человеку; незнакомый слаг возвращается как есть.
+ * Метка «юг до Петропавловска» — не зона, а охват по широте (04.10,
+ * lib/safety/krai-south.ts), поэтому в ZONE_NAMES её нет: там перечень
+ * четырёх зон, и его обходят как перечень.
+ */
 export function zoneName(slug: string): string {
+  if (slug === KRAI_SOUTH_ZONE) return 'Юг Камчатки до Петропавловска';
   return ZONE_NAMES[slug] ?? slug;
 }

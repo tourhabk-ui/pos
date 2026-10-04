@@ -91,7 +91,7 @@ describe('пожарный алерт — радиус вместо зоны', (
     // С 17.09 пустые зоны — «никого», а не «весь край»: ветки IS NULL / = '{}'
     // в фолбэке нет (сторож — alert-zone-unknown.test.ts), остаётся зонное
     // совпадение.
-    expect(SCOPE).toMatch(/AND ark\.zone = ANY\(ea\.affected_zones\)/);
+    expect(SCOPE).toMatch(/AND \(\s*ark\.zone = ANY\(ea\.affected_zones\)/);
   });
 
   it('формула расстояния и зонный фолбэк объявлены один раз, а не трижды', () => {

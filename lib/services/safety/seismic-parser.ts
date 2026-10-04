@@ -19,6 +19,7 @@ import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
+import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -684,7 +685,11 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
        SET expires_at = GREATEST(external_alerts.expires_at, $4),
            severity = GREATEST(external_alerts.severity, $5),
            affected_zones = CASE
-             WHEN external_alerts.affected_zones = ARRAY['avachinsky']::text[]
+             WHEN (external_alerts.affected_zones = ARRAY['avachinsky']::text[]
+                   -- Пустые зоны — «не установлено»: сегодняшний разбор,
+                   -- узнавший место, расширяет охват из тишины, а не сужает
+                   -- (04.10, «южная половина края» лежала с []).
+                   OR (cardinality(external_alerts.affected_zones) = 0 AND cardinality($6::text[]) > 0))
               AND external_alerts.affected_zones IS DISTINCT FROM $6::text[]
              THEN $6::text[]
              ELSE external_alerts.affected_zones
@@ -1254,6 +1259,9 @@ export function mchs_zones(text: string): string[] {
     if (re.test(text)) dZones.forEach((z) => zones.add(z));
   }
   if (zones.size > 0) return [...zones];
+  // «Южная половина края» — часть края, а не весь он: проверяется ДО
+  // общекраевого, как и округ (решение владельца 04.10, lib/safety/krai-south).
+  if (namesKraiSouth(text)) return [KRAI_SOUTH_ZONE];
   if (KRAI_WIDE_RE.test(text)) return [...ALL_ZONES];
   // Ни вулкана, ни округа, ни слова «по краю» — зона НЕ УСТАНОВЛЕНА, и это
   // возвращается как есть. До 17.09 здесь стояло `['avachinsky']`: паводок в

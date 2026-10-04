@@ -26,6 +26,7 @@ import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
 import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
+import { KRAI_SOUTH_MAX_LAT, KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
 
 /**
  * Когда у события и у точки есть координаты И тип события таков, что
@@ -241,7 +242,14 @@ export const ALERT_MATCH_SQL = `
     -- получают все четыре зоны в mchs_zones по слову источника.
     -- Зеркальный предикат — lib/routes/collect-signals.ts; сторож
     -- tests/unit/alert-zone-unknown.test.ts держит их вместе.
-    AND ark.zone = ANY(ea.affected_zones)
+    AND (
+      ark.zone = ANY(ea.affected_zones)
+      -- «Юг Камчатки до Петропавловска» — широтой места, а не зоной
+      -- (решение владельца 04.10, lib/safety/krai-south.ts). Без широты не
+      -- накрывает: «не измерили» ≠ «южнее».
+      OR ('${KRAI_SOUTH_ZONE}' = ANY(ea.affected_zones)
+          AND ark.lat IS NOT NULL AND ark.lat::float8 <= ${KRAI_SOUTH_MAX_LAT})
+    )
   )
 `;
 
