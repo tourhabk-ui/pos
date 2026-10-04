@@ -35,7 +35,7 @@ interface NavItem {
 // в шапке. Профиль и СОС пятыми быть НЕ могут: ЛК только в шапке (§2), СОС
 // только в шапке (#887).
 const ITEMS: NavItem[] = [
-  // Дом — домашние вулканы Петропавловска (владелец 04.10).
+  // Дом — Корякский, домашний вулкан Петропавловска (владелец 04.10).
   { icon: HomeVolcanoesIcon, label: 'Дом',         href: '/',                    activeOn: ['/'] },
   { icon: Map,        label: 'Карта',       href: '/map',                 activeOn: ['/map'] },
   { icon: Compass,    label: 'Кузьмич',     href: '/kuzmich',             activeOn: ['/kuzmich', '/ai-assistant'] },
