@@ -7,7 +7,7 @@ import {
   Search, Map, LayoutGrid, SlidersHorizontal, X,
   ChevronLeft, ChevronRight, ChevronDown,
   Flame, Droplets, Wind, Thermometer, Mountain, Waves, Anchor, TreePine, MapPin,
-  Gem, Droplet, Navigation, Umbrella, Sailboat, Landmark, ScrollText,
+  Gem, Droplet, Navigation, Umbrella, Sailboat, Landmark, ScrollText, Tent,
 } from 'lucide-react';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import ParksStrip from '@/components/routes/ParksStrip';
@@ -59,6 +59,7 @@ const PLACE_TYPES: { value: string; label: string; Icon: React.ElementType }[] =
   { value: 'island',     label: 'Острова',     Icon: Sailboat },
   { value: 'museum',     label: 'Музеи',       Icon: Landmark },
   { value: 'historical', label: 'История',     Icon: ScrollText },
+  { value: 'ethnic',     label: 'Этнокультура', Icon: Tent },
 ];
 
 // Цвета маркеров на карте по location_type
@@ -82,6 +83,7 @@ const LOCATION_COLORS: Record<string, string> = {
   viewpoint:  'cyan',
   museum:     'purple',
   historical: 'brown',
+  ethnic:     'orange',
   other:      'gray',
 };
 

@@ -44,6 +44,7 @@ const LOCATION_LABELS: Record<string, string> = {
   forest:     'природный парк',
   museum:     'музей',
   historical: 'историческое место',
+  ethnic:     'этнокультурное место',
   rock:       'скала',
   viewpoint:  'смотровая площадка',
   settlement: 'населённый пункт',

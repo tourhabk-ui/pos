@@ -47,6 +47,9 @@ const ICONS_BY_KIND: Record<string, (hex: string, halo: string) => string> = {
   bay: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M7 14c1.5-1.5 3-1.5 5 0s3.5 1.5 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><path d="M7 18c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/></svg>`,
   museum: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M3 14l9-8 9 8v6H3v-6z" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><rect x="7" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="11" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/><rect x="15" y="16" width="2" height="4" rx="0.5" fill="#fff" opacity="0.6"/></svg>`,
   historical: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M12 8v4l2 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  // Этнокультурное место (04.10) — силуэт яранги: усечённый конус с жердями
+  // над дымоходом и входом. Не треугольник горы и не дом посёлка.
+  ethnic: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M10 7l-1.5-4M14 7l1.5-4" stroke="${halo}" stroke-width="1.5" stroke-linecap="round"/><path d="M4 22L7.5 10Q12 6 16.5 10L20 22H4z" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M10.5 22v-5h3v5" fill="#fff" opacity="0.6"/></svg>`,
   // Долина, мыс, пещера и посёлок — подписаны своим словом в LOCATION_LABELS
   // (components/map/PlaceMapSheet.tsx) и LOCATION_TYPE_CONFIG
   // (app/map/_MapPageClient.tsx), но до этой правки падали на общую форму
@@ -124,6 +127,7 @@ export const PLACE_KIND_COLOR: Record<string, string> = {
   forest:     '#15803D',
   museum:     '#6B7280',
   historical: '#A16207',
+  ethnic:     '#B45309',
   cape:       '#6B7280',
   settlement: '#6B7280',
   valley:     '#0D9488',

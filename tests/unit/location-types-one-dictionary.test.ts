@@ -62,8 +62,11 @@ describe('список типов мест один', () => {
     // разошедшийся с общим («Лес» против «Лесной массив»); его таблица тоже
     // ушла сюда, а единственный ключ, которого не было ни у пяти прочих, —
     // этот. Слово «Пещера» взято оттуда же, не сочинено.
+    //
+    // `ethnic` — не из переписи, а решение владельца 04.10 («завести»):
+    // стойбище Кайныран не историческое место (lib/places/location-types.ts).
     const FROM_CENSUS = [
-      'bay', 'beach', 'cape', 'cave', 'forest', 'geyser', 'glacier', 'historical',
+      'bay', 'beach', 'cape', 'cave', 'ethnic', 'forest', 'geyser', 'glacier', 'historical',
       'hot_spring', 'island', 'lake', 'mountain', 'museum', 'other', 'park',
       'pass', 'plateau', 'river', 'rock', 'settlement', 'thermal', 'valley',
       'viewpoint', 'volcano', 'waterfall',

@@ -31,6 +31,7 @@ const LOCATION_PRIORITY: Record<string, number> = {
   geyser:     0.8,
   hot_spring: 0.75,
   historical: 0.85,
+  ethnic:     0.8,
   museum:     0.8,
   forest:     0.75,
   lake:       0.7,
