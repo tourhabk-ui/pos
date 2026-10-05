@@ -47,7 +47,7 @@ let mountCounter = 0;
 
 // Погода зон — ОДИН запрос на всю сетку (модульный синглтон), сервер кэширует
 // 30 минут. Зоны без ответа честно отсутствуют — чип не показывается.
-interface ZoneWx { key: string; tempC: number; windKmh: number; descRu: string }
+interface ZoneWx { key: string; tempC: number; windKmh: number; gustKmh?: number | null; descRu: string }
 let wxPromise: Promise<Map<string, ZoneWx>> | null = null;
 function loadZonesWeather(): Promise<Map<string, ZoneWx>> {
   wxPromise ??= fetch('/api/weather/zones')
@@ -218,7 +218,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
               style={{ bottom: 50, fontFamily: MONO, fontSize: 9 }}
               title={wx.descRu}
             >
-              {wx.tempC > 0 ? `+${wx.tempC}` : wx.tempC}° · {wx.windKmh} км/ч
+              {wx.tempC > 0 ? `+${wx.tempC}` : wx.tempC}° · {wx.gustKmh != null && wx.gustKmh > wx.windKmh ? `${wx.windKmh}–${wx.gustKmh}` : wx.windKmh} км/ч
             </span>
           )}
 

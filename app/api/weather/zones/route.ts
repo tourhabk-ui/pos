@@ -1,7 +1,8 @@
 /**
  * GET /api/weather/zones — погода шести погодных зон Камчатки для карточек
  * витрины. Один запрос с клиента на всю сетку: карточка сама выбирает
- * ближайшую зону (nearestZoneKey). Источник — wttr.in, кэш 30 минут в
+ * ближайшую зону (nearestZoneKey). Источник — Open-Meteo (с 04.10, до этого
+ * wttr.in отдавал пяти зонам одну и ту же станцию), кэш 30 минут в
  * zone-weather; зоны без ответа честно отсутствуют в списке.
  */
 
@@ -22,6 +23,8 @@ export async function GET() {
         lon: ZONES[w.key].lon,
         tempC: w.tempC,
         windKmh: w.windKmh,
+        gustKmh: w.gustKmh,
+        elevationM: w.elevationM,
         descRu: w.descRu,
       })),
     },
