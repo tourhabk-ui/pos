@@ -11,6 +11,7 @@
 
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -63,7 +64,7 @@ export function notifyTouristBookingCreated(
       });
 
       const payLine = booking.accessToken
-        ? `<a href="https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(booking.accessToken)}">Перейти к оплате →</a>`
+        ? `<a href="https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(booking.accessToken)}">${platformAcceptsPayments() ? 'Перейти к оплате' : 'Открыть заявку'} →</a>`
         : null;
 
       await telegramService.sendMessage({

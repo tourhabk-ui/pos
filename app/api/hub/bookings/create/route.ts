@@ -13,6 +13,7 @@ import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getPublicBaseUrl } from '@/lib/config';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export const dynamic = 'force-dynamic';
 
@@ -177,7 +178,7 @@ export async function POST(req: NextRequest) {
           <p><strong>Сумма:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
           <p>Оператор получил заявку и свяжется с вами, чтобы подтвердить дату и детали поездки.</p>
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть заявку</a></p>
-          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.</p>
+          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. ${platformAcceptsPayments() ? 'Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.' : 'Оплата — напрямую оператору: он сообщит реквизиты после подтверждения.'}</p>
         `,
       }).catch((err: unknown) => {
         // Это письмо — единственное, что возвращает туриста к оплате: ссылка

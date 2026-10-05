@@ -8,6 +8,7 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 /** Срок ответа оператора — решение владельца 29.09 («2 часа»). */
 export const SEAT_REQUEST_DEADLINE_MS = 2 * 60 * 60 * 1000;
@@ -159,7 +160,9 @@ export function touristOutcomeText(
   const more = links.statusUrl ? `: ${links.statusUrl}` : '.';
   switch (r.status) {
     case 'confirmed': {
-      const pay = links.bookingUrl
+      const pay = !platformAcceptsPayments()
+        ? ` Оплата — оператору напрямую, он свяжется с вами.${links.bookingUrl ? ` Бронь: ${links.bookingUrl}` : ''}`
+        : links.bookingUrl
         ? ` Оплатить можно на странице брони: ${links.bookingUrl}`
         : links.statusUrl
           ? ` Ссылка на оплату — на странице запроса: ${links.statusUrl}`

@@ -42,6 +42,7 @@ import {
 } from '@/lib/tours/labels';
 import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -727,7 +728,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   <span className="text-sm text-[var(--text-secondary)]">{priceLabel}</span>
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
-                  Дату и детали подтверждает оператор — оплата только после подтверждения.
+                  {platformAcceptsPayments()
+                    ? 'Дату и детали подтверждает оператор — оплата только после подтверждения.'
+                    : 'Дату и детали подтверждает оператор. Оплата — ему напрямую, после подтверждения: Ведар платежи не принимает.'}
                 </p>
                 <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
                   Выбрать дату и оставить заявку

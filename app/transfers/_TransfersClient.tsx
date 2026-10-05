@@ -20,6 +20,7 @@ import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
 import { useAuth } from '@/contexts/AuthContext';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface Trip {
   id: string;
@@ -238,7 +239,9 @@ export default function TransfersClient() {
                     )}
                     {b.status === 'confirmed' && b.payment_status !== 'paid' && (
                       <div className="mt-3">
-                        {amountOf(b) === null ? (
+                        {!platformAcceptsPayments() ? (
+                          <p className="text-xs text-[var(--text-secondary)]">Оплата — перевозчику напрямую: Ведар платежи не принимает. Перевозчик свяжется с вами.</p>
+                        ) : amountOf(b) === null ? (
                           <p className="text-xs text-[var(--text-secondary)]">Перевозчик ещё не назвал цену — оплата появится после этого.</p>
                         ) : payingId === b.id || b.payment_status === 'pending' ? (
                           <SbpQrPayment

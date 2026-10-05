@@ -57,6 +57,8 @@ export function successHeadline(s: {
   alreadyPaid: boolean;
   needsPayment: boolean;
   noPayWay: boolean;
+  /** Оплата выключена владельцем (lib/payments/accepting): платят оператору. */
+  paymentsPaused?: boolean;
 }): SuccessHeadline {
   if (s.status === 'cancelled') {
     return {
@@ -80,14 +82,18 @@ export function successHeadline(s: {
   if (s.status === 'new') {
     return {
       title: 'Заявка создана',
-      subtitle: 'Мы передали заявку оператору. Он подтвердит дату — оплата откроется только после этого.',
+      subtitle: s.paymentsPaused
+        ? 'Мы передали заявку оператору. Он подтвердит дату и договорится с вами об оплате — платить нужно ему напрямую.'
+        : 'Мы передали заявку оператору. Он подтвердит дату — оплата откроется только после этого.',
       tone: 'created',
     };
   }
   if (s.needsPayment) {
     return {
       title: 'Заявка создана',
-      subtitle: s.noPayWay
+      subtitle: s.paymentsPaused
+        ? 'Оператор подтвердил заявку. Оплата — напрямую оператору: Ведар платежи не принимает.'
+        : s.noPayWay
         ? 'Оператор подтвердил заявку. Как оплатить, он подскажет сам.'
         : 'Оператор подтвердил заявку — проверьте данные и переходите к оплате.',
       tone: 'created',
