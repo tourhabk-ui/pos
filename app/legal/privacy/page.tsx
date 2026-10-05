@@ -115,7 +115,7 @@ export default function PrivacyPage() {
               исключительно в целях персонализации и не влечёт юридически значимых последствий для Пользователя.
               AI-заметки хранятся только в зашифрованной базе данных и не передаются третьим лицам.
               Пользователь вправе отказаться, направив запрос на{' '}
-              <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>.
+              <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>.
             </p>
             <p className="mt-4 text-sm">
               В соответствии со ст. 16 Федерального закона от 27.07.2006 No 152-ФЗ (в редакции
@@ -217,7 +217,7 @@ export default function PrivacyPage() {
             </ul>
             <p>
               Запросы направляются на{' '}
-              <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>.
+              <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>.
               Срок ответа — 30 дней с момента получения запроса.
             </p>
           </section>
@@ -251,8 +251,8 @@ export default function PrivacyPage() {
               {REQUISITES.shortName}, ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn}<br />
               {REQUISITES.address}<br />
               Генеральный директор: {REQUISITES.director}<br />
-              Email по вопросам ПД: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a><br />
-              Обращения Пользователей: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>
+              Email по вопросам ПД: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a><br />
+              Обращения Пользователей: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>
             </p>
           </section>
         </div>

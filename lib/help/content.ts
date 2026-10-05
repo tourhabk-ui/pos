@@ -41,7 +41,7 @@ export interface HelpArticle {
  * (lib/legal/requisites.ts), письма и юридические документы.
  */
 export const SUPPORT = {
-  email: 'info@vedarai.ru',
+  email: 'pospk@mail.ru',
   telegram: 'kamchatourhub',
 } as const;
 
