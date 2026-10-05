@@ -20,7 +20,8 @@ const ROOT = process.cwd();
 const code = (p: string) =>
   readFileSync(join(ROOT, p), 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-const LEGAL = ['privacy', 'terms', 'offer', 'commission', 'agent-agreement'];
+// commission и agent-agreement удалены 05.10 (оплата выключена, страницы — 404).
+const LEGAL = ['privacy', 'terms', 'offer'];
 
 describe('один H1', () => {
   it('шапка правовых документов — подпись, а не H1', () => {
@@ -59,7 +60,6 @@ describe('описание укладывается в выдачу', () => {
     'app/trending/page.tsx',
     'app/legal/privacy/page.tsx',
     'app/legal/terms/page.tsx',
-    'app/legal/commission/page.tsx',
     'app/mcp/page.tsx',
   ];
   for (const p of PAGES) {

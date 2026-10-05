@@ -8,7 +8,7 @@
  * раздел «пока выключено» перестаёт действовать, и тексты должны вернуться
  * вместе с ним (этот сторож тогда краснеет на юридических страницах).
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PLATFORM_ACCEPTS_PAYMENTS } from '@/lib/payments/accepting';
@@ -83,8 +83,6 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     'app/legal/terms/page.tsx',
     'app/legal/offer/page.tsx',
     'app/legal/privacy/page.tsx',
-    'app/legal/agent-agreement/page.tsx',
-    'app/legal/commission/page.tsx',
     'components/homepage/AgentModelSection.tsx',
     'app/for-operators/page.tsx',
   ])('%s не обещает приём оплаты платформой', (f) => {
@@ -97,11 +95,21 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     }
   });
 
-  it('недействующие документы закрыты от индекса и убраны из навигации и sitemap', () => {
+  it('футер и условия называют статус: информационная система, оплату не принимает', () => {
+    const footer = strip(read('components/layout/Footer.tsx'));
+    expect(footer).toMatch(/информационная система/);
+    expect(footer).toMatch(/не принимает оплату/);
+    const terms = strip(read('app/legal/terms/page.tsx'));
+    expect(terms).toMatch(/не является туроператором, турагентом или\s+агрегатором/);
+    // Раздел 6: ответственность не мерится «суммой, уплаченной через Платформу».
+    expect(terms).not.toMatch(/уплаченн\S* Пользователем через Платформу/);
+  });
+
+  it('агентского договора и условий комиссии нет вовсе (404) — ни страниц, ни ссылок', () => {
+    // Владелец 05.10: «/legal/agent-agreement → 404». Страница «не действует»
+    // по-прежнему читалась как документ платформы.
     for (const f of ['app/legal/agent-agreement/page.tsx', 'app/legal/commission/page.tsx']) {
-      const code = read(f);
-      expect(code).toMatch(/robots: \{ index: false/);
-      expect(code).toMatch(/Документ не действует с 5 октября 2026 г\./);
+      expect(existsSync(join(process.cwd(), f)), f).toBe(false);
     }
     for (const f of ['lib/navigation/platform-links.ts', 'lib/seo/sitemap-entries.ts']) {
       expect(read(f)).not.toMatch(/legal\/(agent-agreement|commission)/);

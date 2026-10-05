@@ -92,8 +92,16 @@ export function Footer() {
 
         </div>
 
+        {/* Статус платформы — решение владельца 05.10: информационная система,
+            оплату не принимает (lib/payments/accepting). */}
+        <p className="mt-10 text-xs leading-relaxed text-[var(--text-muted)] max-w-3xl">
+          Ведар — информационная система: размещает сведения о маршрутах и турах и передаёт заявки
+          операторам. Не является туроператором, турагентом или агрегатором и не принимает оплату —
+          договор и расчёты за тур туристы заключают с оператором напрямую.
+        </p>
+
         {/* Bottom bar */}
-        <div className="mt-10 pt-6 border-t border-[var(--border)] flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="mt-6 pt-6 border-t border-[var(--border)] flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-[var(--text-muted)]">
             © {new Date().getFullYear()} ООО «ПОС-СЕРВИС» (ИНН 4101147649). Все права защищены.
           </p>
