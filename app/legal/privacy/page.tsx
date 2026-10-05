@@ -250,7 +250,7 @@ export default function PrivacyPage() {
               Оператор персональных данных:<br />
               {REQUISITES.shortName}, ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn}<br />
               {REQUISITES.address}<br />
-              Генеральный директор: {REQUISITES.director}<br />
+              Директор: {REQUISITES.director}<br />
               Email по вопросам ПД: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a><br />
               Обращения Пользователей: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>
             </p>

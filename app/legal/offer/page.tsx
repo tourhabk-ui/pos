@@ -184,7 +184,7 @@ export default function OfferPage() {
               ИНН: {REQUISITES.inn}<br />
               ОГРН: {REQUISITES.ogrn}<br />
               Юридический адрес: {REQUISITES.address}<br />
-              Генеральный директор: {REQUISITES.director}<br />
+              Директор: {REQUISITES.director}<br />
               Банк: ООО «Банк Точка»<br />
               Расчётный счёт: 40702810102500044777<br />
               БИК: 044525104<br />

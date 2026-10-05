@@ -206,7 +206,7 @@ export default function TermsPage() {
               ИНН: {REQUISITES.inn}<br />
               ОГРН: {REQUISITES.ogrn}<br />
               Юридический адрес: {REQUISITES.address}<br />
-              Генеральный директор: {REQUISITES.director}<br />
+              Директор: {REQUISITES.director}<br />
               Email: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a><br />
               Поддержка пользователей: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>
             </p>
