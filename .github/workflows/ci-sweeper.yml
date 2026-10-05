@@ -68,13 +68,34 @@ jobs:
       actions: write # read — логи упавшего рана; write — gh run rerun при флаки
       id-token: write
     steps:
+      # Ветку удаляют вместе с мержем (так закрыт #2234). workflow_run при этом
+      # ещё помнит head_branch, и checkout падает с exit 1 — свиперу нечего
+      # чинить, красный ран не про код. Нет ref — выходим без ошибки.
+      - name: Failing branch still exists
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          gh api "repos/${{ github.repository }}/git/ref/heads/${{ github.event.workflow_run.head_branch }}" --silent
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Branch ${{ github.event.workflow_run.head_branch }} is gone. Nothing to sweep."
+          fi
+
       - name: Checkout failing branch
+        if: steps.branch.outputs.exists == 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 1
 
       - name: Read codebase rules
+        if: steps.branch.outputs.exists == 'true'
         id: ctx
         run: |
           {
@@ -86,6 +107,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude sweeper
+        if: steps.branch.outputs.exists == 'true'
         uses: anthropics/claude-code-action@4036a180cf690f49529f5d8c79c998855287f590 # v1
         env:
           GH_TOKEN: ${{ github.token }}
