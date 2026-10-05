@@ -993,9 +993,8 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   <div className="flex-1 min-w-[10rem]">
                     <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5">Проводит этот тур сам</p>
-                    {/* Продавец по закону (ЗоЗПП ст. 12 п. 2.1): платформа —
-                        агрегатор, исполнитель — оператор, и турист видит, кто
-                        именно. Реквизиты не записаны — говорим это, не прячем. */}
+                    {/* Исполнитель — оператор, платформа — информационная система
+                        (решение владельца 05.10); турист видит, с кем договаривается. Реквизиты не записаны — говорим это, не прячем. */}
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Исполнитель: {sellerRequisitesLine(tour) ?? 'реквизиты оператора не записаны на платформе'}
                     </p>

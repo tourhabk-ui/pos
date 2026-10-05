@@ -58,13 +58,18 @@ describe('статус платформы в документах', () => {
       expect(OFFER).not.toMatch(/CloudPayments/);
     }
   });
-  it('условия называют платформу владельцем агрегатора по ЗоЗПП, а не по 132-ФЗ', () => {
+  it('условия называют платформу информационной системой (решение владельца 05.10)', () => {
     const TERMS = read('app/legal/terms/page.tsx');
-    expect(TERMS).toMatch(/владельцем агрегатора информации об услугах/);
-    expect(TERMS).toMatch(/ст\. 12 п\. 2\.1/);
-    if (!PLATFORM_ACCEPTS_PAYMENTS) {
-      expect(TERMS).toMatch(/не является агентом Партнёров по приёму\s+платежей/);
-      expect(TERMS).not.toMatch(/CloudPayments|Точка Банк|PCI DSS|глава 52/);
-    }
+    // Агрегатор по ЗоЗПП ст. 12 п. 2.1 — это где можно и заключить договор,
+    // и внести предоплату. Ни того, ни другого на платформе нет.
+    expect(TERMS).toMatch(/является информационной системой/);
+    expect(TERMS).toMatch(/не заключается договор/);
+    expect(TERMS).not.toMatch(/владельцем агрегатора/);
+    expect(TERMS).toMatch(/не является агентом Партнёров по приёму\s+платежей/);
+    expect(TERMS).not.toMatch(/CloudPayments|Точка Банк|PCI DSS|глава 52/);
+    // Договор PDF не утверждает, что договор акцептован на платформе.
+    const PDF = read('lib/pdf/contract-generator.ts');
+    expect(PDF).not.toMatch(/акцептован Заказчиком в электронной форме на платформе/);
   });
+
 });
