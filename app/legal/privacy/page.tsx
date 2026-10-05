@@ -86,10 +86,6 @@ export default function PrivacyPage() {
                     <td className="py-2">Договор (п. 5 ч. 1 ст. 6 152-ФЗ)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 pr-4">Проведение расчётов с партнёрами</td>
-                    <td className="py-2">Договор, закон (п. 2, 5 ч. 1 ст. 6)</td>
-                  </tr>
-                  <tr>
                     <td className="py-2 pr-4">Уведомления о статусах бронирований</td>
                     <td className="py-2">Договор (п. 5 ч. 1 ст. 6 152-ФЗ)</td>
                   </tr>

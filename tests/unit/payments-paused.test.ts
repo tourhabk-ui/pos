@@ -80,7 +80,7 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
   ])('%s не обещает приём оплаты платформой', (f) => {
     const code = strip(read(f));
     for (const claim of [
-      /CloudPayments/, /Точка Банк/, /PCI DSS/, /агентом Партнёров по приёму оплаты/,
+      /CloudPayments/, /Точка Банк/, /PCI DSS/, /агентом Партнёров по приёму оплаты/, /Проведение расчётов с партнёрами/,
       /действующего в качестве агента/, /за вычетом 10%/, /Комиссия 10%/,
     ]) {
       expect(code, `${f}: ${claim}`).not.toMatch(claim);
