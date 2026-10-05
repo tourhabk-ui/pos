@@ -227,7 +227,7 @@ export function operatorReplyText(result: OperatorReplyInput, opts: { html?: boo
     switch (result.status) {
       case 'confirmed': {
         const tourist = result.touristMessage === 'sent'
-          ? 'Турист получил ссылку на оплату в мессенджер.'
+          ? (platformAcceptsPayments() ? 'Турист получил ссылку на оплату в мессенджер.' : 'Турист получил подтверждение в мессенджер; оплату он внесёт вам напрямую.')
           : 'Турист увидит бронь на странице запроса; в мессенджер сообщение не ушло.';
         const contacts = result.operatorNotified === false
           ? 'Уведомление с контактами туриста сюда доставить не удалось — их передаст администратор (бронь уже в вашем кабинете).'

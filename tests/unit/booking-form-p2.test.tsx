@@ -73,6 +73,7 @@ async function fillValid(slotDate: string, phone = '+7 900 123 45 67') {
   fireEvent.click(await dayCell(slotDate));
   fireEvent.change(screen.getByLabelText('Имя *'), { target: { value: 'Иван Проверка' } });
   fireEvent.change(screen.getByLabelText('Телефон *'), { target: { value: phone } });
+  fireEvent.change(screen.getByLabelText(/Email/), { target: { value: 'ivan@example.com' } });
   fireEvent.click(screen.getByRole('checkbox', { name: /обработку персональных данных/i }));
 }
 
@@ -205,21 +206,32 @@ describe('П2: поля, подписи, итог', () => {
     await waitFor(() => expect(screen.getByLabelText(/Дата заезда/)).toHaveAttribute('type', 'date'));
   });
 
-  it('email необязателен и пустым в запрос не уходит (решение владельца 24.09)', async () => {
+  it('email обязателен и уходит в запрос (решение владельца 04.10, пересматривает 24.09)', async () => {
     const d = futureDate(10);
     mockApi([{ date: d, free_slots: 5 }]);
     render(<BookingFormClient tourId={27} basePrice={13000} />);
     const email = screen.getByLabelText(/Email/);
-    expect(email).not.toBeRequired();
-    expect(screen.getByText(/пришлём ссылку на заявку/i)).toBeInTheDocument();
+    expect(email).toBeRequired();
+    expect(screen.getByText(/ссылку на заявку, а когда оператор подтвердит — на оплату/i)).toBeInTheDocument();
 
     await fillValid(d);
     fireEvent.click(screen.getByRole('button', { name: /Оставить заявку/ }));
     await waitFor(() => expect(push).toHaveBeenCalled());
     const call = fetchMock.mock.calls.find(c => String(c[0]).includes('/create'));
     const body = JSON.parse(String((call?.[1] as RequestInit).body)) as Record<string, unknown>;
-    expect('tourist_email' in body).toBe(false);
+    expect(body.tourist_email).toBe('ivan@example.com');
     expect(body.pd_consent).toBe(true);
+  });
+
+  it('без email заявка не уходит, поле подсвечено', async () => {
+    const d = futureDate(10);
+    mockApi([{ date: d, free_slots: 5 }]);
+    render(<BookingFormClient tourId={27} basePrice={13000} />);
+    await fillValid(d);
+    fireEvent.change(screen.getByLabelText(/Email/), { target: { value: '' } });
+    fireEvent.submit(screen.getByRole('button', { name: /Оставить заявку/ }).closest('form')!);
+    await waitFor(() => expect(screen.getByLabelText(/Email/)).toHaveAttribute('aria-invalid', 'true'));
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/create'))).toBe(false);
   });
 
   it('итог: сумма одной строкой над кнопкой во всю ширину; форма не вторая карточка', async () => {

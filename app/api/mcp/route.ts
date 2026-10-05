@@ -50,6 +50,7 @@ import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requ
 // пути строит только серверный код по белому списку, сущности резолвятся
 // теми же функциями, какими их находят сами инструменты.
 import { handoffTargetForTool } from '@/lib/mcp/handoff-targets';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export const dynamic = 'force-dynamic';
 
@@ -229,7 +230,7 @@ async function requestSeatsFromOperator(a: {
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
   return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
-    + `Это НЕ бронь и не оплата: если оператор ответит «Есть места», бронь заведётся и подтвердится, а ссылка на оплату появится на странице статуса. `
+    + `Это НЕ бронь и не оплата: если оператор ответит «Есть места», бронь заведётся и подтвердится, ${platformAcceptsPayments() ? 'а ссылка на оплату появится на странице статуса' : 'а оплату человек внесёт оператору напрямую — Ведар платежи не принимает'}. `
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
     + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
     + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.';

@@ -93,6 +93,7 @@ function postReq(participants: number): NextRequest {
       tour_id: 1,
       tourist_name: 'Иван Иванов',
       tourist_phone: '+79991234567',
+  tourist_email: 'guest@example.com',
       participants_count: participants,
       booking_date: '2099-01-01',
     }),

@@ -65,6 +65,16 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     'lib/telegram/booking-notify.ts',
     'app/transfers/_TransfersClient.tsx',
     'app/catalog/tours/[id]/_TourDetailClient.tsx',
+    // Влились из автоподтверждения 04.10 вместе с этой правкой.
+    'components/marketplace/BookingFormClient.tsx',
+    'components/planner/SeatRequestForm.tsx',
+    'lib/bookings/guest-contact.ts',
+    'app/seat-request/_SeatRequestStatusClient.tsx',
+    'app/seat-request/answer/[id]/_OperatorAnswerClient.tsx',
+    'app/api/hub/operator/bookings/[id]/route.ts',
+    'app/p/[code]/_SelectionClient.tsx',
+    'lib/seat-requests/service.ts',
+    'app/api/mcp/route.ts',
   ])('%s говорит о платеже по выключателю, а не безусловно', (f) => {
     expect(read(f)).toMatch(/platformAcceptsPayments\(\)/);
   });

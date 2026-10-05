@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { AutoConfirmToggle } from '@/components/operator/AutoConfirmToggle';
 import { formatDateOnly } from '@/lib/dates/date-only';
 import {
   Plus, X, Check, AlertTriangle, Phone, Mail,
@@ -309,6 +310,8 @@ export default function BookingsManagementClient() {
           {showAdd ? 'Отмена' : 'Добавить бронь'}
         </button>
       </div>
+
+      <AutoConfirmToggle />
 
       {/* Add Booking Form */}
       {showAdd && (

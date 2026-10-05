@@ -31,10 +31,11 @@ describe('/p/[code]: ссылка на бронь больше не теряет
     expect(body).toMatch(/booking-success\/\$\{data\.id\}\?t=/);
   });
 
-  it('форма не собирает email — значит письма с ключом не будет никогда', () => {
-    // Единственные поля формы — имя, телефон, дата, число участников.
+  it('форма собирает email и отправляет его — письмо со ссылкой на оплату дойдёт (владелец 04.10)', () => {
     const formBlock = SELECTION.slice(SELECTION.indexOf('<form onSubmit'), SELECTION.indexOf('</form>'));
-    expect(formBlock).not.toMatch(/tourist_email|type="email"/);
+    expect(formBlock).toMatch(/required type="email"/);
+    const fn = SELECTION.slice(SELECTION.indexOf('const handleBook'));
+    expect(fn.slice(0, fn.indexOf('\n  };'))).toMatch(/tourist_email:\s*email\.trim\(\)/);
   });
 
   it('экран успеха показывает предупреждение и кнопку копирования, когда ссылка есть', () => {

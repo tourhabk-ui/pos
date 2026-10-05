@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
+import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import { Header } from '@/components/layout/Header';
@@ -20,6 +20,7 @@ import {
   type ManualRefreshOutcome,
 } from '@/lib/safety/manual-refresh';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
+import RescueChat from '@/components/safety/RescueChat';
 import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
 
 // ── Типы ──────────────────────────────────────────────────────────
@@ -80,12 +81,6 @@ interface WeatherData {
   desc: string;
   humidity: string;
   windKmph: string;
-}
-
-interface RescueMsg {
-  role: 'user' | 'assistant';
-  content: string;
-  streaming?: boolean;
 }
 
 // ── Вспомогательное ───────────────────────────────────────────────
@@ -191,21 +186,6 @@ function timeAgo(ms: number): string {
   return 'только что';
 }
 
-const LOCAL_PROTOCOLS: [RegExp, string][] = [
-  [/медвед|bear/i,        '1. Не беги\n2. Говори громко и спокойно\n3. Стань визуально больше\n4. Медленно отступай не поворачивайся спиной\n5. Контакта не избежать — сгруппируйся, защити голову и живот, не сопротивляйся\n\nПозвоните: 112'],
-  [/заблуд|потеря|lost/i, '1. СТОП — экономь силы\n2. Оставайся на месте\n3. 3 свистка = сигнал бедствия\n4. На возвышенность для связи\n5. Ищи ручей — выведет к людям\n\nПозвоните: 112'],
-  [/трав|кров|перелом/i,  '1. Остановите кровь — прямое давление\n2. Жгут выше раны (запишите время!)\n3. Перелом: иммобилизуйте подручным\n4. Позвоночник: НЕ двигать\n\nПозвоните: 112'],
-  [/холод|замёрз|гипотерм/i, '1. Снять мокрое, укрыться от ветра\n2. Горячее сладкое питьё (не алкоголь)\n3. В горизонтальное положение\n4. Не давать заснуть\n\nПозвоните: 112'],
-  [/земл|тряс|quake/i,   '1. Внутри: под стол/в проём, защитить голову\n2. Снаружи: от зданий/деревьев/ЛЭП, лечь\n3. Цунами-угроза: немедленно на возвышение\n\nПозвоните: 112'],
-  [/вулкан|пепел|volcano/i, '1. Уйти перпендикулярно ветру\n2. Защитить дыхание влажной тканью\n3. Пирокластический поток: лечь в яму/канаву\n\nПозвоните: 112'],
-];
-
-function getLocalProtocol(text: string): string | null {
-  for (const [pattern, response] of LOCAL_PROTOCOLS) {
-    if (pattern.test(text)) return response;
-  }
-  return null;
-}
 
 // Единый источник номеров (см. lib/safety/emergency-numbers.ts).
 const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c.phone }));
@@ -238,10 +218,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
 
   const [seismicOpen, setSeismicOpen] = useState(false);
   const [volcanicOpen, setVolcanicOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<RescueMsg[]>([]);
-  const [chatLoading, setChatLoading] = useState(false);
   const [checkinState, setCheckinState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   /**
    * Обновление данных руками.
@@ -258,7 +234,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
   // и её свежее время выдавало «проверено только что» за МЧС и сейсмику.
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   // Когда экран перечитывался целиком в последний раз (серверный блок тоже).
   // Ставится при монтировании, а не в рендере: рендер обязан быть чистым.
@@ -435,9 +410,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     if (outcome === 'timeout') void followIngest(before);
   }, [reloadScreen, followIngest, refreshState]);
 
-  useEffect(() => {
-    if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, chatOpen]);
 
   // Тревоги в баннер обязательны: иначе шапка страницы объявляет норму над
   // собственной лентой предупреждений (полевой скриншот 10.08).
@@ -476,72 +448,6 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
     }
   }, [checkinState]);
 
-  const sendRescueMessage = useCallback(async () => {
-    const text = chatInput.trim();
-    if (!text || chatLoading) return;
-    setChatInput('');
-    const userMsg: RescueMsg = { role: 'user', content: text };
-    setChatMessages(prev => [...prev, userMsg]);
-    setChatLoading(true);
-
-    const local = getLocalProtocol(text);
-    if (local || !navigator.onLine) {
-      const reply = local ?? 'Нет связи. Позвоните 112. Оставайтесь на месте.';
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-      setChatLoading(false);
-      return;
-    }
-
-    try {
-      const history = chatMessages.map(m => ({ role: m.role, content: m.content }));
-      const res = await fetch('/api/safety/rescue-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history, stream: true }),
-      });
-      if (!res.ok || !res.body) throw new Error('no stream');
-      // Роут мог ответить JSON-фолбэком вместо SSE — чтение его как стрима
-      // давало пустой пузырь. Разбираем по content-type.
-      if (!(res.headers.get('content-type') ?? '').includes('text/event-stream')) {
-        const data = await res.json() as { reply?: string; error?: string };
-        if (!data.reply) throw new Error('ai unavailable');
-        setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply as string }]);
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = '';
-      setChatMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true }]);
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') break;
-          try {
-            const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
-            assistantContent += parsed.choices?.[0]?.delta?.content ?? '';
-            setChatMessages(prev => {
-              const next = [...prev];
-              next[next.length - 1] = { role: 'assistant', content: assistantContent, streaming: true };
-              return next;
-            });
-          } catch { /* ignore parse errors */ }
-        }
-      }
-      setChatMessages(prev => {
-        const next = [...prev];
-        next[next.length - 1] = { role: 'assistant', content: assistantContent, streaming: false };
-        return next;
-      });
-    } catch {
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка связи. В экстренной ситуации звоните 112.' }]);
-    } finally {
-      setChatLoading(false);
-    }
-  }, [chatInput, chatLoading, chatMessages]);
 
   // Строка «когда опрашивали источники» — одна на оба места, где стоит
   // кнопка (иконка на радаре и запасная карточка без радара).
@@ -945,66 +851,8 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
       {/* Правила для мест со зверями — серверный блок из страницы */}
       {rules}
 
-      {/* AI Спасатель */}
-      <div className="ds-card" style={{ overflow: 'hidden', marginBottom: 32 }}>
-        <button
-          onClick={() => setChatOpen(o => !o)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer' }}
-        >
-          <Bot size={16} color="var(--ocean)" />
-          <div style={{ textAlign: 'left' }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>AI Спасатель</div>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Экстренные протоколы · работает офлайн</div>
-          </div>
-          <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>
-            {chatOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-          </span>
-        </button>
-
-        {chatOpen && (
-          <div style={{ borderTop: '1px solid var(--border)' }}>
-            <div style={{ height: 240, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {chatMessages.length === 0 && (
-                <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>Опишите ситуацию: медведь, травма, потеря, гипотермия, землетрясение...</p>
-              )}
-              {chatMessages.map((m, i) => (
-                <div key={i} style={{
-                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                  maxWidth: '85%',
-                  background: m.role === 'user' ? 'var(--ocean)' : 'var(--bg-hover)',
-                  color: m.role === 'user' ? '#fff' : 'var(--text-primary)',
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  fontSize: 13,
-                  whiteSpace: 'pre-wrap',
-                }}>
-                  {m.content}{m.streaming ? '▋' : ''}
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border)', display: 'flex', gap: 8, padding: '10px 12px' }}>
-              <input
-                className="ds-input"
-                style={{ flex: 1, fontSize: 13 }}
-                placeholder="Что происходит?"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendRescueMessage(); } }}
-                disabled={chatLoading}
-              />
-              <button
-                className="ds-btn ds-btn-primary"
-                style={{ padding: '8px 12px' }}
-                onClick={() => void sendRescueMessage()}
-                disabled={chatLoading || !chatInput.trim()}
-              >
-                <Send size={14} />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* AI Спасатель — общий с /sos (components/safety/RescueChat, 04.10). */}
+      <RescueChat style={{ marginBottom: 32 }} />
 
       <BottomNav activePath="/safety" />
     </div>

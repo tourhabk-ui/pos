@@ -1,23 +1,12 @@
 {
-  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. После 1163: маршрут «Вулкан Козельский» берёт кадры места, автор у каждого.",
-  "run": 698,
+  "note": "04.10. ТОЛЬКО ЧТЕНИЕ. JSON предупреждений Росгидромета (meteoalert) по рамке Камчатки — тот, что читает kammeteo.ru.",
+  "run": 710,
   "timeout": 60,
-  "retries": 40,
-  "retryDelay": 60,
-  "allowStale": false,
-  "bytes": 100,
+  "retries": 1,
+  "retryDelay": 15,
+  "allowStale": true,
+  "bytes": 12000,
   "urls": [
-    "https://vedarai.ru/api/routes/a5161175-4d8b-4711-925a-de5ec03fa041"
-  ],
-  "around": [
-    "\"waypointPhotos\":"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 1,
-  "until": "\"waypointPhotos\":{",
-  "grep": [
-    "\"waypointPhotos\":{",
-    "Илья Оноприйчук",
-    "\"linkKind\":\"waypoint\""
+    "https://meteoalert.meteoinfo.ru/russia/informer/ajax_informer_1.php?lon_0=151.45312540233135&lon_1=175.60546942055228&lat_0=50.018751221459&lat_1=65.25793871571221"
   ]
 }

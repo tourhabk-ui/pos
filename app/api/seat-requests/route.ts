@@ -31,6 +31,8 @@ const Schema = z.object({
   // Код агентской ссылки, пойманный ReferralCapture: плохой код бронь без
   // атрибуции, а не отказ туристу (решает reserveBooking).
   referral_code: z.string().trim().max(32).optional(),
+  // Откуда спросили: планер или карточка тура без расписания (04.10).
+  source:        z.enum(['planner', 'tour_card']).default('planner'),
 });
 
 export async function POST(req: NextRequest) {
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
     replyChannel: d.reply_channel,
     pdConsent: consent,
     referralCode: d.referral_code ?? null,
-    source: 'planner',
+    source: d.source,
   });
 
   if (!result.ok) {

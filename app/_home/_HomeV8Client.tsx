@@ -283,7 +283,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <span className="sp" />
         {/* Обстановка одной строкой. Ведёт к радару на этой же странице — не
             кнопка-обещание, а работающий переход. */}
-        <a className={`pill pill-${pill.tone}`} href="#radar">
+        <a className={`pill pill-${pill.tone}`} href="#radar" suppressHydrationWarning>
           <i />{pill.text}
         </a>
         {/* СОС в шапке: одна реализация на всю платформу, офлайн открывает
@@ -449,7 +449,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </span>
             <span className="qt-tx">
               <b>Радар</b>
-              <span className="qt-st">{freshnessShort(fresh)}</span>
+              {/* Возраст данных считается от часов — сервер и браузер расходятся
+                  на секунды (#418, 04.10). */}
+              <span className="qt-st" suppressHydrationWarning>{freshnessShort(fresh)}</span>
             </span>
           </Link>
         </nav>

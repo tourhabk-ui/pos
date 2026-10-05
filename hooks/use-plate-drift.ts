@@ -69,8 +69,12 @@ export function usePlateDrift(ref: RefObject<HTMLElement | null>, count: number)
     let raf = 0;
 
     const hold = () => { holdUntil.current = performance.now() + RESUME_AFTER_MS; };
-    const onEnter = () => { hovered.current = true; };
-    const onLeave = () => { hovered.current = false; hold(); };
+    // Наведение — только настоящей мышью. Касание на телефоне эмулирует
+    // mouseenter, а mouseleave приходит лишь при касании в другом месте:
+    // лента вставала бы навсегда после первого тапа по ней (прогон 12
+    // map-page-check, 04.10). Палец держит pointerdown/touch* выше.
+    const onEnter = (e: PointerEvent) => { if (e.pointerType === 'mouse') hovered.current = true; };
+    const onLeave = (e: PointerEvent) => { if (e.pointerType === 'mouse') { hovered.current = false; hold(); } };
 
     const step = (t: number) => {
       const dt = Math.min(t - last, 100);
@@ -91,8 +95,8 @@ export function usePlateDrift(ref: RefObject<HTMLElement | null>, count: number)
     c.addEventListener('touchmove', hold, opts);
     c.addEventListener('wheel', hold, opts);
     c.addEventListener('focusin', hold);
-    c.addEventListener('mouseenter', onEnter);
-    c.addEventListener('mouseleave', onLeave);
+    c.addEventListener('pointerenter', onEnter);
+    c.addEventListener('pointerleave', onLeave);
     raf = requestAnimationFrame(step);
 
     return () => {
@@ -103,8 +107,8 @@ export function usePlateDrift(ref: RefObject<HTMLElement | null>, count: number)
       c.removeEventListener('touchmove', hold);
       c.removeEventListener('wheel', hold);
       c.removeEventListener('focusin', hold);
-      c.removeEventListener('mouseenter', onEnter);
-      c.removeEventListener('mouseleave', onLeave);
+      c.removeEventListener('pointerenter', onEnter);
+      c.removeEventListener('pointerleave', onLeave);
     };
   }, [enabled, stopped, count, ref]);
 

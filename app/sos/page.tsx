@@ -9,13 +9,14 @@ import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
 import { SosQrScanner } from '@/components/safety/SosQrScanner';
 import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
-import { EMERGENCY_NUMBERS, EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
+import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
+import RescueChat from '@/components/safety/RescueChat';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
-// Единый источник номеров — работает офлайн, без зависимостей (см. lib/safety/emergency-numbers.ts)
-const SOS_CONTACTS = EMERGENCY_NUMBERS;
+// Единый источник номеров — работает офлайн, без зависимостей (см. lib/safety/emergency-numbers.ts).
+// На экране SOS — только главный номер (112): список прочих служб снят 04.10.
 const PRIMARY = EMERGENCY_PRIMARY;
 
 // ── Общий модуль семантики деградации GPS (public/safety/geo-degradation.js) ──
@@ -628,59 +629,11 @@ export default function SosPage() {
           </p>
         </div>
 
-        {/* Экстренные номера */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0 4px' }}>
-            Другие службы
-          </p>
-          {SOS_CONTACTS.filter((c) => !c.primary).map((c) => (
-            <a
-              key={c.phone}
-              href={`tel:${c.phone.replace(/\s/g, '')}`}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: c.primary ? '14px' : '12px',
-                borderRadius: '12px',
-                background: c.primary ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : 'rgba(255,255,255,0.04)',
-                border: c.primary ? '1px solid color-mix(in srgb, var(--danger) 30%, transparent)' : '1px solid rgba(255,255,255,0.08)',
-                textDecoration: 'none',
-                color: 'white',
-              }}
-            >
-              <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                background: c.primary ? 'color-mix(in srgb, var(--danger) 20%, transparent)' : 'rgba(255,255,255,0.06)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}>
-                <Phone size={16} color={c.primary ? 'var(--danger)' : 'rgba(255,255,255,0.5)'} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: c.primary ? '14px' : '13px', fontWeight: 600, marginBottom: '1px' }}>
-                  {c.name}
-                </div>
-                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {c.type}
-                </div>
-              </div>
-              <div style={{
-                fontSize: c.primary ? '18px' : '14px',
-                fontWeight: 700,
-                fontFamily: 'monospace',
-                flexShrink: 0,
-                color: c.primary ? 'var(--danger)' : 'white',
-              }}>
-                {c.phone}
-              </div>
-            </a>
-          ))}
-        </div>
+        {/* AI Спасатель — сразу под шагами (владелец 04.10: «AI спасателя очень
+            сложно найти на экране»). Здесь раньше стоял список прочих служб
+            (101/102/103 и дежурные МЧС) — снят по слову владельца: «этот блок
+            не нужен, есть общий номер 112». 112 — кнопкой выше, первым на экране. */}
+        <RescueChat surface="sos" />
 
         {/* ВТОРОЙ ЭКРАН — когда позвонить нельзя. Эстафета через попутчика,
             последняя точка связи, меш соседей, сканер чужого SOS, подписка.
@@ -820,7 +773,7 @@ export default function SosPage() {
           touristPhone={phone}
         />
 
-        {/* Хаб безопасности — погода, вулканы, сейсмика, AI спасатель */}
+        {/* Хаб безопасности — погода, вулканы, сейсмика (AI Спасатель — выше, на этом экране) */}
         <a
           href="/hub/safety"
           style={{
@@ -838,7 +791,7 @@ export default function SosPage() {
             fontSize: '13px',
           }}
         >
-          Вулканы · Погода · AI Спасатель
+          Вулканы · Погода · Сейсмика
         </a>
 
 

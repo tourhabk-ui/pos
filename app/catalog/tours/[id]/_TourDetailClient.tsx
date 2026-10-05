@@ -390,7 +390,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFull; reviews?: TourReview[] }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -1158,6 +1158,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 <div id="booking" ref={bookingRef} className="scroll-mt-24">
                   <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
                     priceUnit={tour.price_unit}
+                    askSeatsFirst={askSeatsFirst}
                     cancellationTerms={{
                       freeDays: tour.cancellation_free_days ?? null,
                       lateRefundPercent: tour.cancellation_late_refund_percent ?? null,

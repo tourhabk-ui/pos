@@ -8,7 +8,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
-import { emailService } from '@/lib/notifications/email-service';
+import { sendTouristMail, type TouristMailOutcome } from '@/lib/notifications/tourist-mail';
 import { sendPushToUser } from '@/lib/notifications/web-push';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
@@ -17,6 +17,7 @@ import { ALLOWED_TRANSITIONS, type BookingStatus } from '@/types/booking.types';
 import { getPublicBaseUrl } from '@/lib/config';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { notifyTouristBookingConfirmed, notifyTouristBookingCancelled } from '@/lib/telegram/booking-notify';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export const dynamic = 'force-dynamic';
 
@@ -181,7 +182,15 @@ export async function PATCH(
       : `${getPublicBaseUrl()}/hub/tourist/bookings`;
     const refund = txResult.refund;
 
-    // Notify tourist by email when status changes to confirmed or cancelled
+    // Письмо туристу о подтверждении или отмене. Для гостя это ЕДИНСТВЕННЫЙ
+    // путь к оплате (lib/bookings/guest-contact), поэтому исход отправки
+    // возвращается кабинету: «не ушло» оператор должен увидеть, а не узнать
+    // от туриста. До 04.10 здесь стоял `.catch(() => {})` поверх функции,
+    // которая не бросает, — отказ не видел никто (lib/notifications/tourist-mail).
+    let touristNotice: TouristMailOutcome | 'no_email' | null = null;
+    if (input.booking_status && ['confirmed', 'cancelled'].includes(input.booking_status) && !row.tourist_email) {
+      touristNotice = 'no_email';
+    }
     if (row.tourist_email && input.booking_status && ['confirmed', 'cancelled'].includes(input.booking_status)) {
       const isConfirmed = input.booking_status === 'confirmed';
       const subject = isConfirmed
@@ -191,13 +200,15 @@ export async function PATCH(
         ? `<h2>Ваше бронирование подтверждено!</h2>
            <p><strong>Тур:</strong> ${escapeHtml(row.tour_title ?? '')}</p>
            <p><strong>Стоимость:</strong> ${parseFloat(row.final_price ?? '0').toLocaleString('ru-RU')} ₽</p>
-           <p>Теперь бронь можно оплатить: <a href="${bookingUrl}">открыть бронь и перейти к оплате</a>.</p>`
+           ${platformAcceptsPayments()
+             ? `<p>Теперь бронь можно оплатить: <a href="${bookingUrl}">открыть бронь и перейти к оплате</a>.</p>`
+             : `<p>Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор. <a href="${bookingUrl}">Открыть бронь</a>.</p>`}`
         : `<h2>Бронирование отменено</h2>
            <p><strong>Тур:</strong> ${escapeHtml(row.tour_title ?? '')}</p>
            ${input.cancellation_reason ? `<p><strong>Причина:</strong> ${escapeHtml(input.cancellation_reason)}</p>` : ''}
            ${refund ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${refund.reason} Возврат оформляет администрация платформы.</p>` : ''}
            <p>Свяжитесь с оператором или выберите другой тур на <a href="${getPublicBaseUrl()}/catalog">платформе</a>.</p>`;
-      emailService.sendEmail({ to: row.tourist_email, subject, html }).catch(() => {});
+      touristNotice = await sendTouristMail('operator-booking-status', id, { to: row.tourist_email, subject, html });
 
       // Push notification to tourist
       const touristRes = await query<{ id: string }>(
@@ -266,7 +277,7 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json({ success: true, data: txResult.row });
+    return NextResponse.json({ success: true, data: txResult.row, tourist_notice: touristNotice });
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });

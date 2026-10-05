@@ -21,6 +21,7 @@
  * бронь с таким номером есть, и вернул бы перебору половину добычи.
  */
 
+import { reachFrom } from '@/lib/partners/reach';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { paymentAvailability } from '@/lib/payments/availability';
@@ -66,6 +67,10 @@ export async function GET(
     final_price: string;
     payment_status: string;
     tourist_email: string | null;
+    partner_id: string | null;
+    telegram_chat_id: string | number | null;
+    user_telegram_id: string | number | null;
+    max_chat_id: string | number | null;
   }>(
     `SELECT
        b.id,
@@ -80,7 +85,11 @@ export async function GET(
        COALESCE(p.name, u.name, u.email) AS operator_name,
        COALESCE(p.contacts->>'phone', u.phone)    AS operator_phone,
        COALESCE(p.contacts->>'telegram', u.telegram_username) AS operator_telegram,
-       b.tourist_email
+       b.tourist_email,
+       p.id::text         AS partner_id,
+       p.telegram_chat_id,
+       u.telegram_id      AS user_telegram_id,
+       p.max_chat_id
      FROM operator_bookings b
      JOIN operator_tours   t ON t.id = b.operator_tour_id
      LEFT JOIN partners    p ON p.id = t.operator_id
@@ -136,6 +145,14 @@ export async function GET(
        * Клиент решает по этому флагу, показывать ли «сохрани ссылку сейчас».
        */
       has_email: Boolean(row.tourist_email),
+      /**
+       * Дойдёт ли заявка до оператора мессенджером (lib/partners/reach). Не
+       * адрес — только факт. `false` — канала нет, заявку ему передаёт
+       * администратор (notifyNewBooking, исход no_channel), и турист должен
+       * знать, что ответ может задержаться (04.10). `null` — оператора у тура
+       * не нашли: «не знаю», а не «нет канала».
+       */
+      operator_reachable: row.partner_id ? reachFrom(row).reachable : null,
       /**
        * `pdf_token` отсюда УБРАН намеренно (08.09). Он был HMAC от номера
        * брони и выдавался анониму по этому же номеру — то есть замок
