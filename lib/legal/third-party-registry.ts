@@ -84,30 +84,12 @@ export const THIRD_PARTIES: ThirdParty[] = [
     erid: null,
     consentCategory: 'analytics',
   },
-  {
-    id: 'MicrosoftClarity',
-    title: 'Microsoft Clarity',
-    entity: 'Microsoft Corporation',
-    host: 'www.clarity.ms',
-    jurisdiction: 'US',
-    purpose:
-      'запись сессий: движение курсора, клики и прокрутка, чтобы видеть, где интерфейс мешает',
-    isAdvertising: false,
-    erid: null,
-    consentCategory: 'analytics',
-  },
-  {
-    id: 'TravelPayoutsDrive',
-    title: 'Travelpayouts Drive',
-    entity: null,
-    host: 'emrldco.com',
-    jurisdiction: 'unknown',
-    purpose:
-      'подменяет ссылки на партнёрские и показывает предложения авиабилетов и отелей',
-    isAdvertising: true,
-    erid: null,
-    consentCategory: 'advertising',
-  },
+  // Microsoft Clarity (США) и Travelpayouts Drive (emrldco.com, юрисдикция
+  // не установлена) сняты 05.10: уведомление в Роскомнадзор подаётся без
+  // трансграничной передачи. Вернуть можно только вместе с уведомлением
+  // об изменении сведений, где страна и состав данных названы. Метатег
+  // проверки Travelpayouts передачей не был, но и он снят, чтобы хвост
+  // не читался как получатель.
 ];
 
 /** Загружать ли сервис при данном согласии — и почему нет, если нет. */
