@@ -792,6 +792,12 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
   неподтверждённую бронь отклоняется ДО списания Check-уведомлением CloudPayments
   (`/api/payments/check`), а пришедшая всё же — бронь не подтверждает (04.10).
   Сторожа: `tests/unit/auto-confirm-bookings.test.ts`, `tests/unit/cloudpayments-check.test.ts`
+  **Приём оплаты выключен 05.10 (решение владельца «пока уберём оплату»).**
+  Выключатель — `PLATFORM_ACCEPTS_PAYMENTS` в `lib/payments/accepting.ts`,
+  константа в коде, не env: включение обратно — видимый коммит вместе с
+  текстами оферты и условий. Приёмники не правлены: QR закрыт через
+  `isTochkaConfigured()`, карта — через `paymentAvailability()`. Сторож:
+  `tests/unit/payments-paused.test.ts`
 - `app/api/safety/sos` — SOS (только через staging)
 - **Контроль выхода** (регистрация маршрута, сторож невозвращения, тревога контакту и
   дежурному) — отдельный слой безопасности со своим манифестом

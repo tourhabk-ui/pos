@@ -16,6 +16,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { HELP_ARTICLES, TOURISTS, OPERATORS, GUIDES, SUPPORT } from '@/lib/help/content';
 import { PAYABLE_BOOKING_STATUSES } from '@/lib/bookings/success-view';
+import { PLATFORM_ACCEPTS_PAYMENTS } from '@/lib/payments/accepting';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const allText = (a: (typeof HELP_ARTICLES)[number]) => JSON.stringify(a);
@@ -38,10 +39,20 @@ describe('страницы справки берут текст из одног�
 describe('туристу: оплата после подтверждения, возврат по условиям тура', () => {
   const text = allText(TOURISTS);
 
-  it('оплата открывается только после подтверждения оператором', () => {
+  it('оплата: справка говорит то, что делает код (выключатель lib/payments/accepting)', () => {
     // Правило, которое справка пересказывает, действительно такое.
     expect(PAYABLE_BOOKING_STATUSES).not.toContain('new');
-    expect(text).toMatch(/оплата открывается, только когда оператор подтвердил/i);
+    if (PLATFORM_ACCEPTS_PAYMENTS) {
+      expect(text).toMatch(/оплата открывается, только когда оператор подтвердил/i);
+    } else {
+      // Решение владельца 05.10: платформа оплату не принимает. Справка не
+      // зовёт к кнопке, которой нет, и не обещает возврат от платформы.
+      expect(text).toMatch(/Ведар платежи не принимает/);
+      expect(text).toMatch(/оператору напрямую/);
+      for (const gone of [/CloudPayments/, /QR/, /Перейти к оплате/, /хранятся у платформы/, /администрация[^.]*вручную/i]) {
+        expect(text).not.toMatch(gone);
+      }
+    }
   });
 
   it('нет прежних выдумок', () => {
@@ -50,9 +61,10 @@ describe('туристу: оплата после подтверждения, в
     }
   });
 
-  it('возврат — по условиям тура, отмена оператором — 100%', () => {
-    expect(text).toMatch(/Отменил оператор — 100%/);
-    expect(text).toMatch(/условий тура/);
+  it('возврат — по условиям тура', () => {
+    if (PLATFORM_ACCEPTS_PAYMENTS) expect(text).toMatch(/Отменил оператор — 100%/);
+    else expect(text).toMatch(/возвращает их тоже оператор/);
+    expect(text).toMatch(/услови\S* отмены/);
   });
 
   it('SOS и 112 названы', () => {

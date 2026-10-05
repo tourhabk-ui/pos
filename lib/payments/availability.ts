@@ -29,6 +29,8 @@
  * замысел.
  */
 
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
+
 /** Публичный id CloudPayments под любым из двух имён. null — не настроен. */
 export function cloudPaymentsPublicId(): string | null {
   const raw = process.env.CLOUDPAYMENTS_PUBLIC_ID
@@ -58,12 +60,21 @@ export interface PaymentAvailability {
   sbp: boolean;
   /** Ни одного способа. Не «скрыть блок», а сказать вслух. */
   none: boolean;
+  /**
+   * Оплата выключена решением владельца (lib/payments/accepting), а не
+   * поломкой настройки. Вызывающий не пишет об этом ошибку в лог и говорит
+   * туристу «оплата напрямую оператору».
+   */
+  paused: boolean;
 }
 
 export function paymentAvailability(): PaymentAvailability {
+  if (!platformAcceptsPayments()) {
+    return { cardPublicId: null, sbp: false, none: true, paused: true };
+  }
   const cardPublicId = cloudPaymentsPublicId();
   const sbp = sbpConfigured();
-  return { cardPublicId, sbp, none: !cardPublicId && !sbp };
+  return { cardPublicId, sbp, none: !cardPublicId && !sbp, paused: false };
 }
 
 /**

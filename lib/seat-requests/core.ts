@@ -8,6 +8,7 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 /** Срок ответа оператора — решение владельца 29.09 («2 часа»). */
 export const SEAT_REQUEST_DEADLINE_MS = 2 * 60 * 60 * 1000;
@@ -159,7 +160,9 @@ export function touristOutcomeText(
   const more = links.statusUrl ? `: ${links.statusUrl}` : '.';
   switch (r.status) {
     case 'confirmed': {
-      const pay = links.bookingUrl
+      const pay = !platformAcceptsPayments()
+        ? ` Оплата — оператору напрямую, он свяжется с вами по указанному телефону.${links.bookingUrl ? ` Бронь: ${links.bookingUrl}` : links.statusUrl ? ` Запрос: ${links.statusUrl}` : ''}`
+        : links.bookingUrl
         ? ` Оплатить можно на странице брони: ${links.bookingUrl}`
         : links.statusUrl
           ? ` Ссылка на оплату — на странице запроса: ${links.statusUrl}`
@@ -224,7 +227,7 @@ export function operatorReplyText(result: OperatorReplyInput, opts: { html?: boo
     switch (result.status) {
       case 'confirmed': {
         const tourist = result.touristMessage === 'sent'
-          ? 'Турист получил ссылку на оплату в мессенджер.'
+          ? (platformAcceptsPayments() ? 'Турист получил ссылку на оплату в мессенджер.' : 'Турист получил подтверждение в мессенджер; оплату он внесёт вам напрямую.')
           : 'Турист увидит бронь на странице запроса; в мессенджер сообщение не ушло.';
         const contacts = result.operatorNotified === false
           ? 'Уведомление с контактами туриста сюда доставить не удалось — их передаст администратор (бронь уже в вашем кабинете).'

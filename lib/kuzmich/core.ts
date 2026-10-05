@@ -45,6 +45,7 @@ import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { redactPII } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -1351,7 +1352,9 @@ export async function getTourDetails(query: string): Promise<string> {
     const requisites = sellerRequisitesLine(t);
     parts.push(`Продавец (исполнитель тура): ${requisites
       ?? `${t.operator_name ? `оператор «${t.operator_name}», ` : ''}реквизиты на платформе не записаны`}. `
-      + 'Договор о туре заключается с исполнителем; Ведар — агент, принимает оплату по его поручению. '
+      + (platformAcceptsPayments()
+        ? 'Договор о туре заключается с исполнителем; Ведар — агент, принимает оплату по его поручению. '
+        : 'Договор о туре заключается с исполнителем; Ведар оплату не принимает — платят исполнителю напрямую. ')
       + 'Итоговую сумму за людей и дату даёт get_tour_availability с параметром people.');
     return parts.join('\n');
   } catch (err) {
@@ -1823,7 +1826,9 @@ export async function handleBookingStep(
       `Человек: ${b.participants}`,
       `Сумма: <b>${totalStr} р.</b>`,
       '',
-      `Для оплаты перейдите по ссылке:`,
+      platformAcceptsPayments()
+        ? `Для оплаты перейдите по ссылке:`
+        : `Оператор подтвердит дату и сообщит, как оплатить, — платить ему напрямую. Заявка:`,
       `<a href="${payLink}">${payLink}</a>`,
     ].join('\n'));
     return true;

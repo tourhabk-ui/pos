@@ -23,7 +23,7 @@ export default function PrivacyPage() {
         <h1 className="text-3xl font-bold mb-8">Политика конфиденциальности</h1>
 
         <div className="prose prose-invert max-w-none space-y-6 text-[var(--text-secondary)]">
-          <p className="text-sm text-[var(--text-muted)]">Редакция от 9 апреля 2026 г. Вступает в силу с момента публикации.</p>
+          <p className="text-sm text-[var(--text-muted)]">Редакция от 5 октября 2026 г. Вступает в силу с момента публикации.</p>
 
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Общие положения</h2>
@@ -56,8 +56,8 @@ export default function PrivacyPage() {
               <li>Контактные данные: адрес электронной почты, номер телефона</li>
               <li>Данные учётной записи: логин, хеш пароля, дата регистрации</li>
               <li>Данные бронирований: состав группы, дата тура, специальные требования</li>
-              <li>Платёжные данные: передаются непосредственно платёжному оператору (CloudPayments);
-                  Оператор не хранит реквизиты банковских карт</li>
+              <li>Платёжные данные Оператор не обрабатывает: Платформа не принимает оплату, туристы
+                  платят Партнёрам напрямую</li>
               <li>Технические данные: IP-адрес, тип браузера, данные cookies, история посещений, UTM-метки</li>
               <li>Данные взаимодействия с AI-ассистентом Кузьмич: история диалогов (chat_sessions), синтезированные заметки об интересах пользователя (user_ai_memory), переданные фотографии маршрутов</li>
               <li>Данные лид-форм: имя, телефон, email, бюджет, предпочтения — при заполнении форм запроса тура</li>
@@ -84,10 +84,6 @@ export default function PrivacyPage() {
                   <tr>
                     <td className="py-2 pr-4">Исполнение договора бронирования</td>
                     <td className="py-2">Договор (п. 5 ч. 1 ст. 6 152-ФЗ)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2 pr-4">Проведение расчётов с партнёрами</td>
-                    <td className="py-2">Договор, закон (п. 2, 5 ч. 1 ст. 6)</td>
                   </tr>
                   <tr>
                     <td className="py-2 pr-4">Уведомления о статусах бронирований</td>
@@ -119,7 +115,7 @@ export default function PrivacyPage() {
               исключительно в целях персонализации и не влечёт юридически значимых последствий для Пользователя.
               AI-заметки хранятся только в зашифрованной базе данных и не передаются третьим лицам.
               Пользователь вправе отказаться, направив запрос на{' '}
-              <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>.
+              <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>.
             </p>
             <p className="mt-4 text-sm">
               В соответствии со ст. 16 Федерального закона от 27.07.2006 No 152-ФЗ (в редакции
@@ -159,10 +155,6 @@ export default function PrivacyPage() {
               Оператор передаёт персональные данные Партнёрам (туристическим операторам) исключительно
               в объёме, необходимом для исполнения конкретного бронирования (ФИО, контактные данные,
               состав группы, специальные требования).
-            </p>
-            <p>
-              Обработка платёжных данных осуществляется CloudPayments (ООО «Клаудпэйментс»,
-              ИНН 7714865325) и ООО «Банк Точка» — Оператор карточных данных не хранит.
             </p>
             <p>
               Кроме того, на страницах Платформы работает код сторонних сервисов. Перечень ниже —
@@ -225,7 +217,7 @@ export default function PrivacyPage() {
             </ul>
             <p>
               Запросы направляются на{' '}
-              <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>.
+              <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>.
               Срок ответа — 30 дней с момента получения запроса.
             </p>
           </section>
@@ -258,9 +250,9 @@ export default function PrivacyPage() {
               Оператор персональных данных:<br />
               {REQUISITES.shortName}, ИНН {REQUISITES.inn}, ОГРН {REQUISITES.ogrn}<br />
               {REQUISITES.address}<br />
-              Генеральный директор: {REQUISITES.director}<br />
-              Email по вопросам ПД: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a><br />
-              Обращения Пользователей: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>
+              Директор: {REQUISITES.director}<br />
+              Email по вопросам ПД: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a><br />
+              Обращения Пользователей: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>
             </p>
           </section>
         </div>

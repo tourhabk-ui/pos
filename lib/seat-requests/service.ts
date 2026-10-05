@@ -47,6 +47,7 @@ import {
   type FailureKind, type OperatorAnswer, type ReplyChannel, type SeatRequestStatus,
   type TouristMessageState,
 } from '@/lib/seat-requests/core';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // ── Потолки ───────────────────────────────────────────────────────────────
 // Публичная запись без аккаунта: без потолков один скрипт заваливал бы
@@ -255,7 +256,7 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     '<b>Запрос свободных мест</b>',
     what,
     '',
-    `Ответьте до ${deadlineLocal} (по Камчатке). «Есть места» — бронь сразу заводится и подтверждается, турист получает ссылку на оплату, а вам придёт обычное уведомление о брони с его контактами (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).`,
+    `Ответьте до ${deadlineLocal} (по Камчатке). «Есть места» — бронь сразу заводится и подтверждается, ${platformAcceptsPayments() ? 'турист получает ссылку на оплату' : 'оплату турист вносит вам напрямую'}, а вам придёт обычное уведомление о брони с его контактами (в MAX или в кабинет; если у вас нет ни того ни другого — их передаст администратор).`,
   ].join('\n');
   const delivery = await sendPdAlert({
     text,

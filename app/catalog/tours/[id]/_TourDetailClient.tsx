@@ -42,6 +42,7 @@ import {
 } from '@/lib/tours/labels';
 import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -727,7 +728,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   <span className="text-sm text-[var(--text-secondary)]">{priceLabel}</span>
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
-                  Дату и детали подтверждает оператор — оплата только после подтверждения.
+                  {platformAcceptsPayments()
+                    ? 'Дату и детали подтверждает оператор — оплата только после подтверждения.'
+                    : 'Дату и детали подтверждает оператор. Оплата — ему напрямую, после подтверждения: Ведар платежи не принимает.'}
                 </p>
                 <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
                   Выбрать дату и оставить заявку
@@ -990,9 +993,8 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   <div className="flex-1 min-w-[10rem]">
                     <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5">Проводит этот тур сам</p>
-                    {/* Продавец по закону (ЗоЗПП ст. 12 п. 2.1): платформа —
-                        агрегатор, исполнитель — оператор, и турист видит, кто
-                        именно. Реквизиты не записаны — говорим это, не прячем. */}
+                    {/* Исполнитель — оператор, платформа — информационная система
+                        (решение владельца 05.10); турист видит, с кем договаривается. Реквизиты не записаны — говорим это, не прячем. */}
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Исполнитель: {sellerRequisitesLine(tour) ?? 'реквизиты оператора не записаны на платформе'}
                     </p>

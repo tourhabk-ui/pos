@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { MapPin, Clock, Shield, AlertTriangle, Phone, ChevronRight, Users, Copy } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface TourItem {
   item_id: string;
@@ -395,7 +396,7 @@ export default function SelectionClient({ code }: { code: string }) {
                       <label className="ds-label">Email *</label>
                       <input className="ds-input" required type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="mail@example.com" />
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        Пришлём ссылку на оплату, когда оператор подтвердит заявку.
+                        {platformAcceptsPayments() ? 'Пришлём ссылку на оплату, когда оператор подтвердит заявку.' : 'Пришлём ссылку на заявку и подтверждение оператора.'}
                       </p>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

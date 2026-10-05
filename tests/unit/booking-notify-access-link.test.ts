@@ -19,6 +19,7 @@ vi.mock('@/lib/database', () => ({
 }));
 
 import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
+import { PLATFORM_ACCEPTS_PAYMENTS } from '@/lib/payments/accepting';
 
 const BASE_BOOKING = {
   id: '42',
@@ -39,7 +40,8 @@ describe('notifyTouristBookingCreated — ссылка на оплату в со
     await vi.waitFor(() => expect(sendMessageMock).toHaveBeenCalledTimes(1));
 
     const [{ text }] = sendMessageMock.mock.calls[0]!;
-    expect(text).toContain('Перейти к оплате');
+    // Оплата выключена владельцем 05.10 — ссылка ведёт на заявку, не к оплате.
+    expect(text).toContain(PLATFORM_ACCEPTS_PAYMENTS ? 'Перейти к оплате' : 'Открыть заявку');
     expect(text).toContain('/booking-success/42?t=tok-abc');
   });
 

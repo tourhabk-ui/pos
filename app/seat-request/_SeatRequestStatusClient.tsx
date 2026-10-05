@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, Send } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 type Status = 'pending' | 'confirmed' | 'declined' | 'other_date' | 'expired' | 'failed';
 
@@ -196,10 +197,12 @@ export function SeatRequestStatusClient() {
             )}
             {view.status === 'confirmed' && (
               view.bookingUrl
-                ? <a href={view.bookingUrl} className="ds-btn ds-btn-primary w-full inline-flex justify-center">Открыть бронь и оплатить</a>
+                ? <a href={view.bookingUrl} className="ds-btn ds-btn-primary w-full inline-flex justify-center">{platformAcceptsPayments() ? 'Открыть бронь и оплатить' : 'Открыть бронь'}</a>
                 : <p className="text-sm text-[var(--text-secondary)]">
                     Бронь подтверждена.{' '}
-                    {view.touristNotified
+                    {!platformAcceptsPayments()
+                      ? 'Оплата — оператору напрямую, он свяжется с вами по указанному телефону.'
+                      : view.touristNotified
                       ? 'Ссылку на оплату мы прислали в мессенджер.'
                       : 'Ссылку на оплату мы отдельно не отправляли — оператор свяжется с вами по указанному телефону.'}
                   </p>

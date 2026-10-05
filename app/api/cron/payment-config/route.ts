@@ -63,8 +63,11 @@ export async function GET(request: NextRequest) {
     // Это состояние ХУЖЕ ненастроенной карты: там турист хотя бы видит, что
     // онлайн-оплаты нет, а здесь платит и остаётся ни с чем.
     card_pays_but_unconfirmed: Boolean(availability.cardPublicId) && !names.webhook.configured,
-    verdict: availability.none ? 'nothing' : 'configured',
-    note: availability.none
+    payments_paused: availability.paused,
+    verdict: availability.paused ? 'paused' : availability.none ? 'nothing' : 'configured',
+    note: availability.paused
+      ? 'Оплата выключена решением владельца 05.10 (lib/payments/accepting): платят оператору напрямую'
+      : availability.none
       ? 'Ни карта, ни СБП не настроены: страница брони покажет «онлайн-оплата недоступна» и контакты оператора'
       : 'Способ оплаты настроен. Это факт о конфигурации, а не доказательство прошедшего платежа',
   });

@@ -944,7 +944,8 @@ async function scanMoneyPath(): Promise<GrowthIssue[]> {
       .filter((r) => !r.has_telegram && !r.has_max)
       .map((r) => ({ name: r.name, live_tours: r.live_tours })),
     operators_with_live_tours: census.length,
-    no_payment_way: paymentAvailability().none,
+    // Оплата выключена владельцем (05.10) — это решение, а не находка.
+    no_payment_way: paymentAvailability().none && !paymentAvailability().paused,
   });
 }
 

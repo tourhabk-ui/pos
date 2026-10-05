@@ -13,6 +13,7 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
 import { cancellationTermsLine, type TourRefundTerms } from '@/lib/payments/tour-refund';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface BookingFormProps {
   tourId: number;
@@ -326,7 +327,9 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
           У этого тура нет расписания: оператор собирает группы под запрос. Назовите дату и число людей —
           оператор ответит в мессенджер в течение 2 часов. Если места есть, бронь сразу станет подтверждённой,
-          и по ссылке из ответа её можно будет оплатить.
+          {platformAcceptsPayments()
+            ? 'и по ссылке из ответа её можно будет оплатить.'
+            : 'а оплату вы внесёте оператору напрямую — Ведар платежи не принимает.'}
         </p>
         <button type="button" className="ds-btn ds-btn-primary w-full" onClick={() => { markFunnelStart(); setSeatsOpen(true); }}>
           Спросить места у оператора
@@ -454,7 +457,9 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             {...invalidProps('tourist_email')}
           />
           <p id="booking-email-hint" className="mt-1.5 text-xs text-[var(--text-secondary)]">
-            Пришлём ссылку на заявку, а когда оператор подтвердит — на оплату.
+            {platformAcceptsPayments()
+              ? 'Пришлём ссылку на заявку, а когда оператор подтвердит — на оплату.'
+              : 'Пришлём ссылку на заявку и сообщим, когда оператор подтвердит.'}
           </p>
         </div>
       </div>

@@ -17,6 +17,7 @@ import { ALLOWED_TRANSITIONS, type BookingStatus } from '@/types/booking.types';
 import { getPublicBaseUrl } from '@/lib/config';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { notifyTouristBookingConfirmed, notifyTouristBookingCancelled } from '@/lib/telegram/booking-notify';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export const dynamic = 'force-dynamic';
 
@@ -199,7 +200,9 @@ export async function PATCH(
         ? `<h2>Ваше бронирование подтверждено!</h2>
            <p><strong>Тур:</strong> ${escapeHtml(row.tour_title ?? '')}</p>
            <p><strong>Стоимость:</strong> ${parseFloat(row.final_price ?? '0').toLocaleString('ru-RU')} ₽</p>
-           <p>Теперь бронь можно оплатить: <a href="${bookingUrl}">открыть бронь и перейти к оплате</a>.</p>`
+           ${platformAcceptsPayments()
+             ? `<p>Теперь бронь можно оплатить: <a href="${bookingUrl}">открыть бронь и перейти к оплате</a>.</p>`
+             : `<p>Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор. <a href="${bookingUrl}">Открыть бронь</a>.</p>`}`
         : `<h2>Бронирование отменено</h2>
            <p><strong>Тур:</strong> ${escapeHtml(row.tour_title ?? '')}</p>
            ${input.cancellation_reason ? `<p><strong>Причина:</strong> ${escapeHtml(input.cancellation_reason)}</p>` : ''}

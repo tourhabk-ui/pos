@@ -166,7 +166,7 @@ export class EmailNotificationService {
                 настоящего в коде нет; появится — придёт из переменной
                 окружения, а не из шаблона.
               -->
-              <p><a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>
+              <p><a href="mailto:pospk@mail.ru">pospk@mail.ru</a></p>
             </div>
           </div>
         </div>

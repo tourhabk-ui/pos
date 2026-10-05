@@ -16,6 +16,7 @@ import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
 import { GUEST_EMAIL_REQUIRED_MESSAGE } from '@/lib/bookings/guest-contact';
 import { autoConfirmIfAllowed } from '@/lib/bookings/auto-confirm';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export const dynamic = 'force-dynamic';
 
@@ -196,13 +197,17 @@ export async function POST(req: NextRequest) {
           <p><strong>Дата:</strong> ${data.booking_date}</p>
           <p><strong>Участники:</strong> ${data.participants_count}</p>
           <p><strong>Сумма:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
-          ${autoConfirmed
+          ${autoConfirmed && !platformAcceptsPayments()
+            ? `<p>Дата есть в расписании оператора, места есть — оператор подтверждает такие брони автоматически. Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор.</p>
+          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть бронь</a></p>
+          <p>Сохраните эту ссылку: по одному номеру бронь не открывается.</p>`
+            : autoConfirmed
             ? `<p>Дата есть в расписании оператора, места есть — оператор подтверждает такие брони автоматически. Оплатить можно сразу:</p>
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть бронь и перейти к оплате</a></p>
           <p>Сохраните эту ссылку: по одному номеру бронь не открывается.</p>`
             : `<p>Оператор получил заявку и свяжется с вами, чтобы подтвердить дату и детали поездки.</p>
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть заявку</a></p>
-          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.</p>`}
+          <p>Сохраните эту ссылку: по одному номеру заявка не открывается. ${platformAcceptsPayments() ? 'Оплатить можно будет на этой же странице — оператор всё равно подтвердит детали.' : 'Оплата — напрямую оператору: он сообщит реквизиты после подтверждения.'}</p>`}
         `,
       });
     }
@@ -214,8 +219,12 @@ export async function POST(req: NextRequest) {
       total_price:  result.totalPrice,
       booking_status: bookingStatus,
       message:     autoConfirmed
-        ? 'Бронь подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплатить можно сразу.'
-        : 'Заявка создана. Перед оплатой проверьте детали и условия тура.',
+        ? (platformAcceptsPayments()
+          ? 'Бронь подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплатить можно сразу.'
+          : 'Бронь подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплата — ему напрямую.')
+        : (platformAcceptsPayments()
+          ? 'Заявка создана. Перед оплатой проверьте детали и условия тура.'
+          : 'Заявка создана. Оператор подтвердит дату; оплата — ему напрямую.'),
     });
 
   } catch (err) {

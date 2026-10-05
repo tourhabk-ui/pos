@@ -17,6 +17,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { getTokenFromRequest } from '@/lib/auth';
 import { TourBookCheckRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Валидация входных данных
 const bookingSchema = z.object({
@@ -203,6 +204,9 @@ export async function POST(
 
     // Создаем платеж через CloudPayments (передаём токен из входящего запроса)
     let paymentData = null;
+    // Оплата выключена владельцем 05.10 (lib/payments/accepting): счёт не
+    // выставляется, турист платит оператору напрямую.
+    if (platformAcceptsPayments()) {
     try {
       const authToken = getTokenFromRequest(request);
       const headers: Record<string, string> = {
@@ -232,6 +236,7 @@ export async function POST(
       }
     } catch (paymentError) {
       // Не прерываем выполнение при ошибке платежа
+    }
     }
 
     // Email гостю — честный: заявка создана и ждёт подтверждения оператора,

@@ -34,8 +34,6 @@ const LEGAL_PAGES = [
   'app/legal/offer/page.tsx',
   'app/legal/terms/page.tsx',
   'app/legal/privacy/page.tsx',
-  'app/legal/commission/page.tsx',
-  'app/legal/agent-agreement/page.tsx',
 ];
 
 describe('реквизиты юрлица — из одного источника', () => {

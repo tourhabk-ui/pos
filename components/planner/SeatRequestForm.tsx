@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, X, Send, MessageCircle, Phone, ExternalLink, Copy, Check } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 type ReplyChannel = 'telegram' | 'max' | 'whatsapp' | 'phone';
 
@@ -225,7 +226,7 @@ export function SeatRequestForm({
         {created ? (
           <div className="space-y-3" aria-live="polite">
             <p className="text-sm text-[var(--text-primary)]">
-              Запрос отправлен оператору. Ответ — до {deadline}. Если места есть, бронь заведётся сразу и вы получите ссылку на оплату.
+              Запрос отправлен оператору. Ответ — до {deadline}. Если места есть, бронь заведётся сразу{platformAcceptsPayments() ? ' и вы получите ссылку на оплату' : ', а оплату вы внесёте оператору напрямую'}.
             </p>
             {(channel === 'telegram' || channel === 'max') ? (
               <>

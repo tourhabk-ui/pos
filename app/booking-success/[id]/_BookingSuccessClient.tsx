@@ -26,6 +26,8 @@ interface BookingData {
   operator_telegram: string | null;
   cp_public_id: string;
   sbp_available: boolean;
+  /** Оплата выключена владельцем 05.10 — платят оператору напрямую. */
+  payments_paused?: boolean;
   /** Есть ли у брони email — единственный другой способ вернуться к ссылке (#1889). */
   has_email: boolean;
   /** Дойдёт ли заявка до оператора мессенджером; null — не знаем. */
@@ -211,10 +213,11 @@ export default function BookingSuccessClient() {
   const canPayCard = Boolean(needsPayment && booking?.cp_public_id);
   const canPaySbp  = Boolean(needsPayment && booking?.sbp_available);
   const noPayWay   = Boolean(needsPayment && !canPayCard && !canPaySbp);
+  const paymentsPaused = Boolean(booking?.payments_paused);
   // Заголовок — из правила в success-view: «подтвердил… к оплате» только
   // при реально предлагаемой оплате, у отмены/завершения свои слова.
   const headline = booking
-    ? successHeadline({ status: booking.status, alreadyPaid, needsPayment, noPayWay })
+    ? successHeadline({ status: booking.status, alreadyPaid, needsPayment, noPayWay, paymentsPaused })
     : null;
 
   useEffect(() => {
@@ -227,11 +230,15 @@ export default function BookingSuccessClient() {
 
   return (
     <div className="ds-page min-h-[100dvh] flex items-start justify-center pb-6 sm:pb-12 px-4">
-      <Script
-        src="https://widget.cloudpayments.ru/bundles/cloudpayments.js"
-        onLoad={() => setCpReady(true)}
-        strategy="afterInteractive"
-      />
+      {/* Виджет банка грузится, только когда картой правда можно платить:
+          при выключенной оплате (05.10) сторонний скрипт на странице не нужен. */}
+      {booking?.cp_public_id && (
+        <Script
+          src="https://widget.cloudpayments.ru/bundles/cloudpayments.js"
+          onLoad={() => setCpReady(true)}
+          strategy="afterInteractive"
+        />
+      )}
 
       <div className="w-full max-w-lg">
 
@@ -375,8 +382,10 @@ export default function BookingSuccessClient() {
                         : 'Он свяжется с вами по телефону, который вы указали.'}
                     </li>
                     <li>
-                      После подтверждения оплата откроется на этой странице
-                      {booking.has_email ? ' — та же ссылка есть в письме о заявке.' : '.'}
+                      {paymentsPaused
+                        ? 'Оплата — напрямую оператору: он сообщит реквизиты после подтверждения. Ведар платежи не принимает.'
+                        : <>После подтверждения оплата откроется на этой странице
+                          {booking.has_email ? ' — та же ссылка есть в письме о заявке.' : '.'}</>}
                     </li>
                     {/* Правда, а не обещание скорости: Watchdog поднимает
                         администратору заявку без подтверждения старше 24 ч
@@ -405,8 +414,11 @@ export default function BookingSuccessClient() {
                 <div className="pt-1 flex items-start gap-2.5 px-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
                   <CreditCard className="w-4 h-4 shrink-0 mt-0.5 text-[var(--ocean)]" />
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">Онлайн-оплата недоступна</p>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">
+                      {paymentsPaused ? 'Оплата — напрямую оператору' : 'Онлайн-оплата недоступна'}
+                    </p>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
+                      {paymentsPaused && 'Ведар платежи не принимает. '}
                       Заявка сохранена под номером выше. Мы передали её оператору,
                       {contactsShown
                         ? ' оплатить можно будет напрямую по его контактам ниже.'

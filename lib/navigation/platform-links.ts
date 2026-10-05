@@ -24,7 +24,7 @@ import {
   Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
   MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
   Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert,
-  FileText, ScrollText, Receipt, Percent, FileSignature, Backpack,
+  FileText, ScrollText, Receipt, Backpack,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -102,8 +102,6 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Пользовательское соглашение',  href: '/legal/terms',           icon: FileText },
       { label: 'Политика конфиденциальности',  href: '/legal/privacy',         icon: ScrollText },
       { label: 'Публичная оферта',             href: '/legal/offer',           icon: Receipt },
-      { label: 'Условия комиссии',             href: '/legal/commission',      icon: Percent },
-      { label: 'Агентский договор',            href: '/legal/agent-agreement', icon: FileSignature },
     ],
   },
 ];
