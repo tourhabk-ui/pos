@@ -105,6 +105,17 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     expect(terms).not.toMatch(/уплаченн\S* Пользователем через Платформу/);
   });
 
+  it('политика не утверждает подачу уведомления и не ссылается на несуществующую статью', () => {
+    const privacy = strip(read('app/legal/privacy/page.tsx'));
+    expect(privacy).not.toMatch(/Оператор подал уведомление/);
+    expect(privacy).not.toMatch(/ст\. 18\.1 Федерального закона № 242-ФЗ/);
+    expect(privacy).not.toMatch(/анонимизируются/);
+    expect(privacy).not.toMatch(/30 дней с момента получения запроса/);
+    expect(privacy).toMatch(/не подтверждает включение Оператора в реестр/);
+    expect(privacy).toMatch(/ч\. 5 ст\. 18 Федерального закона № 152-ФЗ/);
+    expect(privacy).toMatch(/10 рабочих дней/);
+  });
+
   it('агентского договора и условий комиссии нет вовсе (404) — ни страниц, ни ссылок', () => {
     // Владелец 05.10: «/legal/agent-agreement → 404». Страница «не действует»
     // по-прежнему читалась как документ платформы.
