@@ -161,7 +161,7 @@ export function touristOutcomeText(
   switch (r.status) {
     case 'confirmed': {
       const pay = !platformAcceptsPayments()
-        ? ` Оплата — оператору напрямую, он свяжется с вами.${links.bookingUrl ? ` Бронь: ${links.bookingUrl}` : ''}`
+        ? ` Оплата — оператору напрямую, он свяжется с вами по указанному телефону.${links.bookingUrl ? ` Бронь: ${links.bookingUrl}` : links.statusUrl ? ` Запрос: ${links.statusUrl}` : ''}`
         : links.bookingUrl
         ? ` Оплатить можно на странице брони: ${links.bookingUrl}`
         : links.statusUrl
