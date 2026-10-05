@@ -1,20 +1,41 @@
 /**
- * Zone-aware weather for Kamchatka mountain and volcanic areas.
- * Uses wttr.in with lat/lon coordinates per zone; 30-min cache per zone.
+ * Погода зон Камчатки — горных и вулканических районов, по точке зоны.
+ *
+ * ── 04.10: wttr.in → Open-Meteo ───────────────────────────────────────────
+ *
+ * Проверка по просьбе владельца («погода по районам, проверь корректность»,
+ * проба 708): пять зон из шести — Мутновский, Налычево, Толбачик,
+ * Авачинский, Юг — отдавали ОДНО И ТО ЖЕ: +8°, ветер 26 км/ч, «Солнечно».
+ * wttr.in прижимает точку к одной станции, и «погода по районам» была погодой
+ * одного места. Ключи — по-английски («Patchy rain nearby»). Open-Meteo в тех
+ * же точках: Авачинский (943 м) +0.8° с порывами до 70 км/ч, юг — порывы
+ * 65 км/ч, Толбачик −5.8°; официальное предупреждение того же часа —
+ * «ветер в прибрежных районах 15–20 м/с». Кузьмич и Telegram отвечали
+ * туристу «солнечно, 26 км/ч».
+ *
+ * Open-Meteo уже живёт в платформе (lib/planner/intelligence, ensemble):
+ * новой сетевой зависимости нет. Порывы — отдельным полем: на вулкане решает
+ * порыв, а не средний ветер. Высота точки — тоже: +1° на 943 м и в городе —
+ * разные новости. 30-минутный кэш на зону; отказ называется в логе и даёт
+ * null — «погоды нет», а не выдуманную.
  */
 
-interface WttrCondition {
-  temp_C: string;
-  FeelsLikeC: string;
-  windspeedKmph: string;
-  humidity: string;
-  weatherDesc: Array<{ value: string }>;
-  lang_ru?: Array<{ value: string }>;
+import { wmoDescriptionRu } from '@/lib/weather/wmo-hazard';
+
+interface OpenMeteoCurrent {
+  temperature_2m?: unknown;
+  apparent_temperature?: unknown;
+  wind_speed_10m?: unknown;
+  wind_gusts_10m?: unknown;
+  weather_code?: unknown;
 }
 
-interface WttrResponse {
-  current_condition: WttrCondition[];
+interface OpenMeteoResponse {
+  elevation?: unknown;
+  current?: OpenMeteoCurrent;
 }
+
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export const ZONES = {
   mutnovsky:    { lat: 52.4, lon: 158.3, name: 'Мутновский вулкан',   keywords: ['мутновск', 'mutnovsky', 'дачные источники', 'дачных'] },
@@ -33,6 +54,11 @@ export interface ZoneWeather {
   tempC: number;
   feelsC: number;
   windKmh: number;
+  /** Порывы, км/ч; null — модель не отдала. */
+  gustKmh: number | null;
+  /** Высота точки модели, м; null — не отдана. */
+  elevationM: number | null;
+  /** Описание по коду WMO; пусто — код незнаком, подписи нет. */
   descRu: string;
 }
 
@@ -46,25 +72,41 @@ export async function getZoneWeather(key: ZoneKey): Promise<ZoneWeather | null> 
 
   const zone = ZONES[key];
   try {
-    const res = await fetch(
-      `https://wttr.in/${zone.lat},${zone.lon}?format=j1&lang=ru`,
-      { signal: AbortSignal.timeout(6000) },
-    );
-    if (!res.ok) return null;
-    const data = await res.json() as WttrResponse;
-    const c = data.current_condition?.[0];
-    if (!c) return null;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${zone.lat}&longitude=${zone.lon}`
+      + '&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,weather_code'
+      + '&wind_speed_unit=kmh&timezone=Asia%2FKamchatka';
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) {
+      console.error('[zone-weather] Open-Meteo ответил', res.status, key);
+      return null;
+    }
+    const data = await res.json() as OpenMeteoResponse;
+    const c = data.current;
+    const temp = num(c?.temperature_2m);
+    const wind = num(c?.wind_speed_10m);
+    if (temp == null || wind == null) {
+      console.error('[zone-weather] в ответе нет температуры или ветра', key);
+      return null;
+    }
+    const code = num(c?.weather_code);
+    const gust = num(c?.wind_gusts_10m);
+    const elev = num(data.elevation);
     const weather: ZoneWeather = {
       key,
       zoneName: zone.name,
-      tempC: parseInt(c.temp_C),
-      feelsC: parseInt(c.FeelsLikeC),
-      windKmh: parseInt(c.windspeedKmph),
-      descRu: c.lang_ru?.[0]?.value ?? c.weatherDesc[0]?.value ?? '',
+      tempC: Math.round(temp),
+      feelsC: Math.round(num(c?.apparent_temperature) ?? temp),
+      windKmh: Math.round(wind),
+      gustKmh: gust == null ? null : Math.round(gust),
+      elevationM: elev == null ? null : Math.round(elev),
+      descRu: wmoDescriptionRu(code) ?? '',
     };
     _cache.set(key, { data: weather, at: Date.now() });
     return weather;
-  } catch { return null; }
+  } catch (err) {
+    console.error('[zone-weather] Open-Meteo не ответил', key, err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /** Погода всех зон разом (для карточек витрины; один вызов — 6 зон из кэша) */
@@ -96,7 +138,12 @@ async function fetchZoneWeather(key: ZoneKey): Promise<string> {
   const w = await getZoneWeather(key);
   if (!w) return '';
   const sign = (n: number) => n > 0 ? `+${n}` : String(n);
-  return `${w.zoneName}: ${sign(w.tempC)}C (ощущается ${sign(w.feelsC)}C), ${w.descRu}, ветер ${w.windKmh} км/ч`;
+  const where = w.elevationM != null ? `${w.zoneName} (~${w.elevationM} м)` : w.zoneName;
+  const parts = [`${sign(w.tempC)}C (ощущается ${sign(w.feelsC)}C)`];
+  if (w.descRu) parts.push(w.descRu);
+  parts.push(`ветер ${w.windKmh} км/ч`);
+  if (w.gustKmh != null && w.gustKmh > w.windKmh) parts.push(`порывы до ${w.gustKmh} км/ч`);
+  return `${where}: ${parts.join(', ')}`;
 }
 
 /**
