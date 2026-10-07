@@ -27,6 +27,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import { monthTitle } from '@/components/routes/AvailabilityCalendar';
+import { PLATFORM_ACCEPTS_PAYMENTS } from '@/lib/payments/accepting';
 
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
 /** Только код, без комментариев: объяснения прежних ошибок не должны ловиться. */
@@ -212,8 +213,11 @@ describe('П2: поля, подписи, итог', () => {
     render(<BookingFormClient tourId={27} basePrice={13000} />);
     const email = screen.getByLabelText(/Email/);
     expect(email).toBeRequired();
-    // Оплата выключена 05.10: подсказка не обещает ссылку на оплату.
-    expect(screen.getByText(/ссылку на заявку и сообщим, когда оператор подтвердит/i)).toBeInTheDocument();
+    // Оплата выключена владельцем 05.10 (lib/payments/accepting): подсказка
+    // обещает ссылку на заявку и подтверждение, а не оплату.
+    expect(screen.getByText(PLATFORM_ACCEPTS_PAYMENTS
+      ? /ссылку на заявку, а когда оператор подтвердит — на оплату/i
+      : /ссылку на заявку и сообщим, когда оператор подтвердит/i)).toBeInTheDocument();
 
     await fillValid(d);
     fireEvent.click(screen.getByRole('button', { name: /Оставить заявку/ }));
