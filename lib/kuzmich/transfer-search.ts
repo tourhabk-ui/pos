@@ -15,6 +15,7 @@
 import { listPublishedTrips } from '@/lib/transfers/service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export interface TransferSearchArgs {
   from?: string;
@@ -74,5 +75,5 @@ export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promi
     const when = t.departure_note ? `${t.trip_date}, ${t.departure_note}` : t.trip_date;
     return `${when}: ${t.from_text} — ${t.to_text}, ${KIND_LABEL[t.vehicle_kind] ?? t.vehicle_kind} «${t.vehicle_title}», свободно ${t.seats_free} из ${t.seats_total}, ${price}. Перевозчик: ${t.partner_name}.`;
   });
-  return `Поездки с ${from} по ${to} (мест от ${minSeats}):\n${lines.join('\n')}\n\nЗапросить место (нужен вход; место занимается после подтверждения перевозчика, оплата по QR СБП): ${base}/transfers`;
+  return `Поездки с ${from} по ${to} (мест от ${minSeats}):\n${lines.join('\n')}\n\nЗапросить место (нужен вход; место занимается после подтверждения перевозчика, ${platformAcceptsPayments() ? 'оплата по QR СБП' : 'оплата перевозчику напрямую'}): ${base}/transfers`;
 }

@@ -24,10 +24,10 @@ export function AgentModelSection() {
         {/* How it works */}
         <div className="grid md:grid-cols-4 gap-6 mb-16">
           {[
-            { step: '01', title: 'Подключение', desc: 'Регистрация, загрузка туров, настройка расписания и подписание агентского договора', icon: FileText },
+            { step: '01', title: 'Подключение', desc: 'Регистрация, загрузка туров, настройка расписания и принятие оферты', icon: FileText },
             { step: '02', title: 'Приём обращения', desc: 'Кузьмич принимает первый диалог 24/7 через сайт, Telegram и MAX и собирает контекст лида', icon: TrendingUp },
             { step: '03', title: 'Операторский контур', desc: 'Система квалифицирует заявку, подбирает туры и готовит материалы для менеджера', icon: Clock },
-            { step: '04', title: 'Подтверждение', desc: 'Вы утверждаете бронь, связываетесь с туристом и проводите тур. Выплата идёт за вычетом 10%', icon: Handshake },
+            { step: '04', title: 'Подтверждение', desc: 'Вы утверждаете бронь, связываетесь с туристом и проводите тур. Оплату турист вносит вам напрямую', icon: Handshake },
           ].map(({ step, title, desc, icon: Icon }) => (
             <div key={step} className="relative p-6 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
               <span className="text-4xl font-bold text-[var(--accent)]/20 absolute top-4 right-4">{step}</span>
@@ -71,7 +71,7 @@ export function AgentModelSection() {
                 'Кузьмич отвечает 24/7 и не теряет первый контакт',
                 '3 канала входа: сайт + Telegram + MAX',
                 'Менеджер получает квалифицированный лид и готовые материалы',
-                'Платите только за результат — 10% с продажи',
+                'Оплату получаете вы напрямую — Ведар платежи не принимает',
                 'Есть дашборд по лидам, выручке и качеству обработки',
               ].map((item, i) => (
                 <li key={i} className="flex items-start gap-3 text-sm text-[var(--text-secondary)]">
@@ -89,7 +89,7 @@ export function AgentModelSection() {
             { value: '131', label: 'маршрутов в базе знаний' },
             { value: '13', label: 'туров в каталоге' },
             { value: '3', label: 'канала привлечения' },
-            { value: '10%', label: 'комиссия с продажи' },
+            { value: '0%', label: 'удержаний из оплаты туриста' },
           ].map(({ value, label }) => (
             <div key={label} className="text-center p-6 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
               <p className="text-3xl font-bold text-[var(--accent)]">{value}</p>
@@ -105,7 +105,7 @@ export function AgentModelSection() {
           </h3>
           <p className="text-[var(--text-secondary)] mb-8 max-w-xl mx-auto">
             Регистрация за 5 минут. Первые 3 месяца Кузьмич и operator tools доступны бесплатно.
-            Агентский договор остаётся прозрачной юридической рамкой.
+            Условия работы — в публичной оферте для партнёров.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
             <Link
@@ -116,10 +116,10 @@ export function AgentModelSection() {
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link
-              href="/legal/agent-agreement"
+              href="/legal/offer"
               className="ds-btn ds-btn-secondary"
             >
-              Агентский договор
+              Оферта для партнёров
             </Link>
           </div>
         </div>

@@ -186,7 +186,7 @@ describe('тексты говорят только то, что известно
 
   it('оператору: «турист получил ссылку» — только если сообщение действительно ушло', () => {
     const ok = { ok: true as const, status: 'confirmed' as const, tourTitle: 'Т', date: '2099-07-10' };
-    expect(operatorReplyText({ ...ok, touristMessage: 'sent' })).toMatch(/Турист получил ссылку на оплату/);
+    expect(operatorReplyText({ ...ok, touristMessage: 'sent' })).toMatch(/Турист получил (ссылку на оплату|подтверждение)/);
     for (const m of ['no_chat', 'failed'] as const) {
       const t = operatorReplyText({ ...ok, touristMessage: m });
       expect(t).not.toMatch(/Турист получил ссылку/);

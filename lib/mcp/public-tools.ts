@@ -143,7 +143,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. To list or search tours use get_tours.' },
   get_tour_availability: { title: 'Tour availability',     lead: 'Kamchatka tour live availability by date: free seats and nearest open dates.' },
   get_guardian_context:  { title: 'Place safety',          lead: 'Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info.' },
-  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts: type, coordinates, hazards, nearby places. For current safety and alerts use get_guardian_context.' },
+  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts only: what it is, type, coordinates. Does not return hazards, alerts or nearby places — for safety use get_guardian_context.' },
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source.' },
   get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
   get_volcano_status:    { title: 'Volcano status',        lead: 'Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context.' },

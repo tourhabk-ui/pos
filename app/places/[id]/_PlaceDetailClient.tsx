@@ -16,6 +16,7 @@ import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { distanceToCity } from '@/lib/places/distance-to-city';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { composeAccessText } from '@/lib/places/access-text';
+import { PLACE_PHOTO_UPLOAD_ANCHOR } from '@/components/places/AddPhotoLink';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -664,7 +665,9 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
               {/* Одобренные фото ПЕРЕД формой загрузки: человек сначала видит,
                   куда попадёт его снимок, и только потом загружает. */}
               <PlaceUserPhotos placeId={place.id} />
-              <PhotoUpload placeId={place.id} placeName={place.name} />
+              <div id={PLACE_PHOTO_UPLOAD_ANCHOR} className="scroll-mt-24">
+                <PhotoUpload placeId={place.id} placeName={place.name} />
+              </div>
 
               <PlaceFieldReports placeId={place.id} />
             </div>

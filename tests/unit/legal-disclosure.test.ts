@@ -34,8 +34,6 @@ const LEGAL_PAGES = [
   'app/legal/offer/page.tsx',
   'app/legal/terms/page.tsx',
   'app/legal/privacy/page.tsx',
-  'app/legal/commission/page.tsx',
-  'app/legal/agent-agreement/page.tsx',
 ];
 
 describe('реквизиты юрлица — из одного источника', () => {
@@ -90,9 +88,11 @@ describe('сторонние скрипты: объявление и механ�
       .not.toMatch(/<strong>Яндекс\.Метрика<\/strong>/);
   });
 
-  it('трансграничные получатели названы отдельно — это отдельный факт', () => {
-    expect(crossBorderRecipients().length).toBeGreaterThan(0);
+  it('трансграничных получателей нет, пока нет отдельного уведомления', () => {
+    expect(crossBorderRecipients(), 'зарубежный получатель вернулся в реестр без уведомления РКН').toEqual([]);
     expect(read('app/legal/privacy/page.tsx')).toMatch(/crossBorderRecipients\(\)/);
+    const layout = read('app/layout.tsx');
+    expect(layout).not.toMatch(/clarity\.ms|emrldco\.com|travelpayouts-verification/);
   });
 });
 
@@ -107,7 +107,7 @@ describe('согласие: «не спрашивали» не равно «ра
     const onlyAnalytics = { analytics: true, advertising: false };
     const ids = THIRD_PARTIES.filter((t) => loadDecision(t, onlyAnalytics).load).map((t) => t.id);
     expect(ids).toContain('YandexMetrika');
-    expect(ids).toContain('MicrosoftClarity');
+    expect(ids, 'Clarity снова грузится — это трансграничная передача').not.toContain('MicrosoftClarity');
     expect(ids, 'рекламное размещение поехало по согласию на аналитику').not.toContain('TravelPayoutsDrive');
   });
 

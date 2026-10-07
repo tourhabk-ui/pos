@@ -61,6 +61,8 @@
  *   TOCHKA_BASE_URL    — необязательный: адрес песочницы вместо боевого
  */
 
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
+
 const DEFAULT_BASE = 'https://enter.tochka.com/uapi';
 
 /**
@@ -381,6 +383,10 @@ export async function getSBPPaymentStatus(qrId: string): Promise<TochkaPaymentSt
  * нашего случая.
  */
 export function isTochkaConfigured(): boolean {
+  // Оплата выключена владельцем (05.10) — QR не выпускается ни на одной
+  // двери, включая приёмник в app/api/payments (§7), который спрашивает
+  // именно эту функцию.
+  if (!platformAcceptsPayments()) return false;
   return tochkaMissingEnv().length === 0;
 }
 

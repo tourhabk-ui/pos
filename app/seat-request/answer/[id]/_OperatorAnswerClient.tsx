@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface View { status: string; tourTitle: string; date: string; participants: number; deadlineAt: string }
 
@@ -90,7 +91,7 @@ export function OperatorAnswerClient({ id, k }: { id: string; k: string }) {
               </label>
               <button disabled={sending} onClick={() => answer('other_date')} className="ds-btn ds-btn-secondary">Предложить</button>
             </div>
-            <p className="text-xs text-[var(--text-muted)]">«Есть места» сразу заводит и подтверждает бронь — турист получает ссылку на оплату, его контакты появятся в кабинете и в MAX.</p>
+            <p className="text-xs text-[var(--text-muted)]">«Есть места» сразу заводит и подтверждает бронь — {platformAcceptsPayments() ? 'турист получает ссылку на оплату' : 'оплату турист вносит вам напрямую'}, его контакты появятся в кабинете и в MAX.</p>
           </div>
         )}
       </div>

@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Стать оператором',
-  description: 'Зарегистрируйтесь как туроператор Камчатки. Первый месяц без комиссии.',
+  description: 'Зарегистрируйтесь как туроператор Камчатки. Оплату туристы вносят вам напрямую.',
 };
 
 export default async function JoinPage() {

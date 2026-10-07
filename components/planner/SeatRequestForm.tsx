@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, X, Send, MessageCircle, Phone, ExternalLink, Copy, Check } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 type ReplyChannel = 'telegram' | 'max' | 'whatsapp' | 'phone';
 
@@ -64,12 +65,14 @@ interface Created {
 }
 
 export function SeatRequestForm({
-  tour, defaultDate, defaultParticipants, onClose,
+  tour, defaultDate, defaultParticipants, onClose, source = 'planner',
 }: {
   tour: { id: string; title: string };
   defaultDate: string;
   defaultParticipants: number;
   onClose: () => void;
+  /** Откуда открыта форма — пишется в запрос (карточка тура или планер). */
+  source?: 'planner' | 'tour_card';
 }) {
   const [date, setDate] = useState(defaultDate);
   // Строка, а не число: поле можно стереть и набрать заново; «пустое» не
@@ -153,6 +156,7 @@ export function SeatRequestForm({
           tourist_name: name, tourist_phone: phone,
           reply_channel: channel, pd_consent: consent,
           referral_code: agentReferralForBooking(window.location.search, Date.now()) ?? undefined,
+          source,
         }),
       });
       const body = await res.json().catch(() => null) as
@@ -222,7 +226,7 @@ export function SeatRequestForm({
         {created ? (
           <div className="space-y-3" aria-live="polite">
             <p className="text-sm text-[var(--text-primary)]">
-              Запрос отправлен оператору. Ответ — до {deadline}. Если места есть, бронь заведётся сразу и вы получите ссылку на оплату.
+              Запрос отправлен оператору. Ответ — до {deadline}. Если места есть, бронь заведётся сразу{platformAcceptsPayments() ? ' и вы получите ссылку на оплату' : ', а оплату вы внесёте оператору напрямую'}.
             </p>
             {(channel === 'telegram' || channel === 'max') ? (
               <>

@@ -179,7 +179,7 @@ export default async function AboutPage() {
                 </div>
                 <div>
                   <dt className="text-[var(--text-muted)]">Email</dt>
-                  <dd className="text-[var(--text-primary)] font-medium">info@vedarai.ru</dd>
+                  <dd className="text-[var(--text-primary)] font-medium">pospk@mail.ru</dd>
                 </div>
               </dl>
             </div>

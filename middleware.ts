@@ -135,10 +135,10 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
 
   // Content Security Policy (базовый)
   if (process.env.NODE_ENV === 'production') {
-    const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://emrldco.com https://www.clarity.ms";
+    const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com";
     const styleSrc = "'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com";
     const imgSrc = "'self' data: https: blob:";
-    const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru https://emrldco.com https://www.clarity.ms";
+    const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru";
     const fontSrc = "'self' data: https://*.yandex.ru";
     const workerSrc = "'self' blob:";
 

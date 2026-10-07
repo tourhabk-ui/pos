@@ -18,6 +18,8 @@ import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
+import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
+import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -683,7 +685,11 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
        SET expires_at = GREATEST(external_alerts.expires_at, $4),
            severity = GREATEST(external_alerts.severity, $5),
            affected_zones = CASE
-             WHEN external_alerts.affected_zones = ARRAY['avachinsky']::text[]
+             WHEN (external_alerts.affected_zones = ARRAY['avachinsky']::text[]
+                   -- Пустые зоны — «не установлено»: сегодняшний разбор,
+                   -- узнавший место, расширяет охват из тишины, а не сужает
+                   -- (04.10, «южная половина края» лежала с []).
+                   OR (cardinality(external_alerts.affected_zones) = 0 AND cardinality($6::text[]) > 0))
               AND external_alerts.affected_zones IS DISTINCT FROM $6::text[]
              THEN $6::text[]
              ELSE external_alerts.affected_zones
@@ -1253,6 +1259,9 @@ export function mchs_zones(text: string): string[] {
     if (re.test(text)) dZones.forEach((z) => zones.add(z));
   }
   if (zones.size > 0) return [...zones];
+  // «Южная половина края» — часть края, а не весь он: проверяется ДО
+  // общекраевого, как и округ (решение владельца 04.10, lib/safety/krai-south).
+  if (namesKraiSouth(text)) return [KRAI_SOUTH_ZONE];
   if (KRAI_WIDE_RE.test(text)) return [...ALL_ZONES];
   // Ни вулкана, ни округа, ни слова «по краю» — зона НЕ УСТАНОВЛЕНА, и это
   // возвращается как есть. До 17.09 здесь стояло `['avachinsky']`: паводок в
@@ -1674,6 +1683,76 @@ export function isAnniversaryPost(text: string): boolean {
   return !forward;
 }
 
+/**
+ * Рассказ о прошлом событии — не тревога (04.10).
+ *
+ * 04.10 в 02:53 UTC МЧС опубликовало очерк ко Дню гражданской обороны:
+ * «Так, 12 января 2026 года мощный охотоморский циклон обрушился на
+ * Камчатку, вызвав рекордные снегопады…». Приём увидел циклон и «режим ЧС» и
+ * записал ПОГОДУ с важностью 2: пуш ушёл подписчикам, 228 мест Авачинской
+ * группы пожелтели (alert-scope-census, prod-check run 89). Событию девять
+ * месяцев.
+ *
+ * Отличает рассказ не тема, а время: в одной фразе названа полная дата И
+ * глагол случившегося в прошедшем времени, и дата лежит дальше
+ * RETROSPECTIVE_MIN_DAYS до публикации. «С 15 июля проезд по пропускам» —
+ * действующее ограничение: глагола случившегося нет, и оно проходит. Взгляд
+ * вперёд или обращение к людям отменяют вердикт, как у годовщины.
+ */
+export const RETROSPECTIVE_MIN_DAYS = 14;
+
+const RETRO_MONTHS: Record<string, number> = {
+  января: 0, февраля: 1, марта: 2, апреля: 3, мая: 4, июня: 5,
+  июля: 6, августа: 7, сентября: 8, октября: 9, ноября: 10, декабря: 11,
+};
+const RETRO_DATE_RE = /(?:^|[^0-9])(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+(\d{4}))?/g;
+const RETRO_EVENT_PAST = /обрушил(?:ся|ась|ось|ись)|произош(?:ёл|ел|ла|ло|ли)|случил(?:ся|ась|ось|ись)|прош(?:ёл|ел|ла|ли)\s+(?:циклон|тайфун|ураган|шторм|паводок|ливень|снегопад)|накрыл[аои]?(?![а-яё])|бушевал[аои]?(?![а-яё])|затопил[аои]?(?![а-яё])|разрушил[аои]?(?![а-яё])|был[аои]?\s+(?:введ[её]н|объявлен)/;
+const RETRO_FORWARD_RE = /экстренное предупреждение|штормовое предупреждение|ожидается|прогнозирует|не рекомендуется|запрещ|воздержитесь|эвакуируйтесь/;
+/**
+ * Событие с прошлой датой, которое ДЛИТСЯ: «20 августа был введён режим ЧС…
+ * Режим сохраняется». Дата прошлая, глагол прошедший — а предупреждение
+ * действующее. Слово о продолжении отменяет вердикт «рассказ».
+ */
+const RETRO_STILL_RE = /сохраняет|продолжает|действует|остаётся|остается|по-прежнему|до сих пор/;
+
+export function isRetrospectivePost(text: string, publishedAt: Date): boolean {
+  const pub = publishedAt.getTime();
+  if (Number.isNaN(pub)) return false;
+  const lower = text.toLowerCase();
+  if (RETRO_FORWARD_RE.test(lower) || RETRO_STILL_RE.test(lower)) return false;
+  for (const sentence of lower.split(/[.!?\n]+/)) {
+    if (!RETRO_EVENT_PAST.test(sentence)) continue;
+    for (const m of sentence.matchAll(RETRO_DATE_RE)) {
+      const day = Number(m[1]);
+      const month = RETRO_MONTHS[m[2]];
+      if (day < 1 || day > 31 || month === undefined) continue;
+      let year = m[3] ? Number(m[3]) : new Date(pub).getUTCFullYear();
+      let at = Date.UTC(year, month, day, 12);
+      // Без года дата позже публикации — это прошлый год, не будущее:
+      // «12 января» в октябрьском очерке.
+      if (!m[3] && at > pub) { year -= 1; at = Date.UTC(year, month, day, 12); }
+      if (pub - at > RETROSPECTIVE_MIN_DAYS * 86_400_000) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Описание работы службы — не тревога (04.10). Из того же очерка: «Спасатели
+ * участвуют в противопаводковых мероприятиях, тушении природных пожаров,
+ * ликвидации последствий мощных циклонов» висело на главной паводком до 9
+ * октября. Подлежащее — служба, сказуемое — обычная деятельность в настоящем
+ * времени («участвуют», «занимаются», «выполняют»): так пишут о профессии, а
+ * не о том, что происходит сейчас и где. Взгляд вперёд отменяет вердикт.
+ */
+const SERVICE_SUBJECT = '(?:спасател[а-яё]*|сотрудник[а-яё]*\\s+мчс(?:\\s+россии)?|пожарны[а-яё]*|огнеборц[а-яё]*)';
+const SERVICE_DUTIES_RE = new RegExp(`(?:^|[^а-яё])${SERVICE_SUBJECT}\\s+(?:участвуют|занимаются|выполняют)(?![а-яё])`);
+
+export function isServiceDuties(text: string): boolean {
+  const lower = text.toLowerCase();
+  return SERVICE_DUTIES_RE.test(lower) && !RETRO_FORWARD_RE.test(lower);
+}
+
 export function isServiceStatistics(text: string): boolean {
   const lower = text.toLowerCase();
 
@@ -1776,7 +1855,13 @@ export function classifyMchsItem(
   // Найдены переписью вердиктов 10.08: вместе они давали «Не сегодня» на 144
   // маршрутах из 421, причём всё содержательное из бюллетеня приходит тем же
   // фидом отдельными предупреждениями. Подробности — у функций.
-  if (isDailyBulletin(text) || isRescueOperationReport(text) || isServiceStatistics(text) || isAnniversaryPost(text)) {
+  if (isDailyBulletin(text) || isRescueOperationReport(text) || isServiceStatistics(text) || isAnniversaryPost(text) || isServiceDuties(text)) {
+    return null;
+  }
+  // Очерк о прошлом событии и предупреждение, объявившее о своём окончании
+  // (04.10, #2195): оба стояли на главной действующими тревогами.
+  if (isRetrospectivePost(text, new Date(pubDate))) return null;
+  if (isWarningEnded(title || description.slice(0, 300)) || isPastForecast(title || description.slice(0, 300), description)) {
     return null;
   }
 
@@ -1838,7 +1923,10 @@ export function classifyMchsItem(
     // явление». Из пяти пунктов сводки до ленты доехали одни медведи, а
     // паводок на четырёх реках и запрет сплавов потерялись целиком. «Разлив»
     // — только при реке: «разлив нефтепродуктов» к паводку отношения не имеет.
-  } else if (/павод(ок|к)|половодь|подтоплен|уровн[а-яё]*\s+вод[ыа]|реках.*ожидается|разлив[а-яё]*\s+(?:на\s+)?(?:рек|р\.)|гидрологическ[а-яё]*\s+явлени/i.test(text)) {
+    // «Противопаводковые мероприятия» — работа службы, не паводок: очерк
+    // 04.10 «Спасатели участвуют в противопаводковых мероприятиях…» висел
+    // паводком на пять суток.
+  } else if (/(?<!противо)павод(ок|к)|половодь|подтоплен|уровн[а-яё]*\s+вод[ыа]|реках.*ожидается|разлив[а-яё]*\s+(?:на\s+)?(?:рек|р\.)|гидрологическ[а-яё]*\s+явлени/i.test(text)) {
     alert_type = 'flood'; severity = 1; expires_hours = 120;
   } else if (isHydrometWarning(text)) {
     // Погодное окно короткое по своей природе: МЧС даёт предупреждение на

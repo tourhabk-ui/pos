@@ -144,7 +144,6 @@ export const metadata: Metadata = {
     google: process.env.GOOGLE_SITE_VERIFICATION,
     yandex: process.env.YANDEX_VERIFICATION,
     other: {
-      'travelpayouts-verification': '2aafzv6xt87m06rb',
     },
   },
 }
@@ -180,11 +179,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <link rel="dns-prefetch" href="//mc.yandex.ru" />
-        <link rel="dns-prefetch" href="//www.clarity.ms" />
-        <link rel="dns-prefetch" href="//emrldco.com" />
         <link rel="dns-prefetch" href="//tile.openstreetmap.org" />
         <link rel="preconnect" href="https://mc.yandex.ru" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://www.clarity.ms" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://tile.openstreetmap.org" crossOrigin="anonymous" />
         <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />

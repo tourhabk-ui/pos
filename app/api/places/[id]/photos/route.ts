@@ -5,7 +5,8 @@ import { getUserFromRequest } from '@/lib/auth/jwt';
 import { pool } from '@/lib/db-pool';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
 import crypto from 'crypto';
-import path from 'path';
+import sharp from 'sharp';
+import { dHash } from '@/lib/images/photo-audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +87,15 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'Максимальный размер 10 МБ' }, { status: 400 });
   }
 
+  // Разрешение автора на публикацию — обязательно (решение владельца 04.10).
+  // Проверяется ДО хранилища: без согласия байты не должны никуда уехать.
+  if (formData.get('publish_consent') !== 'yes') {
+    return NextResponse.json(
+      { success: false, error: 'Нужно разрешение на публикацию снимка' },
+      { status: 400 },
+    );
+  }
+
   const captionRaw = formData.get('caption');
   const caption = CaptionSchema.safeParse(typeof captionRaw === 'string' ? captionRaw : undefined);
   const captionValue = caption.success ? caption.data : undefined;
@@ -116,14 +126,41 @@ export async function POST(
     );
   }
 
-  const ext = path.extname(file.name || '.jpg').toLowerCase() || '.jpg';
+  // По правилам наших фото мест (решение владельца 04.10): снимок
+  // разворачивается по EXIF и сохраняется БЕЗ метаданных — геометка съёмки
+  // указала бы, где турист живёт или ночевал, а снимок после модерации
+  // публичный. Длинная сторона — до 1600 px, JPEG: исходники с телефона по
+  // 3000x4000 уже раздували главную до 8,7 МБ (hero-web-variant).
+  // Не разобрался (битый файл, HEIC без кодека) — отказ, а не исходник с
+  // геометкой в хранилище.
+  let buf: Buffer;
+  let phash: string | null = null;
+  try {
+    buf = await sharp(Buffer.from(await file.arrayBuffer()))
+      .rotate()
+      .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+  } catch (err) {
+    console.error('[places/photos] снимок не разобрался:', file.type, err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { success: false, error: 'Не удалось прочитать снимок — сохраните его как JPEG и загрузите снова' },
+      { status: 400 },
+    );
+  }
+  try {
+    phash = await dHash(buf);
+  } catch (err) {
+    // Отпечаток не посчитан — агент модерации посчитает его сам; «нет
+    // отпечатка» не равно «не повтор».
+    console.error('[places/photos] отпечаток не посчитан:', err instanceof Error ? err.message : err);
+  }
   const uid = crypto.randomUUID();
-  const key = `user-photos/${placeId}/${uid}${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
+  const key = `user-photos/${placeId}/${uid}.jpg`;
 
   let url: string;
   try {
-    const result = await uploadToS3(key, buf, file.type);
+    const result = await uploadToS3(key, buf, 'image/jpeg');
     url = result.url;
   } catch (err) {
     // Хранилище настроено, но не приняло файл. Строку в очередь не заводим:
@@ -148,10 +185,10 @@ export async function POST(
   const status = isAdmin ? 'approved' : 'pending';
 
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO user_place_photos (place_id, user_id, url, caption, status)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO user_place_photos (place_id, user_id, url, caption, status, publish_consent_at, phash)
+     VALUES ($1, $2, $3, $4, $5, NOW(), $6)
      RETURNING id`,
-    [placeId, auth.userId, url, captionValue ?? null, status],
+    [placeId, auth.userId, url, captionValue ?? null, status, phash],
   );
 
   return NextResponse.json({

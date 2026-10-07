@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
+import { PLATFORM_ACCEPTS_PAYMENTS } from '@/lib/payments/accepting';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -48,11 +49,27 @@ describe('статус платформы в документах', () => {
   it('оферта не называет платформу платёжным агрегатором по 161-ФЗ', () => {
     const OFFER = read('app/legal/offer/page.tsx');
     expect(OFFER).not.toMatch(/платёжного агрегатора/);
-    expect(OFFER).toMatch(/агента Партнёра по приёму платежей/);
+    if (PLATFORM_ACCEPTS_PAYMENTS) {
+      expect(OFFER).toMatch(/агента Партнёра по приёму платежей/);
+    } else {
+      // Оплата выключена владельцем 05.10: оферта прямо отрицает агентство
+      // по приёму платежей и не называет платёжных провайдеров.
+      expect(OFFER).toMatch(/не является агентом Партнёра по приёму платежей/);
+      expect(OFFER).not.toMatch(/CloudPayments/);
+    }
   });
-  it('условия называют платформу владельцем агрегатора по ЗоЗПП, а не по 132-ФЗ', () => {
+  it('условия называют платформу информационной системой (решение владельца 05.10)', () => {
     const TERMS = read('app/legal/terms/page.tsx');
-    expect(TERMS).toMatch(/владельцем агрегатора информации об услугах/);
-    expect(TERMS).toMatch(/ст\. 12 п\. 2\.1/);
+    // Агрегатор по ЗоЗПП ст. 12 п. 2.1 — это где можно и заключить договор,
+    // и внести предоплату. Ни того, ни другого на платформе нет.
+    expect(TERMS).toMatch(/является информационной системой/);
+    expect(TERMS).toMatch(/не заключается договор/);
+    expect(TERMS).not.toMatch(/владельцем агрегатора/);
+    expect(TERMS).toMatch(/не является агентом Партнёров по приёму\s+платежей/);
+    expect(TERMS).not.toMatch(/CloudPayments|Точка Банк|PCI DSS|глава 52/);
+    // Договор PDF не утверждает, что договор акцептован на платформе.
+    const PDF = read('lib/pdf/contract-generator.ts');
+    expect(PDF).not.toMatch(/акцептован Заказчиком в электронной форме на платформе/);
   });
+
 });

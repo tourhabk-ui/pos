@@ -21,6 +21,7 @@
  * бронь с таким номером есть, и вернул бы перебору половину добычи.
  */
 
+import { reachFrom } from '@/lib/partners/reach';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { paymentAvailability } from '@/lib/payments/availability';
@@ -66,6 +67,10 @@ export async function GET(
     final_price: string;
     payment_status: string;
     tourist_email: string | null;
+    partner_id: string | null;
+    telegram_chat_id: string | number | null;
+    user_telegram_id: string | number | null;
+    max_chat_id: string | number | null;
   }>(
     `SELECT
        b.id,
@@ -80,7 +85,11 @@ export async function GET(
        COALESCE(p.name, u.name, u.email) AS operator_name,
        COALESCE(p.contacts->>'phone', u.phone)    AS operator_phone,
        COALESCE(p.contacts->>'telegram', u.telegram_username) AS operator_telegram,
-       b.tourist_email
+       b.tourist_email,
+       p.id::text         AS partner_id,
+       p.telegram_chat_id,
+       u.telegram_id      AS user_telegram_id,
+       p.max_chat_id
      FROM operator_bookings b
      JOIN operator_tours   t ON t.id = b.operator_tour_id
      LEFT JOIN partners    p ON p.id = t.operator_id
@@ -103,7 +112,7 @@ export async function GET(
   // страница брони прятала платёжный блок молча — турист оставлял заявку и
   // не имел ни одной кнопки заплатить.
   const pay = paymentAvailability();
-  if (pay.none) {
+  if (pay.none && !pay.paused) {
     // Отказ не глушится (§4.0): без этой строки «0 оплат» неотличимо от
     // «никто не захотел». Значений не пишем — только факт ненастроенности.
     console.error('[bookings/get] ни один способ оплаты не настроен: карта и СБП недоступны, бронь', row.id);
@@ -127,6 +136,8 @@ export async function GET(
       /** Готова ли оплата по QR СБП. Раньше вкладка СБП была заперта внутри
        *  проверки ключа CloudPayments — настроенная Точка не спасала. */
       sbp_available: pay.sbp,
+      /** Оплата выключена владельцем (lib/payments/accepting): платят оператору напрямую. */
+      payments_paused: pay.paused,
       /**
        * Не сам email (это ПД, отсюда наружу не выводится) — только факт его
        * наличия. Без него у брони нет НИ ОДНОГО письма-дубликата со ссылкой:
@@ -134,6 +145,14 @@ export async function GET(
        * Клиент решает по этому флагу, показывать ли «сохрани ссылку сейчас».
        */
       has_email: Boolean(row.tourist_email),
+      /**
+       * Дойдёт ли заявка до оператора мессенджером (lib/partners/reach). Не
+       * адрес — только факт. `false` — канала нет, заявку ему передаёт
+       * администратор (notifyNewBooking, исход no_channel), и турист должен
+       * знать, что ответ может задержаться (04.10). `null` — оператора у тура
+       * не нашли: «не знаю», а не «нет канала».
+       */
+      operator_reachable: row.partner_id ? reachFrom(row).reachable : null,
       /**
        * `pdf_token` отсюда УБРАН намеренно (08.09). Он был HMAC от номера
        * брони и выдавался анониму по этому же номеру — то есть замок

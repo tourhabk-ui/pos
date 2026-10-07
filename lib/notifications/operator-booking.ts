@@ -83,10 +83,11 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
 
   const viaLabel: Record<string, string> = {
     website: 'Сайт',
+    website_auto_confirmed: 'Сайт — подтверждена автоматически (ваша настройка: дата из расписания, места есть)',
     direct_contact: 'Телефон/мессенджер',
     api: 'API',
     agent: 'Агент платформы (за клиента)',
-    seat_request: 'Запрос мест из планера (вы подтвердили места)',
+    seat_request: 'Запрос мест (вы подтвердили места)',
   };
 
   // Общая часть — без ПД: её видно в обоих каналах.

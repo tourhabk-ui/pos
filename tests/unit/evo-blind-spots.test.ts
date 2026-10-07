@@ -98,7 +98,7 @@ describe('линза партнёрских ссылок', () => {
 describe('живые блоки платформы проходят новую линзу', () => {
   it('ни одной находки на настоящих партнёрских блоках', () => {
     const bodies = new Map<string, string>();
-    for (const p of ['components/routes/RouteAffiliateBlock.tsx', 'components/routes/YandexTravelBlock.tsx']) {
+    for (const p of ['components/routes/RouteAffiliateBlock.tsx']) {
       bodies.set(p, readFileSync(join(process.cwd(), p), 'utf-8'));
     }
     const issues = findUnattributedAffiliateLinks(bodies);

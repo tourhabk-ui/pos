@@ -85,21 +85,30 @@ export default function BookingDetailClient({ bookingId }: Props) {
 
   async function updateStatus(booking_status: string, cancellation_reason?: string) {
     setUpdating(true);
+    let hideAfterMs = 4000;
     try {
       const res = await fetch(`/api/hub/operator/bookings/${bookingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ booking_status, cancellation_reason }),
       });
-      const json = await res.json() as { success?: boolean; error?: string };
+      const json = await res.json() as { success?: boolean; error?: string; tourist_notice?: string | null };
       if (!res.ok) throw new Error(json.error ?? 'Ошибка');
-      setNotification({ type: 'success', text: `Статус изменён: ${STATUS_LABEL[booking_status]}` });
+      // Письмо — для гостя единственный путь к оплате: что оно не ушло,
+      // оператор видит сразу, а не от туриста (04.10).
+      const notice = json.tourist_notice === 'retrying'
+        ? ' Письмо туристу не ушло — повторим через 5 минут. Лучше позвоните ему сами.'
+        : json.tourist_notice === 'no_email'
+          ? ' У туриста не указана почта — сообщите ему по телефону.'
+          : '';
+      setNotification({ type: notice ? 'error' : 'success', text: `Статус изменён: ${STATUS_LABEL[booking_status]}.${notice}` });
+      if (notice) hideAfterMs = 20000;
       await mutate();
     } catch (e) {
       setNotification({ type: 'error', text: e instanceof Error ? e.message : 'Ошибка обновления' });
     } finally {
       setUpdating(false);
-      setTimeout(() => setNotification(null), 4000);
+      setTimeout(() => setNotification(null), hideAfterMs);
     }
   }
 

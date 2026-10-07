@@ -71,7 +71,12 @@ describe('чистка хранилища', () => {
     expect(r.removed).toBe(2);
     // service_statistics добавлен 07.09 — счётчик жанра есть всегда, даже
     // когда жанр не встретился: ноль и отсутствие ключа читаются по-разному.
-    expect(r.by_genre).toEqual({ daily_bulletin: 1, rescue_report: 1, service_statistics: 0 });
+    // Жанры 04.10 (очерк, описание профессии, окончание предупреждения,
+    // прошедший прогноз) — так же нулями, а не отсутствием.
+    expect(r.by_genre).toEqual({
+      daily_bulletin: 1, rescue_report: 1, service_statistics: 0,
+      service_duties: 0, retrospective: 0, warning_ended: 0, past_forecast: 0,
+    });
 
     const del = calls.find((c) => /DELETE FROM external_alerts/i.test(c.sql));
     expect(del).toBeDefined();

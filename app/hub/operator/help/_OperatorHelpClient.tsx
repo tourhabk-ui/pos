@@ -321,8 +321,8 @@ export default function OperatorHelpClient() {
           <p className="font-semibold text-[var(--text-primary)] mb-1">Нужна помощь?</p>
           <p className="text-sm text-[var(--text-secondary)]">
             Email:{' '}
-            <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">
-              info@vedarai.ru
+            <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">
+              pospk@mail.ru
             </a>
             {' · '}
             Telegram: <span className="text-[var(--ocean)]">@kamchatourhub</span>

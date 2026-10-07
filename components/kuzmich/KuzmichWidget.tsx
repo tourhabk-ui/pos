@@ -10,6 +10,7 @@ import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -51,7 +52,9 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !phone.trim() || !date) { setErr('Заполните все поля'); return; }
+    // Почта обязательна (владелец 04.10): ссылка на оплату после подтверждения
+    // доходит до гостя только письмом.
+    if (!name.trim() || !phone.trim() || !email.trim() || !date) { setErr('Заполните все поля'); return; }
     setBusy(true); setErr('');
     try {
       const res = await fetch('/api/hub/bookings/create', {
@@ -93,7 +96,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
         </div>
         <a href={link} target="_blank" rel="noopener noreferrer"
           className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity">
-          Перейти к оплате
+          {platformAcceptsPayments() ? 'Перейти к оплате' : 'Открыть заявку'}
         </a>
         {noOtherChannel && (
           <div className="rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 p-2 flex flex-col gap-1.5">
@@ -127,8 +130,8 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
       <input required value={phone} onChange={e => setPhone(e.target.value)}
         placeholder="+7 900 000-00-00" type="tel"
         className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent)] transition-colors" />
-      <input value={email} onChange={e => setEmail(e.target.value)}
-        placeholder="Email (необязательно)" type="email"
+      <input required value={email} onChange={e => setEmail(e.target.value)}
+        placeholder={platformAcceptsPayments() ? 'Email — пришлём ссылку на оплату' : 'Email — пришлём ссылку на заявку'} type="email"
         className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent)] transition-colors" />
       <input required value={date} onChange={e => setDate(e.target.value)}
         type="date" min={minDateStr}

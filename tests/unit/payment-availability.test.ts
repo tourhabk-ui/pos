@@ -20,7 +20,16 @@
  *  3) «нечем платить» — видимое состояние, а не спрятанный блок (§4.0);
  *  4) проба не отдаёт значения ключей, только имена.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Этот сторож держит РАЗБОР КЛЮЧЕЙ — он нужен в тот день, когда оплату снова
+// включат. Выключатель владельца (05.10, lib/payments/accepting) здесь поднят,
+// иначе он маскирует проверяемую логику; само выключение держит
+// tests/unit/payments-paused.test.ts.
+vi.mock('@/lib/payments/accepting', () => ({
+  PLATFORM_ACCEPTS_PAYMENTS: true,
+  platformAcceptsPayments: () => true,
+}));
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {

@@ -374,6 +374,21 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(id)).toEqual([]);
   });
 
+  it('«южная половина края» — места южнее северной окраины Петропавловска, не север и не Налычево (04.10)', async () => {
+    const id = await insertAlert({
+      type: 'flood',
+      title: 'Прогнозируется подъем уровней воды на реках южной половины края',
+      zones: ['krai_south'],
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(CITY.id);            // 53.02 — город
+    expect(covered).toContain(NEAR_PARK_ROUTE.id); // 53.10 — граница включительно
+    expect(covered).not.toContain(PARK_NAMED.id);  // 53.40 — Налычево
+    expect(covered).not.toContain(ON_PARK_ROUTE.id);
+    expect(covered).not.toContain(SHIVELUCH.id);
+    expect(covered).not.toContain(KLYUCHEVSKOY.id);
+  });
+
   it('закрытие парка накрывает место парка и место на его маршруте — не «рядом» и не город той же зоны (#2133)', async () => {
     const id = await insertAlert({
       type: 'park_closure',

@@ -134,8 +134,6 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/legal/privacy`,        lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/legal/terms`,          lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/legal/offer`,          lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
-    { url: `${BASE}/legal/commission`,     lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.3 },
-    { url: `${BASE}/legal/agent-agreement`, lastModified: STABLE,     changeFrequency: 'monthly', priority: 0.3 },
   ];
 
   // Категории и зонные срезы каталога — динамически, только живые (≥3

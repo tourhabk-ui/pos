@@ -6,7 +6,7 @@ const { NEXT_PUBLIC_VAPID_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL } = process.env;
 
 if (NEXT_PUBLIC_VAPID_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    VAPID_EMAIL ?? 'mailto:info@vedarai.ru',
+    VAPID_EMAIL ?? 'mailto:pospk@mail.ru',
     NEXT_PUBLIC_VAPID_KEY,
     VAPID_PRIVATE_KEY,
   );
