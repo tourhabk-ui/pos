@@ -21,6 +21,7 @@ import Link from 'next/link';
 import TourDateField from '@/components/marketplace/TourDateField';
 import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
 import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface AgentSale {
   id: string;
@@ -307,8 +308,9 @@ export default function AgentBookingsPageClient() {
             Заявка №{created.bookingId} отправлена оператору · {fmtRub(created.totalPrice)}
           </p>
           <p className="text-sm text-[var(--text-secondary)]">
-            Оператор подтвердит бронь, после этого клиент оплатит по ссылке. Отправьте ссылку клиенту —
-            по ней он увидит заявку, её статус и оплатит, когда оператор подтвердит.
+            {platformAcceptsPayments()
+              ? 'Оператор подтвердит бронь, после этого клиент оплатит по ссылке. Отправьте ссылку клиенту — по ней он увидит заявку, её статус и оплатит, когда оператор подтвердит.'
+              : 'Оператор подтвердит бронь. Отправьте ссылку клиенту — по ней он увидит заявку и её статус. Оплата — оператору напрямую: Ведар платежи не принимает.'}
           </p>
           <CopyLink link={created.touristLink} />
         </div>

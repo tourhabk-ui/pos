@@ -11,6 +11,7 @@ import { LoadingSpinner, EmptyState } from '@/components/admin/shared';
 import { MchsRegistrationPanel } from '@/components/operator/Dashboard/MchsRegistrationPanel';
 import { OperatorEarningsCard } from '@/components/operator/OperatorEarningsCard';
 import { OperatorDashboardData } from '@/types/operator';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
   CheckCircle2, Circle, ArrowRight, Plus,
   Wallet, TrendingUp, CalendarDays, CalendarClock, Trophy, ClipboardList,
@@ -52,13 +53,15 @@ function FirstStepsPanel({ hasTours, onboardingDone }: { hasTours: boolean; onbo
       href: '/hub/operator/tours',
       action: 'К турам',
     },
-    {
+    // Реквизиты для выплат нужны, только пока платформа принимает оплату
+    // (решение владельца 05.10: сейчас не принимает — lib/payments/accepting).
+    ...(platformAcceptsPayments() ? [{
       done: false,
       label: 'Указать реквизиты для выплат',
       desc: 'СБП или расчётный счёт',
       href: '/hub/operator/finance',
       action: 'Настроить',
-    },
+    }] : []),
   ];
 
   const doneCount = steps.filter(s => s.done).length;

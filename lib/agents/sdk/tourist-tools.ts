@@ -409,7 +409,11 @@ const getWeather: SDKTool = {
       return JSON.stringify({
         location: place.name,
         coords: [place.lat, place.lng],
+        // Высота точки прогноза (#2249): прогноз вершины — не прогноз подножия.
+        elevation_m: forecast.elevationM ?? null,
         status: 'ок',
+        // Источник не ответил — это последний удачный прогноз, не свежий.
+        ...(forecast.staleSince ? { stale_since: forecast.staleSince } : {}),
         // null в поле — значения в прогнозе нет. До 25.09 здесь стоял ноль, и
         // пропуск ветра доходил до Кузьмича штилем, а пропуск кода — «Ясно».
         ...(forecast.days.some((d) => d.windKmh === null || d.weatherCode === null)

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   Package, Calendar, DollarSign, BarChart3, Globe, Bell,
   TrendingUp, Users, ExternalLink, CheckCircle, AlertTriangle,
@@ -114,11 +115,14 @@ export default function OperatorHelpClient() {
       color: 'var(--warning)',
       title: 'Финансы',
       desc: 'Выплаты, реквизиты и история транзакций',
-      tips: [
+      tips: platformAcceptsPayments() ? [
         'Укажите реквизиты СБП или расчётный счёт',
         'Деньги удерживаются: конец тура + 36 часов',
         'Ставку комиссии назначает платформа, автоматически она не меняется',
         'Выплата после разблокировки — 3 рабочих дня',
+      ] : [
+        'Ведар сейчас платежи не принимает и комиссию не берёт',
+        'Турист платит вам напрямую — реквизиты сообщаете ему вы',
       ],
     },
     {

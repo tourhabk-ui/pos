@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // section → на мобиле сетка иконок по разделам вместо ленты (см. HubSidebar).
 const SIDEBAR_ITEMS = [
@@ -13,7 +14,11 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/guide/schedule', label: 'Расписание', icon: CalendarDays,  section: 'Работа' },
   { href: '/hub/guide/groups',   label: 'Группы',     icon: Users,         section: 'Работа' },
 
-  { href: '/hub/guide/earnings', label: 'Заработок',  icon: CreditCard,    section: 'Финансы' },
+  // Заработок — начисления через платформу; при выключенном приёме оплаты
+  // (05.10) их нет, раздела в меню нет.
+  ...(platformAcceptsPayments()
+    ? [{ href: '/hub/guide/earnings', label: 'Заработок',  icon: CreditCard,    section: 'Финансы' }]
+    : []),
 
   { href: '/hub/guide/reviews',  label: 'Отзывы',     icon: MessageSquare, section: 'Кабинет' },
   { href: '/hub/guide/profile',  label: 'Профиль',    icon: User,          section: 'Кабинет' },
