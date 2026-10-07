@@ -270,5 +270,6 @@ export const SEAT_REQUEST_FAILURE: Record<string, { status: number; error: strin
   tour_not_found:       { status: 404, error: 'Тур не найден или больше не доступен.' },
   operator_unreachable: { status: 409, error: 'Этот оператор пока не принимает запросы мест в мессенджере. Оставьте заявку — менеджер свяжется с оператором.' },
   delivery_failed:      { status: 502, error: 'Не удалось доставить запрос оператору. Оставьте заявку — менеджер свяжется с ним.' },
+  price_unknown:        { status: 422, error: 'Для группы такого размера оператор называет цену отдельно. Оставьте заявку — менеджер свяжется с вами.' },
   check_failed:         { status: 503, error: 'Не удалось отправить запрос, попробуйте через минуту.' },
 };

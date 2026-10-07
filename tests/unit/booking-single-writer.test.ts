@@ -102,6 +102,8 @@ function mockDb(opts: { calendar?: Array<{ available_slots: number; is_cancelled
     // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
     // то есть прежнее поведение этих проверок.
     if (s.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
+    if (s.includes('FROM tour_price_tiers')) return Promise.resolve({ rows: [] });
     if (s.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + s);
   });

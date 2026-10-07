@@ -75,6 +75,8 @@ function mockHappyPathQueries() {
     // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
     // то есть прежнее поведение этих проверок.
     if (sql.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
+    if (sql.includes('FROM tour_price_tiers')) return Promise.resolve({ rows: [] });
     if (sql.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
   });

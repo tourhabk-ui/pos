@@ -33,6 +33,8 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { telegramService } from '@/lib/notifications/telegram';
 import { maxSendDm } from '@/lib/notifications/max-channel';
 import { reserveBooking, ReserveError } from '@/lib/bookings/reserve';
+import { loadPriceTiers } from '@/lib/tours/honest-price';
+import { pickPriceTier } from '@/lib/tours/price-tiers';
 import { confirmBooking } from '@/lib/bookings/booking.service';
 import { notifyOperatorOfNewBooking } from '@/lib/bookings/notify-operator';
 import { encrypt, decrypt } from '@/lib/encryption';
@@ -113,7 +115,7 @@ export interface CreateSeatRequestInput {
 
 export type CreateSeatRequestFailure =
   | 'date_past' | 'bad_date' | 'bad_phone' | 'tour_not_found' | 'operator_unreachable'
-  | 'duplicate' | 'already_confirmed' | 'too_many' | 'check_failed' | 'delivery_failed';
+  | 'duplicate' | 'already_confirmed' | 'too_many' | 'check_failed' | 'delivery_failed' | 'price_unknown';
 
 // Ключ страницы статуса при отказе НЕ возвращается никогда: телефон — не
 // секрет, и «дубль → ссылка на чужой запрос» отдавало бы страницу статуса, а с
@@ -159,15 +161,27 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   );
   if (phone === null) return { ok: false, reason: 'bad_phone' };
 
-  let tour: { operator_id: string; title: string } | undefined;
+  let tour: { operator_id: string; title: string; price_unit: string | null } | undefined;
   try {
-    ({ rows: [tour] } = await pool.query<{ operator_id: string; title: string }>(
-      `SELECT operator_id, title FROM operator_tours
+    ({ rows: [tour] } = await pool.query<{ operator_id: string; title: string; price_unit: string | null }>(
+      `SELECT operator_id, title, price_unit FROM operator_tours
         WHERE id = $1 AND is_active = true AND is_published = true AND deleted_at IS NULL`,
       [input.tourId],
     ));
   } catch (err) { logFail('тур не прочитан', err); return { ok: false, reason: 'check_failed' }; }
   if (!tour) return { ok: false, reason: 'tour_not_found' };
+
+  // Цена по размеру группы (#2246): если ступени есть, а группа в них не
+  // входит, запрос до оператора не доходит. Иначе он ответил бы «есть места», а
+  // бронь после его ответа не завелась бы — суммы для такой группы нет, и
+  // турист увидел бы «учёт платформы» вместо внятного отказа. Не удалось
+  // прочитать ступени — это «не смог проверить», а не «ступеней нет».
+  try {
+    const tiers = await loadPriceTiers(input.tourId);
+    if (pickPriceTier(tiers, input.participants, tour.price_unit).kind === 'miss') {
+      return { ok: false, reason: 'price_unknown' };
+    }
+  } catch (err) { logFail('ступени цены не прочитаны', err); return { ok: false, reason: 'check_failed' }; }
 
   // Оператору некуда написать — запрос не заводится вовсе. Иначе турист
   // ждал бы два часа ответа, которого не может быть, и получил бы «оператор
