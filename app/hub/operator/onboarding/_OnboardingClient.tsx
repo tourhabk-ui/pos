@@ -7,6 +7,7 @@ import {
   ChevronRight, Loader2, CreditCard, Shield, AlertTriangle
 } from 'lucide-react';
 import { profileStatusView } from '@/lib/operator/profile-status';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -314,16 +315,22 @@ function Step2Payout({ onFinish }: { onFinish: () => void }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-const STEPS = [
-  { icon: Building2, label: 'Профиль компании' },
-  { icon: CreditCard, label: 'Реквизиты' },
-];
+// Реквизиты для выплат нужны, только пока платформа принимает оплату: при
+// выключенном приёме (05.10) денег через Ведар не идёт и выплачивать нечего —
+// шаг не показывается, настройка завершается на профиле.
+const STEPS = platformAcceptsPayments()
+  ? [
+      { icon: Building2, label: 'Профиль компании' },
+      { icon: CreditCard, label: 'Реквизиты' },
+    ]
+  : [{ icon: Building2, label: 'Профиль компании' }];
 
 export default function OnboardingClient() {
   const router = useRouter();
   const [step, setStep]       = useState(0);
   const [profile, setProfile] = useState<OperatorProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [finishError, setFinishError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/hub/operator/profile')
@@ -342,6 +349,12 @@ export default function OnboardingClient() {
 
   function finish() {
     router.replace('/hub/operator');
+  }
+
+  async function finishWithoutPayout() {
+    const failure = await completeOnboarding();
+    if (failure) { setFinishError(failure); return; }
+    finish();
   }
 
   if (loading) {
@@ -414,10 +427,16 @@ export default function OnboardingClient() {
         </div>
 
         {step === 0 && (
-          <Step1Profile profile={profile} onNext={() => setStep(1)} />
+          <Step1Profile
+            profile={profile}
+            onNext={platformAcceptsPayments() ? () => setStep(1) : finishWithoutPayout}
+          />
         )}
-        {step === 1 && (
+        {step === 1 && platformAcceptsPayments() && (
           <Step2Payout onFinish={finish} />
+        )}
+        {finishError && (
+          <p role="alert" className="mt-3 text-sm text-[var(--danger)]">{finishError}</p>
         )}
       </div>
 

@@ -27,6 +27,14 @@ const GATED = [
   'app/hub/agent/profile/_AgentProfileClient.tsx',
   'app/hub/carrier/_CarrierClient.tsx',
   'app/api/partners/register/route.ts',
+  // 07.10, «убери оплаты, мы пока не туроператоры»:
+  'app/hub/operator/onboarding/_OnboardingClient.tsx',
+  'app/hub/agent/layout.tsx',
+  'app/hub/agent/_AgentDashboardClient.tsx',
+  'app/hub/guide/layout.tsx',
+  'app/hub/guide/_GuideDashboardClient.tsx',
+  'components/booking/TourPaymentModal.tsx',
+  'lib/pdf/contract-generator.ts',
 ];
 
 describe('тексты при выключенной оплате', () => {
@@ -45,11 +53,20 @@ describe('тексты при выключенной оплате', () => {
     expect(text).not.toMatch(/удерживаются до окончания тура/);
     expect(text).not.toMatch(/Ставку комиссии назначает платформа/);
     expect(text).toMatch(/платежи туристов платформа не принимает/);
+    expect(text).not.toMatch(/Ждёт оплаты/);
+  });
+
+  it('Кузьмич не называет себя турагентом и не говорит об оплате на платформе', () => {
+    expect(readFileSync('lib/ai/prompts.ts', 'utf8')).not.toMatch(/турагент/);
+    expect(readFileSync('lib/ai/user-memory.ts', 'utf8')).not.toMatch(/турагент/);
+    expect(readFileSync('lib/kuzmich/core.ts', 'utf8')).not.toMatch(/подтверждаются перед оплатой|уточняется перед оплатой/);
   });
 
   it('метаданные публичных страниц не обещают оплату на платформе', () => {
     expect(readFileSync('app/help/page.tsx', 'utf8')).not.toMatch(/забронировать и оплатить тур/);
     expect(readFileSync('app/transfers/page.tsx', 'utf8')).not.toMatch(/оплата по СБП\./);
+    expect(readFileSync('app/help/tourists/page.tsx', 'utf8')).not.toMatch(/оплатить/);
+    expect(readFileSync('app/help/operators/page.tsx', 'utf8')).not.toMatch(/выплаты/);
   });
 
   it('документы оператора не обещают комиссию 12%', () => {

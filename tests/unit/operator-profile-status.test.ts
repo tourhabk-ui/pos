@@ -48,8 +48,10 @@ describe('экраны читают общий словарь', () => {
   it('завершение онбординга читает ответ и показывает отказ', () => {
     const src = read('app/hub/operator/onboarding/_OnboardingClient.tsx');
     expect(src).toMatch(/async function completeOnboarding\(\): Promise<string \| null>/);
-    // Обе кнопки шага 2 идут через него и не редиректят вслепую.
-    expect(src.match(/const failure = await completeOnboarding\(\);/g) ?? []).toHaveLength(2);
+    // Обе кнопки шага 2 и завершение без шага реквизитов (оплата выключена
+    // 05.10) идут через него и не редиректят вслепую.
+    expect(src.match(/const failure = await completeOnboarding\(\);/g) ?? []).toHaveLength(3);
+    expect(src).toMatch(/if \(failure\) \{ setFinishError\(failure\); return; \}/);
     expect(src).toMatch(/if \(failure\) \{ setError\(failure\); return; \}/);
     expect(src).not.toMatch(/body: JSON\.stringify\(\{ complete_onboarding: true \}\),\s*\}\)\.catch/);
   });

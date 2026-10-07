@@ -10,6 +10,7 @@ import {
   Link2, TrendingUp, User, ArrowRight, type LucideIcon,
 } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Обзор агента в общем формате кабинетов (гид/турист): плитки разделов с
 // икон-чипами + сводка метрик + живые таблицы. Референс агентских CRM
@@ -29,10 +30,12 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
     ],
   },
   {
-    title: 'Деньги и рост',
+    title: platformAcceptsPayments() ? 'Деньги и рост' : 'Рост',
     items: [
-      { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard },
-      { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2 },
+      ...(platformAcceptsPayments() ? [
+        { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard },
+        { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2 },
+      ] : []),
       { href: '/hub/agent/stats',       label: 'Статистика', icon: TrendingUp },
     ],
   },
