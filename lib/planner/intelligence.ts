@@ -5,6 +5,7 @@
 
 import { SEA_ACTIVITIES, HARD_ACTIVITIES } from '@/lib/planner-constants';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { buildDayParts, type DayPart, type HourlySeries } from '@/lib/weather/day-parts';
 
 // ── Weather Forecast ─────────────────────────────────────────────────────────
 
@@ -39,6 +40,11 @@ export interface ForecastDay {
   windKmh: number | null;
   weatherCode: number | null;
   description: string | null;
+  /**
+   * Ночь/утро/день/вечер по почасовому прогнозу (#2249). Пустой или нет —
+   * почасовых данных не пришло, остаётся суточная строка.
+   */
+  parts?: DayPart[];
 }
 
 /** Три исхода загрузки сведены к двум: прогноз есть — или «не смог», с причиной. */
@@ -114,13 +120,14 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
 
   let result: ForecastResult;
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&forecast_days=${horizon}&timezone=Asia/Kamchatka`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m&forecast_days=${horizon}&timezone=Asia/Kamchatka`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       result = { ok: false, reason: `Open-Meteo HTTP ${res.status}` };
     } else {
       const json = await res.json() as {
         elevation?: unknown;
+        hourly?: HourlySeries;
         daily?: {
           time?: unknown[];
           temperature_2m_max?: unknown[];
@@ -147,6 +154,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
               windKmh: finite(d.wind_speed_10m_max?.[i]),
               weatherCode: code,
               description: code === null ? null : wmoDescription(code),
+              parts: buildDayParts(json.hourly, String(date)),
             };
           }),
         };
