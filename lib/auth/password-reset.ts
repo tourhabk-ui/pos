@@ -14,10 +14,15 @@
  *    ссылке и нигде больше, в лог не пишется;
  *  - токен одноразовый и срочный, оба предиката — в SQL погашения, а не в
  *    коде после SELECT: две вкладки с одной ссылкой не погасят её дважды;
- *  - новая выдача отзывает прежние непогашенные токены того же человека:
- *    действует последняя ссылка, старые письма — нет;
- *  - погашение снимает флаг force_password_change: пароль теперь выбран
- *    человеком, временного больше нет;
+ *  - новая выдача отзывает прежние непогашенные токены того же человека ОДНИМ
+ *    оператором (DELETE и INSERT в одном CTE — два соединения пула не
+ *    перемешают две выдачи): действует последняя ссылка, старые письма — нет.
+ *    Исключение (ревью 07.10): форма «Забыли пароль?» доступна любому, кто
+ *    знает адрес, поэтому ОНА отзывает только ссылки из формы и не трогает
+ *    ссылку, выданную администратором; выдача администратором отзывает всё;
+ *  - погашение снимает флаг force_password_change (пароль теперь выбран
+ *    человеком), гасит остальные ссылки этого человека и закрывает все его
+ *    сессии: тот, кто вошёл по старому или временному паролю, выходит;
  *  - отказ базы наружу не глушится — у вызывающего три исхода, не два (§4.0).
  */
 
@@ -27,10 +32,12 @@ import { pool } from '@/lib/db-pool';
 import { hashPassword } from '@/lib/auth/password';
 import { getPublicBaseUrl } from '@/lib/config';
 
-/** Срок ссылки из письма: час, как и обещает текст письма. */
+/** Срок ссылки из письма: час. Текст рядом с числом, чтобы не разъехались. */
 export const SELF_SERVICE_TTL_MS = 60 * 60 * 1000;
+export const SELF_SERVICE_TTL_TEXT = 'один час';
 /** Срок ссылки, выданной администратором: сутки — её пересылают вручную. */
 export const ADMIN_ISSUED_TTL_MS = 24 * 60 * 60 * 1000;
+export const ADMIN_ISSUED_TTL_TEXT = 'сутки';
 
 const TOKEN_BYTES = 32;
 
@@ -62,8 +69,12 @@ export interface IssuedReset {
 }
 
 /**
- * Выдать токен. Прежние непогашенные токены этого человека отзываются той же
- * транзакцией вызывающего (exec — клиент транзакции или пул).
+ * Выдать токен. Отзыв прежних и вставка нового — один оператор: с `exec = pool`
+ * два отдельных запроса ушли бы по разным соединениям, и две одновременные
+ * выдачи оставили бы два живых токена.
+ *
+ * Самообслуживание (issuedBy не задан) отзывает только самообслуживание;
+ * администратор (issuedBy задан) отзывает всё.
  */
 export async function issuePasswordResetToken(
   input: IssueResetInput,
@@ -74,11 +85,12 @@ export async function issuePasswordResetToken(
   const expiresAt = new Date(Date.now() + ttl);
 
   await exec.query(
-    `DELETE FROM password_reset_tokens WHERE user_id = $1::uuid AND used_at IS NULL`,
-    [input.userId],
-  );
-  await exec.query(
-    `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, issued_by)
+    `WITH gone AS (
+       DELETE FROM password_reset_tokens
+        WHERE user_id = $1::uuid AND used_at IS NULL
+          AND ($4::uuid IS NOT NULL OR issued_by IS NULL)
+     )
+     INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, issued_by)
      VALUES ($1::uuid, $2, $3::timestamptz, $4::uuid)`,
     [input.userId, hashResetToken(token), expiresAt.toISOString(), input.issuedBy ?? null],
   );
@@ -155,6 +167,19 @@ export async function consumePasswordResetToken(
               updated_at = NOW()
         WHERE id = $2::uuid`,
       [passwordHash, row.user_id],
+    );
+    // Остальные ссылки этого человека (например, выданная администратором
+    // параллельно с письмом) после смены пароля не нужны.
+    await client.query(
+      `DELETE FROM password_reset_tokens WHERE user_id = $1::uuid AND id <> $2 AND used_at IS NULL`,
+      [row.user_id, row.id],
+    );
+    // Сессия держится строкой user_sessions (lib/auth/jwt.ts), и ничто кроме
+    // выхода её не закрывает. Сброс пароля делают, когда старый пароль знает
+    // кто-то ещё — его вход закрывается здесь же, в той же транзакции.
+    await client.query(
+      `DELETE FROM user_sessions WHERE user_id = $1::uuid`,
+      [row.user_id],
     );
 
     await client.query('COMMIT');

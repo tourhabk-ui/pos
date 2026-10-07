@@ -5,12 +5,14 @@
  * что везде (passwordSchema). Погашение — lib/auth/password-reset: токен
  * одноразовый, срочный, по хешу. После успеха человек входит обычным путём —
  * сессия здесь не выдаётся: ссылка из письма не должна быть равна входу.
+ * Лимит по доверенному IP (см. forgot-password): токен случайный, перебор
+ * бесполезен, лимит здесь от нагрузки.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { passwordSchema } from '@/lib/auth/password';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { consumePasswordResetToken, CONSUME_FAILURE_TEXT } from '@/lib/auth/password-reset';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +25,7 @@ const Schema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const ip = getClientIp(request.headers);
+  const ip = getTrustedClientIp(request.headers);
   if (!ipLimiter.check(ip)) {
     return NextResponse.json(
       { success: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' },

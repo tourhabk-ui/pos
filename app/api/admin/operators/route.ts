@@ -59,6 +59,9 @@ export async function GET(request: NextRequest) {
       -- пользователя (1174, «Край Вулканов»), прежний JOIN users прятал из
       -- списка целиком — и кнопка «Завести аккаунт» была бы недостижима.
       (u.id IS NOT NULL)               AS has_account,
+      -- Откуда карточка: аккаунт из админки заводится только своим (NULL/'admin'),
+      -- импорту с чужого сайта кнопка не показывается.
+      p.external_source,
       p.category,
       p.description,
       p.profile_status,

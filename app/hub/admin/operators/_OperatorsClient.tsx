@@ -13,7 +13,8 @@ import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 
-type ProfileStatus = 'pending' | 'approved' | 'rejected';
+/** 'none' — карточка без заявки (заведена миграцией или импортом); с LEFT JOIN users они видны. */
+type ProfileStatus = 'none' | 'pending' | 'approved' | 'rejected';
 
 interface OperatorRow {
   id: string;
@@ -31,6 +32,8 @@ interface OperatorRow {
   registered_at: string | null;
   /** u.id IS NOT NULL — у карточки есть пользователь для входа. */
   has_account: boolean;
+  /** NULL/'admin' — своя карточка; иначе импорт с чужого сайта. */
+  external_source: string | null;
   application_id: string | null;
   contact_phone: string | null;
   contact_email: string | null;
@@ -47,6 +50,7 @@ interface OperatorRow {
 }
 
 const TAB_LABELS: Record<string, string> = {
+  none:     'Без заявки',
   pending:  'На проверке',
   approved: 'Одобрены',
   rejected: 'Отклонены',
@@ -54,6 +58,7 @@ const TAB_LABELS: Record<string, string> = {
 };
 
 const STATUS_CLS: Record<ProfileStatus, string> = {
+  none:     'bg-[var(--bg-hover)] text-[var(--text-muted)]',
   pending:  'bg-[var(--warning)]/15 text-[var(--warning)]',
   approved: 'bg-[var(--success)]/15 text-[var(--success)]',
   rejected: 'bg-[var(--danger)]/10  text-[var(--danger)]',
@@ -203,8 +208,16 @@ function ChannelLinkPanel({ op }: { op: OperatorRow }) {
   );
 }
 
-function AccountPanel({ op }: { op: OperatorRow }) {
-  const [hasAccount, setHasAccount] = useState(op.has_account);
+/** Кому кнопка «Завести аккаунт»: те же два правила, что в роуте /account. */
+function accountCreatable(op: OperatorRow): { ok: true } | { ok: false; why: string } {
+  if (op.category !== 'operator') return { ok: false, why: 'только туроператору: кабинеты других ролей не просят сменить временный пароль' };
+  if (op.external_source && op.external_source !== 'admin') return { ok: false, why: 'карточка импортирована со стороннего сайта — человек регистрируется сам' };
+  return { ok: true };
+}
+
+function AccountPanel({ op, onAccountCreated }: { op: OperatorRow; onAccountCreated: (id: string, email: string) => void }) {
+  const hasAccount = op.has_account;
+  const creatable = accountCreatable(op);
   const [email, setEmail] = useState('');
   const [state, setState] = useState<
     | { kind: 'idle' }
@@ -234,7 +247,9 @@ function AccountPanel({ op }: { op: OperatorRow }) {
         return;
       }
       if (path === 'account') {
-        setHasAccount(true);
+        // Состояние живёт в списке родителя: локальная копия сбрасывалась бы
+        // при сворачивании карточки, и кнопка «Завести» появлялась бы снова.
+        onAccountCreated(op.id, json.data.email ?? '');
         setState({ kind: 'created', email: json.data.email ?? '', password: json.data.oneTimePassword ?? '' });
       } else {
         setState({ kind: 'link', message: json.data.message ?? '', expiresAt: json.data.expires_at ?? '' });
@@ -267,13 +282,17 @@ function AccountPanel({ op }: { op: OperatorRow }) {
           Аккаунт: {hasAccount ? 'есть' : 'нет'}
         </span>
         {!hasAccount ? (
-          <button
-            onClick={() => call('account', email ? { email } : undefined)}
-            disabled={state.kind === 'loading'}
-            className="ds-btn ds-btn-secondary text-xs px-2 py-1"
-          >
-            {state.kind === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Завести аккаунт'}
-          </button>
+          creatable.ok ? (
+            <button
+              onClick={() => call('account', email ? { email } : undefined)}
+              disabled={state.kind === 'loading'}
+              className="ds-btn ds-btn-secondary text-xs px-2 py-1"
+            >
+              {state.kind === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Завести аккаунт'}
+            </button>
+          ) : (
+            <span className="text-xs text-[var(--text-muted)]">{creatable.why}</span>
+          )
         ) : (
           <button
             onClick={() => call('reset-link')}
@@ -307,7 +326,7 @@ function AccountPanel({ op }: { op: OperatorRow }) {
         <div className="p-3 rounded-lg border border-[var(--success)]/40 bg-[var(--success)]/10 space-y-1">
           <span className="ds-label">Временный пароль для первого входа</span>
           <code className="block text-sm font-mono select-all text-[var(--text-primary)]">
-            <Sensitive>{state.email}</Sensitive> · {state.password}
+            <Sensitive>{state.email}</Sensitive> · <Sensitive>{state.password}</Sensitive>
           </code>
           <span className="text-xs text-[var(--text-muted)]">
             Показывается один раз и нигде не хранится. Передайте оператору: кабинет попросит сменить пароль при входе.
@@ -342,11 +361,13 @@ function OperatorCard({
   op,
   onApprove,
   onReject,
+  onAccountCreated,
   acting,
 }: {
   op: OperatorRow;
   onApprove: (id: string) => void;
   onReject: (id: string, name: string) => void;
+  onAccountCreated: (id: string, email: string) => void;
   acting: string | null;
 }) {
   const [expanded, setExpanded] = useState(op.profile_status === 'pending');
@@ -407,8 +428,8 @@ function OperatorCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[op.profile_status]}`}>
-            {TAB_LABELS[op.profile_status]}
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[op.profile_status] ?? STATUS_CLS.none}`}>
+            {TAB_LABELS[op.profile_status] ?? op.profile_status}
           </span>
           {expanded ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />}
         </div>
@@ -459,7 +480,7 @@ function OperatorCard({
           {/* Аккаунт для входа: карточка, заведённая миграцией без пользователя,
               получает его отсюда — одной транзакцией с привязкой user_id. Пароль
               показывается один раз. Ссылка сброса — когда письмо не вариант. */}
-          <AccountPanel op={op} />
+          <AccountPanel op={op} onAccountCreated={onAccountCreated} />
 
           <ChannelLinkPanel op={op} />
 
@@ -1592,6 +1613,8 @@ export default function OperatorsClient() {
                 op={op}
                 onApprove={approve}
                 onReject={(id, name) => setRejectTarget({ id, name })}
+                onAccountCreated={(id, email) =>
+                  setOperators(prev => prev.map(o => (o.id === id ? { ...o, has_account: true, email } : o)))}
                 acting={acting}
               />
             ))}

@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { issuePasswordResetToken, ADMIN_ISSUED_TTL_MS } from '@/lib/auth/password-reset';
+import { issuePasswordResetToken, ADMIN_ISSUED_TTL_MS, ADMIN_ISSUED_TTL_TEXT } from '@/lib/auth/password-reset';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +72,7 @@ export async function POST(
       message: [
         'Здравствуйте! Чтобы задать пароль для кабинета на Ведаре, откройте ссылку и введите новый пароль:',
         issued.link,
-        'Ссылка действует сутки и годится один раз.',
+        `Ссылка действует ${ADMIN_ISSUED_TTL_TEXT} и годится один раз.`,
       ].join('\n'),
     },
   });
