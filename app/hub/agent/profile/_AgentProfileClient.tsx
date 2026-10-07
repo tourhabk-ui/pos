@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { User, ShieldCheck, Clock, Loader2, Send, AlertTriangle } from 'lucide-react';
 import PartnerProfileEditor from '@/components/hub/PartnerProfileEditor';
 import { profileStatusView } from '@/lib/operator/profile-status';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 /**
  * Страница «Профиль» агентского кабинета — редактирование профиля/контактов
@@ -86,7 +87,9 @@ export default function AgentProfileClient() {
               Проверка платформой: <span className={view.color}>{view.label}</span>
             </p>
             <p className="text-[var(--text-secondary)] mt-1">
-              {st === 'approved' && 'Кабинет открыт: можно продавать туры и запрашивать выплату вознаграждения.'}
+              {st === 'approved' && (platformAcceptsPayments()
+                ? 'Кабинет открыт: можно продавать туры и запрашивать выплату вознаграждения.'
+                : 'Кабинет открыт: можно отправлять заявки клиентов операторам. Ведар сейчас платежи не принимает — выплат вознаграждения через платформу нет.')}
               {st === 'pending' && 'Администратор проверяет профиль. До одобрения продажи и выплаты закрыты.'}
               {st === 'none' && 'Заполните профиль и отправьте его на проверку. Агент работает после одобрения администратором.'}
               {st === 'rejected' && 'Профиль не прошёл проверку. Исправьте его и отправьте снова.'}

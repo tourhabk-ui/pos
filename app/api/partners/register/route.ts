@@ -14,6 +14,7 @@ import { query } from '@/lib/database';
 import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { initialPartnerRating } from '@/lib/partners/categories';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Валидация входных данных
 const registerSchema = z.object({
@@ -55,7 +56,10 @@ const registerSchema = z.object({
   agreePersonalData: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
   agreeUserAgreement: z.literal(true, { message: 'Необходимо согласие с пользовательским соглашением' }),
   agreeOffer: z.literal(true, { message: 'Необходимо согласие с офертой' }),
-  agreeCommission: z.literal(true, { message: 'Необходимо согласие с условиями комиссии 10%' }),
+  // Пока платформа платежи не принимает (05.10), комиссии нет — и согласия на неё не требуем.
+  agreeCommission: platformAcceptsPayments()
+    ? z.literal(true, { message: 'Необходимо согласие с условиями комиссии 10%' })
+    : z.boolean().optional(),
   agreeNotifications: z.boolean().optional(),
 
   // Пароль

@@ -6,6 +6,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Статистика — живая страница кабинета, но в меню её не было:
 // добраться можно было только прямой ссылкой. Ваучеры удалены 26.09:
@@ -23,8 +24,12 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/agent/clients',     label: 'Клиенты',    icon: Users,      section: 'Продажи' },
   { href: '/hub/agent/bookings',    label: 'Сделки',     icon: Handshake,  section: 'Продажи' },
 
-  { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard, section: 'Финансы' },
-  { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2,      section: 'Финансы' },
+  // Комиссии и рефералы — деньги через платформу; при выключенном приёме
+  // оплаты (05.10) начислять нечего, разделов в меню нет.
+  ...(platformAcceptsPayments() ? [
+    { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard, section: 'Финансы' },
+    { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2,      section: 'Финансы' },
+  ] : []),
 
   { href: '/hub/agent/stats',       label: 'Статистика', icon: TrendingUp, section: 'Кабинет' },
   { href: '/hub/agent/profile',     label: 'Профиль',    icon: User,       section: 'Кабинет' },

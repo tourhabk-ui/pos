@@ -10,6 +10,7 @@ import { Weather } from '@/types';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 import { FEDERATIONS, REATTESTATION_DEADLINE, type ReattestationStatus } from '@/lib/guides/reattestation';
 import GuideTeamPanel from './_GuideTeamPanel';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Быстрая навигация по разделам прямо на «Обзоре» — тот же формат, что в ЛК
 // туриста: на телефоне сайдбар спрятан под бургер, а отсюда любой раздел в
@@ -26,9 +27,11 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
     ],
   },
   {
-    title: 'Деньги и репутация',
+    title: platformAcceptsPayments() ? 'Деньги и репутация' : 'Репутация',
     items: [
-      { href: '/hub/guide/earnings', label: 'Заработок', icon: CreditCard },
+      ...(platformAcceptsPayments()
+        ? [{ href: '/hub/guide/earnings', label: 'Заработок', icon: CreditCard }]
+        : []),
       { href: '/hub/guide/reviews',  label: 'Отзывы',    icon: Star },
     ],
   },

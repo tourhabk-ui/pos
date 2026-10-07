@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   Wallet, TrendingUp, Clock, CheckCircle, AlertCircle,
   ChevronDown, ChevronUp, Info, CreditCard, Save
@@ -224,7 +225,9 @@ export default function FinancePageClient() {
       <div>
         <h1 className="text-sm font-semibold text-[var(--text-primary)]">Финансы</h1>
         <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
-          {rateKnown ? `Ваша комиссия платформы: ${commissionCurrent}%` : 'Ставка комиссии платформы не указана'}
+          {!platformAcceptsPayments()
+            ? 'Ведар сейчас платежи не принимает и комиссию не берёт — турист платит вам напрямую'
+            : rateKnown ? `Ваша комиссия платформы: ${commissionCurrent}%` : 'Ставка комиссии платформы не указана'}
         </p>
       </div>
 
@@ -291,7 +294,9 @@ export default function FinancePageClient() {
       <div className="flex items-start gap-2 px-3 py-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">
         <Info className="w-3.5 h-3.5 text-[var(--ocean)] mt-0.5 shrink-0" />
         <p className="text-[11px] text-[var(--text-secondary)]">
-          Деньги удерживаются 36 часов после окончания тура. Затем администратор платформы формирует выплату на ваши реквизиты.
+          {platformAcceptsPayments()
+            ? 'Деньги удерживаются 36 часов после окончания тура. Затем администратор платформы формирует выплату на ваши реквизиты.'
+            : 'Ведар — информационная система: оплату туристов платформа не принимает, выплат через неё нет. Здесь видны только операции, прошедшие до 05.10, если они были.'}
         </p>
       </div>
 

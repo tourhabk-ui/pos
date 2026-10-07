@@ -121,8 +121,10 @@ export function notifyTouristBookingConfirmed(
           `<b>Дата:</b> ${dateStr}`,
           `<b>Участников:</b> ${booking.participants}`,
           '',
-          booking.url
+          booking.url && platformAcceptsPayments()
             ? 'Теперь бронь можно оплатить — кнопка оплаты на странице брони.'
+            : !platformAcceptsPayments()
+            ? 'Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор.'
             : 'Подготовьтесь к поездке — оператор свяжется с вами ближе к дате.',
           '',
           `<a href="${escAttr(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали брони →</a>`,
