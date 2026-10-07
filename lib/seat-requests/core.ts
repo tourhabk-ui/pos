@@ -272,3 +272,15 @@ export const SEAT_REQUEST_FAILURE: Record<string, { status: number; error: strin
   delivery_failed:      { status: 502, error: 'Не удалось доставить запрос оператору. Оставьте заявку — менеджер свяжется с ним.' },
   check_failed:         { status: 503, error: 'Не удалось отправить запрос, попробуйте через минуту.' },
 };
+
+/**
+ * Что будет с оплатой после «Есть места» — для текста ИИ-ассистенту (MCP).
+ * Живёт здесь, а не в MCP-роуте: роуту запрещено импортировать что-либо из
+ * lib/payments (сторожа mcp-booking, mcp-seat-request), а выключатель оплаты
+ * (lib/payments/accepting) читается только тут.
+ */
+export function seatRequestPaymentNote(): string {
+  return platformAcceptsPayments()
+    ? 'а ссылка на оплату появится на странице статуса'
+    : 'а оплату человек внесёт оператору напрямую — Ведар платежи не принимает';
+}
