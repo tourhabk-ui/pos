@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CreditCard, Loader2, AlertTriangle, Send, Clock, ShieldCheck } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 /**
  * Вознаграждение агента (GET /api/agent/commissions) и заявка на выплату
@@ -175,6 +176,7 @@ export default function AgentCommissionsPageClient() {
   if (!approved) blockedReason = 'Кабинет агента откроется после одобрения администратором. Заполните профиль — он уйдёт на проверку.';
   else if (s.rate === null) blockedReason = 'Ставка вознаграждения ещё не назначена — её назначает владелец платформы.';
   else if (openPayout) blockedReason = 'Заявка на выплату уже на рассмотрении — дождитесь решения администратора.';
+  else if (!platformAcceptsPayments()) blockedReason = 'Ведар сейчас платежи не принимает — оплаченных через платформу продаж и выплат вознаграждения нет.';
   else if ((s.payable ?? 0) <= 0) blockedReason = 'Сейчас запросить нечего: к выплате идут оплаченные продажи через 36 часов после окончания тура.';
 
   return (

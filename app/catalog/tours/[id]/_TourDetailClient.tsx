@@ -1150,7 +1150,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     после кнопки (аудит П6, #144). */}
                 <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-3 flex items-start gap-2">
                   <Shield className="w-4 h-4 text-[var(--success)] shrink-0 mt-0.5" />
-                  <p className="text-xs leading-relaxed text-[var(--text-secondary)]">Оплата — только после того, как оператор подтвердит детали, погоду и даты. Без скрытых комиссий.</p>
+                  <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{platformAcceptsPayments()
+                    ? 'Оплата — только после того, как оператор подтвердит детали, погоду и даты. Без скрытых комиссий.'
+                    : 'Оплата — напрямую оператору, после того как он подтвердит детали, погоду и даты. Ведар платежи не принимает.'}</p>
                 </div>
 
                 {/* scroll-mt: на якорь ведут карточка решения и нижняя панель —

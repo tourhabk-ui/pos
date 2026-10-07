@@ -212,7 +212,8 @@ describe('П2: поля, подписи, итог', () => {
     render(<BookingFormClient tourId={27} basePrice={13000} />);
     const email = screen.getByLabelText(/Email/);
     expect(email).toBeRequired();
-    expect(screen.getByText(/ссылку на заявку, а когда оператор подтвердит — на оплату/i)).toBeInTheDocument();
+    // Оплата выключена 05.10: подсказка не обещает ссылку на оплату.
+    expect(screen.getByText(/ссылку на заявку и сообщим, когда оператор подтвердит/i)).toBeInTheDocument();
 
     await fillValid(d);
     fireEvent.click(screen.getByRole('button', { name: /Оставить заявку/ }));

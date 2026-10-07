@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FileText, BarChart3, Users, Download, Loader2 } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 const REPORTS = [
   {
@@ -15,7 +16,7 @@ const REPORTS = [
     type:    'finance',
     icon:    BarChart3,
     label:   'Финансовый отчёт',
-    desc:    'Выручка по месяцам, комиссии, чистый доход',
+    desc:    platformAcceptsPayments() ? 'Выручка по месяцам, комиссии, чистый доход' : 'Выручка по месяцам — по броням, отмеченным оплаченными',
     color:   'var(--success)',
   },
   {

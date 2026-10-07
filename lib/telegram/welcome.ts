@@ -11,6 +11,7 @@
 
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface WelcomeContext {
   telegramId: number;
@@ -80,7 +81,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
       'Отсюда будут приходить:',
       '— новые бронирования с кнопками Подтвердить / Отклонить',
       '— горячие лиды с контактами туристов',
-      '— еженедельные отчёты по выплатам',
+      ...(platformAcceptsPayments() ? ['— еженедельные отчёты по выплатам'] : []),
       '— важные уведомления платформы',
       toursLine,
       '',
@@ -93,7 +94,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
       `<b>${name}, канал агента подключён!</b>`,
       '',
       'Буду присылать:',
-      '— комиссионные начисления',
+      ...(platformAcceptsPayments() ? ['— комиссионные начисления'] : []),
       '— статусы по рефералам',
       '— новости платформы',
       '',
