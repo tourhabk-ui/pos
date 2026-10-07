@@ -17,7 +17,8 @@ import { join } from 'node:path';
 import { REQUISITES } from '@/lib/legal/requisites';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
-const DOCS = ['offer', 'privacy', 'terms', 'agent-agreement'].map((d) => `app/legal/${d}/page.tsx`);
+// agent-agreement удалён 05.10 (оплата выключена, страница — 404).
+const DOCS = ['offer', 'privacy', 'terms'].map((d) => `app/legal/${d}/page.tsx`);
 
 describe('имя платформы в документах', () => {
   it('марка — Ведар', () => {
