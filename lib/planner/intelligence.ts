@@ -43,13 +43,35 @@ export interface ForecastDay {
 
 /** Три исхода загрузки сведены к двум: прогноз есть — или «не смог», с причиной. */
 export type ForecastResult =
-  | { ok: true; days: ForecastDay[] }
+  | {
+      ok: true;
+      days: ForecastDay[];
+      /**
+       * Высота точки прогноза, м — Open-Meteo берёт её из своей 90-метровой
+       * модели рельефа ПО КООРДИНАТЕ, а не средней по клетке. null — не отдана.
+       * Заведено 07.10 (#2249): прогноз вершины без высоты читался прогнозом
+       * всего похода («Авачинский: −15…−9, снег» при нуле у подножия).
+       */
+      elevationM?: number | null;
+      /**
+       * Источник сейчас не отвечает (429, сеть), и это ПОСЛЕДНИЙ удачный
+       * прогноз — с моментом, когда он получен. Нет поля — прогноз свежий.
+       */
+      staleSince?: string;
+    }
   | { ok: false; reason: string };
 
 const FORECAST_TTL = 3 * 60 * 60 * 1000;
 /** Отказ кэшируется коротко: двадцать броней одной зоны — один таймаут, а не двадцать. */
 const FORECAST_FAIL_TTL = 5 * 60 * 1000;
 const forecastCache = new Map<string, { result: ForecastResult; expiresAt: number }>();
+/**
+ * Последний УДАЧНЫЙ прогноз по точке — на случай 429 и отказа сети (#2249:
+ * 08.10 Налычево и Мутновский не загрузились и после повторов). Отдаётся с
+ * отметкой staleSince, а не за свежий; старше суток — не отдаётся вовсе.
+ */
+const lastGoodForecast = new Map<string, { result: Extract<ForecastResult, { ok: true }>; at: number }>();
+const LAST_GOOD_MAX_AGE = 24 * 60 * 60 * 1000;
 /**
  * Потолок кэша. get_weather на публичном MCP принимает любую точку Земли, и
  * без потолка каждый новый квадрат сотых градуса оставался в памяти процесса
@@ -98,6 +120,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
       result = { ok: false, reason: `Open-Meteo HTTP ${res.status}` };
     } else {
       const json = await res.json() as {
+        elevation?: unknown;
         daily?: {
           time?: unknown[];
           temperature_2m_max?: unknown[];
@@ -113,6 +136,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
       } else {
         result = {
           ok: true,
+          elevationM: finite(json.elevation) === null ? null : Math.round(finite(json.elevation) as number),
           days: d.time.map((date, i) => {
             const code = finite(d.weather_code?.[i]);
             return {
@@ -134,6 +158,21 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
 
   if (!result.ok) {
     logSwallowedFailure('weather', `прогноз Open-Meteo (${lat.toFixed(2)}, ${lng.toFixed(2)})`, new Error(result.reason));
+    // Последний удачный прогноз — с отметкой, а не за свежий. Отказ при этом
+    // уже записан в лог строкой выше: «отдали старое» не прячет «не ответил».
+    const good = lastGoodForecast.get(cacheKey);
+    if (good && Date.now() - good.at < LAST_GOOD_MAX_AGE) {
+      const stale: ForecastResult = { ...good.result, staleSince: new Date(good.at).toISOString() };
+      rememberForecast(cacheKey, stale, FORECAST_FAIL_TTL);
+      return stale;
+    }
+  } else {
+    lastGoodForecast.delete(cacheKey); // свежая запись — в конец порядка вытеснения
+    lastGoodForecast.set(cacheKey, { result, at: Date.now() });
+    if (lastGoodForecast.size > FORECAST_CACHE_MAX) {
+      const oldest = lastGoodForecast.keys().next().value;
+      if (oldest !== undefined) lastGoodForecast.delete(oldest);
+    }
   }
   rememberForecast(cacheKey, result, result.ok ? FORECAST_TTL : FORECAST_FAIL_TTL);
   return result;

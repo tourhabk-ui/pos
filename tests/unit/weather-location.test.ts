@@ -60,7 +60,8 @@ describe('погода: аргумент места действительно �
     const out = JSON.parse(await weatherTool().execute({ location: 'Мутновский' }));
 
     expect(q).toHaveBeenCalledTimes(1);
-    expect(q.mock.calls[0][1]).toEqual(['%Мутновский%']);
+    // Второй параметр — точное имя: оно идёт первым (#2249).
+    expect(q.mock.calls[0][1]).toEqual(['%Мутновский%', 'Мутновский']);
     expect(forecast).toHaveBeenCalledWith(52.45, 158.2, 3);
     expect(out.location).toBe('Мутновский');
     expect(out.status).toBe('ок');

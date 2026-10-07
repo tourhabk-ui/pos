@@ -33,17 +33,26 @@ export const WEATHER_DAYS_MAX = 7;
 export async function resolvePlaceCoords(
   name: string,
 ): Promise<{ name: string; lat: number; lng: number } | null> {
+  // Город — центром города, а не первым местом с этим словом в имени (#2249:
+  // «Петропавловск» уходил в «Вид на Петропавловск-Камчатский», 12 км к ЮЗ).
+  if (isCityQuery(name)) return { ...DEFAULT_WEATHER_PLACE };
   const { rows } = await pool.query<{ name: string; lat: number; lng: number }>(
     `SELECT name, lat::float AS lat, lng::float AS lng
        FROM places
       WHERE name ILIKE $1
         AND lat IS NOT NULL AND lng IS NOT NULL
         AND is_visible = true AND merged_into_id IS NULL
-      ORDER BY length(name) ASC
+      ORDER BY (lower(name) = lower($2)) DESC, length(name) ASC
       LIMIT 1`,
-    [containsPattern(name)],
+    [containsPattern(name), name.trim()],
   );
   return rows[0] ?? null;
+}
+
+/** «Петропавловск», «Петропавловск-Камчатский», «г. Петропавловск», «ПК» — сам город. */
+export function isCityQuery(name: string): boolean {
+  const q = name.trim().toLowerCase().replace(/ё/g, 'е').replace(/^г\.?\s*/, '');
+  return /^петропавловск(-?\s*камчатск(ий|ом|ого)?)?$/.test(q) || q === 'пк' || q === 'пкк';
 }
 
 /** Число из строки агента: «53.26» и «53,26» — одно и то же. null — не число. */
@@ -122,6 +131,23 @@ export function forecastLine(d: ForecastDay): string {
   return `${day}.${m}: ${temp}, ${precip}, ${wind}, ${sky}`;
 }
 
+/**
+ * Высота точки прогноза словами (#2249, 07.10). Без неё прогноз вершины
+ * читался прогнозом похода: «Авачинский: −15…−9, снег» — это 2700 м, у
+ * подножия около нуля. Выше 500 м — прямое предупреждение, что ниже иначе.
+ */
+export function elevationNote(elevationM: number | null | undefined): string {
+  if (elevationM == null) return '';
+  const h = Math.round(elevationM / 10) * 10;
+  return h >= 500
+    ? `, высота точки ~${h} м — прогноз для этой высоты, ниже теплее и обычно тише`
+    : `, высота точки ~${h} м`;
+}
+
+function kamchatkaTime(iso: string): string {
+  return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+}
+
 /** Ответ инструмента `get_weather` — текстом для модели. */
 export async function weatherForKuzmich(args: { place?: string; lat?: string; lng?: string; days?: string }): Promise<string> {
   const target = weatherTarget(args);
@@ -151,7 +177,9 @@ export async function weatherForKuzmich(args: { place?: string; lat?: string; ln
       console.error('[weather-tool] прогноз не получен:', point.name, why);
       return `ПОГОДА НЕДОСТУПНА для «${point.name}»: прогноз не пришёл (${why}). Не называй погоду по памяти — скажи, что проверить не смог.`;
     }
-    const head = `Прогноз Open-Meteo для «${point.name}» (${point.lat.toFixed(2)}, ${point.lng.toFixed(2)}), дней: ${forecast.days.length}.${note}`;
+    const head = `Прогноз Open-Meteo для «${point.name}» (${point.lat.toFixed(2)}, ${point.lng.toFixed(2)})`
+      + `${elevationNote(forecast.elevationM)}, дней: ${forecast.days.length}.${note}`
+      + `${forecast.staleSince ? ` ВНИМАНИЕ: источник сейчас не отвечает — это последний полученный прогноз, от ${kamchatkaTime(forecast.staleSince)} по Камчатке; так и скажи.` : ''}`;
     return [head, ...forecast.days.map(forecastLine)].join('\n');
   } catch (err) {
     logSwallowedFailure('kuzmich', 'прогноз погоды по месту', err);
