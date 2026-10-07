@@ -26,6 +26,7 @@ import { getCurrentSafetyStatus, type CurrentSafetyStatus } from '@/lib/safety/c
 import { elevatedVolcanoes, loadVolcanoInput, type MergedVolcano } from '@/lib/kuzmich/volcano-tool';
 import { DEFAULT_WEATHER_PLACE, resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { fetchForecastDays, type ForecastDay } from '@/lib/planner/intelligence';
+import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { scaleColorWord } from '@/lib/services/safety/volcano-scales';
 
@@ -155,8 +156,12 @@ export function weatherPhrase(d: ForecastDay): string {
     const r = (n: number) => `${n < 0 ? '−' : ''}${Math.abs(Math.round(n))}`;
     parts.push(`${r(d.tempMin)}…${r(d.tempMax)}°`);
   }
-  if (d.description) parts.push(d.description.toLowerCase());
-  if (d.precipMm != null && d.precipMm >= 1) parts.push(`осадки ${Math.round(d.precipMm)} мм`);
+  const dayParts = d.parts ?? [];
+  // Суточный код — «худшее за сутки»: 08.10 он подписал ясное утро снегопадом
+  // и пост пришлось править (#2249). При частях дня осадки говорят они.
+  if (d.description && keepDailyDescription(d.weatherCode, dayParts.length > 0)) parts.push(d.description.toLowerCase());
+  if (dayParts.length > 0) parts.push(dayPartsPhrase(dayParts));
+  else if (d.precipMm != null && d.precipMm >= 1) parts.push(`осадки ${Math.round(d.precipMm)} мм`);
   if (d.windKmh != null) parts.push(`ветер до ${Math.round(d.windKmh)} км/ч`);
   return parts.join(', ') || 'нет данных';
 }
