@@ -10,6 +10,7 @@ import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OfflineSave } from './_OfflineSave';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -33,7 +34,11 @@ interface ShareTour {
   operator_name: string;
 }
 
-interface Trip {
+export interface Trip {
+  /** trip — опубликованная поездка из /planner; draft — черновик плана Кузьмича или MCP (#2225). */
+  source?: 'trip' | 'draft';
+  /** Только у черновика: до какого момента ссылка открывается онлайн (ISO). */
+  expires_at?: string;
   id: string;
   title: string;
   arrival_date: string | null;
@@ -43,6 +48,8 @@ interface Trip {
   days: DayPlan[];
   transport_by_day: Record<string, string>;
   top_tours?: Record<string, ShareTour>;
+  /** Только у черновика: тур, который поставил в день сам план (номер дня → тур). */
+  day_tours?: Record<string, ShareTour>;
   /** Доступность на дату дня: day → {date, remaining} (share-API, B-4). */
   availability?: Record<string, { date: string; remaining: number }>;
   /** Прогноз на дату дня (Open-Meteo, горизонт 16 суток; B-5). */
@@ -152,6 +159,12 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
   const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
   const dateRange = trip.arrival_date && trip.departure_date
     ? `${trip.arrival_date} – ${trip.departure_date}` : null;
+  const isDraft = trip.source === 'draft';
+  const expiresLabel = (() => {
+    if (!trip.expires_at) return null;
+    const d = new Date(trip.expires_at);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  })();
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
@@ -180,6 +193,15 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               {trip.days.length} {trip.days.length === 1 ? 'день' : trip.days.length < 5 ? 'дня' : 'дней'}
             </span>
           </div>
+          {/* Черновик из чата (#2225): откуда план, сколько живёт ссылка и где
+              его менять — словами, чтобы ссылка через неделю не стала сюрпризом. */}
+          {isDraft && (
+            <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              План собран в чате с Кузьмичом или ассистентом.
+              {expiresLabel ? ` Ссылка открывается до ${expiresLabel}.` : ' Ссылка открывается 7 дней.'}
+              {' '}Изменить план — попросите в том же чате; страница покажет свежую версию.
+            </p>
+          )}
           {dayStatus && (
             <div className="flex items-center gap-2 mt-3 text-sm"
               style={{ color: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}>
@@ -197,26 +219,32 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
           </div>
         )}
 
-        {/* Офлайн-план (C-6): за городом на Камчатке связи нет, а план — это
-            координаты. GPX открывается в Organic Maps / Garmin без сети;
-            сама страница кэшируется service worker'ом при первом открытии. */}
-        {mapMarkers.length > 0 && (
+        {/* Офлайн-план (C-6, #2225): за городом на Камчатке связи нет, а план —
+            это координаты. GPX открывается в Organic Maps / Garmin без сети;
+            страницу человек сохраняет на телефон сам, и состояние названо
+            словами. Прежняя надпись «страница сохраняется на телефоне»
+            обещала то, что держал LRU на десять страниц, — то есть не всегда. */}
+        {trip.days.length > 0 && (
           <div className="rounded-lg p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
             <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
               <Navigation className="w-4 h-4" style={{ color: 'var(--accent)' }} />
               В поход без связи
             </div>
-            <a href={`/api/trips/share/${token}/gpx`} download
-              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium w-fit"
-              style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}
-              /* Офлайн-пакет — действие исполнения (словарь lib/funnel/steps). */
-              onClick={() => funnelBeacon('offline_bundle_download', token)}>
-              <Download className="w-4 h-4" />Скачать GPX для навигатора
-            </a>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Точки всех дней с датами — откроется в Organic Maps, Garmin и любом GPS-навигаторе.
-              Страница плана сохраняется на телефоне и открывается без интернета.
-            </p>
+            {mapMarkers.length > 0 && (
+              <>
+                <a href={`/api/trips/share/${token}/gpx`} download
+                  className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium w-fit"
+                  style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}
+                  /* Офлайн-пакет — действие исполнения (словарь lib/funnel/steps). */
+                  onClick={() => funnelBeacon('offline_bundle_download', token)}>
+                  <Download className="w-4 h-4" />Скачать GPX для навигатора
+                </a>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  Точки всех дней с датами — откроется в Organic Maps, Garmin и любом GPS-навигаторе.
+                </p>
+              </>
+            )}
+            <OfflineSave token={token} isDraft={isDraft} />
           </div>
         )}
 
@@ -289,7 +317,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             const transport = trip.transport_by_day?.[String(day.day)] || day.defaultTransport;
             const zoneColor = ZONE_COLORS[day.zone] || 'var(--text-secondary)';
             const price = formatPrice(day.priceFrom, day.priceTo);
-            const tour = trip.top_tours?.[day.activityType];
+            // У черновика тур дня — тот, что назван в чате; подбор по типу —
+            // только у опубликованной поездки (#2225).
+            const tour = trip.day_tours?.[String(day.day)] ?? trip.top_tours?.[day.activityType];
             return (
               <div key={day.day} className="rounded-lg p-4"
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>

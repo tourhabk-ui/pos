@@ -680,12 +680,30 @@ async function scheduleMap(days: readonly DayPlan[]): Promise<Map<string, boolea
 /**
  * Строка с id плана для правки. Черновик не записался — так и сказано:
  * план показан, но правка через edit_trip_plan для него недоступна.
+ *
+ * Здесь же — ссылка на страницу плана (#2225): карта, GPX и сохранение для
+ * офлайна. Строка одна на make_trip_plan и edit_trip_plan, поэтому ссылка
+ * есть у каждого показа плана, и страница читает свежую правку черновика.
+ * Нет черновика — нет и ссылки: страница открыла бы «не найдено».
  */
 export function planIdLine(id: string | null, revision: number): string {
   if (!id) {
     return 'Черновик плана не сохранился — править этот план через edit_trip_plan нельзя; чтобы изменить, собери план заново.';
   }
-  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить день (интерес), убрать или переставить день, сменить уровень жилья. План хранится 7 дней.`;
+  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить день (интерес), убрать или переставить день, сменить уровень жилья. План хранится 7 дней.\n`
+    + `Страница плана — карта, GPX для навигатора и сохранение на телефон для поля без связи: ${SITE}/trip/${id}`;
+}
+
+const PLAN_ID_RE = /ID плана: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+/**
+ * Id плана из ответа make_trip_plan / edit_trip_plan — для ссылки «продолжить
+ * в Ведаре» у MCP (lib/mcp/handoff-targets). Разбирается собственный текст
+ * инструмента, а не аргумент агента; формат держит planIdLine рядом, и тест
+ * сверяет их друг с другом.
+ */
+export function planIdFromAnswer(answer: string): string | null {
+  return PLAN_ID_RE.exec(answer)?.[1] ?? null;
 }
 
 const EDIT_ACTIONS: Record<string, PlanEdit['kind']> = {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
-import { topToursByActivity } from '@/lib/tours/top-tour-by-activity';
+import { topToursByActivity, toursByIds, type TopTour } from '@/lib/tours/top-tour-by-activity';
+import { readSharedPlan } from '@/lib/trips/shared-plan';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,25 +15,16 @@ export async function GET(
   }
 
   try {
-    const { rows } = await pool.query<{
-      id: string;
-      title: string;
-      arrival_date: string | null;
-      departure_date: string | null;
-      places: string[];
-      activities: string[];
-      days: unknown;
-      transport_by_day: unknown;
-    }>(
-      `SELECT id, title, arrival_date, departure_date, places, activities, days, transport_by_day
-       FROM user_trips
-       WHERE share_token = $1 AND is_public = TRUE AND deleted_at IS NULL`,
-      [token]
-    );
-
-    if (rows.length === 0) {
+    // Опубликованная поездка или черновик плана Кузьмича/MCP (#2225) — одно
+    // правило с GPX и страницей (lib/trips/shared-plan).
+    const read = await readSharedPlan(token);
+    if (read.kind === 'failed') {
+      return NextResponse.json({ success: false, error: 'План сейчас не прочитался — попробуйте чуть позже' }, { status: 503 });
+    }
+    if (read.kind === 'missing') {
       return NextResponse.json({ success: false, error: 'Маршрут не найден или не опубликован' }, { status: 404 });
     }
+    const { day_tour_ids: dayTourIds, ...plan } = read.plan;
 
     // Туры к дням плана: по activityType (+зона дня), тот же подбор, что у
     // /api/planner/tours-for-day. Сохранённые дни туров не несут (схема
@@ -41,23 +32,34 @@ export async function GET(
     // страница плана должна вести к брони, а не быть витриной цен «от-до»:
     // «план, который бронирует» — наше отличие от планировщиков TAAFT
     // (разведка 08.08, карт-бланш владельца). Сбой подбора не роняет план.
-    const days = Array.isArray(rows[0]!.days) ? rows[0]!.days as Array<{ day?: number; activityType?: string; type?: string; coords?: [number, number] }> : [];
+    const days = plan.days as Array<{ day?: number; activityType?: string; type?: string; coords?: [number, number] }>;
     const activityDays = days.filter((d) => d.activityType && (d.type === undefined || d.type === 'activity'));
-    const topTours = await topToursByActivity(activityDays.map((d) => d.activityType as string));
+    // У черновика тур дня уже выбран планом — показываем его; подбор «лучшего
+    // по типу» там подменил бы тур, названный в чате, другим (#2225).
+    const isDraft = plan.source === 'draft';
+    const topTours = isDraft ? {} : await topToursByActivity(activityDays.map((d) => d.activityType as string));
+    const planTours = isDraft ? await toursByIds(Object.values(dayTourIds ?? {})) : {};
+    const dayTours: Record<string, TopTour> = {};
+    for (const [day, tourId] of Object.entries(dayTourIds ?? {})) {
+      if (planTours[tourId]) dayTours[day] = planTours[tourId];
+    }
+    const tourFor = (d: { day?: number; activityType?: string }): TopTour | undefined => (isDraft
+      ? (typeof d.day === 'number' ? dayTours[String(d.day)] : undefined)
+      : (d.activityType ? topTours[d.activityType] : undefined));
 
     // Честная доступность на дату каждого дня («Мой план 2.0», B-4):
     // «на 12.08 — 4 места» из реальной занятости (fetchAvailabilityForTour —
     // тот же расчёт, что у гейта брони). Только будущие даты; сбой подбора
     // не роняет план — строка доступности просто не показывается.
     const availability: Record<string, { date: string; remaining: number }> = {};
-    const arrivalRaw = rows[0]!.arrival_date;
+    const arrivalRaw = plan.arrival_date;
     const arrivalMs = arrivalRaw ? new Date(arrivalRaw).getTime() : NaN;
     if (Number.isFinite(arrivalMs)) {
       const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
       const cache = createPlannerCache();
       const today = new Date().toISOString().slice(0, 10);
       await Promise.all(activityDays.map(async (d) => {
-        const tour = d.activityType ? topTours[d.activityType] : undefined;
+        const tour = tourFor(d);
         if (!tour || typeof d.day !== 'number') return;
         const date = new Date(arrivalMs + (d.day - 1) * 86400000).toISOString().slice(0, 10);
         if (date < today) return;
@@ -103,7 +105,7 @@ export async function GET(
               windKmh: Math.round(f.windKmh), precipMm: Math.round(f.precipMm),
               description: f.description, bad,
             };
-            const tour = d.activityType ? topTours[d.activityType] : undefined;
+            const tour = tourFor(d);
             if (bad && tour?.weather_dependent) {
               const alts = await fetchContingencyAlternatives(tour.id, cache);
               if (alts.length > 0) {
@@ -115,8 +117,14 @@ export async function GET(
       } catch { /* движок недоступен — план живёт без погоды */ }
     }
 
-    return NextResponse.json({ success: true, data: { ...rows[0], top_tours: topTours, availability, weather, plan_b: planB } });
-  } catch {
+    return NextResponse.json({
+      success: true,
+      data: { ...plan, top_tours: topTours, ...(isDraft ? { day_tours: dayTours } : {}), availability, weather, plan_b: planB },
+    });
+  } catch (err) {
+    // Отказ не глушится (§4.0): причина — в лог, без данных плана.
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[trips/share] план не собран:', typeof e?.code === 'string' ? e.code : 'нет SQLSTATE', typeof e?.message === 'string' ? e.message.slice(0, 300) : '');
     return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
   }
 }

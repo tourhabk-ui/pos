@@ -16,6 +16,8 @@ import { buildPlanGpx, planGpxContentDisposition, planGpxFilename, planGpxPoints
 const ROOT = process.cwd();
 const SW = readFileSync(join(ROOT, 'public/sw.js'), 'utf-8');
 const GPX_API = readFileSync(join(ROOT, 'app/api/trips/share/[token]/gpx/route.ts'), 'utf-8');
+const SHARE_API = readFileSync(join(ROOT, 'app/api/trips/share/[token]/route.ts'), 'utf-8');
+const SHARED_PLAN = readFileSync(join(ROOT, 'lib/trips/shared-plan.ts'), 'utf-8');
 const SHARE_UI = readFileSync(join(ROOT, 'app/trip/[token]/_TripShareClient.tsx'), 'utf-8');
 
 const days = [
@@ -73,8 +75,12 @@ describe('C-6: GPX дней плана', () => {
 describe('C-6: GPX-эндпоинт — та же видимость, что у страницы плана', () => {
   it('тот же токен и те же условия публичности, ничего сверх', () => {
     expect(GPX_API).toMatch(/\^\[0-9a-f-\]\{36\}\$/);
-    expect(GPX_API).toMatch(/is_public = TRUE AND deleted_at IS NULL/);
-    expect(GPX_API).toMatch(/share_token = \$1/);
+    // Правило «какой план открывает токен» одно на страницу, её данные и GPX
+    // (lib/trips/shared-plan, #2225): опубликованная поездка или черновик.
+    expect(GPX_API).toContain('readSharedPlan(token)');
+    expect(SHARE_API).toContain('readSharedPlan(token)');
+    expect(SHARED_PLAN).toMatch(/is_public = TRUE AND deleted_at IS NULL/);
+    expect(SHARED_PLAN).toMatch(/share_token = \$1/);
   });
 
   it('нет точек с координатами → 404, а не пустой файл', () => {
