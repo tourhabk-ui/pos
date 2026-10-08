@@ -213,6 +213,7 @@ describe('аннотации — у каждого инструмента, и п
     }
   });
 
+  const NON_IDEMPOTENT_READS = new Set(['edit_trip_plan']);
   it('пишущих ровно два, и это заявки; всё остальное только читает', () => {
     expect([...WRITE_TOOL_NAMES].sort()).toEqual(['create_booking_request', 'create_lead']);
     for (const t of PUBLIC_MCP_TOOLS) {
@@ -223,7 +224,10 @@ describe('аннотации — у каждого инструмента, и п
         expect(a.destructiveHint).toBe(false);
       } else {
         expect(a.readOnlyHint, `${t.name} читает, а помечен пишущим`).toBe(true);
-        expect(a.idempotentHint).toBe(true);
+        // edit_trip_plan (#2224) правит анонимный черновик плана — до человека
+        // он не доходит, поэтому лимит чтения; но повтор add_day добавит ещё
+        // один день, и честная подсказка хосту — «не идемпотентен».
+        expect(a.idempotentHint, t.name).toBe(!NON_IDEMPOTENT_READS.has(t.name));
       }
     }
   });

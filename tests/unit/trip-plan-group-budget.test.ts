@@ -211,6 +211,9 @@ describe('схема: одна правда для MCP и Кузьмича', () 
   });
 
   it('описание учит правке плана повторным вызовом', () => {
-    expect(spec.definition.function.description).toMatch(/вызови снова с прежними аргументами плюс изменение/);
+    // С #2224 у плана есть ID: дни правятся edit_trip_plan, а даты и состав —
+    // повторным make_trip_plan с прежними аргументами плюс изменение.
+    expect(spec.definition.function.description).toMatch(/вызови make_trip_plan снова с прежними аргументами плюс изменение/);
+    expect(spec.definition.function.description).toMatch(/edit_trip_plan/);
   });
 });

@@ -2124,6 +2124,13 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
         days: args.days, interests: args.interests, when: args.when,
         travel_style: args.travel_style, rest_days: args.rest_days,
         adults: args.adults, children: args.children, budget_tier: args.budget_tier,
+      }, { surface: opts.surface ?? 'chat' });
+    }
+    if (name === 'edit_trip_plan') {
+      const { editTripPlanForKuzmich } = await import('@/lib/kuzmich/trip-plan-tool');
+      return await editTripPlanForKuzmich({
+        plan_id: args.plan_id, action: args.action, day: args.day, to_day: args.to_day,
+        interest: args.interest, lodging: args.lodging,
       });
     }
     if (name === 'get_tour_availability') {
