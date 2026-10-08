@@ -78,6 +78,30 @@ describe('миграция 1179', () => {
   });
 });
 
+describe('часы заезда не выдуманы (миграция 1180)', () => {
+  const fix = read('migrations/1180_kutha_no_invented_checkin.sql');
+
+  it('умолчание базы (14:00 / 12:00) не выдаётся за условие объекта: у «Кутхи» они NULL', () => {
+    expect(fix).toMatch(/SET check_in_time = NULL,\s*check_out_time = NULL/);
+    expect(fix).toMatch(/LOWER\(name\) = 'кутха'/);
+  });
+
+  it('тронуты только прежние умолчания — записанное администратором не перетирается', () => {
+    expect(fix).toMatch(/check_in_time = TIME '14:00'/);
+    expect(fix).toMatch(/check_out_time = TIME '12:00'/);
+  });
+
+  it('карточка не рисует строку заезда, когда часов нет', () => {
+    const ui = read('app/accommodations/[id]/_AccommodationDetailClient.tsx');
+    expect(ui).toMatch(/\{\(checkIn \|\| checkOut\) && \(/);
+  });
+
+  it('миграция не меняет схему — справочник DB_SCHEMA.md не отстаёт', () => {
+    const code = fix.replace(/^\s*--.*$/gm, ' ');
+    expect(/\b(CREATE|ALTER|DROP|TRUNCATE|RENAME|GRANT|REVOKE)\b/i.test(code)).toBe(false);
+  });
+});
+
 describe('номер не выходит за карточку (pd-guard)', () => {
   it('публичный список не выбирает contact_phone', () => {
     expect(read('app/api/accommodations/route.ts')).not.toMatch(/contact_phone/);
