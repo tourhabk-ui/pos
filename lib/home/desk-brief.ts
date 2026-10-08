@@ -49,6 +49,7 @@ const KIND: Record<string, { kind: ChangeKind; label: string }> = {
   weather: { kind: 'weather', label: 'погода' },
   bear: { kind: 'bear', label: 'медведи' },
   park_closure: { kind: 'park', label: 'парк закрыт' },
+  warning_test: { kind: 'other', label: 'проверка сирен' },
 };
 
 /** «Халактырский пляж: дорога перекрыта» → место и суть; не делится — всё сутью. */
