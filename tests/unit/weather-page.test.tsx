@@ -42,6 +42,7 @@ import {
   dayLabel, fmtTemp, partPrecip, precipLine, skyWords, tempRange, windLine,
 } from '@/lib/weather/weather-format';
 import { insideKrai } from '@/lib/geo/krai-envelope';
+import { settlementByName } from '@/lib/kuzmich/weather-tool';
 import { SVODKA_WEATHER_PLACES } from '@/lib/svodka/svodka';
 import { WeatherView } from '@/components/weather/WeatherView';
 import type { ForecastDay } from '@/lib/planner/intelligence';
@@ -82,9 +83,27 @@ describe('1. места', () => {
     }
   });
 
-  it('имена каталога — те же, что у сводки: «Авачинский» здесь и у Кузьмича — одна точка', () => {
-    const catalog = WEATHER_PLACES.flatMap((p) => ('catalog' in p.source ? [p.source.catalog] : []));
-    expect(catalog.sort()).toEqual([...SVODKA_WEATHER_PLACES].sort());
+  it('места сводки — те же точки, что здесь: «Авачинский» здесь и у Кузьмича — одна точка', () => {
+    // Точку имени даёт resolvePlaceCoords: сначала реестр посёлков, потом
+    // каталог. Страница обязана взять её тем же путём.
+    for (const name of SVODKA_WEATHER_PLACES) {
+      const s = settlementByName(name);
+      const same = WEATHER_PLACES.find((p) => ('catalog' in p.source
+        ? s === null && p.source.catalog === name
+        : s !== null && p.source.point?.lat === s.lat && p.source.point?.lng === s.lng));
+      expect(same, `${name}: на странице погоды не та точка, что в сводке`).toBeTruthy();
+    }
+  });
+
+  it('Эссо — село по OSM, а не смотровая каталога на ~1430 м (пробы 724–725)', () => {
+    const esso = weatherPlaceBySlug('esso')!;
+    expect('catalog' in esso.source, 'снова поиск по каталогу — найдёт «Вид на Эссо»').toBe(false);
+    const pt = (esso.source as { point: { lat: number; lng: number } | null }).point!;
+    // Рамка села по OSM, way 41677471: 55.918–55.936 с. ш., 158.682–158.725 в. д.
+    expect(pt.lat).toBeGreaterThanOrEqual(55.918);
+    expect(pt.lat).toBeLessThanOrEqual(55.936);
+    expect(pt.lng).toBeGreaterThanOrEqual(158.682);
+    expect(pt.lng).toBeLessThanOrEqual(158.725);
   });
 });
 
@@ -251,6 +270,11 @@ describe('4. разметка', () => {
     expect(screen.getAllByText('снег 0,5 мм').length).toBeGreaterThan(0);
     // Пропуск части дня — словами, а не нулём.
     expect(screen.getAllByText('нет данных').length).toBeGreaterThan(0);
+  });
+
+  it('горная точка в списке мест подписана высотой: −17° вершины — не погода лагеря', () => {
+    render(<WeatherView data={data()} />);
+    expect(screen.getByText('точка на ~2710 м')).toBeTruthy();
   });
 
   it('текущее место отмечено, у остальных — честное «прогноз не получили»', () => {

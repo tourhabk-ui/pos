@@ -206,7 +206,15 @@ function Overview({ all, today, current }: { all: PlaceWeather[]; today: string;
               aria-current={w.place.slug === current ? 'page' : undefined}
               className="-mx-2 flex min-h-[44px] flex-col gap-1 rounded-lg px-2 py-3 no-underline transition-colors duration-200 hover:bg-[var(--bg-hover)] sm:flex-row sm:items-baseline sm:gap-4"
             >
-              <span className="shrink-0 font-semibold text-[var(--text-primary)] sm:w-52">{w.place.name}</span>
+              <span className="flex shrink-0 flex-col sm:w-52">
+                <span className="font-semibold text-[var(--text-primary)]">{w.place.name}</span>
+                {/* Горная точка без высоты читается погодой подножия: Авачинский
+                    −17° — это вершина на 2710 м, а не лагерь. Порог — тот же,
+                    что у предупреждения «ниже теплее» (elevationNote). */}
+                {w.kind === 'ok' && w.elevationM !== null && w.elevationM >= 500 && (
+                  <span className="text-xs text-[var(--text-muted)]">точка на ~{Math.round(w.elevationM / 10) * 10} м</span>
+                )}
+              </span>
               {w.kind === 'ok' ? (
                 <span className="flex flex-col gap-0.5 text-sm text-[var(--text-secondary)] tabular-nums">
                   <span>Сегодня {shortDay(w.days.find((d) => d.date === today))}</span>

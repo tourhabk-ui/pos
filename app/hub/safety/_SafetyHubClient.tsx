@@ -1091,7 +1091,7 @@ export default function SafetyHubClient() {
               </div>
 
               <p className="text-xs text-[var(--text-muted)] text-right">
-                Источник: Open-Meteo, осадки — модель GFS ·{' '}
+                Источник: Open-Meteo, осадки — модель GFS · {checkedLabel(weather.checked_at)} ·{' '}
                 <Link href="/weather" className="text-[var(--ocean)]">прогноз на неделю по местам</Link>
               </p>
             </>
