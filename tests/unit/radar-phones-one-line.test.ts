@@ -23,11 +23,20 @@ describe('экстренные контакты радара', () => {
 });
 
 describe('погода радара по-русски', () => {
-  const route = read('app/api/safety/weather/route.ts');
-  it('wttr.in спрашивается с lang=ru', () => {
-    expect(route).toContain('format=j1&lang=ru');
+  // До 08.10 радар брал wttr.in и следил за lang=ru: без него стояло «Sunny».
+  // Теперь это тот же прогноз, что у Кузьмича и /weather (решение владельца
+  // 08.10): описание — из нашего же справочника кодов, по-русски по построению.
+  // Код без комментариев: в шапке роута wttr.in назван как прошлое.
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  const route = code(read('app/api/safety/weather/route.ts'));
+  const widget = code(read('lib/weather/safety-widget.ts'));
+  it('источник — прогноз платформы, не wttr.in', () => {
+    expect(route).toMatch(/fetchForecastDays\(/);
+    expect(route).not.toMatch(/wttr\.in/);
   });
-  it('английское описание не подставляется запасом', () => {
-    expect(route).not.toMatch(/desc:[^\n]*weatherDesc/);
+  it('слова — правилами weather-format и day-parts, своих нет', () => {
+    expect(widget).toMatch(/from '@\/lib\/weather\/weather-format'/);
+    expect(widget).toMatch(/partPrecip\(part\)/);
+    expect(widget).not.toMatch(/weatherDesc|lang_ru/);
   });
 });

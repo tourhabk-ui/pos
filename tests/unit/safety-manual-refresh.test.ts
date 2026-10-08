@@ -157,7 +157,9 @@ describe('экран: кнопка зовёт сбор и не подмешив�
     expect(handler.indexOf("'/api/safety/refresh'")).toBeLessThan(handler.indexOf('reloadScreen(true)'));
   });
   it('время погоды не становится временем опроса источников', () => {
-    const weather = CLIENT.slice(CLIENT.indexOf('/api/safety/weather?fresh='), CLIENT.indexOf('/api/safety/weather?fresh=') + 400);
+    const at = CLIENT.indexOf("fetch('/api/safety/weather')");
+    expect(at, 'запрос погоды не найден — сторож смотрел бы мимо').toBeGreaterThan(0);
+    const weather = CLIENT.slice(at, at + 400);
     expect(weather).not.toMatch(/setCheckedAt/);
   });
   it('подпись говорит «источники опрошены», а не «проверено»', () => {
