@@ -87,7 +87,11 @@ describe('каталог расширяет сезонное окно', () => {
   it('сезон спрашивается ОДИН раз и кормит все три места, где он решает', () => {
     // Разойдясь, они дали бы план с рыбалкой и отказ про несезонную рыбалку
     // в одном ответе.
-    expect(ENGINE).toMatch(/const catalogueOpen = await fetchActivitiesBookableInMonth\(getMonth\(profile\), cache\)/);
+    expect(ENGINE).toMatch(/const scheduledOpen = await fetchActivitiesBookableInMonth\(month, cache\)/);
+    expect(ENGINE.match(/fetchActivitiesBookableInMonth\(/g)).toHaveLength(1);
+    // Туры без календаря (08.10) подмешиваются в тот же единственный набор,
+    // а не становятся вторым свидетелем, которого одно из трёх мест не спросит.
+    expect(ENGINE).toMatch(/const catalogueOpen = scheduledOpen === null \? null : new Set\(\[\.\.\.scheduledOpen, \.\.\.\(onRequest \?\? \[\]\)\]\)/);
     // С 08.10 зоны и дни считаются по профилю без занятий не по возрасту детей
     // (planProfile) — каталог по-прежнему передаётся тот же.
     expect(ENGINE).toMatch(/scoreZones\(planProfile, cache, catalogueOpen\)/);
@@ -96,7 +100,7 @@ describe('каталог расширяет сезонное окно', () => {
     // (предупреждения о разрешениях считались по зонам-кандидатам и требовали
     // погранзону ФСБ для поездки, которой нет). Правило то же, порядок другой.
     expect(ENGINE).toMatch(/collectWarnings\([^)]*catalogueOpen/);
-    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen\)/);
+    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly\)/);
     // Ни одна из трёх проверок не судит по голой таблице.
     expect(ENGINE).not.toMatch(/if \(!c\.months\.includes\(month\)\) continue;/);
   });

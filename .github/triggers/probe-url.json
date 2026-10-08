@@ -1,33 +1,28 @@
 {
   "timeout": 60,
-  "retries": 45,
-  "retryDelay": 60,
-  "allowStale": false,
-  "bytes": 600,
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. «Кутха» (#2238) на проде: карточка (tel-ссылка, текст про оператора платформы) и публичный список жилья (номера быть не должно).",
-  "run": 717,
+  "retries": 1,
+  "retryDelay": 10,
+  "allowStale": true,
+  "bytes": 400,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. «Кутха» (#2238) после 1180: на карточке нет «заезд с 14:00 · выезд до 12:00», есть звонок; в публичном списке жилья номера нет.",
+  "run": 718,
   "urls": [
     "https://vedarai.ru/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e",
-    "https://vedarai.ru/api/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e",
     "https://vedarai.ru/api/accommodations"
   ],
-  "until": "/images/volcanoesland/ploskiy-tolbachik-01",
   "around": [
-    "tel:+7",
     "Позвонить",
-    "оператора платформы",
-    "contactPhone",
-    "contact_phone"
+    "заезд с",
+    "выезд до"
   ],
   "aroundLines": 0,
-  "aroundBefore": 80,
-  "aroundHits": 6,
+  "aroundBefore": 60,
+  "aroundHits": 4,
   "grep": [
     "tel:+7",
-    "Позвонить +7 962 215-27-77",
+    "заезд с",
+    "выезд до",
     "оператора платформы",
-    "\"contactPhone\":\"+79622152777\"",
-    "contact_phone",
     "79622152777",
     "Кутха"
   ],

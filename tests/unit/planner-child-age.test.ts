@@ -68,7 +68,7 @@ describe('движок: убирает до раскладки, а не поме
   it('зоны и дни считаются по профилю без убранного, предупреждения — по полному', () => {
     expect(ENGINE).toMatch(/splitByChildAge\(profile\.interests, youngestChild\(profile\)\)/);
     expect(ENGINE).toMatch(/await scoreZones\(planProfile, cache, catalogueOpen\)/);
-    expect(ENGINE).toMatch(/await generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen\)/);
+    expect(ENGINE).toMatch(/await generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly\)/);
     expect(ENGINE).toMatch(/collectWarnings\(profile, zones,/);
     expect(ENGINE).not.toMatch(/dayWarnings\.push\(`Детям </);
   });

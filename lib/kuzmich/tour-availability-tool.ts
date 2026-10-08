@@ -19,7 +19,7 @@ import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
-import { honestTourPrice } from '@/lib/tours/honest-price';
+import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
 
 export interface ResolvedTour {
   id: number;
@@ -94,6 +94,98 @@ export function parsePeople(raw: string | undefined): number | null {
 
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
 
+/** Даты окна по порядку, оба края включительно. */
+export function datesBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  const end = Date.parse(`${to}T00:00:00Z`);
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= end; t += 86400000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/**
+ * Подряд идущие даты с одинаковой подписью — одним диапазоном: четырнадцать
+ * одинаковых строк агент пересказал бы человеку как четырнадцать фактов.
+ * Подпись сменилась (сезонное правило цены с середины окна) — новый диапазон.
+ */
+export function collapseRuns(items: ReadonlyArray<{ date: string; label: string }>): Array<{ from: string; to: string; label: string }> {
+  const runs: Array<{ from: string; to: string; label: string }> = [];
+  for (const it of items) {
+    const last = runs[runs.length - 1];
+    const prevDay = last ? new Date(Date.parse(`${last.to}T00:00:00Z`) + 86400000).toISOString().slice(0, 10) : null;
+    if (last && last.label === it.label && prevDay === it.date) last.to = it.date;
+    else runs.push({ from: it.date, to: it.date, label: it.label });
+  }
+  return runs;
+}
+
+
+/**
+ * Тур без расписания: все даты окна свободны для заявки (решение владельца
+ * 08.10: «сделай все даты свободными, можно только отправить заявку
+ * оператору»).
+ *
+ * До этого инструмент отвечал «свободные даты узнать нельзя» — и внешний
+ * агент так и пересказывал человеку все одиннадцать туров «Края Вулканов»:
+ * дат нет, ничего не узнать. Правда другая: оператор собирает группу под
+ * запрос, и закрытых дат у него нет. Поэтому даты называются свободными —
+ * для заявки, с итогом на группу тем же расчётом, что у самой заявки.
+ *
+ * Чего здесь нет намеренно: числа мест. Календаря у тура нет, и «свободно
+ * 10» было бы выдумкой (§4.0). И строк в tour_availability под такие туры
+ * никто не заводит: по ним работает автоподтверждение оператора
+ * (lib/bookings/auto-confirm), и выдуманный календарь подтверждал бы заявки
+ * на даты, которых оператор не давал.
+ */
+async function onRequestWindow(
+  tour: ResolvedTour, from: string, to: string, peopleRaw: string | undefined, notes: string[],
+): Promise<string[]> {
+  const people = parsePeople(peopleRaw);
+  if (peopleRaw != null && peopleRaw.trim() !== '' && people === null) {
+    notes.push(`Число людей «${peopleRaw}» не распознано (нужно 1–30) — итог не посчитан.`);
+  }
+  const dates = datesBetween(from, to);
+  let labels: string[];
+  if (people !== null && tour.base_price != null) {
+    try {
+      // Правила цены и ступени группы от даты не зависят — читаются один
+      // раз; дата участвует в самом расчёте (сезонные правила).
+      const { rules, tiers } = await loadPricingContext(tour.id, from);
+      labels = dates.map((d) => {
+        try {
+          const p = composeHonestPrice({
+            baseUnitPrice: Number(tour.base_price), priceUnit: tour.price_unit, participants: people,
+            duration: { multi_day_count: tour.multi_day_count ?? null, duration_hours: tour.duration_hours ?? null },
+            rules, tiers, ctx: { tourDate: d, guests: people, occupancyPct: 0 },
+          });
+          return `итого за ${people} чел.: ${rub(p.total)}`;
+        } catch (err) {
+          if (err instanceof PriceTierMissError) return `для группы из ${people} чел. цену называет оператор`;
+          throw err;
+        }
+      });
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      console.error('[tour-availability] итог не посчитан', { tourId: tour.id, sqlstate: e?.code, message: e?.message });
+      labels = dates.map(() => 'итог не посчитан');
+    }
+  } else {
+    const price = priceFromUnit(tour.base_price, tour.price_unit);
+    labels = dates.map(() => price || 'цену называет оператор');
+  }
+  const runs = collapseRuns(dates.map((date, i) => ({ date, label: labels[i] })));
+  return [
+    `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — все даты свободны для заявки, оператор собирает группу под запрос:`,
+    ...runs.map((r) => `- ${r.from === r.to ? shortDate(r.from) : `${shortDate(r.from)}–${shortDate(r.to)}`}: свободно для заявки, ${r.label}`),
+    'Числа мест у тура без календаря нет — дату и группу подтверждает оператор. '
+      + 'create_booking_request с датой отправит ему заявку в мессенджер, ответ — до 2 часов. Не обещай, что место закреплено, до его ответа.',
+    ...(people !== null && tour.base_price != null
+      ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура). Трансферы и услуги из «не входит» в неё не включены.']
+      : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
+  ];
+}
+
 export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_from?: string; days?: string; people?: string }): Promise<string> {
   const tourQuery = (args.tour ?? '').trim();
   if (!tourQuery) return 'Укажи тур: название, ключевое слово или ID.';
@@ -131,9 +223,12 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       // звучали «реальная занятость из броней», и агент до запроса не доходил.
       const keeps = await tourKeepsSchedule(Number(tour.id));
       if (keeps === false) {
-        return [...notes,
-          `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — оператор берёт туристов без календаря. `
-          + 'Это не «мест нет»: места уточняются у оператора. create_booking_request с датой отправит ему запрос в мессенджер, ответ — до 2 часов.',
+        // Сначала тело: оно дописывает в notes («число людей не распознано»),
+        // и раскрыть notes раньше значило бы потерять эту оговорку.
+        const body = await onRequestWindow(tour, from, to, args.people, notes);
+        return [
+          ...notes, ...body,
+          `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
         ].join('\n');
       }
       if (keeps === null) {
