@@ -22,6 +22,7 @@ import { insideKrai } from '@/lib/geo/krai-envelope';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
+import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
 
 export const DEFAULT_WEATHER_PLACE = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 } as const;
 export const WEATHER_DAYS_DEFAULT = 3;
@@ -33,6 +34,11 @@ export const WEATHER_DAYS_MAX = 7;
  * ничего или «Вид на …». Координаты — центр посёлка, из задачи #2249 (08.10).
  */
 export const WEATHER_SETTLEMENTS: ReadonlyArray<{ name: string; lat: number; lng: number }> = [
+  // Эссо (08.10): в каталоге есть, но поиск по имени находил «Вид на Эссо» —
+  // смотровую на ~1430 м в шести километрах от села, и прогноз села был
+  // прогнозом горы (−11…−5° при +3…+7° в Ключах, проба 724). Точка — центр
+  // села по OpenStreetMap: way 41677471, place=village (проба 725).
+  { name: 'Эссо', lat: 55.93, lng: 158.70 },
   { name: 'Ключи', lat: 56.32, lng: 160.85 },
   { name: 'Усть-Камчатск', lat: 56.22, lng: 162.48 },
   { name: 'Соболево', lat: 54.30, lng: 155.95 },
@@ -181,6 +187,52 @@ function kamchatkaTime(iso: string): string {
 }
 
 /** Ответ инструмента `get_weather` — текстом для модели. */
+/**
+ * Зоны тревог для точки — по той же границе, что у приёма Росгидромета
+ * (lib/services/safety/meteoalert): север края — от 55,5° с. ш. Юг у
+ * Росгидромета накрывает все наши зоны, поэтому южной точке годится любая
+ * не-северная зона; называем все три, чтобы не зависеть от деления юга.
+ */
+export function alertZonesForPoint(lat: number): string[] {
+  return lat >= 55.5 ? ['northern'] : ['avachinsky', 'eastern', 'western'];
+}
+
+/**
+ * Действующие предупреждения Росгидромета для района точки (#2289, п. 3).
+ *
+ * Прогноз модели и официальное предупреждение — разные вещи, и человек
+ * должен видеть оба: модель говорит «ветер 11 км/ч», а Росгидромет в тот же
+ * день держит оранжевый по ветру на побережье. Предупреждения приходят в
+ * external_alerts приёмом safety-ingest (meteoalert); своего запроса к
+ * Гидрометцентру здесь нет.
+ *
+ * Три исхода (§4.0): строки предупреждений; пусто — ничего не добавляем
+ * (не «предупреждений нет»: приём мог молчать, и это утверждение было бы
+ * без источника); не смогли прочитать — так и сказано.
+ */
+export async function officialWarningLines(lat: number): Promise<string[]> {
+  try {
+    const { rows } = await pool.query<{ title: string; description: string | null }>(
+      `SELECT title, description
+         FROM external_alerts
+        WHERE external_id LIKE $1
+          AND expires_at > NOW()
+          AND affected_zones && $2::text[]
+        ORDER BY severity DESC NULLS LAST, created_at DESC
+        LIMIT 5`,
+      [`${METEOALERT_PREFIX}/%`, alertZonesForPoint(lat)],
+    );
+    if (rows.length === 0) return [];
+    return [
+      'ДЕЙСТВУЮЩИЕ ПРЕДУПРЕЖДЕНИЯ РОСГИДРОМЕТА для этого района (официальный источник важнее прогноза модели — назови их):',
+      ...rows.map((r) => `- ${r.title}${r.description ? `. ${r.description}` : ''}`),
+    ];
+  } catch (err) {
+    logSwallowedFailure('kuzmich', 'предупреждения Росгидромета для прогноза', err);
+    return ['Предупреждения Росгидромета проверить не смог — не утверждай, что их нет.'];
+  }
+}
+
 export async function weatherForKuzmich(args: { place?: string; lat?: string; lng?: string; days?: string }): Promise<string> {
   const target = weatherTarget(args);
   if (target.kind === 'invalid') return target.message;
@@ -212,7 +264,8 @@ export async function weatherForKuzmich(args: { place?: string; lat?: string; ln
     const head = `Прогноз Open-Meteo для «${point.name}» (${point.lat.toFixed(2)}, ${point.lng.toFixed(2)})`
       + `${elevationNote(forecast.elevationM)}, дней: ${forecast.days.length}.${note}`
       + `${forecast.staleSince ? ` ВНИМАНИЕ: источник сейчас не отвечает — это последний полученный прогноз, от ${kamchatkaTime(forecast.staleSince)} по Камчатке; так и скажи.` : ''}`;
-    return [head, ...forecast.days.map(forecastLine)].join('\n');
+    const warnings = await officialWarningLines(point.lat);
+    return [head, ...forecast.days.map(forecastLine), ...warnings].join('\n');
   } catch (err) {
     logSwallowedFailure('kuzmich', 'прогноз погоды по месту', err);
     return 'ПОГОДА НЕДОСТУПНА: свериться с прогнозом не удалось — не называй погоду по памяти.';

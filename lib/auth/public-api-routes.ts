@@ -56,7 +56,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/rescue-chat': ['POST'], // AI Спасатель (requires auth inside handler)
   '/api/safety/seismic':    ['GET'],  // публичные сейсмические данные (КБГС РАН / USGS)
   '/api/safety/volcanic':   ['GET'],  // публичные вулканические алерты
-  '/api/safety/weather':    ['GET'],  // публичная погода (wttr.in)
+  '/api/safety/weather':    ['GET'],  // публичная погода экрана безопасности (прогноз fetchForecastDays, как у /weather)
   // Кнопка «Обновить данные» (владелец 26.09): запускает тот же сбор, что
   // супервизор каждые 5 минут. Потолок общий — не чаще раза в 2 минуты на
   // инстанс (lib/safety/manual-refresh), секрет крона наружу не уходит.

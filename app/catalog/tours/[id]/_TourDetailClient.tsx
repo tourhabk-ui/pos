@@ -17,6 +17,7 @@ import { pickupForCard } from '@/lib/tours/pickup';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
+import type { SeasonWindowView } from '@/lib/tours/request-window';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
@@ -391,7 +392,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null }: { tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -1165,6 +1166,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title}
                     priceUnit={tour.price_unit}
                     askSeatsFirst={askSeatsFirst}
+                    seasonWindow={seasonWindow}
                     cancellationTerms={{
                       freeDays: tour.cancellation_free_days ?? null,
                       lateRefundPercent: tour.cancellation_late_refund_percent ?? null,

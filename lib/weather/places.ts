@@ -38,7 +38,7 @@ const settlement = (name: string): { point: { lat: number; lng: number } | null;
   const s = WEATHER_SETTLEMENTS.find((x) => x.name === name);
   // Посёлок пропал из реестра get_weather — точки нет, и страница скажет об
   // этом сама (исход «нет места»), а не упадёт при импорте. Сторож держит,
-  // что все четыре на месте.
+  // что все пять на месте.
   return { point: s ? { lat: s.lat, lng: s.lng } : null, from: 'посёлки get_weather' };
 };
 
@@ -55,7 +55,7 @@ export const WEATHER_PLACES: readonly WeatherPlace[] = [
     slug: 'nalychevo', name: 'Долина Налычево', where: 'в долине Налычево', group: 'trail',
     source: { point: { lat: ZONES.nalychevo.lat, lng: ZONES.nalychevo.lon }, from: 'зона погоды платформы' },
   },
-  { slug: 'esso', name: 'Эссо', where: 'в Эссо', group: 'settlement', source: { catalog: 'Эссо' } },
+  { slug: 'esso', name: 'Эссо', where: 'в Эссо', group: 'settlement', source: settlement('Эссо') },
   { slug: 'klyuchi', name: 'Ключи', where: 'в Ключах', group: 'settlement', source: settlement('Ключи') },
   { slug: 'ust-kamchatsk', name: 'Усть-Камчатск', where: 'в Усть-Камчатске', group: 'settlement', source: settlement('Усть-Камчатск') },
   { slug: 'sobolevo', name: 'Соболево', where: 'в Соболеве', group: 'settlement', source: settlement('Соболево') },

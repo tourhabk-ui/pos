@@ -114,9 +114,9 @@ async function loadWeather(): Promise<WeatherLine[]> {
   for (const name of SVODKA_WEATHER_PLACES) {
     try {
       const p = await resolvePlaceCoords(name);
-      // Подпись — та, что мы спросили, а не имя найденной записи: поиск по
-      // «Эссо» находит «Вид на Эссо» (смотровая у села), и строка «Вид на
-      // Эссо: −3°» читается как погода на смотровой, а не в селе.
+      // Подпись — та, что мы спросили, а не имя найденной записи: каталог
+      // называет точки по-своему. «Эссо» с 08.10 — село из реестра посёлков
+      // get_weather (по OSM), а не «Вид на Эссо», смотровая на ~1430 м.
       points.push(p ? { name, lat: p.lat, lng: p.lng } : { name, missing: true });
     } catch (err) {
       console.error(`[svodka] координаты «${name}» не прочитаны:`, err instanceof Error ? err.message : err);

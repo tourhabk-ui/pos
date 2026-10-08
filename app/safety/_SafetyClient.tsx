@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
+import { Activity, Flame, Thermometer, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
 import { Header } from '@/components/layout/Header';
@@ -75,12 +75,13 @@ interface VolcanoStatusRow {
   source_url: string | null;
 }
 
+/** Ответ /api/safety/weather — строки уже собраны сервером (lib/weather/safety-widget). */
 interface WeatherData {
-  tempC: string;
-  feelsLikeC: string;
-  desc: string;
-  humidity: string;
-  windKmph: string;
+  place: string;
+  now: { label: string; temp: string | null; precip: string; wind: string } | null;
+  today: { temp: string | null; precip: string; wind: string; sky: string | null };
+  checked_at: string | null;
+  stale: boolean;
 }
 
 // ── Вспомогательное ───────────────────────────────────────────────
@@ -279,9 +280,11 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
           // «предупреждений нет».
           setVolcanoCodes(d.statuses?.elevated ?? []);
         }).catch(() => {}),
-      ok(fetch(`/api/safety/weather?fresh=${q}`).then(r => r.json()))
-        .then((d: WeatherData & { checked_at?: string }) => {
-          setWeather(d.tempC ? d : null);
+      // Прогноз, а не опрос источника: кнопка «обновить» к Open-Meteo не ходит,
+      // у прогноза свой кэш на три часа (lib/weather/safety-widget).
+      ok(fetch('/api/safety/weather').then(r => r.json()))
+        .then((d: Partial<WeatherData>) => {
+          setWeather(d.today ? d as WeatherData : null);
         }).catch(() => {}),
     ]);
     return any;
@@ -810,22 +813,27 @@ export default function SafetyClient({ live, rules }: { live: SafetyLiveData | n
         )}
       </div>
 
-      {/* Погода */}
+      {/* Погода — тот же прогноз, что у Кузьмича и на /weather (08.10). «Сейчас»
+          — прогноз текущей части дня, так и подписано: это не замер. */}
       {weather && (
-        <div className="ds-card" style={{ padding: '14px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Thermometer size={16} color="var(--ocean)" />
-          <div>
-            <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>{weather.tempC}°C</span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>{weather.desc}</span>
+        <div className="ds-card" style={{ padding: '14px 16px', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Thermometer size={16} color="var(--ocean)" />
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>Погода в Петропавловске</span>
+            {weather.stale && <span style={{ fontSize: 12, color: 'var(--warning)' }}>источник не отвечает, прогноз прежний</span>}
           </div>
-          <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
-              <Wind size={12} />{weather.windKmph} км/ч
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
-              <Droplets size={12} />{weather.humidity}%
-            </span>
-          </div>
+          {weather.now && (
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>{weather.now.temp ?? '—'}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
+                прогноз на {weather.now.label}: {weather.now.precip}, {weather.now.wind}
+              </span>
+            </div>
+          )}
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+            Сегодня {weather.today.temp ?? '—'}, {weather.today.precip}, {weather.today.wind}{weather.today.sky ? `, ${weather.today.sky}` : ''}
+          </span>
+          <Link href="/weather" style={{ fontSize: 12, fontWeight: 600, color: 'var(--ocean)' }}>Прогноз на неделю по местам →</Link>
         </div>
       )}
 

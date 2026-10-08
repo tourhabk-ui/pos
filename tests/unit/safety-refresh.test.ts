@@ -25,6 +25,7 @@ const UI = read('app/safety/_SafetyClient.tsx');
 const FEED = read('lib/services/safety/seismic-feed.ts');
 const WEATHER = read('app/api/safety/weather/route.ts');
 const SEISMIC = read('app/api/safety/seismic/route.ts');
+const WIDGET = read('lib/weather/safety-widget.ts');
 
 describe('ограничитель обращений к чужим источникам', () => {
   beforeEach(() => resetThrottle());
@@ -80,20 +81,28 @@ describe('время проверки отделено от времени со�
 });
 
 describe('роуты понимают «свежо», но не пускают поток наружу', () => {
-  it('оба спрашивают ?fresh=1 и проходят через ограничитель', () => {
-    for (const [name, src] of [['seismic', SEISMIC], ['weather', WEATHER]] as const) {
-      expect(src, `${name}: не читает ?fresh=1`).toMatch(/searchParams\.get\('fresh'\) === '1'/);
-      expect(src, `${name}: ходит к источнику без ограничителя`).toMatch(/allowFresh\(/);
-    }
+  it('сейсмика спрашивает ?fresh=1 и проходит через ограничитель', () => {
+    expect(SEISMIC, 'не читает ?fresh=1').toMatch(/searchParams\.get\('fresh'\) === '1'/);
+    expect(SEISMIC, 'ходит к источнику без ограничителя').toMatch(/allowFresh\(/);
   });
 
-  it('ответ из кэша помечен и несёт ЧЕСТНОЕ время проверки', () => {
-    expect(WEATHER).toMatch(/checked_at: new Date\(cache\.ts\)\.toISOString\(\), from_cache: true/);
+  // Погода с 08.10 — прогноз платформы (fetchForecastDays), а не опрос wttr.in:
+  // прогноз меняется раз в часы, и к источнику на нажатие кнопки не ходят
+  // вовсе. Поток наружу закрыт сильнее ограничителя — запроса нет.
+  it('погода к источнику на нажатие не ходит: прогноз из общего кэша', () => {
+    expect(WEATHER).toMatch(/fetchForecastDays\(/);
+    expect(WEATHER).not.toMatch(/\bfetch\(/);
+    expect(WEATHER).not.toMatch(/searchParams/);
   });
 
-  it('провайдер погоды отказал — отдаём старое, назвав его старым', () => {
+  it('время погоды — ЧЕСТНОЕ: момент получения прогноза, а не запроса', () => {
+    expect(WIDGET).toMatch(/checked_at: f\.staleSince \?\? f\.fetchedAt \?\? null/);
+  });
+
+  it('источник погоды отказал — отдаём старое, назвав его старым', () => {
     // В поле старая погода полезнее пустого экрана, но только названная старой.
-    expect(WEATHER).toMatch(/from_cache: true, stale: true/);
+    expect(WIDGET).toMatch(/stale: Boolean\(f\.staleSince\)/);
+    expect(UI).toMatch(/weather\.stale && /);
   });
 });
 

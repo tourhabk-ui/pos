@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
+import Link from 'next/link';
+import { Truck, AlertTriangle, Thermometer, Wind, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
 import { plainResponse } from '@/lib/text/plain-response';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 // Подписи цветов и правило устаревания — общие с карточкой места и Кузьмичом.
@@ -23,13 +24,13 @@ interface RescueMessage {
 
 // Локальные протоколы — общий список с радаром и /sos (lib/safety/rescue-protocols, 04.10).
 
+/** Ответ /api/safety/weather — строки уже собраны сервером (lib/weather/safety-widget). */
 interface WeatherData {
-  tempC: string;
-  feelsLikeC: string;
-  desc: string;
-  humidity: string;
-  windKmph: string;
-  updatedAt?: string;
+  place: string;
+  now: { label: string; temp: string | null; precip: string; wind: string } | null;
+  today: { temp: string | null; precip: string; wind: string; sky: string | null };
+  checked_at: string | null;
+  stale: boolean;
 }
 
 interface SeismicEvent {
@@ -198,11 +199,13 @@ export default function SafetyHubClient() {
   const fetchWeather = useCallback(() => {
     setWeatherLoading(true);
     setWeatherError(null);
-    fetch('/api/safety/weather?fresh=1')
+    // Тот же прогноз, что у Кузьмича и на /weather: к Open-Meteo на нажатие
+    // не ходим, у прогноза свой кэш на три часа.
+    fetch('/api/safety/weather')
       .then((r) => r.json())
-      .then((d: WeatherData & { error?: string }) => {
-        if (d.error) { setWeatherError(d.error); return; }
-        setWeather(d);
+      .then((d: Partial<WeatherData> & { error?: string }) => {
+        if (d.error || !d.today) { setWeatherError(d.error ?? 'Не удалось загрузить прогноз погоды'); return; }
+        setWeather(d as WeatherData);
       })
       .catch(() => setWeatherError('Не удалось загрузить прогноз погоды'))
       .finally(() => setWeatherLoading(false));
@@ -1064,36 +1067,33 @@ export default function SafetyHubClient() {
 
           {!weatherLoading && weather && (
             <>
-              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-4xl font-bold text-[var(--text-primary)]">{weather.tempC}°C</p>
-                    <p className="text-sm text-[var(--text-secondary)] mt-1">{weather.desc}</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                      Ощущается как {weather.feelsLikeC}°C
-                    </p>
-                  </div>
+              {weather.stale && (
+                <p className="text-sm border-l-2 border-[var(--warning)] pl-3 text-[var(--text-primary)]">
+                  Источник прогноза не отвечает — это последний полученный прогноз.
+                </p>
+              )}
+              {weather.now && (
+                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+                  <p className="text-xs text-[var(--text-muted)]">Прогноз на {weather.now.label}</p>
+                  <p className="text-4xl font-bold text-[var(--text-primary)] mt-1">{weather.now.temp ?? '—'}</p>
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">{weather.now.precip}, {weather.now.wind}</p>
+                </div>
+              )}
+
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 flex items-center gap-3">
+                <Wind className="w-5 h-5 text-[var(--ocean)]" />
+                <div>
+                  <p className="text-xs text-[var(--text-muted)]">Сегодня</p>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">
+                    {weather.today.temp ?? '—'}, {weather.today.precip}, {weather.today.wind}{weather.today.sky ? `, ${weather.today.sky}` : ''}
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 flex items-center gap-3">
-                  <Wind className="w-5 h-5 text-[var(--ocean)]" />
-                  <div>
-                    <p className="text-xs text-[var(--text-muted)]">Ветер</p>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">{weather.windKmph} км/ч</p>
-                  </div>
-                </div>
-                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 flex items-center gap-3">
-                  <Droplets className="w-5 h-5 text-[var(--ocean)]" />
-                  <div>
-                    <p className="text-xs text-[var(--text-muted)]">Влажность</p>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">{weather.humidity}%</p>
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-xs text-[var(--text-muted)] text-right">Источник: wttr.in</p>
+              <p className="text-xs text-[var(--text-muted)] text-right">
+                Источник: Open-Meteo, осадки — модель GFS · {checkedLabel(weather.checked_at)} ·{' '}
+                <Link href="/weather" className="text-[var(--ocean)]">прогноз на неделю по местам</Link>
+              </p>
             </>
           )}
         </div>

@@ -47,6 +47,7 @@ import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
+import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
 // теми же функциями, какими их находят сами инструменты.
@@ -286,6 +287,16 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       throw new McpUserError('Не удалось проверить расписание тура — заявка не создана, попробуйте позже.', 'schedule_lookup_failed');
     }
     if (!keepsSchedule) {
+      // Только по сезону (#2244, #2245): дата вне сезона до оператора не
+      // доходит, и агент слышит окно словами, а не общий отказ.
+      const window = requestWindow({
+        season_start: tour.season_start ?? null, season_end: tour.season_end ?? null,
+        duration_type: tour.duration_type ?? null, multi_day_count: tour.multi_day_count ?? null,
+        duration_hours: tour.duration_hours ?? null,
+      }, today);
+      if (window.kind === 'season' && !dateInWindow(window, date)) {
+        return `${outOfSeasonText(window, date)} Заявка не создана — предложите дату внутри сезона.`;
+      }
       return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent });
     }
     // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.

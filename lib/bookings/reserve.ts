@@ -68,6 +68,8 @@ import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { transaction } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
+import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 /** Причины отказа. Текст решает вызывающий: у чата и формы он разный. */
 export type ReserveErrorCode =
@@ -75,6 +77,7 @@ export type ReserveErrorCode =
   | 'DATE_BLOCKED'   // оператор закрыл дату в календаре
   | 'MAX_EXCEEDED'   // запрошено больше, чем вмещает тур или дата
   | 'NO_SLOTS'       // мест на дату не осталось
+  | 'OUT_OF_SEASON'  // даты нет в календаре, и она вне записанного сезона тура
   | 'PRICE_UNKNOWN'; // размер группы вне ступеней цены: суммы нет, её называет оператор
 
 export class ReserveError extends Error {
@@ -184,9 +187,13 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       multi_day_count: number | null;
       duration_hours: number | null;
       price_unit: string | null;
+      duration_type: string | null;
+      season_start: string | null;
+      season_end: string | null;
     }>(
       `SELECT ot.operator_id, ot.title, ot.base_price, ot.max_participants,
-              ot.multi_day_count, ot.duration_hours, ot.price_unit
+              ot.multi_day_count, ot.duration_hours, ot.price_unit,
+              ot.duration_type, ot.season_start::text, ot.season_end::text
          FROM operator_tours ot
         WHERE ot.id = $1 AND ot.is_active = true AND ot.is_published = true
           AND ot.deleted_at IS NULL
@@ -251,6 +258,17 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
         ORDER BY d.day`,
       [input.tourId, input.date, endDate],
     );
+
+    // Дата выезда без строки календаря — только по сезону тура (#2244,
+    // #2245, lib/tours/request-window). Строка календаря — слово оператора и
+    // сильнее сезона: открытую им дату правило не трогает.
+    const startDay = days.rows[0];
+    if (!startDay || (startDay.available_slots == null && startDay.is_cancelled == null)) {
+      const window = requestWindow(tour, kamchatkaToday());
+      if (window.kind === 'season' && !dateInWindow(window, input.date)) {
+        throw new ReserveError('OUT_OF_SEASON', outOfSeasonText(window, input.date));
+      }
+    }
 
     for (const day of days.rows) {
       if (day.is_cancelled) {

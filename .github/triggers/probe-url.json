@@ -1,20 +1,33 @@
 {
   "timeout": 60,
-  "retries": 0,
-  "allowStale": true,
-  "bytes": 6000,
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Проба 724 показала у Эссо −11…−5° при +3…+7° в Ключах: каталог по имени «Эссо» находит «Вид на Эссо» — смотровую. Высота этой точки (страница /weather/esso) и координаты самого села из OpenStreetMap (Nominatim) — источник до правки.",
-  "run": 725,
+  "retries": 40,
+  "allowStale": false,
+  "bytes": 900,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. После выката #2292/#2294: виджет /safety на нашем прогнозе (place, now, today, checked_at), Эссо — точка села (~500 м, не 1430 у смотровой), памятка: разделы «Сильное землетрясение» и «Цунами».",
+  "run": 727,
   "urls": [
+    "https://vedarai.ru/api/safety/weather",
     "https://vedarai.ru/weather/esso",
-    "https://nominatim.openstreetmap.org/search?q=%D0%AD%D1%81%D1%81%D0%BE%2C%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BA%D1%80%D0%B0%D0%B9&format=json&limit=5&addressdetails=0&extratags=1"
+    "https://vedarai.ru/safety/offline"
   ],
   "grep": [
+    "\"today\"",
+    "\"checked_at\"",
+    "\"stale\"",
     "Высота точки",
-    "place",
-    "village",
-    "osm_id",
-    "lat"
+    "1430",
+    "Цунами",
+    "Сильное землетрясение",
+    "emsd.ru"
   ],
-  "text": true
+  "text": false,
+  "retryDelay": 30,
+  "until": "\"today\"",
+  "around": [
+    "Высота точки",
+    "Цунами"
+  ],
+  "aroundLines": 1,
+  "aroundHits": 2,
+  "aroundBefore": 1
 }

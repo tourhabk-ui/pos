@@ -39,12 +39,17 @@ interface TourDateFieldProps {
   inputId?: string;
   /** Поле отмечено сервером/проверкой как ошибочное — подсветить ручной ввод. */
   invalid?: boolean;
+  /**
+   * Сезон тура (lib/tours/request-window): дата без календаря — только в нём,
+   * поэтому ручной ввод ограничен его границами.
+   */
+  seasonWindow?: { from: string; to: string } | null;
 }
 
 /** Тач-цель 44px у текстовых переключателей режима (DS: минимум 44). */
 const MODE_BTN = 'inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline';
 
-export default function TourDateField({ tourId, tourTitle, value, onChange, inputName = 'booking_date', inputId, invalid }: TourDateFieldProps) {
+export default function TourDateField({ tourId, tourTitle, value, onChange, inputName = 'booking_date', inputId, invalid, seasonWindow = null }: TourDateFieldProps) {
   /** none — календарь ещё может показать даты; empty — их нет; manual — так решил турист. */
   const [mode, setMode] = useState<'calendar' | 'empty' | 'manual'>('calendar');
 
@@ -64,7 +69,8 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
       name={inputName}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      min={minDate()}
+      min={seasonWindow && seasonWindow.from > minDate() ? seasonWindow.from : minDate()}
+      max={seasonWindow?.to}
       className="ds-input w-full"
       aria-invalid={invalid || undefined}
       style={invalid ? { borderColor: 'var(--danger)' } : undefined}

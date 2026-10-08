@@ -51,6 +51,15 @@ const PARTS: ReadonlyArray<{ label: DayPartLabel; from: number; to: number }> = 
   { label: 'вечер', from: 18, to: 23 },
 ];
 
+/**
+ * Часть дня, в которую попадает местный час (0–23): та же таблица, по которой
+ * собираются части. Виджет погоды на /safety показывает «сейчас» именно так —
+ * прогнозом текущей части, а не выдуманным замером.
+ */
+export function dayPartForHour(hour: number): DayPartLabel {
+  return (PARTS.find((p) => hour >= p.from && hour <= p.to) ?? PARTS[0]).label;
+}
+
 /** Ниже этого за часть — «без осадков»: десятая миллиметра — шум модели, а не морось. */
 export const PRECIP_DRY_MM = 0.1;
 export const SNOW_MAX_TEMP = 1;
