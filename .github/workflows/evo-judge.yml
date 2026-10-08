@@ -169,6 +169,11 @@ jobs:
           # Opus 5, Fable или Sonnet. Экономия GLM (вчетверо, см. выше)
           # этим отдаётся обратно — осознанно. Вернуть GLM: z-ai.
           EVO_DECISION_FLAGSHIP_VENDOR: anthropic
+          # 08.10: у ключа Anthropic — ежемесячные API-кредиты подписки
+          # (решение владельца). Прямой Anthropic идёт раньше OpenRouter, пока
+          # кредит есть; кончился или упёрлись в потолок прогона — решатель
+          # сам уступает OpenRouter (lib/ai/providers.ts, preferAnthropicDirectFirst).
+          EVO_DECISION_ANTHROPIC_FIRST: '1'
           EVO_JUDGE_DAYS: ${{ env.DAYS }}
           # Расход флагмана — в книги платформы, а не только в лог прогона.
           # БД Timeweb с раннера закрыта файрволом, поэтому прямой INSERT в
