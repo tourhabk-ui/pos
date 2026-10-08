@@ -8,7 +8,9 @@
  *  1. находит метеостанцию GHCN-Daily по имени из маркера (печатает
  *     кандидатов с расстоянием до точки) — номер станции не угадывается;
  *  2. берёт фактические суточные осадки станции за окно маркера — из
- *     GHCN-Daily или GSOD (`obsSource`), у GSOD только полные сутки по флагу;
+ *     GHCN-Daily или GSOD (`obsSource`), у GSOD только полные сутки по флагу,
+ *     или из сводок SYNOP с Ogimet (`ogimet`): у станции 32583 в NOAA свежих
+ *     осадков нет (прогоны 1–2), а сводки есть (проба 721);
  *  3. по каждой модели берёт прогноз на сутки вперёд (Previous Runs API,
  *     `precipitation_previous_day1`) и для справки — самый свежий прогон
  *     (`precipitation`); считает «сухо / осадки», ложные «ливни», смещение;
@@ -31,6 +33,7 @@ import {
   KAMCHATKA_UTC_OFFSET_H, MIN_COMPARED_DAYS, type SkillScore,
 } from '@/lib/weather/model-skill';
 import { distanceKm } from '@/lib/geo/kamchatka';
+import { parseSynopPrecip, synopDailyTotals, modelOffsetForStationDay } from '@/lib/weather/synop';
 
 interface Marker {
   run: number;
@@ -48,7 +51,10 @@ interface Marker {
    * одного дня осадков за 120 дней — у российских станций там часто только
    * температура.
    */
-  obsSource?: 'ghcnd' | 'gsod';
+  obsSource?: 'ghcnd' | 'gsod' | 'ogimet';
+  /** Индекс ВМО станции для Ogimet; сутки станции кончаются в `ogimetDayEndUtc` (21 у 32583). */
+  ogimetStation?: string;
+  ogimetDayEndUtc?: number;
   /** Станция GSOD (USAF+WBAN); нет — WMO найденной станции + «099999». */
   gsodStation?: string | null;
   /**
@@ -63,6 +69,9 @@ interface Marker {
 
 const MARKER_PATH = '.github/triggers/weather-model-skill.json';
 const STATIONS_TXT = 'https://www.ncei.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt';
+const OGIMET_SYNOP = 'https://www.ogimet.com/cgi-bin/getsynop';
+/** Ogimet просит не нагружать: окно частями по 10 суток, пауза между ними. */
+const OGIMET_CHUNK_DAYS = 10;
 const NCEI = 'https://www.ncei.noaa.gov/access/services/data/v1';
 const PREV_RUNS = 'https://previous-runs-api.open-meteo.com/v1/forecast';
 const FORECAST = 'https://api.open-meteo.com/v1/forecast';
@@ -169,6 +178,40 @@ async function fetchObs(
   return { obs, note };
 }
 
+/** yyyymmddHHMM для Ogimet. */
+function ogimetStamp(t: number): string {
+  return new Date(t).toISOString().slice(0, 16).replace(/[-:T]/g, '');
+}
+
+/**
+ * Факт из сводок SYNOP: окно частями, разбор — lib/weather/synop. Ответ Ogimet
+ * при перегрузке — текст с «Status» вместо сводок; такая часть называется в
+ * отчёте, а не считается пустой (§4.0).
+ */
+async function fetchObsOgimet(m: Marker, startMs: number, endMs: number): Promise<{ obs: Map<string, number>; note: string[] }> {
+  const station = m.ogimetStation ?? '32583';
+  const dayEnd = m.ogimetDayEndUtc ?? 21;
+  const note: string[] = [`источник ogimet, станция ВМО ${station}, сутки станции кончаются в ${dayEnd}:00 UTC`];
+  let text = '';
+  const failedChunks: string[] = [];
+  for (let t = startMs; t < endMs; t += OGIMET_CHUNK_DAYS * 86_400_000) {
+    const to = Math.min(endMs, t + OGIMET_CHUNK_DAYS * 86_400_000);
+    const r = await get(`${OGIMET_SYNOP}?block=${station}&begin=${ogimetStamp(t)}&end=${ogimetStamp(to)}`, 90_000);
+    const ok = r.status === 200 && r.text.includes(`${station},`);
+    if (!ok) failedChunks.push(`${isoDay(t)}…${isoDay(to)}: HTTP ${r.status} ${r.text.slice(0, 120).replace(/\s+/g, ' ')}`);
+    else text += `${r.text}\n`;
+    await sleep(3000);
+  }
+  if (failedChunks.length) note.push(`части окна без сводок: ${failedChunks.join('; ')}`);
+  const parsed = parseSynopPrecip(text, station);
+  const obs = synopDailyTotals(parsed.periods, dayEnd);
+  const hours = new Map<number, number>();
+  for (const p of parsed.periods) hours.set(p.hours, (hours.get(p.hours) ?? 0) + 1);
+  note.push(`сводок ${parsed.reports}, NIL ${parsed.nil}, неразобранных строк ${parsed.unparsed}, «осадков не было» без периода ${parsed.zeroWithoutPeriod}`);
+  note.push(`периодов с осадками ${parsed.periods.length} (${[...hours.entries()].map(([h, n]) => `${h} ч × ${n}`).join(', ') || 'нет'}); полных суток ${obs.size}`);
+  return { obs, note };
+}
+
 interface ModelSeries {
   model: string;
   error?: string;
@@ -228,20 +271,25 @@ async function main(): Promise<number> {
   out(`Точка: ${m.point.name} (${m.point.lat}, ${m.point.lng}); окно ${m.days} дн.; порог «осадки» ${mainWet} мм/сутки.`);
   out();
 
-  // 1. Станция
-  const stations = await findStations(m);
-  out('### Станции GHCN-Daily по имени');
-  if (!stations.length) { out(`::error:: станций по «${m.stationSearch.join(', ')}» не найдено`); return 1; }
-  for (const s of stations.slice(0, 8)) out(`- ${s.id} · ${s.name} · ${s.lat}, ${s.lng} · ${s.elev ?? '?'} м · WMO ${s.wmo || '—'} · ${s.km} км от точки`);
-  const stationId = m.station ?? stations[0].id;
-  const station = stations.find((x) => x.id === stationId) ?? null;
-  out(`Сравниваем со станцией **${stationId}**.`);
-  out();
-
-  // 2. Факт
+  // 1–2. Станция и факт. У Ogimet станция задана индексом ВМО — список GHCN
+  // не нужен, и его отказ не должен ронять замер.
   const end = Date.now();
   const start = end - m.days * 86_400_000;
-  const { obs, note } = await fetchObs(m, station, stationId, isoDay(start), isoDay(end));
+  let fact: { obs: Map<string, number>; note: string[] };
+  if (m.obsSource === 'ogimet') {
+    fact = await fetchObsOgimet(m, start, end);
+  } else {
+    const stations = await findStations(m);
+    out('### Станции GHCN-Daily по имени');
+    if (!stations.length) { out(`::error:: станций по «${m.stationSearch.join(', ')}» не найдено`); return 1; }
+    for (const s of stations.slice(0, 8)) out(`- ${s.id} · ${s.name} · ${s.lat}, ${s.lng} · ${s.elev ?? '?'} м · WMO ${s.wmo || '—'} · ${s.km} км от точки`);
+    const stationId = m.station ?? stations[0].id;
+    const station = stations.find((x) => x.id === stationId) ?? null;
+    out(`Сравниваем со станцией **${stationId}**.`);
+    out();
+    fact = await fetchObs(m, station, stationId, isoDay(start), isoDay(end));
+  }
+  const { obs, note } = fact;
   const obsDays = [...obs.keys()].sort();
   out('### Факт');
   for (const n of note) out(`- ${n}`);
@@ -266,17 +314,23 @@ async function main(): Promise<number> {
   }
   const okSeries = series.filter((s) => !s.error);
 
-  // 4. Граница суток станции — по совпадению моделей с фактом.
-  const offsets = m.dayOffsets ?? [0, 6, KAMCHATKA_UTC_OFFSET_H, 18];
+  // 4. Граница суток станции — по совпадению моделей с фактом. У SYNOP окно
+  // известно точно (сдвиг modelOffsetForStationDay); второй сдвиг маркера —
+  // проверка разбора: выиграй он, окно станции понято неверно.
+  const offsets = m.dayOffsets ?? (m.obsSource === 'ogimet'
+    ? [modelOffsetForStationDay(m.ogimetDayEndUtc ?? 21)]
+    : [0, 6, KAMCHATKA_UTC_OFFSET_H, 18]);
   const { best, means } = pickDayOffset(new Map(offsets.map((o) => [
     o, okSeries.map((s) => scoreForecast(obs, sums(s, 'day1', o), { wetMm: mainWet })),
   ])));
-  const offset = best ?? KAMCHATKA_UTC_OFFSET_H;
+  // Ничья: у SYNOP — точное окно станции, у суточных сводок NOAA — местные сутки.
+  const fallback = m.obsSource === 'ogimet' ? modelOffsetForStationDay(m.ogimetDayEndUtc ?? 21) : KAMCHATKA_UTC_OFFSET_H;
+  const offset = best ?? fallback;
   out('### Граница суток станции');
   out(`Средняя точность моделей по сдвигу суток: ${[...means.entries()].map(([o, v]) => `+${o} ч: ${fmt(v, 3)}`).join('; ')}`);
   out(best === null
-    ? 'Не решено — считаем по местным суткам (+12 ч, о них говорит пост).'
-    : `Берём +${best} ч${best === KAMCHATKA_UTC_OFFSET_H ? ' (местные сутки)' : best === 0 ? ' (сутки UTC)' : ''}.`);
+    ? `Не решено — считаем по сдвигу +${fallback} ч${m.obsSource === 'ogimet' ? ' (окно станции по сводкам)' : ' (местные сутки, о них говорит пост)'}.`
+    : `Берём +${best} ч${best === KAMCHATKA_UTC_OFFSET_H ? ' (местные сутки)' : best === 0 ? ' (сутки UTC)' : m.obsSource === 'ogimet' && best === fallback ? ' (окно станции по сводкам)' : ''}.`);
   out();
 
   // 5. Рейтинг по каждому порогу
