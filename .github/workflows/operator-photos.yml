@@ -1,0 +1,70 @@
+name: Фото оператора — скачать с раннера в ветку
+
+# Из контейнера разработки чужие сайты закрыты прокси, а раннер GitHub ходит
+# свободно (см. probe-url.yml). Фото туров оператора — бинарные файлы, через
+# лог их не передать, поэтому раннер кладёт ОРИГИНАЛЫ в отдельную ветку
+# photos/<slug>; сжатие (sharp, как у снимков мест) и миграция делаются в
+# сессии, где видно результат. Workflow ничего не пишет ни в main, ни в БД.
+#
+# Запуск: push в main, меняющий .github/triggers/operator-photos.json:
+#   { "slug": "volcanoesland", "note": "...", "items": [ { "file": "01-...jpg", "url": "https://..." } ] }
+# Файлы ложатся в public/images/<slug>/raw/<file>. Отсутствующие (не 200)
+# перечисляются в логе, job краснеет, если не скачалось НИ ОДНОГО (§4.0:
+# ноль результатов при ненулевом входе — отказ).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/operator-photos.json'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download originals
+        id: dl
+        run: |
+          set -u
+          SLUG=$(python3 -c "import json; print(json.load(open('.github/triggers/operator-photos.json'))['slug'])")
+          N=$(python3 -c "import json; print(len(json.load(open('.github/triggers/operator-photos.json'))['items']))")
+          DIR="public/images/$SLUG/raw"
+          mkdir -p "$DIR"
+          ok=0; bad=0
+          for i in $(seq 0 $((N-1))); do
+            FILE=$(python3 -c "import json; print(json.load(open('.github/triggers/operator-photos.json'))['items'][$i]['file'])")
+            URL=$(python3 -c "import json; print(json.load(open('.github/triggers/operator-photos.json'))['items'][$i]['url'])")
+            CODE=$(curl -sSL --max-time 60 --retry 2 --retry-delay 5 -A "Mozilla/5.0 (Vedar photo fetch)" -o "$DIR/$FILE" -w "%{http_code}" "$URL" || echo 000)
+            SIZE=$(wc -c < "$DIR/$FILE" 2>/dev/null || echo 0)
+            TYPE=$(file -b --mime-type "$DIR/$FILE" 2>/dev/null || echo unknown)
+            if [ "$CODE" = 200 ] && [ "$SIZE" -gt 2000 ] && case "$TYPE" in image/*) true;; *) false;; esac; then
+              ok=$((ok+1)); echo "OK   $FILE  $SIZE bytes  $TYPE  <- $URL"
+            else
+              bad=$((bad+1)); rm -f "$DIR/$FILE"; echo "FAIL $FILE  HTTP $CODE  $SIZE bytes  $TYPE  <- $URL"
+            fi
+            sleep 1
+          done
+          echo "итого: скачано $ok, не скачано $bad из $N"
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          if [ "$ok" = 0 ]; then echo "ФОТО НЕ СКАЧАНО: ни одного файла из $N"; exit 1; fi
+
+      - name: Commit originals to a photos branch
+        run: |
+          set -eu
+          SLUG="${{ steps.dl.outputs.slug }}"
+          BR="photos/$SLUG-$(date -u +%Y%m%d-%H%M)"
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$BR"
+          git add "public/images/$SLUG/raw"
+          git commit -m "Фото оператора $SLUG: оригиналы с раннера (${{ steps.dl.outputs.ok }} файлов), без сжатия"
+          git push origin "$BR"
+          echo "ветка: $BR"
