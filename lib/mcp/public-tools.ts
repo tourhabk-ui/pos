@@ -213,6 +213,9 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     when: { lead: 'When the trip starts: a Russian month name or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today.', example: '2027-07-10' },
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
+    adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
+    children: { lead: 'Children ages, comma-separated; ages decide which activities are allowed.', example: '6, 10' },
+    budget_tier: { lead: 'Budget level: economy, comfort or premium; default comfort.', example: 'economy' },
   },
   create_lead: {
     name: { lead: "Traveller's name." },

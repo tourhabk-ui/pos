@@ -23,7 +23,7 @@ const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf-8');
 const realTour: NonNullable<DayPlan['realTour']> = {
   tourId: '27', operatorName: 'Камчатская рыбалка', operatorSlug: 'ryba', operatorRating: 0,
   tourRating: null, reviewCount: 0, verified: true, maxParticipants: 8,
-  weatherDependent: true, durationHours: 10, lodgingIncluded: false,
+  weatherDependent: true, durationHours: 10, priceUnit: 'per_person', lodgingIncluded: false,
 };
 
 const day = (over: Partial<DayPlan>): DayPlan => ({

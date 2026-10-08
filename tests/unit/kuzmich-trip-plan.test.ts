@@ -441,7 +441,9 @@ describe('план говорит то, что знает движок', () => {
   it('инструмент оставляет safety-предупреждения уровня info и называет допущения', () => {
     const src = readFileSync('lib/kuzmich/trip-plan-tool.ts', 'utf-8');
     expect(src).toMatch(/w\.severity !== 'info' \|\| w\.type === 'safety'/);
-    expect(src).toMatch(/\[startNote\(start, plannedFor\), daysNote, interestsNote, PLAN_ASSUMPTIONS\]/);
+    // С #2223 строка допущений считается из названного состава и бюджета
+    // (planAssumptions) и стоит последней — после поправок к словам туриста.
+    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, kids\.note, budget\.note, assumptions,/);
     expect(parseChatInterestsDetailed('что-нибудь интересное')).toEqual({ interests: ['volcano', 'bears', 'thermal'], defaulted: true });
     expect(parseChatInterestsDetailed('рыбалка').defaulted).toBe(false);
   });
