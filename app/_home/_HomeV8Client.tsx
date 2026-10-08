@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -650,6 +650,16 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             </a>
           </nav>
 
+          {/* Погода по местам (08.10, решение владельца): прогноз на неделю и
+              предупреждения Росгидромета — то, что смотрят перед выходом.
+              Строкой под сеткой, а не пятой плиткой: сетка 2×2 держит четыре
+              (владелец 25.09: «место жалко на главной»). */}
+          <Link className="wx-go" href="/weather" aria-label="Погода по местам маршрутов: прогноз на 7 дней и предупреждения Росгидромета">
+            <CloudSun size={16} strokeWidth={1.8} aria-hidden />
+            <span>Погода по местам на 7 дней</span>
+            <span aria-hidden>→</span>
+          </Link>
+
         </section>
 
         {/* ИССЛЕДОВАТЬ — направление «сам» (владелец 25.09: «это же 2 разных
@@ -1154,6 +1164,7 @@ const CSS = `
 .v7 .plate.place .row{padding-top:5px}
 .v7 .plate.place .cap{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .v7 .stools{margin:0}
+.v7 .wx-go{display:flex;align-items:center;gap:8px;min-height:44px;margin-top:8px;font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
 /* Регистрация в МЧС — тёплая подложка (--warning): просьба, не тревога (--danger только SOS). */
 .v7 .mchsline{background:color-mix(in srgb,var(--warning) 10%,var(--bg-card));border-color:color-mix(in srgb,var(--warning) 30%,transparent)}
 .v7 .mchsline .qt-ic{color:color-mix(in srgb,var(--warning) 80%,var(--text-primary));background:color-mix(in srgb,var(--warning) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warning) 28%,transparent)}

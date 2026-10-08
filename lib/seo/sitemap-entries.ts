@@ -17,6 +17,7 @@ import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plan
 import { NOT_MERGED } from '@/lib/places/aliases';
 import { FISH_SPECIES } from '@/lib/fish-species';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
+import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -82,6 +83,12 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // страница SOS открывается кнопкой в шапке — вторая дорога к тому же
     // действию расходилась бы с ней поведением (§2, #887).
     { url: `${BASE}/svodka`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
+    // Погода (08.10): страница края и страницы мест — из одного списка
+    // lib/weather/places, sitemap не разъезжается с роутом.
+    { url: `${BASE}/weather`,              lastModified: new Date(),  changeFrequency: 'hourly',  priority: 0.85 },
+    ...WEATHER_PLACES.filter((p) => p.slug !== DEFAULT_WEATHER_SLUG).map((p) => ({
+      url: `${BASE}${weatherPlaceHref(p)}`, lastModified: new Date(), changeFrequency: 'hourly' as const, priority: 0.75,
+    })),
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают
