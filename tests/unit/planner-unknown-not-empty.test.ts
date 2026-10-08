@@ -180,7 +180,10 @@ describe('занятость тура: отказ — не «мест нет» (
     expect(ENGINE).toMatch(/if \(slots && slots\.length > 0\)/);
     // Каждый вызов в движке обязан поймать отказ сам — иначе он роняет весь план.
     const calls = ENGINE.split('fetchAvailabilityForTour(').length - 1;
-    const guarded = (ENGINE.match(/fetchAvailabilityForTour\([^;]*?\)\s*\.catch\(\(\) => null\)/g) ?? []).length;
+    // Отказ ловится либо в null, либо через availabilityUnread — тот же null,
+    // но с логом (#2241: «не смогли прочитать» стало отдельным исходом дня).
+    const guarded = (ENGINE.match(/fetchAvailabilityForTour\([^;]*?\)\s*\.catch\((?:\(\) => null|availabilityUnread\([^()]*\))\)/g) ?? []).length;
+    expect(ENGINE).toMatch(/function availabilityUnread[\s\S]*?console\.error\([\s\S]*?return null;/);
     expect(guarded).toBe(calls);
   });
 });
