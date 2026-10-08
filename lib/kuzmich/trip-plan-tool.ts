@@ -707,9 +707,19 @@ export function planIdFromAnswer(answer: string): string | null {
 }
 
 const EDIT_ACTIONS: Record<string, PlanEdit['kind']> = {
-  add_day: 'add_day', remove_day: 'remove_day', move_day: 'move_day', set_lodging: 'set_lodging',
+  add_day: 'add_day', remove_day: 'remove_day', move_day: 'move_day', set_lodging: 'set_lodging', flight_delay: 'flight_delay',
   добавить: 'add_day', убрать: 'remove_day', удалить: 'remove_day', переставить: 'move_day', жильё: 'set_lodging', жилье: 'set_lodging',
+  рейс: 'flight_delay', задержка: 'flight_delay',
 };
+
+/** «да» / «нет» для keep_return; не сказано — обратный билет прежний. */
+function readKeepReturn(raw: string | undefined): boolean | null {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (!v) return true;
+  if (/^(да|yes|true|1|прежн|оставить|не меня)/.test(v)) return true;
+  if (/^(нет|no|false|0|перенес|сдвин|меня)/.test(v)) return false;
+  return null;
+}
 
 /** Номер дня: целое ≥ 1. */
 function readDayNum(raw: string | undefined): number | null {
@@ -725,9 +735,17 @@ function readDayNum(raw: string | undefined): number | null {
  */
 export function readPlanEdit(args: {
   action?: string; day?: string; to_day?: string; interest?: string; lodging?: string;
+  delay_days?: string; keep_return?: string;
 }): { ok: true; edit: PlanEdit } | { ok: false; error: string } {
   const kind = EDIT_ACTIONS[(args.action ?? '').trim().toLowerCase()];
-  if (!kind) return { ok: false, error: 'Не понял действие. Можно: add_day, remove_day, move_day, set_lodging.' };
+  if (!kind) return { ok: false, error: 'Не понял действие. Можно: add_day, remove_day, move_day, set_lodging, flight_delay.' };
+  if (kind === 'flight_delay') {
+    const days = readDayNum(args.delay_days);
+    if (!days) return { ok: false, error: 'Для flight_delay нужно, на сколько дней задержан рейс (delay_days, 1–7).' };
+    const keepReturn = readKeepReturn(args.keep_return);
+    if (keepReturn === null) return { ok: false, error: `keep_return «${args.keep_return}» не разобрал: «да» — обратный билет прежний, «нет» — переносится.` };
+    return { ok: true, edit: { kind, days, keepReturn } };
+  }
   if (kind === 'remove_day') {
     const day = readDayNum(args.day);
     return day ? { ok: true, edit: { kind, day } } : { ok: false, error: 'Для remove_day нужен номер дня (day).' };
@@ -751,6 +769,7 @@ export function readPlanEdit(args: {
 /** Обработчик edit_trip_plan: прочитать черновик, поправить, записать, показать. */
 export async function editTripPlanForKuzmich(args: {
   plan_id?: string; action?: string; day?: string; to_day?: string; interest?: string; lodging?: string;
+  delay_days?: string; keep_return?: string;
 }): Promise<string> {
   const id = (args.plan_id ?? '').trim();
   if (!isDraftId(id)) {
@@ -787,5 +806,21 @@ export async function editTripPlanForKuzmich(args: {
       priceLines: formatPlanPrice(planPrice(plan), plan.params.budgetTier, plan.days.length > 0),
     },
   );
-  return `${result.note}\n\n${text}\n\n${planIdLine(draft.id, saved.revision)}`;
+  return [result.note, toursTouchedLines(result.toursTouched ?? []), text, planIdLine(draft.id, saved.revision)]
+    .filter(Boolean).join('\n\n');
+}
+
+/**
+ * Туры, которых коснулась правка (#2231). План брони не меняет и оператору
+ * сам не пишет: брони туриста по плану не видно — тот анонимен. Поэтому ответ
+ * прямо говорит, кому и что сказать.
+ */
+export function toursTouchedLines(tours: ReadonlyArray<{ tourId: string; title: string; how: 'dropped' | 'shifted' }>): string {
+  if (tours.length === 0) return '';
+  return [
+    'Туры операторов, которых это касается:',
+    ...tours.map((t) => `- «${t.title}» (ID${t.tourId}) — ${t.how === 'dropped' ? 'выпал из плана' : 'попал на другие даты'}`),
+    'Если тур уже забронирован, бронь сама не меняется: сообщи оператору о задержке — по контактам на странице брони или кнопкой «Написать оператору» на карточке тура (контакты — в get_tour_details). '
+      + (tours.some((t) => t.how === 'shifted') ? 'Места на новые даты проверь через get_tour_availability, прежде чем обещать.' : 'Не обещай, что оператор вернёт деньги: это решают его условия отмены.'),
+  ].join('\n');
 }

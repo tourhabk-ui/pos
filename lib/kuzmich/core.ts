@@ -2151,6 +2151,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       return await editTripPlanForKuzmich({
         plan_id: args.plan_id, action: args.action, day: args.day, to_day: args.to_day,
         interest: args.interest, lodging: args.lodging,
+        delay_days: args.delay_days, keep_return: args.keep_return,
       });
     }
     if (name === 'get_tour_availability') {
