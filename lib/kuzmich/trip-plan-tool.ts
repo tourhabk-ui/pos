@@ -14,7 +14,7 @@
 
 import {
   recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
-  type BudgetTier, type PriceBreakdown,
+  type BudgetTier, type PriceBreakdown, type ChildBlocked,
 } from '@/lib/planner';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
@@ -81,6 +81,20 @@ export function inSeasonInterests(month: number, catalogueOpen: string[] | null 
 }
 
 /**
+ * Что убрано из плана по возрасту детей — словами, с альтернативой (08.10).
+ * Пусто — ничего не убирали. Строка кончается пробелом: за ней идёт причина
+ * по сезону, если есть.
+ */
+export function childAgeLine(blocked: readonly ChildBlocked[]): string {
+  if (blocked.length === 0) return '';
+  const items = blocked.map((b) => {
+    const alt = b.alternative ? `; альтернатива: ${b.alternative}` : '';
+    return `${ACTIVITY_NAMES[b.interest] ?? b.interest} — с ${b.minAge} лет${alt}`;
+  });
+  return `По возрасту младшего (${blocked[0].youngest}) в план не вошло: ${items.join('; ')}. `;
+}
+
+/**
  * Текст отказа: причина, дата и то, что В СЕЗОНЕ.
  *
  * ── Что было (замер с прода 19.09) ───────────────────────────────────────
@@ -101,16 +115,22 @@ export function inSeasonInterests(month: number, catalogueOpen: string[] | null 
 export function buildRefusal(
   month: number, asked: string[], site: string,
   catalogueOpen: string[] | null = null,
+  /** Убранное по возрасту младшего ребёнка (решение владельца 08.10). */
+  childBlocked: readonly ChildBlocked[] = [],
 ): string {
   const open = inSeasonInterests(month, catalogueOpen);
-  const closed = asked.filter((k) => !open.includes(k));
+  const byAge = new Set(childBlocked.map((b) => b.interest));
+  const closed = asked.filter((k) => !open.includes(k) && !byAge.has(k));
 
   const monthWord = MONTH_NAME[month - 1] ?? 'этом месяце';
   const openWords = open.map((k) => ACTIVITY_NAMES[k]).filter(Boolean).join(', ');
 
+  const ageLine = childAgeLine(childBlocked);
   const why = closed.length > 0
-    ? `В ${monthWord} это уже не сезон: ${closed.map((k) => ACTIVITY_NAMES[k] ?? k).join(', ')}.`
-    : `В ${monthWord} по этим интересам план не сложился.`;
+    ? `${ageLine}В ${monthWord} это уже не сезон: ${closed.map((k) => ACTIVITY_NAMES[k] ?? k).join(', ')}.`
+    : ageLine
+      ? ageLine.trimEnd()
+      : `В ${monthWord} по этим интересам план не сложился.`;
 
   return `${why} Что идёт в ${monthWord}: ${openWords || 'по нашим данным — ничего, и это похоже на пробел в данных, а не на правду о Камчатке'}. `
     + `Живой планировщик, там можно задать свои даты: ${site}/planner`;
@@ -609,7 +629,7 @@ export async function makeTripPlanForKuzmich(
     ],
     matchPreset(daysNum, interests, PLAN_PRESETS, month),
     {
-      refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor,
+      refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
       priceLines: formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0),
     },

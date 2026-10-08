@@ -238,6 +238,18 @@ export interface TripRecommendation {
    * ответ движка прежний.
    */
   preferences?: TripPreferences;
+  /**
+   * Занятия, убранные из плана по возрасту младшего ребёнка (решение
+   * владельца 08.10: «убери»). Пусто или нет поля — ничего не убирали.
+   */
+  childBlocked?: ChildBlocked[];
+}
+
+export interface ChildBlocked {
+  interest: string;
+  minAge: number;
+  youngest: number;
+  alternative: string | null;
 }
 
 // ─── Knowledge base ──────────────────────────────────────────────────────────
@@ -629,6 +641,37 @@ function youngestChild(profile: TripProfile): number | null {
   return Math.min(...profile.children);
 }
 
+/**
+ * Какие интересы идут в план семьи, а какие убираются по возрасту (решение
+ * владельца 08.10: «убери»).
+ *
+ * До этого день 12+ (восхождение на вулкан) ставился в план семьи с
+ * шестилетним ребёнком, а возраст звучал только предупреждением «Детям < 12:
+ * альтернатива» на самом дне. План по построению обещал день, на который
+ * половину группы не пустят. Теперь такой интерес в план не идёт вовсе,
+ * причина и альтернатива называются (`childBlocked`), а освободившиеся дни
+ * планер заполняет так же, как любые другие.
+ *
+ * Порог — `minChildAge` из `ACTIVITY_CONSTRAINTS`, своего здесь нет. Детей
+ * нет — ничего не убирается.
+ */
+export function splitByChildAge(
+  interests: readonly string[], youngest: number | null,
+): { allowed: string[]; blocked: ChildBlocked[] } {
+  if (youngest === null) return { allowed: [...interests], blocked: [] };
+  const allowed: string[] = [];
+  const blocked: ChildBlocked[] = [];
+  for (const interest of interests) {
+    const c = ACTIVITY_CONSTRAINTS[interest];
+    if (c && youngest < c.minChildAge) {
+      blocked.push({ interest, minAge: c.minChildAge, youngest, alternative: c.childAlternative ?? null });
+    } else {
+      allowed.push(interest);
+    }
+  }
+  return { allowed, blocked };
+}
+
 function groupSize(profile: TripProfile): number {
   return profile.adults + profile.children.length;
 }
@@ -762,7 +805,7 @@ function collectWarnings(
         const alt = c.childAlternative ? ` Альтернатива: ${c.childAlternative}` : '';
         warnings.push({
           type: 'children', severity: 'important',
-          message: `${activityLabel(interest)}: минимальный возраст ${c.minChildAge} лет, ребёнку ${youngest}.${alt}`,
+          message: `${activityLabel(interest)}: в план не вошло — минимальный возраст ${c.minChildAge} лет, младшему ${youngest}.${alt}`,
         });
       }
     }
@@ -1340,11 +1383,10 @@ async function generateDayPlans(
       const title = realTour?.title ?? route?.title
         ?? `${ACTIVITY_NAMES[interest] ?? interest} — ${ZONE_NAMES[block.zone]}`;
 
+      // Занятие не по возрасту сюда не доходит: его убирает splitByChildAge
+      // до раскладки (08.10). childOk остаётся признаком дня, а не фильтром.
       const childOk = youngest === null || youngest >= c.minChildAge;
       const dayWarnings: string[] = [];
-      if (!childOk && c.childAlternative) {
-        dayWarnings.push(`Детям < ${c.minChildAge}: ${c.childAlternative}`);
-      }
       if (c.safetyNotes) dayWarnings.push(...c.safetyNotes);
       const tourOver = realTour && tourLoads ? firstOverLimit(tourLoads.get(realTour.tourId) ?? [], group) : null;
       if (tourOver) {
@@ -1931,7 +1973,13 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // сезон: иначе они разошлись бы между собой (§10.09).
   const catalogueOpen = await fetchActivitiesBookableInMonth(getMonth(profile), cache);
 
-  const zones = await scoreZones(profile, cache, catalogueOpen);
+  // Занятия не по возрасту младшего ребёнка в план не идут (08.10): зоны и
+  // дни считаются по оставшимся интересам, предупреждения — по всем, чтобы
+  // убранное было названо, а не пропало молча.
+  const { allowed: plannable, blocked: childBlocked } = splitByChildAge(profile.interests, youngestChild(profile));
+  const planProfile: TripProfile = childBlocked.length > 0 ? { ...profile, interests: plannable } : profile;
+
+  const zones = await scoreZones(planProfile, cache, catalogueOpen);
   // Дни собираются ДО предупреждений (27.09): предупреждения о разрешениях и
   // удалённых зонах должны считаться по зонам ГОТОВОГО плана, а не по
   // зонам-кандидатам. До этой правки человек с планом по Авачинской и
@@ -1939,7 +1987,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
   // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
   // «Раздолье»).
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
 
@@ -2204,6 +2252,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     zones, days, warnings, priceBreakdown, itinerary,
     catalogueOpen: catalogueOpen ? [...catalogueOpen] : null,
     ...(preferences ? { preferences } : {}),
+    ...(childBlocked.length > 0 ? { childBlocked } : {}),
   };
 }
 
