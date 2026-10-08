@@ -289,7 +289,7 @@ describe('4. разметка', () => {
   });
 
   it('без хардкода цвета, эмодзи, белого на сплошном и font-black', () => {
-    for (const f of ['components/weather/WeatherView.tsx', 'app/weather/page.tsx', 'app/weather/[place]/page.tsx']) {
+    for (const f of ['components/weather/WeatherView.tsx', 'app/weather/(list)/page.tsx', 'app/weather/[place]/page.tsx']) {
       const src = read(f);
       expect(src, f).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
       expect(src, f).not.toMatch(/\p{Extended_Pictographic}/u);
@@ -298,11 +298,18 @@ describe('4. разметка', () => {
   });
 
   it('страницы рендерятся на запрос; чужое место — 404, город — на /weather', () => {
-    expect(read('app/weather/page.tsx')).toMatch(/export const dynamic = 'force-dynamic'/);
+    expect(read('app/weather/(list)/page.tsx')).toMatch(/export const dynamic = 'force-dynamic'/);
     const place = read('app/weather/[place]/page.tsx');
     expect(place).toMatch(/export const dynamic = 'force-dynamic'/);
     expect(place).toMatch(/if \(slug === DEFAULT_WEATHER_SLUG\) permanentRedirect\('\/weather'\)/);
     expect(place).toMatch(/if \(!data\) notFound\(\)/);
+  });
+
+  it('скелет — только у страницы края: над местами его нет, иначе 404 и 308 ушли бы как 200', () => {
+    const { existsSync } = require('node:fs') as typeof import('node:fs');
+    expect(existsSync(join(process.cwd(), 'app/weather/(list)/loading.tsx'))).toBe(true);
+    expect(existsSync(join(process.cwd(), 'app/weather/loading.tsx'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'app/weather/[place]/loading.tsx'))).toBe(false);
   });
 });
 
