@@ -278,6 +278,18 @@ function positiveEnvNumber(name: string, fallback: number): number {
   return n;
 }
 
+/**
+ * Ставить ли прямой Anthropic в решателе РАНЬШЕ OpenRouter.
+ *
+ * Включается переменной EVO_DECISION_ANTHROPIC_FIRST (1/true) в шагах раннера,
+ * где у ключа Anthropic есть ежемесячные API-кредиты подписки (08.10). Любое
+ * другое значение — прежний порядок: OpenRouter первым.
+ */
+export function preferAnthropicDirectFirst(): boolean {
+  const raw = (process.env.EVO_DECISION_ANTHROPIC_FIRST ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true';
+}
+
 /** Пускать ли ещё один вызов прямого Anthropic — и если нет, то почему. */
 export function anthropicDirectGate(): { allowed: boolean; reason: string } {
   const maxUsd = positiveEnvNumber('ANTHROPIC_DIRECT_MAX_USD', ANTHROPIC_DIRECT_DEFAULT_MAX_USD);
@@ -2445,156 +2457,179 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     why.push(`timeweb(${bestName}): ${r.httpStatus !== null ? `HTTP ${r.httpStatus} ` : ''}${r.detail || 'ответа нет'}`);
   }
 
-  // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
-  //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы
-  //    падаем на DeepSeek/Qwen (прежнее поведение). Активируется автоматически,
-  //    когда владелец задаёт ключ+релей на Timeweb.
-  //
-  // «Нет ключа» и «ключ есть, ответа нет» — РАЗНЫЕ беды, и лечатся они разным:
-  // первая заводится в секретах, вторая — деньгами, гео или моделью. Одна
-  // строка на оба случая держала разбор в неведении: отчёт 19.08 сорок шесть
-  // раз повторил «пустой ответ или нет ключа/релея», не сказав, что именно.
-  // Тот же дефект, что мы весь день чиним в других местах, — в собственном логе.
-  if (!getOpenRouterKey()) {
-    why.push('flagship: OPENROUTER_API_KEY не задан');
-  } else {
-    try {
-      // Причина отказа приходит из самой ступени. Прежняя строка «ключ есть,
-      // ответа нет» была честной ровно наполовину: она сообщала ЧТО, но не
-      // ПОЧЕМУ, и по ней нельзя было отличить недействительный ключ от
-      // исчерпанного счёта или закрытого доступа. Прогон 22.08 повторил её
-      // сорок восемь раз — с раннера GitHub, где ни релея, ни гео-блока нет.
-      let refusal: string | null = null;
-      const flag = await callOpenRouterModel(payload, flagshipModel, {
-        timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
-        onRefusal: ({ status, detail }) => {
-          refusal = status === null ? detail : `HTTP ${status} ${detail}`;
-        },
-      });
-      if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
-      why.push(`flagship(${flagshipModel}): ${refusal ?? 'ключ есть, ответа нет'}`);
-    } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
-  }
-
-  // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
-  //     Живой случай 2026-07-24: релей до api.anthropic.com работает и ключ
-  //     Anthropic есть, а OpenRouter-путь не прошёл — Claude достижим и без
-  //     посредника. Модель — та же флагманская (без префикса "anthropic/").
-  const antKey = getAnthropicKey();
-  if (!antKey) why.push('anthropic: ключа нет');
-  if (antKey) {
-    // Идентификатор берётся из каталога САМОГО Anthropic, а не из слага
-    // OpenRouter со снятым префиксом.
+  const tryOpenRouterFlagship = async (): Promise<DecisionResult | null> => {
+    // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
+    //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы
+    //    падаем на DeepSeek/Qwen (прежнее поведение). Активируется автоматически,
+    //    когда владелец задаёт ключ+релей на Timeweb.
     //
-    // Когда ключ OpenRouter есть, resolveFlagshipModel выбирает id из ЕГО
-    // каталога — там слаги вида `anthropic/claude-opus-4.6`. Снятие префикса
-    // давало `claude-opus-4.6`, а api.anthropic.com такого id не знает: у него
-    // `claude-opus-4-8`. Запрос отвечал 400 за доли секунды, и отчёты 16-19.08
-    // читались как «Anthropic молчит» — при живом ключе с оплаченным Opus.
-    // Разные каталоги — разные имена; общего у них только поставщик.
-    /**
-     * Запасное имя берётся из слага ТОЛЬКО если слаг — anthropic'овский.
-     *
-     * Строка `flagshipModel.replace(/^anthropic\//, '')` писалась тогда, когда
-     * флагман ВСЕГДА был моделью Anthropic, и снятие префикса было
-     * осмысленным. С 09.09 вендор флагмана задаётся переменной
-     * (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), и до этой строки смена не
-     * доехала: `z-ai/glm-5.3` префикса `anthropic/` не имеет, replace его не
-     * трогает, и в `api.anthropic.com/v1/messages` уходило поле
-     * `model: "z-ai/glm-5.3"` — модель чужого поставщика.
-     *
-     * В отчёте судьи (#1428) это читалось как `anthropic(z-ai/glm-5.3): HTTP
-     * 401` и выглядело отказом ключа. Ключ там и правда отвергнут, но запрос
-     * был бессмысленным независимо от ключа: даже с живым и оплаченным
-     * ключом Anthropic не знает такого id.
-     *
-     * Теперь чужой слаг — это честное «не знаю, какую модель просить»: ступень
-     * пропускается с названной причиной, а не тратит запрос на заведомо
-     * неверное имя (§4.0).
-     */
-    /**
-     * «Каталог пуст» и «каталог не ответил» — разные беды (§4.0).
-     *
-     * Отчёт судьи 18.09 (#1428) печатал первое, а было второе: спросить не
-     * смогли. Читающий видел «пусто» и делал вывод о ключе — о ключе там не
-     * было сказано ничего. Теперь причина отказа называется словами
-     * провайдера и попадает в тот же отчёт.
-     */
-    const antProbe = await probeAnthropicModels();
-    const antIds = antProbe.ok ? antProbe.ids : [];
-    const antModel = pickBestFlagship(antIds) ?? anthropicModelFromSlug(flagshipModel);
-    if (!antProbe.ok) {
-      const refused = `каталог не ответил (${antProbe.http_status ?? 'сеть'}): ${antProbe.detail.slice(0, 120)}`;
-      why.push(antModel
-        ? `anthropic: ${refused} — id взят из слага OpenRouter`
-        : `anthropic: ${refused}; флагман (${flagshipModel}) — не модель Anthropic, просить нечего`);
-    } else if (antIds.length === 0) {
-      why.push(antModel
-        ? 'anthropic: каталог ответил пустым списком — id взят из слага OpenRouter'
-        : `anthropic: каталог ответил пустым списком, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
+    // «Нет ключа» и «ключ есть, ответа нет» — РАЗНЫЕ беды, и лечатся они разным:
+    // первая заводится в секретах, вторая — деньгами, гео или моделью. Одна
+    // строка на оба случая держала разбор в неведении: отчёт 19.08 сорок шесть
+    // раз повторил «пустой ответ или нет ключа/релея», не сказав, что именно.
+    // Тот же дефект, что мы весь день чиним в других местах, — в собственном логе.
+    if (!getOpenRouterKey()) {
+      why.push('flagship: OPENROUTER_API_KEY не задан');
+    } else {
+      try {
+        // Причина отказа приходит из самой ступени. Прежняя строка «ключ есть,
+        // ответа нет» была честной ровно наполовину: она сообщала ЧТО, но не
+        // ПОЧЕМУ, и по ней нельзя было отличить недействительный ключ от
+        // исчерпанного счёта или закрытого доступа. Прогон 22.08 повторил её
+        // сорок восемь раз — с раннера GitHub, где ни релея, ни гео-блока нет.
+        let refusal: string | null = null;
+        const flag = await callOpenRouterModel(payload, flagshipModel, {
+          timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+          onRefusal: ({ status, detail }) => {
+            refusal = status === null ? detail : `HTTP ${status} ${detail}`;
+          },
+        });
+        if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
+        why.push(`flagship(${flagshipModel}): ${refusal ?? 'ключ есть, ответа нет'}`);
+      } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
     }
-    // Потолок ДО запроса: эта ступень самая дорогая в платформе, и включается
-    // она автоматически — когда ломается дешёвая. Ровно так 19.09 и кончился
-    // баланс (см. шапку anthropicDirectBudgetState).
-    const gate = anthropicDirectGate();
-    if (antModel && !gate.allowed) {
-      why.push(`anthropic(${antModel}): ${gate.reason}`);
-      console.error(`[ai-decision] прямой Anthropic не вызван: ${gate.reason}`);
-    }
-    if (antModel && gate.allowed) try {
-      const sys = payload.find(m => m.role === 'system');
-      const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
-      if (turns.length) {
-        const res = await relayFetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
-          // temperature НЕ шлём: Opus 4.8 и новее через прямой Anthropic API
-          // его депрекейтнули (HTTP 400 "temperature is deprecated").
-          body: JSON.stringify({
-            model: antModel, max_tokens: 2000,
-            ...(sys ? { system: sys.content } : {}),
-            messages: turns,
-          }),
-        }, { timeoutMs: 45_000, label: `evo-decision-anthropic:${antModel}` });
-        if (res.ok) {
-          const data = await res.json() as {
-            content?: Array<{ text?: string }>;
-            usage?: { input_tokens?: number; output_tokens?: number };
-          };
-          // Берём ПЕРВЫЙ ТЕКСТОВЫЙ блок, а не content[0]: у моделей с
-          // расширенным размышлением (Opus и новее) первым в массиве идёт блок
-          // thinking, у которого поля `text` нет вовсе. Прежняя строка
-          // `content[0].text` на таком ответе давала undefined — решатель
-          // рапортовал «anthropic: пустой ответ» при живом ключе и успешном
-          // HTTP 200. Именно это и видел владелец в отчёте Evo.
-          const text = (data?.content ?? [])
-            .map(b => (typeof b?.text === 'string' ? b.text : ''))
-            .filter(Boolean)
-            .join('\n')
-            .trim();
-          if (text) {
-            logLLMUsage(`anthropic:${antModel}`, {
-              prompt_tokens: data.usage?.input_tokens,
-              completion_tokens: data.usage?.output_tokens,
-            });
-            // Счёт ведём ПОСЛЕ ответа и по своим же ценам — тем самым
-            // источником, которым считаются книги (resolveCostUsd), чтобы
-            // потолок и отчёт не расходились в числах.
-            await chargeAnthropicDirect(
-              `anthropic:${antModel}`,
-              data.usage?.input_tokens ?? 0,
-              data.usage?.output_tokens ?? 0,
-            );
-            return { text, model: `anthropic:${antModel}`, provenance: why.slice() };
-          }
-          why.push(`anthropic(${antModel}): пустой ответ`);
-        } else {
-          // Имя модели — в причине: без него «HTTP 400» не отличить от
-          // отказа по ключу, и именно на этом разбор простоял четверо суток.
-          why.push(`anthropic(${antModel}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
-        }
+    return null;
+  };
+
+  const tryAnthropicDirect = async (): Promise<DecisionResult | null> => {
+    // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
+    //     Живой случай 2026-07-24: релей до api.anthropic.com работает и ключ
+    //     Anthropic есть, а OpenRouter-путь не прошёл — Claude достижим и без
+    //     посредника. Модель — та же флагманская (без префикса "anthropic/").
+    const antKey = getAnthropicKey();
+    if (!antKey) why.push('anthropic: ключа нет');
+    if (antKey) {
+      // Идентификатор берётся из каталога САМОГО Anthropic, а не из слага
+      // OpenRouter со снятым префиксом.
+      //
+      // Когда ключ OpenRouter есть, resolveFlagshipModel выбирает id из ЕГО
+      // каталога — там слаги вида `anthropic/claude-opus-4.6`. Снятие префикса
+      // давало `claude-opus-4.6`, а api.anthropic.com такого id не знает: у него
+      // `claude-opus-4-8`. Запрос отвечал 400 за доли секунды, и отчёты 16-19.08
+      // читались как «Anthropic молчит» — при живом ключе с оплаченным Opus.
+      // Разные каталоги — разные имена; общего у них только поставщик.
+      /**
+       * Запасное имя берётся из слага ТОЛЬКО если слаг — anthropic'овский.
+       *
+       * Строка `flagshipModel.replace(/^anthropic\//, '')` писалась тогда, когда
+       * флагман ВСЕГДА был моделью Anthropic, и снятие префикса было
+       * осмысленным. С 09.09 вендор флагмана задаётся переменной
+       * (`EVO_DECISION_FLAGSHIP_VENDOR: z-ai`), и до этой строки смена не
+       * доехала: `z-ai/glm-5.3` префикса `anthropic/` не имеет, replace его не
+       * трогает, и в `api.anthropic.com/v1/messages` уходило поле
+       * `model: "z-ai/glm-5.3"` — модель чужого поставщика.
+       *
+       * В отчёте судьи (#1428) это читалось как `anthropic(z-ai/glm-5.3): HTTP
+       * 401` и выглядело отказом ключа. Ключ там и правда отвергнут, но запрос
+       * был бессмысленным независимо от ключа: даже с живым и оплаченным
+       * ключом Anthropic не знает такого id.
+       *
+       * Теперь чужой слаг — это честное «не знаю, какую модель просить»: ступень
+       * пропускается с названной причиной, а не тратит запрос на заведомо
+       * неверное имя (§4.0).
+       */
+      /**
+       * «Каталог пуст» и «каталог не ответил» — разные беды (§4.0).
+       *
+       * Отчёт судьи 18.09 (#1428) печатал первое, а было второе: спросить не
+       * смогли. Читающий видел «пусто» и делал вывод о ключе — о ключе там не
+       * было сказано ничего. Теперь причина отказа называется словами
+       * провайдера и попадает в тот же отчёт.
+       */
+      const antProbe = await probeAnthropicModels();
+      const antIds = antProbe.ok ? antProbe.ids : [];
+      const antModel = pickBestFlagship(antIds) ?? anthropicModelFromSlug(flagshipModel);
+      if (!antProbe.ok) {
+        const refused = `каталог не ответил (${antProbe.http_status ?? 'сеть'}): ${antProbe.detail.slice(0, 120)}`;
+        why.push(antModel
+          ? `anthropic: ${refused} — id взят из слага OpenRouter`
+          : `anthropic: ${refused}; флагман (${flagshipModel}) — не модель Anthropic, просить нечего`);
+      } else if (antIds.length === 0) {
+        why.push(antModel
+          ? 'anthropic: каталог ответил пустым списком — id взят из слага OpenRouter'
+          : `anthropic: каталог ответил пустым списком, а флагман (${flagshipModel}) — не модель Anthropic; просить нечего`);
       }
-    } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }
+      // Потолок ДО запроса: эта ступень самая дорогая в платформе, и включается
+      // она автоматически — когда ломается дешёвая. Ровно так 19.09 и кончился
+      // баланс (см. шапку anthropicDirectBudgetState).
+      const gate = anthropicDirectGate();
+      if (antModel && !gate.allowed) {
+        why.push(`anthropic(${antModel}): ${gate.reason}`);
+        console.error(`[ai-decision] прямой Anthropic не вызван: ${gate.reason}`);
+      }
+      if (antModel && gate.allowed) try {
+        const sys = payload.find(m => m.role === 'system');
+        const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
+        if (turns.length) {
+          const res = await relayFetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
+            // temperature НЕ шлём: Opus 4.8 и новее через прямой Anthropic API
+            // его депрекейтнули (HTTP 400 "temperature is deprecated").
+            body: JSON.stringify({
+              model: antModel, max_tokens: 2000,
+              ...(sys ? { system: sys.content } : {}),
+              messages: turns,
+            }),
+          }, { timeoutMs: 45_000, label: `evo-decision-anthropic:${antModel}` });
+          if (res.ok) {
+            const data = await res.json() as {
+              content?: Array<{ text?: string }>;
+              usage?: { input_tokens?: number; output_tokens?: number };
+            };
+            // Берём ПЕРВЫЙ ТЕКСТОВЫЙ блок, а не content[0]: у моделей с
+            // расширенным размышлением (Opus и новее) первым в массиве идёт блок
+            // thinking, у которого поля `text` нет вовсе. Прежняя строка
+            // `content[0].text` на таком ответе давала undefined — решатель
+            // рапортовал «anthropic: пустой ответ» при живом ключе и успешном
+            // HTTP 200. Именно это и видел владелец в отчёте Evo.
+            const text = (data?.content ?? [])
+              .map(b => (typeof b?.text === 'string' ? b.text : ''))
+              .filter(Boolean)
+              .join('\n')
+              .trim();
+            if (text) {
+              logLLMUsage(`anthropic:${antModel}`, {
+                prompt_tokens: data.usage?.input_tokens,
+                completion_tokens: data.usage?.output_tokens,
+              });
+              // Счёт ведём ПОСЛЕ ответа и по своим же ценам — тем самым
+              // источником, которым считаются книги (resolveCostUsd), чтобы
+              // потолок и отчёт не расходились в числах.
+              await chargeAnthropicDirect(
+                `anthropic:${antModel}`,
+                data.usage?.input_tokens ?? 0,
+                data.usage?.output_tokens ?? 0,
+              );
+              return { text, model: `anthropic:${antModel}`, provenance: why.slice() };
+            }
+            why.push(`anthropic(${antModel}): пустой ответ`);
+          } else {
+            // Имя модели — в причине: без него «HTTP 400» не отличить от
+            // отказа по ключу, и именно на этом разбор простоял четверо суток.
+            why.push(`anthropic(${antModel}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
+          }
+        }
+      } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }
+    }
+    return null;
+  };
+
+  // Порядок двух флагманских ступеней. По умолчанию OpenRouter, затем
+  // прямой Anthropic. С 08.10 у прямого пути на раннере есть ежемесячные
+  // API-кредиты подписки (решение владельца), и платить OpenRouter за ту же
+  // модель, пока кредит не исчерпан, незачем: EVO_DECISION_ANTHROPIC_FIRST
+  // ставит прямой Anthropic первым. Кредит кончился, ключ отвергнут или
+  // упёрлись в потолок прогона — ступень говорит причину и уступает
+  // OpenRouter, ничего не ломается. На проде переменной нет: там прямой
+  // Anthropic закрыт гео-блоком (уровень known в health).
+  const anthropicFirst = preferAnthropicDirectFirst();
+  if (anthropicFirst) why.push('порядок: прямой Anthropic раньше OpenRouter (EVO_DECISION_ANTHROPIC_FIRST)');
+  for (const step of anthropicFirst
+    ? [tryAnthropicDirect, tryOpenRouterFlagship]
+    : [tryOpenRouterFlagship, tryAnthropicDirect]) {
+    const r = await step();
+    if (r) return r;
   }
 
   // 0в) xAI Grok — флагман, достижимый из РФ НАПРЯМУЮ, без релея и без шлюза.

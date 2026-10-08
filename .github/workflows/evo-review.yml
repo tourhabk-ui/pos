@@ -91,6 +91,15 @@ jobs:
           # Opus 5, Fable или Sonnet. Экономия GLM (вчетверо, см. выше)
           # этим отдаётся обратно — осознанно. Вернуть GLM: z-ai.
           EVO_DECISION_FLAGSHIP_VENDOR: anthropic
+          # 08.10: у ключа Anthropic — ежемесячные API-кредиты подписки
+          # (решение владельца). Прямой Anthropic идёт раньше OpenRouter, пока
+          # кредит есть; кончился или упёрлись в потолок прогона — решатель
+          # сам уступает OpenRouter (lib/ai/providers.ts, preferAnthropicDirectFirst).
+          EVO_DECISION_ANTHROPIC_FIRST: '1'
+          # Потолок прямого Anthropic за прогон — $5 вместо умолчания $1
+          # (решение владельца 08.10): прогон судьи на Opus стоил около $3, и при
+          # $1 большая часть уходила бы в OpenRouter мимо кредита подписки.
+          ANTHROPIC_DIRECT_MAX_USD: '5'
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           # Расход в книги платформы: БД Timeweb с раннера закрыта файрволом,
           # и прямой INSERT в llm_usage_log падал здесь всегда. Отправку на
