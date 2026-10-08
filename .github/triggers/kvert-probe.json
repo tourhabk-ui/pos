@@ -1,11 +1,18 @@
 {
   "note": "Маркер запуска kvert-probe.yml: правка этого файла в main снимает выпуск KVERT с раннера и печатает его структуру. Только чтение.",
-  "run": 3,
-  "why": "06.09: у Крашенинникова записана высота 6000 м, а фразы про пепел в тексте не нашлось — смотрим настоящие предложения, чтобы понять, высота это или расстояние",
+  "run": 4,
+  "why": "08.10: недельная сводка (type=3) обновлена 02.10 — у всех вулканов «6 дней назад». Владелец: подключить отдельные VONA между сводками. Ищем адрес ленты VONA и её формат.",
   "url": "http://kvert.febras.net/van/index.php?type=3&lend=en",
   "names": [
     "KRASHENINNIKOV",
     "GORELY",
     "KARYMSKY"
+  ],
+  "urls": [
+    "http://kvert.febras.net/van/index.php?type=1&lend=en",
+    "http://kvert.febras.net/van/index.php?type=2&lend=en",
+    "http://kvert.febras.net/van/index.php?type=4&lend=en",
+    "http://kvert.febras.net/van/index.php?lend=en",
+    "http://kvert.febras.net/van/"
   ]
 }
