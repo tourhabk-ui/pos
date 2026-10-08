@@ -88,7 +88,7 @@ export function isTechnicalExpiry(at: string | null, until: string | null): bool
  * Для остальных типов возраст осмыслен: сводка недельной давности и правда
  * стареет.
  */
-const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide', 'park_closure']);
+const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide', 'park_closure', 'warning_test']);
 
 export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
   if (a.type && IN_FORCE_TYPES.has(a.type)) {
