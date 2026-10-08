@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { AlertTriangle, Mountain, CloudSnow, Phone } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
@@ -141,6 +142,7 @@ export default async function SvodkaPage() {
               ))}
             </ul>
             <p className="text-sm text-[var(--text-secondary)]">Прогноз Open-Meteo по координатам места. В горах погода меняется быстрее прогноза.</p>
+            <Link href="/weather" className="text-sm font-semibold text-[var(--ocean)]">Прогноз на 7 дней по местам →</Link>
           </section>
 
           <section className="flex flex-col gap-3" aria-labelledby="svodka-share">

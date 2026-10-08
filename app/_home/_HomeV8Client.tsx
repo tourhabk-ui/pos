@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -648,6 +648,20 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <span className="qt-ic"><Camera size={19} strokeWidth={1.8} aria-hidden /></span>
               <span className="qt-tx"><b>Наблюдение</b><span>фото без сети</span></span>
             </a>
+
+            {/* Погода по местам (08.10, решение владельца): прогноз на неделю и
+                предупреждения Росгидромета — то, что смотрят перед выходом.
+                Во всю ширину под сеткой 2×2: пятый квадрат сломал бы сетку. */}
+            <Link
+              href="/weather"
+              className="qt"
+              style={{ gridColumn: '1 / -1' }}
+              aria-label="Погода по местам маршрутов: прогноз на 7 дней и предупреждения Росгидромета"
+              title="Прогноз на 7 дней по местам и предупреждения Росгидромета"
+            >
+              <span className="qt-ic"><CloudSun size={19} strokeWidth={1.8} aria-hidden /></span>
+              <span className="qt-tx"><b>Погода</b><span>по местам, на 7 дней</span></span>
+            </Link>
           </nav>
 
         </section>

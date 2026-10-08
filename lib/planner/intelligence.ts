@@ -64,6 +64,12 @@ export type ForecastResult =
        * прогноз — с моментом, когда он получен. Нет поля — прогноз свежий.
        */
       staleSince?: string;
+      /**
+       * Когда прогноз получен от источника. Кэш отдаёт его с этим же моментом,
+       * поэтому страница погоды пишет «прогноз от …» по нему, а не по времени
+       * сборки страницы: прогноз из кэша бывает старше на три часа.
+       */
+      fetchedAt?: string;
     }
   | { ok: false; reason: string };
 
@@ -228,6 +234,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
       } else {
         result = {
           ok: true,
+          fetchedAt: new Date().toISOString(),
           elevationM: finite(json.elevation) === null ? null : Math.round(finite(json.elevation) as number),
           days: d.time.map((date, i) => {
             const code = finite(d.weather_code?.[i]);
