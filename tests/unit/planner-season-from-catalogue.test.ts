@@ -88,13 +88,15 @@ describe('каталог расширяет сезонное окно', () => {
     // Разойдясь, они дали бы план с рыбалкой и отказ про несезонную рыбалку
     // в одном ответе.
     expect(ENGINE).toMatch(/const catalogueOpen = await fetchActivitiesBookableInMonth\(getMonth\(profile\), cache\)/);
-    expect(ENGINE).toMatch(/scoreZones\(profile, cache, catalogueOpen\)/);
+    // С 08.10 зоны и дни считаются по профилю без занятий не по возрасту детей
+    // (planProfile) — каталог по-прежнему передаётся тот же.
+    expect(ENGINE).toMatch(/scoreZones\(planProfile, cache, catalogueOpen\)/);
     // Проверяется, что каталог ДОХОДИТ до сбора предупреждений, а не что он
     // стоит последним аргументом: 27.09 к вызову добавились зоны готового плана
     // (предупреждения о разрешениях считались по зонам-кандидатам и требовали
     // погранзону ФСБ для поездки, которой нет). Правило то же, порядок другой.
     expect(ENGINE).toMatch(/collectWarnings\([^)]*catalogueOpen/);
-    expect(ENGINE).toMatch(/generateDayPlans\(profile, zones, tripDays, cache, catalogueOpen\)/);
+    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen\)/);
     // Ни одна из трёх проверок не судит по голой таблице.
     expect(ENGINE).not.toMatch(/if \(!c\.months\.includes\(month\)\) continue;/);
   });
@@ -136,6 +138,6 @@ describe('отказ Кузьмича судит тем же сезоном, ч�
     expect(ENGINE).toMatch(/catalogueOpen: string\[\] \| null;/);
     expect(ENGINE).toMatch(/catalogueOpen: catalogueOpen \? \[\.\.\.catalogueOpen\] : null/);
     const tool = readFileSync(join(ROOT, 'lib/kuzmich/trip-plan-tool.ts'), 'utf8');
-    expect(tool).toContain('buildRefusal(month, interests, SITE, rec.catalogueOpen)');
+    expect(tool).toContain('buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? [])');
   });
 });
