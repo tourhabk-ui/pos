@@ -41,7 +41,10 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   hard: 'Сложный',
 };
 
-export default function WishlistClient() {
+/** Все роли аккаунта: страница /wishlist открыта любой вошедшей роли (09.10). */
+const ANY_ROLE = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin'];
+
+export default function WishlistClient({ anyRole = false }: { anyRole?: boolean } = {}) {
   const { data, loading, error, setData } = useApiFetch<WishlistItem[], WishlistItem[]>(
     '/api/tourist/wishlist',
     (d) => d ?? [],
@@ -105,7 +108,7 @@ export default function WishlistClient() {
   };
 
   return (
-    <Protected roles={['tourist', 'admin']}>
+    <Protected roles={anyRole ? ANY_ROLE : ['tourist', 'admin']}>
       <div className="max-w-5xl mx-auto px-4 py-6 lg:py-8">
         <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)] mb-6">
           Избранное

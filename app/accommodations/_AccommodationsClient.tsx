@@ -7,6 +7,7 @@ import { AccommodationCard } from '@/components/shared/AccommodationCard';
 import { AccommodationCardSkeleton } from '@/components/shared/AccommodationCardSkeleton';
 import { AccommodationFilters } from '@/components/shared/AccommodationFilters';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { staySearchEntity, type StaySearchOutcome } from '@/lib/stay/demand';
 import { sessionState } from '@/lib/auth/session-state';
 import { ACCOMMODATIONS_FIRST_PAGE_LIMIT, ACCOMMODATIONS_DEFAULT_SORT } from '@/lib/stay/catalog-first-page';
@@ -98,6 +99,8 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
   // не делал ничего (#1786). Гость — на вход, не молча.
   const router = useRouter();
   const [favMap, setFavMap] = useState<Map<string, string>>(new Map());
+  // Причина отказа избранного словами (09.10): раньше сердце откатывалось молча.
+  const [favNotice, setFavNotice] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     // Только вошедшему: у гостя роут отвечал 401 (аудит 01.10).
@@ -127,11 +130,13 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
       return;
     }
     if (!res?.ok) {
-      // Откат и причина в консоль: молчащее сердце — это и была находка.
+      // Откат и причина: в консоль для нас и словами для человека (09.10).
       console.error('[accommodations] избранное не сохранено', res?.status ?? 'сеть');
       setFavMap(prev => { const next = new Map(prev); if (isFav) next.set(id, ''); else next.delete(id); return next; });
+      setFavNotice(wishlistFailureText(res?.status ?? null));
       return;
     }
+    setFavNotice(null);
     if (!isFav) {
       const data = await res.json().catch(() => null) as { data?: { id?: string | number } } | null;
       setFavMap(prev => { const next = new Map(prev); next.set(id, String(data?.data?.id ?? '')); return next; });
@@ -351,6 +356,14 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
             </div>
           ) : (
             <>
+              {favNotice && (
+                <div role="status" className="ds-card p-3 mb-4 flex items-start justify-between gap-3 text-sm text-[var(--text-secondary)]">
+                  <span>{favNotice}</span>
+                  <button type="button" onClick={() => setFavNotice(null)} aria-label="Закрыть" className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                 {accommodations.map(acc => (
                   <AccommodationCard

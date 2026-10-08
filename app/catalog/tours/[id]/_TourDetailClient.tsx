@@ -1,6 +1,7 @@
 'use client';
 
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
+import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -467,6 +468,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
         body: JSON.stringify({ itemType: 'tour', itemId: String(tour.id) }),
       });
       if (res.status === 401) { router.push(`/auth/login?from=/catalog/tours/${tour.id}`); return; }
+      // 403 — аккаунт не туриста: Edge отвечает «Forbidden» по-английски, и
+      // человеку нужен свой текст (09.10), а не слово из заголовка ответа.
+      if (res.status === 403) { setWishlistError(wishlistFailureText(403)); return; }
       const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };
       if (res.ok && data.success !== false) {
         setWishlisted(w => !w);

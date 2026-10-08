@@ -142,3 +142,69 @@ describe('кабинет показывает причину, а поверхн�
     expect(client).toMatch(/localOnly: true/);
   });
 });
+
+describe('отказ по роли называется одним текстом на всех экранах (09.10)', () => {
+  // Скрин владельца: сердечко на карточке тура в каталоге — «Не удалось
+  // сохранить». Ответ сервера был 403: Edge пускает на /api/tourist/* только
+  // аккаунт с ролью tourist, а сердечко нажимается у всех. Один исход доходил
+  // до человека тремя способами — общим «не удалось», английским «Forbidden»
+  // и молчаливым откатом. Теперь у него один текст.
+  it('403 → один текст про аккаунт, остальное → прежнее «попробуйте ещё раз»', async () => {
+    const { wishlistFailureText, WISHLIST_FORBIDDEN_TEXT, WISHLIST_FAILED_TEXT } = await import('@/lib/wishlist/contract');
+    expect(wishlistFailureText(403)).toBe(WISHLIST_FORBIDDEN_TEXT);
+    expect(WISHLIST_FORBIDDEN_TEXT).toMatch(/недоступно для этого аккаунта/);
+    for (const s of [500, 404, 429, null]) expect(wishlistFailureText(s)).toBe(WISHLIST_FAILED_TEXT);
+  });
+
+  it('правило роли на Edge — то самое, ради которого текст заведён', () => {
+    expect(read('middleware.ts')).toMatch(/'\/api\/tourist': 'tourist'/);
+  });
+
+  it('каталог, карточка тура, каталог жилья и общий клиент берут текст из контракта', () => {
+    for (const f of [
+      'components/marketplace/MarketplaceClient.tsx',
+      'app/catalog/tours/[id]/_TourDetailClient.tsx',
+      'app/accommodations/_AccommodationsClient.tsx',
+      'lib/wishlist/client.ts',
+    ]) {
+      expect(read(f), `${f}: нет текста отказа из контракта`).toMatch(/wishlistFailureText/);
+    }
+  });
+
+  it('карточка тура не показывает слово «Forbidden»: на 403 свой текст раньше разбора тела', () => {
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
+    const i403 = src.indexOf('res.status === 403');
+    const iBody = src.indexOf("const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };", i403 - 400);
+    expect(i403).toBeGreaterThan(0);
+    expect(i403).toBeLessThan(iBody);
+  });
+
+  it('каталог жилья: сердце откатывается, но человек читает причину', () => {
+    const src = read('app/accommodations/_AccommodationsClient.tsx');
+    expect(src).toMatch(/setFavNotice\(wishlistFailureText\(res\?\.status \?\? null\)\)/);
+    expect(src).toMatch(/\{favNotice && \(/);
+  });
+});
+
+describe('избранное видно любой вошедшей роли (09.10)', () => {
+  // Сохранять мог любой, видеть — только турист: список жил в кабинете с
+  // ролью tourist. Общая страница /wishlist — тот же экран без оболочки.
+  it('/wishlist открыта всем ролям аккаунта и рендерит тот же экран', () => {
+    const page = read('app/wishlist/page.tsx');
+    expect(page).toMatch(/<WishlistClient anyRole \/>/);
+    expect(page).toMatch(/robots: 'noindex, nofollow'/);
+    const client = read('app/hub/tourist/wishlist/_WishlistClient.tsx');
+    expect(client).toMatch(/roles=\{anyRole \? ANY_ROLE : \['tourist', 'admin'\]\}/);
+    for (const r of ['tourist', 'operator', 'guide', 'agent', 'stay', 'gear', 'admin']) {
+      expect(client, `роль ${r} не допущена на /wishlist`).toContain(`'${r}'`);
+    }
+  });
+
+  it('кабинет туриста остаётся за ролью: общая страница его не заменяет', () => {
+    expect(read('app/hub/tourist/layout.tsx')).toMatch(/requiredRole="tourist"/);
+  });
+
+  it('путь к избранному есть в общем меню (реестр ссылок → /menu и футер)', () => {
+    expect(read('lib/navigation/platform-links.ts')).toMatch(/label: 'Избранное',\s+href: '\/wishlist'/);
+  });
+});

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
+import { wishlistFailureText } from '@/lib/wishlist/contract';
 import {
   MapPin, ChevronRight, Heart, BadgeCheck,
   AlertCircle, Clock, Sparkles, Search, SlidersHorizontal,
@@ -686,9 +687,13 @@ export default function MarketplaceClient({
     if (status === 401) {
       console.warn(`[catalog] избранное: ${op} → 401, гость`);
       setNotice({ text: 'Войдите, чтобы сохранить тур в избранное', href: `/auth/login?from=${encodeURIComponent(pathname ?? '/catalog')}`, hrefLabel: 'Войти' });
+    } else if (status === 403) {
+      // 403 — аккаунт не туриста: ожидаемый исход, причина названа словами.
+      console.warn(`[catalog] избранное: ${op} → 403, роль не туриста`);
+      setNotice({ text: wishlistFailureText(403) });
     } else {
       console.error(`[catalog] избранное: ${op} не удалось`, status ?? 'сеть');
-      setNotice({ text: 'Не удалось сохранить. Попробуйте ещё раз.' });
+      setNotice({ text: wishlistFailureText(status) });
     }
   }, [pathname]);
 
