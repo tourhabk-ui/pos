@@ -2234,7 +2234,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'duration',
       severity: 'important',
-      message: `«${e.title}» — ${e.span} дн.: тур продают целиком, поэтому под него отдали ${e.span} дн. в зоне «${ZONE_NAMES[e.zone]}» `
+      // Зона в тексте не называется: «в зоне «Авачинская зона»» повторяло
+      // слово, а тур на Ключевскую в Авачинской зоне путал (живой ответ 08.10).
+      message: `«${e.title}» — ${e.span} дн.: тур продают целиком, поэтому под него отданы ${e.span} дн. плана `
         + `вместо ${e.planned} по раскладке; на другие зоны дней осталось меньше.`,
     });
   }

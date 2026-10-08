@@ -189,6 +189,9 @@ describe('многодневный тур длиннее блока зоны (08
     expect(text).not.toMatch(/Не поместились в срок поездки[^\n]*Ключевская/);
     // Предупреждение доходит до Кузьмича и MCP: info там отбрасывается.
     expect(rec.warnings.find((w) => /12 дн\.: тур продают целиком/.test(w.message))?.severity).toBe('important');
+    const ext = rec.warnings.find((w) => /12 дн\.: тур продают целиком/.test(w.message))!.message;
+    expect(ext).toMatch(/под него отданы 12 дн\. плана вместо \d+ по раскладке/);
+    expect(ext).not.toMatch(/в зоне «/);
   });
 
   it('поездка тур не вмещает — как прежде: не урезан и назван', async () => {
