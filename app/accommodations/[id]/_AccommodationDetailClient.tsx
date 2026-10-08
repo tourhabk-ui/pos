@@ -5,11 +5,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   MapPin, Star, Clock, BedDouble, Users, ShieldCheck, Sparkles,
-  ChevronLeft, Wifi, ExternalLink,
+  ChevronLeft, Wifi, ExternalLink, Phone,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
 import { ACCOMMODATION_TYPE_LABELS, AccommodationType } from '@/lib/stay/accommodation-types';
 
@@ -65,6 +66,8 @@ interface AccommodationDetail {
   amenities: string[];
   /** Бронь на сайте самого объекта (миграция 1109); null — нет. */
   externalBookingUrl: string | null;
+  /** Телефон самого объекта (миграция 1179), «+7XXXXXXXXXX»; null — не записан. */
+  contactPhone: string | null;
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;
   reviewCount: number;
@@ -146,6 +149,11 @@ export default function AccommodationDetailClient({ accommodationId, initialData
   const typeLabel = ACCOMMODATION_TYPE_LABELS[data.type as AccommodationType] ?? data.type;
   const checkIn = toHHMM(data.checkInTime);
   const checkOut = toHHMM(data.checkOutTime);
+  // Бронь и цены ведёт сам объект: по своему сайту или по телефону, когда
+  // своих номеров у нас нет. Тогда ни списка номеров, ни нашей формы, ни
+  // фразы про «оператора платформы» (оплата платформой выключена 05.10).
+  const viaOwner = Boolean(data.externalBookingUrl) || (Boolean(data.contactPhone) && data.rooms.length === 0);
+  const phoneLabel = formatContactPhone(data.contactPhone);
 
   return (
     <>
@@ -225,6 +233,26 @@ export default function AccommodationDetailClient({ accommodationId, initialData
           </div>
         )}
 
+        {/* Объект без своего сайта брони (миграция 1179, «Кутха»): цены и даты
+            у владельца, связь — звонком. Номер уходит только сюда: в ответы
+            Кузьмича и MCP он не попадает (pd-guard). Нажатие считается как
+            спрос на жильё, в NSM не входит. */}
+        {data.contactPhone && phoneLabel && (
+          <div className="ds-card p-5 mb-8 space-y-3">
+            <p className="text-sm text-[var(--text-secondary)]">
+              Цены, свободные даты и условия — у владельца объекта. Бронь и оплата идут напрямую с ним: платформа оплату не принимает.
+            </p>
+            <a
+              href={`tel:${data.contactPhone}`}
+              onClick={() => funnelBeacon('stay_phone_call', data.id)}
+              className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2"
+            >
+              <Phone className="w-4 h-4" />
+              Позвонить {phoneLabel}
+            </a>
+          </div>
+        )}
+
         {/* Бронь на сайте объекта (29.09): живые цены и свободные даты там,
             где объект их ведёт. Переход считается — это довод в решении,
             подключать ли поставщика (счётчик спроса, lib/stay/demand). */}
@@ -250,10 +278,10 @@ export default function AccommodationDetailClient({ accommodationId, initialData
             брони: два пути («там же бронь и оплата» и форма ниже) противоречили
             бы друг другу, а цены в наших номерах и на сайте объекта могут
             расходиться (обзор 29.09). */}
-        {!data.externalBookingUrl && (
+        {!viaOwner && (
           <h2 className="ds-h2 mb-4">Номера и цены</h2>
         )}
-        {data.externalBookingUrl ? null : data.rooms.length === 0 ? (
+        {viaOwner ? null : data.rooms.length === 0 ? (
           (
             <div className="ds-card p-6 mb-8 text-center">
               <p className="text-sm text-[var(--text-secondary)]">

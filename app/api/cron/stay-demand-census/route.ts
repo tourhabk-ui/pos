@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   // Окно параметризовано, не склеено строкой (§4, сторож sql-interval-not-concatenated).
   const W = `NOW() - ($1 || ' days')::INTERVAL`;
 
-  const [supply, views, searchRows, webDays, starts, external, mcp, bookings, since] = await Promise.all([
+  const [supply, views, searchRows, webDays, starts, external, phone, mcp, bookings, since] = await Promise.all([
     // Предложение: без него спрос не с чем сравнить. «Ищут, а витрина пуста»
     // и «ищут и находят» — разные доводы в разговоре о поставщике.
     measure('supply', async () => (await pool.query<{ listings: number; rooms: number }>(
@@ -133,6 +133,18 @@ export async function GET(req: NextRequest) {
       [days],
     )).rows[0]),
 
+    // Звонки объекту с карточки (миграция 1179, «Кутха»): спрос, ушедший к
+    // объекту по телефону. Нажатие — намерение позвонить, а не состоявшийся
+    // звонок; так и читать.
+    measure('stay_phone_call', async () => (await pool.query<{ clicks: number; visitor_days: number; listings: number }>(
+      `SELECT COUNT(*)::int                     AS clicks,
+              COUNT(DISTINCT visitor_hash)::int AS visitor_days,
+              COUNT(DISTINCT entity_id)::int    AS listings
+         FROM funnel_events
+        WHERE step = 'stay_phone_call' AND created_at > ${W} AND is_self = FALSE`,
+      [days],
+    )).rows[0]),
+
     // MCP пишет свой журнал вызовов независимо от счётчика поисков — это
     // доля внешних AI-агентов внутри канала 'agent', не вычитаемая из него.
     measure('mcp_tool_calls', async () => (await pool.query<{ calls: number; ok: number; callers: number }>(
@@ -158,7 +170,7 @@ export async function GET(req: NextRequest) {
     measure('counting_since', async () => (await pool.query<{ first_at: string | null; total: number }>(
       `SELECT MIN(created_at)::text AS first_at, COUNT(*)::int AS total
          FROM funnel_events
-        WHERE step IN ('stay_search', 'stay_booking_start', 'stay_external_booking')`,
+        WHERE step IN ('stay_search', 'stay_booking_start', 'stay_external_booking', 'stay_phone_call')`,
     )).rows[0]),
   ]);
 
@@ -168,7 +180,7 @@ export async function GET(req: NextRequest) {
 
   const all: [string, Measured<unknown>][] = [
     ['supply', supply], ['page_views', views], ['stay_search', searchRows], ['stay_search_web_days', webDays],
-    ['stay_booking_start', starts], ['stay_external_booking', external], ['mcp_tool_calls', mcp],
+    ['stay_booking_start', starts], ['stay_external_booking', external], ['stay_phone_call', phone], ['mcp_tool_calls', mcp],
     ['accommodation_bookings', bookings], ['counting_since', since],
   ];
   const failed = all.filter(([, m]) => m.failed !== null);
@@ -190,6 +202,7 @@ export async function GET(req: NextRequest) {
     unrecognized_search_events: searches?.unrecognized ?? null,
     booking_starts: starts.value ?? null,
     external_booking_clicks: external.value ?? null,
+    phone_call_clicks: phone.value ?? null,
     mcp_search_calls: mcp.value ?? null,
     bookings_by_status: bookings.value ?? null,
     counting: {

@@ -28,6 +28,8 @@ interface AccommodationRow {
   price_per_night_from: string | null;
   rating: string | null;
   external_booking_url: string | null;
+  /** Есть ли у объекта телефон для связи. Сам номер сюда НЕ выбирается (pd-guard). */
+  has_contact_phone: boolean;
 }
 
 const appBase = getPublicBaseUrl;
@@ -51,7 +53,8 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   let rows: AccommodationRow[];
   try {
     ({ rows } = await pool.query<AccommodationRow>(
-      `SELECT id, name, type, address, location_zone, price_per_night_from, rating, external_booking_url
+      `SELECT id, name, type, address, location_zone, price_per_night_from, rating, external_booking_url,
+              (contact_phone IS NOT NULL) AS has_contact_phone
        FROM accommodations
        WHERE ${conds.join(' AND ')}
        ORDER BY rating DESC NULLS LAST
@@ -113,9 +116,15 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
     // так и говорим, а не «цена по запросу», которая звала бы писать нам.
     const price = a.price_per_night_from
       ? `от ${Math.round(Number(a.price_per_night_from))} руб/ночь`
-      : a.external_booking_url ? 'цены и свободные даты — на сайте объекта' : 'цена по запросу';
+      : a.external_booking_url ? 'цены и свободные даты — на сайте объекта'
+      : a.has_contact_phone ? 'цены и свободные даты — у владельца по телефону'
+      : 'цена по запросу';
     const where = [a.location_zone, a.address].filter(Boolean).join(', ');
-    const book = a.external_booking_url ? ` Бронь на сайте объекта: ${a.external_booking_url}` : '';
+    // Номер модели не отдаётся: она зарубежная, а номер — контакт человека.
+    // Телефон есть на карточке по ссылке выше, туда и отправляем.
+    const book = a.external_booking_url ? ` Бронь на сайте объекта: ${a.external_booking_url}`
+      : a.has_contact_phone ? ' Телефон владельца — на карточке по ссылке выше; бронь и оплата напрямую с объектом.'
+      : '';
     return `${a.name}${a.type ? ` [${a.type}]` : ''} — ${price}${where ? `. ${where}` : ''}. ${base}/accommodations/${a.id}.${book}`;
   }).join('\n\n');
 }
