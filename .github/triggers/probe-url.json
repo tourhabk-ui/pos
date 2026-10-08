@@ -1,26 +1,30 @@
 {
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Строки Росгидромета в публичной сводке опасностей и сырой ответ meteoalert — почему их семь и нет ли дублей.",
-  "run": 715,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 10,
-  "allowStale": true,
-  "bytes": 6000,
+  "retries": 45,
+  "retryDelay": 60,
+  "allowStale": false,
+  "bytes": 400,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Ждём выката 1176/1177: карточка тура «Края Вулканов» с фото, страница компании.",
+  "run": 716,
   "urls": [
-    "https://vedarai.ru/api/public/danger-summary",
-    "https://meteoalert.meteoinfo.ru/russia/informer/ajax_informer_1.php?lon_0=151.45312540233135&lon_1=175.60546942055228&lat_0=50.018751221459&lat_1=65.25793871571221"
+    "https://vedarai.ru/catalog/tours/volcanoesland-ploskiy-tolbachik",
+    "https://vedarai.ru/catalog/tours/volcanoesland-oblet-klyuchevskoy-gruppy-dolina-geyzerov",
+    "https://vedarai.ru/operators/volcanoesland"
   ],
+  "until": "/images/volcanoesland/ploskiy-tolbachik-01",
   "around": [
-    "Росгидромет:",
-    "\"95\":",
-    "\"96\":"
+    "/images/volcanoesland/",
+    "520 000",
+    "410 000",
+    "Цены подтверждены"
   ],
   "aroundLines": 0,
-  "aroundHits": 20,
-  "aroundBefore": 40,
+  "aroundBefore": 0,
+  "aroundHits": 3,
   "grep": [
-    "Росгидромет:",
-    "\"95\":"
-  ],
-  "text": false
+    "/images/volcanoesland/",
+    "Край",
+    "Цены подтверждены оператором",
+    "Плоский Толбачик"
+  ]
 }
