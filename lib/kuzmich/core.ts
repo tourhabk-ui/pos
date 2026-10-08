@@ -39,6 +39,7 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
@@ -461,13 +462,7 @@ export async function loadTourCatalog(): Promise<string | null> {
                -- календаря, и честный ответ — спросить его (tourKeepsSchedule,
                -- то же правило). До 29.09 оба случая печатались «Мест: нет
                -- свободных», и агент не доходил до запроса мест (проверка MCP).
-               EXISTS (
-                 SELECT 1 FROM tour_availability ta0
-                  WHERE ta0.operator_tour_id = ot.id
-                    AND ta0.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
-                    AND ta0.is_cancelled = FALSE
-                    AND ta0.deleted_at IS NULL
-               ) AS has_schedule,
+               ${keepsScheduleSql('ot.id')} AS has_schedule,
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                p.name AS operator_name
@@ -514,7 +509,7 @@ export async function loadTourCatalog(): Promise<string | null> {
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
       const slots = r.has_schedule === false
-        ? ' | Расписания в системе нет — места уточняются у оператора (create_booking_request отправит ему запрос)'
+        ? ' | Расписания в системе нет — все даты свободны для заявки оператору (create_booking_request с датой отправит ему запрос; места подтверждает он)'
         : r.available_slots != null
           ? ` | Мест: ${r.available_slots > 0 ? r.available_slots : 'нет свободных'}`
           : '';

@@ -74,7 +74,12 @@ describe('get_tours: фильтр по типу активности приме�
   it('аргумент activity_type фильтрует строки каталога по слагу и метке', () => {
     expect(CORE).toMatch(/const want = \(args\.activity_type \?\? ''\)\.trim\(\)\.toLowerCase\(\)/);
     expect(CORE).toMatch(/filterTourCatalog\(ctx, want, activityLabel\)/);
-    expect(FILTER).toMatch(/type\.includes\(want\) \|\| label\.includes\(want\)/);
+    // Слаг и метка — по основе слова, обе подписи словаря (08.10: строкой
+    // целиком «вулканы» не находили «Восхождение на вулкан»). Поведение —
+    // tests/unit/tour-filter.test.ts на настоящем словаре.
+    expect(FILTER).toMatch(/typeMatches\(l\.match\(\/тип:\(\\S\+\)\/\)/);
+    expect(FILTER).toMatch(/words\(activityLabel\(s\)\)/);
+    expect(FILTER).toMatch(/words\(activityLabel\(s, true\)\)/);
   });
 
   it('пустой результат фильтра — не тупик: агент получает полный каталог, но как замену', () => {
