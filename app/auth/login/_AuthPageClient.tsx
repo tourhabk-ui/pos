@@ -338,6 +338,16 @@ export default function AuthPageClient() {
             >
               {loading ? 'Вход...' : 'Войти'}
             </button>
+
+            {/* Сброс пароля — отдельная страница, а не ещё одна форма здесь:
+                у партнёра с временным паролем от администратора это
+                единственный путь, если временный потерян. */}
+            <Link
+              href="/auth/forgot-password"
+              className="block text-center text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              Забыли пароль?
+            </Link>
           </form>
         )}
 

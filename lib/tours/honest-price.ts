@@ -35,6 +35,7 @@
 import { pool } from '@/lib/db-pool';
 import type { QueryResult, QueryResultRow } from 'pg';
 import { bookingTotal, type BookingTotalInput } from '@/lib/tours/booking-total';
+import { pickPriceTier, PriceTierMissError, type PriceTier } from '@/lib/tours/price-tiers';
 import {
   matchPricingRules, finalUnitPrice, type PricingRule, type RuleContext,
 } from '@/lib/tours/pricing-rule-match';
@@ -107,6 +108,12 @@ export interface HonestPriceInput {
   duration?: BookingTotalInput['duration'];
   rules: PricingRule[];
   ctx: RuleContext;
+  /**
+   * Ступени цены по размеру группы (миграция 1173). Не переданы или пусты —
+   * цена тура одна, `baseUnitPrice`. Группа вне ступеней — `PriceTierMissError`:
+   * суммы нет, и подставлять базовую цену нельзя.
+   */
+  tiers?: PriceTier[];
 }
 
 /**
@@ -115,7 +122,14 @@ export interface HonestPriceInput {
  * Отдельно от запросов намеренно — так её судит юнит-тест напрямую, без мока
  * базы, который ответил бы что угодно.
  */
-export function composeHonestPrice(input: HonestPriceInput): HonestPrice {
+export function composeHonestPrice(rawInput: HonestPriceInput): HonestPrice {
+  // Ступень задаёт БАЗУ: правила (сезон, раннее бронирование, заполненность,
+  // скидка за группу) применяются поверх неё, как поверх обычной цены тура.
+  const pick = pickPriceTier(rawInput.tiers ?? [], rawInput.participants, rawInput.priceUnit);
+  if (pick.kind === 'miss') throw new PriceTierMissError(rawInput.participants, pick.reason);
+  const input: HonestPriceInput = pick.kind === 'hit'
+    ? { ...rawInput, baseUnitPrice: pick.pricePerPerson }
+    : rawInput;
   const { multiplier, appliedRules } = matchPricingRules(input.rules, input.ctx);
   const unitPrice = finalUnitPrice(input.baseUnitPrice, multiplier);
   const common = {
@@ -156,12 +170,35 @@ export interface PricingExecutor {
   query<R extends QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<R>>;
 }
 
+/**
+ * Ступени цены тура (миграция 1173). Пустой массив — «ступеней нет, цена одна».
+ * Отказ запроса НЕ превращается в пустой массив: тур со ступенями, прочитанный
+ * как «без ступеней», получил бы базовую цену вместо ступенчатой (§4.0).
+ */
+export async function loadPriceTiers(
+  tourId: number | string,
+  exec: PricingExecutor = pool,
+): Promise<PriceTier[]> {
+  const res = await exec.query<{ min_people: number; max_people: number | null; price_per_person: string }>(
+    `SELECT min_people, max_people, price_per_person
+       FROM tour_price_tiers
+      WHERE operator_tour_id = $1
+      ORDER BY min_people`,
+    [tourId],
+  );
+  return res.rows.map((r) => ({
+    min_people: Number(r.min_people),
+    max_people: r.max_people === null ? null : Number(r.max_people),
+    price_per_person: Number(r.price_per_person),
+  }));
+}
+
 export async function loadPricingContext(
   tourId: number | string,
   tourDate: string,
   exec: PricingExecutor = pool,
-): Promise<{ rules: PricingRule[]; occupancyPct: number }> {
-  const [ruleRes, slotRes] = await Promise.all([
+): Promise<{ rules: PricingRule[]; occupancyPct: number; tiers: PriceTier[] }> {
+  const [ruleRes, slotRes, tierRes] = await Promise.all([
     exec.query<PricingRule>(
       `SELECT rule_type, date_from, date_to, days_before_min, days_before_max,
               occupancy_min, guests_min, multiplier
@@ -177,11 +214,13 @@ export async function loadPricingContext(
         WHERE ta.operator_tour_id = $1 AND ta.date = $2::date AND ta.is_cancelled = FALSE`,
       [tourId, tourDate],
     ),
+    loadPriceTiers(tourId, exec),
   ]);
+  const tiers = tierRes;
   const slot = slotRes.rows[0];
   const total = slot?.available_slots ?? 0;
   const occupancyPct = total > 0 ? Math.round((slot.occupied / total) * 100) : 0;
-  return { rules: ruleRes.rows, occupancyPct };
+  return { rules: ruleRes.rows, occupancyPct, tiers };
 }
 
 /** Честная цена тура на дату: правила читаются из базы и применяются. */
@@ -195,13 +234,14 @@ export async function honestTourPrice(input: {
   /** Клиент открытой транзакции — обязателен на пути брони. */
   exec?: PricingExecutor;
 }): Promise<HonestPrice> {
-  const { rules, occupancyPct } = await loadPricingContext(input.tourId, input.tourDate, input.exec);
+  const { rules, occupancyPct, tiers } = await loadPricingContext(input.tourId, input.tourDate, input.exec);
   return composeHonestPrice({
     baseUnitPrice: input.baseUnitPrice,
     priceUnit: input.priceUnit,
     participants: input.participants,
     duration: input.duration,
     rules,
+    tiers,
     ctx: { tourDate: input.tourDate, guests: input.participants, occupancyPct },
   });
 }

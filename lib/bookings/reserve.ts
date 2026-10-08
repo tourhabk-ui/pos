@@ -64,6 +64,7 @@
 
 import type { PoolClient } from 'pg';
 import { honestTourPrice } from '@/lib/tours/honest-price';
+import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { transaction } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
@@ -73,7 +74,8 @@ export type ReserveErrorCode =
   | 'NOT_FOUND'      // тура нет, снят с публикации или удалён
   | 'DATE_BLOCKED'   // оператор закрыл дату в календаре
   | 'MAX_EXCEEDED'   // запрошено больше, чем вмещает тур или дата
-  | 'NO_SLOTS';      // мест на дату не осталось
+  | 'NO_SLOTS'       // мест на дату не осталось
+  | 'PRICE_UNKNOWN'; // размер группы вне ступеней цены: суммы нет, её называет оператор
 
 export class ReserveError extends Error {
   constructor(public readonly code: ReserveErrorCode, message: string) {
@@ -303,15 +305,24 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
      * Цену от клиента этот модуль не принимает и никогда не принимал — в
      * `ReserveInput` такого поля нет. Считает сервер.
      */
-    const price = await honestTourPrice({
-      tourId: input.tourId,
-      tourDate: input.date,
-      baseUnitPrice: Number(tour.base_price),
-      priceUnit: tour.price_unit,
-      participants: input.participants,
-      duration: tour,
-      exec: client,
-    });
+    // Группа вне ступеней цены: бронь без суммы не заводится. Подставить
+    // базовую цену значило бы записать в заявку и в письмо оператору сумму,
+    // которой он не называл (#2246).
+    let price: Awaited<ReturnType<typeof honestTourPrice>>;
+    try {
+      price = await honestTourPrice({
+        tourId: input.tourId,
+        tourDate: input.date,
+        baseUnitPrice: Number(tour.base_price),
+        priceUnit: tour.price_unit,
+        participants: input.participants,
+        duration: tour,
+        exec: client,
+      });
+    } catch (err) {
+      if (err instanceof PriceTierMissError) throw new ReserveError('PRICE_UNKNOWN', err.message);
+      throw err;
+    }
     const totalPrice = price.total;
 
     /**
