@@ -85,6 +85,8 @@ describe('место у вулкана получает его уровень', 
   it('Кузьмич называет вулкан, по которому поднят статус места', () => {
     const g = read('lib/kuzmich/guardian-context.ts');
     expect(g).toContain('AS linked_volcanoes');
-    expect(g).toContain('Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС.');
+    expect(g).toContain('Место у вулкана ${p.linked_volcanoes}: статус учитывает его шкалы KVERT и КФ ЕГС. ');
+    // Два цвета двух шкал рядом читались как расхождение (канал, 08.10).
+    expect(g).toContain('Цвет в скобках — статус места для выхода, а не код KVERT');
   });
 });
