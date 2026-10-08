@@ -11,6 +11,9 @@
  *  - вызовы по инструменту × род × ПРИЧИНА ошибки (1143) — только внешние;
  *  - каждый вызов пишущих инструментов за окно поимённо (без аргументов —
  *    их в журнале нет by construction): когда, чем кончился, причина, свой ли;
+ *  - внешние ошибки по КЛИЕНТУ (08.10): двенадцать отказов `invalid_args`
+ *    с пустыми аргументами нельзя было ни приписать, ни отличить от пробы —
+ *    чей это мост, отвечает имя программы из рукопожатия;
  *  - с какого дня стоят метки «свой», «причина» — до них разделения нет,
  *    и перепись это называет числом строк без метки, а не молчит.
  *
@@ -56,7 +59,7 @@ export async function GET(req: NextRequest) {
   const p = [...PROBE_PARAMS, String(days)];
   const startedAt = Date.now();
 
-  const [origins, byTool, errors, requested, clients, writes, marks] = await Promise.all([
+  const [origins, byTool, errors, errorsByClient, requested, clients, writes, marks] = await Promise.all([
     measure('origins', async () => (await pool.query<{ origin: string; calls: string; errors: string; caller_days: string }>(
       `SELECT ${ORIGIN} AS origin, COUNT(*) AS calls, COUNT(*) FILTER (WHERE NOT t.ok) AS errors,
               COUNT(DISTINCT t.caller_hash) AS caller_days
@@ -71,6 +74,16 @@ export async function GET(req: NextRequest) {
       `SELECT t.tool, t.error_kind, t.error_code, t.arg_key, t.arg_value, COUNT(*) AS n, to_char(MAX(t.created_at), 'YYYY-MM-DD HH24:MI') AS last_at
          FROM mcp_tool_calls t WHERE ${W} AND NOT t.ok AND t.is_self = FALSE AND NOT ${PROBE}
         GROUP BY 1, 2, 3, 4, 5 ORDER BY COUNT(*) DESC LIMIT 60`, p)).rows),
+
+    // Чей вызов упал или получил отказ: имя программы из рукопожатия, иначе
+    // род заголовка. Это имя клиента, не человека, — то же, что в «clients».
+    measure('errors_by_client_external', async () => (await pool.query<{ client: string; tool: string; error_kind: string | null; error_code: string | null; n: string; last_at: string }>(
+      `SELECT COALESCE(c.client_name, c.ua_family, 'не представился') AS client, t.tool, t.error_kind, t.error_code,
+              COUNT(*) AS n, to_char(MAX(t.created_at), 'YYYY-MM-DD HH24:MI') AS last_at
+         FROM mcp_tool_calls t
+         LEFT JOIN mcp_clients c ON c.caller_hash = t.caller_hash AND c.day = t.created_at::date
+        WHERE ${W} AND NOT t.ok AND t.is_self = FALSE AND NOT ${PROBE}
+        GROUP BY 1, 2, 3, 4 ORDER BY COUNT(*) DESC LIMIT 60`, p)).rows),
 
     measure('requested_unknown', async () => (await pool.query<{ requested_tool: string | null; origin: string; n: string }>(
       `SELECT t.requested_tool, ${ORIGIN} AS origin, COUNT(*) AS n
@@ -91,15 +104,18 @@ export async function GET(req: NextRequest) {
         ORDER BY t.created_at DESC LIMIT 100`, [...p, [...WRITE_TOOL_NAMES]])).rows),
 
 
-    measure('marks', async () => (await pool.query<{ self_since: string | null; code_since: string | null; rows_total: string; rows_without_code: string }>(
+    // refused_since — по всему журналу, не по окну: до первой строки рода
+    // `refused` (#2191, 02.10) отказ по входу писался сбоем.
+    measure('marks', async () => (await pool.query<{ self_since: string | null; code_since: string | null; refused_since: string | null; rows_total: string; rows_without_code: string }>(
       `SELECT to_char(MIN(t.created_at) FILTER (WHERE t.is_self), 'YYYY-MM-DD') AS self_since,
               to_char(MIN(t.created_at) FILTER (WHERE t.error_code IS NOT NULL), 'YYYY-MM-DD') AS code_since,
+              (SELECT to_char(MIN(r.created_at), 'YYYY-MM-DD HH24:MI') FROM mcp_tool_calls r WHERE r.error_kind = 'refused') AS refused_since,
               COUNT(*) AS rows_total,
               COUNT(*) FILTER (WHERE NOT t.ok AND t.error_code IS NULL) AS rows_without_code
          FROM mcp_tool_calls t WHERE t.created_at >= NOW() - ($1 || ' days')::interval`, [String(days)])).rows[0]),
   ]);
 
-  const failed = ([['origins', origins], ['by_tool_external', byTool], ['errors_external', errors], ['requested_unknown', requested], ['clients', clients], ['write_calls', writes], ['marks', marks]] as const)
+  const failed = ([['origins', origins], ['by_tool_external', byTool], ['errors_external', errors], ['errors_by_client_external', errorsByClient], ['requested_unknown', requested], ['clients', clients], ['write_calls', writes], ['marks', marks]] as const)
     .filter(([, m]) => m.failed !== null)
     .map(([name, m]) => ({ measure: name, error: m.failed }));
 
@@ -114,12 +130,14 @@ export async function GET(req: NextRequest) {
     origins: num(origins.value),
     by_tool_external: num(byTool.value),
     errors_external: num(errors.value),
+    errors_by_client_external: num(errorsByClient.value),
     requested_unknown: num(requested.value),
     clients: num(clients.value),
     write_calls: writes.value,
     marks: marks.value ? {
       self_since: marks.value.self_since,
       error_code_since: marks.value.code_since,
+      refused_since: marks.value.refused_since,
       rows_total: Number(marks.value.rows_total),
       errors_without_code: Number(marks.value.rows_without_code),
     } : null,
@@ -127,7 +145,8 @@ export async function GET(req: NextRequest) {
     note:
       'Только чтение. Разделение свой/проверка/внешний — то же, что в панели ' +
       '(is_self миграции 1142, реестр lib/mcp/probe-clients). До self_since свои ' +
-      'вызовы неотличимы от внешних; до error_code_since у ошибок нет причины. ' +
+      'вызовы неотличимы от внешних; до error_code_since у ошибок нет причины; ' +
+      'до refused_since отказ по входу писался как execution. ' +
       'caller_days — человеко-дни суточного hash, не люди.',
     duration_ms: Date.now() - startedAt,
   });

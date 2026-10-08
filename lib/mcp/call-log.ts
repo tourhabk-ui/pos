@@ -26,6 +26,20 @@ import { normalizeClientName, normalizeClientVersion, uaFamily } from '@/lib/mcp
  */
 export type McpErrorKind = 'rate_limited' | 'unknown_tool' | 'execution' | 'refused';
 
+/**
+ * Отказ — инструмент ответил, а не упал: агент передал не то (`refused`),
+ * спросил несуществующее (`unknown_tool`) или упёрся в лимит
+ * (`rate_limited`). Сбой — всё прочее, и строка без рода тоже: «не знаю»
+ * считается против нас, а не в нашу пользу (§4.0).
+ *
+ * Владелец 08.10 прислал панель: у get_place_info 16 ошибок, у
+ * get_tour_details 8. Из 36 внешних ошибок месяца сбоем после 04.10 не было
+ * ни одной — красная колонка складывала падения с отказами по входу, и
+ * чинить было нечего, а выглядело как поломка. Одно правило на панель и
+ * перепись.
+ */
+export const REFUSAL_KINDS: readonly McpErrorKind[] = ['refused', 'unknown_tool', 'rate_limited'];
+
 export interface McpCallLogEntry {
   tool: string;
   ok: boolean;
