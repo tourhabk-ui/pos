@@ -18,6 +18,8 @@ const createLeadMock = vi.hoisted(() => vi.fn(async () => 'lead-1'));
 const createSeatMock = vi.hoisted(() => vi.fn());
 const keepsScheduleMock = vi.hoisted(() => vi.fn());
 const slotsMock = vi.hoisted(() => vi.fn());
+const TOUR_PLAIN = { id: '7', title: 'Тур без календаря' };
+const tourMock = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock('@/lib/leads/create', () => ({
   createLead: (...a: unknown[]) => createLeadMock(...(a as [])),
@@ -29,7 +31,7 @@ vi.mock('@/lib/kuzmich/tool-schemas', () => ({
 }));
 vi.mock('@/lib/kuzmich/core', () => ({ executeKuzmichTool: async () => 'ok' }));
 vi.mock('@/lib/kuzmich/tour-availability-tool', () => ({
-  resolveTourByQuery: async () => ({ id: '7', title: 'Тур без календаря' }),
+  resolveTourByQuery: async () => tourMock.value,
 }));
 vi.mock('@/lib/planner', () => ({
   createPlannerCache: () => ({}),
@@ -69,6 +71,35 @@ beforeEach(() => {
   for (const m of [createLeadMock, createSeatMock, keepsScheduleMock, slotsMock]) m.mockReset();
   createLeadMock.mockResolvedValue('lead-1');
   slotsMock.mockResolvedValue([]);
+  tourMock.value = TOUR_PLAIN;
+});
+
+describe('тур без расписания — только по сезону (#2244, #2245)', () => {
+  const SEASONAL = {
+    ...TOUR_PLAIN, season_start: '2099-05-01', season_end: '2099-10-01',
+    duration_type: 'multi_day', multi_day_count: 8, duration_hours: null,
+  };
+
+  it('дата вне сезона до оператора не доходит, окно названо словами', async () => {
+    tourMock.value = SEASONAL;
+    keepsScheduleMock.mockResolvedValue(false);
+    // 8-дневный тур должен закончиться к 1 октября: последний выезд — 24.09.
+    const r = await text(await POST(call({ ...args, date: '2099-09-25' })));
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain('только по сезону');
+    expect(r.text).toContain('выезд с 1 мая 2099 по 24 сентября 2099');
+    expect(r.text).toContain('Заявка не создана');
+    expect(createSeatMock).not.toHaveBeenCalled();
+    expect(createLeadMock).not.toHaveBeenCalled();
+  });
+
+  it('дата в сезоне — запрос оператору, как раньше', async () => {
+    tourMock.value = SEASONAL;
+    keepsScheduleMock.mockResolvedValue(false);
+    createSeatMock.mockResolvedValue({ ok: true, requestId: 'r1', statusToken: 'TOK', deadlineAt: new Date('2099-01-01T05:00:00Z'), operatorDelivery: 'max' });
+    await POST(call({ ...args, date: '2099-09-24' }));
+    expect(createSeatMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('тур без расписания', () => {

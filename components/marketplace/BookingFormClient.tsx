@@ -7,6 +7,7 @@ import { tourDurationDays } from '@/lib/bookings/duration';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
+import type { SeasonWindowView } from '@/lib/tours/request-window';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
@@ -45,6 +46,11 @@ interface BookingFormProps {
    * Обычная заявка остаётся одной кнопкой ниже.
    */
   askSeatsFirst?: boolean;
+  /**
+   * Сезон тура для дат без календаря (#2244, #2245, lib/tours/request-window):
+   * дату вне него сервер отвергнет, поэтому форма её и не предлагает.
+   */
+  seasonWindow?: SeasonWindowView | null;
 }
 
 /** Неразрывный пробел перед ₽: «52 000 / ₽» на двух строках — аудит 24.09. */
@@ -70,7 +76,7 @@ interface FormError {
   kind: 'validation' | 'send';
 }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate, cancellationTerms, askSeatsFirst = false }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle, priceUnit, duration, initialDate, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
   const router = useRouter();
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst);
   const [seatsOpen, setSeatsOpen] = useState(false);
@@ -331,6 +337,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             ? 'и по ссылке из ответа её можно будет оплатить.'
             : 'а оплату вы внесёте оператору напрямую — Ведар платежи не принимает.'}
         </p>
+        {seasonWindow && (
+          <p className="text-sm text-[var(--text-primary)] leading-relaxed">
+            Предварительная бронь только по сезону: {seasonWindow.label}.
+          </p>
+        )}
         <button type="button" className="ds-btn ds-btn-primary w-full" onClick={() => { markFunnelStart(); setSeatsOpen(true); }}>
           Спросить места у оператора
         </button>
@@ -342,6 +353,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             tour={{ id: String(tourId), title: tourTitle ?? 'Тур' }}
             defaultDate={initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : ''}
             defaultParticipants={1}
+            seasonWindow={seasonWindow}
             onClose={() => setSeatsOpen(false)}
             source="tour_card"
           />
@@ -373,6 +385,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           onChange={setDate}
           inputId="booking-date"
           invalid={invalid('booking_date')}
+          seasonWindow={seasonWindow}
         />
       </div>
 

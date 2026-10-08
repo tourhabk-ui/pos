@@ -65,7 +65,7 @@ interface Created {
 }
 
 export function SeatRequestForm({
-  tour, defaultDate, defaultParticipants, onClose, source = 'planner',
+  tour, defaultDate, defaultParticipants, onClose, source = 'planner', seasonWindow = null,
 }: {
   tour: { id: string; title: string };
   defaultDate: string;
@@ -73,6 +73,8 @@ export function SeatRequestForm({
   onClose: () => void;
   /** Откуда открыта форма — пишется в запрос (карточка тура или планер). */
   source?: 'planner' | 'tour_card';
+  /** Сезон тура без календаря (lib/tours/request-window): границы даты. */
+  seasonWindow?: { from: string; to: string } | null;
 }) {
   const [date, setDate] = useState(defaultDate);
   // Строка, а не число: поле можно стереть и набрать заново; «пустое» не
@@ -274,7 +276,7 @@ export function SeatRequestForm({
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="ds-label">Дата</span>
-                <input type="date" required min={today} value={date} onChange={e => setDate(e.target.value)} className="ds-input w-full" />
+                <input type="date" required min={seasonWindow && seasonWindow.from > today ? seasonWindow.from : today} max={seasonWindow?.to} value={date} onChange={e => setDate(e.target.value)} className="ds-input w-full" />
               </label>
               <label className="block">
                 <span className="ds-label">Человек</span>

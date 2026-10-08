@@ -38,7 +38,7 @@ describe('get_tour_availability: тур без расписания — все �
     mockDb();
     const text = await getTourAvailabilityForKuzmich({ tour: '46', date_from: '2027-07-10', days: '14', people: '2' });
     expect(text).toMatch(/все даты свободны для заявки/);
-    expect(text).toMatch(/- 10\.07–23\.07: свободно для заявки, итого за 2 чел\.: 640[\s  ]000 ₽/);
+    expect(text).toMatch(/- 10\.07–23\.07(\.2027)?: свободно для заявки, итого за 2 чел\.: 640[\s  ]000 ₽/);
     // Число мест у тура без календаря — выдумка: его нет ни в одной строке.
     expect(text).not.toMatch(/свободно \d/);
     expect(text).toMatch(/create_booking_request/);
@@ -49,7 +49,7 @@ describe('get_tour_availability: тур без расписания — все �
   it('без числа людей — цена тура и подсказка про people', async () => {
     mockDb();
     const text = await getTourAvailabilityForKuzmich({ tour: '46', date_from: '2027-07-10', days: '3' });
-    expect(text).toMatch(/- 10\.07–12\.07: свободно для заявки, /);
+    expect(text).toMatch(/- 10\.07–12\.07(\.2027)?: свободно для заявки, /);
     expect(text).toMatch(/с параметром people/);
   });
 
@@ -62,7 +62,7 @@ describe('get_tour_availability: тур без расписания — все �
   it('один день — одна дата, без диапазона', async () => {
     mockDb();
     const text = await getTourAvailabilityForKuzmich({ tour: '46', date_from: '2027-07-10', days: '1', people: '2' });
-    expect(text).toMatch(/- 10\.07: свободно для заявки/);
+    expect(text).toMatch(/- 10\.07(\.2027)?: свободно для заявки/);
   });
 });
 
