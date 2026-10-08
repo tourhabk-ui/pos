@@ -24,6 +24,7 @@ import {
 } from './engine';
 import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from './constants';
 import type { TravelStyle } from './travel-style';
+import { MOVABLE_TYPES as MOVABLE, FRAME_WORD, tourGroup, insertIndex } from './plan-ops';
 
 /** Вход движка, по которому план собран. Свободного текста здесь нет. */
 export interface PlanParams {
@@ -86,9 +87,6 @@ const MIN_TRIP_DAYS = 3;
 /** Длиннее 21 дня — тоже (readPlanDays). */
 const MAX_TRIP_DAYS = 21;
 
-/** Дни, которые правка двигает и убирает. Прилёт, отъезд и переезд — каркас поездки. */
-const MOVABLE: ReadonlySet<DayPlan['type']> = new Set(['activity', 'rest', 'buffer']);
-
 const LODGING_LABEL: Record<BudgetTier, string> = { economy: 'эконом', comfort: 'комфорт', premium: 'премиум' };
 
 export function planProfile(params: PlanParams): TripProfile {
@@ -116,13 +114,6 @@ function shiftIso(iso: string, days: number): string {
 
 function tripLength(params: PlanParams): number {
   return Math.round((Date.parse(`${params.departureDate}T00:00:00Z`) - Date.parse(`${params.arrivalDate}T00:00:00Z`)) / 86400000) + 1;
-}
-
-/** Дни одного многодневного тура идут вместе: убрать или сдвинуть часть нельзя. */
-function tourGroup(days: readonly DayPlan[], day: DayPlan): DayPlan[] {
-  const id = day.realTour?.tourId;
-  if (!id) return [day];
-  return days.filter((d) => d.realTour?.tourId === id);
 }
 
 function dayList(days: readonly DayPlan[]): string {
@@ -157,10 +148,6 @@ function removeDay(plan: EditablePlan, num: number): EditResult {
     : `Убрал день ${num}.`;
   return { ok: true, plan: next, note: `${what} Поездка стала на ${removed.size} ${removed.size === 1 ? 'день' : 'дня'} короче, остальные дни не менялись.` };
 }
-
-const FRAME_WORD: Partial<Record<DayPlan['type'], string>> = {
-  arrival: 'день прилёта', departure: 'день отъезда', travel: 'переезд между зонами',
-};
 
 /**
  * Переставить день на другое место. Двигаются только дни одной зоны: день
@@ -229,10 +216,11 @@ async function addDay(plan: EditablePlan, interest: string, deps: EditDeps): Pro
     return { ok: false, reason: `${name}: с ${b.minAge} лет, младшему ${b.youngest} — в план семьи не ставим.${b.alternative ? ` Альтернатива: ${b.alternative}.` : ''}` };
   }
 
-  const departure = plan.days.find((d) => d.type === 'departure');
   // Новый день встаёт на место отъезда (или в конец, если отъезда нет — у
-  // местного жителя), отъезд — на день позже.
-  const insertAt = departure ? departure.day : Math.max(0, ...plan.days.map((d) => d.day)) + 1;
+  // местного жителя), отъезд — на день позже. Место — общим правилом
+  // plan-ops, тем же, что у кнопок веб-планера.
+  const at = insertIndex(plan.days);
+  const insertAt = at < plan.days.length ? plan.days[at].day : Math.max(0, ...plan.days.map((d) => d.day)) + 1;
   const newDate = shiftIso(plan.params.arrivalDate, insertAt - 1);
   const mini = await deps.recommend(planProfile({
     ...plan.params,

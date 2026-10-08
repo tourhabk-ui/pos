@@ -33,10 +33,11 @@ export interface DayPlan {
   /** Род активного дня — производит движок (lib/planner/day-mode). */
   activityMode?: 'operator' | 'self' | 'open';
   /**
-   * Тур дня от движка. Здесь — только то, что читает экран подбора жилья:
-   * включено ли проживание (true / false / null — не знаем).
+   * Тур дня от движка. Здесь — только то, что читает клиент: включено ли
+   * проживание (экран подбора жилья) и id тура — по нему общие правила
+   * правки (lib/planner/plan-ops) держат дни многодневного тура вместе.
    */
-  realTour?: { lodgingIncluded: boolean | null };
+  realTour?: { tourId: string; lodgingIncluded: boolean | null };
 }
 
 export interface TripWarning {

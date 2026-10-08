@@ -25,6 +25,7 @@ import {
   BedDouble, Bus, Car,
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
+import { frameReason, tourGroup, insertIndex, orderProblem } from '@/lib/planner/plan-ops';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PAGE_ACTION_BAR_VAR } from '@/components/shared/StickyLeadButton';
@@ -1146,6 +1147,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [days, setDays]   = useState<DayPlan[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
+  // Отказ правки дня (plan-ops): показывается под списком дней — баннер
+  // error живёт в панели шагов анкеты, на экране плана его не видно.
+  const [editNote, setEditNote] = useState<string | null>(null);
   const [showItinerary, setShowItinerary] = useState(false);
 
   // Level 2
@@ -1540,11 +1544,21 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }
   }, [days, editingDayId]);
 
+  // Правила правки — общие с диалогом Кузьмича и MCP (lib/planner/plan-ops,
+  // #2224): каркас поездки не трогается, многодневный тур убирается целиком,
+  // новый день встаёт перед отъездом. Номер дня здесь — ключ карточки, а не
+  // позиция, поэтому не пересчитывается.
   function deleteDay(dayNum: number) {
-    setDays(prev => prev.filter(d => d.day !== dayNum));
-    setTransportByDay(prev => { const n = { ...prev }; delete n[dayNum]; return n; });
-    setConfirmedDays(prev => { const n = new Set(prev); n.delete(dayNum); return n; });
-    if (editingDayId === dayNum) setEditingDayId(null);
+    const target = days.find(d => d.day === dayNum);
+    if (!target) return;
+    const frame = frameReason(target);
+    if (frame) { setEditNote(`Это ${frame} — без него поездка не сходится, его не убирают.`); return; }
+    const gone = new Set(tourGroup(days, target).map(d => d.day));
+    setEditNote(null);
+    setDays(prev => prev.filter(d => !gone.has(d.day)));
+    setTransportByDay(prev => { const n = { ...prev }; for (const g of gone) delete n[g]; return n; });
+    setConfirmedDays(prev => { const n = new Set(prev); for (const g of gone) n.delete(g); return n; });
+    if (editingDayId !== null && gone.has(editingDayId)) setEditingDayId(null);
   }
 
   function confirmDay(dayNum: number) {
@@ -1643,18 +1657,21 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       minChildAge: 0,
       dayWarnings: [],
     };
-    // Insert before departure day if exists
-    const depIdx = days.findIndex(d => d.type === 'departure');
-    if (depIdx >= 0) {
-      setDays(prev => [...prev.slice(0, depIdx), newDay, ...prev.slice(depIdx)]);
-    } else {
-      setDays(prev => [...prev, newDay]);
-    }
+    // Перед отъездом — общим правилом plan-ops.
+    setDays(prev => { const at = insertIndex(prev); return [...prev.slice(0, at), newDay, ...prev.slice(at)]; });
     setEditingDayId(newNum);
     setMobileTab('map');
   }
 
   function replaceDay(dayNum: number, route: RoutePoint) {
+    const target = days.find(d => d.day === dayNum);
+    const frame = target ? frameReason(target) : null;
+    if (frame) { setEditNote(`Это ${frame} — его не заменяют маршрутом.`); return; }
+    if (target && tourGroup(days, target).length > 1) {
+      setEditNote('Это день многодневного тура — по одному дню его не заменяют. Уберите тур целиком и добавьте маршрут.');
+      return;
+    }
+    setEditNote(null);
     setDays(prev => prev.map(d => d.day === dayNum ? routeToDayPlan(route, dayNum) : d));
     setTransportByDay(prev => { const n = { ...prev }; delete n[dayNum]; return n; });
     setSelectedRoute(null);
@@ -1662,9 +1679,11 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
   }
 
   function addRouteAsDay(route: RoutePoint) {
+    // До #2224 маршрут вставал в конец — после дня отъезда.
     setDays(prev => {
       const newNum = prev.length > 0 ? Math.max(...prev.map(d => d.day)) + 1 : 1;
-      return [...prev, routeToDayPlan(route, newNum)];
+      const at = insertIndex(prev);
+      return [...prev.slice(0, at), routeToDayPlan(route, newNum), ...prev.slice(at)];
     });
     setSelectedRoute(null);
   }
@@ -2534,6 +2553,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                 axis="y"
                 values={days}
                 onReorder={(newDays) => {
+                  const broken = orderProblem(newDays);
+                  if (broken) { setEditNote(broken); return; }
+                  setEditNote(null);
                   setDays(newDays);
                   setValidation(null);
                   if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
@@ -2599,6 +2621,12 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   />
                 ))}
               </Reorder.Group>
+
+              {editNote && (
+                <p role="status" className="px-3 py-2 rounded-lg text-xs font-medium mt-1.5 flex items-start gap-2 bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />{editNote}
+                </p>
+              )}
 
               {/* AI route validation result */}
               {validation && (
