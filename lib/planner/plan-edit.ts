@@ -50,11 +50,23 @@ export type PlanEdit =
   | { kind: 'add_day'; interest: string }
   | { kind: 'remove_day'; day: number }
   | { kind: 'move_day'; day: number; to: number }
-  | { kind: 'set_lodging'; tier: BudgetTier };
+  | { kind: 'set_lodging'; tier: BudgetTier }
+  /**
+   * Рейс задержан на `days` дней (#2231, решение владельца 08.10: сигнал даёт
+   * сам турист). `keepReturn` — обратный билет не меняется: поездка короче,
+   * выпадают дни сразу после прилёта. Иначе вся поездка сдвигается целиком.
+   */
+  | { kind: 'flight_delay'; days: number; keepReturn: boolean };
 
 export type EditResult =
   | {
     ok: true; plan: EditablePlan; note: string;
+    /**
+     * Туры операторов, которых правка коснулась: выпали из плана или
+     * уехали на другие даты. Если тур уже забронирован, оператору надо
+     * сказать — сам план брони не меняет.
+     */
+    toursTouched?: Array<{ tourId: string; title: string; how: 'dropped' | 'shifted' }>;
     /**
      * Предупреждения движка о добавленном занятии (безопасность, разрешения,
      * сезон, подготовка). Без них «добавь день рыбалки» потерял бы «нужна
@@ -260,6 +272,87 @@ function setLodging(plan: EditablePlan, tier: BudgetTier): EditResult {
   return { ok: true, plan: next, note: `Уровень жилья — «${LODGING_LABEL[tier]}». Дни не менялись, пересчитана оценка жилья.` };
 }
 
+/** Максимум задержки, который правка разбирает; больше — пересборка плана. */
+export const MAX_FLIGHT_DELAY_DAYS = 7;
+
+function tourTitle(d: DayPlan): string {
+  return d.title.replace(/\s*\(день \d+ из \d+\)\s*$/, '');
+}
+
+/**
+ * Рейс задержан (#2231). Прилёт уезжает на `days` дней позже.
+ *
+ * Обратный билет остаётся (`keepReturn`) — выпадают `days` дней сразу после
+ * прилёта: это те дни, которые человек проведёт в ожидании рейса. Переезд
+ * между зонами или отъезд в этом окне — отказ: план без них не сходится, и
+ * честнее собрать его заново, чем подставить. Многодневный тур, задетый
+ * окном хоть одним днём, выпадает целиком (по частям его не проходят), а
+ * его оставшиеся дни становятся свободными.
+ *
+ * Обратный билет переносится — поездка сдвигается целиком, дни те же. Туры
+ * операторов при этом попадают на другие даты, и их места надо проверить.
+ *
+ * Брони план не меняет: задетые туры возвращаются списком, чтобы ответ
+ * сказал человеку, кому из операторов написать.
+ */
+function flightDelay(plan: EditablePlan, days: number, keepReturn: boolean): EditResult {
+  if (!Number.isInteger(days) || days < 1) return { ok: false, reason: 'Задержка — целое число дней, от одного.' };
+  if (days > MAX_FLIGHT_DELAY_DAYS) {
+    return { ok: false, reason: `Задержка больше ${MAX_FLIGHT_DELAY_DAYS} дней — это уже другая поездка: собери план заново через make_trip_plan с новыми датами.` };
+  }
+  const dayWord = days === 1 ? 'день' : days < 5 ? 'дня' : 'дней';
+  const touchedTours = (pick: (d: DayPlan) => boolean, how: 'dropped' | 'shifted') => {
+    const seen = new Map<string, { tourId: string; title: string; how: 'dropped' | 'shifted' }>();
+    for (const d of plan.days) {
+      const id = d.realTour?.tourId;
+      if (id && pick(d) && !seen.has(id)) seen.set(id, { tourId: id, title: tourTitle(d), how });
+    }
+    return [...seen.values()];
+  };
+
+  if (!keepReturn) {
+    const next = clone(plan);
+    next.params.arrivalDate = shiftIso(plan.params.arrivalDate, days);
+    next.params.departureDate = shiftIso(plan.params.departureDate, days);
+    return {
+      ok: true, plan: next,
+      note: `Рейс задержан на ${days} ${dayWord}: вся поездка сдвинута, прилёт ${next.params.arrivalDate}, отъезд ${next.params.departureDate}. Дни те же, но туры операторов попали на другие даты — свободные места надо проверить заново.`,
+      toursTouched: touchedTours(() => true, 'shifted'),
+    };
+  }
+
+  if (tripLength(plan.params) - days < MIN_TRIP_DAYS) {
+    return { ok: false, reason: `При обратном билете на прежнюю дату от поездки останется меньше ${MIN_TRIP_DAYS} дней — такой план не собирается. Можно сдвинуть всю поездку (обратный билет переносится) или собрать план заново.` };
+  }
+  const arrival = plan.days.find((d) => d.type === 'arrival');
+  const start = arrival ? arrival.day + 1 : 1;
+  const lost = plan.days.filter((d) => d.day >= start && d.day < start + days);
+  const frame = lost.find((d) => !MOVABLE.has(d.type));
+  if (frame) {
+    return { ok: false, reason: `Задержка задевает ${FRAME_WORD[frame.type] ?? 'каркас поездки'} (день ${frame.day}) — без него план не сходится. Собери план заново через make_trip_plan с новой датой прилёта.` };
+  }
+  // Многодневный тур, задетый окном, выпадает целиком.
+  const droppedTours = new Set(lost.map((d) => d.realTour?.tourId).filter((id): id is string => Boolean(id)));
+  const removed = new Set<number>([
+    ...lost.map((d) => d.day),
+    ...plan.days.filter((d) => d.realTour?.tourId && droppedTours.has(d.realTour.tourId)).map((d) => d.day),
+  ]);
+  const next = clone(plan);
+  next.days = next.days
+    .filter((d) => !removed.has(d.day))
+    // Окно [start, start+days) выпадает из календаря: дни после него — на
+    // `days` раньше. Дни выпавшего тура за окном остаются пустыми.
+    .map((d) => (d.day >= start + days ? { ...d, day: d.day - days } : d));
+  next.params.arrivalDate = shiftIso(plan.params.arrivalDate, days);
+  const emptied = [...removed].filter((n) => n >= start + days).length;
+  return {
+    ok: true, plan: next,
+    note: `Рейс задержан на ${days} ${dayWord}: прилёт ${next.params.arrivalDate}, обратный билет прежний — поездка стала на ${days} ${dayWord} короче.`
+      + ` Выпали дни ${[...removed].sort((a, b) => a - b).join(', ')}${emptied > 0 ? ` (многодневный тур выпадает целиком, свободных дней после него: ${emptied})` : ''}; остальные дни не менялись.`,
+    toursTouched: touchedTours((d) => removed.has(d.day), 'dropped'),
+  };
+}
+
 /** Единственная точка правки плана: Кузьмич, MCP и (следующим шагом) веб-планер. */
 export async function applyPlanEdit(plan: EditablePlan, edit: PlanEdit, deps: EditDeps = DEFAULT_DEPS): Promise<EditResult> {
   switch (edit.kind) {
@@ -267,5 +360,6 @@ export async function applyPlanEdit(plan: EditablePlan, edit: PlanEdit, deps: Ed
     case 'move_day': return moveDay(plan, edit.day, edit.to);
     case 'add_day': return addDay(plan, edit.interest, deps);
     case 'set_lodging': return setLodging(plan, edit.tier);
+    case 'flight_delay': return flightDelay(plan, edit.days, edit.keepReturn);
   }
 }
