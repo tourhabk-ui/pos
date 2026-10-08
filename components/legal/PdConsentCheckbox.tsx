@@ -52,7 +52,7 @@ export function PdConsentCheckbox({
         className="w-5 h-5 shrink-0 accent-[var(--accent)]"
       />
       <span>
-        {PD_CONSENT_TEXT} и{' '}
+        {PD_CONSENT_TEXT} в соответствии с{' '}
         <a
           href={PD_CONSENT_POLICY_URL}
           target="_blank"
@@ -61,6 +61,7 @@ export function PdConsentCheckbox({
         >
           политикой конфиденциальности
         </a>
+        .
       </span>
     </label>
   );
