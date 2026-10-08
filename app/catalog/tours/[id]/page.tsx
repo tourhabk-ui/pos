@@ -8,6 +8,8 @@ import TourDetailClient from './_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 import { tourHeroImage } from '@/lib/tours/hero-image';
 import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
+import { requestWindow, seasonWindowView } from '@/lib/tours/request-window';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export const revalidate = 3600;
 
@@ -72,6 +74,14 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   // идёт запрос мест (04.10). «Не смог прочитать» (null) — не повод менять
   // путь: остаётся обычная заявка.
   const askSeatsFirst = dates?.recorded === 0 && reach?.reachable === true;
+  // Даты без календаря — только по сезону (#2244, #2245): та же граница, что
+  // у брони и запроса мест на сервере, — форма не даёт выбрать то, что
+  // сервер отвергнет.
+  const seasonWindow = seasonWindowView(requestWindow({
+    season_start: tour.season_start, season_end: tour.season_end,
+    duration_type: tour.duration_type, multi_day_count: tour.multi_day_count,
+    duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
+  }, kamchatkaToday()));
 
   const structuredData = buildTourStructuredData(tour, reviews, {
     canonicalUrl: `${SITE}${tourPath(tour)}`,
@@ -86,7 +96,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <TourDetailClient tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} />
+      <TourDetailClient tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} />
     </>
   );
 }

@@ -12,6 +12,8 @@ import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
+import { requestWindow, windowLabel } from '@/lib/tours/request-window';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { reachForTour } from '@/lib/partners/reach';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
@@ -207,6 +209,11 @@ interface TourContextRow {
   has_schedule?: boolean;
   short_description: string | null;
   has_details: boolean | null;
+  /** Сезон — окно дат без календаря (lib/tours/request-window). */
+  duration_type?: string | null;
+  duration_hours?: number | null;
+  season_start?: string | null;
+  season_end?: string | null;
 }
 
 // Раздельные кэши (перф-аудит 08.08, п.5): слоты и цены туров протухают
@@ -450,7 +457,8 @@ export async function loadTourCatalog(): Promise<string | null> {
   try {
     const toursResult = await pool.query<TourContextRow>(`
         SELECT ot.id, ot.title, ot.base_price, ot.price_unit, ot.multi_day_count, ot.activity_type,
-               ot.location_name,
+               ot.location_name, ot.duration_type, ot.duration_hours,
+               ot.season_start::text AS season_start, ot.season_end::text AS season_end,
                -- ЖИВАЯ занятость, не статические колонки тура: аудит пилота
                -- 15.08 — сплав показывал «Ближайшая дата: 1 июня» в середине
                -- августа. Агент, процитировавший прошедшую дату, хуже агента
@@ -499,6 +507,7 @@ export async function loadTourCatalog(): Promise<string | null> {
     const { rows } = toursResult;
     if (!rows.length) return '';
 
+    const today = kamchatkaToday();
     const lines = rows.map(r => {
       const dur   = r.multi_day_count ? `${r.multi_day_count} дн.` : '';
       // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
@@ -508,7 +517,18 @@ export async function loadTourCatalog(): Promise<string | null> {
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       const loc   = r.location_name ? ` — ${r.location_name}` : '';
       const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
-      const slots = r.has_schedule === false
+      // Только по сезону (#2244, #2245): у тура без календаря с записанным
+      // сезоном «все даты свободны» было бы неправдой — свободны даты сезона.
+      const window = r.has_schedule === false
+        ? requestWindow({
+            season_start: r.season_start ?? null, season_end: r.season_end ?? null,
+            duration_type: r.duration_type ?? null, multi_day_count: r.multi_day_count,
+            duration_hours: r.duration_hours ?? null,
+          }, today)
+        : null;
+      const slots = window?.kind === 'season'
+        ? ` | Расписания в системе нет — предварительная бронь только по сезону (${windowLabel(window)}): заявка оператору на дату сезона (create_booking_request; места подтверждает он)`
+        : r.has_schedule === false
         ? ' | Расписания в системе нет — все даты свободны для заявки оператору (create_booking_request с датой отправит ему запрос; места подтверждает он)'
         : r.available_slots != null
           ? ` | Мест: ${r.available_slots > 0 ? r.available_slots : 'нет свободных'}`

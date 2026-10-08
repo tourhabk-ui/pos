@@ -20,6 +20,7 @@ import { containsPattern } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
+import { requestWindow, windowLabel, type RequestWindow } from '@/lib/tours/request-window';
 
 export interface ResolvedTour {
   id: number;
@@ -33,6 +34,10 @@ export interface ResolvedTour {
   /** Длительность — для цены «за человека в день» (tourDurationDays). */
   multi_day_count?: number | null;
   duration_hours?: number | null;
+  /** Сезон — окно дат без календаря (lib/tours/request-window). */
+  duration_type?: string | null;
+  season_start?: string | null;
+  season_end?: string | null;
 }
 
 /**
@@ -50,7 +55,8 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
   try {
     if (/^\d+$/.test(q)) {
       const { rows } = await pool.query<ResolvedTour>(
-        `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours FROM operator_tours
+        `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours,
+               duration_type, season_start::text, season_end::text FROM operator_tours
           WHERE id = $1 AND ${publicTourSql('')}`,
         [Number(q)],
       );
@@ -60,7 +66,8 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
       return rows[0] ?? null;
     }
     const { rows } = await pool.query<ResolvedTour>(
-      `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours FROM operator_tours
+      `SELECT id, title, operator_id, base_price, price_unit, slug, multi_day_count, duration_hours,
+               duration_type, season_start::text, season_end::text FROM operator_tours
         WHERE ${publicTourSql('')}
           AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
         ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
@@ -78,6 +85,20 @@ export async function resolveTourByQuery(query: string): Promise<ResolvedTour | 
 function shortDate(iso: string): string {
   const [, m, d] = iso.split('-');
   return `${d}.${m}`;
+}
+
+/** Дата с годом, если год не текущий: окно сезона бывает в следующем году. */
+function dayIn(iso: string, today: string): string {
+  return iso.slice(0, 4) === today.slice(0, 4) ? shortDate(iso) : `${shortDate(iso)}.${iso.slice(0, 4)}`;
+}
+
+/** Окно дат без календаря для тура (lib/tours/request-window). */
+export function tourRequestWindow(tour: ResolvedTour, today: string): RequestWindow {
+  return requestWindow({
+    season_start: tour.season_start ?? null, season_end: tour.season_end ?? null,
+    duration_type: tour.duration_type ?? null, multi_day_count: tour.multi_day_count ?? null,
+    duration_hours: tour.duration_hours ?? null,
+  }, today);
 }
 
 /**
@@ -140,6 +161,7 @@ export function collapseRuns(items: ReadonlyArray<{ date: string; label: string 
  */
 async function onRequestWindow(
   tour: ResolvedTour, from: string, to: string, peopleRaw: string | undefined, notes: string[],
+  window: RequestWindow, today: string,
 ): Promise<string[]> {
   const people = parsePeople(peopleRaw);
   if (peopleRaw != null && peopleRaw.trim() !== '' && people === null) {
@@ -175,9 +197,13 @@ async function onRequestWindow(
     labels = dates.map(() => price || 'цену называет оператор');
   }
   const runs = collapseRuns(dates.map((date, i) => ({ date, label: labels[i] })));
+  const head = window.kind === 'season'
+    ? `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — предварительная бронь только по сезону (${windowLabel(window)}); даты сезона свободны для заявки, оператор собирает группу под запрос:`
+    : `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — все даты свободны для заявки, оператор собирает группу под запрос:`;
   return [
-    `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — все даты свободны для заявки, оператор собирает группу под запрос:`,
-    ...runs.map((r) => `- ${r.from === r.to ? shortDate(r.from) : `${shortDate(r.from)}–${shortDate(r.to)}`}: свободно для заявки, ${r.label}`),
+    head,
+    ...runs.map((r) => `- ${r.from === r.to ? dayIn(r.from, today)
+      : `${r.from.slice(0, 4) === r.to.slice(0, 4) ? shortDate(r.from) : dayIn(r.from, today)}–${dayIn(r.to, today)}`}: свободно для заявки, ${r.label}`),
     'Числа мест у тура без календаря нет — дату и группу подтверждает оператор. '
       + 'create_booking_request с датой отправит ему заявку в мессенджер, ответ — до 2 часов. Не обещай, что место закреплено, до его ответа.',
     ...(people !== null && tour.base_price != null
@@ -223,9 +249,36 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       // звучали «реальная занятость из броней», и агент до запроса не доходил.
       const keeps = await tourKeepsSchedule(Number(tour.id));
       if (keeps === false) {
+        // Только по сезону (#2244, #2245): окно запроса обрезается сезоном
+        // тура. Запрос целиком до сезона — показывается начало сезона, а не
+        // пустота: «в ближайшие 14 дней ничего» агент пересказал бы как «дат
+        // нет», хотя сезон впереди. Целиком после — следующего сезона в данных
+        // нет, и это так и говорится.
+        const window = tourRequestWindow(tour, today);
+        let wFrom = from;
+        let wTo = to;
+        if (window.kind === 'season') {
+          if (from > window.to) {
+            return [...notes,
+              `Тур "${tour.title}" (ID${tour.id}): заявки принимаются только по сезону (${windowLabel(window)}), даты с ${dayIn(from, today)} — вне сезона. `
+              + 'Следующий сезон в системе не записан — не обещай даты, предложи уточнить у оператора.',
+            ].join('\n');
+          }
+          if (to < window.from) {
+            notes.push(`Тур принимает заявки только по сезону (${windowLabel(window)}) — показываю с начала сезона.`);
+            wFrom = window.from;
+            wTo = new Date(Date.parse(window.from) + (days - 1) * 86400000).toISOString().slice(0, 10);
+          } else if (from < window.from) {
+            wFrom = window.from;
+          }
+          if (wTo > window.to) wTo = window.to;
+          if (wFrom !== from || wTo !== to) {
+            if (to >= window.from) notes.push(`Окно обрезано по сезону тура (${windowLabel(window)}).`);
+          }
+        }
         // Сначала тело: оно дописывает в notes («число людей не распознано»),
         // и раскрыть notes раньше значило бы потерять эту оговорку.
-        const body = await onRequestWindow(tour, from, to, args.people, notes);
+        const body = await onRequestWindow(tour, wFrom, wTo, args.people, notes, window, today);
         return [
           ...notes, ...body,
           `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
