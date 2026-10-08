@@ -7,6 +7,8 @@ import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
 import type { ZoneId } from '@/lib/planner/engine';
 import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
+import { keepsScheduleSql } from '@/lib/tours/schedule';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import type { SelfSafetyRow } from '@/lib/planner/travel-style';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -492,6 +494,65 @@ export async function fetchActivitiesBookableInMonth(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[planner] каталог за месяц ${month} не прочитался:`, message);
+      return null;
+    }
+  });
+}
+
+/**
+ * Активности туров БЕЗ календаря: их даты свободны для заявки в любом месяце
+ * (решение владельца 08.10: «сделай все даты свободными, можно только
+ * отправить заявку оператору»).
+ *
+ * `fetchActivitiesBookableInMonth` видит месяц только через строки
+ * расписания, а у тура без календаря их нет вовсе. Поэтому 08.10 план «вулканы
+ * в октябре, с оператором» отвечал «не сезон» при одиннадцати турах «Края
+ * Вулканов» в каталоге: ни у одного нет расписания, и ни один не открывал
+ * месяц. Здесь — отдельным списком, а не подмешано в тот: месяц, открытый
+ * записью оператора, и месяц, открытый тем, что календаря нет вовсе, — разные
+ * основания, и человеку о них говорится разными словами.
+ *
+ * Правило «ведёт расписание» — общее (`keepsScheduleSql`): то же, что у
+ * get_tour_availability и каталога. `null` — спросить не вышло.
+ */
+export async function fetchActivitiesOnRequest(cache: PlannerCache): Promise<Set<string> | null> {
+  return cached(cache, 'on-request-activities', async () => {
+    try {
+      const { rows } = await pool.query<{ activity_type: string }>(
+        `SELECT DISTINCT ot.activity_type
+           FROM operator_tours ot
+           JOIN partners p ON p.id = ot.operator_id
+          WHERE ${publicTourSql('ot')}
+            AND p.is_public = TRUE
+            AND ot.activity_type IS NOT NULL
+            AND NOT ${keepsScheduleSql('ot.id')}`,
+      );
+      return new Set(rows.map((r) => normalizeActivity(r.activity_type)));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[planner] туры без календаря не прочитались:', message);
+      return null;
+    }
+  });
+}
+
+/**
+ * Ведёт ли тур расписание — для стиля «С оператором», где тур без свободных
+ * дат в окне поездки снимается с плана. Тур без календаря свободных дат не
+ * имеет никогда, и снимался всегда — хотя заявку на любую его дату оператор
+ * принимает. Три исхода: true / false / null — «не смог проверить».
+ */
+export async function fetchTourKeepsSchedule(tourId: string, cache: PlannerCache): Promise<boolean | null> {
+  return cached(cache, `keeps-schedule:${tourId}`, async () => {
+    try {
+      const { rows } = await pool.query<{ has: boolean }>(
+        `SELECT ${keepsScheduleSql('$1')} AS has`,
+        [tourId],
+      );
+      return rows[0]?.has === true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[planner] расписание тура ${tourId} не прочиталось:`, message);
       return null;
     }
   });

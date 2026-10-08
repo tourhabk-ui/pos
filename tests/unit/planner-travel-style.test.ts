@@ -60,6 +60,10 @@ vi.mock('@/lib/planner/data', () => ({
   fetchContingencyAlternatives: vi.fn(async () => []),
   fetchReviewSignals: vi.fn(async () => null),
   fetchActivitiesBookableInMonth: vi.fn(async () => new Set<string>()),
+  // Туров без календаря в этих снимках нет; у тура с пустыми датами
+  // расписание есть — «мест нет» (tests/unit/planner-on-request-tours).
+  fetchActivitiesOnRequest: vi.fn(async () => new Set<string>()),
+  fetchTourKeepsSchedule: vi.fn(async () => true),
   fetchSelfSafety: vi.fn(async (ids: string[]) => {
     if (safetyFails) return null;
     const out = new Map<string, unknown>();
