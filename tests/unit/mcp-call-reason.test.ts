@@ -50,7 +50,10 @@ describe('главный аргумент: имя всегда, значение
     expect(throws.length).toBeGreaterThanOrEqual(12);
     // Многострочный throw (refuseSilentLead) проверяется отдельно ниже.
     const oneLine = throws.filter(l => l.trimEnd().endsWith(');'));
-    for (const l of oneLine) expect(l, l.trim()).toMatch(/, (?:'[a-z_]+'|`[a-z_]+:?\$\{[^`]*\}`|`[a-z_]+_\$\{reason\}`)\);$/);
+    for (const l of oneLine) expect(l, l.trim()).toMatch(/, (?:'[a-z_]+'|`[a-z_]+:?\$\{[^`]*\}`|`[a-z_]+_\$\{reason\}`|refusal\.code)\);$/);
+    // refusal.code — только из argsRefusal (lib/mcp/tool-arguments): код есть
+    // у каждого её исхода, это держит tests/unit/mcp-tool-arguments.test.ts.
+    expect(ROUTE).toContain('const refusal = argsRefusal(read, validation.error);');
     expect(ROUTE).toContain("'silent_lead',\n    );");
     expect(new McpUserError('x').code).toBe('refused');
     expect(new McpUserError('x', 'no_consent').code).toBe('no_consent');

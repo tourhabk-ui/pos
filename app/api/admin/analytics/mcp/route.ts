@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
+import { REFUSAL_KINDS } from '@/lib/mcp/call-log';
 
 /**
  * Внешний вызов — не свой (метка владельца, is_self) и не проверка (смоук,
@@ -18,6 +19,23 @@ import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
  * числа вместо одного, иначе 416 вызовов смоука читались как спрос.
  */
 const EXTERNAL = (t: string) => `${t}.is_self = FALSE AND NOT ${probeCallSql(t, '$1', '$2', '$3')}`;
+
+/**
+ * Сбой и отказ (REFUSAL_KINDS, $4): отказ — инструмент ответил агенту, сбой —
+ * упал. Строка без рода — сбой: незнание не записывается в нашу пользу.
+ */
+const REFUSAL = (t: string) => `${t}.error_kind = ANY($4::text[])`;
+const FAILURE = (t: string) => `COALESCE(${t}.error_kind, '') <> ALL($4::text[])`;
+const SPLIT_PARAMS = [...PROBE_PARAMS, [...REFUSAL_KINDS]];
+
+/**
+ * С какого момента отказ по входу пишется отказом. До 02.10 (#2191) роут
+ * писал любой отказ как `execution`, и сбои раньше первой строки `refused` —
+ * смесь: какие из них были отказами, журнал не знает. Момент берётся из
+ * самого журнала (первая строка рода), а не из даты в коде: так он не
+ * расходится с тем, когда правка на самом деле доехала до прода.
+ */
+const REFUSED_SINCE = `(SELECT MIN(created_at) FROM mcp_tool_calls WHERE error_kind = 'refused')`;
 
 export const dynamic = 'force-dynamic';
 
@@ -29,20 +47,24 @@ export async function GET(request: NextRequest) {
     const [byTool, daily, errors, clients, unknownTools, origins, errorDetail] = await Promise.all([
       pool.query<{
         tool: string; calls_7d: string; errors_7d: string; calls_30d: string;
-        errors_30d: string; avg_ms: string | null; max_ms: string | null; callers_30d: string;
+        errors_30d: string; failures_30d: string; failures_unsplit_30d: string; refusals_30d: string;
+        avg_ms: string | null; max_ms: string | null; callers_30d: string;
       }>(
         `SELECT tool,
                 COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')                AS calls_7d,
                 COUNT(*) FILTER (WHERE NOT ok AND created_at >= NOW() - INTERVAL '7 days')     AS errors_7d,
                 COUNT(*)                                                                        AS calls_30d,
                 COUNT(*) FILTER (WHERE NOT ok)                                                  AS errors_30d,
+                COUNT(*) FILTER (WHERE NOT ok AND ${FAILURE('t')})                              AS failures_30d,
+                COUNT(*) FILTER (WHERE NOT ok AND ${FAILURE('t')} AND t.created_at < ${REFUSED_SINCE}) AS failures_unsplit_30d,
+                COUNT(*) FILTER (WHERE NOT ok AND ${REFUSAL('t')})                              AS refusals_30d,
                 ROUND(AVG(duration_ms) FILTER (WHERE ok))                                       AS avg_ms,
                 MAX(duration_ms)                                                                AS max_ms,
                 COUNT(DISTINCT caller_hash)                                                     AS callers_30d
            FROM mcp_tool_calls t
           WHERE created_at >= NOW() - INTERVAL '30 days' AND ${EXTERNAL('t')}
           GROUP BY tool ORDER BY COUNT(*) DESC`,
-        PROBE_PARAMS,
+        SPLIT_PARAMS,
       ),
       // Динамика по КАМЧАТСКИМ суткам за 30 дней (владелец 03.10: «добавь за
       // день, хочу посмотреть динамику»). Сутки — камчатские (UTC+12), а не
@@ -51,7 +73,7 @@ export async function GET(request: NextRequest) {
       // generate_series, а не пропуск: пропуск на графике читается как «нет
       // данных», ноль — как «никто не звал», и это разные ответы. Своих и
       // проверок не прячем, а кладём рядом: по ним видно, чей это всплеск.
-      pool.query<{ day: string; calls: string; errors: string; callers: string; self: string; probe: string }>(
+      pool.query<{ day: string; calls: string; errors: string; failures: string; refusals: string; callers: string; self: string; probe: string }>(
         `WITH days AS (
            SELECT generate_series(
                     ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date - 29),
@@ -61,20 +83,25 @@ export async function GET(request: NextRequest) {
          calls AS (
            SELECT (t.created_at AT TIME ZONE 'Asia/Kamchatka')::date AS day,
                   t.ok, t.caller_hash, t.is_self,
-                  ${probeCallSql('t', '$1', '$2', '$3')} AS is_probe
+                  ${probeCallSql('t', '$1', '$2', '$3')} AS is_probe,
+                  ${REFUSAL('t')} AS is_refusal
              FROM mcp_tool_calls t
             WHERE t.created_at >= NOW() - INTERVAL '31 days'
          )
          SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
                 COUNT(c.day) FILTER (WHERE NOT c.is_self AND NOT c.is_probe)                AS calls,
                 COUNT(c.day) FILTER (WHERE NOT c.is_self AND NOT c.is_probe AND NOT c.ok)   AS errors,
+                COUNT(c.day) FILTER (WHERE NOT c.is_self AND NOT c.is_probe AND NOT c.ok
+                                       AND c.is_refusal IS NOT TRUE)                        AS failures,
+                COUNT(c.day) FILTER (WHERE NOT c.is_self AND NOT c.is_probe AND NOT c.ok
+                                       AND c.is_refusal)                                    AS refusals,
                 COUNT(DISTINCT c.caller_hash) FILTER (WHERE NOT c.is_self AND NOT c.is_probe) AS callers,
                 COUNT(c.day) FILTER (WHERE c.is_self)                                       AS self,
                 COUNT(c.day) FILTER (WHERE NOT c.is_self AND c.is_probe)                    AS probe
            FROM days d
            LEFT JOIN calls c ON c.day = d.day
           GROUP BY d.day ORDER BY d.day`,
-        PROBE_PARAMS,
+        SPLIT_PARAMS,
       ),
       pool.query<{ error_kind: string; d30: string }>(
         `SELECT error_kind, COUNT(*) AS d30
@@ -132,11 +159,12 @@ export async function GET(request: NextRequest) {
       // Три числа вместо одного: внешние, свои (метка владельца), проверки.
       // И с какого дня метка «свой» ставилась: до него свои и чужие в
       // журнале неразличимы, и перепись за прошлое остаётся смешанной.
-      pool.query<{ external: string; self: string; probe: string; self_since: string | null }>(
+      pool.query<{ external: string; self: string; probe: string; self_since: string | null; refused_since: string | null }>(
         `SELECT COUNT(*) FILTER (WHERE ${EXTERNAL('t')})                 AS external,
                 COUNT(*) FILTER (WHERE t.is_self)                        AS self,
                 COUNT(*) FILTER (WHERE t.is_self = FALSE AND ${probeCallSql('t', '$1', '$2', '$3')}) AS probe,
-                to_char(MIN(t.created_at) FILTER (WHERE t.is_self), 'YYYY-MM-DD') AS self_since
+                to_char(MIN(t.created_at) FILTER (WHERE t.is_self), 'YYYY-MM-DD') AS self_since,
+                to_char(${REFUSED_SINCE}, 'YYYY-MM-DD') AS refused_since
            FROM mcp_tool_calls t
           WHERE t.created_at >= NOW() - INTERVAL '30 days'`,
         PROBE_PARAMS,
@@ -163,6 +191,9 @@ export async function GET(request: NextRequest) {
         errors_7d: Number(r.errors_7d),
         calls_30d: Number(r.calls_30d),
         errors_30d: Number(r.errors_30d),
+        failures_30d: Number(r.failures_30d),
+        failures_unsplit_30d: Number(r.failures_unsplit_30d),
+        refusals_30d: Number(r.refusals_30d),
         avg_ms: r.avg_ms === null ? null : Number(r.avg_ms),
         max_ms: r.max_ms === null ? null : Number(r.max_ms),
         caller_days_30d: Number(r.callers_30d),
@@ -172,6 +203,8 @@ export async function GET(request: NextRequest) {
         day: r.day,
         calls: Number(r.calls),
         errors: Number(r.errors),
+        failures: Number(r.failures),
+        refusals: Number(r.refusals),
         caller_days: Number(r.callers),
         self: Number(r.self),
         probe: Number(r.probe),
@@ -199,6 +232,7 @@ export async function GET(request: NextRequest) {
         self: Number(origins.rows[0]?.self ?? 0),
         probe: Number(origins.rows[0]?.probe ?? 0),
         self_since: origins.rows[0]?.self_since ?? null,
+        refused_since: origins.rows[0]?.refused_since ?? null,
       },
       by_client_30d: clients.rows.map((r) => ({
         client: r.client,
@@ -215,7 +249,11 @@ export async function GET(request: NextRequest) {
         'Таблицы по инструментам, дням и ошибкам — только внешние вызовы: без своих ' +
         '(метка владельца) и без проверок (смоук, пробы, curl).',
     });
-  } catch {
+  } catch (err) {
+    // Отказ не глушится (§4.0): «срез не построен» без причины в логе — та же
+    // немота, что пустой catch. SQLSTATE и текст — без данных строк.
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[admin/analytics/mcp] срез не построен:', typeof e?.code === 'string' ? e.code : 'нет SQLSTATE', typeof e?.message === 'string' ? e.message.slice(0, 300) : '');
     return NextResponse.json({ error: 'Не удалось построить срез MCP' }, { status: 500 });
   }
 }

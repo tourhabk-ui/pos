@@ -131,7 +131,8 @@ describe('свои заявки отделены (1145)', () => {
     const mcp = read('app/api/mcp/route.ts');
     expect(mcp).toMatch(/interface McpCallContext \{[^}]*self: boolean/);
     expect((mcp.match(/is_self: ctx\.self/g) ?? []).length).toBe(2);
-    expect(mcp).toContain('executeTool(toolName, toolArgs, { ip, userAgent, self })');
+    // Второй аргумент — разобранные аргументы с формой (lib/mcp/tool-arguments, 08.10); флаг self — в контексте, как был.
+    expect(mcp).toContain('executeTool(toolName, read, { ip, userAgent, self })');
   });
 
   it('follow-up по своей заявке не шлётся; счёт заявок — без своих; уведомление с пометкой, не спрятано', () => {
