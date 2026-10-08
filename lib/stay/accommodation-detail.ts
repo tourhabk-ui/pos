@@ -15,6 +15,7 @@ import { query } from '@/lib/database';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { normalizeContactPhone } from '@/lib/stay/contact-phone';
 
 export interface AccommodationRoom {
   id: string;
@@ -72,6 +73,11 @@ export interface AccommodationDetailData {
   languages: unknown[];
   /** Бронь на сайте самого объекта (миграция 1109); null — нет. */
   externalBookingUrl: string | null;
+  /**
+   * Телефон самого объекта для связи (миграция 1179), в виде «+7XXXXXXXXXX».
+   * null — не записан. Это не телефон партнёра из аккаунта (`partner.phone`).
+   */
+  contactPhone: string | null;
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;
   reviewCount: number;
@@ -107,7 +113,7 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
     address: string; coordinates: unknown; location_zone: string | null; star_rating: unknown;
     total_rooms: unknown; check_in_time: unknown; check_out_time: unknown;
     price_per_night_from: string | null; price_per_night_to: string | null; currency: string;
-    external_booking_url: string | null;
+    external_booking_url: string | null; contact_phone: string | null;
     amenities: unknown; languages: unknown; rating: string | null; review_count: unknown;
     is_verified: boolean; partner_name: string | null; partner_email: string | null;
     partner_phone: string | null; images: unknown; created_at: unknown; updated_at: unknown;
@@ -238,6 +244,9 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
     // Бронь на сайте самого объекта (миграция 1109): живые цены и наличие
     // там, а не у нас. null — своей брони у объекта нет или не указана.
     externalBookingUrl: accommodation.external_booking_url ?? null,
+    // Телефон объекта без своего сайта брони (1179): та же проверка формата,
+    // что в базе, — мусор не станет tel:-ссылкой, даже если попал в обход CHECK.
+    contactPhone: normalizeContactPhone(accommodation.contact_phone),
     // «Не оценён» — null, а не ноль. Ноль читается экраном и планером как
     // ОЦЕНКА, и планер по ней отсеивал объект навсегда (условие
     // «rating >= 3.5», §4.0). Правило одно на все выдачи —

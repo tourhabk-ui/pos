@@ -59,9 +59,11 @@ describe('API и карточка', () => {
 
   it('есть ссылка на сайт объекта — она единственный путь брони: ни списка номеров, ни нашей формы', () => {
     const ui = read('app/accommodations/[id]/_AccommodationDetailClient.tsx');
-    expect(ui).toMatch(/\{data\.externalBookingUrl \? null : data\.rooms\.length === 0 \?/);
+    // С 08.10 (1179) «путь ведёт сам объект» — ещё и телефон при отсутствии своих номеров.
+    expect(ui).toMatch(/const viaOwner = Boolean\(data\.externalBookingUrl\)/);
+    expect(ui).toMatch(/\{viaOwner \? null : data\.rooms\.length === 0 \?/);
     expect(ui).toMatch(/\{!data\.externalBookingUrl && data\.rooms\.length > 0 && \(/);
-    expect(ui).toMatch(/\{!data\.externalBookingUrl && \(\s*<h2 className="ds-h2 mb-4">Номера и цены<\/h2>/);
+    expect(ui).toMatch(/\{!viaOwner && \(\s*<h2 className="ds-h2 mb-4">Номера и цены<\/h2>/);
   });
 
   it('снятие ссылки не уводит объект на повторную модерацию — только замена одной ссылки на другую', () => {

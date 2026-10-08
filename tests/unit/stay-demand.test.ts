@@ -28,12 +28,14 @@ describe('словарь', () => {
     expect(FUNNEL_STEPS).toContain('stay_search');
     expect(FUNNEL_STEPS).toContain('stay_booking_start');
     expect(FUNNEL_STEPS).toContain('stay_external_booking');
+    expect(FUNNEL_STEPS).toContain('stay_phone_call');
   });
 
   it('в NSM «активированная поездка» не входят — её определение не расширяется молча', () => {
     expect(EXECUTION_STEPS).not.toContain('stay_search');
     expect(EXECUTION_STEPS).not.toContain('stay_booking_start');
     expect(EXECUTION_STEPS).not.toContain('stay_external_booking');
+    expect(EXECUTION_STEPS).not.toContain('stay_phone_call');
   });
 
   it('entity_id укладывается в колонку приёмника (max 64)', () => {
