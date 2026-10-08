@@ -51,7 +51,10 @@ describe('решатель меняет порядок двух флагманс
   });
   it('судья и ревью находок включают флаг', () => {
     for (const wf of ['.github/workflows/evo-judge.yml', '.github/workflows/evo-review.yml']) {
-      expect(readFileSync(wf, 'utf8'), wf).toMatch(/EVO_DECISION_ANTHROPIC_FIRST: '1'/);
+      const y = readFileSync(wf, 'utf8');
+      expect(y, wf).toMatch(/EVO_DECISION_ANTHROPIC_FIRST: '1'/);
+      // Решение владельца 08.10: потолок прямого пути на раннере — $5 за прогон.
+      expect(y, wf).toMatch(/ANTHROPIC_DIRECT_MAX_USD: '5'/);
     }
   });
 });
