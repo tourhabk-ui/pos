@@ -151,25 +151,30 @@ export function rankModels(
 }
 
 /**
- * В какие сутки станция пишет осадки — по местным или по UTC. GHCN-Daily для
- * российских станций собирается из сводок, и граница суток там не записана
- * явно. Ответ даёт сам замер: при верном сдвиге прогноз совпадает с фактом
- * лучше у большинства моделей. Разница меньше `margin` — «не решено», и
- * тогда считается по местным суткам (о них говорит пост) с оговоркой.
+ * Где у станции граница суток. Сдвиг `offset` — сколько часов прибавить к
+ * UTC, чтобы получить дату суток станции: 0 — сутки UTC, 12 — местные сутки
+ * Камчатки, 6 — сутки «18 UTC — 18 UTC». Последний случай не экзотика:
+ * российские станции дают осадки 12-часовыми суммами на 06 и 18 UTC, и
+ * сводка за дату складывает именно их. Граница в архиве не записана явно —
+ * ответ даёт сам замер: при верном сдвиге модели совпадают с фактом лучше.
+ *
+ * `best` — сдвиг с наибольшей средней точностью, если он опережает второй
+ * больше чем на `margin`; иначе `null` («не решено»), и вызывающий обязан
+ * сказать, по каким суткам считал.
  */
-export function pickDayConvention(
-  local: ReadonlyArray<SkillScore>,
-  utc: ReadonlyArray<SkillScore>,
+export function pickDayOffset(
+  byOffset: ReadonlyMap<number, ReadonlyArray<SkillScore>>,
   margin = 0.02,
-): 'local' | 'utc' | 'undecided' {
-  const mean = (xs: ReadonlyArray<SkillScore>) => {
-    const acc = xs.map((s) => s.accuracy).filter((a): a is number => a !== null);
-    return acc.length ? acc.reduce((p, c) => p + c, 0) / acc.length : null;
-  };
-  const l = mean(local);
-  const u = mean(utc);
-  if (l === null || u === null) return 'undecided';
-  if (l - u > margin) return 'local';
-  if (u - l > margin) return 'utc';
-  return 'undecided';
+): { best: number | null; means: Map<number, number | null> } {
+  const means = new Map<number, number | null>();
+  for (const [offset, scores] of byOffset) {
+    const acc = scores.map((s) => s.accuracy).filter((a): a is number => a !== null);
+    means.set(offset, acc.length ? acc.reduce((p, c) => p + c, 0) / acc.length : null);
+  }
+  const ranked = [...means.entries()]
+    .filter((e): e is [number, number] => e[1] !== null)
+    .sort((a, b) => b[1] - a[1]);
+  if (ranked.length === 0) return { best: null, means };
+  if (ranked.length === 1) return { best: ranked[0][0], means };
+  return { best: ranked[0][1] - ranked[1][1] > margin ? ranked[0][0] : null, means };
 }

@@ -7,12 +7,13 @@
  * Что делает:
  *  1. находит метеостанцию GHCN-Daily по имени из маркера (печатает
  *     кандидатов с расстоянием до точки) — номер станции не угадывается;
- *  2. берёт фактические суточные осадки станции за окно маркера;
+ *  2. берёт фактические суточные осадки станции за окно маркера — из
+ *     GHCN-Daily или GSOD (`obsSource`), у GSOD только полные сутки по флагу;
  *  3. по каждой модели берёт прогноз на сутки вперёд (Previous Runs API,
  *     `precipitation_previous_day1`) и для справки — самый свежий прогон
  *     (`precipitation`); считает «сухо / осадки», ложные «ливни», смещение;
- *  4. проверяет, в какие сутки станция пишет осадки (местные или UTC), —
- *     по тому, при каком сдвиге модели совпадают с фактом лучше;
+ *  4. проверяет, где у станции граница суток (UTC, 18 UTC, местная полночь),
+ *     — по тому, при каком сдвиге модели совпадают с фактом лучше;
  *  5. для лидеров спрашивает ровно тот прогноз, что берёт `get_weather`
  *     (`lib/planner/intelligence.ts`), с `models=` — и считает пустые поля:
  *     модель, у которой нет снега или дальних дней, сломала бы прогноз
@@ -26,7 +27,7 @@
  */
 import { readFileSync, appendFileSync } from 'fs';
 import {
-  dailySums, scoreForecast, rankModels, pickDayConvention,
+  dailySums, scoreForecast, rankModels, pickDayOffset,
   KAMCHATKA_UTC_OFFSET_H, MIN_COMPARED_DAYS, type SkillScore,
 } from '@/lib/weather/model-skill';
 import { distanceKm } from '@/lib/geo/kamchatka';
@@ -41,6 +42,23 @@ interface Marker {
   wetMm: number[];
   heavyMm?: number;
   forecastDays?: number;
+  /**
+   * Откуда факт: `ghcnd` — GHCN-Daily; `gsod` — Global Summary of the Day
+   * (сводки SYNOP). Прогон 1 (08.10): у станции 32583 в GHCN-Daily нет ни
+   * одного дня осадков за 120 дней — у российских станций там часто только
+   * температура.
+   */
+  obsSource?: 'ghcnd' | 'gsod';
+  /** Станция GSOD (USAF+WBAN); нет — WMO найденной станции + «099999». */
+  gsodStation?: string | null;
+  /**
+   * Флаги полноты суточной суммы GSOD, которые берутся в счёт: D — 4 × 6 ч,
+   * F — 2 × 12 ч, G — 24 ч. Остальные (одна шестичасовая сумма, «не
+   * сообщила») — неполные сутки, а неполные сутки за «сухо» не идут.
+   */
+  gsodCompleteFlags?: string[];
+  /** Какие границы суток пробовать, часы к UTC (см. pickDayOffset). */
+  dayOffsets?: number[];
 }
 
 const MARKER_PATH = '.github/triggers/weather-model-skill.json';
@@ -106,29 +124,57 @@ async function findStations(m: Marker): Promise<Station[]> {
   return found.sort((a, b) => a.km - b.km);
 }
 
-async function fetchObs(station: string, start: string, end: string): Promise<{ obs: Map<string, number>; attrs: string[] }> {
-  const url = `${NCEI}?dataset=daily-summaries&stations=${station}&startDate=${start}&endDate=${end}&dataTypes=PRCP&format=json&units=metric&includeAttributes=true`;
+async function fetchObs(
+  m: Marker, station: Station | null, stationId: string, start: string, end: string,
+): Promise<{ obs: Map<string, number>; note: string[] }> {
+  const source = m.obsSource ?? 'ghcnd';
+  const dataset = source === 'gsod' ? 'global-summary-of-the-day' : 'daily-summaries';
+  const id = source === 'gsod' ? (m.gsodStation ?? (station?.wmo ? `${station.wmo}099999` : stationId)) : stationId;
+  const url = `${NCEI}?dataset=${dataset}&stations=${id}&startDate=${start}&endDate=${end}&dataTypes=PRCP&format=json&units=metric&includeAttributes=true`;
   const r = await get(url, 120_000);
-  if (r.status !== 200) throw new Error(`факт станции ${station}: HTTP ${r.status} ${r.text.slice(0, 200)}`);
-  const rows = JSON.parse(r.text) as Array<{ DATE?: string; PRCP?: string; PRCP_ATTRIBUTES?: string }>;
-  const obs = new Map<string, number>();
-  const attrs = new Set<string>();
-  for (const row of rows) {
-    const v = Number(row.PRCP);
-    if (!row.DATE || row.PRCP === undefined || row.PRCP.trim() === '' || !Number.isFinite(v)) continue;
-    obs.set(row.DATE.slice(0, 10), v);
-    if (row.PRCP_ATTRIBUTES !== undefined) attrs.add(row.PRCP_ATTRIBUTES);
+  const note: string[] = [`источник ${source}, станция ${id}, HTTP ${r.status}`];
+  if (r.status !== 200) throw new Error(`факт станции ${id}: HTTP ${r.status} ${r.text.slice(0, 200)}`);
+  let rows: Array<Record<string, string | undefined>> = [];
+  try { rows = JSON.parse(r.text) as typeof rows; } catch { /* не JSON — ниже напечатаем начало */ }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    note.push(`ответ пуст: ${r.text.slice(0, 300).replace(/\s+/g, ' ')}`);
+    return { obs: new Map(), note };
   }
-  return { obs, attrs: [...attrs].slice(0, 6) };
+  note.push(`строк ${rows.length}; первая: ${JSON.stringify(rows[0]).slice(0, 300)}`);
+  const complete = new Set((m.gsodCompleteFlags ?? ['D', 'F', 'G']).map((f) => f.toUpperCase()));
+  const flags = new Map<string, number>();
+  const obs = new Map<string, number>();
+  let missing = 0;
+  let partial = 0;
+  for (const row of rows) {
+    const raw = row.PRCP;
+    const v = Number(raw);
+    if (!row.DATE || raw === undefined || raw.trim() === '' || !Number.isFinite(v)) { missing++; continue; }
+    // GSOD пишет «нет данных» как 99.99 дюйма; в мм это ~2540. Суточной суммы
+    // больше 500 мм в Петропавловске не бывает — это пропуск, а не ливень.
+    if (v > 500) { missing++; continue; }
+    if (source === 'gsod') {
+      const attr = (row.PRCP_ATTRIBUTES ?? row.PRCP_ATTRIBUTE ?? '').trim();
+      const flag = (attr.match(/[A-I]/i)?.[0] ?? '').toUpperCase();
+      flags.set(flag || '—', (flags.get(flag || '—') ?? 0) + 1);
+      if (flag && !complete.has(flag)) { partial++; continue; }
+    }
+    obs.set(row.DATE.slice(0, 10), v);
+  }
+  if (source === 'gsod') {
+    note.push(`флаги полноты: ${[...flags.entries()].map(([f, n]) => `${f}×${n}`).join(' ')}; в счёт — ${[...complete].join(', ')}; неполных ${partial}`);
+    if ((flags.get('—') ?? 0) > 0) note.push('у части строк флага нет — они взяты в счёт как есть');
+  }
+  if (missing) note.push(`пропусков ${missing}`);
+  return { obs, note };
 }
 
 interface ModelSeries {
   model: string;
   error?: string;
-  day1Local?: Map<string, number>;
-  day1Utc?: Map<string, number>;
-  day0Local?: Map<string, number>;
-  day0Utc?: Map<string, number>;
+  time?: string[];
+  day1?: Array<number | null>;
+  day0?: Array<number | null>;
 }
 
 async function fetchModel(m: Marker, model: string, start: string, end: string): Promise<ModelSeries> {
@@ -142,15 +188,12 @@ async function fetchModel(m: Marker, model: string, start: string, end: string):
   const j = JSON.parse(r.text) as { hourly?: { time?: string[]; precipitation?: Array<number | null>; precipitation_previous_day1?: Array<number | null> } };
   const h = j.hourly;
   if (!h?.time) return { model, error: 'ответ без hourly.time' };
-  const day1 = h.precipitation_previous_day1 ?? [];
-  const day0 = h.precipitation ?? [];
-  return {
-    model,
-    day1Local: dailySums(h.time, day1, KAMCHATKA_UTC_OFFSET_H),
-    day1Utc: dailySums(h.time, day1, 0),
-    day0Local: dailySums(h.time, day0, KAMCHATKA_UTC_OFFSET_H),
-    day0Utc: dailySums(h.time, day0, 0),
-  };
+  return { model, time: h.time, day1: h.precipitation_previous_day1 ?? [], day0: h.precipitation ?? [] };
+}
+
+/** Суточные суммы ряда модели при сдвиге суток `offset`. */
+function sums(s: ModelSeries, which: 'day1' | 'day0', offset: number): Map<string, number> {
+  return dailySums(s.time ?? [], s[which] ?? [], offset);
 }
 
 interface Completeness { model: string; error?: string; lastPrecipDay?: string | null; gaps: string[] }
@@ -190,20 +233,21 @@ async function main(): Promise<number> {
   out('### Станции GHCN-Daily по имени');
   if (!stations.length) { out(`::error:: станций по «${m.stationSearch.join(', ')}» не найдено`); return 1; }
   for (const s of stations.slice(0, 8)) out(`- ${s.id} · ${s.name} · ${s.lat}, ${s.lng} · ${s.elev ?? '?'} м · WMO ${s.wmo || '—'} · ${s.km} км от точки`);
-  const station = m.station ?? stations[0].id;
-  out(`Сравниваем со станцией **${station}**.`);
+  const stationId = m.station ?? stations[0].id;
+  const station = stations.find((x) => x.id === stationId) ?? null;
+  out(`Сравниваем со станцией **${stationId}**.`);
   out();
 
   // 2. Факт
   const end = Date.now();
   const start = end - m.days * 86_400_000;
-  const { obs, attrs } = await fetchObs(station, isoDay(start), isoDay(end));
+  const { obs, note } = await fetchObs(m, station, stationId, isoDay(start), isoDay(end));
   const obsDays = [...obs.keys()].sort();
   out('### Факт');
-  if (!obsDays.length) { out(`::error:: у станции ${station} нет осадков за окно — сравнивать не с чем`); return 1; }
+  for (const n of note) out(`- ${n}`);
+  if (!obsDays.length) { out(`::error:: у станции нет полных суточных сумм осадков за окно — сравнивать не с чем`); return 1; }
   const wetObs = [...obs.values()].filter((v) => v >= mainWet).length;
   out(`${obsDays.length} дней с ${obsDays[0]} по ${obsDays[obsDays.length - 1]}; с осадками ≥ ${mainWet} мм — ${wetObs}.`);
-  out(`Флаги PRCP (образцы): ${attrs.map((a) => `«${a}»`).join(' ') || '—'}`);
   out();
 
   // 3. Модели — с запасом на день по краям, чтобы сдвиг суток не обрезал окно.
@@ -222,13 +266,17 @@ async function main(): Promise<number> {
   }
   const okSeries = series.filter((s) => !s.error);
 
-  // 4. Граница суток станции
-  const conv = pickDayConvention(
-    okSeries.map((s) => scoreForecast(obs, s.day1Local as Map<string, number>, { wetMm: mainWet })),
-    okSeries.map((s) => scoreForecast(obs, s.day1Utc as Map<string, number>, { wetMm: mainWet })),
-  );
-  const useUtc = conv === 'utc';
-  out(`### Граница суток станции: ${conv === 'local' ? 'местные сутки' : conv === 'utc' ? 'сутки UTC' : 'не решено — считаем по местным (о них говорит пост)'}`);
+  // 4. Граница суток станции — по совпадению моделей с фактом.
+  const offsets = m.dayOffsets ?? [0, 6, KAMCHATKA_UTC_OFFSET_H, 18];
+  const { best, means } = pickDayOffset(new Map(offsets.map((o) => [
+    o, okSeries.map((s) => scoreForecast(obs, sums(s, 'day1', o), { wetMm: mainWet })),
+  ])));
+  const offset = best ?? KAMCHATKA_UTC_OFFSET_H;
+  out('### Граница суток станции');
+  out(`Средняя точность моделей по сдвигу суток: ${[...means.entries()].map(([o, v]) => `+${o} ч: ${fmt(v, 3)}`).join('; ')}`);
+  out(best === null
+    ? 'Не решено — считаем по местным суткам (+12 ч, о них говорит пост).'
+    : `Берём +${best} ч${best === KAMCHATKA_UTC_OFFSET_H ? ' (местные сутки)' : best === 0 ? ' (сутки UTC)' : ''}.`);
   out();
 
   // 5. Рейтинг по каждому порогу
@@ -236,7 +284,7 @@ async function main(): Promise<number> {
   for (const wet of m.wetMm) {
     const scored = okSeries.map((s) => ({
       model: s.model,
-      score: scoreForecast(obs, (useUtc ? s.day1Utc : s.day1Local) as Map<string, number>, { wetMm: wet, heavyMm: m.heavyMm ?? 10 }),
+      score: scoreForecast(obs, sums(s, 'day1', offset), { wetMm: wet, heavyMm: m.heavyMm ?? 10 }),
     }));
     const { ranked, insufficient } = rankModels(scored);
     out(`### Прогноз на сутки вперёд, порог ${wet} мм`);
@@ -254,7 +302,7 @@ async function main(): Promise<number> {
   // Справка: свежий прогон (почти анализ) — потолок того, что модель вообще может.
   out(`### Для справки: самый свежий прогон, порог ${mainWet} мм`);
   for (const s of okSeries) {
-    const sc = scoreForecast(obs, (useUtc ? s.day0Utc : s.day0Local) as Map<string, number>, { wetMm: mainWet });
+    const sc = scoreForecast(obs, sums(s, 'day0', offset), { wetMm: mainWet });
     out(`- ${s.model}: дней ${sc.n}, верно ${fmt(sc.accuracy, 3)}, смещение ${fmt(sc.biasMm)} мм`);
   }
   out();
