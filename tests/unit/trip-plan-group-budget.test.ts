@@ -74,17 +74,26 @@ beforeEach(() => {
 });
 
 describe('движок: состав, бюджет и цена', () => {
-  it('дети [6, 10] доходят до движка: план называет возрастные ограничения дней', async () => {
-    // Движок день 12+ из плана семьи не убирает — ставит на нём «Детям < 12:
-    // альтернатива» (часть группы может идти отдельно). Цена «на человека» от
-    // состава не зависит: скидок на детей в данных нет, и выдумывать их
-    // нельзя. Поэтому различие — в предупреждениях, а не в сумме.
+  it('дети [6, 10]: занятие не по возрасту убрано из плана и названо (08.10)', async () => {
+    // Решение владельца 08.10 («убери»): день 12+ не ставится в план семьи с
+    // шестилетним ребёнком. До этого он стоял с пометкой «Детям < 12» на дне.
     const adults = await recommendTrip(BASE, { itinerary: 'plain' });
     const family = await recommendTrip({ ...BASE, children: [6, 10] }, { itinerary: 'plain' });
-    const dayWarn = (r: typeof adults) => r.days.flatMap((d) => d.dayWarnings);
-    expect(dayWarn(adults).some((w) => /Детям </.test(w))).toBe(false);
-    expect(dayWarn(family).some((w) => /Детям < 12/.test(w))).toBe(true);
-    expect(family.warnings.some((w) => /минимальный возраст 12 лет, ребёнку 6/.test(w.message))).toBe(true);
+    const volcanoDays = (r: typeof adults) => r.days.filter((d) => d.activityType === 'volcano');
+    expect(volcanoDays(adults).length).toBeGreaterThan(0);
+    expect(volcanoDays(family)).toHaveLength(0);
+    expect(family.childBlocked?.map((b) => b.interest)).toEqual(['volcano']);
+    expect(adults.childBlocked).toBeUndefined();
+    expect(family.warnings.some((w) => /в план не вошло — минимальный возраст 12 лет, младшему 6/.test(w.message))).toBe(true);
+    expect(family.days.flatMap((d) => d.dayWarnings).some((w) => /Детям </.test(w))).toBe(false);
+    // Цена изменилась вместе с планом: тура на вулкан в сумме больше нет.
+    expect(family.priceBreakdown).not.toEqual(adults.priceBreakdown);
+  });
+
+  it('старшим детям ничего не убирается', async () => {
+    const teens = await recommendTrip({ ...BASE, children: [13, 15] }, { itinerary: 'plain' });
+    expect(teens.childBlocked).toBeUndefined();
+    expect(teens.days.some((d) => d.activityType === 'volcano')).toBe(true);
   });
 
   it('тур с ценой «за группу» не складывается в сумму на человека и называется', async () => {
@@ -202,6 +211,9 @@ describe('схема: одна правда для MCP и Кузьмича', () 
   });
 
   it('описание учит правке плана повторным вызовом', () => {
-    expect(spec.definition.function.description).toMatch(/вызови снова с прежними аргументами плюс изменение/);
+    // С #2224 у плана есть ID: дни правятся edit_trip_plan, а даты и состав —
+    // повторным make_trip_plan с прежними аргументами плюс изменение.
+    expect(spec.definition.function.description).toMatch(/вызови make_trip_plan снова с прежними аргументами плюс изменение/);
+    expect(spec.definition.function.description).toMatch(/edit_trip_plan/);
   });
 });

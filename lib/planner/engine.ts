@@ -239,6 +239,18 @@ export interface TripRecommendation {
    * ответ движка прежний.
    */
   preferences?: TripPreferences;
+  /**
+   * Занятия, убранные из плана по возрасту младшего ребёнка (решение
+   * владельца 08.10: «убери»). Пусто или нет поля — ничего не убирали.
+   */
+  childBlocked?: ChildBlocked[];
+}
+
+export interface ChildBlocked {
+  interest: string;
+  minAge: number;
+  youngest: number;
+  alternative: string | null;
 }
 
 // ─── Knowledge base ──────────────────────────────────────────────────────────
@@ -630,6 +642,37 @@ function youngestChild(profile: TripProfile): number | null {
   return Math.min(...profile.children);
 }
 
+/**
+ * Какие интересы идут в план семьи, а какие убираются по возрасту (решение
+ * владельца 08.10: «убери»).
+ *
+ * До этого день 12+ (восхождение на вулкан) ставился в план семьи с
+ * шестилетним ребёнком, а возраст звучал только предупреждением «Детям < 12:
+ * альтернатива» на самом дне. План по построению обещал день, на который
+ * половину группы не пустят. Теперь такой интерес в план не идёт вовсе,
+ * причина и альтернатива называются (`childBlocked`), а освободившиеся дни
+ * планер заполняет так же, как любые другие.
+ *
+ * Порог — `minChildAge` из `ACTIVITY_CONSTRAINTS`, своего здесь нет. Детей
+ * нет — ничего не убирается.
+ */
+export function splitByChildAge(
+  interests: readonly string[], youngest: number | null,
+): { allowed: string[]; blocked: ChildBlocked[] } {
+  if (youngest === null) return { allowed: [...interests], blocked: [] };
+  const allowed: string[] = [];
+  const blocked: ChildBlocked[] = [];
+  for (const interest of interests) {
+    const c = ACTIVITY_CONSTRAINTS[interest];
+    if (c && youngest < c.minChildAge) {
+      blocked.push({ interest, minAge: c.minChildAge, youngest, alternative: c.childAlternative ?? null });
+    } else {
+      allowed.push(interest);
+    }
+  }
+  return { allowed, blocked };
+}
+
 function groupSize(profile: TripProfile): number {
   return profile.adults + profile.children.length;
 }
@@ -763,7 +806,7 @@ function collectWarnings(
         const alt = c.childAlternative ? ` Альтернатива: ${c.childAlternative}` : '';
         warnings.push({
           type: 'children', severity: 'important',
-          message: `${activityLabel(interest)}: минимальный возраст ${c.minChildAge} лет, ребёнку ${youngest}.${alt}`,
+          message: `${activityLabel(interest)}: в план не вошло — минимальный возраст ${c.minChildAge} лет, младшему ${youngest}.${alt}`,
         });
       }
     }
@@ -988,6 +1031,11 @@ interface DayPlanResult {
   spanUnknown: string[];
   /** Туры, не поместившиеся в срок: пропущены целиком, а не урезаны. */
   tooLong: string[];
+  /**
+   * Туры, под которые блок зоны растянут сверх раскладки: ни один тур зоны в
+   * её блок не влезал, а поездка вмещала тур целиком (08.10).
+   */
+  extendedForTour: Array<{ title: string; span: number; zone: ZoneId; planned: number }>;
   /** Места, не предложенные из-за природоохранного лимита на даты поездки. */
   overLimit: string[];
   /** Как исполнены стиль и дни отдыха; пусто, если просьбы не было. */
@@ -1052,7 +1100,7 @@ async function generateDayPlans(
   onRequestOnly: ReadonlySet<string> = new Set(),
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -1079,7 +1127,7 @@ async function generateDayPlans(
     });
   }
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
 
   // ── Active days budget ──
   const departureDays = framing.departure;
@@ -1149,6 +1197,8 @@ async function generateDayPlans(
   const spanUnknown = new Set<string>();
   /** Туры длиннее, чем дней в зоне: не поставлены и не урезаны. */
   const tooLong = new Set<string>();
+  /** Блоки, растянутые под многодневный тур сверх раскладки зон. */
+  const extendedForTour: DayPlanResult['extendedForTour'] = [];
   /** Места сверх природоохранного лимита на даты поездки — не предложены. */
   const overLimit = new Set<string>();
 
@@ -1247,6 +1297,30 @@ async function generateDayPlans(
         (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
       }
       realTours = [...fits, ...tight, ...onRequest];
+    }
+
+    // Тур длиннее блока своей зоны (08.10). Блоки делятся между зонами
+    // заранее, по весу зоны, и многодневный тур оператора (у «Края Вулканов»
+    // 4–14 дней) в блок одной зоны не влезал никогда — даже в поездке,
+    // которая вмещает его целиком: 14 дней «вулканы, октябрь» давали «туров
+    // не нашли» и пустые дни 9–13. Резать тур нельзя — его продают целиком.
+    // Поэтому если в блок не влезает НИ ОДИН тур зоны, блок растягивается
+    // под самый короткий тур, который вмещает остаток поездки, и это
+    // называется: дни ушли туру, следующим зонам их осталось меньше.
+    if (style !== 'self' && realTours.length > 0) {
+      const room = tripDays - departureDays - (dayNum - 1);
+      const spans = realTours.map((t) => tourDaySpan(t.durationHours) ?? 1);
+      if (!spans.some((sp) => sp <= block.activeDays)) {
+        const pick = realTours
+          .map((t, i) => ({ t, sp: spans[i] }))
+          .filter((x) => x.sp <= room)
+          .sort((a, b) => a.sp - b.sp)[0];
+        if (pick) {
+          extendedForTour.push({ title: pick.t.title, span: pick.sp, zone: block.zone, planned: block.activeDays });
+          block.activeDays = pick.sp;
+          realTours = [pick.t, ...realTours.filter((t) => t !== pick.t)];
+        }
+      }
     }
 
     // Кандидатов в самостоятельный день берём с запасом: часть отсеет
@@ -1373,11 +1447,10 @@ async function generateDayPlans(
       const title = realTour?.title ?? route?.title
         ?? `${ACTIVITY_NAMES[interest] ?? interest} — ${ZONE_NAMES[block.zone]}`;
 
+      // Занятие не по возрасту сюда не доходит: его убирает splitByChildAge
+      // до раскладки (08.10). childOk остаётся признаком дня, а не фильтром.
       const childOk = youngest === null || youngest >= c.minChildAge;
       const dayWarnings: string[] = [];
-      if (!childOk && c.childAlternative) {
-        dayWarnings.push(`Детям < ${c.minChildAge}: ${c.childAlternative}`);
-      }
       if (c.safetyNotes) dayWarnings.push(...c.safetyNotes);
       const tourOver = realTour && tourLoads ? firstOverLimit(tourLoads.get(realTour.tourId) ?? [], group) : null;
       if (tourOver) {
@@ -1679,7 +1752,7 @@ async function generateDayPlans(
   });
 
   return {
-    days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes,
+    days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], extendedForTour, overLimit: [...overLimit], preferenceNotes,
     selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing,
   };
 }
@@ -1794,7 +1867,7 @@ function describePreferences(input: {
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
 
-function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBreakdown {
+export function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBreakdown {
   const bi = budgetIndex(profile.budgetTier);
   const nightCount = Math.max(0, days.length - 1);
 
@@ -1975,7 +2048,13 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   }));
   const catalogueOpen = scheduledOpen === null ? null : new Set([...scheduledOpen, ...(onRequest ?? [])]);
 
-  const zones = await scoreZones(profile, cache, catalogueOpen);
+  // Занятия не по возрасту младшего ребёнка в план не идут (08.10): зоны и
+  // дни считаются по оставшимся интересам, предупреждения — по всем, чтобы
+  // убранное было названо, а не пропало молча.
+  const { allowed: plannable, blocked: childBlocked } = splitByChildAge(profile.interests, youngestChild(profile));
+  const planProfile: TripProfile = childBlocked.length > 0 ? { ...profile, interests: plannable } : profile;
+
+  const zones = await scoreZones(planProfile, cache, catalogueOpen);
   // Дни собираются ДО предупреждений (27.09): предупреждения о разрешениях и
   // удалённых зонах должны считаться по зонам ГОТОВОГО плана, а не по
   // зонам-кандидатам. До этой правки человек с планом по Авачинской и
@@ -1983,7 +2062,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
   // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
   // «Раздолье»).
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen, onRequestOnly);
+  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
 
@@ -2145,6 +2224,23 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     });
   }
 
+  // Блок зоны растянут под тур: план показывает тур целиком, но другим
+  // зонам досталось меньше дней, чем по раскладке, — это говорится, а не
+  // прячется в том, что какая-то зона «не влезла».
+  for (const e of extendedForTour) {
+    // important, а не info: info до Кузьмича и MCP не доходит
+    // (trip-plan-tool), а без этой строки «другая зона не влезла» читается
+    // как недосмотр.
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      // Зона в тексте не называется: «в зоне «Авачинская зона»» повторяло
+      // слово, а тур на Ключевскую в Авачинской зоне путал (живой ответ 08.10).
+      message: `«${e.title}» — ${e.span} дн.: тур продают целиком, поэтому под него отданы ${e.span} дн. плана `
+        + `вместо ${e.planned} по раскладке; на другие зоны дней осталось меньше.`,
+    });
+  }
+
   // Длительность не заполнена — тур поставлен одним днём, и это догадка.
   //
   // Молчать нельзя: под незаполненным полем может лежать пятидневка, и
@@ -2272,6 +2368,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     zones, days, warnings, priceBreakdown, itinerary,
     catalogueOpen: catalogueOpen ? [...catalogueOpen] : null,
     ...(preferences ? { preferences } : {}),
+    ...(childBlocked.length > 0 ? { childBlocked } : {}),
   };
 }
 

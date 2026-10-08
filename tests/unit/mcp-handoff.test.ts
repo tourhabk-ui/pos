@@ -104,7 +104,10 @@ describe('подписанная атрибуция', () => {
 
 describe('врезка в MCP-роут и приём лида', () => {
   it('ссылка добавляется только после успешного вызова, цели строит сервер', () => {
-    expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs\)/);
+    // Третий аргумент — собственный ответ инструмента (id сохранённого плана,
+    // #2225), а не ввод агента: цели по-прежнему строит сервер.
+    expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs, text\)/);
+    expect(MCP_ROUTE).toMatch(/const text = await executeTool\(/);
     expect(MCP_ROUTE).toMatch(/Продолжить в Ведаре/);
     // Ссылка — отдельный элемент content, данные инструмента — первым и чистыми.
     expect(MCP_ROUTE).toMatch(/const content: Array<\{ type: 'text'; text: string \}> = \[\{ type: 'text', text \}\];/);

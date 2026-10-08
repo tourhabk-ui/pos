@@ -30,6 +30,7 @@ export {
   type TransportType,
   type FitnessLevel,
   type BudgetTier,
+  type ChildBlocked,
 } from './engine';
 
 export {

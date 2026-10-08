@@ -114,6 +114,12 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   search_transfers:      READ,
   search_gear:           READ,
   make_trip_plan:        { ...READ, openWorldHint: true },
+  // Правка черновика плана (#2224). Черновик — внутреннее состояние самого
+  // инструмента, анонимное и на 7 дней; до человека или оператора он не
+  // доходит, в отличие от заявки. Поэтому «только чтение» по смыслу хоста и
+  // лимит чтения, а не пять записей в час. Не идемпотентен: повтор
+  // add_day добавит ещё один день.
+  edit_trip_plan:        { ...READ, idempotentHint: false },
   create_lead:           WRITE,
   create_booking_request: WRITE,
 };
@@ -150,7 +156,8 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners.' },
   search_transfers:      { title: 'Transfers',             lead: 'Transfers in Kamchatka from platform partners.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners.' },
-  make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability.' },
+  make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
+  edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level; untouched days stay as they were.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true from the traveller, otherwise refused and nothing is stored.' },
   create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
 };
@@ -216,6 +223,14 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
     children: { lead: 'Children ages, comma-separated; ages decide which activities are allowed.', example: '6, 10' },
     budget_tier: { lead: 'Budget level: economy, comfort or premium; default comfort.', example: 'economy' },
+  },
+  edit_trip_plan: {
+    plan_id: { lead: 'Plan ID from the make_trip_plan answer.' },
+    action: { lead: 'add_day, remove_day, move_day or set_lodging.', example: 'add_day' },
+    day: { lead: 'Day number in the plan, for remove_day and move_day.', example: '3' },
+    to_day: { lead: 'New position of the day, for move_day.', example: '2' },
+    interest: { lead: 'Activity for add_day, free text (Russian works best).', example: 'рыбалка' },
+    lodging: { lead: 'Lodging level for set_lodging: economy, comfort or premium.', example: 'economy' },
   },
   create_lead: {
     name: { lead: "Traveller's name." },

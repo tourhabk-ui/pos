@@ -15,7 +15,7 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 
 ## MCP-сервер для ИИ-агентов
 
-У Ведара есть **публичный MCP-сервер** (vedar-mcp): endpoint `https://vedarai.ru/api/mcp`, транспорт Streamable HTTP (JSON-RPC 2.0), авторизация не требуется. 14 инструментов: туры и их реальная занятость, безопасность мест и маршрутов, погода, жильё, трансферы, план поездки, заявки с подтверждением человеком. Подробнее: [vedarai.ru/mcp](https://vedarai.ru/mcp) · манифест [/.well-known/mcp.json](https://vedarai.ru/.well-known/mcp.json) · [/llms.txt](https://vedarai.ru/llms.txt).
+У Ведара есть **публичный MCP-сервер** (vedar-mcp): endpoint `https://vedarai.ru/api/mcp`, транспорт Streamable HTTP (JSON-RPC 2.0), авторизация не требуется. 15 инструментов: туры и их реальная занятость, безопасность мест и маршрутов, погода, жильё, трансферы, план поездки и его правка, заявки с подтверждением человеком. Подробнее: [vedarai.ru/mcp](https://vedarai.ru/mcp) · манифест [/.well-known/mcp.json](https://vedarai.ru/.well-known/mcp.json) · [/llms.txt](https://vedarai.ru/llms.txt).
 
 В каталогах: официальный реестр MCP — `ru.vedarai/mcp` (манифест публикации — `server.json`), Smithery — `tourhabk/vedar` (`npx -y smithery mcp add tourhabk/vedar`), Glama — `glama.json`. Идентификаторы — в `lib/mcp/catalogs.ts`; их же отдают манифест, `/llms.txt` и `/mcp`.
 
@@ -45,12 +45,12 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 <!-- STATS:START -->
 | Метрика | Значение |
 |---------|----------|
-| Страниц | 213 |
+| Страниц | 215 |
 | API routes | 817 |
-| UI компонентов | 189 |
-| lib-модулей | 868 |
-| SQL миграций | 641 (последняя `1180`) |
-| Юнит-тестов | 16051 в 1504 файлах |
+| UI компонентов | 190 |
+| lib-модулей | 878 |
+| SQL миграций | 643 (последняя `1182`) |
+| Юнит-тестов | 16219 в 1516 файлах |
 | GitHub Actions | 163 workflow |
 <!-- STATS:END -->
 

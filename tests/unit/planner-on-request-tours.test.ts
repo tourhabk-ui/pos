@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-interface Tour { tourId: string; title: string; zone: string; activityType: string }
+interface Tour { tourId: string; title: string; zone: string; activityType: string; durationHours?: number }
 const TOURS: Record<string, Tour[]> = {
   'avachinsky:trekking': [
     { tourId: 't-trek', title: 'Трекинг к подножию вулкана', zone: 'avachinsky', activityType: 'trekking' },
@@ -34,7 +34,7 @@ function realTour(t: Tour) {
     tourId: t.tourId, title: t.title, shortDescription: null,
     operatorName: 'Край Вулканов', operatorSlug: 'op', operatorRating: null, operatorReviewCount: 0,
     operatorVerified: false, tourRating: null, tourReviewCount: 0, basePrice: 180000, priceUnit: 'per_person',
-    maxParticipants: 10, minParticipants: 1, durationHours: 10, difficulty: null,
+    maxParticipants: 10, minParticipants: 1, durationHours: t.durationHours ?? 10, difficulty: null,
     weatherDependent: false, seasonStart: null, seasonEnd: null, included: null,
     lat: 53, lng: 158, zone: t.zone, activityType: t.activityType,
   };
@@ -166,5 +166,55 @@ describe('«Сам» и «Вперемешку»: месяц без операт
     } finally {
       TOURS['avachinsky:trekking'] = [{ tourId: 't-trek', title: 'Трекинг к подножию вулкана', zone: 'avachinsky', activityType: 'trekking' }];
     }
+  });
+});
+
+describe('многодневный тур длиннее блока зоны (08.10)', () => {
+  // 12 суток — как «Восхождение на Ключевскую Сопку» у «Края Вулканов».
+  const KLYU = { tourId: 't-klyu', title: 'Восхождение на вулкан Ключевская Сопка', zone: 'avachinsky', activityType: 'volcano', durationHours: 12 * 24 };
+  const TWO_WEEKS: TripProfile = { ...OCTOBER, interests: ['volcano', 'trekking'], arrivalDate: '2026-10-10', departureDate: '2026-10-23' };
+
+  beforeEach(() => {
+    TOURS['avachinsky:volcano'] = [KLYU];
+    KEEPS = { 't-trek': false, 't-klyu': false };
+    ON_REQUEST = new Set(['trekking', 'volcano']);
+  });
+
+  it('поездка вмещает тур — блок растянут, тур стоит целиком, и это сказано', async () => {
+    const rec = await recommendTrip({ ...TWO_WEEKS, travelStyle: 'operator' });
+    const klyuDays = rec.days.filter((d) => d.realTour?.tourId === 't-klyu');
+    expect(klyuDays).toHaveLength(12);
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    expect(text).toMatch(/«Восхождение на вулкан Ключевская Сопка» — 12 дн\.: тур продают целиком/);
+    expect(text).not.toMatch(/Не поместились в срок поездки[^\n]*Ключевская/);
+    // Предупреждение доходит до Кузьмича и MCP: info там отбрасывается.
+    expect(rec.warnings.find((w) => /12 дн\.: тур продают целиком/.test(w.message))?.severity).toBe('important');
+    const ext = rec.warnings.find((w) => /12 дн\.: тур продают целиком/.test(w.message))!.message;
+    expect(ext).toMatch(/под него отданы 12 дн\. плана вместо \d+ по раскладке/);
+    expect(ext).not.toMatch(/в зоне «/);
+  });
+
+  it('поездка тур не вмещает — как прежде: не урезан и назван', async () => {
+    const rec = await recommendTrip({ ...TWO_WEEKS, departureDate: '2026-10-14', travelStyle: 'operator' });
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-klyu')).toBe(false);
+    expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/Не поместились в срок поездки[^\n]*Ключевская Сопка \(12 дн\.\)/);
+  });
+
+  it('в блок влезает свой тур — растяжки нет', async () => {
+    TOURS['avachinsky:volcano'] = [KLYU, { tourId: 't-day', title: 'Однодневный выход к вулкану', zone: 'avachinsky', activityType: 'volcano', durationHours: 10 }];
+    KEEPS = { 't-trek': false, 't-klyu': false, 't-day': false };
+    try {
+      const rec = await recommendTrip({ ...TWO_WEEKS, travelStyle: 'operator' });
+      expect(rec.warnings.map((w) => w.message).join('\n')).not.toMatch(/тур продают целиком, поэтому под него отдали/);
+      expect(rec.days.some((d) => d.realTour?.tourId === 't-day')).toBe(true);
+    } finally {
+      TOURS['avachinsky:volcano'] = [KLYU];
+    }
+  });
+
+  it('«Сам» туров не берёт — и растягивать блок не под что', async () => {
+    const rec = await recommendTrip({ ...TWO_WEEKS, travelStyle: 'self' });
+    expect(rec.days.some((d) => d.realTour)).toBe(false);
+    expect(rec.warnings.map((w) => w.message).join('\n')).not.toMatch(/тур продают целиком, поэтому/);
   });
 });

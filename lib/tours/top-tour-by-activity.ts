@@ -49,3 +49,34 @@ export async function topToursByActivity(activities: string[]): Promise<Record<s
   }));
   return result;
 }
+
+/**
+ * Туры по id — для черновика плана (#2225): тур дня там уже выбран самим
+ * планом, и страница показывает его, а не лучший по типу занятия. Только
+ * активные и опубликованные: тур, снятый после сборки плана, на странице не
+ * показывается (день остаётся без тура), а не ведёт на мёртвую карточку.
+ * Отказ — пустой результат и строка в логе: страница плана открывается и без
+ * тур-подсказок, как и при подборе по типу.
+ */
+export async function toursByIds(ids: string[]): Promise<Record<string, TopTour>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return {};
+  try {
+    const { rows } = await pool.query<TopTour>(`
+      SELECT
+        ot.id::text AS id, ot.slug, ot.title, ot.base_price::text,
+        COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
+        p.name AS operator_name
+      FROM operator_tours ot
+      JOIN partners p ON p.id = ot.operator_id
+      WHERE ot.id::text = ANY($1::text[])
+        AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
+    `, [unique]);
+    return Object.fromEntries(rows.map((r) => [String(r.id), r]));
+  } catch (e) {
+    console.error('[top-tour-by-activity] туры плана не прочитаны', {
+      count: unique.length, code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+    });
+    return {};
+  }
+}

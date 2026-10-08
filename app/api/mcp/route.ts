@@ -39,6 +39,7 @@ import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { primaryArg, classifyExecutionError } from '@/lib/mcp/call-reason';
+import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
@@ -402,9 +403,10 @@ function refuseSilentLead(name: string, phone: string, comment: string, sourceDa
 // -32602, а не результат с isError: так велит спецификация tools).
 async function executeTool(
   name: string,
-  rawArgs: Record<string, unknown>,
+  read: ReadArguments,
   ctx: McpCallContext,
 ): Promise<string> {
+  const rawArgs = read.args;
   if (name === CREATE_LEAD_TOOL.name) {
     return executeCreateLead(rawArgs, ctx);
   }
@@ -416,7 +418,10 @@ async function executeTool(
   // trim, обрезка длины), затем тот же исполнитель.
   const validation = validateToolArgs(name, rawArgs as Record<string, string>);
   if (!validation.ok) {
-    throw new McpUserError(validation.error, 'invalid_args');
+    // Пусто, «не объект» и «не те поля» — разные отказы и в тексте агенту,
+    // и в журнале (lib/mcp/tool-arguments, перепись 08.10).
+    const refusal = argsRefusal(read, validation.error);
+    throw new McpUserError(refusal.message, refusal.code);
   }
   return executeKuzmichTool(name, validation.args, { surface: 'mcp' });
 }
@@ -534,9 +539,10 @@ async function handleToolsCall(
   params: Record<string, unknown>,
 ): Promise<ReturnType<typeof jsonrpcSuccess> | ReturnType<typeof jsonrpcError>> {
   const toolName = typeof params.name === 'string' ? params.name : '';
-  const toolArgs = (params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
-    ? params.arguments
-    : {}) as Record<string, unknown>;
+  // Строка с JSON-объектом читается как объект; прочее не-объектное — как
+  // пустота, но с запомненной формой для отказа и журнала (tool-arguments).
+  const read = readToolArguments(params.arguments);
+  const toolArgs = read.args;
 
   // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в
   // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
@@ -588,7 +594,7 @@ async function handleToolsCall(
   const startedAt = Date.now();
   const invocationId = randomUUID();
   try {
-    const text = await executeTool(toolName, toolArgs, { ip, userAgent, self });
+    const text = await executeTool(toolName, read, { ip, userAgent, self });
 
     // Исполнитель Кузьмича ловит своё падение и возвращает этот текст — для
     // модели в чате. Здесь это отказ: isError, ok=false в журнале (его читают
@@ -606,7 +612,7 @@ async function handleToolsCall(
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
     // называется в логе (§4.0).
-    const target = await handoffTargetForTool(toolName, toolArgs).catch((err: unknown) => {
+    const target = await handoffTargetForTool(toolName, toolArgs, text).catch((err: unknown) => {
       console.error('[mcp] цель ссылки не определена:', logText(toolName), logText(err instanceof Error ? err.message : err, 300));
       return null;
     });

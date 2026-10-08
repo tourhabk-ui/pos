@@ -64,6 +64,12 @@ export type ForecastResult =
        * прогноз — с моментом, когда он получен. Нет поля — прогноз свежий.
        */
       staleSince?: string;
+      /**
+       * Когда прогноз получен от источника. Кэш отдаёт его с этим же моментом,
+       * поэтому страница погоды пишет «прогноз от …» по нему, а не по времени
+       * сборки страницы: прогноз из кэша бывает старше на три часа.
+       */
+      fetchedAt?: string;
     }
   | { ok: false; reason: string };
 
@@ -109,6 +115,97 @@ function finite(v: unknown): number | null {
 }
 
 /**
+ * Осадки — из GFS, температура и ветер — из сводной модели Open-Meteo (#2249).
+ *
+ * Повод — посты канала о погоде 06.10 и 08.10, которые пришлось править
+ * руками. Замер 08.10 (weather-model-skill, прогон 3): 89 суток факта станции
+ * Петропавловск-Камчатский (сводки SYNOP 32583) против прогноза на сутки
+ * вперёд. «Сухо / осадки» при пороге 1 мм верно у GFS в 0,888 случаев, у
+ * best_match — в 0,798: сводная модель пропускала четверть дождливых дней, и
+ * треть её «осадков» были ложными. При 2 мм — 0,921 против 0,843. Горизонт
+ * у GFS тот же, 16 суток.
+ *
+ * Замер мерил ТОЛЬКО осадки, поэтому температура и ветер остаются из
+ * best_match: у GFS в той же точке ветер почти вдвое сильнее (проба 722:
+ * суточный максимум 63–78 против 39–45 км/ч), и менять его без своего замера
+ * не на чем основать. Код погоды об осадках — из GFS вместе с миллиметрами:
+ * «снег» или «ливень» в описании должны сходиться с суммой, а не спорить с
+ * ней. Небо сухого дня (ясно, пасмурно, туман) — из best_match, как до замера
+ * (см. mergeWeatherCode). Нет значения у GFS — берётся сводная модель, по
+ * одному дню или часу, а не весь прогноз.
+ */
+export const PRECIP_MODEL = 'gfs_seamless';
+export const BASE_MODEL = 'best_match';
+const PRECIP_DAILY = ['precipitation_sum', 'weather_code'];
+const BASE_DAILY = ['temperature_2m_max', 'temperature_2m_min', 'wind_speed_10m_max'];
+const PRECIP_HOURLY = ['precipitation', 'snowfall'];
+const BASE_HOURLY = ['temperature_2m', 'wind_speed_10m'];
+
+type ForecastBlock = Record<string, unknown[] | undefined>;
+
+/** Ряд поля модели; в ответе одной модели суффикса нет — поле как есть. */
+function modelSeries(block: ForecastBlock, field: string, model: string): unknown[] | undefined {
+  return block[`${field}_${model}`] ?? block[field];
+}
+
+function isNum(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function preferFinite(primary: unknown[] | undefined, fallback: unknown[] | undefined): unknown[] | undefined {
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  return primary.map((v, i) => (isNum(v) ? v : fallback[i]));
+}
+
+/** С 51 (морось) код погоды говорит об осадках; ниже — небо и туман. */
+const PRECIP_CODE_MIN = 51;
+
+/**
+ * Код погоды по дням: об осадках — голосом GFS, о небе — голосом best_match.
+ *
+ * Код несёт два разных сообщения. «Дождь», «снег», «ливень» — то же, что
+ * миллиметры, и берутся у GFS, иначе описание спорило бы с суммой. «Ясно»,
+ * «пасмурно», «туман» — облачность и видимость, которых замер не мерил. Когда
+ * код брался у GFS целиком (#2286), на проде (prod-check 96, зона Авачинского)
+ * сухие дни стали «туманом» и «ясно» там, где best_match говорил «пасмурно».
+ * Туман — не подпись: его читает Rescue как вопрос видимости.
+ *
+ * Сухой у GFS день, который best_match называл дождливым, получает код GFS:
+ * «дождь» при нуле миллиметров был бы той же ссорой описания с суммой.
+ */
+function mergeWeatherCode(gfs: unknown[] | undefined, base: unknown[] | undefined): unknown[] | undefined {
+  if (!gfs) return base;
+  return gfs.map((g, i) => {
+    const b = base?.[i];
+    if (!isNum(g)) return b;
+    if (g >= PRECIP_CODE_MIN) return g;
+    return isNum(b) && b < PRECIP_CODE_MIN ? b : g;
+  });
+}
+
+/**
+ * Ответ с двумя моделями — к виду одной: поля осадков из PRECIP_MODEL (пусто —
+ * из BASE_MODEL; код погоды — по mergeWeatherCode), остальные — из
+ * BASE_MODEL. Чистая, под тестом на настоящем ответе Open-Meteo (проба 722).
+ */
+export function mergeForecastModels(
+  block: ForecastBlock | undefined,
+  precipFields: readonly string[],
+  baseFields: readonly string[],
+): ForecastBlock | undefined {
+  if (!block) return block;
+  const out: ForecastBlock = { time: block.time };
+  for (const f of baseFields) out[f] = modelSeries(block, f, BASE_MODEL);
+  for (const f of precipFields) {
+    const primary = modelSeries(block, f, PRECIP_MODEL);
+    const fallback = modelSeries(block, f, BASE_MODEL);
+    out[f] = f === 'weather_code' ? mergeWeatherCode(primary, fallback) : preferFinite(primary, fallback);
+  }
+  return out;
+}
+
+/**
  * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
  * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
  */
@@ -120,29 +217,24 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
 
   let result: ForecastResult;
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m&forecast_days=${horizon}&timezone=Asia/Kamchatka`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m&forecast_days=${horizon}&timezone=Asia/Kamchatka&models=${BASE_MODEL},${PRECIP_MODEL}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       result = { ok: false, reason: `Open-Meteo HTTP ${res.status}` };
     } else {
       const json = await res.json() as {
         elevation?: unknown;
-        hourly?: HourlySeries;
-        daily?: {
-          time?: unknown[];
-          temperature_2m_max?: unknown[];
-          temperature_2m_min?: unknown[];
-          precipitation_sum?: unknown[];
-          wind_speed_10m_max?: unknown[];
-          weather_code?: unknown[];
-        };
+        hourly?: ForecastBlock;
+        daily?: ForecastBlock;
       };
-      const d = json.daily;
+      const d = mergeForecastModels(json.daily, PRECIP_DAILY, BASE_DAILY);
+      const hourly = mergeForecastModels(json.hourly, PRECIP_HOURLY, BASE_HOURLY) as HourlySeries | undefined;
       if (!d || !Array.isArray(d.time)) {
         result = { ok: false, reason: 'Open-Meteo: ответ без daily.time' };
       } else {
         result = {
           ok: true,
+          fetchedAt: new Date().toISOString(),
           elevationM: finite(json.elevation) === null ? null : Math.round(finite(json.elevation) as number),
           days: d.time.map((date, i) => {
             const code = finite(d.weather_code?.[i]);
@@ -154,7 +246,7 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
               windKmh: finite(d.wind_speed_10m_max?.[i]),
               weatherCode: code,
               description: code === null ? null : wmoDescription(code),
-              parts: buildDayParts(json.hourly, String(date)),
+              parts: buildDayParts(hourly, String(date)),
             };
           }),
         };

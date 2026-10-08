@@ -14,7 +14,7 @@
 
 import {
   recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
-  type BudgetTier, type PriceBreakdown,
+  type BudgetTier, type PriceBreakdown, type ChildBlocked,
 } from '@/lib/planner';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
@@ -23,6 +23,8 @@ import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
+import { applyPlanEdit, planPrice, type PlanEdit, type PlanParams } from '@/lib/planner/plan-edit';
+import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -81,6 +83,20 @@ export function inSeasonInterests(month: number, catalogueOpen: string[] | null 
 }
 
 /**
+ * Что убрано из плана по возрасту детей — словами, с альтернативой (08.10).
+ * Пусто — ничего не убирали. Строка кончается пробелом: за ней идёт причина
+ * по сезону, если есть.
+ */
+export function childAgeLine(blocked: readonly ChildBlocked[]): string {
+  if (blocked.length === 0) return '';
+  const items = blocked.map((b) => {
+    const alt = b.alternative ? `; альтернатива: ${b.alternative}` : '';
+    return `${ACTIVITY_NAMES[b.interest] ?? b.interest} — с ${b.minAge} лет${alt}`;
+  });
+  return `По возрасту младшего (${blocked[0].youngest}) в план не вошло: ${items.join('; ')}. `;
+}
+
+/**
  * Текст отказа: причина, дата и то, что В СЕЗОНЕ.
  *
  * ── Что было (замер с прода 19.09) ───────────────────────────────────────
@@ -101,16 +117,22 @@ export function inSeasonInterests(month: number, catalogueOpen: string[] | null 
 export function buildRefusal(
   month: number, asked: string[], site: string,
   catalogueOpen: string[] | null = null,
+  /** Убранное по возрасту младшего ребёнка (решение владельца 08.10). */
+  childBlocked: readonly ChildBlocked[] = [],
 ): string {
   const open = inSeasonInterests(month, catalogueOpen);
-  const closed = asked.filter((k) => !open.includes(k));
+  const byAge = new Set(childBlocked.map((b) => b.interest));
+  const closed = asked.filter((k) => !open.includes(k) && !byAge.has(k));
 
   const monthWord = MONTH_NAME[month - 1] ?? 'этом месяце';
   const openWords = open.map((k) => ACTIVITY_NAMES[k]).filter(Boolean).join(', ');
 
+  const ageLine = childAgeLine(childBlocked);
   const why = closed.length > 0
-    ? `В ${monthWord} это уже не сезон: ${closed.map((k) => ACTIVITY_NAMES[k] ?? k).join(', ')}.`
-    : `В ${monthWord} по этим интересам план не сложился.`;
+    ? `${ageLine}В ${monthWord} это уже не сезон: ${closed.map((k) => ACTIVITY_NAMES[k] ?? k).join(', ')}.`
+    : ageLine
+      ? ageLine.trimEnd()
+      : `В ${monthWord} по этим интересам план не сложился.`;
 
   return `${why} Что идёт в ${monthWord}: ${openWords || 'по нашим данным — ничего, и это похоже на пробел в данных, а не на правду о Камчатке'}. `
     + `Живой планировщик, там можно задать свои даты: ${site}/planner`;
@@ -269,10 +291,13 @@ export function readChildren(raw: string | undefined): { children: number[]; not
   return { children: kept, note };
 }
 
+// Слова жилья (#2224, «замени жильё на базу») ведут к тому же уровню, по
+// которому движок считает ночь: базы, хостелы и палатки — эконом, гостиницы
+// и апартаменты — комфорт, лоджи — премиум (ZONE_ACCOMMODATION).
 const BUDGET_WORDS: Array<[RegExp, BudgetTier]> = [
-  [/^(economy|эконом|бюджет|дешев|недорог|подешевле|минимал)/i, 'economy'],
-  [/^(comfort|комфорт|средн|стандарт)/i, 'comfort'],
-  [/^(premium|премиум|люкс|дорог|максимал|vip)/i, 'premium'],
+  [/^(economy|эконом|бюджет|дешев|недорог|подешевле|минимал|баз|хостел|палат)/i, 'economy'],
+  [/^(comfort|комфорт|средн|стандарт|гостиниц|отел|апартамент)/i, 'comfort'],
+  [/^(premium|премиум|люкс|дорог|максимал|vip|лодж|эко-лодж)/i, 'premium'],
 ];
 
 export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом', comfort: 'комфорт', premium: 'премиум' };
@@ -281,7 +306,8 @@ export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом
 export function readBudgetTier(raw: string | undefined): { tier: BudgetTier; given: boolean; note: string | null } {
   const t = (raw ?? '').trim();
   if (!t) return { tier: 'comfort', given: false, note: null };
-  for (const [re, tier] of BUDGET_WORDS) if (re.test(t)) return { tier, given: true, note: null };
+  const word = t.replace(/^(на|в)\s+/i, '');
+  for (const [re, tier] of BUDGET_WORDS) if (re.test(word)) return { tier, given: true, note: null };
   return { tier: 'comfort', given: false, note: `Уровень бюджета «${t}» не разобрал — считаю «комфорт». Можно: эконом, комфорт, премиум.` };
 }
 
@@ -549,6 +575,7 @@ export async function makeTripPlanForKuzmich(
     days?: string; interests?: string; when?: string; travel_style?: string; rest_days?: string;
     adults?: string; children?: string; budget_tier?: string;
   },
+  opts: { surface?: DraftSurface } = {},
 ): Promise<string> {
   const { days: daysNum, note: daysNote } = readPlanDays(args.days);
   const { interests, defaulted } = parseChatInterestsDetailed(args.interests ?? '');
@@ -583,15 +610,7 @@ export async function makeTripPlanForKuzmich(
     restDays: readRestDays(args.rest_days),
   }, { itinerary: 'plain' });
 
-  // Ведёт ли тур расписание — только для туров, у которых в окне поездки
-  // свободных дат не нашлось: «календаря нет» и «мест нет» — разные ответы.
-  const keepsSchedule = new Map<string, boolean | null>();
-  const noDates = [...new Set(rec.days
-    .filter((d) => d.realTour && d.availability === 'none')
-    .map((d) => (d.realTour as NonNullable<DayPlan['realTour']>).tourId))];
-  await Promise.all(noDates.map(async (id) => {
-    keepsSchedule.set(id, await tourKeepsSchedule(Number(id)));
-  }));
+  const keepsSchedule = await scheduleMap(rec.days);
 
   const month = arrival.getUTCMonth() + 1;
   const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
@@ -609,7 +628,7 @@ export async function makeTripPlanForKuzmich(
     ],
     matchPreset(daysNum, interests, PLAN_PRESETS, month),
     {
-      refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor,
+      refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
       priceLines: formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0),
     },
@@ -623,5 +642,150 @@ export async function makeTripPlanForKuzmich(
     startNote(start, plannedFor), daysNote, interestsNote,
     group.note, kids.note, budget.note, assumptions,
   ].filter(Boolean);
-  return `${notes.join('\n')}\n\n${text}`;
+
+  // План сохраняется черновиком — правка идёт по его id (#2224). Отказа
+  // нет — нет и плана, сохранять нечего.
+  let idLine = '';
+  if (rec.days.length > 0) {
+    const params: PlanParams = {
+      interests,
+      arrivalDate: arrival.toISOString().slice(0, 10),
+      departureDate: departure.toISOString().slice(0, 10),
+      adults: group.adults,
+      children: kids.children,
+      budgetTier: budget.tier,
+      ...(readTravelStyle(args.travel_style) ? { travelStyle: readTravelStyle(args.travel_style) } : {}),
+      ...(readRestDays(args.rest_days) !== undefined ? { restDays: readRestDays(args.rest_days) } : {}),
+    };
+    idLine = planIdLine(await saveDraft({ params, days: rec.days }, opts.surface ?? 'chat', args.interests), 1);
+  }
+  return `${notes.join('\n')}\n\n${text}${idLine ? `\n\n${idLine}` : ''}`;
+}
+
+/**
+ * Ведёт ли тур расписание — только для туров, у которых в окне поездки
+ * свободных дат не нашлось: «календаря нет» и «мест нет» — разные ответы.
+ */
+async function scheduleMap(days: readonly DayPlan[]): Promise<Map<string, boolean | null>> {
+  const keepsSchedule = new Map<string, boolean | null>();
+  const noDates = [...new Set(days
+    .filter((d) => d.realTour && d.availability === 'none')
+    .map((d) => (d.realTour as NonNullable<DayPlan['realTour']>).tourId))];
+  await Promise.all(noDates.map(async (id) => {
+    keepsSchedule.set(id, await tourKeepsSchedule(Number(id)));
+  }));
+  return keepsSchedule;
+}
+
+/**
+ * Строка с id плана для правки. Черновик не записался — так и сказано:
+ * план показан, но правка через edit_trip_plan для него недоступна.
+ *
+ * Здесь же — ссылка на страницу плана (#2225): карта, GPX и сохранение для
+ * офлайна. Строка одна на make_trip_plan и edit_trip_plan, поэтому ссылка
+ * есть у каждого показа плана, и страница читает свежую правку черновика.
+ * Нет черновика — нет и ссылки: страница открыла бы «не найдено».
+ */
+export function planIdLine(id: string | null, revision: number): string {
+  if (!id) {
+    return 'Черновик плана не сохранился — править этот план через edit_trip_plan нельзя; чтобы изменить, собери план заново.';
+  }
+  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить день (интерес), убрать или переставить день, сменить уровень жилья. План хранится 7 дней.\n`
+    + `Страница плана — карта, GPX для навигатора и сохранение на телефон для поля без связи: ${SITE}/trip/${id}`;
+}
+
+const PLAN_ID_RE = /ID плана: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+/**
+ * Id плана из ответа make_trip_plan / edit_trip_plan — для ссылки «продолжить
+ * в Ведаре» у MCP (lib/mcp/handoff-targets). Разбирается собственный текст
+ * инструмента, а не аргумент агента; формат держит planIdLine рядом, и тест
+ * сверяет их друг с другом.
+ */
+export function planIdFromAnswer(answer: string): string | null {
+  return PLAN_ID_RE.exec(answer)?.[1] ?? null;
+}
+
+const EDIT_ACTIONS: Record<string, PlanEdit['kind']> = {
+  add_day: 'add_day', remove_day: 'remove_day', move_day: 'move_day', set_lodging: 'set_lodging',
+  добавить: 'add_day', убрать: 'remove_day', удалить: 'remove_day', переставить: 'move_day', жильё: 'set_lodging', жилье: 'set_lodging',
+};
+
+/** Номер дня: целое ≥ 1. */
+function readDayNum(raw: string | undefined): number | null {
+  const m = /^\s*(\d{1,2})\s*$/.exec(raw ?? '');
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/**
+ * Разбор правки из аргументов инструмента. Правка — структура, не свободный
+ * текст (#2224): действие, день, место, интерес, уровень жилья. Чего не
+ * хватает — ошибка словами, без догадки.
+ */
+export function readPlanEdit(args: {
+  action?: string; day?: string; to_day?: string; interest?: string; lodging?: string;
+}): { ok: true; edit: PlanEdit } | { ok: false; error: string } {
+  const kind = EDIT_ACTIONS[(args.action ?? '').trim().toLowerCase()];
+  if (!kind) return { ok: false, error: 'Не понял действие. Можно: add_day, remove_day, move_day, set_lodging.' };
+  if (kind === 'remove_day') {
+    const day = readDayNum(args.day);
+    return day ? { ok: true, edit: { kind, day } } : { ok: false, error: 'Для remove_day нужен номер дня (day).' };
+  }
+  if (kind === 'move_day') {
+    const day = readDayNum(args.day);
+    const to = readDayNum(args.to_day);
+    return day && to ? { ok: true, edit: { kind, day, to } } : { ok: false, error: 'Для move_day нужны номер дня (day) и новое место (to_day).' };
+  }
+  if (kind === 'add_day') {
+    const keys = parseInterestWords((args.interest ?? '').toLowerCase());
+    if (keys.length === 0) {
+      return { ok: false, error: args.interest?.trim() ? `Интерес «${args.interest.trim()}» не разобрал — назови занятие: рыбалка, вулканы, медведи, сплав, море, термальные.` : 'Для add_day нужен интерес (interest): «рыбалка», «вулканы»…' };
+    }
+    return { ok: true, edit: { kind, interest: keys[0] } };
+  }
+  const tier = readBudgetTier(args.lodging);
+  return tier.given ? { ok: true, edit: { kind: 'set_lodging', tier: tier.tier } } : { ok: false, error: tier.note ?? 'Для set_lodging нужен уровень жилья (lodging): эконом, комфорт или премиум.' };
+}
+
+/** Обработчик edit_trip_plan: прочитать черновик, поправить, записать, показать. */
+export async function editTripPlanForKuzmich(args: {
+  plan_id?: string; action?: string; day?: string; to_day?: string; interest?: string; lodging?: string;
+}): Promise<string> {
+  const id = (args.plan_id ?? '').trim();
+  if (!isDraftId(id)) {
+    return 'Нужен ID плана из ответа make_trip_plan (вида 1b9d6bcd-…). Плана нет — собери его через make_trip_plan.';
+  }
+  const parsed = readPlanEdit(args);
+  if (!parsed.ok) return `${parsed.error} План не менялся.`;
+
+  const read = await loadDraft(id);
+  if (read.kind === 'failed') return 'План сейчас не прочитался — повтори правку чуть позже. Сам план на месте, собирать заново не нужно.';
+  if (read.kind === 'missing') {
+    return `План ${id} не найден: ID неверный или плану больше 7 дней. Собери новый через make_trip_plan — править нечего, новый план с нуля здесь не строю.`;
+  }
+  const draft = read.draft;
+  const result = await applyPlanEdit({ params: draft.params, days: draft.days }, parsed.edit);
+  if (!result.ok) return `Правку не сделал: ${result.reason} План остался прежним.\n\n${planIdLine(draft.id, draft.revision)}`;
+
+  const saved = await updateDraft(draft, result.plan);
+  if (saved.kind === 'conflict') {
+    return 'План успели изменить другим вызовом — эту правку не записал, чтобы не затереть ту. Повтори правку: она применится к свежей версии.';
+  }
+  if (saved.kind === 'failed') return 'Правку посчитал, но не сохранил — база не ответила. План остался прежним, повтори правку чуть позже.';
+
+  const plan = result.plan;
+  const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
+  const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const text = formatTripPlanForChat(
+    plan.days,
+    result.warnings ?? [],
+    null,
+    {
+      refusal: '', plannedFor, arrivalIso: plan.params.arrivalDate,
+      keepsSchedule: await scheduleMap(plan.days),
+      priceLines: formatPlanPrice(planPrice(plan), plan.params.budgetTier, plan.days.length > 0),
+    },
+  );
+  return `${result.note}\n\n${text}\n\n${planIdLine(draft.id, saved.revision)}`;
 }

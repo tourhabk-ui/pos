@@ -1,13 +1,14 @@
 /**
  * GET /api/trips/share/[token]/gpx
  * GPX дней плана из share-ссылки («Мой план 2.0», C-6 — офлайн-план).
- * Публично, как и сама страница /trip/[token]: тот же токен, те же условия
- * (is_public = TRUE, deleted_at IS NULL) — ничего сверх видимого на странице
- * в файл не попадает.
+ * Публично, как и сама страница /trip/[token]: тот же токен и то же правило
+ * видимости (lib/trips/shared-plan — опубликованная поездка или черновик
+ * плана Кузьмича/MCP, #2225) — ничего сверх видимого на странице в файл не
+ * попадает.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
+import { readSharedPlan } from '@/lib/trips/shared-plan';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import { buildPlanGpx, planGpxContentDisposition, planGpxPoints, type PlanGpxDay } from '@/lib/trips/plan-gpx';
 
@@ -24,19 +25,17 @@ export async function GET(
   }
 
   try {
-    const { rows } = await pool.query<{ title: string; arrival_date: string | null; days: unknown }>(
-      `SELECT title, arrival_date, days
-       FROM user_trips
-       WHERE share_token = $1 AND is_public = TRUE AND deleted_at IS NULL`,
-      [token]
-    );
-
-    if (rows.length === 0) {
+    const read = await readSharedPlan(token);
+    if (read.kind === 'failed') {
+      return NextResponse.json({ success: false, error: 'План сейчас не прочитался — попробуйте чуть позже' }, { status: 503 });
+    }
+    if (read.kind === 'missing') {
       return NextResponse.json({ success: false, error: 'Маршрут не найден или не опубликован' }, { status: 404 });
     }
+    const plan = read.plan;
 
-    const raw = Array.isArray(rows[0]!.days) ? rows[0]!.days as Array<{ day?: number; title?: string; coords?: [number, number] }> : [];
-    const arrivalMs = rows[0]!.arrival_date ? new Date(rows[0]!.arrival_date).getTime() : NaN;
+    const raw = plan.days as Array<{ day?: number; title?: string; coords?: [number, number] }>;
+    const arrivalMs = plan.arrival_date ? new Date(plan.arrival_date).getTime() : NaN;
     const days: PlanGpxDay[] = raw
       .filter((d) => typeof d.day === 'number' && typeof d.title === 'string')
       .map((d) => ({
@@ -59,16 +58,18 @@ export async function GET(
       'offline_bundle_downloaded',
     );
 
-    return new NextResponse(buildPlanGpx(rows[0]!.title, days), {
+    return new NextResponse(buildPlanGpx(plan.title, days), {
       headers: {
         'Content-Type': 'application/gpx+xml',
         // Заголовок собирает plan-gpx: ASCII-имя обязательно — кириллица в
         // ByteString роняла ответ, и каждое скачивание GPX было 500.
-        'Content-Disposition': planGpxContentDisposition(rows[0]!.title),
+        'Content-Disposition': planGpxContentDisposition(plan.title),
         'Cache-Control': 'public, max-age=3600',
       },
     });
-  } catch {
+  } catch (err) {
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[trips/share/gpx] GPX не собран:', typeof e?.code === 'string' ? e.code : 'нет SQLSTATE', typeof e?.message === 'string' ? e.message.slice(0, 300) : '');
     return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
   }
 }

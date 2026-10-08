@@ -8,6 +8,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { alertSeverityWord } from '@/lib/safety/severity-words';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import type { DeskBrief } from '@/lib/home/desk-brief';
+import { keepDailyDescription } from '@/lib/weather/day-parts';
 
 /**
  * Первый экран десктопной главной — «сводка дня поверх фото» (доска
@@ -55,15 +56,21 @@ function tiles(brief: DeskBrief): Tile[] {
   const w = s?.weather.find((x) => x.name === 'Авачинский') ?? null;
   const day = w?.days?.[0] ?? null;
   const t = day?.tempMax ?? day?.tempMin ?? null;
+  // Суточная подпись осадков — «худшее за сутки» (#2249): при частях дня она
+  // не показывается ни у Кузьмича, ни в сводке, и плитка ей тоже не верит.
+  const sky = day && keepDailyDescription(day.weatherCode, (day.parts ?? []).length > 0)
+    ? day.description?.toLowerCase()
+    : null;
   const wHint = day
-    ? [day.description?.toLowerCase(), day.precipMm != null && day.precipMm >= 1 ? `${Math.round(day.precipMm)} мм` : null]
+    ? [sky, day.precipMm != null && day.precipMm >= 1 ? `${Math.round(day.precipMm)} мм` : null]
         .filter(Boolean).join(', ') || 'прогноз есть'
     : 'прогноза нет';
+  // Плитка ведёт на страницу погоды этого места (08.10), а не в сводку.
   const weather: Tile = {
     label: 'Авачинский',
     value: t == null ? '—' : signed(t),
     hint: wHint,
-    href: '/svodka',
+    href: '/weather/avachinsky',
     aria: t == null ? 'Погода на Авачинском: прогноз не получили' : `Авачинский сегодня ${signed(t)}, ${wHint}`,
   };
 

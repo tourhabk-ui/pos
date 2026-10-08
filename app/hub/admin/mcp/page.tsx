@@ -35,6 +35,12 @@ interface ToolRow {
   errors_7d: number;
   calls_30d: number;
   errors_30d: number;
+  /** Сбой — упал наш код или база (всё, кроме REFUSAL_KINDS, lib/mcp/call-log). */
+  failures_30d: number;
+  /** Сбои раньше первой строки `refused`: тогда отказ по входу писался сбоем, и это смесь. */
+  failures_unsplit_30d: number;
+  /** Отказ — инструмент ответил: агент передал не то, просил несуществующее, упёрся в лимит. */
+  refusals_30d: number;
   avg_ms: number | null;
   max_ms: number | null;
   caller_days_30d: number;
@@ -44,7 +50,7 @@ interface ToolRow {
 const ORIGIN_LABELS: Record<string, string> = { self: 'свой', probe: 'проверка', external: 'внешний' };
 
 /** Камчатские сутки: calls/errors/caller_days — внешние; self и probe — рядом, чтобы видеть, чей всплеск. */
-interface DayRow { day: string; calls: number; errors: number; caller_days: number; self: number; probe: number }
+interface DayRow { day: string; calls: number; errors: number; failures: number; refusals: number; caller_days: number; self: number; probe: number }
 interface ErrorRow { kind: string; d30: number }
 interface UnknownToolRow { requested_tool: string; d30: number; last_seen: string }
 /** Ошибка с причиной (1143): код и главный аргумент; error_code пуст у строк до миграции. */
@@ -71,7 +77,7 @@ interface McpData {
   errors_detail_30d?: ErrorDetailRow[];
   by_client_30d: ClientRow[];
   /** Внешние / свои / проверки за 30 дней (02.10). self_since — с какого дня метка владельца ставилась. */
-  origins_30d?: { external: number; self: number; probe: number; self_since: string | null };
+  origins_30d?: { external: number; self: number; probe: number; self_since: string | null; refused_since?: string | null };
   window_note: string;
 }
 
@@ -116,9 +122,11 @@ export default function AdminMcpPage() {
         (acc, r) => ({
           calls7: acc.calls7 + r.calls_7d,
           calls30: acc.calls30 + r.calls_30d,
-          errors30: acc.errors30 + r.errors_30d,
+          failures30: acc.failures30 + r.failures_30d,
+          unsplit30: acc.unsplit30 + r.failures_unsplit_30d,
+          refusals30: acc.refusals30 + r.refusals_30d,
         }),
-        { calls7: 0, calls30: 0, errors30: 0 },
+        { calls7: 0, calls30: 0, failures30: 0, unsplit30: 0, refusals30: 0 },
       )
     : null;
 
@@ -177,8 +185,8 @@ export default function AdminMcpPage() {
               {today && (
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Внешних сегодня', value: today.calls, sub: `ошибок ${today.errors} · человеко-дней ${today.caller_days}` },
-                    { label: 'Внешних вчера', value: yesterday?.calls ?? 0, sub: `ошибок ${yesterday?.errors ?? 0} · человеко-дней ${yesterday?.caller_days ?? 0}` },
+                    { label: 'Внешних сегодня', value: today.calls, sub: `сбоев ${today.failures} · отказов ${today.refusals} · человеко-дней ${today.caller_days}` },
+                    { label: 'Внешних вчера', value: yesterday?.calls ?? 0, sub: `сбоев ${yesterday?.failures ?? 0} · отказов ${yesterday?.refusals ?? 0} · человеко-дней ${yesterday?.caller_days ?? 0}` },
                     { label: 'Сегодня своих / проверок', value: `${today.self} / ${today.probe}`, sub: 'в число внешних не входят' },
                   ].map(k => (
                     <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
@@ -213,16 +221,23 @@ export default function AdminMcpPage() {
                 </div>
               )}
 
+              {/*
+                Сбой и отказ — разные исходы (§4.0). Владелец 08.10 прислал
+                панель с красными «16» и «8»: колонка складывала падения с
+                отказами по входу, а сбоев после 04.10 не было ни одного.
+              */}
               {totals && (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { label: 'Внешних за 7 дней', value: totals.calls7 },
-                    { label: 'Внешних за 30 дней', value: totals.calls30 },
-                    { label: 'Из них с ошибкой', value: totals.errors30 },
+                    { label: 'Внешних за 7 дней', value: totals.calls7, sub: null },
+                    { label: 'Внешних за 30 дней', value: totals.calls30, sub: null },
+                    { label: 'Сбоев за 30 дней', value: totals.failures30, sub: 'упал наш код или база' },
+                    { label: 'Отказов за 30 дней', value: totals.refusals30, sub: 'инструмент ответил: агент передал не то' },
                   ].map(k => (
                     <div key={k.label} className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
                       <p className="text-xs text-[var(--text-muted)]">{k.label}</p>
                       <p className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{k.value}</p>
+                      {k.sub && <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{k.sub}</p>}
                     </div>
                   ))}
                 </div>
@@ -239,7 +254,8 @@ export default function AdminMcpPage() {
                         <th className="px-3 py-2 font-medium">Инструмент</th>
                         <th className="px-3 py-2 font-medium text-right">7 дн.</th>
                         <th className="px-3 py-2 font-medium text-right">30 дн.</th>
-                        <th className="px-3 py-2 font-medium text-right">Ошибок</th>
+                        <th className="px-3 py-2 font-medium text-right">Сбоев</th>
+                        <th className="px-3 py-2 font-medium text-right">Отказов</th>
                         <th className="px-3 py-2 font-medium text-right">Среднее</th>
                         <th className="px-3 py-2 font-medium text-right">Худшее</th>
                         <th className="px-3 py-2 font-medium text-right">Человеко-дней</th>
@@ -252,8 +268,17 @@ export default function AdminMcpPage() {
                           <td className="px-3 py-2 text-right text-[var(--text-secondary)]">{r.calls_7d}</td>
                           <td className="px-3 py-2 text-right text-[var(--text-secondary)]">{r.calls_30d}</td>
                           <td className="px-3 py-2 text-right"
-                            style={{ color: r.errors_30d > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                            {r.errors_30d}
+                            style={{ color: r.failures_30d > r.failures_unsplit_30d ? 'var(--danger)' : 'var(--text-muted)' }}>
+                            {r.failures_30d}
+                            {r.failures_unsplit_30d > 0 && (
+                              <span className="block text-[10px] text-[var(--text-muted)]">
+                                {r.failures_unsplit_30d === r.failures_30d ? 'все' : `из них ${r.failures_unsplit_30d}`} до {data.origins_30d?.refused_since ? fmtDay(data.origins_30d.refused_since) : 'разделения'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right"
+                            style={{ color: r.refusals_30d > 0 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                            {r.refusals_30d}
                           </td>
                           <td className="px-3 py-2 text-right text-[var(--text-secondary)]">
                             {r.avg_ms === null ? '—' : `${r.avg_ms} мс`}
@@ -267,13 +292,25 @@ export default function AdminMcpPage() {
                     </tbody>
                   </table>
                 </div>
+                <p className="px-3 py-2 text-[10px] text-[var(--text-muted)] border-t border-[var(--border)]">
+                  Сбой — инструмент упал: наш код, база, таймаут. Отказ — инструмент ответил, но
+                  не выполнил: агент передал не те аргументы, просил несуществующее, упёрся в
+                  лимит; разбор причин — в таблице «Ошибки с причиной».
+                  {totals && totals.unsplit30 > 0 && (
+                    <> До {data.origins_30d?.refused_since ? fmtDay(data.origins_30d.refused_since) : 'первого записанного отказа'} отказ
+                      по входу писался в журнал сбоем, поэтому {totals.unsplit30} из {totals.failures30} сбоев за окно —
+                      смесь: какие из них были отказами, журнал не знает. Красным выделен инструмент,
+                      у которого есть сбои и после этой даты.</>
+                  )}
+                </p>
               </div>
 
               <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
                 <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Динамика по дням, 30 дней</p>
                 <div className="flex flex-wrap gap-3 mb-2 text-[10px] text-[var(--text-muted)]">
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--ocean)' }} />внешние</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />из них с ошибкой</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />из них сбой</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--warning)' }} />из них отказ</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--accent)' }} />свои</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: 'var(--text-muted)' }} />проверки</span>
                 </div>
@@ -289,13 +326,14 @@ export default function AdminMcpPage() {
                           <div
                             key={d.day}
                             className="flex-1 h-full flex flex-col justify-end"
-                            title={`${fmtDay(d.day)}${i === days.length - 1 ? ' (сегодня, неполные сутки)' : ''}: внешних ${d.calls}, ошибок ${d.errors}, своих ${d.self}, проверок ${d.probe}`}
+                            title={`${fmtDay(d.day)}${i === days.length - 1 ? ' (сегодня, неполные сутки)' : ''}: внешних ${d.calls}, сбоев ${d.failures}, отказов ${d.refusals}, своих ${d.self}, проверок ${d.probe}`}
                           >
                             {total === 0 && <div className="w-full h-px bg-[var(--border)]" />}
                             <div className="w-full" style={{ height: pct(d.probe), background: 'var(--text-muted)', opacity: 0.5 }} />
                             <div className="w-full" style={{ height: pct(d.self), background: 'var(--accent)' }} />
                             <div className="w-full" style={{ height: pct(d.calls - d.errors), background: 'var(--ocean)' }} />
-                            <div className="w-full rounded-b-sm" style={{ height: pct(d.errors), background: 'var(--danger)' }} />
+                            <div className="w-full" style={{ height: pct(d.refusals), background: 'var(--warning)' }} />
+                            <div className="w-full rounded-b-sm" style={{ height: pct(d.failures), background: 'var(--danger)' }} />
                           </div>
                         );
                       })}
@@ -313,7 +351,8 @@ export default function AdminMcpPage() {
                       <tr className="text-left text-[var(--text-muted)]">
                         <th className="px-2 py-1 font-medium">День</th>
                         <th className="px-2 py-1 font-medium text-right">Внешних</th>
-                        <th className="px-2 py-1 font-medium text-right">Ошибок</th>
+                        <th className="px-2 py-1 font-medium text-right">Сбоев</th>
+                        <th className="px-2 py-1 font-medium text-right">Отказов</th>
                         <th className="px-2 py-1 font-medium text-right">Чел.-дней</th>
                         <th className="px-2 py-1 font-medium text-right">Своих</th>
                         <th className="px-2 py-1 font-medium text-right">Проверок</th>
@@ -324,7 +363,8 @@ export default function AdminMcpPage() {
                         <tr key={d.day} className="border-t border-[var(--border)]">
                           <td className="px-2 py-1 text-[var(--text-secondary)]">{i === 0 ? `${fmtDay(d.day)}, сегодня` : fmtDay(d.day)}</td>
                           <td className="px-2 py-1 text-right text-[var(--text-primary)]">{d.calls}</td>
-                          <td className="px-2 py-1 text-right" style={{ color: d.errors > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>{d.errors}</td>
+                          <td className="px-2 py-1 text-right" style={{ color: d.failures > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>{d.failures}</td>
+                          <td className="px-2 py-1 text-right" style={{ color: d.refusals > 0 ? 'var(--warning)' : 'var(--text-muted)' }}>{d.refusals}</td>
                           <td className="px-2 py-1 text-right text-[var(--text-secondary)]">{d.caller_days}</td>
                           <td className="px-2 py-1 text-right text-[var(--text-secondary)]">{d.self}</td>
                           <td className="px-2 py-1 text-right text-[var(--text-muted)]">{d.probe}</td>
