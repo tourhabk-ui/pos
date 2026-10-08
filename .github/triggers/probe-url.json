@@ -1,22 +1,26 @@
 {
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Лента тревог после подключения meteoalert: все строки Росгидромета целиком (заголовок, текст, зоны, срок) — сколько их и не дублируют ли друг друга.",
-  "run": 714,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Строки Росгидромета в публичной сводке опасностей и сырой ответ meteoalert — почему их семь и нет ли дублей.",
+  "run": 715,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 900,
+  "bytes": 6000,
   "urls": [
-    "https://vedarai.ru/api/safety/alerts"
+    "https://vedarai.ru/api/public/danger-summary",
+    "https://meteoalert.meteoinfo.ru/russia/informer/ajax_informer_1.php?lon_0=151.45312540233135&lon_1=175.60546942055228&lat_0=50.018751221459&lat_1=65.25793871571221"
   ],
   "around": [
-    "Росгидромет:"
+    "Росгидромет:",
+    "\"95\":",
+    "\"96\":"
   ],
   "aroundLines": 0,
   "aroundHits": 20,
-  "aroundBefore": 60,
+  "aroundBefore": 40,
   "grep": [
-    "Росгидромет:"
+    "Росгидромет:",
+    "\"95\":"
   ],
   "text": false
 }
