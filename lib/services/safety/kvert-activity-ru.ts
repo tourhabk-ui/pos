@@ -94,3 +94,34 @@ export function describeActivityRu(facts: ActivityFacts): string | null {
     .map((p) => (p.endsWith('.') ? p : `${p}.`))
     .join(' ');
 }
+
+const COLOR_GENITIVE: Record<string, string> = {
+  green: 'зелёного', yellow: 'жёлтого', orange: 'оранжевого', red: 'красного',
+};
+const COLOR_RANK: Record<string, number> = { green: 0, yellow: 1, orange: 2, red: 3 };
+
+/**
+ * Русская фраза по бюллетеню VONA — только из его полей, без свободного
+ * текста `RMK`: смена кода и высота облака пепла, которое видели. `null` —
+ * ни того ни другого в бюллетене нет.
+ *
+ * Высота здесь — наблюдённая («облако поднялось до 6,5 км»), а не
+ * предупредительная из недельной сводки («взрывы до 12 км возможны»). Смешивать
+ * их в одной фразе нельзя: формула сводки с цифрой бюллетеня сказала бы «до
+ * 6,5 км возможны», занизив угрозу почти вдвое.
+ */
+export function describeVonaRu(v: {
+  color: string; previousColor: string | null; ashHeightM: number | null;
+}): string | null {
+  const parts: string[] = [];
+  const from = v.previousColor ? COLOR_GENITIVE[v.previousColor] : undefined;
+  const to = COLOR_GENITIVE[v.color];
+  if (from && to && v.previousColor !== v.color) {
+    const up = (COLOR_RANK[v.color] ?? 0) > (COLOR_RANK[v.previousColor ?? ''] ?? 0);
+    parts.push(`Код KVERT ${up ? 'повышен' : 'понижен'} с ${from} до ${to}.`);
+  }
+  if (v.ashHeightM != null && v.ashHeightM > 0) {
+    parts.push(`Облако пепла поднималось до ${highMeters(v.ashHeightM)} над уровнем моря.`);
+  }
+  return parts.length ? parts.join(' ') : null;
+}

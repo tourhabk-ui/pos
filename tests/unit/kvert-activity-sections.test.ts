@@ -164,11 +164,13 @@ describe('синк дополняет коды подробностями, а н
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
   it('высота из блока VONA сильнее раздела активности', () => {
-    expect(SYNC).toMatch(/const ashHeightM = v\.ashHeightM \?\? sec\?\.ashHeightM \?\? null/);
+    // Ветка недельной сводки: высота блока VONA сильнее раздела. Запись из
+    // отдельного бюллетеня берёт только свою высоту (kvert-vona-feed.test).
+    expect(SYNC).toMatch(/\(v\.ashHeightM \?\? sec\?\.ashHeightM \?\? null\)/);
   });
 
   it('английский оригинал сохраняется как улика происхождения', () => {
-    expect(SYNC).toMatch(/activityLevel: \(sec\?\.hazardEn \?\? v\.summary\)\?\.slice\(0, 200\)/);
+    expect(SYNC).toMatch(/activityLevel: \(fromVona \? v\.summary : \(sec\?\.hazardEn \?\? v\.summary\)\)\?\.slice\(0, 200\)/);
   });
 
   it('сколько вулканов получили подробности — сообщается прогоном', () => {
