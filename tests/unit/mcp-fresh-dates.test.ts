@@ -35,7 +35,9 @@ describe('get_tours: даты из живой занятости', () => {
   // Проверка MCP 29.09 (T6): тур без календаря печатался «Мест: нет
   // свободных» — агент не доходил до запроса мест оператору.
   it('«расписания нет» отличается от «мест нет»', () => {
-    expect(block).toMatch(/\) AS has_schedule/);
+    // Правило «ведёт расписание» — общее (lib/tours/schedule), а не своя
+    // копия в SQL каталога: копий было две, третья понадобилась планеру.
+    expect(block).toMatch(/\$\{keepsScheduleSql\('ot\.id'\)\} AS has_schedule/);
     const core = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf-8');
     expect(core).toMatch(/r\.has_schedule === false\s*\? ' \| Расписания в системе нет/);
   });

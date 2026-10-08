@@ -32,6 +32,7 @@ import {
   createPlannerCache, fetchRealToursForZone, fetchAvailabilityForTour,
   fetchZoneCapacity, fetchContingencyAlternatives, fetchReviewSignals,
   fetchActivitiesBookableInMonth, fetchSelfSafety,
+  fetchActivitiesOnRequest, fetchTourKeepsSchedule,
   type PlannerCache, type RealTour,
 } from '@/lib/planner/data';
 import {
@@ -131,6 +132,12 @@ export interface DayPlan {
     weatherDependent: boolean;
     durationHours: number | null;
     /**
+     * За что назначена цена тура: `per_person`, `per_tour` (за группу),
+     * `per_day_per_person`. В сумму «на человека» идёт только `per_person`
+     * (#2223): цена группы, сложенная как цена человека, завышала бы итог.
+     */
+    priceUnit: string;
+    /**
      * Включено ли проживание в тур: `true` / `false` / `null` — не знаем.
      * Ночь такого дня не оплачивается отдельно (см. calculatePriceBreakdown).
      */
@@ -188,6 +195,13 @@ export interface PriceBreakdown {
   accommodation: [number, number];
   transport: [number, number];
   perPersonTotal: [number, number];
+  /**
+   * Из чего сложены активности (#2223): сколько дней по цене тура оператора,
+   * сколько по ориентиру вида активности (тура нет — цена не тура, а
+   * справочная вилка), и сколько туров в сумму НЕ вошли, потому что их цена
+   * не за человека. Без этого одна цифра выдавала бы оценку за цену.
+   */
+  activityPricing: { tourPriced: number; estimated: number; excluded: number };
 }
 
 interface ZoneRecommendation {
@@ -1013,6 +1027,15 @@ function requestedRestDay(day: number, zone: ZoneId): DayPlan {
 const NO_OPERATOR_TOUR_NOTE =
   'Тура оператора на этот день в ваши даты не нашли — поставили без тура. Уточните у оператора или спросите Кузьмича.';
 
+/**
+ * Общий день по интересу, который в этот месяц открыли только туры без
+ * календаря: по нашему ориентиру не сезон, и без оператора туда не идут.
+ * Говорится на самом дне — общий день иначе читается как приглашение пойти
+ * самому (то же правило, что у активностей «только с гидом»).
+ */
+export const OUT_OF_SEASON_DAY_NOTE =
+  'По нашему сезонному ориентиру не сезон — только с оператором: туры без календаря принимают заявку на любую дату, идёт ли тур в эти дни, подтвердит оператор.';
+
 async function generateDayPlans(
   profile: TripProfile,
   zones: ZoneRecommendation[],
@@ -1020,6 +1043,13 @@ async function generateDayPlans(
   cache: PlannerCache,
   /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
   catalogueOpen: Set<string> | null,
+  /**
+   * Открытое ТОЛЬКО турами без календаря: наш ориентир говорит «не сезон», а
+   * тур оператора принимает заявку на любую дату. Самостоятельный день по
+   * такому интересу не ставится — за выход отвечает оператор, а у дня без
+   * него отвечающего нет.
+   */
+  onRequestOnly: ReadonlySet<string> = new Set(),
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
   if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
@@ -1195,22 +1225,38 @@ async function generateDayPlans(
     if (style === 'operator' && realTours.length > 0 && profile.arrivalDate && profile.departureDate) {
       const fits: RealTour[] = [];
       const tight: RealTour[] = [];
+      const onRequest: RealTour[] = [];
       for (const t of realTours) {
         // Занятость не прочиталась — «мест нет» было бы враньём: тур остаётся
         // в плане, но не впереди тех, где места проверены.
         const slots = await fetchAvailabilityForTour(t.tourId, profile.arrivalDate, profile.departureDate, cache)
           .catch(() => null);
         if (slots === null) { tight.push(t); continue; }
-        if (slots.length === 0) { noSlotTours.add(t.title); continue; }
+        if (slots.length === 0) {
+          // Свободных дат нет и у тура без календаря — всегда. «Мест нет» —
+          // только у тура с расписанием; без календаря все даты свободны для
+          // заявки (решение владельца 08.10), и тур идёт после проверенных.
+          // До 08.10 он снимался с плана всегда: одиннадцать туров «Края
+          // Вулканов» не попадали ни в один план «с оператором».
+          const keeps = await fetchTourKeepsSchedule(t.tourId, cache);
+          if (keeps === false) onRequest.push(t);
+          else if (keeps === null) tight.push(t);
+          else noSlotTours.add(t.title);
+          continue;
+        }
         (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
       }
-      realTours = [...fits, ...tight];
+      realTours = [...fits, ...tight, ...onRequest];
     }
 
     // Кандидатов в самостоятельный день берём с запасом: часть отсеет
     // проверка безопасности ниже.
     const routeSpare = 6;
-    const routesOrNull = realTours.length >= block.activeDays
+    const selfOutOfSeason = onRequestOnly.has(primaryInterest);
+    if (selfOutOfSeason && realTours.length < block.activeDays) {
+      selfSkipped.add(`${ACTIVITY_NAMES[primaryInterest] ?? primaryInterest} без оператора — по нашему сезонному ориентиру не сезон`);
+    }
+    const routesOrNull = realTours.length >= block.activeDays || selfOutOfSeason
       ? []
       : await fetchRoutesForZone(block.zone, primaryInterest, block.activeDays - realTours.length + routeSpare);
     let dbRoutes = routesOrNull ?? [];
@@ -1345,6 +1391,7 @@ async function generateDayPlans(
       if (style === 'mixed' && !realTour && !route) {
         const guideOnly = activitySelfBlocker(interest);
         if (guideOnly) dayWarnings.unshift(`Только с гидом: ${guideOnly}. Ищите тур оператора.`);
+        else if (onRequestOnly.has(interest)) dayWarnings.unshift(OUT_OF_SEASON_DAY_NOTE);
       }
 
       // Health compatibility check
@@ -1400,6 +1447,7 @@ async function generateDayPlans(
           maxParticipants: realTour.maxParticipants,
           weatherDependent: realTour.weatherDependent,
           durationHours: realTour.durationHours,
+          priceUnit: realTour.priceUnit,
           lodgingIncluded: lodgingIncluded(realTour.included),
         };
         realPrice = realTour.basePrice;
@@ -1750,9 +1798,27 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   const bi = budgetIndex(profile.budgetTier);
   const nightCount = Math.max(0, days.length - 1);
 
-  // Activities total
-  const actFrom = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ?? d.priceFrom), 0);
-  const actTo   = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ? Math.round(d.realPrice * 1.2) : d.priceTo), 0);
+  // Активности. Цена тура оператора — только если она за человека: цену
+  // группы или дня сложить как цену человека значило бы соврать в итоге
+  // (#2223); такой тур в сумму не идёт и называется отдельно. День без тура —
+  // справочная вилка вида активности: это ориентир, и он тоже назван отдельно.
+  // Продолжение многодневного тура (цена 0, учтена в первом дне) не считается.
+  let actFrom = 0;
+  let actTo = 0;
+  const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0 };
+  for (const d of days) {
+    if (d.type !== 'activity' && d.type !== 'buffer') continue;
+    if (d.realPrice) {
+      if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
+      actFrom += d.realPrice;
+      actTo += Math.round(d.realPrice * 1.2);
+      activityPricing.tourPriced++;
+      continue;
+    }
+    if (d.priceFrom > 0 || d.priceTo > 0) activityPricing.estimated++;
+    actFrom += d.priceFrom;
+    actTo += d.priceTo;
+  }
 
   // Ночёвки. Оценка по зоне — только за те ночи, которые турист ДЕЙСТВИТЕЛЬНО
   // оплачивает отдельно.
@@ -1806,6 +1872,7 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
     accommodation: [accFrom, accTo],
     transport: [transFrom, transTo],
     perPersonTotal: [actFrom + accFrom + transFrom, actTo + accTo + transTo],
+    activityPricing,
   };
 }
 
@@ -1876,7 +1943,10 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   if (!profile.interests || profile.interests.length === 0) {
     return {
       zones: [], days: [], warnings: [],
-      priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] },
+      priceBreakdown: {
+        activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
+        activityPricing: { tourPriced: 0, estimated: 0, excluded: 0 },
+      },
       itinerary: 'Выберите интересы для рекомендации.',
       // Каталог не спрашивали вовсе — это «не знаем», а не «пусто».
       catalogueOpen: null,
@@ -1893,7 +1963,17 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
 
   // Каталог спрашивается ОДИН раз и кормит все три места, где решает
   // сезон: иначе они разошлись бы между собой (§10.09).
-  const catalogueOpen = await fetchActivitiesBookableInMonth(getMonth(profile), cache);
+  const month = getMonth(profile);
+  const scheduledOpen = await fetchActivitiesBookableInMonth(month, cache);
+  // Туры без календаря (08.10): их даты свободны для заявки в любом месяце,
+  // и месяц они открывают — но только турам оператора. «Сам» туров не берёт,
+  // ему месяц открывает лишь наш сезонный ориентир.
+  const onRequest = (profile.travelStyle ?? 'mixed') === 'self' ? new Set<string>() : await fetchActivitiesOnRequest(cache);
+  const onRequestOnly = new Set([...(onRequest ?? [])].filter((k) => {
+    const c = ACTIVITY_CONSTRAINTS[k];
+    return c !== undefined && !c.months.includes(month) && !(scheduledOpen?.has(k) ?? false);
+  }));
+  const catalogueOpen = scheduledOpen === null ? null : new Set([...scheduledOpen, ...(onRequest ?? [])]);
 
   const zones = await scoreZones(profile, cache, catalogueOpen);
   // Дни собираются ДО предупреждений (27.09): предупреждения о разрешениях и
@@ -1903,7 +1983,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
   // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
   // «Раздолье»).
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen);
+  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(profile, zones, tripDays, cache, catalogueOpen, onRequestOnly);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
 
@@ -1913,7 +1993,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // «Осенняя рыбалка (октябрь-ноябрь)» при `fishing.months` = [6,7,8,9]);
   // согласиться молча — скрыть, что наш сезонный ориентир говорит другое, а
   // он несёт и безопасность, не только коммерцию.
-  const catalogueOnly = openedByCatalogueOnly(profile.interests, getMonth(profile), catalogueOpen);
+  // Записью оператора — по строкам расписания этого месяца; туры без
+  // календаря называются отдельно ниже, другими словами.
+  const catalogueOnly = openedByCatalogueOnly(profile.interests, month, scheduledOpen);
   if (catalogueOnly.length > 0) {
     const names = catalogueOnly.map(i => ACTIVITY_NAMES[i] ?? i).join(', ');
     warnings.push({
@@ -1921,6 +2003,28 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       severity: 'important',
       message: `${names}: по нашему сезонному ориентиру это уже не сезон, но оператор открыл запись на этот месяц. `
         + 'Взяли по записи оператора — он отвечает за выход; погоду и снаряжение уточните у него отдельно.',
+    });
+  }
+
+  // Открыто только турами без календаря: оператор принимает заявку на любую
+  // дату, но идёт ли тур в эти дни — он и скажет. Промолчать о том, что наш
+  // ориентир говорит «не сезон», нельзя: он несёт и безопасность.
+  const onRequestAsked = profile.interests.filter((i) => onRequestOnly.has(i));
+  if (onRequestAsked.length > 0) {
+    const names = onRequestAsked.map(i => ACTIVITY_NAMES[i] ?? i).join(', ');
+    warnings.push({
+      type: 'season',
+      severity: 'important',
+      message: `${names}: по нашему сезонному ориентиру это уже не сезон. Месяц открывают туры операторов без календаря: `
+        + 'заявку на любую дату они принимают, а идёт ли тур в эти дни, оператор подтвердит по заявке. '
+        + 'Он отвечает за выход; погоду и снаряжение уточните у него отдельно.',
+    });
+  }
+  if (onRequest === null) {
+    warnings.push({
+      type: 'season',
+      severity: 'important',
+      message: 'Не удалось проверить туры операторов без календаря — то, что они принимают по заявке, в план могло не попасть.',
     });
   }
 

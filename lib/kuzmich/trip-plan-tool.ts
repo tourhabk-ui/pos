@@ -14,6 +14,7 @@
 
 import {
   recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
+  type BudgetTier, type PriceBreakdown,
 } from '@/lib/planner';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
@@ -229,12 +230,122 @@ export function readPlanDays(raw: string | undefined): { days: number; note: str
   return { days: n, note: null };
 }
 
+/** Потолок группы — тот же, что у заявки на бронь (1–30 человек). */
+const MAX_GROUP = 30;
+
+/** Взрослые: целое 1..30. Не дано — двое; не разобрали — двое и сказано вслух. */
+export function readAdults(raw: string | undefined): { adults: number; given: boolean; note: string | null } {
+  const t = (raw ?? '').trim();
+  if (!t) return { adults: 2, given: false, note: null };
+  const m = /^\d{1,2}/.exec(t);
+  const n = m ? Number(m[0]) : NaN;
+  if (!Number.isInteger(n) || n < 1 || n > MAX_GROUP) {
+    return { adults: 2, given: false, note: `Число взрослых «${t}» не разобрал (нужно 1–${MAX_GROUP}) — считаю двоих.` };
+  }
+  return { adults: n, given: true, note: null };
+}
+
+/**
+ * Дети — возрасты через запятую: «6, 10» (массив от MCP приходит той же
+ * строкой «6,10»). Возраст — целое 0..17. Что не разобрано, не выбрасывается
+ * молча: называется, и такой ребёнок в план не идёт — выдумывать ему возраст
+ * нельзя, а от возраста зависят допуски активностей.
+ */
+export function readChildren(raw: string | undefined): { children: number[]; note: string | null } {
+  const t = (raw ?? '').trim();
+  if (!t || /^(нет|0|-|\[\s*\])$/i.test(t)) return { children: [], note: null };
+  const parts = t.replace(/^\[|\]$/g, '').split(/[,;\s]+/).filter(Boolean);
+  const ages: number[] = [];
+  const bad: string[] = [];
+  for (const p of parts) {
+    const n = /^\d{1,2}$/.test(p) ? Number(p) : NaN;
+    if (Number.isInteger(n) && n >= 0 && n <= 17) ages.push(n);
+    else bad.push(p);
+  }
+  const kept = ages.slice(0, MAX_GROUP);
+  const note = bad.length > 0
+    ? `Возраст детей «${bad.join(', ')}» не разобрал (нужно число лет 0–17) — ${kept.length > 0 ? 'считаю только названных числом' : 'считаю без детей'}.`
+    : null;
+  return { children: kept, note };
+}
+
+const BUDGET_WORDS: Array<[RegExp, BudgetTier]> = [
+  [/^(economy|эконом|бюджет|дешев|недорог|подешевле|минимал)/i, 'economy'],
+  [/^(comfort|комфорт|средн|стандарт)/i, 'comfort'],
+  [/^(premium|премиум|люкс|дорог|максимал|vip)/i, 'premium'],
+];
+
+export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом', comfort: 'комфорт', premium: 'премиум' };
+
+/** Уровень бюджета: код или русское слово. Не понял — «комфорт», и это сказано. */
+export function readBudgetTier(raw: string | undefined): { tier: BudgetTier; given: boolean; note: string | null } {
+  const t = (raw ?? '').trim();
+  if (!t) return { tier: 'comfort', given: false, note: null };
+  for (const [re, tier] of BUDGET_WORDS) if (re.test(t)) return { tier, given: true, note: null };
+  return { tier: 'comfort', given: false, note: `Уровень бюджета «${t}» не разобрал — считаю «комфорт». Можно: эконом, комфорт, премиум.` };
+}
+
+function childrenWords(ages: number[]): string {
+  return ages.length === 1 ? `ребёнок ${ages[0]} лет` : `дети ${ages.join(', ')} лет`;
+}
+
+function adultsWords(n: number): string {
+  if (n === 1) return 'одного взрослого';
+  if (n === 2) return 'двоих взрослых';
+  return `${n} взрослых`;
+}
+
 /**
  * Допущения, которых турист не называл, — вслух первой строкой. Движок
  * считает на двоих взрослых со средней подготовкой, и его «у вас указана
  * средняя» читалось как слова человека, который ничего не указывал.
+ *
+ * С #2223 состав и бюджет можно назвать. Что названо — пересказывается как
+ * названное, что не названо — как допущение: «считаю на двоих» и «вас двое»
+ * — разные утверждения.
  */
-export const PLAN_ASSUMPTIONS = 'Считаю на двоих взрослых со средней подготовкой, уровень размещения «комфорт», только безопасные варианты — если у вас иначе, пересоберите в планировщике.';
+export function planAssumptions(p: {
+  adults: number; adultsGiven: boolean; children: number[]; tier: BudgetTier; tierGiven: boolean;
+}): string {
+  const group = p.adultsGiven || p.children.length > 0
+    ? `Группа: ${[`${p.adults} взр.`, p.children.length > 0 ? childrenWords(p.children) : ''].filter(Boolean).join(', ')}`
+    : `Считаю на ${adultsWords(p.adults)}`;
+  const level = p.tierGiven
+    ? `уровень размещения «${BUDGET_LABEL[p.tier]}»`
+    : `уровень размещения «${BUDGET_LABEL[p.tier]}» (не назван — допущение)`;
+  return `${group}, средняя подготовка, ${level}, только безопасные варианты — если у вас иначе, пересоберите в планировщике.`;
+}
+
+const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+const range = ([a, b]: [number, number]) => (a === b ? rub(a) : `${rub(a)}–${rub(b)}`);
+
+/**
+ * Цена плана словами (#2223): вилка на человека и из чего она сложена.
+ *
+ * Сумма — `priceBreakdown` движка, своей арифметики здесь нет. Задача этой
+ * функции — не дать вилке выглядеть точнее, чем она есть (§4.0): дни по цене
+ * тура и дни по справочной вилке названы раздельно, туры с ценой не за
+ * человека — исключены и названы, перелёт до Камчатки не входит и сказано.
+ * Плана нет — цены нет (пустой массив).
+ */
+export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: boolean): string[] {
+  if (!planned) return [];
+  const { tourPriced, estimated, excluded } = pb.activityPricing;
+  const parts: string[] = [];
+  if (tourPriced > 0) parts.push(`${tourPriced} — по ценам туров операторов`);
+  if (estimated > 0) parts.push(`${estimated} — по справочной вилке вида активности, это не цена тура`);
+  const lines = [
+    `Ориентир на человека: ${range(pb.perPersonTotal)} (уровень «${BUDGET_LABEL[tier]}»). Из чего сложено:`,
+    `- активности: ${range(pb.activities)}${parts.length > 0 ? ` (${parts.join('; ')})` : ''}`,
+    `- жильё: ${range(pb.accommodation)} — оценка за ночи по зоне и уровню размещения; ночи, включённые в туры, не считаны`,
+    `- транспорт: ${range(pb.transport)} — трансферы и переезды по краю, оценка`,
+  ];
+  if (excluded > 0) {
+    lines.push(`Без учёта ${excluded} ${excluded === 1 ? 'тура' : 'туров'}: цена у ${excluded === 1 ? 'него' : 'них'} не за человека (за группу или за день) — сумму смотрите в карточке тура.`);
+  }
+  lines.push('Перелёт до Камчатки в сумму не входит.');
+  return lines;
+}
 
 /**
  * Вес за совпадение ЗАГЛАВНОГО интереса пресета — первого в его списке.
@@ -372,6 +483,8 @@ export function formatTripPlanForChat(
     arrivalIso?: string;
     /** Ведёт ли тур расписание — по ID, для дней с туром без свободных дат. */
     keepsSchedule?: ReadonlyMap<string, boolean | null>;
+    /** Цена плана словами (formatPlanPrice) — под днями, до «Важно». */
+    priceLines?: string[];
   },
 ): string {
   if (days.length === 0) {
@@ -413,6 +526,9 @@ export function formatTripPlanForChat(
     for (const w of dayWarn.slice(0, DAY_WARNINGS_SHOWN)) lines.push(`   ! ${w}`);
     if (dayWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${dayWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
   }
+  if (context?.priceLines && context.priceLines.length > 0) {
+    lines.push('', ...context.priceLines);
+  }
   if (warnings.length > 0) {
     // Без молчаливого потолка: прежний slice(0, 2) отрезал третье и
     // дальше, включая безопасность (проверка MCP 29.09).
@@ -429,7 +545,10 @@ export function formatTripPlanForChat(
 
 /** Обработчик инструмента: собрать план и отдать текст с ссылками. */
 export async function makeTripPlanForKuzmich(
-  args: { days?: string; interests?: string; when?: string; travel_style?: string; rest_days?: string },
+  args: {
+    days?: string; interests?: string; when?: string; travel_style?: string; rest_days?: string;
+    adults?: string; children?: string; budget_tier?: string;
+  },
 ): Promise<string> {
   const { days: daysNum, note: daysNote } = readPlanDays(args.days);
   const { interests, defaulted } = parseChatInterestsDetailed(args.interests ?? '');
@@ -439,6 +558,10 @@ export async function makeTripPlanForKuzmich(
       ? `Интересы «${args.interests.trim()}» не разобрал — взял классику первой поездки: вулканы, медведи, термальные источники.`
       : 'Интересы не названы — взял классику первой поездки: вулканы, медведи, термальные источники.')
     : null;
+
+  const group = readAdults(args.adults);
+  const kids = readChildren(args.children);
+  const budget = readBudgetTier(args.budget_tier);
 
   const start = parsePlanStart(args.when, Date.now());
   const arrival = start.date;
@@ -451,10 +574,10 @@ export async function makeTripPlanForKuzmich(
     interests,
     arrivalDate: arrival.toISOString().slice(0, 10),
     departureDate: departure.toISOString().slice(0, 10),
-    adults: 2,
-    children: [],
+    adults: group.adults,
+    children: kids.children,
     fitnessLevel: 'moderate',
-    budgetTier: 'comfort',
+    budgetTier: budget.tier,
     riskMode: 'safe_only',
     travelStyle: readTravelStyle(args.travel_style),
     restDays: readRestDays(args.rest_days),
@@ -488,9 +611,17 @@ export async function makeTripPlanForKuzmich(
     {
       refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
+      priceLines: formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0),
     },
   );
 
-  const notes = [startNote(start, plannedFor), daysNote, interestsNote, PLAN_ASSUMPTIONS].filter(Boolean);
+  const assumptions = planAssumptions({
+    adults: group.adults, adultsGiven: group.given, children: kids.children,
+    tier: budget.tier, tierGiven: budget.given,
+  });
+  const notes = [
+    startNote(start, plannedFor), daysNote, interestsNote,
+    group.note, kids.note, budget.note, assumptions,
+  ].filter(Boolean);
   return `${notes.join('\n')}\n\n${text}`;
 }

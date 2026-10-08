@@ -27,6 +27,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { getPublicBaseUrl } from '@/lib/config';
 import { reachForPartner } from '@/lib/partners/reach';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
@@ -135,13 +136,7 @@ export type CreateSeatRequestResult =
 export async function tourKeepsSchedule(tourId: number): Promise<boolean | null> {
   try {
     const { rows } = await pool.query<{ has: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1 FROM tour_availability
-          WHERE operator_tour_id = $1
-            AND date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
-            AND is_cancelled = FALSE
-            AND deleted_at IS NULL
-       ) AS has`,
+      `SELECT ${keepsScheduleSql('$1')} AS has`,
       [tourId],
     );
     return rows[0]?.has === true;

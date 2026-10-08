@@ -29,7 +29,12 @@ beforeEach(() => {
       coords: [53.2, 158.6], defaultTransport: 'walking', allowedTransports: ['walking'],
       difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
     }],
-    warnings: [], priceBreakdown: {}, itinerary: '', catalogueOpen: null,
+    warnings: [],
+    priceBreakdown: {
+      activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
+      activityPricing: { tourPriced: 0, estimated: 0, excluded: 0 },
+    },
+    itinerary: '', catalogueOpen: null,
     preferences: {
       travelStyle: 'self', restDaysRequested: 1, restDaysPlanned: 1,
       notes: [{ topic: 'travel_style', status: 'partial', message: 'Не ставим без гида: Перевал — МЧС.' }],

@@ -1,0 +1,37 @@
+name: Погода — замер моделей Open-Meteo
+
+# Какая модель Open-Meteo лучше предсказывает «сухо / осадки» на побережье
+# Камчатки (#2249): прогноз на сутки вперёд против факта метеостанции
+# GHCN-Daily. Песочница агента к Open-Meteo и NOAA не ходит (прокси), раннер
+# ходит. Скрипт — scripts/weather-model-skill.ts, счёт — lib/weather/model-skill.ts.
+#
+# Только чтение: ни прод, ни база не участвуют, секретов нет.
+#
+# Запуск: push в main, меняющий .github/triggers/weather-model-skill.json,
+# или кнопка. Повторный прогон через неделю — проверка критерия готовности
+# задачи на свежих днях.
+
+# Права токена: единственный потребитель — checkout маркера и скрипта.
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/weather-model-skill.json'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Замер
+        run: npx tsx scripts/weather-model-skill.ts
