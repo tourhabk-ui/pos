@@ -1,30 +1,33 @@
 {
   "timeout": 60,
-  "retries": 30,
+  "retries": 40,
   "allowStale": false,
-  "bytes": 300,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Избранное под любой ролью (#избранное): гость на /api/tourist/wishlist получает 401 (вход обязателен), страница /wishlist открывается, /hub/tourist остаётся за ролью.",
-  "run": 726,
+  "bytes": 900,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. После выката #2292/#2294: виджет /safety на нашем прогнозе (place, now, today, checked_at), Эссо — точка села (~500 м, не 1430 у смотровой), памятка: разделы «Сильное землетрясение» и «Цунами».",
+  "run": 727,
   "urls": [
-    "https://vedarai.ru/wishlist",
-    "https://vedarai.ru/api/tourist/wishlist"
+    "https://vedarai.ru/api/safety/weather",
+    "https://vedarai.ru/weather/esso",
+    "https://vedarai.ru/safety/offline"
   ],
   "grep": [
-    "Избранное",
-    "noindex",
-    "Не авторизован",
-    "Forbidden"
+    "\"today\"",
+    "\"checked_at\"",
+    "\"stale\"",
+    "Высота точки",
+    "1430",
+    "Цунами",
+    "Сильное землетрясение",
+    "emsd.ru"
   ],
   "text": false,
   "retryDelay": 30,
-  "until": "Избранное",
+  "until": "\"today\"",
   "around": [
-    "Избранное",
-    "noindex",
-    "Не авторизован",
-    "Forbidden"
+    "Высота точки",
+    "Цунами"
   ],
-  "aroundLines": 0,
-  "aroundHits": 4,
-  "aroundBefore": 40
+  "aroundLines": 1,
+  "aroundHits": 2,
+  "aroundBefore": 1
 }
