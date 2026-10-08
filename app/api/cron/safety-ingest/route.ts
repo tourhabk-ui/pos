@@ -11,6 +11,7 @@ import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, inges
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
+import { ingestMeteoalert } from '@/lib/services/safety/meteoalert';
 import { query } from '@/lib/database';
 import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
@@ -678,6 +679,7 @@ function buildResponse(
     vk?: ParseResultSummary;
     max?: ParseResultSummary;
     firms?: ParseResultSummary;
+    meteoalert?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -739,6 +741,7 @@ function buildResponse(
     ...(ingestResult.vk?.errors ?? []),
     ...(ingestResult.max?.errors ?? []),
     ...(ingestResult.firms?.errors ?? []),
+    ...(ingestResult.meteoalert?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
     ...(pruned && 'error' in pruned ? [pruned.error] : []),
@@ -764,6 +767,7 @@ function buildResponse(
       ['vk_mchs', ingestResult.vk, 'VK_SERVICE_TOKEN'],
       ['max_mchs', ingestResult.max, undefined],
       ['firms', ingestResult.firms, 'FIRMS_MAP_KEY'],
+      ['meteoalert', ingestResult.meteoalert, undefined],
     ] as const).map(([key, result, requiresEnv]) => [
       key,
       sourceReport({
@@ -993,9 +997,11 @@ export async function GET(req: Request) {
   // с M5.0. Скачивается параллельно с остальными, а ЗАПИСЫВАЕТСЯ ниже, после
   // того как USGS уже записал своё: одновременная запись двух источников не
   // увидела бы друг друга, и один толчок стал бы двумя предупреждениями.
-  const [ingestAllResult, firmsResult, kbgsrasPage, eqkamPage, emsdPage] = await Promise.all([
+  const [ingestAllResult, firmsResult, meteoalertResult, kbgsrasPage, eqkamPage, emsdPage] = await Promise.all([
     ingestAll(),
     ingestFirmsWildfires(),
+    // Предупреждения Росгидромета структурой: уровень, район, срок (08.10).
+    ingestMeteoalert(),
     fetchTelegramPreview('kbgsras'),
     fetchTelegramPreview('eqkam'),
     fetchEmsdPage(EMSD_QUAKES_URL),
@@ -1018,11 +1024,12 @@ export async function GET(req: Request) {
   const ingestResult = {
     ...ingestAllResult,
     firms: firmsResult,
+    meteoalert: meteoalertResult,
     ...(telegramOk
       ? { kbgsras: telegramResult.kbgsras, eqkam: telegramResult.eqkam }
       : {}),
     ...(emsdOk ? { emsd: emsdResult } : {}),
-    total_inserted: ingestAllResult.total_inserted + firmsResult.inserted
+    total_inserted: ingestAllResult.total_inserted + firmsResult.inserted + meteoalertResult.inserted
       + (telegramOk ? telegramResult.total_inserted : 0)
       + (emsdOk ? emsdResult.inserted : 0),
   };
@@ -1086,6 +1093,7 @@ export async function GET(req: Request) {
     ...(process.env.FIRMS_MAP_KEY
       ? [{ label: 'NASA FIRMS (пожары)', errors: firmsResult.errors, inserted: firmsResult.inserted }]
       : []),
+    { label: 'Росгидромет (meteoalert)', errors: meteoalertResult.errors, inserted: meteoalertResult.inserted },
   ];
   logHeartbeat(
     startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'heartbeat_get',
@@ -1122,6 +1130,10 @@ export async function GET(req: Request) {
     // SAFETY_SOURCE_EXPECTATIONS: «нет термоточек» неотличимо от «нет пожаров»
     // (сезонность) — dead-алерт по тишине был бы ложью.
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
+    // Ответ всегда несёт оба региона, даже без предупреждений («оповещения
+    // не требуется»), — поэтому тишина здесь значит «не читаем», и порог
+    // в SAFETY_SOURCE_EXPECTATIONS считает живость по регионам.
+    entryFor('meteoalert', 'Росгидромет — предупреждения (meteoalert)', meteoalertResult),
   ]));
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
@@ -1374,7 +1386,7 @@ export async function POST(req: Request) {
   ]));
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
-    delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
+    delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms', 'meteoalert'],
     knownDormantSources: knownDormantPost,
   }, pruned, roadAnchors, volcanoAnchors, datedCaps);
 }
