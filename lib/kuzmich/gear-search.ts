@@ -29,6 +29,32 @@ interface GearRow {
 
 const appBase = getPublicBaseUrl;
 
+/**
+ * Пустая витрина — факт, а не сбой поиска (решение владельца 08.10, #2239).
+ * Партнёров-прокатов на платформе пока нет, и «по заданным условиям не
+ * найдено» читалось агентом как «поищи иначе». Честный ответ — витрина пуста,
+ * а список вещей в дорогу даёт маршрут; адреса прокатов, которых нет в базе,
+ * не сочиняются.
+ */
+export const EMPTY_SHELF =
+  'Витрина проката снаряжения на платформе пока пуста — ни один прокат не подключён. Это факт витрины, не сбой поиска. '
+  + 'Что взять с собой на конкретный маршрут, говорит его карточка (снаряжение маршрута). '
+  + 'Адресов прокатов в базе нет — не называй их по памяти; можно предложить оставить заявку через create_lead.';
+
+/** Сколько позиций на витрине вообще; null — не смогли прочитать (§4.0). */
+async function publicGearCount(): Promise<number | null> {
+  try {
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM gear_items WHERE ${publicGearSql('')}`,
+    );
+    return rows[0]?.n ?? 0;
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[gear-search] витрина не посчитана', { sqlstate: e?.code, message: e?.message });
+    return null;
+  }
+}
+
 export async function searchGearForKuzmich(args: GearSearchArgs): Promise<string> {
   // Шлюз витрины — тот же, что у каталога /gear: позиция на проверке или
   // отклонённая (moderation_status) в ответ Кузьмича и публичного MCP не
@@ -61,7 +87,15 @@ export async function searchGearForKuzmich(args: GearSearchArgs): Promise<string
     params,
   );
 
-  if (rows.length === 0) return 'Снаряжение по заданным условиям не найдено.';
+  if (rows.length === 0) {
+    const filtered = params.length > 0;
+    const shelf = filtered ? await publicGearCount() : 0;
+    if (shelf === 0) return EMPTY_SHELF;
+    if (shelf === null) {
+      return 'Снаряжение по заданным условиям не найдено. Есть ли на витрине проката что-то другое, проверить не удалось — не утверждай, что проката нет.';
+    }
+    return `Снаряжение по заданным условиям не найдено. На витрине проката всего позиций: ${shelf} — можно поискать без фильтра или по другому слову.`;
+  }
 
   const base = appBase();
   return rows.map(g => {
