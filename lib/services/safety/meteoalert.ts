@@ -28,6 +28,7 @@
  * dispatchPushAlerts); на /safety будет на строку больше, зато с уровнем и
  * сроком. Убирать пересказы МЧС — отдельное решение, не это.
  */
+import { query } from '@/lib/database';
 import { saveEvent, titleFingerprint, type ParseResult, type SeismicEvent } from '@/lib/services/safety/seismic-parser';
 
 /** Прямоугольник, которым спрашивает сам информер kammeteo.ru (весь край с запасом). */
@@ -150,7 +151,16 @@ function regionsLabel(ids: string[]): string {
  * Предупреждения → события. Одинаковое предупреждение для севера и юга (так
  * чаще всего и бывает: «ветер в прибрежных районах 15-20 м/с» обоим) — одна
  * тревога с объединёнными зонами, а не две строки об одном.
- * Истёкшее к `nowMs` не возвращается.
+ *
+ * Только ДЕЙСТВУЮЩЕЕ к `nowMs`: истёкшее и ещё не начавшееся не возвращаются.
+ * Будущее отсеяно после первого прогона на проде (проба 715, 08.10): ветер
+ * «через 39 часов» лёг рядом с действующим оранжевым как «ветер — жёлтый
+ * уровень (север края)» без слова о начале, и два уровня одного ветра одного
+ * района читались противоречием. Дату начала в текст не поставить: когда
+ * предупреждение вступает в силу, информер переписывает начало на «сейчас», и
+ * текст с датой разошёлся бы сам с собой. Вступит — придёт с ближайшим
+ * опросом (5 минут); заранее о нём предупреждают пересказы МЧС («на 8-9
+ * октября») и прогноз get_weather.
  */
 export function meteoalertEvents(warnings: MeteoWarning[], nowMs: number = Date.now()): SeismicEvent[] {
   const groups = new Map<string, { w: MeteoWarning; regions: string[] }>();
@@ -166,11 +176,8 @@ export function meteoalertEvents(warnings: MeteoWarning[], nowMs: number = Date.
     regions.sort();
     const startMs = w.startUnix * 1000;
     const endMs = startMs + (w.minutes !== null ? w.minutes * 60_000 : UNKNOWN_DURATION_HOURS * 3_600_000);
-    if (endMs <= nowMs) continue;
-    // Предупреждение «на завтра» действует уже сейчас — его и объявляют
-    // заранее. Отсчёт срока — от момента, когда мы его увидели, до конца.
-    const publishedMs = Math.min(startMs, nowMs);
-    const hours = Math.max(1, Math.ceil((endMs - publishedMs) / 3_600_000));
+    if (endMs <= nowMs || startMs > nowMs) continue;
+    const hours = Math.max(1, Math.ceil((endMs - startMs) / 3_600_000));
     const level = LEVEL[w.level];
     const zones = [...new Set(regions.flatMap((id) => METEOALERT_REGIONS[id]?.zones ?? []))];
     const phenomenon = w.phenomenon.charAt(0).toLowerCase() + w.phenomenon.slice(1);
@@ -178,7 +185,7 @@ export function meteoalertEvents(warnings: MeteoWarning[], nowMs: number = Date.
     events.push({
       source_id: `${METEOALERT_PREFIX}/${regions.join('+')}/${w.key}/${w.startUnix}/t${titleFingerprint(`${w.phenomenon} ${w.text}`)}`,
       source_url: METEOALERT_PAGE,
-      published_at: new Date(publishedMs),
+      published_at: new Date(startMs),
       alert_type: meteoAlertType(w.phenomenon),
       severity: level.severity,
       title: `Росгидромет: ${phenomenon} — ${level.word} уровень (${regionsLabel(regions)})`,
@@ -197,11 +204,45 @@ export function meteoalertEvents(warnings: MeteoWarning[], nowMs: number = Date.
 export interface MeteoalertResult extends ParseResult {
   /** Регионы, которые ответ содержал, и сколько предупреждений у каждого. */
   regions: Array<{ id: string; label: string; warnings: number }>;
+  /** Сколько наших живых строк снято: в свежем полном ответе их больше нет. */
+  retracted: number;
+}
+
+/**
+ * Снять живые строки meteoalert, которых нет среди действующих сейчас.
+ *
+ * Росгидромет отменяет и сокращает предупреждения сам, а наша строка жила бы
+ * до своего срока — после отбоя ещё сутки красить край. Срок только
+ * СОКРАЩАЕТСЯ до «сейчас» (тот же приём, что capDatedWarnings): строка
+ * остаётся в базе, перестаёт действовать. Сверка — по заголовку и тексту,
+ * тем же нормализованным сравнением, что контентный дедуп saveEvent: строка,
+ * которую сегодняшнее событие продлило, совпадает с ним и не снимается.
+ *
+ * Звать ТОЛЬКО по свежему ответу, где есть все регионы: частичный ответ снял
+ * бы предупреждения пропавшего региона — это выключение сигнализации.
+ */
+export async function retractWithdrawn(current: SeismicEvent[]): Promise<number> {
+  const r = await query(
+    `UPDATE external_alerts ea
+        SET expires_at = NOW()
+      WHERE ea.external_id LIKE $1
+        AND ea.expires_at > NOW()
+        AND NOT EXISTS (
+          SELECT 1 FROM unnest($2::text[], $3::text[]) AS c(title, description)
+           WHERE regexp_replace(lower(trim(c.title)), '\\s+', ' ', 'g')
+                 = regexp_replace(lower(trim(ea.title)), '\\s+', ' ', 'g')
+             AND regexp_replace(lower(trim(c.description)), '\\s+', ' ', 'g')
+                 = regexp_replace(lower(trim(COALESCE(ea.description, ''))), '\\s+', ' ', 'g')
+        )
+      RETURNING ea.id`,
+    [`${METEOALERT_PREFIX}/%`, current.map((e) => e.title), current.map((e) => e.description)],
+  );
+  return r.rowCount ?? 0;
 }
 
 /** Приём: запрос → разбор → saveEvent. Отказ — в errors, не тишиной. */
 export async function ingestMeteoalert(): Promise<MeteoalertResult> {
-  const result: MeteoalertResult = { events: [], inserted: 0, skipped: 0, errors: [], regions: [] };
+  const result: MeteoalertResult = { events: [], inserted: 0, skipped: 0, errors: [], regions: [], retracted: 0 };
   try {
     const res = await fetch(METEOALERT_URL, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VedarSafety/1.0; +https://vedarai.ru)' },
@@ -238,6 +279,7 @@ export async function ingestMeteoalert(): Promise<MeteoalertResult> {
       label: METEOALERT_REGIONS[id].label,
       warnings: parsed.warnings.filter((w) => w.regionId === id).length,
     }));
+    let saveFailed = false;
     for (const event of meteoalertEvents(parsed.warnings)) {
       result.events.push(event);
       try {
@@ -245,7 +287,17 @@ export async function ingestMeteoalert(): Promise<MeteoalertResult> {
         if (status === 'inserted') result.inserted++;
         else result.skipped++;
       } catch (e) {
+        saveFailed = true;
         result.errors.push((e as Error).message);
+      }
+    }
+    // Снимать — только когда ответ полный и записалось всё: не записанное
+    // событие выглядело бы «отменённым», и снялась бы его вчерашняя строка.
+    if (!saveFailed && parsed.regions.length === Object.keys(METEOALERT_REGIONS).length) {
+      try {
+        result.retracted = await retractWithdrawn(result.events);
+      } catch (e) {
+        result.errors.push(`meteoalert: снятие отменённых не удалось: ${(e as Error).message}`);
       }
     }
   } catch (e) {
