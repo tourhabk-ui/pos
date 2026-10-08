@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { PD_CONSENT_TEXT, PD_CONSENT_VERSION } from '@/lib/legal/pd-consent';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -93,6 +94,11 @@ describe('где живёт согласие', () => {
     const src = read('lib/legal/pd-consent.ts');
     expect(src).toContain('PD_CONSENT_VERSION');
     expect(src).toContain('PD_CONSENT_TEXT');
+    // Согласие называет главную передачу — туроператору (решение владельца
+    // 08.10: платформа передаёт заявку и контакты оператору). Текст сменился —
+    // версия обязана смениться вместе с ним.
+    expect(PD_CONSENT_TEXT).toMatch(/передачу туроператору/);
+    expect(PD_CONSENT_VERSION).toBe('2026-10-08');
     // Текст согласия не дублируется в форме брони — иначе версии разойдутся.
     expect(read('components/marketplace/BookingFormClient.tsx'))
       .not.toContain('Согласен на обработку персональных данных');
