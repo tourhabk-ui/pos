@@ -1,0 +1,27 @@
+{
+  "note": "Маркер запуска weather-model-skill.yml: правка этого файла в main прогоняет замер моделей Open-Meteo против факта метеостанции. Только чтение.",
+  "run": 1,
+  "why": "#2249: прогноз get_weather (best_match) дважды за три дня разошёлся с фактом в Петропавловске (06.10 «ливень 19 мм» при мороси, 08.10 «снегопад» при ясной погоде). Сравниваем модели на прогнозе на сутки вперёд.",
+  "point": { "name": "Петропавловск-Камчатский, центр", "lat": 53.02, "lng": 158.65 },
+  "stationSearch": ["PETROPAVLOVSK", "ELIZOVO", "YELIZOVO"],
+  "station": null,
+  "days": 120,
+  "models": [
+    "best_match",
+    "ecmwf_ifs025",
+    "ecmwf_aifs025_single",
+    "icon_seamless",
+    "icon_global",
+    "gfs_seamless",
+    "gfs_global",
+    "jma_seamless",
+    "gem_seamless",
+    "meteofrance_seamless",
+    "ukmo_seamless",
+    "cma_grapes_global",
+    "kma_seamless"
+  ],
+  "wetMm": [0.5, 1, 2],
+  "heavyMm": 10,
+  "forecastDays": 16
+}
