@@ -28,7 +28,7 @@
  * отметку от неподтверждённой, и досылка гоняла бы к серверу всё подряд.
  */
 
-import type { WishlistItemType } from './contract';
+import { wishlistFailureText, type WishlistItemType } from './contract';
 
 const LS_KEY = 'wishlist_local';
 const PENDING_KEY = 'wishlist_pending';
@@ -170,6 +170,8 @@ export async function setWishlisted(
     });
 
     if (res.status === 401) return { ok: false, unauthorized: true };
+    // 403 — роль не туриста (Edge отвечает «Forbidden» по-английски): текст свой.
+    if (res.status === 403) return { ok: false, error: wishlistFailureText(403) };
 
     const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };
     if (res.ok && data.success !== false) {

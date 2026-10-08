@@ -24,7 +24,7 @@ import {
   Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
   MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
   Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert,
-  FileText, ScrollText, Receipt, Backpack,
+  FileText, ScrollText, Receipt, Backpack, Heart,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -64,6 +64,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Готовые планы поездок',   href: '/plans',          icon: ListChecks },
       { label: 'Конструктор маршрута',    href: '/planner',        icon: Route },
       { label: 'Жильё',                   href: '/accommodations', icon: BedDouble },
+      { label: 'Избранное',               href: '/wishlist',       icon: Heart },
       { label: 'Места в поездках перевозчиков', href: '/transfers', icon: Bus },
       { label: 'Планирование поездки',    href: '/partners',       icon: Plane },
       { label: 'Камчатская рыбалка',      href: '/hub/fishing',    icon: Fish },

@@ -73,6 +73,25 @@ const API_ROLE_REQUIREMENTS: Record<string, AuthRole> = {
   '/api/agents/operator': 'operator',
 };
 
+/**
+ * Адреса под ролевым префиксом, которые пускают ЛЮБУЮ вошедшую роль (слово
+ * владельца 09.10, §7: «я админ/оператор/гид, нужно работать и там»).
+ *
+ * Избранное — это сердечко на карточках каталога, и нажимается оно у всех
+ * ролей. А `/api/tourist` стоит под правилом «только tourist»: оператор, гид,
+ * агент, администратор получали здесь 403 «Forbidden», и человек читал «Не
+ * удалось сохранить» на каждое нажатие (скрин владельца 09.10 с телефона).
+ *
+ * Исключение УЗКОЕ — один адрес, а не префикс: документы, поездки и
+ * настройки туриста остаются за ролью. Токен по-прежнему обязателен —
+ * проверка JWT ниже не обходится, снимается только требование роли. Роут сам
+ * проверяет вход (requireAuth) и работает с профилем вошедшего, чужое
+ * избранное из него не достать.
+ *
+ * Сторож: tests/unit/edge-wishlist-any-role.test.ts.
+ */
+const API_ANY_ROLE_PATHS = ['/api/tourist/wishlist'];
+
 function normalizeRole(role: string | null | undefined): AuthRole | null {
   if (!role) {
     return null;
@@ -160,6 +179,8 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
 
 // Public route check учитывает путь и HTTP метод
 function getRequiredRole(pathname: string): AuthRole | null {
+  if (API_ANY_ROLE_PATHS.some((p) => isPathMatch(pathname, p))) return null;
+
   const matchedRoute = Object.entries(API_ROLE_REQUIREMENTS).find(([route]) =>
     isPathMatch(pathname, route)
   );
