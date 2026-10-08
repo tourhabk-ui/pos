@@ -1,23 +1,30 @@
 {
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Витрина туров «Края Вулканов» (volcanoesland.ru) для разбора под импорт (#2245): список туров и одна карточка целиком.",
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. 11 карточек туров «Края Вулканов» (volcanoesland.ru) текстом без разметки для разбора под импорт (#2245).",
   "run": 712,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 120000,
+  "bytes": 40000,
   "urls": [
     "https://volcanoesland.ru/tours/",
-    "https://volcanoesland.ru/tours/tolbachik/"
+    "https://volcanoesland.ru/tours/dolina-geyzerov-kurilskoe-ozero-vulkany-gorelyy-i-avacha/",
+    "https://volcanoesland.ru/tours/izverzheniya-vulkana-ploskiy-tolbachik/",
+    "https://volcanoesland.ru/tours/oblet-klyuchevskoy-gruppy-vulkanov-tolbachik-dolina-geyzerov/",
+    "https://volcanoesland.ru/tours/splav-po-reke-bystraya-vulkany-gorelyy-i-avachinskiy/",
+    "https://volcanoesland.ru/tours/treking-k-vulkanam-karymskiy-malyy-semyachik-i-nalychevo/",
+    "https://volcanoesland.ru/tours/treking-k-podnozhiyu-vulkana-klyuchevskaya-sopka/",
+    "https://volcanoesland.ru/tours/treking-vokrug-vulkana-ploskiy-tolbachik/",
+    "https://volcanoesland.ru/tours/voskhozhdenie-na-vulkan-klyuchevskaya-sopka/",
+    "https://volcanoesland.ru/tours/ekspeditsionnyy-kruiz-na-komandorskie-ostrova/",
+    "https://volcanoesland.ru/tours/odnodnevnaya-ekskursiya-v-dolinu-geyzerov-i-kalderu-vulkana-uzon/",
+    "https://volcanoesland.ru/tours/avtomobilnyy-tur-na-kurilskoe-ozero/"
   ],
-  "around": [
-    "/tours/"
-  ],
+  "around": [],
   "aroundLines": 0,
   "aroundHits": 80,
   "grep": [
-    "href=\"/tours/",
-    "itemprop=\"price\"",
-    "₽"
-  ]
+    "href=\"/tours/"
+  ],
+  "text": true
 }
