@@ -86,7 +86,10 @@ describe('отметка жизни двигается по НОВОМУ, а н�
 
   it('aliveBy по постам есть только у бегущих лент, не у превью Telegram', () => {
     const raw = [...SRC.matchAll(/key: '([a-z_]+)'[\s\S]{0,400}?aliveBy: 'raw_items'/g)].map((m) => m[1]);
-    expect(raw.sort()).toEqual(['kamtoday', 'kamtoday_bulletin']);
+    // meteoalert (08.10): ответ информера несёт свою отметку «сейчас», и
+    // устаревший ответ приём отвергает (ingestMeteoalert) — регионы в свежем
+    // ответе и есть новое, а не перечитанное.
+    expect(raw.sort()).toEqual(['kamtoday', 'kamtoday_bulletin', 'meteoalert']);
   });
 
   it('«разобрано со страницы» больше не считается признаком жизни', () => {

@@ -52,6 +52,8 @@ const RULES: readonly OriginRule[] = [
   { test: (id) => id.startsWith('www.emsd.ru/eq/'), origin: { key: 'emsd_quakes', label: 'КФ ФИЦ ЕГС РАН (emsd.ru)' } },
   { test: (id) => id.startsWith('usgs/'),          origin: { key: 'usgs',     label: 'USGS' } },
   { test: (id) => id.startsWith('firms/'),         origin: { key: 'firms',    label: 'NASA FIRMS' } },
+  // Предупреждения Росгидромета структурой (08.10, lib/services/safety/meteoalert).
+  { test: (id) => id.startsWith('meteoalert/'),    origin: { key: 'meteoalert', label: 'Росгидромет (meteoalert.meteoinfo.ru)' } },
   { test: (id) => id.startsWith('mchs/'),          origin: { key: 'mchs_rss', label: MCHS } },
   // VK: в базу уходит id события `vk_mchs/<день>/t…` (VK_MCHS_PREFIX), а не
   // id поста — 25.09 все тревоги МЧС из VK подписывались «источник не записан».
@@ -103,6 +105,7 @@ export const SAFETY_FEEDS: readonly string[] = [
   'USGS (сейсмика)',
   `${MCHS} (RSS, VK, MAX)`,
   'NASA FIRMS (пожары)',
+  'Росгидромет (предупреждения о погоде)',
   'Правительство Камчатского края (новости)',
   'Турпортал Камчатского края visitkamchatka.ru (новости о безопасности)',
 ];
