@@ -71,14 +71,42 @@ export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0
 /**
  * Порядок туров на витрине главной. Тур с кончившимся сезоном не прячется, а
  * уходит в конец — иначе он занимал бы первую карточку на первом экране, куда
- * его ставит выборка по фото и свежести. Сортировка стабильная: внутри группы
- * остаётся порядок выборки. Затем — не больше `PLATES_LIMIT` карточек.
- * Сезон решает `catalogAvailability` (правило каталога), здесь только порядок.
+ * его ставит выборка по фото и свежести. Сезон решает `catalogAvailability`
+ * (правило каталога), здесь только порядок. Затем — не больше `PLATES_LIMIT`.
+ *
+ * Внутри открытых туров операторы идут по очереди (08.10, жалоба владельца
+ * «в ленте на главной только рыбалка»). Строгое «даты → по запросу» отдавало
+ * все восемь мест одному оператору: у рыбалки девять туров с датами, у «Края
+ * Вулканов» одиннадцать туров с датами по запросу — и ни один из них на
+ * витрину не попадал. Теперь у каждого оператора своя очередь в прежнем
+ * порядке (даты → по запросу → выборка), а операторы встают в круг в порядке
+ * своего лучшего тура. Тур без имени оператора — сам себе очередь.
  */
-export function orderPlates<T extends { availability: CatalogAvailability }>(plates: readonly T[]): T[] {
-  return plates
+export function orderPlates<T extends { availability: CatalogAvailability; operatorName?: string | null }>(
+  plates: readonly T[],
+): T[] {
+  const ranked = plates
     .map((p, i) => ({ p, i }))
-    .sort((a, b) => AVAILABILITY_RANK[a.p.availability] - AVAILABILITY_RANK[b.p.availability] || a.i - b.i)
-    .slice(0, PLATES_LIMIT)
-    .map(({ p }) => p);
+    .sort((a, b) => AVAILABILITY_RANK[a.p.availability] - AVAILABILITY_RANK[b.p.availability] || a.i - b.i);
+  const open = ranked.filter(({ p }) => p.availability !== 'season_over');
+  const closed = ranked.filter(({ p }) => p.availability === 'season_over');
+  return [...byOperatorTurns(open), ...byOperatorTurns(closed)].slice(0, PLATES_LIMIT);
+}
+
+/** Круг по операторам: первый тур каждого, затем второй каждого и так далее. */
+function byOperatorTurns<T extends { operatorName?: string | null }>(items: readonly { p: T; i: number }[]): T[] {
+  const queues = new Map<string, T[]>();
+  for (const { p, i } of items) {
+    const name = p.operatorName?.trim();
+    const key = name ? `op:${name}` : `tour:${i}`;
+    const q = queues.get(key);
+    if (q) q.push(p);
+    else queues.set(key, [p]);
+  }
+  const out: T[] = [];
+  const lists = [...queues.values()];
+  for (let turn = 0; out.length < items.length; turn++) {
+    for (const q of lists) if (turn < q.length) out.push(q[turn]);
+  }
+  return out;
 }
