@@ -1294,15 +1294,49 @@ export function titleFingerprint(title: string): string {
  * карточке маршрута турист видел пустую строку в списке предупреждений. Берём
  * первую фразу: у сводок она и есть суть пункта («На вулкане Шивелуч произошел
  * пепловый выброс»).
+ *
+ * Фраза длиннее потолка режется по границе слова и кончается многоточием
+ * (#2293). До 09.10 она резалась ровно на 200-м знаке: гидро-алерт ушёл в
+ * get_guardian_context заголовком «…до 40 сантиметров в сутки, на» и не
+ * читался как предупреждение — обрыв на полуслове выглядит как сбой, а не
+ * как сокращение. Полный текст остаётся в описании.
  */
 export function titleFromText(text: string): string {
+  const clean = cleanPostText(text);
+  const first = (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
+  if (first.length <= ALERT_TITLE_MAX) return first;
+  // Место под многоточие; последнее слово, не влезшее целиком, и висящая
+  // пунктуация перед ним уходят.
+  const room = first.slice(0, ALERT_TITLE_MAX - 1);
+  const space = room.lastIndexOf(' ');
+  const head = (space > ALERT_TITLE_MAX / 2 ? room.slice(0, space) : room).replace(/[\s,;:—–-]+$/u, '');
+  return `${head}…`;
+}
+
+/**
+ * Ключ отпечатка поста без заголовка — первая фраза, обрезанная на 200-м
+ * знаке, как её брал заголовок до 09.10.
+ *
+ * Отделён от заголовка намеренно: отпечаток входит в external_id, и смена
+ * правила обрезки поменяла бы id уже сохранённых постов. Тот же пост на
+ * следующем приёме лёг бы второй строкой, и карточка показала бы одно
+ * предупреждение дважды — оборванным и целым.
+ */
+export function titleKeyFromText(text: string): string {
+  const clean = cleanPostText(text);
+  const first = /^[^.!?]{10,200}/.exec(clean)?.[0] ?? clean;
+  return first.trim().slice(0, ALERT_TITLE_MAX);
+}
+
+/** Потолок заголовка алерта (`external_alerts.title`). */
+const ALERT_TITLE_MAX = 200;
+
+function cleanPostText(text: string): string {
   // Ведущие не-буквы снимаем: в постах МЧС строка начинается с булавки или
   // другого значка, и он уезжал в заголовок алерта на главную. Эмодзи в
   // интерфейсе запрещены (CLAUDE.md §4), а «📌К тушению…» именно так и
   // выглядело на экране владельца 07.09. Та же чистка, что у splitSummaryItems.
-  const clean = text.replace(/\s+/g, ' ').replace(/^[^\p{L}\p{N}]+/u, '').trim();
-  const first = /^[^.!?]{10,200}/.exec(clean)?.[0] ?? clean;
-  return first.trim().slice(0, 200);
+  return text.replace(/\s+/g, ' ').replace(/^[^\p{L}\p{N}]+/u, '').trim();
 }
 
 /**
@@ -2075,6 +2109,9 @@ export function classifyMchsItem(
   // Отсюда — заголовок из первой фразы и отпечаток по нему же.
   const hadTitle = title.trim() !== '';
   const effectiveTitle = hadTitle ? title : titleFromText(description);
+  // Отпечаток поста без заголовка — по прежнему ключу, а не по заголовку:
+  // см. titleKeyFromText (смена обрезки не должна менять external_id).
+  const fingerprint = titleFingerprint(hadTitle ? effectiveTitle : titleKeyFromText(description));
 
   // Датированный ключ для постов соцканалов: суточная сводка повторяет
   // действующую опасность каждый день, а недатированный отпечаток пустил бы её
@@ -2090,8 +2127,8 @@ export function classifyMchsItem(
     // шестью строками (скрины владельца 2026-07-17). Одинаковый нормализованный
     // заголовок → одинаковый external_id → ON CONFLICT DO NOTHING.
     source_id:     hadTitle
-      ? `${sourcePrefix}/t${titleFingerprint(effectiveTitle)}`
-      : `${sourcePrefix}/${day}/t${titleFingerprint(effectiveTitle)}`,
+      ? `${sourcePrefix}/t${fingerprint}`
+      : `${sourcePrefix}/${day}/t${fingerprint}`,
     source_url:    link || 'https://41.mchs.gov.ru',
     published_at:  publishedAt,
     alert_type,
