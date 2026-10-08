@@ -1031,6 +1031,11 @@ interface DayPlanResult {
   spanUnknown: string[];
   /** Туры, не поместившиеся в срок: пропущены целиком, а не урезаны. */
   tooLong: string[];
+  /**
+   * Туры, под которые блок зоны растянут сверх раскладки: ни один тур зоны в
+   * её блок не влезал, а поездка вмещала тур целиком (08.10).
+   */
+  extendedForTour: Array<{ title: string; span: number; zone: ZoneId; planned: number }>;
   /** Места, не предложенные из-за природоохранного лимита на даты поездки. */
   overLimit: string[];
   /** Как исполнены стиль и дни отдыха; пусто, если просьбы не было. */
@@ -1095,7 +1100,7 @@ async function generateDayPlans(
   onRequestOnly: ReadonlySet<string> = new Set(),
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -1122,7 +1127,7 @@ async function generateDayPlans(
     });
   }
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
 
   // ── Active days budget ──
   const departureDays = framing.departure;
@@ -1192,6 +1197,8 @@ async function generateDayPlans(
   const spanUnknown = new Set<string>();
   /** Туры длиннее, чем дней в зоне: не поставлены и не урезаны. */
   const tooLong = new Set<string>();
+  /** Блоки, растянутые под многодневный тур сверх раскладки зон. */
+  const extendedForTour: DayPlanResult['extendedForTour'] = [];
   /** Места сверх природоохранного лимита на даты поездки — не предложены. */
   const overLimit = new Set<string>();
 
@@ -1290,6 +1297,30 @@ async function generateDayPlans(
         (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
       }
       realTours = [...fits, ...tight, ...onRequest];
+    }
+
+    // Тур длиннее блока своей зоны (08.10). Блоки делятся между зонами
+    // заранее, по весу зоны, и многодневный тур оператора (у «Края Вулканов»
+    // 4–14 дней) в блок одной зоны не влезал никогда — даже в поездке,
+    // которая вмещает его целиком: 14 дней «вулканы, октябрь» давали «туров
+    // не нашли» и пустые дни 9–13. Резать тур нельзя — его продают целиком.
+    // Поэтому если в блок не влезает НИ ОДИН тур зоны, блок растягивается
+    // под самый короткий тур, который вмещает остаток поездки, и это
+    // называется: дни ушли туру, следующим зонам их осталось меньше.
+    if (style !== 'self' && realTours.length > 0) {
+      const room = tripDays - departureDays - (dayNum - 1);
+      const spans = realTours.map((t) => tourDaySpan(t.durationHours) ?? 1);
+      if (!spans.some((sp) => sp <= block.activeDays)) {
+        const pick = realTours
+          .map((t, i) => ({ t, sp: spans[i] }))
+          .filter((x) => x.sp <= room)
+          .sort((a, b) => a.sp - b.sp)[0];
+        if (pick) {
+          extendedForTour.push({ title: pick.t.title, span: pick.sp, zone: block.zone, planned: block.activeDays });
+          block.activeDays = pick.sp;
+          realTours = [pick.t, ...realTours.filter((t) => t !== pick.t)];
+        }
+      }
     }
 
     // Кандидатов в самостоятельный день берём с запасом: часть отсеет
@@ -1721,7 +1752,7 @@ async function generateDayPlans(
   });
 
   return {
-    days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], overLimit: [...overLimit], preferenceNotes,
+    days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], extendedForTour, overLimit: [...overLimit], preferenceNotes,
     selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing,
   };
 }
@@ -2031,7 +2062,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // за 14 дней, погранзона ФСБ за 30) — про поездку, которой нет. Шум в
   // предупреждениях учит не читать предупреждения (тот же урок 15.09 про
   // «Раздолье»).
-  const { days, unchecked, spanUnknown, tooLong, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly);
+  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones);
 
@@ -2190,6 +2221,21 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       message: `Не поместились в срок поездки и потому не вошли в план: ${tooLong.slice(0, 3).join('; ')}`
         + (tooLong.length > 3 ? ` и ещё ${tooLong.length - 3}` : '')
         + '. Резать тур по границе поездки нельзя — его продают целиком. Добавьте дней, и они войдут.',
+    });
+  }
+
+  // Блок зоны растянут под тур: план показывает тур целиком, но другим
+  // зонам досталось меньше дней, чем по раскладке, — это говорится, а не
+  // прячется в том, что какая-то зона «не влезла».
+  for (const e of extendedForTour) {
+    // important, а не info: info до Кузьмича и MCP не доходит
+    // (trip-plan-tool), а без этой строки «другая зона не влезла» читается
+    // как недосмотр.
+    warnings.push({
+      type: 'duration',
+      severity: 'important',
+      message: `«${e.title}» — ${e.span} дн.: тур продают целиком, поэтому под него отдали ${e.span} дн. в зоне «${ZONE_NAMES[e.zone]}» `
+        + `вместо ${e.planned} по раскладке; на другие зоны дней осталось меньше.`,
     });
   }
 
