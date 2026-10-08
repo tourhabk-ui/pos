@@ -21,10 +21,34 @@ import { fetchForecastDays, type ForecastDay } from '@/lib/planner/intelligence'
 import { insideKrai } from '@/lib/geo/krai-envelope';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
+import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
 
 export const DEFAULT_WEATHER_PLACE = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 } as const;
 export const WEATHER_DAYS_DEFAULT = 3;
 export const WEATHER_DAYS_MAX = 7;
+
+/**
+ * Посёлки, которых нет в каталоге мест (`places` — это объекты маршрутов, а не
+ * населённые пункты): по ним погоду спрашивают, а поиск по имени находил
+ * ничего или «Вид на …». Координаты — центр посёлка, из задачи #2249 (08.10).
+ */
+export const WEATHER_SETTLEMENTS: ReadonlyArray<{ name: string; lat: number; lng: number }> = [
+  { name: 'Ключи', lat: 56.32, lng: 160.85 },
+  { name: 'Усть-Камчатск', lat: 56.22, lng: 162.48 },
+  { name: 'Соболево', lat: 54.30, lng: 155.95 },
+  { name: 'Палана', lat: 59.08, lng: 159.95 },
+];
+
+/** «п. Ключи», «Ключах», «пгт Палана» — посёлок из списка выше; null — не он. */
+export function settlementByName(name: string): { name: string; lat: number; lng: number } | null {
+  const q = name.trim().toLowerCase().replace(/ё/g, 'е')
+    .replace(/^(пгт|пос(елок)?|п|с(ело)?)\.?\s+/, '');
+  return WEATHER_SETTLEMENTS.find((s) => {
+    const n = s.name.toLowerCase();
+    // Основа без последней буквы — «Ключи/Ключах», «Палана/Палане», «Соболево/Соболеве».
+    return q === n || (q.length >= 4 && q.startsWith(n.slice(0, -1)) && q.length <= n.length + 2);
+  }) ?? null;
+}
 
 /**
  * Координаты живой точки по её имени. Ровно тот предикат живости, что у
@@ -36,6 +60,8 @@ export async function resolvePlaceCoords(
   // Город — центром города, а не первым местом с этим словом в имени (#2249:
   // «Петропавловск» уходил в «Вид на Петропавловск-Камчатский», 12 км к ЮЗ).
   if (isCityQuery(name)) return { ...DEFAULT_WEATHER_PLACE };
+  const settlement = settlementByName(name);
+  if (settlement) return { ...settlement };
   const { rows } = await pool.query<{ name: string; lat: number; lng: number }>(
     `SELECT name, lat::float AS lat, lng::float AS lng
        FROM places
@@ -127,8 +153,14 @@ export function forecastLine(d: ForecastDay): string {
   const temp = d.tempMin === null && d.tempMax === null ? 'температура — нет данных' : `${fmtTemp(d.tempMin)}…${fmtTemp(d.tempMax)}°C`;
   const precip = d.precipMm === null ? 'осадки — нет данных' : `осадки ${d.precipMm} мм`;
   const wind = d.windKmh === null ? 'ветер — нет данных' : `ветер до ${Math.round(d.windKmh)} км/ч`;
-  const sky = d.description ?? 'небо — нет данных';
-  return `${day}.${m}: ${temp}, ${precip}, ${wind}, ${sky}`;
+  const parts = d.parts ?? [];
+  // Суточная подпись осадков — «худшее за сутки» (#2249): при частях дня она
+  // прячется, части говорят, когда и сколько.
+  const sky = keepDailyDescription(d.weatherCode, parts.length > 0)
+    ? `, ${d.description ?? 'небо — нет данных'}`
+    : '';
+  const byPart = parts.length > 0 ? `; по частям дня: ${dayPartsPhrase(parts)}` : '';
+  return `${day}.${m}: ${temp}, ${precip}, ${wind}${sky}${byPart}`;
 }
 
 /**

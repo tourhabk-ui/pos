@@ -83,6 +83,19 @@ export interface TripProfile {
   tripOrigin?: TripOrigin;
 }
 
+/**
+ * Отказ чтения занятости тура — null («не знаю»), но не молча: имя тура и
+ * SQLSTATE уходят в лог (§4.0). null дальше читается как `unread`, а не как
+ * «мест нет».
+ */
+function availabilityUnread(tourId: string) {
+  return (err: unknown): null => {
+    const e = err as { code?: string; message?: string } | undefined;
+    console.error('[planner] занятость тура не прочитана', { tourId, sqlstate: e?.code, message: e?.message });
+    return null;
+  };
+}
+
 export interface DayPlan {
   day: number;
   type: DayType;
@@ -126,6 +139,14 @@ export interface DayPlan {
   realPrice?: number;
   availableDate?: string;
   slotsRemaining?: number;
+  /**
+   * Чем кончилось чтение занятости тура дня (только у дня с `realTour`):
+   * `open` — свободная дата есть (`availableDate`), `none` — прочитано, в окне
+   * поездки свободных дат нет, `unread` — прочитать не смогли. Нет поля —
+   * занятость не читалась (продолжение многодневного тура, нет дат поездки).
+   * Без него «дат нет» и «не смогли проверить» снаружи неотличимы (§4.0, #2241).
+   */
+  availability?: 'open' | 'none' | 'unread';
   capacityWarning?: string;
   weatherForecast?: {
     tempMax: number;
@@ -1362,6 +1383,7 @@ async function generateDayPlans(
       let realPrice: number | undefined;
       let availableDate: string | undefined;
       let slotsRemaining: number | undefined;
+      let availability: DayPlan['availability'];
       let capacityWarning: string | undefined;
       let alternatives: DayPlan['alternatives'];
       let qualityScore: number | undefined;
@@ -1387,7 +1409,8 @@ async function generateDayPlans(
           // Отказ чтения — даты и остатка не называем вовсе (не «0 мест»).
           const slots = await fetchAvailabilityForTour(
             realTour.tourId, profile.arrivalDate, profile.departureDate, cache
-          ).catch(() => null);
+          ).catch(availabilityUnread(realTour.tourId));
+          availability = slots === null ? 'unread' : slots.length > 0 ? 'open' : 'none';
           if (slots && slots.length > 0) {
             availableDate = slots[0].date;
             slotsRemaining = slots[0].remaining;
@@ -1443,6 +1466,7 @@ async function generateDayPlans(
         realPrice,
         availableDate,
         slotsRemaining,
+        availability,
         capacityWarning,
         alternatives,
         qualityScore,

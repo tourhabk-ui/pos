@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Zap } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export function AutoConfirmToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
@@ -63,8 +64,9 @@ export function AutoConfirmToggle() {
           Подтверждать брони автоматически
         </label>
         <p className="mt-1 text-xs text-[var(--text-secondary)] leading-relaxed">
-          Если дата есть в вашем расписании и на неё есть места, бронь подтверждается сразу, и турист может оплатить
-          без ожидания. Даты, введённые туристом вне расписания, вы подтверждаете сами. Включая, вы отвечаете за то,
+          {platformAcceptsPayments()
+            ? 'Если дата есть в вашем расписании и на неё есть места, бронь подтверждается сразу, и турист может оплатить без ожидания.'
+            : 'Если дата есть в вашем расписании и на неё есть места, бронь подтверждается сразу — турист не ждёт вашего ответа.'} Даты, введённые туристом вне расписания, вы подтверждаете сами. Включая, вы отвечаете за то,
           что расписание и места в календаре актуальны.
         </p>
         {enabled === null && !error && <p className="mt-1 text-xs text-[var(--text-muted)]">Загружаем настройку…</p>}

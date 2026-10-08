@@ -80,6 +80,8 @@ function mockQueries(opts: { calendar: CalendarRow[]; alreadyBooked?: string }) 
     // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
     // то есть прежнее поведение этих проверок.
     if (sql.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
+    if (sql.includes('FROM tour_price_tiers')) return Promise.resolve({ rows: [] });
     if (sql.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
   });
@@ -124,7 +126,7 @@ describe('POST /api/hub/bookings/create — календарь оператор�
     const json = await res.json();
 
     expect(res.status).toBe(422);
-    expect(json.error).toContain('закрыл бронирование');
+    expect(json.error).toContain('закрыл приём заявок');
     expect(insertCalled()).toBe(false);
   });
 

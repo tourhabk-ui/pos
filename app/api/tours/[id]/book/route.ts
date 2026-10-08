@@ -245,9 +245,9 @@ export async function POST(
     try {
       await emailService.sendEmail({
         to: userEmail,
-        subject: `Заявка на бронирование принята: ${tour.name}`,
+        subject: `Заявка отправлена оператору: ${tour.name}`,
         html: `
-          <h2>Заявка на бронирование принята</h2>
+          <h2>Заявка отправлена оператору</h2>
           <p>Оператор подтвердит её в ближайшее время — мы сообщим.</p>
           <p><strong>Тур:</strong> ${tour.name}</p>
           <p><strong>Оператор:</strong> ${tour.operator_name}</p>
@@ -264,7 +264,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      message: 'Бронирование создано успешно!',
+      message: 'Заявка создана',
       data: {
         bookingId,
         tourName: tour.name,
@@ -299,7 +299,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: 'Ошибка при создании бронирования',
+        error: 'Не удалось отправить заявку',
         details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }

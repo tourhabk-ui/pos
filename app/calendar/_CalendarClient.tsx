@@ -189,7 +189,7 @@ function TourCard({
         className="w-full py-2.5 rounded-lg text-sm font-semibold transition-colors"
         style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
       >
-        Забронировать на {new Date(selectedDate + 'T12:00:00').toLocaleDateString('ru-RU', {
+        Заявка на {new Date(selectedDate + 'T12:00:00').toLocaleDateString('ru-RU', {
           day: 'numeric', month: 'long',
         })}
       </button>

@@ -18,6 +18,7 @@ import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { containsPattern } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice } from '@/lib/tours/honest-price';
 
 export interface ResolvedTour {
@@ -143,7 +144,7 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       }
       return [...notes,
         `Тур "${tour.title}" (ID${tour.id}): свободных мест с ${shortDate(from)} по ${shortDate(to)} нет. `
-        + 'Это реальная занятость из броней — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.',
+        + 'Это реальная занятость мест — не обещай места на эти даты. Можно проверить другое окно (date_from/days) или другой тур.',
       ].join('\n');
     }
     const SHOWN = 12;
@@ -168,6 +169,10 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
             });
             return p.total;
           } catch (err) {
+            // Группа вне ступеней цены — не сбой расчёта: оператор называет цену
+            // сам. Отличать это от «итог не посчитан» обязательно: во втором
+            // случае можно повторить, в первом — нет (#2246).
+            if (err instanceof PriceTierMissError) return 'tier_miss' as const;
             const e = err as { code?: string; message?: string };
             console.error('[tour-availability] итог не посчитан', { tourId: tour.id, date: s.date, sqlstate: e?.code, message: e?.message });
             return null;
@@ -179,8 +184,11 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
       // Цена на дату может быть переопределена, но единица у неё та же.
       const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
+      const t = totals ? totals[i] : null;
       const total = totals
-        ? (totals[i] != null ? `; итого за ${people} чел.: ${rub(totals[i] as number)}` : '; итог не посчитан')
+        ? (t === 'tier_miss'
+            ? `; для группы из ${people} чел. цену называет оператор`
+            : t != null ? `; итого за ${people} чел.: ${rub(t as number)}` : '; итог не посчитан')
         : '';
       return `- ${shortDate(s.date)} (${s.date}): свободно ${s.remaining}${price ? `, ${price}` : ''}${total}`;
     });
@@ -189,14 +197,14 @@ export async function getTourAvailabilityForKuzmich(args: { tour?: string; date_
       : [];
     return [
       ...notes,
-      `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость из броней):`,
+      `Тур "${tour.title}" (ID${tour.id}) — свободные даты (реальная занятость мест):`,
       ...lines,
       ...more,
       // Ссылка — полным адресом: относительная у внешнего агента никуда не
       // ведёт (проверка MCP 29.09).
-      `Бронь на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
+      `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,
       ...(totals
-        ? ['Итог — сумма, которую посчитает бронь на эту дату и число людей (правила цены тура и заполненность даты). Трансферы и услуги из «не входит» в неё не включены.']
+        ? ['Итог — сумма, которую посчитает заявка на эту дату и число людей (правила цены тура и заполненность даты). Трансферы и услуги из «не входит» в неё не включены.']
         : ['Итоговую сумму за группу на дату даёт этот же инструмент с параметром people.']),
     ].join('\n');
   } catch (err) {

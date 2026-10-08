@@ -28,6 +28,53 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 08.10: недельная сводка (type=3) обновляется раз в неделю, а KVERT
+      # между сводками выпускает отдельные VONA по активным вулканам. Где лежит
+      # их лента и в каком виде — вопрос замера: маркер даёт список адресов
+      # (urls), по каждому печатаем ответ, число заголовков VONA и строки
+      # Issued/Volcano/код — этого хватает, чтобы выбрать адрес и снять фикстуру.
+      - name: Ленты VONA — какие адреса что отдают
+        run: |
+          python3 - <<'PY'
+          import json, re, html, subprocess
+          m = json.load(open('.github/triggers/kvert-probe.json'))
+          for url in m.get('urls') or []:
+              r = subprocess.run(['curl','-s','-L','--max-time','60','-o','/tmp/v.html','-w','%{http_code}',url],capture_output=True,text=True)
+              code = r.stdout.strip()
+              try: raw = open('/tmp/v.html',encoding='utf-8',errors='replace').read()
+              except Exception: raw = ''
+              t = re.sub(r'<br\s*/?>','\n',raw,flags=re.I)
+              t = re.sub(r'</(p|div|tr|h\d|pre)>','\n',t,flags=re.I)
+              t = re.sub(r'<[^>]+>',' ',t); t = html.unescape(t)
+              lines = [re.sub(r'[ \t]+',' ',l).strip() for l in t.split('\n')]
+              lines = [l for l in lines if l]
+              heads = sum(1 for l in lines if re.search(r'VOLCANO OBSERVATORY NOTICE', l, re.I))
+              print(f'════ {url}\nHTTP {code}, байт {len(raw)}, строк {len(lines)}, заголовков VONA {heads}')
+              keys = [l for l in lines if re.match(r'(Issued|Volcano|Current aviation|Previous aviation|Notice Number|Volcanic cloud height)\b', l, re.I)]
+              print('— поля VONA (первые 24):'); print('\n'.join(keys[:24]) or '  нет')
+              print('— начало текста (40 строк):'); print('\n'.join(lines[:40]))
+              # Окрестности искомых слов (grep из маркера): список выпусков
+              # длинный, и начало страницы не говорит, где в нём VONA и даты.
+              for pat in m.get('grep') or []:
+                  idx = [i for i,l in enumerate(lines) if re.search(pat, l, re.I)]
+                  print(f'— «{pat}»: совпадений {len(idx)}, первые 8 с контекстом:')
+                  for i in idx[:8]:
+                      print('  ┄ ' + ' | '.join(lines[max(0,i-2):i+4]))
+              # Бюллетень целиком: от заголовка до правил цитирования — под
+              # фикстуру парсера нужен весь блок, а не окрестность одного слова.
+              hi = next((i for i,l in enumerate(lines) if re.search(r'NOTICE (TO|FOR) AVIATION', l, re.I)), None)
+              if hi is not None:
+                  end = next((j for j in range(hi, len(lines)) if re.search(r'CITATION', lines[j], re.I)), min(hi+40, len(lines)))
+                  print('— бюллетень целиком:'); print('\n'.join(lines[hi:end]))
+              # Сырые ссылки по шаблону маркера (href): как список выпусков
+              # адресует отдельный бюллетень — с текстом ссылки рядом.
+              for pat in m.get('href') or []:
+                  hits = [mm.group(0) for mm in re.finditer(r'<a[^>]+href=["\'][^"\']*' + pat + r'[^>]*>[^<]{0,60}', raw, re.I)]
+                  print(f'— ссылки «{pat}»: {len(hits)}, первые 15:'); print('\n'.join(hits[:15]) or '  нет')
+              links = sorted(set(re.findall(r'href=["\']([^"\']*(?:type=|vona|van)[^"\']*)', raw, re.I)))[:30]
+              print('— ссылки на ленты:'); print('\n'.join(links) or '  нет')
+          PY
+
       - name: Снять выпуск и показать структуру
         run: |
           # Адрес берём из маркера: у выпуска есть языковые версии, и какая из

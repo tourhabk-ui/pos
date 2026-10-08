@@ -6,6 +6,7 @@
 
 import PDFDocument from 'pdfkit';
 import { registerCyrillicFonts, FONT_BODY, FONT_BOLD } from '@/lib/pdf/fonts';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export interface ContractData {
   bookingId: number;
@@ -70,7 +71,7 @@ export function contractPaymentMethod(input: {
   if (input.availability.cardPublicId) ways.push('банковская карта');
   if (input.availability.sbp) ways.push('СБП (QR-код)');
   if (ways.length === 0) return 'по согласованию с оператором';
-  return `${ways.join(' или ')} на странице брони после подтверждения оператором`;
+  return `${ways.join(' или ')} на странице заявки после подтверждения оператором`;
 }
 
 /** Текст раздела 5: поле тура дословно либо честное «уточняется». */
@@ -152,16 +153,29 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
 
     // ── 2. Стоимость ───────────────────────────────────────────────────────────
     section(doc, '2. СТОИМОСТЬ И ПОРЯДОК ОПЛАТЫ', ACCENT);
-    rows(doc, DARK, MUTED, [
-      ['Стоимость',    money(data.totalPrice)],
-      ['Статус',       data.paymentStatus === 'paid' ? 'Оплачено'
-        : data.bookingStatus === 'new' ? 'Ждёт подтверждения оператора' : 'Ожидает оплаты'],
-      ['Дата оплаты',  data.paymentDate ? fmt(data.paymentDate) : '—'],
-      ['Способ',       data.paymentMethod],
-    ]);
-    doc.moveDown(0.6);
-    doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
-       .text('Договор вступает в силу с момента получения подтверждения оплаты.', { width: W });
+    if (platformAcceptsPayments()) {
+      rows(doc, DARK, MUTED, [
+        ['Стоимость',    money(data.totalPrice)],
+        ['Статус',       data.paymentStatus === 'paid' ? 'Оплачено'
+          : data.bookingStatus === 'new' ? 'Ждёт подтверждения оператора' : 'Ожидает оплаты'],
+        ['Дата оплаты',  data.paymentDate ? fmt(data.paymentDate) : '—'],
+        ['Способ',       data.paymentMethod],
+      ]);
+      doc.moveDown(0.6);
+      doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
+         .text('Договор вступает в силу с момента получения подтверждения оплаты.', { width: W });
+    } else {
+      // Приём оплаты выключен 05.10: платформа не участвует в расчётах, порядок
+      // оплаты стороны согласуют напрямую — строк «Дата оплаты/Способ» нет.
+      rows(doc, DARK, MUTED, [
+        ['Стоимость',    money(data.totalPrice)],
+        ['Статус',       data.bookingStatus === 'new' ? 'Ждёт подтверждения оператора'
+          : data.bookingStatus === 'cancelled' ? 'Отменено' : 'Подтверждено оператором'],
+      ]);
+      doc.moveDown(0.6);
+      doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
+         .text('Порядок и сроки оплаты Заказчик согласует с Исполнителем напрямую.', { width: W });
+    }
     doc.moveDown(1);
 
     // ── 3. Права и обязанности ─────────────────────────────────────────────────

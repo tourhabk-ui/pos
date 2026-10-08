@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       void sendTouristMail('bookings/create', result.bookingId, {
         to: data.tourist_email,
         subject: autoConfirmed
-          ? `Бронь №${result.bookingId} подтверждена — ${result.tourTitle}`
+          ? `Заявка №${result.bookingId} подтверждена оператором — ${result.tourTitle}`
           : `Заявка №${result.bookingId} — ${result.tourTitle}`,
         // Письмо — носитель политики, а не квитанция. До 14.09 оно говорило
         // «перейдите по ссылке и ОПЛАТИТЕ ТУР» кнопкой «Оплатить тур» — то
@@ -191,16 +191,16 @@ export async function POST(req: NextRequest) {
         // подтверждаются перед оплатой». Два голоса об одном, и громче звучал
         // тот, который человек читает без нас.
         html: `
-          <h2>${autoConfirmed ? 'Бронь подтверждена' : 'Заявка принята'}</h2>
+          <h2>${autoConfirmed ? 'Заявка подтверждена оператором' : 'Заявка принята'}</h2>
           <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
           <p><strong>Тур:</strong> ${escapeHtml(String(result.tourTitle))}</p>
           <p><strong>Дата:</strong> ${data.booking_date}</p>
           <p><strong>Участники:</strong> ${data.participants_count}</p>
           <p><strong>Сумма:</strong> ${result.totalPrice.toLocaleString('ru-RU')} ₽</p>
           ${autoConfirmed && !platformAcceptsPayments()
-            ? `<p>Дата есть в расписании оператора, места есть — оператор подтверждает такие брони автоматически. Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор.</p>
-          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть бронь</a></p>
-          <p>Сохраните эту ссылку: по одному номеру бронь не открывается.</p>`
+            ? `<p>Дата есть в расписании оператора, места есть — оператор подтверждает такие заявки автоматически. Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор.</p>
+          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть заявку</a></p>
+          <p>Сохраните эту ссылку: по одному номеру заявка не открывается.</p>`
             : autoConfirmed
             ? `<p>Дата есть в расписании оператора, места есть — оператор подтверждает такие брони автоматически. Оплатить можно сразу:</p>
           <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}?t=${result.accessToken}">Открыть бронь и перейти к оплате</a></p>
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
       message:     autoConfirmed
         ? (platformAcceptsPayments()
           ? 'Бронь подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплатить можно сразу.'
-          : 'Бронь подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплата — ему напрямую.')
+          : 'Заявка подтверждена: оператор подтверждает даты из своего расписания автоматически. Оплата — ему напрямую.')
         : (platformAcceptsPayments()
           ? 'Заявка создана. Перед оплатой проверьте детали и условия тура.'
           : 'Заявка создана. Оператор подтвердит дату; оплата — ему напрямую.'),
@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.message : err,
     );
     return NextResponse.json(
-      { error: 'Не удалось создать бронирование. Попробуйте позже или свяжитесь с оператором напрямую.' },
+      { error: 'Не удалось отправить заявку. Попробуйте позже или свяжитесь с оператором напрямую.' },
       { status: 500 },
     );
   }

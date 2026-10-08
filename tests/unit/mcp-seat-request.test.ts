@@ -86,7 +86,7 @@ describe('тур без расписания', () => {
     expect(createLeadMock).not.toHaveBeenCalled();
     // Агенту сказано: не бронь, ссылка человеку, «не ответил» не значит «мест нет».
     expect(r.text).toContain('https://vedarai.ru/seat-request#TOK');
-    expect(r.text).toMatch(/НЕ бронь/);
+    expect(r.text).toMatch(/НЕ закреплены/);
     expect(r.text).toMatch(/не значит, что мест нет/);
     expect(r.text).not.toMatch(/нет свободных мест/);
     // Комментарий оператору не уходит — и агенту об этом сказано прямо.
@@ -158,7 +158,7 @@ describe('расписание есть или не проверено', () => {
   it('места есть — обычная заявка менеджеру, расписание не спрашивается', async () => {
     slotsMock.mockResolvedValue([{ date: '2099-07-10', remaining: 5 }]);
     const r = await text(await POST(call(args)));
-    expect(r.text).toMatch(/Заявка на бронь принята/);
+    expect(r.text).toMatch(/Заявка оператору принята/);
     expect(keepsScheduleMock).not.toHaveBeenCalled();
     expect(createSeatMock).not.toHaveBeenCalled();
     expect(createLeadMock).toHaveBeenCalledTimes(1);
@@ -170,6 +170,10 @@ describe('границы MCP не сдвинуты', () => {
     const route = readFileSync(join(process.cwd(), 'app/api/mcp/route.ts'), 'utf-8');
     expect(route).not.toMatch(/INSERT INTO operator_bookings/i);
     expect(route).not.toMatch(/reserveBooking|confirmBooking/);
-    expect(route).not.toMatch(/from '@\/lib\/payments/);
+    // Единственный допустимый импорт из lib/payments — флаг «платформа принимает
+    // оплату» (accepting.ts, 05.10): он только читается ради честной фразы про
+    // оплату в ответе. Всё остальное (приёмники, книга, комиссия) — запрещено.
+    expect(route).not.toMatch(/from '@\/lib\/payments\/(?!accepting')/);
+    expect(route).not.toMatch(/from '@\/lib\/payments'/);
   });
 });

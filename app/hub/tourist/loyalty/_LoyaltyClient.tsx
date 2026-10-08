@@ -205,7 +205,7 @@ export default function LoyaltyClient() {
                   </p>
                   {(stats?.currentLevel?.earnMultiplier ?? 1) > 1 && (
                     <p className="text-sm text-[var(--success)]">
-                      Баллы за бронь ×{stats?.currentLevel.earnMultiplier}
+                      Баллы за заявку ×{stats?.currentLevel.earnMultiplier}
                     </p>
                   )}
                 </div>
@@ -332,7 +332,7 @@ export default function LoyaltyClient() {
               ) : (
                 <div className="text-center py-2">
                   <p className="text-sm text-[var(--text-secondary)] mb-3">
-                    Приглашайте друзей и получайте 500 баллов за каждого, кто забронирует тур
+                    Приглашайте друзей и получайте 500 баллов за каждого, кто оставит заявку на тур
                   </p>
                   <button
                     onClick={generateCode}
@@ -358,7 +358,7 @@ export default function LoyaltyClient() {
                       <tr className="border-t border-[var(--border)] bg-[var(--bg-primary)]">
                         <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Уровень</th>
                         <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">От (расходов)</th>
-                        <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Баллы за бронь</th>
+                        <th className="px-4 py-2.5 text-left text-[var(--text-muted)] font-medium text-xs">Баллы за заявку</th>
                       </tr>
                     </thead>
                     <tbody>

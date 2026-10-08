@@ -16,6 +16,7 @@ import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -425,7 +426,9 @@ export default function KuzmichClient() {
     }));
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: `Заявка создана. Номер #${bookingId}.\n\nОператор получит её автоматически и подтвердит дату. Оплата откроется на странице бронирования после подтверждения — ссылка ниже и в письме.`,
+      content: platformAcceptsPayments()
+        ? `Заявка создана. Номер #${bookingId}.\n\nОператор получит её автоматически и подтвердит дату. Оплата откроется на странице заявки после подтверждения — ссылка ниже и в письме.`
+        : `Заявка создана. Номер #${bookingId}.\n\nОператор получит её автоматически и подтвердит дату. Оплата — напрямую оператору, после подтверждения. Ссылка на страницу заявки — ниже и в письме.`,
     }]);
   }
 
@@ -530,7 +533,7 @@ export default function KuzmichClient() {
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[var(--success)]/10 text-[var(--success)] text-sm">
                         <CheckCircle className="w-4 h-4 shrink-0" />
-                        Бронирование #{msg.bookingConfirmed.id} создано
+                        Заявка #{msg.bookingConfirmed.id} создана
                       </div>
                       {/* Ссылка с ключом — та самая «страница бронирования»,
                           на которую зовёт сообщение выше. Без ключа она

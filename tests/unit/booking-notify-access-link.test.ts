@@ -51,7 +51,7 @@ describe('notifyTouristBookingCreated — ссылка на оплату в со
 
     const [{ text }] = sendMessageMock.mock.calls[0]!;
     expect(text).not.toContain('Перейти к оплате');
-    expect(text).toContain('Мои бронирования');
+    expect(text).toContain('Мои заявки');
   });
 
   it('токен со спецсимволами кодируется в URL', async () => {

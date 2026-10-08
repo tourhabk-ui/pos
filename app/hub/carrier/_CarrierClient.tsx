@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Truck, CalendarDays, Inbox, Plus, Eye, EyeOff, Check, X, AlertCircle } from 'lucide-react';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 type Tab = 'trips' | 'requests' | 'fleet';
 
@@ -315,7 +316,7 @@ function Requests({ requests, onChanged, say }: { requests: Load<SeatRequest>; o
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       }));
       if (!res.ok) { say('err', res.error ?? 'Не удалось'); return; }
-      say('ok', action === 'confirm' ? 'Места подтверждены — заказчик увидит цену и сможет оплатить по QR' : 'Запрос отклонён');
+      say('ok', action === 'confirm' ? (platformAcceptsPayments() ? 'Места подтверждены — заказчик увидит цену и сможет оплатить по QR' : 'Места подтверждены — заказчик увидит цену; оплата — вам напрямую') : 'Запрос отклонён');
       onChanged();
     } finally { setBusyId(null); }
   };

@@ -55,6 +55,13 @@ export async function GET(request: NextRequest) {
       -- через partners.user_id), а не по contacts JSONB.
       (p.telegram_chat_id IS NOT NULL OR u.telegram_id IS NOT NULL) AS has_telegram,
       (p.max_chat_id IS NOT NULL)      AS has_max,
+      -- Есть ли у карточки аккаунт. Карточку, заведённую миграцией без
+      -- пользователя (1174, «Край Вулканов»), прежний JOIN users прятал из
+      -- списка целиком — и кнопка «Завести аккаунт» была бы недостижима.
+      (u.id IS NOT NULL)               AS has_account,
+      -- Откуда карточка: аккаунт из админки заводится только своим (NULL/'admin'),
+      -- импорту с чужого сайта кнопка не показывается.
+      p.external_source,
       p.category,
       p.description,
       p.profile_status,
@@ -76,7 +83,7 @@ export async function GET(request: NextRequest) {
       p.widget_enabled,
       p.widget_domains
     FROM partners p
-    JOIN users u ON u.id = p.user_id
+    LEFT JOIN users u ON u.id = p.user_id
     LEFT JOIN operator_applications oa ON oa.partner_id = p.id
     WHERE p.category = ANY($1)
       ${statusClause}
@@ -87,7 +94,6 @@ export async function GET(request: NextRequest) {
   const countRow = await query(`
     SELECT COUNT(*) AS total
     FROM partners p
-    JOIN users u ON u.id = p.user_id
     WHERE p.category = ANY($1)
       ${statusClause}
   `, hasStatusFilter ? [cats, status] : [cats]);

@@ -59,7 +59,11 @@ describe('п.4: заявка на бронь — не бронь и не опл�
   it('запись — только createLead: ни броней, ни платежей из MCP', () => {
     expect(ROUTE).toMatch(/createLead\(\{/);
     expect(ROUTE).not.toMatch(/INSERT INTO operator_bookings/i);
-    expect(ROUTE).not.toMatch(/from '@\/lib\/payments/);
+    // Единственный допустимый импорт из lib/payments — флаг «платформа принимает
+    // оплату» (accepting.ts, 05.10): он только читается ради честной фразы про
+    // оплату в ответе. Всё остальное (приёмники, книга, комиссия) — запрещено.
+    expect(ROUTE).not.toMatch(/from '@\/lib\/payments\/(?!accepting')/);
+    expect(ROUTE).not.toMatch(/from '@\/lib\/payments'/);
     expect(ROUTE).not.toMatch(/recordCommissionFromBooking/);
   });
 

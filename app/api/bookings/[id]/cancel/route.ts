@@ -91,14 +91,14 @@ export async function POST(
       );
       if (ownerCheck.rows.length === 0) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
       const opBooking = ownerCheck.rows[0];
       if (!['new', 'confirmed'].includes(opBooking.booking_status)) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование нельзя отменить в текущем статусе' } as ApiResponse<null>,
+          { success: false, error: 'Заявку нельзя отменить в текущем статусе' } as ApiResponse<null>,
           { status: 409 }
         );
       }
@@ -133,7 +133,7 @@ export async function POST(
 
       if (cancelled === null) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование нельзя отменить в текущем статусе' } as ApiResponse<null>,
+          { success: false, error: 'Заявку нельзя отменить в текущем статусе' } as ApiResponse<null>,
           { status: 409 }
         );
       }
@@ -147,8 +147,8 @@ export async function POST(
       return NextResponse.json({
         success: true,
         message: refund
-          ? `Бронирование отменено. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
-          : 'Бронирование отменено. Оплаты по этой брони не было.',
+          ? `Заявка отменена. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
+          : 'Заявка отменена. Оплаты по этой заявке не было.',
         data: { booking: { id: bookingId }, refund },
       });
     }
@@ -166,7 +166,7 @@ export async function POST(
       );
       if (ownerCheck.rows.length === 0) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
@@ -181,13 +181,13 @@ export async function POST(
       );
       if (operatorCheck.rows.length === 0) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
     } else if (role !== 'admin') {
       return NextResponse.json(
-        { success: false, error: 'Недостаточно прав для отмены бронирования' } as ApiResponse<null>,
+        { success: false, error: 'Недостаточно прав для отмены заявки' } as ApiResponse<null>,
         { status: 403 }
       );
     }
@@ -215,16 +215,16 @@ export async function POST(
       try {
         await emailService.sendEmail({
           to: userEmail,
-          subject: `Бронирование отменено: ${booking.tour.title}`,
+          subject: `Заявка отменена: ${booking.tour.title}`,
           html: `
-            <h2>Ваше бронирование отменено</h2>
+            <h2>Ваша заявка отменена</h2>
             <p><strong>Тур:</strong> ${escapeHtml(booking.tour.title)}</p>
             <p><strong>Дата:</strong> ${booking.date.toLocaleDateString('ru-RU')}</p>
             <p><strong>Участники:</strong> ${booking.participants}</p>
             ${reason ? `<p><strong>Причина:</strong> ${escapeHtml(reason)}</p>` : ''}
             ${refund
               ? `<p><strong>Возврат:</strong> ${refund.amount.toLocaleString('ru-RU')} ₽ — ${escapeHtml(refund.reason)} Возврат оформляет администрация платформы.</p>`
-              : '<p>Оплаты по этой брони не было — возвращать нечего.</p>'
+              : '<p>Оплаты по этой заявке не было — возвращать нечего.</p>'
             }
             <p>Если у вас есть вопросы — <a href="mailto:pospk@mail.ru">pospk@mail.ru</a></p>
           `,
@@ -242,13 +242,13 @@ export async function POST(
         refund,
       },
       message: refund
-        ? `Бронирование отменено. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
-        : 'Бронирование отменено. Оплаты по этой брони не было.',
+        ? `Заявка отменена. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
+        : 'Заявка отменена. Оплаты по этой заявке не было.',
     } as ApiResponse<{ booking: typeof booking; refund: typeof refund }>);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Внутренняя ошибка сервера';
 
-    if (message.includes('не найдено')) {
+    if (message.includes('не найдено') || message.includes('не найдена')) {
       return NextResponse.json(
         { success: false, error: message } as ApiResponse<null>,
         { status: 404 }
@@ -262,7 +262,7 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { success: false, error: 'Ошибка при отмене бронирования' } as ApiResponse<null>,
+      { success: false, error: 'Ошибка при отмене заявки' } as ApiResponse<null>,
       { status: 500 }
     );
   }

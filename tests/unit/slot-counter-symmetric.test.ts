@@ -96,7 +96,7 @@ describe('ответ об отмене не выдумывает решение 
     // бы как отказ вернуть то, что было оплачено.
     expect(CODE).toMatch(/recordRefundDue\(client, opId, false\)/);
     expect(CODE).toMatch(/const refund = cancelled\.refund;/);
-    expect(CODE).toMatch(/Оплаты по этой брони не было/);
+    expect(CODE).toMatch(/Оплаты по этой заявке не было/);
   });
 
   it('шапка не выдаёт несуществующий расчёт возврата за действующий', () => {

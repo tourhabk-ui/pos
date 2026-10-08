@@ -503,7 +503,7 @@ function DayCard({
             href={tourPath(topTour)}
             target="_blank"
             rel="noopener noreferrer"
-            title="Открыть тур и забронировать"
+            title="Открыть тур и оставить заявку"
             className="flex items-center justify-between gap-2 mx-3 mb-2.5 px-2.5 py-1.5 rounded-md bg-[var(--bg-hover)] border border-[var(--border)] hover:border-[var(--ocean)] transition-colors"
           >
             <div className="flex items-center gap-1.5 min-w-0">
@@ -511,7 +511,7 @@ function DayCard({
               <span className="text-[10px] text-[var(--text-secondary)] truncate">{topTour.title}</span>
             </div>
             <span className="text-[10px] font-semibold text-[var(--ocean)] whitespace-nowrap">
-              от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
+              от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
             </span>
           </a>
         )}

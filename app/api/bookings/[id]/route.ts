@@ -40,7 +40,7 @@ export async function GET(
       const booking = await getBookingForUser(id, auth.userId);
       if (!booking) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
@@ -52,7 +52,7 @@ export async function GET(
       const booking = await getBookingById(id);
       if (!booking) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
@@ -65,7 +65,7 @@ export async function GET(
       );
       if (ownerCheck.rows.length === 0) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
@@ -77,7 +77,7 @@ export async function GET(
       const booking = await getBookingById(id);
       if (!booking) {
         return NextResponse.json(
-          { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+          { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
           { status: 404 }
         );
       }
@@ -90,7 +90,7 @@ export async function GET(
     );
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: 'Ошибка при получении бронирования' } as ApiResponse<null>,
+      { success: false, error: 'Ошибка при получении заявки' } as ApiResponse<null>,
       { status: 500 }
     );
   }
@@ -121,14 +121,14 @@ export async function PUT(
     const booking = await getBookingForUser(id, auth.userId);
     if (!booking) {
       return NextResponse.json(
-        { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+        { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
         { status: 404 }
       );
     }
 
     if (booking.status !== 'new') {
       return NextResponse.json(
-        { success: false, error: 'Можно редактировать только бронирование в статусе ожидания' } as ApiResponse<null>,
+        { success: false, error: 'Можно редактировать только заявку в статусе ожидания' } as ApiResponse<null>,
         { status: 409 }
       );
     }
@@ -145,11 +145,11 @@ export async function PUT(
     return NextResponse.json({
       success: true,
       data: updated,
-      message: 'Бронирование обновлено',
+      message: 'Заявка обновлена',
     });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: 'Ошибка при обновлении бронирования' } as ApiResponse<null>,
+      { success: false, error: 'Ошибка при обновлении заявки' } as ApiResponse<null>,
       { status: 500 }
     );
   }
@@ -179,7 +179,7 @@ export async function DELETE(
     const existing = await getBookingForUser(id, auth.userId);
     if (!existing) {
       return NextResponse.json(
-        { success: false, error: 'Бронирование не найдено' } as ApiResponse<null>,
+        { success: false, error: 'Заявка не найдена' } as ApiResponse<null>,
         { status: 404 }
       );
     }
@@ -200,8 +200,8 @@ export async function DELETE(
       success: true,
       data: { booking, refund },
       message: refund
-        ? `Бронирование отменено. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
-        : 'Бронирование отменено. Оплаты по этой брони не было.',
+        ? `Заявка отменена. ${refund.reason} К возврату ${refund.amount.toLocaleString('ru-RU')} ₽, его оформляет администрация платформы.`
+        : 'Заявка отменена. Оплаты по этой заявке не было.',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ошибка';
@@ -214,7 +214,7 @@ export async function DELETE(
     }
 
     return NextResponse.json(
-      { success: false, error: 'Ошибка при отмене бронирования' } as ApiResponse<null>,
+      { success: false, error: 'Ошибка при отмене заявки' } as ApiResponse<null>,
       { status: 500 }
     );
   }

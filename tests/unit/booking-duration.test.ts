@@ -161,6 +161,8 @@ function wire(days: Array<{ date: string; occupied: string; available_slots: num
     .mockResolvedValueOnce({ rows: days })
     .mockResolvedValueOnce({ rows: [] })
     .mockResolvedValueOnce({ rows: [] })
+    // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
+    .mockResolvedValueOnce({ rows: [] })
     .mockResolvedValueOnce({ rows: [{ id: 77, access_token: 'tok' }] });
 }
 
@@ -243,7 +245,8 @@ describe('многодневная бронь', () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [{ ...TOUR, multi_day_count: null, duration_hours: 8 }] })
       .mockResolvedValueOnce({ rows: [freeDay('2026-09-14')] })
-      // Правила цены и занятость даты — пусто: цена оператора (см. wire).
+      // Правила цены, занятость даты и ступени цены — пусто: цена оператора (см. wire).
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 78, access_token: 'tok' }] });

@@ -237,7 +237,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
 
     doc.fillColor('#9A9590')
        .fontSize(8)
-       .text('Для подтверждения бронирования свяжитесь с менеджером или перейдите на сайт.', 60, footerY + 36, {
+       .text('Для подтверждения заявки свяжитесь с менеджером или перейдите на сайт.', 60, footerY + 36, {
          width: PAGE_WIDTH,
        });
 

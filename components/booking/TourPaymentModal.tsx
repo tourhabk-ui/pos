@@ -24,6 +24,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { X, AlertTriangle } from 'lucide-react';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 interface TourPaymentModalProps {
   open: boolean;
@@ -89,7 +90,9 @@ export default function TourPaymentModal({
               {operatorName}
             </p>
             <p className="text-xs text-[var(--text-secondary)]">
-              Оплата — после того, как оператор подтвердит дату.
+              {platformAcceptsPayments()
+                ? 'Оплата — после того, как оператор подтвердит дату.'
+                : 'Заявка уйдёт оператору: дату и оплату он подтвердит с вами напрямую.'}
             </p>
           </div>
 

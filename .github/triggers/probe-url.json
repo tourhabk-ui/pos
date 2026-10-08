@@ -1,19 +1,37 @@
 {
-  "note": "07.10. ТОЛЬКО ЧТЕНИЕ. После 1171/1172 и погоды зон: фото и точки маршрутов «Халактырский пляж» и «Скалы Три Брата», погода районов, точка пляжа.",
-  "run": 711,
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 15,
-  "allowStale": true,
-  "bytes": 1200,
+  "retries": 45,
+  "retryDelay": 60,
+  "allowStale": false,
+  "bytes": 3000,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Гостевой дом «Кутха», пос. Пионерский (#2238): что 2ГИС показывает публично — имя, адрес, рубрика, телефон, сайт, удобства, цена — для карточки жилья с источником.",
+  "run": 716,
   "urls": [
-    "https://vedarai.ru/api/routes/06449303-af60-40a9-8857-9919481a3011",
-    "https://vedarai.ru/api/routes/7ae7d778-2cdc-4655-8c9c-0dc36713a278",
-    "https://vedarai.ru/api/weather/zones",
-    "https://vedarai.ru/api/places/49a1d46a-704b-4307-bb6a-fea5988ec4f8"
+    "https://2gis.ru/p_kamchatskiy/geo/70000001028100030/158.543200,53.094924",
+    "https://2gis.ru/p_kamchatskiy/firm/70000001028100030"
   ],
-  "around": ["\"waypointPhotos\":", "\"linkKind\":\"waypoint\"", "\"lat\":52.994759", "158.5472"],
+  "until": "/images/volcanoesland/ploskiy-tolbachik-01",
+  "around": [
+    "Кутх",
+    "962",
+    "215",
+    "28 000",
+    "28000",
+    "бассейн",
+    "Баня",
+    "баня",
+    "Пионерский",
+    "vk.com",
+    "http"
+  ],
   "aroundLines": 0,
-  "aroundHits": 2,
-  "grep": ["\"waypointPhotos\":{", "\"linkKind\":\"waypoint\"", "52.994759", "158.5472", "Patchy", "gustKmh"]
+  "aroundBefore": 200,
+  "aroundHits": 40,
+  "grep": [
+    "Кутх",
+    "962",
+    "бассейн",
+    "Пионерский"
+  ],
+  "text": true
 }

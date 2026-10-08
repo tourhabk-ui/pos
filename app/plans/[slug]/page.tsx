@@ -252,7 +252,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                           {tour.title} · {tour.operator_name}
                         </span>
                         <span className="text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
-                          от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
+                          от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
                         </span>
                       </Link>
                     )}

@@ -315,9 +315,9 @@ export default async function OperatorProfilePage(
                           href={`${tourPath(t)}#booking`}
                           className="ds-btn ds-btn-primary w-full justify-center text-sm"
                           style={{ minHeight: 44 }}
-                          aria-label={`Забронировать: ${t.title}`}
+                          aria-label={`Отправить заявку: ${t.title}`}
                         >
-                          Забронировать
+                          Отправить заявку
                         </Link>
                       </div>
                     </div>

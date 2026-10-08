@@ -201,7 +201,7 @@ async function sendBookingInlineButton(chatId: number): Promise<void> {
       text: 'Хотите оформить заявку на тур?',
       reply_markup: {
         inline_keyboard: [[
-          { text: 'Хочу забронировать', callback_data: 'book_now' },
+          { text: 'Хочу оставить заявку', callback_data: 'book_now' },
         ]],
       },
     }),
@@ -346,7 +346,7 @@ async function processGroupMessage(opts: {
   const { callAIWaterfall } = await import('@/lib/ai/providers');
 
   const tourCtx = await buildTourContext();
-  const systemContent = `${KUZMICH_SYSTEM}\n\n${tourCtx}\n\nТы в групповом чате. Отвечай коротко (2-3 строки). Для бронирования приглашай писать в личку боту.`;
+  const systemContent = `${KUZMICH_SYSTEM}\n\n${tourCtx}\n\nТы в групповом чате. Отвечай коротко (2-3 строки). Чтобы оставить заявку оператору, приглашай писать в личку боту.`;
 
   const messages = [
     { role: 'system' as const, content: systemContent },

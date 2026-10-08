@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice } from '@/lib/tours/honest-price';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 
@@ -68,14 +69,26 @@ export async function GET(
   }
 
   const tour = rows[0];
-  const price = await honestTourPrice({
-    tourId: id,
-    tourDate: date,
-    baseUnitPrice: parseFloat(tour.base_price),
-    priceUnit: tour.price_unit,
-    participants: guests,
-    duration: tour,
-  });
+  let price;
+  try {
+    price = await honestTourPrice({
+      tourId: id,
+      tourDate: date,
+      baseUnitPrice: parseFloat(tour.base_price),
+      priceUnit: tour.price_unit,
+      participants: guests,
+      duration: tour,
+    });
+  } catch (err) {
+    // Размер группы вне ступеней цены: суммы нет. Это не 500 и не базовая цена.
+    if (err instanceof PriceTierMissError) {
+      return NextResponse.json(
+        { success: false, code: 'price_unknown', error: err.message },
+        { status: 422 },
+      );
+    }
+    throw err;
+  }
 
   return NextResponse.json({
     success:      true,

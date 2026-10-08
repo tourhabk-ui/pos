@@ -74,9 +74,16 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     'app/api/hub/operator/bookings/[id]/route.ts',
     'app/p/[code]/_SelectionClient.tsx',
     'lib/seat-requests/service.ts',
-    'app/api/mcp/route.ts',
   ])('%s говорит о платеже по выключателю, а не безусловно', (f) => {
     expect(read(f)).toMatch(/platformAcceptsPayments\(\)/);
+  });
+
+  it('MCP-роут берёт фразу об оплате у seat-requests и в lib/payments не ходит', () => {
+    // Сторожа mcp-booking и mcp-seat-request запрещают роуту импорт из
+    // lib/payments; 05.10 прямой импорт выключателя сделал main красным.
+    const route = read('app/api/mcp/route.ts');
+    expect(route).toMatch(/seatRequestPaymentNote\(\)/);
+    expect(route).not.toMatch(/from '@\/lib\/payments/);
   });
 
   it.each([

@@ -38,7 +38,7 @@ export default function CartClient() {
           <ShoppingCart className="w-12 h-12 mx-auto text-[var(--text-muted)]" />
           <h1 className="ds-h2">Корзина пуста</h1>
           <p className="text-[var(--text-secondary)] text-sm">
-            Добавляйте туры из каталога и возвращайтесь сюда для бронирования
+            Добавляйте туры из каталога и возвращайтесь сюда, чтобы оставить заявку
           </p>
           <button onClick={() => router.push('/catalog')} className="ds-btn ds-btn-primary px-6 py-2.5">
             Перейти в каталог
@@ -105,7 +105,7 @@ export default function CartClient() {
                     onClick={() => router.push(`/catalog/tours/${item.tourId}`)}
                     className="ds-btn ds-btn-primary px-3 py-1.5 text-xs flex items-center gap-1"
                   >
-                    Забронировать
+                    Оставить заявку
                     <ArrowRight className="w-3 h-3" />
                   </button>
                 </div>

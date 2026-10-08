@@ -21,6 +21,7 @@ import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
+import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -303,6 +304,55 @@ function capitalize(t: string): string {
   return t ? t.charAt(0).toLocaleUpperCase('ru-RU') + t.slice(1) : t;
 }
 
+function ddmm(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${d}.${m}`;
+}
+
+/**
+ * Строка живой занятости под днём с туром оператора (#2241).
+ *
+ * Даты и места — из той же занятости, что `get_tour_availability`
+ * (`fetchAvailabilityForTour` движка), второго расчёта здесь нет. До 08.10
+ * движок их считал, а текст плана выбрасывал: агент видел «Летняя рыбалка —
+ * от 28 000 ₽» без даты и без номера тура и шёл к оператору вслепую.
+ *
+ * Исходов четыре, и ни один не подменяет другой (§4.0):
+ * дата есть — называется (и честно, если это не день плана); расписания у
+ * тура нет — «дату подтверждает оператор», а не «мест нет»; расписание есть,
+ * а дат в окне нет — «мест нет»; не смогли прочитать — так и сказано.
+ *
+ * `planDayIso` — дата этого дня плана; `keepsSchedule` — ведёт ли тур
+ * календарь (нужен только для исхода `none`; null — не смогли проверить).
+ * null в ответе — сказать нечего (у дня нет тура или занятость не читалась).
+ */
+export function tourAvailabilityLine(
+  d: Pick<DayPlan, 'realTour' | 'availability' | 'availableDate' | 'slotsRemaining' | 'capacityWarning'>,
+  planDayIso: string | null,
+  keepsSchedule: boolean | null | undefined,
+): string | null {
+  if (!d.realTour || !d.availability) return null;
+  const id = `Тур ID${d.realTour.tourId}${d.realTour.operatorName ? `, ${d.realTour.operatorName}` : ''}`;
+  if (d.availability === 'open' && d.availableDate) {
+    const seats = d.slotsRemaining != null ? `, свободно мест: ${d.slotsRemaining}` : '';
+    const other = planDayIso && d.availableDate !== planDayIso
+      ? ` — это не ${ddmm(planDayIso)}, день плана можно сдвинуть под тур`
+      : '';
+    const warn = d.capacityWarning ? `. ${d.capacityWarning}` : '';
+    return `${id}: ближайшая свободная дата в ваши даты — ${ddmm(d.availableDate)}${seats}${other}${warn}`;
+  }
+  if (d.availability === 'unread') {
+    return `${id}: занятость сейчас не прочиталась — даты не называю, проверьте get_tour_availability по ID`;
+  }
+  if (keepsSchedule === false) {
+    return `${id}: расписания в системе нет — это не «мест нет», дату подтверждает оператор по заявке`;
+  }
+  if (keepsSchedule === true) {
+    return `${id}: в ваши даты свободных мест нет — другие даты покажет get_tour_availability по ID`;
+  }
+  return `${id}: свободных дат в ваши даты не нашли, а ведёт ли тур расписание, проверить не смогли — не утверждайте, что мест нет`;
+}
+
 const DAY_WARNINGS_SHOWN = 3;
 const WARNINGS_SHOWN = 6;
 
@@ -316,7 +366,13 @@ export function formatTripPlanForChat(
    * турист просил «семь дней», а движок молча берёт месяц вперёд — не
    * назвать эту дату значит выдать план на октябрь за план «на сейчас».
    */
-  context?: { refusal: string; plannedFor: string },
+  context?: {
+    refusal: string; plannedFor: string;
+    /** Дата первого дня плана, YYYY-MM-DD — чтобы назвать дату каждого дня. */
+    arrivalIso?: string;
+    /** Ведёт ли тур расписание — по ID, для дней с туром без свободных дат. */
+    keepsSchedule?: ReadonlyMap<string, boolean | null>;
+  },
 ): string {
   if (days.length === 0) {
     return context?.refusal
@@ -346,6 +402,11 @@ export function formatTripPlanForChat(
     // рядом с настоящими ценами он читался как цена (аудит MCP 29.09).
     const price = d.realPrice != null && d.realPrice > 0 ? ` — от ${d.realPrice.toLocaleString('ru-RU')} ₽` : '';
     lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
+    const planDayIso = context?.arrivalIso
+      ? new Date(Date.parse(`${context.arrivalIso}T00:00:00Z`) + (d.day - 1) * 86400000).toISOString().slice(0, 10)
+      : null;
+    const live = tourAvailabilityLine(d, planDayIso, d.realTour ? context?.keepsSchedule?.get(d.realTour.tourId) : undefined);
+    if (live) lines.push(`   ${live}`);
     // Предупреждения дня — «Только с гидом», лимит парка, детям до N лет —
     // стоят на самом дне; до 29.09 до ответа не доходило ни одно.
     const dayWarn = (d.dayWarnings ?? []).filter(Boolean);
@@ -360,7 +421,7 @@ export function formatTripPlanForChat(
   }
   lines.push('');
   if (preset) {
-    lines.push(`Готовая страница этого формата с турами и бронью: ${SITE}/plans/${preset.slug}`);
+    lines.push(`Готовая страница этого формата с турами и заявкой оператору: ${SITE}/plans/${preset.slug}`);
   }
   lines.push(`Пересобрать под свои даты и состав: ${SITE}/planner`);
   return lines.join('\n');
@@ -399,6 +460,16 @@ export async function makeTripPlanForKuzmich(
     restDays: readRestDays(args.rest_days),
   }, { itinerary: 'plain' });
 
+  // Ведёт ли тур расписание — только для туров, у которых в окне поездки
+  // свободных дат не нашлось: «календаря нет» и «мест нет» — разные ответы.
+  const keepsSchedule = new Map<string, boolean | null>();
+  const noDates = [...new Set(rec.days
+    .filter((d) => d.realTour && d.availability === 'none')
+    .map((d) => (d.realTour as NonNullable<DayPlan['realTour']>).tourId))];
+  await Promise.all(noDates.map(async (id) => {
+    keepsSchedule.set(id, await tourKeepsSchedule(Number(id)));
+  }));
+
   const month = arrival.getUTCMonth() + 1;
   const plannedFor = arrival.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 
@@ -414,7 +485,10 @@ export async function makeTripPlanForKuzmich(
       ...rec.warnings.filter((w) => w.severity !== 'info' || w.type === 'safety').map((w) => w.message),
     ],
     matchPreset(daysNum, interests, PLAN_PRESETS, month),
-    { refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor },
+    {
+      refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen), plannedFor,
+      arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
+    },
   );
 
   const notes = [startNote(start, plannedFor), daysNote, interestsNote, PLAN_ASSUMPTIONS].filter(Boolean);

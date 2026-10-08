@@ -77,7 +77,7 @@ export function bookingConfirmationEmail(data: {
 }): { subject: string; html: string } {
   const content = `
     <h2 style="margin: 0 0 20px; color: #333; font-size: 24px;">
-      Бронирование подтверждено!  
+      Заявка подтверждена оператором
     </h2>
     
     <p style="margin: 0 0 20px; color: #666; font-size: 16px; line-height: 1.6;">
@@ -85,11 +85,11 @@ export function bookingConfirmationEmail(data: {
     </p>
     
     <p style="margin: 0 0 20px; color: #666; font-size: 16px; line-height: 1.6;">
-      Ваше бронирование успешно подтверждено. Мы ждём вас!
+      Оператор подтвердил вашу заявку. Мы ждём вас!
     </p>
     
     <div style="background-color: #f9f9f9; border-left: 4px solid ${BRAND_COLOR}; padding: 20px; margin: 20px 0; border-radius: 8px;">
-      <h3 style="margin: 0 0 15px; color: #333; font-size: 18px;">Детали бронирования:</h3>
+      <h3 style="margin: 0 0 15px; color: #333; font-size: 18px;">Детали заявки:</h3>
       <p style="margin: 8px 0; color: #666;">
         <strong>Тур:</strong> ${data.tourName}
       </p>
@@ -103,7 +103,7 @@ export function bookingConfirmationEmail(data: {
         <strong>Сумма:</strong> ${data.totalPrice.toLocaleString('ru-RU')} ₽
       </p>
       <p style="margin: 8px 0; color: #999; font-size: 14px;">
-        Номер брони: #${data.bookingId.substring(0, 8)}
+        Номер заявки: #${data.bookingId.substring(0, 8)}
       </p>
     </div>
     
@@ -114,13 +114,13 @@ export function bookingConfirmationEmail(data: {
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://vedarai.ru/bookings/${data.bookingId}" 
          style="display: inline-block; background-color: ${BRAND_COLOR}; color: #000; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
-        Просмотреть бронирование
+        Просмотреть заявку
       </a>
     </div>
   `;
 
   return {
-    subject: `Бронирование подтверждено: ${data.tourName}`,
+    subject: `Заявка подтверждена оператором: ${data.tourName}`,
     html: emailLayout(content)
   };
 }
@@ -247,7 +247,7 @@ export function bookingCancellationEmail(data: {
 }): { subject: string; html: string } {
   const content = `
     <h2 style="margin: 0 0 20px; color: #333; font-size: 24px;">
-      Бронирование отменено
+      Заявка отменена
     </h2>
     
     <p style="margin: 0 0 20px; color: #666; font-size: 16px; line-height: 1.6;">
@@ -255,7 +255,7 @@ export function bookingCancellationEmail(data: {
     </p>
     
     <p style="margin: 0 0 20px; color: #666; font-size: 16px; line-height: 1.6;">
-      Ваше бронирование было отменено.
+      Ваша заявка была отменена.
     </p>
     
     <div style="background-color: #fee; border-left: 4px solid #f44; padding: 20px; margin: 20px 0; border-radius: 8px;">
@@ -266,7 +266,7 @@ export function bookingCancellationEmail(data: {
         <strong>Дата:</strong> ${data.date.toLocaleDateString('ru-RU')}
       </p>
       <p style="margin: 8px 0; color: #999; font-size: 14px;">
-        Номер брони: #${data.bookingId.substring(0, 8)}
+        Номер заявки: #${data.bookingId.substring(0, 8)}
       </p>
     </div>
     
@@ -276,7 +276,7 @@ export function bookingCancellationEmail(data: {
           Возврат средств: ${data.refundAmount.toLocaleString('ru-RU')} ₽
         </p>
         <p style="margin: 10px 0 0; color: #666; font-size: 14px;">
-          Средства поступят на вашу карту в течение 5-10 рабочих дней
+          Возврат оформляет администратор платформы вручную — о переводе сообщим отдельно
         </p>
       </div>
     ` : ''}
@@ -287,7 +287,7 @@ export function bookingCancellationEmail(data: {
   `;
 
   return {
-    subject: `Бронирование отменено: ${data.tourName}`,
+    subject: `Заявка отменена: ${data.tourName}`,
     html: emailLayout(content)
   };
 }
@@ -318,10 +318,10 @@ export function welcomeEmail(data: {
     <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding: 30px; margin: 30px 0; border-radius: 12px;">
       <h3 style="margin: 0 0 15px; color: #333; font-size: 20px;">Что вы можете делать:</h3>
       <ul style="margin: 0; padding-left: 20px; color: #666; font-size: 15px; line-height: 1.8;">
-        <li>Бронировать туры и экскурсии</li>
+        <li>Отправлять заявки на туры и экскурсии операторам</li>
         <li>Искать трансферы и размещение</li>
         <li>Планировать маршруты с AI-ассистентом</li>
-        <li>Копить бонусы за каждое бронирование</li>
+        <li>Копить бонусы за каждую заявку</li>
         <li>Оставлять отзывы о турах</li>
       </ul>
     </div>

@@ -444,7 +444,7 @@ function OfferCard({ offer, activityType, onBook }: {
             className="ds-btn ds-btn-primary px-4 py-2 text-sm font-semibold flex-shrink-0 whitespace-nowrap"
             onClick={e => { e.stopPropagation(); onBook(); }}
           >
-            Забронировать
+            Отправить заявку
           </button>
         </div>
       </div>

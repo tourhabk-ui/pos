@@ -102,6 +102,8 @@ function mockDb(opts: { calendar?: Array<{ available_slots: number; is_cancelled
     // ЖЕ транзакции. Правил нет и слота нет — цена остаётся ценой оператора,
     // то есть прежнее поведение этих проверок.
     if (s.includes('FROM tour_pricing_rules')) return Promise.resolve({ rows: [] });
+    // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
+    if (s.includes('FROM tour_price_tiers')) return Promise.resolve({ rows: [] });
     if (s.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + s);
   });
@@ -183,7 +185,7 @@ describe('бронь из чата видна там, где её ищут', () 
 describe('календарь оператора уважается обоими путями', () => {
   it('дата закрыта оператором → бронь из чата не заводится', async () => {
     mockDb({ calendar: [{ available_slots: 10, is_cancelled: true }] });
-    await expect(createBooking(PENDING as never, 'kuzmich_tg', 555, 'tg')).rejects.toThrow(/закрыл бронирование/);
+    await expect(createBooking(PENDING as never, 'kuzmich_tg', 555, 'tg')).rejects.toThrow(/закрыл приём заявок/);
     expect(clientQueryMock.mock.calls.some(([sql]) =>
       String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
   });

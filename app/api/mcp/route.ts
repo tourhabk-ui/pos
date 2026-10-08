@@ -44,13 +44,12 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
-import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate } from '@/lib/seat-requests/core';
+import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
 // теми же функциями, какими их находят сами инструменты.
 import { handoffTargetForTool } from '@/lib/mcp/handoff-targets';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,7 +229,7 @@ async function requestSeatsFromOperator(a: {
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
   return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
-    + `Это НЕ бронь и не оплата: если оператор ответит «Есть места», бронь заведётся и подтвердится, ${platformAcceptsPayments() ? 'а ссылка на оплату появится на странице статуса' : 'а оплату человек внесёт оператору напрямую — Ведар платежи не принимает'}. `
+    + `Места этим запросом НЕ закреплены, и это не оплата: если оператор ответит «Есть места», заявка подтвердится, ${seatRequestPaymentNote()}. `
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
     + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
     + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.';
@@ -321,8 +320,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // оператор позвонит. Номер заявки человеку ни для чего не нужен — звонят ему.
   // Состав группы в ответе не повторяется: на дубле он взят бы из НОВОГО
   // вызова, а в заявке остался прежний (скептик проверки 29.09).
-  const accepted = `Заявка на бронь принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
-    + `Оператор перезвонит по телефону ${phone}, подтвердит бронь и состав группы — если число людей или пожелания изменились, `
+  const accepted = `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
+    + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
     + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.';
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);

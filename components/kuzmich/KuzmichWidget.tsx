@@ -92,7 +92,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
       <div className="rounded-xl border border-[var(--success)]/30 bg-[var(--success)]/5 p-3 flex flex-col gap-2">
         <div className="flex items-center gap-2 text-[var(--success)] text-xs font-medium">
           <CheckCircle size={14} />
-          Бронирование #{bookingId} создано
+          Заявка #{bookingId} создана
         </div>
         <a href={link} target="_blank" rel="noopener noreferrer"
           className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity">
@@ -102,7 +102,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           <div className="rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 p-2 flex flex-col gap-1.5">
             <p className="text-[11px] text-[var(--text-secondary)] leading-snug">
               Почту не указали — письма со ссылкой не будет. Сохрани её сейчас, иначе вернуться
-              к брони будет нечем.
+              к заявке будет нечем.
             </p>
             <button
               type="button"
@@ -153,7 +153,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
       {err && <p className="text-xs text-[var(--danger)]">{err}</p>}
       <button type="submit" disabled={busy}
         className="w-full py-2 rounded-lg bg-[var(--accent)] text-white text-xs font-medium disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5">
-        {busy ? <><Loader2 size={11} className="animate-spin" /> Отправляем...</> : 'Забронировать'}
+        {busy ? <><Loader2 size={11} className="animate-spin" /> Отправляем...</> : 'Отправить заявку'}
       </button>
     </form>
   );
@@ -474,7 +474,7 @@ export default function KuzmichWidget() {
                   {msg.bookingConfirmed && (
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--success)]/10 text-[var(--success)] text-xs">
                       <CheckCircle size={13} />
-                      Бронирование #{msg.bookingConfirmed.id} создано
+                      Заявка #{msg.bookingConfirmed.id} создана
                     </div>
                   )}
                   {/* Мини-карточки туров */}
