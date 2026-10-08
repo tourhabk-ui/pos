@@ -51,7 +51,7 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 | lib-модулей | 864 |
 | SQL миграций | 637 (последняя `1176`) |
 | Юнит-тестов | 15908 в 1492 файлах |
-| GitHub Actions | 161 workflow |
+| GitHub Actions | 162 workflow |
 <!-- STATS:END -->
 
 <!-- CATALOG:START -->
