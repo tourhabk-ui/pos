@@ -18,6 +18,7 @@ import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
 import { approachPlan, notOnRoute, ON_ROUTE_ENTRY_KM } from '@/lib/on-route/approach';
+import { readWpProgress, writeWpProgress, clearWpProgress } from '@/lib/on-route/wp-progress';
 import { calculatedRemaining } from '@/lib/on-route/calculated-remaining';
 import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
 import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
@@ -1534,7 +1535,66 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     });
     setCurrentWpIdx(bestD <= ON_ROUTE_ENTRY_KM ? best : 0);
     snappedRef.current = true;
+    // Решение принято — с этого момента номер точки стоит сохранять.
+    wpProgressReadyRef.current = true;
   }, [coords, waypoints]);
+
+  /**
+   * Прогресс по маршруту переживает закрытие экрана (владелец 09.10: «повторное
+   * открытие не сохраняет точку, а ставит её в рандомном месте»).
+   *
+   * Раньше номер текущей точки жил только в памяти, а при открытии «прилипал»
+   * к ближайшей точке по GPS: закрыл на третьей из пяти, открыл у первой —
+   * цель прибора прыгала назад. Теперь при загрузке точек маршрута сперва
+   * ищется сохранённый прогресс (lib/on-route/wp-progress: тот же маршрут, то
+   * же число точек, не старше суток), и только если его нет — работает прежнее
+   * правило по положению (field-entry-from-user).
+   *
+   * Восстановление идёт по ТОЧКАМ, не по фиксу: без GPS и без сети человек всё
+   * равно видит, куда шёл. Ключ `${маршрут}:${число точек}` не даёт повторной
+   * подстановке затереть шаги, сделанные после неё, когда сеть вернёт тот же
+   * список поверх кэша.
+   */
+  const wpRestoredForRef = useRef<string | null>(null);
+  const wpProgressReadyRef = useRef(false);
+  /** Индекс, поставленный восстановлением: пока рендер его не увидел, писать нельзя. */
+  const wpRestoreExpectRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (waypoints.length === 0) return;
+    let rid: string | null = lastRouteIdRef.current;
+    try { rid = rid ?? localStorage.getItem('active_trail_route_id'); } catch { /* приват-режим */ }
+    if (!rid) return;
+    const tag = `${rid}:${waypoints.length}`;
+    if (wpRestoredForRef.current === tag) return;
+    wpRestoredForRef.current = tag;
+    let res: ReturnType<typeof readWpProgress>;
+    try { res = readWpProgress(localStorage, rid, waypoints.length, Date.now()); }
+    catch { return; }
+    if (res.ok) {
+      wpRestoreExpectRef.current = res.idx;
+      setCurrentWpIdx(res.idx);
+      snappedRef.current = true;
+      wpProgressReadyRef.current = true;
+    } else if (res.reason === 'broken' || res.reason === 'stale' || res.reason === 'route_changed') {
+      // Запись есть, но верить ей нельзя — об этом строка в консоли, а не молчание.
+      console.warn(`[planning] прогресс маршрута не восстановлен: ${res.reason}`);
+    }
+  }, [waypoints]);
+
+  useEffect(() => {
+    if (!wpProgressReadyRef.current || waypoints.length === 0) return;
+    const expect = wpRestoreExpectRef.current;
+    if (expect !== null) {
+      // Этот проход эффекта идёт в том же рендере, что и восстановление, и
+      // currentWpIdx в нём ещё прежний: запись затёрла бы только что поднятое.
+      if (currentWpIdx !== expect) return;
+      wpRestoreExpectRef.current = null;
+    }
+    let rid: string | null = lastRouteIdRef.current;
+    try { rid = rid ?? localStorage.getItem('active_trail_route_id'); } catch { /* приват-режим */ }
+    if (!rid) return;
+    try { writeWpProgress(localStorage, rid, currentWpIdx, waypoints.length, Date.now()); } catch { /* хранилища нет */ }
+  }, [currentWpIdx, waypoints.length]);
 
   // Переход на следующую точку двигает весь маршрут, поэтому решается только
   // по фиксу, которому можно верить: при точности 300 м человек может стоять
@@ -2572,6 +2632,12 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
   function selectRoute(r: { id: string }) {
+    // Явный выбор маршрута — «идём сначала»: прежний прогресс по нему не
+    // восстанавливается (иначе «Начать» заново подставило бы вчерашнюю точку).
+    try { clearWpProgress(localStorage, r.id); } catch { /* приват-режим */ }
+    wpRestoredForRef.current = null;
+    wpProgressReadyRef.current = false;
+    wpRestoreExpectRef.current = null;
     try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
     setShowRouteModal(false);
     setPreview(null);
@@ -5955,6 +6021,11 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
   }, [tab]);
 
   function handleStartTrail(routeId: string) {
+    // «Начать» по ДРУГОМУ маршруту — с начала; по тому же, что уже идёт, —
+    // продолжение (прогресс старше суток всё равно не восстановится).
+    try {
+      if (localStorage.getItem('active_trail_route_id') !== routeId) clearWpProgress(localStorage, routeId);
+    } catch { /* приват-режим */ }
     try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
     switchTab('trail');
   }
