@@ -104,6 +104,34 @@ jobs:
           echo "gateway=$GW" >> "$GITHUB_OUTPUT"
           echo "::add-mask::$ACCOUNT"
 
+      # 08.10: с раннера через шлюз ключ получал 401 «API key is invalid.» с
+      # request_id: null, а настоящие ответы Anthropic несут request_id
+      # «req_…». Чей это отказ — шлюза или Anthropic — один шлюзовый замер не
+      # различает. Раннер не в РФ, гео-блока у него нет: тот же ключ напрямую
+      # в api.anthropic.com разводит «ключ отвергнут» и «шлюз отвергает».
+      # GET /v1/models — без генерации, ничего не стоит.
+      - name: С раннера — напрямую в api.anthropic.com (контроль самого ключа)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -u
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY не задан в секретах."
+            exit 0
+          fi
+          CODE=$(curl -s -D /tmp/direct.h -o /tmp/direct.json -w '%{http_code}' --max-time 40 \
+            -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' \
+            "https://api.anthropic.com/v1/models?limit=100")
+          echo "Раннер → api.anthropic.com напрямую: HTTP $CODE"
+          grep -i '^request-id' /tmp/direct.h || echo "request-id: нет"
+          if [ "$CODE" = "200" ]; then
+            echo "Ключ жив. Модели организации:"
+            jq -r '.data[].id' /tmp/direct.json 2>/dev/null | head -40
+          else
+            head -c 300 /tmp/direct.json; echo
+            echo "::warning::Напрямую ключ отвергнут (HTTP $CODE) — дело в самом ключе, не в шлюзе."
+          fi
+
       - name: С раннера — шлюз доводит до Anthropic (контроль самого шлюза)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
