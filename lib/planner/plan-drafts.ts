@@ -20,7 +20,7 @@ import { redactPII } from '@/lib/security/pii-redact';
 import type { DayPlan } from './engine';
 import type { EditablePlan, PlanParams } from './plan-edit';
 
-export type DraftSurface = 'chat' | 'mcp';
+export type DraftSurface = 'chat' | 'mcp' | 'group';
 
 export interface PlanDraft extends EditablePlan {
   id: string;

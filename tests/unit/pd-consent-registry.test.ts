@@ -53,6 +53,10 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
     note: 'миграция 1108, четвёртая копия — типы как у 911/969. Согласие живёт здесь, пока запрос не стал бронью: при «Есть места» переезжает в operator_bookings той же вставкой (lib/bookings/reserve)',
   },
+  trip_group_members: {
+    fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
+    note: 'миграция 1184, пятая копия — типы как у 911/969/1108. Пожелания участника группы (#2226): согласие каждого (решение владельца 08.10), строка без согласия не создаётся (NOT NULL); живёт 14 дней вместе с группой',
+  },
 };
 
 describe('где живёт согласие', () => {
@@ -119,6 +123,7 @@ const CONSENT_FORMS = [
   'components/shared/StickyLeadButton.tsx',
   'components/marketplace/BookingFormClient.tsx',
   'components/planner/SeatRequestForm.tsx',
+  'app/trip-group/[id]/_TripGroupClient.tsx',
 ];
 
 /**
@@ -188,6 +193,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/auth/register-operator/route.ts',
   'app/api/hub/bookings/create/route.ts',
   'app/api/seat-requests/route.ts',
+  'app/api/trip-groups/[id]/members/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

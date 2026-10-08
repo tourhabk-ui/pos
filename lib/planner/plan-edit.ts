@@ -22,7 +22,7 @@ import {
   recommendTrip, calculatePriceBreakdown, splitByChildAge,
   type DayPlan, type TripProfile, type BudgetTier, type PriceBreakdown, type TripRecommendation,
 } from './engine';
-import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from './constants';
+import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type FitnessLevel } from './constants';
 import type { TravelStyle } from './travel-style';
 import { MOVABLE_TYPES as MOVABLE, FRAME_WORD, tourGroup, insertIndex } from './plan-ops';
 
@@ -39,6 +39,13 @@ export interface PlanParams {
   budgetTier: BudgetTier;
   travelStyle?: TravelStyle;
   restDays?: number;
+  /**
+   * Ограничения группы (#2226): план, собранный из пожеланий участников,
+   * правится с теми же ограничениями. Не записано — как у одиночного плана.
+   */
+  fitnessLevel?: FitnessLevel;
+  seasickness?: boolean;
+  mobilityLevel?: 'full' | 'limited';
 }
 
 export interface EditablePlan {
@@ -108,9 +115,11 @@ export function planProfile(params: PlanParams): TripProfile {
     departureDate: params.departureDate,
     adults: params.adults,
     children: params.children,
-    fitnessLevel: 'moderate',
+    fitnessLevel: params.fitnessLevel ?? 'moderate',
     budgetTier: params.budgetTier,
     riskMode: 'safe_only',
+    ...(params.seasickness ? { seasickness: true } : {}),
+    ...(params.mobilityLevel ? { mobilityLevel: params.mobilityLevel } : {}),
     ...(params.travelStyle ? { travelStyle: params.travelStyle } : {}),
     ...(params.restDays !== undefined ? { restDays: params.restDays } : {}),
   };
