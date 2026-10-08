@@ -29,6 +29,7 @@ describe('словарь', () => {
     expect(FUNNEL_STEPS).toContain('stay_booking_start');
     expect(FUNNEL_STEPS).toContain('stay_external_booking');
     expect(FUNNEL_STEPS).toContain('stay_phone_call');
+    expect(FUNNEL_STEPS).toContain('stay_message_click');
   });
 
   it('в NSM «активированная поездка» не входят — её определение не расширяется молча', () => {
@@ -36,6 +37,7 @@ describe('словарь', () => {
     expect(EXECUTION_STEPS).not.toContain('stay_booking_start');
     expect(EXECUTION_STEPS).not.toContain('stay_external_booking');
     expect(EXECUTION_STEPS).not.toContain('stay_phone_call');
+    expect(EXECUTION_STEPS).not.toContain('stay_message_click');
   });
 
   it('entity_id укладывается в колонку приёмника (max 64)', () => {

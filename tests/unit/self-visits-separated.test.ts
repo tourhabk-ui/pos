@@ -105,7 +105,7 @@ describe('читатели считают внешних без своих', () 
   it('окна спроса funnel_events — без своих', () => {
     expect(read('app/api/admin/analytics/funnel/route.ts').match(/is_self = FALSE/g)?.length).toBe(3);
     expect(read('app/api/cron/booking-attempts/route.ts')).toContain("step = 'booking_start' AND is_self = FALSE");
-    expect(read('app/api/cron/stay-demand-census/route.ts').match(/created_at > \$\{W\} AND is_self = FALSE/g)?.length).toBe(5); // + stay_phone_call (1179)
+    expect(read('app/api/cron/stay-demand-census/route.ts').match(/created_at > \$\{W\} AND is_self = FALSE/g)?.length).toBe(6); // + stay_phone_call (1179), stay_message_click (1181)
     expect(read('lib/agents/evo/growth-agent.ts')).toContain("step = 'booking_start' AND is_self = FALSE");
     expect(read('lib/analytics/funnel-window.ts')).toContain("step = 'booking_start' AND is_self = FALSE");
   });
