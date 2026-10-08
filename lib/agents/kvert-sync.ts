@@ -18,8 +18,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { parseVonaFeed, parseAccSummary, parseActivitySections, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
-import { describeActivityRu } from '@/lib/services/safety/kvert-activity-ru';
+import { parseVonaFeed, parseAccSummary, parseActivitySections, normalizeVolcanoName, latestVonaNumber, type AccColor, type ParsedVona } from '@/lib/services/safety/kvert-vona';
+import { describeActivityRu, describeVonaRu } from '@/lib/services/safety/kvert-activity-ru';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 import {
   buildVolcanoIndex, matchVolcanoPlace, type VolcanoIndex,
@@ -37,6 +37,160 @@ import {
  * зависит от того, какой язык сайт решит отдать по умолчанию.
  */
 const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3&lend=en';
+
+/**
+ * Лента отдельных бюллетеней VONA. Недельная сводка (type=3) выходит раз в
+ * неделю, а между ней KVERT выпускает VONA по каждому событию: выброс пепла,
+ * смена кода. 08.10 у всех вулканов стояло «6 дней назад», а понижение
+ * Чикурачки до зелёного 05.10 не дошло вовсе — читалась только сводка.
+ */
+const VONA_LIST_URL = 'http://kvert.febras.net/van/index.php?type=6&lend=en';
+const vonaUrl = (n: number) => `http://kvert.febras.net/van/?vn=${n}&lend=en`;
+/** Не больше стольких выпусков назад за прогон: страница бюллетеня весит ~2 МБ. */
+const VONA_MAX_BACK = 8;
+
+async function fetchText(url: string): Promise<string | null> {
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'TourHabKamchatka/1.0 (safety monitoring)' },
+    signal: AbortSignal.timeout(20_000),
+  });
+  return res.ok ? res.text() : null;
+}
+
+/**
+ * Бюллетени VONA новее `since`, по одному последнему на вулкан.
+ *
+ * Лента показывает целиком только последний бюллетень и цитирует его номер
+ * (`?vn=163`); прежние лежат по своим номерам. Идём назад, пока бюллетень не
+ * окажется старше сводки: старше — значит сводка его уже учла.
+ */
+export async function fetchVonaSince(
+  since: Date | null,
+  get: (url: string) => Promise<string | null> = fetchText,
+): Promise<{ latest: number | null; read: number; failed: number[]; truncated: boolean; items: (ParsedVona & { sourceUrl: string })[] }> {
+  const list = await get(VONA_LIST_URL);
+  if (!list) throw new Error('лента VONA не ответила');
+  const latest = latestVonaNumber(list);
+  const items: (ParsedVona & { sourceUrl: string })[] = [];
+  if (latest == null) return { latest, read: 0, failed: [], truncated: false, items };
+
+  let read = 0;
+  // Номера, которые не прочитались: один недоступный выпуск не отменяет
+  // остальные, но и не исчезает молча — он назван в ответе синка.
+  const failed: number[] = [];
+  let reachedOlder = false;
+  for (let n = latest; n > 0 && n > latest - VONA_MAX_BACK; n--) {
+    // Последний бюллетень уже на странице ленты — второй раз не качаем.
+    let page: string | null = list;
+    if (n !== latest) {
+      try {
+        page = await get(vonaUrl(n));
+      } catch (err) {
+        console.error(`[kvert-sync] VONA ${n}:`, err instanceof Error ? err.message : String(err));
+        page = null;
+      }
+    }
+    if (!page) { failed.push(n); continue; }
+    const v = parseVonaFeed(page)[0];
+    if (!v) continue;
+    read++;
+    if (since && v.observedAt && v.observedAt <= since) { reachedOlder = true; break; }
+    items.push({ ...v, sourceUrl: vonaUrl(n) });
+  }
+  // Потолок дошёл раньше, чем бюллетень старше сводки: дальше не смотрели,
+  // и у вулкана, чей последний выпуск глубже, останется код сводки. Это
+  // сказано в ответе, а не выдано за «больше бюллетеней не было».
+  const truncated = !reachedOlder && latest - VONA_MAX_BACK > 0;
+  return { latest, read, failed, truncated, items };
+}
+
+/**
+ * Свести сводку и бюллетени: по каждому вулкану — более свежее наблюдение.
+ * Бюллетень без даты сводку не перебивает: «новее» о нём не сказать.
+ */
+export function mergeVonaOverSummary<T extends ParsedVona>(summary: T[], vonas: T[]): { merged: T[]; applied: string[] } {
+  const bySlug = new Map<string, T>();
+  const rest: T[] = [];
+  for (const v of summary) {
+    if (v.nameSlug) bySlug.set(v.nameSlug, v); else rest.push(v);
+  }
+  const applied: string[] = [];
+  // Бюллетени идут от нового к старому: первый по вулкану — последний.
+  const seen = new Set<string>();
+  for (const v of vonas) {
+    if (!v.nameSlug || !v.observedAt || seen.has(v.nameSlug)) continue;
+    seen.add(v.nameSlug);
+    const cur = bySlug.get(v.nameSlug);
+    if (!cur || !cur.observedAt || v.observedAt > cur.observedAt) {
+      bySlug.set(v.nameSlug, v);
+      applied.push(v.volcanoName);
+    }
+  }
+  return { merged: [...bySlug.values(), ...rest], applied };
+}
+
+type ActivitySection = ReturnType<typeof parseActivitySections>[number];
+
+/**
+ * Что пишется в запись вулкана: высота пепла, русская фраза, английская
+ * улика происхождения, адрес источника.
+ *
+ * Высота на экране читается как «пепел до N км», и по ней же считает риск
+ * `danger-analyst`. Для Шивелуча там стоит предупреждение недельной сводки:
+ * «взрывы до 12 км возможны в любое время» — постоянная оговорка KVERT при
+ * оранжевом коде. Бюллетень называет наблюдённый выброс («облако до 6,5
+ * км»). Подставить его вместо предупреждения значило бы показать угрозу
+ * почти вдвое меньше, чем говорит сам KVERT. Поэтому:
+ *  - код бюллетеня тот же, что в сводке — предупреждение сводки в силе:
+ *    высота большая из двух, в тексте обе фразы, каждая со своей цифрой;
+ *  - код сменился — описание сводки писалось для другого кода и устарело
+ *    целиком: только бюллетень.
+ * Код сравнивается с цветом СВОДКИ, а не с полем «прежний код» бюллетеня:
+ * этого поля может не быть, а сводка — то, что описание и писало.
+ */
+export function composeVolcanoRecord(p: {
+  v: ParsedVona;
+  vonaSource: string | null;
+  weeklyColor: AccColor | null;
+  section: ActivitySection | undefined;
+}): { ashHeightM: number | null; summary: string | null; activityLevel: string | null; sourceUrl: string | null } {
+  const { v, vonaSource, weeklyColor } = p;
+  if (vonaSource == null) {
+    const sec = p.section;
+    // Подробности ДОПОЛНЯЮТ, а не переписывают: у блоков VONA свои высота и
+    // текст, и они точнее — там источник говорит про конкретный выброс.
+    const ashHeightM = (v.ashHeightM ?? sec?.ashHeightM ?? null);
+    // На экран идёт русская фраза, собранная разговорником из формул выпуска;
+    // английский оригинал остаётся в activity_level как улика происхождения.
+    const summary = v.summary
+      ?? (sec ? describeActivityRu({ hazardEn: sec.hazardEn, activityEn: sec.activityEn, ashHeightM }) : null);
+    return {
+      ashHeightM,
+      summary,
+      activityLevel: (sec?.hazardEn ?? v.summary)?.slice(0, 200) ?? null,
+      sourceUrl: sec?.sourceUrl ?? null,
+    };
+  }
+
+  const sameCode = weeklyColor != null && weeklyColor === v.color;
+  const sec = sameCode ? p.section : undefined;
+  const weeklyAsh = sec?.ashHeightM ?? null;
+  const ashHeightM = v.ashHeightM != null && weeklyAsh != null
+    ? Math.max(v.ashHeightM, weeklyAsh)
+    : (v.ashHeightM ?? weeklyAsh);
+  // Фраза сводки — со СВОЕЙ цифрой: формула «возможны в любое время» с
+  // наблюдённой высотой бюллетеня сказала бы то, чего KVERT не говорил.
+  const weeklyRu = sec
+    ? describeActivityRu({ hazardEn: sec.hazardEn, activityEn: sec.activityEn, ashHeightM: weeklyAsh })
+    : null;
+  const summary = [weeklyRu, describeVonaRu(v)].filter(Boolean).join(' ') || null;
+  return {
+    ashHeightM,
+    summary,
+    activityLevel: v.summary?.slice(0, 200) ?? null,
+    sourceUrl: vonaSource,
+  };
+}
 
 export interface KvertSyncResult {
   fetched: number;    // распознано VONA-блоков
@@ -65,6 +219,12 @@ export interface KvertSyncResult {
     /** Запись в базу не удалась. Это отказ, а не отсутствие места. */
     failed: string[];
   };
+  /**
+   * Лента отдельных бюллетеней VONA (type=6): сколько свежее сводки
+   * разобрано и у скольких вулканов они перебили код сводки. `error` —
+   * лента не прочиталась; сводка при этом записывается как раньше.
+   */
+  vona?: { latest: number | null; read: number; newer: number; applied: string[]; failed: number[]; truncated?: boolean; error?: string };
   /** Точек-вулканов в каталоге. Ноль — сопоставлять не с чем, и это отказ. */
   places_indexed?: number;
   /** Каким путём получены данные: 'direct' (прямой fetch) или 'brightdata' (Unlocker-фолбэк). */
@@ -171,6 +331,30 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   if (!text) throw new Error('KVERT недоступен: прямой fetch и Unlocker не дали ответа');
   const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [], via };
 
+  // Бюллетени между сводками. Отказ ленты не роняет синк: сводка всё равно
+  // пишется, а отказ назван в ответе и в логе — не выдан за «бюллетеней нет».
+  // Какие записи прогона взяты из бюллетеня — по самому объекту, а не по
+  // имени: у вулкана из сводки и из бюллетеня одно имя, а описания разные.
+  const fromVonaUrl = new Map<ParsedVona, string>();
+  // Цвет по сводке — до того, как бюллетени её перекроют: по нему решается,
+  // в силе ли описание сводки (composeVolcanoRecord).
+  const weeklyColor = new Map<string, AccColor>();
+  for (const v of parsed) if (v.nameSlug) weeklyColor.set(v.nameSlug, v.color);
+  if (parsed.length > 0) {
+    const since = parsed.reduce<Date | null>((m, v) => (v.observedAt && (!m || v.observedAt > m) ? v.observedAt : m), null);
+    try {
+      const vona = await fetchVonaSince(since);
+      const { merged, applied } = mergeVonaOverSummary<ParsedVona>(parsed, vona.items);
+      for (const v of vona.items) fromVonaUrl.set(v, v.sourceUrl);
+      parsed = merged;
+      result.vona = { latest: vona.latest, read: vona.read, newer: vona.items.length, applied, failed: vona.failed, truncated: vona.truncated };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[kvert-sync] лента VONA:', msg);
+      result.vona = { latest: null, read: 0, newer: 0, applied: [], failed: [], error: msg.slice(0, 200) };
+    }
+  }
+
   // Ноль распознанных блоков — это НЕ «сегодня тихо»: KVERT публикует ACC по
   // всем действующим вулканам постоянно. Значит либо страница отдала не то
   // (сменилась вёрстка, ушёл адрес, прилетела заглушка), либо парсер устарел.
@@ -222,14 +406,12 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
     }
     const m = matchVolcanoPlace(index, v.nameRu);
     const placeArkId = m.kind === 'matched' ? m.arkId : null;
-    const sec = details.get(v.nameSlug);
-    // Подробности ДОПОЛНЯЮТ, а не переписывают: у блоков VONA свои высота и
-    // текст, и они точнее — там источник говорит про конкретный выброс.
-    const ashHeightM = v.ashHeightM ?? sec?.ashHeightM ?? null;
-    // На экран идёт русская фраза, собранная разговорником из формул выпуска;
-    // английский оригинал остаётся в activity_level как улика происхождения.
-    const summaryRu = v.summary
-      ?? (sec ? describeActivityRu({ hazardEn: sec.hazardEn, activityEn: sec.activityEn, ashHeightM }) : null);
+    const rec = composeVolcanoRecord({
+      v,
+      vonaSource: fromVonaUrl.get(v) ?? null,
+      weeklyColor: weeklyColor.get(v.nameSlug) ?? null,
+      section: details.get(v.nameSlug),
+    });
     try {
       await upsertStatus({
         slug: v.nameSlug,
@@ -237,10 +419,10 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
         nameRu: v.nameRu,
         placeArkId,
         color: v.color,
-        activityLevel: (sec?.hazardEn ?? v.summary)?.slice(0, 200) ?? null,
-        ashHeightM,
-        summary: summaryRu,
-        sourceUrl: sec?.sourceUrl ?? url,
+        activityLevel: rec.activityLevel,
+        ashHeightM: rec.ashHeightM,
+        summary: rec.summary,
+        sourceUrl: rec.sourceUrl ?? url,
         observedAt: v.observedAt,
       });
       result.upserted++;

@@ -193,26 +193,49 @@ function parseVonaDate(raw: string | null): Date | null {
   return isNaN(dt.getTime()) ? null : dt;
 }
 
-/** Парсит один VONA-блок. null — нет обязательных полей (вулкан + текущий цвет). */
+/**
+ * Парсит один VONA-блок. null — нет обязательных полей (вулкан + текущий цвет).
+ *
+ * Форматов два, и KVERT выпускает оба. Прежний — с подписанными полями
+ * (`Issued:`, `Current aviation colour code:`, `Notice Number:`). Нынешний —
+ * сокращённый ICAO, им KVERT пишет ленту отдельных бюллетеней (`type=6`):
+ *
+ *   VOLCANO OBSERVATORY NOTICE TO AVIATION (VONA)
+ *   DTG: 20261005/0006Z
+ *   VOLCANO: SHEVELUCH 300270
+ *   NOTICE NR: 2026/30
+ *   CURRENT COLOUR CODE: ORANGE
+ *   PREVIOUS COLOUR CODE: ORANGE
+ *   VA CLD HGT: 6500M AMSL
+ *   RMK: EXPLOSION SENT ASH UP TO 6.5KM ASL, ...
+ *
+ * До 08.10 разбирался только первый, и лента бюллетеней давала ноль: между
+ * недельными сводками у вулканов неделю стояло «6 дней назад», а понижение
+ * Чикурачки до зелёного 05.10 не доходило вовсе.
+ */
 export function parseVona(text: string): ParsedVona | null {
   const nameRaw = field(text, /Volcano:\s*(.+)/i);
-  const colorRaw = field(text, /Current\s+aviation\s+colou?r\s+code:\s*(\w+)/i);
+  const colorRaw = field(text, /Current\s+(?:aviation\s+)?colou?r\s+code:\s*(\w+)/i);
   if (!nameRaw || !colorRaw) return null;
 
   const color = parseColor(colorRaw);
   if (!color) return null;
 
-  const norm = normalizeVolcanoName(nameRaw);
-  const prevRaw = field(text, /Previous\s+aviation\s+colou?r\s+code:\s*(\w+)/i);
+  // «SHEVELUCH 300270»: в сокращённом формате за именем стоит номер по
+  // каталогу GVP без скобок — в имя он не входит.
+  const name = nameRaw.replace(/\(.*?\)/g, '').replace(/\s+\d{5,}\s*$/, '').trim();
+  const norm = normalizeVolcanoName(name);
+  const prevRaw = field(text, /Previous\s+(?:aviation\s+)?colou?r\s+code:\s*(\w+)/i);
   const elevRaw = field(text, /Summit\s+Elevation:\s*([\d\s]+)\s*m/i);
-  // Стандартное VONA-поле "Volcanic cloud height" либо упоминание высоты пепла в сводке.
-  const ashRaw = field(
+  // Высота облака: поле сокращённого формата, иначе прежнее. «NO VA CLD
+  // PRODUCED» — облака нет, и высоты у него нет: цифрой не подменяется.
+  const ashRaw = field(text, /VA\s+CLD\s+HGT:\s*(\d[\d\s]*)\s*M\b/i) ?? field(
     text,
     /(?:Volcanic\s+cloud\s+height|ash\s+(?:cloud|plume|column)[^\d]*(?:height|altitude|up\s+to|rose))[^\d]*(\d[\d\s]*)\s*m/i
   );
 
   return {
-    volcanoName: nameRaw.replace(/\(.*?\)/g, '').trim(),
+    volcanoName: name,
     nameSlug: norm?.slug ?? null,
     nameRu: norm?.ru ?? null,
     color,
@@ -220,24 +243,45 @@ export function parseVona(text: string): ParsedVona | null {
     summitElevationM: elevRaw ? parseInt(elevRaw.replace(/\s/g, ''), 10) : null,
     ashHeightM: ashRaw ? parseInt(ashRaw.replace(/\s/g, ''), 10) : null,
     area: field(text, /Area:\s*(.+)/i),
-    noticeNumber: field(text, /Notice\s+Number:\s*(.+)/i),
-    observedAt: parseVonaDate(field(text, /Issued:\s*(.+)/i)),
-    summary: field(text, /Volcanic\s+Activity\s+Summary:\s*([\s\S]+?)(?:\n\s*\n|Volcanic\s+cloud|Remarks:|Contacts:|$)/i),
+    noticeNumber: field(text, /(?:Notice\s+Number|NOTICE\s+NR):\s*(.+)/i),
+    observedAt: parseVonaDate(field(text, /(?:Issued|DTG):\s*(.+)/i)),
+    summary: field(text, /Volcanic\s+Activity\s+Summary:\s*([\s\S]+?)(?:\n\s*\n|Volcanic\s+cloud|Remarks:|Contacts:|$)/i)
+      ?? field(text, /^\s*RMK:\s*(.+)/im),
   };
 }
 
 /**
  * Разбивает поток из нескольких VONA-бюллетеней и парсит каждый.
- * Разделитель — заголовок VONA. Возвращает только распознанные блоки.
+ * Разделитель — заголовок VONA («FOR AVIATION» в прежнем формате, «TO
+ * AVIATION» в нынешнем). Возвращает только распознанные блоки.
+ *
+ * Страница KVERT — HTML: поля стоят через <br>, и без снятия тегов поле
+ * «до конца строки» захватило бы весь бюллетень. Обычный текст через снятие
+ * тегов проходит без изменений.
  */
 export function parseVonaFeed(text: string): ParsedVona[] {
-  const blocks = text.split(/(?=VOLCANO\s+OBSERVATORY\s+NOTICE\s+FOR\s+AVIATION)/i);
+  const plain = /<br\b|<\/(?:p|div|td)>/i.test(text) ? stripTags(text) : text;
+  const blocks = plain.split(/(?=VOLCANO\s+OBSERVATORY\s+NOTICE\s+(?:FOR|TO)\s+AVIATION)/i);
   const out: ParsedVona[] = [];
   for (const b of blocks) {
-    const parsed = parseVona(b);
+    // Блок кончается правилами цитирования: дальше на странице легенда цветов
+    // и архив выпусков, и поле, не найденное в бюллетене, не должно
+    // находиться там.
+    const cut = b.search(/CITATION\s+GUIDELINES/i);
+    const parsed = parseVona(cut > 0 ? b.slice(0, cut) : b);
     if (parsed) out.push(parsed);
   }
   return out;
+}
+
+/**
+ * Номер последнего бюллетеня на ленте KVERT: страница цитирует себя адресом
+ * `…/van/?vn=163`. По нему синк идёт назад к прежним выпускам. null — ссылки
+ * нет, и идти не от чего.
+ */
+export function latestVonaNumber(html: string): number | null {
+  const nums = [...html.matchAll(/[?&]vn=(\d+)/g)].map((m) => Number(m[1])).filter((n) => Number.isFinite(n) && n > 0);
+  return nums.length ? Math.max(...nums) : null;
 }
 
 // ── Сводная таблица кодов ────────────────────────────────────────────────────
