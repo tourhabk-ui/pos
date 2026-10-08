@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import BookingHistoryPageClient from './_BookingHistoryPageClient';
 
 export const metadata: Metadata = {
-  title: 'Мои бронирования',
-  description: 'Список активных и прошедших бронирований',
+  title: 'Мои заявки',
+  description: 'Список активных и прошедших заявок на туры',
   robots: 'noindex, nofollow',
 };
 

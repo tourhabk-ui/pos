@@ -81,11 +81,11 @@ async function loaded(b: Booking) {
 const text = () => document.body.textContent ?? '';
 
 describe('пока бронь не прочитана — «Проверяем заявку…», а не «не найдено»', () => {
-  it('до ответа API нет ни «не найдено», ни «Заявка создана»', async () => {
+  it('до ответа API нет ни «не найдена», ни «Заявка создана»', async () => {
     render(<BookingSuccessClient />);
     await flush();
     expect(text()).toMatch(/Проверяем заявку…/);
-    expect(text()).not.toMatch(/не найдено/);
+    expect(text()).not.toMatch(/не найдена/);
     expect(text()).not.toMatch(/Заявка создана/);
     expect(text()).not.toMatch(/переходите к оплате/);
   });
@@ -96,27 +96,27 @@ describe('пока бронь не прочитана — «Проверяем �
     expect(text()).not.toMatch(/Проверяем заявку/);
   });
 
-  it('без ключа в ссылке — честное «не найдено»', async () => {
+  it('без ключа в ссылке — честное «не найдена»', async () => {
     window.history.replaceState({}, '', '/booking-success/1');
     render(<BookingSuccessClient />);
     await flush();
-    expect(text()).toMatch(/не найдено/);
+    expect(text()).toMatch(/Заявка не найдена/);
   });
 });
 
 describe('у гостя одна главная кнопка — скопировать ссылку', () => {
-  it('гость: primary ровно одна, «Мои бронирования» нет', async () => {
+  it('гость: primary ровно одна, «Мои заявки» нет', async () => {
     const { container } = await loaded(BASE);
     const primary = container.querySelectorAll('.ds-btn-primary');
     expect(primary).toHaveLength(1);
     expect(primary[0].textContent).toMatch(/Скопировать ссылку на заявку/);
-    expect(text()).not.toMatch(/Мои бронирования/);
+    expect(text()).not.toMatch(/Мои заявки/);
   });
 
-  it('вошедший: «Мои бронирования» есть, но не главная', async () => {
+  it('вошедший: «Мои заявки» есть, но не главная', async () => {
     authed = true;
     const { container } = await loaded(BASE);
-    const link = screen.getByText('Мои бронирования').closest('a');
+    const link = screen.getByText('Мои заявки').closest('a');
     expect(link?.getAttribute('href')).toBe('/hub/tourist/bookings');
     expect(link?.className).not.toMatch(/ds-btn-primary/);
     expect(container.querySelectorAll('.ds-btn-primary')).toHaveLength(1);

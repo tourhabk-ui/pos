@@ -89,7 +89,7 @@ describe('кабинет туриста различает отказ и пус�
   const src = read('app/hub/tourist/_TouristDashboardClient.tsx');
   it('у бронирований и рекомендаций есть состояние «не удалось загрузить»', () => {
     expect(src).toMatch(/setBookingsFailed\(true\)/);
-    expect(src).toMatch(/Не удалось загрузить бронирования/);
+    expect(src).toMatch(/Не удалось загрузить заявки/);
     expect(src).toMatch(/setRecsFailed\(true\)/);
     expect(src).toMatch(/Не удалось загрузить рекомендации/);
   });

@@ -74,7 +74,7 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
     title: 'Поездки',
     items: [
       { href: '/hub/tourist/trips',        label: 'Маршруты',     icon: Route },
-      { href: '/hub/tourist/bookings',     label: 'Брони',        icon: Calendar },
+      { href: '/hub/tourist/bookings',     label: 'Заявки',       icon: Calendar },
       { href: '/hub/tourist/stays',        label: 'Проживания',   icon: BedDouble },
       { href: '/hub/tourist/safety',       label: 'Контр. срок',  icon: ShieldCheck },
       { href: '/hub/tourist/my-kamchatka', label: 'Моя Камчатка', icon: Mountain },
@@ -434,7 +434,7 @@ export default function TouristDashboardClient() {
       {/* My bookings */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
         <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Мои бронирования</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Мои заявки</h2>
           <Link href="/hub/tourist/bookings" className="flex items-center gap-1 text-sm text-[var(--accent)] hover:underline font-medium">
             Все <ChevronRight className="w-4 h-4" />
           </Link>
@@ -442,7 +442,7 @@ export default function TouristDashboardClient() {
         {bookingsFailed ? (
           <div className="px-5 py-12 text-center">
             <Calendar className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
-            <p className="text-sm text-[var(--danger)] mb-2">Не удалось загрузить бронирования</p>
+            <p className="text-sm text-[var(--danger)] mb-2">Не удалось загрузить заявки</p>
             <button type="button" onClick={() => { fetchAll(); }} className="text-sm text-[var(--accent)] hover:underline font-medium">
               Попробовать снова
             </button>
@@ -450,7 +450,7 @@ export default function TouristDashboardClient() {
         ) : bookings.length === 0 ? (
           <div className="px-5 py-12 text-center">
             <Calendar className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
-            <p className="text-sm text-[var(--text-muted)] mb-2">Бронирований пока нет</p>
+            <p className="text-sm text-[var(--text-muted)] mb-2">Заявок пока нет</p>
             <Link href="/catalog" className="text-sm text-[var(--accent)] hover:underline font-medium">
               Найти тур
             </Link>
@@ -522,7 +522,7 @@ export default function TouristDashboardClient() {
         ) : recsFailed ? (
           <p className="text-sm text-[var(--danger)] py-8 text-center">Не удалось загрузить рекомендации</p>
         ) : (
-          <p className="text-sm text-[var(--text-muted)] py-8 text-center">Рекомендации появятся после первого бронирования</p>
+          <p className="text-sm text-[var(--text-muted)] py-8 text-center">Рекомендации появятся после первой заявки</p>
         )}
       </div>
 

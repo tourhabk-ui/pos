@@ -111,7 +111,7 @@ class EmailService {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Бронирование подтверждено</title>
+<title>Заявка подтверждена оператором</title>
 </head>
 <body style="margin:0;padding:0;background:#F5F0EB;font-family:'Helvetica Neue',Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F0EB;padding:32px 0;">
@@ -129,7 +129,7 @@ class EmailService {
       <!-- Основное сообщение -->
       <tr>
         <td style="padding:32px 32px 0;">
-          <p style="margin:0 0 8px;font-size:13px;color:#6B6560;text-transform:uppercase;letter-spacing:0.08em;">Бронирование принято</p>
+          <p style="margin:0 0 8px;font-size:13px;color:#6B6560;text-transform:uppercase;letter-spacing:0.08em;">Заявка отправлена оператору</p>
           <h1 style="margin:0 0 24px;font-size:26px;font-weight:700;color:#1A1714;line-height:1.3;">${this.esc(data.tourTitle)}</h1>
         </td>
       </tr>
@@ -159,7 +159,7 @@ class EmailService {
             Ваша заявка передана оператору. В течение 24\u00A0часов он свяжется с вами для подтверждения деталей и оплаты.
           </p>
           <p style="margin:0;font-size:14px;color:#6B6560;line-height:1.6;">
-            Следить за статусом бронирования можно в личном кабинете на <a href="https://vedarai.ru/hub/tourist/bookings" style="color:#D44A0C;text-decoration:none;">vedarai.ru</a>.
+            Следить за статусом заявки можно в личном кабинете на <a href="https://vedarai.ru/hub/tourist/bookings" style="color:#D44A0C;text-decoration:none;">vedarai.ru</a>.
           </p>
         </td>
       </tr>
@@ -195,7 +195,7 @@ class EmailService {
 
     return this.sendEmail({
       to: data.touristEmail,
-      subject: `Бронирование принято — ${data.tourTitle}`,
+      subject: `Заявка отправлена оператору — ${data.tourTitle}`,
       html,
     });
   }
@@ -294,15 +294,15 @@ class EmailService {
       <tr>
         <td style="background:#6B6560;padding:24px 32px;">
           <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;">TourHab</p>
-          <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.8);">Бронирование отменено</p>
+          <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.8);">Заявка отменена</p>
         </td>
       </tr>
       <tr>
         <td style="padding:32px 32px 0;">
           <p style="margin:0 0 8px;font-size:13px;color:#6B6560;text-transform:uppercase;letter-spacing:0.08em;">Здравствуйте, ${this.esc(data.touristName)}</p>
-          <h1 style="margin:0 0 24px;font-size:24px;font-weight:700;color:#1A1714;line-height:1.3;">Бронирование отменено</h1>
+          <h1 style="margin:0 0 24px;font-size:24px;font-weight:700;color:#1A1714;line-height:1.3;">Заявка отменена</h1>
           <p style="margin:0 0 24px;font-size:14px;color:#6B6560;line-height:1.6;">
-            Бронирование <strong>#${shortId}</strong> на тур &laquo;${this.esc(data.tourTitle)}&raquo; отменено.
+            Заявка <strong>#${shortId}</strong> на тур &laquo;${this.esc(data.tourTitle)}&raquo; отменена.
           </p>
         </td>
       </tr>
@@ -323,7 +323,7 @@ class EmailService {
       <tr>
         <td style="padding:0 32px;">
           <p style="font-size:14px;color:#6B6560;line-height:1.6;">
-            ${data.refundReason ? this.esc(data.refundReason) : 'Оплаты по этой брони не было — возвращать нечего.'}
+            ${data.refundReason ? this.esc(data.refundReason) : 'Оплаты по этой заявке не было — возвращать нечего.'}
           </p>
         </td>
       </tr>`}
@@ -351,7 +351,7 @@ class EmailService {
 
     return this.sendEmail({
       to: data.touristEmail,
-      subject: `Бронирование отменено — ${data.tourTitle}`,
+      subject: `Заявка отменена — ${data.tourTitle}`,
       html,
     });
   }

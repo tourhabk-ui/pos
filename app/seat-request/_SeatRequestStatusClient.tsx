@@ -35,7 +35,7 @@ interface View {
 
 const TEXT: Record<Status, { title: string; tone: string }> = {
   pending:    { title: 'Ждём ответа оператора', tone: 'var(--ocean)' },
-  confirmed:  { title: 'Места есть — бронь подтверждена', tone: 'var(--success)' },
+  confirmed:  { title: 'Места есть — заявка подтверждена оператором', tone: 'var(--success)' },
   declined:   { title: 'На эту дату мест нет', tone: 'var(--text-secondary)' },
   other_date: { title: 'Оператор предлагает другую дату', tone: 'var(--warning)' },
   expired:    { title: 'Оператор не ответил за 2 часа', tone: 'var(--warning)' },
@@ -48,9 +48,9 @@ const TEXT: Record<Status, { title: string; tone: string }> = {
  * так писать нельзя.
  */
 function failedText(kind: View['failureKind']): string {
-  if (kind === 'unfinished') return 'Мы уточняем ответ оператора. Бронь пока не заведена — свяжемся с вами.';
+  if (kind === 'unfinished') return 'Мы уточняем ответ оператора. Заявка пока не заведена — свяжемся с вами.';
   if (kind === 'delivery') return 'Запрос до оператора не дошёл. Оставьте заявку на карточке тура — менеджер свяжется с оператором сам.';
-  return 'Оператор ответил, что места есть, но наш учёт не дал завести бронь. Мы разбираемся и свяжемся с вами.';
+  return 'Оператор ответил, что места есть, но наш учёт не дал завести заявку. Мы разбираемся и свяжемся с вами.';
 }
 
 function Icon({ s }: { s: Status }) {
@@ -192,14 +192,14 @@ export function SeatRequestStatusClient() {
             {view.status === 'pending' && (
               <p className="text-sm text-[var(--text-secondary)]">
                 Оператор ответит до {new Date(view.deadlineAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}.
-                Если места есть, бронь заведётся и подтвердится сразу.
+                Если места есть, заявка подтвердится сразу.
               </p>
             )}
             {view.status === 'confirmed' && (
               view.bookingUrl
-                ? <a href={view.bookingUrl} className="ds-btn ds-btn-primary w-full inline-flex justify-center">{platformAcceptsPayments() ? 'Открыть бронь и оплатить' : 'Открыть бронь'}</a>
+                ? <a href={view.bookingUrl} className="ds-btn ds-btn-primary w-full inline-flex justify-center">{platformAcceptsPayments() ? 'Открыть заявку и оплатить' : 'Открыть заявку'}</a>
                 : <p className="text-sm text-[var(--text-secondary)]">
-                    Бронь подтверждена.{' '}
+                    Заявка подтверждена оператором.{' '}
                     {!platformAcceptsPayments()
                       ? 'Оплата — оператору напрямую, он свяжется с вами по указанному телефону.'
                       : view.touristNotified

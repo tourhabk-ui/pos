@@ -41,7 +41,7 @@ export default function BookingHistoryPageClient() {
     async (bookingId: string) => {
       if (
         !window.confirm(
-          'Вы уверены, что хотите отменить бронирование? Это действие нельзя отменить.',
+          'Вы уверены, что хотите отменить заявку? Это действие нельзя отменить.',
         )
       ) {
         return;
@@ -51,12 +51,12 @@ export default function BookingHistoryPageClient() {
         const res = await fetch(`/api/bookings/${bookingId}/cancel`, { method: 'POST' });
         const json = (await res.json()) as { success: boolean; error?: string; message?: string };
         if (!json.success) {
-          alert(json.error ?? 'Не удалось отменить бронирование');
+          alert(json.error ?? 'Не удалось отменить заявку');
           return;
         }
         await refetch();
       } catch {
-        alert('Ошибка при отмене бронирования');
+        alert('Ошибка при отмене заявки');
       } finally {
         setCancellingId(null);
       }
@@ -134,7 +134,7 @@ export default function BookingHistoryPageClient() {
   if (loading) {
     return (
       <div className="p-5 lg:p-6 flex items-center justify-center py-20">
-        <LoadingSpinner message="Загрузка бронирований..." />
+        <LoadingSpinner message="Загрузка заявок..." />
       </div>
     );
   }
@@ -143,9 +143,9 @@ export default function BookingHistoryPageClient() {
     <div className="p-5 lg:p-6 space-y-5">
       {/* Header */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-        <h1 className="text-xl font-bold text-[var(--text-primary)]">Мои бронирования</h1>
+        <h1 className="text-xl font-bold text-[var(--text-primary)]">Мои заявки</h1>
         <p className="text-[var(--text-secondary)] text-sm mt-0.5">
-          История ваших бронирований и заказов
+          История ваших заявок на туры
         </p>
       </div>
 
@@ -178,7 +178,7 @@ export default function BookingHistoryPageClient() {
         /* Отказ загрузки — не «броней нет» (§4.0): человек с бронью на
            завтра не должен читать, что её не существует. */
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
-          <p className="text-[var(--danger)] text-base">Не удалось загрузить бронирования</p>
+          <p className="text-[var(--danger)] text-base">Не удалось загрузить заявки</p>
           <button type="button" onClick={() => void refetch()}
             className="mt-5 inline-block px-6 py-2.5 border border-[var(--border)] rounded-md text-sm font-semibold text-[var(--text-primary)]">
             Повторить
@@ -188,7 +188,7 @@ export default function BookingHistoryPageClient() {
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
           <Calendar className="w-12 h-12 mx-auto mb-4 text-[var(--text-muted)]" />
           <p className="text-[var(--text-secondary)] text-base">
-            {list.length === 0 ? 'У вас пока нет бронирований' : 'В этом разделе бронирований нет'}
+            {list.length === 0 ? 'У вас пока нет заявок' : 'В этом разделе заявок нет'}
           </p>
           <Link
             href="/hub/tourist"
@@ -344,7 +344,7 @@ export default function BookingHistoryPageClient() {
                 {isExpanded && (
                   <div className="border-t border-[var(--border)] bg-[var(--bg-hover)] px-5 py-4 space-y-3">
                     <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
-                      Детали бронирования
+                      Детали заявки
                     </h4>
                     <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
                       <div>
@@ -354,7 +354,7 @@ export default function BookingHistoryPageClient() {
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-[var(--text-muted)] text-xs mb-0.5">Дата бронирования</dt>
+                        <dt className="text-[var(--text-muted)] text-xs mb-0.5">Дата заявки</dt>
                         <dd className="text-[var(--text-secondary)]">
                           {new Date(booking.createdAt).toLocaleDateString('ru-RU')}
                         </dd>

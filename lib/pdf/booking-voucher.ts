@@ -49,7 +49,7 @@ export async function generateBookingVoucherPDF(v: VoucherInput): Promise<Buffer
       const left = 50;
       const accent = '#D44A0C';
 
-      doc.font(FONT_BOLD).fontSize(22).fillColor(accent).text('Ваучер бронирования', left, 55);
+      doc.font(FONT_BOLD).fontSize(22).fillColor(accent).text('Ваучер по заявке', left, 55);
       doc.font(FONT_BODY).fontSize(10).fillColor('#666666').text('Ведар · KamchatourHub', left, 84);
 
       if (qr) doc.image(qr, doc.page.width - 50 - 110, 50, { width: 110 });
@@ -62,7 +62,7 @@ export async function generateBookingVoucherPDF(v: VoucherInput): Promise<Buffer
         ['Оператор', v.operatorName || '—'],
         ['Дата', new Date(v.date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })],
         ['Участников', v.participants != null ? String(v.participants) : '—'],
-        ['Статус брони', v.status ? (STATUS_RU[v.status] ?? v.status) : '—'],
+        ['Статус заявки', v.status ? (STATUS_RU[v.status] ?? v.status) : '—'],
         ['Оплата', v.paymentStatus ? (PAY_RU[v.paymentStatus] ?? v.paymentStatus) : '—'],
         ['Сумма', v.totalPrice != null ? rub(v.totalPrice) : '—'],
       ];
@@ -76,7 +76,7 @@ export async function generateBookingVoucherPDF(v: VoucherInput): Promise<Buffer
 
       y += 14;
       doc.font(FONT_BODY).fontSize(9).fillColor('#9A9590')
-        .text(`Номер бронирования: ${v.id}`, left, y, { width: doc.page.width - 100 });
+        .text(`Номер заявки: ${v.id}`, left, y, { width: doc.page.width - 100 });
       doc.moveDown(0.5)
         .text('Покажите этот ваучер гиду или оператору при встрече. Детали и статус — в личном кабинете на vedarai.ru.', { width: doc.page.width - 100 });
 

@@ -360,7 +360,7 @@ export function formatTripPlanForChat(
   }
   lines.push('');
   if (preset) {
-    lines.push(`Готовая страница этого формата с турами и бронью: ${SITE}/plans/${preset.slug}`);
+    lines.push(`Готовая страница этого формата с турами и заявкой оператору: ${SITE}/plans/${preset.slug}`);
   }
   lines.push(`Пересобрать под свои даты и состав: ${SITE}/planner`);
   return lines.join('\n');

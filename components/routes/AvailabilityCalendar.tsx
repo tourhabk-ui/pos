@@ -220,7 +220,7 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty, va
   if (slots.size === 0) {
     return (
       <p className="text-sm text-[var(--text-secondary)] py-2">
-        Оператор пока не открыл даты. Выберите день вручную — он подтвердит его при бронировании.
+        Оператор пока не открыл даты. Выберите день вручную — он подтвердит его в ответ на заявку.
       </p>
     );
   }
@@ -252,7 +252,7 @@ export default function AvailabilityCalendar({ offers, onDateSelect, onEmpty, va
           <span className="font-semibold text-[var(--text-primary)]">{dayMonth(selectedDate)}</span>
           {/* Дату обещает не платформа, а оператор — хвост держит сторож
               bystraya-tour-dates; из формы брони сняты ДРУГИЕ повторы. */}
-          {' '}— оператор подтвердит дату при бронировании.
+          {' '}— оператор подтвердит дату в ответ на заявку.
         </p>
       )}
 

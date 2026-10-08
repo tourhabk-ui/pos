@@ -81,7 +81,7 @@ export async function generateWaiverPDF(w: WaiverPdfInput): Promise<Buffer> {
 
       y += 10;
       doc.font(FONT_BODY).fontSize(8).fillColor('#9A9590')
-        .text(`Номер бронирования: ${w.bookingId}. Документ сформирован платформой Ведар (vedarai.ru) ` +
+        .text(`Номер заявки: ${w.bookingId}. Документ сформирован платформой Ведар (vedarai.ru) ` +
               'на основании электронного согласия туриста.', left, y, { width });
 
       doc.end();

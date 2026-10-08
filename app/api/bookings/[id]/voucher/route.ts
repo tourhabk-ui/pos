@@ -43,7 +43,7 @@ export async function GET(
   );
 
   if (rows.length === 0) {
-    return NextResponse.json({ success: false, error: 'Бронирование не найдено' }, { status: 404 });
+    return NextResponse.json({ success: false, error: 'Заявка не найдена' }, { status: 404 });
   }
 
   const b = rows[0];

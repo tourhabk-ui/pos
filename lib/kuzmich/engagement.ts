@@ -174,7 +174,7 @@ function buildReminderText(row: EngagementRow): string {
     `<b>${row.tour_title}</b>`,
     `от ${price} руб.`,
     '',
-    `Если остались вопросы — напиши мне, помогу с выбором и бронированием.`,
+    `Если остались вопросы — напиши мне, помогу с выбором и заявкой оператору.`,
     '',
     `${getPublicBaseUrl()}${tourPath({ id: row.tour_id, slug: row.tour_slug })}`,
   ];

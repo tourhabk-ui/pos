@@ -43,7 +43,7 @@ describe('план ведёт к брони', () => {
 
   it('публичный план рендерит бронь дня', () => {
     expect(SHARE_UI).toMatch(/\$\{tourPath\(tour\)\}\?date=/);
-    expect(SHARE_UI).toMatch(/забронировать/);
+    expect(SHARE_UI).toMatch(/оставить заявку/);
   });
 });
 

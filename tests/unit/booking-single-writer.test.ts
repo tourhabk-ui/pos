@@ -185,7 +185,7 @@ describe('бронь из чата видна там, где её ищут', () 
 describe('календарь оператора уважается обоими путями', () => {
   it('дата закрыта оператором → бронь из чата не заводится', async () => {
     mockDb({ calendar: [{ available_slots: 10, is_cancelled: true }] });
-    await expect(createBooking(PENDING as never, 'kuzmich_tg', 555, 'tg')).rejects.toThrow(/закрыл бронирование/);
+    await expect(createBooking(PENDING as never, 'kuzmich_tg', 555, 'tg')).rejects.toThrow(/закрыл приём заявок/);
     expect(clientQueryMock.mock.calls.some(([sql]) =>
       String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
   });

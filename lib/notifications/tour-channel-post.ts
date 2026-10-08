@@ -98,7 +98,7 @@ export function buildTourPostText(row: TourPostRow, baseUrl: string): string {
       priceLine,
       row.operator_name ? `Оператор: ${escapeHtml(row.operator_name)}` : null,
     ]),
-    channelLink('Подробности и бронирование', url),
+    channelLink('Подробности и заявка оператору', url),
   ]).slice(0, CAPTION_LIMIT);
 }
 

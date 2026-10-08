@@ -50,7 +50,7 @@ describe('llms.txt: коммерческий слой виден моделям'
   it('MCP описан с честными границами: запись — только заявки', () => {
     expect(LLMS).toMatch(/MCP-сервер/);
     expect(LLMS).toMatch(/create_booking_request/);
-    expect(LLMS).toMatch(/Мгновенной брони и оплаты через MCP нет by design/);
+    expect(LLMS).toMatch(/Мгновенного подтверждения и оплаты через MCP нет by design/);
   });
 
   it('Last-Updated — дата сборки ответа, а не замороженная строка', () => {

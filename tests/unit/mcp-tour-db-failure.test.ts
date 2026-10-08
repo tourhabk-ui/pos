@@ -75,6 +75,6 @@ describe('get_tour_availability: тур без расписания — не «�
     const text = await executeKuzmichTool('get_tour_availability', { tour: '7' });
     expect(text).toMatch(/расписания в системе нет/);
     expect(text).toMatch(/create_booking_request/);
-    expect(text).not.toMatch(/реальная занятость из броней/);
+    expect(text).not.toMatch(/реальная занятость мест/);
   });
 });

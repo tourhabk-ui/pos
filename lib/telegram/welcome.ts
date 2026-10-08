@@ -52,7 +52,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
 
   if (ctx.role === 'tourist') {
     const bookingLine = stats.bookings && stats.bookings > 0
-      ? `\nТвоих активных броней: <b>${stats.bookings}</b>`
+      ? `\nТвоих активных заявок: <b>${stats.bookings}</b>`
       : '';
     return [
       `<b>Привет, ${name}!</b>`,
@@ -62,7 +62,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
       bookingLine,
       '',
       '<b>Что я буду делать для тебя:</b>',
-      '— подтверждения и статусы броней в реальном времени',
+      '— подтверждения и статусы заявок в реальном времени',
       '— напоминание за 2 дня до поездки с погодой',
       '— горячие предложения под твои интересы',
       '— отвечу на любой вопрос о Камчатке',

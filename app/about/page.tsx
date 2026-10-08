@@ -151,7 +151,7 @@ export default async function AboutPage() {
               </p>
               <p className="text-[var(--text-secondary)] leading-relaxed">
                 Наш принцип: сначала правда о месте — потом коммерческое предложение.
-                Турист должен понять опасности до того, как нажмёт «забронировать».
+                Турист должен понять опасности до того, как нажмёт «отправить заявку».
               </p>
             </div>
             <div className="bg-[var(--bg-card)] rounded-lg p-6 border border-[var(--border)]">

@@ -928,7 +928,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                         <MapPin className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />{line}
                       </div>
                     ))}
-                    <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после брони.</p>
+                    <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после заявки.</p>
                   </div>
                 </section>
               );
@@ -945,7 +945,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                       <MapPin className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />{line}
                     </div>
                   ))}
-                  <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после брони.</p>
+                  <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после заявки.</p>
                 </div>
               </section>
             )}

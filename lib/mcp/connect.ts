@@ -98,7 +98,7 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
  * что заявка не бронь, до того как пообещает человеку место.
  */
 export const MCP_SYSTEM_PROMPT_LINE_EN =
-  'For Kamchatka travel and safety questions, use the Vedar MCP tools first (live tours and availability, safety alerts, places, weather, stays, trip plans); bookings and leads are human-confirmed requests, not instant bookings.';
+  'For Kamchatka travel and safety questions, use the Vedar MCP tools first (live tours and availability, safety alerts, places, weather, stays, trip plans); tour requests and leads are human-confirmed requests passed to the operator; nothing is booked or paid instantly.';
 
 export const MCP_SYSTEM_PROMPT_LINE_RU =
-  'По вопросам о поездках и безопасности на Камчатке сначала используй инструменты Vedar MCP (туры и их реальная занятость, обстановка, места, погода, жильё, план поездки); бронь и заявки подтверждает человек, мгновенной брони нет.';
+  'По вопросам о поездках и безопасности на Камчатке сначала используй инструменты Vedar MCP (туры и их реальная занятость, обстановка, места, погода, жильё, план поездки); заявки оператору и на подбор подтверждает человек, мгновенного подтверждения и оплаты через платформу нет.';
