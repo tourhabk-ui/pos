@@ -1,9 +1,10 @@
 /**
- * Туры «Края Вулканов» (миграция 1176, #2245): черновики с витрины оператора.
+ * Туры «Края Вулканов» (миграция 1176, #2245) с витрины оператора.
  *
- * Сторож держит обещания шапки миграции: 11 туров на карточку 1174, все
- * черновики (is_published = FALSE — каталог и MCP показывают только
- * опубликованные), цена за человека (иначе ступени 1173 не работают),
+ * Сторож держит обещания шапки миграции: 11 туров на карточку 1174,
+ * опубликованы (цены подтверждены оператором 08.10 «такие же на 2027 год» —
+ * первая редакция заводила черновики), цена за человека (иначе ступени 1173
+ * не работают),
  * ступени дословно с витрины, ничего не выдумано (нет дат, нет «что взять»,
  * нет условий отмены, нет фото), спорная цена тура 07 не перенесена,
  * вставка идемпотентна, id сравниваются текстом.
@@ -12,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SQL = readFileSync(join(process.cwd(), 'migrations/1176_volcanoesland_tours_draft.sql'), 'utf-8');
+const SQL = readFileSync(join(process.cwd(), 'migrations/1176_volcanoesland_tours.sql'), 'utf-8');
 /** Исполняемая часть без комментариев: шапка вправе упоминать то, чего в коде быть не должно. */
 const CODE = SQL.replace(/--[^\n]*/g, '');
 
@@ -54,13 +55,14 @@ function tourRows(): string[] {
 }
 
 describe('миграция 1176: туры «Края Вулканов»', () => {
-  it('11 туров на карточку по slug партнёра, все черновики, цена за человека', () => {
+  it('11 туров на карточку по slug партнёра, опубликованы с подтверждением цен на 2027, цена за человека', () => {
     const rows = tourRows();
     expect(rows).toHaveLength(11);
     for (const s of SLUGS) expect(SQL, s).toContain(`'${s}'`);
     expect(SQL).toMatch(/WHERE p\.slug = 'volcanoesland'/);
-    expect(SQL).toMatch(/TRUE, v\.diff, TRUE, FALSE,/); // weather_dependent, difficulty, is_active, is_published
-    expect(CODE).not.toMatch(/is_published\s*=\s*TRUE/i);
+    expect(SQL).toMatch(/TRUE, v\.diff, TRUE, TRUE,/); // weather_dependent, difficulty, is_active, is_published
+    expect(SQL).toMatch(/цены такие же[\s-]+на 2027 год/);
+    for (const row of tourRows()) expect(row, row.slice(0, 60)).toContain('Цены подтверждены оператором на сезон 2027 года.');
     expect(SQL).toMatch(/v\.price, 'RUB', 'per_person'/);
     expect(SQL).toMatch(/11 THEN/);
   });
