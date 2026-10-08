@@ -1,13 +1,12 @@
 {
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. 11 карточек туров «Края Вулканов» (volcanoesland.ru) текстом без разметки для разбора под импорт (#2245).",
-  "run": 712,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Адреса фотографий на 11 карточках туров «Края Вулканов» (теги img и og:image) — для переноса фото по слову владельца (#2245).",
+  "run": 713,
   "timeout": 60,
   "retries": 1,
   "retryDelay": 10,
   "allowStale": true,
-  "bytes": 40000,
+  "bytes": 300,
   "urls": [
-    "https://volcanoesland.ru/tours/",
     "https://volcanoesland.ru/tours/dolina-geyzerov-kurilskoe-ozero-vulkany-gorelyy-i-avacha/",
     "https://volcanoesland.ru/tours/izverzheniya-vulkana-ploskiy-tolbachik/",
     "https://volcanoesland.ru/tours/oblet-klyuchevskoy-gruppy-vulkanov-tolbachik-dolina-geyzerov/",
@@ -20,11 +19,19 @@
     "https://volcanoesland.ru/tours/odnodnevnaya-ekskursiya-v-dolinu-geyzerov-i-kalderu-vulkana-uzon/",
     "https://volcanoesland.ru/tours/avtomobilnyy-tur-na-kurilskoe-ozero/"
   ],
-  "around": [],
+  "around": [
+    "<img",
+    "og:image",
+    "data-src="
+  ],
   "aroundLines": 0,
   "aroundHits": 80,
   "grep": [
-    "href=\"/tours/"
+    "<img",
+    ".jpg",
+    ".webp",
+    ".png"
   ],
-  "text": true
+  "text": false,
+  "aroundBefore": 0
 }
