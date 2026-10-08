@@ -920,5 +920,285 @@
       640,
       1280
     ]
+  },
+  {
+    "src": "/images/volcanoesland/avtotur-kurilskoe-ozero-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/avtotur-kurilskoe-ozero-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/avtotur-kurilskoe-ozero-03.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/avtotur-kurilskoe-ozero-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/avtotur-kurilskoe-ozero-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/dolina-geyzerov-kaldera-uzon-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/dolina-geyzerov-kaldera-uzon-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/dolina-geyzerov-kaldera-uzon-03.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/dolina-geyzerov-kaldera-uzon-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/dolina-geyzerov-kaldera-uzon-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/kruiz-komandorskie-ostrova-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/kruiz-komandorskie-ostrova-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/kruiz-komandorskie-ostrova-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/ploskiy-tolbachik-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/ploskiy-tolbachik-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-podnozhie-klyuchevskoy-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-podnozhie-klyuchevskoy-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-podnozhie-klyuchevskoy-03.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-podnozhie-klyuchevskoy-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-podnozhie-klyuchevskoy-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/images/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.jpg",
+    "widths": [
+      320,
+      640
+    ]
   }
 ]
