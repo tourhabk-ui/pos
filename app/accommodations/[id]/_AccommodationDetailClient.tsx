@@ -5,12 +5,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   MapPin, Star, Clock, BedDouble, Users, ShieldCheck, Sparkles,
-  ChevronLeft, Wifi, ExternalLink, Phone,
+  ChevronLeft, Wifi, ExternalLink, Phone, Send, MessageCircle,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
 import { funnelBeacon } from '@/lib/funnel/beacon';
-import { formatContactPhone } from '@/lib/stay/contact-phone';
+import { formatContactPhone, messengerLinks, type NumberMessenger } from '@/lib/stay/contact-phone';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
 import { ACCOMMODATION_TYPE_LABELS, AccommodationType } from '@/lib/stay/accommodation-types';
 
@@ -68,6 +68,8 @@ interface AccommodationDetail {
   externalBookingUrl: string | null;
   /** Телефон самого объекта (миграция 1179), «+7XXXXXXXXXX»; null — не записан. */
   contactPhone: string | null;
+  /** На каких мессенджерах заведён этот номер (миграция 1181); [] — не записано. */
+  contactMessengers: NumberMessenger[];
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;
   reviewCount: number;
@@ -154,6 +156,9 @@ export default function AccommodationDetailClient({ accommodationId, initialData
   // фразы про «оператора платформы» (оплата платформой выключена 05.10).
   const viaOwner = Boolean(data.externalBookingUrl) || (Boolean(data.contactPhone) && data.rooms.length === 0);
   const phoneLabel = formatContactPhone(data.contactPhone);
+  // Чаты по тому же номеру (1181). MAX здесь нет: ссылки по номеру в MAX не
+  // существует, а профиль знает только его владелец (tests/unit/max-contact).
+  const chats = messengerLinks(data.contactPhone, data.contactMessengers);
 
   return (
     <>
@@ -250,6 +255,23 @@ export default function AccommodationDetailClient({ accommodationId, initialData
               <Phone className="w-4 h-4" />
               Позвонить {phoneLabel}
             </a>
+            {chats.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {chats.map(c => (
+                  <a
+                    key={c.kind}
+                    href={c.href}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    onClick={() => funnelBeacon('stay_message_click', data.id)}
+                    className="ds-btn ds-btn-secondary inline-flex items-center justify-center gap-2"
+                  >
+                    {c.kind === 'telegram' ? <Send className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
+                    Написать в {c.label}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

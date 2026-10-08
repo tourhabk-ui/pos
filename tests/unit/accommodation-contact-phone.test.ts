@@ -20,7 +20,7 @@ const poolQueryMock = vi.hoisted(() => vi.fn<(sql: string, params?: unknown[]) =
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) } }));
 vi.mock('@/lib/stay/demand-record', () => ({ recordAgentStaySearch: async () => {} }));
 
-import { normalizeContactPhone, formatContactPhone } from '@/lib/stay/contact-phone';
+import { normalizeContactPhone, formatContactPhone, messengerLinks } from '@/lib/stay/contact-phone';
 import { searchAccommodationsForKuzmich } from '@/lib/kuzmich/accommodation-search';
 import { FUNNEL_STEPS, EXECUTION_STEPS } from '@/lib/funnel/steps';
 
@@ -167,3 +167,64 @@ describe('карточка и спрос', () => {
     expect(census).toMatch(/phone_call_clicks: phone\.value/);
   });
 });
+
+describe('чаты по номеру объекта (миграция 1181)', () => {
+  it('Telegram и WhatsApp строятся из номера; порядок и вид — фиксированные', () => {
+    expect(messengerLinks('+79622152777', ['whatsapp', 'telegram'])).toEqual([
+      { kind: 'telegram', label: 'Telegram', href: 'https://t.me/+79622152777' },
+      { kind: 'whatsapp', label: 'WhatsApp', href: 'https://wa.me/79622152777' },
+    ]);
+    expect(messengerLinks('+79622152777', ['whatsapp'])).toHaveLength(1);
+  });
+
+  it('нет номера, нет записи или чужой вид — ссылок нет, догадки нет', () => {
+    expect(messengerLinks(null, ['telegram'])).toEqual([]);
+    expect(messengerLinks('+79622152777', [])).toEqual([]);
+    expect(messengerLinks('+79622152777', null)).toEqual([]);
+    expect(messengerLinks('+79622152777', ['max', 'viber', 'javascript:alert(1)'])).toEqual([]);
+    expect(messengerLinks('not-a-phone', ['telegram'])).toEqual([]);
+  });
+
+  it('MAX из номера не собирается: ссылки по номеру в MAX не существует', () => {
+    const src = read('lib/stay/contact-phone.ts');
+    expect(src).not.toMatch(/max\.ru\/(u\/)?\$\{/);
+    expect(src).not.toMatch(/max\.ru\/\+?7/);
+    expect(messengerLinks('+79622152777', ['telegram', 'whatsapp', 'max']).some((l) => /max\.ru/.test(l.href))).toBe(false);
+  });
+
+  it('миграция: два вида, мессенджеры без номера запрещены базой, Кутхе — оба по слову владельца', () => {
+    const sql = read('migrations/1181_accommodation_contact_messengers.sql');
+    expect(sql).toMatch(/contact_messengers TEXT\[\] NOT NULL DEFAULT '\{\}'/);
+    expect(sql).toMatch(/contact_messengers <@ ARRAY\['telegram', 'whatsapp'\]/);
+    expect(sql).toMatch(/cardinality\(contact_messengers\) = 0 OR contact_phone IS NOT NULL/);
+    expect(sql).toMatch(/LOWER\(name\) = 'кутха'/);
+    expect(sql).toMatch(/cardinality\(contact_messengers\) = 0/);
+  });
+
+  it('карточка: кнопки с целью-окном наружу, нажатие считается отдельным шагом', () => {
+    const ui = read('app/accommodations/[id]/_AccommodationDetailClient.tsx');
+    expect(ui).toMatch(/messengerLinks\(data\.contactPhone, data\.contactMessengers\)/);
+    expect(ui).toMatch(/funnelBeacon\('stay_message_click', data\.id\)/);
+    expect(ui).toMatch(/rel="noopener noreferrer nofollow"/);
+    expect(FUNNEL_STEPS).toContain('stay_message_click');
+    expect(EXECUTION_STEPS).not.toContain('stay_message_click' as never);
+    expect(read('app/api/cron/stay-demand-census/route.ts')).toMatch(/step = 'stay_message_click'/);
+  });
+
+  it('виды из базы загрузчик пропускает через список известных, не как есть', () => {
+    const src = read('lib/stay/accommodation-detail.ts');
+    expect(src).toMatch(/NUMBER_MESSENGERS\.filter/);
+  });
+
+  it('публичный список и инструмент ИИ мессенджеры не читают', () => {
+    expect(read('app/api/accommodations/route.ts')).not.toMatch(/contact_messengers/);
+    expect(read('lib/kuzmich/accommodation-search.ts')).not.toMatch(/contact_messengers|wa\.me|t\.me/);
+  });
+
+  it('миграция 1181 меняет схему — справочник схемы перегенерирован после неё', () => {
+    const doc = read('docs/DB_SCHEMA.md');
+    expect(doc).toMatch(/Последняя миграция в снимке: `118[1-9]_/);
+    expect(doc).toContain('contact_messengers text[]');
+  });
+});
+
