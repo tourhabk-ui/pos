@@ -1,9 +1,17 @@
 {
   "note": "Маркер запуска weather-model-skill.yml: правка этого файла в main прогоняет замер моделей Open-Meteo против факта метеостанции. Только чтение.",
-  "run": 1,
-  "why": "#2249: прогноз get_weather (best_match) дважды за три дня разошёлся с фактом в Петропавловске (06.10 «ливень 19 мм» при мороси, 08.10 «снегопад» при ясной погоде). Сравниваем модели на прогнозе на сутки вперёд.",
-  "point": { "name": "Петропавловск-Камчатский, центр", "lat": 53.02, "lng": 158.65 },
-  "stationSearch": ["PETROPAVLOVSK", "ELIZOVO", "YELIZOVO"],
+  "run": 2,
+  "why": "#2249, прогон 2: в прогоне 1 станция 32583 в GHCN-Daily не дала ни одного дня осадков за 120 дней. Берём факт из GSOD (сводки SYNOP) — только полные сутки по флагу (D/F/G); границу суток станции выбирает замер из +0/+6/+12/+18 ч.",
+  "point": {
+    "name": "Петропавловск-Камчатский, центр",
+    "lat": 53.02,
+    "lng": 158.65
+  },
+  "stationSearch": [
+    "PETROPAVLOVSK",
+    "ELIZOVO",
+    "YELIZOVO"
+  ],
   "station": null,
   "days": 120,
   "models": [
@@ -21,7 +29,24 @@
     "cma_grapes_global",
     "kma_seamless"
   ],
-  "wetMm": [0.5, 1, 2],
+  "wetMm": [
+    0.5,
+    1,
+    2
+  ],
   "heavyMm": 10,
-  "forecastDays": 16
+  "forecastDays": 16,
+  "obsSource": "gsod",
+  "gsodStation": null,
+  "gsodCompleteFlags": [
+    "D",
+    "F",
+    "G"
+  ],
+  "dayOffsets": [
+    0,
+    6,
+    12,
+    18
+  ]
 }

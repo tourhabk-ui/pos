@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  dailySums, scoreForecast, rankModels, pickDayConvention, KAMCHATKA_UTC_OFFSET_H,
+  dailySums, scoreForecast, rankModels, pickDayOffset, KAMCHATKA_UTC_OFFSET_H,
   type SkillScore,
 } from '@/lib/weather/model-skill';
 
@@ -104,14 +104,23 @@ describe('rankModels', () => {
   });
 });
 
-describe('pickDayConvention', () => {
-  it('выбирает сдвиг, при котором модели совпадают с фактом лучше', () => {
-    expect(pickDayConvention([sc({ accuracy: 0.8 }), sc({ accuracy: 0.78 })], [sc({ accuracy: 0.6 }), sc({ accuracy: 0.62 })])).toBe('local');
-    expect(pickDayConvention([sc({ accuracy: 0.6 })], [sc({ accuracy: 0.7 })])).toBe('utc');
+describe('pickDayOffset', () => {
+  it('выбирает сдвиг суток, при котором модели совпадают с фактом лучше', () => {
+    const r = pickDayOffset(new Map([
+      [0, [sc({ accuracy: 0.6 }), sc({ accuracy: 0.62 })]],
+      [6, [sc({ accuracy: 0.81 }), sc({ accuracy: 0.79 })]],
+      [12, [sc({ accuracy: 0.7 }), sc({ accuracy: 0.72 })]],
+    ]));
+    expect(r.best).toBe(6);
+    expect(r.means.get(0)).toBeCloseTo(0.61);
   });
 
-  it('разница в пределах шума — не решено', () => {
-    expect(pickDayConvention([sc({ accuracy: 0.71 })], [sc({ accuracy: 0.7 })])).toBe('undecided');
-    expect(pickDayConvention([sc({ accuracy: null })], [sc({ accuracy: 0.7 })])).toBe('undecided');
+  it('первые два в пределах шума — не решено', () => {
+    expect(pickDayOffset(new Map([[6, [sc({ accuracy: 0.71 })]], [12, [sc({ accuracy: 0.7 })]]])).best).toBeNull();
+  });
+
+  it('у сдвига без точности нет голоса; ни у кого нет — не решено', () => {
+    expect(pickDayOffset(new Map([[0, [sc({ accuracy: null })]], [12, [sc({ accuracy: 0.7 })]]])).best).toBe(12);
+    expect(pickDayOffset(new Map([[0, [sc({ accuracy: null })]]])).best).toBeNull();
   });
 });
