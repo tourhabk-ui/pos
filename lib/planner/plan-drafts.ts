@@ -25,6 +25,12 @@ export type DraftSurface = 'chat' | 'mcp';
 export interface PlanDraft extends EditablePlan {
   id: string;
   revision: number;
+  /**
+   * До какого момента черновик читается (ISO). Страница плана (#2225) говорит
+   * человеку, до какого числа живёт ссылка: без срока «откройте позже» было
+   * бы обещанием, которое база через 7 дней нарушит молча.
+   */
+  expiresAt?: string;
 }
 
 export type DraftRead =
@@ -68,14 +74,16 @@ export async function saveDraft(plan: EditablePlan, surface: DraftSurface, wishe
 export async function loadDraft(id: string): Promise<DraftRead> {
   if (!isDraftId(id)) return { kind: 'missing' };
   try {
-    const { rows } = await pool.query<{ id: string; params: PlanParams; days: DayPlan[]; revision: number }>(
-      `SELECT id::text, params, days, revision
+    const { rows } = await pool.query<{ id: string; params: PlanParams; days: DayPlan[]; revision: number; expires_at: Date | string }>(
+      `SELECT id::text, params, days, revision, expires_at
          FROM trip_plan_drafts
         WHERE id = $1::uuid AND expires_at > NOW()`,
       [id.trim()],
     );
     const r = rows[0];
-    return r ? { kind: 'found', draft: { id: r.id, params: r.params, days: r.days, revision: r.revision } } : { kind: 'missing' };
+    if (!r) return { kind: 'missing' };
+    const expiresAt = r.expires_at instanceof Date ? r.expires_at.toISOString() : String(r.expires_at);
+    return { kind: 'found', draft: { id: r.id, params: r.params, days: r.days, revision: r.revision, expiresAt } };
   } catch (err) {
     logFail('черновик не прочитан', err);
     return { kind: 'failed' };

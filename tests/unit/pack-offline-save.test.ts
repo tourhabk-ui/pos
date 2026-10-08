@@ -179,7 +179,7 @@ describe('service worker отдаёт сохранённое', () => {
   it('тот же кэш, и активация его не стирает', () => {
     expect(SW).toContain(`const PACK_CACHE_NAME = '${PACK_CACHE_NAME}';`);
     const activate = SW.slice(SW.indexOf("self.addEventListener('activate'"), SW.indexOf('function isTourPage'));
-    expect(activate).toMatch(/&& key !== PACK_CACHE_NAME\)/);
+    expect(activate).toContain('&& key !== PACK_CACHE_NAME');
   });
 
   /** Запустить sw.js в песочнице и достать обработчик fetch. */

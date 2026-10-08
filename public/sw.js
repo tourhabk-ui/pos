@@ -27,6 +27,14 @@ const TILE_HOST = 'tile.openstreetmap.org';
 // (сторож держит равенство). Хранилище пакетов — s3.twcstorage.ru, путь
 // /map-packs/: и рельеф, и горизонтали, и места, и глифы подписей.
 const PACK_CACHE_NAME = 'kh-packs-v1';
+
+// Планы, сохранённые человеком для поля (#2225): страница /trip/[token], её
+// GPX и файлы страницы кладёт сюда кнопка «Сохранить для офлайна»
+// (lib/offline/trip-save.ts, то же имя — сторож держит равенство). Общий кэш
+// держит планы с LRU на MAX_TRIP_PAGES — открыл ещё десять, и свой вытеснился
+// молча; этот кэш не трогают ни LRU, ни активация новой версии воркера.
+// Отдаётся он глобальным caches.match в ветках плана ниже.
+const SAVED_TRIPS_CACHE_NAME = 'kh-trips-saved-v1';
 function isPackRequest(url) {
   return url.hostname.endsWith('twcstorage.ru') && url.pathname.includes('/map-packs/');
 }
@@ -173,7 +181,9 @@ self.addEventListener('activate', (event) => {
             && key !== API_CACHE_NAME
             // Сохранённая карта переживает обновление service worker'а:
             // без этой строки первая же выкатка стирала бы её молча.
-            && key !== PACK_CACHE_NAME)
+            && key !== PACK_CACHE_NAME
+            // То же для планов, сохранённых человеком для поля (#2225).
+            && key !== SAVED_TRIPS_CACHE_NAME)
           .map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
@@ -484,10 +494,13 @@ const NAV_TIMEOUT_MS = 4000;
 /** RSC-пейлоад клиентского перехода: даём сети больше, но не бесконечность. */
 const RSC_TIMEOUT_MS = 8000;
 
-function cacheIfOk(request, response) {
+function cacheIfOk(request, response, afterCache) {
   if (!response || !response.ok) return;
   const clone = response.clone();
-  caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+  caches.open(CACHE_NAME).then(async (cache) => {
+    await cache.put(request, clone);
+    if (afterCache) await afterCache(cache);
+  }).catch(() => {});
 }
 
 /**
@@ -495,13 +508,13 @@ function cacheIfOk(request, response) {
  * дальше. `shouldCache` — сохранять ли удачный ответ (у разных веток свои
  * правила: whitelist кэширует всё, общая ветка — только главную и /tours).
  */
-function navigateWithTimeout(request, shouldCache) {
+function navigateWithTimeout(request, shouldCache, afterCache) {
   return new Promise((resolve) => {
     let settled = false;
     const done = (value) => { if (!settled) { settled = true; resolve(value); } };
 
     fetch(request).then((response) => {
-      if (shouldCache) cacheIfOk(request, response);
+      if (shouldCache) cacheIfOk(request, response, afterCache);
       done(response);
     }).catch(() => {
       done(caches.match(request).then((cached) => cached || caches.match('/offline')));
@@ -601,7 +614,9 @@ self.addEventListener('fetch', (event) => {
   if (isTripApiRequest(url.href)) {
     event.respondWith(
       caches.open(API_CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(request);
+        // Глобальный match: GPX плана, сохранённого для поля, лежит в своём
+        // кэше (SAVED_TRIPS_CACHE_NAME), а не в API-кэше (#2225).
+        const cached = await caches.match(request);
         try {
           const response = await fetch(request);
           if (response.ok) {
@@ -705,24 +720,11 @@ self.addEventListener('fetch', (event) => {
   // Планы поездок /trip/[token]: network-first + кэш офлайн + LRU (как туры).
   // План смотрят дома, идут по нему без связи — та же полевая логика, что
   // у карточек мест: открыл онлайн один раз — офлайн страница живёт.
+  // С таймаутом (#2225): в поле связь чаще висит, чем пропадает, и без него
+  // сохранённый план ждал бы сеть минутами. Копия ищется во всех кэшах — и в
+  // общем с LRU, и в сохранённых человеком (SAVED_TRIPS_CACHE_NAME).
   if (isTripPage(request.url)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(async (cache) => {
-              await cache.put(request, clone);
-              await evictOldTripPages(cache);
-            });
-          }
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match('/offline');
-        })
-    );
+    event.respondWith(navigateWithTimeout(request, true, evictOldTripPages));
     return;
   }
 

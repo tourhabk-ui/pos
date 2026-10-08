@@ -16,7 +16,7 @@
 import type { HandoffTarget } from '@/lib/mcp/handoff';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { tourPath } from '@/lib/tours/tour-url';
-import { parsePlanStart } from '@/lib/kuzmich/trip-plan-tool';
+import { parsePlanStart, planIdFromAnswer } from '@/lib/kuzmich/trip-plan-tool';
 import { resolvePlaceForLink } from '@/lib/kuzmich/guardian-context';
 
 function str(v: unknown): string {
@@ -26,9 +26,16 @@ function str(v: unknown): string {
 export async function handoffTargetForTool(
   toolName: string,
   args: Record<string, unknown>,
+  /** Ответ самого инструмента: id сохранённого плана берётся из него, не из аргументов агента. */
+  answer = '',
 ): Promise<HandoffTarget | null> {
   switch (toolName) {
     case 'make_trip_plan': {
+      // План сохранён черновиком — человек продолжает на странице ЭТОГО плана
+      // (#2225): карта, GPX, сохранение для офлайна. Планер по тем же
+      // аргументам собрал бы план заново, и дни могли бы разойтись с ответом.
+      const planId = planIdFromAnswer(answer);
+      if (planId) return { targetType: 'plan', targetPath: `/trip/${planId}` };
       const query = new URLSearchParams();
       const days = str(args.days);
       if (/^\d{1,2}$/.test(days)) query.set('days', days);
@@ -69,6 +76,12 @@ export async function handoffTargetForTool(
       return placeId ? { targetType: 'place', targetPath: `/places/${placeId}` } : null;
     }
 
+    case 'edit_trip_plan': {
+      // Правка записана — ссылка на тот же план со свежей правкой. Правка не
+      // удалась или плана нет — в ответе нет id, и ссылки нет.
+      const planId = planIdFromAnswer(answer);
+      return planId ? { targetType: 'plan', targetPath: `/trip/${planId}` } : null;
+    }
     default:
       return null;
   }

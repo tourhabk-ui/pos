@@ -1,29 +1,51 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { TripShareClient } from './_TripShareClient';
+import { TripShareClient, type Trip } from './_TripShareClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 interface PageProps {
   params: Promise<{ token: string }>;
 }
 
-async function fetchTrip(token: string) {
+type TripRead =
+  | { kind: 'found'; trip: Trip }
+  | { kind: 'missing' }
+  | { kind: 'failed' };
+
+/**
+ * Три исхода, как у share-API (§4.0): план есть; плана нет (404); прочитать
+ * не смогли (503, сеть). Третий — не «не найдено»: черновик Кузьмича лежит на
+ * месте, и отправлять человека собирать его заново — враньё (#2225).
+ */
+async function fetchTrip(token: string): Promise<TripRead> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vedarai.ru';
   try {
     const res = await fetch(`${baseUrl}/api/trips/share/${token}`, { cache: 'no-store' });
-    if (!res.ok) return null;
+    if (res.status === 404 || res.status === 400) return { kind: 'missing' };
+    if (!res.ok) return { kind: 'failed' };
     const json = await res.json();
-    return json.success ? json.data : null;
-  } catch {
-    return null;
+    return json.success && json.data ? { kind: 'found', trip: json.data } : { kind: 'failed' };
+  } catch (err) {
+    console.error('[trip/page] план не получен:', err instanceof Error ? err.message.slice(0, 200) : 'неизвестная ошибка');
+    return { kind: 'failed' };
   }
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
-  const trip = await fetchTrip(token);
-  if (!trip) return { title: 'Маршрут' };
+  const read = await fetchTrip(token);
+  if (read.kind !== 'found') return { title: 'Маршрут', robots: { index: false } };
+  const trip = read.trip;
+  // Черновик Кузьмича/MCP — личный и живёт 7 дней: в индексе ему не место,
+  // ссылку получает тот, кому её дали (#2225).
+  if (trip.source === 'draft') {
+    return {
+      title: trip.title,
+      description: `План поездки по Камчатке на ${Array.isArray(trip.days) ? trip.days.length : 0} дн.: карта, GPX, сохранение для офлайна.`,
+      robots: { index: false, follow: false },
+    };
+  }
   const dateRange = trip.arrival_date && trip.departure_date
     ? ` · ${trip.arrival_date} – ${trip.departure_date}` : '';
   return {
@@ -39,8 +61,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function TripSharePage({ params }: PageProps) {
   const { token } = await params;
-  const trip = await fetchTrip(token);
-  if (!trip) notFound();
+  const read = await fetchTrip(token);
+  if (read.kind === 'missing') notFound();
+  // Не смогли прочитать — ошибка, а не «не найдено»: граница ошибки скажет
+  // «попробуйте позже», а сохранённая для офлайна копия у service worker'а
+  // от этого не пострадает.
+  if (read.kind === 'failed') throw new Error('План поездки сейчас не прочитался');
+  const trip = read.trip;
 
   // TouristTrip + itinerary по дням: шарящийся план — публичная страница,
   // и поисковикам/AI-ответам нужна её точная семантика, а не голый HTML.
@@ -72,7 +99,7 @@ export default async function TripSharePage({ params }: PageProps) {
 
   return (
     <>
-      <JsonLd data={jsonLd} />
+      {trip.source !== 'draft' && <JsonLd data={jsonLd} />}
       <TripShareClient trip={trip} token={token} />
     </>
   );

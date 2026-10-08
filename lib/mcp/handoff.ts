@@ -54,7 +54,8 @@ function signHandoffId(handoffId: string, secret: string): string {
 export function isSafeTarget(target: HandoffTarget): boolean {
   const allowedPrefixes: Record<McpTargetType, string[]> = {
     planner: ['/planner'],
-    plan: ['/plans/'],
+    // /trip/<uuid> — страница сохранённого плана (#2225): черновик Кузьмича/MCP.
+    plan: ['/plans/', '/trip/'],
     tour: ['/catalog/tours/'],
     place: ['/places/', '/routes/'],
     safety: ['/safety'],

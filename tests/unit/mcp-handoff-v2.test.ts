@@ -60,7 +60,7 @@ describe('цели v2: резолв — той же функцией, что у 
     expect(MCP_ROUTE).toMatch(/from '@\/lib\/mcp\/handoff-targets'/);
     expect(MCP_ROUTE).not.toMatch(/case 'make_trip_plan'/);
     // Сбой резолва не ломает ответ агенту — но называется в логе (29.09).
-    expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs\)\.catch\(\(err: unknown\) => \{\s*console\.error\([\s\S]{0,160}?return null;/);
+    expect(MCP_ROUTE).toMatch(/handoffTargetForTool\(toolName, toolArgs, text\)\.catch\(\(err: unknown\) => \{\s*console\.error\([\s\S]{0,160}?return null;/);
   });
 
   it('покрыты инструменты v2: туры, место, планер, безопасность', () => {

@@ -612,7 +612,7 @@ async function handleToolsCall(
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
     // называется в логе (§4.0).
-    const target = await handoffTargetForTool(toolName, toolArgs).catch((err: unknown) => {
+    const target = await handoffTargetForTool(toolName, toolArgs, text).catch((err: unknown) => {
       console.error('[mcp] цель ссылки не определена:', logText(toolName), logText(err instanceof Error ? err.message : err, 300));
       return null;
     });
