@@ -3,28 +3,35 @@
   "retries": 45,
   "retryDelay": 60,
   "allowStale": false,
-  "bytes": 400,
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Ждём выката 1176/1177: карточка тура «Края Вулканов» с фото, страница компании.",
+  "bytes": 3000,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Гостевой дом «Кутха», пос. Пионерский (#2238): что 2ГИС показывает публично — имя, адрес, рубрика, телефон, сайт, удобства, цена — для карточки жилья с источником.",
   "run": 716,
   "urls": [
-    "https://vedarai.ru/catalog/tours/volcanoesland-ploskiy-tolbachik",
-    "https://vedarai.ru/catalog/tours/volcanoesland-oblet-klyuchevskoy-gruppy-dolina-geyzerov",
-    "https://vedarai.ru/operators/volcanoesland"
+    "https://2gis.ru/p_kamchatskiy/geo/70000001028100030/158.543200,53.094924",
+    "https://2gis.ru/p_kamchatskiy/firm/70000001028100030"
   ],
   "until": "/images/volcanoesland/ploskiy-tolbachik-01",
   "around": [
-    "/images/volcanoesland/",
-    "520 000",
-    "410 000",
-    "Цены подтверждены"
+    "Кутх",
+    "962",
+    "215",
+    "28 000",
+    "28000",
+    "бассейн",
+    "Баня",
+    "баня",
+    "Пионерский",
+    "vk.com",
+    "http"
   ],
   "aroundLines": 0,
-  "aroundBefore": 0,
-  "aroundHits": 3,
+  "aroundBefore": 200,
+  "aroundHits": 40,
   "grep": [
-    "/images/volcanoesland/",
-    "Край",
-    "Цены подтверждены оператором",
-    "Плоский Толбачик"
-  ]
+    "Кутх",
+    "962",
+    "бассейн",
+    "Пионерский"
+  ],
+  "text": true
 }
