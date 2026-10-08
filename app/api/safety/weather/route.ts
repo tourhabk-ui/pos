@@ -1,60 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { allowFresh } from '@/lib/safety/refresh-throttle';
+import { NextResponse } from 'next/server';
+import { fetchForecastDays } from '@/lib/planner/intelligence';
+import { DEFAULT_WEATHER_PLACE } from '@/lib/kuzmich/weather-tool';
+import { WEATHER_PAGE_DAYS } from '@/lib/weather/weather-page';
+import { safetyWeather } from '@/lib/weather/safety-widget';
 
-// Cache weather for 10 minutes
-let cache: { data: Record<string, unknown>; ts: number } | null = null;
-const CACHE_TTL = 10 * 60 * 1000;
+/**
+ * GET /api/safety/weather — погода в Петропавловске на экране безопасности.
+ *
+ * Источник — тот же прогноз, что у Кузьмича, сводки и /weather
+ * (`fetchForecastDays`), а не wttr.in (решение владельца 08.10). Горизонт —
+ * как у страницы погоды: запись кэша на три часа общая, и виджет не делает
+ * своего запроса к Open-Meteo.
+ *
+ * `?fresh=1` здесь больше ничего не значит и не читается: прогноз меняется
+ * раз в часы, к источнику на нажатие кнопки не ходим. Время в ответе —
+ * момент получения прогноза (`checked_at`), старый прогноз помечен `stale`.
+ */
+export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
-  // `?fresh=1` — кнопка «обновить»: кэш пропускается, но к wttr.in идём не
-  // чаще, чем разрешает ограничитель. Из кэша ответ уходит с ЧЕСТНЫМ временем
-  // проверки, а не с текущим: иначе кнопка обещала бы свежесть, которой нет.
-  const wantFresh = request.nextUrl.searchParams.get('fresh') === '1' && allowFresh('weather');
-  if (cache && (Date.now() - cache.ts < CACHE_TTL) && !wantFresh) {
-    return NextResponse.json({ ...cache.data, checked_at: new Date(cache.ts).toISOString(), from_cache: true });
+export async function GET() {
+  // Отказ Open-Meteo fetchForecastDays пишет в лог сам.
+  const f = await fetchForecastDays(DEFAULT_WEATHER_PLACE.lat, DEFAULT_WEATHER_PLACE.lng, WEATHER_PAGE_DAYS);
+  if (!f.ok) {
+    return NextResponse.json({ error: 'Прогноз погоды получить не удалось' }, { status: 502 });
   }
-
-  try {
-    const res = await fetch(
-      // lang=ru: без него wttr.in не отдаёт lang_ru, и на радаре стояло «Sunny» (04.10).
-      'https://wttr.in/Petropavlovsk-Kamchatsky?format=j1&lang=ru',
-      { signal: AbortSignal.timeout(8000) }
-    );
-    if (!res.ok) {
-      // В поле старая погода полезнее пустого экрана — но только названная
-      // старой. Кэша нет — честный отказ.
-      if (cache) return NextResponse.json({ ...cache.data, checked_at: new Date(cache.ts).toISOString(), from_cache: true, stale: true });
-      return NextResponse.json({ error: 'Сервис погоды недоступен' }, { status: 502 });
-    }
-    const raw = await res.json() as {
-      current_condition?: Array<{
-        temp_C: string;
-        FeelsLikeC: string;
-        humidity: string;
-        windspeedKmph: string;
-        lang_ru?: Array<{ value: string }>;
-        weatherDesc?: Array<{ value: string }>;
-      }>;
-    };
-    const cur = raw.current_condition?.[0];
-    if (!cur) {
-      return NextResponse.json({ error: 'Нет данных от сервиса погоды' }, { status: 502 });
-    }
-    const data = {
-      tempC: cur.temp_C,
-      feelsLikeC: cur.FeelsLikeC,
-      // Описание — только по-русски. Нет русского — пусто, а не английское
-      // слово посреди русского экрана: температура и ветер говорят сами.
-      desc: cur.lang_ru?.[0]?.value?.trim() || '',
-      humidity: cur.humidity,
-      windKmph: cur.windspeedKmph,
-      updatedAt: new Date().toISOString(),
-    };
-    const ts = Date.now();
-    cache = { data, ts };
-    return NextResponse.json({ ...data, checked_at: new Date(ts).toISOString(), from_cache: false });
-  } catch (err) {
-    console.error('[safety/weather] wttr.in не ответил', err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: 'Не удалось загрузить прогноз погоды' }, { status: 502 });
+  const w = safetyWeather(f, DEFAULT_WEATHER_PLACE.name);
+  if (!w) {
+    console.error('[safety/weather] в прогнозе нет сегодняшнего дня', f.staleSince ?? f.fetchedAt ?? '');
+    return NextResponse.json({ error: 'Прогноз на сегодня получить не удалось' }, { status: 502 });
   }
+  return NextResponse.json(w);
 }
