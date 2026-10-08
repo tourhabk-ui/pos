@@ -2,21 +2,17 @@
   "timeout": 60,
   "retries": 0,
   "allowStale": true,
-  "bytes": 15000,
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ, внешний источник. #2249: факт осадков станции Петропавловск-Камчатский (WMO 32583) для замера моделей. NOAA GHCN-Daily и GSOD свежих осадков по ней не дают (weather-model-skill run 1–2). Смотрим, как Ogimet отдаёт SYNOP (группы 6RRRt и 7RRRR) и суточные сводки.",
-  "run": 721,
+  "bytes": 12000,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ, внешний источник. #2249: формат ответа Open-Meteo с двумя моделями (models=best_match,gfs_seamless) — имена полей с суффиксом модели, прежде чем брать осадки из GFS в fetchForecastDays.",
+  "run": 722,
   "urls": [
-    "https://www.ogimet.com/cgi-bin/getsynop?block=32583&begin=202610010000&end=202610080000",
-    "https://www.ogimet.com/cgi-bin/gsynres?ind=32583&ndays=7&ano=2026&mes=10&day=8&hora=0&ord=REV&Send=Send"
+    "https://api.open-meteo.com/v1/forecast?latitude=53.02&longitude=158.65&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m&forecast_days=2&timezone=Asia/Kamchatka&models=best_match,gfs_seamless"
   ],
   "grep": [
-    "32583",
-    "AAXX",
-    "Prec"
+    "precipitation_sum_gfs_seamless",
+    "temperature_2m_max_best_match",
+    "snowfall_gfs_seamless",
+    "weather_code_gfs_seamless"
   ],
-  "count": [
-    "AAXX",
-    " 333 "
-  ],
-  "text": true
+  "text": false
 }
