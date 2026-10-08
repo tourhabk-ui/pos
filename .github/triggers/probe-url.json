@@ -1,30 +1,34 @@
 {
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 10,
-  "allowStale": true,
+  "retries": 24,
+  "retryDelay": 60,
+  "allowStale": false,
   "bytes": 400,
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. «Кутха» (#2238) после выката 1180: на карточке нет «заезд с 14:00 · выезд до 12:00»; номера в публичном списке нет.",
-  "run": 719,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. «Кутха» после 1181: на карточке кнопки Telegram и WhatsApp (t.me/+, wa.me), MAX нет; в публичном списке номера нет.",
+  "run": 720,
   "urls": [
     "https://vedarai.ru/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e",
     "https://vedarai.ru/api/accommodations"
   ],
   "around": [
-    "Позвонить",
-    "заезд с",
-    "выезд до"
+    "t.me/",
+    "wa.me/",
+    "Написать в",
+    "max.ru"
   ],
   "aroundLines": 0,
-  "aroundBefore": 60,
-  "aroundHits": 4,
+  "aroundBefore": 40,
+  "aroundHits": 6,
   "grep": [
-    "tel:+7",
+    "https://t.me/+79622152777",
+    "https://wa.me/79622152777",
+    "Написать в Telegram",
+    "Написать в WhatsApp",
+    "MAX",
+    "max.ru",
     "заезд с",
-    "выезд до",
-    "оператора платформы",
-    "79622152777",
-    "Кутха"
+    "79622152777"
   ],
-  "text": false
+  "text": false,
+  "until": "Написать в Telegram"
 }
