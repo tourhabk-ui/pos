@@ -702,6 +702,8 @@ function buildResponse(
      * сколько разобрали и куда делись строки. «Не дошли» обязано быть видно
      * здесь словами, а не только отсутствием новых толчков в ленте.
      */
+    /** Росгидромет: какие регионы пришли и сколько наших строк снято как отменённые. */
+    meteoalert?: { regions: Array<{ id: string; label: string; warnings: number }>; retracted: number };
     emsdFetch?: {
       url: string;
       reached: boolean;
@@ -871,6 +873,7 @@ function buildResponse(
     // только у heartbeat — POST получает разметку готовой от раннера.
     telegram_fetch: extras?.telegramFetch,
     emsd_fetch: extras?.emsdFetch,
+    meteoalert: extras?.meteoalert,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -1151,6 +1154,7 @@ export async function GET(req: Request) {
         ingested: telegramOk,
         ingest_error: telegramResult !== null && 'error' in telegramResult ? telegramResult.error : null,
       },
+      meteoalert: { regions: meteoalertResult.regions, retracted: meteoalertResult.retracted },
       emsdFetch: {
         url: EMSD_QUAKES_URL,
         reached: emsdPage.html !== null,

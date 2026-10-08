@@ -15,6 +15,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
+const dbQuery = vi.fn(async (..._a: unknown[]) => ({ rows: [], rowCount: 0 }));
+vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
+
 vi.mock('@/lib/services/safety/seismic-parser', async (importOriginal) => {
   const orig = await importOriginal<typeof import('@/lib/services/safety/seismic-parser')>();
   return { ...orig, saveEvent: vi.fn(async () => 'inserted' as const) };
@@ -25,9 +28,10 @@ import {
   METEOALERT_PREFIX, METEOALERT_URL,
 } from '@/lib/services/safety/meteoalert';
 import { alertOrigin } from '@/lib/safety/alert-origin';
+import { saveEvent } from '@/lib/services/safety/seismic-parser';
 import { SAFETY_SOURCE_EXPECTATIONS } from '@/lib/services/safety/source-health';
 
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); dbQuery.mockClear(); });
 
 const NOW = 1791154800; // 2026-10-04 23:00 UTC — «сейчас» той пробы
 
@@ -94,12 +98,16 @@ describe('предупреждение → тревога', () => {
     expect(meteoAlertType('Гололёд')).toBe('weather');
   });
 
-  it('истёкшее не возвращается; объявленное на завтра действует уже сейчас', () => {
-    const base = { regionId: '96', key: '21', level: 2 as const, phenomenon: 'Ветер', text: '15-20 м/с' };
+  it('только действующее: истёкшее и ещё не начавшееся не возвращаются (проба 715)', () => {
+    const base = { regionId: '95', key: '21', level: 2 as const, phenomenon: 'Ветер', text: 'местами 15-20 м/с' };
     expect(meteoalertEvents([{ ...base, startUnix: NOW - 7200, minutes: 60 }], NOW * 1000)).toEqual([]);
-    const ahead = meteoalertEvents([{ ...base, startUnix: NOW + 3600, minutes: 120 }], NOW * 1000)[0];
-    expect(ahead.published_at.getTime()).toBe(NOW * 1000);
-    expect(ahead.expires_hours).toBe(3);
+    // Случай 08.10 дословно: жёлтый ветер севера «через 39 часов» рядом с
+    // действующим оранжевым читался как два уровня одного ветра сразу.
+    const ahead = { ...base, startUnix: NOW + 39 * 3600, minutes: 2820 };
+    const orange = { ...base, key: '31', level: 3 as const, text: '15-20 м/с, местами 25-30 м/с', startUnix: NOW, minutes: 900 };
+    const events = meteoalertEvents([ahead, orange], NOW * 1000);
+    expect(events.map((e) => e.title)).toEqual(['Росгидромет: ветер — оранжевый уровень (север края)']);
+    expect(events[0].expires_hours).toBe(15);
   });
 
   it('срок не дан — сутки, и это сказано в тексте', () => {
@@ -126,13 +134,39 @@ describe('приём', () => {
       expect(url).toBe(METEOALERT_URL);
       return new Response(JSON.stringify(SAMPLE), { status: 200 });
     }));
+    dbQuery.mockResolvedValueOnce({ rows: [{ id: 7 }], rowCount: 1 });
     const r = await ingestMeteoalert();
     expect(r.errors).toEqual([]);
     expect(r.rawItems).toBe(2);
+    // Полный свежий ответ — снятие отменённого зовётся с действующими.
+    expect(r.retracted).toBe(1);
+    const [sql, params] = dbQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/SET expires_at = NOW\(\)/);
+    expect(sql).not.toMatch(/DELETE/i);
+    expect(params[0]).toBe('meteoalert/%');
+    expect(params[1]).toEqual(['Росгидромет: ветер — жёлтый уровень (север и юг края)']);
     expect(r.regions).toEqual([
       { id: '95', label: 'север края', warnings: 1 },
       { id: '96', label: 'юг края', warnings: 1 },
     ]);
+  });
+
+  it('ответ без одного из регионов — ничего не снимается (это выключило бы сигнализацию)', async () => {
+    const { '96': _south, ...north } = SAMPLE['0'];
+    void _south;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ '0': north, '1': NOW }), { status: 200 })));
+    const r = await ingestMeteoalert();
+    expect(r.rawItems).toBe(1);
+    expect(r.retracted).toBe(0);
+    expect(dbQuery).not.toHaveBeenCalled();
+  });
+
+  it('запись не удалась — не снимаем: незаписанное выглядело бы отменённым', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(SAMPLE), { status: 200 })));
+    vi.mocked(saveEvent).mockRejectedValueOnce(new Error('DB save failed'));
+    const r = await ingestMeteoalert();
+    expect(r.errors[0]).toContain('DB save failed');
+    expect(dbQuery).not.toHaveBeenCalled();
   });
 
   it('HTTP-отказ — в errors, не исключением', async () => {
