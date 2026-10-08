@@ -12,6 +12,10 @@
  * модели, и в первый день модели расходятся в осадках вчетверо (3,6 мм
  * против 0,8), а в ветре — почти вдвое (45,3 против 78,4 км/ч). Взять поле
  * не у той модели — тест это видит.
+ *
+ * Код погоды делится: об осадках (51 и выше) — GFS, небо сухого дня — best_match.
+ * Когда код брался у GFS целиком, на проде (prod-check 96) сухие дни стали
+ * «туманом» там, где best_match говорил «пасмурно»; туман читает Rescue.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -38,11 +42,13 @@ describe('mergeForecastModels: каждое поле — у своей моде�
     expect(BASE_MODEL).toBe('best_match');
   });
 
-  it('сутки: осадки и код погоды — GFS, температура и ветер — best_match', () => {
+  it('сутки: осадки и код осадков — GFS, небо, температура и ветер — best_match', () => {
     const d = mergeForecastModels(FIXTURE.daily, DAILY_PRECIP, DAILY_BASE)!;
     expect(d.time).toEqual(['2026-10-09', '2026-10-10']);
     expect(d.precipitation_sum).toEqual([0.8, 0]);
-    expect(d.weather_code).toEqual([85, 3]);
+    // 09.10 — снегопад у GFS (85): код осадков. 10.10 сухой у обеих:
+    // небо best_match (2, «переменная облачность»), а не GFS (3, «пасмурно»).
+    expect(d.weather_code).toEqual([85, 2]);
     expect(d.temperature_2m_max).toEqual([7.1, 7.4]);
     expect(d.temperature_2m_min).toEqual([2.0, 3.1]);
     expect(d.wind_speed_10m_max).toEqual([45.3, 38.7]);
@@ -99,6 +105,35 @@ describe('mergeForecastModels: каждое поле — у своей моде�
   });
 });
 
+describe('код погоды: об осадках — GFS, о небе — best_match', () => {
+  const codes = (gfs: unknown[], best: unknown[]) =>
+    mergeForecastModels(
+      { time: gfs.map((_, i) => `2026-10-${String(9 + i).padStart(2, '0')}`), weather_code_gfs_seamless: gfs, weather_code_best_match: best },
+      ['weather_code'], [],
+    )!.weather_code;
+
+  it('прод, зона Авачинского (prod-check 96): сухие дни — небо best_match, не «туман» GFS', () => {
+    // GFS: сильный снегопад, туман, ясно, туман, пасмурно; best_match — снегопад и пасмурно.
+    expect(codes([86, 45, 0, 45, 3], [86, 3, 3, 3, 3])).toEqual([86, 3, 3, 3, 3]);
+  });
+
+  it('осадки у GFS — его код, даже если best_match видел сухо', () => {
+    expect(codes([61, 95, 51], [3, 2, 3])).toEqual([61, 95, 51]);
+  });
+
+  it('сухо у GFS, а best_match видел осадки — код GFS: «дождь» при нуле миллиметров был бы ссорой', () => {
+    expect(codes([3, 45], [61, 80])).toEqual([3, 45]);
+  });
+
+  it('туман с изморозью (48) — небо, а не осадки', () => {
+    expect(codes([48], [3])).toEqual([3]);
+  });
+
+  it('нет кода у одной модели — код другой; нет у обеих — пусто', () => {
+    expect(codes([45, null, null], [null, 61, null])).toEqual([45, 61, null]);
+  });
+});
+
 describe('fetchForecastDays на настоящем ответе двух моделей', () => {
   function stubFixture() {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(FIXTURE), { status: 200 }));
@@ -127,7 +162,8 @@ describe('fetchForecastDays на настоящем ответе двух мод
       tempMax: 7.1, tempMin: 2.0, windKmh: 45.3,
     });
     expect(r.days[1]).toMatchObject({
-      date: '2026-10-10', precipMm: 0, weatherCode: 3, tempMax: 7.4, tempMin: 3.1, windKmh: 38.7,
+      date: '2026-10-10', precipMm: 0, weatherCode: 2, description: 'Переменная облачность',
+      tempMax: 7.4, tempMin: 3.1, windKmh: 38.7,
     });
   });
 

@@ -122,10 +122,11 @@ function finite(v: unknown): number | null {
  * Замер мерил ТОЛЬКО осадки, поэтому температура и ветер остаются из
  * best_match: у GFS в той же точке ветер почти вдвое сильнее (проба 722:
  * суточный максимум 63–78 против 39–45 км/ч), и менять его без своего замера
- * не на чем основать. Код погоды — из GFS вместе с осадками: «снег» или
- * «ливень» в описании должны сходиться с миллиметрами, а не спорить с ними.
- * Нет значения у GFS — берётся сводная модель, по одному дню или часу, а не
- * весь прогноз.
+ * не на чем основать. Код погоды об осадках — из GFS вместе с миллиметрами:
+ * «снег» или «ливень» в описании должны сходиться с суммой, а не спорить с
+ * ней. Небо сухого дня (ясно, пасмурно, туман) — из best_match, как до замера
+ * (см. mergeWeatherCode). Нет значения у GFS — берётся сводная модель, по
+ * одному дню или часу, а не весь прогноз.
  */
 export const PRECIP_MODEL = 'gfs_seamless';
 export const BASE_MODEL = 'best_match';
@@ -141,16 +142,46 @@ function modelSeries(block: ForecastBlock, field: string, model: string): unknow
   return block[`${field}_${model}`] ?? block[field];
 }
 
+function isNum(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
 function preferFinite(primary: unknown[] | undefined, fallback: unknown[] | undefined): unknown[] | undefined {
   if (!primary) return fallback;
   if (!fallback) return primary;
-  return primary.map((v, i) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback[i]));
+  return primary.map((v, i) => (isNum(v) ? v : fallback[i]));
+}
+
+/** С 51 (морось) код погоды говорит об осадках; ниже — небо и туман. */
+const PRECIP_CODE_MIN = 51;
+
+/**
+ * Код погоды по дням: об осадках — голосом GFS, о небе — голосом best_match.
+ *
+ * Код несёт два разных сообщения. «Дождь», «снег», «ливень» — то же, что
+ * миллиметры, и берутся у GFS, иначе описание спорило бы с суммой. «Ясно»,
+ * «пасмурно», «туман» — облачность и видимость, которых замер не мерил. Когда
+ * код брался у GFS целиком (#2286), на проде (prod-check 96, зона Авачинского)
+ * сухие дни стали «туманом» и «ясно» там, где best_match говорил «пасмурно».
+ * Туман — не подпись: его читает Rescue как вопрос видимости.
+ *
+ * Сухой у GFS день, который best_match называл дождливым, получает код GFS:
+ * «дождь» при нуле миллиметров был бы той же ссорой описания с суммой.
+ */
+function mergeWeatherCode(gfs: unknown[] | undefined, base: unknown[] | undefined): unknown[] | undefined {
+  if (!gfs) return base;
+  return gfs.map((g, i) => {
+    const b = base?.[i];
+    if (!isNum(g)) return b;
+    if (g >= PRECIP_CODE_MIN) return g;
+    return isNum(b) && b < PRECIP_CODE_MIN ? b : g;
+  });
 }
 
 /**
  * Ответ с двумя моделями — к виду одной: поля осадков из PRECIP_MODEL (пусто —
- * из BASE_MODEL), остальные — из BASE_MODEL. Чистая, под тестом на настоящем
- * ответе Open-Meteo (проба 722).
+ * из BASE_MODEL; код погоды — по mergeWeatherCode), остальные — из
+ * BASE_MODEL. Чистая, под тестом на настоящем ответе Open-Meteo (проба 722).
  */
 export function mergeForecastModels(
   block: ForecastBlock | undefined,
@@ -160,7 +191,11 @@ export function mergeForecastModels(
   if (!block) return block;
   const out: ForecastBlock = { time: block.time };
   for (const f of baseFields) out[f] = modelSeries(block, f, BASE_MODEL);
-  for (const f of precipFields) out[f] = preferFinite(modelSeries(block, f, PRECIP_MODEL), modelSeries(block, f, BASE_MODEL));
+  for (const f of precipFields) {
+    const primary = modelSeries(block, f, PRECIP_MODEL);
+    const fallback = modelSeries(block, f, BASE_MODEL);
+    out[f] = f === 'weather_code' ? mergeWeatherCode(primary, fallback) : preferFinite(primary, fallback);
+  }
   return out;
 }
 
