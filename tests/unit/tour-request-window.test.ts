@@ -148,6 +148,12 @@ describe('миграция 1183 — данные решений 08.10', () => {
     expect(sql).toMatch(/t\.season_start IS NULL\s+AND t\.season_end IS NULL/);
   });
 
+  it('сплав «Камчатка Рафтинг» — сезон 01.07–01.10.2027, записанный оператором на 2027+ не трогается', () => {
+    expect(sql).toMatch(/season_start = DATE '2027-07-01',\s+season_end\s+= DATE '2027-10-01'/);
+    expect(sql).toMatch(/p\.slug = 'kamchatka-rafting'/);
+    expect(sql).toMatch(/t\.season_end IS NULL OR t\.season_end < DATE '2027-01-01'/);
+  });
+
   it('рыбалка 6 и 9 — сезон 2027 до 30.09, гейт по прежнему значению', () => {
     expect(sql).toMatch(/season_start = DATE '2027-08-25',\s+season_end\s+= DATE '2027-09-30'/);
     expect(sql).toMatch(/ot\.season_start = DATE '2026-08-25'\s+AND ot\.season_end\s+= DATE '2026-10-30'/);
