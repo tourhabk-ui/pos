@@ -3,35 +3,33 @@
   "retries": 45,
   "retryDelay": 60,
   "allowStale": false,
-  "bytes": 3000,
-  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. Гостевой дом «Кутха», пос. Пионерский (#2238): что 2ГИС показывает публично — имя, адрес, рубрика, телефон, сайт, удобства, цена — для карточки жилья с источником.",
-  "run": 716,
+  "bytes": 600,
+  "note": "08.10. ТОЛЬКО ЧТЕНИЕ. «Кутха» (#2238) на проде: карточка (tel-ссылка, текст про оператора платформы) и публичный список жилья (номера быть не должно).",
+  "run": 717,
   "urls": [
-    "https://2gis.ru/p_kamchatskiy/geo/70000001028100030/158.543200,53.094924",
-    "https://2gis.ru/p_kamchatskiy/firm/70000001028100030"
+    "https://vedarai.ru/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e",
+    "https://vedarai.ru/api/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e",
+    "https://vedarai.ru/api/accommodations"
   ],
   "until": "/images/volcanoesland/ploskiy-tolbachik-01",
   "around": [
-    "Кутх",
-    "962",
-    "215",
-    "28 000",
-    "28000",
-    "бассейн",
-    "Баня",
-    "баня",
-    "Пионерский",
-    "vk.com",
-    "http"
+    "tel:+7",
+    "Позвонить",
+    "оператора платформы",
+    "contactPhone",
+    "contact_phone"
   ],
   "aroundLines": 0,
-  "aroundBefore": 200,
-  "aroundHits": 40,
+  "aroundBefore": 80,
+  "aroundHits": 6,
   "grep": [
-    "Кутх",
-    "962",
-    "бассейн",
-    "Пионерский"
+    "tel:+7",
+    "Позвонить +7 962 215-27-77",
+    "оператора платформы",
+    "\"contactPhone\":\"+79622152777\"",
+    "contact_phone",
+    "79622152777",
+    "Кутха"
   ],
-  "text": true
+  "text": false
 }
