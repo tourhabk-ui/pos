@@ -112,6 +112,33 @@ describe('orderPlates: порядок витрины главной', () => {
     expect(out.every((p) => p.availability === 'dates')).toBe(true);
   });
 
+  it('один оператор не забирает витрину: операторы идут по очереди (08.10)', () => {
+    // Прод 08.10: девять туров рыбалки с датами, одиннадцать «Края Вулканов»
+    // по запросу, один рафтинг — строгое «даты сначала» отдавало рыбалке все восемь мест.
+    type Q = P & { operatorName: string | null };
+    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ id, availability, operatorName });
+    const input = [
+      ...Array.from({ length: 11 }, (_, i) => q(`v${i}`, 'on_request', 'Край Вулканов')),
+      ...Array.from({ length: 9 }, (_, i) => q(`f${i}`, 'dates', 'Камчатская рыбалка')),
+      q('r0', 'on_request', 'Семейный Рафтинг'),
+    ];
+    const out = orderPlates(input);
+    expect(out).toHaveLength(8);
+    // Оператор с датами впереди круга, внутри оператора — прежний порядок.
+    expect(out.map((p) => p.id)).toEqual(['f0', 'v0', 'r0', 'f1', 'v1', 'f2', 'v2', 'f3']);
+    const per = new Map<string | null, number>();
+    for (const p of out) per.set(p.operatorName, (per.get(p.operatorName) ?? 0) + 1);
+    expect(per.get('Камчатская рыбалка')).toBeLessThan(8);
+    expect(per.get('Край Вулканов')).toBeGreaterThan(0);
+  });
+
+  it('закрытый сезон по-прежнему после всех открытых, даже при круге операторов', () => {
+    type Q = P & { operatorName: string | null };
+    const q = (id: string, availability: CatalogAvailability, operatorName: string | null): Q => ({ id, availability, operatorName });
+    const out = orderPlates([q('s0', 'season_over', 'A'), q('a0', 'dates', 'A'), q('b0', 'on_request', 'B'), q('a1', 'on_request', 'A')]);
+    expect(out.map((p) => p.id)).toEqual(['a0', 'b0', 'a1', 's0']);
+  });
+
   it('не мутирует вход', () => {
     const input = [t('a', 'season_over'), t('b', 'dates')];
     orderPlates(input);
