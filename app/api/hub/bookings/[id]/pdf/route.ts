@@ -48,7 +48,7 @@ export async function GET(
   const access = await verifyBookingAccess(id, token);
   if (access.state === 'unknown') {
     return NextResponse.json(
-      { error: 'Не удалось проверить доступ к брони. Попробуйте позже.' },
+      { error: 'Не удалось проверить доступ к заявке. Попробуйте позже.' },
       { status: 503 },
     );
   }
@@ -110,7 +110,7 @@ export async function GET(
     `, [id]);
 
     if (!rows[0]) {
-      return NextResponse.json({ error: 'Бронирование не найдено' }, { status: 404 });
+      return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 });
     }
 
     const r = rows[0];

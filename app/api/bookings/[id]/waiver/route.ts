@@ -81,7 +81,7 @@ export async function GET(
 
   const booking = await loadBooking(bookingId, auth.userId);
   if (!booking) {
-    return NextResponse.json({ success: false, error: 'Бронирование не найдено' }, { status: 404 });
+    return NextResponse.json({ success: false, error: 'Заявка не найдена' }, { status: 404 });
   }
 
   const required = isHighRiskTour(booking.difficulty, booking.activity_type);
@@ -139,7 +139,7 @@ export async function POST(
 
   const booking = await loadBooking(bookingId, auth.userId);
   if (!booking) {
-    return NextResponse.json({ success: false, error: 'Бронирование не найдено' }, { status: 404 });
+    return NextResponse.json({ success: false, error: 'Заявка не найдена' }, { status: 404 });
   }
 
   if (!isHighRiskTour(booking.difficulty, booking.activity_type)) {

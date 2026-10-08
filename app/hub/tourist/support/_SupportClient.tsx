@@ -35,7 +35,7 @@ interface UserProfile {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  booking: 'Бронирование',
+  booking: 'Заявка на тур',
   billing: 'Оплата',
   refund: 'Возврат',
   safety: 'Безопасность',

@@ -89,7 +89,7 @@ describe('карточка говорит только то, что знает',
     expect(CARD).toMatch(/\{showSeason && \(/);
   });
   it('без дат кнопка честно называется «Оставить заявку»', () => {
-    expect(CARD).toMatch(/availability === 'dates' \? 'Забронировать' : 'Оставить заявку'/);
+    expect(CARD).toMatch(/availability === 'dates' \? 'Отправить заявку' : 'Оставить заявку'/);
   });
   it('«проверен» — только при partners.is_verified === true, и поле отдаёт поиск', () => {
     expect(CARD).toMatch(/tour\.operator_verified === true && \(/);

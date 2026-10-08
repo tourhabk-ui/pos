@@ -294,7 +294,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
       const id = typeof data === 'object' && data !== null && 'booking_id' in data
         ? (data as Record<string, unknown>).booking_id
         : null;
-      if (!id) throw new Error('Бронирование создано, но ID не получен. Проверьте раздел «Бронирования».');
+      if (!id) throw new Error('Заявка создана, но ID не получен. Проверьте раздел «Заявки».');
       // Ключ брони приходит один раз и живёт только в этой ссылке: номер
       // брони подтверждения больше не открывает (миграция 943).
       const token = typeof data === 'object' && data !== null && 'access_token' in data
@@ -326,7 +326,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         </div>
         <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
           У этого тура нет расписания: оператор собирает группы под запрос. Назовите дату и число людей —
-          оператор ответит в мессенджер в течение 2 часов. Если места есть, бронь сразу станет подтверждённой,
+          оператор ответит в мессенджер в течение 2 часов. Если места есть, заявка сразу станет подтверждённой,
           {platformAcceptsPayments()
             ? 'и по ссылке из ответа её можно будет оплатить.'
             : 'а оплату вы внесёте оператору напрямую — Ведар платежи не принимает.'}
@@ -605,7 +605,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           </p>
         ) : (
           <p className="text-xs text-[var(--text-secondary)]">
-            После создания заявки откроется страница бронирования с дальнейшими шагами. Оператор получит уведомление автоматически.
+            После создания заявки откроется страница заявки с дальнейшими шагами. Оператор получит уведомление автоматически.
           </p>
         )}
       </div>

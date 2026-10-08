@@ -216,7 +216,7 @@ async function respondDetails(fetchTours: FetchTours, id: number): Promise<Alice
   const text = cap(
     `${tour.title}. ${formatPrice(tour)}. Оператор — ${tour.operator_name}.\n` +
       `${descLine}\n` +
-      'Точные детали, точка сбора и бронирование — на сайте, в карточке тура. Показать другие туры?',
+      'Точные детали, точка сбора и заявка оператору — на сайте, в карточке тура. Показать другие туры?',
   );
 
   return {

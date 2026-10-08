@@ -27,7 +27,7 @@ describe('брони: каждая — один раз', () => {
   it('клиент просит больше десяти и не выдаёт отказ за «броней нет»', () => {
     const C = read('app/hub/tourist/bookings/_BookingHistoryPageClient.tsx');
     expect(C).toMatch(/'\/api\/bookings\?limit=100'/);
-    expect(C).toMatch(/Не удалось загрузить бронирования/);
+    expect(C).toMatch(/Не удалось загрузить заявки/);
   });
 
   it('отмена неоплаченной брони не обещает возврат цены', () => {
@@ -38,7 +38,7 @@ describe('брони: каждая — один раз', () => {
     expect(R).toMatch(/tp\.status = 'HELD'/);
     expect(C.match(/recordRefundDue\(/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
     expect(read('lib/bookings/booking.service.ts')).toMatch(/recordRefundDue\(/);
-    expect(C).toMatch(/Оплаты по этой брони не было — возвращать нечего/);
+    expect(C).toMatch(/Оплаты по этой заявке не было — возвращать нечего/);
   });
 });
 

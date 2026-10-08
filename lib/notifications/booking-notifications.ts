@@ -70,14 +70,14 @@ export async function notifyBookingConfirmed(
     void telegramService.sendMessage({
       chatId: contact.telegramId,
       text: [
-        `<b>${firstName}, бронирование подтверждено!</b>`,
+        `<b>${firstName}, оператор подтвердил заявку</b>`,
         '',
         `<b>${esc(booking.tourName)}</b>`,
         `Дата: <b>${dateFormatted}</b>`,
         `Участников: ${booking.participants}`,
         `Сумма: <b>${booking.totalPrice.toLocaleString('ru-RU')} ₽</b>`,
         '',
-        `<a href="https://vedarai.ru/hub/tourist/bookings">Детали бронирования →</a>`,
+        `<a href="https://vedarai.ru/hub/tourist/bookings">Детали заявки →</a>`,
       ].join('\n'),
       parseMode: 'HTML',
     }).catch(() => {});
@@ -112,7 +112,7 @@ export async function notifyBookingCancelled(
   // Telegram
   if (contact.telegramId) {
     const lines = [
-      `<b>${firstName}, бронирование отменено.</b>`,
+      `<b>${firstName}, заявка отменена.</b>`,
       '',
       `<b>${esc(booking.tourName)}</b>`,
     ];
@@ -131,7 +131,7 @@ export async function notifyBookingCancelled(
       // говорит, какое из двух, а не общее «не предусмотрен».
       lines.push('', esc(booking.refundReason));
     }
-    lines.push('', `<a href="https://vedarai.ru/hub/tourist/bookings">История бронирований →</a>`);
+    lines.push('', `<a href="https://vedarai.ru/hub/tourist/bookings">История заявок →</a>`);
 
     void telegramService.sendMessage({
       chatId: contact.telegramId,

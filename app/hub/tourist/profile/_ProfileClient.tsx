@@ -355,7 +355,7 @@ export default function ProfileClient() {
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-[var(--text-secondary)]">
-                    Подключи Telegram — Кузьмич будет присылать статусы броней,
+                    Подключи Telegram — Кузьмич будет присылать статусы заявок,
                     напоминания о поездках и отвечать на вопросы прямо в чате.
                   </p>
                   {tgLink ? (

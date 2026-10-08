@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     const listRole = roleMap[auth.role];
     if (!listRole) {
       return NextResponse.json(
-        { success: false, error: 'Роль не имеет доступа к бронированиям' } as ApiResponse<null>,
+        { success: false, error: 'Роль не имеет доступа к заявкам' } as ApiResponse<null>,
         { status: 403 }
       );
     }
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[api/bookings] список не собран:', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка при получении бронирований' } as ApiResponse<null>,
+      { success: false, error: 'Ошибка при получении заявок' } as ApiResponse<null>,
       { status: 500 }
     );
   }
@@ -155,7 +155,7 @@ export function POST(): NextResponse {
   return NextResponse.json(
     {
       success: false,
-      error: 'Этот эндпоинт устарел. Используйте /api/hub/bookings/create для новых бронирований.',
+      error: 'Этот эндпоинт устарел. Используйте /api/hub/bookings/create для новых заявок.',
     } as ApiResponse<null>,
     { status: 410 },
   );

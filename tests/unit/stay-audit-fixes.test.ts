@@ -54,7 +54,7 @@ describe('честное письмо гостю', () => {
 
   it('туры: тот же класс лжи убран', () => {
     expect(TOURS_BOOK).not.toContain('подтверждено!');
-    expect(TOURS_BOOK).toContain('Заявка на бронирование принята');
+    expect(TOURS_BOOK).toContain('Заявка отправлена оператору');
   });
 });
 

@@ -126,7 +126,7 @@ describe('POST /api/hub/bookings/create — календарь оператор�
     const json = await res.json();
 
     expect(res.status).toBe(422);
-    expect(json.error).toContain('закрыл бронирование');
+    expect(json.error).toContain('закрыл приём заявок');
     expect(insertCalled()).toBe(false);
   });
 

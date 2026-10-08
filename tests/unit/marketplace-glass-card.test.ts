@@ -53,14 +53,14 @@ describe('каталожная карточка тура — фото сверх
     expect(card).toMatch(/fontFamily: 'var\(--font-outfit\)'/);
   });
 
-  it('«Забронировать» — непрозрачная ds-btn-primary, не стекло', () => {
-    const cta = card.slice(card.indexOf('href={`${href}#booking`}'), card.indexOf("'Забронировать'"));
+  it('«Отправить заявку» — непрозрачная ds-btn-primary, не стекло', () => {
+    const cta = card.slice(card.indexOf('href={`${href}#booking`}'), card.indexOf("'Отправить заявку'"));
     expect(cta).toMatch(/className="ds-btn ds-btn-primary/);
     expect(cta).not.toMatch(/bg-white\/\d+|backdrop-blur/);
   });
 
-  it('на карточке есть «Забронировать» и избранное', () => {
-    expect(card.includes('Забронировать')).toBe(true);
+  it('на карточке есть «Отправить заявку» и избранное', () => {
+    expect(card.includes('Отправить заявку')).toBe(true);
     expect(card.includes('onToggleLike')).toBe(true);
   });
 

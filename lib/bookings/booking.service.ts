@@ -39,7 +39,7 @@ import {
  */
 function validateTransition(from: BookingStatus, to: BookingStatus): void {
   if (TERMINAL_STATUSES.has(from)) {
-    throw new Error(`Нельзя изменить статус бронирования в терминальном состоянии (${from})`);
+    throw new Error(`Нельзя изменить статус заявки в терминальном состоянии (${from})`);
   }
 
   const allowed = ALLOWED_TRANSITIONS[from];
@@ -248,7 +248,7 @@ export async function cancelBooking(
       [bookingId]
     );
     if (result.rows.length === 0) {
-      throw new Error('Бронирование не найдено');
+      throw new Error('Заявка не найдена');
     }
 
     const row = result.rows[0];
@@ -309,7 +309,7 @@ export async function cancelBooking(
       totalPrice: cancelled.totalAmount,
       refundAmount: refund?.amount ?? 0,
       refundPercent: refund?.percent ?? 0,
-      refundReason: refund?.reason ?? 'Оплаты по этой брони не было — возвращать нечего.',
+      refundReason: refund?.reason ?? 'Оплаты по этой заявке не было — возвращать нечего.',
     });
 
     return { booking: cancelled, refund };

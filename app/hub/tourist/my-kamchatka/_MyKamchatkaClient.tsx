@@ -17,7 +17,7 @@ interface Summary {
 
 const QUICK_LINKS = [
   { href: '/routes', icon: MapPin, label: 'Маршруты', sub: 'Найти место' },
-  { href: '/hub/tourist/bookings', icon: Calendar, label: 'Бронирования', sub: 'Мои туры' },
+  { href: '/hub/tourist/bookings', icon: Calendar, label: 'Заявки', sub: 'Мои туры' },
   { href: '/hub/tourist/reviews', icon: Star, label: 'Отзывы', sub: 'Мои оценки' },
   { href: '/ai-assistant', icon: MessageCircle, label: 'Кузьмич', sub: 'Спросить AI' },
 ];
@@ -111,7 +111,7 @@ export function MyKamchatkaClient() {
         <div className="ds-card p-4 text-center space-y-2">
           <Leaf size={24} className="text-[var(--success)] mx-auto" />
           <p className="text-sm font-medium text-[var(--text-primary)]">Начните копить эко</p>
-          <p className="text-xs text-[var(--text-muted)]">Бронируйте туры, пишите отзывы, приглашайте друзей</p>
+          <p className="text-xs text-[var(--text-muted)]">Оставляйте заявки на туры, пишите отзывы, приглашайте друзей</p>
           <Link href="/hub/tourist/loyalty" className="ds-btn ds-btn-primary text-xs px-4 py-2 inline-block mt-1">
             Программа лояльности
           </Link>

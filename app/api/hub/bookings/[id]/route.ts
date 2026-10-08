@@ -45,12 +45,12 @@ export async function GET(
   if (access.state === 'unknown') {
     // Третий исход: проверить не смогли. Это не «доступ есть» и не «нет».
     return NextResponse.json(
-      { error: 'Не удалось проверить доступ к брони. Попробуйте позже.' },
+      { error: 'Не удалось проверить доступ к заявке. Попробуйте позже.' },
       { status: 503 },
     );
   }
   if (access.state === 'denied') {
-    return NextResponse.json({ error: 'Бронирование не найдено' }, { status: 404 });
+    return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 });
   }
 
   const r = await query<{
@@ -99,7 +99,7 @@ export async function GET(
   );
 
   if (!r.rows[0]) {
-    return NextResponse.json({ error: 'Бронирование не найдено' }, { status: 404 });
+    return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 });
   }
 
   const row = r.rows[0];

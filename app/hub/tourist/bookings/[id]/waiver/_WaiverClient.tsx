@@ -117,9 +117,9 @@ export default function WaiverClient({ bookingId }: { bookingId: string }) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-10">
         <div className="ds-card text-center py-14">
-          <p className="text-[var(--text-secondary)]">Бронирование не найдено или недоступно.</p>
+          <p className="text-[var(--text-secondary)]">Заявка не найдена или недоступна.</p>
           <Link href="/hub/tourist/bookings" className="ds-btn ds-btn-secondary inline-flex mt-5">
-            К бронированиям
+            К заявкам
           </Link>
         </div>
       </div>
@@ -135,7 +135,7 @@ export default function WaiverClient({ bookingId }: { bookingId: string }) {
           <p className="text-[var(--text-primary)] font-medium">Для этого тура согласие с рисками не требуется.</p>
           <p className="text-sm text-[var(--text-secondary)] mt-1">{status.tourTitle}</p>
           <Link href="/hub/tourist/bookings" className="ds-btn ds-btn-secondary inline-flex mt-5">
-            К бронированиям
+            К заявкам
           </Link>
         </div>
       </div>
@@ -150,7 +150,7 @@ export default function WaiverClient({ bookingId }: { bookingId: string }) {
         href="/hub/tourist/bookings"
         className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
       >
-        <ArrowLeft size={15} /> К бронированиям
+        <ArrowLeft size={15} /> К заявкам
       </Link>
 
       <header>

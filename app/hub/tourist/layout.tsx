@@ -17,7 +17,7 @@ const SIDEBAR_ITEMS = [
 
   { href: '/hub/tourist/my-kamchatka',     label: 'Моя Камчатка',      icon: Mountain,      section: 'Путешествия' },
   { href: '/hub/tourist/trips',            label: 'Мои маршруты',      icon: Route,         section: 'Путешествия' },
-  { href: '/hub/tourist/bookings',         label: 'Бронирования',      icon: Calendar,      section: 'Путешествия' },
+  { href: '/hub/tourist/bookings',         label: 'Заявки',            icon: Calendar,      section: 'Путешествия' },
   { href: '/hub/tourist/stays',            label: 'Мои проживания',    icon: BedDouble,     section: 'Путешествия' },
 
   { href: '/hub/tourist/safety',           label: 'Контрольный срок',  icon: ShieldCheck,   section: 'Безопасность' },

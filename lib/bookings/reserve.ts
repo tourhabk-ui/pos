@@ -257,8 +257,8 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
         throw new ReserveError(
           'DATE_BLOCKED',
           durationDays > 1
-            ? `Оператор закрыл бронирование на ${day.date} — эта дата входит в тур.`
-            : 'Оператор закрыл бронирование на эту дату.',
+            ? `Оператор закрыл приём заявок на ${day.date} — эта дата входит в тур.`
+            : 'Оператор закрыл приём заявок на эту дату.',
         );
       }
 

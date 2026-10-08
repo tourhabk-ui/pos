@@ -71,7 +71,7 @@ export function contractPaymentMethod(input: {
   if (input.availability.cardPublicId) ways.push('банковская карта');
   if (input.availability.sbp) ways.push('СБП (QR-код)');
   if (ways.length === 0) return 'по согласованию с оператором';
-  return `${ways.join(' или ')} на странице брони после подтверждения оператором`;
+  return `${ways.join(' или ')} на странице заявки после подтверждения оператором`;
 }
 
 /** Текст раздела 5: поле тура дословно либо честное «уточняется». */

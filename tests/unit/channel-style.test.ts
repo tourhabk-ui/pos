@@ -45,7 +45,7 @@ describe('тур — по стандарту', () => {
   it('заголовок ведёт на тур, факты и цена — плашкой, в конце — ссылка на бронь', () => {
     expect(text.startsWith('<b><a href="https://vedarai.ru/catalog/tours/7">Сплав по Быстрой</a></b>\n<i>')).toBe(true);
     expect(text).toMatch(/<blockquote>[\s\S]*<b>25 000 ₽<\/b>[\s\S]*Оператор: Оператор Тест<\/blockquote>/);
-    expect(text.endsWith('<a href="https://vedarai.ru/catalog/tours/7">Подробности и бронирование</a>')).toBe(true);
+    expect(text.endsWith('<a href="https://vedarai.ru/catalog/tours/7">Подробности и заявка оператору</a>')).toBe(true);
   });
 });
 

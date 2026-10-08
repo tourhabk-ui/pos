@@ -282,9 +282,9 @@ export default function BookingSuccessClient() {
                   Сохрани эту ссылку сейчас
                 </p>
                 <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                  Почту при бронировании не указывали — значит письма с этой ссылкой не будет,
+                  Почту в заявке не указывали — значит письма с этой ссылкой не будет,
                   и вернуться к заявке, оплате и документам можно только по ней. Закроешь вкладку
-                  без сохранения — доступ к брони и своим данным восстановить будет нечем.
+                  без сохранения — доступ к заявке и своим данным восстановить будет нечем.
                   Кнопка «Скопировать ссылку на заявку» — внизу страницы.
                 </p>
               </div>
@@ -305,10 +305,10 @@ export default function BookingSuccessClient() {
                 <AlertCircle className="w-5 h-5 shrink-0" />
                 <span className="text-sm">
                   {failure === 'unavailable'
-                    ? <>Не удалось проверить доступ к брони — попробуйте через минуту. Номер: <b>#{bookingId}</b></>
+                    ? <>Не удалось проверить доступ к заявке — попробуйте через минуту. Номер: <b>#{bookingId}</b></>
                     : failure === 'unknown'
                       ? <>Не дозвонились до сервера. Проверьте связь и повторите. Номер: <b>#{bookingId}</b></>
-                      : <>Бронирование не найдено. Откройте ссылку из письма или из чата — по одному номеру бронь не открывается.</>}
+                      : <>Заявка не найдена. Откройте ссылку из письма или из чата — по одному номеру заявка не открывается.</>}
                 </span>
               </div>
               {failure !== 'not_found' && (
@@ -327,7 +327,7 @@ export default function BookingSuccessClient() {
               {/* Booking number */}
               <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
                 <div>
-                  <p className="text-[11px] text-[var(--text-muted)] mb-0.5">Номер брони</p>
+                  <p className="text-[11px] text-[var(--text-muted)] mb-0.5">Номер заявки</p>
                   <p className="text-2xl font-bold text-[var(--accent)]">#{booking.id}</p>
                 </div>
                 {/* 44px — минимальная тач-цель DS; была 16px (#86). */}
@@ -588,7 +588,7 @@ export default function BookingSuccessClient() {
           )}
           {authed === true && (
             <Link href="/hub/tourist/bookings" className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">
-              Мои бронирования
+              Мои заявки
             </Link>
           )}
           <Link href="/catalog" className="ds-btn ds-btn-secondary w-full flex items-center justify-center gap-2">

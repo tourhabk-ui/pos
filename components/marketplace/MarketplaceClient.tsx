@@ -461,7 +461,7 @@ function TourCard({
             onClick={(e) => e.stopPropagation()}
             className="ds-btn ds-btn-primary px-4 whitespace-nowrap"
           >
-            {availability === 'dates' ? 'Забронировать' : 'Оставить заявку'}
+            {availability === 'dates' ? 'Отправить заявку' : 'Оставить заявку'}
           </Link>
         </div>
       </div>

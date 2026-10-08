@@ -70,7 +70,7 @@ export function notifyTouristBookingCreated(
       await telegramService.sendMessage({
         chatId,
         text: [
-          '<b>Бронирование принято!</b>',
+          '<b>Заявка отправлена оператору</b>',
           '',
           `<b>Тур:</b> ${esc(booking.tourTitle)}`,
           `<b>Дата:</b> ${dateStr}`,
@@ -78,10 +78,10 @@ export function notifyTouristBookingCreated(
           `<b>Сумма:</b> ${booking.totalAmount.toLocaleString('ru-RU')} ₽`,
           '',
           'Оператор рассмотрит заявку в течение нескольких часов.',
-          'Статус брони можно проверить в личном кабинете.',
+          'Статус заявки можно проверить в личном кабинете.',
           '',
           ...(payLine ? [payLine, ''] : []),
-          `<a href="https://vedarai.ru/hub/tourist/bookings">Мои бронирования →</a>`,
+          `<a href="https://vedarai.ru/hub/tourist/bookings">Мои заявки →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
       });
@@ -115,7 +115,7 @@ export function notifyTouristBookingConfirmed(
       await telegramService.sendMessage({
         chatId,
         text: [
-          '<b>Оператор подтвердил бронирование!</b>',
+          '<b>Оператор подтвердил заявку</b>',
           '',
           `<b>Тур:</b> ${esc(booking.tourTitle)}`,
           `<b>Дата:</b> ${dateStr}`,
@@ -127,7 +127,7 @@ export function notifyTouristBookingConfirmed(
             ? 'Оплата — напрямую оператору: Ведар платежи не принимает, реквизиты сообщит оператор.'
             : 'Подготовьтесь к поездке — оператор свяжется с вами ближе к дате.',
           '',
-          `<a href="${escAttr(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали брони →</a>`,
+          `<a href="${escAttr(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали заявки →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
       });
@@ -155,10 +155,10 @@ export function notifyTouristBookingCancelled(
       if (!chatId) return;
 
       const byLabel = booking.cancelledBy === 'operator'
-        ? 'Оператор отменил бронирование'
+        ? 'Оператор отменил заявку'
         : booking.cancelledBy === 'admin'
-          ? 'Бронирование отменено администратором'
-          : 'Бронирование отменено';
+          ? 'Заявка отменена администратором'
+          : 'Заявка отменена';
 
       const refundLine = booking.refundAmount > 0
         ? `\n<b>Возврат:</b> ${booking.refundAmount.toLocaleString('ru-RU')} ₽ (${booking.refundPercent}%)`

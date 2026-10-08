@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const e = error as Error & { code?: string };
     console.error('[bookings/my] отказ базы', { sqlstate: e?.code, message: e?.message });
     return NextResponse.json(
-      { success: false, error: 'Не удалось загрузить бронирования. Попробуйте обновить страницу.' } as ApiResponse<null>,
+      { success: false, error: 'Не удалось загрузить заявки. Попробуйте обновить страницу.' } as ApiResponse<null>,
       { status: 500 },
     );
   }

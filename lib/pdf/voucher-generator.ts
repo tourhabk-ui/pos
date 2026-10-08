@@ -83,7 +83,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
 
     // ── Номер и даты ──────────────────────────────────────────────────────────
     doc.fontSize(22).font(FONT_BOLD).fillColor(DARK)
-       .text(`Бронь №${data.bookingId}`, { align: 'center' });
+       .text(`Заявка №${data.bookingId}`, { align: 'center' });
     doc.moveDown(0.2);
     doc.fontSize(9).font(FONT_BODY).fillColor(MUTED)
        .text(`Выдан: ${fmt(data.issueDate)}   ·   Действителен до: ${fmt(data.tourDate)}`, { align: 'center' });
@@ -184,10 +184,10 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     doc.moveDown(0.4);
     doc.fontSize(9).font(FONT_BODY).fillColor(MUTED).text(
       data.accessToken
-        ? `Детали бронирования: ${getPublicBaseUrl().replace(/^https?:\/\//, '')}/booking-success/${data.bookingId}?t=${data.accessToken}`
+        ? `Детали заявки: ${getPublicBaseUrl().replace(/^https?:\/\//, '')}/booking-success/${data.bookingId}?t=${data.accessToken}`
         // Ключа не передали — печатать мёртвую ссылку хуже, чем не печатать:
         // человек по ней придёт и увидит «не найдено».
-        : `Бронь №${data.bookingId} · ссылку на детали ищите в письме или чате`,
+        : `Заявка №${data.bookingId} · ссылку на детали ищите в письме или чате`,
       { align: 'center', width: W }
     );
     doc.moveDown(0.3);

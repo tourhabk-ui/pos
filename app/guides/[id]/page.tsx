@@ -242,7 +242,7 @@ export default async function GuideProfilePage({ params }: { params: Promise<{ i
 
         {/* Контакт */}
         <div className="ds-card flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-sm text-[var(--text-secondary)]">Хотите пойти с этим гидом? Свяжитесь до брони — уточните маршрут и опыт.</p>
+          <p className="text-sm text-[var(--text-secondary)]">Хотите пойти с этим гидом? Свяжитесь до заявки — уточните маршрут и опыт.</p>
           {guide.phone ? (
             <a href={`tel:${guide.phone}`} className="ds-btn ds-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
               <Phone size={14} /> Связаться
