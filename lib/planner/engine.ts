@@ -1836,7 +1836,7 @@ function describePreferences(input: {
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
 
-function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBreakdown {
+export function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBreakdown {
   const bi = budgetIndex(profile.budgetTier);
   const nightCount = Math.max(0, days.length - 1);
 
