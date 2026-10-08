@@ -17,8 +17,8 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
 import { parseVonaFeed, latestVonaNumber } from '@/lib/services/safety/kvert-vona';
 import { describeVonaRu } from '@/lib/services/safety/kvert-activity-ru';
-import { fetchVonaSince, mergeVonaOverSummary } from '@/lib/agents/kvert-sync';
-import type { ParsedVona } from '@/lib/services/safety/kvert-vona';
+import { fetchVonaSince, mergeVonaOverSummary, composeVolcanoRecord } from '@/lib/agents/kvert-sync';
+import type { ParsedVona, KvertActivitySection } from '@/lib/services/safety/kvert-vona';
 
 function page(lines: string[], vn: number): string {
   return [
@@ -175,6 +175,14 @@ describe('fetchVonaSince: назад от последнего, пока не с
     const r = await fetchVonaSince(new Date('2026-10-02T23:53:00Z'), get);
     expect(r.failed).toEqual([162]);
     expect(r.items.map((v) => v.noticeNumber)).toEqual(['2026/29', '2026/29']);
+    expect(r.truncated).toBe(false);
+  });
+
+  it('потолок раньше старого бюллетеня — сказано, что дальше не смотрели', async () => {
+    const r = await fetchVonaSince(new Date('2026-01-01T00:00:00Z'), async (u) => pages[u] ?? null);
+    expect(r.items).toHaveLength(4);
+    expect(r.failed).toEqual([159, 158, 157, 156]);
+    expect(r.truncated).toBe(true);
   });
 
   it('лента не ответила — отказ, а не «бюллетеней нет»', async () => {
@@ -223,5 +231,68 @@ describe('describeVonaRu: фраза только из полей бюллете
 
   it('без смены кода и без облака — нечего сказать', () => {
     expect(describeVonaRu(parseVonaFeed(SHEVELUCH_161)[0])).toBeNull();
+  });
+});
+
+describe('composeVolcanoRecord: бюллетень не занижает предупреждение сводки', () => {
+  // Раздел недельной сводки 02.10 по Шивелучу — абзацы с выпуска (probe run 5).
+  const sheveluchWeekly: KvertActivitySection = {
+    volcanoName: 'SHEVELUCH', nameSlug: 'sheveluch', nameRu: 'Шивелуч', color: 'orange',
+    summitElevationM: 3283, ashHeightM: 12000,
+    hazardEn: 'An explosive-extrusive eruption of the volcano continues. Ash explosions up to 12 km (39,400 ft) a.s.l. could occur at any time. Ongoing activity could affect international and low-flying aircraft.',
+    activityEn: 'An explosive-extrusive eruption of the volcano continues, accompanied by powerful gas-steam activity; a new block of lava continues to grow in the northern part of the lava dome.',
+    sourceUrl: 'http://kvert.febras.net/volc?lang=en&name=Sheveluch',
+  };
+  const chikurachkiWeekly: KvertActivitySection = {
+    volcanoName: 'CHIKURACHKI', nameSlug: 'chikurachki', nameRu: 'Чикурачки', color: 'yellow',
+    summitElevationM: 1816, ashHeightM: 4000,
+    hazardEn: 'Moderate activity of the volcano continues. Ash explosions up to 4 km (13,100 ft) a.s.l. could occur at any time.',
+    activityEn: 'Satellite data showed an ash plume on September 20.',
+    sourceUrl: 'http://kvert.febras.net/volc?lang=en&name=Chikurachki',
+  };
+
+  it('код тот же: высота — предупреждение сводки (12 км), а не наблюдённые 6,5', () => {
+    const v = parseVonaFeed(SHEVELUCH_162)[0];
+    const r = composeVolcanoRecord({ v, vonaSource: 'http://kvert.febras.net/van/?vn=162&lend=en', weeklyColor: 'orange', section: sheveluchWeekly });
+    expect(r.ashHeightM).toBe(12000);
+    // Каждая фраза со своей цифрой: предупреждение — 12 км, событие — 6,5 км.
+    expect(r.summary).toMatch(/12 км над уровнем моря возможны в любое время/);
+    expect(r.summary).toMatch(/Облако пепла поднималось до 6,5 км/);
+    expect(r.summary).not.toMatch(/6,5 км над уровнем моря возможны/);
+    expect(r.activityLevel).toMatch(/^EXPLOSION SENT ASH/);
+    expect(r.sourceUrl).toBe('http://kvert.febras.net/van/?vn=162&lend=en');
+  });
+
+  it('наблюдённый выброс выше предупреждения — берётся он', () => {
+    const v = { ...parseVonaFeed(SHEVELUCH_162)[0], ashHeightM: 15000 };
+    const r = composeVolcanoRecord({ v, vonaSource: 'x', weeklyColor: 'orange', section: sheveluchWeekly });
+    expect(r.ashHeightM).toBe(15000);
+  });
+
+  it('код сменился: описание сводки устарело целиком', () => {
+    const v = parseVonaFeed(CHIKURACHKI_163)[0];
+    const r = composeVolcanoRecord({ v, vonaSource: 'x', weeklyColor: 'yellow', section: chikurachkiWeekly });
+    expect(r.ashHeightM).toBeNull();
+    expect(r.summary).toBe('Код KVERT понижен с жёлтого до зелёного.');
+  });
+
+  it('у бюллетеня нет поля «прежний код» — решает цвет сводки', () => {
+    const v = { ...parseVonaFeed(CHIKURACHKI_163)[0], previousColor: null };
+    const r = composeVolcanoRecord({ v, vonaSource: 'x', weeklyColor: 'yellow', section: chikurachkiWeekly });
+    expect(r.ashHeightM).toBeNull();
+    expect(r.summary).toBeNull();
+  });
+
+  it('без бюллетеня — как раньше: высота и фраза сводки', () => {
+    const v: ParsedVona = {
+      volcanoName: 'SHEVELUCH', nameSlug: 'sheveluch', nameRu: 'Шивелуч', color: 'orange', previousColor: null,
+      summitElevationM: null, ashHeightM: null, area: null, noticeNumber: null,
+      observedAt: new Date('2026-10-02T23:53:00Z'), summary: null,
+    };
+    const r = composeVolcanoRecord({ v, vonaSource: null, weeklyColor: 'orange', section: sheveluchWeekly });
+    expect(r.ashHeightM).toBe(12000);
+    expect(r.summary).toMatch(/^Продолжается эксплозивно-экструзивное извержение/);
+    expect(r.activityLevel).toMatch(/^An explosive-extrusive eruption/);
+    expect(r.sourceUrl).toBe('http://kvert.febras.net/volc?lang=en&name=Sheveluch');
   });
 });

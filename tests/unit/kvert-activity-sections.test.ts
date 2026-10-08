@@ -170,7 +170,7 @@ describe('синк дополняет коды подробностями, а н
   });
 
   it('английский оригинал сохраняется как улика происхождения', () => {
-    expect(SYNC).toMatch(/activityLevel: \(fromVona \? v\.summary : \(sec\?\.hazardEn \?\? v\.summary\)\)\?\.slice\(0, 200\)/);
+    expect(SYNC).toMatch(/activityLevel: \(sec\?\.hazardEn \?\? v\.summary\)\?\.slice\(0, 200\)/);
   });
 
   it('сколько вулканов получили подробности — сообщается прогоном', () => {
