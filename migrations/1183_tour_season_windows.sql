@@ -59,7 +59,7 @@ UPDATE tour_availability ta
        cancellation_reason = 'Вне сезона тура: летний сезон оператора — по 30.09 (1183, #2244)',
        updated_at = NOW()
   FROM operator_tours t
- WHERE ta.operator_tour_id = t.id
+ WHERE ta.operator_tour_id::text = t.id::text
    AND t.id IN (6, 9)
    AND t.operator_id::text = '0aaa4f05-b479-418b-9d54-2b909783dfd7'
    AND ta.date >= CURRENT_DATE
@@ -70,7 +70,7 @@ UPDATE tour_availability ta
    AND COALESCE(ta.booked_slots, 0) = 0
    AND NOT EXISTS (
      SELECT 1 FROM operator_bookings b
-      WHERE b.operator_tour_id = ta.operator_tour_id
+      WHERE b.operator_tour_id::text = ta.operator_tour_id::text
         AND b.booking_status NOT IN ('cancelled', 'rejected')
         AND b.deleted_at IS NULL
         AND ta.date BETWEEN b.booking_date AND COALESCE(b.end_date, b.booking_date)
