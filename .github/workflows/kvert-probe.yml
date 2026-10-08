@@ -60,6 +60,17 @@ jobs:
                   print(f'— «{pat}»: совпадений {len(idx)}, первые 8 с контекстом:')
                   for i in idx[:8]:
                       print('  ┄ ' + ' | '.join(lines[max(0,i-2):i+4]))
+              # Бюллетень целиком: от заголовка до правил цитирования — под
+              # фикстуру парсера нужен весь блок, а не окрестность одного слова.
+              hi = next((i for i,l in enumerate(lines) if re.search(r'NOTICE (TO|FOR) AVIATION', l, re.I)), None)
+              if hi is not None:
+                  end = next((j for j in range(hi, len(lines)) if re.search(r'CITATION', lines[j], re.I)), min(hi+40, len(lines)))
+                  print('— бюллетень целиком:'); print('\n'.join(lines[hi:end]))
+              # Сырые ссылки по шаблону маркера (href): как список выпусков
+              # адресует отдельный бюллетень — с текстом ссылки рядом.
+              for pat in m.get('href') or []:
+                  hits = [mm.group(0) for mm in re.finditer(r'<a[^>]+href=["\'][^"\']*' + pat + r'[^>]*>[^<]{0,60}', raw, re.I)]
+                  print(f'— ссылки «{pat}»: {len(hits)}, первые 15:'); print('\n'.join(hits[:15]) or '  нет')
               links = sorted(set(re.findall(r'href=["\']([^"\']*(?:type=|vona|van)[^"\']*)', raw, re.I)))[:30]
               print('— ссылки на ленты:'); print('\n'.join(links) or '  нет')
           PY
