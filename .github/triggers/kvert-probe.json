@@ -1,7 +1,7 @@
 {
   "note": "Маркер запуска kvert-probe.yml: правка этого файла в main снимает выпуск KVERT с раннера и печатает его структуру. Только чтение.",
-  "run": 4,
-  "why": "08.10: недельная сводка (type=3) обновлена 02.10 — у всех вулканов «6 дней назад». Владелец: подключить отдельные VONA между сводками. Ищем адрес ленты VONA и её формат.",
+  "run": 5,
+  "why": "08.10: run 4 — на type=1/2/4 и индексе заголовков VONA нет, это HTML-списки выпусков. Ищем, где в них VONA по Шивелучу и с какими датами; пробуем type=5/6 и страницу вулкана.",
   "url": "http://kvert.febras.net/van/index.php?type=3&lend=en",
   "names": [
     "KRASHENINNIKOV",
@@ -10,9 +10,14 @@
   ],
   "urls": [
     "http://kvert.febras.net/van/index.php?type=1&lend=en",
-    "http://kvert.febras.net/van/index.php?type=2&lend=en",
-    "http://kvert.febras.net/van/index.php?type=4&lend=en",
-    "http://kvert.febras.net/van/index.php?lend=en",
-    "http://kvert.febras.net/van/"
+    "http://kvert.febras.net/van/index.php?type=5&lend=en",
+    "http://kvert.febras.net/van/index.php?type=6&lend=en",
+    "http://kvert.febras.net/volc?lang=en&name=Sheveluch"
+  ],
+  "grep": [
+    "SHEVELUCH",
+    "VONA",
+    "colou?r code",
+    "2026-10-0|0[4-8]\\.10\\.2026|Oct(ober)? 0?[4-8]"
   ]
 }

@@ -53,6 +53,13 @@ jobs:
               keys = [l for l in lines if re.match(r'(Issued|Volcano|Current aviation|Previous aviation|Notice Number|Volcanic cloud height)\b', l, re.I)]
               print('— поля VONA (первые 24):'); print('\n'.join(keys[:24]) or '  нет')
               print('— начало текста (40 строк):'); print('\n'.join(lines[:40]))
+              # Окрестности искомых слов (grep из маркера): список выпусков
+              # длинный, и начало страницы не говорит, где в нём VONA и даты.
+              for pat in m.get('grep') or []:
+                  idx = [i for i,l in enumerate(lines) if re.search(pat, l, re.I)]
+                  print(f'— «{pat}»: совпадений {len(idx)}, первые 8 с контекстом:')
+                  for i in idx[:8]:
+                      print('  ┄ ' + ' | '.join(lines[max(0,i-2):i+4]))
               links = sorted(set(re.findall(r'href=["\']([^"\']*(?:type=|vona|van)[^"\']*)', raw, re.I)))[:30]
               print('— ссылки на ленты:'); print('\n'.join(links) or '  нет')
           PY
