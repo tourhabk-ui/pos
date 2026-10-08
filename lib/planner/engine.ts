@@ -131,6 +131,12 @@ export interface DayPlan {
     weatherDependent: boolean;
     durationHours: number | null;
     /**
+     * За что назначена цена тура: `per_person`, `per_tour` (за группу),
+     * `per_day_per_person`. В сумму «на человека» идёт только `per_person`
+     * (#2223): цена группы, сложенная как цена человека, завышала бы итог.
+     */
+    priceUnit: string;
+    /**
      * Включено ли проживание в тур: `true` / `false` / `null` — не знаем.
      * Ночь такого дня не оплачивается отдельно (см. calculatePriceBreakdown).
      */
@@ -188,6 +194,13 @@ export interface PriceBreakdown {
   accommodation: [number, number];
   transport: [number, number];
   perPersonTotal: [number, number];
+  /**
+   * Из чего сложены активности (#2223): сколько дней по цене тура оператора,
+   * сколько по ориентиру вида активности (тура нет — цена не тура, а
+   * справочная вилка), и сколько туров в сумму НЕ вошли, потому что их цена
+   * не за человека. Без этого одна цифра выдавала бы оценку за цену.
+   */
+  activityPricing: { tourPriced: number; estimated: number; excluded: number };
 }
 
 interface ZoneRecommendation {
@@ -1400,6 +1413,7 @@ async function generateDayPlans(
           maxParticipants: realTour.maxParticipants,
           weatherDependent: realTour.weatherDependent,
           durationHours: realTour.durationHours,
+          priceUnit: realTour.priceUnit,
           lodgingIncluded: lodgingIncluded(realTour.included),
         };
         realPrice = realTour.basePrice;
@@ -1750,9 +1764,27 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
   const bi = budgetIndex(profile.budgetTier);
   const nightCount = Math.max(0, days.length - 1);
 
-  // Activities total
-  const actFrom = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ?? d.priceFrom), 0);
-  const actTo   = days.filter(d => d.type === 'activity' || d.type === 'buffer').reduce((s, d) => s + (d.realPrice ? Math.round(d.realPrice * 1.2) : d.priceTo), 0);
+  // Активности. Цена тура оператора — только если она за человека: цену
+  // группы или дня сложить как цену человека значило бы соврать в итоге
+  // (#2223); такой тур в сумму не идёт и называется отдельно. День без тура —
+  // справочная вилка вида активности: это ориентир, и он тоже назван отдельно.
+  // Продолжение многодневного тура (цена 0, учтена в первом дне) не считается.
+  let actFrom = 0;
+  let actTo = 0;
+  const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0 };
+  for (const d of days) {
+    if (d.type !== 'activity' && d.type !== 'buffer') continue;
+    if (d.realPrice) {
+      if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
+      actFrom += d.realPrice;
+      actTo += Math.round(d.realPrice * 1.2);
+      activityPricing.tourPriced++;
+      continue;
+    }
+    if (d.priceFrom > 0 || d.priceTo > 0) activityPricing.estimated++;
+    actFrom += d.priceFrom;
+    actTo += d.priceTo;
+  }
 
   // Ночёвки. Оценка по зоне — только за те ночи, которые турист ДЕЙСТВИТЕЛЬНО
   // оплачивает отдельно.
@@ -1806,6 +1838,7 @@ function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBr
     accommodation: [accFrom, accTo],
     transport: [transFrom, transTo],
     perPersonTotal: [actFrom + accFrom + transFrom, actTo + accTo + transTo],
+    activityPricing,
   };
 }
 
@@ -1876,7 +1909,10 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   if (!profile.interests || profile.interests.length === 0) {
     return {
       zones: [], days: [], warnings: [],
-      priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] },
+      priceBreakdown: {
+        activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
+        activityPricing: { tourPriced: 0, estimated: 0, excluded: 0 },
+      },
       itinerary: 'Выберите интересы для рекомендации.',
       // Каталог не спрашивали вовсе — это «не знаем», а не «пусто».
       catalogueOpen: null,

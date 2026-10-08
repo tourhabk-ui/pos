@@ -2128,6 +2128,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       return await makeTripPlanForKuzmich({
         days: args.days, interests: args.interests, when: args.when,
         travel_style: args.travel_style, rest_days: args.rest_days,
+        adults: args.adults, children: args.children, budget_tier: args.budget_tier,
       });
     }
     if (name === 'get_tour_availability') {
