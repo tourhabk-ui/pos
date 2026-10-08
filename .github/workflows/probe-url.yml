@@ -104,6 +104,7 @@ jobs:
           # и есть искомый ответ: проба «роут точно удалён?» законна. Во всех
           # прочих случаях исчерпанные повторы — отказ пробы, а не её успех.
           ALLOW_STALE=$(python3 -c "import json; print('yes' if json.load(open('.github/triggers/probe-url.json')).get('allowStale') else 'no')")
+          TEXT_ONLY=$(python3 -c "import json; print('yes' if json.load(open('.github/triggers/probe-url.json')).get('text') else 'no')")
           # Именно if, а не `[ ... ] && ...`: шаг идёт под `bash -e`, и
           # неуспешная проверка как последняя команда строки убила бы прогон,
           # когда поля просто не заданы.
@@ -164,6 +165,19 @@ jobs:
           # секрет уехал на сторонний хост. Правило, зависящее от дисциплины
           # заполняющего конфиг, — не защита; проверка адреса — защита.
           # Адрес сужен с домена до /api/cron/ (09.08): секрет нужен только там.
+          # Снятие разметки для режима "text" (см. report_body). Файл пишется
+          # здесь, а не heredoc-ом внутри функции: heredoc в блочном скаляре
+          # YAML требует отступа базы, и это легко сломать.
+          cat > /tmp/strip.py <<'PY'
+          import sys, re, html
+          raw = sys.stdin.buffer.read().decode('utf-8', 'replace')
+          raw = re.sub(r'(?is)<(script|style|noscript|svg)\b.*?</\1>', ' ', raw)
+          raw = re.sub(r'(?i)<br\s*/?>|</(p|div|li|h[1-6]|tr|section|article|td|th|dt|dd)>', '\n', raw)
+          raw = re.sub(r'(?s)<[^>]+>', ' ', raw)
+          raw = html.unescape(raw)
+          lines = [re.sub(r'[ \t\xa0]+', ' ', l).strip() for l in raw.splitlines()]
+          print('\n'.join(l for l in lines if l))
+          PY
           do_request() {
             local method="$1" url="$2"
             local auth=()
@@ -308,6 +322,17 @@ jobs:
                 # двенадцать килобайт, и без запятой он остаётся простынёй.
                 sed 's/>/>\n/g; s/,/,\n/g' < /tmp/body | grep -m "$AROUND_HITS" -B "$AROUND_BEFORE" -A "$AROUND_LINES" -F -- "$a" | cut -c1-200 || echo "  (не найдено)"
               done <<< "$AROUND"
+            fi
+            if [ "$TEXT_ONLY" = yes ]; then
+              # "text": true — HTML без тегов, скриптов и стилей, один абзац на
+              # строку: карточка тура на чужом сайте — 100+ КБ разметки при
+              # 10 КБ текста, и лимит check-run в 65 535 символов съедала
+              # разметка (проба 712, разбор витрины под #2245).
+              python3 /tmp/strip.py < /tmp/body > /tmp/text || cp /tmp/body /tmp/text
+              echo "── текст без разметки, первые ${BYTES} байт (всего $(wc -c < /tmp/text)) ──"
+              head -c "${BYTES}" /tmp/text | tr -d '\r' | fold -b -w 3000
+              echo ""
+              return
             fi
             echo "── первые ${BYTES} байт ──"
             # fold: канал чтения логов (get_job_logs) режет строки длиннее
