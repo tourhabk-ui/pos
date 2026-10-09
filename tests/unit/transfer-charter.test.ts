@@ -156,6 +156,15 @@ describe('ролик перевозчика', () => {
     expect(statSync(poster).size).toBeLessThan(100 * 1024);
   });
 
+  it('ролик без звука (решение владельца 09.10): дорожки нет в файле, плеер muted', () => {
+    // Звуковая дорожка в MP4 — trak с обработчиком 'soun' в hdlr; у видео — 'vide'.
+    const bytes = readFileSync(mp4).toString('latin1');
+    expect(bytes).toMatch(/hdlr\0{8}vide/);
+    expect(bytes).not.toMatch(/hdlr\0{8}soun/);
+    const card = readFileSync(join(ROOT, 'components/transfers/CharterCard.tsx'), 'utf8');
+    expect(card).toMatch(/<video\s+controls\s+muted\b/);
+  });
+
   it('метаданные ролика сняты: в присланном с телефона бывают дата и место съёмки', () => {
     const head = readFileSync(mp4).subarray(0, 4096).toString('latin1');
     expect(head).toMatch(/ftyp/);
