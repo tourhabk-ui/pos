@@ -27,6 +27,8 @@ import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-cou
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
 import { orderPlates } from '@/lib/home/plate-facts';
+import { toTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
+import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
@@ -199,6 +201,11 @@ export interface HomeV8Data {
   radar: RadarSnapshot;
   zones: ZonesSnapshot;
   plates: Plate[];
+  /**
+   * Карточка трансфера между турами (решение владельца 09.10); null — нет
+   * перевозчика с прайсом или прочитать не смогли (причина в логе).
+   */
+  transfer: TransferPlate | null;
   /** Места для «Исследовать»; пусто — блока нет (причина отказа в логе). */
   explore: ExplorePlace[];
   feed: FeedItem[];
@@ -795,15 +802,35 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
   return { safety, seismic, radar, volcanoes };
 }
 
+/**
+ * Перевозчик под заказ для ленты туров (решение владельца 09.10). Первый по
+ * имени, у кого есть прайс; отказ чтения — в лог и без карточки: лента туров
+ * от этого не страдает (§4.0 — «не смог» не выдаётся за «перевозчиков нет»
+ * только в логе, на главной карточки просто нет).
+ */
+export async function fetchTransferPlate(): Promise<TransferPlate | null> {
+  try {
+    const carriers = await loadCharterCarriers();
+    for (const c of carriers) {
+      const plate = toTransferPlate(c);
+      if (plate) return plate;
+    }
+    return null;
+  } catch (err) {
+    console.error('[home] карточка трансфера не собрана:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, explore, feedItems, counts] = await Promise.all([
+  const [live, zones, plates, transfer, explore, feedItems, counts] = await Promise.all([
     getSafetyLiveData(),
-    fetchZones(), fetchPlates(), fetchExplore(), fetchFeed(),
+    fetchZones(), fetchPlates(), fetchTransferPlate(), fetchExplore(), fetchFeed(),
     getPlatformCounts().catch(() => null),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, explore, feed: feedItems, stats, elements };
+  return { ...live, zones, plates, transfer, explore, feed: feedItems, stats, elements };
 }

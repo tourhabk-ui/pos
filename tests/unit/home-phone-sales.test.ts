@@ -99,10 +99,13 @@ describe('карусель', () => {
     expect(rule('.v7 .plate .row')).toMatch(/padding:\d+px 12px/);
   });
 
-  it('точки озвучены «Тур N из M», а не «Плата N»', () => {
+  it('точки озвучены «Карточка N из M», а не «Плата N»', () => {
     expect(CODE).not.toMatch(/aria-label=\{`Плата/);
-    // С 30.09 лента — все туры витрины, с первого: номер i + 1.
-    expect(CODE).toMatch(/aria-label=\{`Тур \$\{i \+ 1\} из \$\{tours\.length\}`\}/);
+    // С 30.09 лента — все туры витрины, с первого: номер i + 1. С 09.10 в ней
+    // и трансфер, поэтому точка — «Карточка», а сама карточка называет род.
+    expect(CODE).toMatch(/aria-label=\{`Карточка \$\{i \+ 1\} из \$\{cards\.length\}`\}/);
+    expect(CODE).toMatch(/`Карточка \$\{i \+ 1\} из \$\{cards\.length\}: тур`/);
+    expect(CODE).toMatch(/`Карточка \$\{i \+ 1\} из \$\{cards\.length\}: трансфер`/);
   });
 
   it('CTA — кнопка не ниже 44px и не мельче 13px', () => {
@@ -182,7 +185,9 @@ describe('два направления и безопасность одним �
     // (hooks/use-plate-drift), вторая копия aria-hidden: та же лента, не
     // второй блок туров.
     const ribbons = (JSX.match(/\{tours\.map\(\(p, i\) =>/g) ?? []).length
-      + (JSX.match(/\{\(drift\.looping \? \[\.\.\.tours, \.\.\.tours\] : tours\)\.map\(/g) ?? []).length;
+      + (JSX.match(/\{\(drift\.looping \? \[\.\.\.cards, \.\.\.cards\] : cards\)\.map\(/g) ?? []).length;
+    // С 09.10 в ленте между турами — карточка трансфера (cards = туры + она).
+    expect(CODE).toMatch(/const cards = withTransferPlate\(tours, data\.transfer\);/);
     expect(ribbons).toBe(1);
   });
 
