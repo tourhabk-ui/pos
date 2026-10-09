@@ -11,7 +11,7 @@
  * и гида — иначе баннер погас бы, а бронь жилья по-прежнему не доходила бы.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
@@ -21,15 +21,20 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 
 const requirePartner = vi.fn();
 const reachForPartner = vi.fn();
+const buildPartnerChannelLinks = vi.fn();
 vi.mock('@/lib/crm/partner-context', () => ({ requirePartner: (...a: unknown[]) => requirePartner(...a) }));
 vi.mock('@/lib/partners/reach', () => ({ reachForPartner: (...a: unknown[]) => reachForPartner(...a) }));
+vi.mock('@/lib/partners/channel-link', () => ({ buildPartnerChannelLinks: (...a: unknown[]) => buildPartnerChannelLinks(...a) }));
 
 const route = await import('@/app/api/hub/crm/channel/route');
-const req = () => new NextRequest('http://localhost/api/hub/crm/channel');
+const linkRoute = await import('@/app/api/hub/crm/channel/link/route');
+const req = (path = '/api/hub/crm/channel', method = 'GET') => new NextRequest(`http://localhost${path}`, { method });
 
 beforeEach(() => {
   requirePartner.mockReset().mockResolvedValue({ outcome: 'ok', partnerId: 'p-1', category: 'stay', userId: 'u-1' });
   reachForPartner.mockReset();
+  buildPartnerChannelLinks.mockReset();
+  vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
 describe('GET /api/hub/crm/channel', () => {
@@ -54,6 +59,47 @@ describe('GET /api/hub/crm/channel', () => {
   });
 });
 
+describe('POST /api/hub/crm/channel/link — партнёр подключает MAX сам (решение владельца 09.10)', () => {
+  const PATH = '/api/hub/crm/channel/link';
+
+  it('не партнёр — ответ гарда, ссылка не выдаётся', async () => {
+    requirePartner.mockResolvedValueOnce(NextResponse.json({ success: false }, { status: 401 }));
+    expect((await linkRoute.POST(req(PATH, 'POST'))).status).toBe(401);
+    expect(buildPartnerChannelLinks).not.toHaveBeenCalled();
+  });
+
+  it('ссылка — только на свою карточку: id партнёра из гарда; ответ не кэшируется', async () => {
+    buildPartnerChannelLinks.mockReturnValueOnce({
+      ok: true, max: 'https://max.ru/bot?start=op_x', telegram: 'https://t.me/bot?start=op_x', expiresAt: new Date('2026-10-12T20:00:00Z'),
+    });
+    const r = await linkRoute.POST(new NextRequest(`http://localhost${PATH}?partner_id=p-chuzhoi`, { method: 'POST' }));
+    expect(buildPartnerChannelLinks).toHaveBeenCalledWith('p-1');
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    expect((await r.json()).data).toEqual({
+      max: 'https://max.ru/bot?start=op_x', telegram: 'https://t.me/bot?start=op_x', expires_at: '2026-10-12T20:00:00.000Z',
+    });
+  });
+
+  it('секрета нет — 503 с причиной в логе, а не ссылка без подписи', async () => {
+    buildPartnerChannelLinks.mockReturnValueOnce({ ok: false, reason: 'no_secret' });
+    expect((await linkRoute.POST(req(PATH, 'POST'))).status).toBe(503);
+  });
+
+  it('выдавальщиков ссылки ровно два: администратор и сам партнёр', () => {
+    const walk = (dir: string): string[] => readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) return [];
+      const rel = `${dir}/${e.name}`;
+      return e.isDirectory() ? walk(rel) : /\.(ts|tsx)$/.test(e.name) ? [rel] : [];
+    });
+    const callers = [...walk('app'), ...walk('lib')]
+      .filter((f) => f !== 'lib/partners/channel-link.ts' && /buildPartnerChannelLinks\(/.test(read(f)))
+      .sort();
+    expect(callers).toEqual(['app/api/admin/operators/[id]/channel-link/route.ts', 'app/api/hub/crm/channel/link/route.ts']);
+    expect(read('app/api/admin/operators/[id]/channel-link/route.ts')).toMatch(/requireAdmin\(request\)/);
+    expect(read('app/api/hub/crm/channel/link/route.ts')).toMatch(/buildPartnerChannelLinks\(ctx\.partnerId\)/);
+  });
+});
+
 describe('баннер в шести кабинетах', () => {
   const CABINETS = ['operator', 'guide', 'carrier', 'stay', 'gear', 'agent'] as const;
 
@@ -70,11 +116,19 @@ describe('баннер в шести кабинетах', () => {
     expect(read('app/hub/operator/layout.tsx')).not.toMatch(/OperatorTelegramBanner/);
   });
 
-  it('спрашивает правило доставки и молчит, пока ответа нет или он «подключён»', () => {
+  it('спрашивает правило доставки и молчит, пока ответа нет или MAX подключён', () => {
     const banner = read('components/hub/PartnerChannelBanner.tsx');
     expect(banner).toMatch(/fetch\('\/api\/hub\/crm\/channel'/);
-    expect(banner).toMatch(/if \(!channel \|\| channel\.reachable \|\| dismissed\) return null;/);
+    expect(banner).toMatch(/if \(!channel \|\| channel\.max \|\| dismissed\) return null;/);
     expect(read('app/api/hub/crm/channel/route.ts')).toMatch(/reachForPartner\(ctx\.partnerId\)/);
+  });
+
+  it('кнопки — ссылки на свою карточку, выданные только когда MAX нет', () => {
+    const banner = read('components/hub/PartnerChannelBanner.tsx');
+    expect(banner).toMatch(/if \(ch\.max\) return;\s*\/\/[^\n]*\n\s*const lr = await fetch\('\/api\/hub\/crm\/channel\/link', \{ method: 'POST'/);
+    expect(banner).toMatch(/Подключить MAX/);
+    // Мимо карточки партнёра (users.telegram_id) баннер больше не подключает.
+    expect(banner).not.toMatch(/\/api\/telegram\/connect/);
   });
 });
 

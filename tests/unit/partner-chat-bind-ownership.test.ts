@@ -25,7 +25,7 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 /** Файл → чем доказано право назначить адрес. */
 const CHAT_WRITERS: Readonly<Record<string, string>> = {
   'lib/partners/bind-channel.ts':
-    'ссылка op_ подписана HMAC без запасного секрета и выдана администратором (requireAdmin), срок 72 часа; перепривязку видят администратор и прежний чат',
+    'ссылка op_ подписана HMAC без запасного секрета; выдаёт её администратор (requireAdmin) или сам партнёр после входа на свою карточку (requirePartner, решение 09.10); срок 72 часа; перепривязку видят администратор и прежний чат',
   'app/api/admin/operators/[id]/contacts/route.ts':
     'правка карточки партнёра администратором (requireAdmin)',
   'app/api/hub/operator/profile/route.ts':
