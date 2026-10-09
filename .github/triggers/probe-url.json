@@ -1,23 +1,24 @@
 {
   "timeout": 40,
-  "retries": 0,
+  "retries": 2,
   "allowStale": false,
-  "bytes": 9000,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужие сайты: проверка по первоисточникам находок исследования CRM лидеров (#2313) — справка гида Tripster, погодный сценарий Xola, запросы платежей Rezdy, рассылки по пути гостя TravelLine, распределение ресурсов Bókun.",
-  "run": 750,
+  "bytes": 300,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Скрин владельца: термоточка 54.62N 160.30E «неделю в одном месте». Что сейчас в ленте: пожарные алерты FIRMS, их даты и сроки.",
+  "run": 751,
   "urls": [
-    "https://experience.tripster.ru/help_center/guides/orders/how_to_work/",
-    "https://www.xola.com/online-checkout/",
-    "https://support.rezdy.com/hc/en-us/articles/4406924037529-Product-Messages-tab",
-    "https://www.travelline.ru/support/knowledge-base/sozdanie-rassylok-po-puti-gostya/",
-    "https://www.bokun.io/activity-booking-software"
+    "https://vedarai.ru/api/safety/alerts"
   ],
-  "grep": [],
-  "text": true,
-  "around": [],
+  "grep": [
+    "Термоточки"
+  ],
+  "text": false,
+  "around": [
+    "Термоточки"
+  ],
   "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 0,
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-  "count": []
+  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
+  "count": [],
+  "retryDelay": 10
 }
