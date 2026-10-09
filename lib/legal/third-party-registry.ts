@@ -79,7 +79,7 @@ export const THIRD_PARTIES: ThirdParty[] = [
     entity: 'ООО «Яндекс», ИНН 7736207543',
     host: 'mc.yandex.ru',
     jurisdiction: 'RU',
-    purpose: 'веб-аналитика: какие страницы открывают и откуда пришли',
+    purpose: 'веб-аналитика: какие страницы открывают и откуда пришли; Вебвизор — запись действий на странице (клики, прокрутка, движение курсора) без содержимого полей с телефоном, почтой и именем',
     isAdvertising: false,
     erid: null,
     consentCategory: 'analytics',

@@ -3,9 +3,10 @@
  * Отслеживание событий для конверсионной воронки
  */
 
+import { metrikaGoal } from '@/lib/analytics/metrika';
+
 declare global {
   interface Window {
-    ym?: (id: number, method: string, goal: string, params?: Record<string, unknown>) => void;
     gtag?: (...args: unknown[]) => void;
   }
 }
@@ -26,18 +27,14 @@ export interface LeadEvent {
 export function trackLeadEvent(event: LeadEvent) {
   if (typeof window === 'undefined') return;
 
-  const metrikaId = process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID;
-
-  // Yandex.Metrika
-  if (window.ym && metrikaId) {
-    window.ym(parseInt(metrikaId, 10), 'reachGoal', event.event_name, {
-      category: event.event_category,
-      label: event.event_label,
-      value: event.event_value,
-      route_id: event.route_id,
-      source: event.source,
-    });
-  }
+  // Yandex.Metrika — номер счётчика один на платформу (lib/analytics/metrika).
+  metrikaGoal(event.event_name, {
+    category: event.event_category,
+    label: event.event_label,
+    value: event.event_value,
+    route_id: event.route_id,
+    source: event.source,
+  });
 
   // Google Analytics (если подключен)
   if (window.gtag) {
