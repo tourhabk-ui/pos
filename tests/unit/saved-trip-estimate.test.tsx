@@ -36,7 +36,7 @@ vi.mock('@/lib/mcp/handoff', () => ({ attachMcpAttribution: async () => {}, MCP_
 import { TripDetailClient } from '@/app/hub/tourist/trips/[id]/_TripDetailClient';
 import { POST as createTrip } from '@/app/api/trips/route';
 import { PATCH as patchTrip } from '@/app/api/trips/[id]/route';
-import { TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
 
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
 const text = (el: Element) => (el.textContent ?? '').replace(/ /g, ' ');
@@ -128,20 +128,24 @@ describe('связка: запись и чтение поездки', () => {
       expect(src, f).toMatch(/TripPartySchema/);
       expect(src, f).not.toMatch(/const DayPlanSchema = z\.object/);
     }
-    expect(read('app/api/trips/route.ts')).toMatch(/needs_airport_transfer, party\)/);
+    expect(read('app/api/trips/route.ts')).toMatch(/needs_airport_transfer, party, choices\)/);
     expect(read('app/api/trips/[id]/route.ts')).toMatch(/party\s+= COALESCE\(\$14::jsonb, party\)/);
-    expect(read('app/api/trips/[id]/route.ts')).toMatch(/needs_airport_transfer, party, created_at/);
+    expect(read('app/api/trips/[id]/route.ts')).toMatch(/choices\s+= COALESCE\(\$15::jsonb, choices\)/);
+    expect(read('app/api/trips/[id]/route.ts')).toMatch(/needs_airport_transfer, party, choices, created_at/);
+    expect(read('migrations/1193_user_trips_choices.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS choices JSONB/);
     expect(read('migrations/1191_user_trips_party.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS party JSONB/);
   });
 
-  it('планировщик сохраняет состав вместе с поездкой', () => {
-    expect(read('app/planner/_PlannerClient.tsx')).toMatch(/party: \{\s*adults: planProfile\.adults, children: planProfile\.children,/);
+  it('планировщик сохраняет состав и выбранное вместе с поездкой', () => {
+    const src = read('app/planner/_PlannerClient.tsx');
+    expect(src).toMatch(/party: \{\s*adults: planProfile\.adults, children: planProfile\.children,/);
+    expect(src).toMatch(/choices: planChoices,/);
   });
 
   it('страница поездки не считает смету своей формулой', () => {
     const src = read('app/hub/tourist/trips/[id]/_TripDetailClient.tsx');
     expect(src).not.toMatch(/TRANSPORT_PRICE/);
-    expect(src).toMatch(/estimateGroup\(days, trip\.party\)/);
+    expect(src).toMatch(/estimateGroup\(days, \{ \.\.\.trip\.party, arrivalDate: trip\.arrival_date\?\.slice\(0, 10\) \?\? null \}, trip\.choices \?\? undefined\)/);
   });
 });
 
@@ -170,5 +174,73 @@ describe('роуты поездки: состав и тур доходят до 
     dbCalls.length = 0;
     await patchTrip(req({ title: 'Новое имя' }), ctx);
     expect(dbCalls.find((c) => c.sql.includes('UPDATE user_trips'))!.params[13]).toBeNull();
+  });
+});
+
+// ── Шаг 3б: выбранные жильё и трансфер хранятся в поездке ────────────────────
+
+const CHOICES = {
+  stays: [{
+    zone: 'avachinsky' as const, checkIn: '2030-08-03', checkOut: '2030-08-04', nights: 1,
+    accommodationId: 'acc-1', name: 'Дом у вулкана',
+    price: { kind: 'priced' as const, total: 12000, rooms: 1, roomId: 'r-1', roomName: 'Двухместный', maxGuests: 2 },
+  }],
+  transfers: [{
+    tripId: 't1', date: '2030-08-03', from: 'Аэропорт Елизово', to: 'Паратунка', seats: 2, pricePerSeat: 1500, carrier: 'Перевозчик',
+  }],
+};
+
+describe('выбранное жильё и трансфер в сохранённой поездке (#2304, шаг 3б)', () => {
+  const req = (body: unknown) => ({ json: async () => body, cookies: { get: () => undefined } }) as unknown as Parameters<typeof createTrip>[0];
+  beforeEach(() => { dbCalls.length = 0; });
+
+  it('схема: снимок выбора проходит, лишнее срезается, негодное — нет', () => {
+    const parsed = TripChoicesSchema.parse({ ...CHOICES, extra: 1, stays: [{ ...CHOICES.stays[0], phone: '+7' }] });
+    expect(parsed).toEqual(CHOICES);
+    expect(TripChoicesSchema.safeParse({ ...CHOICES, transfers: [{ ...CHOICES.transfers[0], seats: 0 }] }).success).toBe(false);
+    expect(TripChoicesSchema.safeParse({ stays: [{ ...CHOICES.stays[0], price: { kind: 'bogus' } }], transfers: [] }).success).toBe(false);
+  });
+
+  it('создание и правка: выбор — в запросе; правка без выбора прежний не трогает', async () => {
+    await createTrip(req({ title: 'Маршрут', days: DAYS, choices: CHOICES }));
+    const insert = dbCalls.find((c) => c.sql.includes('INSERT INTO user_trips'))!;
+    expect(JSON.parse(String(insert.params[14]))).toEqual(CHOICES);
+    dbCalls.length = 0;
+    const ctx = { params: Promise.resolve({ id: 'trip-1' }) };
+    await patchTrip(req({ choices: { stays: [], transfers: [] } }), ctx);
+    expect(JSON.parse(String(dbCalls.find((c) => c.sql.includes('UPDATE user_trips'))!.params[14]))).toEqual({ stays: [], transfers: [] });
+    dbCalls.length = 0;
+    await patchTrip(req({ title: 'Новое имя' }), ctx);
+    expect(dbCalls.find((c) => c.sql.includes('UPDATE user_trips'))!.params[14]).toBeNull();
+  });
+
+  it('страница: блок со ссылками на даты плана; смета и заявка — с выбранным', async () => {
+    tripReply = { ...TRIP, arrival_date: '2030-08-03', choices: CHOICES };
+    render(<TripDetailClient tripId="trip-1" />);
+    const block = await screen.findByTestId('trip-choices');
+    expect(block.querySelector('a[href^="/accommodations/acc-1?"]')?.getAttribute('href'))
+      .toBe('/accommodations/acc-1?check_in=2030-08-03&check_out=2030-08-04&adults=2&children=0&room=r-1');
+    expect(block.querySelector('a[href^="/transfers?"]')?.getAttribute('href')).toBe('/transfers?from=2030-08-03&to=2030-08-03&seats=2&trip=t1');
+    expect(text(block)).toContain('12 000 ₽ на группу');
+    const est = text(screen.getByTestId('price-estimate'));
+    expect(est).toContain('Жильё «Дом у вулкана», 03.08–04.08');
+    expect(est).toContain('Трансфер Аэропорт Елизово — Паратунка, 03.08');
+
+    fireEvent.click(screen.getByRole('button', { name: /Запросить подробное предложение/ }));
+    fireEvent.change(screen.getByPlaceholderText('Ваше имя'), { target: { value: 'Иван Петров' } });
+    fireEvent.change(screen.getByPlaceholderText('+7 900 000-00-00'), { target: { value: '+79991234567' } });
+    fireEvent.click(document.getElementById('pd-consent-trip')!);
+    fireEvent.click(screen.getByRole('button', { name: /Отправить заявку/ }));
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/leads');
+    const plan = JSON.parse(String(call![1]!.body)).source_data.plan;
+    expect(plan.lodging).toEqual([expect.objectContaining({ accommodation_id: 'acc-1', total: 12000 })]);
+    expect(plan.transfers).toEqual([expect.objectContaining({ trip_id: 't1', price_per_seat: 1500 })]);
+  });
+
+  it('без выбора — блока нет', async () => {
+    tripReply = TRIP;
+    render(<TripDetailClient tripId="trip-1" />);
+    await screen.findByTestId('price-estimate');
+    expect(screen.queryByTestId('trip-choices')).toBeNull();
   });
 });

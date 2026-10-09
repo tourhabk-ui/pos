@@ -2,6 +2,8 @@
  * Planner types — shared between PlannerClient and extracted components.
  */
 
+import type { StayPrice } from '@/lib/planner/trip-extras';
+
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
 export type FitnessLevel = 'beginner' | 'moderate' | 'active';
@@ -136,6 +138,11 @@ export interface LodgingOptionView {
   rating: number | null;
   reviewCount: number;
   isVerified: boolean;
+  /**
+   * Цена стоянки на всю группу по правилу брони (lib/planner/trip-extras).
+   * Нет — ответ сервера старше экрана: показывается «от … за ночь».
+   */
+  stay?: StayPrice;
 }
 
 export interface LodgingStayView {

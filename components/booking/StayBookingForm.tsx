@@ -8,6 +8,7 @@ import { computeStayTotal, NightPrice } from '@/lib/booking/stay-price';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
 import { STAY_PAY_ON_SITE } from '@/lib/stay/pay-on-site';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { parseStayPrefill } from '@/lib/stay/stay-link';
 
 /**
  * Форма бронирования жилья с выбором номера. Расчёт суммы зеркалит
@@ -50,6 +51,14 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** YYYY-MM-DD → полночь по местному времени: обратное к ymd. */
+function localDay(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y!, m! - 1, d!);
+}
+
+const roomsWord = (n: number) => (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'номера' : 'номеров');
+
 export function StayBookingForm({ accommodationId, accommodationName, rooms }: StayBookingFormProps) {
   const [roomId, setRoomId] = useState<string>(rooms[0]?.id ?? '');
   const [checkIn, setCheckIn] = useState<Date | null>(null);
@@ -74,6 +83,13 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
     touchedRef.current = true;
     funnelBeacon('stay_booking_start', accommodationId);
   }, [accommodationId]);
+
+  // Даты, гости и номер из ссылки планера (lib/stay/stay-link, #2304): карточка
+  // кэшируется, поэтому ссылку читает браузер после загрузки. Бронь — один
+  // номер: гостей сверх его вместимости форма не подставляет, а сколько
+  // номеров нужно группе по плану — говорит строкой у гостей.
+  const [prefillRev, setPrefillRev] = useState(0);
+  const [planRooms, setPlanRooms] = useState<number | null>(null);
 
   const room = rooms.find(r => r.id === roomId) ?? null;
 
@@ -115,6 +131,25 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
+
+  // Подстановка — ПОСЛЕ проверки вместимости: при открытии та смотрит на
+  // первый номер списка, и её урезание иначе перезаписало бы подставленное.
+  useEffect(() => {
+    const p = parseStayPrefill(window.location.search);
+    if (!p) return;
+    const r = rooms.find(x => x.id === p.roomId) ?? rooms.find(x => x.id === roomId) ?? null;
+    if (r) setRoomId(r.id);
+    const cap = r?.maxGuests ?? p.adults + p.children;
+    const a = Math.max(1, Math.min(p.adults, cap));
+    setAdults(a);
+    setChildren(Math.max(0, Math.min(p.children, cap - a)));
+    setCheckIn(localDay(p.checkIn));
+    setCheckOut(localDay(p.checkOut));
+    setPlanRooms(p.rooms ?? null);
+    setPrefillRev(n => n + 1);
+    // Ссылка читается один раз — при открытии карточки.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const totals = useMemo(() => {
     if (!checkIn || !checkOut || checkOut <= checkIn) return null;
@@ -250,6 +285,9 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
       <div className="ds-card p-5">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Даты проживания</h3>
         <StayDatePicker
+          key={prefillRev}
+          initialCheckIn={checkIn}
+          initialCheckOut={checkOut}
           accommodationId={accommodationId}
           roomId={roomId || undefined}
           pricePerNight={room?.pricePerNight ?? 0}
@@ -265,12 +303,17 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
       <div className="ds-card p-5">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Гости</h3>
         <GuestSelector
-          key={roomId}
+          key={`${roomId}-${prefillRev}`}
           maxGuests={room?.maxGuests ?? 10}
           initialAdults={adults}
           initialChildren={children}
           onChange={(a, c) => { setAdults(a); setChildren(c); }}
         />
+        {planRooms !== null && (
+          <p className="text-xs text-[var(--text-secondary)] mt-2" data-testid="plan-rooms">
+            По плану поездки группе нужно {planRooms} {roomsWord(planRooms)} этого типа — каждый номер бронируется отдельной заявкой.
+          </p>
+        )}
         {guestsOverCapacity && room && (
           <p className="text-xs text-[var(--danger)] mt-2">
             Номер вмещает до {room.maxGuests} гостей — выберите другой номер или уменьшите число гостей.

@@ -9,7 +9,7 @@ import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import type { UserTripListRow, UserTripRow } from '@/lib/types/db-rows';
-import { TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +28,8 @@ const CreateTripSchema = z.object({
   needsAirportTransfer: z.boolean().default(false).optional(),
   /** Состав и уровень плана — для сметы и заявки (#2304, шаг 2). */
   party: TripPartySchema.nullable().optional(),
+  /** Выбранные жильё и трансфер — снимок на день сохранения (#2304, шаг 3б). */
+  choices: TripChoicesSchema.nullable().optional(),
 });
 
 // ─── GET — list ───────────────────────────────────────────────────────────────
@@ -78,13 +80,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, arrivalDate, departureDate, places, activities, days, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, party } = parsed.data;
+    const { title, arrivalDate, departureDate, places, activities, days, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, party, choices } = parsed.data;
 
     const { rows } = await pool.query<UserTripRow>(`
       INSERT INTO user_trips
         (user_id, title, arrival_date, departure_date, places, activities, days, transport_by_day,
-         flight_arrival, flight_departure, flight_arrival_time, flight_departure_time, needs_airport_transfer, party)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         flight_arrival, flight_departure, flight_arrival_time, flight_departure_time, needs_airport_transfer, party, choices)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `, [
       userId,
@@ -101,6 +103,7 @@ export async function POST(request: NextRequest) {
       flightDepartureTime ?? null,
       needsAirportTransfer ?? false,
       party ? JSON.stringify(party) : null,
+      choices ? JSON.stringify(choices) : null,
     ]);
 
     // Атрибуция MCP-handoff (v2, #60): человек пришёл по ссылке агента и

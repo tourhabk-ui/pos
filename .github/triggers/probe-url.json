@@ -1,24 +1,18 @@
 {
   "timeout": 40,
-  "retries": 45,
+  "retries": 0,
   "allowStale": false,
-  "bytes": 900,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. После 1192: у «Зеленовских озерок» линии нет, чисел от неё нет, точка external. Ждёт выкат по метке has_line:false.",
-  "run": 744,
+  "bytes": 222000,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel текстом, окно перед отметкой 222 КБ (в отчёт попадает хвост) — поля request/create и request/update для сверки lib/integrations/uon.ts (#2313). Окно 748 (до 285 КБ) начиналось уже после них.",
+  "run": 749,
   "urls": [
-    "https://vedarai.ru/api/routes/search?q=%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BA%D0%B8"
+    "https://api.u-on.ru/doc"
   ],
-  "grep": [
-    "\"has_line\":false",
-    "\"has_line\":true",
-    "\"distance_km\":null"
-  ],
-  "text": false,
-  "retryDelay": 30,
+  "grep": [],
+  "text": true,
   "around": [],
   "aroundLines": 0,
   "aroundHits": 1,
-  "aroundBefore": 1,
-  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
-  "until": "\"has_line\":false"
+  "aroundBefore": 0,
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 }

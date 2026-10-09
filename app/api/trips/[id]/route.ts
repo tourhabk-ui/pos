@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import type { UserTripRow } from '@/lib/types/db-rows';
-import { TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +28,8 @@ const UpdateTripSchema = z.object({
   needsAirportTransfer: z.boolean().optional(),
   /** Состав и уровень плана — для сметы и заявки (#2304, шаг 2). */
   party: TripPartySchema.optional(),
+  /** Выбранные жильё и трансфер; пустые списки — выбор снят (#2304, шаг 3б). */
+  choices: TripChoicesSchema.optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -36,7 +38,7 @@ async function getTripOwned(tripId: string, userId: string): Promise<UserTripRow
   const { rows } = await pool.query<UserTripRow>(
     `SELECT id, user_id, title, arrival_date, departure_date, places, activities, days,
             transport_by_day, flight_arrival, flight_departure, flight_arrival_time,
-            flight_departure_time, needs_airport_transfer, party, created_at, updated_at, deleted_at
+            flight_departure_time, needs_airport_transfer, party, choices, created_at, updated_at, deleted_at
      FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
     [tripId, userId]
   );
@@ -98,7 +100,8 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
         flight_arrival_time   = COALESCE($11, flight_arrival_time),
         flight_departure_time = COALESCE($12, flight_departure_time),
         needs_airport_transfer = COALESCE($13, needs_airport_transfer),
-        party                 = COALESCE($14::jsonb, party)
+        party                 = COALESCE($14::jsonb, party),
+        choices               = COALESCE($15::jsonb, choices)
       WHERE id = $1
       RETURNING *
     `, [
@@ -116,6 +119,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
       d.flightDepartureTime !== undefined ? d.flightDepartureTime : null,
       d.needsAirportTransfer !== undefined ? d.needsAirportTransfer : null,
       d.party !== undefined ? JSON.stringify(d.party) : null,
+      d.choices !== undefined ? JSON.stringify(d.choices) : null,
     ]);
 
     return NextResponse.json({ success: true, data: rows[0] });

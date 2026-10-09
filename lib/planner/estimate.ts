@@ -30,12 +30,19 @@
  *
  * Чего не знаем — строка «цена не указана», и в итог она не входит (§4.0):
  * ноль вместо неизвестной цены выдал бы смету за точную.
+ *
+ * Выбранные жильё и трансфер (#2304, шаг 3; lib/planner/plan-choices) —
+ * пункты плана с ценой предложения на платформе: ночи выбранной стоянки
+ * выходят из ориентира по зоне, а стоянка встаёт своей строкой. Ориентир
+ * «Трансферы аэропорта» уступает выбранной поездке из аэропорта.
  */
 // Только чистые модули: смету считает браузер, а движок тянет базу и модели
 // (сторож client-no-node-builtins идёт и по импортам типов).
 import { ZONE_SLEEPS_IN, sleepZoneOf, type ZoneId, type BudgetTier, type DayType } from '@/lib/planner/constants';
 import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } from '@/lib/planner/trip-origin';
 import { bookingTotal } from '@/lib/tours/booking-total';
+import { dateOfTripDay } from '@/lib/planner/flow-balance';
+import { isAirportTransfer, type PlanChoices } from '@/lib/planner/plan-choices';
 
 // ── Входные данные ───────────────────────────────────────────────────────────
 
@@ -72,6 +79,8 @@ export interface EstimateProfile {
   children: number[];
   budgetTier: BudgetTier;
   tripOrigin?: TripOrigin;
+  /** Дата прилёта: по ней ночи плана сличаются с выбранным жильём. */
+  arrivalDate?: string | null;
 }
 
 // ── Ориентиры ────────────────────────────────────────────────────────────────
@@ -267,8 +276,11 @@ export interface EstimateLine {
   basis: string;
   /** Сумма строки на всю группу; null — цену не знаем, в итог не входит. */
   total: [number, number] | null;
-  /** Цена оператора или ориентир по средним ценам. */
-  source: 'tour' | 'estimate';
+  /**
+   * Цена оператора тура, цена выбранного предложения на платформе (жильё,
+   * перевозчик) или ориентир по средним ценам.
+   */
+  source: 'tour' | 'offer' | 'estimate';
   /** Пояснение, если в строке есть допущение. */
   note?: string;
 }
@@ -283,8 +295,9 @@ export interface GroupEstimate {
   perPerson: [number, number];
   /** Подписи строк без цены: в итог не вошли. */
   unpriced: string[];
-  /** Сколько итога — цены туров операторов, сколько — ориентир. */
+  /** Сколько итога — цены туров операторов, выбранных предложений и ориентир. */
   fromTours: [number, number];
+  fromOffers: [number, number];
   fromEstimates: [number, number];
   /** Допущения сметы словами: показываются рядом с итогом. */
   assumptions: string[];
@@ -296,6 +309,9 @@ const dayWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'день' : n 
 const nightWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'ночь' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'ночи' : 'ночей');
 
 const times = ([a, b]: [number, number], k: number): [number, number] => [a * k, b * k];
+const roomWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'номер' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'номера' : 'номеров');
+const seatWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'место' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'места' : 'мест');
+const ddmm = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 
 /**
  * Дни одной постановки тура в плане: первый день и идущие за ним дни
@@ -394,7 +410,7 @@ function tourLine(day: EstimateDay, days: EstimateDay[], people: number): Estima
  * платформа не знает, и смета так и говорит (строка «Дети» не заводится —
  * это допущение, а не цена).
  */
-export function estimateGroup(days: EstimateDay[], profile: EstimateProfile): GroupEstimate {
+export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, choices?: PlanChoices): GroupEstimate {
   const people = Math.max(1, profile.adults + profile.children.length);
   const bi = budgetIndex(profile.budgetTier);
   const origin = asTripOrigin(profile.tripOrigin);
@@ -426,13 +442,22 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile): Gr
     });
   }
 
+  // Ночь, на которую выбрано жильё: ориентир её больше не считает. Без даты
+  // прилёта ночи плана с датами стоянки не сличить — выбранное жильё тогда
+  // не ставится вовсе, иначе ночь посчиталась бы дважды.
+  const stays = profile.arrivalDate ? choices?.stays ?? [] : [];
+  const chosenNight = (zone: ZoneId, dayNum: number): boolean => {
+    const date = profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null;
+    return date !== null && stays.some((s) => s.zone === zone && s.checkIn <= date && date < s.checkOut);
+  };
+
   // Ночи — по зоне, где ночуют, одной строкой на зону.
   if (days.length > 1) {
     const lastDayNum = days[days.length - 1]!.day;
     const byZone = new Map<ZoneId, { nights: number; sum: [number, number] }>();
     for (const day of days) {
       const night = nightOf(day, lastDayNum, origin, bi);
-      if (!night) continue;
+      if (!night || chosenNight(night.zone, day.day)) continue;
       const z = byZone.get(night.zone) ?? { nights: 0, sum: [0, 0] as [number, number] };
       z.nights++;
       z.sum = [z.sum[0] + night.price[0], z.sum[1] + night.price[1]];
@@ -448,7 +473,27 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile): Gr
     }
   }
 
-  // Переезды и трансферы аэропорта.
+  // Выбранное жильё — по цене предложения: правило брони, номера × ночи.
+  for (const st of stays) {
+    const label = `Жильё «${st.name}», ${ddmm(st.checkIn)}–${ddmm(st.checkOut)}`;
+    if (st.price?.kind === 'priced') {
+      const { total, rooms, roomName } = st.price;
+      lines.push({
+        kind: 'lodging', label,
+        basis: `${st.nights} ${nightWord(st.nights)} × ${rooms} ${roomWord(rooms)} «${roomName}»`,
+        total: [total, total], source: 'offer',
+      });
+    } else {
+      lines.push({
+        kind: 'lodging', label, basis: `${st.nights} ${nightWord(st.nights)}`, total: null, source: 'offer',
+        note: st.price
+          ? `Группа из ${st.price.people} чел. в один тип номеров не помещается — номера и цену подберёт хозяин.`
+          : 'Цену стоянки на группу не посчитали — она в карточке объекта.',
+      });
+    }
+  }
+
+  // Переезды, выбранные поездки перевозчиков и трансферы аэропорта.
   for (const d of days) {
     if (d.type !== 'travel') continue;
     if (d.priceFrom <= 0 && d.priceTo <= 0) continue;
@@ -458,11 +503,29 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile): Gr
       total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
     });
   }
-  if (paysAirportTransfers(origin) && days.length > 0) {
+  const transfers = choices?.transfers ?? [];
+  for (const t of transfers) {
+    const label = `Трансфер ${t.from} — ${t.to}, ${ddmm(t.date)}`;
+    lines.push(t.pricePerSeat === null
+      ? {
+        kind: 'transport', label, basis: `${t.seats} ${seatWord(t.seats)}`, total: null, source: 'offer',
+        note: 'Цена за место не указана — её назовёт перевозчик.',
+      }
+      : {
+        kind: 'transport', label, basis: `${fmt(t.pricePerSeat)} ₽ × ${t.seats} ${seatWord(t.seats)}`,
+        total: [t.pricePerSeat * t.seats, t.pricePerSeat * t.seats], source: 'offer',
+      });
+  }
+  // Ориентир — на дорогу туда и обратно; выбранная поездка из аэропорта
+  // закрывает одну сторону, две — обе.
+  const airportChosen = Math.min(2, transfers.filter(isAirportTransfer).length);
+  if (paysAirportTransfers(origin) && days.length > 0 && airportChosen < 2) {
+    const share = airportChosen === 0 ? 1 : 0.5;
+    const each: [number, number] = [AIRPORT_TRANSFER[0] * share, AIRPORT_TRANSFER[1] * share];
     lines.push({
-      kind: 'transport', label: 'Трансферы аэропорта',
-      basis: `${fmt(AIRPORT_TRANSFER[0])}–${fmt(AIRPORT_TRANSFER[1])} ₽ × ${peopleWord(people)}`,
-      total: times(AIRPORT_TRANSFER, people), source: 'estimate',
+      kind: 'transport', label: airportChosen === 0 ? 'Трансферы аэропорта' : 'Трансфер аэропорта в другую сторону',
+      basis: `${fmt(each[0])}–${fmt(each[1])} ₽ × ${peopleWord(people)}`,
+      total: times(each, people), source: 'estimate',
     });
   }
 
@@ -483,6 +546,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile): Gr
     perPerson: [Math.round(total[0] / people), Math.round(total[1] / people)],
     unpriced: lines.filter((l) => !l.total).map((l) => l.label),
     fromTours: sum((l) => l.source === 'tour'),
+    fromOffers: sum((l) => l.source === 'offer'),
     fromEstimates: sum((l) => l.source === 'estimate'),
     assumptions,
   };

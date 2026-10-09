@@ -164,7 +164,8 @@ describe('результат: настоящее, пустое, непровер
     const section = await screen.findByTestId('trip-extras');
     // Жильё: настоящий объект со ссылкой, цена не выдумана.
     const link = within(section).getByText('Дом у вулкана').closest('a');
-    expect(link?.getAttribute('href')).toBe('/accommodations/acc-1');
+    // Ссылка несёт даты стоянки и состав (#2304, шаг 3): форма брони подставит их.
+    expect(link?.getAttribute('href')).toBe('/accommodations/acc-1?check_in=2030-08-03&check_out=2030-08-04&adults=2&children=0');
     expect(within(section).getByText('цена не указана')).toBeTruthy();
     // Пустая зона — честно и с каталогом.
     expect(within(section).getByText('На ваши даты свободного жилья в этой зоне на платформе нет.')).toBeTruthy();
@@ -174,7 +175,10 @@ describe('результат: настоящее, пустое, непровер
     expect(within(section).getByText('Аэропорт Елизово — Паратунка')).toBeTruthy();
     expect(within(section).getByText(/свободно 6 из 8/)).toBeTruthy();
     expect(within(section).getByText(/в день прилёта/)).toBeTruthy();
-    expect(within(section).getByText('Запросить место').closest('a')?.getAttribute('href')).toBe('/transfers');
+    expect(within(section).getByText('Аэропорт Елизово — Паратунка').closest('a')?.getAttribute('href'))
+      .toBe('/transfers?from=2030-08-03&to=2030-08-03&seats=2&trip=t1');
+    expect(within(section).getByText('Все поездки на эти даты').closest('a')?.getAttribute('href'))
+      .toBe('/transfers?from=2030-08-03&to=2030-08-12&seats=2');
     // Машина — «пока нет», без ссылок.
     const car = within(section).getByTestId('extras-car');
     expect(car.textContent).toMatch(/Аренды автомобилей на платформе пока нет/);

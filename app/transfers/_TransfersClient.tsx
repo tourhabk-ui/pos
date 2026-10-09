@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { CharterCard } from '@/components/transfers/CharterCard';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import type { CharterState } from '@/lib/transfers/charter-format';
+import type { TripsPrefill } from '@/lib/transfers/trips-link';
 
 interface Trip {
   id: string;
@@ -84,12 +85,12 @@ function amountOf(b: MyBooking): number | null {
   return null;
 }
 
-export default function TransfersClient({ charter }: { charter: CharterState }) {
+export default function TransfersClient({ charter, prefill = null }: { charter: CharterState; prefill?: TripsPrefill | null }) {
   const { user, isLoading: authLoading } = useAuth();
   const today = new Date();
-  const [from, setFrom] = useState(isoDate(today));
-  const [to, setTo] = useState(isoDate(new Date(today.getTime() + 14 * 86_400_000)));
-  const [minSeats, setMinSeats] = useState(1);
+  const [from, setFrom] = useState(prefill?.from ?? isoDate(today));
+  const [to, setTo] = useState(prefill?.to ?? isoDate(new Date(today.getTime() + 14 * 86_400_000)));
+  const [minSeats, setMinSeats] = useState(prefill?.seats ?? 1);
   const [search, setSearch] = useState<Search>({ state: 'idle' });
   const [mine, setMine] = useState<Mine>({ state: 'idle' });
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -132,6 +133,12 @@ export default function TransfersClient({ charter }: { charter: CharterState }) 
   useEffect(() => { void runSearch(); /* окно по умолчанию — сразу, чтобы экран не был пустым */ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { if (user) void loadMine(); }, [user, loadMine]);
+  // Поездка, ради которой пришли из плана: карточка в поле зрения.
+  const focusTripId = prefill?.tripId ?? null;
+  useEffect(() => {
+    if (!focusTripId || search.state !== 'ok') return;
+    document.getElementById(`trip-${focusTripId}`)?.scrollIntoView({ block: 'center' });
+  }, [focusTripId, search.state]);
 
   return (
     <div className="ds-page" style={{ paddingBottom: 96 }}>
@@ -200,7 +207,8 @@ export default function TransfersClient({ charter }: { charter: CharterState }) 
         {search.state === 'ok' && search.trips.length > 0 && (
           <ul className="flex flex-col gap-3 mb-8">
             {search.trips.map(t => (
-              <li key={t.id}>
+              <li key={t.id} id={`trip-${t.id}`}
+                className={t.id === focusTripId ? 'rounded-lg ring-2 ring-[var(--accent)]' : undefined}>
                 <TripCard
                   trip={t}
                   authed={!!user}
