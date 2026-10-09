@@ -1,0 +1,80 @@
+name: Ролики — в хранилище и сверка (lib/media/video-manifest)
+
+# Ролики и обложки из lib/media/video-manifest.ts: залить то, чего в
+# хранилище нет, и прочитать ВСЁ обратно публичным адресом — отпечаток, тип,
+# докачка кусками (scripts/media/upload-videos.ts).
+#
+# Файл берётся из public/ того коммита, с которого идёт прогон. После
+# переезда файлов в репозитории нет, и прогон только сверяет: объект,
+# пропавший из хранилища или подменённый, красит его.
+#
+# Где исполняется (§8): раннер (ключи S3); прод только отдаёт адрес.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Заливать недостающее (иначе только сверить)'
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'claude/**', 'ccr-*']
+    paths:
+      - '.github/triggers/video-to-s3.json'
+
+permissions:
+  contents: read
+
+jobs:
+  videos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из ввода или из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.upload }}" ]; then
+            UPLOAD="${{ inputs.upload }}"
+          else
+            UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/video-to-s3.json')).get('upload',False)).lower())")
+          fi
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD"
+
+      - name: Залить недостающее и сверить всё
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${{ steps.cfg.outputs.upload }}" = "true" ]; then FLAG="--upload"; fi
+          mkdir -p .cache/video
+          npx tsx scripts/media/upload-videos.ts $FLAG | tee .cache/video/run.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Ролики в хранилище'
+            echo '```'
+            cat .cache/video/run.log 2>/dev/null || echo 'лог не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ничего не залито — сказать это громко
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
+        run: |
+          echo "::warning::Сухой прогон: хранилище сверено, ничего не записано (upload=false)."
