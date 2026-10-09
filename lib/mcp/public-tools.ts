@@ -174,6 +174,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
 export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; example?: string | boolean }>> = {
   get_tours: {
     activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking.', example: 'вулканы' },
+    page: { lead: 'Catalogue page, 7 tours each, starting at 1; the reply ends with the page count and the next page.', example: '2' },
   },
   get_tour_details: {
     name: { lead: 'Tour title or a keyword from it.', example: 'рыбалка' },

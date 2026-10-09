@@ -80,6 +80,8 @@ const searchKamchatkaSchema = z.object({
 // ── get_tours ─────────────────────────────────────────────────────────────
 const getToursSchema = z.object({
   activity_type: looseString(100).optional(),
+  // Страница каталога (#2314): ответ на 11+ туров обрезал клиент MCP.
+  page: looseString(3).optional(),
 });
 
 // ── get_tour_details ──────────────────────────────────────────────────────
@@ -244,7 +246,14 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       function: {
         name: 'get_tours',
         description: 'Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.',
-        parameters: { type: 'object', properties: { activity_type: { type: 'string', description: 'Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д.' } }, required: [] },
+        parameters: {
+          type: 'object',
+          properties: {
+            activity_type: { type: 'string', description: 'Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д.' },
+            page: { type: 'string', description: 'Страница каталога по 7 туров, с 1. В конце ответа сказано, сколько страниц и какая следующая.' },
+          },
+          required: [],
+        },
       },
     },
     schema: getToursSchema,
