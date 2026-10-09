@@ -99,3 +99,50 @@ export function filterTourCatalog(ctx: string, want: string, activityLabel: Acti
   return `Туров «${want}» у операторов платформы сейчас нет — ни по типу, ни в описаниях. `
     + `Не выдавай другие туры за такие. Весь каталог — для замены с явной оговоркой:\n${ctx}`;
 }
+
+/** Туров на странице каталога (#2314: клиент MCP обрезал ответ на 11+ турах). */
+export const TOURS_PAGE_SIZE = 7;
+
+/**
+ * Страница ответа get_tours. Режутся только строки туров (`IDn: ...`); шапка
+ * и хвост остаются на каждой странице. Пояснение посреди списка («Ещё
+ * упоминают… — тип у них другой») относится ко всем турам после него и
+ * повторяется на каждой странице, где есть его туры: иначе на второй
+ * странице «тип другой» читался бы как «совпал по типу». Одна страница —
+ * ответ как был, без приписки. Номер за пределами — сказано прямо, сколько
+ * страниц есть, а не пустой ответ.
+ */
+export function paginateTourText(text: string, page: number, size: number = TOURS_PAGE_SIZE): string {
+  const lines = text.split('\n');
+  const isTour = (l: string) => /^ID\d+:/.test(l);
+  const tourIdx = lines.map((l, i) => (isTour(l) ? i : -1)).filter((i) => i >= 0);
+  const total = tourIdx.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (total <= size) return text;
+  if (page > pages) {
+    return `Страницы ${page} нет: туров ${total}, страниц ${pages}. Начни с page=1.`;
+  }
+  const first = tourIdx[0];
+  const last = tourIdx[tourIdx.length - 1];
+  const keep = new Set(tourIdx.slice((page - 1) * size, page * size));
+
+  const out: string[] = lines.slice(0, first);
+  let note: string[] = [];
+  let noteShown = true;
+  for (let i = first; i <= last; i++) {
+    const l = lines[i];
+    if (!isTour(l)) {
+      // Новая секция: пояснение копится, пока не встретим её тур.
+      if (noteShown) { note = []; noteShown = false; }
+      note.push(l);
+      continue;
+    }
+    if (!keep.has(i)) continue;
+    if (!noteShown) { out.push(...note); noteShown = true; }
+    out.push(l);
+  }
+  out.push(...lines.slice(last + 1));
+  const next = page < pages ? ` Следующая — get_tours с page=${page + 1} (тот же activity_type).` : ' Это последняя.';
+  out.push('', `Страница ${page} из ${pages}, туров всего ${total}.${next}`);
+  return out.join('\n');
+}

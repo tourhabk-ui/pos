@@ -19,6 +19,8 @@ import { pool } from '@/lib/db-pool';
 import { weatherTarget, parseDays, forecastLine, weatherForKuzmich } from '@/lib/kuzmich/weather-tool';
 import { composeVolcanoReport, type VolcanoInput } from '@/lib/kuzmich/volcano-tool';
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const q = pool.query as unknown as ReturnType<typeof vi.fn>;
 const DAY = { date: '2026-09-26', tempMax: 9.4, tempMin: -1.2, precipMm: 3.1, windKmh: 42.6, weatherCode: 3, description: 'пасмурно' };
@@ -191,5 +193,54 @@ describe('get_volcano_status: две шкалы, победителя нет', (
       kfegs: [{ ...FRESH.kfegs![0], color: 'green' }],
     };
     expect(composeVolcanoReport(calm, undefined, NOW)).toContain('Повышенной активности нет ни по одной шкале');
+  });
+});
+
+// #2315: «KVERT от 02.10» через шесть дней читался как «данные встали». Дата у
+// вулкана — дата выпуска KVERT (код выпускается при изменении), а встал ли НАШ
+// опрос, видно только по моменту записи строки синком.
+describe('get_volcano_status: момент нашего опроса KVERT (#2315)', () => {
+  const polled = (iso: string): VolcanoInput => ({
+    ...FRESH,
+    kvert: FRESH.kvert!.map((k) => ({ ...k, polled_at: iso })),
+  });
+
+  it('свежий опрос назван со временем по Камчатке, и старая дата кода объяснена', () => {
+    // 05:17Z — 17:17 по Камчатке (UTC+12).
+    const out = composeVolcanoReport(polled('2026-09-25T05:17:00Z'), undefined, NOW);
+    expect(out).toContain('опрошен нами 25.09 17:17 по Камчатке');
+    expect(out).toContain('KVERT выпускает код при изменении');
+    expect(out).not.toContain('опрос KVERT встал');
+  });
+
+  it('опрос встал больше 18 часов — так и сказано, «все спокойны» не говорится', () => {
+    const stale = polled('2026-09-24T08:00:00Z');
+    const out = composeVolcanoReport(stale, undefined, NOW);
+    expect(out).toContain('наш опрос KVERT встал — последний 24.09 20:00 по Камчатке');
+    expect(out).toContain('Не все источники проверены');
+    const calm: VolcanoInput = {
+      kvert: [{ ...FRESH.kvert![1], polled_at: '2026-09-24T08:00:00Z' }],
+      kfegsDate: '2026-09-24',
+      kfegs: [{ ...FRESH.kfegs![0], color: 'green' }],
+    };
+    expect(composeVolcanoReport(calm, undefined, NOW)).not.toContain('Повышенной активности нет ни по одной шкале');
+  });
+
+  it('момент опроса — по самой свежей строке: вулкан, выпавший из выпуска, его не старит', () => {
+    const mixed: VolcanoInput = {
+      ...FRESH,
+      kvert: [
+        { ...FRESH.kvert![0], polled_at: '2026-09-25T05:17:00Z' },
+        { ...FRESH.kvert![2], polled_at: '2026-09-10T05:17:00Z' },
+      ],
+    };
+    const out = composeVolcanoReport(mixed, undefined, NOW);
+    expect(out).toContain('опрошен нами 25.09 17:17');
+    expect(out).not.toContain('опрос KVERT встал');
+  });
+
+  it('запрос читает момент записи строки', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/kuzmich/volcano-tool.ts'), 'utf8');
+    expect(src).toMatch(/vs\.updated_at::text AS polled_at/);
   });
 });

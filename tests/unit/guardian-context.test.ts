@@ -519,3 +519,56 @@ describe('getGuardianContext — свежесть и происхождение 
     expect(ctx).toContain('[Предупреждение, источник: КБГС РАН] Землетрясение M5.1');
   });
 });
+
+// #2315 (проверка MCP 08.10): «Шивелуч [КРАСНЫЙ]» над «KVERT: ОРАНЖЕВЫЙ» у
+// самого вулкана шёл без пояснения шкал — оно печаталось только у мест,
+// привязанных к вулкану. Два цвета двух шкал рядом читались расхождением.
+describe('getGuardianContext — сам вулкан: цвет места не код KVERT (#2315)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const shiveluch = {
+    name: 'Вулкан Шивелуч', description: null, location_type: 'volcano',
+    lat: 56.65, lng: 161.36, hazard_types: null, difficulty_level: null, altitude_m: null,
+    nearest_medical_km: null, sat_communicator_required: null, capacity_per_day: null,
+    open_from_date: null, open_to_date: null, is_open: true, current_crowds: null,
+    active_alerts: null, recommender_status: 'red', alert_message: null, alert_severity: null,
+    tourists_today: null, volcano_acc: 'orange', volcano_ash_height_m: null,
+    volcano_observed_at: FRESH_OBSERVATION, linked_volcanoes: null,
+    status_updated_at: new Date(Date.now() - 600_000).toISOString(),
+  };
+  function mockDb(places: Record<string, unknown>[]) {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) return Promise.resolve({ rows: places });
+      return Promise.resolve({ rows: [] });
+    });
+  }
+  const NOTE = 'Цвет в скобках у названия — статус места для выхода (учитывает шкалы KVERT и КФ ЕГС), а не код KVERT';
+
+  it('красное место при оранжевом коде — с пояснением, какой цвет что значит', async () => {
+    mockDb([shiveluch]);
+    const ctx = await getGuardianContext('Шивелуч');
+    expect(ctx).toContain('[КРАСНЫЙ]');
+    expect(ctx).toContain('KVERT: ОРАНЖЕВЫЙ');
+    expect(ctx).toContain(NOTE);
+    expect(ctx).toContain('оранжевый или красный код KVERT делает статус места красным');
+  });
+
+  it('у места, привязанного к вулкану, — прежнее пояснение, без второго', async () => {
+    mockDb([{ ...shiveluch, name: 'Водопад у Шивелуча', location_type: 'waterfall', linked_volcanoes: 'Вулкан Шивелуч' }]);
+    const ctx = await getGuardianContext('Водопад у Шивелуча');
+    expect(ctx).toContain('Место у вулкана Вулкан Шивелуч');
+    expect(ctx).not.toContain(NOTE);
+  });
+
+  it('цвет места не показан (пересчёт встал) — пояснять нечего', async () => {
+    mockDb([{ ...shiveluch, status_updated_at: new Date(Date.now() - 5 * 3_600_000).toISOString() }]);
+    const ctx = await getGuardianContext('Шивелуч');
+    expect(ctx).not.toContain('[КРАСНЫЙ]');
+    expect(ctx).not.toContain(NOTE);
+  });
+
+  it('места без шкал вулкана пояснение не получают', async () => {
+    mockDb([{ ...shiveluch, name: 'Озеро Тихое', location_type: 'lake', volcano_acc: null, volcano_observed_at: null }]);
+    const ctx = await getGuardianContext('Озеро Тихое');
+    expect(ctx).not.toContain(NOTE);
+  });
+});

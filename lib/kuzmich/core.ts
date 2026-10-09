@@ -2070,10 +2070,19 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // executeTool его игнорировал (аудит 08.08). Матчим и слаг (fishing),
       // и русскую метку (Рыбалка) — модель передаёт слово туриста.
       const want = (args.activity_type ?? '').trim().toLowerCase();
-      if (!want) return ctx;
-      const { activityLabel } = await import('@/lib/tours/labels');
-      const { filterTourCatalog } = await import('@/lib/kuzmich/tour-filter');
-      return filterTourCatalog(ctx, want, activityLabel);
+      const { filterTourCatalog, paginateTourText } = await import('@/lib/kuzmich/tour-filter');
+      let text = ctx;
+      if (want) {
+        const { activityLabel } = await import('@/lib/tours/labels');
+        text = filterTourCatalog(ctx, want, activityLabel);
+      }
+      // Страницы (#2314): на 11+ турах клиент MCP обрезал ответ на середине.
+      // На MCP — всегда по страницам; в чате Кузьмича — только если модель
+      // попросила страницу сама: ему каталог целиком дешевле второго вызова.
+      const page = Number.parseInt(args.page ?? '', 10);
+      const askedPage = Number.isFinite(page) && page >= 1;
+      if (opts.surface !== 'mcp' && !askedPage) return text;
+      return paginateTourText(text, askedPage ? page : 1);
     }
     if (name === 'get_tour_details') {
       const q = args.name ?? args.query ?? '';
