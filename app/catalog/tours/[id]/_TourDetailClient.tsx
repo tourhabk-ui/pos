@@ -713,6 +713,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     </li>
                   ))}
                 </ul>
+                {/* Подпись автора — оператором тура (слово владельца 09.10), тем же
+                    правилом, что у клипов перевозчика: «Видео: <кто>». */}
+                <p className="text-xs text-[var(--text-muted)]">Видео: {tour.operator_name}</p>
               </section>
             )}
 
