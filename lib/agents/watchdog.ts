@@ -40,7 +40,8 @@ import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness, livenessWatch } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
 import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
-import { maxSendDm } from '@/lib/notifications/max-channel';
+import { sendPartnerNotice, type NoticeChannel, type NoticeTarget } from '@/lib/partners/notice';
+import { escapeHtml } from '@/lib/text/escape-html';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findFruitlessCrons, formatFruitlessCrons, FRUITLESS_RUNS_THRESHOLD, type CronOutcomeRow } from '@/lib/agents/cron-fruitless';
@@ -256,46 +257,22 @@ async function checkFailedSeatRequests(): Promise<CheckResult> {
  * а не только что мы попытались.
  */
 async function notifyOperatorDirectly(
-  to: { maxChatId: string | null; telegramChatId: string | null },
+  to: NoticeTarget,
   partnerName: string,
   count: number,
   oldest: string,
-): Promise<'max' | 'telegram' | null> {
-  const appUrl = getPublicBaseUrl();
-  const bookingsUrl = `${appUrl}/hub/operator/bookings`;
+): Promise<NoticeChannel | null> {
   const body = [
-    `<b>Привет, ${partnerName}!</b>`,
+    `<b>Привет, ${escapeHtml(partnerName)}!</b>`,
     '',
     `У тебя ${count} ${count === 1 ? 'бронирование ожидает' : 'бронирований ожидают'} ответа уже больше 48 часов.`,
     `Самое раннее — ${oldest}.`,
   ].join('\n');
-
-  if (to.maxChatId) {
-    const res = await maxSendDm(to.maxChatId, body, {
-      buttons: [{ text: 'Мои бронирования', url: bookingsUrl }],
-    }).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : 'MAX error' }));
-    if (res.ok) return 'max';
-    console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в MAX: ${res.error ?? 'причина не названа'}`);
-  }
-
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !to.telegramChatId) return null;
-  const text = `${body}\n\nПосмотри и подтверди или отклони: <a href="${bookingsUrl}">Мои бронирования</a>`;
-  try {
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: to.telegramChatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-    if (!res.ok) {
-      console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в Telegram: HTTP ${res.status}`);
-      return null;
-    }
-    return 'telegram';
-  } catch (e) {
-    console.error(`[watchdog] напоминание оператору «${partnerName}» не ушло в Telegram: ${e instanceof Error ? e.message : 'fetch error'}`);
-    return null;
-  }
+  return sendPartnerNotice(
+    to, body,
+    { text: 'Мои бронирования', url: `${getPublicBaseUrl()}/hub/operator/bookings` },
+    `напоминание оператору «${partnerName}»`,
+  );
 }
 
 /**
@@ -462,30 +439,24 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
   }
 }
 
+/** Владельцу жилья — в MAX или Telegram, где он есть (lib/partners/notice). Без ПД гостя. */
 async function notifyStayOwnerDirectly(
-  chatId: string,
+  to: NoticeTarget,
   ownerName: string,
   count: number,
   oldest: string,
-): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
-  const appUrl = getPublicBaseUrl();
-  const text = [
-    `<b>Привет, ${ownerName}!</b>`,
+): Promise<NoticeChannel | null> {
+  const body = [
+    `<b>Привет, ${escapeHtml(ownerName)}!</b>`,
     '',
     `У тебя ${count} ${count === 1 ? 'бронь жилья ожидает' : 'броней жилья ожидают'} подтверждения уже больше 24 часов.`,
-    `Самая ранняя — ${oldest}.`,
-    '',
-    `Подтверди или отклони: <a href="${appUrl}/hub/stay/bookings">Брони жилья</a>`,
+    `Самая ранняя — ${oldest}. Подтверди или отклони.`,
   ].join('\n');
-  try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-  } catch { /* не блокируем */ }
+  return sendPartnerNotice(
+    to, body,
+    { text: 'Брони жилья', url: `${getPublicBaseUrl()}/hub/stay/bookings` },
+    `напоминание владельцу жилья «${ownerName}»`,
+  );
 }
 
 async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
@@ -515,24 +486,20 @@ async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
     if (rows.length === 0) return null;
 
     let total = 0;
+    let notified = 0;
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
       const reach = reachFrom(row);
-      if (reach.telegramChatId && row.owner_name) {
-        notifyStayOwnerDirectly(
-          reach.telegramChatId,
-          row.owner_name,
-          parseInt(row.count, 10),
-          row.oldest,
-        ).catch(() => {});
+      if (reach.reachable && row.owner_name) {
+        const channel = await notifyStayOwnerDirectly(reach, row.owner_name, parseInt(row.count, 10), row.oldest);
+        if (channel) notified += 1;
       }
     }
 
-    const notified = rows.filter(r => reachFrom(r).telegramChatId).length;
     return {
       type: 'unconfirmed_stay_booking',
       count: total,
-      details: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Владельцы не подключены к боту.'}`,
+      details: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Напрямую не доставлено никому: нет ни MAX, ни Telegram, или доставка отказала (причина — в логе).'}`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -542,29 +509,23 @@ async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
   }
 }
 
+/** Прокату — в MAX или Telegram, где он есть (lib/partners/notice). Без ПД арендатора. */
 async function notifyGearPartnerDirectly(
-  chatId: string,
+  to: NoticeTarget,
   partnerName: string,
   count: number,
   oldest: string,
-): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
-  const appUrl = getPublicBaseUrl();
-  const text = [
-    `<b>Привет, ${partnerName}!</b>`,
+): Promise<NoticeChannel | null> {
+  const body = [
+    `<b>Привет, ${escapeHtml(partnerName)}!</b>`,
     '',
-    `${count} заявк(и) на аренду снаряжения ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
-    '',
-    `Подтверди или отклони: <a href="${appUrl}/hub/gear/rentals">Аренды</a>`,
+    `${count} заявк(и) на аренду снаряжения ждут подтверждения уже больше суток (самая ранняя — ${oldest}). Подтверди или отклони.`,
   ].join('\n');
-  try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-  } catch { /* не блокируем */ }
+  return sendPartnerNotice(
+    to, body,
+    { text: 'Аренды', url: `${getPublicBaseUrl()}/hub/gear/rentals` },
+    `напоминание прокату «${partnerName}»`,
+  );
 }
 
 async function checkPendingGearRentals(): Promise<CheckResult> {
@@ -594,23 +555,20 @@ async function checkPendingGearRentals(): Promise<CheckResult> {
     if (rows.length === 0) return null;
 
     let total = 0;
+    let notified = 0;
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
       const reach = reachFrom(row);
-      if (reach.telegramChatId && row.partner_name) {
-        notifyGearPartnerDirectly(
-          reach.telegramChatId,
-          row.partner_name,
-          parseInt(row.count, 10),
-          row.oldest,
-        ).catch(() => {});
+      if (reach.reachable && row.partner_name) {
+        const channel = await notifyGearPartnerDirectly(reach, row.partner_name, parseInt(row.count, 10), row.oldest);
+        if (channel) notified += 1;
       }
     }
 
     return {
       type: 'pending_gear_rental',
       count: total,
-      details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).`,
+      details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Напрямую не доставлено никому: нет ни MAX, ни Telegram, или доставка отказала (причина — в логе).'}`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -782,23 +740,20 @@ async function checkPendingTransferBookings(): Promise<CheckResult> {
     if (rows.length === 0) return null;
 
     let total = 0;
+    let notified = 0;
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
       const reach = reachFrom(row);
-      if (reach.telegramChatId && row.operator_name) {
-        notifyTransferOperatorDirectly(
-          reach.telegramChatId,
-          row.operator_name,
-          parseInt(row.count, 10),
-          row.oldest,
-        ).catch(() => {});
+      if (reach.reachable && row.operator_name) {
+        const channel = await notifyTransferOperatorDirectly(reach, row.operator_name, parseInt(row.count, 10), row.oldest);
+        if (channel) notified += 1;
       }
     }
 
     return {
       type: 'pending_transfer_booking',
       count: total,
-      details: `${total} запрос(ов) мест в трансфере без ответа > 24ч у ${rows.length} перевозчик(ов).`,
+      details: `${total} запрос(ов) мест в трансфере без ответа > 24ч у ${rows.length} перевозчик(ов).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Напрямую не доставлено никому: нет ни MAX, ни Telegram, или доставка отказала (причина — в логе).'}`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -808,33 +763,27 @@ async function checkPendingTransferBookings(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Перевозчику — в MAX или Telegram, где он есть (lib/partners/notice). Без ПД
+ * пассажиров. Кабинет перевозчика на схеме 926 построен (/hub/carrier) — до
+ * 09.10 ссылка вела в общий /hub, потому что его ещё не было.
+ */
 async function notifyTransferOperatorDirectly(
-  chatId: string,
+  to: NoticeTarget,
   operatorName: string,
   count: number,
   oldest: string,
-): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return;
-  const appUrl = getPublicBaseUrl();
-  const text = [
-    `<b>Привет, ${operatorName}!</b>`,
+): Promise<NoticeChannel | null> {
+  const body = [
+    `<b>Привет, ${escapeHtml(operatorName)}!</b>`,
     '',
     `${count} запрос(ов) мест в трансфере ждут ответа уже больше суток (самый ранний — ${oldest}).`,
-    '',
-    // Прямой ссылки нет намеренно: кабинет перевозчика на схеме 926 ещё не
-    // построен, а прежний /hub/transfer-operator удалён вместе с мёртвым
-    // модулем. Вести в несуществующий адрес хуже, чем не вести никуда: пинок
-    // остаётся честным, а обещание экрана не даётся.
-    `Кабинет: ${appUrl}/hub`,
   ].join('\n');
-  try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-  } catch { /* не блокируем */ }
+  return sendPartnerNotice(
+    to, body,
+    { text: 'Кабинет перевозчика', url: `${getPublicBaseUrl()}/hub/carrier` },
+    `напоминание перевозчику «${operatorName}»`,
+  );
 }
 
 /**

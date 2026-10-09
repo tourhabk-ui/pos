@@ -262,7 +262,6 @@ const KNOWN_JSONB_TELEGRAM_READERS = [
   'app/api/admin/operators/[id]/contacts/route.ts',
   'app/api/admin/operators/[id]/route.ts',
   'app/api/admin/operators/route.ts',
-  'app/api/cron/leads-followup/route.ts',
   'app/api/hub/operator/payments/webhook/route.ts',
   'app/api/telegram/webhook/route.ts',
 ];

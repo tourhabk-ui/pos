@@ -20,13 +20,25 @@
 
 export type TgSendOutcome = { ok: true } | { ok: false; reason: string };
 
-export async function tgSend(scope: string, text: string): Promise<TgSendOutcome> {
+/**
+ * @param opts.chatId личный чат получателя вместо админского. Передан —
+ *   значит адресат названный: `null` даёт недоставку, а НЕ админский чат
+ *   (уведомление партнёру без чата не должно молча уйти администратору).
+ *   С 09.10 так шлёт `lib/partners/notice` — второй копии проверки ответа нет.
+ */
+export async function tgSend(
+  scope: string,
+  text: string,
+  opts?: { chatId: string | null },
+): Promise<TgSendOutcome> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatId = opts ? opts.chatId : process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) {
     // Ненастроенный канал выглядел бы как отсутствие тревог. Молчание по этой
     // причине — тоже недоставка.
-    const reason = 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы';
+    const reason = opts
+      ? (token ? 'у получателя нет чата Telegram' : 'TELEGRAM_BOT_TOKEN не задан')
+      : 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не заданы';
     console.error(`[${scope}] tgSend: ${reason} — тревога никуда не ушла`);
     return { ok: false, reason };
   }

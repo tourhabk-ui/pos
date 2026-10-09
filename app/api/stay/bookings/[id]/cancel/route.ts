@@ -38,7 +38,8 @@ export async function POST(
                 b.check_in_date::text AS check_in_date,
                 b.check_out_date::text AS check_out_date,
                 a.name AS accommodation_name,
-                p.telegram_chat_id AS owner_chat
+                p.telegram_chat_id AS owner_chat,
+                a.partner_id::text AS owner_partner_id
          FROM accommodation_bookings b
          JOIN accommodations a ON b.accommodation_id = a.id
          LEFT JOIN partners p ON a.partner_id = p.id
@@ -53,7 +54,7 @@ export async function POST(
       const b = bookingResult.rows[0] as {
         status: string; payment_status: string; total_price: string | null;
         is_future: boolean; check_in_date: string; check_out_date: string;
-        accommodation_name: string; owner_chat: string | null;
+        accommodation_name: string; owner_chat: string | null; owner_partner_id?: string | null;
       };
 
       const cancellable = (b.status === 'pending' || b.status === 'confirmed') && b.is_future;
@@ -94,6 +95,7 @@ export async function POST(
       return {
         code: 200 as const,
         ownerChat: b.owner_chat,
+        ownerPartnerId: b.owner_partner_id ?? null,
         accommodationName: b.accommodation_name,
         checkInDate: b.check_in_date,
         checkOutDate: b.check_out_date,
@@ -129,6 +131,7 @@ export async function POST(
         checkInDate: outcome.checkInDate,
         checkOutDate: outcome.checkOutDate,
         ownerTelegramChatId: outcome.ownerChat,
+        ownerPartnerId: outcome.ownerPartnerId,
         wasPaid: outcome.wasPaid,
         refundAmount: outcome.refundAmount,
         refundPercent: outcome.refundPercent,

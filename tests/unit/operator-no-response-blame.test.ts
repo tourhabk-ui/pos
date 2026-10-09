@@ -92,25 +92,32 @@ describe('паттерн поведения пишется только дост
 });
 
 describe('напоминание уходит в тот канал, где оператор есть', () => {
+  // С 09.10 доставка — общая дверь партнёрам lib/partners/notice (её же зовут
+  // напоминания жилью, прокату, перевозчику и отмена брони жилья); свойства
+  // держатся там, а Watchdog обязан звать её, а не свой Telegram.
+  const NOTICE = readFileSync(join(process.cwd(), 'lib/partners/notice.ts'), 'utf8');
+  const fn = SRC.slice(
+    SRC.indexOf('async function notifyOperatorDirectly'),
+    SRC.indexOf('async function checkOperatorNoResponse'),
+  );
+
   it('MAX пробуется первым — это основной канал операторов', () => {
-    const fn = SRC.slice(
-      SRC.indexOf('async function notifyOperatorDirectly'),
-      SRC.indexOf('async function checkOperatorNoResponse'),
-    );
-    expect(fn.indexOf('maxSendDm')).toBeGreaterThan(-1);
-    expect(fn.indexOf('maxSendDm')).toBeLessThan(fn.indexOf('TELEGRAM_BOT_TOKEN'));
+    expect(fn).toMatch(/return sendPartnerNotice\(/);
+    expect(NOTICE.indexOf('maxSendDm(')).toBeGreaterThan(-1);
+    expect(NOTICE.indexOf('maxSendDm(')).toBeLessThan(NOTICE.indexOf('await tgSend('));
   });
 
   it('отказ доставки не глушится — имя оператора и причина в лог (§4.0)', () => {
-    const fn = SRC.slice(
-      SRC.indexOf('async function notifyOperatorDirectly'),
-      SRC.indexOf('async function checkOperatorNoResponse'),
-    );
-    expect(fn).toMatch(/не ушло в MAX: \$\{res\.error \?\? 'причина не названа'\}/);
-    expect(fn).toMatch(/не ушло в Telegram: HTTP \$\{res\.status\}/);
+    expect(NOTICE).toMatch(/\$\{who\}: не ушло в MAX — \$\{res\.error \?\? 'причина не названа'\}/);
+    // Отказ Telegram пишет в лог общий отправитель (tg-send) — под именем
+    // получателя: scope несёт `who`.
+    expect(NOTICE).toMatch(/tgSend\(`partner-notice: \$\{who\}`/);
+    expect(fn).toMatch(/`напоминание оператору «\$\{partnerName\}»`/);
   });
 
   it('функция говорит, ушло ли и куда, а не только что попытались', () => {
-    expect(SRC).toMatch(/\): Promise<'max' \| 'telegram' \| null>/);
+    expect(NOTICE).toMatch(/\): Promise<NoticeChannel \| null>/);
+    expect(NOTICE).toMatch(/export type NoticeChannel = 'max' \| 'telegram';/);
+    expect(fn).toMatch(/\): Promise<NoticeChannel \| null>/);
   });
 });
