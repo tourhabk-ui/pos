@@ -3,27 +3,30 @@
   "retries": 45,
   "allowStale": false,
   "bytes": 300,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат главной: карточка «Вахтовка под заказ» в ленте туров и плитка «Трансфер». Ждёт выкат по метке плитки.",
-  "run": 734,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Телефонное дерево главной (UA iPhone — бот-UA получает десктоп): плитка «Трансфер» и карточка трансфера в ленте; снимок автора отдаётся файлом.",
+  "run": 735,
   "urls": [
-    "https://vedarai.ru/"
+    "https://vedarai.ru/",
+    "https://vedarai.ru/images/shatun/shatun-21.jpg",
+    "https://vedarai.ru/images/shatun/shatun-16.jpg"
   ],
   "grep": [
     "qt-transfer",
-    "Вахтовка под заказ",
+    "места в поездках и вахтовка под заказ",
     "за машину",
-    "Смотреть прайс",
     "/transfers",
-    "Трансфер"
+    "qt-plan",
+    "qt-radar"
   ],
   "text": false,
   "retryDelay": 30,
   "around": [
-    "Вахтовка под заказ",
-    "qt-transfer"
+    "qt-transfer",
+    "за машину"
   ],
   "aroundLines": 1,
   "aroundHits": 1,
   "aroundBefore": 1,
-  "until": "qt-transfer"
+  "until": "qt-transfer",
+  "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 }
