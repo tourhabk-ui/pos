@@ -87,6 +87,12 @@ export function CharterCard({
         вахтовки под заказ не оплачиваются.
       </p>
 
+      {carrier.legal && (
+        <p className="text-xs text-[var(--text-secondary)]">
+          Исполнитель: {carrier.legal.name}{carrier.legal.inn ? `, ИНН ${carrier.legal.inn}` : ''}.
+        </p>
+      )}
+
       {hasContacts ? (
         <div className="space-y-2">
           {carrier.phone && phoneLabel && (

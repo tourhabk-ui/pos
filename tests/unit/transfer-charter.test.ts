@@ -51,6 +51,7 @@ const CARRIER: CharterCarrier = {
     { url: '/images/shatun/shatun-01.jpg', credit: null },
     { url: '/images/shatun/shatun-16.jpg', credit: 'Сладченко Виктор Леонидович' },
   ],
+  legal: { name: 'ИП Миронова Нина Васильевна', inn: '250302356113' },
   clips: [
     { url: '/video/shatun/clip-water-approach.mp4', poster: '/video/shatun/clip-water-approach.poster.jpg', label: 'Вахтовка идёт через воду' },
   ],
@@ -418,5 +419,49 @@ describe('карточка: клипы показываются лениво', (
   it('нет клипов — нет полосы', () => {
     const none = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, clips: [] } }));
     expect(none).not.toContain('Короткие видео');
+  });
+});
+
+describe('миграция 1187: исполнитель — только названное владельцем', () => {
+  const SQL7 = read('migrations/1187_shatun_executor_requisites.sql');
+  const CODE7 = SQL7.replace(/--[^\n]*/g, '');
+
+  it('имя, ИНН и слово «лицензия есть» — дословно; номера лицензии, адреса и ОГРНИП нет', () => {
+    expect(CODE7).toMatch(/company_name = 'ИП Миронова Нина Васильевна'/);
+    expect(CODE7).toMatch(/'inn',\s+'250302356113'/);
+    expect(CODE7).toMatch(/'license',\s+'есть'/);
+    expect(CODE7).not.toMatch(/'address'|'ogrn'|АК-\d|Петропавловск/i);
+  });
+
+  it('«проверено» не ставится, реестр не трогается; пишется только в пустое', () => {
+    expect(CODE7).not.toMatch(/is_verified|registry_/);
+    expect(CODE7).toMatch(/\(company_name IS NULL OR company_name = ''\)/);
+    expect(CODE7).toMatch(/legal_info IS NULL OR legal_info = '\{\}'::jsonb/);
+  });
+
+  it('цены и условия чужой площадки в карточку не переносятся: прайс один', () => {
+    expect(CODE7).not.toMatch(/price_rub|7000|70000|transfer_charter_prices/);
+  });
+});
+
+describe('исполнитель в загрузчике и на карточке', () => {
+  it('название из company_name, запасное — из legal_info; ИНН только по форме; без названия реквизитов нет', async () => {
+    const { parseLegal } = await import('@/lib/transfers/charter');
+    expect(parseLegal('ИП Миронова Нина Васильевна', { inn: '250302356113' })).toEqual({ name: 'ИП Миронова Нина Васильевна', inn: '250302356113' });
+    expect(parseLegal(null, { companyName: ' ИП Иванов ', inn: '2503 023561 13' })).toEqual({ name: 'ИП Иванов', inn: '250302356113' });
+    expect(parseLegal('ООО «Х»', { inn: '1234' })).toEqual({ name: 'ООО «Х»', inn: null });
+    expect(parseLegal('ООО «Х»', null)).toEqual({ name: 'ООО «Х»', inn: null });
+    expect(parseLegal(null, { inn: '250302356113' })).toBeNull();
+    expect(parseLegal('  ', 'мусор')).toBeNull();
+  });
+
+  it('карточка называет исполнителя; нет реквизитов — строки нет', () => {
+    const html = renderToStaticMarkup(createElement(CharterCard, { carrier: CARRIER }));
+    expect(html).toContain('Исполнитель: ИП Миронова Нина Васильевна, ИНН 250302356113.');
+    const none = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, legal: null } }));
+    expect(none).not.toContain('Исполнитель');
+    const noInn = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, legal: { name: 'ИП Иванов', inn: null } } }));
+    expect(noInn).toContain('Исполнитель: ИП Иванов.');
+    expect(noInn).not.toContain('ИНН');
   });
 });

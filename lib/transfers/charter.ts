@@ -19,7 +19,7 @@
 import { query } from '@/lib/database';
 import { extractGallery, telegramContactHref } from '@/lib/operators/profile-parse';
 import { normalizeContactPhone } from '@/lib/stay/contact-phone';
-import type { CharterCarrier, CharterClip, CharterPhoto, CharterVehicleKind } from '@/lib/transfers/charter-format';
+import type { CharterCarrier, CharterClip, CharterLegal, CharterPhoto, CharterVehicleKind } from '@/lib/transfers/charter-format';
 
 export * from '@/lib/transfers/charter-format';
 
@@ -34,6 +34,8 @@ interface PartnerRow {
   video_poster_url: string | null;
   gallery_credits: unknown;
   video_clips: unknown;
+  company_name: string | null;
+  legal_info: unknown;
   contacts: unknown;
 }
 
@@ -97,6 +99,21 @@ export function parseClips(raw: unknown, fallbackLabel: string): CharterClip[] {
 }
 
 /**
+ * Исполнитель по договору. Название — из company_name, запасное — из
+ * legal_info.companyName; нет названия — реквизитов для показа нет вовсе (один
+ * ИНН без имени человеку ничего не говорит). ИНН — только по форме (10 или 12
+ * цифр): мусор в колонке не должен выглядеть реквизитом.
+ */
+export function parseLegal(companyName: string | null, legalInfo: unknown): CharterLegal | null {
+  const rec = asRecord(legalInfo);
+  const fromInfo = rec && typeof rec.companyName === 'string' ? rec.companyName.trim() : '';
+  const name = (companyName ?? '').trim() || fromInfo;
+  if (!name) return null;
+  const rawInn = rec && typeof rec.inn === 'string' ? rec.inn.replace(/\s/g, '') : '';
+  return { name, inn: /^(\d{10}|\d{12})$/.test(rawInn) ? rawInn : null };
+}
+
+/**
  * Каналы перевозчика из `partners.contacts` (форма «объект каналов»). Телефон
  * проходит ту же проверку формата, что и номер жилья (один разбор номера на
  * платформу): мусор не станет tel:-ссылкой. WhatsApp — wa.me по цифрам; Telegram — как у оператора
@@ -116,7 +133,7 @@ export function charterContacts(raw: unknown): { phone: string | null; telegramH
 /** Перевозчики с живым прайсом; partnerId — только один из них. */
 export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Promise<CharterCarrier[]> {
   const partners = await query<PartnerRow>(
-    `SELECT p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.contacts
+    `SELECT p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.company_name, p.legal_info, p.contacts
        FROM partners p
       WHERE p.is_public = TRUE
         AND p.slug IS NOT NULL
@@ -177,6 +194,7 @@ export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Pr
         : null,
       photos: parsePhotos(photos, p.gallery_credits),
       clips: parseClips(p.video_clips, `Видео: ${p.name}`),
+      legal: parseLegal(p.company_name, p.legal_info),
       // Ролик без обложки не показывается: база такого не допускает (CHECK
       // partners_video_shape), но экран не должен верить только базе.
       video: p.video_url && p.video_poster_url ? { url: p.video_url, poster: p.video_poster_url } : null,

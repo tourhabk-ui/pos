@@ -46,6 +46,13 @@ export interface CharterClip {
   label: string;
 }
 
+/** С кем договор: название исполнителя и, если назван, ИНН. */
+export interface CharterLegal {
+  name: string;
+  /** 10 или 12 цифр; null — не записан или записан не по форме. */
+  inn: string | null;
+}
+
 /** Ролик перевозчика: адрес и кадр-обложка вместе (миграция 1185) или ничего. */
 export interface CharterVideo {
   url: string;
@@ -65,6 +72,8 @@ export interface CharterCarrier {
   photos: CharterPhoto[];
   /** Короткие петли для ленивого показа; [] — клипов нет. */
   clips: CharterClip[];
+  /** Исполнитель по договору; null — реквизиты не записаны. */
+  legal: CharterLegal | null;
   /** null — ролика нет (или он записан без обложки: такой не показывается). */
   video: CharterVideo | null;
   /** «+7XXXXXXXXXX»; null — не записан. В ответ AI-инструментов не уходит. */
