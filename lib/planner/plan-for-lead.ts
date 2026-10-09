@@ -25,6 +25,7 @@ import { estimateGroup, type EstimateDay, type EstimateProfile, type GroupEstima
 import type { BudgetTier, DayType, ZoneId } from '@/lib/planner/constants';
 import { asTripOrigin, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+import type { PlanChoices } from '@/lib/planner/plan-choices';
 
 /** День в том объёме, что нужен заявке. День движка и день экрана подходят. */
 export interface PlanLeadInputDay extends EstimateDay {
@@ -68,6 +69,18 @@ export interface PlanForLead {
     lines: Array<{ label: string; basis: string; total: [number, number] | null }>;
     unpriced: string[];
   };
+  /** Выбранное жильё на стоянки (#2304, шаг 3); нет — не выбирали. */
+  lodging?: Array<{
+    accommodation_id: string; name: string; zone: ZoneId;
+    check_in: string; check_out: string; nights: number;
+    /** Цена стоянки на группу по правилу брони; нет — смотри price_note. */
+    total?: number; rooms?: number; room?: string; price_note?: string;
+  }>;
+  /** Выбранные поездки перевозчиков; нет — не выбирали. */
+  transfers?: Array<{
+    trip_id: string; date: string; from: string; to: string; seats: number;
+    price_per_seat?: number; carrier: string;
+  }>;
 }
 
 function dateOf(arrival: string | null | undefined, day: number): string | null {
@@ -79,8 +92,9 @@ function dateOf(arrival: string | null | undefined, day: number): string | null 
 export function planForLead(
   days: PlanLeadInputDay[],
   profile: EstimateProfile & { arrivalDate?: string | null },
+  choices?: PlanChoices,
 ): PlanForLead {
-  const est: GroupEstimate = estimateGroup(days, profile);
+  const est: GroupEstimate = estimateGroup(days, profile, choices);
   return {
     v: 1,
     party: { adults: profile.adults, children: [...profile.children] },
@@ -112,6 +126,21 @@ export function planForLead(
       lines: est.lines.map((l) => ({ label: l.label, basis: l.basis, total: l.total })),
       unpriced: est.unpriced,
     },
+    ...(choices && choices.stays.length > 0 ? {
+      lodging: choices.stays.map((st) => ({
+        accommodation_id: st.accommodationId, name: st.name, zone: st.zone,
+        check_in: st.checkIn, check_out: st.checkOut, nights: st.nights,
+        ...(st.price?.kind === 'priced'
+          ? { total: st.price.total, rooms: st.price.rooms, room: st.price.roomName }
+          : { price_note: st.price ? 'группа в один тип номеров не помещается — номера и цену подберёт хозяин' : 'цену на группу назовёт хозяин' }),
+      })),
+    } : {}),
+    ...(choices && choices.transfers.length > 0 ? {
+      transfers: choices.transfers.map((t) => ({
+        trip_id: t.tripId, date: t.date, from: t.from, to: t.to, seats: t.seats, carrier: t.carrier,
+        ...(t.pricePerSeat !== null ? { price_per_seat: t.pricePerSeat } : {}),
+      })),
+    } : {}),
   };
 }
 
@@ -121,6 +150,8 @@ const BUDGET_WORD: Record<BudgetTier, string> = { economy: 'эконом', comfo
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
 const range = ([a, b]: [number, number]) => (a === b ? rub(a) : `${rub(a)}–${rub(b)}`);
 const ddmm = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+const plural = (n: number, one: string, few: string, many: string) =>
+  (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
 
 /** Узнать сводку плана в source_data заявки (форма — с версией). */
 export function asPlanForLead(v: unknown): PlanForLead | null {
@@ -163,6 +194,18 @@ export function planLeadLines(plan: PlanForLead): string[] {
   for (const d of plan.days) {
     const t = tourWords(d);
     if (t) lines.push(`День ${d.day}${d.date ? ` (${ddmm(d.date)})` : ''}: ${t}`);
+  }
+  for (const l of plan.lodging ?? []) {
+    const price = l.total !== undefined && l.rooms !== undefined
+      ? `${l.rooms} ${plural(l.rooms, 'номер', 'номера', 'номеров')} «${l.room}», ${rub(l.total)}`
+      : l.price_note ?? 'цену назовёт хозяин';
+    lines.push(`Жильё: «${l.name}», ${ddmm(l.check_in)}–${ddmm(l.check_out)} `
+      + `(${l.nights} ${plural(l.nights, 'ночь', 'ночи', 'ночей')}), ${price}`);
+  }
+  for (const t of plan.transfers ?? []) {
+    const seats = `${t.seats} ${plural(t.seats, 'место', 'места', 'мест')}`;
+    const price = t.price_per_seat !== undefined ? `${seats} × ${rub(t.price_per_seat)}` : `${seats}, цену назовёт перевозчик`;
+    lines.push(`Трансфер: ${t.from} — ${t.to}, ${ddmm(t.date)}, ${price} (${t.carrier})`);
   }
   return lines;
 }

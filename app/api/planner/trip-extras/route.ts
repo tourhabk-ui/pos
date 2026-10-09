@@ -53,6 +53,8 @@ const TripExtrasSchema = z.object({
   adults: z.number().int().min(1).max(20).default(1),
   children: z.array(z.number().int().min(0).max(17)).max(10).default([]),
   days: z.array(DaySchema).max(60).default([]),
+  /** Местный ночует дома в Авачинской зоне — жильё ему там не подбирается. */
+  tripOrigin: z.enum(['visitor', 'local']).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Некорректные параметры' }, { status: 400 });
   }
-  const { needs, arrivalDate, departureDate, adults, children, days } = parsed.data;
+  const { needs, arrivalDate, departureDate, adults, children, days, tripOrigin } = parsed.data;
   if (arrivalDate && departureDate && departureDate <= arrivalDate) {
     return NextResponse.json(
       { success: false, error: 'Дата отъезда должна быть позже даты прилёта' },
@@ -83,10 +85,11 @@ export async function POST(req: NextRequest) {
     if (!hasDates || !arrivalDate) {
       data.lodging = { state: 'no_dates' };
     } else {
-      const { stays, nightsInTours } = lodgingStays(days, arrivalDate, departureDate);
+      const { stays, nightsInTours } = lodgingStays(days, arrivalDate, departureDate, tripOrigin);
       const shown = stays.slice(0, MAX_STAYS);
+      const people = groupSeats(adults, children);
       const [results, unzonedCount] = await Promise.all([
-        Promise.all(shown.map((s) => findLodgingForStay(s))),
+        Promise.all(shown.map((s) => findLodgingForStay(s, people))),
         countUnzonedPublicLodging(),
       ]);
       data.lodging = {

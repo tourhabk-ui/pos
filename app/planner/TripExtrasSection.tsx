@@ -11,12 +11,34 @@
  *
  * У каждого ответа три исхода: варианты; «на платформе нет» со ссылкой на
  * каталог; «не смогли проверить» — это не «нет», и экран так и говорит.
+ *
+ * Жильё и поездку перевозчика можно взять в план (#2304, шаг 3): выбранное
+ * встаёт в смету своей ценой вместо ориентира и уходит в заявку
+ * (lib/planner/plan-choices). Ссылки ведут на объект и на витрину поездок с
+ * датами и составом плана — не с пустой формой.
  */
 
 import Link from 'next/link';
-import { BedDouble, Bus, Car, Star, ArrowRight, AlertTriangle, BadgeCheck } from 'lucide-react';
+import { BedDouble, Bus, Car, Star, ArrowRight, AlertTriangle, BadgeCheck, Check } from 'lucide-react';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
-import type { TripExtrasData, LodgingStayView, TransferOptionView } from './planner-types';
+import { stayLink } from '@/lib/stay/stay-link';
+import { tripsLink } from '@/lib/transfers/trips-link';
+import { stayKey, type ChoiceSelection } from '@/lib/planner/plan-choices';
+import type { TripExtrasData, LodgingStayView, LodgingOptionView, TransferOptionView } from './planner-types';
+
+/** Состав плана: для ссылок с гостями и для мест в трансфере. */
+export interface ExtrasParty {
+  adults: number;
+  children: number[];
+}
+
+/** Выбор жилья и поездок: нет обработчиков — блок только показывает. */
+export interface ExtrasChoiceProps {
+  selection?: ChoiceSelection;
+  onToggleLodging?: (stayKey: string, accommodationId: string) => void;
+  onToggleTransfer?: (tripId: string) => void;
+  party?: ExtrasParty;
+}
 
 export type ExtrasLoad =
   | { status: 'loading' }
@@ -48,6 +70,25 @@ function nightsRu(n: number): string {
   return `${n} ночей`;
 }
 
+function roomsRu(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n} номер`;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} номера`;
+  return `${n} номеров`;
+}
+
+/** Кнопка «взять в план»: нажата — пункт плана, повторное нажатие — снять. */
+function PlanToggle({ chosen, onClick, label }: { chosen: boolean; onClick: () => void; label: string }) {
+  return (
+    <button type="button" aria-pressed={chosen} aria-label={`${chosen ? 'Убрать из плана' : 'Взять в план'}: ${label}`} onClick={onClick}
+      className={`ds-btn ${chosen ? 'ds-btn-primary' : 'ds-btn-secondary'} shrink-0 px-3 text-sm`}>
+      {chosen && <Check className="w-4 h-4" />}
+      {chosen ? 'В плане' : 'В план'}
+    </button>
+  );
+}
+
 function Unavailable({ what }: { what: string }) {
   return (
     <p className="flex items-start gap-2 text-sm text-[var(--warning)]">
@@ -66,7 +107,65 @@ function CatalogueLink({ href, children }: { href: string; children: React.React
   );
 }
 
-function StayBlock({ stay }: { stay: LodgingStayView }) {
+function LodgingItem({ o, stay, chosen, onToggle, party }: {
+  o: LodgingOptionView;
+  stay: LodgingStayView;
+  chosen: boolean;
+  onToggle?: () => void;
+  party?: ExtrasParty;
+}) {
+  const href = party
+    ? stayLink(o.id, {
+      checkIn: stay.checkIn, checkOut: stay.checkOut, adults: party.adults, children: party.children.length,
+      ...(o.stay?.kind === 'priced' ? { roomId: o.stay.roomId, rooms: o.stay.rooms } : {}),
+    })
+    : `/accommodations/${o.id}`;
+  return (
+    <li data-testid="lodging-option"
+      className={`rounded-lg border bg-[var(--bg-card)] px-3 py-2.5 transition-colors duration-200 motion-reduce:transition-none ${chosen ? 'border-[var(--accent)]' : 'border-[var(--border)]'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0">
+          <Link href={href} className="flex items-center gap-1.5 min-h-[24px] text-sm font-medium text-[var(--text-primary)]">
+            <span className="truncate">{o.name}</span>
+            {o.isVerified && <BadgeCheck className="w-4 h-4 shrink-0 text-[var(--success)]" aria-label="Проверено платформой" />}
+          </Link>
+          <span className="block text-xs text-[var(--text-secondary)] mt-0.5">
+            {TYPE_LABELS[o.type] ?? o.type}
+            {o.rating !== null && (
+              <>
+                {' · '}
+                <Star className="inline w-3 h-3 -mt-0.5 text-[var(--warning)]" />{' '}
+                {o.rating.toFixed(1)} ({o.reviewCount})
+              </>
+            )}
+          </span>
+        </span>
+        <span className="shrink-0 text-right text-sm text-[var(--text-primary)]">
+          {o.stay?.kind === 'priced'
+            ? <>{fmtRub(o.stay.total)}<span className="block text-[10px] text-[var(--text-muted)]">на группу за {nightsRu(stay.nights)}</span></>
+            : o.priceFrom === null
+              ? <span className="text-xs text-[var(--text-muted)]">цена не указана</span>
+              : <>от {fmtRub(o.priceFrom)}<span className="block text-[10px] text-[var(--text-muted)]">за номер в ночь</span></>}
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span className="text-xs text-[var(--text-secondary)]">
+          {o.stay?.kind === 'priced'
+            ? `${roomsRu(o.stay.rooms)} «${o.stay.roomName}», до ${o.stay.maxGuests} гостей в номере`
+            : o.stay?.kind === 'no_fit'
+              ? 'Группа целиком в один тип номеров не помещается — номера подберёт хозяин'
+              : 'Цену на группу посчитаем в карточке объекта'}
+        </span>
+        {onToggle && <PlanToggle chosen={chosen} onClick={onToggle} label={o.name} />}
+      </div>
+    </li>
+  );
+}
+
+function StayBlock({ stay, choice }: { stay: LodgingStayView; choice: ExtrasChoiceProps }) {
+  const key = stayKey(stay);
+  const chosenId = choice.selection?.lodging[key];
+  const onToggleLodging = choice.onToggleLodging;
   return (
     <div className="space-y-2" data-testid="lodging-stay">
       <p className="text-sm text-[var(--text-primary)]">
@@ -76,32 +175,8 @@ function StayBlock({ stay }: { stay: LodgingStayView }) {
       {stay.result.state === 'ok' && (
         <ul className="space-y-1.5">
           {stay.result.items.map((o) => (
-            <li key={o.id}>
-              <Link href={`/accommodations/${o.id}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5 min-h-[44px] transition-colors duration-200 hover:border-[var(--accent)] motion-reduce:transition-none">
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--text-primary)]">
-                    <span className="truncate">{o.name}</span>
-                    {o.isVerified && <BadgeCheck className="w-4 h-4 shrink-0 text-[var(--success)]" aria-label="Проверено платформой" />}
-                  </span>
-                  <span className="block text-xs text-[var(--text-secondary)] mt-0.5">
-                    {TYPE_LABELS[o.type] ?? o.type}
-                    {o.rating !== null && (
-                      <>
-                        {' · '}
-                        <Star className="inline w-3 h-3 -mt-0.5 text-[var(--warning)]" />{' '}
-                        {o.rating.toFixed(1)} ({o.reviewCount})
-                      </>
-                    )}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right text-sm text-[var(--text-primary)]">
-                  {o.priceFrom === null
-                    ? <span className="text-xs text-[var(--text-muted)]">цена не указана</span>
-                    : <>от {fmtRub(o.priceFrom)}<span className="block text-[10px] text-[var(--text-muted)]">за ночь</span></>}
-                </span>
-              </Link>
-            </li>
+            <LodgingItem key={o.id} o={o} stay={stay} chosen={chosenId === o.id} party={choice.party}
+              onToggle={onToggleLodging ? () => onToggleLodging(key, o.id) : undefined} />
           ))}
         </ul>
       )}
@@ -118,29 +193,47 @@ function StayBlock({ stay }: { stay: LodgingStayView }) {
   );
 }
 
-function TransferRow({ t, arrival, departure }: { t: TransferOptionView; arrival: string; departure: string }) {
+function TransferRow({ t, arrival, departure, seats, chosen, onToggle }: {
+  t: TransferOptionView;
+  arrival: string;
+  departure: string;
+  seats: number;
+  chosen: boolean;
+  onToggle?: () => void;
+}) {
   const tag = t.tripDate === arrival ? 'в день прилёта' : t.tripDate === departure ? 'в день отъезда' : null;
   return (
-    <li className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5">
-      <p className="text-sm font-medium text-[var(--text-primary)]">{t.fromText} — {t.toText}</p>
+    <li data-testid="transfer-option"
+      className={`rounded-lg border bg-[var(--bg-card)] px-3 py-2.5 transition-colors duration-200 motion-reduce:transition-none ${chosen ? 'border-[var(--accent)]' : 'border-[var(--border)]'}`}>
+      <Link href={tripsLink({ from: t.tripDate, to: t.tripDate, seats, tripId: t.id })}
+        className="text-sm font-medium text-[var(--text-primary)]">
+        {t.fromText} — {t.toText}
+      </Link>
       <p className="text-xs text-[var(--text-secondary)] mt-0.5">
         {fmtDay(t.tripDate)}{t.departureNote ? `, ${t.departureNote}` : ''}
         {tag && <span className="text-[var(--ocean)]"> · {tag}</span>}
       </p>
-      <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-        {KIND_LABEL[t.vehicleKind] ?? t.vehicleKind} «{t.vehicleTitle}» · {t.partnerName}
-        {' · '}свободно {t.seatsFree} из {t.seatsTotal}
-        {' · '}{t.pricePerSeat === null ? 'цена за место не указана' : `${fmtRub(t.pricePerSeat)} за место`}
-      </p>
+      <div className="mt-0.5 flex items-center justify-between gap-2">
+        <p className="text-xs text-[var(--text-secondary)]">
+          {KIND_LABEL[t.vehicleKind] ?? t.vehicleKind} «{t.vehicleTitle}» · {t.partnerName}
+          {' · '}свободно {t.seatsFree} из {t.seatsTotal}
+          {' · '}{t.pricePerSeat === null ? 'цена за место не указана' : `${fmtRub(t.pricePerSeat)} за место`}
+        </p>
+        {onToggle && <PlanToggle chosen={chosen} onClick={onToggle} label={`${t.fromText} — ${t.toText}`} />}
+      </div>
     </li>
   );
 }
 
-export function TripExtrasSection({ load, arrival, departure }: {
+export function TripExtrasSection({ load, arrival, departure, ...choice }: {
   load: ExtrasLoad;
   arrival: string;
   departure: string;
-}) {
+} & ExtrasChoiceProps) {
+  // Окно поездок — для ссылок на витрину и для мест в каждой поездке.
+  const transfer = load.status === 'ready' ? load.data.transfer : undefined;
+  const transferWindow = transfer && 'window' in transfer ? transfer.window : null;
+  const onToggleTransfer = choice.onToggleTransfer;
   return (
     <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4" aria-label="Что ещё нужно" data-testid="trip-extras">
       <div>
@@ -180,7 +273,7 @@ export function TripExtrasSection({ load, arrival, departure }: {
                         : 'В плане нет ночей — жильё не нужно.'}
                     </p>
                   )}
-                  {load.data.lodging.stays.map((s) => <StayBlock key={`${s.zone}-${s.checkIn}`} stay={s} />)}
+                  {load.data.lodging.stays.map((s) => <StayBlock key={stayKey(s)} stay={s} choice={choice} />)}
                   {load.data.lodging.stays.length > 0 && load.data.lodging.nightsInTours > 0 && (
                     <p className="text-xs text-[var(--text-muted)]">
                       Ещё {nightsRu(load.data.lodging.nightsInTours)} — в турах с проживанием, на них жильё не ищем.
@@ -212,17 +305,20 @@ export function TripExtrasSection({ load, arrival, departure }: {
                   <CatalogueLink href="/transfers">Поездки перевозчиков</CatalogueLink>
                 </div>
               )}
-              {load.data.transfer.state === 'ok' && (
+              {load.data.transfer.state === 'ok' && transferWindow && (
                 <>
                   <p className="text-xs text-[var(--text-secondary)]">
                     С {fmtDay(load.data.transfer.window.from)} по {fmtDay(load.data.transfer.window.to)}, места на всю группу ({load.data.transfer.window.seats} чел.):
                   </p>
                   <ul className="space-y-1.5">
                     {load.data.transfer.items.map((t) => (
-                      <TransferRow key={t.id} t={t} arrival={arrival} departure={departure} />
+                      <TransferRow key={t.id} t={t} arrival={arrival} departure={departure}
+                        seats={transferWindow.seats}
+                        chosen={choice.selection?.transfers.includes(t.id) ?? false}
+                        onToggle={onToggleTransfer ? () => onToggleTransfer(t.id) : undefined} />
                     ))}
                   </ul>
-                  <CatalogueLink href="/transfers">Запросить место</CatalogueLink>
+                  <CatalogueLink href={tripsLink(transferWindow)}>Все поездки на эти даты</CatalogueLink>
                 </>
               )}
               {load.data.transfer.state === 'empty' && (
