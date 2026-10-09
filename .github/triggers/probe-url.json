@@ -2,25 +2,34 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 200,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Конструктор laguna-expedition.online: настройки плагина (LagunaTripBuilderData целиком) и адреса его скриптов — модель данных конструктора для сравнения с нашим планером.",
-  "run": 736,
+  "bytes": 100,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Конструктор laguna-expedition.online: остальные разделы каталога в настройках плагина — отели, номера, услуги, рестораны, бонусы (ключи и первые записи).",
+  "run": 737,
   "urls": [
     "https://laguna-expedition.online"
   ],
   "grep": [
-    "LagunaTripBuilderData",
-    "plugins/laguna",
-    "ltb-"
+    "\"hotels\":",
+    "\"rooms\":",
+    "\"services\":",
+    "\"restaurants\":",
+    "\"bonuses\":",
+    "\"bonus",
+    "\"transfers\":",
+    "\"steps\":",
+    "\"settings\":"
   ],
   "text": false,
   "retryDelay": 30,
   "around": [
-    "var LagunaTripBuilderData",
-    "<script src=",
-    "script src='"
+    "\"hotels\":",
+    "\"rooms\":",
+    "\"services\":",
+    "\"restaurants\":",
+    "\"bonuses\":",
+    "\"bonus"
   ],
-  "aroundLines": 90,
-  "aroundHits": 25,
-  "aroundBefore": 0
+  "aroundLines": 24,
+  "aroundHits": 1,
+  "aroundBefore": 1
 }
