@@ -122,7 +122,10 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
           name: name.trim(),
           phone: phone.trim(),
           comment: trip ? `Маршрут: ${trip.title} (${trip.days.length} дн.)` : undefined,
-          sourceData: {
+          // `source_data`, как в схеме /api/leads. Здесь стояло `sourceData`:
+          // Zod отбрасывает незнакомый ключ, и до оператора доходил один
+          // комментарий — без дат, рейсов и мест поездки.
+          source_data: {
             source: 'saved_trip',
             trip_id: tripId,
             trip_title: trip?.title,
