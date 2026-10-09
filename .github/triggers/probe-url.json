@@ -1,38 +1,33 @@
 {
   "timeout": 60,
-  "retries": 45,
+  "retries": 2,
   "allowStale": false,
-  "bytes": 600,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат перевозчика «Шатун» (миграция 1185, #2240): блок «Вахтовки под заказ» на /transfers, карточка /operators/shatun с прайсом и подписью «Перевозчик», ролик и снимок отдаются файлами.",
-  "run": 730,
+  "bytes": 9000,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Объявление «Шатуна» на perevozka24.com (владелец прислал снимок экрана: «ИП Миронова Нина Васильевна, ИНН, лицензия есть и адрес — перевозка 24»): адрес, реквизиты, лицензия — текстом, чтобы записать названное, а не прочитанное с картинки.",
+  "run": 731,
   "urls": [
-    "https://vedarai.ru/transfers",
-    "https://vedarai.ru/operators/shatun",
-    "https://vedarai.ru/video/shatun/shatun-river-crossing.mp4",
-    "https://vedarai.ru/video/shatun/shatun-river-crossing.poster.jpg",
-    "https://vedarai.ru/images/shatun/shatun-01.jpg"
+    "https://perevozka24.com/petropavlovsk-kamchatskiy-41/ts-rent_vahtovye-avtobusy-502233"
   ],
   "grep": [
-    "Вахтовки под заказ",
-    "Шатун",
-    "Перевозчик",
-    "65&nbsp;000",
-    "450&nbsp;000",
-    "плюс переправы",
-    "в день",
-    "Позвонить",
-    "Не смогли проверить",
-    "<video",
-    "Фото: Шатун",
-    "Видео: Шатун"
+    "Миронова",
+    "ИНН",
+    "250302356113",
+    "Лицензи",
+    "Адрес",
+    "адрес",
+    "Камчатск",
+    "24+2",
+    "предоплата",
+    "Опыт работы",
+    "круглосуточно"
   ],
-  "text": false,
-  "retryDelay": 30,
-  "until": "Вахтовки под заказ",
+  "text": true,
+  "retryDelay": 20,
   "around": [
-    "Вахтовки под заказ",
-    "плюс переправы",
-    "<video"
+    "Миронова",
+    "ИНН",
+    "Лицензи",
+    "Адрес"
   ],
-  "aroundLines": 1
+  "aroundLines": 2
 }
