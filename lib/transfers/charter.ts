@@ -19,6 +19,7 @@
 import { query } from '@/lib/database';
 import { extractGallery, telegramContactHref } from '@/lib/operators/profile-parse';
 import { normalizeContactPhone } from '@/lib/stay/contact-phone';
+import { videoSrc } from '@/lib/media/video-url';
 import type { CharterCarrier, CharterClip, CharterLegal, CharterPhoto, CharterVehicleKind } from '@/lib/transfers/charter-format';
 
 export * from '@/lib/transfers/charter-format';
@@ -193,11 +194,17 @@ export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Pr
         ? { priceRub: extra.price_rub, note: extra.price_note, conditions: extra.conditions, validYear: extra.valid_year }
         : null,
       photos: parsePhotos(photos, p.gallery_credits),
-      clips: parseClips(p.video_clips, `Видео: ${p.name}`),
+      // В базе — пути /video/...; файлы с 09.10 в хранилище, и страница
+      // получает адрес объекта там (lib/media/video-url), а не круг через
+      // переадресацию /video/[...path].
+      clips: parseClips(p.video_clips, `Видео: ${p.name}`)
+        .map((c) => ({ ...c, url: videoSrc(c.url), poster: videoSrc(c.poster) })),
       legal: parseLegal(p.company_name, p.legal_info),
       // Ролик без обложки не показывается: база такого не допускает (CHECK
       // partners_video_shape), но экран не должен верить только базе.
-      video: p.video_url && p.video_poster_url ? { url: p.video_url, poster: p.video_poster_url } : null,
+      video: p.video_url && p.video_poster_url
+        ? { url: videoSrc(p.video_url), poster: videoSrc(p.video_poster_url) }
+        : null,
       ...charterContacts(p.contacts),
     };
   });
