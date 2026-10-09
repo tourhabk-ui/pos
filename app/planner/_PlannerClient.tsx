@@ -38,7 +38,7 @@ import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
 import { extractContacts } from '@/lib/operators/profile-parse';
 import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
-import { GroupEstimateBlock } from './GroupEstimate';
+import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
@@ -1385,6 +1385,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         flightArrivalTime: flightArrivalTime || null,
         flightDepartureTime: flightDepartureTime || null,
         needsAirportTransfer,
+        // Состав и уровень, на которые собран план (#2304, шаг 2): без них
+        // страница поездки не посчитает смету, а заявка уйдёт без состава.
+        ...(planProfile ? {
+          party: {
+            adults: planProfile.adults, children: planProfile.children,
+            budgetTier: planProfile.budgetTier, tripOrigin: planProfile.tripOrigin,
+          },
+        } : {}),
       };
 
       let res: Response;
@@ -1414,7 +1422,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId]);
+  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId, planProfile]);
 
   const shareTrip = useCallback(async () => {
     if (!initialUserId) { router.push(`/auth/login?from=/planner`); return; }

@@ -9,19 +9,9 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import type { UserTripRow } from '@/lib/types/db-rows';
+import { TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
 
 export const dynamic = 'force-dynamic';
-
-const DayPlanSchema = z.object({
-  day: z.number().int().min(1),
-  zone: z.enum(['avachinsky', 'western', 'eastern', 'northern']),
-  title: z.string().min(1).max(255),
-  activityType: z.string().max(50),
-  priceFrom: z.number().min(0),
-  priceTo: z.number().min(0),
-  coords: z.tuple([z.number(), z.number()]),
-  defaultTransport: z.enum(['walking', 'jeep', 'helicopter', 'boat']),
-});
 
 const UpdateTripSchema = z.object({
   title: z.string().min(1).max(255).optional(),
@@ -29,13 +19,15 @@ const UpdateTripSchema = z.object({
   departureDate: z.string().date().nullable().optional(),
   places: z.array(z.string()).max(20).optional(),
   activities: z.array(z.string()).max(20).optional(),
-  days: z.array(DayPlanSchema).max(30).optional(),
+  days: z.array(TripDayPlanSchema).max(30).optional(),
   transportByDay: z.record(z.string(), z.enum(['walking', 'jeep', 'helicopter', 'boat'])).optional(),
   flightArrival: z.string().max(20).nullable().optional(),
   flightDeparture: z.string().max(20).nullable().optional(),
   flightArrivalTime: z.string().max(5).nullable().optional(),
   flightDepartureTime: z.string().max(5).nullable().optional(),
   needsAirportTransfer: z.boolean().optional(),
+  /** Состав и уровень плана — для сметы и заявки (#2304, шаг 2). */
+  party: TripPartySchema.optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -44,7 +36,7 @@ async function getTripOwned(tripId: string, userId: string): Promise<UserTripRow
   const { rows } = await pool.query<UserTripRow>(
     `SELECT id, user_id, title, arrival_date, departure_date, places, activities, days,
             transport_by_day, flight_arrival, flight_departure, flight_arrival_time,
-            flight_departure_time, needs_airport_transfer, created_at, updated_at, deleted_at
+            flight_departure_time, needs_airport_transfer, party, created_at, updated_at, deleted_at
      FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
     [tripId, userId]
   );
@@ -105,7 +97,8 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
         flight_departure      = COALESCE($10, flight_departure),
         flight_arrival_time   = COALESCE($11, flight_arrival_time),
         flight_departure_time = COALESCE($12, flight_departure_time),
-        needs_airport_transfer = COALESCE($13, needs_airport_transfer)
+        needs_airport_transfer = COALESCE($13, needs_airport_transfer),
+        party                 = COALESCE($14::jsonb, party)
       WHERE id = $1
       RETURNING *
     `, [
@@ -122,6 +115,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
       d.flightArrivalTime !== undefined ? d.flightArrivalTime : null,
       d.flightDepartureTime !== undefined ? d.flightDepartureTime : null,
       d.needsAirportTransfer !== undefined ? d.needsAirportTransfer : null,
+      d.party !== undefined ? JSON.stringify(d.party) : null,
     ]);
 
     return NextResponse.json({ success: true, data: rows[0] });

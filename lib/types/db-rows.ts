@@ -6,6 +6,8 @@
  * Use Number() / parseFloat() / parseInt() at the call site.
  */
 
+import type { TripDayPlan, TripParty } from '@/lib/trips/trip-schema';
+
 // ──────────────────────────────────────────────────────────
 // Generic helpers
 // ──────────────────────────────────────────────────────────
@@ -1410,16 +1412,11 @@ export interface OperatorListRow {
 // ──────────────────────────────────────────────────────────
 
 /** One day in a saved trip plan — mirrors DayPlan in _PlannerClient */
-export interface TripDayPlan {
-  day: number;
-  zone: 'avachinsky' | 'western' | 'eastern' | 'northern';
-  title: string;
-  activityType: string;
-  priceFrom: number;
-  priceTo: number;
-  coords: [number, number];
-  defaultTransport: 'walking' | 'jeep' | 'helicopter' | 'boat';
-}
+/**
+ * День сохранённой поездки — форма из lib/trips/trip-schema (одна на запись и
+ * чтение). Тур, цена и род дня — с 09.10 (#2304); у поездок до этого их нет.
+ */
+export type { TripDayPlan, TripParty };
 
 export interface UserTripRow {
   id: string;
@@ -1436,6 +1433,8 @@ export interface UserTripRow {
   flight_arrival_time: string | null;
   flight_departure_time: string | null;
   needs_airport_transfer: boolean;
+  /** Состав и уровень плана; null — поездка сохранена до 09.10 (миграция 1190). */
+  party: TripParty | null;
   deleted_at: Date | null;
   created_at: Date;
   updated_at: Date;
