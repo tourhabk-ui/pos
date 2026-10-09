@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
-import { registerOperatorMaxChatId, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
+import { PARTNER_EMAIL_BIND_CLOSED, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
@@ -453,25 +453,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       return;
     }
 
-    // Регистрация оператора: /partner EMAIL или партнер EMAIL
+    // «/partner EMAIL», «партнер EMAIL» — привязка по почте закрыта (09.10):
+    // отвечаем, как подключиться, а не роняем в туристский поток. Ловим только
+    // с почтой — «партнер» в обычной фразе туриста остаётся его вопросом.
     const lc = text.toLowerCase();
-    const partnerPrefix = lc.startsWith('/partner ') ? '/partner '
-      : lc.startsWith('партнер ') ? 'партнер '
-      : lc.startsWith('партнёр ') ? 'партнёр '
-      : lc.startsWith('оператор ') ? 'оператор '
-      : null;
-    if (partnerPrefix) {
-      const email = text.slice(partnerPrefix.length).trim();
-      if (email.includes('@')) {
-        const name = await registerOperatorMaxChatId(chatId, email);
-        if (name) {
-          await maxReply(chatId, `Привет, ${name}! Ты подключён как оператор в MAX.\n\nБуду присылать уведомления о новых бронированиях сюда. Также могу отвечать на вопросы о турах и статистике. Пиши.`);
-        } else {
-          await maxReply(chatId, 'Email не найден в системе. Проверь адрес или напиши на vedarai.ru.');
-        }
-      } else {
-        await maxReply(chatId, 'Напиши: партнер email@example.com');
-      }
+    if (/^(\/partner|партн[её]р|оператор)\s+\S+@\S+/.test(lc)) {
+      await maxReply(chatId, PARTNER_EMAIL_BIND_CLOSED);
       return;
     }
 
