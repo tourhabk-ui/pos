@@ -132,7 +132,7 @@ describe('связка: запись и чтение поездки', () => {
     expect(read('app/api/trips/[id]/route.ts')).toMatch(/party\s+= COALESCE\(\$14::jsonb, party\)/);
     expect(read('app/api/trips/[id]/route.ts')).toMatch(/choices\s+= COALESCE\(\$15::jsonb, choices\)/);
     expect(read('app/api/trips/[id]/route.ts')).toMatch(/needs_airport_transfer, party, choices, created_at/);
-    expect(read('migrations/1192_user_trips_choices.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS choices JSONB/);
+    expect(read('migrations/1193_user_trips_choices.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS choices JSONB/);
     expect(read('migrations/1191_user_trips_party.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS party JSONB/);
   });
 

@@ -1435,7 +1435,7 @@ export interface UserTripRow {
   needs_airport_transfer: boolean;
   /** Состав и уровень плана; null — поездка сохранена до 09.10 (миграция 1191). */
   party: TripParty | null;
-  /** Выбранные жильё и трансфер, снимок на день сохранения; null — не выбирали (миграция 1192). */
+  /** Выбранные жильё и трансфер, снимок на день сохранения; null — не выбирали (миграция 1193). */
   choices: TripChoices | null;
   deleted_at: Date | null;
   created_at: Date;
