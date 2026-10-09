@@ -1,35 +1,29 @@
 {
   "timeout": 40,
-  "retries": 0,
+  "retries": 45,
   "allowStale": false,
-  "bytes": 100,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Конструктор laguna-expedition.online: остальные разделы каталога в настройках плагина — отели, номера, услуги, рестораны, бонусы (ключи и первые записи).",
-  "run": 737,
+  "bytes": 300,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат главной: карточка «Вахтовка под заказ» в ленте туров и плитка «Трансфер». Ждёт выкат по метке плитки.",
+  "run": 734,
   "urls": [
-    "https://laguna-expedition.online"
+    "https://vedarai.ru/"
   ],
   "grep": [
-    "\"hotels\":",
-    "\"rooms\":",
-    "\"services\":",
-    "\"restaurants\":",
-    "\"bonuses\":",
-    "\"bonus",
-    "\"transfers\":",
-    "\"steps\":",
-    "\"settings\":"
+    "qt-transfer",
+    "Вахтовка под заказ",
+    "за машину",
+    "Смотреть прайс",
+    "/transfers",
+    "Трансфер"
   ],
   "text": false,
   "retryDelay": 30,
   "around": [
-    "\"hotels\":",
-    "\"rooms\":",
-    "\"services\":",
-    "\"restaurants\":",
-    "\"bonuses\":",
-    "\"bonus"
+    "Вахтовка под заказ",
+    "qt-transfer"
   ],
-  "aroundLines": 24,
+  "aroundLines": 1,
   "aroundHits": 1,
-  "aroundBefore": 1
+  "aroundBefore": 1,
+  "until": "qt-transfer"
 }
