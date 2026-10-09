@@ -19,6 +19,7 @@ import type { ForecastResult } from '@/lib/planner/intelligence';
 import { DANGEROUS_WMO_CODES, FOG_WMO_CODES, wmoHazardLabel } from '@/lib/weather/wmo-hazard';
 import { HAZARD_THRESHOLDS, isoDate } from '@/lib/weather/ensemble';
 import { KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
+import { KRAI_FAR_ZONES } from '@/lib/safety/krai-far';
 
 export type DayVerdict =
   | { kind: 'hazard'; labels: string[] }
@@ -147,10 +148,11 @@ export function matchOfficialAlerts(
     }
     for (const alert of alerts) {
       if (!activeOn(alert, day)) continue;
-      // «Юг до Петропавловска» — охват по широте, а не зона (04.10,
-      // lib/safety/krai-south.ts); зоны брони с ним не сравнить, координаты
-      // тура здесь нет — судим как неразмещённое, а не молча мимо.
-      const zones = (alert.affected_zones ?? []).filter((z) => z !== KRAI_SOUTH_ZONE);
+      // «Юг до Петропавловска», Корякский округ и Командоры — охват по
+      // координатам, а не зона (04.10, 09.10; lib/safety/krai-south.ts,
+      // krai-far.ts); зоны брони с ними не сравнить, координаты тура здесь
+      // нет — судим как неразмещённое, а не молча мимо.
+      const zones = (alert.affected_zones ?? []).filter((z) => z !== KRAI_SOUTH_ZONE && !KRAI_FAR_ZONES.includes(z));
       const flood = alert.alert_type === 'flood';
       if (zones.length === 0) {
         if (flood && water && alert.severity >= 2) matches.push({ booking, alert, unplaced: true });
