@@ -11,6 +11,7 @@ import { PaginationSchema } from '@/lib/api/operator-tours';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
 import { query } from '@/lib/database';
 import { z } from 'zod';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 export const dynamic = 'force-dynamic';
 
@@ -211,6 +212,9 @@ export async function POST(request: NextRequest) {
     );
 
     const booking = result.rows[0];
+
+    // Клиент оператора в CRM (#2325): бронь, заведённая по звонку, — тоже клиент.
+    await linkContactQuietly('operator_booking', booking.id as string | number);
 
     // Fire-and-forget Telegram notification
     notifyNewBooking({

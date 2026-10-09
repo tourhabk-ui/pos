@@ -28,6 +28,7 @@ import {
   roomNightsSql, firstUnsellableNight, type RoomNightRow,
   PENDING_HOLD_INTERVAL_SQL, MAX_HOLDING_PENDING_PER_PROPERTY,
 } from '@/lib/stay/availability';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 // Валидация входных данных
 const bookingSchema = z.object({
@@ -306,6 +307,9 @@ export async function POST(
     }
 
     const bookingId = bookingOutcome.bookingId;
+
+    // Гость — клиент владельца жилья в CRM (#2325); молча для брони.
+    await linkContactQuietly('accommodation_booking', bookingId);
 
     // Контакты гостя — для письма ему и уведомления владельцу. Сбой чтения
     // не отменяет уже созданную бронь, но оставляет след (§4.0).

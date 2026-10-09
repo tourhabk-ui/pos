@@ -22,6 +22,13 @@ vi.mock('@/lib/notifications/telegram-channel', () => ({
   notifyAdminNewLead: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Хук клиента CRM (#2325) — отдельная забота со своими сторожами
+// (crm-source-hooks, crm-contacts.pg); здесь проверяются логи самой createLead.
+const linkContactQuietlyMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/lib/crm/contacts', () => ({
+  linkContactQuietly: (...args: unknown[]) => linkContactQuietlyMock(...args),
+}));
+
 import { createLead } from '@/lib/leads/create';
 
 const BASE_PARAMS = { name: 'Турист', phone: '+79990000000', comment: 'Хочу тур' };
@@ -109,6 +116,8 @@ describe('createLead: успешный путь не логирует ошибо
 
     expect(id).toBe('lead-3');
     expect(spy).not.toHaveBeenCalled();
+    // Созданный лид уходит в CRM оператора; несозданный — нет.
+    expect(linkContactQuietlyMock).toHaveBeenCalledWith('lead', 'lead-3');
     spy.mockRestore();
   });
 });

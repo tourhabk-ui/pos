@@ -25,6 +25,7 @@ import {
   CLIENT_STATUSES, ClientFieldsSchema, CLIENT_PHONE_MESSAGE,
   clientPhone, readTags, sqlstateOf,
 } from '@/lib/agent-cabinet/client-fields';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 export const dynamic = 'force-dynamic';
 
@@ -180,6 +181,8 @@ export async function POST(request: NextRequest) {
       [auth.userId, f.name, email, phone, f.company || null, f.status, f.notes || null,
         JSON.stringify(f.tags), f.source],
     );
+    // Клиент агента — его контакт в CRM (#2325); отказ CRM запись не роняет.
+    await linkContactQuietly('agent_client', rows[0]!.id);
 
     return NextResponse.json(
       { success: true, data: { clientId: rows[0]!.id, createdAt: rows[0]!.created_at }, message: 'Клиент добавлен' },

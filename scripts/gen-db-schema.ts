@@ -81,8 +81,8 @@ const DOMAINS: Array<{ title: string; note: string; re: RegExp }> = [
   },
   {
     title: 'Лиды и продажи',
-    note: 'Заявка без регистрации — `leads` (`POST /api/leads`), квалификация — `lib/services/operators/lead-processor.service.ts`.',
-    re: /^(leads|lead_|sales_|outreach_|partner_prospects|funnel_events|client_communications)/,
+    note: 'Заявка без регистрации — `leads` (`POST /api/leads`), квалификация — `lib/services/operators/lead-processor.service.ts`. Клиент партнёра — `crm_contacts`: склейка из шести источников по телефону, почте, аккаунту (`lib/crm/contacts.ts`, #2325).',
+    re: /^(leads|lead_|sales_|outreach_|partner_prospects|funnel_events|client_communications|crm_)/,
   },
   {
     title: 'Кузьмич, чат, RAG',

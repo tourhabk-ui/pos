@@ -67,6 +67,7 @@ import { honestTourPrice } from '@/lib/tours/honest-price';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { transaction } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
@@ -486,6 +487,10 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       );
     }
   }
+
+  // Клиент оператора в CRM (#2325) — после коммита и молча для брони:
+  // отказ пишется в лог, пропуск подберёт задел crm-contacts-sync.
+  await linkContactQuietly('operator_booking', reserved.bookingId);
 
   return reserved;
 }

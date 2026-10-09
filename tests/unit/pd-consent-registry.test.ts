@@ -57,6 +57,10 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
     note: 'миграция 1184, пятая копия — типы как у 911/969/1108. Пожелания участника группы (#2226): согласие каждого (решение владельца 08.10), строка без согласия не создаётся (NOT NULL); живёт 14 дней вместе с группой',
   },
+  crm_contacts: {
+    fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
+    note: 'миграция 1195, шестая копия — типы как у 911/969/1108. Клиент партнёра (CRM #2325) своего согласия не собирает: оно КОПИРУЕТСЯ из брони тура или лида, где записано, и только в контакт без согласия. Жильё, прокат, перевозчик, клиент агента и ручной контакт — NULL, «не записано» (lib/crm/contacts.ts)',
+  },
 };
 
 describe('где живёт согласие', () => {

@@ -7,6 +7,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 // isRealTour убрана 22.08.2026 (перепись).
 //
@@ -312,6 +313,9 @@ export async function createBooking(data: {
     );
 
     await client.query('COMMIT');
+
+    // Клиент оператора в CRM (#2325): бронь реселлера — тоже клиент оператора.
+    await linkContactQuietly('operator_booking', booking.id as string | number);
 
     // Webhook notification (fire-and-forget)
     const fullBooking = await getBookingByUuid(booking.octo_uuid);
