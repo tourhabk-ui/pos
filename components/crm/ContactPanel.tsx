@@ -9,14 +9,16 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   X, Phone, Mail, UserCheck, ShieldCheck, ShieldQuestion, Plus, Briefcase,
-  StickyNote, PhoneCall, Handshake, ArrowLeftRight, MessageSquare, Pencil, type LucideIcon,
+  StickyNote, PhoneCall, Handshake, ArrowLeftRight, MessageSquare, Pencil, CircleCheck, type LucideIcon,
 } from 'lucide-react';
 import type { ContactCard } from '@/lib/crm/contact-queries';
 import type { PartnerRef } from '@/lib/crm/admin-queries';
 import type { ContactEvent } from '@/lib/crm/events';
+import type { TaskItem } from '@/lib/crm/tasks';
 import { DETAILS_MAX, TITLE_MAX, TOUCH_KINDS, type EventKind, type TouchKind } from '@/lib/crm/event-kinds';
 import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { CRM_API, type CrmMode } from './api';
+import { TaskList } from './TaskList';
 import {
   SOURCE_KIND_LABELS, EVENT_KIND_LABELS, ACTOR_KIND_LABELS,
   statusLabel, formatSourceDate, formatMoment, formatMomentTime, partnerCategoryLabel,
@@ -30,6 +32,7 @@ const EVENT_ICONS: Readonly<Record<EventKind, LucideIcon>> = {
   meeting: Handshake,
   message_in: MessageSquare,
   message_out: MessageSquare,
+  task_done: CircleCheck,
 };
 
 type Card = ContactCard & { partner?: PartnerRef };
@@ -156,6 +159,16 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
     } finally {
       setSaving(false);
     }
+  }
+
+  /** Задача выполнена — сервер уже записал событие; лента показывает его без перечитывания. */
+  function taskCompleted(task: TaskItem) {
+    const event: ContactEvent = {
+      id: `task-${task.id}`, kind: 'task_done', actor_kind: 'partner_user', title: task.title,
+      details: null, source_kind: null, source_id: null, occurred_at: task.done_at ?? new Date().toISOString(),
+    };
+    setState((s) => (s.kind === 'ready' ? { kind: 'ready', card: { ...s.card, events: [event, ...s.card.events] } } : s));
+    onChanged();
   }
 
   function addTag() {
@@ -360,6 +373,13 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
             )}
 
             {saveError && <p className="text-sm text-[var(--danger)]" role="alert">{saveError}</p>}
+
+            {!readOnly && (
+              <section className="space-y-2" aria-label="Задачи">
+                <p className="ds-label">Задачи</p>
+                <TaskList contactId={contactId} onCompleted={taskCompleted} />
+              </section>
+            )}
 
             <section className="space-y-2" aria-label="Лента">
               <p className="ds-label">Лента</p>
