@@ -14,6 +14,7 @@ import {
   censusBookingsOrigin, clampHours, parseScope,
 } from '@/lib/analytics/bookings-origin';
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
+import { UNLINKED_WHERE } from '@/lib/crm/contacts';
 import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
 
 const ROOT = process.cwd();
@@ -66,6 +67,16 @@ describe('область unlinked — предикат задела, без ок
     expect(parseScope('unlinked')).toBe('unlinked');
     expect(parseScope('all')).toBe('window');
     expect(parseScope(null)).toBe('window');
+  });
+
+  it('условие непривязанных — ровно условие задела (не копия), только алиас s → b', () => {
+    const fromBackfill = UNLINKED_WHERE.operator_booking.replace(/\bs\./g, 'b.');
+    for (const q of [RECENT_UNLINKED_SQL, BY_ORIGIN_UNLINKED_SQL]) {
+      expect(q, 'перепись разошлась с заделом').toContain(fromBackfill);
+      expect(q).not.toMatch(/\bs\./);
+    }
+    // служебная бронь пробы оплаты исключена и тут — потому что исключена в заделе
+    expect(RECENT_UNLINKED_SQL).toMatch(/b\.created_via IS DISTINCT FROM 'service-payment-test'/);
   });
 
   it('SQL непривязанных повторяет предикат crm-contacts-sync и не смотрит на created_at', () => {
