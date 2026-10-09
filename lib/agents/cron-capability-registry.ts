@@ -116,6 +116,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'explain-availability': ['db_read'],
   'field-check-photo': ['db_read'],
   'field-check-queue': ['db_read'],
+  // db_write — по импорту: KAMCHATKA_BBOX из wildfire-firms, а тот тянет saveEvent
+  // (seismic-parser). Сама перепись термоточек ничего не пишет.
+  'firms-persistence-census': ['db_read', 'db_write', 'net_out'],
   'followups': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // 29.09: подсчёт переехал в lib/analytics/funnel-window (перепись и страница
   // /hub/admin/traffic считают одним модулем). Роут теперь зовёт модуль, а
