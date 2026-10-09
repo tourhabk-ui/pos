@@ -1,12 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   Package, Calendar, DollarSign, BarChart3, Globe, Bell,
   TrendingUp, Users, ExternalLink, CheckCircle, AlertTriangle,
-  ArrowRight, Zap, BookOpen, MessageSquare, Bot, Copy,
+  ArrowRight, Zap, BookOpen, MessageSquare, Bot,
 } from 'lucide-react';
 
 interface SectionCard {
@@ -46,25 +45,6 @@ function SectionHelp({ href, icon: Icon, color, title, desc, tips }: SectionCard
         Перейти в раздел <ArrowRight size={14} />
       </Link>
     </div>
-  );
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-  return (
-    <button
-      onClick={handleCopy}
-      className="inline-flex items-center gap-1 text-xs text-[var(--ocean)] hover:underline ml-2 cursor-pointer"
-    >
-      <Copy size={11} />
-      {copied ? 'Скопировано' : 'Копировать'}
-    </button>
   );
 }
 
@@ -223,7 +203,7 @@ export default function OperatorHelpClient() {
             'Укажите реквизиты для выплат в разделе Финансы',
             'Создайте первый тур в разделе Туры',
             'Откройте даты в Календаре',
-            'Подключите Кузьмича: /partner email в Telegram или MAX',
+            'Подключите Telegram в «Профиле» (MAX — по ссылке от администратора)',
           ].map((item, i) => (
             <div key={i} className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
               <div className="w-5 h-5 rounded border border-[var(--border)] flex-shrink-0" />
@@ -268,21 +248,16 @@ export default function OperatorHelpClient() {
           <div className="flex gap-3">
             <div className="w-6 h-6 rounded-full bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
             <div>
-              <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Зарегистрируйтесь как оператор</p>
+              <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Подключите чат к кабинету</p>
               <p className="text-sm text-[var(--text-secondary)] mb-2">
-                Отправьте боту команду с вашим email от аккаунта на Ведаре:
+                Telegram — кнопкой «Подключить Telegram» в{' '}
+                <Link href="/hub/operator/profile" className="text-[var(--ocean)] hover:underline">профиле</Link>:
+                откроется бот, нажмите «Старт». MAX — по ссылке от администратора платформы: напишите нам, пришлём её.
               </p>
-              <div className="space-y-2">
-                <div className="bg-[var(--bg-hover)] rounded-md px-3 py-2 font-mono text-sm text-[var(--text-primary)] flex items-center justify-between">
-                  <span>/partner ваш@email.com</span>
-                  <CopyButton text="/partner ваш@email.com" />
-                </div>
-                <p className="text-xs text-[var(--text-muted)]">В MAX мессенджере команды на / не работают — используйте слово без слеша:</p>
-                <div className="bg-[var(--bg-hover)] rounded-md px-3 py-2 font-mono text-sm text-[var(--text-primary)] flex items-center justify-between">
-                  <span>партнер ваш@email.com</span>
-                  <CopyButton text="партнер ваш@email.com" />
-                </div>
-              </div>
+              <p className="text-xs text-[var(--text-muted)]">
+                По почте чат больше не подключается: так его мог бы подключить любой, кто знает адрес, и заявки
+                туристов ушли бы ему.
+              </p>
             </div>
           </div>
 

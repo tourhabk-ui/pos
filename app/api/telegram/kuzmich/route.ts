@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
-import { findOperatorByChatId, processOperatorMessage, registerOperatorChatId } from '@/lib/kuzmich/operator-chat';
+import { findOperatorByChatId, processOperatorMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
@@ -578,19 +578,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
-    // ── ЛИЧКА: /partner EMAIL — регистрация оператора ────────────────────
-    if (isPrivate && msg.text?.trim().toLowerCase().startsWith('/partner ')) {
-      const email = msg.text.trim().slice('/partner '.length).trim();
-      if (email.includes('@')) {
-        const name = await registerOperatorChatId(chatId, email);
-        if (name) {
-          await tgReply(chatId, `Привет, ${name}! Ты подключён как оператор.\n\nТеперь я знаю кто ты — могу отвечать на вопросы о твоих бронированиях, турах и статистике. Пиши.`);
-        } else {
-          await tgReply(chatId, 'Email не найден в системе. Проверь адрес или напиши на vedarai.ru.');
-        }
-      } else {
-        await tgReply(chatId, 'Формат: /partner email@example.com');
-      }
+    // ── ЛИЧКА: /partner EMAIL — привязка по почте закрыта (09.10) ─────────
+    // Отвечаем, как подключиться, а не роняем в туристский поток: оператор,
+    // следующий старой инструкции, должен узнать, что делать дальше.
+    if (isPrivate && msg.text?.trim().toLowerCase().startsWith('/partner')) {
+      await tgReply(chatId, PARTNER_EMAIL_BIND_CLOSED);
       return NextResponse.json({ ok: true });
     }
 

@@ -37,67 +37,23 @@ export async function findOperatorByChatId(chatId: number): Promise<OperatorCont
 }
 
 /**
- * Привязать chat_id к оператору по email.
- * Используется при команде /partner EMAIL.
- * Возвращает имя оператора если успешно, null если email не найден.
+ * Ответ бота на «/partner EMAIL» и «партнер EMAIL». Привязки по почте больше
+ * нет (09.10): команда находила партнёра по `contact->>'email'` и молча
+ * переписывала его `telegram_chat_id` / `max_chat_id` на того, кто её прислал.
+ * Почта партнёра — не секрет (она на его сайте и в визитках), а этот адрес
+ * решает, куда уходят имена и телефоны туристов из новых броней, и кому
+ * помощник оператора рассказывает о бронях. Правило владельца 29.09
+ * (`lib/partners/channel-link.ts`): назначать такой адрес может только тот,
+ * чьё право проверено, — вошедший в свой кабинет или администратор.
+ *
+ * Уже привязанные чаты не тронуты: findOperatorByChatId/MaxChatId читают
+ * колонки как раньше.
  */
-export async function registerOperatorChatId(
-  chatId: number,
-  email: string,
-): Promise<string | null> {
-  try {
-    const { rows } = await pool.query<{ id: number; name: string; telegram_chat_id: string | null }>(
-      `SELECT id, COALESCE(company_name, name) AS name, telegram_chat_id
-       FROM partners
-       WHERE LOWER(contact->>'email') = LOWER($1) AND status != 'blocked'
-       LIMIT 1`,
-      [email.trim()],
-    );
-    if (!rows[0]) return null;
-
-    // Уже привязан к этому же chat_id — OK
-    if (rows[0].telegram_chat_id === String(chatId)) return rows[0].name;
-
-    // Привязываем
-    await pool.query(
-      `UPDATE partners SET telegram_chat_id = $1, updated_at = NOW() WHERE id = $2`,
-      [String(chatId), rows[0].id],
-    );
-    return rows[0].name;
-  } catch (err) {
-    console.error('[operator-chat] registerOperatorChatId failed:', err instanceof Error ? err.message : err);
-    return null;
-  }
-}
-
-/**
- * Привязать MAX chat_id к оператору по email.
- * Используется при команде "партнер EMAIL" в MAX боте.
- */
-export async function registerOperatorMaxChatId(
-  chatId: number,
-  email: string,
-): Promise<string | null> {
-  try {
-    const { rows } = await pool.query<{ id: number; name: string; max_chat_id: string | null }>(
-      `SELECT id, COALESCE(company_name, name) AS name, max_chat_id
-       FROM partners
-       WHERE LOWER(contact->>'email') = LOWER($1) AND status != 'blocked'
-       LIMIT 1`,
-      [email.trim()],
-    );
-    if (!rows[0]) return null;
-    if (rows[0].max_chat_id === String(chatId)) return rows[0].name;
-    await pool.query(
-      `UPDATE partners SET max_chat_id = $1, updated_at = NOW() WHERE id = $2`,
-      [chatId, rows[0].id],
-    );
-    return rows[0].name;
-  } catch (err) {
-    console.error('[operator-chat] registerOperatorMaxChatId failed:', err instanceof Error ? err.message : err);
-    return null;
-  }
-}
+export const PARTNER_EMAIL_BIND_CLOSED =
+  'Подключить чат по почте больше нельзя: так его мог подключить любой, кто знает адрес, ' +
+  'и заявки туристов ушли бы ему.\n\n' +
+  'Telegram: войдите в кабинет на vedarai.ru — «Профиль» — «Подключить Telegram».\n' +
+  'MAX: попросите ссылку для подключения у администратора платформы (vedarai.ru/contact).';
 
 /** Найти оператора по MAX chat_id. */
 export async function findOperatorByMaxChatId(chatId: number): Promise<OperatorContext | null> {
