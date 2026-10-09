@@ -1,25 +1,24 @@
 {
   "timeout": 40,
-  "retries": 45,
+  "retries": 2,
   "allowStale": false,
   "bytes": 200,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат 1190: у героя «Шатуна» (shatun-01) подпись автора — Сладченко; снимок AirPano удалён (ожидаем 404).",
-  "run": 737,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Повтор 737 без ожидания по составной метке (React режет текст «Фото: <!-- -->Автор»): контекст вокруг подписи автора и ответ на удалённый снимок.",
+  "run": 738,
   "urls": [
     "https://vedarai.ru/transfers",
     "https://vedarai.ru/images/categories/medvedi.jpg"
   ],
   "grep": [
-    "alt=\"Шатун: фото 1\"/></a><p class=\"mt-1 text-[11px] leading-tight text-[var(--text-muted)] line-clamp-2\">Фото: <!-- -->Сладченко Виктор Леонидович",
-    "Сладченко Виктор Леонидович",
-    "Фото: <!-- -->Шатун"
+    "Сладченко Виктор Леонидович"
   ],
   "text": false,
-  "retryDelay": 30,
-  "around": [],
-  "aroundLines": 0,
+  "retryDelay": 20,
+  "around": [
+    "Сладченко Виктор Леонидович"
+  ],
+  "aroundLines": 4,
   "aroundHits": 1,
   "aroundBefore": 1,
-  "until": "alt=\"Шатун: фото 1\"/></a><p class=\"mt-1 text-[11px] leading-tight text-[var(--text-muted)] line-clamp-2\">Фото: <!-- -->Сладченко Виктор Леонидович",
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)"
 }
