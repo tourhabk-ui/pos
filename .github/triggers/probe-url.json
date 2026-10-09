@@ -2,24 +2,24 @@
   "timeout": 40,
   "retries": 45,
   "allowStale": false,
-  "bytes": 300,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат кадра в памятке «Медведь»: стиль .emg-photo приходит в разметке главной (сам кадр рисуется по нажатию).",
-  "run": 736,
+  "bytes": 200,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат 1190: у героя «Шатуна» (shatun-01) подпись автора — Сладченко; снимок AirPano удалён (ожидаем 404).",
+  "run": 737,
   "urls": [
-    "https://vedarai.ru/"
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/images/categories/medvedi.jpg"
   ],
   "grep": [
-    "emg-photo",
-    "qt-transfer"
+    "alt=\"Шатун: фото 1\"/></a><p class=\"mt-1 text-[11px] leading-tight text-[var(--text-muted)] line-clamp-2\">Фото: <!-- -->Сладченко Виктор Леонидович",
+    "Сладченко Виктор Леонидович",
+    "Фото: <!-- -->Шатун"
   ],
   "text": false,
   "retryDelay": 30,
-  "around": [
-    "emg-photo"
-  ],
+  "around": [],
   "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 1,
-  "until": "emg-photo",
-  "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+  "until": "alt=\"Шатун: фото 1\"/></a><p class=\"mt-1 text-[11px] leading-tight text-[var(--text-muted)] line-clamp-2\">Фото: <!-- -->Сладченко Виктор Леонидович",
+  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)"
 }
