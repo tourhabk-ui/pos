@@ -147,7 +147,8 @@ export async function PATCH(
                 (b.check_in_date <= ${KAMCHATKA_TODAY_SQL}) AS checkin_reached,
                 a.name AS accommodation_name,
                 r.name AS room_name,
-                p.telegram_chat_id AS owner_chat
+                p.telegram_chat_id AS owner_chat,
+                a.partner_id::text AS owner_partner_id
          FROM accommodation_bookings b
          JOIN accommodations a ON b.accommodation_id = a.id
          LEFT JOIN accommodation_rooms r ON r.id = b.room_id
@@ -166,6 +167,7 @@ export async function PATCH(
         user_id: string | null; accommodation_id: string; room_id: string | null;
         check_in_date: string; check_out_date: string; checkin_reached: boolean;
         accommodation_name: string; room_name: string | null; owner_chat: string | null;
+        owner_partner_id?: string | null;
       };
 
       const allowed = ALLOWED_TRANSITIONS[booking.status] ?? [];
@@ -244,6 +246,7 @@ export async function PATCH(
               checkInDate: booking.check_in_date,
               checkOutDate: booking.check_out_date,
               ownerChat: booking.owner_chat,
+              ownerPartnerId: booking.owner_partner_id ?? null,
               wasPaid,
               refundAmount: refund ? refund.amount : null,
               refundPercent: refund ? refund.percent : null,
@@ -304,6 +307,7 @@ export async function PATCH(
           checkInDate: outcome.notify.checkInDate,
           checkOutDate: outcome.notify.checkOutDate,
           ownerTelegramChatId: outcome.notify.ownerChat,
+          ownerPartnerId: outcome.notify.ownerPartnerId,
           byOwner: true,
           wasPaid: outcome.notify.wasPaid,
           refundAmount: outcome.notify.refundAmount,

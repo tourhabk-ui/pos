@@ -25,6 +25,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,13 +53,14 @@ interface FollowupLead {
   source_data: LeadSourceData;
 }
 
-interface OperatorMatch {
+/**
+ * Оператор-кандидат и его адрес — тремя колонками правила достижимости
+ * (lib/partners/reach), а не зеркалом contacts JSONB: до 09.10 крон читал
+ * зеркало и не видел Telegram, привязанный входом.
+ */
+interface OperatorMatch extends PartnerReachRow {
   name: string;
   slug: string;
-  /** ПД оператору идут сюда. NULL — значит адреса в MAX у него нет. */
-  max_chat_id: string | null;
-  /** Только для заглушки без ПД, если MAX недоступен. */
-  telegram_chat_id: string | null;
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────────
@@ -117,9 +119,11 @@ export async function GET(request: NextRequest) {
     // скольких — только Telegram (тогда придёт заглушка без имени и телефона).
     const diagRes = await pool.query<{ total: string; with_telegram: string; with_max: string }>(
       `SELECT COUNT(*) AS total,
-              COUNT(*) FILTER (WHERE contacts->>'telegram_chat_id' IS NOT NULL) AS with_telegram,
-              COUNT(*) FILTER (WHERE max_chat_id IS NOT NULL) AS with_max
-       FROM partners WHERE is_public = TRUE`
+              COUNT(*) FILTER (WHERE p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL) AS with_telegram,
+              COUNT(*) FILTER (WHERE p.max_chat_id IS NOT NULL) AS with_max
+       FROM partners p
+       LEFT JOIN users u_reach ON u_reach.id = p.user_id
+       WHERE p.is_public = TRUE AND p.category = 'operator'`
     );
     const diag = diagRes.rows[0];
 
@@ -138,31 +142,38 @@ export async function GET(request: NextRequest) {
 
       if (interests.length > 0) {
         const opRes = await pool.query<OperatorMatch>(
-          `SELECT p.name, p.slug, p.max_chat_id::text AS max_chat_id,
-                  p.contacts->>'telegram_chat_id' AS telegram_chat_id
+          `SELECT p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
+                  p.max_chat_id::text AS max_chat_id
            FROM partners p
-           JOIN operator_tours ot ON ot.operator_id = p.id
-           WHERE ot.activity_type = ANY($1)
-             AND ot.is_active = TRUE
+           LEFT JOIN users u_reach ON u_reach.id = p.user_id
+           WHERE p.category = 'operator'
              AND p.is_public = TRUE
-             AND (p.max_chat_id IS NOT NULL OR (p.contacts->>'telegram_chat_id') IS NOT NULL)
+             AND (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL)
              AND NOT (p.slug = ANY($2))
-           GROUP BY p.name, p.slug, p.max_chat_id, p.contacts->>'telegram_chat_id'
+             AND EXISTS (
+               SELECT 1 FROM operator_tours ot
+                WHERE ot.operator_id = p.id AND ot.is_active = TRUE AND ot.activity_type = ANY($1)
+             )
            LIMIT 1`,
           [interests, alreadyNotified]
         );
         nextOperator = opRes.rows[0] ?? null;
       }
 
-      // Fallback: если нет интересов или не нашли по интересам — любой оператор не из списка
+      // Fallback: если нет интересов или не нашли по интересам — любой ОПЕРАТОР
+      // не из списка. До 09.10 условия на категорию не было, и имя с телефоном
+      // туриста могли уйти владельцу жилья, прокату или гиду — с кнопкой в
+      // кабинет оператора, которую они не откроют.
       if (!nextOperator) {
         const fallbackRes = await pool.query<OperatorMatch>(
-          `SELECT name, slug, max_chat_id::text AS max_chat_id,
-                  contacts->>'telegram_chat_id' AS telegram_chat_id
-           FROM partners
-           WHERE is_public = TRUE
-             AND (max_chat_id IS NOT NULL OR (contacts->>'telegram_chat_id') IS NOT NULL)
-             AND NOT (slug = ANY($1))
+          `SELECT p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
+                  p.max_chat_id::text AS max_chat_id
+           FROM partners p
+           LEFT JOIN users u_reach ON u_reach.id = p.user_id
+           WHERE p.category = 'operator'
+             AND p.is_public = TRUE
+             AND (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL)
+             AND NOT (p.slug = ANY($1))
            LIMIT 1`,
           [alreadyNotified]
         );
@@ -199,11 +210,12 @@ export async function GET(request: NextRequest) {
           'Имя и телефон — в MAX и в кабинете: в Telegram они не передаются.',
         ].join('\n');
 
+        const reach = reachFrom(nextOperator);
         const opRes2 = await sendPdAlert({
           text: msgLines,
           stub: stubLines,
           buttons: [{ text: 'Открыть в CRM', url: `${getPublicBaseUrl()}/hub/operator/leads/${lead.id}` }],
-          to: { maxChatId: nextOperator.max_chat_id, telegramChatId: nextOperator.telegram_chat_id },
+          to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
         });
         if (!opRes2.delivered) {
           console.error(`[cron/leads-followup] ${nextOperator.slug}: ПД не доставлены (${opRes2.channel}) — ${opRes2.reason}`);

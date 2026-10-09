@@ -15,6 +15,8 @@
  */
 
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { reachForPartner } from '@/lib/partners/reach';
+import { sendPartnerNotice, type NoticeTarget } from '@/lib/partners/notice';
 import { getPublicBaseUrl } from '@/lib/config';
 import { query } from '@/lib/database';
 import { emailService } from '@/lib/notifications/email-service';
@@ -125,6 +127,12 @@ export interface StayBookingCancelPayload {
   checkInDate: string;
   checkOutDate: string;
   ownerTelegramChatId?: string | null;
+  /**
+   * Партнёр-владелец: адрес берётся правилом достижимости (MAX или Telegram,
+   * lib/partners/reach). До 09.10 отмена уходила владельцу только в Telegram
+   * по одной колонке, и владелец с одним MAX о ней не узнавал.
+   */
+  ownerPartnerId?: string | null;
   /** Кто отменил — влияет только на формулировку заголовка */
   byOwner?: boolean;
   /**
@@ -170,7 +178,23 @@ export async function notifyStayBookingCancelled(p: StayBookingCancelPayload): P
 
   const adminChatId = process.env.TELEGRAM_CHAT_ID;
   if (adminChatId) await tgSend(adminChatId, text);
-  if (p.ownerTelegramChatId) await tgSend(p.ownerTelegramChatId, text);
+
+  // Владельцу — в MAX или Telegram, где он есть. В тексте нет ПД гостя (номер
+  // брони, объект, даты), поэтому дверь общая для партнёров, не sendPdAlert.
+  // Адрес не прочитался — запасной путь по колонке, которую роут уже выбрал.
+  let target: NoticeTarget | null = null;
+  if (p.ownerPartnerId) {
+    const reach = await reachForPartner(p.ownerPartnerId);
+    if (reach?.reachable) target = { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId };
+  }
+  if (!target && p.ownerTelegramChatId) target = { maxChatId: null, telegramChatId: p.ownerTelegramChatId };
+  if (!target) return;
+  const channel = await sendPartnerNotice(
+    target, text,
+    { text: 'Брони жилья', url: `${getPublicBaseUrl()}/hub/stay/bookings` },
+    `отмена брони жилья #${p.bookingId} владельцу`,
+  );
+  if (!channel) logStayFailure('отмена брони: владельцу не доставлено', 'нет канала или доставка отказала');
 }
 
 // ── Гостю: владелец подтвердил / отменил ─────────────────────────────────────

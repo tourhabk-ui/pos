@@ -32,6 +32,8 @@ vi.mock('@/lib/notifications/web-push', () => ({
 
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: vi.fn() }));
 vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
+// Адрес владельца (отмена брони) этому тесту не нужен — он про гостя.
+vi.mock('@/lib/partners/reach', () => ({ reachForPartner: vi.fn() }));
 
 import { notifyStayGuestStatus, stayCancelMoneyLine } from '@/lib/notifications/stay-booking';
 
