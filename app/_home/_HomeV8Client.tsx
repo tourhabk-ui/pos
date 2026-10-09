@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Bus, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -34,14 +34,16 @@ import { photoSrc } from '@/lib/images/variant';
 import {
   dataFreshness, freshnessDot, freshnessShort, plural,
 } from '@/lib/home/data-freshness';
-import { plateFacts, plateHref } from '@/lib/home/plate-facts';
+import { plateFacts } from '@/lib/home/plate-facts';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import Logo from '@/components/shared/Logo';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
+import { tourPath } from '@/lib/tours/tour-url';
 import { usePlateDrift } from '@/hooks/use-plate-drift';
+import { withTransferPlate, isTransferPlate } from '@/lib/home/transfer-plate';
 import { sessionState } from '@/lib/auth/session-state';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
@@ -99,6 +101,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // ней в ленте — «ноябрь — январь» и «январь — март», три почти одинаковые
   // карточки подряд читались как повтор.
   const tours = plates;
+  // Лента «Туров сезона» с карточкой трансфера между турами (решение
+  // владельца 09.10): тур — что посмотреть, перевозчик — как туда добраться.
+  const cards = withTransferPlate(tours, data.transfer);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -172,10 +177,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     const el = c.children[i] as HTMLElement | undefined;
     return el ? Math.max(0, el.offsetLeft - PLATES_GUTTER) : 0;
   };
-  const drift = usePlateDrift(platesRef, tours.length);
+  const drift = usePlateDrift(platesRef, cards.length);
   useEffect(() => {
     const c = platesRef.current;
-    if (!c || tours.length < 2) return;
+    if (!c || cards.length < 2) return;
     let t: ReturnType<typeof setTimeout>;
     const onScroll = () => {
       clearTimeout(t);
@@ -185,13 +190,13 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         for (let i = 0; i < c.children.length; i++) {
           if (Math.abs(plateLeft(c, i) - c.scrollLeft) < Math.abs(plateLeft(c, best) - c.scrollLeft)) best = i;
         }
-        // Вторая копия ленты (петля дрейфа) — те же туры: точка по модулю.
-        setPlateIdx(best % tours.length);
+        // Вторая копия ленты (петля дрейфа) — те же карточки: точка по модулю.
+        setPlateIdx(best % cards.length);
       }, 90);
     };
     c.addEventListener('scroll', onScroll, { passive: true });
     return () => { clearTimeout(t); c.removeEventListener('scroll', onScroll); };
-  }, [tours.length]);
+  }, [cards.length]);
 
   const goPlate = (i: number) => {
     const c = platesRef.current;
@@ -455,10 +460,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </Link>
           {/* Трансфер (владелец 09.10: «доп кнопка на главной»): дверь в /transfers —
               места в поездках перевозчиков и вахтовка под заказ с ценой за машину.
+              Карточка в ленте туров ведёт к одному перевозчику, плитка — в раздел.
               Третьей плиткой на всю ширину: в одну строку с двумя прежними три
               подписи на 360px не входят. */}
           <Link href="/transfers" className="qt qt-transfer" aria-label="Трансфер: места в поездках перевозчиков и вахтовка под заказ">
-            <span className="qt-ic"><Bus size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-ic"><Truck size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Трансфер</b><span>места в поездках и вахтовка под заказ</span></span>
           </Link>
         </nav>
@@ -473,16 +479,37 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <section className="fp-sec">
             <div className="shead"><h2>Туры сезона</h2><span className="line" /><Link className="all" href="/catalog">Все туры</Link></div>
             <div className="plates more-tours" ref={platesRef}>
-              {(drift.looping ? [...tours, ...tours] : tours).map((p, k) => {
+              {(drift.looping ? [...cards, ...cards] : cards).map((p, k) => {
                 // Вторая половина — копия для бесшовной петли дрейфа: экранному
                 // чтению и клавиатуре её нет.
-                const i = k % tours.length;
-                const clone = k >= tours.length;
-                const href = plateHref(p);
+                const i = k % cards.length;
+                const clone = k >= cards.length;
+                if (isTransferPlate(p)) {
+                  // Трансфер: цена за МАШИНУ, «от» наименьшей строки прайса —
+                  // на место её не делим (lib/home/transfer-plate.ts).
+                  return (
+                    <figure className="plate transfer" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: трансфер`} aria-hidden={clone || undefined}>
+                      <Link href={p.href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
+                        {!p.imageUrl && <span className="noimg" />}
+                      </div></Link>
+                      <span className="kind"><Truck aria-hidden size={12} />Трансфер под заказ</span>
+                      <div className="row"><b>{p.title}</b></div>
+                      {p.destinations.length > 0 && <div className="cap">{p.destinations.join(' · ')}</div>}
+                      <div className="facts">
+                        {p.price ? <span className="price">{p.price}</span> : <span className="price muted">Цена по запросу</span>}
+                        {p.fleet && <span className="meta">{p.fleet}</span>}
+                      </div>
+                      <div className="buy">
+                        <Link className="buy-cta" href={p.href} tabIndex={clone ? -1 : undefined}>Смотреть перевозчика</Link>
+                      </div>
+                    </figure>
+                  );
+                }
+                const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
                 const pf = plateFacts(p);
                 const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
                 return (
-                  <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `${p.kind === 'transfer' ? 'Трансфер' : 'Тур'} ${i + 1} из ${tours.length}`} aria-hidden={clone || undefined}>
+                  <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: тур`} aria-hidden={clone || undefined}>
                     <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
                     </div></Link>
@@ -497,16 +524,16 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                     {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
                     {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
                     <div className="buy">
-                      <Link className="buy-cta" href={href} tabIndex={clone ? -1 : undefined}>{p.kind === 'tour' ? 'Смотреть тур' : p.kind === 'transfer' ? 'Смотреть прайс' : 'Открыть'}</Link>
+                      <Link className="buy-cta" href={href} tabIndex={clone ? -1 : undefined}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
                     </div>
                   </figure>
                 );
               })}
             </div>
-            {tours.length > 1 && (
+            {cards.length > 1 && (
               <div className="pl-dots">
-                {tours.map((_, i) => (
-                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Тур ${i + 1} из ${tours.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
+                {cards.map((_, i) => (
+                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Карточка ${i + 1} из ${cards.length}`} aria-current={i === plateIdx ? 'true' : undefined} onClick={() => goPlate(i)} />
                 ))}
                 {drift.looping && (
                   <button type="button" className="pl-pause" onClick={drift.toggle} aria-label={drift.drifting ? 'Остановить ленту туров' : 'Запустить ленту туров'}>
@@ -1169,6 +1196,8 @@ const CSS = `
 .v7 .fp-sec .more-tours{margin-top:14px}
 .v7 .explore-sec{margin-top:32px}
 .v7 .plates.explore .plate{width:62%;max-width:240px;padding-bottom:12px;color:inherit;text-decoration:none}
+.v7 .plate.transfer .kind{display:flex;align-items:center;gap:5px;padding:10px 12px 0;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .plate.transfer .row{padding-top:5px}
 .v7 .plate.place .kind{display:block;padding:10px 12px 0;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .v7 .plate.place .row{padding-top:5px}
 .v7 .plate.place .cap{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}

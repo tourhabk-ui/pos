@@ -26,8 +26,9 @@ import { volcanoMarks, kfegsIsFresh, type KfegsReading, type ScaleColor } from '
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
-import { orderPlates, withTransferPlate } from '@/lib/home/plate-facts';
-import { describeFleet, loadCharterCarriers, type CharterCarrier } from '@/lib/transfers/charter';
+import { orderPlates } from '@/lib/home/plate-facts';
+import { toTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
+import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
@@ -200,6 +201,11 @@ export interface HomeV8Data {
   radar: RadarSnapshot;
   zones: ZonesSnapshot;
   plates: Plate[];
+  /**
+   * Карточка трансфера между турами (решение владельца 09.10); null — нет
+   * перевозчика с прайсом или прочитать не смогли (причина в логе).
+   */
+  transfer: TransferPlate | null;
   /** Места для «Исследовать»; пусто — блока нет (причина отказа в логе). */
   explore: ExplorePlace[];
   feed: FeedItem[];
@@ -297,53 +303,6 @@ async function fetchZones(): Promise<ZonesSnapshot> {
   }
 }
 
-/**
- * Карточка трансфера для ленты туров (владелец 09.10: «в ленте туров пусть
- * будет трансфер»). Это не тур: у вахтовки под заказ нет ни дат, ни мест, а
- * цена — за машину. Поэтому карточка честно называет себя («Вахтовка под
- * заказ»), ведёт на /transfers и несёт цену «от» из прайса, а не из головы:
- * наименьшая цена направления, единица «за машину» (plateFacts, kind
- * 'transfer'). Перевозчиков под заказ несколько — берётся первый по имени:
- * лента показывает дверь в раздел, а не весь прайс.
- *
- * Нет перевозчика, нет цен или не смогли прочитать — null: ленты без
- * карточки достаточно, а выдуманной карточки быть не должно. Отказ пишется в
- * лог — «никого нет» и «запрос упал» иначе неотличимы (§4.0).
- */
-export function transferPlateFrom(c: CharterCarrier | undefined): Plate | null {
-  if (!c || c.destinations.length === 0) return null;
-  const fleet = describeFleet(c.vehicles);
-  return {
-    id: c.partnerId,
-    slug: c.slug,
-    kind: 'transfer',
-    title: 'Вахтовка под заказ',
-    description: [fleet, 'цена за машину целиком'].filter(Boolean).join('. ').slice(0, 140),
-    imageUrl: c.photos[0]?.url ?? null,
-    priceFrom: Math.min(...c.destinations.map((d) => d.priceRub)),
-    category: 'transfer',
-    locationType: null,
-    volcanoStatus: null,
-    priceUnit: null,
-    operatorName: c.name,
-    durationType: null,
-    multiDayCount: null,
-    durationHours: null,
-    cancellationPolicy: null,
-    availability: 'on_request',
-  };
-}
-
-async function fetchTransferPlate(): Promise<Plate | null> {
-  try {
-    return transferPlateFrom((await loadCharterCarriers())[0]);
-  } catch (err) {
-    const e = err as { code?: string; message?: string } | undefined;
-    console.error('[home] карточка трансфера не получена', { sqlstate: e?.code, message: e?.message });
-    return null;
-  }
-}
-
 /** Витрина туров — один источник для обоих деревьев главной (десктоп читает её в app/page.tsx, П8). */
 export async function fetchPlates(): Promise<Plate[]> {
   // «Туры сезона» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
@@ -424,7 +383,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       };
     });
     // Порядок и потолок витрины — чистая функция (lib/home/plate-facts), со сторожем.
-    return withTransferPlate(orderPlates(plates), await fetchTransferPlate());
+    return orderPlates(plates);
   } catch (err) {
     // Пустой массив — блок не рисуется, но отказ обязан быть виден в логе:
     // «туров нет» и «запрос упал» снаружи иначе неотличимы (§4.0).
@@ -843,15 +802,35 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
   return { safety, seismic, radar, volcanoes };
 }
 
+/**
+ * Перевозчик под заказ для ленты туров (решение владельца 09.10). Первый по
+ * имени, у кого есть прайс; отказ чтения — в лог и без карточки: лента туров
+ * от этого не страдает (§4.0 — «не смог» не выдаётся за «перевозчиков нет»
+ * только в логе, на главной карточки просто нет).
+ */
+export async function fetchTransferPlate(): Promise<TransferPlate | null> {
+  try {
+    const carriers = await loadCharterCarriers();
+    for (const c of carriers) {
+      const plate = toTransferPlate(c);
+      if (plate) return plate;
+    }
+    return null;
+  } catch (err) {
+    console.error('[home] карточка трансфера не собрана:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, explore, feedItems, counts] = await Promise.all([
+  const [live, zones, plates, transfer, explore, feedItems, counts] = await Promise.all([
     getSafetyLiveData(),
-    fetchZones(), fetchPlates(), fetchExplore(), fetchFeed(),
+    fetchZones(), fetchPlates(), fetchTransferPlate(), fetchExplore(), fetchFeed(),
     getPlatformCounts().catch(() => null),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, explore, feed: feedItems, stats, elements };
+  return { ...live, zones, plates, transfer, explore, feed: feedItems, stats, elements };
 }

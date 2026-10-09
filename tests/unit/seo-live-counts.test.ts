@@ -18,7 +18,7 @@ describe('главная: «Все туры (N)» — число каталог�
 
   it('счётчик берётся из сводки каталога, не из длины витрины', () => {
     expect(page).toMatch(/queryCatalogSummaryForPage\(\)/);
-    expect(page).toMatch(/<DeskTours plates=\{plates\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
+    expect(page).toMatch(/<DeskTours plates=\{plates\} transfer=\{transfer\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
     expect(page).not.toMatch(/total=\{plates\.length\}/);
   });
 

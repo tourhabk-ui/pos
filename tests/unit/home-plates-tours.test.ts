@@ -80,8 +80,7 @@ describe('главная: платы = туры операторов', () => {
     // с удалённой сортировкой (мутация ревью 24.09). Порядок теперь — чистая
     // orderPlates, её поведение проверяется ниже; здесь — что витрина её зовёт
     // на результате выборки, а не возвращает строки в порядке SQL.
-    // порядок и потолок — orderPlates; трансфер (09.10) встаёт после него и потолка не растит
-    expect(plates).toMatch(/return withTransferPlate\(orderPlates\(plates\), await fetchTransferPlate\(\)\);/);
+    expect(plates).toMatch(/return orderPlates\(plates\);/);
   });
 });
 

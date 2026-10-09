@@ -122,15 +122,14 @@ describe('третий исход (§4.0)', () => {
 describe('витрина туров', () => {
   it('одна выборка fetchPlates на всё дерево, счётчик — из сводки каталога', () => {
     expect(DESKTOP.match(/fetchPlates\(\)/g)?.length).toBe(1);
-    expect(DESKTOP).toMatch(/<DeskTours plates=\{plates\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
+    expect(DESKTOP).toMatch(/<DeskTours plates=\{plates\} transfer=\{transfer\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
   });
 
   it('факты — plateFacts и исход по датам; выдуманных «мест» и «сегодня» нет', () => {
     const t = code(`${DESK}/DeskTours.tsx`);
     expect(t).toMatch(/plateFacts\(p\)/);
     expect(t).toMatch(/AVAILABILITY_LABEL\[p\.availability\]/);
-    // адрес карточки — plateHref (тур, трансфер, маршрут: одно правило на оба дерева)
-    expect(t).toMatch(/plateHref\(p\)/);
+    expect(t).toMatch(/tourPath\(p\)/);
     expect(t).not.toMatch(/мест<|Сегодня,/);
     expect(t).not.toMatch(/FROM operator_tours|pool\.query/);
   });

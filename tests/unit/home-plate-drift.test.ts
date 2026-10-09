@@ -52,6 +52,6 @@ describe('дрейф', () => {
   it('копия для петли скрыта от чтения и клавиатуры', () => {
     expect(HOME).toContain('aria-hidden={clone || undefined}');
     expect(HOME).toContain('tabIndex={clone ? -1 : undefined}');
-    expect(HOME).toContain('setPlateIdx(best % tours.length)');
+    expect(HOME).toContain('setPlateIdx(best % cards.length)');
   });
 });

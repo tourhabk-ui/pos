@@ -18,13 +18,10 @@
 
 import { priceFrom } from '@/lib/tours/price-label';
 import { priceUnitLabel } from '@/lib/tours/labels';
-import { tourPath } from '@/lib/tours/tour-url';
 import { plural } from '@/lib/home/data-freshness';
 import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
 
 export interface PlateFactsInput {
-  /** 'transfer' — вахтовка под заказ: цена называется за МАШИНУ, а не за человека. */
-  kind?: string;
   priceFrom: number | null;
   priceUnit: string | null;
   durationType: string | null;
@@ -59,41 +56,10 @@ export function plateDuration(t: Pick<PlateFactsInput, 'durationType' | 'multiDa
 export function plateFacts(p: PlateFactsInput): PlateFacts {
   const operator = p.operatorName?.trim() ? p.operatorName.trim() : null;
   return {
-    // У трансфера под заказ единица одна и называется прямо: умолчание
-    // «/чел.» превратило бы 65 000 ₽ за вахтовку в 65 000 ₽ с человека.
-    price: p.kind === 'transfer'
-      ? priceFrom(p.priceFrom, '₽ за машину')
-      : priceFrom(p.priceFrom, `₽ ${priceUnitLabel(p.priceUnit, true)}`),
+    price: priceFrom(p.priceFrom, `₽ ${priceUnitLabel(p.priceUnit, true)}`),
     duration: plateDuration(p),
     operator,
   };
-}
-
-/**
- * Адрес карточки ленты: тур — своя страница, трансфер под заказ — экран
- * /transfers (карточка перевозчика с прайсом), остальное — маршрут. Один
- * ответ на оба дерева главной: две копии условия разошлись бы.
- */
-export function plateHref(p: { kind: string; id: string; slug: string | null }): string {
-  if (p.kind === 'transfer') return '/transfers';
-  if (p.kind === 'tour') return tourPath(p);
-  return `/routes/${p.id}`;
-}
-
-/** Место трансфера в ленте: третьим, чтобы он был виден до конца первой прокрутки. */
-export const TRANSFER_PLATE_POSITION = 2;
-
-/**
- * Вставляет карточку трансфера в ленту туров. Нет туров — не вставляет: лента
- * из одной вахтовки под заголовком «Туры сезона» была бы обманом. Потолок
- * витрины остаётся прежним: вставка вытесняет последний тур, а не растит ленту.
- * Нет карточки (перевозчиков под заказ нет или не смогли прочитать) — лента
- * как была.
- */
-export function withTransferPlate<T>(plates: readonly T[], transfer: T | null): T[] {
-  if (!transfer || plates.length === 0) return [...plates];
-  const at = Math.min(TRANSFER_PLATE_POSITION, plates.length);
-  return [...plates.slice(0, at), transfer, ...plates.slice(at)].slice(0, PLATES_LIMIT);
 }
 
 /** Сколько туров помещается на витрину главной. */
