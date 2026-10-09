@@ -1,0 +1,70 @@
+name: Места — перепись «относится к вулкану»
+
+# Только чтение (26.09). Для каждого вулкана — места, где он назван в
+# названии или описании, с расстоянием; соседи без упоминания — для сведения.
+# Список идёт владельцу на подтверждение; привязку делает миграция после его
+# решения (scripts/volcano-affinity-scan.ts, lib/places/volcano-affinity.ts).
+#
+# Запуск: push, меняющий .github/triggers/volcano-affinity-scan.json.
+# Вывод — ещё и check-run `volcano-affinity-output`: лог job из сессии не читается.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/volcano-affinity-scan.json'
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Перепись
+        id: scan
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set +e
+          npx tsx scripts/volcano-affinity-scan.ts | tee /tmp/scan.txt
+          code=${PIPESTATUS[0]}
+          exit $code
+      - name: Publish output as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          p = '/tmp/scan.txt'
+          text = open(p, encoding='utf-8', errors='replace').read() if os.path.exists(p) else '(вывод не записан)'
+          if len(text) > 60000:
+              text = '…(обрезано: показан хвост)\n' + text[-60000:]
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'volcano-affinity-output',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {'title': f"Перепись: {outcome}", 'summary': 'Места, относящиеся к вулканам.', 'text': text},
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}", 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              print('check-run', json.load(r)['id'])
+          PY

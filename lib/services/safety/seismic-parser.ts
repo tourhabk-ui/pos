@@ -18,6 +18,7 @@ import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
+import { warningSystemTest, warningTestHours } from '@/lib/safety/warning-system-test';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 import { KRAI_COMMANDER_ZONE, KRAI_FAR_ZONES, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
@@ -28,7 +29,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure' | 'warning_test';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -1873,12 +1874,20 @@ export function classifyMchsItem(
     return null;
   }
 
+  // Плановая проверка систем оповещения (#1428, решение владельца 08.10) —
+  // ДО фильтров учений и памяток: проверку сирен МЧС часто объявляет «в рамках
+  // тренировки», и фильтр учений выбросил бы ровно то, что туристу надо знать
+  // заранее, — что сирена в это время учебная. Отчёт о прошедшей проверке
+  // в ленту не идёт.
+  const warningTest = warningSystemTest(text);
+  if (warningTest === 'report') return null;
+
   // Учения и тренировки — не угроза: «пожарно-тактическое учение в школе № 40»
   // висело неделю как fire_danger на карточках маршрутов (скрины владельца
   // 2026-07-17). Алерт = действующая опасность, не отчёт о тренировке.
   // Граница слова руками ((^|не-буква)): JS \b не знает кириллицу, а без неё
   // «учени» матчит «полУЧЕНИе пропусков» — реальный алерт был бы отброшен.
-  if (/(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
+  if (!warningTest && /(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
     return null;
   }
 
@@ -1894,7 +1903,7 @@ export function classifyMchsItem(
   // Без этой ветки памятка про подтопление уехала бы категорией `flood` на
   // 120 часов и пять суток висела бы активной угрозой на карточках маршрутов —
   // ровно как когда-то висел телеанонс и школьное учение.
-  if (/^[\s\S]{0,80}?(при\s+(угрозе|получении|объявлении|обнаружении)|что делать (при|если|в случае)|как действовать|памятка)/.test(text)) {
+  if (!warningTest && /^[\s\S]{0,80}?(при\s+(угрозе|получении|объявлении|обнаружении)|что делать (при|если|в случае)|как действовать|памятка)/.test(text)) {
     return null;
   }
 
@@ -1922,7 +1931,13 @@ export function classifyMchsItem(
   // категории, и он отбрасывается как неинтересный.
   const tsunami = tsunamiStatus(text);
   const parkClosure = detectParkClosure(text);
-  if (tsunami === 'warning') {
+  if (warningTest === 'planned') {
+    // Не опасность: severity 0 — без пуша, статуса края и вердикта маршрута,
+    // но в ленте и у агентов. Срок — до конца названного дня проверки.
+    const hours = warningTestHours(text, new Date(pubDate));
+    if (hours === null) return null; // день проверки уже прошёл
+    alert_type = 'warning_test'; severity = 0; expires_hours = hours;
+  } else if (tsunami === 'warning') {
     alert_type = 'tsunami_warning'; severity = 3; expires_hours = 12;
   } else if (tsunami === 'all_clear') {
     alert_type = 'info'; severity = 0; expires_hours = 1;
@@ -2074,7 +2089,7 @@ export function classifyMchsItem(
   // Вместе с порогом — потолок срока: запрет живёт часами, а не неделей.
   // Пожарная ветка держит алерт 168 часов, и без потолка «туристам воздержаться
   // от посещения леса» висело бы красным всю неделю после того, как выгорело.
-  if (severity < 2 && addressesTouristsWithBan(text)) {
+  if (alert_type !== 'warning_test' && severity < 2 && addressesTouristsWithBan(text)) {
     severity = 2;
     expires_hours = Math.min(expires_hours, 48);
   }
@@ -2085,7 +2100,7 @@ export function classifyMchsItem(
   // часами — его снимают отдельным сообщением; ОЯ живёт столько, сколько живёт
   // само явление, и паводковые 120 часов поставлены именно под него. Обрезав
   // их до 48, мы сняли бы красный статус с ещё не спавшей воды.
-  if (severity < 2 && declaresHazardGrade(text)) {
+  if (alert_type !== 'warning_test' && severity < 2 && declaresHazardGrade(text)) {
     severity = 2;
   }
 

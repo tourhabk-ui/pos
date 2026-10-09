@@ -1,33 +1,34 @@
 {
   "timeout": 60,
-  "retries": 40,
+  "retries": 45,
   "allowStale": false,
-  "bytes": 900,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. После выката #2292/#2294: виджет /safety на нашем прогнозе (place, now, today, checked_at), Эссо — точка села (~500 м, не 1430 у смотровой), памятка: разделы «Сильное землетрясение» и «Цунами».",
-  "run": 727,
+  "bytes": 400,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат 1186/1187 «Шатуна»: подпись автора под кадрами, ленивые клипы, исполнитель ИП Миронова; файлы клипов отдаются.",
+  "run": 732,
   "urls": [
-    "https://vedarai.ru/api/safety/weather",
-    "https://vedarai.ru/weather/esso",
-    "https://vedarai.ru/safety/offline"
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/operators/shatun",
+    "https://vedarai.ru/video/shatun/clip-water-approach.mp4",
+    "https://vedarai.ru/video/shatun/clip-water-approach.poster.jpg"
   ],
   "grep": [
-    "\"today\"",
-    "\"checked_at\"",
-    "\"stale\"",
-    "Высота точки",
-    "1430",
-    "Цунами",
-    "Сильное землетрясение",
-    "emsd.ru"
+    "Фото: Сладченко Виктор Леонидович",
+    "Фото: Шатун",
+    "Короткие видео",
+    "preload=\"none\"",
+    "Исполнитель: ИП Миронова Нина Васильевна, ИНН 250302356113",
+    "Юридическая информация",
+    "250302356113",
+    "Лицензия",
+    "Вахтовка идёт через воду",
+    "Не смогли проверить"
   ],
   "text": false,
   "retryDelay": 30,
-  "until": "\"today\"",
+  "until": "Фото: Сладченко Виктор Леонидович",
   "around": [
-    "Высота точки",
-    "Цунами"
+    "Короткие видео",
+    "Исполнитель:"
   ],
-  "aroundLines": 1,
-  "aroundHits": 2,
-  "aroundBefore": 1
+  "aroundLines": 1
 }

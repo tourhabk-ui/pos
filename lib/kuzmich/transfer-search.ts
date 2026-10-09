@@ -11,8 +11,16 @@
  *
  * Три исхода (§4.0): нашли — список; искали и нет — «в эти дни никто не
  * едет» с окном дат; не смогли проверить — так и сказано, без выдумки.
+ *
+ * Вторым разделом идёт прайс перевозчиков «под заказ» (целая машина, цена за
+ * машину; миграция 1185) — из lib/transfers/charter, того же источника, что
+ * у экрана /transfers и карточки перевозчика. Две поверхности друг от друга не
+ * зависят: падение одной не прячет другую. Телефон перевозчика в ответ НЕ
+ * кладётся (pd-guard: модели зарубежные) — только ссылка на карточку, где он
+ * есть.
  */
 import { listPublishedTrips } from '@/lib/transfers/service';
+import { loadCharterCarriers, charterFootnote, describeFleet, type CharterCarrier } from '@/lib/transfers/charter';
 import { getPublicBaseUrl } from '@/lib/config';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -44,10 +52,47 @@ export function resolveWindow(args: TransferSearchArgs, now = new Date()): { fro
   return { from, to };
 }
 
+/**
+ * Раздел «под заказ». null — не смог проверить (отличается от пустого списка:
+ * «таких перевозчиков нет» и «не смог узнать» человеку говорятся по-разному).
+ * Пустой список — раздела нет вовсе: говорить «под заказ никого нет» значило
+ * бы утверждать больше, чем знает инструмент о рынке.
+ */
+export function charterSection(carriers: CharterCarrier[] | null, place: string | undefined, base: string): string {
+  if (carriers === null) {
+    return '\n\nНе смог проверить прайс вахтовок под заказ — сбой на нашей стороне. Не говори, что таких перевозчиков нет; предложи посмотреть позже на /transfers.';
+  }
+  if (carriers.length === 0) return '';
+  const needle = (place ?? '').trim().toLowerCase();
+  const blocks = carriers.map(c => {
+    const hit = needle
+      ? c.destinations.filter(d => d.to.toLowerCase().includes(needle) || d.from.toLowerCase().includes(needle))
+      : c.destinations;
+    const shown = hit.length > 0 ? hit : c.destinations;
+    const miss = needle && hit.length === 0 ? `Направления «${place}» в прайсе нет; весь прайс: ` : '';
+    const prices = shown.map(d => `${d.to} ${d.priceRub} руб${d.note ? ` (${d.note})` : ''}`).join('; ');
+    const extra = c.extraDay
+      ? `; доплата ${c.extraDay.priceRub} руб в день${c.extraDay.note ? ` (${c.extraDay.note})` : ''}`
+      : '';
+    const fleet = describeFleet(c.vehicles);
+    const note = charterFootnote(c);
+    return `${c.name}${fleet ? ` — ${fleet}` : ''}. ${miss}Цена за машину целиком: ${prices}${extra}.${note ? ` ${note}` : ''} Связь, фото и заказ — на карточке: ${base}/operators/${c.slug}`;
+  });
+  return `\n\nПод заказ целой машиной (дат и мест нет; цена за машину, не за место; сколько дней и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую, через платформу не оплачивается):\n${blocks.join('\n')}`;
+}
+
 export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promise<string> {
   const { from, to } = resolveWindow(args);
   const seatsNum = Number(args.seats);
   const minSeats = args.seats && Number.isFinite(seatsNum) && seatsNum >= 1 ? Math.min(60, Math.floor(seatsNum)) : 1;
+  const base = getPublicBaseUrl();
+
+  // Прайс «под заказ» читается рядом и независимо: отказ одной витрины не
+  // должен прятать другую.
+  const charterPromise: Promise<CharterCarrier[] | null> = loadCharterCarriers().catch((err: unknown) => {
+    console.error('[kuzmich/search_transfers/charter]', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
+    return null;
+  });
 
   let trips;
   try {
@@ -55,8 +100,10 @@ export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promi
   } catch (err) {
     console.error('[kuzmich/search_transfers]', err instanceof Error ? err.message : err);
     // Не «поездок нет», а «не смог проверить»: одно от другого турист обязан отличать.
-    return 'Не смог проверить витрину поездок перевозчиков — сбой на нашей стороне. Не говори, что мест нет; предложи посмотреть позже на /transfers.';
+    return 'Не смог проверить витрину поездок перевозчиков — сбой на нашей стороне. Не говори, что мест нет; предложи посмотреть позже на /transfers.'
+      + charterSection(await charterPromise, args.place, base);
   }
+  const charter = charterSection(await charterPromise, args.place, base);
 
   // Фильтр по направлению — по тексту «куда», как его написал перевозчик.
   const needle = (args.place ?? '').trim().toLowerCase();
@@ -64,10 +111,9 @@ export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promi
     ? trips.filter(t => t.to_text.toLowerCase().includes(needle) || t.from_text.toLowerCase().includes(needle))
     : trips;
 
-  const base = getPublicBaseUrl();
   if (matched.length === 0) {
     const where = needle ? ` в сторону «${args.place}»` : '';
-    return `Искал с ${from} по ${to}${where}, мест от ${minSeats}: опубликованных поездок нет — в эти дни никто не едет. Это факт витрины, не сбой. Другие даты или направление — ${base}/transfers.`;
+    return `Искал с ${from} по ${to}${where}, мест от ${minSeats}: опубликованных поездок нет — в эти дни никто не едет. Это факт витрины, не сбой. Другие даты или направление — ${base}/transfers.${charter}`;
   }
 
   const lines = matched.slice(0, 6).map(t => {
@@ -75,5 +121,5 @@ export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promi
     const when = t.departure_note ? `${t.trip_date}, ${t.departure_note}` : t.trip_date;
     return `${when}: ${t.from_text} — ${t.to_text}, ${KIND_LABEL[t.vehicle_kind] ?? t.vehicle_kind} «${t.vehicle_title}», свободно ${t.seats_free} из ${t.seats_total}, ${price}. Перевозчик: ${t.partner_name}.`;
   });
-  return `Поездки с ${from} по ${to} (мест от ${minSeats}):\n${lines.join('\n')}\n\nЗапросить место (нужен вход; место занимается после подтверждения перевозчика, ${platformAcceptsPayments() ? 'оплата по QR СБП' : 'оплата перевозчику напрямую'}): ${base}/transfers`;
+  return `Поездки с ${from} по ${to} (мест от ${minSeats}):\n${lines.join('\n')}\n\nЗапросить место (нужен вход; место занимается после подтверждения перевозчика, ${platformAcceptsPayments() ? 'оплата по QR СБП' : 'оплата перевозчику напрямую'}): ${base}/transfers${charter}`;
 }

@@ -19,6 +19,9 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { CharterCard } from '@/components/transfers/CharterCard';
+import { loadCharterCarriers } from '@/lib/transfers/charter';
+import type { CharterCarrier } from '@/lib/transfers/charter-format';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +40,9 @@ function parseCount(value: string | null | undefined): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+/** Подпись категории на карточке: сырое `transfer` человеку ничего не говорит. Прочие — как в базе. */
+const CATEGORY_LABEL: Record<string, string> = { transfer: 'Перевозчик' };
 
 const ICON_MAP: Record<string, React.ElementType> = {
   Shield, Fish, Home, Calendar, Users, Star, MapPin, Phone,
@@ -175,6 +181,20 @@ export default async function OperatorProfilePage(
   const heroImage = profile.hero_image ?? gallery[0] ?? null;
   const tours = await getOperatorTours(profile.id);
 
+  // Прайс перевозчика «под заказ» (миграция 1185) — только у категории
+  // transfer. Три исхода: нашли / у него прайса нет / не смогли проверить.
+  let charter: CharterCarrier | null = null;
+  let charterFailed = false;
+  if (profile.category === 'transfer') {
+    try {
+      charter = (await loadCharterCarriers({ partnerId: profile.id }))[0] ?? null;
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code ?? '';
+      console.error('[operators/charter]', code, err instanceof Error ? err.message : err);
+      charterFailed = true;
+    }
+  }
+
   // Организация оператора — тот же @id, на который ссылаются provider и
   // seller в разметке его туров (lib/seo/tour-structured-data, аудит 01.10).
   const pageUrl = `${SITE}/operators/${profile.slug}`;
@@ -218,7 +238,7 @@ export default async function OperatorProfilePage(
                 )}
                 <h1 className="font-playfair text-3xl sm:text-4xl font-bold mb-3">{profile.name}</h1>
                 <div className="flex flex-wrap items-center gap-3 mb-4">
-                  {profile.category && <span className="ds-badge">{profile.category}</span>}
+                  {profile.category && <span className="ds-badge">{CATEGORY_LABEL[profile.category] ?? profile.category}</span>}
                   {profile.is_verified && (
                     <span className="inline-flex items-center gap-1 text-sm text-[var(--success)]">
                       <ShieldCheck className="w-4 h-4" /> Проверенный оператор
@@ -272,6 +292,15 @@ export default async function OperatorProfilePage(
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {/* Прайс под заказ: у перевозчика вместо туров */}
+          {charter && <CharterCard carrier={charter} linkToProfile={false} showPhotos={false} />}
+          {charterFailed && (
+            <section className="ds-card p-5 border-[var(--warning)]">
+              <p className="text-sm text-[var(--text-primary)]">Не смогли проверить прайс перевозчика</p>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">Сбой на нашей стороне. Это не значит, что прайса нет — загляните позже.</p>
             </section>
           )}
 

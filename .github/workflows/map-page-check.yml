@@ -1,0 +1,55 @@
+name: Страница /map — проверка браузером с раннера
+
+# 01.10: скрин владельца — /map открылась рельефом без единого места,
+# счётчик стоит на «Загрузка…», а данные целы (проба 634). Из контейнера
+# разработки прод и хранилище не открываются, поэтому страницу смотрит
+# настоящий Chromium на раннере: ошибки консоли, отказы сети, счётчик,
+# чипы и кадр экрана в логе. Только чтение.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/map-page-check.json'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Открыть страницу
+        run: |
+          mkdir -p .cache
+          # Варианты: [{path, flags}] — одна страница может сниматься
+          # дважды с разными флагами (02.10: /map и /map на чипе
+          # «Землетрясения»). Без них — paths с общими flags, как раньше.
+          python3 - > .cache/variants.tsv <<'PY'
+          import json
+          d = json.load(open('.github/triggers/map-page-check.json'))
+          vs = d.get('variants') or [{'path': p, 'flags': d.get('flags', [])} for p in (d.get('paths') or [d.get('path', '/map')])]
+          for v in vs:
+              print(v['path'] + '\t' + '\x1f'.join(v.get('flags', [])))
+          PY
+          code=0
+          while IFS=$'\t' read -r P F; do
+            IFS=$'\x1f' read -r -a ARGS <<< "$F"
+            echo "=== $P ${ARGS[*]} ==="
+            npx tsx scripts/map-tiles/map-page-check.ts --path "$P" --shot .cache/map-page.jpg "${ARGS[@]}" || code=$?
+          done < .cache/variants.tsv
+          exit $code
