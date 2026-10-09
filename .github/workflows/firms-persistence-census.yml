@@ -1,0 +1,75 @@
+name: Перепись термоточек FIRMS — что стоит на месте несколько суток (вручную)
+
+# Скрин владельца 09.10: на радаре «Термоточки (возможен пожар): 1 очаг(ов),
+# 54.62°N 160.30°E», и точка висит неделю в одном месте. Приём смотрит только
+# сутки, а дедуп `saveEvent` сворачивает одинаковые повторы в одну запись,
+# продлевая ей срок, — поэтому по ленте не видно ни числа суток, ни числа
+# обнаружений, ни того, один и тот же это пиксель или разные.
+#
+# Перепись спрашивает FIRMS с прода (ключ только там) и отдаёт ФАКТЫ по
+# ячейкам, где обнаружения повторяются в разные сутки; вывода «пожар / не
+# пожар» не выносит. Только чтение.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/firms-persistence-census.json'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      # Маркер едет тем же пушем, что и роут переписи: без ожидания сборки
+      # прогон спросил бы вчерашний прод и получил 404 (сторож
+      # tests/unit/marker-waits-for-deploy.test.ts).
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          REQUIRE_FRESH: '1'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Перепись термоточек
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          CODE=$(curl -sS -o /tmp/firms.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/firms-persistence-census")
+          echo "HTTP: $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Перепись не ответила — это «не смогли спросить», а не «таких точек нет»."
+            cat /tmp/firms.json 2>/dev/null || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('/tmp/firms.json'))
+          if not d.get('asked'):
+              print('НЕ СПРОСИЛИ FIRMS:', d.get('reason'), d.get('error') or d.get('note') or '')
+              sys.exit(1)
+          print('окно, суток:', d.get('window_days'), '| строк в CSV:', d.get('rows_total'),
+                '| суток в данных:', len(d.get('days_seen') or []))
+          print('ячеек, где обнаружения в разные сутки:', d.get('cells_repeating'))
+          for c in d.get('cells') or []:
+              print('---')
+              print(' %.4f N %.4f E | суток %d (%s .. %s) | обнаружений %d | по суткам %s' % (
+                  c['lat'], c['lng'], len(c['days']), c['firstDay'], c['lastDay'], c['detections'], c['perDay']))
+              print(' мощность МВт: мин %s / сред %s / макс %s | разброс точек %s км | ночных %d' % (
+                  c['frpMin'], c['frpMean'], c['frpMax'], c['spreadKm'], c['night']))
+              print(' рядом (до 25 км):', c.get('nearby'))
+              for a in c.get('alerts') or []:
+                  print('   запись: %s | важность %s | создана %s | до %s' % (
+                      a['external_id'], a['severity'], a['created_at'], a['expires_at']))
+          PY
