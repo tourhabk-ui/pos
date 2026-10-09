@@ -34,7 +34,7 @@ import { execSync } from 'node:child_process';
 const NOT_A_TABLE = new Set([
   'select', 'where', 'set', 'values', 'only', 'lateral', 'table', 'as', 'dual',
   'information_schema', 'unnest', 'generate_series', 'jsonb_array_elements',
-  'jsonb_array_elements_text', 'json_array_elements', 'json_to_recordset',
+  'jsonb_array_elements_text', 'jsonb_object_keys', 'json_object_keys', 'json_array_elements', 'json_to_recordset',
   'jsonb_to_recordset', 'regexp_split_to_table', 'string_to_table',
 ]);
 
