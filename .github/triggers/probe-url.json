@@ -1,32 +1,28 @@
 {
-  "timeout": 60,
-  "retries": 3,
+  "timeout": 40,
+  "retries": 0,
   "allowStale": false,
-  "bytes": 400,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 732 с метками, не зависящими от разрыва текста React (<!-- -->): подпись автора, исполнитель, блок реквизитов, клип отдаётся файлом.",
-  "run": 733,
+  "bytes": 12000,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Владелец прислал адрес laguna-expedition.online: что это за сайт (компания, туры, цены, контакты, Камчатка). С песочницы домен не резолвится (WebFetch: ENOTFOUND) — проверка с раннера, три варианта адреса.",
+  "run": 734,
   "urls": [
-    "https://vedarai.ru/transfers",
-    "https://vedarai.ru/operators/shatun",
-    "https://vedarai.ru/video/shatun/clip-water-approach.mp4",
-    "https://vedarai.ru/video/shatun/clip-water-approach.poster.jpg"
+    "https://laguna-expedition.online",
+    "http://laguna-expedition.online",
+    "https://www.laguna-expedition.online"
   ],
   "grep": [
-    "Сладченко",
-    "ИП Миронова Нина Васильевна",
-    "Юридическая информация",
-    "Лицензия",
-    "Короткие видео",
-    "Вахтовка идёт через воду",
-    "Рядом с паромом",
-    "Выход на берег"
+    "Камчат",
+    "Лагун",
+    "тур",
+    "₽",
+    "руб",
+    "ИНН",
+    "ОГРН",
+    "+7",
+    "@",
+    "WhatsApp",
+    "Telegram"
   ],
-  "text": false,
-  "retryDelay": 20,
-  "until": "Короткие видео",
-  "around": [
-    "Сладченко",
-    "Лицензия"
-  ],
-  "aroundLines": 1
+  "text": true,
+  "retryDelay": 30
 }
