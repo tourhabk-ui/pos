@@ -132,15 +132,17 @@ export interface SourceSummary {
 
 /**
  * Сводка источников по видам. Деньги в сводку не идут: карточка — о людях,
- * деньги остаются на своих экранах. Имя человека — то же, что партнёр видит
- * в самом источнике (шапка lib/crm/contacts.ts).
+ * деньги остаются на своих экранах. Имя человека — по тому же правилу, что
+ * у самого контакта (шапка lib/crm/contacts.ts).
  */
 export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
   operator_booking: `
     SELECT b.id::text AS id, t.title, b.booking_date::text AS date_from, b.end_date::text AS date_to,
-           b.booking_status AS status, b.participants AS people, b.tourist_name AS person_name
+           b.booking_status AS status, b.participants AS people,
+           COALESCE(NULLIF(btrim(b.tourist_name), ''), u.name) AS person_name
       FROM operator_bookings b
       JOIN operator_tours t ON t.id = b.operator_tour_id
+      LEFT JOIN users u ON u.id = b.user_id
      WHERE b.id = ANY($1::bigint[])`,
   accommodation_booking: `
     SELECT ab.id::text AS id, a.name AS title, ab.check_in_date::text AS date_from,

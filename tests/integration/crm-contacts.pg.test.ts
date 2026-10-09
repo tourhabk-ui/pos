@@ -230,13 +230,23 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(c).toMatchObject({ phone_e164: '+79142223344', email_norm: 'boris@mail.ru' });
   });
 
-  it('оператор получает поля брони, а не аккаунта: телефона аккаунта в контакте нет', async () => {
+  it('оператор: брони сказать нечего — имя, телефон и почта из аккаунта туриста', async () => {
     const id = await booking(tourA, { userId: touristId });
     const r = await link('operator_booking', id);
     expect(r).toMatchObject({ outcome: 'linked', created: true });
     if (r.outcome !== 'linked') throw new Error('не привязано');
     const c = (await contactsOf(P.opA)).find((x) => x.id === r.contactId);
-    expect(c).toMatchObject({ user_id: touristId, phone_e164: null, email_norm: null, display_name: null });
+    expect(c).toMatchObject({
+      user_id: touristId, phone_e164: '+79995550000', email_norm: 'tourist@example.com', display_name: 'Аккаунт Туриста',
+    });
+  });
+
+  it('оператор: поле брони важнее аккаунта', async () => {
+    const id = await booking(tourA, { userId: touristId, name: 'Турист под поездку', phone: '+79140000303' });
+    const r = await link('operator_booking', id);
+    if (r.outcome !== 'linked') throw new Error('не привязано');
+    const c = (await contactsOf(P.opA)).find((x) => x.id === r.contactId);
+    expect(c).toMatchObject({ phone_e164: '+79140000303', display_name: 'Турист под поездку' });
   });
 
   it('назначенный гид контакта не получает: доступ гида к туристу временный', async () => {
@@ -252,7 +262,7 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(await link('operator_booking', blank)).toEqual({ outcome: 'no_contact' });
   });
 
-  it('жильё: имя и почта аккаунта, телефона нет — владелец его не видит', async () => {
+  it('жильё: имя, телефон и почта аккаунта гостя — как в уведомлении о брони', async () => {
     const ab = (await pool.query<{ id: string }>(
       `INSERT INTO accommodation_bookings
          (user_id, accommodation_id, check_in_date, check_out_date, nights, adults, room_price_per_night, total_price)
@@ -262,7 +272,7 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(await link('accommodation_booking', ab)).toMatchObject({ outcome: 'linked', partnerId: P.stay, created: true });
     const [c] = await contactsOf(P.stay);
     expect(c).toMatchObject({
-      display_name: 'Аккаунт Туриста', email_norm: 'tourist@example.com', phone_e164: null,
+      display_name: 'Аккаунт Туриста', email_norm: 'tourist@example.com', phone_e164: '+79995550000',
       user_id: touristId, pd_consent_at: null,
     });
   });

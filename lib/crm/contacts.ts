@@ -14,10 +14,12 @@
  * а имя, записанное источником, видно в карточке у каждого источника.
  *
  * CRM не расширяет доступ к ПД. В контакт попадают ровно те поля, которые
- * партнёр уже видит по этому источнику на своих экранах:
- *   - оператор — имя, телефон и почту ИЗ БРОНИ, без подстановки из аккаунта
- *     (кабинет броней показывает `tourist_*`);
- *   - владелец жилья — имя и почту гостя, без телефона (`/api/stay/bookings`);
+ * партнёр уже получает по этому источнику — на экранах и в уведомлении о брони:
+ *   - оператор — имя, телефон и почту из брони, а где брони сказать нечего — из
+ *     аккаунта туриста (так их показывают «Клиенты» оператора,
+ *     `lib/operator/screen-queries.ts`);
+ *   - владелец жилья — имя, телефон и почту гостя из аккаунта (экран броней и
+ *     уведомление о брони `notifyNewStayBooking`);
  *   - перевозчик — телефон заказа и имя заказавшего партнёра, без имени и
  *     почты аккаунта туриста (`listSeatRequests`);
  *   - гиду контакты из броней не копируются вовсе: его доступ к туристу
@@ -85,23 +87,29 @@ interface SourceSpec {
 }
 
 const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
+  // Поле брони первым: его турист вписал под эту поездку. Аккаунт — где брони
+  // сказать нечего, как в «Клиентах» оператора.
   operator_booking: {
     idType: 'bigint',
-    from: `operator_bookings s JOIN operator_tours t ON t.id = s.operator_tour_id`,
+    from: `operator_bookings s
+           JOIN operator_tours t ON t.id = s.operator_tour_id
+           LEFT JOIN users u ON u.id = s.user_id`,
     person: `t.operator_id AS partner_id, s.user_id,
-             s.tourist_name AS person_name, s.tourist_phone AS phone, s.tourist_email AS email,
+             COALESCE(NULLIF(btrim(s.tourist_name), ''), u.name) AS person_name,
+             COALESCE(NULLIF(btrim(s.tourist_phone), ''), u.phone) AS phone,
+             COALESCE(NULLIF(btrim(s.tourist_email), ''), u.email) AS email,
              s.pd_consent_at, s.pd_consent_ip, s.pd_consent_source, s.pd_consent_version,
              s.created_at::timestamptz AS occurred_at`,
     eligible: `s.deleted_at IS NULL AND t.operator_id IS NOT NULL`,
   },
-  // Имя и почта гостя — из аккаунта, как на экране владельца; телефона
-  // владелец не видит.
+  // В брони жилья человека нет — только аккаунт; владелец получает имя,
+  // телефон и почту гостя в уведомлении о брони.
   accommodation_booking: {
     idType: 'uuid',
     from: `accommodation_bookings s
            JOIN accommodations a ON a.id = s.accommodation_id
            JOIN users u ON u.id = s.user_id`,
-    person: `a.partner_id, s.user_id, u.name AS person_name, NULL::text AS phone, u.email,
+    person: `a.partner_id, s.user_id, u.name AS person_name, u.phone, u.email,
              ${NO_CONSENT}, s.created_at AS occurred_at`,
     eligible: `a.partner_id IS NOT NULL`,
   },
