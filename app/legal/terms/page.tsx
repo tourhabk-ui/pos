@@ -77,7 +77,7 @@ export default function TermsPage() {
               Пользователь несёт ответственность за сохранность учётных данных (логин, пароль) и за
               все действия, совершённые с использованием его учётной записи. При обнаружении
               несанкционированного доступа Пользователь обязан незамедлительно уведомить Оператора
-              по адресу: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>.
+              по адресу: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>.
             </p>
             <p>
               Оператор вправе приостановить или удалить учётную запись в случае нарушения настоящего
@@ -208,8 +208,8 @@ export default function TermsPage() {
               ОГРН: {REQUISITES.ogrn}<br />
               Юридический адрес: {REQUISITES.address}<br />
               Директор: {REQUISITES.director}<br />
-              Email: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a><br />
-              Поддержка пользователей: <a href="mailto:pospk@mail.ru" className="text-[var(--ocean)] hover:underline">pospk@mail.ru</a>
+              Email: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a><br />
+              Поддержка пользователей: <a href="mailto:info@vedarai.ru" className="text-[var(--ocean)] hover:underline">info@vedarai.ru</a>
             </p>
           </section>
         </div>

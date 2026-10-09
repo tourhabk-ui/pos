@@ -28,7 +28,7 @@ export function Footer() {
               Ведар — полевой инструмент Камчатки. Маршруты, опасности, регистрация, SOS.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-4">
-              pospk@mail.ru
+              info@vedarai.ru
             </p>
 <div className="flex flex-col gap-2 mt-3">
               <a

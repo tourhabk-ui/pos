@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     vapid: {
       public_set: set(process.env.NEXT_PUBLIC_VAPID_KEY),
       private_set: set(process.env.VAPID_PRIVATE_KEY),
-      email: process.env.VAPID_EMAIL ?? 'mailto:pospk@mail.ru (default)',
+      email: process.env.VAPID_EMAIL ?? 'mailto:info@vedarai.ru (default)',
       subscriptions,
       undelivered_alerts: undelivered,
       verdict:

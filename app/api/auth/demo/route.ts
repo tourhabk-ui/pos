@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     const demoUser = {
       id: 'demo_user_123',
-      email: 'pospk@mail.ru',
+      email: 'info@vedarai.ru',
       name: 'Демо Пользователь',
       avatar: '/api/placeholder/64/64',
       roles: [role || 'tourist'],

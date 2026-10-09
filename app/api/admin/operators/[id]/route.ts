@@ -161,7 +161,7 @@ export async function PATCH(
              ${isGuide ? '<p>Исправьте профиль в кабинете гида и отправьте его на проверку снова.</p>' : ''}
              ${isAgent ? '<p>Исправьте профиль в кабинете агента (раздел «Профиль») и отправьте его на проверку снова.</p>' : ''}
              ${comment ? `<p><b>Комментарий:</b> ${comment}</p>` : ''}
-             <p>По вопросам: <a href="mailto:pospk@mail.ru">pospk@mail.ru</a></p>`,
+             <p>По вопросам: <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>`,
     }).catch(logSendFailure('email'));
 
     return NextResponse.json({ success: true, message: 'Заявка отклонена' });
