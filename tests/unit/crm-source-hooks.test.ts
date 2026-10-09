@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { SOURCE_KINDS, type SourceKind } from '@/lib/crm/contacts';
+import { SOURCE_KINDS, UNLINKED_COUNT_SQL, UNLINKED_PAGE_SQL, type SourceKind } from '@/lib/crm/contacts';
 
 const ROOT = process.cwd();
 
@@ -101,6 +101,16 @@ describe('у каждой двери источника есть хук клие
       expect(reason.length, file).toBeGreaterThan(20);
       expect(all.has(file), `${file} больше не вставляет в источник — убрать из KNOWN_WITHOUT_HOOK`).toBe(true);
     }
+  });
+
+  it('служебная бронь пробы оплаты не становится клиентом: отбор задела её исключает', () => {
+    // payment-test-setup пишет created_via = 'service-payment-test' и не
+    // заполняет туриста; перепись 09.10 (run 104) нашла её единственной
+    // непривязанной строкой, которую задел перебирал впустую.
+    for (const sql of [UNLINKED_COUNT_SQL.operator_booking, UNLINKED_PAGE_SQL.operator_booking]) {
+      expect(sql).toMatch(/created_via IS DISTINCT FROM 'service-payment-test'/);
+    }
+    expect(readFileSync(join(ROOT, 'app/api/cron/payment-test-setup/route.ts'), 'utf8')).toMatch(/'service-payment-test'/);
   });
 
   it('мёртвая дверь bookingService.create по-прежнему без потребителей', () => {

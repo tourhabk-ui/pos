@@ -100,7 +100,12 @@ const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
              COALESCE(NULLIF(btrim(s.tourist_email), ''), u.email) AS email,
              s.pd_consent_at, s.pd_consent_ip, s.pd_consent_source, s.pd_consent_version,
              s.created_at::timestamptz AS occurred_at`,
-    eligible: `s.deleted_at IS NULL AND t.operator_id IS NOT NULL`,
+    // Служебная бронь пробы оплаты (payment-test-setup, решение владельца
+    // 23.08) — не клиент: у неё нет туриста по построению, а оператор —
+    // служебный партнёр. Перепись 09.10 (run 104) нашла её единственной
+    // непривязанной строкой, которую задел перебирал на каждом прогоне.
+    eligible: `s.deleted_at IS NULL AND t.operator_id IS NOT NULL
+               AND s.created_via IS DISTINCT FROM 'service-payment-test'`,
   },
   // В брони жилья человека нет — только аккаунт; владелец получает имя,
   // телефон и почту гостя в уведомлении о брони.
