@@ -1,9 +1,21 @@
 /**
  * U-ON.Travel CRM integration
  *
- * Docs: https://api.u-on.ru/
- * Operator sets uon_api_key in their partner profile.
- * On booking creation: POST /request/create.json → get request_id → store on operator_bookings.
+ * Документация: https://api.u-on.ru/doc. Оператор хранит ключ в
+ * partners.uon_api_key; при новой брони — POST /request/create.json, id заявки
+ * U-ON пишется в operator_bookings.uon_request_id.
+ *
+ * Поля сверены с документацией request/create 09.10 (пробы 747–749 с раннера,
+ * #2313). До этого отправка называла поля, которых в документации нет вовсе:
+ * r_tour, r_count_tur, r_price, r_note и массив tourist[] с t_name/t_phone. А
+ * r_dat там — дата СОЗДАНИЯ заявки в формате Y-m-d H:i:s, не дата тура. Все
+ * поля request/create необязательны, поэтому U-ON отвечал id, лог писал
+ * «успех», а у оператора появлялась заявка без клиента, телефона, даты, цены
+ * и названия тура.
+ *
+ * Тело — форма (application/x-www-form-urlencoded), как в примерах клиентов
+ * U-ON на PHP: форму сервер на PHP разбирает сам, JSON — только если так
+ * настроен. На живом ключе формат не проверялся: ключа у нас нет.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -41,24 +53,31 @@ function logUonSync(entry: UonSyncLogEntry): void {
       entry.uon_request_id ?? null,
       entry.error ? entry.error.slice(0, 500) : null,
     ],
-  ).catch(() => { /* лог не критичен */ });
+  ).catch((e: unknown) => {
+    // Лог не критичен для брони, но молчать о нём нельзя (§4.0).
+    const code = typeof e === 'object' && e !== null && 'code' in e ? String((e as { code: unknown }).code) : 'нет кода';
+    console.error('[uon] строка uon_sync_log не записана, SQLSTATE', code);
+  });
 }
 
-interface UonTourist {
-  t_name: string;
-  t_surname?: string;
-  t_phone?: string;
-  t_email?: string;
-}
+/**
+ * Поля request/create, которые мы отправляем, — подмножество документации
+ * (имена дословно). Сторож uon-request-fields держит, что других нет.
+ */
+export const UON_REQUEST_FIELDS = [
+  'r_dat_begin', // дата начала заявки, Y-m-d H:i:s
+  'price',       // стоимость заявки
+  'note',        // примечание: тур, дата, участники, пожелания, номер брони
+  'source',      // источник заявки — в отчётах U-ON по источникам виден Ведар
+  'u_name',      // клиент (покупатель)
+  'u_phone',
+  'u_email',
+] as const;
 
-interface UonCreateRequestPayload {
-  r_dat: string;          // DD.MM.YYYY — start date
-  r_tour: string;         // tour title
-  r_count_tur: number;    // participant count
-  r_price: number;        // total price
-  r_note?: string;        // special requests
-  tourist: UonTourist[];
-}
+type UonRequestField = typeof UON_REQUEST_FIELDS[number];
+
+/** Так заявка с платформы подписана в отчётах U-ON по источникам. */
+export const UON_SOURCE = 'Ведар';
 
 interface UonCreateResponse {
   id?: number;
@@ -66,17 +85,45 @@ interface UonCreateResponse {
   error?: string;
 }
 
-function toUonDate(isoDate: string): string {
-  // 'YYYY-MM-DD' → 'DD.MM.YYYY'
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function ruDate(isoDate: string): string {
   const [y, m, d] = isoDate.split('-');
   return `${d}.${m}.${y}`;
 }
 
-function splitName(fullName: string): { first: string; last: string } {
-  const parts = fullName.trim().split(/\s+/);
-  if (parts.length === 1) return { first: parts[0] ?? fullName, last: '' };
-  const [first, ...rest] = parts;
-  return { first: first ?? '', last: rest.join(' ') };
+/**
+ * Тело request/create. Имя туриста уходит в u_name целиком, как он его ввёл:
+ * порядок «имя фамилия» или «фамилия имя» из одной строки не узнать, а
+ * угаданная фамилия в карточке клиента хуже пустой.
+ */
+export function uonRequestBody(booking: UonBookingInput): URLSearchParams {
+  const fields: Partial<Record<UonRequestField, string>> = {};
+  const dateKnown = ISO_DATE.test(booking.booking_date);
+  if (dateKnown) fields.r_dat_begin = `${booking.booking_date} 00:00:00`;
+  fields.price = String(booking.total_price);
+  fields.source = UON_SOURCE;
+
+  const note = [
+    booking.booking_id ? `Заявка с Ведара, бронь № ${booking.booking_id}` : 'Заявка с Ведара',
+    `Тур: ${booking.tour_title}`,
+    `Дата: ${dateKnown ? ruDate(booking.booking_date) : booking.booking_date}`,
+    `Участников: ${booking.participants}`,
+  ];
+  if (booking.special_requests?.trim()) note.push(`Пожелания: ${booking.special_requests.trim()}`);
+  fields.note = note.join('\n');
+
+  const name = booking.tourist_name.trim();
+  if (name) fields.u_name = name;
+  if (booking.tourist_phone?.trim()) fields.u_phone = booking.tourist_phone.trim();
+  if (booking.tourist_email?.trim()) fields.u_email = booking.tourist_email.trim();
+
+  const body = new URLSearchParams();
+  for (const key of UON_REQUEST_FIELDS) {
+    const value = fields[key];
+    if (value !== undefined) body.set(key, value);
+  }
+  return body;
 }
 
 export interface UonBookingInput {
@@ -88,7 +135,8 @@ export interface UonBookingInput {
   tourist_phone?: string;
   tourist_email?: string;
   special_requests?: string;
-  // Опционально — для структурного лога синхронизации (не влияет на запрос к U-ON)
+  // operator_id — только для лога синхронизации; booking_id — для лога и
+  // номера брони в примечании заявки U-ON.
   operator_id?: string;
   booking_id?: string;
 }
@@ -97,22 +145,6 @@ export async function createUonRequest(
   apiKey: string,
   booking: UonBookingInput,
 ): Promise<number | null> {
-  const { first, last } = splitName(booking.tourist_name);
-
-  const payload: UonCreateRequestPayload = {
-    r_dat:       toUonDate(booking.booking_date),
-    r_tour:      booking.tour_title,
-    r_count_tur: booking.participants,
-    r_price:     booking.total_price,
-    r_note:      booking.special_requests ?? undefined,
-    tourist: [{
-      t_name:    first,
-      t_surname: last || undefined,
-      t_phone:   booking.tourist_phone ?? undefined,
-      t_email:   booking.tourist_email ?? undefined,
-    }],
-  };
-
   const endpoint = 'request/create.json';
   const url = `${UON_BASE}/${encodeURIComponent(apiKey)}/${endpoint}`;
   const t0 = Date.now();
@@ -121,8 +153,8 @@ export async function createUonRequest(
   try {
     const res = await fetch(url, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    uonRequestBody(booking),
       signal:  AbortSignal.timeout(TIMEOUT_MS),
     });
     httpStatus = res.status;
