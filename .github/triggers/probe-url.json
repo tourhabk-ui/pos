@@ -2,11 +2,15 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 222000,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel текстом, окно перед отметкой 222 КБ (в отчёт попадает хвост) — поля request/create и request/update для сверки lib/integrations/uon.ts (#2313). Окно 748 (до 285 КБ) начиналось уже после них.",
-  "run": 749,
+  "bytes": 9000,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужие сайты: проверка по первоисточникам находок исследования CRM лидеров (#2313) — справка гида Tripster, погодный сценарий Xola, запросы платежей Rezdy, рассылки по пути гостя TravelLine, распределение ресурсов Bókun.",
+  "run": 750,
   "urls": [
-    "https://api.u-on.ru/doc"
+    "https://experience.tripster.ru/help_center/guides/orders/how_to_work/",
+    "https://www.xola.com/online-checkout/",
+    "https://support.rezdy.com/hc/en-us/articles/4406924037529-Product-Messages-tab",
+    "https://www.travelline.ru/support/knowledge-base/sozdanie-rassylok-po-puti-gostya/",
+    "https://www.bokun.io/activity-booking-software"
   ],
   "grep": [],
   "text": true,
@@ -14,5 +18,6 @@
   "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 0,
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+  "count": []
 }
