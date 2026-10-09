@@ -5,7 +5,7 @@
  * (правило 10.09); сторож сверяет список с CHECK миграции и с кодом.
  */
 
-export const EVENT_KINDS = ['status_change', 'change', 'note', 'call', 'meeting', 'message_in', 'message_out'] as const;
+export const EVENT_KINDS = ['status_change', 'change', 'note', 'call', 'meeting', 'message_in', 'message_out', 'task_done'] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** Касания руками партнёра — с экрана, из Кузьмича, из MCP. */
@@ -23,6 +23,7 @@ export const EVENT_KIND_LABELS: Readonly<Record<EventKind, string>> = {
   meeting: 'Встреча',
   message_in: 'Сообщение от клиента',
   message_out: 'Сообщение клиенту',
+  task_done: 'Задача выполнена',
 };
 
 export const ACTOR_KIND_LABELS: Readonly<Record<ActorKind, string>> = {

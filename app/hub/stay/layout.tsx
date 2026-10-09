@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { LayoutDashboard, Home, ClipboardList, CalendarDays, BookUser } from 'lucide-react';
+import { LayoutDashboard, Home, ClipboardList, CalendarDays, BookUser, ListChecks } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 
 // section → на мобиле сетка иконок по разделам вместо ленты (см. HubSidebar).
@@ -11,6 +11,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/stay/calendar',       label: 'Календарь', icon: CalendarDays,  section: 'Управление' },
   { href: '/hub/stay/bookings',       label: 'Брони',     icon: ClipboardList, section: 'Управление' },
   { href: '/hub/stay/clients',        label: 'Клиенты',   icon: BookUser,      section: 'Управление' },
+  { href: '/hub/stay/tasks',          label: 'Задачи',    icon: ListChecks,    section: 'Управление' },
 ];
 
 export default function StayHubLayout({ children }: { children: ReactNode }) {

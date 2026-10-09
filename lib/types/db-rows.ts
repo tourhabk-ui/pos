@@ -1527,3 +1527,20 @@ export interface CrmEventRow {
   occurred_at: Date;
   created_at: Date;
 }
+
+export interface CrmTaskRow {
+  id: string;
+  partner_id: string;
+  /** NULL — общее дело кабинета, без клиента. */
+  contact_id: string | null;
+  title: string;
+  details: string | null;
+  due_at: Date;
+  done_at: Date | null;
+  done_by: string | null;
+  /** Кто завёл: пока только 'manual' (CHECK миграции 1197). */
+  origin: string;
+  created_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}

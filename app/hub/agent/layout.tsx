@@ -3,7 +3,7 @@
 import { ReactNode } from 'react';
 import {
   LayoutDashboard, Search, Users, Handshake, CreditCard, User, Link2,
-  TrendingUp,
+  TrendingUp, ListChecks,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -22,6 +22,7 @@ const SIDEBAR_ITEMS = [
 
   { href: '/hub/agent/find',        label: 'Найти тур',  icon: Search,     section: 'Продажи' },
   { href: '/hub/agent/clients',     label: 'Клиенты',    icon: Users,      section: 'Продажи' },
+  { href: '/hub/agent/tasks',       label: 'Задачи',     icon: ListChecks, section: 'Продажи' },
   { href: '/hub/agent/bookings',    label: 'Сделки',     icon: Handshake,  section: 'Продажи' },
 
   // Комиссии и рефералы — деньги через платформу; при выключенном приёме

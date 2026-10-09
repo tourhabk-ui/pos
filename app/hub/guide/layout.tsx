@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser } from 'lucide-react';
+import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser, ListChecks } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -16,6 +16,7 @@ const SIDEBAR_ITEMS = [
   // Свои клиенты гида — заведённые им самим: туристов из броней оператора
   // сюда не копирует никто, доступ гида к ним временный (CRM #2325).
   { href: '/hub/guide/clients',  label: 'Клиенты',    icon: BookUser,      section: 'Работа' },
+  { href: '/hub/guide/tasks',    label: 'Задачи',     icon: ListChecks,    section: 'Работа' },
 
   // Заработок — начисления через платформу; при выключенном приёме оплаты
   // (05.10) их нет, раздела в меню нет.
