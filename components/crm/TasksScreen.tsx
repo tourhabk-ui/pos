@@ -22,7 +22,7 @@ export function TasksScreen() {
         <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Задачи</h1>
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        Задачу о клиенте удобнее заводить из его карточки в «Клиентах» — тогда выполнение попадёт в ленту клиента.
+        Задача о клиенте — с его именем: выполнение попадёт в ленту клиента. Без клиента — общее дело кабинета.
       </p>
 
       <TaskList onOpenContact={setOpenId} reloadKey={reloadKey} />

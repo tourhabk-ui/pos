@@ -17,6 +17,7 @@ import {
   DUE_BUCKET_LABELS, defaultDueLocal, dueBucket, isoToKamchatkaLocal, kamchatkaLocalToIso, type DueBucket,
 } from '@/lib/crm/task-time';
 import { CRM_TASKS_API } from './api';
+import { ContactPicker, type PickedContact } from './ContactPicker';
 import { formatMomentTime } from './labels';
 
 type LoadState =
@@ -76,6 +77,7 @@ export function TaskList({ contactId, onOpenContact, onCompleted, reloadKey = 0 
   const [title, setTitle] = useState('');
   const [details, setDetails] = useState('');
   const [due, setDue] = useState('');
+  const [picked, setPicked] = useState<PickedContact | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -133,12 +135,13 @@ export function TaskList({ contactId, onOpenContact, onCompleted, reloadKey = 0 
     if (!dueIso) { setActionError('Срок не похож на дату'); return; }
     const json = await send('', {
       method: 'POST',
-      body: JSON.stringify({ title: t, details: details.trim() || null, due_at: dueIso, contact_id: contactId ?? null }),
+      body: JSON.stringify({ title: t, details: details.trim() || null, due_at: dueIso, contact_id: contactId ?? picked?.id ?? null }),
     }, 'Не удалось сохранить задачу, попробуйте позже');
     if (!json) return;
     setTitle('');
     setDetails('');
     setDue('');
+    setPicked(null);
     if (status === 'open') refresh(); else setStatus('open');
   }
 
@@ -296,6 +299,7 @@ export function TaskList({ contactId, onOpenContact, onCompleted, reloadKey = 0 
             className="ds-input"
           />
         </div>
+        {!inCard && <ContactPicker value={picked} onChange={setPicked} disabled={busy} />}
         {title.trim() && (
           <textarea
             value={details}
