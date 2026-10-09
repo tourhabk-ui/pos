@@ -17,6 +17,7 @@ import {
   type RoomNightRow,
 } from '@/lib/stay/availability';
 import { UPDATE_STAY_BOOKING_STATUS_SQL } from '@/lib/stay/booking-status-sql';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -222,6 +223,7 @@ export async function PATCH(
       return {
         code: 200 as const,
         booking: updated.rows[0],
+        prevStatus: booking.status,
         guest: nextStatus === 'confirmed' || isCancel
           ? {
               guestUserId: booking.user_id,
@@ -274,6 +276,14 @@ export async function PATCH(
         { status: 409 }
       );
     }
+
+    // Лента клиента (CRM #2325) — после коммита и молча для брони.
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'accommodation_booking', sourceId: bookingId,
+      actorKind: isAdmin ? 'admin' : 'partner_user', actorUserId: authResult.userId,
+      title: statusChangeTitle('accommodation_booking', outcome.prevStatus, nextStatus),
+      payload: { from: outcome.prevStatus, to: nextStatus },
+    });
 
     // Гостю — о решении владельца. До 26.09 гость не узнавал ни о
     // подтверждении, ни об отмене. Non-fatal, но каждый отказ в логе.

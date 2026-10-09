@@ -1,4 +1,5 @@
 import { query } from '@/lib/database';
+import { recordChatMessageQuietly } from '@/lib/crm/chat-events';
 import {
   ConversationRow,
   ConversationParticipantRow,
@@ -181,6 +182,9 @@ class ChatService {
       `UPDATE conversations SET updated_at = NOW() WHERE id = $1`,
       [conversationId]
     );
+
+    // Лента клиента партнёра (CRM #2325): факт и направление, не текст.
+    await recordChatMessageQuietly(conversationId, senderId);
 
     return result.rows[0];
   }

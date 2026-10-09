@@ -419,7 +419,7 @@ describe('ответ оператора', () => {
     expect(reserveMock.mock.calls[0]![0]).toMatchObject({
       tourId: 7, participants: 2, date: '2099-07-10', createdVia: 'seat_request', referralCode: 'KH-AGT-ABCDEF',
     });
-    expect(confirmMock).toHaveBeenCalledWith('42', null, expect.any(String));
+    expect(confirmMock).toHaveBeenCalledWith('42', null, expect.any(String), 'partner_user');
     // Оператор подтвердил бронь — и узнаёт контакты туриста обычным уведомлением.
     expect(notifyOpMock).toHaveBeenCalledTimes(1);
     expect(notifyOpMock.mock.calls[0]![0]).toMatchObject({ bookingId: 42, touristName: 'Иван', touristPhone: '+79000000000', via: 'seat_request' });

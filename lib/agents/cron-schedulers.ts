@@ -84,7 +84,7 @@ export const EXTERNAL_SCHEDULE: Record<string, SchedulerDeclaration> = {
     note: 'шапка: «запускать каждый час» — релиз HELD-платежей через 36 ч после тура',
   },
   'leads-followup': {
-    kind: 'external', writes: false,
+    kind: 'external', writes: true,
     note: 'шапка: «cron-job.org каждые 30 минут» — добивка лидов и эскалация к админу',
   },
   digest: {

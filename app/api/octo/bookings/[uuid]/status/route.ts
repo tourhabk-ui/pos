@@ -11,6 +11,7 @@ import { requireOctoAuth, octoError, applyOctoRateLimitHeaders } from '@/lib/oct
 import { pool } from '@/lib/db-pool';
 import { mapBooking } from '@/lib/octo/mappers';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 interface OctoBookingRow {
   id: string;
@@ -113,6 +114,12 @@ export async function PATCH(
     );
 
     const updatedBooking = updateResult.rows[0];
+
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'operator_booking', sourceId: booking.id as string | number,
+      actorKind: 'system', title: statusChangeTitle('operator_booking', booking.booking_status, internalStatus),
+      payload: { from: booking.booking_status, to: internalStatus, channel: 'octo' },
+    });
 
     // Log action
     await pool.query(

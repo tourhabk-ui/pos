@@ -453,7 +453,7 @@ export async function answerSeatRequest(
       // туристу он нужен немедленно, в базе он лежит зашифрованным.
       liveBookingUrl = `${getPublicBaseUrl()}/booking-success/${reserved.bookingId}?t=${reserved.accessToken}`;
       try {
-        await confirmBooking(String(reserved.bookingId), null, 'Места подтверждены оператором в мессенджере (запрос мест)');
+        await confirmBooking(String(reserved.bookingId), null, 'Места подтверждены оператором в мессенджере (запрос мест)', 'partner_user');
         finalStatus = 'confirmed';
       } catch (err) {
         // Бронь создана и держит места, но осталась 'new' — оператор видит её

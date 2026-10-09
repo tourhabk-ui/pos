@@ -20,6 +20,7 @@ import { SKIP_REASON_LABELS } from '@/lib/agents/scout-digest';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { hashPayload } from '@/lib/safety/ledger';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -233,6 +234,11 @@ async function checkDB(): Promise<HealthIssue[]> {
            WHERE id = $1`,
           [booking.id]
         );
+        await recordSourceEventQuietly({
+          kind: 'status_change', sourceKind: 'operator_booking', sourceId: booking.id as string | number,
+          actorKind: 'system', title: statusChangeTitle('operator_booking', 'new', 'cancelled'),
+          payload: { from: 'new', to: 'cancelled', reason: 'octo_hold_expired' },
+        });
 
         // Webhook notification
         const fullBooking = await getBookingByUuid(booking.octo_uuid);

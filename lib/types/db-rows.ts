@@ -1510,3 +1510,20 @@ export interface CrmContactLinkRow {
   occurred_at: Date;
   created_at: Date;
 }
+
+export interface CrmEventRow {
+  /** bigserial — pg отдаёт строкой. */
+  id: string;
+  partner_id: string;
+  /** NULL — клиент удалён после записи события. */
+  contact_id: string | null;
+  source_kind: string | null;
+  source_id: string | null;
+  kind: string;
+  actor_kind: string;
+  actor_user_id: string | null;
+  title: string;
+  payload: Record<string, unknown>;
+  occurred_at: Date;
+  created_at: Date;
+}

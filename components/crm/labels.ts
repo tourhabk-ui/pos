@@ -1,62 +1,11 @@
 /**
- * Подписи CRM для экрана (CRM #2325, шаг 1а-2). Одни на все кабинеты: вид
- * источника и статус называются одинаково у оператора, жилья и проката.
+ * Подписи CRM для экрана (CRM #2325). Словарь один с сервером
+ * (`lib/crm/labels.ts`, `lib/crm/event-kinds.ts`) — здесь только форматы дат.
  */
-import type { SourceKind } from '@/lib/crm/contacts';
 import { parseDateOnly, formatDateOnly } from '@/lib/dates/date-only';
 
-export const SOURCE_KIND_LABELS: Readonly<Record<SourceKind, string>> = {
-  operator_booking: 'Бронь тура',
-  accommodation_booking: 'Бронь жилья',
-  gear_rental: 'Аренда снаряжения',
-  transfer_seat_booking: 'Места в машине',
-  lead: 'Заявка',
-  agent_client: 'Клиент агента',
-};
-
-/** Роль партнёра словами — для экрана администратора. */
-export const PARTNER_CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  operator: 'Оператор',
-  guide: 'Гид',
-  transfer: 'Перевозчик',
-  agent: 'Агент',
-  stay: 'Жильё',
-  gear: 'Прокат',
-};
-
-export function partnerCategoryLabel(category: string): string {
-  return PARTNER_CATEGORY_LABELS[category] ?? category;
-}
-
-/**
- * Статусы источников разные у каждой таблицы. Незнакомый статус показывается
- * как есть: подменить его ближайшим знакомым словом значило бы соврать о
- * состоянии брони.
- */
-const STATUS_LABELS: Readonly<Record<string, string>> = {
-  new: 'новая',
-  pending: 'ждёт ответа',
-  requested: 'запрошено',
-  confirmed: 'подтверждена',
-  active: 'идёт',
-  completed: 'завершена',
-  cancelled: 'отменена',
-  declined: 'отказ',
-  overdue: 'просрочена',
-  ai_processing: 'разбирается',
-  ai_qualified: 'разобрана',
-  proposal_sent: 'отправлено предложение',
-  awaiting_confirm: 'ждёт подтверждения',
-  contacted: 'был контакт',
-  qualified: 'квалифицирована',
-  converted: 'стала бронью',
-  lost: 'потеряна',
-};
-
-export function statusLabel(status: string | null): string | null {
-  if (!status) return null;
-  return STATUS_LABELS[status] ?? status;
-}
+export { SOURCE_KIND_LABELS, PARTNER_CATEGORY_LABELS, partnerCategoryLabel, statusLabel } from '@/lib/crm/labels';
+export { EVENT_KIND_LABELS, ACTOR_KIND_LABELS } from '@/lib/crm/event-kinds';
 
 /**
  * Дата источника: у броней — DATE, у заявки — желаемые даты текстом, как их
@@ -74,4 +23,12 @@ export function formatMoment(iso: string | null): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kamchatka' });
+}
+
+/** Момент с временем — для ленты: «9 окт., 14:05» по Камчатке. */
+export function formatMomentTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
 }

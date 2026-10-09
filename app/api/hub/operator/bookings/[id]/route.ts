@@ -18,6 +18,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { notifyTouristBookingConfirmed, notifyTouristBookingCancelled } from '@/lib/telegram/booking-notify';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,7 +96,7 @@ export async function PATCH(
         [BigInt(id), operator_id]
       );
       if (locked.rows.length === 0) {
-        return { row: undefined, alreadyWasCompleted: false, badTransition: null, refund: null };
+        return { row: undefined, alreadyWasCompleted: false, badTransition: null, refund: null, prevStatus: null as string | null };
       }
       const prevStatus = (locked.rows[0] as { booking_status: string }).booking_status;
 
@@ -105,7 +106,7 @@ export async function PATCH(
       if (input.booking_status && input.booking_status !== prevStatus) {
         const allowed = (ALLOWED_TRANSITIONS as Record<string, readonly BookingStatus[]>)[prevStatus] ?? [];
         if (!allowed.includes(input.booking_status as BookingStatus)) {
-          return { row: undefined, alreadyWasCompleted: false, badTransition: prevStatus, refund: null };
+          return { row: undefined, alreadyWasCompleted: false, badTransition: prevStatus, refund: null, prevStatus: null as string | null };
         }
       }
 
@@ -156,7 +157,7 @@ export async function PATCH(
         refund = await recordRefundDue(client, id, true);
       }
 
-      return { row: result.rows[0], alreadyWasCompleted: prevStatus === 'completed', badTransition: null, refund };
+      return { row: result.rows[0], alreadyWasCompleted: prevStatus === 'completed', badTransition: null, refund, prevStatus: prevStatus as string | null };
     });
 
     if (txResult.badTransition) {
@@ -181,6 +182,16 @@ export async function PATCH(
       ? `${getPublicBaseUrl()}/booking-success/${id}?t=${encodeURIComponent(row.access_token)}`
       : `${getPublicBaseUrl()}/hub/tourist/bookings`;
     const refund = txResult.refund;
+
+    // Лента клиента (CRM #2325): кабинет меняет статус мимо booking.service.
+    if (input.booking_status && txResult.prevStatus && input.booking_status !== txResult.prevStatus) {
+      await recordSourceEventQuietly({
+        kind: 'status_change', sourceKind: 'operator_booking', sourceId: id,
+        actorKind: 'partner_user', actorUserId: authOrResponse.userId,
+        title: statusChangeTitle('operator_booking', txResult.prevStatus, input.booking_status),
+        payload: { from: txResult.prevStatus, to: input.booking_status, reason: input.cancellation_reason ?? null },
+      });
+    }
 
     // Письмо туристу о подтверждении или отмене. Для гостя это ЕДИНСТВЕННЫЙ
     // путь к оплате (lib/bookings/guest-contact), поэтому исход отправки

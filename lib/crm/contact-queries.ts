@@ -8,6 +8,7 @@
 import { pool } from '@/lib/db-pool';
 import { normalizeEmail, normalizeName, normalizePhoneKey, type SourceKind } from '@/lib/crm/contacts';
 import type { CrmContactLinkRow, CrmContactRow } from '@/lib/types/db-rows';
+import { listContactEvents, type ContactEvent } from '@/lib/crm/events';
 
 interface Queryable {
   query: typeof pool.query;
@@ -115,6 +116,8 @@ export interface ContactCard {
   first_seen_at: string;
   last_activity_at: string;
   sources: SourceSummary[];
+  /** Лента, свежее сверху (до 50 событий). */
+  events: ContactEvent[];
 }
 
 /** Источник в карточке: что это было, когда, в каком состоянии и как источник назвал человека. */
@@ -208,6 +211,8 @@ export async function getContactCard(
     [contactId, partnerId],
   );
 
+  const events = await listContactEvents(partnerId, contactId, 50, db);
+
   const byKind = new Map<SourceKind, string[]>();
   for (const l of links.rows) byKind.set(l.source_kind, [...(byKind.get(l.source_kind) ?? []), l.source_id]);
   const details = new Map<string, Omit<SourceSummary, 'kind' | 'occurred_at'>>();
@@ -232,6 +237,7 @@ export async function getContactCard(
       : null,
     first_seen_at: iso(row.first_seen_at),
     last_activity_at: iso(row.last_activity_at),
+    events,
     sources: links.rows.map((l) => {
       const d = details.get(`${l.source_kind}:${l.source_id}`);
       // Источник удалён после привязки — связь остаётся, сведения пустые.

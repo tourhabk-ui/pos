@@ -39,6 +39,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -193,6 +194,13 @@ export async function GET(req: NextRequest) {
          RETURNING id`,
       );
       cancelled = rows.length;
+      for (const r of rows) {
+        await recordSourceEventQuietly({
+          kind: 'status_change', sourceKind: 'operator_booking', sourceId: r.id,
+          actorKind: 'system', title: statusChangeTitle('operator_booking', 'pending_payment', 'cancelled'),
+          payload: { from: 'pending_payment', to: 'cancelled', reason: 'payment_timeout' },
+        });
+      }
     }
 
     // Сухой прогон отметки НЕ ставит. `recordCronRun` пишет строку в

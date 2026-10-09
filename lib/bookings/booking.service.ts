@@ -28,6 +28,7 @@ import {
   TERMINAL_STATUSES,
   CANCELLED_STATUSES,
 } from '@/types/booking.types';
+import { recordSourceEventQuietly, statusChangeTitle, type ActorKind } from '@/lib/crm/events';
 
 // ========================================
 // Вспомогательные функции
@@ -173,8 +174,11 @@ export async function confirmBooking(
   bookingId: string,
   operatorId: string | null,
   comment: string = 'Бронирование подтверждено оператором',
+  // Кто подтвердил: оператор из кабинета или кнопкой в мессенджере (partner_user),
+  // автоподтверждение по расписанию (system). Без ответа — по наличию operatorId.
+  actor?: ActorKind,
 ): Promise<BookingWithDetails> {
-  return transaction(async (client) => {
+  const done = await transaction(async (client) => {
     const result = await client.query(
       `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE OF b`,
       [bookingId]
@@ -214,8 +218,17 @@ export async function confirmBooking(
       totalPrice: confirmed.totalAmount,
     });
 
-    return confirmed;
+    return { booking: confirmed, from: currentStatus };
   });
+
+  // Лента клиента (CRM #2325) — после коммита и молча для брони.
+  await recordSourceEventQuietly({
+    kind: 'status_change', sourceKind: 'operator_booking', sourceId: bookingId,
+    actorKind: actor ?? (operatorId ? 'partner_user' : 'system'), actorUserId: operatorId,
+    title: statusChangeTitle('operator_booking', done.from, 'confirmed'),
+    payload: { from: done.from, to: 'confirmed', comment },
+  });
+  return done.booking;
 }
 
 /**
@@ -242,7 +255,7 @@ export async function cancelBooking(
   role: 'tourist' | 'operator' | 'admin',
   reason?: string
 ): Promise<{ booking: BookingWithDetails; refund: RefundResult | null }> {
-  return transaction(async (client) => {
+  const done = await transaction(async (client) => {
     const result = await client.query(
       `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE OF b`,
       [bookingId]
@@ -312,8 +325,16 @@ export async function cancelBooking(
       refundReason: refund?.reason ?? 'Оплаты по этой заявке не было — возвращать нечего.',
     });
 
-    return { booking: cancelled, refund };
+    return { booking: cancelled, refund, from: currentStatus, reason: cancellationReason };
   });
+
+  await recordSourceEventQuietly({
+    kind: 'status_change', sourceKind: 'operator_booking', sourceId: bookingId,
+    actorKind: role === 'tourist' ? 'tourist' : role === 'admin' ? 'admin' : 'partner_user', actorUserId: userId,
+    title: statusChangeTitle('operator_booking', done.from, 'cancelled'),
+    payload: { from: done.from, to: 'cancelled', reason: done.reason, refund_percent: done.refund?.percent ?? null },
+  });
+  return { booking: done.booking, refund: done.refund };
 }
 
 /**
@@ -334,7 +355,7 @@ export async function rescheduleBooking(
     throw new Error('Некорректная дата для переброса');
   }
 
-  return transaction(async (client) => {
+  const done = await transaction(async (client) => {
     const bookingResult = await client.query(
       `SELECT
          b.operator_tour_id AS tour_id,
@@ -466,8 +487,16 @@ export async function rescheduleBooking(
       [bookingId]
     );
 
-    return normalizeBookingRow(updated.rows[0]);
+    return { booking: normalizeBookingRow(updated.rows[0]), status: currentStatus, targetTitle: targetTour.title };
   });
+
+  await recordSourceEventQuietly({
+    kind: 'change', sourceKind: 'operator_booking', sourceId: bookingId,
+    actorKind: role === 'admin' ? 'admin' : 'partner_user', actorUserId: actorId,
+    title: `Бронь тура: перенос на ${input.targetDate}`,
+    payload: { change: 'reschedule', status: done.status, target_date: input.targetDate, target_tour: done.targetTitle },
+  });
+  return done.booking;
 }
 
 /**
@@ -478,7 +507,7 @@ export async function completeBooking(
   bookingId: string,
   operatorId: string
 ): Promise<BookingWithDetails> {
-  return transaction(async (client) => {
+  const done = await transaction(async (client) => {
     const result = await client.query(
       `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE OF b`,
       [bookingId]
@@ -503,8 +532,16 @@ export async function completeBooking(
       `${BOOKING_SELECT} AND b.id = $1`,
       [bookingId]
     );
-    return normalizeBookingRow(updated.rows[0]);
+    return { booking: normalizeBookingRow(updated.rows[0]), from: currentStatus };
   });
+
+  await recordSourceEventQuietly({
+    kind: 'status_change', sourceKind: 'operator_booking', sourceId: bookingId,
+    actorKind: 'partner_user', actorUserId: operatorId,
+    title: statusChangeTitle('operator_booking', done.from, 'completed'),
+    payload: { from: done.from, to: 'completed' },
+  });
+  return done.booking;
 }
 
 

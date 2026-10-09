@@ -5,6 +5,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { z } from 'zod';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 const UpdateBookingSchema = z.object({
   status: z.enum(['pending', 'confirmed', 'completed', 'cancelled'], { message: 'Неверный статус бронирования' }).optional(),
@@ -96,6 +97,7 @@ export async function PUT(
     // повторном PATCH не меняет ни одной строки — и роут ниже ответил бы 404
     // «Бронирование не найдено» у существующей брони. Одна выдуманная
     // причина вместо другой; блокировка даёт настоящую (§4.0).
+    let prevStatus: string | null = null;
     const result = await transaction(async (client) => {
       const locked = await client.query<{ booking_status: string }>(
         `SELECT ob.booking_status
@@ -106,7 +108,7 @@ export async function PUT(
         [id, operatorId]
       );
       if (locked.rows.length === 0) return { rows: [] as Record<string, unknown>[] };
-      const prevStatus = locked.rows[0].booking_status;
+      prevStatus = locked.rows[0].booking_status;
 
       const upd = await client.query(
         `UPDATE operator_bookings
@@ -134,6 +136,15 @@ export async function PUT(
         success: false,
         error: 'Бронирование не найдено'
       } as ApiResponse<null>, { status: 404 });
+    }
+
+    if (status && prevStatus && status !== prevStatus) {
+      await recordSourceEventQuietly({
+        kind: 'status_change', sourceKind: 'operator_booking', sourceId: id,
+        actorKind: 'partner_user', actorUserId: operatorOrResponse.userId,
+        title: statusChangeTitle('operator_booking', prevStatus, status),
+        payload: { from: prevStatus, to: status },
+      });
     }
 
     // Create notification for status change

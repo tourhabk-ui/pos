@@ -25,6 +25,7 @@ import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import type { ApiResponse } from '@/types';
 import { TEAM_SQL } from '@/lib/guides/team-queries';
 import { BIGINT_RE, logGuideFailure, notifyUser } from '@/lib/guides/team';
+import { recordSourceEventQuietly } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,7 @@ type Outcome =
   | { kind: 'not_found' }
   | { kind: 'closed' }
   | { kind: 'not_member' }
-  | { kind: 'ok'; guideUserId: string | null; tourTitle: string; date: string; changed: boolean };
+  | { kind: 'ok'; guideUserId: string | null; guideName: string | null; tourTitle: string; date: string; changed: boolean };
 
 export async function PUT(
   request: NextRequest,
@@ -82,17 +83,19 @@ export async function PUT(
       if (CLOSED.has(b.booking_status)) return { kind: 'closed' };
 
       let guideUserId: string | null = null;
+      let guideName: string | null = null;
       if (guideId) {
-        const member = await client.query<{ id: string; user_id: string | null }>(
+        const member = await client.query<{ id: string; user_id: string | null; name: string | null }>(
           TEAM_SQL.teamGuide, [guideId, operatorId],
         );
         if (member.rows.length === 0) return { kind: 'not_member' };
         guideUserId = member.rows[0].user_id;
+        guideName = member.rows[0].name;
       }
 
       const changed = b.guide_partner_id !== guideId;
       if (changed) await client.query(TEAM_SQL.setBookingGuide, [id, guideId]);
-      return { kind: 'ok', guideUserId, tourTitle: b.tour_title, date: b.booking_date, changed };
+      return { kind: 'ok', guideUserId, guideName, tourTitle: b.tour_title, date: b.booking_date, changed };
     });
 
     if (outcome.kind === 'not_found') {
@@ -119,6 +122,17 @@ export async function PUT(
         message: `${outcome.tourTitle}, ${outcome.date}. Состав группы и контакт — в разделе «Группы».`,
         data: { bookingId: id },
         actionUrl: '/hub/guide/groups',
+      });
+    }
+
+    if (outcome.changed) {
+      // Лента клиента (CRM #2325): гид — имя партнёра из команды оператора,
+      // оно у оператора на экране «Команда»; ПД туриста здесь нет.
+      await recordSourceEventQuietly({
+        kind: 'change', sourceKind: 'operator_booking', sourceId: id,
+        actorKind: 'partner_user', actorUserId: auth.userId,
+        title: guideId ? `Бронь тура: назначен гид ${outcome.guideName ?? ''}`.trim() : 'Бронь тура: гид снят',
+        payload: { change: 'guide', guide_partner_id: guideId },
       });
     }
 

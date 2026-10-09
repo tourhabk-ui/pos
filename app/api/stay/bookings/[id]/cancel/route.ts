@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { notifyStayBookingCancelled, logStayFailure } from '@/lib/notifications/stay-booking';
 import { calculateStayRefund } from '@/lib/stay/refund-policy';
 import { z } from 'zod';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,6 +113,13 @@ export async function POST(
         : `Бронь в статусе «${outcome.status}» отменить нельзя`;
       return NextResponse.json({ success: false, error: reason }, { status: 422 });
     }
+
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'accommodation_booking', sourceId: bookingId,
+      actorKind: 'tourist', actorUserId: authResult.userId,
+      title: statusChangeTitle('accommodation_booking', null, 'cancelled'),
+      payload: { to: 'cancelled', by: 'tourist', refund_percent: outcome.refundPercent },
+    });
 
     // Уведомляем владельца — даты снова свободны + сумма к возврату. Non-fatal.
     try {
