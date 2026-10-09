@@ -14,6 +14,8 @@ export type AuthRole =
   | 'transfer_operator'
   | 'transfer'
   | 'agent'
+  | 'stay'
+  | 'gear'
   | 'admin';
 
 export interface VerifiedAuth {
@@ -38,6 +40,14 @@ const BASE_ROLES = new Set<AuthRole>([
   'transfer_operator',
   'transfer',
   'agent',
+  // Владелец жилья и прокат (решение владельца 09.10, #2325 вопрос 1). Роли
+  // разрешены в users.role с 26.09 (миграция 1026), а здесь их не было:
+  // verifyAuth обнулял вошедшего, и SOS с регистрацией выхода от его имени
+  // приходили как от анонима, а токен не обновлялся. Каждую роль, которую
+  // разрешает база, обязан знать этот список — сторож
+  // tests/unit/users-role-check-covers-code.test.ts.
+  'stay',
+  'gear',
   'admin',
 ]);
 
