@@ -28,6 +28,20 @@ export const DEFAULT_HOURS = 48;
 export const MAX_HOURS = 24 * 30;
 export const RECENT_LIMIT = 100;
 
+/**
+ * Область переписи: `window` — брони, созданные за окно часов; `unlinked` —
+ * брони без клиента CRM, ровно по предикату задела (`crm-contacts-sync`:
+ * не удалена, у тура есть оператор, связи нет), без ограничения по времени.
+ * Вторая нужна, когда задел видит строки, которых в окне нет: run 103
+ * (09.10) показал ноль броней за 30 суток при одной непривязанной.
+ */
+export const CENSUS_SCOPES = ['window', 'unlinked'] as const;
+export type CensusScope = (typeof CENSUS_SCOPES)[number];
+
+export function parseScope(raw: string | null | undefined): CensusScope {
+  return raw === 'unlinked' ? 'unlinked' : 'window';
+}
+
 /** Окно в часах: 1…720; мусор → умолчание. */
 export function clampHours(raw: string | null | undefined): number {
   if (raw === null || raw === undefined || raw.trim() === '') return DEFAULT_HOURS;
@@ -41,7 +55,7 @@ const HAS_PHONE = `(NULLIF(btrim(b.tourist_phone), '') IS NOT NULL)`;
 const HAS_EMAIL = `(NULLIF(btrim(b.tourist_email), '') IS NOT NULL)`;
 const HAS_NAME = `(NULLIF(btrim(b.tourist_name), '') IS NOT NULL)`;
 
-export const RECENT_SQL = `
+const RECENT_SELECT = `
   SELECT b.id::text AS id,
          b.created_at::text AS created_at,
          b.created_via,
@@ -67,18 +81,40 @@ export const RECENT_SQL = `
                   WHERE l.source_kind = 'operator_booking' AND l.source_id = b.id::text) AS crm_linked
     FROM operator_bookings b
     LEFT JOIN operator_tours t ON t.id = b.operator_tour_id
-    LEFT JOIN partners p ON p.id = t.operator_id
+    LEFT JOIN partners p ON p.id = t.operator_id`;
+
+/** Предикат задела клиентов — тот же, что в lib/crm/contacts (operator_booking). */
+const UNLINKED_ELIGIBLE = `b.deleted_at IS NULL AND t.operator_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM crm_contact_links l
+                      WHERE l.source_kind = 'operator_booking' AND l.source_id = b.id::text)`;
+
+export const RECENT_SQL = `${RECENT_SELECT}
    WHERE b.created_at >= NOW() - make_interval(hours => $1::int)
    ORDER BY b.created_at DESC
    LIMIT $2::int`;
 
-export const BY_ORIGIN_SQL = `
+/** $1 — лимит. Непривязанные к CRM, без окна времени. */
+export const RECENT_UNLINKED_SQL = `${RECENT_SELECT}
+   WHERE ${UNLINKED_ELIGIBLE}
+   ORDER BY b.created_at DESC
+   LIMIT $1::int`;
+
+const BY_ORIGIN_SELECT = `
   SELECT COALESCE(b.created_via, '(не записано)') AS created_via,
          COUNT(*)::int AS n,
          COUNT(*) FILTER (WHERE b.user_id IS NULL AND NOT ${HAS_PHONE} AND NOT ${HAS_EMAIL})::int AS without_contact,
          COUNT(*) FILTER (WHERE b.deleted_at IS NOT NULL)::int AS deleted
     FROM operator_bookings b
+    LEFT JOIN operator_tours t ON t.id = b.operator_tour_id`;
+
+export const BY_ORIGIN_SQL = `${BY_ORIGIN_SELECT}
    WHERE b.created_at >= NOW() - make_interval(hours => $1::int)
+   GROUP BY 1
+   ORDER BY n DESC`;
+
+/** Без параметров: сводка непривязанных к CRM по created_via. */
+export const BY_ORIGIN_UNLINKED_SQL = `${BY_ORIGIN_SELECT}
+   WHERE ${UNLINKED_ELIGIBLE}
    GROUP BY 1
    ORDER BY n DESC`;
 
@@ -110,7 +146,9 @@ export interface RecentBookingRow {
 export interface OriginRow { created_via: string; n: number; without_contact: number; deleted: number }
 
 export interface BookingsOriginReport {
-  hours: number;
+  scope: CensusScope;
+  /** Для scope=window — окно в часах; для unlinked — null: окна нет. */
+  hours: number | null;
   /** created_at — как хранится (timestamp без пояса, сессия БД). */
   created_at_note: string;
   recent: RecentBookingRow[] | null;
@@ -126,7 +164,11 @@ function sqlstate(err: unknown): string {
   return (err as { code?: string })?.code ?? 'нет SQLSTATE';
 }
 
-export async function censusBookingsOrigin(hours: number, exec: Exec = pool): Promise<BookingsOriginReport> {
+export async function censusBookingsOrigin(
+  hours: number,
+  exec: Exec = pool,
+  scope: CensusScope = 'window',
+): Promise<BookingsOriginReport> {
   const failed: BookingsOriginReport['failed'] = [];
   const run = async <T>(measure: string, fn: () => Promise<T>): Promise<T | null> => {
     try {
@@ -137,13 +179,19 @@ export async function censusBookingsOrigin(hours: number, exec: Exec = pool): Pr
       return null;
     }
   };
+  const unlinked = scope === 'unlinked';
   const [recent, byOrigin, byOrigin30d] = await Promise.all([
-    run('recent', async () => (await exec.query<RecentBookingRow>(RECENT_SQL, [hours, RECENT_LIMIT + 1])).rows),
-    run('by_origin', async () => (await exec.query<OriginRow>(BY_ORIGIN_SQL, [hours])).rows),
+    run('recent', async () => (unlinked
+      ? await exec.query<RecentBookingRow>(RECENT_UNLINKED_SQL, [RECENT_LIMIT + 1])
+      : await exec.query<RecentBookingRow>(RECENT_SQL, [hours, RECENT_LIMIT + 1])).rows),
+    run('by_origin', async () => (unlinked
+      ? await exec.query<OriginRow>(BY_ORIGIN_UNLINKED_SQL)
+      : await exec.query<OriginRow>(BY_ORIGIN_SQL, [hours])).rows),
     run('by_origin_30d', async () => (await exec.query<OriginRow>(BY_ORIGIN_SQL, [MAX_HOURS])).rows),
   ]);
   return {
-    hours,
+    scope,
+    hours: unlinked ? null : hours,
     created_at_note: 'created_at — как хранится в operator_bookings (timestamp без пояса, сессия БД)',
     recent: recent ? recent.slice(0, RECENT_LIMIT) : null,
     recent_truncated: (recent?.length ?? 0) > RECENT_LIMIT,
