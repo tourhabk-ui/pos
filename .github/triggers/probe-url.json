@@ -2,21 +2,23 @@
   "timeout": 40,
   "retries": 2,
   "allowStale": false,
-  "bytes": 2500,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Маршрут «Зеленовские озерки» по поиску маршрутов: id, точки и откуда линия.",
-  "run": 740,
+  "bytes": 300,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Линия маршрута «Зеленовские озерки» (gpx, 0,57 км): где она лежит относительно точки 53.2877/158.3489.",
+  "run": 741,
   "urls": [
-    "https://vedarai.ru/api/routes/search?q=%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BA%D0%B8"
+    "https://vedarai.ru/api/routes/cf257914-fff2-4a72-baba-4a4381d7a83d"
   ],
   "grep": [
-    "Зеленовские озерки",
-    "geometry_source",
-    "has_line"
+    "\"coordinates\"",
+    "geometry",
+    "source"
   ],
   "text": false,
   "retryDelay": 10,
-  "around": [],
-  "aroundLines": 0,
+  "around": [
+    "\"coordinates\""
+  ],
+  "aroundLines": 2,
   "aroundHits": 1,
   "aroundBefore": 1,
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)"
