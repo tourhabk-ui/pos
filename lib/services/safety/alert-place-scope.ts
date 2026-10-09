@@ -27,6 +27,8 @@ import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
 import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 import { KRAI_SOUTH_MAX_LAT, KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
+import { KRAI_FAR_MATCH_SQL } from '@/lib/safety/krai-far';
+import { MARINE_ALERT_SQL, MOUNTAIN_PLACE_SQL } from '@/lib/safety/marine-alert';
 
 /**
  * Когда у события и у точки есть координаты И тип события таков, что
@@ -249,7 +251,17 @@ export const ALERT_MATCH_SQL = `
       -- накрывает: «не измерили» ≠ «южнее».
       OR ('${KRAI_SOUTH_ZONE}' = ANY(ea.affected_zones)
           AND ark.lat IS NOT NULL AND ark.lat::float8 <= ${KRAI_SOUTH_MAX_LAT})
+      -- Дальние округа — Корякский округ и Командоры — тоже по координатам
+      -- места (решение владельца 09.10, #2293, lib/safety/krai-far.ts).
+      OR ${KRAI_FAR_MATCH_SQL}
     )
+    -- Морская тревога не висит на горных местах (решение владельца 09.10,
+    -- #2293, lib/safety/marine-alert.ts): волнение моря у Усть-Камчатского
+    -- округа доходило зоной до Ключевской и Шивелуча. Морская тревога —
+    -- погодная, поэтому в другие ветки не попадает, и ограничения здесь
+    -- достаточно. У маршрутов типа места нет (collect-signals) — их правило
+    -- не трогает.
+    AND NOT (${MARINE_ALERT_SQL} AND ${MOUNTAIN_PLACE_SQL})
   )
 `;
 

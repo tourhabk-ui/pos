@@ -198,7 +198,9 @@ async function loadAlerts(
          SELECT unnest($2::float8[]) AS lat, unnest($3::float8[]) AS lng
        ),
        ark AS (
-         SELECT kr.view_id AS id, kr.title, z.zone, a.lat, a.lng
+         -- location_type NULL: маршрут не место, и правило «морская тревога
+         -- не висит на горных местах» (#2293) его не трогает.
+         SELECT kr.view_id AS id, kr.title, z.zone, a.lat, a.lng, NULL::text AS location_type
            FROM (SELECT COALESCE(ark_id, id) AS view_id, title
                    FROM kamchatka_routes WHERE id::text = $4) kr
           CROSS JOIN unnest(

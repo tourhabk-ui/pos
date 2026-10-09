@@ -11,6 +11,7 @@
  * потребитель завёл бы вторую копию, и они бы разъехались.
  */
 import { KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
+import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 
 export const ZONE_NAMES: Record<string, string> = {
   avachinsky: 'Авачинско-Петропавловский',
@@ -21,11 +22,14 @@ export const ZONE_NAMES: Record<string, string> = {
 
 /**
  * Имя зоны для показа человеку; незнакомый слаг возвращается как есть.
- * Метка «юг до Петропавловска» — не зона, а охват по широте (04.10,
- * lib/safety/krai-south.ts), поэтому в ZONE_NAMES её нет: там перечень
- * четырёх зон, и его обходят как перечень.
+ * Метки «юг до Петропавловска», «Корякский округ» и «Командоры» — не зоны, а
+ * охват по координатам места (04.10 и 09.10, lib/safety/krai-south.ts,
+ * lib/safety/krai-far.ts), поэтому в ZONE_NAMES их нет: там перечень четырёх
+ * зон, и его обходят как перечень.
  */
 export function zoneName(slug: string): string {
   if (slug === KRAI_SOUTH_ZONE) return 'Юг Камчатки до Петропавловска';
+  if (slug === KRAI_KORYAK_ZONE) return 'Корякский округ (север края)';
+  if (slug === KRAI_COMMANDER_ZONE) return 'Командорские острова';
   return ZONE_NAMES[slug] ?? slug;
 }

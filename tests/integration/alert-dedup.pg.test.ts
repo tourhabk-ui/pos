@@ -248,6 +248,44 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
     expect(latest[0].details?.regraded_to_severity).toBe(2);
   });
 
+  // ── Метки дальних округов доходят до уже сохранённых строк (09.10, #2293) ──
+  const HYDRO = {
+    alert_type: 'flood' as const,
+    title: 'Экстренное предупреждение на 7 - 12 октября (тест дальних округов)',
+    description: 'На реках Елизовского округа и Пенжинского, Олюторского районов ожидается подъём воды.',
+  };
+  const zonesOf = async () => (await pool.query<{ affected_zones: string[] }>(
+    `SELECT affected_zones FROM external_alerts WHERE external_id = $1`, ['t.me/kbgsras/pg-test-1'],
+  )).rows[0].affected_zones;
+
+  it('строка, разобранная до меток дальних округов, получает их на повторе — и журнал называет «откуда»', async () => {
+    // Так лежала гидро-тревога 7–12.10: Пенжинский → northern, Олюторский → eastern.
+    await parser.saveEvent(sampleEvent({ ...HYDRO, affected_zones: ['avachinsky', 'northern', 'eastern'] }));
+    expect(await parser.saveEvent(sampleEvent({
+      ...HYDRO, source_id: 't.me/kbgsras/pg-test-far-2', affected_zones: ['avachinsky', 'krai_koryak'],
+    }))).toBe('skipped');
+    expect(await zonesOf()).toEqual(['avachinsky', 'krai_koryak']);
+    const { rows: latest } = await pool.query(
+      `SELECT decision_reason, details FROM safety_decision_events
+        WHERE event_type = 'dedup_skipped' ORDER BY id DESC LIMIT 1`,
+    );
+    expect(String(latest[0].decision_reason)).toContain('зоны заменены');
+    expect(latest[0].details?.rezoned_from).toEqual(['avachinsky', 'northern', 'eastern']);
+    expect(latest[0].details?.rezoned_to).toEqual(['avachinsky', 'krai_koryak']);
+  });
+
+  it('без метки дальнего округа зоны живой строки не сужаются', async () => {
+    await parser.saveEvent(sampleEvent({ ...HYDRO, affected_zones: ['avachinsky', 'northern'] }));
+    await parser.saveEvent(sampleEvent({ ...HYDRO, source_id: 't.me/kbgsras/pg-test-far-3', affected_zones: ['avachinsky'] }));
+    expect(await zonesOf()).toEqual(['avachinsky', 'northern']);
+  });
+
+  it('строка уже с меткой второй раз не переписывается', async () => {
+    await parser.saveEvent(sampleEvent({ ...HYDRO, affected_zones: ['avachinsky', 'krai_koryak'] }));
+    await parser.saveEvent(sampleEvent({ ...HYDRO, source_id: 't.me/kbgsras/pg-test-far-4', affected_zones: ['krai_koryak'] }));
+    expect(await zonesOf()).toEqual(['avachinsky', 'krai_koryak']);
+  });
+
   it('повтор с тем же сроком ничего не меняет и не пишет dedup_skipped', async () => {
     await parser.saveEvent(sampleEvent());
     const { rows: beforeLedger } = await pool.query(

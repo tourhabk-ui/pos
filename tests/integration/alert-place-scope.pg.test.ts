@@ -34,6 +34,9 @@ import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/ale
 import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals';
 import { ACTIVE_ZONE_ALERTS_SQL, UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alerts';
+import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
+import { MARINE_ALERT_SQL, isMarineAlert } from '@/lib/safety/marine-alert';
+import { mchs_zones } from '@/lib/services/safety/seismic-parser';
 import { readFileSync } from 'node:fs';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -70,6 +73,11 @@ const PARK_NAMED = { id: 'Природный парк Налычево (тест
 const ON_PARK_ROUTE = { id: 'Таловские источники (тест)', ark: 'c0000000-0000-4000-8000-000000000002', lat: 53.350, lng: 158.950 };
 const NEAR_PARK_ROUTE = { id: 'Музей у тропы (тест)', ark: 'c0000000-0000-4000-8000-000000000003', lat: 53.100, lng: 158.700 };
 const CITY = { id: 'Городская набережная (тест)', ark: 'c0000000-0000-4000-8000-000000000004', lat: 53.020, lng: 158.650 };
+/**
+ * Остров Беринга (#2293). Зона NULL: место накрывает только метка Командоров,
+ * зональные счёты северной зоны выше от неё не меняются.
+ */
+const COMMANDER = { id: 'Никольское (тест)', ark: 'c0000000-0000-4000-8000-000000000005', lat: 55.200, lng: 165.990 };
 const PARK_ROUTE_ID = 'd0000000-0000-4000-8000-000000000001';
 
 withPg('кого накрывает предупреждение', () => {
@@ -131,6 +139,12 @@ withPg('кого накрывает предупреждение', () => {
       );
       await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
     }
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+       VALUES ($1, $1, $2, $3, $4, 'settlement', NULL, TRUE)`,
+      [COMMANDER.id, COMMANDER.lat, COMMANDER.lng, COMMANDER.ark],
+    );
+    await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [COMMANDER.ark]);
     // park_name — свободным текстом, как его записал импорт (миграция 712).
     await pool.query(
       `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible)
@@ -389,6 +403,82 @@ withPg('кого накрывает предупреждение', () => {
     expect(covered).not.toContain(KLYUCHEVSKOY.id);
   });
 
+  // ── Дальние округа — по координатам места (решение владельца 09.10, #2293) ──
+  it('Корякский округ — места севернее 57°, не Шивелуч и не Ключевская', async () => {
+    const id = await insertAlert({
+      type: 'flood', title: 'Подъём воды на реках Пенжинского и Олюторского районов (тест)', zones: [KRAI_KORYAK_ZONE],
+    });
+    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
+  });
+
+  it('Командоры — только острова, не материк и не северная зона', async () => {
+    const id = await insertAlert({ type: 'weather', title: 'Сильный ветер в Алеутском округе (тест)', zones: [KRAI_COMMANDER_ZONE] });
+    expect(await coveredBy(id)).toEqual([COMMANDER.id]);
+  });
+
+  it('гидро-тревога 7–12.10 с разбором приёма: юг и Корякский округ, Ключевская группа — нет', async () => {
+    const text =
+      'На реках Елизовского муниципального округа ожидается подъём уровня воды интенсивностью до 20 сантиметров в сутки, '
+      + 'на реках Усть-Большерецкого, Соболевского и Тигильского муниципальных округов — до 40 сантиметров в сутки, '
+      + 'на реках Пенжинского и Олюторского муниципальных районов— до 50 сантиметров в сутки.';
+    const id = await insertAlert({
+      type: 'flood', title: 'Экстренное предупреждение на 7 - 12 октября (тест)', zones: mchs_zones(text),
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(CITY.id);
+    expect(covered).toContain(FAR_NORTH.id);
+    for (const p of [SHIVELUCH, KLYUCHEVSKOY, NEAR_SHIVELUCH, LINKED_FAR, COMMANDER]) {
+      expect(covered, p.id).not.toContain(p.id);
+    }
+  });
+
+  // ── Морская тревога не висит на горных местах (решение владельца 09.10, #2293) ──
+  it('волнение моря по северной зоне: озеро — да, вулканы и горы — нет', async () => {
+    const id = await insertAlert({
+      type: 'weather', title: 'Экстренное предупреждение на 8-9 октября 2026 г. (опасное волнение моря)', zones: ['northern'],
+    });
+    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
+  });
+
+  it('ветер вместе с волнением моря — не морская: вулкан её получает', async () => {
+    const id = await insertAlert({
+      type: 'weather', title: 'Экстренное предупреждение (сильный ветер, опасное волнение моря, тест)', zones: ['northern'],
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(SHIVELUCH.id);
+    expect(covered.length).toBe(5);
+  });
+
+  it('«прибрежные события» Росгидромета на весь край: город у моря — да, вулкан — нет', async () => {
+    const id = await insertAlert({
+      type: 'weather', title: 'Росгидромет: прибрежные события — жёлтый уровень (юг края)',
+      zones: ['avachinsky', 'eastern', 'western', 'northern'],
+    });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(CITY.id);
+    expect(covered).toContain(FAR_NORTH.id);
+    expect(covered).not.toContain(SHIVELUCH.id);
+    expect(covered).not.toContain(KLYUCHEVSKOY.id);
+  });
+
+  it('сервер узнаёт морскую тревогу так же, как isMarineAlert', async () => {
+    const cases: Array<[string, string]> = [
+      ['weather', 'Экстренное предупреждение на 8-9 октября 2026 г. (опасное волнение моря)'],
+      ['weather', 'Росгидромет: прибрежные события — жёлтый уровень (юг края)'],
+      ['weather', 'Экстренное предупреждение (сильный ветер, опасное волнение моря)'],
+      ['weather', 'Экстренное предупреждение на 3 октября 2026 г. (сильный дождь)'],
+      ['tsunami_warning', 'Угроза цунами: волнение моря у побережья'],
+      ['weather', 'ОПАСНОЕ ВОЛНЕНИЕ МОРЯ'],
+    ];
+    for (const [type, title] of cases) {
+      const { rows } = await pool.query<{ m: boolean }>(
+        `SELECT ${MARINE_ALERT_SQL} AS m FROM (SELECT $1::text AS alert_type, $2::text AS title) ea`,
+        [type, title],
+      );
+      expect(rows[0].m, title).toBe(isMarineAlert(type, title));
+    }
+  });
+
   it('закрытие парка накрывает место парка и место на его маршруте — не «рядом» и не город той же зоны (#2133)', async () => {
     const id = await insertAlert({
       type: 'park_closure',
@@ -493,6 +583,12 @@ withPg('кого накрывает предупреждение', () => {
       // Маршрут без единой координаты зональное тоже получает: мерить нечем,
       // но зона известна.
       expect((await titles('d0000000-0000-4000-8000-0000000000aa')).map((x) => x.title)).toContain(t);
+    });
+
+    it('морская тревога маршрут не обходит: у маршрута нет типа места (#2293)', async () => {
+      const t = 'Экстренное предупреждение (опасное волнение моря, тест маршрута)';
+      await insertAlert({ type: 'weather', title: t, zones: ['avachinsky'] });
+      expect((await titles(ROUTE)).map((a) => a.title)).toContain(t);
     });
 
     it('миграция 1153 делает «Гору Замок» точкой пути своего маршрута', async () => {

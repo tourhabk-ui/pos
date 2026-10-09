@@ -139,6 +139,14 @@ describe('уже сохранённые строки со старым дефо�
 
   it('смена зон возвращается как rezoned и уходит в журнал с «откуда → куда»', () => {
     expect(upd).toMatch(/AS rezoned/);
-    expect(upd).toMatch(/rezoned_from: \['avachinsky'\], rezoned_to: event\.affected_zones/);
+    // «Откуда» — зоны строки до записи (prev), а не подставленный дефолт:
+    // с 09.10 лечатся и строки, разобранные до меток дальних округов (#2293).
+    expect(upd).toMatch(/prev\.affected_zones AS prev_zones/);
+    expect(upd).toMatch(/rezoned_from: dup\.rows\[0\]\?\.prev_zones \?\? null, rezoned_to: event\.affected_zones/);
+  });
+
+  it('строка, разобранная до меток дальних округов, получает их один раз (#2293)', () => {
+    expect(upd).toMatch(/OR \(\$6::text\[\] && \$7::text\[\] AND NOT \(external_alerts\.affected_zones && \$7::text\[\]\)\)/);
+    expect(upd).toMatch(/\[\.\.\.KRAI_FAR_ZONES\]\]/);
   });
 });

@@ -21,6 +21,7 @@ import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warni
 import { warningSystemTest, warningTestHours } from '@/lib/safety/warning-system-test';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
+import { KRAI_COMMANDER_ZONE, KRAI_FAR_ZONES, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -690,7 +691,14 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
                    -- Пустые зоны — «не установлено»: сегодняшний разбор,
                    -- узнавший место, расширяет охват из тишины, а не сужает
                    -- (04.10, «южная половина края» лежала с []).
-                   OR (cardinality(external_alerts.affected_zones) = 0 AND cardinality($6::text[]) > 0))
+                   OR (cardinality(external_alerts.affected_zones) = 0 AND cardinality($6::text[]) > 0)
+                   -- Дальние округа (09.10, #2293): строка, разобранная до
+                   -- меток Корякского округа и Командоров, получает их, когда
+                   -- сегодняшний разбор их ставит. Метку шаблон ставит только
+                   -- по названному округу, поэтому сужение здесь — решение
+                   -- владельца, а не сломанный шаблон; и лечится строка один
+                   -- раз: с меткой это условие её больше не трогает.
+                   OR ($6::text[] && $7::text[] AND NOT (external_alerts.affected_zones && $7::text[])))
               AND external_alerts.affected_zones IS DISTINCT FROM $6::text[]
              THEN $6::text[]
              ELSE external_alerts.affected_zones
@@ -707,8 +715,9 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
        RETURNING external_alerts.id,
                  (external_alerts.expires_at IS DISTINCT FROM prev.expires_at) AS extended,
                  (external_alerts.severity IS DISTINCT FROM prev.severity) AS regraded,
-                 (external_alerts.affected_zones IS DISTINCT FROM prev.affected_zones) AS rezoned`,
-      [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones]
+                 (external_alerts.affected_zones IS DISTINCT FROM prev.affected_zones) AS rezoned,
+                 prev.affected_zones AS prev_zones`,
+      [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones, [...KRAI_FAR_ZONES]]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
@@ -731,14 +740,17 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
           actorId: 'seismic-parser.saveEvent',
           payloadHash,
           decisionReason: rezoned
-            ? 'контент совпал с активным алертом — зоны старого дефолта avachinsky заменены текущей оценкой классификатора'
+            ? 'контент совпал с активным алертом — зоны заменены текущей оценкой классификатора'
             : regraded
               ? 'контент совпал с активным алертом — разряд опасности поднят до текущей оценки классификатора'
               : 'контент совпал с активным алертом — срок действия продлён, новая строка не заведена',
           details: {
             extended_expires_at: expiresAt.toISOString(),
             ...(regraded ? { regraded_to_severity: event.severity } : {}),
-            ...(rezoned ? { rezoned_from: ['avachinsky'], rezoned_to: event.affected_zones } : {}),
+            // «Откуда» — зоны строки до записи, а не догадка: с 09.10 лечатся
+            // не только строки старого дефолта, но и разобранные до меток
+            // дальних округов.
+            ...(rezoned ? { rezoned_from: dup.rows[0]?.prev_zones ?? null, rezoned_to: event.affected_zones } : {}),
           },
         });
       }
@@ -1175,7 +1187,12 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   [/елизов/i,       ['avachinsky']],
   [/петропавловск/i,['avachinsky']],
   [/быстринск/i,    ['western']],
-  [/тигильск/i,     ['western']],
+  // Дальние округа — по координатам места, а не зоной (решение владельца
+  // 09.10, #2293, lib/safety/krai-far.ts): Пенжинский был `northern`,
+  // Олюторский — `eastern`, и паводок 7–12.10 на их реках лёг на Ключевскую,
+  // Шивелуч и Кроноцкий за 500–750 км. Командоры (Алеутский) — отдельно.
+  [/тигильск|карагинск|пенжинск|олюторск/i, [KRAI_KORYAK_ZONE]],
+  [/алеутск/i,      [KRAI_COMMANDER_ZONE]],
   [/усть-камчатск/i,['northern']],
   // Мильковский округ — центральная долина реки Камчатки, дорога на север.
   // Своей зоны у центра в нашей четвёрке нет; ближайшая по географии и по
@@ -1188,10 +1205,6 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   // округе»: без строки округ уходил в дефолт `avachinsky`, то есть ограничение
   // на западном берегу вешалось на маршруты Авачинской группы.
   [/усть-большерецк/i,['western']],
-  [/алеутск/i,      ['northern']],
-  [/карагинск/i,    ['eastern']],
-  [/пенжинск/i,     ['northern']],
-  [/олюторск/i,     ['eastern']],
   // Соболево — западное побережье. Сводка Минтура 06.08: режим повышенной
   // готовности из-за выхода медведей в село; без строки алерт уезжал в дефолт.
   [/соболев/i,      ['western']],
