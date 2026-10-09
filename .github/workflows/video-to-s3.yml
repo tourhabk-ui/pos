@@ -22,8 +22,12 @@ on:
     paths:
       - '.github/triggers/video-to-s3.json'
 
+# checks: write — итог прогона копией в check-run на коммите: лог job GitHub
+# отдаёт редиректом в хранилище Azure, и сессия за прокси его не читает
+# (тот же приём, что у probe-url.yml).
 permissions:
   contents: read
+  checks: write
 
 jobs:
   videos:
@@ -52,6 +56,7 @@ jobs:
           echo "заливка: $UPLOAD"
 
       - name: Залить недостающее и сверить всё
+        id: sync
         env:
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
@@ -73,6 +78,44 @@ jobs:
             cat .cache/video/run.log 2>/dev/null || echo 'лог не найден'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Имя бакета — секрет: маскировка Actions действует в логе, но не в
+      # тексте, который мы сами отправляем в API, — вычёркиваем его здесь.
+      - name: Итог — в check-run на коммите
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.sync.outcome }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          path = '.cache/video/run.log'
+          text = open(path, encoding='utf-8', errors='replace').read() if os.path.exists(path) else '(лог прогона не записан)'
+          bucket = os.environ.get('S3_BUCKET', '')
+          if bucket:
+              text = text.replace(bucket, '***')
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'video-to-s3',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {
+                  'title': f"Ролики в хранилище: {outcome}",
+                  'summary': 'Копия итога scripts/media/upload-videos.ts для чтения через API репозитория.',
+                  'text': text[-60000:],
+              },
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}", 'Accept': 'application/vnd.github+json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(req) as r:
+              print('check-run:', r.status)
+          PY
 
       - name: Ничего не залито — сказать это громко
         if: ${{ steps.cfg.outputs.upload != 'true' }}

@@ -69,6 +69,12 @@ describe('заливка: маркер → workflow → скрипт → хра�
     expect(wf).toMatch(/set -euo pipefail/);
   });
 
+  it('итог читается через API: check-run, и имя бакета в нём вычеркнуто', () => {
+    expect(wf).toMatch(/checks: write/);
+    expect(wf).toMatch(/'name': 'video-to-s3'/);
+    expect(wf).toMatch(/text = text\.replace\(bucket, '\*\*\*'\)/);
+  });
+
   it('маркер существует и разбирается', () => {
     const marker = JSON.parse(read('.github/triggers/video-to-s3.json')) as { upload?: unknown; note?: unknown };
     expect(typeof marker.upload).toBe('boolean');
