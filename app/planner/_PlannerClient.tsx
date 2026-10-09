@@ -1407,6 +1407,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             budgetTier: planProfile.budgetTier, tripOrigin: planProfile.tripOrigin,
           },
         } : {}),
+        // Выбранные жильё и трансфер (#2304, шаг 3б) — снимок на день
+        // сохранения; пустые списки снимают прежний выбор.
+        choices: planChoices,
       };
 
       let res: Response;
@@ -1436,7 +1439,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId, planProfile]);
+  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId, planProfile, planChoices]);
 
   const shareTrip = useCallback(async () => {
     if (!initialUserId) { router.push(`/auth/login?from=/planner`); return; }

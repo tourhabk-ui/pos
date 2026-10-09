@@ -18,6 +18,7 @@
 import { z } from 'zod';
 
 const TRANSPORT = z.enum(['walking', 'jeep', 'helicopter', 'boat']);
+const ZONE_ENUM = z.enum(['avachinsky', 'western', 'eastern', 'northern']);
 
 export const TripRealTourSchema = z.object({
   tourId: z.string().min(1).max(64),
@@ -31,7 +32,7 @@ export const TripRealTourSchema = z.object({
 
 export const TripDayPlanSchema = z.object({
   day: z.number().int().min(1),
-  zone: z.enum(['avachinsky', 'western', 'eastern', 'northern']),
+  zone: ZONE_ENUM,
   title: z.string().min(1).max(255),
   activityType: z.string().max(50),
   priceFrom: z.number().min(0),
@@ -54,7 +55,41 @@ export const TripPartySchema = z.object({
   tripOrigin: z.enum(['visitor', 'local']).optional(),
 });
 
+/**
+ * Выбранные в плане жильё и поездки перевозчиков (#2304, шаг 3б) — снимок на
+ * день сохранения: цена стоянки на группу по правилу брони или «не
+ * помещается»; null — цену не посчитали. Форма — lib/planner/plan-choices.
+ */
+export const TripChoicesSchema = z.object({
+  stays: z.array(z.object({
+    zone: ZONE_ENUM,
+    checkIn: z.string().date(),
+    checkOut: z.string().date(),
+    nights: z.number().int().min(1).max(60),
+    accommodationId: z.string().min(1).max(64),
+    name: z.string().min(1).max(255),
+    price: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('priced'), total: z.number().min(0).max(100_000_000),
+        rooms: z.number().int().min(1).max(50), roomId: z.string().max(64),
+        roomName: z.string().max(255), maxGuests: z.number().int().min(1).max(100),
+      }),
+      z.object({ kind: z.literal('no_fit'), people: z.number().int().min(1).max(100) }),
+    ]).nullable(),
+  })).max(8),
+  transfers: z.array(z.object({
+    tripId: z.string().min(1).max(64),
+    date: z.string().date(),
+    from: z.string().max(255),
+    to: z.string().max(255),
+    seats: z.number().int().min(1).max(60),
+    pricePerSeat: z.number().min(0).max(10_000_000).nullable(),
+    carrier: z.string().max(255),
+  })).max(6),
+});
+
 export type TripDayPlan = z.infer<typeof TripDayPlanSchema>;
 export type TripParty = z.infer<typeof TripPartySchema>;
+export type TripChoices = z.infer<typeof TripChoicesSchema>;
 
 export const TRANSPORT_SCHEMA = TRANSPORT;
