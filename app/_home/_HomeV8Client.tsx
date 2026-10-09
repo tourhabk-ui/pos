@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -460,14 +460,23 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <span className="qt-st" suppressHydrationWarning>{freshnessShort(fresh)}</span>
             </span>
           </Link>
+          {/* Туры (владелец 09.10: «туры тогда тоже сделай кнопкой») — дверь в
+              витрину /catalog, как «Туры» нижнего меню. Вторым рядом с
+              «Трансфером»: ряд инструментов стал сеткой 2×2 вместо третьей
+              плитки на всю ширину — так кнопки не съедают первый экран
+              (владелец 25.09: «экономить место на мобильной»). */}
+          <Link href="/catalog" className="qt qt-tours" aria-label="Туры операторов Камчатки: цены и даты">
+            <span className="qt-ic"><Ticket size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Туры</b><span>цены и даты</span></span>
+          </Link>
           {/* Трансфер (владелец 09.10: «доп кнопка на главной»): дверь в /transfers —
               места в поездках перевозчиков и вахтовка под заказ с ценой за машину.
               Карточка в ленте туров ведёт к одному перевозчику, плитка — в раздел.
-              Третьей плиткой на всю ширину: в одну строку с двумя прежними три
-              подписи на 360px не входят. */}
+              Подпись короткая: в полширины на 360px длинная обрезалась бы;
+              полная — в aria-label. */}
           <Link href="/transfers" className="qt qt-transfer" aria-label="Трансфер: места в поездках перевозчиков и вахтовка под заказ">
             <span className="qt-ic"><Truck size={19} strokeWidth={1.8} aria-hidden /></span>
-            <span className="qt-tx"><b>Трансфер</b><span>места в поездках и вахтовка под заказ</span></span>
+            <span className="qt-tx"><b>Трансфер</b><span>места и вахтовка</span></span>
           </Link>
         </nav>
 
@@ -1154,7 +1163,7 @@ const CSS = `
 .v7 button.qt{font:inherit;color:inherit;text-align:left;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .v7 .qt-radar{position:relative}
 /* Трансфер — третья плитка ряда, на обе колонки; ниже прежних 64px: это дверь, а не прибор. */
-.v7 .qt-transfer{grid-column:1 / -1;min-height:52px}
+
 /* Сводка радара — непрозрачная карточка под рядом: это прибор, не стекло (§2). */
 /* Радар — зелёный (владелец 26.09: «радар сделай зелёным»). Зелёный здесь —
    цвет прибора, как тёплая подложка у МЧС, а НЕ состояние: свежесть и доля

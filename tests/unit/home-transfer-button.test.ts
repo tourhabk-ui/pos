@@ -13,15 +13,28 @@ import { join } from 'node:path';
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
 
 describe('кнопка «Трансфер» на главной', () => {
-  it('телефон: плитка в ряду инструментов, на обе колонки, ведёт на /transfers', () => {
+  it('телефон: плитка в ряду инструментов, ведёт на /transfers', () => {
     const c = read('app/_home/_HomeV8Client.tsx');
     expect(c).toMatch(/<Link href="\/transfers" className="qt qt-transfer"/);
-    expect(c).toMatch(/\.v7 \.qt-transfer\{grid-column:1 \/ -1/);
     // плитка стоит внутри ряда инструментов, а не вне его
     const nav = c.slice(c.indexOf('className="qtools qt-top"'), c.indexOf('</nav>', c.indexOf('className="qtools qt-top"')));
     expect(nav).toContain('qt-transfer');
     expect(nav).toContain('qt-plan');
     expect(nav).toContain('qt-radar');
+  });
+
+  it('телефон: «Туры» — кнопкой рядом с «Трансфером», ряд инструментов — сетка 2×2', () => {
+    // Владелец 09.10: «туры тогда тоже сделай кнопкой». Четыре плитки — два
+    // ряда по две; «Трансфер» больше не растягивается на обе колонки.
+    const c = read('app/_home/_HomeV8Client.tsx');
+    const nav = c.slice(c.indexOf('className="qtools qt-top"'), c.indexOf('</nav>', c.indexOf('className="qtools qt-top"')));
+    expect(nav).toMatch(/<Link href="\/catalog" className="qt qt-tours"/);
+    expect(nav.indexOf('qt-tours')).toBeLessThan(nav.indexOf('qt-transfer'));
+    expect(c).not.toMatch(/\.v7 \.qt-transfer\{grid-column/);
+    // подпись в полширины не длиннее, чем у соседей, — иначе обрежется на 360px
+    for (const sub of [...nav.matchAll(/<b>[^<]+<\/b><span>([^<]+)<\/span>/g)].map((m) => m[1]!)) {
+      expect(sub.length, sub).toBeLessThanOrEqual(16);
+    }
   });
 
   it('десктоп: ссылка «Трансфер» рядом с «Все туры» в шапке «Можно поехать»', () => {
