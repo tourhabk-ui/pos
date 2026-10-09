@@ -160,6 +160,9 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
     const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru";
     const fontSrc = "'self' data: https://*.yandex.ru";
     const workerSrc = "'self' blob:";
+    // Клипы туров лежат в хранилище (решение владельца 09.10, миграция 1190).
+    // Без media-src видео падало под default-src 'self' и не играло.
+    const mediaSrc = "'self' https://s3.twcstorage.ru";
 
     if (pathname && pathname.startsWith('/widget/')) {
       response.headers.set(
@@ -169,7 +172,7 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
     } else {
       response.headers.set(
         'Content-Security-Policy',
-        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc};`
+        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; media-src ${mediaSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc};`
       );
     }
   }

@@ -223,7 +223,9 @@ describe('чаты по номеру объекта (миграция 1181)', ()
 
   it('миграция 1181 меняет схему — справочник схемы перегенерирован после неё', () => {
     const doc = read('docs/DB_SCHEMA.md');
-    expect(doc).toMatch(/Последняя миграция в снимке: `118[1-9]_/);
+    // Не моложе 1181: снимок, снятый после следующих миграций, тоже годится.
+    const last = Number(doc.match(/Последняя миграция в снимке: `(\d+)_/)?.[1] ?? 0);
+    expect(last).toBeGreaterThanOrEqual(1181);
     expect(doc).toContain('contact_messengers text[]');
   });
 });
