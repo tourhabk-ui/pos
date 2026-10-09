@@ -9,19 +9,9 @@ import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import type { UserTripListRow, UserTripRow } from '@/lib/types/db-rows';
+import { TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
 
 export const dynamic = 'force-dynamic';
-
-const DayPlanSchema = z.object({
-  day: z.number().int().min(1),
-  zone: z.enum(['avachinsky', 'western', 'eastern', 'northern']),
-  title: z.string().min(1).max(255),
-  activityType: z.string().max(50),
-  priceFrom: z.number().min(0),
-  priceTo: z.number().min(0),
-  coords: z.tuple([z.number(), z.number()]),
-  defaultTransport: z.enum(['walking', 'jeep', 'helicopter', 'boat']),
-});
 
 const CreateTripSchema = z.object({
   title: z.string().min(1).max(255).default('Мой маршрут'),
@@ -29,13 +19,15 @@ const CreateTripSchema = z.object({
   departureDate: z.string().date().nullable().optional(),
   places: z.array(z.string()).max(20).default([]),
   activities: z.array(z.string()).max(20).default([]),
-  days: z.array(DayPlanSchema).max(30).default([]),
+  days: z.array(TripDayPlanSchema).max(30).default([]),
   transportByDay: z.record(z.string(), z.enum(['walking', 'jeep', 'helicopter', 'boat'])).default({}),
   flightArrival: z.string().max(20).nullable().optional(),
   flightDeparture: z.string().max(20).nullable().optional(),
   flightArrivalTime: z.string().max(5).nullable().optional(),
   flightDepartureTime: z.string().max(5).nullable().optional(),
   needsAirportTransfer: z.boolean().default(false).optional(),
+  /** Состав и уровень плана — для сметы и заявки (#2304, шаг 2). */
+  party: TripPartySchema.nullable().optional(),
 });
 
 // ─── GET — list ───────────────────────────────────────────────────────────────
@@ -86,13 +78,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, arrivalDate, departureDate, places, activities, days, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer } = parsed.data;
+    const { title, arrivalDate, departureDate, places, activities, days, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, party } = parsed.data;
 
     const { rows } = await pool.query<UserTripRow>(`
       INSERT INTO user_trips
         (user_id, title, arrival_date, departure_date, places, activities, days, transport_by_day,
-         flight_arrival, flight_departure, flight_arrival_time, flight_departure_time, needs_airport_transfer)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         flight_arrival, flight_departure, flight_arrival_time, flight_departure_time, needs_airport_transfer, party)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *
     `, [
       userId,
@@ -108,6 +100,7 @@ export async function POST(request: NextRequest) {
       flightArrivalTime ?? null,
       flightDepartureTime ?? null,
       needsAirportTransfer ?? false,
+      party ? JSON.stringify(party) : null,
     ]);
 
     // Атрибуция MCP-handoff (v2, #60): человек пришёл по ссылке агента и

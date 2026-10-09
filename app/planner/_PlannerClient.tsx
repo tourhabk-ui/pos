@@ -38,9 +38,10 @@ import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
 import { extractContacts } from '@/lib/operators/profile-parse';
 import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
-import { GroupEstimateBlock } from './GroupEstimate';
+import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
+import { planForLead } from '@/lib/planner/plan-for-lead';
 import { escapeHtml } from '@/lib/text/escape-html';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
@@ -1384,6 +1385,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         flightArrivalTime: flightArrivalTime || null,
         flightDepartureTime: flightDepartureTime || null,
         needsAirportTransfer,
+        // Состав и уровень, на которые собран план (#2304, шаг 2): без них
+        // страница поездки не посчитает смету, а заявка уйдёт без состава.
+        ...(planProfile ? {
+          party: {
+            adults: planProfile.adults, children: planProfile.children,
+            budgetTier: planProfile.budgetTier, tripOrigin: planProfile.tripOrigin,
+          },
+        } : {}),
       };
 
       let res: Response;
@@ -1413,7 +1422,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId]);
+  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId, planProfile]);
 
   const shareTrip = useCallback(async () => {
     if (!initialUserId) { router.push(`/auth/login?from=/planner`); return; }
@@ -1815,9 +1824,14 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             flight_departure_time: flightDepartureTime || undefined,
             needs_airport_transfer: needsAirportTransfer || undefined,
             trip_days: tripDays ?? undefined,
-            recommendation: recommendation?.zones,
             transport_choices: transportByDay,
-            day_plan: days.map((d, i) => ({ day: i + 1, title: d.title, zone: d.zone, activity: d.activityType })),
+            // План целиком (#2304, шаг 2): состав, уровень, туры дня с датами и
+            // ценами и смета — та же, что на экране. Вместо `day_plan` и
+            // `recommendation`: их не читал никто, а оператор видел одни
+            // названия дней и переспрашивал то, что человек уже выбрал.
+            ...(planProfile && days.length > 0
+              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }) }
+              : {}),
           },
           pd_consent: true,
         }),

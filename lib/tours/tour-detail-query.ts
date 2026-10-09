@@ -71,7 +71,7 @@ export interface TourCardRow {
   review_count: number | null;
   program?: unknown;
   safety_notes?: string[] | null;
-  /** Ключи клипов в хранилище (миграция 1191) — до клиента не доходят, их заменяет `clips`. */
+  /** Ключи клипов в хранилище (миграция 1192) — до клиента не доходят, их заменяет `clips`. */
   video_clips?: unknown;
   /** Клипы с собранными адресами хранилища; [] — клипов нет. */
   clips?: TourClip[];
@@ -155,7 +155,7 @@ export interface TourCardReview {
   photos?: string[] | null;
 }
 
-/** Колонки, добавленные миграциями 809 и 1191 — их может не быть, если миграция отстала. */
+/** Колонки, добавленные миграциями 809 и 1192 — их может не быть, если миграция отстала. */
 const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes, ot.video_clips,';
 
 function buildSql(withOptional: boolean): string {

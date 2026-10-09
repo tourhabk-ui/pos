@@ -6,6 +6,7 @@ import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, Refre
 import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { LeadsKanban } from './_LeadsKanban';
+import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 
 type View = 'list' | 'kanban';
 const VIEW_STORAGE_KEY = 'leads-view';
@@ -25,6 +26,8 @@ interface LeadSourceData {
   followup_count?: number;
   notified_operators?: string[];
   escalated_to_admin?: boolean;
+  /** План поездки целиком — из /planner и MCP по plan_id (#2304, шаг 2). */
+  plan?: unknown;
 }
 
 export interface Lead {
@@ -171,6 +174,7 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
   const dateFrom  = sd.date_from ?? sd.arrival;
   const dateTo    = sd.date_to   ?? sd.departure;
   const hasUtm    = sd.utm_source || sd.utm_medium || sd.utm_campaign;
+  const plan      = asPlanForLead(sd.plan);
 
   return (
     <div className="space-y-2 text-sm">
@@ -213,6 +217,16 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
           {' — '}
           {dateTo ? formatShortDate(dateTo) : '?'}
           {sd.trip_days ? ` (${sd.trip_days} дн.)` : ''}
+        </div>
+      )}
+
+      {/* План поездки: состав, смета и туры по дням — теми же словами, что в
+          уведомлении (lib/planner/plan-for-lead), чтобы не переспрашивать. */}
+      {plan && (
+        <div className="rounded-lg border border-[var(--border)] p-2 space-y-0.5" data-testid="lead-plan">
+          {planLeadLines(plan).map((line) => (
+            <p key={line} className="text-xs text-[var(--text-secondary)]">{line}</p>
+          ))}
         </div>
       )}
 

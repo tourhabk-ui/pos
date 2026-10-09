@@ -41,6 +41,8 @@ export interface DayPlan {
    */
   realTour?: {
     tourId: string; lodgingIncluded: boolean | null; priceUnit?: string; maxParticipants?: number;
+    /** Оператор тура — уходит в заявку на весь план (#2304, шаг 2). */
+    operatorName?: string;
     /** Дни тура по правилу брони — для цены «за день на человека». */
     durationDays?: number;
     /** Почему цена отличается от заголовочной: «−15%, последние места». */
@@ -50,6 +52,8 @@ export interface DayPlan {
   realPrice?: number;
   /** Цены тура для этой группы нет, и почему (группа вне ступеней цены). */
   priceMissing?: string;
+  /** Ближайшая свободная дата тура в окне поездки (от движка). */
+  availableDate?: string;
 }
 
 export interface TripWarning {

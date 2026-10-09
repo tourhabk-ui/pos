@@ -79,8 +79,8 @@ describe('файлы и заливка', () => {
   });
 });
 
-describe('миграция 1191', () => {
-  const sql = read('migrations/1191_tour_video_clips.sql');
+describe('миграция 1192', () => {
+  const sql = read('migrations/1192_tour_video_clips.sql');
 
   it('колонка-массив и только ключи из маркера заливки', () => {
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS video_clips JSONB NOT NULL DEFAULT '\[\]'::jsonb/);

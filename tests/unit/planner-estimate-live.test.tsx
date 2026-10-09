@@ -102,6 +102,22 @@ describe('смета на группу в /planner', () => {
     expect(tags.some((t) => t.includes('0 ₽на человека'))).toBe(false);
   });
 
+  it('заявка уходит с планом целиком: состав, туры с ценой, смета (шаг 2)', async () => {
+    await buildPlan();
+    fireEvent.click(screen.getAllByRole('button', { name: /Запросить подробное предложение/ })[0]!);
+    fireEvent.change(screen.getByPlaceholderText('Ваше имя'), { target: { value: 'Иван Петров' } });
+    fireEvent.change(screen.getByPlaceholderText('+7 900 000-00-00'), { target: { value: '+79991234567' } });
+    fireEvent.click(document.getElementById('pd-consent-planner')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить заявку' }));
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/leads');
+    expect(call, 'заявка не ушла').toBeDefined();
+    const sd = JSON.parse(String(call![1]!.body)).source_data;
+    expect(sd.plan.party).toEqual({ adults: 2, children: [] });
+    expect(sd.plan.days[1].tour).toMatchObject({ id: 't-2', price: 30000, unit: 'per_tour' });
+    expect(sd.plan.estimate.total).toEqual([50000, 60000]);
+    expect(sd.day_plan).toBeUndefined();
+  });
+
   it('удалили день с туром — смета пересчиталась без него', async () => {
     const estimate = await buildPlan();
     fireEvent.click(deleteButtonOf('Мутновский вулкан'));

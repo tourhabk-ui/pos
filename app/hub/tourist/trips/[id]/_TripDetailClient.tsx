@@ -4,6 +4,11 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
+import { estimateGroup } from '@/lib/planner/estimate';
+import { planForLead } from '@/lib/planner/plan-for-lead';
+import { dayPriceLine } from '@/lib/planner/day-price';
+import type { TripDayPlan, TripParty } from '@/lib/trips/trip-schema';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
@@ -12,16 +17,9 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface DayPlan {
-  day: number;
-  zone: string;
-  title: string;
-  activityType: string;
-  priceFrom: number;
-  priceTo: number;
-  coords: [number, number];
-  defaultTransport: string;
-}
+// День и состав — одна форма с сервером (lib/trips/trip-schema): тур, его
+// цена и род дня дошли до базы только с 09.10, у старых поездок их нет.
+type DayPlan = TripDayPlan;
 
 interface TripDetail {
   id: string;
@@ -34,6 +32,8 @@ interface TripDetail {
   activities: string[];
   days: DayPlan[];
   transport_by_day: Record<string, string>;
+  /** Состав и уровень плана; null — поездка сохранена до 09.10. */
+  party: TripParty | null;
   created_at: string;
   updated_at: string;
 }
@@ -62,12 +62,23 @@ const TRANSPORT_LABELS: Record<string, string> = {
   walking: 'Пешком', jeep: 'Джип', boat: 'Катер', helicopter: 'Вертолёт',
 };
 
-const TRANSPORT_PRICE: Record<string, number> = {
-  walking: 0, jeep: 3000, boat: 8000, helicopter: 25000,
-};
+/**
+ * Смета поездки — та же формула, что в планировщике (lib/planner/estimate).
+ * До 09.10 страница считала свою: ориентир дня плюс цена транспорта из
+ * константы (джип 3 000, вертолёт 25 000 ₽), которой нет ни у одного
+ * оператора, и без ночей. Считать можно, только если записаны состав группы и
+ * род каждого дня; иначе смета не выдумывается, а это говорится словами.
+ */
+function tripEstimate(trip: TripDetail) {
+  if (!trip.party || trip.days.length === 0 || trip.days.some((d) => !d.type)) return null;
+  const days = trip.days.map((d) => ({ ...d, type: d.type! }));
+  return estimateGroup(days, trip.party);
+}
 
-function fmt(n: number): string {
-  return n.toLocaleString('ru-RU');
+function tripPlanForLead(trip: TripDetail) {
+  if (!trip.party || trip.days.length === 0 || trip.days.some((d) => !d.type)) return null;
+  const days = trip.days.map((d) => ({ ...d, type: d.type! }));
+  return planForLead(days, { ...trip.party, arrivalDate: trip.arrival_date?.slice(0, 10) ?? null });
 }
 
 function fmtDate(d: string | null): string {
@@ -135,6 +146,8 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             flight_departure: trip?.flight_departure ?? undefined,
             places: trip?.places,
             activities: trip?.activities,
+            // План целиком (#2304, шаг 2) — та же сводка, что из планировщика.
+            ...(trip && tripPlanForLead(trip) ? { plan: tripPlanForLead(trip) } : {}),
           },
           pd_consent: true,
         }),
@@ -168,14 +181,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
     </div>
   );
 
-  const totalFrom = trip.days.reduce((s, d) => {
-    const transport = trip.transport_by_day[String(d.day)] ?? d.defaultTransport;
-    return s + d.priceFrom + (TRANSPORT_PRICE[transport] ?? 0);
-  }, 0);
-  const totalTo = trip.days.reduce((s, d) => {
-    const transport = trip.transport_by_day[String(d.day)] ?? d.defaultTransport;
-    return s + d.priceTo + (TRANSPORT_PRICE[transport] ?? 0);
-  }, 0);
+  const estimate = tripEstimate(trip);
 
   return (
     <Protected roles={['tourist', 'admin']}>
@@ -230,14 +236,14 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             )}
           </div>
 
-          {trip.days.length > 0 && (
-            <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
-              <span className="text-sm text-[var(--text-secondary)]">Ориентировочная стоимость</span>
-              <span className="text-base font-semibold text-[var(--accent)]">
-                от {fmt(totalFrom)} — до {fmt(totalTo)} ₽
-              </span>
-            </div>
-          )}
+          {trip.days.length > 0 && (estimate ? (
+            <GroupEstimateBlock estimate={estimate} />
+          ) : (
+            <p className="pt-2 border-t border-[var(--border)] text-xs text-[var(--text-secondary)]" data-testid="trip-no-estimate">
+              Смету не считаем: поездка сохранена до того, как в ней стал записываться состав группы.
+              Соберите её заново в планировщике — смета на группу появится.
+            </p>
+          ))}
         </div>
 
         {/* Day plan */}
@@ -257,7 +263,6 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                 {trip.days.map((d, idx) => {
                   const transport = trip.transport_by_day[String(d.day)] ?? d.defaultTransport;
                   const TransIcon = TRANSPORT_ICONS[transport] ?? Footprints;
-                  const priceAdd = TRANSPORT_PRICE[transport] ?? 0;
                   const flightBadge = idx === 0 && trip.flight_arrival ? trip.flight_arrival
                     : idx === trip.days.length - 1 && trip.flight_departure ? trip.flight_departure
                     : null;
@@ -286,9 +291,11 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                           <TransIcon className="w-3 h-3" />
                           {TRANSPORT_LABELS[transport] ?? transport}
                         </span>
-                        <span className="text-xs font-medium text-[var(--accent)]">
-                          от {fmt(d.priceFrom + priceAdd)} ₽
-                        </span>
+                        {/* Цена с единицей, как в планировщике (lib/planner/day-price):
+                            без выдуманной надбавки за транспорт. */}
+                        {dayPriceLine(d) && (
+                          <span className="text-xs font-medium text-[var(--accent)]">{dayPriceLine(d)}</span>
+                        )}
                       </div>
                     </div>
                   );

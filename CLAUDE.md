@@ -775,7 +775,7 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
   недостижимо. Сторож: `tests/unit/edge-admin-gate.test.ts`
   Второе исключение — по слову владельца 09.10 («S3 + разрешить видео с S3»):
   `media-src 'self' https://s3.twcstorage.ru` в CSP страниц, чтобы клипы туров
-  из хранилища (миграция 1191) играли. Сторож: `tests/unit/tour-video-clips.test.ts`
+  из хранилища (миграция 1192) играли. Сторож: `tests/unit/tour-video-clips.test.ts`
 - `lib/auth.ts` — JWT логика
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`

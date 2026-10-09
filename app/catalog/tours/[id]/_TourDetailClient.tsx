@@ -68,7 +68,7 @@ interface ProgramStep { title: string; text: string }
 
 interface TourFull {
   id: number;
-  /** Короткие клипы из хранилища (миграция 1191); [] или нет — блока нет. */
+  /** Короткие клипы из хранилища (миграция 1192); [] или нет — блока нет. */
   clips?: TourClip[];
   title: string;
   description: string | null;
