@@ -40,6 +40,9 @@ import {
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
 import { openRouterAttribution } from '@/lib/ai/attribution';
 
@@ -283,13 +286,25 @@ export async function POST(request: NextRequest) {
           // Туристы (включая анонимов) — через agent loop core.ts:
           // get_guardian_context и персона Хранителя, как в Telegram/MAX и
           // /api/ai/chat (PR #333). Ответ приходит целиком — отдаём по словам.
+          // Журнал инструментов хода — для сверки утверждений о безопасности (#2300).
+          const streamToolRuns: ToolRun[] = [];
           if (safeRole === 'tourist') {
             try {
-              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [])) ?? '';
+              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [], streamToolRuns)) ?? '';
             } catch { fullAnswer = ''; /* фолбэк на прежний стрим ниже */ }
           }
 
           if (fullAnswer) {
+            // Сверка ДО отправки по словам: после flushWords текст уже у
+            // человека, и поправить его было бы нечем.
+            const claimGuard = guardSafetyClaims(fullAnswer, streamToolRuns);
+            if (claimGuard.flagged.length > 0) {
+              console.error('[kuzmich-safety-claim-guard] веб-стрим: утверждение о безопасности без опоры', {
+                verdict: claimGuard.verdict, flagged: claimGuard.flagged.map((c) => c.phrase),
+              });
+            }
+            void recordSafetyReview('web-stream', claimGuard, streamToolRuns);
+            fullAnswer = claimGuard.text;
             flushWords(fullAnswer);
           } else {
             // OpenRouter-стрим открываем ЛЕНИВО — только когда мозг не ответил,
@@ -335,6 +350,16 @@ export async function POST(request: NextRequest) {
             } else {
               fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
               flushWords(fullAnswer);
+            }
+            // Запасной стрим шёл без инструментов: текст уже у человека, и
+            // поправка к «безопасно» уходит хвостом (#2300). Предупреждения
+            // без опоры здесь не помечаются — сверять было не с чем.
+            const fallbackGuard = guardSafetyClaims(fullAnswer, null);
+            void recordSafetyReview('web-stream', fallbackGuard, null);
+            if (fallbackGuard.text !== fullAnswer) {
+              const tail = fallbackGuard.text.slice(fullAnswer.length);
+              flushWords(tail);
+              fullAnswer = fallbackGuard.text;
             }
           }
 

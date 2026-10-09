@@ -12,6 +12,8 @@ import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
+import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { reachForTour } from '@/lib/partners/reach';
@@ -2379,7 +2381,21 @@ export async function aiChat(opts: {
   // Пользователю и в историю уходит finalAnswer; грейдер и синтез заметок
   // получают ОРИГИНАЛЬНЫЙ ответ модели — иначе boilerplate SOS-блока
   // портит оценку faithfulness и утекает в долгосрочную память бота.
-  const finalAnswer = withSosBlock(answer, userContent).text;
+  // Утверждения о безопасности — сверка с данными этого же хода (#2300).
+  // Предупреждение не задерживается и не вырезается; «безопасно» без данных
+  // или вопреки им получает поправку. Запасной путь шёл без инструментов —
+  // сверять не с чем (null), и это не «хорошо». Грейдер получает ответ модели
+  // без поправки, как и без SOS-блока.
+  const claimRuns = usedAgentLoopAnswer ? toolRuns : null;
+  const claimGuard = guardSafetyClaims(answer, claimRuns);
+  if (claimGuard.flagged.length > 0) {
+    console.error('[kuzmich-safety-claim-guard] утверждение о безопасности без опоры', {
+      chatId, verdict: claimGuard.verdict, flagged: claimGuard.flagged.map((c) => c.phrase),
+    });
+  }
+  void recordSafetyReview(platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other', claimGuard, claimRuns);
+
+  const finalAnswer = withSosBlock(claimGuard.text, userContent).text;
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
   if (!isAIErrorResponse(answer)) {

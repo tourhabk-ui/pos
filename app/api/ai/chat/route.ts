@@ -5,6 +5,9 @@
  * Encrypted interest collection from user messages.
  */
 
+import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -348,10 +351,14 @@ export async function POST(request: NextRequest) {
     // (KUZMICH_SYSTEM) вместо legacy TOURIST_PROMPT. Все инструменты цикла
     // read-only — безопасны без авторизации. До этого анонимы (основной
     // трафик) получали one-shot LLM без каких-либо safety-инструментов.
+    // Журнал инструментов хода — для сверки утверждений о безопасности (#2300).
+    const webToolRuns: ToolRun[] = [];
+    let loopAnswered = false;
     if (!answer && safeRole === 'tourist') {
       try {
         const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
-        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), []);
+        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns);
+        loopAnswered = Boolean(answer?.trim());
       } catch { /* fall through to legacy single-shot */ }
     }
 
@@ -377,6 +384,18 @@ export async function POST(request: NextRequest) {
     // делает так же. И не списываем за ошибку бесплатное сообщение анонима.
     // Проверка — по ответу ДО SOS-префикса.
     const answerIsError = isAIErrorResponse(answer);
+
+    // Утверждения о безопасности — сверка с данными хода (#2300), до SOS-блока:
+    // правим ответ модели, а не собственную вставку. Ответ не из цикла
+    // инструментов (SDK, одиночный вызов) сверять не с чем — null.
+    const claimGuard = guardSafetyClaims(answer, loopAnswered ? webToolRuns : null);
+    if (claimGuard.flagged.length > 0) {
+      console.error('[kuzmich-safety-claim-guard] веб: утверждение о безопасности без опоры', {
+        verdict: claimGuard.verdict, flagged: claimGuard.flagged.map((c) => c.phrase),
+      });
+    }
+    void recordSafetyReview('web', claimGuard, loopAnswered ? webToolRuns : null);
+    answer = claimGuard.text;
 
     // Серверная SOS-страховка: при признаках ЧП в вопросе телефоны 112/МЧС
     // добавляются к ответу независимо от модели — в том числе когда весь
