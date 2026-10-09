@@ -10,7 +10,10 @@
  * (app/api/agent/leads).
  *
  * Отдельной роли сотрудника поддержки нет; пока её нет — это администратор.
+ * Роуты с `requireRole` берут список отсюда же (`SUPPORT_STAFF_ROLES`).
  */
+export const SUPPORT_STAFF_ROLES: readonly string[] = ['admin'];
+
 export function isSupportStaff(role: string | null | undefined): boolean {
-  return role === 'admin';
+  return typeof role === 'string' && SUPPORT_STAFF_ROLES.includes(role);
 }

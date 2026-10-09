@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { slaService } from '@/lib/services'
 import { requireRole } from '@/lib/auth/middleware'
+import { SUPPORT_STAFF_ROLES } from '@/lib/support/staff'
 import { z } from 'zod'
 
 const CheckSLASchema = z.object({
@@ -14,7 +15,7 @@ const CheckSLASchema = z.object({
 })
 
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, ['admin', 'agent'])
+  const auth = await requireRole(request, [...SUPPORT_STAFF_ROLES])
   if (auth instanceof NextResponse) return auth
 
   try {
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ['admin', 'agent'])
+  const auth = await requireRole(request, [...SUPPORT_STAFF_ROLES])
   if (auth instanceof NextResponse) return auth
 
   try {

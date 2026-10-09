@@ -39,7 +39,7 @@ const svc = h.svc;
 import { GET as listRoute } from '@/app/api/support/tickets/route';
 import { GET as getRoute, PUT as putRoute } from '@/app/api/support/tickets/[id]/route';
 import { GET as getMessages, POST as postMessage } from '@/app/api/support/tickets/[id]/messages/route';
-import { isSupportStaff } from '@/lib/support/staff';
+import { isSupportStaff, SUPPORT_STAFF_ROLES } from '@/lib/support/staff';
 
 const req = (url: string, body?: unknown) => ({
   nextUrl: new URL(url),
@@ -96,12 +96,31 @@ describe('одно правило на все роуты тикетов', () => 
     }
   });
 
-  it('в роутах тикетов нет своей проверки роли мимо isSupportStaff', () => {
-    const dir = join(process.cwd(), 'app/api/support/tickets');
+  it('в роутах поддержки нет своей проверки роли мимо lib/support/staff', () => {
+    // Не только тикеты. Тем же списком requireRole(['admin', 'agent']) роль
+    // `agent` пускали ещё четыре роута: /api/support/feedback (все отзывы с
+    // customer_id и текстом), /api/support/knowledge-base (запись статей
+    // справки, которую GET отдаёт без входа), /api/support/agents и
+    // /api/support/sla.
+    const dir = join(process.cwd(), 'app/api/support');
     const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true })
       .flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.name === 'route.ts' ? [join(d, e.name)] : []));
-    for (const f of walk(dir)) {
-      expect(readFileSync(f, 'utf8'), f).not.toMatch(/auth\.role === '(agent|admin)'/);
+    const files = walk(dir);
+    expect(files.length).toBeGreaterThanOrEqual(5);
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).not.toMatch(/auth\.role === '(agent|admin)'/);
+      expect(src, f).not.toMatch(/requireRole\([^)]*'agent'/);
+    }
+  });
+
+  it('список ролей поддержки — тот же, что у isSupportStaff', () => {
+    expect([...SUPPORT_STAFF_ROLES]).toEqual(['admin']);
+    for (const f of [
+      'app/api/support/feedback/route.ts', 'app/api/support/knowledge-base/route.ts',
+      'app/api/support/agents/route.ts', 'app/api/support/sla/route.ts',
+    ]) {
+      expect(readFileSync(join(process.cwd(), f), 'utf8'), f).toMatch(/requireRole\(request, \[\.\.\.SUPPORT_STAFF_ROLES\]\)/);
     }
   });
 });
