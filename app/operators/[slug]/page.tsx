@@ -20,6 +20,7 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { CharterCard } from '@/components/transfers/CharterCard';
+import { OperatorGallery } from '@/components/operator/OperatorGallery';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import type { CharterCarrier } from '@/lib/transfers/charter-format';
 
@@ -28,6 +29,12 @@ export const dynamic = 'force-dynamic';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 type Params = { slug: string };
+
+/** Подпись автора у снимка перевозчика: названный автор, иначе сам перевозчик. */
+function galleryCaptions(gallery: string[], charter: CharterCarrier): string[] {
+  const credit = new Map(charter.photos.map((p) => [p.url, p.credit]));
+  return gallery.map((url) => `Фото: ${credit.get(url) ?? charter.name}`);
+}
 
 function parseScore(value: string | null | undefined): number {
   if (!value) return 0;
@@ -175,7 +182,8 @@ export default async function OperatorProfilePage(
   const legalInfo = extractLegalInfo(profile.legal_info);
   const rating     = parseScore(profile.rating);
   const reviewCount = parseCount(profile.review_count);
-  const gallery   = extractGallery(profile.gallery).slice(0, 6);
+  // Все снимки: сетка показывает шесть, просмотрщик листает все (OperatorGallery).
+  const gallery   = extractGallery(profile.gallery);
   const faq       = extractFaq(profile.faq);
 
   const heroImage = profile.hero_image ?? gallery[0] ?? null;
@@ -285,13 +293,15 @@ export default async function OperatorProfilePage(
           {gallery.length > 1 && (
             <section className="ds-card p-5">
               <h2 className="font-playfair text-2xl font-bold mb-4">Галерея</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {gallery.slice(0, 6).map((url, i) => (
-                  <div key={i} className="relative h-40 rounded-lg overflow-hidden bg-[var(--bg-hover)]">
-                    <Image src={url} alt={`${profile.name} ${i + 1}`} fill className="object-cover hover:scale-105 transition-transform duration-300" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="33vw" />
-                  </div>
-                ))}
-              </div>
+              {/* Снимки открываются (владелец 09.10: «галерея не открывается»).
+                  У перевозчика подпись автора — та же, что в его ленте фото:
+                  автор назван не у всех снимков, и без подписи кадры
+                  Сладченко читались бы как снимки перевозчика. */}
+              <OperatorGallery
+                images={gallery}
+                name={profile.name}
+                captions={charter ? galleryCaptions(gallery, charter) : undefined}
+              />
             </section>
           )}
 

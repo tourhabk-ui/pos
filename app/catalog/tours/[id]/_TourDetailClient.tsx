@@ -8,7 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
-  ChevronRight, Users, Backpack, Shield, X, LifeBuoy,
+  ChevronRight, Users, Backpack, Shield, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
   Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw,
 } from 'lucide-react';
@@ -17,6 +17,8 @@ import { pickupForCard } from '@/lib/tours/pickup';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
+// Просмотрщик фото — общий для всех галерей (карточка тура, оператор, перевозчик).
+import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
@@ -299,56 +301,6 @@ function useDayStatus(): DayStatus | null {
   }, []);
 
   return status;
-}
-
-/* ─── Fullscreen Lightbox ─── */
-
-function Lightbox({ images, alt, startIdx, onClose }: {
-  images: string[]; alt: string; startIdx: number; onClose: () => void;
-}) {
-  const [idx, setIdx] = useState(startIdx);
-  return (
-    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center" onClick={onClose}>
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 w-11 h-11 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors z-10"
-        aria-label="Закрыть"
-      >
-        <X className="w-5 h-5" />
-      </button>
-      <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-12" onClick={e => e.stopPropagation()}>
-        <Image src={images[idx]} alt={`${alt} — фото ${idx + 1}`} fill className="object-contain" sizes="100vw" />
-      </div>
-      {images.length > 1 && (
-        <>
-          <button
-            onClick={e => { e.stopPropagation(); setIdx(i => (i - 1 + images.length) % images.length); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors"
-            aria-label="Назад"
-          >
-            <ChevronRight className="w-6 h-6 rotate-180" />
-          </button>
-          <button
-            onClick={e => { e.stopPropagation(); setIdx(i => (i + 1) % images.length); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors"
-            aria-label="Далее"
-          >
-            <ChevronRight className="w-6 h-6" />
-          </button>
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-1.5">
-            {images.map((_, i) => (
-              <button
-                key={i}
-                onClick={e => { e.stopPropagation(); setIdx(i); }}
-                className={`h-2 rounded-full transition-all ${i === idx ? 'bg-white w-5' : 'bg-white/40 w-2'}`}
-                aria-label={`Фото ${i + 1}`}
-              />
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 /* ─── Stars ─── */
@@ -1239,7 +1191,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
       </div>
 
       {lightbox !== null && allPhotos.length > 0 && (
-        <Lightbox images={allPhotos} alt={tour.title} startIdx={lightbox} onClose={() => setLightbox(null)} />
+        <PhotoLightbox images={allPhotos} alt={tour.title} startIdx={lightbox} onClose={() => setLightbox(null)} />
       )}
     </div>
   );

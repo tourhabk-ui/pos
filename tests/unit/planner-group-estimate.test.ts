@@ -19,6 +19,7 @@ import {
   estimateGroup, calculatePriceBreakdown,
   type EstimateDay, type EstimateProfile, type GroupEstimate,
 } from '@/lib/planner/estimate';
+import { bookingTotal } from '@/lib/tours/booking-total';
 
 type Tour = NonNullable<EstimateDay['realTour']>;
 
@@ -240,5 +241,66 @@ describe('состав, трансферы, допущения', () => {
     const e = estimateGroup(VISITOR_PLAN, profile({ adults: 0, children: [] }));
     expect(e.people).toBe(1);
     expect(Number.isFinite(e.perPerson[0])).toBe(true);
+  });
+});
+
+describe('тур — по правилу брони (#2304, шаг 1б)', () => {
+  it('нижняя граница строки — ровно сумма брони для этой группы', () => {
+    const cases: Array<[string, number]> = [['per_person', 3], ['per_tour', 3], ['per_day_per_person', 3]];
+    for (const [unit, people] of cases) {
+      const t = { ...tour('t', unit, 10), durationDays: 4 };
+      const e = estimateGroup([day(1, 'activity', { realPrice: 12000, realTour: t })], profile({ adults: people }));
+      const expected = bookingTotal({
+        basePrice: 12000, priceUnit: unit, participants: people,
+        duration: { multi_day_count: 4, duration_hours: null },
+      });
+      expect(tourLines(e)[0]!.total![0], unit).toBe(expected);
+    }
+  });
+
+  it('«за день» — дни брони, а не дни, что тур занял в плане', () => {
+    // Бронь считает дни тура по multi_day_count; план мог поставить тур
+    // короче (поездка кончилась раньше) — платить всё равно за дни брони.
+    const t = { ...tour('fish', 'per_day_per_person', 10), durationDays: 5 };
+    const e = estimateGroup([day(1, 'activity', { realPrice: 28000, realTour: t })], profile({ adults: 2 }));
+    expect(plain(tourLines(e)[0]!.basis)).toBe('28 000 ₽ × 5 дней × 2 чел.');
+    expect(tourLines(e)[0]!.total![0]).toBe(28000 * 5 * 2);
+  });
+
+  it('тур в плане дважды — каждая постановка считает свои дни, без задвоения', () => {
+    const t = tour('fish', 'per_day_per_person', 10);
+    const e = estimateGroup([
+      day(1, 'activity', { realPrice: 5000, realTour: t }),
+      day(2, 'activity', { realTour: t }),
+      day(3, 'activity', { title: 'Отдых' }),
+      day(4, 'activity', { realPrice: 5000, realTour: t }),
+    ], profile({ adults: 1 }));
+    expect(tourLines(e).map((l) => l.total![0])).toEqual([10000, 5000]);
+  });
+
+  it('цены для группы нет — строка «цену называет оператор», в итог не входит, дни тура не теряются', () => {
+    const t = tour('krai', 'per_person', 15);
+    const why = 'Для группы из 2 чел. цену называет оператор отдельно: оставьте заявку, и он пришлёт её.';
+    const e = estimateGroup([
+      day(1, 'activity', { title: 'Толбачик', realTour: t, priceMissing: why }),
+      day(2, 'activity', { title: 'Толбачик — день 2 из 2', realTour: t }),
+      day(3, 'activity', { title: 'Вулкан', realPrice: 10000, realTour: tour('v', 'per_person', 10) }),
+    ], profile({ adults: 2 }));
+    const missing = tourLines(e).find((l) => l.label.includes('Толбачик'))!;
+    expect(missing.total).toBeNull();
+    expect(missing.basis).toBe('цену называет оператор');
+    expect(missing.note).toBe(why);
+    expect(tourLines(e)).toHaveLength(2);
+    expect(e.unpriced).toEqual([missing.label]);
+    expect(e.total).toEqual([20000, 24000]);
+  });
+
+  it('вилка на человека: тур без цены для группы — не ориентир и не цена, а «без цены»', () => {
+    const pb = calculatePriceBreakdown([
+      day(1, 'activity', { realTour: tour('krai', 'per_person', 15), priceMissing: 'нет цены', priceFrom: 0, priceTo: 0 }),
+      day(2, 'activity', { realPrice: 10000, realTour: tour('v', 'per_person', 10) }),
+    ], profile());
+    expect(pb.activityPricing).toEqual({ tourPriced: 1, estimated: 0, excluded: 0, unpriced: 1 });
+    expect(pb.activities).toEqual([10000, 12000]);
   });
 });

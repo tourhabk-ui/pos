@@ -272,7 +272,10 @@ describe('карточка перевозчика', () => {
     expect(html).toContain('preload="none"');
     expect(html).toContain('poster="/video/shatun/shatun-river-crossing.poster.jpg"');
     expect(html).toContain('src="/video/shatun/shatun-river-crossing.mp4"');
-    expect(html).toContain('Видео целиком: Шатун');
+    // «Видео», а не «Видео целиком»: внизу с 09.10 другой ролик (медведи),
+    // а не полная версия клипов над ним.
+    expect(html).toContain('Видео: Шатун');
+    expect(html).not.toContain('Видео целиком');
     expect(html).not.toMatch(/autoplay/i);
   });
 
@@ -472,5 +475,40 @@ describe('исполнитель в загрузчике и на карточк�
     const noInn = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, legal: { name: 'ИП Иванов', inn: null } } }));
     expect(noInn).toContain('Исполнитель: ИП Иванов.');
     expect(noInn).not.toContain('ИНН');
+  });
+});
+
+describe('нижний ролик — медведи, а не повтор клипов (владелец 09.10)', () => {
+  // «видео дублируются, добавь нижним видео медведей»: клипы ленты нарезаны из
+  // переправы, и та же переправа стояла ниже целиком.
+  const mp4 = join(ROOT, 'public/video/shatun/shatun-bears.mp4');
+  const poster = join(ROOT, 'public/video/shatun/shatun-bears.poster.jpg');
+  const MIG = read('migrations/1189_shatun_video_bears.sql').replace(/--[^\n]*/g, '');
+
+  it('файл и обложка в репозитории, ролик сжат (присланный был 15,6 МБ)', () => {
+    expect(existsSync(mp4)).toBe(true);
+    expect(existsSync(poster)).toBe(true);
+    expect(statSync(mp4).size).toBeLessThan(4 * 1024 * 1024);
+    expect(statSync(poster).size).toBeLessThan(100 * 1024);
+  });
+
+  it('без звука и без метаданных съёмки — как прежний ролик', () => {
+    const bytes = readFileSync(mp4).toString('latin1');
+    expect(bytes).toMatch(/hdlr\0{8}vide/);
+    expect(bytes).not.toMatch(/hdlr\0{8}soun/);
+    expect(bytes.slice(0, 4096)).not.toMatch(/©xyz|location|com\.apple|creation_time/i);
+  });
+
+  it('миграция меняет ролик только там, где ещё переправа, и в форме CHECK', () => {
+    expect(MIG).toMatch(/SET video_url\s+= '\/video\/shatun\/shatun-bears\.mp4',\s+video_poster_url = '\/video\/shatun\/shatun-bears\.poster\.jpg'/);
+    expect(MIG).toMatch(/WHERE slug = 'shatun'\s+AND video_url = '\/video\/shatun\/shatun-river-crossing\.mp4'/);
+    expect(MIG).not.toMatch(/INSERT|DELETE/);
+  });
+
+  it('фото ленты открываются на весь экран, а не сырым файлом в новой вкладке', () => {
+    const strip = read('components/transfers/CharterPhotos.tsx');
+    expect(strip).toMatch(/PhotoLightbox/);
+    expect(strip).not.toMatch(/target="_blank"/);
+    expect(read('components/transfers/CharterCard.tsx')).toMatch(/<CharterPhotos name=\{carrier\.name\} photos=\{carrier\.photos\} \/>/);
   });
 });

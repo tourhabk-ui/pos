@@ -10,6 +10,7 @@ import { funnelBeacon } from '@/lib/funnel/beacon';
 import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
 import { tourPath } from '@/lib/tours/tour-url';
+import { dayPriceLine } from '@/lib/planner/day-price';
 import { OfflineSave } from './_OfflineSave';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -23,6 +24,10 @@ interface DayPlan {
   priceTo: number;
   coords: [number, number];
   defaultTransport: string;
+  /** Тур дня от движка — цена с единицей (lib/planner/day-price, #2304). */
+  realPrice?: number;
+  priceMissing?: string;
+  realTour?: { priceUnit?: string; priceLabel?: string };
 }
 
 /** Тур к дню — прикладывает share-API (top_tours по activityType). */
@@ -107,12 +112,6 @@ const TRANSPORT_LABELS: Record<string, string> = {
   helicopter: 'Вертолёт',
   boat: 'Катер',
 };
-
-function formatPrice(from: number, to: number): string {
-  if (!from && !to) return '';
-  if (from === to) return `${from.toLocaleString('ru')} ₽`;
-  return `${from.toLocaleString('ru')} – ${to.toLocaleString('ru')} ₽`;
-}
 
 export function TripShareClient({ trip, token }: { trip: Trip; token: string }) {
   const [copied, setCopied] = useState(false);
@@ -316,7 +315,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
           {trip.days.map((day) => {
             const transport = trip.transport_by_day?.[String(day.day)] || day.defaultTransport;
             const zoneColor = ZONE_COLORS[day.zone] || 'var(--text-secondary)';
-            const price = formatPrice(day.priceFrom, day.priceTo);
+            // Цена — с единицей, как в каталоге: тур «за группу» не читается
+            // как цена с человека (#2304).
+            const price = dayPriceLine(day);
             // У черновика тур дня — тот, что назван в чате; подбор по типу —
             // только у опубликованной поездки (#2225).
             const tour = trip.day_tours?.[String(day.day)] ?? trip.top_tours?.[day.activityType];

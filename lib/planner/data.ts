@@ -46,6 +46,11 @@ export interface RealTour {
   maxParticipants: number;
   minParticipants: number;
   durationHours: number | null;
+  /**
+   * Дни тура словами оператора (`multi_day_count`). Бронь считает длительность
+   * сначала по ним (lib/bookings/duration), и план обязан считать так же.
+   */
+  multiDayCount: number | null;
   difficulty: string | null;
   weatherDependent: boolean;
   seasonStart: string | null;
@@ -135,6 +140,7 @@ export async function fetchRealToursForZone(
         max_participants: number;
         min_participants: number;
         duration_hours: number | null;
+        multi_day_count: number | null;
         difficulty: string | null;
         weather_dependent: boolean;
         season_start: string | null;
@@ -155,7 +161,7 @@ export async function fetchRealToursForZone(
         `SELECT
           ot.id AS tour_id, ot.title, ot.short_description,
           ot.base_price, ot.price_unit,
-          ot.max_participants, ot.min_participants, ot.duration_hours,
+          ot.max_participants, ot.min_participants, ot.duration_hours, ot.multi_day_count,
           ot.difficulty, ot.weather_dependent,
           ot.season_start::text, ot.season_end::text,
           ot.latitude AS lat, ot.longitude AS lng,
@@ -202,6 +208,7 @@ export async function fetchRealToursForZone(
         maxParticipants: r.max_participants ?? 20,
         minParticipants: r.min_participants ?? 1,
         durationHours: r.duration_hours,
+        multiDayCount: r.multi_day_count ?? null,
         difficulty: r.difficulty,
         weatherDependent: r.weather_dependent ?? false,
         seasonStart: r.season_start,

@@ -25,6 +25,7 @@ import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams } from '@/lib/planner/plan-edit';
 import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
+import { priceFromUnit } from '@/lib/tours/price-label';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 
 /**
@@ -366,7 +367,8 @@ const plural = (n: number, one: string, few: string, many: string) =>
  */
 export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: boolean, group?: GroupEstimate): string[] {
   if (!planned) return [];
-  const { tourPriced, estimated, excluded } = pb.activityPricing;
+  // `unpriced` с умолчанием: разбивка, сохранённая до #2304, его не несёт.
+  const { tourPriced, estimated, excluded, unpriced = 0 } = pb.activityPricing;
   const parts: string[] = [];
   if (tourPriced > 0) parts.push(`${tourPriced} — по ценам туров операторов`);
   if (estimated > 0) parts.push(`${estimated} — по справочной вилке вида активности, это не цена тура`);
@@ -379,16 +381,21 @@ export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: b
   if (excluded > 0 && !group) {
     lines.push(`Без учёта ${excluded} ${excluded === 1 ? 'тура' : 'туров'}: цена у ${excluded === 1 ? 'него' : 'них'} не за человека (за группу или за день) — сумму смотрите в карточке тура.`);
   }
+  if (unpriced > 0 && !group) {
+    lines.push(`Без цены для вашей группы: ${unpriced} ${plural(unpriced, 'тур', 'тура', 'туров')} — цену называет оператор, в сумму не вошли.`);
+  }
   if (group) {
-    // Исключённые из вилки на человека, кроме туров без распознанной единицы
-    // цены, посчитаны в итоге на группу.
-    const inGroup = excluded - group.lines.filter((l) => l.kind === 'tour' && !l.total).length;
+    // Строки туров без суммы в смете — это туры без цены для группы
+    // (`unpriced` вилки) и туры с нераспознанной единицей цены (они же в
+    // `excluded`). Остальные исключённые посчитаны в итоге на группу.
+    const unknownUnit = group.lines.filter((l) => l.kind === 'tour' && !l.total).length - unpriced;
+    const inGroup = excluded - unknownUnit;
     if (inGroup > 0) {
       lines.push(`В вилку на человека ${plural(inGroup, 'не вошёл', 'не вошли', 'не вошли')} ${inGroup} ${plural(inGroup, 'тур', 'тура', 'туров')} с ценой не за человека (за группу или за день) — в итоге на группу ${inGroup === 1 ? 'он учтён' : 'они учтены'} по своей единице цены.`);
     }
     lines.push(`Итого на ${group.people === 1 ? 'одного' : `группу из ${group.people} чел.`}: ${range(group.total)} — туры по своей цене (за человека — на каждого, за группу — на группу), жильё, переезды и дни без тура — ориентир на каждого.`);
     if (group.unpriced.length > 0) {
-      lines.push(`Не вошло ни в одну сумму — не указано, за что цена: ${group.unpriced.join('; ')}. Сумму смотрите в карточке тура.`);
+      lines.push(`Не вошло ни в одну сумму — цены нет: ${group.unpriced.join('; ')}. Цену называет оператор, она в карточке тура.`);
     }
     lines.push(...group.assumptions);
   }
@@ -562,8 +569,12 @@ export function formatTripPlanForChat(
     // Цена — только у реального тура. Без него priceFrom — ориентир из
     // констант движка («вулканы от 5 000 ₽» при нуле туров на вулканы), и
     // рядом с настоящими ценами он читался как цена (аудит MCP 29.09).
-    const price = d.realPrice != null && d.realPrice > 0 ? ` — от ${d.realPrice.toLocaleString('ru-RU')} ₽` : '';
+    // Единица — из тура (priceFromUnit, #2304): «от 196 000 ₽» у тура за
+    // группу агент читал как цену с человека. Цены для группы нет (вне ступеней
+    // оператора) — так и сказано строкой ниже, без числа.
+    const price = d.realPrice != null && d.realPrice > 0 ? ` — ${priceFromUnit(d.realPrice, d.realTour?.priceUnit)}` : '';
     lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
+    if (d.priceMissing) lines.push(`   ${d.priceMissing}`);
     const planDayIso = context?.arrivalIso
       ? new Date(Date.parse(`${context.arrivalIso}T00:00:00Z`) + (d.day - 1) * 86400000).toISOString().slice(0, 10)
       : null;

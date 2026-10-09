@@ -93,6 +93,15 @@ describe('смета на группу в /planner', () => {
     expect(text(estimate)).not.toContain('(0 ₽)');
   });
 
+  it('карточка дня называет, за что цена тура (шаг 1б)', async () => {
+    await buildPlan();
+    const tags = screen.getAllByTestId('day-price').map(text);
+    expect(tags).toContain('30 000 ₽за группу');
+    expect(tags).toContain('10 000 ₽за человека');
+    // День без тура и без ориентира — без цены, а не «от 0 ₽».
+    expect(tags.some((t) => t.includes('0 ₽на человека'))).toBe(false);
+  });
+
   it('удалили день с туром — смета пересчиталась без него', async () => {
     const estimate = await buildPlan();
     fireEvent.click(deleteButtonOf('Мутновский вулкан'));

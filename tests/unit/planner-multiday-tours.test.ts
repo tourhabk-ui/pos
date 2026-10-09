@@ -25,7 +25,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tourDaySpan, MAX_TOUR_DAYS } from '@/lib/planner/tour-span';
+import { tourDaySpan, tourPlanSpan, MAX_TOUR_DAYS } from '@/lib/planner/tour-span';
+import { tourDurationDays } from '@/lib/bookings/duration';
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
@@ -82,7 +83,7 @@ describe('тур занимает свои дни, а платится один 
     const at = ENGINE.indexOf('const span = ');
     expect(at, 'span не присваивается').toBeGreaterThan(0);
     const before = ENGINE.slice(Math.max(0, at - 400), at);
-    expect(before, 'span не выведен из tourDaySpan').toContain('tourDaySpan(realTour.durationHours)');
+    expect(before, 'span не выведен из длительности по правилу брони').toContain('tourPlanSpan(realTour.durationHours, realTour.multiDayCount)');
     expect(ENGINE.slice(at, at + 60)).toMatch(/const span = declaredSpan \?\? 1;/);
   });
 
@@ -156,5 +157,52 @@ describe('цикл завершается сам', () => {
   it('успешный оборот обнуляет счётчик бесплодных', () => {
     // Иначе редкая полоса пропусков оборвала бы сборку досрочно.
     expect(ENGINE).toMatch(/barren = 0;/);
+  });
+});
+
+describe('дни тура в плане — по правилу брони (#2304)', () => {
+  // Бронь (lib/bookings/duration) считает длительность сначала по дням
+  // словами оператора (`multi_day_count`), потом по часам. План читал только
+  // часы: тур «8 дней» с пустыми часами стоял одним днём, а бронь занимала
+  // восемь.
+  it('дни словами оператора важнее часов', () => {
+    expect(tourPlanSpan(null, 8)).toBe(8);
+    expect(tourPlanSpan(10, 4)).toBe(4);
+    expect(tourPlanSpan(192, 8)).toBe(8);
+  });
+
+  it('дней нет — по часам, как раньше', () => {
+    expect(tourPlanSpan(120, null)).toBe(5);
+    expect(tourPlanSpan(8, null)).toBe(1);
+    expect(tourPlanSpan(72, 1)).toBe(3);
+  });
+
+  it('ничего не записано — «не знаем»; «1 день» словами — знание', () => {
+    expect(tourPlanSpan(null, null)).toBeNull();
+    expect(tourPlanSpan(undefined, undefined)).toBeNull();
+    expect(tourPlanSpan(0, 0)).toBeNull();
+    expect(tourPlanSpan(null, 1)).toBe(1);
+  });
+
+  it('нелепое число дней отвергается так же, как нелепые часы', () => {
+    expect(tourPlanSpan(null, MAX_TOUR_DAYS)).toBe(MAX_TOUR_DAYS);
+    expect(tourPlanSpan(null, 400)).toBeNull();
+  });
+
+  it('везде, где план знает длительность, она равна длительности брони', () => {
+    const hours = [null, 0, 2.5, 8, 24, 25, 48, 72, 96, 120, 168, 192, 336];
+    const days = [null, 0, 1, 2, 3, 4, 5, 7, 8, 12, 14];
+    for (const h of hours) {
+      for (const m of days) {
+        const plan = tourPlanSpan(h, m);
+        if (plan === null) continue;
+        expect(plan, `часы ${h}, дни ${m}`).toBe(tourDurationDays({ duration_hours: h, multi_day_count: m }));
+      }
+    }
+  });
+
+  it('движок ставит и предрасчёт растяжки блока по тому же правилу', () => {
+    expect(ENGINE).toContain('tourPlanSpan(t.durationHours, t.multiDayCount)');
+    expect(ENGINE).not.toMatch(/tourDaySpan\((?:t|realTour)\.durationHours\)/);
   });
 });

@@ -129,8 +129,12 @@ describe('поверхности с жалобы владельца подклю
   });
 
   it('лайтбокс остаётся на оригинале — полное качество по запросу', () => {
-    const src = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
-    expect(src).toMatch(/Image src=\{images\[idx\]\}/);
+    // С 09.10 просмотрщик один на все галереи (components/shared/PhotoLightbox):
+    // карточка тура, страница оператора и лента перевозчика отдают ему адреса
+    // оригиналов, а он не подменяет их нарезкой.
+    const src = readFileSync(join(ROOT, 'components/shared/PhotoLightbox.tsx'), 'utf-8');
+    expect(src).toMatch(/Image src=\{images\[idx\]!?\}/);
+    expect(src).not.toMatch(/photoSrc/);
   });
 
   it('статика фото кэшируется — повторный визит не платит второй раз', () => {
