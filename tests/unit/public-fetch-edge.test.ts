@@ -41,6 +41,10 @@ const PROTECTED_COMPONENT_DIRS = [
   // и каталог тут не требовался; с закрытием префикса на Edge (01.09)
   // принадлежность фиксируется явно.
   'components/admin',
+  // Экран «Клиенты» CRM (#2325) — только кабинеты партнёров и админа под
+  // /hub; что его не импортирует никто вне app/hub, держит
+  // tests/unit/crm-clients-screens.test.ts.
+  'components/crm',
 ].map(p => join(ROOT, p));
 
 /**

@@ -68,6 +68,22 @@ describe('экран CRM по правилам дизайн-системы', () 
     for (const u of urls) expect(u).toMatch(/^\/api\/hub\/crm\/contacts/);
   });
 
+  it('экран CRM монтируется только в кабинетах за входом (app/hub)', () => {
+    // На этом держится запись components/crm в PROTECTED_COMPONENT_DIRS
+    // сторожа public-fetch-edge: импорт с публичной страницы сделал бы её
+    // клиентом личного API, который Edge режет гостю молча.
+    const walk = (dir: string): string[] => readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) return [];
+      const rel = `${dir}/${e.name}`;
+      return e.isDirectory() ? walk(rel) : /\.(ts|tsx)$/.test(e.name) ? [rel] : [];
+    });
+    const importers = [...walk('app'), ...walk('components'), ...walk('lib')]
+      .filter((f) => !f.startsWith('components/crm/'))
+      .filter((f) => /from '@\/components\/crm\//.test(read(f)));
+    expect(importers.length).toBeGreaterThan(0);
+    for (const f of importers) expect(f, f).toMatch(/^app\/hub\//);
+  });
+
   it('диалоги — с ловушкой фокуса, а не одним aria-modal', () => {
     for (const f of files.filter((x) => /aria-modal/.test(read(x)))) {
       expect(read(f), f).toMatch(/useModalDialog\(/);
