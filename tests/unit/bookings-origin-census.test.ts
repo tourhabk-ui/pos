@@ -10,7 +10,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  BY_ORIGIN_SQL, DEFAULT_HOURS, MAX_HOURS, RECENT_SQL, censusBookingsOrigin, clampHours,
+  BY_ORIGIN_SQL, BY_ORIGIN_UNLINKED_SQL, DEFAULT_HOURS, MAX_HOURS, RECENT_SQL, RECENT_UNLINKED_SQL,
+  censusBookingsOrigin, clampHours, parseScope,
 } from '@/lib/analytics/bookings-origin';
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
@@ -30,7 +31,7 @@ describe('окно', () => {
 });
 
 describe('без ПД по построению', () => {
-  const sql = `${RECENT_SQL}\n${BY_ORIGIN_SQL}`;
+  const sql = [RECENT_SQL, RECENT_UNLINKED_SQL, BY_ORIGIN_SQL, BY_ORIGIN_UNLINKED_SQL].join('\n');
 
   it('имя, телефон и почта туриста — только внутри проверки присутствия', () => {
     const uses = [...sql.matchAll(/tourist_(?:name|phone|email)\b/g)];
@@ -56,6 +57,32 @@ describe('без ПД по построению', () => {
     expect(route).toMatch(/getCronSecret\(req\)/);
     expect(route).toMatch(/timingSafeCompare\(/);
     expect(route).toMatch(/clampHours\(req\.nextUrl\.searchParams\.get\('hours'\)\)/);
+    expect(route).toMatch(/parseScope\(req\.nextUrl\.searchParams\.get\('scope'\)\)/);
+  });
+});
+
+describe('область unlinked — предикат задела, без окна времени', () => {
+  it('scope читается только как unlinked или window', () => {
+    expect(parseScope('unlinked')).toBe('unlinked');
+    expect(parseScope('all')).toBe('window');
+    expect(parseScope(null)).toBe('window');
+  });
+
+  it('SQL непривязанных повторяет предикат crm-contacts-sync и не смотрит на created_at', () => {
+    for (const q of [RECENT_UNLINKED_SQL, BY_ORIGIN_UNLINKED_SQL]) {
+      expect(q).toMatch(/b\.deleted_at IS NULL AND t\.operator_id IS NOT NULL/);
+      expect(q).toMatch(/NOT EXISTS \(SELECT 1 FROM crm_contact_links l/);
+      expect(q).toMatch(/l\.source_kind = 'operator_booking' AND l\.source_id = b\.id::text/);
+      expect(q).not.toMatch(/make_interval/);
+    }
+  });
+
+  it('отчёт unlinked называет область и не выдумывает окно', async () => {
+    const exec = { query: async () => ({ rows: [] }) } as unknown as Parameters<typeof censusBookingsOrigin>[1];
+    const r = await censusBookingsOrigin(48, exec, 'unlinked');
+    expect(r.scope).toBe('unlinked');
+    expect(r.hours).toBeNull();
+    expect(r.failed).toEqual([]);
   });
 });
 
