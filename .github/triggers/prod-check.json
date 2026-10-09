@@ -1,10 +1,24 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 101,
-  "why": "09.10, ~30 минут после run 100: число непривязанных броней тура росло между вызовами (сухой 1 → apply нашёл 2 → сухой 2) — два сухих вызова подряд, чтобы отличить постоянного создателя operator_bookings (число растёт) от разового всплеска (осталось 2). Записи (apply) нет намеренно: привязывать строки неизвестного происхождения — заводить оператору выдуманных клиентов.",
+  "run": 102,
+  "why": "09.10, сравнение с Яндекс.Метрикой (слово владельца «сравним данные с яндексом»): наша сторона — перепись воронки по камчатским суткам 2026-09-25…2026-10-09 (visits = люди за день по суточному хэшу, без ботов и своих заходов; последние сутки partial). Метрика с 11.09 считает только давших согласие на аналитику — расхождение после этой даты измеряет долю согласий, а не ошибку счёта. Первым URL — сухой crm-contacts-sync: продолжение run 100/101 (1 → 2 → 2), записи нет.",
   "urls": [
     "https://vedarai.ru/api/cron/crm-contacts-sync",
-    "https://vedarai.ru/api/cron/crm-contacts-sync"
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-09-25",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-09-26",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-09-27",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-09-28",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-09-29",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-09-30",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-01",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-02",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-03",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-04",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-05",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-06",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-07",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-08",
+    "https://vedarai.ru/api/cron/funnel-census?date=2026-10-09"
   ],
   "run100_result": "ОТВЕТ ПОЛУЧЕН (run 37919013217, job 113782147066, 09.10 ~11:16 UTC, три HTTP 200). Сухой: operator_booking 1, остальные пять видов 0. apply=1: operator_booking scanned 2, created 1, no_contact 1 (служебная бронь без ПД), остальные 0, 41 мс, complete. Сухой после: operator_booking 2. Предикаты счёта и страницы одни — набор менялся между вызовами: две новые брони за минуту. Разбор в #2325.",
   "run96_result": "ОТВЕТ ПОЛУЧЕН (job 113365435043, 08.10 15:07 UTC, оба HTTP 200). Зона avachinsky, 09–13.10: код прода [86,45,0,45,3] = GFS [86,45,0,45,3] (best_match [86,3,3,3,3]); ветер прода [16,17,11,11,11] = best_match [16.3,17.4,10.7,11.1,11.3] (GFS [41,27.6,21.6,17.7,17.8]). #2286 работает как задумано, но с кодом GFS целиком сухие дни стали «туманом» и «ясно» вместо «пасмурно» — облачность и туман замер не мерил, туман читает Rescue. Уточнено в #2287.",
