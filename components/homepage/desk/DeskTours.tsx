@@ -1,11 +1,12 @@
 import Link from 'next/link';
-import { ArrowRight, CalendarCheck, CalendarX, MessageSquareText, RotateCcw } from 'lucide-react';
+import { ArrowRight, CalendarCheck, CalendarX, MessageSquareText, RotateCcw, Truck } from 'lucide-react';
 import type { Plate } from '@/app/_home/data';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import { tourPath } from '@/lib/tours/tour-url';
+import { withTransferPlate, isTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
 
 /**
  * «Можно поехать» — туры витрины крупной карточкой и строками (доска
@@ -20,6 +21,9 @@ import { tourPath } from '@/lib/tours/tour-url';
  *
  * Последняя строка — заявка (/request): тур не подошёл — у человека остаётся
  * следующий шаг (#33).
+ *
+ * Между турами — строка трансфера (решение владельца 09.10), на том же месте,
+ * что в ленте телефона: после второго тура. Цена — за машину, не за место.
  */
 
 function Availability({ p, glass = false }: { p: Plate; glass?: boolean }) {
@@ -111,8 +115,41 @@ function Row({ p }: { p: Plate }) {
   );
 }
 
-export function DeskTours({ plates, total }: { plates: readonly Plate[]; total: number | null }) {
-  const [first, ...rest] = plates;
+function TransferRow({ t }: { t: TransferPlate }) {
+  return (
+    <Link
+      href={t.href}
+      className="group grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] py-4 no-underline hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
+    >
+      <span className="relative grid h-24 w-24 place-items-center overflow-hidden rounded-lg bg-[var(--bg-hover)] text-[var(--ocean)]">
+        {t.imageUrl ? (
+          <span
+            className="absolute inset-0 bg-cover bg-top transition-transform duration-300 group-hover:scale-[1.06]"
+            style={{ backgroundImage: `url('${photoSrc(t.imageUrl, 640)}')` }}
+            aria-hidden
+          />
+        ) : <Truck size={28} aria-hidden />}
+      </span>
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="line-clamp-1 text-[13px] text-[var(--text-secondary)]">
+          {['Трансфер под заказ', t.fleet].filter(Boolean).join(' · ')}
+        </span>
+        <span className="line-clamp-2 text-[17px] font-semibold leading-snug text-[var(--text-primary)] transition-colors duration-200 group-hover:text-[var(--accent)]">
+          {t.title}{t.destinations.length > 0 ? `: ${t.destinations.join(', ')}` : ''}
+        </span>
+        {t.price
+          ? <span className="text-[15px] tabular-nums lining-nums text-[var(--text-primary)]">{t.price}</span>
+          : <span className="text-[15px] text-[var(--text-secondary)]">Цена по запросу</span>}
+      </span>
+    </Link>
+  );
+}
+
+export function DeskTours({ plates, transfer = null, total }: { plates: readonly Plate[]; transfer?: TransferPlate | null; total: number | null }) {
+  const first = plates[0];
+  // Трансфер встаёт между турами по общему правилу ленты (после второго тура);
+  // первый тур — крупная карточка, строки — всё, что после него.
+  const rows = withTransferPlate(plates.slice(0, 4), transfer).slice(1);
   return (
     <section className="flex flex-col gap-6" aria-labelledby="desk-tours-title">
       <div className="flex items-end justify-between gap-6">
@@ -130,7 +167,7 @@ export function DeskTours({ plates, total }: { plates: readonly Plate[]; total: 
         <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14">
           <div className="lg:col-span-7"><Featured p={first} /></div>
           <div className="flex flex-col lg:col-span-5">
-            {rest.slice(0, 3).map((p) => <Row key={p.id} p={p} />)}
+            {rows.map((p) => (isTransferPlate(p) ? <TransferRow key={p.id} t={p} /> : <Row key={p.id} p={p} />))}
             <Link
               href="/request"
               className="group flex items-center gap-4 border-y border-[var(--border)] py-4 no-underline hover:no-underline"
