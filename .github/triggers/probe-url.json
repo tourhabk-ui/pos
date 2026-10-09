@@ -2,23 +2,19 @@
   "timeout": 40,
   "retries": 2,
   "allowStale": false,
-  "bytes": 300,
+  "bytes": 7000,
   "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Линия маршрута «Зеленовские озерки» (gpx, 0,57 км): где она лежит относительно точки 53.2877/158.3489.",
-  "run": 741,
+  "run": 742,
   "urls": [
     "https://vedarai.ru/api/routes/cf257914-fff2-4a72-baba-4a4381d7a83d"
   ],
   "grep": [
-    "\"coordinates\"",
-    "geometry",
-    "source"
+    "geometry"
   ],
   "text": false,
   "retryDelay": 10,
-  "around": [
-    "\"coordinates\""
-  ],
-  "aroundLines": 2,
+  "around": [],
+  "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 1,
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)"
