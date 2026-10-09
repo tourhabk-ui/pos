@@ -37,3 +37,6 @@ README.md
 dist
 coverage
 .vercel
+
+# Медиа для хранилища (media/s3/) заливаются в бакет с раннера, в образ не нужны.
+media/

@@ -1,0 +1,39 @@
+{
+  "upload": true,
+  "run": 1,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты.",
+  "items": [
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
+      "key": "videos/fishingkam/clip-fish-strike.mp4"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-strike.poster.jpg",
+      "key": "videos/fishingkam/clip-fish-strike.poster.jpg"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-landing.mp4",
+      "key": "videos/fishingkam/clip-fish-landing.mp4"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-landing.poster.jpg",
+      "key": "videos/fishingkam/clip-fish-landing.poster.jpg"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-catch.mp4",
+      "key": "videos/fishingkam/clip-fish-catch.mp4"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-catch.poster.jpg",
+      "key": "videos/fishingkam/clip-fish-catch.poster.jpg"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-trophy.mp4",
+      "key": "videos/fishingkam/clip-fish-trophy.mp4"
+    },
+    {
+      "file": "media/s3/videos/fishingkam/clip-fish-trophy.poster.jpg",
+      "key": "videos/fishingkam/clip-fish-trophy.poster.jpg"
+    }
+  ]
+}
