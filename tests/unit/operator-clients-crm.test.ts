@@ -112,11 +112,14 @@ describe('правило сегмента и суммы — в SQL', () => {
 
   it('порядок — из параметра в CASE, а не вклеенным текстом', () => {
     expect(OPERATOR_CLIENTS_LIST_SQL).toMatch(/CASE WHEN \$6::text = 'sum'/);
-    expect(read('lib/crm/operator-clients.ts')).not.toMatch(/ORDER BY \$\{/);
+    expect(read('lib/crm/operator-clients-sql.ts')).not.toMatch(/ORDER BY \$\{/);
   });
 
-  it('проба прода разбирает именно эти запросы', () => {
+  it('проба прода разбирает именно эти запросы — из модуля без записи', () => {
     const probe = read('app/api/cron/operator-screens-check/route.ts');
+    expect(probe).toMatch(/from '@\/lib\/crm\/operator-clients-sql'/);
+    expect(probe).not.toMatch(/from '@\/lib\/crm\/operator-clients'/);
+    expect(read('lib/crm/operator-clients-sql.ts')).not.toMatch(/INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM|db-pool/);
     for (const name of ['OPERATOR_CLIENTS_LIST_SQL', 'OPERATOR_CLIENTS_COUNT_SQL', 'OPERATOR_CLIENTS_SUMMARY_SQL']) {
       expect(probe).toMatch(new RegExp(`sql: ${name}`));
     }
@@ -201,7 +204,7 @@ describe('переезд без потерь и без второго экран
   });
 
   it('экран и API больше не читают и не пишут operator_client_notes', () => {
-    for (const f of ['app/api/hub/crm/contacts/route.ts', 'lib/crm/operator-clients.ts', 'lib/crm/contact-queries.ts', 'components/crm/ContactsScreen.tsx']) {
+    for (const f of ['app/api/hub/crm/contacts/route.ts', 'lib/crm/operator-clients.ts', 'lib/crm/operator-clients-sql.ts', 'lib/crm/contact-queries.ts', 'components/crm/ContactsScreen.tsx']) {
       expect(read(f), f).not.toMatch(/operator_client_notes/);
     }
   });

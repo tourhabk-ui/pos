@@ -22,7 +22,7 @@
  *
  * ПОЧЕМУ SQL НЕ СКОПИРОВАН. В отличие от `sql-shape-check`, копии здесь нет:
  * запросы импортируются из `lib/operator/screen-queries.ts` и (для «Клиентов»)
- * `lib/crm/operator-clients.ts` — тех самых модулей, которые читают сами
+ * `lib/crm/operator-clients-sql.ts` — тех самых модулей, которые читают сами
  * роуты. Расходиться нечему по построению.
  *
  * ЧЕГО ПРОБА НЕ ДОКАЗЫВАЕТ. Что экран отдаёт ПРАВИЛЬНЫЕ числа, что права
@@ -43,7 +43,7 @@ import {
   OPERATOR_CLIENTS_LIST_SQL,
   OPERATOR_CLIENTS_COUNT_SQL,
   OPERATOR_CLIENTS_SUMMARY_SQL,
-} from '@/lib/crm/operator-clients';
+} from '@/lib/crm/operator-clients-sql';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -57,7 +57,8 @@ interface ScreenQuery {
 
 /**
  * «Клиенты» с 10.10 — контакты CRM оператора с суммами и сегментом
- * (lib/crm/operator-clients, шаг 1а-2b). Текст у каждого запроса один на все
+ * (lib/crm/operator-clients-sql, шаг 1а-2b). Модуль без записи: проба только
+ * разбирает запросы, и импорт не должен давать ей права менять данные. Текст у каждого запроса один на все
  * фильтры (параметры могут быть NULL), поэтому сочетаний нет — по одному
  * PREPARE на запрос.
  */

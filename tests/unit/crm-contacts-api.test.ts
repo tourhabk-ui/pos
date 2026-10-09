@@ -79,7 +79,7 @@ describe('форма роутов', () => {
   });
 
   it('каждый SQL по контактам скоупится partner_id', () => {
-    for (const [file, min] of [['contact-queries.ts', 5], ['operator-clients.ts', 1]] as const) {
+    for (const [file, min] of [['contact-queries.ts', 5], ['operator-clients-sql.ts', 1]] as const) {
       const src = readFileSync(join(ROOT, 'lib', 'crm', file), 'utf8');
       const sqls = [...src.matchAll(/`([^`]*\bcrm_contacts\b[^`]*)`/g)].map((m) => m[1]);
       expect(sqls.length, file).toBeGreaterThanOrEqual(min);
