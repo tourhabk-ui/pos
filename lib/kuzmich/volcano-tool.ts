@@ -32,6 +32,13 @@ export interface KvertRow {
   acc: string;
   ash_height_m: number | null;
   observed_at: string | null;
+  /**
+   * Когда НАШ синк последний раз записал строку (`volcano_status.updated_at`).
+   * `observed_at` — дата выпуска KVERT, а KVERT выпускает код при изменении:
+   * код от 02.10 при опросе этого утра — текущий, а не устаревший (#2315).
+   * Без этого поля агент не мог отличить «KVERT молчит» от «мы не опрашиваем».
+   */
+  polled_at?: string | null;
 }
 
 export interface KfegsRow {
@@ -62,6 +69,11 @@ export interface MergedVolcano {
 
 const ELEVATED = new Set(['yellow', 'orange', 'red']);
 const LIST_LIMIT = 15;
+/**
+ * Наш опрос KVERT встал: синк каждые 6 часов (cron-kvert-acc.yml), и три
+ * пропущенных прогона подряд — уже не случайность расписания GitHub.
+ */
+export const KVERT_POLL_STALE_MS = 18 * 3600_000;
 
 function accColor(acc: string): AccColor {
   return acc === 'green' || acc === 'yellow' || acc === 'orange' || acc === 'red' ? acc : 'unassigned';
@@ -70,6 +82,15 @@ function accColor(acc: string): AccColor {
 function ruDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU', { timeZone: 'Asia/Kamchatka' });
+}
+
+/** ДД.ММ ЧЧ:ММ по Камчатке — момент опроса, а не сутки. */
+function ruStamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('ru-RU', {
+    timeZone: 'Asia/Kamchatka', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).replace(',', '');
 }
 
 /** Строка KVERT: код, пепел, когда наблюдали — и честно, если наблюдение старое. */
@@ -171,9 +192,24 @@ function sourcesLine(input: VolcanoInput, nowMs: number): { text: string; comple
     complete = false;
   } else {
     const latest = input.kvert.map((k) => k.observed_at).filter((x): x is string => !!x).sort().pop() ?? null;
-    if (input.kvert.length === 0 || !latest) { parts.push('KVERT: кодов нет'); complete = false; }
-    else if (isVolcanoObservationStale(latest, nowMs)) { parts.push(`KVERT: последнее наблюдение ${ruDate(latest)} — устарело`); complete = false; }
-    else parts.push(`KVERT: ${input.kvert.length} вулканов, самое свежее наблюдение ${ruDate(latest)} (у каждого вулкана своя дата — в его строке)`);
+    // Момент нашего опроса — по самой свежей записи: вулкан, которого KVERT
+    // больше не перечисляет, держит старый момент, и судить по нему нельзя.
+    const polled = input.kvert.map((k) => k.polled_at).filter((x): x is string => !!x)
+      .sort((a, b) => Date.parse(a) - Date.parse(b)).pop() ?? null;
+    const polledMs = polled ? Date.parse(polled) : NaN;
+    const pollStale = Number.isFinite(polledMs) && nowMs - polledMs > KVERT_POLL_STALE_MS;
+    const poll = !polled ? ''
+      : pollStale ? `; наш опрос KVERT встал — последний ${ruStamp(polled)} по Камчатке, коды могут быть не текущими`
+      : `; опрошен нами ${ruStamp(polled)} по Камчатке`;
+    if (pollStale) complete = false;
+    if (input.kvert.length === 0 || !latest) { parts.push(`KVERT: кодов нет${poll}`); complete = false; }
+    else if (isVolcanoObservationStale(latest, nowMs)) { parts.push(`KVERT: последнее наблюдение ${ruDate(latest)} — устарело${poll}`); complete = false; }
+    else {
+      parts.push(
+        `KVERT: ${input.kvert.length} вулканов, самое свежее наблюдение ${ruDate(latest)} (у каждого вулкана своя дата — в его строке; `
+        + `KVERT выпускает код при изменении, старая дата при свежем опросе — код всё ещё в силе)${poll}`,
+      );
+    }
   }
   if (input.kfegs === null) {
     parts.push('КФ ЕГС: не смог прочитать');
@@ -274,7 +310,8 @@ export async function loadVolcanoInput(): Promise<VolcanoInput> {
   try {
     const { rows } = await pool.query<KvertRow>(
       `SELECT vs.place_ark_id::text AS ark, p.name AS place_name, vs.volcano_name AS name,
-              vs.aviation_color_code AS acc, vs.ash_height_m, vs.observed_at::text AS observed_at
+              vs.aviation_color_code AS acc, vs.ash_height_m, vs.observed_at::text AS observed_at,
+              vs.updated_at::text AS polled_at
          FROM volcano_status vs
          LEFT JOIN places p ON p.ark_id = vs.place_ark_id AND p.merged_into_id IS NULL`,
     );

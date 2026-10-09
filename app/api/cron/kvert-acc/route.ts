@@ -67,6 +67,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: message, ...result }, { status: 502 });
     }
 
+    // Лента бюллетеней VONA не прочиталась — сводка записана, но коды между
+    // сводками потеряны: извержение, объявленное бюллетенем во вторник, до
+    // следующей сводки не видно никому. До 09.10 `vona.error` лежал в теле
+    // ответа и не читался ничем, прогон был зелёным (#2315: у Шивелуча код
+    // «от 02.10» через шесть дней, и отличить «KVERT молчит» от «мы не
+    // дочитали» было нечем). Отдельные недочитанные выпуски (`vona.failed`)
+    // красным не делают — они названы в теле поимённо.
+    if (result.vona?.error) {
+      const message = `KVERT: сводка записана (${result.matched}), лента бюллетеней VONA не прочитана — ${result.vona.error}`;
+      recordCronRun('kvert-acc', startedAt, 'failed', { error: message });
+      return NextResponse.json({ success: false, error: message, ...result }, { status: 502 });
+    }
+
     // Счётчик работы в телеметрию: без него успешный прогон неотличим от
     // холостого уже на уровне истории, и сторож холостых кронов слеп.
     //
