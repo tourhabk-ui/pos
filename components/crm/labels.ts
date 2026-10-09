@@ -14,6 +14,20 @@ export const SOURCE_KIND_LABELS: Readonly<Record<SourceKind, string>> = {
   agent_client: 'Клиент агента',
 };
 
+/** Роль партнёра словами — для экрана администратора. */
+export const PARTNER_CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  operator: 'Оператор',
+  guide: 'Гид',
+  transfer: 'Перевозчик',
+  agent: 'Агент',
+  stay: 'Жильё',
+  gear: 'Прокат',
+};
+
+export function partnerCategoryLabel(category: string): string {
+  return PARTNER_CATEGORY_LABELS[category] ?? category;
+}
+
 /**
  * Статусы источников разные у каждой таблицы. Незнакомый статус показывается
  * как есть: подменить его ближайшим знакомым словом значило бы соврать о

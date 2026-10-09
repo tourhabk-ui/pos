@@ -87,7 +87,12 @@ describe('ПД из CRM не уходят ни в модель, ни в лог',
   });
 
   it('логи CRM — вид источника и SQLSTATE, без имени, телефона и почты', () => {
-    const logged = [...files, 'app/api/cron/crm-contacts-sync/route.ts', 'app/api/hub/crm/contacts/route.ts', 'app/api/hub/crm/contacts/[id]/route.ts']
+    const logged = [
+      ...files,
+      'app/api/cron/crm-contacts-sync/route.ts',
+      'app/api/hub/crm/contacts/route.ts', 'app/api/hub/crm/contacts/[id]/route.ts',
+      'app/api/admin/crm/contacts/route.ts', 'app/api/admin/crm/contacts/[id]/route.ts',
+    ]
       .flatMap((f) => [...read(f).matchAll(/console\.(?:error|warn|log)\(([^;]*?)\);/gs)].map((m) => `${f}: ${m[1]}`));
     expect(logged.length).toBeGreaterThan(3);
     for (const line of logged) {

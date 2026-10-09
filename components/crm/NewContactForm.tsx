@@ -8,6 +8,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { useModalDialog } from '@/hooks/use-modal-dialog';
+import { CRM_API } from './api';
 
 interface Props {
   onClose: () => void;
@@ -39,7 +40,7 @@ export function NewContactForm({ onClose, onCreated, onExisting }: Props) {
     setError(null);
     setExistingId(null);
     try {
-      const res = await fetch('/api/hub/crm/contacts', {
+      const res = await fetch(CRM_API.partner, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

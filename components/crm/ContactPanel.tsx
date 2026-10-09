@@ -1,23 +1,30 @@
 'use client';
 
 /**
- * Карточка клиента партнёра (CRM #2325, шаг 1а-2): как связаться, что о нём
- * записано, откуда он пришёл. Правятся только имя, заметка и метки —
- * телефон, почта и согласие приходят из источников и руками не переписываются.
+ * Карточка клиента (CRM #2325): как связаться, что о нём записано, откуда он
+ * пришёл. Партнёр правит только имя, заметку и метки — телефон, почта и
+ * согласие приходят из источников и руками не переписываются. Администратор
+ * видит карточку любого партнёра с его именем и ничего не правит.
  */
 import { useEffect, useRef, useState } from 'react';
-import { X, Phone, Mail, UserCheck, ShieldCheck, ShieldQuestion, Plus } from 'lucide-react';
+import { X, Phone, Mail, UserCheck, ShieldCheck, ShieldQuestion, Plus, Briefcase } from 'lucide-react';
 import type { ContactCard } from '@/lib/crm/contact-queries';
+import type { PartnerRef } from '@/lib/crm/admin-queries';
 import { useModalDialog } from '@/hooks/use-modal-dialog';
-import { SOURCE_KIND_LABELS, statusLabel, formatSourceDate, formatMoment } from './labels';
+import { CRM_API, type CrmMode } from './api';
+import { SOURCE_KIND_LABELS, statusLabel, formatSourceDate, formatMoment, partnerCategoryLabel } from './labels';
+
+type Card = ContactCard & { partner?: PartnerRef };
 
 type CardState =
   | { kind: 'loading' }
-  | { kind: 'ready'; card: ContactCard }
+  | { kind: 'ready'; card: Card }
   | { kind: 'error'; message: string };
 
 interface Props {
   contactId: string;
+  /** admin — карточка любого партнёра, только просмотр. */
+  mode?: CrmMode;
   onClose: () => void;
   /** Что-то сохранено — список обновит строку. */
   onChanged: () => void;
@@ -27,15 +34,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function readCard(json: unknown): ContactCard | null {
+function readCard(json: unknown): Card | null {
   if (!isRecord(json) || json.success !== true || !isRecord(json.data)) return null;
   const d = json.data;
-  return typeof d.id === 'string' && Array.isArray(d.sources) && Array.isArray(d.tags) ? (d as unknown as ContactCard) : null;
+  return typeof d.id === 'string' && Array.isArray(d.sources) && Array.isArray(d.tags) ? (d as unknown as Card) : null;
 }
 
 const MAX_TAGS = 20;
 
-export function ContactPanel({ contactId, onClose, onChanged }: Props) {
+export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }: Props) {
+  const readOnly = mode === 'admin';
   const dialogRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<CardState>({ kind: 'loading' });
   const [saving, setSaving] = useState(false);
@@ -48,7 +56,7 @@ export function ContactPanel({ contactId, onClose, onChanged }: Props) {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    fetch(`/api/hub/crm/contacts/${encodeURIComponent(contactId)}`, { signal: ctrl.signal })
+    fetch(`${CRM_API[mode]}/${encodeURIComponent(contactId)}`, { signal: ctrl.signal })
       .then(async (res) => {
         const json: unknown = await res.json().catch(() => null);
         if (ctrl.signal.aborted) return;
@@ -66,13 +74,14 @@ export function ContactPanel({ contactId, onClose, onChanged }: Props) {
         if (!ctrl.signal.aborted) setState({ kind: 'error', message: 'Нет связи с сервером — карточка не загружена' });
       });
     return () => ctrl.abort();
-  }, [contactId]);
+  }, [contactId, mode]);
 
   async function save(patch: { display_name?: string; notes?: string | null; tags?: string[] }): Promise<boolean> {
+    if (readOnly) return false;
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`/api/hub/crm/contacts/${encodeURIComponent(contactId)}`, {
+      const res = await fetch(`${CRM_API.partner}/${encodeURIComponent(contactId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
@@ -144,6 +153,13 @@ export function ContactPanel({ contactId, onClose, onChanged }: Props) {
 
         {card && (
           <>
+            {card.partner && (
+              <p className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <Briefcase className="w-4 h-4 text-[var(--ocean)]" />
+                Клиент партнёра «{card.partner.name}» · {partnerCategoryLabel(card.partner.category)}
+              </p>
+            )}
+
             <section className="space-y-2 text-sm" aria-label="Контакты">
               {card.phone && (
                 <a href={`tel:${card.phone}`} className="flex items-center gap-2 text-[var(--ocean)] hover:underline">
@@ -190,79 +206,102 @@ export function ContactPanel({ contactId, onClose, onChanged }: Props) {
               )}
             </section>
 
-            <section className="space-y-2" aria-label="Имя">
-              <label className="ds-label" htmlFor="crm-contact-name">Как называть клиента</label>
-              <div className="flex gap-2">
-                <input
-                  id="crm-contact-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={200}
-                  placeholder="Имя"
-                  className="ds-input flex-1"
-                />
-                {nameChanged && (
-                  <button type="button" disabled={saving} onClick={() => void save({ display_name: name.trim() })} className="ds-btn ds-btn-secondary">
-                    Сохранить
-                  </button>
-                )}
-              </div>
-            </section>
+            {readOnly ? (
+              <>
+                <section className="space-y-2" aria-label="Метки">
+                  <p className="ds-label">Метки партнёра</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {card.tags.map((t) => (
+                      <span key={t} className="ds-badge bg-[var(--bg-hover)] text-[var(--text-secondary)]">{t}</span>
+                    ))}
+                    {card.tags.length === 0 && <span className="text-xs text-[var(--text-muted)]">Меток нет</span>}
+                  </div>
+                </section>
 
-            <section className="space-y-2" aria-label="Метки">
-              <p className="ds-label">Метки</p>
-              <div className="flex gap-1.5 flex-wrap">
-                {card.tags.map((t) => (
-                  <span key={t} className="ds-badge inline-flex items-center gap-1 bg-[var(--bg-hover)] text-[var(--text-secondary)]">
-                    {t}
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void save({ tags: card.tags.filter((x) => x !== t) })}
-                      aria-label={`Убрать метку ${t}`}
-                      className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-                {card.tags.length === 0 && <span className="text-xs text-[var(--text-muted)]">Меток нет</span>}
-              </div>
-              {card.tags.length < MAX_TAGS && (
-                <div className="flex gap-2">
-                  <input
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
-                    maxLength={40}
-                    placeholder="Новая метка: постоянный, рыбалка, семья…"
-                    aria-label="Новая метка"
-                    className="ds-input flex-1"
+                <section className="space-y-1" aria-label="Заметка">
+                  <p className="ds-label">Заметка партнёра</p>
+                  <p className="text-sm text-[var(--text-secondary)] whitespace-pre-line">
+                    {card.notes ?? <span className="text-[var(--text-muted)]">Заметки нет</span>}
+                  </p>
+                </section>
+              </>
+            ) : (
+              <>
+                <section className="space-y-2" aria-label="Имя">
+                  <label className="ds-label" htmlFor="crm-contact-name">Как называть клиента</label>
+                  <div className="flex gap-2">
+                    <input
+                      id="crm-contact-name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      maxLength={200}
+                      placeholder="Имя"
+                      className="ds-input flex-1"
+                    />
+                    {nameChanged && (
+                      <button type="button" disabled={saving} onClick={() => void save({ display_name: name.trim() })} className="ds-btn ds-btn-secondary">
+                        Сохранить
+                      </button>
+                    )}
+                  </div>
+                </section>
+
+                <section className="space-y-2" aria-label="Метки">
+                  <p className="ds-label">Метки</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {card.tags.map((t) => (
+                      <span key={t} className="ds-badge inline-flex items-center gap-1 bg-[var(--bg-hover)] text-[var(--text-secondary)]">
+                        {t}
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void save({ tags: card.tags.filter((x) => x !== t) })}
+                          aria-label={`Убрать метку ${t}`}
+                          className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {card.tags.length === 0 && <span className="text-xs text-[var(--text-muted)]">Меток нет</span>}
+                  </div>
+                  {card.tags.length < MAX_TAGS && (
+                    <div className="flex gap-2">
+                      <input
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                        maxLength={40}
+                        placeholder="Новая метка: постоянный, рыбалка, семья…"
+                        aria-label="Новая метка"
+                        className="ds-input flex-1"
+                      />
+                      <button type="button" disabled={saving || !tagInput.trim()} onClick={addTag} className="ds-btn ds-btn-secondary" aria-label="Добавить метку">
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-2" aria-label="Заметка">
+                  <label className="ds-label" htmlFor="crm-contact-notes">Заметка</label>
+                  <textarea
+                    id="crm-contact-notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    maxLength={5000}
+                    rows={3}
+                    placeholder="Что важно помнить о клиенте"
+                    className="ds-input w-full"
                   />
-                  <button type="button" disabled={saving || !tagInput.trim()} onClick={addTag} className="ds-btn ds-btn-secondary" aria-label="Добавить метку">
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </section>
-
-            <section className="space-y-2" aria-label="Заметка">
-              <label className="ds-label" htmlFor="crm-contact-notes">Заметка</label>
-              <textarea
-                id="crm-contact-notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                maxLength={5000}
-                rows={3}
-                placeholder="Что важно помнить о клиенте"
-                className="ds-input w-full"
-              />
-              {notesChanged && (
-                <button type="button" disabled={saving} onClick={() => void save({ notes: notes.trim() || null })} className="ds-btn ds-btn-secondary">
-                  Сохранить заметку
-                </button>
-              )}
-            </section>
+                  {notesChanged && (
+                    <button type="button" disabled={saving} onClick={() => void save({ notes: notes.trim() || null })} className="ds-btn ds-btn-secondary">
+                      Сохранить заметку
+                    </button>
+                  )}
+                </section>
+              </>
+            )}
 
             {saveError && <p className="text-sm text-[var(--danger)]" role="alert">{saveError}</p>}
 

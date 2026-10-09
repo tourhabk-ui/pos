@@ -22,6 +22,7 @@ import {
   createManualContact, getContactCard, listContacts, updateContact,
 } from '@/lib/crm/contact-queries';
 import { partnerContextFor } from '@/lib/crm/partner-context';
+import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -396,6 +397,36 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       .toEqual({ outcome: 'bad_phone' });
     // Тот же телефон у другого партнёра — не дубль.
     expect((await createManualContact(P.opB, { display_name: 'Иван', phone: '+79140009988' }, pool)).outcome).toBe('created');
+  });
+
+  it('администратор: клиенты всех партнёров, фильтры по роли, партнёру и поиску', async () => {
+    const all = await listAllContacts({ limit: 200, offset: 0 }, pool);
+    expect(all.total).toBe(all.items.length);
+    const seen = new Set(all.items.map((i) => i.partner.id));
+    for (const id of [P.opA, P.opB, P.stay, P.gear, P.carrier, P.agent]) expect(seen.has(id), id).toBe(true);
+    expect(seen.has(P.guide)).toBe(false);
+
+    const stay = await listAllContacts({ category: 'stay', limit: 50, offset: 0 }, pool);
+    expect(stay.items.map((i) => i.partner.id)).toEqual([P.stay]);
+
+    const onlyB = await listAllContacts({ partnerId: P.opB, limit: 50, offset: 0 }, pool);
+    expect(new Set(onlyB.items.map((i) => i.partner.id))).toEqual(new Set([P.opB]));
+
+    // Один телефон у двух операторов — два клиента, у каждого свой партнёр.
+    const anna = await listAllContacts({ q: '11-22-33', limit: 50, offset: 0 }, pool);
+    expect(anna.items.map((i) => i.partner.id).sort()).toEqual([P.opA, P.opB].sort());
+
+    const op = all.facets.categories.find((c) => c.category === 'operator');
+    expect(op?.n).toBeGreaterThan(0);
+    expect(all.facets.partners.find((p) => p.id === P.stay)).toMatchObject({ name: 'Гостиница', category: 'stay', n: 1 });
+  });
+
+  it('администратор: карточка любого клиента — с его партнёром и той же сводкой', async () => {
+    const [annaB] = (await listAllContacts({ partnerId: P.opB, q: '11-22-33', limit: 5, offset: 0 }, pool)).items;
+    const card = await getContactCardForAdmin(annaB.id, pool);
+    expect(card?.partner).toEqual({ id: P.opB, name: 'Оператор Б', category: 'operator' });
+    expect(card?.sources.map((x) => x.kind)).toEqual(['operator_booking']);
+    expect(await getContactCardForAdmin('00000000-0000-4000-8000-000000000000', pool)).toBeNull();
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {

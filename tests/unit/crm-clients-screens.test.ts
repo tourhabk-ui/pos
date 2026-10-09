@@ -62,10 +62,29 @@ describe('экран CRM по правилам дизайн-системы', () 
     }
   });
 
-  it('данные клиента — только из API CRM партнёра', () => {
-    const urls = files.flatMap((f) => [...read(f).matchAll(/fetch\(\s*`?'?([^`'),]+)/g)].map((m) => m[1]));
-    expect(urls.length).toBeGreaterThan(0);
-    for (const u of urls) expect(u).toMatch(/^\/api\/hub\/crm\/contacts/);
+  it('данные клиента — только из API CRM, и адреса — в одном месте', () => {
+    // Любой /api-литерал в экране — один из двух адресов CRM_API.
+    const literals = files.flatMap((f) => [...read(f).matchAll(/['`](\/api\/[^'`$?]*)/g)].map((m) => `${f}: ${m[1]}`));
+    expect(literals.length).toBeGreaterThanOrEqual(2);
+    for (const l of literals) expect(l).toMatch(/: \/api\/(hub|admin)\/crm\/contacts$/);
+    // А fetch зовёт только через CRM_API — своего адреса мимо карты нет.
+    const fetches = files.flatMap((f) => [...read(f).matchAll(/fetch\(\s*([^,)]+)/g)].map((m) => `${f}: ${m[1]}`));
+    expect(fetches.length).toBeGreaterThan(0);
+    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?CRM_API(\[mode\]|\.partner(?!\w))/);
+  });
+
+  it('администратор видит клиентов всех партнёров и ничего не правит', () => {
+    const page = read('app/hub/admin/clients/page.tsx');
+    expect(page).toMatch(/<ContactsScreen mode="admin" \/>/);
+    expect(page).toMatch(/robots: 'noindex, nofollow'/);
+    expect(read('app/hub/admin/layout.tsx')).toMatch(/href: '\/hub\/admin\/clients',\s+label: 'Клиенты партнёров'/);
+    // Запись в карточке — только партнёрским адресом и только не в режиме admin.
+    const panel = read('components/crm/ContactPanel.tsx');
+    expect(panel).toMatch(/if \(readOnly\) return false;/);
+    expect(panel).toMatch(/method: 'PATCH'/);
+    expect(panel).not.toMatch(/CRM_API\.admin|CRM_API\[mode\]\}\/\$\{encodeURIComponent\(contactId\)\}`, \{\s*method/);
+    // Ручного клиента администратор не заводит: форма — только у партнёра.
+    expect(read('components/crm/ContactsScreen.tsx')).toMatch(/\{adding && !isAdmin && \(/);
   });
 
   it('экран CRM монтируется только в кабинетах за входом (app/hub)', () => {
