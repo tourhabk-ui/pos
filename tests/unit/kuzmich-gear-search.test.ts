@@ -13,7 +13,7 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) },
 }));
 
-import { searchGearForKuzmich } from '@/lib/kuzmich/gear-search';
+import { searchGearForKuzmich, EMPTY_SHELF } from '@/lib/kuzmich/gear-search';
 
 beforeEach(() => poolQueryMock.mockReset());
 
@@ -27,7 +27,8 @@ describe('searchGearForKuzmich', () => {
     expect(sql).toContain('ORDER BY rating DESC NULLS LAST');
     expect(sql).toContain('LIMIT 6');
     expect(params).toEqual([]);
-    expect(out).toBe('Снаряжение по заданным условиям не найдено.');
+    // Без фильтров пусто — значит, пуста витрина (#2239), а не «не подошло».
+    expect(out).toBe(EMPTY_SHELF);
   });
 
   it('query ищет по name/brand/category одним параметром', async () => {
@@ -64,5 +65,32 @@ describe('searchGearForKuzmich', () => {
     expect(out).toContain('Alexika');
     expect(out).toContain('от 800 руб/сутки');
     expect(out).toMatch(/\/gear/);
+  });
+
+  describe('пустая выдача — что именно пусто (#2239)', () => {
+    it('витрина пуста целиком — так и сказано, адреса прокатов не выдумываются', async () => {
+      poolQueryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ n: 0 }] });
+      const out = await searchGearForKuzmich({ query: 'палатка' });
+      expect(out).toBe(EMPTY_SHELF);
+      expect(out).toContain('не сбой поиска');
+      expect(out).toContain('не называй их по памяти');
+    });
+
+    it('витрина не пуста, фильтр не подошёл — «поищи иначе» с числом позиций', async () => {
+      poolQueryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ n: 5 }] });
+      const out = await searchGearForKuzmich({ query: 'кошки' });
+      expect(out).toContain('всего позиций: 5');
+      expect(out).not.toContain('пока пуста');
+    });
+
+    it('витрину не удалось посчитать — «не смог», а не «проката нет»', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      poolQueryMock.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57014' }));
+      const out = await searchGearForKuzmich({ query: 'кошки' });
+      expect(out).toContain('проверить не удалось');
+      expect(out).not.toContain('пока пуста');
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+    });
   });
 });

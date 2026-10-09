@@ -18,6 +18,7 @@ import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
+import { warningSystemTest, warningTestHours } from '@/lib/safety/warning-system-test';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 
@@ -27,7 +28,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'weather' | 'avalanche' | 'landslide' | 'bear' | 'park_closure' | 'warning_test';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -1294,15 +1295,49 @@ export function titleFingerprint(title: string): string {
  * карточке маршрута турист видел пустую строку в списке предупреждений. Берём
  * первую фразу: у сводок она и есть суть пункта («На вулкане Шивелуч произошел
  * пепловый выброс»).
+ *
+ * Фраза длиннее потолка режется по границе слова и кончается многоточием
+ * (#2293). До 09.10 она резалась ровно на 200-м знаке: гидро-алерт ушёл в
+ * get_guardian_context заголовком «…до 40 сантиметров в сутки, на» и не
+ * читался как предупреждение — обрыв на полуслове выглядит как сбой, а не
+ * как сокращение. Полный текст остаётся в описании.
  */
 export function titleFromText(text: string): string {
+  const clean = cleanPostText(text);
+  const first = (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
+  if (first.length <= ALERT_TITLE_MAX) return first;
+  // Место под многоточие; последнее слово, не влезшее целиком, и висящая
+  // пунктуация перед ним уходят.
+  const room = first.slice(0, ALERT_TITLE_MAX - 1);
+  const space = room.lastIndexOf(' ');
+  const head = (space > ALERT_TITLE_MAX / 2 ? room.slice(0, space) : room).replace(/[\s,;:—–-]+$/u, '');
+  return `${head}…`;
+}
+
+/**
+ * Ключ отпечатка поста без заголовка — первая фраза, обрезанная на 200-м
+ * знаке, как её брал заголовок до 09.10.
+ *
+ * Отделён от заголовка намеренно: отпечаток входит в external_id, и смена
+ * правила обрезки поменяла бы id уже сохранённых постов. Тот же пост на
+ * следующем приёме лёг бы второй строкой, и карточка показала бы одно
+ * предупреждение дважды — оборванным и целым.
+ */
+export function titleKeyFromText(text: string): string {
+  const clean = cleanPostText(text);
+  const first = /^[^.!?]{10,200}/.exec(clean)?.[0] ?? clean;
+  return first.trim().slice(0, ALERT_TITLE_MAX);
+}
+
+/** Потолок заголовка алерта (`external_alerts.title`). */
+const ALERT_TITLE_MAX = 200;
+
+function cleanPostText(text: string): string {
   // Ведущие не-буквы снимаем: в постах МЧС строка начинается с булавки или
   // другого значка, и он уезжал в заголовок алерта на главную. Эмодзи в
   // интерфейсе запрещены (CLAUDE.md §4), а «📌К тушению…» именно так и
   // выглядело на экране владельца 07.09. Та же чистка, что у splitSummaryItems.
-  const clean = text.replace(/\s+/g, ' ').replace(/^[^\p{L}\p{N}]+/u, '').trim();
-  const first = /^[^.!?]{10,200}/.exec(clean)?.[0] ?? clean;
-  return first.trim().slice(0, 200);
+  return text.replace(/\s+/g, ' ').replace(/^[^\p{L}\p{N}]+/u, '').trim();
 }
 
 /**
@@ -1826,12 +1861,20 @@ export function classifyMchsItem(
     return null;
   }
 
+  // Плановая проверка систем оповещения (#1428, решение владельца 08.10) —
+  // ДО фильтров учений и памяток: проверку сирен МЧС часто объявляет «в рамках
+  // тренировки», и фильтр учений выбросил бы ровно то, что туристу надо знать
+  // заранее, — что сирена в это время учебная. Отчёт о прошедшей проверке
+  // в ленту не идёт.
+  const warningTest = warningSystemTest(text);
+  if (warningTest === 'report') return null;
+
   // Учения и тренировки — не угроза: «пожарно-тактическое учение в школе № 40»
   // висело неделю как fire_danger на карточках маршрутов (скрины владельца
   // 2026-07-17). Алерт = действующая опасность, не отчёт о тренировке.
   // Граница слова руками ((^|не-буква)): JS \b не знает кириллицу, а без неё
   // «учени» матчит «полУЧЕНИе пропусков» — реальный алерт был бы отброшен.
-  if (/(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
+  if (!warningTest && /(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
     return null;
   }
 
@@ -1847,7 +1890,7 @@ export function classifyMchsItem(
   // Без этой ветки памятка про подтопление уехала бы категорией `flood` на
   // 120 часов и пять суток висела бы активной угрозой на карточках маршрутов —
   // ровно как когда-то висел телеанонс и школьное учение.
-  if (/^[\s\S]{0,80}?(при\s+(угрозе|получении|объявлении|обнаружении)|что делать (при|если|в случае)|как действовать|памятка)/.test(text)) {
+  if (!warningTest && /^[\s\S]{0,80}?(при\s+(угрозе|получении|объявлении|обнаружении)|что делать (при|если|в случае)|как действовать|памятка)/.test(text)) {
     return null;
   }
 
@@ -1875,7 +1918,13 @@ export function classifyMchsItem(
   // категории, и он отбрасывается как неинтересный.
   const tsunami = tsunamiStatus(text);
   const parkClosure = detectParkClosure(text);
-  if (tsunami === 'warning') {
+  if (warningTest === 'planned') {
+    // Не опасность: severity 0 — без пуша, статуса края и вердикта маршрута,
+    // но в ленте и у агентов. Срок — до конца названного дня проверки.
+    const hours = warningTestHours(text, new Date(pubDate));
+    if (hours === null) return null; // день проверки уже прошёл
+    alert_type = 'warning_test'; severity = 0; expires_hours = hours;
+  } else if (tsunami === 'warning') {
     alert_type = 'tsunami_warning'; severity = 3; expires_hours = 12;
   } else if (tsunami === 'all_clear') {
     alert_type = 'info'; severity = 0; expires_hours = 1;
@@ -2027,7 +2076,7 @@ export function classifyMchsItem(
   // Вместе с порогом — потолок срока: запрет живёт часами, а не неделей.
   // Пожарная ветка держит алерт 168 часов, и без потолка «туристам воздержаться
   // от посещения леса» висело бы красным всю неделю после того, как выгорело.
-  if (severity < 2 && addressesTouristsWithBan(text)) {
+  if (alert_type !== 'warning_test' && severity < 2 && addressesTouristsWithBan(text)) {
     severity = 2;
     expires_hours = Math.min(expires_hours, 48);
   }
@@ -2038,7 +2087,7 @@ export function classifyMchsItem(
   // часами — его снимают отдельным сообщением; ОЯ живёт столько, сколько живёт
   // само явление, и паводковые 120 часов поставлены именно под него. Обрезав
   // их до 48, мы сняли бы красный статус с ещё не спавшей воды.
-  if (severity < 2 && declaresHazardGrade(text)) {
+  if (alert_type !== 'warning_test' && severity < 2 && declaresHazardGrade(text)) {
     severity = 2;
   }
 
@@ -2075,6 +2124,9 @@ export function classifyMchsItem(
   // Отсюда — заголовок из первой фразы и отпечаток по нему же.
   const hadTitle = title.trim() !== '';
   const effectiveTitle = hadTitle ? title : titleFromText(description);
+  // Отпечаток поста без заголовка — по прежнему ключу, а не по заголовку:
+  // см. titleKeyFromText (смена обрезки не должна менять external_id).
+  const fingerprint = titleFingerprint(hadTitle ? effectiveTitle : titleKeyFromText(description));
 
   // Датированный ключ для постов соцканалов: суточная сводка повторяет
   // действующую опасность каждый день, а недатированный отпечаток пустил бы её
@@ -2090,8 +2142,8 @@ export function classifyMchsItem(
     // шестью строками (скрины владельца 2026-07-17). Одинаковый нормализованный
     // заголовок → одинаковый external_id → ON CONFLICT DO NOTHING.
     source_id:     hadTitle
-      ? `${sourcePrefix}/t${titleFingerprint(effectiveTitle)}`
-      : `${sourcePrefix}/${day}/t${titleFingerprint(effectiveTitle)}`,
+      ? `${sourcePrefix}/t${fingerprint}`
+      : `${sourcePrefix}/${day}/t${fingerprint}`,
     source_url:    link || 'https://41.mchs.gov.ru',
     published_at:  publishedAt,
     alert_type,

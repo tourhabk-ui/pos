@@ -155,9 +155,9 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_volcano_status:    { title: 'Volcano status',        lead: 'Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context.' },
   search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners.' },
   search_transfers:      { title: 'Transfers',             lead: 'Transfers in Kamchatka from platform partners.' },
-  search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners.' },
+  search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
-  edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level; untouched days stay as they were.' },
+  edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true from the traveller, otherwise refused and nothing is stored.' },
   create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
 };
@@ -226,11 +226,13 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   edit_trip_plan: {
     plan_id: { lead: 'Plan ID from the make_trip_plan answer.' },
-    action: { lead: 'add_day, remove_day, move_day or set_lodging.', example: 'add_day' },
+    action: { lead: 'add_day, remove_day, move_day, set_lodging or flight_delay.', example: 'add_day' },
     day: { lead: 'Day number in the plan, for remove_day and move_day.', example: '3' },
     to_day: { lead: 'New position of the day, for move_day.', example: '2' },
     interest: { lead: 'Activity for add_day, free text (Russian works best).', example: 'рыбалка' },
     lodging: { lead: 'Lodging level for set_lodging: economy, comfort or premium.', example: 'economy' },
+    delay_days: { lead: 'For flight_delay: how many days the arrival flight is delayed, 1–7.', example: '2' },
+    keep_return: { lead: 'For flight_delay: yes keeps the return date and shortens the trip (default); no shifts the whole trip.', example: 'yes' },
   },
   create_lead: {
     name: { lead: "Traveller's name." },

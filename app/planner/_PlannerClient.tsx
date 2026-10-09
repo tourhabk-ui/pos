@@ -7,6 +7,7 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 // пулом PostgreSQL, и он уехал бы в клиентский бандл.
 import { parseInterestWords } from '@/lib/planner/interest-words';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
   Check, AlertTriangle, Sparkles, Loader,
@@ -1966,6 +1967,12 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         {PLANNER_STEPS[step - 1].title}
       </h1>
       <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{PLANNER_STEPS[step - 1].lead}</p>
+      {step === 1 && (
+        // Групповое планирование (#2226): пожелания каждого — по ссылке.
+        <Link href="/trip-group" className="inline-flex items-center gap-2 min-h-[44px] text-sm text-[var(--ocean)] hover:underline">
+          <Users className="w-4 h-4" /> Едете компанией? Соберите пожелания всех в один план
+        </Link>
+      )}
     </div>
   );
 
