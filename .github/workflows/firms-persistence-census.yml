@@ -7,8 +7,8 @@ name: Перепись термоточек FIRMS — что стоит на м�
 # обнаружений, ни того, один и тот же это пиксель или разные.
 #
 # Перепись спрашивает FIRMS с прода (ключ только там) и отдаёт ФАКТЫ по
-# ячейкам, где обнаружения повторяются в разные сутки; вывода «пожар / не
-# пожар» не выносит. Только чтение.
+# кластерам, где обнаружения повторяются в разные сутки, и показывает, что с
+# ними сделает приём (вердикт тем же правилом). Только чтение.
 
 on:
   workflow_dispatch:
@@ -59,17 +59,22 @@ jobs:
           if not d.get('asked'):
               print('НЕ СПРОСИЛИ FIRMS:', d.get('reason'), d.get('error') or d.get('note') or '')
               sys.exit(1)
-          print('окно, суток:', d.get('window_days'), '| строк в CSV:', d.get('rows_total'),
-                '| суток в данных:', len(d.get('days_seen') or []))
-          print('ячеек, где обнаружения в разные сутки:', d.get('cells_repeating'))
-          for c in d.get('cells') or []:
+          print('окно, суток:', d.get('window_days'), '| отказы окон:', d.get('window_refused'),
+                '| строк в CSV:', d.get('rows_total'), '| суток в данных:', len(d.get('days_seen') or []),
+                '| БД ответила:', d.get('db_ok'))
+          print('радиус кластера, км:', d.get('radius_km'), '| «рядом с греющим местом», км:', d.get('static_feature_km'))
+          print('кластеров, где обнаружения в разные сутки:', d.get('clusters_repeating'))
+          for c in d.get('clusters') or []:
               print('---')
               print(' %.4f N %.4f E | суток %d (%s .. %s) | обнаружений %d | по суткам %s' % (
                   c['lat'], c['lng'], len(c['days']), c['firstDay'], c['lastDay'], c['detections'], c['perDay']))
               print(' мощность МВт: мин %s / сред %s / макс %s | разброс точек %s км | ночных %d' % (
                   c['frpMin'], c['frpMean'], c['frpMax'], c['spreadKm'], c['night']))
               print(' рядом (до 25 км):', c.get('nearby'))
-              for a in c.get('alerts') or []:
-                  print('   запись: %s | важность %s | создана %s | до %s' % (
-                      a['external_id'], a['severity'], a['created_at'], a['expires_at']))
+              print(' ближайшее греющее место:', c.get('heat_nearest'))
+              print(' ВЕРДИКТ приёма: %s | погасил бы: %s' % (c.get('verdict'), c.get('would_suppress')))
+              a = c.get('alerts')
+              if a:
+                  print(' записи приёма: %d шт | первая %s | последняя %s | до %s | макс. важность %s' % (
+                      a['count'], a['first_created'], a['last_created'], a['last_expires'], a['max_severity']))
           PY

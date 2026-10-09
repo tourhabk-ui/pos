@@ -116,6 +116,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'explain-availability': ['db_read'],
   'field-check-photo': ['db_read'],
   'field-check-queue': ['db_read'],
+  'firms-persistence-census': ['db_read', 'net_out'],
   'followups': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // 29.09: подсчёт переехал в lib/analytics/funnel-window (перепись и страница
   // /hub/admin/traffic считают одним модулем). Роут теперь зовёт модуль, а
