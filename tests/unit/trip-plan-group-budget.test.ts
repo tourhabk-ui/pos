@@ -198,7 +198,7 @@ describe('цена плана словами', () => {
 
   const group = (over: Partial<GroupEstimate> = {}): GroupEstimate => ({
     people: 3, lines: [], total: [150000, 200000], perPerson: [50000, 66667], unpriced: [],
-    fromTours: [90000, 108000], fromEstimates: [60000, 92000], assumptions: [], ...over,
+    fromTours: [90000, 108000], fromOffers: [0, 0], fromEstimates: [60000, 92000], assumptions: [], ...over,
   });
 
   it('итог на группу — после вилки на человека, перелёт по-прежнему вне суммы (#2304)', () => {

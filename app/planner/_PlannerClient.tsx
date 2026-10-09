@@ -42,6 +42,7 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
+import { EMPTY_SELECTION, resolveChoices, toggleLodging, toggleTransfer, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { escapeHtml } from '@/lib/text/escape-html';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
@@ -1171,13 +1172,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
    */
   const [planProfile, setPlanProfile] = useState<EstimateProfile | null>(null);
   const [days, setDays]   = useState<DayPlan[]>([]);
-  // Смета текущего плана — из дней, какими они стали после правок (#2304).
-  // До 09.10 «Оценка стоимости» приходила с сервера один раз и после
-  // перестановки, удаления или добавления дней показывала цену прежнего плана.
-  const estimate = useMemo(
-    () => (planProfile && days.length > 0 ? estimateGroup(days, planProfile) : null),
-    [days, planProfile],
-  );
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   // Отказ правки дня (plan-ops): показывается под списком дней — баннер
@@ -1244,14 +1238,17 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       needs: { lodging: needsLodging, transfer: needsAirportTransfer, car: needsCar },
       arrivalDate: arrival || undefined,
       departureDate: departure || undefined,
-      adults,
-      children: childAges,
+      // Состав и «откуда едут» — плана, а не формы: цена стоянки на группу
+      // и места в трансфере обязаны совпасть со сметой (#2304, шаг 3).
+      adults: planProfile?.adults ?? adults,
+      children: planProfile?.children ?? childAges,
+      tripOrigin: planProfile?.tripOrigin ?? tripOrigin,
       days: days.map((d, i) => ({
         day: i + 1, type: d.type, zone: d.zone,
         lodgingIncluded: d.realTour?.lodgingIncluded ?? null,
       })),
     });
-  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, childAges, days]);
+  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, childAges, tripOrigin, planProfile, days]);
   // Ответ привязан к телу запроса: пока ответа на ТЕКУЩЕЕ тело нет — «ищем»,
   // без синхронного setState в эффекте.
   const [extrasResult, setExtrasResult] = useState<{ key: string; load: ExtrasLoad } | null>(null);
@@ -1280,6 +1277,23 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [extrasBody]);
+  // Выбранные жильё и трансфер (#2304, шаг 3): храним только ключи, пункты
+  // плана — из ТЕКУЩЕГО ответа (lib/planner/plan-choices). Объект, которого
+  // в новом ответе нет, из сметы выходит сам: цена прежних ночей — не его.
+  const [choiceSel, setChoiceSel] = useState<ChoiceSelection>(EMPTY_SELECTION);
+  const planChoices = useMemo(
+    () => resolveChoices(extras?.status === 'ready' ? extras.data : null, choiceSel),
+    [extras, choiceSel],
+  );
+  // Смета текущего плана — из дней, какими они стали после правок (#2304).
+  // До 09.10 «Оценка стоимости» приходила с сервера один раз и после
+  // перестановки, удаления или добавления дней показывала цену прежнего плана.
+  const estimate = useMemo(
+    () => (planProfile && days.length > 0
+      ? estimateGroup(days, { ...planProfile, arrivalDate: arrival || null }, planChoices)
+      : null),
+    [days, planProfile, arrival, planChoices],
+  );
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
 
   // planner_started — первое осмысленное действие в анкете, один раз за сессию
@@ -1656,8 +1670,8 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
   ${d.dayWarnings.map(w => `<div class="day-warn">${w}</div>`).join('')}
 </div>`).join('\n')}
 ${estimate ? `<div class="footer">
-  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${estimate.people} чел. — цены туров от операторов, остальное ориентир по средним ценам, не предложения</div>
-  ${estimate.lines.map(l => `<div class="price-row"><span>${escapeHtml(l.label)} · ${escapeHtml(l.basis)}${l.source === 'estimate' ? ' · ориентир' : ''}</span><span>${l.total ? `${fmt(l.total[0])} — ${fmt(l.total[1])} ₽` : 'цена не указана'}</span></div>`).join('')}
+  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${estimate.people} чел. — цены туров от операторов и выбранных предложений, остальное ориентир по средним ценам</div>
+  ${estimate.lines.map(l => `<div class="price-row"><span>${escapeHtml(l.label)} · ${escapeHtml(l.basis)}${l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? `${fmt(l.total[0])} — ${fmt(l.total[1])} ₽` : 'цена не указана'}</span></div>`).join('')}
   <div class="price-total"><span>Итого на группу</span><span>${fmt(estimate.total[0])} — ${fmt(estimate.total[1])} ₽</span></div>
   <div class="price-row"><span>На человека</span><span>${fmt(estimate.perPerson[0])} — ${fmt(estimate.perPerson[1])} ₽</span></div>
   ${estimate.assumptions.map(a => `<div style="font-size:11px;color:#9a9590;margin-top:4px">${escapeHtml(a)}</div>`).join('')}
@@ -1830,7 +1844,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             // `recommendation`: их не читал никто, а оператор видел одни
             // названия дней и переспрашивал то, что человек уже выбрал.
             ...(planProfile && days.length > 0
-              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }) }
+              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }, planChoices) }
               : {}),
           },
           pd_consent: true,
@@ -2717,7 +2731,13 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             </div>
           )}
 
-          {extras && <TripExtrasSection load={extras} arrival={arrival} departure={departure} />}
+          {extras && (
+            <TripExtrasSection load={extras} arrival={arrival} departure={departure}
+              selection={choiceSel}
+              onToggleLodging={(key, id) => setChoiceSel((sel) => toggleLodging(sel, key, id))}
+              onToggleTransfer={(id) => setChoiceSel((sel) => toggleTransfer(sel, id))}
+              party={{ adults: planProfile?.adults ?? adults, children: planProfile?.children ?? childAges }} />
+          )}
 
           {/* AI itinerary */}
           {recommendation.itinerary && (

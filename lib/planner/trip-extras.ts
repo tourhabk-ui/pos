@@ -22,9 +22,23 @@
  * разрывает стоянку и считается отдельно. `null` («не разобрали состав»)
  * считается как «нужно жильё»: лишний вариант дешевле ночи без крыши.
  * Соседние ночи одной зоны сливаются в одну стоянку — её и бронируют.
+ *
+ * Местный ночует дома (nightIsAtHome — то же правило, что у сметы): до
+ * 09.10 смета ночь в Авачинской зоне ему не считала, а здесь на ту же ночь
+ * подбиралось жильё — два ответа на один вопрос в соседних блоках экрана.
+ *
+ * ── Цена стоянки на группу (#2304, шаг 3) ────────────────────────────────
+ *
+ * Правило брони жилья: бронь берёт один номер и складывает цены его ночей
+ * (app/api/accommodations/[id]/book), гостей в номере — не больше
+ * max_guests. Группе, которой номер мал, нужно несколько номеров одного
+ * типа. stayPriceForGroup выбирает самый дешёвый тип, куда группа
+ * помещается целиком на все ночи. Разные типы вперемешку не подбираются:
+ * это решает хозяин, и экран так и говорит, а не выдумывает раскладку.
  */
 
 import { sleepZoneOf, type ZoneId } from '@/lib/planner/constants';
+import { nightIsAtHome, type TripOrigin } from '@/lib/planner/trip-origin';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 
 export const TRIP_NEEDS = ['lodging', 'transfer', 'car'] as const;
@@ -63,6 +77,7 @@ export function lodgingStays(
   days: readonly ExtrasDay[],
   arrivalDate: string,
   departureDate?: string,
+  origin: TripOrigin = 'visitor',
 ): { stays: LodgingStay[]; nightsInTours: number } {
   const stays: LodgingStay[] = [];
   let nightsInTours = 0;
@@ -78,6 +93,7 @@ export function lodgingStays(
     if (d.lodgingIncluded === true) { nightsInTours++; current = null; continue; }
 
     const zone = sleepZoneOf(d.zone);
+    if (nightIsAtHome(origin, zone)) { current = null; continue; }
     if (current && current.zone === zone && current.checkOut === night) {
       current.checkOut = addDays(night, 1);
       current.nights++;
@@ -87,6 +103,38 @@ export function lodgingStays(
     }
   }
   return { stays, nightsInTours };
+}
+
+/** Номер объекта на ночи стоянки — всё, что нужно для цены на группу. */
+export interface RoomStayFacts {
+  roomId: string;
+  name: string;
+  /** Гостей в одном номере (accommodation_rooms.max_guests). */
+  maxGuests: number;
+  /** Сколько таких номеров свободно на КАЖДУЮ ночь стоянки. */
+  minFree: number;
+  /** Цены ночей одного номера, сложенные — формула брони (roomNightsSql). */
+  staySum: number;
+}
+
+export type StayPrice =
+  | { kind: 'priced'; total: number; rooms: number; roomId: string; roomName: string; maxGuests: number }
+  /** Ни в один тип номеров группа целиком не помещается — раскладку решает хозяин. */
+  | { kind: 'no_fit'; people: number };
+
+export function stayPriceForGroup(rooms: readonly RoomStayFacts[], people: number): StayPrice {
+  let best: Extract<StayPrice, { kind: 'priced' }> | null = null;
+  for (const r of rooms) {
+    // Номер без вместимости или без цены посчитать нельзя — ноль не цена.
+    if (!(r.maxGuests > 0) || !(r.staySum > 0)) continue;
+    const need = Math.ceil(people / r.maxGuests);
+    if (need > r.minFree) continue;
+    const total = Math.round(need * r.staySum);
+    if (!best || total < best.total || (total === best.total && need < best.rooms)) {
+      best = { kind: 'priced', total, rooms: need, roomId: r.roomId, roomName: r.name, maxGuests: r.maxGuests };
+    }
+  }
+  return best ?? { kind: 'no_fit', people };
 }
 
 /** Размер группы для мест в трансфере: взрослые и дети — каждому место. */

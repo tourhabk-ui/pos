@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import TransfersClient from './_TransfersClient';
 import { loadCharterCarriers, type CharterState } from '@/lib/transfers/charter';
+import { parseTripsPrefill } from '@/lib/transfers/trips-link';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/transfers' },
@@ -13,7 +14,12 @@ export const metadata: Metadata = {
 // в HTML состояние сборки (в Docker базы нет), а цены меняются.
 export const dynamic = 'force-dynamic';
 
-export default async function TransfersPage() {
+export default async function TransfersPage({ searchParams }: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // Даты, места и поездка из ссылки планера (lib/transfers/trips-link, #2304):
+  // окно поиска открывается на них, а не на ближайшие две недели.
+  const prefill = parseTripsPrefill(await searchParams);
   let charter: CharterState;
   try {
     charter = { state: 'ok', carriers: await loadCharterCarriers() };
@@ -23,5 +29,5 @@ export default async function TransfersPage() {
     console.error('[transfers/charter]', code, err instanceof Error ? err.message : err);
     charter = { state: 'failed' };
   }
-  return <TransfersClient charter={charter} />;
+  return <TransfersClient charter={charter} prefill={prefill} />;
 }

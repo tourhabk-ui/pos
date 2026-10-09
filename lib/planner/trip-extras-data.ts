@@ -13,6 +13,10 @@
  * по той же формуле, что каталог и бронь (roomNightsSql). Своего правила
  * занятости здесь нет и заводить его нельзя.
  *
+ * У каждого варианта — цена стоянки на группу (#2304, шаг 3): номера,
+ * свободные на все ночи, с вместимостью, остатком и суммой цен ночей из той
+ * же формулы; раскладку группы по номерам считает stayPriceForGroup.
+ *
  * Трансферы — только через listPublishedTrips: единственное место с
  * фильтром опубликованности (сторож carrier-api).
  */
@@ -22,7 +26,9 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { roomNightsSql } from '@/lib/stay/availability';
 import { listPublishedTrips } from '@/lib/transfers/service';
 import { sqlState } from '@/lib/guides/db-failure';
-import { LODGING_OPTIONS_PER_STAY, type LodgingStay } from '@/lib/planner/trip-extras';
+import {
+  LODGING_OPTIONS_PER_STAY, stayPriceForGroup, type LodgingStay, type StayPrice,
+} from '@/lib/planner/trip-extras';
 import type { ZoneId } from '@/lib/planner/constants';
 
 export type CheckOutcome<T> =
@@ -40,6 +46,8 @@ export interface LodgingOption {
   rating: number | null;
   reviewCount: number;
   isVerified: boolean;
+  /** Цена стоянки на всю группу по правилу брони. */
+  stay: StayPrice;
 }
 
 export interface TransferOption {
@@ -65,22 +73,36 @@ function logExtrasFailure(check: string, err: unknown): void {
 
 /**
  * SQL подбора жилья на одну стоянку: $1 — зона, $2 — заезд, $3 — выезд,
- * $4 — сколько вариантов. Экспортируется ради сторожа и проверки на базе.
+ * $4 — сколько вариантов. Объект годится, если хоть один его номер свободен
+ * на все ночи; такие номера и отдаются (`rooms`) — с вместимостью, остатком
+ * на самую занятую ночь и суммой цен ночей. Экспортируется ради сторожа и
+ * проверки на базе.
  */
 export const LODGING_FOR_STAY_SQL = `
   SELECT a.id, a.name, a.type,
          a.price_per_night_from::text AS price_from,
          a.rating::text AS rating,
          COALESCE(a.review_count, 0)::int AS review_count,
-         COALESCE(a.is_verified, false) AS is_verified
+         COALESCE(a.is_verified, false) AS is_verified,
+         fit.rooms
     FROM accommodations a
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(jsonb_agg(jsonb_build_object(
+               'room_id', x.room_id, 'name', x.name, 'max_guests', x.max_guests,
+               'min_free', x.min_free, 'stay_sum', x.stay_sum)), '[]'::jsonb) AS rooms
+        FROM (
+          SELECT rn.room_id, r.name, r.max_guests,
+                 MIN(rn.free_units)::int AS min_free,
+                 SUM(rn.price) AS stay_sum
+            FROM (${roomNightsSql({ accommodation: 'a.id', start: '$2::date', endExclusive: '$3::date' })}) rn
+            JOIN accommodation_rooms r ON r.id::text = rn.room_id
+           GROUP BY rn.room_id, r.name, r.max_guests
+          HAVING bool_and(NOT rn.blocked AND rn.free_units > 0)
+        ) x
+    ) fit
    WHERE ${publicAccommodationSql('a')}
      AND a.planner_zone = $1::varchar
-     AND EXISTS (
-       SELECT 1 FROM (${roomNightsSql({ accommodation: 'a.id', start: '$2::date', endExclusive: '$3::date' })}) rn
-        GROUP BY rn.room_id
-       HAVING bool_and(NOT rn.blocked AND rn.free_units > 0)
-     )
+     AND jsonb_array_length(fit.rooms) > 0
    ORDER BY a.is_verified DESC, a.rating DESC NULLS LAST, a.price_per_night_from ASC NULLS LAST, a.name
    LIMIT $4`;
 
@@ -99,9 +121,10 @@ interface LodgingRow {
   rating: string | null;
   review_count: number;
   is_verified: boolean;
+  rooms: Array<{ room_id: string; name: string; max_guests: number; min_free: number; stay_sum: number | string }>;
 }
 
-export async function findLodgingForStay(stay: LodgingStay): Promise<CheckOutcome<LodgingOption>> {
+export async function findLodgingForStay(stay: LodgingStay, people: number): Promise<CheckOutcome<LodgingOption>> {
   try {
     const { rows } = await pool.query<LodgingRow>(LODGING_FOR_STAY_SQL, [
       stay.zone satisfies ZoneId, stay.checkIn, stay.checkOut, LODGING_OPTIONS_PER_STAY,
@@ -118,6 +141,13 @@ export async function findLodgingForStay(stay: LodgingStay): Promise<CheckOutcom
         rating: r.rating === null || Number(r.review_count) === 0 ? null : Number(r.rating),
         reviewCount: Number(r.review_count),
         isVerified: r.is_verified,
+        stay: stayPriceForGroup(
+          (r.rooms ?? []).map((m) => ({
+            roomId: m.room_id, name: m.name, maxGuests: Number(m.max_guests),
+            minFree: Number(m.min_free), staySum: Number(m.stay_sum),
+          })),
+          people,
+        ),
       })),
     };
   } catch (err) {
