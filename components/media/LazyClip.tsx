@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Play, WifiOff } from 'lucide-react';
 import { clipHint, clipPolicy, type ClipVerdict } from '@/lib/media/clip-policy';
 
@@ -40,6 +40,25 @@ function readVerdict(): ClipVerdict {
   });
 }
 
+/** Подписка на всё, что меняет решение: сеть, экономия трафика, «меньше движения». */
+function subscribeEnv(onChange: () => void): () => void {
+  const nav = navigator as Navigator & { connection?: EventTarget };
+  const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  window.addEventListener('online', onChange);
+  window.addEventListener('offline', onChange);
+  nav.connection?.addEventListener('change', onChange);
+  mq?.addEventListener?.('change', onChange);
+  return () => {
+    window.removeEventListener('online', onChange);
+    window.removeEventListener('offline', onChange);
+    nav.connection?.removeEventListener('change', onChange);
+    mq?.removeEventListener?.('change', onChange);
+  };
+}
+
+/** На сервере решения нет: пока браузер не ответил, клип стоит с обложкой. */
+const PENDING = 'pending';
+
 export function LazyClip({ url, poster, label, className }: LazyClipProps) {
   const box = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -47,27 +66,22 @@ export function LazyClip({ url, poster, label, className }: LazyClipProps) {
   const [visible, setVisible] = useState(false);
   const [tapped, setTapped] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [verdict, setVerdict] = useState<ClipVerdict | null>(null);
-  const [hasObserver, setHasObserver] = useState(true);
-
-  useEffect(() => {
-    setVerdict(readVerdict());
-    const onNet = () => setVerdict(readVerdict());
-    window.addEventListener('online', onNet);
-    window.addEventListener('offline', onNet);
-    return () => {
-      window.removeEventListener('online', onNet);
-      window.removeEventListener('offline', onNet);
-    };
-  }, []);
+  const reason = useSyncExternalStore<ClipVerdict['reason'] | typeof PENDING>(
+    subscribeEnv,
+    () => readVerdict().reason,
+    () => PENDING,
+  );
+  const verdict: ClipVerdict | null = reason === PENDING
+    ? null
+    : reason === 'ok' ? { autoplay: true, reason } : { autoplay: false, reason };
+  // Размечено один раз: есть ли вообще IntersectionObserver. На сервере его нет,
+  // но разметка от этого флага не зависит (решение приходит только в браузере).
+  const [hasObserver] = useState(() => typeof IntersectionObserver !== 'undefined');
 
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      setHasObserver(false);
-      return;
-    }
+    if (!hasObserver) return;
     const nearObs = new IntersectionObserver(
       (es) => { if (es.some((e) => e.isIntersecting)) setNear(true); },
       { rootMargin: '300px' },
@@ -79,7 +93,7 @@ export function LazyClip({ url, poster, label, className }: LazyClipProps) {
     nearObs.observe(el);
     seenObs.observe(el);
     return () => { nearObs.disconnect(); seenObs.disconnect(); };
-  }, []);
+  }, [hasObserver]);
 
   const auto = verdict?.autoplay === true && hasObserver;
   const wantsFile = tapped || (auto && near);

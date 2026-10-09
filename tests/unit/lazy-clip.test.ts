@@ -99,7 +99,7 @@ describe('поведение закреплено в исходнике', () => 
   });
 
   it('нет IntersectionObserver — не гадаем: обложка и кнопка', () => {
-    expect(src).toMatch(/typeof IntersectionObserver === 'undefined'/);
+    expect(src).toMatch(/typeof IntersectionObserver !== 'undefined'/);
     expect(src).toMatch(/const auto = verdict\?\.autoplay === true && hasObserver/);
   });
 
