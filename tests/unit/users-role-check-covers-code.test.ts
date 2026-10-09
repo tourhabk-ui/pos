@@ -69,6 +69,16 @@ describe('users_role_check покрывает роли, которые пише�
     expect(allowed.has('gear')).toBe(true);
   });
 
+  it('каждую роль, которую разрешает база, распознаёт verifyAuth (lib/auth.ts BASE_ROLES)', () => {
+    // Обратная сторона связки (09.10, #2325): CHECK пустил 'stay' и 'gear' с
+    // 26.09, а BASE_ROLES их не знал — verifyAuth обнулял вошедшего владельца
+    // жилья, и его SOS приходил как от анонима. Роль, которую можно записать,
+    // но нельзя распознать, — человек без имени в самом важном месте.
+    const known = new Set(literalsIn(read('lib/auth.ts'), /const BASE_ROLES = new Set<AuthRole>\(\[([^\]]+)\]/));
+    const unrecognized = [...allowed].filter(r => !known.has(r));
+    expect(unrecognized, `роли из CHECK, которых не знает verifyAuth: ${unrecognized.join(', ')}`).toEqual([]);
+  });
+
   it('CHECK не разрешает того, чего никто не пишет', () => {
     const written = new Set(Object.values(WRITERS).flat());
     // Литеральные писатели вне перечней: telegram/max → 'tourist',
