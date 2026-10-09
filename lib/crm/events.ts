@@ -214,6 +214,36 @@ export async function addContactTouch(
   return { outcome: 'recorded', id: r.id };
 }
 
+export interface ContactEventInput {
+  partnerId: string;
+  contactId: string;
+  kind: EventKind;
+  actorKind: ActorKind;
+  actorUserId?: string | null;
+  title: string;
+  payload?: Record<string, unknown>;
+}
+
+/**
+ * Событие по уже известному клиенту партнёра — для писателей, которые сами
+ * держат связку партнёр → клиент в своей строке (задача: partner_id и
+ * contact_id в crm_tasks). Принадлежность клиента партнёру проверяет SQL.
+ */
+export async function recordContactEvent(input: ContactEventInput, db: Queryable = pool): Promise<RecordResult> {
+  return insertEvent(db, {
+    partnerId: input.partnerId,
+    contactId: input.contactId,
+    sourceKind: null,
+    sourceId: null,
+    kind: input.kind,
+    actorKind: input.actorKind,
+    actorUserId: input.actorUserId ?? null,
+    title: input.title,
+    payload: input.payload ?? {},
+    occurredAt: null,
+  });
+}
+
 async function insertEvent(
   db: Queryable,
   e: {

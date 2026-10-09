@@ -24,6 +24,7 @@ import {
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries';
 import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitle } from '@/lib/crm/events';
+import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/lib/crm/tasks';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -491,6 +492,64 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     });
     // Карточка администратора несёт ту же ленту.
     expect((await getContactCardForAdmin(anna.id, pool))?.events[0]?.title).toBe('Позвонил, перенесли на август');
+  });
+
+  it('задачи: своему клиенту — да, чужому — contact_not_found; без клиента — можно', async () => {
+    const anna = (await pool.query<{ id: string }>(
+      `SELECT id FROM crm_contacts WHERE partner_id = $1 AND phone_e164 = '+79141112233'`, [P.opA],
+    )).rows[0];
+    const later = await createTask(P.opA, {
+      title: '  Уточнить   состав группы ', dueAt: new Date('2030-03-01T00:00:00Z'), contactId: anna.id,
+    }, pool);
+    expect(later).toMatchObject({ outcome: 'created', task: { title: 'Уточнить состав группы', done_at: null, contact: { id: anna.id, display_name: 'Анна' } } });
+    const overdue = await createTask(P.opA, { title: 'Перезвонить', dueAt: new Date('2020-01-01T00:00:00Z'), contactId: anna.id }, pool);
+    expect(overdue.outcome).toBe('created');
+    expect(await createTask(P.opB, { title: 'чужое', dueAt: new Date(), contactId: anna.id }, pool)).toEqual({ outcome: 'contact_not_found' });
+    expect(await createTask(P.opB, { title: 'Своё без клиента', dueAt: new Date('2030-01-01T00:00:00Z') }, pool))
+      .toMatchObject({ outcome: 'created', task: { contact: null } });
+
+    // Открытые — по сроку, просроченная первой; чужой партнёр не видит.
+    const open = await listTasks(P.opA, { status: 'open' }, pool);
+    expect(open.map((t) => t.title)).toEqual(['Перезвонить', 'Уточнить состав группы']);
+    expect((await listTasks(P.opA, { status: 'open', contactId: anna.id }, pool))).toHaveLength(2);
+    expect((await listTasks(P.opB, { status: 'open' }, pool)).map((t) => t.title)).toEqual(['Своё без клиента']);
+  });
+
+  it('задачи: выполнение пишет task_done в ленту один раз; выполненная не правится', async () => {
+    const [first] = await listTasks(P.opA, { status: 'open' }, pool);
+    if (!first?.contact) throw new Error('нет задачи с клиентом');
+    // Чужой партнёр не отмечает, не правит и не удаляет.
+    expect(await completeTask(P.opB, first.id, null, pool)).toEqual({ outcome: 'not_found' });
+    expect(await updateTask(P.opB, first.id, { title: 'чужое' }, pool)).toBeNull();
+    expect(await deleteTask(P.opB, first.id, pool)).toBe(false);
+
+    const moved = await updateTask(P.opA, first.id, { dueAt: new Date('2029-12-31T21:00:00Z'), details: 'после 20-го' }, pool);
+    expect(moved).toMatchObject({ title: 'Перезвонить', details: 'после 20-го', due_at: '2029-12-31T21:00:00.000Z' });
+
+    const done = await completeTask(P.opA, first.id, null, pool);
+    expect(done).toMatchObject({ outcome: 'done', task: { id: first.id } });
+    if (done.outcome !== 'done') throw new Error('не выполнено');
+    expect(done.task.done_at).not.toBeNull();
+    expect(await completeTask(P.opA, first.id, null, pool)).toEqual({ outcome: 'not_found' });
+    expect(await updateTask(P.opA, first.id, { title: 'после выполнения' }, pool)).toBeNull();
+
+    const feed = await listContactEvents(P.opA, first.contact.id, 50, pool);
+    const taskEvents = feed.filter((e) => e.kind === 'task_done');
+    expect(taskEvents).toHaveLength(1);
+    expect(taskEvents[0]).toMatchObject({ actor_kind: 'partner_user', title: 'Перезвонить', source_kind: null });
+
+    expect((await listTasks(P.opA, { status: 'done' }, pool)).map((t) => t.id)).toEqual([first.id]);
+    // Удаление выполненной не трогает ленту: факт уже записан.
+    expect(await deleteTask(P.opA, first.id, pool)).toBe(true);
+    expect((await listContactEvents(P.opA, first.contact.id, 50, pool)).filter((e) => e.kind === 'task_done')).toHaveLength(1);
+  });
+
+  it('задачи: клиент удалён — его задачи уходят вместе с ним (CASCADE)', async () => {
+    const c = await createManualContact(P.opB, { display_name: 'Временный', phone: '+79140007777' }, pool);
+    if (c.outcome !== 'created') throw new Error('не заведён');
+    await createTask(P.opB, { title: 'Про временного', dueAt: new Date(), contactId: c.id }, pool);
+    await pool.query(`DELETE FROM crm_contacts WHERE id = $1`, [c.id]);
+    expect((await listTasks(P.opB, { status: 'open' }, pool)).map((t) => t.title)).toEqual(['Своё без клиента']);
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {
