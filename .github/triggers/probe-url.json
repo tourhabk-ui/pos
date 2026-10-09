@@ -2,27 +2,38 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 12000,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Владелец прислал адрес laguna-expedition.online: что это за сайт (компания, туры, цены, контакты, Камчатка). С песочницы домен не резолвится (WebFetch: ENOTFOUND) — проверка с раннера, три варианта адреса.",
-  "run": 734,
+  "bytes": 1500,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Конструктор путешествий laguna-expedition.online (решение владельца: разобрать как идею для нашего планера): откуда страница грузит номера, экскурсии, услуги и рестораны (скрипты, адреса API), какие разделы есть на сайте.",
+  "run": 735,
   "urls": [
-    "https://laguna-expedition.online",
-    "http://laguna-expedition.online",
-    "https://www.laguna-expedition.online"
+    "https://laguna-expedition.online"
   ],
   "grep": [
-    "Камчат",
-    "Лагун",
-    "тур",
-    "₽",
-    "руб",
-    "ИНН",
-    "ОГРН",
-    "+7",
-    "@",
-    "WhatsApp",
-    "Telegram"
+    "admin-ajax",
+    "wp-json",
+    "wp-content",
+    "/api/",
+    "fetch(",
+    "axios",
+    "nonce",
+    "_next",
+    "nuxt",
+    "vue",
+    "react",
+    "jquery",
+    "bitrix",
+    "tilda"
   ],
-  "text": true,
-  "retryDelay": 30
+  "text": false,
+  "retryDelay": 30,
+  "around": [
+    "admin-ajax",
+    "wp-json",
+    "/api/",
+    "fetch(",
+    "href=\"https://laguna-expedition.online/"
+  ],
+  "aroundLines": 1,
+  "aroundHits": 40,
+  "aroundBefore": 0
 }
