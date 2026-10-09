@@ -35,6 +35,7 @@ export const CREATE_LEAD_TOOL = {
       phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
       comment: { type: 'string', description: 'Запрос: даты, сколько человек, что интересует' },
       interest: { type: 'string', description: 'Название тура/маршрута, если уже выбран' },
+      plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — на этот план: менеджер получит план целиком (состав, туры по дням, смету) и не будет переспрашивать.' },
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['name', 'phone', 'comment', 'consent'],
@@ -63,6 +64,7 @@ export const BOOKING_REQUEST_TOOL = {
       name: { type: 'string', description: 'Имя туриста' },
       phone: { type: 'string', description: 'Телефон для подтверждения (обязателен)' },
       comment: { type: 'string', description: 'Пожелания, вопросы, состав группы' },
+      plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если тур — из этого плана: оператор увидит, частью какой поездки он стоит.' },
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['tour', 'date', 'name', 'phone', 'consent'],
@@ -239,6 +241,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     phone: { lead: 'Contact phone, required.' },
     comment: { lead: 'The request: dates, group size, interests.' },
     interest: { lead: 'Tour or route name, if already chosen.' },
+    plan_id: { lead: 'Plan ID from make_trip_plan when the request is for that plan: the manager gets the whole plan (group, tours by day, estimate).', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
   create_booking_request: {
@@ -248,6 +251,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     name: { lead: "Traveller's name." },
     phone: { lead: 'Phone for confirmation, required.' },
     comment: { lead: 'Wishes, questions, group composition.' },
+    plan_id: { lead: 'Plan ID from make_trip_plan when this tour is part of that plan: the operator sees the whole trip.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
 };

@@ -41,6 +41,7 @@ import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
 import { GroupEstimateBlock } from './GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
+import { planForLead } from '@/lib/planner/plan-for-lead';
 import { escapeHtml } from '@/lib/text/escape-html';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
@@ -1815,9 +1816,14 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             flight_departure_time: flightDepartureTime || undefined,
             needs_airport_transfer: needsAirportTransfer || undefined,
             trip_days: tripDays ?? undefined,
-            recommendation: recommendation?.zones,
             transport_choices: transportByDay,
-            day_plan: days.map((d, i) => ({ day: i + 1, title: d.title, zone: d.zone, activity: d.activityType })),
+            // План целиком (#2304, шаг 2): состав, уровень, туры дня с датами и
+            // ценами и смета — та же, что на экране. Вместо `day_plan` и
+            // `recommendation`: их не читал никто, а оператор видел одни
+            // названия дней и переспрашивал то, что человек уже выбрал.
+            ...(planProfile && days.length > 0
+              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }) }
+              : {}),
           },
           pd_consent: true,
         }),
