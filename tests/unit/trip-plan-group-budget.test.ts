@@ -54,6 +54,7 @@ vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 
 import { recommendTrip, type TripProfile, type PriceBreakdown } from '@/lib/planner/engine';
+import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
 import {
   readAdults, readChildren, readBudgetTier, planAssumptions, formatPlanPrice,
 } from '@/lib/kuzmich/trip-plan-tool';
@@ -105,6 +106,20 @@ describe('движок: состав, бюджет и цена', () => {
     expect(perGroup.priceBreakdown.activityPricing.tourPriced).toBe(perPerson.priceBreakdown.activityPricing.tourPriced - 1);
     // 10 000 тура на вулкан ушли из нижней границы целиком.
     expect(perPerson.priceBreakdown.activities[0] - perGroup.priceBreakdown.activities[0]).toBe(10000);
+  });
+
+  it('тур за группу входит в итог на группу — один раз на группу (#2304)', async () => {
+    TOURS['avachinsky:volcano'][0].priceUnit = 'per_tour';
+    const rec = await recommendTrip(BASE, { itinerary: 'plain' });
+    const e = estimateGroup(rec.days, { adults: 2, children: [], budgetTier: 'comfort' });
+    const perGroup = e.lines.filter((l) => l.kind === 'tour' && l.basis.includes('за группу'));
+    // Вместимость 10, вас двое — одна группа: 10 000 тура, верх вилки ×1.2.
+    expect(perGroup.map((l) => l.total)).toEqual([[10000, 12000]]);
+    // Всё остальное — ровно вилка на человека, умноженная на состав.
+    expect(e.total).toEqual([
+      rec.priceBreakdown.perPersonTotal[0] * 2 + 10000,
+      rec.priceBreakdown.perPersonTotal[1] * 2 + 12000,
+    ]);
   });
 
   it('уровень бюджета меняет оценку жилья', async () => {
@@ -180,6 +195,41 @@ describe('цена плана словами', () => {
   it('плана нет — цены нет', () => {
     expect(formatPlanPrice(pb(), 'comfort', false)).toEqual([]);
   });
+
+  const group = (over: Partial<GroupEstimate> = {}): GroupEstimate => ({
+    people: 3, lines: [], total: [150000, 200000], perPerson: [50000, 66667], unpriced: [],
+    fromTours: [90000, 108000], fromEstimates: [60000, 92000], assumptions: [], ...over,
+  });
+
+  it('итог на группу — после вилки на человека, перелёт по-прежнему вне суммы (#2304)', () => {
+    const lines = formatPlanPrice(pb(), 'comfort', true, group());
+    const text = lines.join('\n');
+    expect(text).toMatch(/Итого на группу из 3 чел\.: 150\s000 ₽–200\s000 ₽ — туры по своей цене/);
+    expect(lines.findIndex((l) => l.startsWith('Итого на группу'))).toBeGreaterThan(0);
+    expect(lines[lines.length - 1]).toBe('Перелёт до Камчатки в сумму не входит.');
+  });
+
+  it('тур за группу не «без учёта», а учтён в итоге на группу; нераспознанный — назван', () => {
+    const lines = formatPlanPrice(pb({ activityPricing: { tourPriced: 1, estimated: 0, excluded: 2 } }), 'comfort', true, group({
+      lines: [
+        { kind: 'tour', label: 'Тур «Сплав», день 2', basis: '30 000 ₽ за группу', total: [30000, 36000], source: 'tour' },
+        { kind: 'tour', label: 'Тур «Вертолёт», день 3', basis: '400 000 ₽', total: null, source: 'tour' },
+      ],
+      unpriced: ['Тур «Вертолёт», день 3'],
+    }));
+    const text = lines.join('\n');
+    expect(text).not.toMatch(/Без учёта/);
+    expect(text).toMatch(/В вилку на человека не вошёл 1 тур с ценой не за человека .* в итоге на группу он учтён/);
+    expect(text).toMatch(/Не вошло ни в одну сумму .*: Тур «Вертолёт», день 3\./);
+  });
+
+  it('один человек — «итого на одного»; допущения сметы — строками', () => {
+    const text = formatPlanPrice(pb(), 'comfort', true, group({
+      people: 1, assumptions: ['Дети посчитаны по цене взрослого: скидок платформа не знает — уточняйте у оператора.'],
+    })).join('\n');
+    expect(text).toMatch(/Итого на одного: /);
+    expect(text).toMatch(/Дети посчитаны по цене взрослого/);
+  });
 });
 
 describe('схема: одна правда для MCP и Кузьмича', () => {
@@ -206,7 +256,9 @@ describe('схема: одна правда для MCP и Кузьмича', () 
     const core = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf-8');
     expect(tool).toMatch(/adults: group\.adults,\s*children: kids\.children,/);
     expect(tool).toMatch(/budgetTier: budget\.tier,/);
-    expect(tool).toMatch(/priceLines: formatPlanPrice\(rec\.priceBreakdown, budget\.tier, rec\.days\.length > 0\)/);
+    // Итог на группу — тем же составом и уровнем, что ушли в движок (#2304).
+    expect(tool).toMatch(/priceLines: formatPlanPrice\(rec\.priceBreakdown, budget\.tier, rec\.days\.length > 0,\s*estimateGroup\(rec\.days, \{ adults: group\.adults, children: kids\.children, budgetTier: budget\.tier \}\)\)/);
+    expect(tool).toMatch(/formatPlanPrice\(planPrice\(plan\), plan\.params\.budgetTier, plan\.days\.length > 0, planEstimate\(plan\)\)/);
     expect(core).toMatch(/adults: args\.adults, children: args\.children, budget_tier: args\.budget_tier,/);
   });
 

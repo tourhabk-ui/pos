@@ -42,6 +42,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const ENGINE = read('lib/planner/engine.ts');
 const CODE = code(ENGINE);
+// Счёт ночей с #2304 живёт в смете (одна формула для движка, экрана и чата).
+const ESTIMATE = code(read('lib/planner/estimate.ts'));
 const KUZMICH = code(read('lib/kuzmich/trip-plan-tool.ts'));
 const API = code(read('app/api/planner/recommend/route.ts'));
 
@@ -100,15 +102,17 @@ describe('движок спрашивает правило, а не считае
 
 describe('у последнего дня поездки ночи нет', () => {
   it('ночь не считается ни дню вылета, ни последнему дню', () => {
-    expect(CODE).toMatch(/day\.type === 'departure' \|\| day\.day === lastDayNum/);
+    expect(ESTIMATE).toMatch(/day\.type === 'departure' \|\| day\.day === lastDayNum/);
   });
 
   it('прежнее правило «только день вылета» не вернулось', () => {
-    const at = CODE.indexOf('lastDayNum');
+    const at = ESTIMATE.indexOf('lastDayNum');
     expect(at).toBeGreaterThan(0);
     // Голая проверка на departure без последнего дня давала бы местному
     // лишнюю ночь.
-    expect(CODE).not.toMatch(/if \(day\.type === 'departure'\) continue;/);
+    for (const src of [ESTIMATE, CODE]) {
+      expect(src).not.toMatch(/if \(day\.type === 'departure'\) continue;/);
+    }
   });
 });
 

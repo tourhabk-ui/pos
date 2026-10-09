@@ -31,6 +31,8 @@ import { lodgingIncluded } from '@/lib/planner/lodging-included';
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
+/** Смета с 09.10 живёт отдельно от движка (#2304): её считает и браузер. */
+const ESTIMATE = readFileSync(join(ROOT, 'lib/planner/estimate.ts'), 'utf8');
 const CONSTANTS = readFileSync(join(ROOT, 'lib/planner/constants.ts'), 'utf8');
 const DATA = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf8');
 
@@ -44,10 +46,12 @@ const DATA = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf8');
  * байтах.
  */
 function lodgingBlock(): string {
-  const from = ENGINE.indexOf('let accFrom = 0;');
-  const to = ENGINE.indexOf('if (nightCount === 0)');
-  if (from < 0 || to <= from) throw new Error('подсчёт ночёвок не найден в движке');
-  return ENGINE.slice(from, to);
+  // С 09.10 правило ночи — одна функция `nightOf` в смете (#2304): её зовут и
+  // вилка на человека, и смета на группу.
+  const from = ESTIMATE.indexOf('function nightOf(');
+  const to = ESTIMATE.indexOf('// ── Вилка на человека');
+  if (from < 0 || to <= from) throw new Error('правило ночи не найдено в смете');
+  return ESTIMATE.slice(from, to);
 }
 
 describe('разбор состава тура', () => {
@@ -101,10 +105,7 @@ describe('смета не платит за ночь дважды', () => {
   });
 
   it('день с включённым проживанием ночь не оплачивает', () => {
-    const at = ENGINE.indexOf('let accFrom = 0;');
-    expect(at, 'блок сметы ночёвок не нашёлся').toBeGreaterThan(0);
-    const block = ENGINE.slice(at, at + 600);
-    expect(block).toMatch(/if \(day\.realTour\?\.lodgingIncluded === true\) continue;/);
+    expect(lodgingBlock()).toMatch(/if \(day\.realTour\?\.lodgingIncluded === true\) return null;/);
   });
 
   it('только true пропускает ночь: «не знаем» платит', () => {
@@ -112,7 +113,11 @@ describe('смета не платит за ночь дважды', () => {
     // (`if (day.realTour?.lodgingIncluded)`) вела бы себя так же, но
     // молча — и следующая правка легко превратила бы null в «включено».
     const block = lodgingBlock();
-    expect(block).not.toMatch(/if \(day\.realTour\?\.lodgingIncluded\) continue;/);
+    expect(block).not.toMatch(/if \(day\.realTour\?\.lodgingIncluded\) (continue|return null);/);
+  });
+
+  it('правило ночи одно: его зовут и вилка на человека, и смета на группу', () => {
+    expect(ESTIMATE.match(/nightOf\(day, lastDayNum, origin, bi\)/g)?.length).toBe(2);
   });
 
   it('признак доезжает до дня плана', () => {
@@ -128,12 +133,12 @@ describe('ночь считается там, где её проводят', () 
     // человек проводит в Петропавловске, не считалась НИГДЕ. Ошибка в
     // обратную сторону от двойного счёта, причина та же: о ночёвке судили
     // не по данным.
-    const at = ENGINE.indexOf("note: 'Однодневная экскурсия, ночёвка в Авачинской зоне'");
+    const at = ESTIMATE.indexOf("note: 'Однодневная экскурсия, ночёвка в Авачинской зоне'");
     expect(at, 'северная зона не нашлась').toBeGreaterThan(0);
     // С 26.09 правило «где ночуют» живёт одной картой в constants
     // (ZONE_SLEEPS_IN): его же читает подбор настоящего жилья планера
     // (lib/planner/trip-extras). Две копии правила разошлись бы.
-    expect(ENGINE.slice(at, at + 260)).toMatch(/sleepsIn: ZONE_SLEEPS_IN\.northern/);
+    expect(ESTIMATE.slice(at, at + 260)).toMatch(/sleepsIn: ZONE_SLEEPS_IN\.northern/);
     expect(CONSTANTS).toMatch(/ZONE_SLEEPS_IN[^=]*=\s*\{\s*northern: 'avachinsky'/);
   });
 

@@ -180,11 +180,16 @@ describe('результат: настоящее, пустое, непровер
     expect(car.textContent).toMatch(/Аренды автомобилей на платформе пока нет/);
     expect(car.querySelector('a')).toBeNull();
 
-    // Оценка движка подписана оценкой.
+    // Смета на группу (#2304): ориентир подписан ориентиром у каждой строки и
+    // под итогом. Ночь прилёта в Авачинской зоне считается, ночь тура с
+    // включённым проживанием — нет; трансферы аэропорта — у прилетающего.
     const estimate = screen.getByTestId('price-estimate');
-    expect(within(estimate).getByText('Оценка стоимости')).toBeTruthy();
-    expect(within(estimate).getByText('Размещение, оценка')).toBeTruthy();
-    expect(within(estimate).getByText('Транспорт, оценка')).toBeTruthy();
+    expect(within(estimate).getByText(/Смета на группу · 2 чел\./)).toBeTruthy();
+    expect(within(estimate).getByText('Проживание в Авачинской зоне')).toBeTruthy();
+    expect(within(estimate).getByText(/1 ночь × 2 чел\. · ориентир/)).toBeTruthy();
+    expect(within(estimate).getByText('Трансферы аэропорта')).toBeTruthy();
+    expect(within(estimate).queryByText(/Западной зоне/)).toBeNull();
+    expect(estimate.textContent).toMatch(/ориентир по средним ценам/);
   });
 
   it('отказ сервера — «не смогли проверить», а не «вариантов нет»', async () => {
