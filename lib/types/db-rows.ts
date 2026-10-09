@@ -1471,3 +1471,42 @@ export interface UserPlacePhotoAdminRow {
   created_at: Date;
   reviewed_at: Date | null;
 }
+
+// ──────────────────────────────────────────────────────────
+// CRM: клиент партнёра (миграция 1195, #2325)
+// ──────────────────────────────────────────────────────────
+
+export interface CrmContactRow {
+  id: string;
+  partner_id: string;
+  user_id: string | null;
+  /** NULL — имя неизвестно (место в машине заказано одним телефоном). */
+  display_name: string | null;
+  phone: string | null;
+  phone_e164: string | null;
+  email: string | null;
+  email_norm: string | null;
+  origin: string;
+  tags: string[];
+  notes: string | null;
+  /** NULL — согласие не записано (не отказ). */
+  pd_consent_at: Date | null;
+  pd_consent_ip: string | null;
+  pd_consent_source: string | null;
+  pd_consent_version: string | null;
+  first_seen_at: Date;
+  last_activity_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CrmContactLinkRow {
+  /** bigserial — pg отдаёт строкой. */
+  id: string;
+  contact_id: string;
+  partner_id: string;
+  source_kind: string;
+  source_id: string;
+  occurred_at: Date;
+  created_at: Date;
+}

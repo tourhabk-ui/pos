@@ -11,6 +11,7 @@ import { computeQuickScore, classifyLead, LOW_QUALITY_SCORE } from '@/lib/leads/
 import { normalizeLeadChannel } from '@/lib/leads/channel';
 import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 export interface CreateLeadParams {
   /** Имя туриста */
@@ -189,6 +190,9 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
     console.error('[leads] INSERT не выполнился:', `channel=${sourceChannel}`, `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return null;
   }
+
+  // Лид оператора — его клиент в CRM (#2325); отказ CRM заявку не роняет.
+  if (leadId) await linkContactQuietly('lead', leadId);
 
   // ── 5. Уведомление админу (fire-and-forget) ─────────────────────────────
   // Пропускаем для низкого качества — не спамим

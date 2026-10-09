@@ -18,6 +18,7 @@ import { getTokenFromRequest } from '@/lib/auth';
 import { TourBookCheckRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 // Валидация входных данных
 const bookingSchema = z.object({
@@ -201,6 +202,9 @@ export async function POST(
     );
 
     const bookingId = bookingResult.rows[0].id;
+
+    // Клиент оператора в CRM (#2325) — молча для брони, пропуск подберёт задел.
+    await linkContactQuietly('operator_booking', bookingId);
 
     // Создаем платеж через CloudPayments (передаём токен из входящего запроса)
     let paymentData = null;

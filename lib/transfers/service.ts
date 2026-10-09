@@ -29,6 +29,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import type { PoolClient } from 'pg';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 export type TransferVehicleKind = 'jeep' | 'vahtovka' | 'minibus' | 'other';
 export type TransferTripStatus = 'planned' | 'confirmed' | 'cancelled' | 'completed';
@@ -337,6 +338,8 @@ export async function requestSeats(input: {
         input.contactPhone ?? null,
       ],
     );
+    // Заказчик — клиент перевозчика в CRM (#2325); молча для запроса.
+    await linkContactQuietly('transfer_seat_booking', rows[0]!.id);
     return { ok: true, value: rows[0]! };
   } catch (err) {
     return failure(err, 'запрос мест не создан');

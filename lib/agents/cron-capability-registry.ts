@@ -75,6 +75,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'commission-dry-run': ['db_read', 'db_write', 'money'],
+  // pd_direct — имя, телефон и почта клиента читаются из источника и пишутся
+  // в crm_contacts; наружу роут отдаёт только числа (CRM #2325).
+  'crm-contacts-sync': ['db_read', 'db_write', 'pd_direct'],
   'danger-analysis': ['db_read', 'db_write', 'net_out', 'ai'],
   'data-inventory': ['db_read', 'db_write'],
   'data-repair': ['db_read', 'db_write', 'net_out'],

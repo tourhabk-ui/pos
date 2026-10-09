@@ -6,6 +6,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { getGearPartnerId } from '@/lib/auth/gear-helpers';
 import { calcRentalDays, calcGearPrice } from '@/lib/gear/pricing';
 import { notifyNewGearRental } from '@/lib/notifications/gear-rental';
+import { linkContactQuietly } from '@/lib/crm/contacts';
 
 export const dynamic = 'force-dynamic';
 
@@ -174,6 +175,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     const rentalId = result.rows[0].id;
+
+    // Клиент проката в CRM (#2325); молча для заказа.
+    await linkContactQuietly('gear_rental', rentalId);
 
     // Партнёр и админ узнают о заявке сразу, а не когда сами зайдут в кабинет.
     if (gear.partner_id) {
