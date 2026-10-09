@@ -2,19 +2,16 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 0,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel — входные поля request/create (сверка нашей отправки броней, lib/integrations/uon.ts) и события webhook/create (обратная связь статусов), для #2313.",
-  "run": 747,
+  "bytes": 285000,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel текстом, окно перед отметкой 285 КБ (в отчёт попадает хвост) — полный список полей request/create и request/update для сверки lib/integrations/uon.ts (#2313). Проба 747 оборвалась на r_travel_type_id.",
+  "run": 748,
   "urls": [
     "https://api.u-on.ru/doc"
   ],
   "grep": [],
-  "text": false,
-  "around": [
-    "/{key}/webhook/create.",
-    "/{key}/request/create."
-  ],
-  "aroundLines": 650,
+  "text": true,
+  "around": [],
+  "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 0,
   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
