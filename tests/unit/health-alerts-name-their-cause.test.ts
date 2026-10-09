@@ -15,6 +15,23 @@ import {
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
+describe('MAX — МЧС: молчание принято владельцем 09.10 («отключи»)', () => {
+  it('max_mchs записан как knownDormant с причиной и датой', () => {
+    const e = SAFETY_SOURCE_EXPECTATIONS.find((x) => x.key === 'max_mchs');
+    expect(e?.knownDormant?.since).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(e?.knownDormant?.reason).toContain('решение владельца 09.10');
+  });
+
+  it('молчащий MAX не будит, а VK и RSS МЧС — будят по-прежнему', () => {
+    const dead = ['max_mchs', 'vk_mchs', 'mchs_rss'].map(
+      (key) => ({ key, label: key, reason: 'silent' } as unknown as DeadSource),
+    );
+    const { alertable, known } = splitKnownDormant(dead, SAFETY_SOURCE_EXPECTATIONS);
+    expect(known.map((k) => k.key)).toEqual(['max_mchs']);
+    expect(alertable.map((a) => a.key)).toEqual(['vk_mchs', 'mchs_rss']);
+  });
+});
+
 describe('emsd.ru: известное состояние, а не «парс сломан»', () => {
   it('emsd_quakes записан как knownDormant с причиной и датой', () => {
     const e = SAFETY_SOURCE_EXPECTATIONS.find((x) => x.key === 'emsd_quakes');
