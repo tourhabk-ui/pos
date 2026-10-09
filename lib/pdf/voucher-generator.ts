@@ -194,7 +194,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
 
     // ── Подвал ─────────────────────────────────────────────────────────────────
     doc.fontSize(8).fillColor(MUTED).text(
-      `Ваучер №${data.bookingId} · Ведар (vedarai.ru) · pospk@mail.ru · ${fmt(data.issueDate)}`,
+      `Ваучер №${data.bookingId} · Ведар (vedarai.ru) · info@vedarai.ru · ${fmt(data.issueDate)}`,
       { align: 'center', width: W }
     );
 

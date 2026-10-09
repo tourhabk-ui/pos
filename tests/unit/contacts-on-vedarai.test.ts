@@ -1,6 +1,7 @@
 /**
  * Контакты — на vedarai.ru (решение владельца 26.09: «адрес везде vedarai.ru»).
- * С 05.10 почта — pospk@mail.ru: ящика на vedarai.ru ещё нет (см. тест ниже).
+ * С 05.10 по 09.10 почта была pospk@mail.ru (ящика на vedarai.ru не было);
+ * 09.10 владелец: «pospk@mail.ru заменить на платформе на info@vedarai.ru».
  *
  * До этого дня сайт давал туристам и партнёрам два десятка адресов на
  * прежнем домене (support@, privacy@, legal@, finance@ tourhab.ru, старый
@@ -34,20 +35,17 @@ describe('контакты на vedarai.ru', () => {
     expect(REQUISITES.emailPrivacy).toBe(SUPPORT.email);
   });
 
-  it('ящика info@vedarai.ru нет — адрес не обещается нигде (решение владельца 05.10)', () => {
-    // Владелец 05.10: «я пока не заводил в Timeweb ящик». Письма на
-    // info@vedarai.ru уходили в никуда — в том числе запросы субъектов ПД.
-    // До создания ящика контакт — pospk@mail.ru (тот же, что в уведомлении
-    // Роскомнадзору). Заведут ящик — вернуть адрес одной заменой.
-    expect(SUPPORT.email).toBe('pospk@mail.ru');
+  it('почта платформы — info@vedarai.ru, прежнего pospk@mail.ru нигде нет (решение владельца 09.10)', () => {
+    // 05.10 ящика на vedarai.ru не было, и контактом стоял pospk@mail.ru.
+    // 09.10 владелец: «pospk@mail.ru заменить на платформе на info@vedarai.ru».
+    // Два адреса на сайте — два ответа на «куда писать», то есть ни одного.
+    expect(SUPPORT.email).toBe('info@vedarai.ru');
     const out = execSync(
-      "git grep -l 'info@vedarai\\.ru' -- app components lib public || true",
+      "git grep -l 'pospk@mail\\.ru' -- app components lib public || true",
       { encoding: 'utf-8' },
     );
-    const files = out.split('\n').filter(Boolean)
-      // Приёмник платежей — зона §7 «не трогать»; оплата выключена, письмо не уходит.
-      .filter((f) => f !== 'app/api/payments/webhook/route.ts');
-    expect(files, `несуществующий ящик в: ${files.join(', ')}`).toEqual([]);
+    const files = out.split('\n').filter(Boolean);
+    expect(files, `прежний адрес в: ${files.join(', ')}`).toEqual([]);
   }, 20_000); // git grep по дереву: под полным прогоном 5 с не хватало
 
   it('прежних адресов нет нигде, кроме названных исключений', () => {

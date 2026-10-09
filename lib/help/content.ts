@@ -42,7 +42,7 @@ export interface HelpArticle {
  * (lib/legal/requisites.ts), письма и юридические документы.
  */
 export const SUPPORT = {
-  email: 'pospk@mail.ru',
+  email: 'info@vedarai.ru',
   telegram: 'kamchatourhub',
 } as const;
 
