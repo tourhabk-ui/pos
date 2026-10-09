@@ -14,6 +14,7 @@ import { requireApprovedAgent } from '@/lib/auth/agent-approval';
 import {
   ClientFieldsSchema, CLIENT_PHONE_MESSAGE, clientPhone, sqlstateOf,
 } from '@/lib/agent-cabinet/client-fields';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,16 +50,29 @@ export async function PUT(
   }
 
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE agent_clients
+    const { rows } = await pool.query<{ prev_status: string | null }>(
+      `WITH prev AS (SELECT status FROM agent_clients WHERE id = $1 AND agent_id = $2)
+       UPDATE agent_clients
           SET name = $3, email = $4, phone = $5, company = $6, status = $7,
               notes = $8, tags = $9::jsonb, source = $10, updated_at = NOW()
-        WHERE id = $1 AND agent_id = $2`,
+        WHERE id = $1 AND agent_id = $2
+        RETURNING (SELECT status FROM prev) AS prev_status`,
       [id, auth.userId, f.name, f.email ? f.email : null, phone, f.company || null,
         f.status, f.notes || null, JSON.stringify(f.tags), f.source],
     );
-    if (!rowCount) {
+    if (rows.length === 0) {
       return NextResponse.json({ success: false, error: 'Клиент не найден среди ваших клиентов' }, { status: 404 });
+    }
+    const prevStatus = rows[0].prev_status;
+    if (prevStatus !== f.status) {
+      // Лента клиента агента (CRM #2325) — только смена статуса; правка
+      // имени и телефона событием не является.
+      await recordSourceEventQuietly({
+        kind: 'status_change', sourceKind: 'agent_client', sourceId: id,
+        actorKind: 'partner_user', actorUserId: auth.userId,
+        title: statusChangeTitle('agent_client', prevStatus, f.status),
+        payload: { from: prevStatus, to: f.status },
+      });
     }
     return NextResponse.json({ success: true, message: 'Клиент сохранён' });
   } catch (err) {

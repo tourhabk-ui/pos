@@ -77,6 +77,16 @@ describe('в контакт — только то, что партнёр уже 
   });
 });
 
+describe('заголовки ленты строит код из статусов и названий', () => {
+  it('в statusChangeTitle нет ни телефона, ни почты — только словарь статусов', () => {
+    const src = read('lib/crm/events.ts');
+    const fn = /export function statusChangeTitle[\s\S]*?\n\}/.exec(src)?.[0] ?? '';
+    expect(fn.length).toBeGreaterThan(50);
+    expect(fn).not.toMatch(/phone|email|person_name|display_name/);
+    expect(fn).toMatch(/statusLabel\(/);
+  });
+});
+
 describe('ПД из CRM не уходят ни в модель, ни в лог', () => {
   const files = readdirSync(join(ROOT, 'lib', 'crm')).map((n) => `lib/crm/${n}`);
 
@@ -91,6 +101,7 @@ describe('ПД из CRM не уходят ни в модель, ни в лог',
       ...files,
       'app/api/cron/crm-contacts-sync/route.ts',
       'app/api/hub/crm/contacts/route.ts', 'app/api/hub/crm/contacts/[id]/route.ts',
+      'app/api/hub/crm/contacts/[id]/events/route.ts',
       'app/api/admin/crm/contacts/route.ts', 'app/api/admin/crm/contacts/[id]/route.ts',
     ]
       .flatMap((f) => [...read(f).matchAll(/console\.(?:error|warn|log)\(([^;]*?)\);/gs)].map((m) => `${f}: ${m[1]}`));

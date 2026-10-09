@@ -24,6 +24,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -276,6 +277,10 @@ export async function GET(request: NextRequest) {
             lead.id,
           ]
         );
+        await recordSourceEventQuietly({
+          kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
+          title: statusChangeTitle('lead', 'new', 'contacted'), payload: { from: 'new', to: 'contacted', followup_count: followupCount + 1 },
+        });
       }
 
       processed++;

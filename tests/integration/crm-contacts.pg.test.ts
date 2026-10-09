@@ -23,6 +23,7 @@ import {
 } from '@/lib/crm/contact-queries';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries';
+import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitle } from '@/lib/crm/events';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -427,6 +428,69 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(card?.partner).toEqual({ id: P.opB, name: 'Оператор Б', category: 'operator' });
     expect(card?.sources.map((x) => x.kind)).toEqual(['operator_booking']);
     expect(await getContactCardForAdmin('00000000-0000-4000-8000-000000000000', pool)).toBeNull();
+  });
+
+  it('лента: событие источника находит клиента по связи и поднимает last_activity_at', async () => {
+    const id = await booking(tourA, { name: 'Лента Тест', phone: '+79140001010' });
+    const linked = await link('operator_booking', id);
+    if (linked.outcome !== 'linked') throw new Error('не привязано');
+    const r = await recordSourceEvent({
+      kind: 'status_change', sourceKind: 'operator_booking', sourceId: id, actorKind: 'partner_user',
+      title: statusChangeTitle('operator_booking', 'new', 'confirmed'), payload: { from: 'new', to: 'confirmed' },
+      occurredAt: new Date('2030-01-01T00:00:00Z'),
+    }, pool);
+    expect(r).toMatchObject({ outcome: 'recorded', partnerId: P.opA, contactId: linked.contactId });
+    const events = await listContactEvents(P.opA, linked.contactId, 50, pool);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'status_change', actor_kind: 'partner_user', title: 'Бронь тура: новая → подтверждена',
+      source_kind: 'operator_booking', source_id: id, details: null,
+    });
+    const { rows: [c] } = await pool.query<{ y: number }>(
+      `SELECT EXTRACT(YEAR FROM last_activity_at)::int AS y FROM crm_contacts WHERE id = $1`, [linked.contactId],
+    );
+    expect(c.y).toBe(2030);
+  });
+
+  it('лента: источник без связи сначала привязывается — хук мог отказать', async () => {
+    const id = await booking(tourA, { name: 'Без хука', phone: '+79140002020' });
+    const r = await recordSourceEvent({
+      kind: 'status_change', sourceKind: 'operator_booking', sourceId: id, actorKind: 'system',
+      title: statusChangeTitle('operator_booking', null, 'confirmed'),
+    }, pool);
+    expect(r.outcome).toBe('recorded');
+    if (r.outcome !== 'recorded') throw new Error('не записано');
+    expect(await linksOf(r.contactId)).toEqual([`operator_booking:${id}`]);
+    expect((await listContactEvents(P.opA, r.contactId, 50, pool))[0]?.title).toBe('Бронь тура: подтверждена');
+  });
+
+  it('лента: источник без партнёра — no_contact, а не запись в никуда', async () => {
+    const platform = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone) VALUES ('Платформе 2', '+79140000003') RETURNING id`,
+    )).rows[0].id;
+    expect(await recordSourceEvent({
+      kind: 'status_change', sourceKind: 'lead', sourceId: platform, actorKind: 'system', title: 'Заявка: разобрана',
+    }, pool)).toEqual({ outcome: 'no_contact' });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM crm_events WHERE source_kind = 'lead' AND source_id = $1`, [platform])).rows[0].n).toBe(0);
+  });
+
+  it('лента: касание — только своему клиенту; чужой партнёр не пишет и не читает', async () => {
+    const anna = (await pool.query<{ id: string }>(
+      `SELECT id FROM crm_contacts WHERE partner_id = $1 AND phone_e164 = '+79141112233'`, [P.opA],
+    )).rows[0];
+    const t = await addContactTouch(P.opA, anna.id, {
+      kind: 'call', title: 'Позвонил, перенесли на август', details: 'Просила перезвонить после 20-го', actorUserId: null,
+    }, pool);
+    expect(t.outcome).toBe('recorded');
+    expect(await addContactTouch(P.opB, anna.id, { kind: 'note', title: 'чужое' }, pool)).toEqual({ outcome: 'not_found' });
+    expect(await listContactEvents(P.opB, anna.id, 50, pool)).toEqual([]);
+    const card = await getContactCard(P.opA, anna.id, pool);
+    expect(card?.events[0]).toMatchObject({
+      kind: 'call', actor_kind: 'partner_user', title: 'Позвонил, перенесли на август',
+      details: 'Просила перезвонить после 20-го', source_kind: null,
+    });
+    // Карточка администратора несёт ту же ленту.
+    expect((await getContactCardForAdmin(anna.id, pool))?.events[0]?.title).toBe('Позвонил, перенесли на август');
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {

@@ -8,6 +8,7 @@ import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
 import { linkContactQuietly } from '@/lib/crm/contacts';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 // isRealTour убрана 22.08.2026 (перепись).
 //
@@ -391,6 +392,12 @@ export async function confirmBooking(octoUuid: string, apiKeyId: string) {
 
     await client.query('COMMIT');
 
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'operator_booking', sourceId: rows[0].id as string | number,
+      actorKind: 'system', title: statusChangeTitle('operator_booking', 'new', 'confirmed'),
+      payload: { from: 'new', to: 'confirmed', channel: 'octo' },
+    });
+
     const confirmed = rows[0];
     const fullBooking = await getBookingByUuid(octoUuid);
     notifyOctoWebhooks('booking:confirmed', confirmed.id, fullBooking ?? {}).catch(() => {});
@@ -446,6 +453,12 @@ export async function cancelBooking(octoUuid: string, apiKeyId: string, reason?:
     );
 
     await client.query('COMMIT');
+
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'operator_booking', sourceId: rows[0].id as string | number,
+      actorKind: 'system', title: statusChangeTitle('operator_booking', null, 'cancelled'),
+      payload: { to: 'cancelled', channel: 'octo', reason: reason ?? null },
+    });
 
     const fullBooking = await getBookingByUuid(octoUuid);
     notifyOctoWebhooks('booking:cancelled', booking.id, fullBooking ?? {}).catch(() => {});

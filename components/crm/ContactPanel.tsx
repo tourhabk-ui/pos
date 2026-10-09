@@ -7,12 +7,30 @@
  * видит карточку любого партнёра с его именем и ничего не правит.
  */
 import { useEffect, useRef, useState } from 'react';
-import { X, Phone, Mail, UserCheck, ShieldCheck, ShieldQuestion, Plus, Briefcase } from 'lucide-react';
+import {
+  X, Phone, Mail, UserCheck, ShieldCheck, ShieldQuestion, Plus, Briefcase,
+  StickyNote, PhoneCall, Handshake, ArrowLeftRight, MessageSquare, Pencil, type LucideIcon,
+} from 'lucide-react';
 import type { ContactCard } from '@/lib/crm/contact-queries';
 import type { PartnerRef } from '@/lib/crm/admin-queries';
+import type { ContactEvent } from '@/lib/crm/events';
+import { DETAILS_MAX, TITLE_MAX, TOUCH_KINDS, type EventKind, type TouchKind } from '@/lib/crm/event-kinds';
 import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { CRM_API, type CrmMode } from './api';
-import { SOURCE_KIND_LABELS, statusLabel, formatSourceDate, formatMoment, partnerCategoryLabel } from './labels';
+import {
+  SOURCE_KIND_LABELS, EVENT_KIND_LABELS, ACTOR_KIND_LABELS,
+  statusLabel, formatSourceDate, formatMoment, formatMomentTime, partnerCategoryLabel,
+} from './labels';
+
+const EVENT_ICONS: Readonly<Record<EventKind, LucideIcon>> = {
+  status_change: ArrowLeftRight,
+  change: Pencil,
+  note: StickyNote,
+  call: PhoneCall,
+  meeting: Handshake,
+  message_in: MessageSquare,
+  message_out: MessageSquare,
+};
 
 type Card = ContactCard & { partner?: PartnerRef };
 
@@ -51,6 +69,9 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
   const [notes, setNotes] = useState('');
   const [name, setName] = useState('');
   const [tagInput, setTagInput] = useState('');
+  const [touchKind, setTouchKind] = useState<TouchKind>('note');
+  const [touchTitle, setTouchTitle] = useState('');
+  const [touchDetails, setTouchDetails] = useState('');
 
   useModalDialog(dialogRef, onClose, () => !saving);
 
@@ -97,6 +118,41 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
     } catch {
       setSaveError('Нет связи с сервером — не сохранено');
       return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Касание — тем же адресом, что Кузьмич и MCP партнёра: одна функция на сервере. */
+  async function addTouch() {
+    if (readOnly || state.kind !== 'ready') return;
+    const title = touchTitle.trim();
+    if (!title) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${CRM_API.partner}/${encodeURIComponent(contactId)}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: touchKind, title, details: touchDetails.trim() || null }),
+      });
+      const json: unknown = await res.json().catch(() => null);
+      const data = isRecord(json) && isRecord(json.data) ? json.data : null;
+      if (res.status !== 201 || !data || typeof data.id !== 'string') {
+        setSaveError(isRecord(json) && typeof json.error === 'string' ? json.error : 'Не удалось записать, попробуйте позже');
+        return;
+      }
+      const event: ContactEvent = {
+        id: data.id, kind: touchKind, actor_kind: 'partner_user', title,
+        details: touchDetails.trim() || null, source_kind: null, source_id: null,
+        occurred_at: new Date().toISOString(),
+      };
+      setState((s) => (s.kind === 'ready' ? { kind: 'ready', card: { ...s.card, events: [event, ...s.card.events] } } : s));
+      setTouchTitle('');
+      setTouchDetails('');
+      onChanged();
+    } catch {
+      setSaveError('Нет связи с сервером — не записано');
     } finally {
       setSaving(false);
     }
@@ -305,6 +361,70 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
 
             {saveError && <p className="text-sm text-[var(--danger)]" role="alert">{saveError}</p>}
 
+            <section className="space-y-2" aria-label="Лента">
+              <p className="ds-label">Лента</p>
+              {!readOnly && (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); void addTouch(); }}
+                  className="space-y-2 rounded-lg border border-[var(--border)] p-3"
+                  aria-label="Записать касание"
+                >
+                  <div className="flex gap-2 flex-wrap">
+                    <select
+                      value={touchKind}
+                      onChange={(e) => setTouchKind(e.target.value as TouchKind)}
+                      aria-label="Что записать"
+                      className="ds-input"
+                    >
+                      {TOUCH_KINDS.map((k) => <option key={k} value={k}>{EVENT_KIND_LABELS[k]}</option>)}
+                    </select>
+                    <input
+                      value={touchTitle}
+                      onChange={(e) => setTouchTitle(e.target.value)}
+                      maxLength={TITLE_MAX}
+                      placeholder="Что произошло"
+                      aria-label="Что произошло"
+                      className="ds-input flex-1 min-w-[180px]"
+                    />
+                  </div>
+                  <textarea
+                    value={touchDetails}
+                    onChange={(e) => setTouchDetails(e.target.value)}
+                    maxLength={DETAILS_MAX}
+                    rows={2}
+                    placeholder="Подробности, если нужны"
+                    aria-label="Подробности"
+                    className="ds-input w-full"
+                  />
+                  <button type="submit" disabled={saving || !touchTitle.trim()} className="ds-btn ds-btn-secondary">
+                    Записать
+                  </button>
+                </form>
+              )}
+              {card.events.length === 0 ? (
+                <p className="text-xs text-[var(--text-muted)]">Событий пока нет: смены статусов и ваши заметки появятся здесь.</p>
+              ) : (
+                <ol className="space-y-2">
+                  {card.events.map((ev) => {
+                    const Icon = EVENT_ICONS[ev.kind];
+                    return (
+                      <li key={ev.id} className="rounded-lg border border-[var(--border)] p-3 text-xs space-y-0.5">
+                        <p className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--text-primary)]">
+                            <Icon className="w-3.5 h-3.5 text-[var(--ocean)]" />
+                            {EVENT_KIND_LABELS[ev.kind]} · {ACTOR_KIND_LABELS[ev.actor_kind]}
+                          </span>
+                          <span className="text-[var(--text-muted)]">{formatMomentTime(ev.occurred_at)}</span>
+                        </p>
+                        <p className="text-[var(--text-secondary)]">{ev.title}</p>
+                        {ev.details && <p className="text-[var(--text-muted)] whitespace-pre-line">{ev.details}</p>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+
             <section className="space-y-2" aria-label="Откуда клиент">
               <p className="ds-label">Откуда клиент</p>
               {card.sources.length === 0 ? (
@@ -314,7 +434,7 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
                   {card.sources.map((s) => {
                     const from = formatSourceDate(s.date_from);
                     const to = formatSourceDate(s.date_to);
-                    const status = statusLabel(s.status);
+                    const status = statusLabel(s.status, s.kind);
                     return (
                       <li key={`${s.kind}:${s.id}`} className="rounded-lg border border-[var(--border)] p-3 text-xs space-y-0.5">
                         <p className="flex items-center justify-between gap-2">

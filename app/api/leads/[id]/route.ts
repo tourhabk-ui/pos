@@ -4,6 +4,7 @@ import { pool } from '@/lib/db-pool';
 import { requireAdmin, requireOperator } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 const PatchSchema = z.object({
   status: z.enum([
@@ -63,8 +64,10 @@ export async function PATCH(
     sets.push(`operator_id = COALESCE(operator_id, $${idx + 1 + scope.vals.length})`);
     claimVals.push(scope.vals[0]);
   }
-  const res = await pool.query<{ id: string; status: string; notes: string | null }>(
-    `UPDATE leads SET ${sets.join(', ')} WHERE id = $${idx}${scope.cond} RETURNING id, status, notes`,
+  const res = await pool.query<{ id: string; status: string; notes: string | null; prev_status: string | null }>(
+    `WITH prev AS (SELECT status FROM leads WHERE id = $${idx})
+     UPDATE leads SET ${sets.join(', ')} WHERE id = $${idx}${scope.cond}
+     RETURNING id, status, notes, (SELECT status FROM prev) AS prev_status`,
     [...vals, ...scope.vals, ...claimVals]
   );
 
@@ -72,7 +75,18 @@ export async function PATCH(
     return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, lead: res.rows[0] });
+  // Лента клиента (CRM #2325): событие — когда статус сменился, а не когда
+  // его прислали тем же.
+  const { prev_status: prevStatus, ...lead } = res.rows[0];
+  if (status && prevStatus !== status) {
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'lead', sourceId: id,
+      actorKind: user.role === 'admin' ? 'admin' : 'partner_user', actorUserId: user.userId,
+      title: statusChangeTitle('lead', prevStatus, status), payload: { from: prevStatus, to: status },
+    });
+  }
+
+  return NextResponse.json({ success: true, lead });
 }
 
 export async function GET(

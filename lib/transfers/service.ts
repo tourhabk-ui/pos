@@ -30,6 +30,7 @@
 import { pool } from '@/lib/db-pool';
 import type { PoolClient } from 'pg';
 import { linkContactQuietly } from '@/lib/crm/contacts';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export type TransferVehicleKind = 'jeep' | 'vahtovka' | 'minibus' | 'other';
 export type TransferTripStatus = 'planned' | 'confirmed' | 'cancelled' | 'completed';
@@ -422,6 +423,12 @@ export async function confirmSeats(params: {
       [params.bookingId, params.price ?? null],
     );
     await client.query('COMMIT');
+    // Лента клиента перевозчика (CRM #2325) — после коммита и молча.
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'transfer_seat_booking', sourceId: params.bookingId,
+      actorKind: 'partner_user', title: statusChangeTitle('transfer_seat_booking', 'requested', 'confirmed'),
+      payload: { from: 'requested', to: 'confirmed' },
+    });
     return { ok: true, value: rows[0]! };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined);
@@ -472,6 +479,11 @@ export async function declineSeats(params: {
         message: `Запрос уже в статусе «${why[0]!.status}» — обработать повторно нельзя`,
       };
     }
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'transfer_seat_booking', sourceId: params.bookingId,
+      actorKind: 'partner_user', title: statusChangeTitle('transfer_seat_booking', 'requested', 'declined'),
+      payload: { from: 'requested', to: 'declined', reason: params.reason },
+    });
     return { ok: true, value: rows[0]! };
   } catch (err) {
     return failure(err, 'отказ по местам не записан');

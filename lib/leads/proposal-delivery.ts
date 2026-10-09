@@ -17,6 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendEmail } from '@/lib/email';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export type DeliveryChannel = 'telegram' | 'email' | 'both';
 
@@ -239,6 +240,11 @@ export async function sendProposalToClient(
           : 'Некуда отправлять: у лида нет ни Telegram, ни почты. Статус лида не изменён.',
     };
   }
+
+  await recordSourceEventQuietly({
+    kind: 'status_change', sourceKind: 'lead', sourceId: leadId, actorKind: 'partner_user',
+    title: statusChangeTitle('lead', prevStatus, 'proposal_sent'), payload: { from: prevStatus, to: 'proposal_sent', sent },
+  });
 
   return {
     ok: true,

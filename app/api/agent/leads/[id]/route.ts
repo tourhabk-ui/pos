@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { requireAgent } from '@/lib/auth/middleware';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,9 +44,10 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: 'Некорректные данные', details: parsed.error.issues }, { status: 400 });
   }
 
-  const result = await query(
-    `UPDATE leads SET status = $2, notes = COALESCE($3, notes), updated_at = NOW()
-     WHERE id = $1 RETURNING id, status, notes`,
+  const result = await query<{ id: string; status: string; notes: string | null; prev_status: string | null }>(
+    `WITH prev AS (SELECT status FROM leads WHERE id = $1)
+     UPDATE leads SET status = $2, notes = COALESCE($3, notes), updated_at = NOW()
+     WHERE id = $1 RETURNING id, status, notes, (SELECT status FROM prev) AS prev_status`,
     [params.id, parsed.data.status, parsed.data.notes ?? null]
   );
 
@@ -53,5 +55,17 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: 'Лид не найден' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, data: result.rows[0] });
+  const { prev_status: prevStatus, ...lead } = result.rows[0];
+  if (prevStatus !== lead.status) {
+    // Лента клиента оператора (CRM #2325): заявка привязана к оператору, и
+    // смена статуса администратором — событие у него.
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'lead', sourceId: params.id,
+      actorKind: 'admin', actorUserId: auth.userId,
+      title: statusChangeTitle('lead', prevStatus, lead.status),
+      payload: { from: prevStatus, to: lead.status },
+    });
+  }
+
+  return NextResponse.json({ success: true, data: lead });
 }

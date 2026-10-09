@@ -11,6 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const LEAD_STATUS_ACTIONS: Record<string, string> = {
   lead_contacted: 'contacted',
@@ -50,6 +51,10 @@ export async function applyLeadStatus(prefix: string, leadId: string): Promise<L
     );
     const row = res.rows[0];
     if (!row) return { outcome: 'not_found' };
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'lead', sourceId: leadId, actorKind: 'partner_user',
+      title: statusChangeTitle('lead', null, status), payload: { to: status, via: 'messenger' },
+    });
     return { outcome: 'updated', status, label: LEAD_STATUS_LABEL[status] ?? status, name: row.name };
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'без SQLSTATE';

@@ -44,6 +44,7 @@ import type { AuthRole } from '@/lib/auth';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import { recordRefundDue } from '@/lib/payments/record-refund-due';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 // Тело необязательно; если есть — причина отмены строкой разумной длины.
 const CancelBodySchema = z.object({
@@ -130,6 +131,15 @@ export async function POST(
         // в этой же транзакции. Ветку op- зовёт только сам турист.
         return { refund: await recordRefundDue(client, opId, false) };
       });
+
+      if (cancelled) {
+        await recordSourceEventQuietly({
+          kind: 'status_change', sourceKind: 'operator_booking', sourceId: opId,
+          actorKind: 'tourist', actorUserId: auth.userId,
+          title: statusChangeTitle('operator_booking', null, 'cancelled'),
+          payload: { to: 'cancelled', by: 'tourist', refund_percent: cancelled.refund?.percent ?? null },
+        });
+      }
 
       if (cancelled === null) {
         return NextResponse.json(

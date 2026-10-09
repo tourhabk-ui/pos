@@ -4,6 +4,7 @@ import { transaction } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { verifyGearRentalOwnership } from '@/lib/auth/gear-helpers';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,7 +121,7 @@ export async function PATCH(
         );
       }
 
-      return { code: 200 as const, rental: updated.rows[0] };
+      return { code: 200 as const, rental: updated.rows[0], prevStatus: rental.status };
     });
 
     if (outcome.code === 404) {
@@ -139,6 +140,13 @@ export async function PATCH(
         { status: 422 }
       );
     }
+
+    await recordSourceEventQuietly({
+      kind: 'status_change', sourceKind: 'gear_rental', sourceId: rentalId,
+      actorKind: 'partner_user', actorUserId: authResult.userId,
+      title: statusChangeTitle('gear_rental', outcome.prevStatus, nextStatus),
+      payload: { from: outcome.prevStatus, to: nextStatus },
+    });
 
     return NextResponse.json({
       success: true,

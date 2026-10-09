@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { redactPII } from '@/lib/security/pii-redact';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export interface LeadContext {
   leadId?: string;
@@ -74,6 +75,10 @@ ${leads.map((l, i) => `${i + 1}. "${redactPII(l.comment || 'без коммен�
               lead.id,
             ]
           );
+          await recordSourceEventQuietly({
+            kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
+            title: statusChangeTitle('lead', null, 'qualified'), payload: { to: 'qualified', score: item.score },
+          });
         }
       }
 

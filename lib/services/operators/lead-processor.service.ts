@@ -15,6 +15,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -224,6 +225,12 @@ export class LeadProcessorService {
           leadId,
         ]
       );
+
+      await recordSourceEventQuietly({
+        kind: 'status_change', sourceKind: 'lead', sourceId: leadId, actorKind: 'system',
+        title: statusChangeTitle('lead', 'ai_processing', 'ai_qualified'),
+        payload: { from: 'ai_processing', to: 'ai_qualified', score: aiScore, tours_matched: tours.length },
+      });
 
       await this.logActivity(leadId, 'ai', 'processing_complete', {
         score: aiScore,
