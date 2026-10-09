@@ -314,6 +314,32 @@ function runLength(day: EstimateDay, days: EstimateDay[]): number {
 }
 
 /**
+ * Сумма тура на группу по правилу брони (`bookingTotal`) — одна на смету плана
+ * и на compose_trip (#2304, шаг 1в): за человека — на каждого, за группу —
+ * одна сумма, за день — на каждого и каждый день тура. Сверх брони знает одно:
+ * группа больше вместимости тура «за группу» едет несколькими группами.
+ * null — единица цены не распознана: сумму не выдумываем.
+ */
+export function tourGroupCost(a: {
+  unitPrice: number;
+  priceUnit: string | null | undefined;
+  people: number;
+  maxParticipants?: number;
+  tourDays?: number;
+}): { total: number; groups: number } | null {
+  const unit = a.priceUnit;
+  if (unit !== 'per_person' && unit !== 'per_tour' && unit !== 'per_day_per_person') return null;
+  const days = unit === 'per_day_per_person' ? Math.max(1, a.tourDays ?? 1) : 1;
+  const cap = a.maxParticipants ?? 0;
+  const groups = unit === 'per_tour' && cap > 0 ? Math.ceil(a.people / cap) : 1;
+  const one = bookingTotal({
+    basePrice: a.unitPrice, priceUnit: unit, participants: a.people,
+    duration: { multi_day_count: days, duration_hours: null },
+  });
+  return { total: one * groups, groups };
+}
+
+/**
  * Строка тура по его единице цены.
  *
  * Сумма одной брони — правилом самой брони (`bookingTotal`): за человека — на
@@ -338,13 +364,10 @@ function tourLine(day: EstimateDay, days: EstimateDay[], people: number): Estima
   }
 
   const tourDays = unit === 'per_day_per_person' ? (day.realTour?.durationDays ?? runLength(day, days)) : 1;
-  const one = (p: number) => bookingTotal({
-    basePrice: p, priceUnit: unit, participants: people,
-    duration: { multi_day_count: tourDays, duration_hours: null },
-  });
   const cap = day.realTour?.maxParticipants ?? 0;
-  const groups = unit === 'per_tour' && cap > 0 ? Math.ceil(people / cap) : 1;
-  const total: [number, number] = [one(price) * groups, one(Math.round(price * TOUR_PRICE_HEADROOM)) * groups];
+  const cost = (p: number) => tourGroupCost({ unitPrice: p, priceUnit: unit, people, maxParticipants: cap, tourDays })!;
+  const groups = cost(price).groups;
+  const total: [number, number] = [cost(price).total, cost(Math.round(price * TOUR_PRICE_HEADROOM)).total];
 
   if (unit === 'per_person') {
     return { kind: 'tour', label, basis: `${fmt(price)} ₽ × ${peopleWord(people)}`, total, source: 'tour' };

@@ -17,6 +17,7 @@ import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
+import { priceFromUnit } from '@/lib/tours/price-label';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;
@@ -600,7 +601,10 @@ const composeTripTool: SDKTool = {
           title: t.title,
           activity: t.activity_type,
           duration: `${t.duration_days} дн.`,
-          price_per_person: `${t.base_price.toLocaleString('ru-RU')} руб.`,
+          // Цена — с единицей, как в каталоге: «за группу» под ключом
+          // price_per_person модель пересказывала как цену с человека.
+          price: priceFromUnit(t.base_price, t.price_unit) ?? 'цена не указана',
+          for_group: `${t.group_cost.toLocaleString('ru-RU')} руб. на группу из ${trip.group_size} чел.`,
           operator: t.operator_name,
           location: t.location,
           booking_url: `vedarai.ru${t.booking_url}`,
@@ -611,8 +615,12 @@ const composeTripTool: SDKTool = {
           note: d.note,
           ...(d.tour ? { tour_id: d.tour.id, tour_title: d.tour.title } : {}),
         })),
+        // Туры без цены для этой группы (вне ступеней оператора): в подбор не
+        // вошли, и модель обязана это сказать, а не промолчать (§4.0).
+        ...(trip.unpriced.length > 0 ? { unpriced_for_group: trip.unpriced } : {}),
       });
-    } catch {
+    } catch (err) {
+      logSwallowedFailure('tourist-tools', 'compose_trip', err);
       return JSON.stringify({ success: false, message: 'Ошибка составления маршрута' });
     }
   },
