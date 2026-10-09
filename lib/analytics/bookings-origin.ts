@@ -23,7 +23,7 @@
  * `failed` с SQLSTATE; «ноль броней» и «запрос упал» — разные вещи.
  */
 import { pool } from '@/lib/db-pool';
-import { UNLINKED_WHERE } from '@/lib/crm/contacts';
+import { UNLINKED_WHERE } from '@/lib/crm/source-specs';
 
 export const DEFAULT_HOURS = 48;
 export const MAX_HOURS = 24 * 30;
@@ -85,7 +85,7 @@ const RECENT_SELECT = `
     LEFT JOIN partners p ON p.id = t.operator_id`;
 
 /**
- * Предикат задела клиентов — не копия, а тот же текст из lib/crm/contacts:
+ * Предикат задела клиентов — не копия, а тот же текст из lib/crm/source-specs:
  * там строка брони зовётся `s`, здесь `b`. Копия разошлась с заделом в
  * первый же день (служебная бронь, #2337), поэтому условие берётся оттуда.
  */
