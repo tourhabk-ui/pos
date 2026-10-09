@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Bus, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -34,14 +34,13 @@ import { photoSrc } from '@/lib/images/variant';
 import {
   dataFreshness, freshnessDot, freshnessShort, plural,
 } from '@/lib/home/data-freshness';
-import { plateFacts } from '@/lib/home/plate-facts';
+import { plateFacts, plateHref } from '@/lib/home/plate-facts';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
 import Logo from '@/components/shared/Logo';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
-import { tourPath } from '@/lib/tours/tour-url';
 import { usePlateDrift } from '@/hooks/use-plate-drift';
 import { sessionState } from '@/lib/auth/session-state';
 
@@ -454,6 +453,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <span className="qt-st" suppressHydrationWarning>{freshnessShort(fresh)}</span>
             </span>
           </Link>
+          {/* Трансфер (владелец 09.10: «доп кнопка на главной»): дверь в /transfers —
+              места в поездках перевозчиков и вахтовка под заказ с ценой за машину.
+              Третьей плиткой на всю ширину: в одну строку с двумя прежними три
+              подписи на 360px не входят. */}
+          <Link href="/transfers" className="qt qt-transfer" aria-label="Трансфер: места в поездках перевозчиков и вахтовка под заказ">
+            <span className="qt-ic"><Bus size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Трансфер</b><span>места в поездках и вахтовка под заказ</span></span>
+          </Link>
         </nav>
 
         {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09): тур с
@@ -471,11 +478,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 // чтению и клавиатуре её нет.
                 const i = k % tours.length;
                 const clone = k >= tours.length;
-                const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
+                const href = plateHref(p);
                 const pf = plateFacts(p);
                 const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
                 return (
-                  <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Тур ${i + 1} из ${tours.length}`} aria-hidden={clone || undefined}>
+                  <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `${p.kind === 'transfer' ? 'Трансфер' : 'Тур'} ${i + 1} из ${tours.length}`} aria-hidden={clone || undefined}>
                     <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
                     </div></Link>
@@ -490,7 +497,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                     {p.cancellationPolicy && <div className="cancel">{p.cancellationPolicy}</div>}
                     {p.availability === 'season_over' && <div className="avail"><CalendarX aria-hidden size={14} />{AVAILABILITY_LABEL.season_over}</div>}
                     <div className="buy">
-                      <Link className="buy-cta" href={href} tabIndex={clone ? -1 : undefined}>{p.kind === 'tour' ? 'Смотреть тур' : 'Открыть'}</Link>
+                      <Link className="buy-cta" href={href} tabIndex={clone ? -1 : undefined}>{p.kind === 'tour' ? 'Смотреть тур' : p.kind === 'transfer' ? 'Смотреть прайс' : 'Открыть'}</Link>
                     </div>
                   </figure>
                 );
@@ -1085,6 +1092,8 @@ const CSS = `
 .v7 .qt-ic{position:relative;flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ocean);background:color-mix(in srgb,var(--ocean) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ocean) 18%,transparent)}
 .v7 button.qt{font:inherit;color:inherit;text-align:left;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .v7 .qt-radar{position:relative}
+/* Трансфер — третья плитка ряда, на обе колонки; ниже прежних 64px: это дверь, а не прибор. */
+.v7 .qt-transfer{grid-column:1 / -1;min-height:52px}
 /* Сводка радара — непрозрачная карточка под рядом: это прибор, не стекло (§2). */
 /* Радар — зелёный (владелец 26.09: «радар сделай зелёным»). Зелёный здесь —
    цвет прибора, как тёплая подложка у МЧС, а НЕ состояние: свежесть и доля

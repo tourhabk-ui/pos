@@ -88,8 +88,6 @@ describe('производители канонических ссылок ст�
     // рыба, рекомендации, посты канала и пуши — адрес, а не два 308 подряд.
     'app/plans/[slug]/page.tsx',
     'app/trip/[token]/_TripShareClient.tsx',
-    'app/_home/_HomeV8Client.tsx',
-    'components/homepage/desk/DeskTours.tsx',
     'app/ai-assistant/_AIAssistantClient.tsx',
     'app/kuzmich/_KuzmichClient.tsx',
     'components/kuzmich/KuzmichWidget.tsx',
@@ -113,6 +111,21 @@ describe('производители канонических ссылок ст�
       expect(bare.filter((b) => f !== 'lib/seo/indexnow.ts' || b !== 'tourId')).toEqual([]);
     });
   }
+});
+
+describe('лента главной строит адрес карточки через plateHref, а тот — через tourPath', () => {
+  // С 09.10 в ленте есть карточка трансфера (адрес /transfers), поэтому адрес
+  // выбирает plateHref(kind); тур в нём по-прежнему строит tourPath.
+  for (const f of ['app/_home/_HomeV8Client.tsx', 'components/homepage/desk/DeskTours.tsx']) {
+    it(f, () => {
+      const src = read(f);
+      expect(src).toMatch(/plateHref\(p\)/);
+      expect(src).not.toMatch(/\/catalog\/tours\/\$\{/);
+    });
+  }
+  it('plateHref отдаёт тур через tourPath', () => {
+    expect(read('lib/home/plate-facts.ts')).toMatch(/if \(p\.kind === 'tour'\) return tourPath\(p\)/);
+  });
 });
 
 describe('внутренние ссылки не ведут через /marketplace', () => {

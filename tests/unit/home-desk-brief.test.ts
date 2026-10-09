@@ -129,7 +129,8 @@ describe('витрина туров', () => {
     const t = code(`${DESK}/DeskTours.tsx`);
     expect(t).toMatch(/plateFacts\(p\)/);
     expect(t).toMatch(/AVAILABILITY_LABEL\[p\.availability\]/);
-    expect(t).toMatch(/tourPath\(p\)/);
+    // адрес карточки — plateHref (тур, трансфер, маршрут: одно правило на оба дерева)
+    expect(t).toMatch(/plateHref\(p\)/);
     expect(t).not.toMatch(/мест<|Сегодня,/);
     expect(t).not.toMatch(/FROM operator_tours|pool\.query/);
   });

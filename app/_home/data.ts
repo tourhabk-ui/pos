@@ -26,7 +26,8 @@ import { volcanoMarks, kfegsIsFresh, type KfegsReading, type ScaleColor } from '
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
-import { orderPlates } from '@/lib/home/plate-facts';
+import { orderPlates, withTransferPlate } from '@/lib/home/plate-facts';
+import { describeFleet, loadCharterCarriers, type CharterCarrier } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
@@ -296,6 +297,53 @@ async function fetchZones(): Promise<ZonesSnapshot> {
   }
 }
 
+/**
+ * Карточка трансфера для ленты туров (владелец 09.10: «в ленте туров пусть
+ * будет трансфер»). Это не тур: у вахтовки под заказ нет ни дат, ни мест, а
+ * цена — за машину. Поэтому карточка честно называет себя («Вахтовка под
+ * заказ»), ведёт на /transfers и несёт цену «от» из прайса, а не из головы:
+ * наименьшая цена направления, единица «за машину» (plateFacts, kind
+ * 'transfer'). Перевозчиков под заказ несколько — берётся первый по имени:
+ * лента показывает дверь в раздел, а не весь прайс.
+ *
+ * Нет перевозчика, нет цен или не смогли прочитать — null: ленты без
+ * карточки достаточно, а выдуманной карточки быть не должно. Отказ пишется в
+ * лог — «никого нет» и «запрос упал» иначе неотличимы (§4.0).
+ */
+export function transferPlateFrom(c: CharterCarrier | undefined): Plate | null {
+  if (!c || c.destinations.length === 0) return null;
+  const fleet = describeFleet(c.vehicles);
+  return {
+    id: c.partnerId,
+    slug: c.slug,
+    kind: 'transfer',
+    title: 'Вахтовка под заказ',
+    description: [fleet, 'цена за машину целиком'].filter(Boolean).join('. ').slice(0, 140),
+    imageUrl: c.photos[0]?.url ?? null,
+    priceFrom: Math.min(...c.destinations.map((d) => d.priceRub)),
+    category: 'transfer',
+    locationType: null,
+    volcanoStatus: null,
+    priceUnit: null,
+    operatorName: c.name,
+    durationType: null,
+    multiDayCount: null,
+    durationHours: null,
+    cancellationPolicy: null,
+    availability: 'on_request',
+  };
+}
+
+async function fetchTransferPlate(): Promise<Plate | null> {
+  try {
+    return transferPlateFrom((await loadCharterCarriers())[0]);
+  } catch (err) {
+    const e = err as { code?: string; message?: string } | undefined;
+    console.error('[home] карточка трансфера не получена', { sqlstate: e?.code, message: e?.message });
+    return null;
+  }
+}
+
 /** Витрина туров — один источник для обоих деревьев главной (десктоп читает её в app/page.tsx, П8). */
 export async function fetchPlates(): Promise<Plate[]> {
   // «Туры сезона» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
@@ -376,7 +424,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       };
     });
     // Порядок и потолок витрины — чистая функция (lib/home/plate-facts), со сторожем.
-    return orderPlates(plates);
+    return withTransferPlate(orderPlates(plates), await fetchTransferPlate());
   } catch (err) {
     // Пустой массив — блок не рисуется, но отказ обязан быть виден в логе:
     // «туров нет» и «запрос упал» снаружи иначе неотличимы (§4.0).

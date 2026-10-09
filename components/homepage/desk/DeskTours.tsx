@@ -1,11 +1,10 @@
 import Link from 'next/link';
 import { ArrowRight, CalendarCheck, CalendarX, MessageSquareText, RotateCcw } from 'lucide-react';
 import type { Plate } from '@/app/_home/data';
-import { plateFacts } from '@/lib/home/plate-facts';
+import { plateFacts, plateHref } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
-import { tourPath } from '@/lib/tours/tour-url';
 
 /**
  * «Можно поехать» — туры витрины крупной карточкой и строками (доска
@@ -41,7 +40,7 @@ function Featured({ p }: { p: Plate }) {
   const meta = [activity, f.duration, f.operator].filter(Boolean).join(' · ');
   return (
     <Link
-      href={tourPath(p)}
+      href={plateHref(p)}
       className="group grid h-[400px] grid-cols-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] no-underline shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:no-underline hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
     >
       <div className="relative overflow-hidden bg-[var(--bg-hover)]">
@@ -84,7 +83,7 @@ function Row({ p }: { p: Plate }) {
   const f = plateFacts(p);
   return (
     <Link
-      href={tourPath(p)}
+      href={plateHref(p)}
       className="group grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] py-4 no-underline hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
     >
       <span className="relative h-24 w-24 overflow-hidden rounded-lg bg-[var(--bg-hover)]">
@@ -120,10 +119,17 @@ export function DeskTours({ plates, total }: { plates: readonly Plate[]; total: 
           <h2 id="desk-tours-title" className="font-playfair text-4xl font-bold tracking-[-0.01em] text-[var(--text-primary)]">Можно поехать</h2>
           <p className="text-[15px] text-[var(--text-secondary)]">Туры операторов: цена, даты и условия отмены — до звонка</p>
         </div>
-        <Link href="/catalog" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
-          {total != null && total > 0 ? `Все туры (${total})` : 'Все туры'}
-          <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
-        </Link>
+        <div className="flex items-center gap-6">
+          {/* Трансфер (владелец 09.10: «доп кнопка на главной») — тот же адрес, что у плитки телефона. */}
+          <Link href="/transfers" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+            Трансфер
+            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
+          </Link>
+          <Link href="/catalog" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+            {total != null && total > 0 ? `Все туры (${total})` : 'Все туры'}
+            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
+          </Link>
+        </div>
       </div>
 
       {first ? (
