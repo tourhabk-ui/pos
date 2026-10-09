@@ -1530,6 +1530,7 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
   telegram_bot:        'Телеграм-бот',
   telegram_lead_flow:  'ТГ-бот (форма)',
   trip_planner:        'TripPlanner',
+  saved_trip:          'Сохранённая поездка',
   website:             'Сайт',
   homepage_cta:        'Главная (CTA)',
   route_page:          'Страница маршрута',
