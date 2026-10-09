@@ -12,7 +12,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const listMock = vi.fn();
+const charterMock = vi.fn();
 vi.mock('@/lib/transfers/service', () => ({ listPublishedTrips: (...a: unknown[]) => listMock(...a) }));
+// Прайс «под заказ» (1185): загрузчик подменён, чистое форматирование — настоящее.
+vi.mock('@/lib/transfers/charter', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/transfers/charter-format')>('@/lib/transfers/charter-format');
+  return { ...actual, loadCharterCarriers: (...a: unknown[]) => charterMock(...a) };
+});
 vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
 
 import { searchTransfersForKuzmich, resolveWindow } from '@/lib/kuzmich/transfer-search';
@@ -24,7 +30,28 @@ const TRIP = {
   vehicle_kind: 'vahtovka', vehicle_title: 'КАМАЗ', seats_taken: 4, seats_free: 6,
 };
 
-beforeEach(() => { listMock.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => undefined); });
+const CARRIER = {
+  partnerId: 'c1', slug: 'shatun', name: 'Шатун', shortDescription: null,
+  vehicles: [
+    { kind: 'vahtovka', title: 'КамАЗ синяя', seats: 26 },
+    { kind: 'vahtovka', title: 'КамАЗ оранжевая', seats: 26 },
+  ],
+  destinations: [
+    { from: 'Петропавловск-Камчатский', to: 'Вулкан Авачинский', priceRub: 65000, note: null, conditions: 'при расчёте наличными', validYear: 2026 },
+    { from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый', priceRub: 75000, note: null, conditions: 'при расчёте наличными', validYear: 2026 },
+    { from: 'Петропавловск-Камчатский', to: 'Курильское озеро', priceRub: 450000, note: 'плюс переправы', conditions: 'при расчёте наличными', validYear: 2026 },
+  ],
+  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 },
+  photos: ['/images/shatun/shatun-01.jpg'],
+  phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: 'https://wa.me/79294560102',
+};
+
+beforeEach(() => {
+  listMock.mockReset();
+  charterMock.mockReset();
+  charterMock.mockResolvedValue([]);
+  vi.spyOn(console, 'error').mockImplementation(() => undefined);
+});
 
 describe('три исхода', () => {
   it('нашли — список с остатком, ценой, перевозчиком и ссылкой на витрину', async () => {
@@ -59,6 +86,69 @@ describe('три исхода', () => {
     const out = await searchTransfersForKuzmich({});
     expect(out).toMatch(/Не смог проверить/);
     expect(out).not.toMatch(/никто не едет/);
+  });
+});
+
+describe('вахтовки под заказ (1185): прайс на целую машину', () => {
+  it('поездок нет, а прайс есть — «никто не едет» остаётся фактом, ниже прайс за машину и ссылка на карточку', async () => {
+    listMock.mockResolvedValue([]);
+    charterMock.mockResolvedValue([CARRIER]);
+    const out = await searchTransfersForKuzmich({});
+    expect(out).toMatch(/никто не едет/);
+    expect(out).toContain('Шатун');
+    expect(out).toContain('2 × вахтовка, 26 мест');
+    expect(out).toContain('Вулкан Авачинский 65000 руб');
+    expect(out).toContain('Курильское озеро 450000 руб (плюс переправы)');
+    expect(out).toContain('доплата 30000 руб в день (при эксплуатации транспорта на местности)');
+    expect(out).toContain('Цена за машину целиком');
+    expect(out).toContain('https://vedarai.ru/operators/shatun');
+    expect(out).toMatch(/Прайс 2026 года/);
+  });
+
+  it('телефон перевозчика в ответ модели не уходит — только ссылка на карточку (pd-guard)', async () => {
+    listMock.mockResolvedValue([TRIP]);
+    charterMock.mockResolvedValue([CARRIER]);
+    const out = await searchTransfersForKuzmich({});
+    expect(out).not.toMatch(/9294560102|\+7 ?929|wa\.me|t\.me/);
+    // «за место» в прайсе машины не называется: перевозчик цену места не давал.
+    const charterPart = out.slice(out.indexOf('Под заказ'));
+    expect(charterPart).not.toMatch(/руб\/место/);
+  });
+
+  it('направление фильтрует прайс; если его в прайсе нет — так и сказано и дан весь прайс', async () => {
+    listMock.mockResolvedValue([]);
+    charterMock.mockResolvedValue([CARRIER]);
+    const gor = await searchTransfersForKuzmich({ place: 'Горелый' });
+    const part = gor.slice(gor.indexOf('Под заказ'));
+    expect(part).toContain('Вулкан Горелый 75000 руб');
+    expect(part).not.toContain('Вулкан Авачинский 65000');
+    const none = await searchTransfersForKuzmich({ place: 'аэропорт' });
+    expect(none).toContain('Направления «аэропорт» в прайсе нет');
+    expect(none).toContain('Вулкан Авачинский 65000 руб');
+  });
+
+  it('прайс не прочитался — «не смог проверить», поездки при этом не пропадают и «таких нет» не говорится', async () => {
+    listMock.mockResolvedValue([TRIP]);
+    charterMock.mockRejectedValue(Object.assign(new Error('42P01'), { code: '42P01' }));
+    const out = await searchTransfersForKuzmich({});
+    expect(out).toContain('Вулкан Горелый');
+    expect(out).toMatch(/Не смог проверить прайс вахтовок под заказ/);
+    expect(out).toMatch(/Не говори, что таких перевозчиков нет/);
+  });
+
+  it('витрина поездок упала, прайс жив — оба факта в ответе, каждый под своим именем', async () => {
+    listMock.mockRejectedValue(new Error('42P01'));
+    charterMock.mockResolvedValue([CARRIER]);
+    const out = await searchTransfersForKuzmich({});
+    expect(out).toMatch(/Не смог проверить витрину поездок/);
+    expect(out).toContain('Вулкан Авачинский 65000 руб');
+  });
+
+  it('перевозчиков под заказ нет — раздела нет вовсе, а не «под заказ никого нет»', async () => {
+    listMock.mockResolvedValue([TRIP]);
+    charterMock.mockResolvedValue([]);
+    const out = await searchTransfersForKuzmich({});
+    expect(out).not.toMatch(/Под заказ|под заказ/);
   });
 });
 

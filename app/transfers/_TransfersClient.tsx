@@ -20,7 +20,9 @@ import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
 import { useAuth } from '@/contexts/AuthContext';
+import { CharterCard } from '@/components/transfers/CharterCard';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import type { CharterState } from '@/lib/transfers/charter-format';
 
 interface Trip {
   id: string;
@@ -82,7 +84,7 @@ function amountOf(b: MyBooking): number | null {
   return null;
 }
 
-export default function TransfersClient() {
+export default function TransfersClient({ charter }: { charter: CharterState }) {
   const { user, isLoading: authLoading } = useAuth();
   const today = new Date();
   const [from, setFrom] = useState(isoDate(today));
@@ -141,7 +143,7 @@ export default function TransfersClient() {
           <h1 className="ds-h1 mb-2">Места в поездках</h1>
           <p className="text-sm text-[var(--text-secondary)] max-w-md">
             Джипы и вахтовки идут под заказ. Когда места остаются, перевозчик выставляет их сюда.
-            Место занимается только после его подтверждения.
+            Место занимается только после его подтверждения. Целую вахтовку можно заказать у перевозчика — ниже, с ценой за машину.
           </p>
         </div>
 
@@ -208,6 +210,25 @@ export default function TransfersClient() {
               </li>
             ))}
           </ul>
+        )}
+
+        {/* Целая машина под заказ: прайс перевозчика, дат и мест здесь нет */}
+        {charter.state === 'failed' && (
+          <div className="ds-card p-4 mb-8 flex items-start gap-2 border-[var(--warning)]">
+            <AlertCircle size={16} className="text-[var(--warning)] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-[var(--text-primary)]">Не смогли проверить вахтовки под заказ</p>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">Сбой на нашей стороне. Это не значит, что их нет — загляните позже.</p>
+            </div>
+          </div>
+        )}
+        {charter.state === 'ok' && charter.carriers.length > 0 && (
+          <section className="mb-8">
+            <h2 className="ds-h2 mb-3">Вахтовки под заказ</h2>
+            <div className="flex flex-col gap-4">
+              {charter.carriers.map(c => <CharterCard key={c.partnerId} carrier={c} />)}
+            </div>
+          </section>
         )}
 
         {/* Мои заказы */}
