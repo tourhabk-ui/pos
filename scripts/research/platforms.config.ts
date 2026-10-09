@@ -22,6 +22,23 @@ export interface PlatformConfig {
   notes?: string;
 }
 
+/**
+ * Логин и пароль кабинета площадки — только из окружения:
+ * RESEARCH_<ID>_EMAIL и RESEARCH_<ID>_PASSWORD (ID заглавными, «-» → «_»).
+ *
+ * До 09.10 они лежали здесь открытым текстом, а репозиторий публичный: шесть
+ * паролей и восемь почт видел любой с 17.05 (коммит 425e4c19c). Пустые значения —
+ * «войти не можем»: аудит такую площадку пропускает (marketplace-audit.ts).
+ * Сторож: tests/unit/no-plaintext-credentials.test.ts.
+ */
+function credentialsFromEnv(id: string): { email: string; password: string } {
+  const key = id.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return {
+    email: process.env[`RESEARCH_${key}_EMAIL`] ?? '',
+    password: process.env[`RESEARCH_${key}_PASSWORD`] ?? '',
+  };
+}
+
 export const PLATFORMS: PlatformConfig[] = [
   // ── БЛОК 1 — российские туры (главный приоритет) ──────────────────────────────
 
@@ -33,10 +50,7 @@ export const PLATFORMS: PlatformConfig[] = [
     loginUrl: 'https://experience.tripster.ru/accounts/login/',
     dashboardUrl: 'https://experience.tripster.ru/guide/dashboard/',
     addTourUrl: 'https://experience.tripster.ru/guide/experiences/new/',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: 'zgWwVn9!nmdQGxK',
-    },
+    credentials: credentialsFromEnv('tripster'),
     notes: 'Уже интегрирован (lib/channels/tripster.ts). Проверить поля тура.',
   },
   {
@@ -46,10 +60,7 @@ export const PLATFORMS: PlatformConfig[] = [
     status: 'active',
     loginUrl: 'https://www.sputnik8.com/ru/sign_in',
     dashboardUrl: 'https://www.sputnik8.com/ru/partner',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: 'Si25LtnpDO13Q$',
-    },
+    credentials: credentialsFromEnv('sputnik8'),
     notes: 'Уже интегрирован в channel sync. Изучить структуру тура.',
   },
   {
@@ -58,10 +69,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'high',
     status: 'active',
     loginUrl: 'https://russpass.ru/partners',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: '',
-    },
+    credentials: credentialsFromEnv('russpass'),
     notes: 'Гос. платформа, бесплатно. Пароль пустой — нужна регистрация.',
   },
   {
@@ -70,10 +78,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'medium',
     status: 'active',
     loginUrl: 'https://www.tourister.ru/login',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: 'Si25LtnpDO13Q$j0%yIkH',
-    },
+    credentials: credentialsFromEnv('tourister'),
     notes: 'Объявления туров. Проверить формат карточки.',
   },
   {
@@ -82,10 +87,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'medium',
     status: 'active',
     loginUrl: 'https://b.zoon.ru/login/',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: 'zgWwVn9!n13Q$j0%yIkHQGxK',
-    },
+    credentials: credentialsFromEnv('zoon'),
     notes: 'Услуги и отзывы.',
   },
 
@@ -97,10 +99,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'medium',
     status: 'active',
     loginUrl: 'https://partners.level.travel/login',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: 'GR!n13Q$j0%yIkHQGxKzgWwVn9',
-    },
+    credentials: credentialsFromEnv('level_travel'),
     notes: 'Попадаешь в Яндекс.Путешествия. СМС не приходит — возможно нужна живая авторизация.',
   },
   {
@@ -109,10 +108,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'low',
     status: 'active',
     loginUrl: 'https://travelpayouts.com/login',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: '$j0%yIkHQGxKzgWwVn9p67@2',
-    },
+    credentials: credentialsFromEnv('travelpayouts'),
     notes: 'Партнёрская сеть (Sputnik8 + все).',
   },
 
@@ -124,10 +120,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'low',
     status: 'active',
     loginUrl: 'https://fishingbooker.com/guides/sign_in',
-    credentials: {
-      email: 'fishingkam@yandex.ru',
-      password: '',
-    },
+    credentials: credentialsFromEnv('fishingbooker'),
     notes: 'Международная рыбалка. Пароль неизвестен.',
   },
 
@@ -139,7 +132,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'low',
     status: 'broken',
     loginUrl: 'https://rybinka.ru',
-    credentials: { email: '', password: '' },
+    credentials: credentialsFromEnv('rybinka'),
     notes: 'Домен продаётся.',
   },
   {
@@ -148,7 +141,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'low',
     status: 'broken',
     loginUrl: 'https://rybalka.ru',
-    credentials: { email: '', password: '' },
+    credentials: credentialsFromEnv('rybalka_ru'),
     notes: 'Сайт не действителен.',
   },
   {
@@ -157,7 +150,7 @@ export const PLATFORMS: PlatformConfig[] = [
     priority: 'low',
     status: 'broken',
     loginUrl: 'https://travel.tinkoff.ru/partners',
-    credentials: { email: '', password: '' },
+    credentials: credentialsFromEnv('tinkoff_travel'),
     notes: 'Сайт не грузится даже c VPN.',
   },
 ];
