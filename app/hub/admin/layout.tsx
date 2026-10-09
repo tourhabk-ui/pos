@@ -39,6 +39,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/content/reviews', label: 'Отзывы', icon: MessageSquareText, section: 'Контент' },
   { href: '/hub/admin/content/tour-reviews', label: 'Отзывы о турах', icon: MessageSquareText, section: 'Контент' },
   { href: '/hub/admin/moderation', label: 'Модерация отзывов', icon: ShieldCheck, section: 'Контент' },
+  // Разбор утверждений Кузьмича о безопасности (#2300): сверка — автоматом,
+  // отметка «верно / ошибка» — человеком, после отправки, а не до неё.
+  { href: '/hub/admin/kuzmich-safety', label: 'Кузьмич: безопасность', icon: ShieldCheck, section: 'Контент' },
   { href: '/hub/admin/content/partners', label: 'Партнёры', icon: Briefcase, section: 'Контент' },
   { href: '/hub/admin/guide-certifications', label: 'Сертификаты гидов', icon: Award, section: 'Контент' },
   { href: '/hub/admin/content/places-import', label: 'Импорт мест', icon: MapPin, section: 'Контент' },
