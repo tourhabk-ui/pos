@@ -2,28 +2,23 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 14000,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: U-ON.Travel (CRM «Я Камчатка», слово владельца «U-ON») — главная и документация API текстом, для сверки с планом CRM каждой роли (#2313).",
-  "run": 745,
+  "bytes": 0,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel (CRM «Я Камчатка») — полный список методов и строки описаний, для сверки с планом CRM (#2313). Проба 745 дала только начало документации (алфавит до bill).",
+  "run": 746,
   "urls": [
-    "https://u-on.ru/",
     "https://api.u-on.ru/doc"
   ],
-  "grep": [
-    "вебхук",
-    "WebHook",
-    "напомина",
-    "договор",
-    "личный кабинет",
-    "лид",
-    "request/create",
-    "reminder",
-    "lead"
+  "grep": [],
+  "count": [
+    "https://api.u-on.ru/{key}/"
   ],
-  "text": true,
-  "around": [],
+  "text": false,
+  "around": [
+    "</li>",
+    "https://api.u-on.ru/{key}/"
+  ],
   "aroundLines": 0,
-  "aroundHits": 1,
+  "aroundHits": 1000,
   "aroundBefore": 0,
   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 }
