@@ -2,38 +2,25 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 1500,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Конструктор путешествий laguna-expedition.online (решение владельца: разобрать как идею для нашего планера): откуда страница грузит номера, экскурсии, услуги и рестораны (скрипты, адреса API), какие разделы есть на сайте.",
-  "run": 735,
+  "bytes": 200,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Конструктор laguna-expedition.online: настройки плагина (LagunaTripBuilderData целиком) и адреса его скриптов — модель данных конструктора для сравнения с нашим планером.",
+  "run": 736,
   "urls": [
     "https://laguna-expedition.online"
   ],
   "grep": [
-    "admin-ajax",
-    "wp-json",
-    "wp-content",
-    "/api/",
-    "fetch(",
-    "axios",
-    "nonce",
-    "_next",
-    "nuxt",
-    "vue",
-    "react",
-    "jquery",
-    "bitrix",
-    "tilda"
+    "LagunaTripBuilderData",
+    "plugins/laguna",
+    "ltb-"
   ],
   "text": false,
   "retryDelay": 30,
   "around": [
-    "admin-ajax",
-    "wp-json",
-    "/api/",
-    "fetch(",
-    "href=\"https://laguna-expedition.online/"
+    "var LagunaTripBuilderData",
+    "<script src=",
+    "script src='"
   ],
-  "aroundLines": 1,
-  "aroundHits": 40,
+  "aroundLines": 90,
+  "aroundHits": 25,
   "aroundBefore": 0
 }
