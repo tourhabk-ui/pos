@@ -231,3 +231,18 @@ describe('чаты по номеру объекта (миграция 1181)', ()
   });
 });
 
+
+describe('цена «Кутхи» — слово владельца 09.10 (миграция 1198)', () => {
+  const sql = read('migrations/1198_kutha_price.sql');
+
+  it('28 000 ₽ за сутки за весь дом — число уходит в цену только туда, где её нет', () => {
+    expect(sql).toMatch(/SET price_per_night_from = 28000/);
+    expect(sql).toMatch(/AND price_per_night_from IS NULL/);
+  });
+
+  it('описание называет единицу и баню в цене, правку администратора не перетирает', () => {
+    expect(sql).toMatch(/28 000 ₽ за сутки за весь дом, баня входит в цену/);
+    expect(sql).toMatch(/AND description LIKE '%без единицы%'/);
+    expect(sql).not.toMatch(/без единицы —/);
+  });
+});
