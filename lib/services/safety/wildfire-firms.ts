@@ -18,9 +18,22 @@
  * updateRealTimeStatus подхватывают пожарные алерты без единой правки UI.
  */
 import { saveEvent, type ParseResult, type SeismicEvent } from '@/lib/services/safety/seismic-parser';
+import { query } from '@/lib/database';
+import {
+  DEFAULT_RADIUS_KM,
+  KAMCHATKA_BBOX,
+  distanceKm as geoDistanceKm,
+  judgeStatic,
+  parseFirmsRows,
+  persistentClusters,
+  type NearFeature,
+  type StaticReason,
+} from '@/lib/services/safety/firms-persistence';
 
-// Камчатка с запасом: юг Курил не берём, Чукотку не берём.
-export const KAMCHATKA_BBOX = { west: 155, south: 50, east: 167, north: 63 } as const;
+// Камчатка с запасом: юг Курил не берём, Чукотку не берём. Определение живёт
+// в чистом модуле firms-persistence, чтобы перепись (только чтение) не
+// тянула сюда за константой код, который пишет в базу.
+export { KAMCHATKA_BBOX };
 
 export interface FirmsHotspot {
   lat: number;
@@ -158,12 +171,89 @@ export function wildfireEvents(clusters: FireCluster[]): SeismicEvent[] {
   });
 }
 
+/** Типы мест, которые сами дают постоянное тепло: вулкан, гейзер, горячий источник. */
+const HEAT_FEATURE_TYPES = ['volcano', 'geyser', 'hot_spring'];
+
 /**
- * Полный ingest: fetch CSV за сутки → parse → cluster → save.
- * Без FIRMS_MAP_KEY молчим (опциональный источник, как VK).
+ * Что из нашего каталога греет само. `null` — спросить не получилось (и
+ * вызывающий НЕ гасит тревогу, §4.0); пустой список — спросили, таких мест нет.
+ * Отказ базы не глушится: имя проверки и SQLSTATE идут в лог.
  */
-export async function ingestFirmsWildfires(): Promise<ParseResult> {
-  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+async function loadHeatFeatures(): Promise<Array<{ name: string; type: string | null; lat: number; lng: number }> | null> {
+  try {
+    const { rows } = await query<{ name: string; location_type: string | null; lat: number; lng: number }>(
+      `SELECT name, location_type, lat::float AS lat, lng::float AS lng
+         FROM places
+        WHERE is_visible = TRUE AND merged_into_id IS NULL
+          AND location_type = ANY($1::text[])`,
+      [HEAT_FEATURE_TYPES],
+    );
+    return rows.map((r) => ({ name: r.name, type: r.location_type, lat: r.lat, lng: r.lng }));
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    console.error('[wildfire-firms] places для проверки постоянного источника не прочитаны', err.code, err.message);
+    return null;
+  }
+}
+
+/**
+ * Снять уже лежащие тревоги по месту, которое теперь признано постоянным
+ * источником. Без этого точка продолжала бы висеть на радаре ещё двое суток
+ * после правки: запись, продлённая дедупом, живёт своим сроком. Срок только
+ * СОКРАЩАЕТСЯ до «сейчас» (приём meteoalert.retractWithdrawn): строка остаётся
+ * в базе и перестаёт действовать. Радиус — радиус кластера, не «рядом с
+ * вулканом»: настоящий очаг в нескольких километрах от конуса не задевается.
+ */
+async function retractStaticAlerts(lat: number, lng: number): Promise<number> {
+  const r = await query<{ id: string }>(
+    `UPDATE external_alerts
+        SET expires_at = NOW()
+      WHERE alert_type = 'fire_danger'
+        AND external_id LIKE 'firms/%'
+        AND expires_at > NOW()
+        AND lat IS NOT NULL AND lng IS NOT NULL
+        AND 6371 * 2 * asin(sqrt(
+              power(sin(radians(lat::float8 - $1::float8) / 2), 2) +
+              cos(radians($1::float8)) * cos(radians(lat::float8)) *
+              power(sin(radians(lng::float8 - $2::float8) / 2), 2)
+            )) <= $3::float8
+      RETURNING id::text`,
+    [lat, lng, DEFAULT_RADIUS_KM],
+  );
+  return r.rows.length;
+}
+
+/** Термоточки, которые приём НЕ превратил в тревогу, и почему — чтобы подавление было видно, а не молчаливо. */
+export interface SuppressedFirms {
+  lat: number;
+  lng: number;
+  days: number;
+  detections_today: number;
+  nearest: string;
+  nearest_km: number;
+  /** Сколько уже действовавших тревог по этому месту снято (0 — их не было или снять не удалось, см. errors). */
+  retracted: number;
+}
+
+/**
+ * Полный ingest: fetch CSV → parse → отсев постоянных источников → cluster → save.
+ * Без FIRMS_MAP_KEY молчим (опциональный источник, как VK).
+ *
+ * ── Постоянный источник тепла — не пожар (скрин владельца 09.10) ──────────
+ *
+ * Окно 5 суток (было 1): по одним суткам не видно, что точка стоит на месте.
+ * Кандидатами в тревогу остаются обнаружения СЕГОДНЯШНИХ суток — ровно то,
+ * что давало прежнее окно в сутки; остальные дни нужны только для проверки
+ * «стоит ли здесь одно и то же несколько суток».
+ *
+ * Гасится кандидат, только когда известно всё: он в кластере, повторявшемся
+ * не меньше DEFAULT_MIN_DAYS суток, рядом (≤ STATIC_FEATURE_KM) вулкан,
+ * гейзер или горячий источник из нашего каталога, и сегодня не крупнее, чем
+ * бывало (`judgeStatic`). Любое «не знаю» — каталог не прочитан, источника
+ * рядом нет, точка заметно выросла — оставляет тревогу как есть.
+ */
+export async function ingestFirmsWildfires(now: Date = new Date()): Promise<ParseResult & { suppressed: SuppressedFirms[] }> {
+  const result: ParseResult & { suppressed: SuppressedFirms[] } = { events: [], inserted: 0, skipped: 0, errors: [], suppressed: [] };
   const key = process.env.FIRMS_MAP_KEY;
   if (!key) return result;
 
@@ -171,15 +261,65 @@ export async function ingestFirmsWildfires(): Promise<ParseResult> {
     const { west, south, east, north } = KAMCHATKA_BBOX;
     const url =
       `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}` +
-      `/VIIRS_SNPP_NRT/${west},${south},${east},${north}/1`;
+      `/VIIRS_SNPP_NRT/${west},${south},${east},${north}/5`;
     const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) {
       result.errors.push(`firms http ${res.status}`);
       return result;
     }
     const csv = await res.text();
-    const hotspots = parseFirmsCsv(csv);
-    result.rawItems = hotspots.length;
+    const today = now.toISOString().slice(0, 10);
+    const todays = parseFirmsCsv(csv).filter((h) => h.acqDate === today);
+    result.rawItems = todays.length;
+
+    // Каталог читаем, только если есть что проверять: без повторяющихся
+    // кластеров ответ базы ничего не решает.
+    const clusters = persistentClusters(parseFirmsRows(csv));
+    let features: Awaited<ReturnType<typeof loadHeatFeatures>> | undefined;
+    const verdictFor = new Map<(typeof clusters)[number], { isStatic: boolean; reason: StaticReason; nearest: NearFeature | null | undefined }>();
+    const hotspots = [];
+    for (const h of todays) {
+      const cluster = clusters.find((c) => c.members.some((m) => m.acqDate === h.acqDate && m.lat === h.lat && m.lng === h.lng)) ?? null;
+      if (!cluster) { hotspots.push(h); continue; }
+      let verdict = verdictFor.get(cluster);
+      if (!verdict) {
+        if (features === undefined) features = await loadHeatFeatures();
+        const nearest: NearFeature | null | undefined = features === null || features === undefined
+          ? undefined
+          : features
+              .map((f) => ({ name: f.name, type: f.type, km: geoDistanceKm(cluster.lat, cluster.lng, f.lat, f.lng) }))
+              .sort((a, b) => a.km - b.km)[0] ?? null;
+        verdict = { ...judgeStatic(cluster, today, nearest), nearest };
+        verdictFor.set(cluster, verdict);
+        if (verdict.isStatic && verdict.nearest) {
+          const todayAt = cluster.days.indexOf(today);
+          result.suppressed.push({
+            lat: Math.round(cluster.lat * 10000) / 10000,
+            lng: Math.round(cluster.lng * 10000) / 10000,
+            days: cluster.days.length,
+            detections_today: todayAt >= 0 ? cluster.perDay[todayAt] : 0,
+            nearest: verdict.nearest.name,
+            nearest_km: Math.round(verdict.nearest.km * 10) / 10,
+            retracted: 0,
+          });
+        }
+      }
+      if (!verdict.isStatic) hotspots.push(h);
+    }
+    for (const s of result.suppressed) {
+      try {
+        s.retracted = await retractStaticAlerts(s.lat, s.lng);
+      } catch (e) {
+        // Отказ не глушится: тревога просто доживёт свой срок, но об этом скажет ответ приёма.
+        const err = e as { code?: string; message?: string };
+        console.error('[wildfire-firms] снять тревоги по постоянному источнику не удалось', err.code, err.message);
+        result.errors.push(`firms retract: ${err.code ?? ''} ${err.message ?? ''}`.trim());
+      }
+      console.warn(
+        `[wildfire-firms] постоянный источник тепла, не тревога: ${s.lat}N ${s.lng}E, суток ${s.days}, ` +
+        `сегодня ${s.detections_today}, рядом «${s.nearest}» ${s.nearest_km} км`,
+      );
+    }
 
     const events = wildfireEvents(clusterHotspots(hotspots));
     for (const event of events) {

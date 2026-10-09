@@ -666,6 +666,8 @@ interface ParseResultSummary {
   errors: string[];
   /** Сырых элементов до классификации (у FIRMS — термоточек). */
   rawItems?: number;
+  /** FIRMS: термоточки, признанные постоянным источником тепла и не ставшие тревогой. */
+  suppressed?: unknown[];
 }
 
 function buildResponse(
@@ -836,6 +838,11 @@ function buildResponse(
       events_found: ingestResult.firms.events.length,
       inserted: ingestResult.firms.inserted,
       skipped: ingestResult.firms.skipped,
+      // Постоянные источники тепла (вулкан/гейзер/источник рядом, стоят
+      // несколько суток, не выросли): не тревога, но и не молчание — разница
+      // между «термоточек нет» и «термоточки есть, мы их не объявили» должна
+      // читаться из ответа (§4.0).
+      suppressed_static: ingestResult.firms.suppressed ?? [],
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,

@@ -26,14 +26,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
-import { KAMCHATKA_BBOX } from '@/lib/services/safety/wildfire-firms';
 import {
-  DEFAULT_CELL_DEG,
   DEFAULT_MIN_DAYS,
+  DEFAULT_RADIUS_KM,
+  KAMCHATKA_BBOX,
+  STATIC_FEATURE_KM,
   distanceKm,
+  judgeStatic,
   parseFirmsRows,
-  persistentCells,
+  persistentClusters,
   type FirmsRow,
+  type NearFeature,
 } from '@/lib/services/safety/firms-persistence';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +46,8 @@ export const maxDuration = 60;
 const WINDOWS = [10, 5];
 const NEAR_KM = 25;
 const NEAR_TYPES = ['volcano', 'hot_spring', 'geyser', 'lake', 'camp', 'cabin', 'viewpoint', 'mountain'];
+/** Те же типы, по которым решает приём (wildfire-firms.HEAT_FEATURE_TYPES): вердикт переписи = вердикт приёма. */
+const HEAT_TYPES = ['volcano', 'geyser', 'hot_spring'];
 
 interface AlertRow {
   id: string;
@@ -54,22 +59,25 @@ interface AlertRow {
 }
 interface PlaceRow { id: string; name: string; location_type: string | null; lat: number; lng: number }
 
-async function fetchWindow(key: string): Promise<{ days: number; csv: string } | { error: string }> {
+async function fetchWindow(key: string): Promise<{ days: number; csv: string; refused: string[] } | { error: string }> {
   const { west, south, east, north } = KAMCHATKA_BBOX;
   let lastError = 'нет ответа';
+  // Отказы окон, до которого дошли раньше успешного: «10 суток не дали» — факт, а не молчание.
+  const refused: string[] = [];
   for (const days of WINDOWS) {
     const url =
       `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}` +
       `/VIIRS_SNPP_NRT/${west},${south},${east},${north}/${days}`;
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
-      if (!res.ok) { lastError = `http ${res.status} на ${days} сут.`; continue; }
+      if (!res.ok) { lastError = `http ${res.status} на ${days} сут.`; refused.push(lastError); continue; }
       const csv = await res.text();
       // Ошибка ключа или окна FIRMS отдаёт ТЕКСТОМ с кодом 200: без заголовка колонок это не CSV.
-      if (!/latitude/i.test(csv.split('\n')[0] ?? '')) { lastError = `не CSV на ${days} сут.: ${csv.slice(0, 120)}`; continue; }
-      return { days, csv };
+      if (!/latitude/i.test(csv.split('\n')[0] ?? '')) { lastError = `не CSV на ${days} сут.: ${csv.slice(0, 120)}`; refused.push(lastError); continue; }
+      return { days, csv, refused };
     } catch (e) {
       lastError = `${e instanceof Error ? e.message : String(e)} на ${days} сут.`;
+      refused.push(lastError);
     }
   }
   return { error: lastError };
@@ -93,25 +101,20 @@ export async function GET(request: NextRequest) {
   }
 
   const rows: FirmsRow[] = parseFirmsRows(got.csv);
-  const cells = persistentCells(rows, { cellDeg: DEFAULT_CELL_DEG, minDays: 2 });
+  const clusters = persistentClusters(rows, { minDays: 2 });
+  const today = new Date().toISOString().slice(0, 10);
 
   // Что приём записал по этим же местам: id вида firms/<дата>/<lat>,<lng>, одна запись на сутки+ячейку.
-  let alertsByCell: Record<string, AlertRow[]> | null = null;
+  let alerts: AlertRow[] | null = null;
   let places: PlaceRow[] | null = null;
   try {
-    const { rows: alerts } = await pool.query<AlertRow>(
+    const { rows: al } = await pool.query<AlertRow>(
       `SELECT id::text, external_id, severity::int AS severity, created_at::text, expires_at::text, title
          FROM external_alerts
         WHERE external_id LIKE 'firms/%' AND created_at > NOW() - INTERVAL '30 days'
         ORDER BY created_at`,
     );
-    alertsByCell = {};
-    for (const c of cells) {
-      alertsByCell[c.key] = alerts.filter((a) => {
-        const m = /^firms\/[\d-]+\/(-?[\d.]+),(-?[\d.]+)$/.exec(a.external_id);
-        return m ? distanceKm(Number(m[1]), Number(m[2]), c.lat, c.lng) <= 12 : false;
-      });
-    }
+    alerts = al;
     const { rows: pl } = await pool.query<PlaceRow>(
       `SELECT id::text, name, location_type, lat::float AS lat, lng::float AS lng
          FROM places
@@ -125,30 +128,66 @@ export async function GET(request: NextRequest) {
     console.error('[firms-persistence-census] БД не ответила', err.code, err.message);
   }
 
-  const out = cells.map((c) => ({
-    ...c,
-    frpMean: Math.round(c.frpMean * 10) / 10,
-    spreadKm: Math.round(c.spreadKm * 100) / 100,
-    nearby: places
+  const out = clusters.map((c) => {
+    const nearby = places
       ? places
           .map((p) => ({ name: p.name, type: p.location_type, km: Math.round(distanceKm(c.lat, c.lng, p.lat, p.lng) * 10) / 10 }))
           .filter((p) => p.km <= NEAR_KM)
           .sort((a, b) => a.km - b.km)
           .slice(0, 6)
-      : null,
-    alerts: alertsByCell
-      ? alertsByCell[c.key].map((a) => ({ external_id: a.external_id, severity: a.severity, created_at: a.created_at, expires_at: a.expires_at, title: a.title }))
-      : null,
-  }));
+      : null;
+    // Ближайшее греющее место — тем же правилом, что и приём; БД не ответила — undefined, «не знаем».
+    const heat: NearFeature | null | undefined = places
+      ? (places
+          .filter((p) => p.location_type !== null && HEAT_TYPES.includes(p.location_type))
+          .map((p) => ({ name: p.name, type: p.location_type, km: distanceKm(c.lat, c.lng, p.lat, p.lng) }))
+          .sort((a, b) => a.km - b.km)[0] ?? null)
+      : undefined;
+    const verdict = judgeStatic(c, today, heat);
+
+    // Записи приёма по этому месту — СВОДКОЙ: полный список (по записи на сутки) не умещается в аннотацию CI.
+    const mine = alerts
+      ? alerts.filter((a) => {
+          const m = /^firms\/[\d-]+\/(-?[\d.]+),(-?[\d.]+)$/.exec(a.external_id);
+          return m ? distanceKm(Number(m[1]), Number(m[2]), c.lat, c.lng) <= 12 : false;
+        })
+      : null;
+
+    const { members: _members, ...rest } = c;
+    void _members;
+    return {
+      ...rest,
+      frpMean: Math.round(c.frpMean * 10) / 10,
+      spreadKm: Math.round(c.spreadKm * 100) / 100,
+      nearby,
+      heat_nearest: heat === undefined ? null : heat === null ? { none_within_25km_or_unknown: true } : { name: heat.name, km: Math.round(heat.km * 10) / 10 },
+      verdict: verdict.reason,
+      would_suppress: verdict.isStatic,
+      alerts: mine
+        ? {
+            count: mine.length,
+            first_created: mine[0]?.created_at ?? null,
+            last_created: mine[mine.length - 1]?.created_at ?? null,
+            last_expires: mine[mine.length - 1]?.expires_at ?? null,
+            max_severity: mine.reduce((m, a) => Math.max(m, a.severity ?? 0), 0),
+            last: mine.slice(-5).map((a) => ({ external_id: a.external_id, severity: a.severity, created_at: a.created_at, expires_at: a.expires_at })),
+          }
+        : null,
+    };
+  });
 
   return NextResponse.json({
     success: true,
     asked: true,
     window_days: got.days,
+    window_refused: got.refused,
     rows_total: rows.length,
     days_seen: [...new Set(rows.map((r) => r.acqDate))].sort(),
+    radius_km: DEFAULT_RADIUS_KM,
+    static_feature_km: STATIC_FEATURE_KM,
     min_days_default: DEFAULT_MIN_DAYS,
-    cells_repeating: out.length,
-    cells: out.slice(0, 40),
+    db_ok: places !== null && alerts !== null,
+    clusters_repeating: out.length,
+    clusters: out.slice(0, 40),
   });
 }
