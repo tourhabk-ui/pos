@@ -25,6 +25,7 @@ import { partnerContextFor } from '@/lib/crm/partner-context';
 import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries';
 import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitle } from '@/lib/crm/events';
 import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/lib/crm/tasks';
+import { runTaskReminders } from '@/lib/crm/reminders';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -550,6 +551,60 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     await createTask(P.opB, { title: 'Про временного', dueAt: new Date(), contactId: c.id }, pool);
     await pool.query(`DELETE FROM crm_contacts WHERE id = $1`, [c.id]);
     expect((await listTasks(P.opB, { status: 'open' }, pool)).map((t) => t.title)).toEqual(['Своё без клиента']);
+  });
+
+  it('напоминания: срок подошёл — одно сообщение, исход записан; окно, «заведена просроченной» и будущее — мимо', async () => {
+    // 12:00 по Камчатке; от реального времени SQL отбора не зависит — только от $1.
+    const T = new Date('2030-06-01T00:00:00Z');
+    const at = (minutes: number) => new Date(T.getTime() + minutes * 60_000).toISOString();
+    const ins = async (title: string, due: string, created: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO crm_tasks (partner_id, title, due_at, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [P.guide, title, due, created],
+    )).rows[0].id;
+    const due = await ins('Перезвонить <Ивану>', at(-30), at(-120));
+    await ins('Заведена просроченной', at(-1440), at(-10));
+    await ins('Неделю назад', at(-8 * 1440), at(-10 * 1440));
+    await ins('Ещё не срок', at(60), at(-120));
+
+    const sent: string[] = [];
+    const r = await runTaskReminders(T, {
+      db: pool,
+      reach: async (pid) => (pid === P.guide
+        ? { telegramChatId: null, maxChatId: '999', telegramSource: null, reachable: true }
+        : { telegramChatId: null, maxChatId: null, telegramSource: null, reachable: false }),
+      send: async (p) => { sent.push(p.text); return { channel: 'max', delivered: true, reason: 'ok' }; },
+    });
+    expect(r.quiet).toBe(false);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/Подошёл срок: 1 задача/);
+    expect(sent[0]).toMatch(/Перезвонить &lt;Ивану&gt;/);
+
+    const { rows } = await pool.query<{ title: string; reminder_channel: string | null; reminded: boolean }>(
+      `SELECT title, reminder_channel, reminded_at IS NOT NULL AS reminded FROM crm_tasks WHERE partner_id = $1 ORDER BY due_at`,
+      [P.guide],
+    );
+    expect(rows.map((x) => [x.title, x.reminder_channel])).toEqual([
+      ['Неделю назад', null], ['Заведена просроченной', null], ['Перезвонить <Ивану>', 'max'], ['Ещё не срок', null],
+    ]);
+
+    // Второй прогон — не повторяет.
+    const again: string[] = [];
+    await runTaskReminders(T, { db: pool, reach: async () => null, send: async (p) => { again.push(p.text); return { channel: 'max', delivered: true, reason: 'ok' }; } });
+    expect(again).toEqual([]);
+
+    // Перенос срока сбрасывает напоминание; правка заголовка — нет.
+    const kept = await updateTask(P.guide, due, { title: 'Перезвонить Ивану' }, pool);
+    expect(kept?.reminder?.channel).toBe('max');
+    const moved = await updateTask(P.guide, due, { dueAt: new Date(at(90)) }, pool);
+    expect(moved?.reminder).toBeNull();
+  });
+
+  it('напоминания: исход без момента база не примет', async () => {
+    const id = (await pool.query<{ id: string }>(
+      `INSERT INTO crm_tasks (partner_id, title, due_at) VALUES ($1, 'пара', NOW()) RETURNING id`, [P.guide],
+    )).rows[0].id;
+    await expect(pool.query(`UPDATE crm_tasks SET reminder_channel = 'max' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(`UPDATE crm_tasks SET reminded_at = NOW(), reminder_channel = 'sms' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {

@@ -10,8 +10,8 @@
  * загрузить» — ошибка с повтором.
  */
 import { useEffect, useState } from 'react';
-import { Check, Trash2, CalendarClock, User, Plus } from 'lucide-react';
-import type { TaskItem, TaskStatus } from '@/lib/crm/tasks';
+import { Check, Trash2, CalendarClock, User, Plus, BellRing, BellOff } from 'lucide-react';
+import type { ReminderChannel, TaskItem, TaskStatus } from '@/lib/crm/tasks';
 import { DETAILS_MAX, TITLE_MAX } from '@/lib/crm/event-kinds';
 import {
   DUE_BUCKET_LABELS, defaultDueLocal, dueBucket, isoToKamchatkaLocal, kamchatkaLocalToIso, type DueBucket,
@@ -56,6 +56,13 @@ function readTask(json: unknown): TaskItem | null {
 function errorText(json: unknown, fallback: string): string {
   return isRecord(json) && typeof json.error === 'string' ? json.error : fallback;
 }
+
+/** Чем кончилось напоминание о сроке (крон crm-reminders, 1в-2). */
+const REMINDER_LABELS: Readonly<Record<ReminderChannel, string>> = {
+  max: 'напоминание ушло в MAX',
+  telegram_stub: 'в Telegram ушло напоминание без подробностей',
+  unreachable: 'напоминание не отправлено: не подключён ни MAX, ни Telegram',
+};
 
 const BUCKET_ORDER: readonly DueBucket[] = ['overdue', 'today', 'tomorrow', 'later'];
 
@@ -207,6 +214,13 @@ export function TaskList({ contactId, onOpenContact, onCompleted, reloadKey = 0 
           <div className="min-w-0 flex-1 space-y-0.5">
             <p className={open ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] line-through'}>{task.title}</p>
             {task.details && <p className="text-xs text-[var(--text-muted)] whitespace-pre-line">{task.details}</p>}
+            {open && task.reminder && (
+              <p className={`text-xs inline-flex items-center gap-1 ${task.reminder.channel === 'unreachable' ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}`}>
+                {task.reminder.channel === 'unreachable' ? <BellOff className="w-3 h-3" /> : <BellRing className="w-3 h-3" />}
+                {REMINDER_LABELS[task.reminder.channel]}
+                {task.reminder.channel !== 'unreachable' && ` · ${formatMomentTime(task.reminder.at) ?? ''}`}
+              </p>
+            )}
             <p className="text-xs text-[var(--text-muted)] flex items-center gap-3 flex-wrap">
               <span className="inline-flex items-center gap-1">
                 <CalendarClock className="w-3 h-3" />
@@ -312,7 +326,10 @@ export function TaskList({ contactId, onOpenContact, onCompleted, reloadKey = 0 
           />
         )}
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <p className="text-xs text-[var(--text-muted)]">Срок — по камчатскому времени; не указан — завтра в 10:00.</p>
+          <p className="text-xs text-[var(--text-muted)]">
+            Срок — по камчатскому времени; не указан — завтра в 10:00. Когда он подойдёт, напомним в MAX или Telegram,
+            если канал подключён; с 22 до 8 — утром.
+          </p>
           <button type="submit" disabled={busy || !title.trim()} className="ds-btn ds-btn-secondary">
             <Plus className="w-4 h-4" /> Добавить задачу
           </button>

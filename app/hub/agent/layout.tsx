@@ -6,6 +6,7 @@ import {
   TrendingUp, ListChecks,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
+import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 // Статистика — живая страница кабинета, но в меню её не было:
@@ -39,6 +40,7 @@ const SIDEBAR_ITEMS = [
 export default function AgentHubLayout({ children }: { children: ReactNode }) {
   return (
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Кабинет агента" requiredRole="agent">
+      <PartnerChannelBanner />
       {children}
     </HubLayout>
   );

@@ -44,7 +44,8 @@ export async function findOperatorByChatId(chatId: number): Promise<OperatorCont
  * решает, куда уходят имена и телефоны туристов из новых броней, и кому
  * помощник оператора рассказывает о бронях. Правило владельца 29.09
  * (`lib/partners/channel-link.ts`): назначать такой адрес может только тот,
- * чьё право проверено, — вошедший в свой кабинет или администратор.
+ * чьё право проверено, — вошедший в свой кабинет (ссылка из кабинета,
+ * решение владельца 09.10) или администратор.
  *
  * Уже привязанные чаты не тронуты: findOperatorByChatId/MaxChatId читают
  * колонки как раньше.
@@ -52,8 +53,8 @@ export async function findOperatorByChatId(chatId: number): Promise<OperatorCont
 export const PARTNER_EMAIL_BIND_CLOSED =
   'Подключить чат по почте больше нельзя: так его мог подключить любой, кто знает адрес, ' +
   'и заявки туристов ушли бы ему.\n\n' +
-  'Telegram: войдите в кабинет на vedarai.ru — «Профиль» — «Подключить Telegram».\n' +
-  'MAX: попросите ссылку для подключения у администратора платформы (vedarai.ru/contact).';
+  'Войдите в кабинет на vedarai.ru: пока MAX не подключён, вверху будет кнопка «Подключить MAX» ' +
+  '(и «Подключить Telegram»). Нажмите её и «Старт» в боте — чат подключится к карточке вашей компании.';
 
 /** Найти оператора по MAX chat_id. */
 export async function findOperatorByMaxChatId(chatId: number): Promise<OperatorContext | null> {

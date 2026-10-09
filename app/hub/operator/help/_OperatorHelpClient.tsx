@@ -203,7 +203,7 @@ export default function OperatorHelpClient() {
             'Укажите реквизиты для выплат в разделе Финансы',
             'Создайте первый тур в разделе Туры',
             'Откройте даты в Календаре',
-            'Подключите Telegram в «Профиле» (MAX — по ссылке от администратора)',
+            'Подключите MAX: кнопка «Подключить MAX» вверху кабинета',
           ].map((item, i) => (
             <div key={i} className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
               <div className="w-5 h-5 rounded border border-[var(--border)] flex-shrink-0" />
@@ -250,9 +250,10 @@ export default function OperatorHelpClient() {
             <div>
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Подключите чат к кабинету</p>
               <p className="text-sm text-[var(--text-secondary)] mb-2">
-                Telegram — кнопкой «Подключить Telegram» в{' '}
-                <Link href="/hub/operator/profile" className="text-[var(--ocean)] hover:underline">профиле</Link>:
-                откроется бот, нажмите «Старт». MAX — по ссылке от администратора платформы: напишите нам, пришлём её.
+                Пока MAX не подключён, вверху кабинета висит кнопка «Подключить MAX» (и «Подключить Telegram»):
+                откроется бот, нажмите «Старт» — чат подключится к карточке вашей компании. Имена и телефоны
+                туристов приходят только в MAX; Telegram можно подключить и в{' '}
+                <Link href="/hub/operator/profile" className="text-[var(--ocean)] hover:underline">профиле</Link>.
               </p>
               <p className="text-xs text-[var(--text-muted)]">
                 По почте чат больше не подключается: так его мог бы подключить любой, кто знает адрес, и заявки

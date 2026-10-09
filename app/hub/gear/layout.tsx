@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { LayoutDashboard, Backpack, ClipboardList, BookUser, ListChecks } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
+import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 
 // section → на мобиле сетка иконок по разделам вместо ленты (см. HubSidebar).
 const SIDEBAR_ITEMS = [
@@ -16,6 +17,7 @@ const SIDEBAR_ITEMS = [
 export default function GearHubLayout({ children }: { children: ReactNode }) {
   return (
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Прокат снаряжения" requiredRole={['gear', 'admin']}>
+      <PartnerChannelBanner />
       {children}
     </HubLayout>
   );

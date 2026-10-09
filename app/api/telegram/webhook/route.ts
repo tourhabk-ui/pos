@@ -48,6 +48,7 @@ import {
 import { PlatformAgent } from '@/lib/agents/platform-agent';
 import { classifyIntentByKeywords } from '@/lib/agents/intent-classifier';
 import { verifyConnectToken } from '@/lib/telegram/connect-token';
+import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
 import { statusTokenFromStart } from '@/lib/seat-requests/core';
@@ -63,6 +64,9 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { applyLeadStatus, LEAD_STATUS_ACTIONS } from '@/lib/leads/status-action';
 
 export const dynamic = 'force-dynamic';
+
+/** Роли, чей Telegram пишется и в карточку партнёра; transfer_operator — устаревшее имя перевозчика. */
+const PARTNER_CHAT_ROLES: ReadonlySet<string> = new Set([...PARTNER_ROLES, 'transfer_operator']);
 
 // Пользователи в процессе оформления заявки через /start lead
 const pendingLeadFlow = new Map<string, { firstName: string; startedAt: number }>();
@@ -700,12 +704,19 @@ export async function POST(request: NextRequest) {
 
         const { name, role } = linkRes.rows[0];
 
-        // Если оператор/гид — обновляем partners.telegram_chat_id
-        if (role === 'operator' || role === 'guide') {
+        // Партнёр любой из шести ролей — адрес и в карточку партнёра. До
+        // 09.10 только оператор и гид: у жилья, проката, перевозчика и агента
+        // чат ложился лишь в users.telegram_id, и уведомления, читающие
+        // колонку партнёра (бронь жилья, аренда), его не видели, хотя
+        // reachForPartner считал партнёра подключённым (CRM 1в-3).
+        if (PARTNER_CHAT_ROLES.has(role)) {
           await query(
             `UPDATE partners SET telegram_chat_id = $1 WHERE user_id = $2`,
             [update.message.from.id, userId]
-          ).catch(() => null);
+          ).catch((err: unknown) => {
+            const code = (err as { code?: string })?.code ?? 'нет SQLSTATE';
+            console.error('[telegram/link] чат не записан в карточку партнёра, SQLSTATE', code);
+          });
         }
 
         // Отправляем персональное приветствие

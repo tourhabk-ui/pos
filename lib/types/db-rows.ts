@@ -1543,4 +1543,8 @@ export interface CrmTaskRow {
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
+  /** Когда крон crm-reminders обработал напоминание (1199). NULL — не было. */
+  reminded_at: Date | null;
+  /** Исход напоминания: 'max' | 'telegram_stub' | 'unreachable'; пишется парой с reminded_at. */
+  reminder_channel: string | null;
 }

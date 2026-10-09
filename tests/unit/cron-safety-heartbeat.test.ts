@@ -119,6 +119,21 @@ describe('отказ одного эндпоинта не глушит оста�
     expect(body.skipped).toBe('lease_held');
   });
 
+  it('каждый шаг с эндпоинтом, кроме followups, входит в сводку итога (09.10)', () => {
+    // Шаг, не внесённый в OUTCOMES, отказывает молча: continue-on-error
+    // держит job зелёным, а итог о нём не знает. Так и было бы с новым
+    // шагом, если бы его автор забыл вторую половину правки.
+    const summary = SRC.slice(SRC.indexOf('name: Summarize'));
+    const steps = SRC.slice(0, SRC.indexOf('name: Summarize')).split(/\n      - name:/).slice(1);
+    const ids = steps
+      .filter((b) => b.includes('/api/cron/'))
+      .map((b) => /\n\s+id: ([a-z_]+)/.exec(b)?.[1] ?? '(шаг без id)');
+    expect(ids.length).toBeGreaterThanOrEqual(10);
+    for (const id of ids.filter((x) => x !== 'followups')) {
+      expect(summary, `шаг ${id} не входит в OUTCOMES итога`).toContain(`[${id}]="\${{ steps.${id}.outcome }}"`);
+    }
+  });
+
   it('итоговый шаг красит job при отказе — не просто печатает', () => {
     const summaryBlock = SRC.slice(SRC.indexOf('name: Summarize'));
     expect(summaryBlock).toMatch(/exit 1/);

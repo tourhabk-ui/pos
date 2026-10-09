@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { LayoutDashboard, BookUser, ListChecks } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
+import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 
 // Кабинет перевозчика (схема 926, 02.09): парк, поездки и запросы мест живут
 // на одном экране вкладками. Клиенты — отдельным разделом: экран CRM общий
@@ -16,6 +17,7 @@ const SIDEBAR_ITEMS = [
 export default function CarrierHubLayout({ children }: { children: ReactNode }) {
   return (
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Перевозчик" requiredRole={['transfer', 'transfer_operator', 'admin']}>
+      <PartnerChannelBanner />
       {children}
     </HubLayout>
   );
