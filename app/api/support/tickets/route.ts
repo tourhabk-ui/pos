@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
+import { isSupportStaff } from '@/lib/support/staff';
 import {
   createTicket, listTickets, listUserTickets, TICKET_CATEGORIES, TICKET_STATUSES,
 } from '@/lib/support/ticket.service';
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     if (status && !(TICKET_STATUSES as readonly string[]).includes(status)) {
       return NextResponse.json({ success: false, error: 'Неизвестный статус' }, { status: 400 });
     }
-    const isPrivileged = auth.role === 'admin' || auth.role === 'agent';
+    const isPrivileged = isSupportStaff(auth.role);
     const tickets = isPrivileged
       ? await listTickets({ status, category: sp.get('category') ?? undefined })
       : await listUserTickets(auth.userId, { status, limit: parseInt(sp.get('limit') || '50', 10) });
