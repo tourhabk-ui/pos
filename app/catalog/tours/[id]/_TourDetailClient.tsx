@@ -20,6 +20,8 @@ import BookingFormClient from '@/components/marketplace/BookingFormClient';
 // Просмотрщик фото — общий для всех галерей (карточка тура, оператор, перевозчик).
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
+import type { TourClip } from '@/lib/tours/tour-clips';
+import { LazyClip } from '@/components/media/LazyClip';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
@@ -66,6 +68,8 @@ interface ProgramStep { title: string; text: string }
 
 interface TourFull {
   id: number;
+  /** Короткие клипы из хранилища (миграция 1194); [] или нет — блока нет. */
+  clips?: TourClip[];
   title: string;
   description: string | null;
   short_description: string | null;
@@ -694,6 +698,26 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 </a>
               </div>
             </div>
+
+            {/* ═══ Клипы тура (решение владельца 09.10) — короткие петли без
+                звука из хранилища. LazyClip не качает файл, пока клип не подошёл
+                к экрану, и не играет без связи. Нет клипов — нет блока. */}
+            {tour.clips && tour.clips.length > 0 && (
+              <section aria-label={`Видео: ${tour.title}`}>
+                <Eyebrow>Как это выглядит</Eyebrow>
+                <ul className="flex gap-3 overflow-x-auto pb-2 snap-x">
+                  {tour.clips.map((c) => (
+                    <li key={c.url} className="snap-start shrink-0 w-40 sm:w-44">
+                      <LazyClip url={c.url} poster={c.poster} label={c.label} className="aspect-[9/16]" />
+                      <p className="mt-1 text-xs leading-snug text-[var(--text-secondary)]">{c.label}</p>
+                    </li>
+                  ))}
+                </ul>
+                {/* Подпись автора — оператором тура (слово владельца 09.10), тем же
+                    правилом, что у клипов перевозчика: «Видео: <кто>». */}
+                <p className="text-xs text-[var(--text-muted)]">Видео: {tour.operator_name}</p>
+              </section>
+            )}
 
             {/* О туре. short_description отсюда переехал в герой (SEO-аудит
                 06.08, цитируемость первого экрана) — здесь остаётся полное

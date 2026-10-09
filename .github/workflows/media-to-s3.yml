@@ -1,0 +1,70 @@
+name: Медиа из репозитория в хранилище
+
+# Клипы и обложки из media/s3/ — в бакет под videos/ (решение владельца 09.10:
+# «сохрани их в s3»). Список — в маркере .github/triggers/media-to-s3.json;
+# каждый объект после заливки читается обратно по публичному адресу.
+#
+# Где исполняется (§8): раннер (ключи S3); прод только раздаёт.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/media-to-s3.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-to-s3
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/media-to-s3.json')).get('upload',False)).lower())")
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD"
+
+      - name: Залить и прочитать обратно
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${{ steps.cfg.outputs.upload }}" != "true" ]; then FLAG="--dry-run"; fi
+          mkdir -p .cache/media
+          npx tsx scripts/media-to-s3.ts $FLAG | tee .cache/media/upload.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Медиа в хранилище'
+            echo '```'
+            cat .cache/media/upload.log 2>/dev/null || echo 'лог не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Медиа НЕ залиты — сказать это громко
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
+        run: |
+          echo "::warning::Сухой прогон: список проверен, в хранилище ничего не записано (upload=false)."

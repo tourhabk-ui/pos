@@ -19,6 +19,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { parseTourParam } from '@/lib/tours/tour-url';
+import { tourClips, type TourClip } from '@/lib/tours/tour-clips';
 
 /** Строка тура для карточки. `program`/`safety_notes` могут отсутствовать,
  *  если миграция 809 ещё не применилась — карточка это переживает. */
@@ -70,6 +71,10 @@ export interface TourCardRow {
   review_count: number | null;
   program?: unknown;
   safety_notes?: string[] | null;
+  /** Ключи клипов в хранилище (миграция 1194) — до клиента не доходят, их заменяет `clips`. */
+  video_clips?: unknown;
+  /** Клипы с собранными адресами хранилища; [] — клипов нет. */
+  clips?: TourClip[];
   operator_name: string;
   operator_id: string;
   /** Логотип партнёра (`partners.logo_image`) — путь из `public/`, может быть пуст. */
@@ -150,8 +155,8 @@ export interface TourCardReview {
   photos?: string[] | null;
 }
 
-/** Колонки, добавленные миграцией 809 — их может не быть, если она отстала. */
-const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes,';
+/** Колонки, добавленные миграциями 809 и 1194 — их может не быть, если миграция отстала. */
+const OPTIONAL_COLUMNS = 'ot.program, ot.safety_notes, ot.video_clips,';
 
 function buildSql(withOptional: boolean): string {
   return `
@@ -228,8 +233,11 @@ export async function getTourIdBySlug(slug: string): Promise<number | null> {
 }
 
 export async function getTourForCard(id: number): Promise<TourCardRow | null> {
-  const normalize = (row: TourCardRow | undefined): TourCardRow | null =>
-    row ? { ...row, operator_contacts: toContactsRecord(row.operator_contacts) } : null;
+  const normalize = (row: TourCardRow | undefined): TourCardRow | null => {
+    if (!row) return null;
+    const { video_clips, ...rest } = row;
+    return { ...rest, operator_contacts: toContactsRecord(row.operator_contacts), clips: tourClips(video_clips) };
+  };
 
   try {
     const { rows } = await pool.query<TourCardRow>(buildSql(true), [id]);
