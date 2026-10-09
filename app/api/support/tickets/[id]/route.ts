@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
+import { isSupportStaff } from '@/lib/support/staff';
 import {
   getTicketById, getTicketForUser, updateTicket, TICKET_CATEGORIES, TICKET_STATUSES,
 } from '@/lib/support/ticket.service';
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest, { params }: Ctx) {
 
   try {
     const { id } = await params;
-    const isPrivileged = auth.role === 'admin' || auth.role === 'agent';
+    const isPrivileged = isSupportStaff(auth.role);
     const ticket = isPrivileged ? await getTicketById(id) : await getTicketForUser(id, auth.userId);
     if (!ticket) return NextResponse.json({ success: false, error: 'Заявка не найдена' }, { status: 404 });
     return NextResponse.json({ success: true, data: ticket });
@@ -41,9 +42,9 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
-  const isPrivileged = auth.role === 'admin' || auth.role === 'agent';
+  const isPrivileged = isSupportStaff(auth.role);
   if (!isPrivileged) {
-    // Турист меняет тикет только сообщением в переписке: статус ведёт агент.
+    // Турист меняет тикет только сообщением в переписке: статус ведёт поддержка.
     return NextResponse.json(
       { success: false, error: 'Статус заявки меняет служба поддержки — напишите сообщение в заявку' },
       { status: 403 },

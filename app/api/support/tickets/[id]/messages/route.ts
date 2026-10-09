@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
+import { isSupportStaff } from '@/lib/support/staff';
 import { addTicketMessage, getTicketById, getTicketForUser } from '@/lib/support/ticket.service';
 
 const MessageSchema = z.object({
@@ -21,7 +22,7 @@ const MessageSchema = z.object({
 type Ctx = { params: Promise<{ id: string }> };
 
 async function loadFor(auth: { userId: string; role?: string }, id: string) {
-  const isPrivileged = auth.role === 'admin' || auth.role === 'agent';
+  const isPrivileged = isSupportStaff(auth.role);
   return { isPrivileged, ticket: isPrivileged ? await getTicketById(id) : await getTicketForUser(id, auth.userId) };
 }
 
