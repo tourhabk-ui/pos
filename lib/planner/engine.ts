@@ -44,7 +44,10 @@ import {
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
-import { tourDaySpan } from '@/lib/planner/tour-span';
+import { tourPlanSpan } from '@/lib/planner/tour-span';
+import { tourDurationDays } from '@/lib/bookings/duration';
+import { planTourPrice, PRICE_UNREAD_TEXT } from '@/lib/planner/tour-price';
+import { priceFromUnit } from '@/lib/tours/price-label';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
@@ -140,12 +143,31 @@ export interface DayPlan {
      */
     priceUnit: string;
     /**
+     * Сколько дней тура считает бронь (`tourDurationDays`): по ним смета
+     * считает цену «за день на человека» (#2304), а не по дням, которые тур
+     * занял в плане.
+     */
+    durationDays?: number;
+    /** Почему цена тура отличается от заголовочной: «−15%, последние места». */
+    priceLabel?: string;
+    /**
      * Включено ли проживание в тур: `true` / `false` / `null` — не знаем.
      * Ночь такого дня не оплачивается отдельно (см. calculatePriceBreakdown).
      */
     lodgingIncluded: boolean | null;
   };
+  /**
+   * Цена тура за единицу (`realTour.priceUnit`) — по правилу брони для этой
+   * группы и даты дня (lib/planner/tour-price, #2304). Только у первого дня
+   * тура: дни продолжения многодневного тура цены не несут.
+   */
   realPrice?: number;
+  /**
+   * Цены тура для этой группы нет — и почему: группа вне ступеней цены
+   * оператора или цену не удалось проверить. Только у первого дня тура; по
+   * нему смета отличает «цена не названа» от дня продолжения.
+   */
+  priceMissing?: string;
   availableDate?: string;
   slotsRemaining?: number;
   /**
@@ -1254,7 +1276,7 @@ async function generateDayPlans(
     // называется: дни ушли туру, следующим зонам их осталось меньше.
     if (style !== 'self' && realTours.length > 0) {
       const room = tripDays - departureDays - (dayNum - 1);
-      const spans = realTours.map((t) => tourDaySpan(t.durationHours) ?? 1);
+      const spans = realTours.map((t) => tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1);
       if (!spans.some((sp) => sp <= block.activeDays)) {
         const pick = realTours
           .map((t, i) => ({ t, sp: spans[i] }))
@@ -1369,7 +1391,7 @@ async function generateDayPlans(
       // Сколько дней поездки занимает этот тур. `null` — длительность не
       // заполнена: ставим одним днём, как раньше, но запоминаем — под таким
       // полем может лежать пятидневка (§4.0).
-      const declaredSpan = realTour ? tourDaySpan(realTour.durationHours) : 1;
+      const declaredSpan = realTour ? tourPlanSpan(realTour.durationHours, realTour.multiDayCount) : 1;
       if (realTour && declaredSpan === null) {
         spanUnknown.add(realTour.title);
       }
@@ -1446,6 +1468,7 @@ async function generateDayPlans(
       // Build reality-enriched DayPlan fields
       let realTourData: DayPlan['realTour'];
       let realPrice: number | undefined;
+      let priceMissing: string | undefined;
       let availableDate: string | undefined;
       let slotsRemaining: number | undefined;
       let availability: DayPlan['availability'];
@@ -1466,9 +1489,12 @@ async function generateDayPlans(
           weatherDependent: realTour.weatherDependent,
           durationHours: realTour.durationHours,
           priceUnit: realTour.priceUnit,
+          durationDays: tourDurationDays({
+            multi_day_count: realTour.multiDayCount,
+            duration_hours: realTour.durationHours === null ? null : Number(realTour.durationHours),
+          }),
           lodgingIncluded: lodgingIncluded(realTour.included),
         };
-        realPrice = realTour.basePrice;
 
         // Check availability for this tour
         if (profile.arrivalDate && profile.departureDate) {
@@ -1487,6 +1513,24 @@ async function generateDayPlans(
               capacityWarning = `Осталось ${slots[0].remaining} мест — высокий спрос`;
             }
           }
+        }
+
+        // Цена — по правилу брони, для этой группы и на дату этого дня
+        // (#2304): ступени по размеру группы и правила цены на дату. Группе
+        // вне ступеней цену называет оператор — у дня цены нет, и это сказано,
+        // а не подставлена заголовочная.
+        const priced = await planTourPrice({
+          tourId: realTour.tourId, basePrice: realTour.basePrice, priceUnit: realTour.priceUnit,
+          participants: groupSize(profile),
+          multiDayCount: realTour.multiDayCount,
+          durationHours: realTour.durationHours === null ? null : Number(realTour.durationHours),
+          tourDate: availableDate ?? (profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null),
+        });
+        if (priced.kind === 'priced' && priced.unitPrice > 0) {
+          realPrice = priced.unitPrice;
+          if (priced.label) realTourData.priceLabel = priced.label;
+        } else {
+          priceMissing = priced.kind === 'missing' ? priced.text : PRICE_UNREAD_TEXT;
         }
 
         // Contingency alternatives
@@ -1518,8 +1562,10 @@ async function generateDayPlans(
         title: dayTitle,
         description: realTour?.shortDescription ?? c.seasonNote ?? '',
         activityType: interest,
-        priceFrom: realPrice ?? c.pricePerPerson[0],
-        priceTo: realPrice ? Math.round(realPrice * TOUR_PRICE_HEADROOM) : c.pricePerPerson[1],
+        // Цены для группы нет — нет у дня и ориентира: справочная вилка вида
+        // активности рядом с туром читалась бы как его цена.
+        priceFrom: realPrice ?? (priceMissing ? 0 : c.pricePerPerson[0]),
+        priceTo: realPrice ? Math.round(realPrice * TOUR_PRICE_HEADROOM) : (priceMissing ? 0 : c.pricePerPerson[1]),
         coords,
         defaultTransport: transport,
         allowedTransports: allowed.length > 0 ? allowed : [transport],
@@ -1530,6 +1576,7 @@ async function generateDayPlans(
         activityMode: activityMode({ realTour, route }),
         realTour: realTourData,
         realPrice,
+        priceMissing,
         availableDate,
         slotsRemaining,
         availability,
@@ -1829,8 +1876,12 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
     if (d.realTour) {
       line += ` — оператор: ${d.realTour.operatorName} (${d.realTour.operatorRating.toFixed(1)})`;
     }
+    // Цена — с единицей тура: «за группу» без подписи модель пересказала бы
+    // как цену с человека (#2304).
     if (d.realPrice) {
-      line += ` — ${d.realPrice} ₽`;
+      line += ` — ${priceFromUnit(d.realPrice, d.realTour?.priceUnit)}`;
+    } else if (d.priceMissing) {
+      line += ' — цену для этой группы называет оператор';
     }
     if (d.weatherForecast) {
       line += ` | ${d.weatherForecast.description}, ${d.weatherForecast.tempMin}..${d.weatherForecast.tempMax} C`;
@@ -1885,7 +1936,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       zones: [], days: [], warnings: [],
       priceBreakdown: {
         activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
-        activityPricing: { tourPriced: 0, estimated: 0, excluded: 0 },
+        activityPricing: { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 },
       },
       itinerary: 'Выберите интересы для рекомендации.',
       // Каталог не спрашивали вовсе — это «не знаем», а не «пусто».

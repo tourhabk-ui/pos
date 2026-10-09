@@ -39,9 +39,17 @@ export interface DayPlan {
    * единица цены с вместимостью группы: по ним смета на группу считает тур
    * (lib/planner/estimate, #2304).
    */
-  realTour?: { tourId: string; lodgingIncluded: boolean | null; priceUnit?: string; maxParticipants?: number };
-  /** Цена тура оператора — у первого дня тура (смета, #2304). */
+  realTour?: {
+    tourId: string; lodgingIncluded: boolean | null; priceUnit?: string; maxParticipants?: number;
+    /** Дни тура по правилу брони — для цены «за день на человека». */
+    durationDays?: number;
+    /** Почему цена отличается от заголовочной: «−15%, последние места». */
+    priceLabel?: string;
+  };
+  /** Цена тура за единицу по правилу брони — у первого дня тура (смета, #2304). */
   realPrice?: number;
+  /** Цены тура для этой группы нет, и почему (группа вне ступеней цены). */
+  priceMissing?: string;
 }
 
 export interface TripWarning {

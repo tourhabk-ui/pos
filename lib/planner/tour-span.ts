@@ -59,3 +59,33 @@ export function tourDaySpan(durationHours: number | null | undefined): number | 
   // 5000 часах значило бы выдать догадку за длительность.
   return days > MAX_TOUR_DAYS ? null : days;
 }
+
+/**
+ * Дни плана по правилу брони: сначала дни словами оператора
+ * (`multi_day_count` больше одного), потом часы. Ничего не записано — `null`.
+ *
+ * Шапка выше (20.09) говорит «поля в днях нет» — оно есть: `multi_day_count`,
+ * и бронь (`tourDurationDays`, lib/bookings/duration) считает длительность
+ * именно по нему, а по часам — только когда дней не записано. Тур, у которого
+ * оператор проставил «8 дней», а часы оставил пустыми, план ставил одним днём,
+ * а бронь занимала восемь. Порядок источников теперь тот же, что у брони;
+ * сторож держит равенство на всех записанных значениях
+ * (tests/unit/planner-multiday-tours.test.ts).
+ *
+ * Отличие от брони одно и намеренное: бронь при пустых полях считает один
+ * день, план говорит «не знаем» (`null`) — ставит одним днём, но вслух.
+ */
+export function tourPlanSpan(
+  durationHours: number | null | undefined,
+  multiDayCount: number | null | undefined,
+): number | null {
+  const declared = multiDayCount === null || multiDayCount === undefined ? NaN : Number(multiDayCount);
+  if (Number.isFinite(declared) && declared > 1) {
+    const days = Math.floor(declared);
+    return days > MAX_TOUR_DAYS ? null : days;
+  }
+  const byHours = tourDaySpan(durationHours);
+  if (byHours !== null) return byHours;
+  // «Один день», записанный словами, — знание, а не пустое поле.
+  return declared === 1 ? 1 : null;
+}

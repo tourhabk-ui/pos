@@ -39,6 +39,7 @@ import { withReferral } from '@/lib/referral/link';
 import { extractContacts } from '@/lib/operators/profile-parse';
 import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
 import { GroupEstimateBlock } from './GroupEstimate';
+import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { escapeHtml } from '@/lib/text/escape-html';
 import type {
@@ -357,6 +358,22 @@ interface DayCardProps {
   onAskSeats?: (tour: TourPreview) => void;
 }
 
+/**
+ * Цена дня на карточке (#2304): у тура — с единицей, как в каталоге, а не
+ * «на человека» у всех; цены для группы нет — так и сказано.
+ */
+function DayPriceTag({ day }: { day: DayPlan }) {
+  const p = dayPrice(day);
+  if (p.kind === 'none') return null;
+  return (
+    <div className="text-right shrink-0" data-testid="day-price">
+      <p className={`text-xs font-semibold ${p.kind === 'missing' ? 'text-[var(--warning)]' : 'text-[var(--accent)]'}`}>{p.main}</p>
+      <p className="text-[10px] text-[var(--text-muted)]">{p.kind === 'missing' ? 'для вашей группы' : p.unit}</p>
+      {p.kind === 'tour' && p.label && <p className="text-[10px] text-[var(--success)]">{p.label}</p>}
+    </div>
+  );
+}
+
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
@@ -460,10 +477,7 @@ function DayCard({
               )}
             </p>
           </div>
-          <div className="text-right shrink-0">
-            <p className="text-xs font-semibold text-[var(--accent)]">от {fmt(day.priceFrom)} ₽</p>
-            <p className="text-[10px] text-[var(--text-muted)]">до {fmt(day.priceTo)} ₽</p>
-          </div>
+          <DayPriceTag day={day} />
         </div>
         {/* Row 2 — transport + actions */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
@@ -579,10 +593,10 @@ function DayCard({
                 </div>
               )}
             </div>
-            {day.type === 'activity' && (
+            {day.type === 'activity' && dayPriceLine(day) && (
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                 <Wallet className="w-3 h-3" />
-                <span>{fmt(day.priceFrom)} — {fmt(day.priceTo)} ₽ на человека</span>
+                <span>{dayPriceLine(day)}</span>
               </div>
             )}
             {day.coords[0] !== 53.01 && (
@@ -1626,7 +1640,7 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
     <div class="day-num">${i + 1}</div>
     <div class="day-title">${d.title}</div>
     ${d.type !== 'activity' ? `<span class="day-badge">${dayTypeLabels[d.type] ?? d.type}</span>` : d.activityMode ? `<span class="day-badge">${ACTIVITY_MODE_LABEL[d.activityMode].label}</span>` : ''}
-    <span class="day-price">от ${fmt(d.priceFrom)} ₽</span>
+    <span class="day-price">${escapeHtml(dayPriceLine(d))}</span>
   </div>
   ${d.description ? `<div class="day-desc">${d.description}</div>` : ''}
   <div class="day-meta">${ZONE_LABELS[d.zone] ?? d.zone}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>

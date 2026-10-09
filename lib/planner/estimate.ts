@@ -35,6 +35,7 @@
 // (сторож client-no-node-builtins идёт и по импортам типов).
 import { ZONE_SLEEPS_IN, sleepZoneOf, type ZoneId, type BudgetTier, type DayType } from '@/lib/planner/constants';
 import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } from '@/lib/planner/trip-origin';
+import { bookingTotal } from '@/lib/tours/booking-total';
 
 // ── Входные данные ───────────────────────────────────────────────────────────
 
@@ -49,14 +50,18 @@ export interface EstimateDay {
   title: string;
   priceFrom: number;
   priceTo: number;
-  /** Цена тура оператора — только у первого дня тура. */
+  /** Цена тура за единицу по правилу брони — только у первого дня тура. */
   realPrice?: number;
+  /** Цены тура для этой группы нет, и почему — только у первого дня тура. */
+  priceMissing?: string;
   realTour?: {
     tourId: string;
     /** `per_person`, `per_tour` (за группу), `per_day_per_person`. */
     priceUnit?: string;
     /** Вместимость группы тура; 0 или нет — не указана. */
     maxParticipants?: number;
+    /** Дни тура по правилу брони — для цены «за день на человека». */
+    durationDays?: number;
     lodgingIncluded: boolean | null;
   };
 }
@@ -164,7 +169,14 @@ export interface PriceBreakdown {
    * справочная вилка), и сколько туров в сумму НЕ вошли, потому что их цена
    * не за человека. Без этого одна цифра выдавала бы оценку за цену.
    */
-  activityPricing: { tourPriced: number; estimated: number; excluded: number };
+  activityPricing: {
+    tourPriced: number; estimated: number; excluded: number;
+    /**
+     * Туры без цены для этой группы (#2304): группа вне ступеней цены
+     * оператора или цену не удалось проверить. В сумму не идут.
+     */
+    unpriced: number;
+  };
 }
 
 export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<EstimateProfile, 'budgetTier' | 'tripOrigin'>): PriceBreakdown {
@@ -178,9 +190,12 @@ export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<Estim
   // Продолжение многодневного тура (цена 0, учтена в первом дне) не считается.
   let actFrom = 0;
   let actTo = 0;
-  const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0 };
+  const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 };
   for (const d of days) {
     if (d.type !== 'activity' && d.type !== 'buffer') continue;
+    // Цены тура для группы нет — ни цена, ни ориентир: справочная вилка вида
+    // активности на месте тура выдала бы себя за его цену.
+    if (d.priceMissing) { activityPricing.unpriced++; continue; }
     if (d.realPrice) {
       if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
       actFrom += d.realPrice;
@@ -282,40 +297,70 @@ const nightWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'ночь' : 
 
 const times = ([a, b]: [number, number], k: number): [number, number] => [a * k, b * k];
 
-/** Строка тура по его единице цены. */
+/**
+ * Дни одной постановки тура в плане: первый день и идущие за ним дни
+ * продолжения того же тура. Не все дни плана с этим туром: тур может стоять в
+ * плане дважды, и тогда «за день» посчиталось бы за обе постановки дважды.
+ */
+function runLength(day: EstimateDay, days: EstimateDay[]): number {
+  const at = days.indexOf(day);
+  let n = 1;
+  for (let i = at + 1; i < days.length; i++) {
+    const d = days[i]!;
+    if (d.realTour?.tourId !== day.realTour?.tourId || d.realPrice || d.priceMissing) break;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Строка тура по его единице цены.
+ *
+ * Сумма одной брони — правилом самой брони (`bookingTotal`): за человека — на
+ * каждого, за группу — одна сумма, за день — на каждого и каждый день тура.
+ * Цена за единицу уже посчитана движком по ступеням и правилам на дату
+ * (lib/planner/tour-price). Сверх брони смета знает одно: группа больше
+ * вместимости тура «за группу» едет двумя группами.
+ */
 function tourLine(day: EstimateDay, days: EstimateDay[], people: number): EstimateLine {
   const price = day.realPrice!;
   // Без данных о туре цена считается за человека — так же, как в вилке на
   // человека (`calculatePriceBreakdown`): одна смета, одно правило.
   const unit = day.realTour ? day.realTour.priceUnit : 'per_person';
-  const perPerson: [number, number] = [price, Math.round(price * TOUR_PRICE_HEADROOM)];
   const label = `Тур «${day.title}», день ${day.day}`;
+  if (unit !== 'per_person' && unit !== 'per_tour' && unit !== 'per_day_per_person') {
+    // Незнакомую единицу смета не толкует как «за человека»: так же молчит о
+    // ней и витрина (lib/tours/price-label, priceFromUnit).
+    return {
+      kind: 'tour', label, basis: `${fmt(price)} ₽`, total: null, source: 'tour',
+      note: unit ? `Единица цены «${unit}» не распознана — сумму смотрите в карточке тура.` : 'Не указано, за что цена тура, — сумму смотрите в карточке тура.',
+    };
+  }
+
+  const tourDays = unit === 'per_day_per_person' ? (day.realTour?.durationDays ?? runLength(day, days)) : 1;
+  const one = (p: number) => bookingTotal({
+    basePrice: p, priceUnit: unit, participants: people,
+    duration: { multi_day_count: tourDays, duration_hours: null },
+  });
+  const cap = day.realTour?.maxParticipants ?? 0;
+  const groups = unit === 'per_tour' && cap > 0 ? Math.ceil(people / cap) : 1;
+  const total: [number, number] = [one(price) * groups, one(Math.round(price * TOUR_PRICE_HEADROOM)) * groups];
 
   if (unit === 'per_person') {
-    return { kind: 'tour', label, basis: `${fmt(price)} ₽ × ${peopleWord(people)}`, total: times(perPerson, people), source: 'tour' };
+    return { kind: 'tour', label, basis: `${fmt(price)} ₽ × ${peopleWord(people)}`, total, source: 'tour' };
   }
   if (unit === 'per_tour') {
-    const cap = day.realTour?.maxParticipants ?? 0;
-    const groups = cap > 0 ? Math.ceil(people / cap) : 1;
     return {
       kind: 'tour', label,
       basis: `${fmt(price)} ₽ за группу${groups > 1 ? ` × ${groups} (до ${cap} чел. в группе)` : ''}`,
-      total: times(perPerson, groups), source: 'tour',
+      total, source: 'tour',
       ...(cap > 0 ? {} : { note: 'Вместимость группы у тура не указана — посчитана одна группа.' }),
     };
   }
-  if (unit === 'per_day_per_person') {
-    const tourId = day.realTour?.tourId;
-    const tourDays = days.filter((d) => d.realTour?.tourId === tourId).length;
-    return {
-      kind: 'tour', label,
-      basis: `${fmt(price)} ₽ × ${tourDays} ${dayWord(tourDays)} × ${peopleWord(people)}`,
-      total: times(perPerson, tourDays * people), source: 'tour',
-    };
-  }
   return {
-    kind: 'tour', label, basis: `${fmt(price)} ₽`, total: null, source: 'tour',
-    note: unit ? `Единица цены «${unit}» не распознана — сумму смотрите в карточке тура.` : 'Не указано, за что цена тура, — сумму смотрите в карточке тура.',
+    kind: 'tour', label,
+    basis: `${fmt(price)} ₽ × ${tourDays} ${dayWord(tourDays)} × ${peopleWord(people)}`,
+    total, source: 'tour',
   };
 }
 
@@ -335,6 +380,14 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile): Gr
   // Активности: туры по своей единице цены, дни без тура — ориентир.
   for (const d of days) {
     if (d.type !== 'activity' && d.type !== 'buffer') continue;
+    // Цены тура для этой группы нет: строка есть, в итог не входит (§4.0).
+    if (d.priceMissing) {
+      lines.push({
+        kind: 'tour', label: `Тур «${d.title}», день ${d.day}`, basis: 'цену называет оператор',
+        total: null, source: 'tour', note: d.priceMissing,
+      });
+      continue;
+    }
     if (d.realPrice) {
       lines.push(tourLine(d, days, people));
       continue;
