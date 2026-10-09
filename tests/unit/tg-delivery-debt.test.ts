@@ -31,8 +31,10 @@ const ROOT = process.cwd();
  * места — они и переведены на общий отправитель; остальное записано сюда,
  * чтобы долг был виден и мог только сокращаться.
  *
- * Watchdog в списке остаётся: его ГЛАВНЫЙ алерт идёт общим отправителем, но
- * рядом живут ещё четыре отправки (оператору, гиду), и они пока свои.
+ * Watchdog вычеркнут 09.10: его главный алерт шёл общим отправителем и
+ * раньше, а четыре прямые отправки партнёрам (оператору, жилью, прокату,
+ * перевозчику) ушли в lib/partners/notice — она шлёт через tgSend с
+ * названным получателем.
  */
 const OWN_SENDERS: readonly string[] = [
   'app/api/admin/execute-all/route.ts',
@@ -58,7 +60,6 @@ const OWN_SENDERS: readonly string[] = [
   'lib/agents/scout-innovator.ts',
   'lib/agents/tools/board-executor-tools.ts',
   'lib/agents/volcano/merge-gate.ts',
-  'lib/agents/watchdog.ts',
   'lib/leads/proposal-delivery.ts',
   'lib/services/ingest/osm-traces-scout.ts',
   'lib/services/intelligence-monitor.service.ts',

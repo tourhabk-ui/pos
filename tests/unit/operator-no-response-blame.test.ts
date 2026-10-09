@@ -104,12 +104,14 @@ describe('напоминание уходит в тот канал, где оп�
   it('MAX пробуется первым — это основной канал операторов', () => {
     expect(fn).toMatch(/return sendPartnerNotice\(/);
     expect(NOTICE.indexOf('maxSendDm(')).toBeGreaterThan(-1);
-    expect(NOTICE.indexOf('maxSendDm(')).toBeLessThan(NOTICE.indexOf('TELEGRAM_BOT_TOKEN'));
+    expect(NOTICE.indexOf('maxSendDm(')).toBeLessThan(NOTICE.indexOf('await tgSend('));
   });
 
   it('отказ доставки не глушится — имя оператора и причина в лог (§4.0)', () => {
     expect(NOTICE).toMatch(/\$\{who\}: не ушло в MAX — \$\{res\.error \?\? 'причина не названа'\}/);
-    expect(NOTICE).toMatch(/\$\{who\}: не ушло в Telegram — HTTP \$\{res\.status\}/);
+    // Отказ Telegram пишет в лог общий отправитель (tg-send) — под именем
+    // получателя: scope несёт `who`.
+    expect(NOTICE).toMatch(/tgSend\(`partner-notice: \$\{who\}`/);
     expect(fn).toMatch(/`напоминание оператору «\$\{partnerName\}»`/);
   });
 

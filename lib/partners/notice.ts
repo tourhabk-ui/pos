@@ -16,6 +16,7 @@
  * одной колонки. Исход возвращается: вызывающему нужно знать, ушло ли.
  */
 import { maxSendDm } from '@/lib/notifications/max-channel';
+import { tgSend } from '@/lib/notifications/tg-send';
 
 export type NoticeChannel = 'max' | 'telegram';
 
@@ -42,22 +43,10 @@ export async function sendPartnerNotice(
     console.error(`[partner-notice] ${who}: не ушло в MAX — ${res.error ?? 'причина не названа'}`);
   }
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !to.telegramChatId) return null;
+  if (!to.telegramChatId) return null;
+  // Общий отправитель (lib/notifications/tg-send): он читает ответ Telegram и
+  // пишет причину отказа в лог сам — своей копии этой проверки здесь нет.
   const text = `${body}\n\n<a href="${link.url}">${link.text}</a>`;
-  try {
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: to.telegramChatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-    if (!res.ok) {
-      console.error(`[partner-notice] ${who}: не ушло в Telegram — HTTP ${res.status}`);
-      return null;
-    }
-    return 'telegram';
-  } catch (e) {
-    console.error(`[partner-notice] ${who}: не ушло в Telegram — ${e instanceof Error ? e.message : 'fetch error'}`);
-    return null;
-  }
+  const sent = await tgSend(`partner-notice: ${who}`, text, { chatId: to.telegramChatId });
+  return sent.ok ? 'telegram' : null;
 }

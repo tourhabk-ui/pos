@@ -15,13 +15,14 @@ const maxSendDm = vi.fn();
 vi.mock('@/lib/notifications/max-channel', () => ({ maxSendDm: (...a: unknown[]) => maxSendDm(...a) }));
 
 const { sendPartnerNotice } = await import('@/lib/partners/notice');
+const { tgSend } = await import('@/lib/notifications/tg-send');
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
 const LINK = { text: 'Брони жилья', url: 'https://vedarai.ru/hub/stay/bookings' };
 
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   maxSendDm.mockReset();
-  fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+  fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '' });
   vi.stubGlobal('fetch', fetchMock);
   process.env.TELEGRAM_BOT_TOKEN = 'tok';
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -49,10 +50,46 @@ describe('sendPartnerNotice', () => {
     expect(await sendPartnerNotice({ maxChatId: '1', telegramChatId: null }, 'x', LINK, 'тест')).toBeNull();
   });
 
-  it('Telegram ответил не 200 — null и причина в лог', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });
+  it('Telegram ответил не 200 — null и причина в лог (общим отправителем)', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, text: async () => 'bot was blocked by the user' });
     expect(await sendPartnerNotice({ maxChatId: null, telegramChatId: '2' }, 'x', LINK, 'тест')).toBeNull();
-    expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toMatch(/не ушло в Telegram — HTTP 403/);
+    expect(vi.mocked(console.error).mock.calls.flat().join(' '))
+      .toMatch(/\[partner-notice: тест\] tgSend: Telegram ответил 403: bot was blocked/);
+  });
+
+  it('нет ни MAX, ни Telegram — null без единого запроса', async () => {
+    expect(await sendPartnerNotice({ maxChatId: null, telegramChatId: null }, 'x', LINK, 'тест')).toBeNull();
+    expect(maxSendDm).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('tgSend с названным получателем', () => {
+  it('chatId: null — недоставка, а не админский чат', async () => {
+    process.env.TELEGRAM_CHAT_ID = 'admin';
+    const out = await tgSend('тест', 'x', { chatId: null });
+    expect(out).toEqual({ ok: false, reason: 'у получателя нет чата Telegram' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('chatId задан — уходит ему, не в админский', async () => {
+    process.env.TELEGRAM_CHAT_ID = 'admin';
+    expect(await tgSend('тест', 'x', { chatId: '42' })).toEqual({ ok: true });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).chat_id).toBe('42');
+  });
+
+  it('без opts — по-прежнему админский чат', async () => {
+    process.env.TELEGRAM_CHAT_ID = 'admin';
+    await tgSend('тест', 'x');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).chat_id).toBe('admin');
+  });
+});
+
+describe('дверь не держит свою копию отправки в Telegram', () => {
+  it('notice.ts шлёт через tgSend, без своего fetch', () => {
+    const src = read('lib/partners/notice.ts');
+    expect(src).toMatch(/await tgSend\(`partner-notice: \$\{who\}`, text, \{ chatId: to\.telegramChatId \}\)/);
+    expect(src).not.toMatch(/sendMessage/);
   });
 });
 
