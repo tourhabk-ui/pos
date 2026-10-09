@@ -33,6 +33,7 @@ import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
@@ -159,6 +160,8 @@ const createLeadArgsSchema = z.object({
   phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000, 'Комментарий длиннее 2000 символов'),
   interest: z.string().trim().max(200, 'Интерес длиннее 200 символов').optional(),
+  // ID плана из make_trip_plan (#2304, шаг 2): заявка уходит с планом целиком.
+  plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
   // Обязателен и здесь, а не только в JSON Schema инструмента. Два источника
   // правды путают ОСНОВАНИЕ отказа: агент, смотрящий схему, видит поле
   // обязательным, а парсер роута пропускал бы его отсутствие дальше — и
@@ -185,6 +188,7 @@ const bookingRequestArgsSchema = z.object({
   name: personName,
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
+  plan_id: z.string().trim().max(64, 'ID плана длиннее 64 символов').optional(),
   // См. пояснение у createLeadArgsSchema: обязателен в обоих источниках.
   consent: consentField,
 });
@@ -311,7 +315,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
 
   const leadComment = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.`
     + (comment ? ` ${comment}` : '');
-  const leadSource = { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants };
+  // План, частью которого стоит тур (#2304, шаг 2): оператор видит поездку
+  // целиком. Не приложился — заявка всё равно идёт, и агент это слышит.
+  const planAttach = await planFromDraft(parsed.data.plan_id);
+  const leadSource = { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach) };
   refuseSilentLead(name, phone, leadComment, leadSource);
 
   const pd_consent = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent);
@@ -334,7 +341,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // вызова, а в заявке остался прежний (скептик проверки 29.09).
   const accepted = `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
     + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
-    + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.';
+    + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.'
+    + planAttachNote(planAttach);
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   if (existing) {
@@ -372,14 +380,17 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
   }
   const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
-  refuseSilentLead(name, phone, leadComment, { source: 'mcp' });
+  // План по plan_id (#2304, шаг 2): менеджер получает поездку целиком.
+  const planAttach = await planFromDraft(parsed.data.plan_id);
+  const leadSource = { source: 'mcp', ...planSourceFields(planAttach) };
+  refuseSilentLead(name, phone, leadComment, leadSource);
   const pd_consent = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const leadId = await createLead({
     name,
     phone,
     comment: leadComment,
     source_url: 'mcp://vedar',
-    source_data: { source: 'mcp' },
+    source_data: leadSource,
     pd_consent,
     is_self: ctx.self,
   });
@@ -389,7 +400,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   // Номер не называется, как и у заявки на бронь: createLead на точном дубле
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
   // такой телефон с таким текстом уже писал (проверка MCP 29.09).
-  return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.';
+  return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach);
 }
 
 /**

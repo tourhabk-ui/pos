@@ -25,6 +25,7 @@ import { SHOWN_MODELS } from '@/lib/images/origin';
 import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 import { BEAR_PHOTOS } from '@/lib/media/wildlife-photos';
 import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
+import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1609,6 +1610,20 @@ export async function notifyAdminNewLead(lead: {
     lines.push(`<b>Даты:</b> ${esc(dateFrom)} — ${dateTo ? esc(dateTo) : '?'}`);
   }
   if (sd?.trip_days) lines.push(`<b>Длина:</b> ${sd.trip_days} дн.`);
+  // План целиком (#2304, шаг 2): состав, смета, туры по дням — те же строки,
+  // что в карточке лида в админке. Названия туров — из базы, но экранируются
+  // всё равно: строка уходит в HTML-разметку. Персональных данных в плане нет,
+  // поэтому он идёт и в заглушку: при недоступном MAX менеджер всё равно
+  // видит, что человек выбрал.
+  const planLines: string[] = [];
+  const plan = asPlanForLead((lead.sourceData as { plan?: unknown } | null | undefined)?.plan);
+  if (plan) {
+    const [group, estimate, ...tours] = planLeadLines(plan);
+    planLines.push(`<b>План:</b> ${esc(group!)}`, esc(estimate!));
+    for (const t of tours.slice(0, 8)) planLines.push(esc(t));
+    if (tours.length > 8) planLines.push(`…и ещё ${tours.length - 8} дн. с турами — в карточке лида`);
+  }
+  lines.push(...planLines);
   if (lead.comment) {
     const preview = lead.comment.length > 300 ? lead.comment.slice(0, 300) + '\u2026' : lead.comment;
     lines.push(`<b>Сообщение:</b> ${esc(preview)}`);
@@ -1624,6 +1639,7 @@ export async function notifyAdminNewLead(lead: {
     '',
     `Заявка <code>${esc(lead.id)}</code>${source ? ` — ${esc(source)}` : ''}.`,
     lead.routeTitle ? `Маршрут: ${esc(lead.routeTitle)}` : '',
+    ...planLines,
     'Имя и телефон — в кабинете: MAX недоступен, в Telegram они не передаются.',
   ].filter(Boolean).join('\n');
 
