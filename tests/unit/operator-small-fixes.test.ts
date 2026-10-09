@@ -37,8 +37,10 @@ describe('лиды', () => {
 });
 
 describe('тач-цели и контраст кабинета', () => {
-  it('баннер Telegram: ссылка и «закрыть» не меньше 44 px', () => {
-    const banner = read('components/operator/TelegramConnectBanner.tsx');
+  it('баннер «подключите канал»: ссылка и «закрыть» не меньше 44 px', () => {
+    // С 09.10 — общий баннер шести кабинетов (CRM 1в-3) вместо баннера
+    // Telegram оператора, смотревшего только users.telegram_id.
+    const banner = read('components/hub/PartnerChannelBanner.tsx');
     expect(banner).toMatch(/min-h-\[44px\]/);
     expect(banner).toMatch(/w-11 h-11/);
     expect(banner).toMatch(/aria-label="Скрыть подсказку"/);

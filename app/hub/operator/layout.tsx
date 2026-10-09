@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
-import { OperatorTelegramBanner } from '@/components/operator/TelegramConnectBanner';
+import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { ForcePasswordChangeBanner } from '@/components/operator/ForcePasswordChangeBanner';
 
 // Пункты сгруппированы по section: на мобиле HubSidebar тогда рендерит
@@ -55,7 +55,7 @@ export default function OperatorHubLayout({ children }: { children: ReactNode })
   return (
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Кабинет оператора" requiredRole={['operator', 'admin']}>
       <ForcePasswordChangeBanner />
-      <OperatorTelegramBanner />
+      <PartnerChannelBanner />
       {children}
       <ChatWidget />
     </HubLayout>
