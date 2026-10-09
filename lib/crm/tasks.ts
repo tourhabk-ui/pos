@@ -26,7 +26,7 @@ interface Queryable {
 export const TASK_LIST_LIMIT = 200;
 export const DONE_LIST_LIMIT = 50;
 
-/** Исход напоминания о сроке (1в-2): см. миграцию 1198. */
+/** Исход напоминания о сроке (1в-2): см. миграцию 1199. */
 export const REMINDER_CHANNELS = ['max', 'telegram_stub', 'unreachable'] as const;
 export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
 

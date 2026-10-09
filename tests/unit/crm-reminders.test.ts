@@ -156,7 +156,7 @@ describe('SQL отбора', () => {
   it('словарь исходов — один в коде и в CHECK миграции', async () => {
     const { REMINDER_CHANNELS } = await import('@/lib/crm/tasks');
     const m = /crm_tasks_reminder_channel_check\s+CHECK \(reminder_channel IS NULL OR reminder_channel IN \(([^)]*)\)\)/
-      .exec(read('migrations/1198_crm_task_reminders.sql'));
+      .exec(read('migrations/1199_crm_task_reminders.sql'));
     expect(m, 'CHECK исхода не найден').not.toBeNull();
     expect([...(m?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort()).toEqual([...REMINDER_CHANNELS].sort());
   });
