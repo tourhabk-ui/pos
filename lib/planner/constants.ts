@@ -24,6 +24,8 @@
 export type ZoneId = 'avachinsky' | 'western' | 'eastern' | 'northern';
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type FitnessLevel = 'beginner' | 'moderate' | 'active';
+export type BudgetTier = 'economy' | 'comfort' | 'premium';
+export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
 
 export const ZONE_NAMES: Record<ZoneId, string> = {
   avachinsky: 'Авачинская зона',

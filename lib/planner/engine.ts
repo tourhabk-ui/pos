@@ -11,14 +11,14 @@ import { pool } from '@/lib/db-pool';
 // зависимостей (20.09) — см. его шапку. Здесь они ре-экспортируются, чтобы
 // ни один прежний читатель `@/lib/planner/engine` не был тронут.
 import {
-  type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints,
-  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, ZONE_SLEEPS_IN, sleepZoneOf,
+  type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints, type BudgetTier, type DayType,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
 import {
   asTripOrigin, framingDays, activeBudget as framedActiveBudget,
-  arrivalDayText, departureDayText, nightIsAtHome, paysAirportTransfers,
+  arrivalDayText, departureDayText,
   HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, type TripOrigin,
 } from '@/lib/planner/trip-origin';
 export { ZONE_GRAPH };
@@ -43,6 +43,7 @@ import {
   fetchForecastDays, tripForecastWindow, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
+import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourDaySpan } from '@/lib/planner/tour-span';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
@@ -51,8 +52,9 @@ import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
-export type BudgetTier = 'economy' | 'comfort' | 'premium';
-export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
+// Уровень бюджета и род дня живут в constants: их читает смета
+// (lib/planner/estimate), а её считает и браузер — без движка (#2304).
+export type { BudgetTier, DayType };
 
 export interface TripProfile {
   interests: string[];
@@ -190,19 +192,7 @@ export interface TripWarning {
   message: string;
 }
 
-export interface PriceBreakdown {
-  activities: [number, number];
-  accommodation: [number, number];
-  transport: [number, number];
-  perPersonTotal: [number, number];
-  /**
-   * Из чего сложены активности (#2223): сколько дней по цене тура оператора,
-   * сколько по ориентиру вида активности (тура нет — цена не тура, а
-   * справочная вилка), и сколько туров в сумму НЕ вошли, потому что их цена
-   * не за человека. Без этого одна цифра выдавала бы оценку за цену.
-   */
-  activityPricing: { tourPriced: number; estimated: number; excluded: number };
-}
+export type { PriceBreakdown };
 
 interface ZoneRecommendation {
   zone: ZoneId;
@@ -303,51 +293,10 @@ const INTEREST_TO_ZONES: Record<string, ZoneId[]> = {
 };
 
 // ── Accommodation by zone ───────────────────────────────────────────────────
-
-interface AccommodationInfo {
-  types: string[];
-  pricePerNight: [number, number, number]; // [economy, comfort, premium]
-  note: string;
-  /**
-   * Где турист НОЧУЕТ, если в этой зоне не ночуют.
-   *
-   * Заведено 20.09. У северной зоны стояло `pricePerNight: [0, 0, 0]` с
-   * припиской «Однодневная экскурсия, ночёвка в Авачинской зоне» — то есть
-   * факт был записан прозой, а код читал из него только ноль. Ночь,
-   * которую человек проводит в Петропавловске, не считалась НИГДЕ: смета
-   * занижалась ровно на неё.
-   *
-   * Тот же род дефекта, что двойной счёт ночи на базе, только в другую
-   * сторону — и оба от того, что о ночёвке судили не по данным.
-   */
-  sleepsIn?: ZoneId;
-}
-
-const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
-  avachinsky: {
-    types: ['гостиница', 'апартаменты', 'хостел'],
-    pricePerNight: [3000, 7000, 15000],
-    note: 'Петропавловск / Паратунка — широкий выбор',
-  },
-  western: {
-    types: ['рыболовная база', 'палатка'],
-    pricePerNight: [8000, 20000, 40000],
-    note: 'Удалённые базы, питание включено',
-  },
-  eastern: {
-    types: ['эко-лодж', 'палатка', 'модуль'],
-    pricePerNight: [10000, 25000, 50000],
-    note: 'Ограниченное размещение, бронь заранее',
-  },
-  northern: {
-    types: [],
-    pricePerNight: [0, 0, 0],
-    note: 'Однодневная экскурсия, ночёвка в Авачинской зоне',
-    // Приписка выше теперь не только для чтения: ночь считается по той
-    // зоне, где её реально проводят.
-    sleepsIn: ZONE_SLEEPS_IN.northern,
-  },
-};
+//
+// Ориентир ночи по зоне и уровню живёт в lib/planner/estimate.ts вместе со
+// сметой: смету считает и браузер после правок плана, а этот модуль тянет
+// базу и модели (#2304).
 
 // ── Permits by zone ──────────────────────────────────────────────────────────
 
@@ -675,10 +624,6 @@ export function splitByChildAge(
 
 function groupSize(profile: TripProfile): number {
   return profile.adults + profile.children.length;
-}
-
-function budgetIndex(tier: BudgetTier): 0 | 1 | 2 {
-  return tier === 'economy' ? 0 : tier === 'comfort' ? 1 : 2;
 }
 
 // ── Warnings collector ──────────────────────────────────────────────────────
@@ -1574,7 +1519,7 @@ async function generateDayPlans(
         description: realTour?.shortDescription ?? c.seasonNote ?? '',
         activityType: interest,
         priceFrom: realPrice ?? c.pricePerPerson[0],
-        priceTo: realPrice ? Math.round(realPrice * 1.3) : c.pricePerPerson[1],
+        priceTo: realPrice ? Math.round(realPrice * TOUR_PRICE_HEADROOM) : c.pricePerPerson[1],
         coords,
         defaultTransport: transport,
         allowedTransports: allowed.length > 0 ? allowed : [transport],
@@ -1866,88 +1811,10 @@ function describePreferences(input: {
 }
 
 // ── Price breakdown ─────────────────────────────────────────────────────────
-
-export function calculatePriceBreakdown(days: DayPlan[], profile: TripProfile): PriceBreakdown {
-  const bi = budgetIndex(profile.budgetTier);
-  const nightCount = Math.max(0, days.length - 1);
-
-  // Активности. Цена тура оператора — только если она за человека: цену
-  // группы или дня сложить как цену человека значило бы соврать в итоге
-  // (#2223); такой тур в сумму не идёт и называется отдельно. День без тура —
-  // справочная вилка вида активности: это ориентир, и он тоже назван отдельно.
-  // Продолжение многодневного тура (цена 0, учтена в первом дне) не считается.
-  let actFrom = 0;
-  let actTo = 0;
-  const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0 };
-  for (const d of days) {
-    if (d.type !== 'activity' && d.type !== 'buffer') continue;
-    if (d.realPrice) {
-      if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
-      actFrom += d.realPrice;
-      actTo += Math.round(d.realPrice * 1.2);
-      activityPricing.tourPriced++;
-      continue;
-    }
-    if (d.priceFrom > 0 || d.priceTo > 0) activityPricing.estimated++;
-    actFrom += d.priceFrom;
-    actTo += d.priceTo;
-  }
-
-  // Ночёвки. Оценка по зоне — только за те ночи, которые турист ДЕЙСТВИТЕЛЬНО
-  // оплачивает отдельно.
-  //
-  // Замер 20.09: у тура ID9 «Камчатской рыбалки» в составе прямым текстом
-  // «Проживание на базе 5 ночей» при цене 140 000 ₽, а этот цикл прибавлял
-  // ночь за каждый не-отъездный день безусловно. Западная зона при comfort —
-  // 20 000 ₽/ночь: семидневный план показывал ещё 96 000–160 000 ₽
-  // «проживания», которого турист не платит.
-  //
-  // `null` (не разобрали состав) считается как «платит»: занижать счёт на
-  // догадке хуже, чем завысить и сказать об этом вслух — предупреждение
-  // ставит `recommendTrip`.
-  //
-  // У местного ночь в своей зоне не считается вовсе (lib/planner/trip-origin):
-  // он ночует у себя. Допущение о доме названо словами в предупреждениях —
-  // молча занижать счёт на догадке об адресе нельзя.
-  const origin = asTripOrigin(profile.tripOrigin);
-  let accFrom = 0;
-  let accTo = 0;
-  /**
-   * У ПОСЛЕДНЕГО дня поездки ночи нет — человек либо улетает, либо едет
-   * домой. Правило одно на оба случая: раньше пропускался только день с
-   * типом `departure`, и у местного (у которого такого дня нет вовсе) ночей
-   * выходило на одну больше, чем он проводит вне дома.
-   */
-  const lastDayNum = days.length > 0 ? days[days.length - 1]!.day : 0;
-  for (const day of days) {
-    if (day.type === 'departure' || day.day === lastDayNum) continue;
-    if (day.realTour?.lodgingIncluded === true) continue;
-    // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
-    const sleepZone = sleepZoneOf(day.zone);
-    if (nightIsAtHome(origin, sleepZone)) continue;
-    const acc = ZONE_ACCOMMODATION[sleepZone];
-    const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
-    accFrom += Math.round(nightPrice * 0.8);
-    accTo   += Math.round(nightPrice * 1.2);
-  }
-  if (nightCount === 0) { accFrom = 0; accTo = 0; }
-
-  // Transport — travel days + transfers
-  // Трансферы аэропорта — только у прилетающего: местный туда не едет.
-  const travelDays = days.filter(d => d.type === 'travel');
-  const transferFrom = paysAirportTransfers(origin) ? 2500 : 0;
-  const transferTo = paysAirportTransfers(origin) ? 5000 : 0;
-  const transFrom = travelDays.reduce((s, d) => s + d.priceFrom, 0) + transferFrom;
-  const transTo   = travelDays.reduce((s, d) => s + d.priceTo, 0) + transferTo;
-
-  return {
-    activities: [actFrom, actTo],
-    accommodation: [accFrom, accTo],
-    transport: [transFrom, transTo],
-    perPersonTotal: [actFrom + accFrom + transFrom, actTo + accTo + transTo],
-    activityPricing,
-  };
-}
+//
+// Смета — lib/planner/estimate.ts (#2304): одна формула для движка, экрана и
+// Кузьмича. Здесь — реэкспорт для прежних вызывающих.
+export { calculatePriceBreakdown };
 
 // ── AI itinerary ────────────────────────────────────────────────────────────
 

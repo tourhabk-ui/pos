@@ -53,6 +53,9 @@ const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf-8');
 /** Код без комментариев: в них старая форма описана — и должна быть. */
 const CODE = ENGINE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+/** Смета с 09.10 живёт отдельно от движка (#2304), тоже без комментариев. */
+const ESTIMATE_CODE = readFileSync(join(ROOT, 'lib/planner/estimate.ts'), 'utf-8')
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const CLIENT = readFileSync(join(ROOT, 'app/planner/_PlannerClient.tsx'), 'utf-8');
 const API = readFileSync(join(ROOT, 'app/api/planner/recommend/route.ts'), 'utf-8');
 
@@ -158,12 +161,12 @@ describe('движок спрашивает правило, а не пишет �
   });
 
   it('ночь у себя дома пропускается в счёте', () => {
-    expect(CODE).toMatch(/if \(nightIsAtHome\(origin, sleepZone\)\) continue;/);
+    expect(ESTIMATE_CODE).toMatch(/if \(nightIsAtHome\(origin, sleepZone\)\) return null;/);
   });
 
   it('трансфер аэропорта в счёте спрашивает правило', () => {
-    expect(CODE).toMatch(/paysAirportTransfers\(origin\)/);
-    expect(CODE, 'безусловный трансфер вернулся в счёт').not.toMatch(/priceFrom, 0\) \+ 2500/);
+    expect(ESTIMATE_CODE.match(/paysAirportTransfers\(origin\)/g)?.length).toBe(2);
+    expect(ESTIMATE_CODE, 'безусловный трансфер вернулся в счёт').not.toMatch(/priceFrom, 0\) \+ 2500/);
   });
 
   it('допущение о доме доходит до предупреждений', () => {

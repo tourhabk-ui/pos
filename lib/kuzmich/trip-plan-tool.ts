@@ -23,7 +23,8 @@ import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
-import { applyPlanEdit, planPrice, type PlanEdit, type PlanParams } from '@/lib/planner/plan-edit';
+import { applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams } from '@/lib/planner/plan-edit';
+import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 
 /**
@@ -345,6 +346,9 @@ export function planAssumptions(p: {
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
 const range = ([a, b]: [number, number]) => (a === b ? rub(a) : `${rub(a)}–${rub(b)}`);
 
+const plural = (n: number, one: string, few: string, many: string) =>
+  (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
+
 /**
  * Цена плана словами (#2223): вилка на человека и из чего она сложена.
  *
@@ -353,8 +357,14 @@ const range = ([a, b]: [number, number]) => (a === b ? rub(a) : `${rub(a)}–${r
  * тура и дни по справочной вилке названы раздельно, туры с ценой не за
  * человека — исключены и названы, перелёт до Камчатки не входит и сказано.
  * Плана нет — цены нет (пустой массив).
+ *
+ * С #2304 — и итог на группу (`group`, lib/planner/estimate — та же формула,
+ * что у экрана /planner). Тур с ценой за группу в вилку на человека не входит,
+ * а в итог на группу входит — по своей единице цены; раньше он не входил
+ * никуда, и итога на группу не было вовсе. Тур с нераспознанной единицей цены
+ * не входит ни в одну сумму и назван.
  */
-export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: boolean): string[] {
+export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: boolean, group?: GroupEstimate): string[] {
   if (!planned) return [];
   const { tourPriced, estimated, excluded } = pb.activityPricing;
   const parts: string[] = [];
@@ -366,8 +376,21 @@ export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: b
     `- жильё: ${range(pb.accommodation)} — оценка за ночи по зоне и уровню размещения; ночи, включённые в туры, не считаны`,
     `- транспорт: ${range(pb.transport)} — трансферы и переезды по краю, оценка`,
   ];
-  if (excluded > 0) {
+  if (excluded > 0 && !group) {
     lines.push(`Без учёта ${excluded} ${excluded === 1 ? 'тура' : 'туров'}: цена у ${excluded === 1 ? 'него' : 'них'} не за человека (за группу или за день) — сумму смотрите в карточке тура.`);
+  }
+  if (group) {
+    // Исключённые из вилки на человека, кроме туров без распознанной единицы
+    // цены, посчитаны в итоге на группу.
+    const inGroup = excluded - group.lines.filter((l) => l.kind === 'tour' && !l.total).length;
+    if (inGroup > 0) {
+      lines.push(`В вилку на человека ${plural(inGroup, 'не вошёл', 'не вошли', 'не вошли')} ${inGroup} ${plural(inGroup, 'тур', 'тура', 'туров')} с ценой не за человека (за группу или за день) — в итоге на группу ${inGroup === 1 ? 'он учтён' : 'они учтены'} по своей единице цены.`);
+    }
+    lines.push(`Итого на ${group.people === 1 ? 'одного' : `группу из ${group.people} чел.`}: ${range(group.total)} — туры по своей цене (за человека — на каждого, за группу — на группу), жильё, переезды и дни без тура — ориентир на каждого.`);
+    if (group.unpriced.length > 0) {
+      lines.push(`Не вошло ни в одну сумму — не указано, за что цена: ${group.unpriced.join('; ')}. Сумму смотрите в карточке тура.`);
+    }
+    lines.push(...group.assumptions);
   }
   lines.push('Перелёт до Камчатки в сумму не входит.');
   return lines;
@@ -630,7 +653,8 @@ export async function makeTripPlanForKuzmich(
     {
       refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
-      priceLines: formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0),
+      priceLines: formatPlanPrice(rec.priceBreakdown, budget.tier, rec.days.length > 0,
+        estimateGroup(rec.days, { adults: group.adults, children: kids.children, budgetTier: budget.tier })),
     },
   );
 
@@ -803,7 +827,7 @@ export async function editTripPlanForKuzmich(args: {
     {
       refusal: '', plannedFor, arrivalIso: plan.params.arrivalDate,
       keepsSchedule: await scheduleMap(plan.days),
-      priceLines: formatPlanPrice(planPrice(plan), plan.params.budgetTier, plan.days.length > 0),
+      priceLines: formatPlanPrice(planPrice(plan), plan.params.budgetTier, plan.days.length > 0, planEstimate(plan)),
     },
   );
   return [result.note, toursTouchedLines(result.toursTouched ?? []), text, planIdLine(draft.id, saved.revision)]

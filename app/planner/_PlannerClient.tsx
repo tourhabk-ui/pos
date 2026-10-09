@@ -38,9 +38,12 @@ import { useMyReferralCode } from '@/hooks/useMyReferralCode';
 import { withReferral } from '@/lib/referral/link';
 import { extractContacts } from '@/lib/operators/profile-parse';
 import { TripExtrasSection, type ExtrasLoad } from './TripExtrasSection';
+import { GroupEstimateBlock } from './GroupEstimate';
+import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
+import { escapeHtml } from '@/lib/text/escape-html';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
-  SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
+  SelectItem, DayPlan, TripWarning, Recommendation,
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
@@ -1146,7 +1149,20 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Plan
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
+  /**
+   * Состав и уровень, на которые собран план (#2304). Смета считается по ним,
+   * а не по форме: поменял человек форму и не пересобрал — план прежний, и
+   * смета прежнего состава.
+   */
+  const [planProfile, setPlanProfile] = useState<EstimateProfile | null>(null);
   const [days, setDays]   = useState<DayPlan[]>([]);
+  // Смета текущего плана — из дней, какими они стали после правок (#2304).
+  // До 09.10 «Оценка стоимости» приходила с сервера один раз и после
+  // перестановки, удаления или добавления дней показывала цену прежнего плана.
+  const estimate = useMemo(
+    () => (planProfile && days.length > 0 ? estimateGroup(days, planProfile) : null),
+    [days, planProfile],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   // Отказ правки дня (plan-ops): показывается под списком дней — баннер
@@ -1575,7 +1591,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     };
 
     const dateRange = arrival && departure ? `${arrival} — ${departure}` : '';
-    const pb = recommendation?.priceBreakdown;
 
     const html = `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="UTF-8"/>
@@ -1617,12 +1632,12 @@ ${days.map((d, i) => `<div class="day${confirmedDays.has(d.day) ? ' confirmed' :
   <div class="day-meta">${ZONE_LABELS[d.zone] ?? d.zone}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}</div>
   ${d.dayWarnings.map(w => `<div class="day-warn">${w}</div>`).join('')}
 </div>`).join('\n')}
-${pb ? `<div class="footer">
-  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Оценка стоимости — ориентир по средним ценам, не предложения</div>
-  <div class="price-row"><span>Активности</span><span>${fmt(pb.activities[0])} — ${fmt(pb.activities[1])} ₽</span></div>
-  <div class="price-row"><span>Размещение, оценка</span><span>${fmt(pb.accommodation[0])} — ${fmt(pb.accommodation[1])} ₽</span></div>
-  <div class="price-row"><span>Транспорт, оценка</span><span>${fmt(pb.transport[0])} — ${fmt(pb.transport[1])} ₽</span></div>
-  <div class="price-total"><span>Итого на человека</span><span>${fmt(pb.perPersonTotal[0])} — ${fmt(pb.perPersonTotal[1])} ₽</span></div>
+${estimate ? `<div class="footer">
+  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${estimate.people} чел. — цены туров от операторов, остальное ориентир по средним ценам, не предложения</div>
+  ${estimate.lines.map(l => `<div class="price-row"><span>${escapeHtml(l.label)} · ${escapeHtml(l.basis)}${l.source === 'estimate' ? ' · ориентир' : ''}</span><span>${l.total ? `${fmt(l.total[0])} — ${fmt(l.total[1])} ₽` : 'цена не указана'}</span></div>`).join('')}
+  <div class="price-total"><span>Итого на группу</span><span>${fmt(estimate.total[0])} — ${fmt(estimate.total[1])} ₽</span></div>
+  <div class="price-row"><span>На человека</span><span>${fmt(estimate.perPerson[0])} — ${fmt(estimate.perPerson[1])} ₽</span></div>
+  ${estimate.assumptions.map(a => `<div style="font-size:11px;color:#9a9590;margin-top:4px">${escapeHtml(a)}</div>`).join('')}
   <div style="font-size:11px;color:#9a9590;margin-top:6px">Без авиабилетов Москва — Камчатка</div>
 </div>` : ''}
 ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="warnings">
@@ -1739,6 +1754,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         setFormOpen(false);
         setStepError('');
         setRecommendation(data.data);
+        setPlanProfile({ adults, children: childAges, budgetTier, tripOrigin });
         setDays(data.data.days ?? []);
         setTransportByDay({});
         setConfirmedDays(new Set());
@@ -2669,39 +2685,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                 Добавить день
               </button>
 
-              {/* Price breakdown */}
-              {recommendation.priceBreakdown && (
-                <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1" data-testid="price-estimate">
-                  {/* Оценка по средним ценам движка (константы), а не предложения:
-                      настоящие варианты — в «Что ещё нужно» (§4.0). */}
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] px-1">Оценка стоимости</p>
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] text-[var(--text-muted)]">Активности</span>
-                    <span className="text-[10px] text-[var(--text-secondary)]">
-                      {fmt(recommendation.priceBreakdown.activities[0])} — {fmt(recommendation.priceBreakdown.activities[1])} ₽
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] text-[var(--text-muted)]">Размещение, оценка</span>
-                    <span className="text-[10px] text-[var(--text-secondary)]">
-                      {fmt(recommendation.priceBreakdown.accommodation[0])} — {fmt(recommendation.priceBreakdown.accommodation[1])} ₽
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[10px] text-[var(--text-muted)]">Транспорт, оценка</span>
-                    <span className="text-[10px] text-[var(--text-secondary)]">
-                      {fmt(recommendation.priceBreakdown.transport[0])} — {fmt(recommendation.priceBreakdown.transport[1])} ₽
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between px-1 pt-1 border-t border-[var(--border)]">
-                    <span className="text-xs font-medium text-[var(--text-secondary)]">Итого на человека</span>
-                    <span className="text-sm font-semibold text-[var(--accent)]">
-                      {fmt(recommendation.priceBreakdown.perPersonTotal[0])} — {fmt(recommendation.priceBreakdown.perPersonTotal[1])} ₽
-                    </span>
-                  </div>
-                  <p className="text-[9px] text-[var(--text-muted)] px-1">Ориентир по средним ценам, не предложения. Без авиабилетов Москва — Камчатка (25 000-60 000 ₽)</p>
-                </div>
-              )}
+              {estimate && <GroupEstimateBlock estimate={estimate} />}
             </div>
           )}
 

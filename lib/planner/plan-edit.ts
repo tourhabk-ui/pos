@@ -23,6 +23,7 @@ import {
   type DayPlan, type TripProfile, type BudgetTier, type PriceBreakdown, type TripRecommendation,
 } from './engine';
 import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type FitnessLevel } from './constants';
+import { estimateGroup, type GroupEstimate } from './estimate';
 import type { TravelStyle } from './travel-style';
 import { MOVABLE_TYPES as MOVABLE, FRAME_WORD, tourGroup, insertIndex } from './plan-ops';
 
@@ -127,6 +128,12 @@ export function planProfile(params: PlanParams): TripProfile {
 
 export function planPrice(plan: EditablePlan): PriceBreakdown {
   return calculatePriceBreakdown(plan.days, planProfile(plan.params));
+}
+
+/** Смета плана на группу (#2304) — та же формула, что у экрана /planner. */
+export function planEstimate(plan: EditablePlan): GroupEstimate {
+  const p = planProfile(plan.params);
+  return estimateGroup(plan.days, { adults: p.adults, children: p.children, budgetTier: p.budgetTier, tripOrigin: p.tripOrigin });
 }
 
 function shiftIso(iso: string, days: number): string {
