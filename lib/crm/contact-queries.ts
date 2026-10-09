@@ -131,18 +131,22 @@ export interface SourceSummary {
   status: string | null;
   people: number | null;
   person_name: string | null;
+  /** Цена брони тура, ₽ (итоговая или базовая). У остальных источников — NULL. */
+  amount: number | null;
 }
 
 /**
- * Сводка источников по видам. Деньги в сводку не идут: карточка — о людях,
- * деньги остаются на своих экранах. Имя человека — по тому же правилу, что
+ * Сводка источников по видам. Из денег — только цена брони тура: в
+ * «Клиентах» оператора стоит сумма броней (1а-2b), и в карточке видно, из
+ * каких броней она сложилась. Оплаты и выплаты остаются на своих экранах. Имя человека — по тому же правилу, что
  * у самого контакта (шапка lib/crm/contacts.ts).
  */
 export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
   operator_booking: `
     SELECT b.id::text AS id, t.title, b.booking_date::text AS date_from, b.end_date::text AS date_to,
            b.booking_status AS status, b.participants AS people,
-           COALESCE(NULLIF(btrim(b.tourist_name), ''), u.name) AS person_name
+           COALESCE(NULLIF(btrim(b.tourist_name), ''), u.name) AS person_name,
+           COALESCE(b.final_price, b.base_total_price)::float8 AS amount
       FROM operator_bookings b
       JOIN operator_tours t ON t.id = b.operator_tour_id
       LEFT JOIN users u ON u.id = b.user_id
@@ -150,7 +154,8 @@ export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
   accommodation_booking: `
     SELECT ab.id::text AS id, a.name AS title, ab.check_in_date::text AS date_from,
            ab.check_out_date::text AS date_to, ab.status,
-           (ab.adults + COALESCE(ab.children, 0)) AS people, u.name AS person_name
+           (ab.adults + COALESCE(ab.children, 0)) AS people, u.name AS person_name,
+           NULL::float8 AS amount
       FROM accommodation_bookings ab
       JOIN accommodations a ON a.id = ab.accommodation_id
       LEFT JOIN users u ON u.id = ab.user_id
@@ -158,14 +163,16 @@ export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
   gear_rental: `
     SELECT gr.id::text AS id, gi.name AS title, gr.start_date::text AS date_from,
            gr.end_date::text AS date_to, gr.status, gr.quantity AS people,
-           gr.customer_name AS person_name
+           gr.customer_name AS person_name,
+           NULL::float8 AS amount
       FROM gear_rentals gr
       JOIN gear_items gi ON gi.id = gr.gear_id
      WHERE gr.id = ANY($1::uuid[])`,
   transfer_seat_booking: `
     SELECT sb.id::text AS id, (tr.from_text || ' — ' || tr.to_text) AS title,
            tr.trip_date::text AS date_from, NULL::text AS date_to, sb.status, sb.seats AS people,
-           op.name AS person_name
+           op.name AS person_name,
+           NULL::float8 AS amount
       FROM transfer_seat_bookings sb
       JOIN transfer_trips tr ON tr.id = sb.trip_id
       LEFT JOIN partners op ON op.id = sb.ordered_by_partner_id
@@ -173,12 +180,14 @@ export const SOURCE_SUMMARY_SQL: Readonly<Record<SourceKind, string>> = {
   // У лида желаемые даты — текстом, как их написал человек («вторая половина июля»).
   lead: `
     SELECT l.id::text AS id, l.route_title AS title, l.desired_dates AS date_from, NULL::text AS date_to,
-           l.status, l.group_size::int AS people, l.name AS person_name
+           l.status, l.group_size::int AS people, l.name AS person_name,
+           NULL::float8 AS amount
       FROM leads l
      WHERE l.id = ANY($1::uuid[])`,
   agent_client: `
     SELECT c.id::text AS id, c.company AS title, NULL::text AS date_from, NULL::text AS date_to,
-           c.status, NULL::int AS people, c.name AS person_name
+           c.status, NULL::int AS people, c.name AS person_name,
+           NULL::float8 AS amount
       FROM agent_clients c
      WHERE c.id = ANY($1::uuid[])`,
 };
@@ -251,6 +260,7 @@ export async function getContactCard(
         status: d?.status ?? null,
         people: d?.people ?? null,
         person_name: d?.person_name ?? null,
+        amount: d?.amount ?? null,
       };
     }),
   };

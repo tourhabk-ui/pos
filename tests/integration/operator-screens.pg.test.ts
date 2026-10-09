@@ -17,9 +17,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import {
-  COMPLETENESS_TOURS_SQL, buildClientsSql, ANALYTICS_SQL, GUIDES_SQL,
+  COMPLETENESS_TOURS_SQL, ANALYTICS_SQL, GUIDES_SQL,
 } from '@/lib/operator/screen-queries';
+import {
+  OPERATOR_CLIENTS_LIST_SQL, OPERATOR_CLIENTS_COUNT_SQL, OPERATOR_CLIENTS_SUMMARY_SQL, listOperatorClients,
+} from '@/lib/crm/operator-clients';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -43,6 +47,8 @@ withPg('экраны оператора на настоящем PostgreSQL', () 
   let touristId = '';
   let guideId = '';
   let tourId = 0;
+  let bookingId = 0;
+  let contactId = '';
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
 
   beforeAll(async () => {
@@ -98,6 +104,7 @@ withPg('экраны оператора на настоящем PostgreSQL', () 
        VALUES ($1, $2, CURRENT_DATE + 7, 2, 10000, 10000, 'confirmed', 'paid', 'Турист экранов') RETURNING id`,
       [tourId, touristId],
     );
+    bookingId = Number(b.rows[0].id);
     await pool.query(
       `INSERT INTO tour_payments (booking_id, operator_id, retail_amount, net_amount, commission_amount, commission_rate, status, paid_at, released_at)
        VALUES ($1, $2, 10000, 9000, 1000, 10, 'RELEASED', NOW(), NOW())`,
@@ -116,19 +123,78 @@ withPg('экраны оператора на настоящем PostgreSQL', () 
     expect(r.rows[0]).not.toHaveProperty('transportation');
   });
 
-  it('«Клиенты»: CTE со статусом исполняется во всех формах (поиск, статус, сортировки)', async () => {
-    for (const sortCol of ['total_spent', 'total_bookings', 'last_booking_date', 'name'] as const) {
-      const plain = buildClientsSql({ search: false, status: false, sortCol, order: 'DESC' });
-      const count = await pool.query<{ total: number }>(plain.countSql, [operatorId]);
-      expect(count.rows[0].total).toBe(1);
-      const data = await pool.query(plain.dataSql, [operatorId, 20, 0]);
-      expect(data.rows[0]).toMatchObject({ name: 'Турист экранов', total_bookings: 1, status: 'active' });
+  it('«Клиенты» на CRM: сумма, сегмент и итоги считаются по привязанным броням', async () => {
+    // Контакт туриста с бронью (подтверждена, 10 000) и отменённой бронью,
+    // и клиент, заведённый руками, — без броней.
+    const c = await pool.query<{ id: string }>(
+      `INSERT INTO crm_contacts (partner_id, user_id, display_name, phone, phone_e164, origin, tags)
+       VALUES ($1, $2, 'Турист экранов', '+79990000000', '+79990000000', 'operator_booking', '{постоянный}') RETURNING id`,
+      [operatorId, touristId],
+    );
+    contactId = c.rows[0].id;
+    await pool.query(
+      `INSERT INTO crm_contact_links (contact_id, partner_id, source_kind, source_id, occurred_at)
+       VALUES ($1, $2, 'operator_booking', $3, NOW())`, [contactId, operatorId, String(bookingId)],
+    );
+    const cancelled = await pool.query<{ id: string }>(
+      // Создана 60 дней назад — вне окна аналитики (30 дней), чтобы не сдвинуть её счёт.
+      `INSERT INTO operator_bookings (operator_tour_id, user_id, booking_date, participants, base_total_price, final_price, booking_status, payment_status, tourist_name, created_at)
+       VALUES ($1, $2, CURRENT_DATE + 9, 1, 900000, 900000, 'cancelled', 'pending', 'Турист экранов', NOW() - INTERVAL '60 days') RETURNING id`,
+      [tourId, touristId],
+    );
+    await pool.query(
+      `INSERT INTO crm_contact_links (contact_id, partner_id, source_kind, source_id, occurred_at)
+       VALUES ($1, $2, 'operator_booking', $3, NOW())`, [contactId, operatorId, String(cancelled.rows[0].id)],
+    );
+    await pool.query(
+      `INSERT INTO crm_contacts (partner_id, display_name, origin) VALUES ($1, 'Знакомый с рыбалки', 'manual')`, [operatorId],
+    );
+
+    const { items, total, summary } = await listOperatorClients(operatorId, { limit: 20, offset: 0, sort: 'sum' }, pool);
+    expect(total).toBe(2);
+    // Отменённая бронь на 900 000 не делает клиента VIP и не идёт ни в число, ни в сумму.
+    expect(items[0]).toMatchObject({ id: contactId, stats: { bookings: 1, booked_sum: 10000, segment: 'active' } });
+    expect(items[1].stats).toMatchObject({ bookings: 0, booked_sum: 0, last_booking_at: null, segment: 'none' });
+    expect(summary).toEqual({ clients: 2, vip: 0, bookings: 1, booked_sum: 10000 });
+
+    const onlyNone = await listOperatorClients(operatorId, { limit: 20, offset: 0, segment: 'none' }, pool);
+    expect(onlyNone.items.map((i) => i.display_name)).toEqual(['Знакомый с рыбалки']);
+    // Итоги — по всей базе, фильтр их не сужает.
+    expect(onlyNone.summary.clients).toBe(2);
+    const byTag = await listOperatorClients(operatorId, { limit: 20, offset: 0, tag: 'постоянный' }, pool);
+    expect(byTag.total).toBe(1);
+    const byPhone = await listOperatorClients(operatorId, { limit: 20, offset: 0, q: '0000000' }, pool);
+    expect(byPhone.items.map((i) => i.id)).toEqual([contactId]);
+
+    // Чужой оператор этих клиентов не видит.
+    const other = await pool.query(OPERATOR_CLIENTS_COUNT_SQL, ['00000000-0000-0000-0000-000000000000', null, null, null, null]);
+    expect(other.rows[0].total).toBe(0);
+    // Все три текста разбираются и с заполненными параметрами.
+    for (const sort of ['recent', 'sum', 'bookings']) {
+      await pool.query(OPERATOR_CLIENTS_LIST_SQL, [operatorId, '%тур%', '%000%', 'постоянный', 'vip', sort, 5, 0]);
     }
-    const both = buildClientsSql({ search: true, status: true, sortCol: 'name', order: 'ASC' });
-    const filtered = await pool.query(both.dataSql, [operatorId, '%экранов%', 'active', 20, 0]);
-    expect(filtered.rows).toHaveLength(1);
-    const miss = await pool.query(both.countSql, [operatorId, '%никого%', 'vip']);
-    expect(miss.rows[0].total).toBe(0);
+    await pool.query(OPERATOR_CLIENTS_SUMMARY_SQL, [operatorId, null, null, null]);
+  });
+
+  it('миграция 1200: метки и Telegram старого экрана — в клиента CRM, повтор ничего не дублирует', async () => {
+    await pool.query(
+      `INSERT INTO operator_client_notes (operator_id, user_id, tags, telegram)
+       VALUES ($1, $2, '{VIP-лично,постоянный,"  "}', 'tourist_tg')`, [operatorId, touristId],
+    );
+    const sql = readFileSync(join(process.cwd(), 'migrations', '1200_operator_client_notes_to_crm.sql'), 'utf8');
+    await pool.query(sql);
+    await pool.query(sql);
+    const r = await pool.query<{ tags: string[]; notes: string | null }>(
+      `SELECT tags, notes FROM crm_contacts WHERE id = $1`, [contactId],
+    );
+    // Порядок меток контакта сохранён, новая — в конце, пустая не перенесена.
+    expect(r.rows[0].tags).toEqual(['постоянный', 'VIP-лично']);
+    expect(r.rows[0].notes).toBe('Telegram: @tourist_tg');
+    // Клиент без аккаунта заметок не получил.
+    const manual = await pool.query<{ tags: string[]; notes: string | null }>(
+      `SELECT tags, notes FROM crm_contacts WHERE partner_id = $1 AND origin = 'manual'`, [operatorId],
+    );
+    expect(manual.rows[0]).toEqual({ tags: [], notes: null });
   });
 
   it('«Аналитика»: все пять запросов исполняются, выручка — retail_amount', async () => {

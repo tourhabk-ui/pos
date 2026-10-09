@@ -40,7 +40,9 @@ const one = await import('@/app/api/hub/crm/contacts/[id]/route');
 const sync = await import('@/app/api/cron/crm-contacts-sync/route');
 const { SOURCE_KINDS } = await import('@/lib/crm/contacts');
 
-const OK = { outcome: 'ok', partnerId: 'p-1', category: 'operator', userId: 'u-1' };
+// Гид: у оператора список идёт своей веткой с суммами (1а-2b) — её держит
+// operator-clients-crm.test.ts, а здесь — общая дверь любой роли.
+const OK = { outcome: 'ok', partnerId: 'p-1', category: 'guide', userId: 'u-1' };
 const UUID = '00000000-0000-4000-8000-000000000001';
 
 const req = (url: string, init?: { method?: string; body?: unknown; secret?: string }) =>
@@ -77,10 +79,12 @@ describe('форма роутов', () => {
   });
 
   it('каждый SQL по контактам скоупится partner_id', () => {
-    const src = readFileSync(join(ROOT, 'lib', 'crm', 'contact-queries.ts'), 'utf8');
-    const sqls = [...src.matchAll(/`([^`]*\bcrm_contacts\b[^`]*)`/g)].map((m) => m[1]);
-    expect(sqls.length).toBeGreaterThanOrEqual(5);
-    for (const sql of sqls) expect(sql, sql.slice(0, 80)).toMatch(/partner_id\s*=\s*\$\d|\(partner_id,/);
+    for (const [file, min] of [['contact-queries.ts', 5], ['operator-clients.ts', 1]] as const) {
+      const src = readFileSync(join(ROOT, 'lib', 'crm', file), 'utf8');
+      const sqls = [...src.matchAll(/`([^`]*\bcrm_contacts\b[^`]*)`/g)].map((m) => m[1]);
+      expect(sqls.length, file).toBeGreaterThanOrEqual(min);
+      for (const sql of sqls) expect(sql, `${file}: ${sql.slice(0, 80)}`).toMatch(/partner_id\s*=\s*\$\d|\(partner_id,/);
+    }
   });
 
   it('ручной контакт не записывает согласия, которого не собирали', () => {
