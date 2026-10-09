@@ -26,6 +26,10 @@ interface Queryable {
 export const TASK_LIST_LIMIT = 200;
 export const DONE_LIST_LIMIT = 50;
 
+/** Исход напоминания о сроке (1в-2): см. миграцию 1198. */
+export const REMINDER_CHANNELS = ['max', 'telegram_stub', 'unreachable'] as const;
+export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
+
 export interface TaskItem {
   id: string;
   title: string;
@@ -34,6 +38,8 @@ export interface TaskItem {
   done_at: string | null;
   contact: { id: string; display_name: string | null } | null;
   created_at: string;
+  /** Напоминание о сроке обработано: когда и чем кончилось. NULL — не было. */
+  reminder: { at: string; channel: ReminderChannel } | null;
 }
 
 export type TaskStatus = 'open' | 'done';
@@ -46,8 +52,13 @@ function clean(s: string, max: number): string {
   return s.replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-type TaskJoinRow = Pick<CrmTaskRow, 'id' | 'title' | 'details' | 'due_at' | 'done_at' | 'contact_id' | 'created_at'>
+type TaskJoinRow = Pick<CrmTaskRow,
+  'id' | 'title' | 'details' | 'due_at' | 'done_at' | 'contact_id' | 'created_at' | 'reminded_at' | 'reminder_channel'>
   & { contact_name: string | null };
+
+function isReminderChannel(v: string | null): v is ReminderChannel {
+  return v !== null && (REMINDER_CHANNELS as readonly string[]).includes(v);
+}
 
 function toItem(r: TaskJoinRow): TaskItem {
   return {
@@ -58,11 +69,15 @@ function toItem(r: TaskJoinRow): TaskItem {
     done_at: r.done_at ? iso(r.done_at) : null,
     contact: r.contact_id ? { id: r.contact_id, display_name: r.contact_name } : null,
     created_at: iso(r.created_at),
+    reminder: r.reminded_at && isReminderChannel(r.reminder_channel)
+      ? { at: iso(r.reminded_at), channel: r.reminder_channel }
+      : null,
   };
 }
 
 const TASK_SELECT = `
   SELECT t.id, t.title, t.details, t.due_at, t.done_at, t.contact_id, t.created_at,
+         t.reminded_at, t.reminder_channel,
          c.display_name AS contact_name
     FROM crm_tasks t
     LEFT JOIN crm_contacts c ON c.id = t.contact_id`;
@@ -112,7 +127,7 @@ export async function createTask(partnerId: string, input: NewTaskInput, db: Que
        INSERT INTO crm_tasks (partner_id, contact_id, title, details, due_at, origin, created_by)
        SELECT $1, $2::uuid, $3, $4, $5::timestamptz, 'manual', $6
         WHERE $2::uuid IS NULL OR EXISTS (SELECT 1 FROM owner)
-       RETURNING id, title, details, due_at, done_at, contact_id, created_at
+       RETURNING id, title, details, due_at, done_at, contact_id, created_at, reminded_at, reminder_channel
      )
      SELECT ins.*, owner.display_name AS contact_name FROM ins LEFT JOIN owner ON owner.id = ins.contact_id`,
     [partnerId, contactId, title, details, input.dueAt.toISOString(), input.createdBy ?? null],
@@ -127,7 +142,10 @@ export interface TaskPatch {
   dueAt?: Date;
 }
 
-/** Правка открытой задачи: заголовок, подробности, срок. Выполненная не правится. */
+/**
+ * Правка открытой задачи: заголовок, подробности, срок. Выполненная не
+ * правится. Перенос срока сбрасывает напоминание — о новом сроке напомнят заново.
+ */
 export async function updateTask(
   partnerId: string,
   taskId: string,
@@ -144,9 +162,12 @@ export async function updateTask(
           SET title = COALESCE($3, title),
               details = CASE WHEN $4::boolean THEN $5 ELSE details END,
               due_at = COALESCE($6::timestamptz, due_at),
+              -- Новый срок — новое напоминание: прежнее было о другом сроке.
+              reminded_at = CASE WHEN $6::timestamptz IS NULL THEN reminded_at END,
+              reminder_channel = CASE WHEN $6::timestamptz IS NULL THEN reminder_channel END,
               updated_at = NOW()
         WHERE id = $2::uuid AND partner_id = $1 AND done_at IS NULL
-        RETURNING id, title, details, due_at, done_at, contact_id, created_at
+        RETURNING id, title, details, due_at, done_at, contact_id, created_at, reminded_at, reminder_channel
      )
      SELECT upd.*, c.display_name AS contact_name FROM upd LEFT JOIN crm_contacts c ON c.id = upd.contact_id`,
     [partnerId, taskId, title, detailsGiven, details, patch.dueAt ? patch.dueAt.toISOString() : null],
@@ -170,7 +191,7 @@ export async function completeTask(
     `WITH upd AS (
        UPDATE crm_tasks SET done_at = NOW(), done_by = $3, updated_at = NOW()
         WHERE id = $2::uuid AND partner_id = $1 AND done_at IS NULL
-        RETURNING id, title, details, due_at, done_at, contact_id, created_at
+        RETURNING id, title, details, due_at, done_at, contact_id, created_at, reminded_at, reminder_channel
      )
      SELECT upd.*, c.display_name AS contact_name FROM upd LEFT JOIN crm_contacts c ON c.id = upd.contact_id`,
     [partnerId, taskId, doneBy],

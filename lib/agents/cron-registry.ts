@@ -200,6 +200,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     endpoint: 'seat-requests-expire',
   },
   {
+    key: 'crm-reminders', label: 'CRM Task Reminders',
+    description: 'Подошёл срок задачи CRM → одно напоминание партнёру в MAX (заглушка в Telegram); тихие часы 22–08 по Камчатке.',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'ops', agentId: 'crm-reminders', triggerable: false,
+    endpoint: 'crm-reminders',
+  },
+  {
     key: 'support-escalate', label: 'Support Escalate',
     description: 'Эскалация зависших тикетов поддержки (>24ч).',
     workflow: 'cron-support-escalate.yml', cron: '0 */2 * * *', schedule: 'каждые 2 ч',
@@ -535,6 +542,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Ноль просроченных запросов мест — норма: операторы ответили вовремя или
   // запросов не было. Поломка видна иначе — HTTP не 200 валит шаг сразу.
   'seat-requests-expire': 'normal',
+  // Ноль напоминаний — норма: сроки не подошли или тихие часы. Поломка видна
+  // иначе — отказ базы отдаёт 500, ни одной доставки при должниках — 502.
+  'crm-reminders': 'normal',
   'support-escalate': 'unknown',
   'tour-reminder': 'unknown',
   'tour-review-request': 'unknown',

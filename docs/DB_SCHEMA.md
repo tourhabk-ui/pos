@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-09 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1197_crm_tasks.sql`.
+> Снято 2026-10-09 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1198_crm_task_reminders.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 262 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3509 |
+| Колонок | 3511 |
 | Внешних ключей | 300 |
 | Таблиц без единого FK в обе стороны | 76 |
 
@@ -949,9 +949,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `partner_id uuid!` `contact_id uuid` `source_kind text` `source_id text` `kind text!` `actor_kind text!` `actor_user_id uuid` `title text!` `payload jsonb!=` `occurred_at timestamptz!=` `created_at timestamptz!=`
 
-**crm_tasks** · 12 кол. · PK id · contact_id → crm_contacts.id, created_by → users.id, done_by → users.id, partner_id → partners.id · индексов 4
+**crm_tasks** · 14 кол. · PK id · contact_id → crm_contacts.id, created_by → users.id, done_by → users.id, partner_id → partners.id · индексов 5
 
-`id uuid!=` `partner_id uuid!` `contact_id uuid` `title text!` `details text` `due_at timestamptz!` `done_at timestamptz` `done_by uuid` `origin text!=` `created_by uuid` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `partner_id uuid!` `contact_id uuid` `title text!` `details text` `due_at timestamptz!` `done_at timestamptz` `done_by uuid` `origin text!=` `created_by uuid` `created_at timestamptz!=` `updated_at timestamptz!=` `reminded_at timestamptz` `reminder_channel text`
 
 **funnel_events** · 6 кол. · PK id · индексов 3
 
