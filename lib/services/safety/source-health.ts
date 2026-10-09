@@ -54,7 +54,17 @@ export interface SourceExpectation {
  */
 export const SAFETY_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'vk_mchs',  label: 'VK — МЧС Камчатки',    requiresEnv: 'VK_SERVICE_TOKEN', maxSilenceHours: 72 },
-  { key: 'max_mchs', label: 'MAX — МЧС Камчатки',   maxSilenceHours: 72 },
+  {
+    key: 'max_mchs', label: 'MAX — МЧС Камчатки', maxSilenceHours: 72,
+    // 09.10 владелец получил «MAX — МЧС Камчатки: молчит 757 ч — проверь
+    // канал/ключ» и ответил «отключи». Ключа у MAX нет: открытого API нет,
+    // публичная страница — SPA, и раннер постов не получает (случай 24.07,
+    // шапка файла). Проверять нечего, а будить каждые 12 часов — шум.
+    // МЧС Камчатки читается двумя другими путями — VK и RSS 41.mchs, — они
+    // остаются под тревогой. Источник не выключен: раннер его по-прежнему
+    // спрашивает, и оживёт — отметка снимется сама (evaluateDeadSources).
+    knownDormant: { since: '2026-09-07', reason: 'MAX без открытого API, страница-SPA не отдаёт постов раннеру; МЧС Камчатки идёт через VK и RSS 41.mchs — решение владельца 09.10 «отключи»' },
+  },
   { key: 'mchs_rss', label: 'МЧС RSS (41.mchs)',    maxSilenceHours: 96 },
   {
     key: 'kbgsras',  label: 'КБГС РАН (сейсмо)',    maxSilenceHours: 48,
