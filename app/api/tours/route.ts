@@ -7,6 +7,7 @@ import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { TotalRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
+import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,7 +50,7 @@ const CATEGORY_IMAGES: Record<string, string> = {
   geyzery:              '/images/bento/mutnovsky.jpg',
   rybalka:              '/images/activities/fishing.jpg',
   termalnye_istochniki: '/images/bento/paratunka.jpg',
-  medvedi:              '/images/gallery/road-winter.jpg',
+  medvedi:              BEAR_FALLBACK.src,
   morskie_progulki:     '/images/activities/sea.jpg',
   vertoletnye_tury:     '/images/activities/helicopter.jpg',
   trekking:             '/images/gallery/camp-sunset.jpg',

@@ -70,6 +70,7 @@ interface Tour {
  */
 import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
+import { BEAR_FALLBACK, shortCredit } from '@/lib/media/wildlife-photos';
 
 const HERO_SRC = '/images/marketplace/hero-marketplace.jpg';
 import { plural } from '@/lib/home/data-freshness';
@@ -85,7 +86,7 @@ const ACTIVITY_IMAGES: Record<string, string> = {
   helicopter: '/images/activities/helicopter.jpg',
   rafting:    '/images/activities/rafting.jpg',
   boat_trip:  '/images/activities/sea.jpg',
-  bears:      '/images/categories/medvedi.jpg',
+  bears:      BEAR_FALLBACK.src,
   snowmobile: '/images/activities/snowmobile.jpg',
 };
 
@@ -318,6 +319,9 @@ function TourCard({
   // 640-вариант: оптимизатор Next выключен, без нарезки карточка каталога
   // грузила оригинал (см. lib/images/variant.ts).
   const imageSrc = photoSrc(tour.tour_image ?? ACTIVITY_IMAGES[tour.activity_type] ?? '/images/activities/volcanoes.jpg', 640);
+  // Заглушка «Медведи» — снимок с названным автором (09.10); подпись видна там,
+  // где показан чужой кадр, и только там: свой снимок тура подписи не получает.
+  const placeholderCredit = !tour.tour_image && tour.activity_type === 'bears' ? BEAR_FALLBACK.credit : null;
   const diffBadge = tour.difficulty ? DIFFICULTY_BADGE[tour.difficulty] : null;
   const duration = formatDuration(tour);
   const availability = catalogAvailability(tour);
@@ -355,6 +359,11 @@ function TourCard({
           className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
           style={{ objectPosition: TOUR_PHOTO_POSITION, filter: 'saturate(1.12) contrast(1.04)' }}
         />
+        {placeholderCredit && (
+          <span className="absolute bottom-2 left-2 z-[2] px-2 py-0.5 rounded-full text-[10px] leading-tight text-white backdrop-blur-md bg-black/40 border border-white/15 pointer-events-none">
+            Фото: {shortCredit(placeholderCredit)}
+          </span>
+        )}
         {/* Лёгкое затемнение сверху — под рейлом и сердцем, краски фото целы */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-transparent" />
 

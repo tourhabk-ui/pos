@@ -23,6 +23,7 @@ import { SHOWN_MODELS } from '@/lib/images/origin';
 // рвал теги и оставлял голый `<`, а Bot API на такую подпись отвечает 400 —
 // и пост, у которого фото ЕСТЬ, уходил голым текстом.
 import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
+import { BEAR_PHOTOS } from '@/lib/media/wildlife-photos';
 import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -914,6 +915,12 @@ interface TipTopic {
    * модель не знала, что под её текстом зима.
    */
   photoShows: string;
+  /**
+   * Автор снимка, если он назван (09.10: кадры Сладченко В. Л., реестр
+   * lib/media/wildlife-photos). Подпись ставится кодом под текст поста, а не
+   * просьбой к модели: модель её могла бы не написать или переиначить.
+   */
+  credit?: string;
 }
 
 // Описания сняты глазами с самих файлов 26.09. Тема, в которой назван сезон,
@@ -940,6 +947,17 @@ const KUZMICH_TIP_TOPICS: TipTopic[] = [
   { topic: 'как местные относятся к медведям — и как надо вести себя туристу',
     photo: '/images/hero/bears-kurilskoye.jpg',
     photoShows: 'медведица с четырьмя медвежатами идёт по галечному берегу озера, за ним зелёный лес и вулкан; лето' },
+  // Кадры с названным автором (09.10, владелец: «посты Кузьмича и канала про
+  // медведей и сезон лосося»). Тема не называет сезон словом «время/сезон»:
+  // сезон снимка и так передаёт photoShows.
+  { topic: 'как смотреть на медведей у реки летом — издалека и не мешая им',
+    photo: BEAR_PHOTOS.river.src,
+    photoShows: BEAR_PHOTOS.river.shows,
+    credit: BEAR_PHOTOS.river.credit },
+  { topic: 'что видно на реке, куда заходит красная рыба, если сидеть тихо и смотреть издалека',
+    photo: BEAR_PHOTOS.gulls.src,
+    photoShows: BEAR_PHOTOS.gulls.shows,
+    credit: BEAR_PHOTOS.gulls.credit },
   { topic: 'зачем ехать на Камчатку зимой, а не в августе',
     photo: '/images/activities/snowmobile.jpg',
     photoShows: 'два снегохода с санями на заснеженном берегу океана, солнечно, над водой морозная дымка — зима' },
@@ -990,7 +1008,9 @@ ${KUZMICH_CHANNEL_VOICE}`;
     console.error('[kuzmich-tip] пост не опубликован — голос:', voice);
     return { ok: false, error: `голос: ${voice}` };
   }
-  const result = await postToAllChannels({ channelId, postType: 'kuzmich_tip', text, photoUrl: `${appUrl}${picked.photo}` });
+  // Подпись автора — последней строкой под текстом, если кадр с названным автором.
+  const captioned = picked.credit ? `${text}\n\n<i>Фото: ${picked.credit}</i>` : text;
+  const result = await postToAllChannels({ channelId, postType: 'kuzmich_tip', text: captioned, photoUrl: `${appUrl}${picked.photo}` });
 
   if (result.ok) {
     try {

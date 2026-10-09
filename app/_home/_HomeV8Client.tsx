@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
@@ -31,6 +32,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
+import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
   dataFreshness, freshnessDot, freshnessShort, plural,
 } from '@/lib/home/data-freshness';
@@ -853,7 +855,7 @@ const EMG_CALLS: { label: string; num: string; tel: string; primary?: boolean }[
     primary: c.primary,
   }));
 
-const EMG_PROTOCOLS: { id: string; title: string; urgent: string; steps: string[] }[] = [
+const EMG_PROTOCOLS: { id: string; title: string; urgent: string; steps: string[]; photo?: CreditedPhoto }[] = [
   {
     id: 'bear', title: 'Медведь', urgent: 'Никогда не беги — сработает инстинкт преследования',
     // Тактика при нападении выправлена 01.08.2026 по разбору экспертов проекта
@@ -871,6 +873,11 @@ const EMG_PROTOCOLS: { id: string; title: string; urgent: string; steps: string[
       'Сближается — антизверь навстречу. Контакта не избежать: сгруппируйся, защити голову, шею и живот, не сопротивляйся.',
       'Медвежата — рядом медведица: уходи немедленно, не приближайся.',
     ],
+    // Кадр к памятке (09.10): медведь на задних лапах — тот самый шаг про
+    // «встал на задние лапы». Подпись нейтральная («стоит на задних лапах»):
+    // о намерении зверя кадр ничего не говорит. Текст памятки от кадра не
+    // зависит: без сети снимок не придёт, и он исчезает целиком (ProtoPhoto).
+    photo: BEAR_PHOTOS.standing,
   },
   {
     id: 'hypothermia', title: 'Гипотермия', urgent: 'Дрожь прекратилась, человек вялый — критическая стадия',
@@ -977,9 +984,12 @@ function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void 
                 <ChevronDown size={16} strokeWidth={2} className={openProto === p.id ? 'emg-chev emg-chev-on' : 'emg-chev'} />
               </button>
               {openProto === p.id && (
-                <ol className="emg-steps">
-                  {p.steps.map((s, i) => <li key={i}>{s}</li>)}
-                </ol>
+                <>
+                  <ol className="emg-steps">
+                    {p.steps.map((s, i) => <li key={i}>{s}</li>)}
+                  </ol>
+                  {p.photo && <ProtoPhoto photo={p.photo} />}
+                </>
               )}
             </div>
           ))}
@@ -988,6 +998,30 @@ function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void 
         <p className="emg-note">Работает без интернета. Звонок 112 проходит даже без SIM и с чужой сетью.</p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Кадр к памятке. Памятка живёт без сети, а снимок — нет: не пришёл — фигуры
+ * нет вовсе (ни разбитой иконки, ни пустой рамки), текст шагов остаётся. Подпись
+ * автора — под кадром, из реестра (lib/media/wildlife-photos).
+ */
+function ProtoPhoto({ photo }: { photo: CreditedPhoto }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <figure className="emg-photo">
+      <Image
+        src={photoSrc(photo.src, 640)}
+        alt={photo.alt}
+        width={640}
+        height={427}
+        sizes="(max-width: 480px) 90vw, 440px"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+      <figcaption>Фото: {photo.credit}</figcaption>
+    </figure>
   );
 }
 
@@ -1385,6 +1419,9 @@ const CSS = `
 .v7 .emg-chev-on{transform:rotate(180deg)}
 .v7 .emg-steps{margin:0;padding:6px 16px 14px 30px;display:flex;flex-direction:column;gap:7px;list-style:decimal}
 .v7 .emg-steps li{font:400 12px/1.45 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .emg-photo{margin:0 14px 14px}
+.v7 .emg-photo img{display:block;width:100%;height:auto;border-radius:12px;background:var(--bg-hover)}
+.v7 .emg-photo figcaption{margin-top:5px;font:400 10px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
 .v7 .emg-note{font:400 10.5px/1.4 var(--fm);color:var(--text-muted);text-align:center;margin:2px 0 0}
 .v7 .sos:active{transform:scale(.94)}
 /* ── ДЕСКТОП (перенос одобренного макета vedar-desktop-home, 02.08). ──────────

@@ -8,7 +8,7 @@ const CATEGORIES: { slug: string; label: string; img: string }[] = [
   { slug: 'geyzery',              label: 'Гейзеры',       img: '/images/bento/mutnovsky.jpg'       },
   { slug: 'rybalka',              label: 'Рыбалка',       img: '/images/activities/fishing.jpg'    },
   { slug: 'termalnye_istochniki', label: 'Термальные',    img: '/images/activities/hotsprings.jpg' },
-  { slug: 'medvedi',              label: 'Медведи',       img: '/images/gallery/road-winter.jpg'   },
+  { slug: 'medvedi',              label: 'Медведи',       img: '/images/shatun/shatun-16.jpg'   },
   { slug: 'morskie_progulki',     label: 'Морские',       img: '/images/activities/sea.jpg'        },
   { slug: 'vertoletnye_tury',     label: 'Вертолёты',     img: '/images/activities/helicopter.jpg' },
   { slug: 'trekking',             label: 'Треккинг',      img: '/images/gallery/camp-sunset.jpg'   },

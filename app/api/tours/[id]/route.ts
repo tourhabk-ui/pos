@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { isUuid } from '@/lib/text/slugify';
+import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ const CATEGORY_IMAGES: Record<string, string> = {
   mountains:            '/images/gallery/stela.jpg',
   rivers:               '/images/bento/khalaktyr.jpg',
   lakes:                '/images/gallery/bay-sunset.jpg',
-  medvedi:              '/images/gallery/road-winter.jpg',
+  medvedi:              BEAR_FALLBACK.src,
   eco:                  '/images/gallery/aurora.jpg',
 };
 
