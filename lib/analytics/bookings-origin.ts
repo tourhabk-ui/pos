@@ -23,6 +23,7 @@
  * `failed` с SQLSTATE; «ноль броней» и «запрос упал» — разные вещи.
  */
 import { pool } from '@/lib/db-pool';
+import { UNLINKED_WHERE } from '@/lib/crm/contacts';
 
 export const DEFAULT_HOURS = 48;
 export const MAX_HOURS = 24 * 30;
@@ -83,10 +84,12 @@ const RECENT_SELECT = `
     LEFT JOIN operator_tours t ON t.id = b.operator_tour_id
     LEFT JOIN partners p ON p.id = t.operator_id`;
 
-/** Предикат задела клиентов — тот же, что в lib/crm/contacts (operator_booking). */
-const UNLINKED_ELIGIBLE = `b.deleted_at IS NULL AND t.operator_id IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM crm_contact_links l
-                      WHERE l.source_kind = 'operator_booking' AND l.source_id = b.id::text)`;
+/**
+ * Предикат задела клиентов — не копия, а тот же текст из lib/crm/contacts:
+ * там строка брони зовётся `s`, здесь `b`. Копия разошлась с заделом в
+ * первый же день (служебная бронь, #2337), поэтому условие берётся оттуда.
+ */
+const UNLINKED_ELIGIBLE = UNLINKED_WHERE.operator_booking.replace(/\bs\./g, 'b.');
 
 export const RECENT_SQL = `${RECENT_SELECT}
    WHERE b.created_at >= NOW() - make_interval(hours => $1::int)

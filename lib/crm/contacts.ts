@@ -196,6 +196,14 @@ export const UNLINKED_PAGE_SQL = bySpec((kind, sp) => `
    ORDER BY s.id
    LIMIT $2`);
 
+/**
+ * Условие «годна в клиента и ещё не привязана» — одно на задел и на
+ * переписи, которые обещают показать то же, что видит задел (алиас строки
+ * источника — `s`). Копия условия в переписи разошлась с заделом в первый
+ * же день (#2337: служебную бронь исключили здесь, а перепись её показывала).
+ */
+export const UNLINKED_WHERE = bySpec((kind, sp) => `${sp.eligible} AND ${UNLINKED(kind)}`);
+
 /** Сколько строк источника ещё не привязано — для сухого прогона задела. */
 export const UNLINKED_COUNT_SQL = bySpec((kind, sp) => `
   SELECT count(*)::int AS n
