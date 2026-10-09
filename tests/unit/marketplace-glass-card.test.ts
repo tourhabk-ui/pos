@@ -27,7 +27,12 @@ describe('каталожная карточка тура — фото сверх
   });
 
   it('на фото только рейл фич и избранное — стекло, текста тура нет', () => {
-    expect(photo.match(/backdrop-blur/g)?.length).toBe(2);
+    // Третье стекло — подпись автора чужого кадра-заглушки («Фото: Сладченко
+    // В. Л.», решение владельца 09.10): это подпись снимка, а не текст тура,
+    // и она есть только у заглушки — свой снимок тура подписи не получает.
+    const credit = photo.includes('{placeholderCredit && (') ? 1 : 0;
+    expect(photo.match(/backdrop-blur/g)?.length).toBe(2 + credit);
+    if (credit) expect(photo).toMatch(/Фото: \{shortCredit\(placeholderCredit\)\}/);
     expect(photo).not.toContain('<h3');
     expect(photo).not.toContain('tour.short_description');
     expect(photo).not.toContain('rub(basePrice)');
