@@ -84,6 +84,7 @@ const STATUS_FALLBACK = { label: 'Без статуса', color: 'bg-[var(--bg-h
 const SOURCE_LABELS: Record<string, string> = {
   telegram_bot:  'Телеграм-бот',
   trip_planner:  'TripPlanner',
+  saved_trip:    'Сохранённая поездка',
   website:       'Сайт',
 };
 

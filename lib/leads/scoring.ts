@@ -43,8 +43,9 @@ export function computeQuickScore(
     if (/бюджет|руб|₽|чел|человек|дн[её]|ночь|недел/i.test(comment)) score += 10;
   }
 
-  // Источник (15 баллов)
-  if (source_data?.source === 'trip_planner') score += 15;
+  // Источник (15 баллов). Собранная поездка — из планера или из «Моих
+  // поездок» — самая конкретная заявка: даты, места и состав уже названы.
+  if (source_data?.source === 'trip_planner' || source_data?.source === 'saved_trip') score += 15;
   else if (source_data?.source === 'homepage_cta') score += 10;
   else if (source_data?.source === 'route_page') score += 12;
 

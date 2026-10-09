@@ -13,7 +13,7 @@ import {
   Check, AlertTriangle, Sparkles, Loader,
   Fish, Mountain, PawPrint, Plane,
   Thermometer, Footprints, Wind, Anchor, Snowflake,
-  Waves, Flame, Droplets, Droplet, Leaf, GripVertical,
+  Waves, Flame, Droplets, GripVertical,
   MapPin, Users, Trash2, Plus, Star, Phone,
   X, ChevronDown, ChevronUp, Truck,
   ArrowRight, ExternalLink, Map as MapIcon, List, Pencil,
@@ -53,6 +53,13 @@ const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr
 // Модульная константа: инлайн-литерал center пересоздавал LeafletMap на каждом рендере
 const MAP_CENTER: [number, number] = [54.5, 158.5];
 
+/**
+ * Плитка интереса обещает дни под этот интерес, поэтому у каждой обязано быть
+ * правило подбора в движке (ACTIVITY_CONSTRAINTS). «Озёра» и «Экотуризм»
+ * стояли без правил: движок молча выбрасывал их и из выбора зон, и из сборки
+ * дней, и человек получал план без своего интереса и без слова о нём.
+ * Сторож: tests/unit/planner-tiles-have-rules.test.ts.
+ */
 const PLACES: SelectItem[] = [
   { id: 'volcano',    label: 'Вулканы',    Icon: Flame },
   { id: 'hot_spring', label: 'Термальные', Icon: Thermometer },
@@ -60,7 +67,6 @@ const PLACES: SelectItem[] = [
   { id: 'sea',        label: 'Побережье',  Icon: Waves },
   { id: 'mountain',   label: 'Хребты',     Icon: Mountain },
   { id: 'river',      label: 'Реки',       Icon: Waves },
-  { id: 'lakes',      label: 'Озёра',      Icon: Droplet },
 ];
 
 const ACTIVITIES: SelectItem[] = [
@@ -70,7 +76,6 @@ const ACTIVITIES: SelectItem[] = [
   { id: 'bears',      label: 'Медведи',          Icon: PawPrint },
   { id: 'snowmobile', label: 'Снегоходы',        Icon: Snowflake },
   { id: 'boat_trip',  label: 'Морская прогулка', Icon: Anchor },
-  { id: 'eco',        label: 'Экотуризм',        Icon: Leaf },
 ];
 
 const ZONE_LABELS: Record<string, string> = {
@@ -107,8 +112,6 @@ const ACTIVITY_LABEL: Record<string, string> = {
   sea:        'Побережье',
   mountain:   'Горы',
   river:      'Реки',
-  lakes:      'Озёра',
-  eco:        'Экотуризм',
 };
 
 const INTEREST_PRICE: Record<string, [number, number]> = {
@@ -125,8 +128,6 @@ const INTEREST_PRICE: Record<string, [number, number]> = {
   mountain:   [3000,  9000],
   sea:        [4000,  12000],
   river:      [5000,  15000],
-  lakes:      [3000,  10000],
-  eco:        [2000,   8000],
 };
 
 const TRANSPORT_OPTIONS: Record<TransportType, { label: string; Icon: React.ElementType; priceAdd: number }> = {
@@ -1771,7 +1772,10 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           comment: contactComment.trim() || undefined,
           source_url: typeof window !== 'undefined' ? window.location.href : '/planner',
           source_data: {
-            source: 'planner_page',
+            // `trip_planner` — имя, которое знают оценка лида (+15) и подписи
+            // админки и Телеграма. Здесь стояло `planner_page`: бонус за
+            // собранную поездку не срабатывал ни разу, подпись не находилась.
+            source: 'trip_planner',
             interests: allInterests,
             arrival: arrival || undefined,
             departure: departure || undefined,
