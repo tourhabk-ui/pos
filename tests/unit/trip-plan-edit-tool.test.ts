@@ -118,6 +118,8 @@ describe('edit_trip_plan снаружи', () => {
     expect(text).toMatch(/День 3\. Отдых/);
     expect(text).toContain(`ID плана: ${ID} (правка 1)`);
     expect(text).toMatch(/Ориентир на человека/);
+    // Итог на группу пересчитан по плану после правки (#2304).
+    expect(text).toMatch(new RegExp(`Итого на группу из ${PARAMS.adults + PARAMS.children.length} чел\\.`));
   });
 
   it('невозможная правка — отказ с причиной, план прежний и ID тот же', async () => {

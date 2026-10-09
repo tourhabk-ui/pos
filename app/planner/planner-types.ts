@@ -34,10 +34,14 @@ export interface DayPlan {
   activityMode?: 'operator' | 'self' | 'open';
   /**
    * Тур дня от движка. Здесь — только то, что читает клиент: включено ли
-   * проживание (экран подбора жилья) и id тура — по нему общие правила
-   * правки (lib/planner/plan-ops) держат дни многодневного тура вместе.
+   * проживание (экран подбора жилья), id тура — по нему общие правила
+   * правки (lib/planner/plan-ops) держат дни многодневного тура вместе, — и
+   * единица цены с вместимостью группы: по ним смета на группу считает тур
+   * (lib/planner/estimate, #2304).
    */
-  realTour?: { tourId: string; lodgingIncluded: boolean | null };
+  realTour?: { tourId: string; lodgingIncluded: boolean | null; priceUnit?: string; maxParticipants?: number };
+  /** Цена тура оператора — у первого дня тура (смета, #2304). */
+  realPrice?: number;
 }
 
 export interface TripWarning {
