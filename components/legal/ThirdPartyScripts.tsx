@@ -23,14 +23,15 @@
  * оно обязано при любом фоне под ним.
  */
 
-import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import { ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
 import { readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
 import { isWidgetPath } from '@/lib/embed/widget-frame';
+import { metrikaHit, metrikaInitScript, muteWebvisorFields, shouldTrackPath } from '@/lib/analytics/metrika';
 
 const ALL_DENIED: ConsentChoice = { analytics: false, advertising: false };
 
@@ -66,7 +67,7 @@ export default function ThirdPartyScripts() {
   return (
     <>
       {allowed.map((tp) => (
-        <ThirdPartyTag key={tp.id} id={tp.id} />
+        <ThirdPartyTag key={tp.id} id={tp.id} pathname={pathname} />
       ))}
 
       {!asked && (
@@ -154,21 +155,24 @@ export default function ThirdPartyScripts() {
  * трёх отдельных компонентах: иначе реестр снова разойдётся с тем, что
  * реально грузится.
  */
-function ThirdPartyTag({ id }: { id: string }) {
+function ThirdPartyTag({ id, pathname }: { id: string; pathname: string | null }) {
   if (id === 'YandexMetrika') {
-    const metrikaId = process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID ?? '103522218';
-    if (!metrikaId) return null;
+    // Кабинеты, вход, брони, контроль выхода и офлайн-контур счётчик не
+    // видят — список с причинами в lib/analytics/metrika.ts.
+    if (!shouldTrackPath(pathname)) return null;
+    // Пикселя для noscript здесь нет намеренно: без JavaScript согласие
+    // прочитать нельзя, а хит без согласия — то, от чего этот компонент
+    // и защищает.
     return (
-      <Script id="yandex-metrika" strategy="afterInteractive">
-        {`
-          (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
-          m[i].l=1*new Date();
-          for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
-          k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
-          (window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
-          ym(${metrikaId},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true});
-        `}
-      </Script>
+      <>
+        <Script id="yandex-metrika" strategy="afterInteractive">
+          {metrikaInitScript()}
+        </Script>
+        <Suspense fallback={null}>
+          <MetrikaRouteHits />
+        </Suspense>
+        <WebvisorFieldGuard />
+      </>
     );
   }
 
@@ -203,5 +207,51 @@ function ThirdPartyTag({ id }: { id: string }) {
     );
   }
 
+  return null;
+}
+
+/**
+ * Переход внутри приложения — просмотр страницы. Первый просмотр отправляет
+ * сам `init` (`ssr:true` с `url`), поэтому первый запуск эффекта только
+ * запоминает адрес; каждый следующий адрес уходит хитом с прежним как
+ * referer.
+ */
+function MetrikaRouteHits() {
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const previous = useRef<string | null>(null);
+  useEffect(() => {
+    const url = window.location.href;
+    if (previous.current === null) {
+      previous.current = url;
+      return;
+    }
+    if (previous.current === url) return;
+    metrikaHit(url, previous.current);
+    previous.current = url;
+  }, [pathname, search]);
+  return null;
+}
+
+/**
+ * Вебвизор не записывает содержимое полей с классом `ym-disable-keys`.
+ * Класс ставится на поля с ПД при монтировании и на всё, что появляется в
+ * DOM позже (модальные формы, шаги планера); если перерисовка React сняла
+ * класс вместе с className — наблюдатель атрибутов вернёт его.
+ */
+function WebvisorFieldGuard() {
+  useEffect(() => {
+    muteWebvisorFields(document);
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === 'attributes' && m.target instanceof Element) muteWebvisorFields(m.target);
+        m.addedNodes.forEach((n) => {
+          if (n instanceof Element) muteWebvisorFields(n);
+        });
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
   return null;
 }

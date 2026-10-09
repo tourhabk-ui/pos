@@ -67,7 +67,7 @@ const KNOWN_UNCONSUMED: Record<string, string> = {
   monitoring: 'Prometheus не поднят вовсе — ни одного упоминания в коде вне этого блока. Чистое объявление без источника, снимается вместе с решением, нужен ли он.',
   security: 'CORS, rate-limit и CSP живут в middleware.ts и next.config, а middleware под §7. Снимать блок отсюда можно только вместе со сверкой с реальным Edge-слоем, иначе рискуем счесть мёртвым то, что просто объявлено в другом месте.',
   development: 'Флаги дублируют NODE_ENV, который весь код читает напрямую. Безвредно, но это второй источник одного факта.',
-  production: 'Идентификаторы аналитики читаются компонентами из NEXT_PUBLIC_* напрямую (components/shared/YandexMetrika.tsx, lib/analytics/lead-tracking.ts). Здесь лежат их серверные тёзки без NEXT_PUBLIC_, то есть заведомо другие переменные.',
+  production: 'Номер счётчика Метрики — константа в lib/analytics/metrika.ts (вставка владельца 09.10), переменные окружения для него не читаются. Здесь лежат серверные тёзки аналитики без NEXT_PUBLIC_, то есть заведомо другие переменные.',
 };
 
 function walk(dir: string, out: string[] = []): string[] {

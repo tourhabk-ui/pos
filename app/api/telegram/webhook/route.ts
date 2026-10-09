@@ -1031,7 +1031,6 @@ export async function POST(request: NextRequest) {
         ['TELEGRAM_LEADS_CHAT_ID',  process.env.TELEGRAM_LEADS_CHAT_ID],
         ['ANTHROPIC_API_KEY',       process.env.ANTHROPIC_API_KEY],
         ['OPENROUTER_API_KEY',      process.env.OPENROUTER_API_KEY],
-        ['NEXT_PUBLIC_YANDEX_METRIKA_ID', process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID],
       ];
       const lines = ['<b>Env vars (✅ = задан, ❌ = не задан):</b>', ''];
       for (const [name, val] of vars) {
