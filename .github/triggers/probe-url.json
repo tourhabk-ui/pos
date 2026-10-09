@@ -2,20 +2,20 @@
   "timeout": 40,
   "retries": 2,
   "allowStale": false,
-  "bytes": 3500,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. «Зеленовские озерки» на полевом экране: «Данные маршрута не сходятся» и «Точка не проверена» (скрин владельца). Что в каталоге: маршрут и место, их id и координаты.",
-  "run": 739,
+  "bytes": 2500,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Маршрут «Зеленовские озерки» по поиску маршрутов: id, точки и откуда линия.",
+  "run": 740,
   "urls": [
-    "https://vedarai.ru/api/routes?q=%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B5&limit=10"
+    "https://vedarai.ru/api/routes/search?q=%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BA%D0%B8"
   ],
   "grep": [
-    "Зеленовские"
+    "Зеленовские озерки",
+    "geometry_source",
+    "has_line"
   ],
   "text": false,
   "retryDelay": 10,
-  "around": [
-    "Зеленовские"
-  ],
+  "around": [],
   "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 1,
