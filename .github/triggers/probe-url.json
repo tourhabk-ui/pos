@@ -2,9 +2,9 @@
   "timeout": 40,
   "retries": 0,
   "allowStale": false,
-  "bytes": 285000,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel текстом, окно перед отметкой 285 КБ (в отчёт попадает хвост) — полный список полей request/create и request/update для сверки lib/integrations/uon.ts (#2313). Проба 747 оборвалась на r_travel_type_id.",
-  "run": 748,
+  "bytes": 222000,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Чужой сайт: документация API U-ON.Travel текстом, окно перед отметкой 222 КБ (в отчёт попадает хвост) — поля request/create и request/update для сверки lib/integrations/uon.ts (#2313). Окно 748 (до 285 КБ) начиналось уже после них.",
+  "run": 749,
   "urls": [
     "https://api.u-on.ru/doc"
   ],
