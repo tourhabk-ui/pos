@@ -38,6 +38,18 @@ describe('экран «Клиенты» в кабинетах партнёров
     });
   }
 
+  for (const cab of CABINETS) {
+    // Задачи (1в) — во всех шести, без исключений: задача без клиента — общее
+    // дело кабинета, ей экран «Клиенты» не нужен.
+    it(`${cab}: экран «Задачи» и пункт меню рядом с «Клиентами»`, () => {
+      const page = read(`app/hub/${cab}/tasks/page.tsx`);
+      expect(page).toMatch(/import \{ TasksScreen \} from '@\/components\/crm\/TasksScreen'/);
+      expect(page).toMatch(/<TasksScreen \/>/);
+      expect(page).toMatch(/robots: 'noindex, nofollow'/);
+      expect(read(`app/hub/${cab}/layout.tsx`)).toMatch(new RegExp(`href: '/hub/${cab}/tasks',\\s+label: 'Задачи'`));
+    });
+  }
+
   it('исключения названы причиной и не пережили её', () => {
     for (const [cab, reason] of Object.entries(KNOWN_WITHOUT_SCREEN)) {
       expect(reason.length, cab).toBeGreaterThan(40);
@@ -63,14 +75,16 @@ describe('экран CRM по правилам дизайн-системы', () 
   });
 
   it('данные клиента — только из API CRM, и адреса — в одном месте', () => {
-    // Любой /api-литерал в экране — один из двух адресов CRM_API.
+    // Любой /api-литерал в экране — один из адресов CRM_API или задач.
     const literals = files.flatMap((f) => [...read(f).matchAll(/['`](\/api\/[^'`$?]*)/g)].map((m) => `${f}: ${m[1]}`));
-    expect(literals.length).toBeGreaterThanOrEqual(2);
-    for (const l of literals) expect(l).toMatch(/: \/api\/(hub|admin)\/crm\/contacts$/);
-    // А fetch зовёт только через CRM_API — своего адреса мимо карты нет.
+    expect(literals.length).toBeGreaterThanOrEqual(3);
+    for (const l of literals) expect(l).toMatch(/^components\/crm\/api\.ts: \/api\/(hub|admin)\/crm\/contacts$|^components\/crm\/api\.ts: \/api\/hub\/crm\/tasks$/);
+    // А fetch зовёт только через CRM_API / CRM_TASKS_API — своего адреса мимо карты нет.
     const fetches = files.flatMap((f) => [...read(f).matchAll(/fetch\(\s*([^,)]+)/g)].map((m) => `${f}: ${m[1]}`));
     expect(fetches.length).toBeGreaterThan(0);
-    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?CRM_API(\[mode\]|\.partner(?!\w))/);
+    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.partner(?!\w))|CRM_TASKS_API(?!\w))/);
+    // Задачи — только партнёрские: администратору адреса задач экран не даёт.
+    expect(read('components/crm/ContactPanel.tsx')).toMatch(/\{!readOnly && \(\s*<section className="space-y-2" aria-label="Задачи">/);
   });
 
   it('администратор видит клиентов всех партнёров и ничего не правит', () => {

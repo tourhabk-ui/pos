@@ -97,12 +97,15 @@ describe('ПД из CRM не уходят ни в модель, ни в лог',
   });
 
   it('логи CRM — вид источника и SQLSTATE, без имени, телефона и почты', () => {
+    // Роуты CRM находятся обходом: новая дверь попадает под правило сама.
+    const routesUnder = (dir: string): string[] => readdirSync(join(ROOT, dir), { withFileTypes: true })
+      .flatMap((e) => (e.isDirectory() ? routesUnder(`${dir}/${e.name}`) : e.name === 'route.ts' ? [`${dir}/${e.name}`] : []));
+    const routes = [...routesUnder('app/api/hub/crm'), ...routesUnder('app/api/admin/crm')];
+    expect(routes).toContain('app/api/hub/crm/tasks/[id]/route.ts');
     const logged = [
       ...files,
       'app/api/cron/crm-contacts-sync/route.ts',
-      'app/api/hub/crm/contacts/route.ts', 'app/api/hub/crm/contacts/[id]/route.ts',
-      'app/api/hub/crm/contacts/[id]/events/route.ts',
-      'app/api/admin/crm/contacts/route.ts', 'app/api/admin/crm/contacts/[id]/route.ts',
+      ...routes,
     ]
       .flatMap((f) => [...read(f).matchAll(/console\.(?:error|warn|log)\(([^;]*?)\);/gs)].map((m) => `${f}: ${m[1]}`));
     expect(logged.length).toBeGreaterThan(3);

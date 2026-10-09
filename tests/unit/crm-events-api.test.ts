@@ -81,11 +81,16 @@ describe('POST /api/hub/crm/contacts/[id]/events', () => {
 });
 
 describe('словарь ленты — один в коде и в схеме', () => {
-  const sql = read('migrations/1196_crm_events.sql');
+  // Действует последняя миграция, задавшая ограничение: 1196 завела словарь,
+  // следующие (1197 — task_done) его пересоздают. Номер — числом, не текстом.
+  const migrations = readdirSync(join(ROOT, 'migrations'))
+    .filter((n) => /^\d+_.*\.sql$/.test(n))
+    .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
   const listOf = (constraint: string): string[] => {
-    const m = new RegExp(`CONSTRAINT ${constraint} CHECK \\([a-z_]+ IN \\(([^)]*)\\)`).exec(sql);
-    if (!m) throw new Error(`${constraint} не найден в миграции`);
-    return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort();
+    const re = new RegExp(`CONSTRAINT ${constraint} CHECK \\([a-z_]+ IN \\(([^)]*)\\)`);
+    const last = migrations.map((n) => re.exec(read(`migrations/${n}`))).filter((m): m is RegExpExecArray => m !== null).pop();
+    if (!last) throw new Error(`${constraint} не найден в миграциях`);
+    return [...last[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort();
   };
 
   it('CHECK вида события совпадает с EVENT_KINDS, касания — подмножество', () => {
