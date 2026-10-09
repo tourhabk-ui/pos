@@ -33,6 +33,19 @@ export interface CharterExtraDay {
   validYear: number | null;
 }
 
+/** Снимок с подписью: credit — автор, если он назван; null — подписывается самим перевозчиком. */
+export interface CharterPhoto {
+  url: string;
+  credit: string | null;
+}
+
+/** Короткая петля «красота и движ»: файл, кадр-обложка и что на ней словами. */
+export interface CharterClip {
+  url: string;
+  poster: string;
+  label: string;
+}
+
 /** Ролик перевозчика: адрес и кадр-обложка вместе (миграция 1185) или ничего. */
 export interface CharterVideo {
   url: string;
@@ -49,7 +62,9 @@ export interface CharterCarrier {
   /** Доплата за день работы машины на месте; null — не назначена. */
   extraDay: CharterExtraDay | null;
   /** Герой первым, затем галерея; без повторов. */
-  photos: string[];
+  photos: CharterPhoto[];
+  /** Короткие петли для ленивого показа; [] — клипов нет. */
+  clips: CharterClip[];
   /** null — ролика нет (или он записан без обложки: такой не показывается). */
   video: CharterVideo | null;
   /** «+7XXXXXXXXXX»; null — не записан. В ответ AI-инструментов не уходит. */

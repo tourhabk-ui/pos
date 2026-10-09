@@ -47,7 +47,13 @@ const CARRIER: CharterCarrier = {
     { from: 'Петропавловск-Камчатский', to: 'Курильское озеро', priceRub: 450000, note: 'плюс переправы', conditions: 'при расчёте наличными', validYear: 2026 },
   ],
   extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 },
-  photos: ['/images/shatun/shatun-01.jpg', '/images/shatun/shatun-02.jpg'],
+  photos: [
+    { url: '/images/shatun/shatun-01.jpg', credit: null },
+    { url: '/images/shatun/shatun-16.jpg', credit: 'Сладченко Виктор Леонидович' },
+  ],
+  clips: [
+    { url: '/video/shatun/clip-water-approach.mp4', poster: '/video/shatun/clip-water-approach.poster.jpg', label: 'Вахтовка идёт через воду' },
+  ],
   video: { url: '/video/shatun/shatun-river-crossing.mp4', poster: '/video/shatun/shatun-river-crossing.poster.jpg' },
   phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: 'https://wa.me/79294560102',
 };
@@ -240,12 +246,14 @@ describe('карточка перевозчика', () => {
     expect(html).not.toMatch(/туда-обратно|включено топливо|водитель входит/);
   });
 
-  it('телефон, Telegram и WhatsApp — кнопками; фото подписаны «Фото: Шатун»', () => {
+  it('телефон, Telegram и WhatsApp — кнопками; фото подписаны каждое своим автором', () => {
     expect(html).toContain('href="tel:+79294560102"');
     expect(html).toContain('Позвонить +7 929 456-01-02');
     expect(html).toContain('https://t.me/+79294560102');
     expect(html).toContain('https://wa.me/79294560102');
+    // у снимка без названного автора — имя перевозчика, у остальных — их автор
     expect(html).toContain('Фото: Шатун');
+    expect(html).toContain('Фото: Сладченко Виктор Леонидович');
   });
 
   it('видео — плеер с кнопками и обложкой, без автозапуска и без предзагрузки (~3 МБ на мобильной сети)', () => {
@@ -254,18 +262,18 @@ describe('карточка перевозчика', () => {
     expect(html).toContain('preload="none"');
     expect(html).toContain('poster="/video/shatun/shatun-river-crossing.poster.jpg"');
     expect(html).toContain('src="/video/shatun/shatun-river-crossing.mp4"');
-    expect(html).toContain('Видео: Шатун');
+    expect(html).toContain('Видео целиком: Шатун');
     expect(html).not.toMatch(/autoplay/i);
   });
 
   it('нет ролика — нет плеера', () => {
-    expect(renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, video: null } }))).not.toContain('<video');
+    expect(renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, video: null, clips: [] } }))).not.toContain('<video');
   });
 
   it('на странице самого перевозчика нет ссылки на себя и второй ленты фото, а видео остаётся', () => {
     const own = renderToStaticMarkup(createElement(CharterCard, { carrier: CARRIER, linkToProfile: false, showPhotos: false }));
     expect(own).not.toContain('/operators/shatun');
-    expect(own).not.toContain('Фото: Шатун');
+    expect(own).not.toContain('Фото: Сладченко');
     expect(own).toContain('<video');
     expect(html).toContain('/operators/shatun');
   });
@@ -328,5 +336,87 @@ describe('связка: производитель, читатель и экра
     // критерий #2240: пустая выдача поездок названа нормой, а не ошибкой поиска, в обоих описаниях
     expect(read('lib/mcp/public-tools.ts')).toMatch(/No dated trips is normal, not an error/);
     expect(read('lib/kuzmich/tool-schemas.ts')).toMatch(/Пустая выдача поездок с датами — норма, а не ошибка поиска/);
+  });
+});
+
+describe('миграция 1186: подписи авторов и клипы', () => {
+  const SQL6 = read('migrations/1186_partner_gallery_credits_and_clips.sql');
+  const CODE6 = SQL6.replace(/--[^\n]*/g, '');
+
+  it('автор назван у восьми снимков дикой природы (16..23), у снимков машины и салона — нет', () => {
+    const credited = [...CODE6.matchAll(/'\/images\/shatun\/shatun-(\d{2})\.jpg', 'Сладченко Виктор Леонидович'/g)].map((m) => Number(m[1]));
+    expect(credited).toEqual([16, 17, 18, 19, 20, 21, 22, 23]);
+    expect(CODE6.match(/Сладченко Виктор Леонидович/g)).toHaveLength(8);
+  });
+
+  it('подписи ставятся только в пустую карту: правку администратора не затираем', () => {
+    expect(CODE6).toMatch(/AND gallery_credits = '\{\}'::jsonb/);
+    expect(CODE6).toMatch(/AND video_clips = '\[\]'::jsonb/);
+  });
+
+  it('форму колонок держит база; у остальных партнёров они пусты по умолчанию', () => {
+    expect(CODE6).toMatch(/gallery_credits JSONB NOT NULL DEFAULT '\{\}'/);
+    expect(CODE6).toMatch(/video_clips\s+JSONB NOT NULL DEFAULT '\[\]'/);
+    expect(CODE6).toMatch(/jsonb_typeof\(gallery_credits\) = 'object'/);
+    expect(CODE6).toMatch(/jsonb_typeof\(video_clips\) = 'array'/);
+  });
+
+  it('три клипа лежат в репозитории вместе с обложками и весят мало', () => {
+    const urls = [...CODE6.matchAll(/'url', '(\/video\/shatun\/[a-z-]+\.mp4)'/g)].map((m) => m[1]);
+    const posters = [...CODE6.matchAll(/'poster', '(\/video\/shatun\/[a-z.-]+\.jpg)'/g)].map((m) => m[1]);
+    expect(urls).toHaveLength(3);
+    expect(posters).toHaveLength(3);
+    for (const u of urls) {
+      expect(existsSync(join(ROOT, 'public', u)), u).toBe(true);
+      expect(statSync(join(ROOT, 'public', u)).size, u).toBeLessThan(400 * 1024);
+    }
+    for (const p of posters) expect(existsSync(join(ROOT, 'public', p)), p).toBe(true);
+  });
+
+  it('подписи «где снято» у клипов нет: в присланном этого нет', () => {
+    expect(CODE6).not.toMatch(/'label', '[^']*(Курильск|Толбачик|Озеро|озеро|река|Камчатк)/);
+  });
+});
+
+describe('разбор подписей и клипов из базы', () => {
+  it('подпись — только для снимка из галереи и только непустая строка', async () => {
+    const { parsePhotos } = await import('@/lib/transfers/charter');
+    expect(parsePhotos(['/a.jpg', '/b.jpg'], { '/a.jpg': ' Автор ', '/b.jpg': '', '/lишний.jpg': 'Чужой' })).toEqual([
+      { url: '/a.jpg', credit: 'Автор' },
+      { url: '/b.jpg', credit: null },
+    ]);
+    expect(parsePhotos(['/a.jpg'], null)).toEqual([{ url: '/a.jpg', credit: null }]);
+    expect(parsePhotos(['/a.jpg'], ['мусор'])).toEqual([{ url: '/a.jpg', credit: null }]);
+    expect(parsePhotos(['/a.jpg'], { '/a.jpg': 42 })).toEqual([{ url: '/a.jpg', credit: null }]);
+  });
+
+  it('клип без обложки или с чужим адресом не показывается; без подписи — запасная фраза, не выдумка', async () => {
+    const { parseClips } = await import('@/lib/transfers/charter');
+    const ok = { url: '/video/x/a.mp4', poster: '/video/x/a.poster.jpg', label: 'Подход' };
+    expect(parseClips([ok, { ...ok, poster: '' }, { ...ok, url: 'https://evil.example/a.mp4' }, { ...ok, url: '/video/x/a.exe' }, 'мусор', null], 'Видео: X')).toEqual([ok]);
+    expect(parseClips([{ ...ok, label: '  ' }], 'Видео: X')[0].label).toBe('Видео: X');
+    expect(parseClips({ not: 'array' }, 'Видео: X')).toEqual([]);
+    expect(parseClips(undefined, 'Видео: X')).toEqual([]);
+  });
+});
+
+describe('карточка: клипы показываются лениво', () => {
+  const html = renderToStaticMarkup(createElement(CharterCard, { carrier: CARRIER }));
+
+  it('в разметке у клипа обложка и preload="none", но нет ни src, ни автоигры: файл ещё не качается', () => {
+    const clip = html.slice(html.indexOf('Короткие видео'));
+    expect(clip).toContain('poster="/video/shatun/clip-water-approach.poster.jpg"');
+    const tag = clip.match(/<video[^>]*>/)![0];
+    expect(tag).toContain('preload="none"');
+    expect(tag).toContain('muted');
+    expect(tag).toContain('loop');
+    expect(tag).not.toContain('src=');
+    expect(tag).not.toMatch(/autoplay/i);
+    expect(html).toContain('Видео: Шатун');
+  });
+
+  it('нет клипов — нет полосы', () => {
+    const none = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, clips: [] } }));
+    expect(none).not.toContain('Короткие видео');
   });
 });

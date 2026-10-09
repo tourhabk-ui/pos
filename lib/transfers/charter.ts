@@ -19,7 +19,7 @@
 import { query } from '@/lib/database';
 import { extractGallery, telegramContactHref } from '@/lib/operators/profile-parse';
 import { normalizeContactPhone } from '@/lib/stay/contact-phone';
-import type { CharterCarrier, CharterVehicleKind } from '@/lib/transfers/charter-format';
+import type { CharterCarrier, CharterClip, CharterPhoto, CharterVehicleKind } from '@/lib/transfers/charter-format';
 
 export * from '@/lib/transfers/charter-format';
 
@@ -32,6 +32,8 @@ interface PartnerRow {
   gallery: unknown;
   video_url: string | null;
   video_poster_url: string | null;
+  gallery_credits: unknown;
+  video_clips: unknown;
   contacts: unknown;
 }
 
@@ -58,6 +60,42 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
+const CLIP_URL = /^\/video\/[a-z0-9/._-]+\.(mp4|webm)$/;
+const CLIP_POSTER = /^\/video\/[a-z0-9/._-]+\.(jpg|webp)$/;
+
+/**
+ * Снимки с подписями. Подпись берётся из карты только для снимка, который
+ * есть в галерее, и только непустая строка: лишний ключ или мусор в карте —
+ * не повод подписать чужим именем не тот кадр. Нет подписи — null, и экран
+ * подписывает кадр самим перевозчиком, как раньше.
+ */
+export function parsePhotos(urls: string[], credits: unknown): CharterPhoto[] {
+  const map = asRecord(credits) ?? {};
+  return urls.map((url) => {
+    const c = map[url];
+    return { url, credit: typeof c === 'string' && c.trim() ? c.trim() : null };
+  });
+}
+
+/**
+ * Клипы: только с адресом из /video/ и обложкой оттуда же. Клип без обложки
+ * не показывается — ленивый плеер без кадра на мобильной сети это чёрный
+ * прямоугольник. Без подписи — подставляется имя перевозчика (скринридеру
+ * нужно хоть что-то), но выдуманного описания не бывает.
+ */
+export function parseClips(raw: unknown, fallbackLabel: string): CharterClip[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item): CharterClip[] => {
+    const r = asRecord(item);
+    if (!r) return [];
+    const url = typeof r.url === 'string' ? r.url : '';
+    const poster = typeof r.poster === 'string' ? r.poster : '';
+    if (!CLIP_URL.test(url) || !CLIP_POSTER.test(poster)) return [];
+    const label = typeof r.label === 'string' && r.label.trim() ? r.label.trim() : fallbackLabel;
+    return [{ url, poster, label }];
+  });
+}
+
 /**
  * Каналы перевозчика из `partners.contacts` (форма «объект каналов»). Телефон
  * проходит ту же проверку формата, что и номер жилья (один разбор номера на
@@ -78,7 +116,7 @@ export function charterContacts(raw: unknown): { phone: string | null; telegramH
 /** Перевозчики с живым прайсом; partnerId — только один из них. */
 export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Promise<CharterCarrier[]> {
   const partners = await query<PartnerRow>(
-    `SELECT p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.contacts
+    `SELECT p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.contacts
        FROM partners p
       WHERE p.is_public = TRUE
         AND p.slug IS NOT NULL
@@ -137,7 +175,8 @@ export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Pr
       extraDay: extra
         ? { priceRub: extra.price_rub, note: extra.price_note, conditions: extra.conditions, validYear: extra.valid_year }
         : null,
-      photos,
+      photos: parsePhotos(photos, p.gallery_credits),
+      clips: parseClips(p.video_clips, `Видео: ${p.name}`),
       // Ролик без обложки не показывается: база такого не допускает (CHECK
       // partners_video_shape), но экран не должен верить только базе.
       video: p.video_url && p.video_poster_url ? { url: p.video_url, poster: p.video_poster_url } : null,

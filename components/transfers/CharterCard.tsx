@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { Bus, MessageCircle, Phone, Send } from 'lucide-react';
+import { LazyClip } from '@/components/media/LazyClip';
 import { photoSrc } from '@/lib/images/variant';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { charterFootnote, describeFleet, formatRub, type CharterCarrier } from '@/lib/transfers/charter-format';
@@ -128,6 +129,22 @@ export function CharterCard({
         <p className="text-sm text-[var(--text-secondary)]">Контакты перевозчика пока не записаны.</p>
       )}
 
+      {/* Короткие петли «красота и движ»: ленивый показ (LazyClip) — файл не
+          качается, пока клип не подошёл к экрану; играет без звука и только пока
+          виден. Видео не обязано быть на каждой карточке: нет клипов — нет полосы. */}
+      {carrier.clips.length > 0 && (
+        <div>
+          <ul className="flex gap-2 overflow-x-auto pb-2 snap-x" aria-label={`Короткие видео: ${carrier.name}`}>
+            {carrier.clips.map((c) => (
+              <li key={c.url} className="snap-start shrink-0 w-64">
+                <LazyClip url={c.url} poster={c.poster} label={c.label} className="aspect-video" />
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-[var(--text-muted)]">Видео: {carrier.name}</p>
+        </div>
+      )}
+
       {carrier.video && (
         <figure>
           {/* preload="none": ролик ~3 МБ, на мобильной сети он не должен
@@ -142,18 +159,20 @@ export function CharterCard({
           >
             <source src={carrier.video.url} type="video/mp4" />
           </video>
-          <figcaption className="text-xs text-[var(--text-muted)] mt-1">Видео: {carrier.name}</figcaption>
+          <figcaption className="text-xs text-[var(--text-muted)] mt-1">Видео целиком: {carrier.name}</figcaption>
         </figure>
       )}
 
       {showPhotos && carrier.photos.length > 0 && (
         <div>
+          {/* Подпись — под каждым снимком: автор назван не у всех, и одна
+              общая строка «Фото: Шатун» приписала бы чужие кадры перевозчику. */}
           <ul className="flex gap-2 overflow-x-auto pb-2 snap-x" aria-label={`Фото: ${carrier.name}`}>
-            {carrier.photos.map((url, i) => (
-              <li key={url} className="snap-start shrink-0">
-                <a href={url} target="_blank" rel="noopener noreferrer" className="block relative w-40 h-28 rounded-lg overflow-hidden bg-[var(--bg-hover)]">
+            {carrier.photos.map((ph, i) => (
+              <li key={ph.url} className="snap-start shrink-0 w-40">
+                <a href={ph.url} target="_blank" rel="noopener noreferrer" className="block relative w-40 h-28 rounded-lg overflow-hidden bg-[var(--bg-hover)]">
                   <Image
-                    src={photoSrc(url, 320)}
+                    src={photoSrc(ph.url, 320)}
                     alt={`${carrier.name}: фото ${i + 1}`}
                     fill
                     className="object-cover"
@@ -161,10 +180,12 @@ export function CharterCard({
                     loading="lazy"
                   />
                 </a>
+                <p className="mt-1 text-[11px] leading-tight text-[var(--text-muted)] line-clamp-2">
+                  Фото: {ph.credit ?? carrier.name}
+                </p>
               </li>
             ))}
           </ul>
-          <p className="text-xs text-[var(--text-muted)]">Фото: {carrier.name}</p>
         </div>
       )}
     </section>
