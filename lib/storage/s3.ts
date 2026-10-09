@@ -29,6 +29,15 @@ export function s3PublicBase(): string {
   return `${S3_ENDPOINT}/${S3_BUCKET}`;
 }
 
+/**
+ * Публичный адрес объекта — тот же, что возвращает заливка в `url`. Для него
+ * ключи не нужны, только бакет; бакета нет — null: адрес без бакета вёл бы в
+ * корень хранилища, а не к объекту.
+ */
+export function s3PublicUrl(key: string): string | null {
+  return S3_BUCKET ? `${S3_ENDPOINT}/${S3_BUCKET}/${key.replace(/^\/+/, '')}` : null;
+}
+
 // ── Client (lazy singleton) ──────────────────────────────────────────────────
 
 let _client: S3Client | null = null;
