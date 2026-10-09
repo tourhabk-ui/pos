@@ -26,6 +26,7 @@ vi.mock('next/link', () => ({
 }));
 
 import { CharterCard } from '@/components/transfers/CharterCard';
+import { VIDEO_FILES } from '@/lib/media/video-manifest';
 import { charterContacts } from '@/lib/transfers/charter';
 import {
   charterFootnote, describeFleet, formatRub, type CharterCarrier,
@@ -146,29 +147,23 @@ describe('23 снимка перевозчика', () => {
 });
 
 describe('ролик перевозчика', () => {
-  const mp4 = join(ROOT, 'public/video/shatun/shatun-river-crossing.mp4');
-  const poster = join(ROOT, 'public/video/shatun/shatun-river-crossing.poster.jpg');
+  // С 09.10 файлы в хранилище (lib/media/video-manifest, владелец: «видео
+  // тоже в s3»): размер записан в манифесте, байты сверяет заливка.
+  const mp4 = '/video/shatun/shatun-river-crossing.mp4';
+  const poster = '/video/shatun/shatun-river-crossing.poster.jpg';
 
-  it('файл и обложка лежат в репозитории, ролик сжат (оригинал был 16,9 МБ)', () => {
-    expect(existsSync(mp4)).toBe(true);
-    expect(existsSync(poster)).toBe(true);
-    expect(statSync(mp4).size).toBeLessThan(4 * 1024 * 1024);
-    expect(statSync(poster).size).toBeLessThan(100 * 1024);
+  it('ролик и обложка — в манифесте хранилища, ролик сжат (оригинал был 16,9 МБ)', () => {
+    expect(VIDEO_FILES[mp4]!.bytes).toBeLessThan(4 * 1024 * 1024);
+    expect(VIDEO_FILES[poster]!.bytes).toBeLessThan(100 * 1024);
   });
 
-  it('ролик без звука (решение владельца 09.10): дорожки нет в файле, плеер muted', () => {
-    // Звуковая дорожка в MP4 — trak с обработчиком 'soun' в hdlr; у видео — 'vide'.
-    const bytes = readFileSync(mp4).toString('latin1');
-    expect(bytes).toMatch(/hdlr\0{8}vide/);
-    expect(bytes).not.toMatch(/hdlr\0{8}soun/);
+  it('ролик без звука (решение владельца 09.10): плеер muted, файл со звуком или следами съёмки заливка не пишет', () => {
     const card = readFileSync(join(ROOT, 'components/transfers/CharterCard.tsx'), 'utf8');
     expect(card).toMatch(/<video\s+controls\s+muted\b/);
-  });
-
-  it('метаданные ролика сняты: в присланном с телефона бывают дата и место съёмки', () => {
-    const head = readFileSync(mp4).subarray(0, 4096).toString('latin1');
-    expect(head).toMatch(/ftyp/);
-    expect(head).not.toMatch(/©xyz|location|com\.apple|creation_time/i);
+    // Поведение проверки — tests/unit/video-sync.test.ts.
+    const hygiene = read('lib/media/video-hygiene.ts');
+    expect(hygiene).toMatch(/есть звуковая дорожка/);
+    expect(hygiene).toMatch(/следы съёмки/);
   });
 
   it('база принимает ролик только с обложкой и только из /video/', () => {
@@ -309,7 +304,8 @@ describe('связка: производитель, читатель и экра
     expect(loader).toMatch(/is_active/);
     expect(loader).not.toMatch(/db-pool/);
     // ролик без обложки экран не показывает, даже если база пропустила
-    expect(loader).toMatch(/p\.video_url && p\.video_poster_url \? \{ url: p\.video_url, poster: p\.video_poster_url \} : null/);
+    // (адрес — в хранилище, lib/media/video-url; поведение — video-in-storage.test.ts)
+    expect(loader).toMatch(/p\.video_url && p\.video_poster_url\s+\? \{ url: videoSrc\(p\.video_url\), poster: videoSrc\(p\.video_poster_url\) \}\s+: null/);
   });
 
   it('форматирование отделено от базы: карточка не тянет драйвер БД в браузерный бандл', () => {
@@ -374,16 +370,16 @@ describe('миграция 1186: подписи авторов и клипы', (
     expect(CODE6).toMatch(/jsonb_typeof\(video_clips\) = 'array'/);
   });
 
-  it('три клипа лежат в репозитории вместе с обложками и весят мало', () => {
-    const urls = [...CODE6.matchAll(/'url', '(\/video\/shatun\/[a-z-]+\.mp4)'/g)].map((m) => m[1]);
-    const posters = [...CODE6.matchAll(/'poster', '(\/video\/shatun\/[a-z.-]+\.jpg)'/g)].map((m) => m[1]);
+  it('три клипа с обложками — в манифесте хранилища и весят мало', () => {
+    const urls = [...CODE6.matchAll(/'url', '(\/video\/shatun\/[a-z-]+\.mp4)'/g)].map((m) => m[1]!);
+    const posters = [...CODE6.matchAll(/'poster', '(\/video\/shatun\/[a-z.-]+\.jpg)'/g)].map((m) => m[1]!);
     expect(urls).toHaveLength(3);
     expect(posters).toHaveLength(3);
     for (const u of urls) {
-      expect(existsSync(join(ROOT, 'public', u)), u).toBe(true);
-      expect(statSync(join(ROOT, 'public', u)).size, u).toBeLessThan(400 * 1024);
+      expect(VIDEO_FILES[u], u).toBeDefined();
+      expect(VIDEO_FILES[u]!.bytes, u).toBeLessThan(400 * 1024);
     }
-    for (const p of posters) expect(existsSync(join(ROOT, 'public', p)), p).toBe(true);
+    for (const p of posters) expect(VIDEO_FILES[p], p).toBeDefined();
   });
 
   it('подписи «где снято» у клипов нет: в присланном этого нет', () => {
@@ -481,22 +477,11 @@ describe('исполнитель в загрузчике и на карточк�
 describe('нижний ролик — медведи, а не повтор клипов (владелец 09.10)', () => {
   // «видео дублируются, добавь нижним видео медведей»: клипы ленты нарезаны из
   // переправы, и та же переправа стояла ниже целиком.
-  const mp4 = join(ROOT, 'public/video/shatun/shatun-bears.mp4');
-  const poster = join(ROOT, 'public/video/shatun/shatun-bears.poster.jpg');
   const MIG = read('migrations/1189_shatun_video_bears.sql').replace(/--[^\n]*/g, '');
 
-  it('файл и обложка в репозитории, ролик сжат (присланный был 15,6 МБ)', () => {
-    expect(existsSync(mp4)).toBe(true);
-    expect(existsSync(poster)).toBe(true);
-    expect(statSync(mp4).size).toBeLessThan(4 * 1024 * 1024);
-    expect(statSync(poster).size).toBeLessThan(100 * 1024);
-  });
-
-  it('без звука и без метаданных съёмки — как прежний ролик', () => {
-    const bytes = readFileSync(mp4).toString('latin1');
-    expect(bytes).toMatch(/hdlr\0{8}vide/);
-    expect(bytes).not.toMatch(/hdlr\0{8}soun/);
-    expect(bytes.slice(0, 4096)).not.toMatch(/©xyz|location|com\.apple|creation_time/i);
+  it('ролик и обложка — в манифесте хранилища, ролик сжат (присланный был 15,6 МБ)', () => {
+    expect(VIDEO_FILES['/video/shatun/shatun-bears.mp4']!.bytes).toBeLessThan(4 * 1024 * 1024);
+    expect(VIDEO_FILES['/video/shatun/shatun-bears.poster.jpg']!.bytes).toBeLessThan(100 * 1024);
   });
 
   it('миграция меняет ролик только там, где ещё переправа, и в форме CHECK', () => {

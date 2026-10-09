@@ -79,8 +79,8 @@ describe('файлы и заливка', () => {
   });
 });
 
-describe('миграция 1192', () => {
-  const sql = read('migrations/1192_tour_video_clips.sql');
+describe('миграция 1193', () => {
+  const sql = read('migrations/1193_tour_video_clips.sql');
 
   it('колонка-массив и только ключи из маркера заливки', () => {
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS video_clips JSONB NOT NULL DEFAULT '\[\]'::jsonb/);
@@ -129,6 +129,10 @@ describe('карточка тура и CSP', () => {
     expect(mw).toContain(`const mediaSrc = "'self' https://s3.twcstorage.ru";`);
     expect(mw).toMatch(/img-src \$\{imgSrc\}; media-src \$\{mediaSrc\};/);
     const cfg = read('next.config.js');
-    expect(cfg).toMatch(/blob:; media-src 'self' https:\/\/s3\.twcstorage\.ru; connect-src/);
+    // В политике страниц next.config — ровно одна директива media-src с хранилищем
+    // (её завёл #2310 для роликов перевозчика; второй экземпляр браузер бы проигнорировал).
+    const pagePolicy = cfg.split('\n').find((l) => l.includes("key: 'Content-Security-Policy'") && l.includes('s3.twcstorage.ru')) ?? '';
+    expect(pagePolicy.match(/media-src/g)).toHaveLength(1);
+    expect(pagePolicy).toMatch(/media-src 'self' https:\/\/s3\.twcstorage\.ru;/);
   });
 });

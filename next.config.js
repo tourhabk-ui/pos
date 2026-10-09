@@ -263,7 +263,7 @@ const nextConfig = {
           // Честный апгрейд — nonce через middleware (next docs: CSP with nonces),
           // но middleware у нас Edge JWT + rate-limit (§7 CLAUDE.md, не трогать
           // без отдельного решения). Ужесточать только вместе с этим решением.
-          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; media-src 'self' https://s3.twcstorage.ru; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob:;` },
+          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob:; media-src 'self' https://s3.twcstorage.ru;` },
           // worker-src (01.09): MapLibre GL поднимает воркеры из blob:-URL
           // собственного бандла. Без явного worker-src браузер берёт
           // default-src 'self' и запрещает blob: — воркера нет, тайлы не
@@ -272,6 +272,10 @@ const nextConfig = {
           // middleware.ts worker-src уже был, но его matcher не покрывает
           // /planning — на этой странице заголовок ставит именно этот файл.
           // child-src — тот же смысл для Safari до 15.5.
+          // media-src (09.10): ролики перевозчиков живут в хранилище
+          // (lib/media/video-manifest). Без явного media-src браузер берёт
+          // default-src 'self' и не играет ролик с чужого хоста — тихо,
+          // чёрным кадром. Обложки — картинки, им хватает img-src https:.
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
         ],
       },
