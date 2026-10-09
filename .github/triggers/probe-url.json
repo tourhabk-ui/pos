@@ -3,30 +3,23 @@
   "retries": 45,
   "allowStale": false,
   "bytes": 300,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Телефонное дерево главной (UA iPhone — бот-UA получает десктоп): плитка «Трансфер» и карточка трансфера в ленте; снимок автора отдаётся файлом.",
-  "run": 735,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат кадра в памятке «Медведь»: стиль .emg-photo приходит в разметке главной (сам кадр рисуется по нажатию).",
+  "run": 736,
   "urls": [
-    "https://vedarai.ru/",
-    "https://vedarai.ru/images/shatun/shatun-21.jpg",
-    "https://vedarai.ru/images/shatun/shatun-16.jpg"
+    "https://vedarai.ru/"
   ],
   "grep": [
-    "qt-transfer",
-    "места в поездках и вахтовка под заказ",
-    "за машину",
-    "/transfers",
-    "qt-plan",
-    "qt-radar"
+    "emg-photo",
+    "qt-transfer"
   ],
   "text": false,
   "retryDelay": 30,
   "around": [
-    "qt-transfer",
-    "за машину"
+    "emg-photo"
   ],
-  "aroundLines": 1,
+  "aroundLines": 0,
   "aroundHits": 1,
   "aroundBefore": 1,
-  "until": "qt-transfer",
+  "until": "emg-photo",
   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 }
