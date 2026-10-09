@@ -48,6 +48,38 @@ describe('реестр кадров', () => {
   });
 });
 
+describe('чужой снимок удалён (владелец 09.10: «да»)', () => {
+  it('файл с водяным знаком AirPano и его варианты убраны из public/ и из манифеста вариантов', () => {
+    for (const f of ['medvedi.jpg', 'medvedi.320.webp', 'medvedi.640.webp']) {
+      expect(existsSync(join(ROOT, 'public/images/categories', f)), f).toBe(false);
+    }
+    expect(read('lib/images/photo-variants.json')).not.toMatch(/categories\/medvedi/);
+  });
+
+  it('ни один исходник на него не ссылается', () => {
+    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+    const out = execSync("grep -rln 'categories/medvedi' app components lib hooks --include=*.ts --include=*.tsx || true", { cwd: ROOT, encoding: 'utf-8' }).trim();
+    expect(out).toBe('');
+  });
+});
+
+describe('миграция 1190: автор вечерних кадров', () => {
+  const sql = read('migrations/1190_shatun_evening_photos_author.sql').replace(/--[^\n]*/g, '');
+
+  it('shatun-01..03 получают подпись автора со слов владельца; кадры 04..15 не трогаются', () => {
+    for (const n of ['01', '02', '03']) {
+      expect(sql).toContain(`'/images/shatun/shatun-${n}.jpg'`);
+    }
+    expect(sql).not.toMatch(/shatun-(0[4-9]|1[0-5])\.jpg/);
+    expect(sql.match(/Сладченко Виктор Леонидович/g)).toHaveLength(3 + 1);
+  });
+
+  it('карта дополняется, а не заменяется; существующий ключ не перезаписывается', () => {
+    expect(sql).toMatch(/p\.gallery_credits \|\| jsonb_strip_nulls/);
+    expect(sql.match(/WHEN p\.gallery_credits \? '/g)).toHaveLength(3);
+  });
+});
+
 describe('заглушка категории «Медведи»', () => {
   it('каталог берёт кадр из реестра, чужой снимок с водяным знаком (AirPano) больше не используется', () => {
     const m = read('components/marketplace/MarketplaceClient.tsx');

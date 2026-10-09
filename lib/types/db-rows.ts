@@ -1433,7 +1433,7 @@ export interface UserTripRow {
   flight_arrival_time: string | null;
   flight_departure_time: string | null;
   needs_airport_transfer: boolean;
-  /** Состав и уровень плана; null — поездка сохранена до 09.10 (миграция 1190). */
+  /** Состав и уровень плана; null — поездка сохранена до 09.10 (миграция 1191). */
   party: TripParty | null;
   deleted_at: Date | null;
   created_at: Date;

@@ -6,7 +6,7 @@
  * (Zod срезает незнакомые ключи), состава группы в поездке не было, и
  * страница «Моих поездок» считала свою смету: ориентир дня плюс цена
  * транспорта из константы (джип 3 000, вертолёт 25 000 ₽) без ночей.
- * Теперь поездка хранит тур и состав (миграция 1190), страница считает
+ * Теперь поездка хранит тур и состав (миграция 1191), страница считает
  * lib/planner/estimate, а для старой поездки говорит, что не считает.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -131,7 +131,7 @@ describe('связка: запись и чтение поездки', () => {
     expect(read('app/api/trips/route.ts')).toMatch(/needs_airport_transfer, party\)/);
     expect(read('app/api/trips/[id]/route.ts')).toMatch(/party\s+= COALESCE\(\$14::jsonb, party\)/);
     expect(read('app/api/trips/[id]/route.ts')).toMatch(/needs_airport_transfer, party, created_at/);
-    expect(read('migrations/1190_user_trips_party.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS party JSONB/);
+    expect(read('migrations/1191_user_trips_party.sql')).toMatch(/ALTER TABLE user_trips ADD COLUMN IF NOT EXISTS party JSONB/);
   });
 
   it('планировщик сохраняет состав вместе с поездкой', () => {
