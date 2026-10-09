@@ -1,33 +1,38 @@
 {
   "timeout": 60,
-  "retries": 20,
+  "retries": 45,
   "allowStale": false,
-  "bytes": 900,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 727 после выката (prod-check 98 дождался сборки): виджет /safety на нашем прогнозе (place, now, today, checked_at), Эссо — точка села (~500 м, не 1430), памятка: «Сильное землетрясение» и «Цунами».",
-  "run": 729,
+  "bytes": 600,
+  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Выкат перевозчика «Шатун» (миграция 1185, #2240): блок «Вахтовки под заказ» на /transfers, карточка /operators/shatun с прайсом и подписью «Перевозчик», ролик и снимок отдаются файлами.",
+  "run": 730,
   "urls": [
-    "https://vedarai.ru/api/safety/weather",
-    "https://vedarai.ru/weather/esso",
-    "https://vedarai.ru/safety/offline"
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/operators/shatun",
+    "https://vedarai.ru/video/shatun/shatun-river-crossing.mp4",
+    "https://vedarai.ru/video/shatun/shatun-river-crossing.poster.jpg",
+    "https://vedarai.ru/images/shatun/shatun-01.jpg"
   ],
   "grep": [
-    "\"today\"",
-    "\"checked_at\"",
-    "\"stale\"",
-    "Высота точки",
-    "1430",
-    "Цунами",
-    "Сильное землетрясение",
-    "emsd.ru"
+    "Вахтовки под заказ",
+    "Шатун",
+    "Перевозчик",
+    "65&nbsp;000",
+    "450&nbsp;000",
+    "плюс переправы",
+    "в день",
+    "Позвонить",
+    "Не смогли проверить",
+    "<video",
+    "Фото: Шатун",
+    "Видео: Шатун"
   ],
   "text": false,
   "retryDelay": 30,
-  "until": "\"today\"",
+  "until": "Вахтовки под заказ",
   "around": [
-    "Высота точки",
-    "Цунами"
+    "Вахтовки под заказ",
+    "плюс переправы",
+    "<video"
   ],
-  "aroundLines": 1,
-  "aroundHits": 2,
-  "aroundBefore": 1
+  "aroundLines": 1
 }
