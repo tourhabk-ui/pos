@@ -356,6 +356,21 @@ export async function requestBelongsToMaxChat(requestId: string, chatId: number)
 }
 
 /**
+ * Адресован ли запрос этому партнёру — для ответа из кабинета (CRM, хвосты
+ * фазы 1). Право — вход в кабинет и профиль оператора (`requirePartner`), а
+ * запрос обязан быть его: `operator_id` в самом SQL, как у кнопки MAX — чат.
+ */
+export async function requestBelongsToPartner(requestId: string, partnerId: string): Promise<boolean | 'db_error'> {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM tour_seat_requests WHERE id = $1::uuid AND operator_id = $2::uuid`,
+      [requestId, partnerId],
+    );
+    return rows.length > 0;
+  } catch (err) { logFail('принадлежность запроса партнёру не проверена', err); return 'db_error'; }
+}
+
+/**
  * Принять ответ. Захват атомарный: ответ засчитывается, только если запрос
  * ещё ждёт, срок не вышел, дата тура не прошла (по Камчатке) и никто не
  * ответил раньше. Два нажатия подряд или ответ из двух каналов сразу —

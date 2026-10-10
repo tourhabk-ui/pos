@@ -64,13 +64,14 @@ export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
 };
 
 /**
- * Где ответить. `null` — ответ не в кабинете: на запрос мест оператор
- * отвечает по ссылке из сообщения в MAX или Telegram (решение 29.09 —
- * контакты туриста открываются только после «есть места»).
+ * Где ответить. `null` — отдельного раздела нет: на запрос мест оператор
+ * отвечает кнопками прямо во «Входящих» (components/crm/SeatRequestActions)
+ * или в сообщении о запросе в MAX/Telegram. Контакты туриста открываются
+ * только после «есть места» (решение 29.09).
  */
 export const INBOX_ACTION: Readonly<Record<InboxKind, { href: string | null; hint: string }>> = {
   operator_booking: { href: '/hub/operator/bookings', hint: 'Подтвердить или отклонить в «Бронированиях»' },
-  seat_request: { href: null, hint: 'Ответ — по ссылке в сообщении о запросе (MAX или Telegram), срок — 2 часа' },
+  seat_request: { href: null, hint: 'Ответить во «Входящих» кабинета или в сообщении о запросе (MAX или Telegram), срок — 2 часа' },
   lead: { href: '/hub/operator/leads', hint: 'Ответить в «AI Заявках»' },
   accommodation_booking: { href: '/hub/stay/bookings', hint: 'Подтвердить или отклонить в «Бронях»' },
   gear_rental: { href: '/hub/gear/rentals', hint: 'Подтвердить или отклонить в «Арендах»' },
