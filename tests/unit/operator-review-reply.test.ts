@@ -102,7 +102,7 @@ describe('экран, «Входящие», карточка', () => {
   it('экран отзывов зовёт роуты и стоит в меню оператора', () => {
     const screen = read('app/hub/operator/reviews/_OperatorReviewsClient.tsx');
     expect(screen).toMatch(/fetch\('\/api\/operator\/reviews\?limit=50'/);
-    expect(screen).toMatch(/\/api\/operator\/reviews\/\$\{review\.id\}\/reply/);
+    expect(screen).toMatch(/<ReviewReplyBox endpoint=\{`\/api\/operator\/reviews\/\$\{r\.id\}\/reply`\}/);
     expect(read('app/hub/operator/reviews/page.tsx')).toMatch(/robots: 'noindex, nofollow'/);
     expect(read('app/hub/operator/layout.tsx')).toMatch(/href: '\/hub\/operator\/reviews', label: 'Отзывы'/);
   });

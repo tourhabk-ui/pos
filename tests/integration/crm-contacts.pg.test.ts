@@ -728,6 +728,15 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     );
     await pool.query(`INSERT INTO guide_operator_invites (operator_id, guide_partner_id) VALUES ($1, $2)`, [op, guide]);
     await pool.query(`INSERT INTO guide_reviews (guide_id, rating, comment) VALUES ($1, 4, 'Хорошо')`, [guide]);
+    // Отзыв гостя без ответа (1208) — входящее жилья; скрытый — нет.
+    await pool.query(
+      `INSERT INTO accommodation_reviews (user_id, accommodation_id, overall_rating, comment) VALUES ($1, $2, 5, 'Отлично')`,
+      [touristId, acc],
+    );
+    await pool.query(
+      `INSERT INTO accommodation_reviews (user_id, accommodation_id, overall_rating, comment, is_visible) VALUES ($1, $2, 1, 'x', FALSE)`,
+      [touristId, acc],
+    );
 
     const expectKinds = async (partner: string, category: 'stay' | 'gear' | 'transfer' | 'guide', want: string[]) => {
       const r = await loadInbox(partner, category, 'u', { db: pool, unreadChat: async () => 0 });
@@ -736,6 +745,13 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       expect(r.response.enough, category).toBe(false);
       return r;
     };
+    const st = await expectKinds(stay, 'stay', ['accommodation_booking', 'stay_review']);
+    expect(st.items.find((i) => i.kind === 'stay_review')).toMatchObject({ title: 'Дом у реки · оценка 5 из 5', contact_name: null });
+    // Ответ и его время — парой; без пары база не примет.
+    await expect(pool.query(
+      `UPDATE accommodation_reviews SET owner_reply = 'x' WHERE accommodation_id = $1`, [acc],
+    )).rejects.toMatchObject({ code: '23514' });
+    await pool.query(`UPDATE accommodation_reviews SET owner_reply = 'Спасибо', owner_reply_at = NOW() WHERE accommodation_id = $1`, [acc]);
     await expectKinds(stay, 'stay', ['accommodation_booking']);
     await expectKinds(gear, 'gear', ['gear_rental']);
     const t = await expectKinds(carrier, 'transfer', ['transfer_seat_booking']);

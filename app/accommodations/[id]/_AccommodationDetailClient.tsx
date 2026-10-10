@@ -41,6 +41,7 @@ interface Review {
   comment: string | null;
   createdAt: string;
   user: { name: string | null };
+  ownerReply?: string | null;
 }
 
 interface SimilarItem {
@@ -415,6 +416,12 @@ export default function AccommodationDetailClient({ accommodationId, initialData
                   </div>
                   {review.comment && (
                     <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{review.comment}</p>
+                  )}
+                  {review.ownerReply && (
+                    <div className="mt-2 border-l-2 border-[var(--ocean)] pl-3">
+                      <p className="text-xs text-[var(--text-muted)]">Ответ хозяина</p>
+                      <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{review.ownerReply}</p>
+                    </div>
                   )}
                 </div>
               ))}

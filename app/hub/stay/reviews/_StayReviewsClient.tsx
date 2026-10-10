@@ -1,10 +1,10 @@
 'use client';
 
 /**
- * «Отзывы» — отзывы туристов о турах оператора и ответ на них (CRM, хвосты
- * фазы 1, #2325). Роуты были (GET /api/operator/reviews, POST …/reply), а
- * экрана не было: во «Входящих» отзыв числился «ответить нельзя — экрана
- * нет». Ответ виден туристу на карточке тура под отзывом.
+ * «Отзывы» — отзывы гостей об объектах владельца жилья и ответ на них (CRM,
+ * хвосты фазы 1, #2325; колонки ответа — миграция 1208). Во «Входящих» отзыв
+ * числился «ответа на платформе нет». Ответ виден гостям на странице объекта
+ * под отзывом.
  *
  * Состояния не смешиваются (§4.0): «отзывов нет» говорится, только когда
  * список прочитался; не прочитался — так и сказано, с кнопкой повтора.
@@ -13,14 +13,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { Star, EyeOff } from 'lucide-react';
 import { ReviewReplyBox, ReviewStars } from '@/components/reviews/ReviewReplyBox';
 
-interface TourReview {
-  id: number;
-  tourName: string;
-  userName: string | null;
+interface StayReview {
+  id: string;
+  accommodationName: string;
+  userName: string;
   rating: number;
+  title: string | null;
   comment: string | null;
-  isHidden: boolean;
-  operatorReply: string | null;
+  isVisible: boolean;
+  ownerReply: string | null;
   createdAt: string;
 }
 
@@ -28,27 +29,21 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function readReviews(json: unknown): { reviews: TourReview[]; total: number; avg: string | null } | null {
+function readReviews(json: unknown): { reviews: StayReview[] } | null {
   if (!isRecord(json) || json.success !== true || !isRecord(json.data)) return null;
-  const { reviews, stats } = json.data;
-  if (!Array.isArray(reviews)) return null;
-  const s = isRecord(stats) ? stats : {};
-  return {
-    reviews: reviews as TourReview[],
-    total: typeof s.totalReviews === 'number' ? s.totalReviews : reviews.length,
-    avg: typeof s.avgRating === 'string' ? s.avgRating : null,
-  };
+  const { reviews } = json.data;
+  return Array.isArray(reviews) ? { reviews: reviews as StayReview[] } : null;
 }
 
 type LoadState =
   | { kind: 'loading' }
-  | { kind: 'ready'; reviews: TourReview[]; total: number; avg: string | null }
+  | { kind: 'ready'; reviews: StayReview[] }
   | { kind: 'error'; message: string };
 
 /** Список отзывов — одним путём и для первой загрузки, и для повтора после ответа. */
 async function fetchReviews(): Promise<LoadState> {
   try {
-    const res = await fetch('/api/operator/reviews?limit=50', { cache: 'no-store' });
+    const res = await fetch('/api/stay/reviews', { cache: 'no-store' });
     const json: unknown = await res.json().catch(() => null);
     const data = res.ok ? readReviews(json) : null;
     if (data) return { kind: 'ready', ...data };
@@ -58,7 +53,7 @@ async function fetchReviews(): Promise<LoadState> {
   }
 }
 
-export default function OperatorReviewsClient() {
+export default function StayReviewsClient() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
 
@@ -71,23 +66,23 @@ export default function OperatorReviewsClient() {
   const load = useCallback(() => { void fetchReviews().then(setState); }, []);
 
   const shown = state.kind === 'ready'
-    ? state.reviews.filter((r) => !onlyUnreplied || (!r.operatorReply && !r.isHidden))
+    ? state.reviews.filter((r) => !onlyUnreplied || (!r.ownerReply && r.isVisible))
     : [];
-  const unreplied = state.kind === 'ready' ? state.reviews.filter((r) => !r.operatorReply && !r.isHidden).length : 0;
+  const unreplied = state.kind === 'ready' ? state.reviews.filter((r) => !r.ownerReply && r.isVisible).length : 0;
 
   return (
     <div className="p-5 lg:p-6 space-y-4">
       <div className="flex items-center gap-2.5 flex-wrap">
         <Star className="w-4 h-4 text-[var(--text-muted)]" />
-        <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Отзывы о турах</h1>
+        <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Отзывы гостей</h1>
         {state.kind === 'ready' && (
           <span className="text-xs text-[var(--text-muted)]">
-            всего {state.total}{state.avg !== null ? ` · средняя ${state.avg}` : ''} · без ответа {unreplied}
+            последние {state.reviews.length} · без ответа {unreplied}
           </span>
         )}
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        Ответ публикуется на странице тура под отзывом, автору приходит уведомление. Скрытые модерацией отзывы туристам не видны.
+        Ответ публикуется на странице объекта под отзывом, гостю приходит уведомление. Скрытые модерацией отзывы гостям не видны.
       </p>
 
       {state.kind === 'loading' && (
@@ -119,8 +114,8 @@ export default function OperatorReviewsClient() {
                 <li key={r.id} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-2">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 space-y-0.5">
-                      <p className="text-xs text-[var(--text-muted)]">{r.tourName}</p>
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">{r.userName ?? 'Гость'}</p>
+                      <p className="text-xs text-[var(--text-muted)]">{r.accommodationName}</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">{r.userName}</p>
                     </div>
                     <div className="text-right shrink-0 space-y-0.5">
                       <ReviewStars rating={r.rating} />
@@ -129,13 +124,14 @@ export default function OperatorReviewsClient() {
                       </p>
                     </div>
                   </div>
+                  {r.title && <p className="text-sm font-medium text-[var(--text-primary)]">{r.title}</p>}
                   {r.comment && <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{r.comment}</p>}
-                  {r.isHidden ? (
+                  {!r.isVisible ? (
                     <p className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
-                      <EyeOff className="w-3.5 h-3.5" /> Скрыт модерацией — на странице тура его нет
+                      <EyeOff className="w-3.5 h-3.5" /> Скрыт модерацией — на странице объекта его нет
                     </p>
                   ) : (
-                    <ReviewReplyBox endpoint={`/api/operator/reviews/${r.id}/reply`} reply={r.operatorReply} where="на странице тура" onSaved={load} />
+                    <ReviewReplyBox endpoint={`/api/stay/reviews/${encodeURIComponent(r.id)}/reply`} reply={r.ownerReply} where="на странице объекта" onSaved={load} />
                   )}
                 </li>
               ))}

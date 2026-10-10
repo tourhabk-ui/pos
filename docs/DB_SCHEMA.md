@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1207_kutha_owner_photo.sql`.
+> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1208_accommodation_review_owner_reply.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 265 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3540 |
+| Колонок | 3542 |
 | Внешних ключей | 305 |
 | Таблиц без единого FK в обе стороны | 76 |
 
@@ -841,9 +841,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `user_id uuid` `accommodation_id uuid` `room_id uuid` `check_in_date date!` `check_out_date date!` `nights integer!` `adults integer!` `children integer=` `room_price_per_night numeric!` `total_price numeric!` `currency varchar=` `status varchar=` `payment_status varchar=` `special_requests text` `guest_notes text` `created_at timestamptz=` `updated_at timestamptz=` `refund_amount numeric` `refund_percent integer` `refund_reason text` `cancelled_at timestamptz` `cancellation_reason text`
 
-**accommodation_reviews** · 15 кол. · PK id · accommodation_id → accommodations.id, booking_id → accommodation_bookings.id, user_id → users.id · индексов 3 · триггеры: trg_update_accommodation_rating
+**accommodation_reviews** · 17 кол. · PK id · accommodation_id → accommodations.id, booking_id → accommodation_bookings.id, user_id → users.id · индексов 3 · триггеры: trg_update_accommodation_rating
 
-`id uuid!=` `user_id uuid` `accommodation_id uuid` `booking_id uuid` `cleanliness_rating integer` `service_rating integer` `location_rating integer` `value_rating integer` `overall_rating integer!` `title varchar` `comment text` `is_verified boolean=` `is_visible boolean=` `created_at timestamptz=` `updated_at timestamptz=`
+`id uuid!=` `user_id uuid` `accommodation_id uuid` `booking_id uuid` `cleanliness_rating integer` `service_rating integer` `location_rating integer` `value_rating integer` `overall_rating integer!` `title varchar` `comment text` `is_verified boolean=` `is_visible boolean=` `created_at timestamptz=` `updated_at timestamptz=` `owner_reply text` `owner_reply_at timestamptz`
 
 **accommodation_rooms** · 15 кол. · PK id · accommodation_id → accommodations.id · на неё ссылаются: accommodation_availability, accommodation_bookings · индексов 4 · триггеры: trg_accommodation_rooms_updated_at
 

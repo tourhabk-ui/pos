@@ -38,6 +38,8 @@ export interface AccommodationReview {
   comment: string | null;
   createdAt: string;
   user: { name: string | null };
+  /** Ответ хозяина под отзывом (миграция 1208); NULL — не отвечал. */
+  ownerReply: string | null;
 }
 
 export interface AccommodationSimilar {
@@ -173,13 +175,14 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
   // Получаем отзывы (последние 10)
   const reviewsResult = await query<{
     id: string; rating: string; comment: string | null; created_at: unknown;
-    user_name: string | null;
+    user_name: string | null; owner_reply: string | null;
   }>(
     `SELECT
       r.id,
       r.overall_rating as rating,
       r.comment,
       r.created_at,
+      r.owner_reply,
       u.name as user_name
     FROM accommodation_reviews r
     LEFT JOIN users u ON r.user_id = u.id
@@ -287,6 +290,7 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
       user: {
         name: publicReviewerName(review.user_name),
       },
+      ownerReply: review.owner_reply,
     })),
     similar: similarResult.rows.map(item => ({
       id: item.id,
