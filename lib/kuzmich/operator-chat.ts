@@ -25,7 +25,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { crmCategoryFor, type PartnerCategory } from '@/lib/crm/partner-context';
 import { partnerCategoryLabel } from '@/lib/crm/labels';
 import {
-  CRM_WRITE_TOOL_NAMES, crmToolDefinitions, crmToolText, executeCrmTool, type CrmToolContext,
+  CRM_WRITE_TOOL_NAMES, crmToolDefinitions, crmToolText, crmWriteSummary, executeCrmTool, type CrmToolContext,
 } from '@/lib/crm/tools';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 
@@ -256,13 +256,6 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
 
 const MAX_TOOL_TURNS = 4;
 
-/** Что инструмент записал — словами для партнёра, если модель не дошла до ответа. */
-function describeWrite(name: string, args: Record<string, string>): string {
-  if (name === 'crm_add_task') return `задача «${args.title ?? ''}» со сроком ${args.due ?? ''}`.trim();
-  if (name === 'crm_complete_task') return 'задача отмечена выполненной';
-  return `запись в ленту клиента «${args.title ?? ''}»`;
-}
-
 /**
  * Цикл инструментов CRM: тот же водопад, обёртка недоверенного вывода и
  * дедуп, что у Кузьмича туриста (`aiChatAgentLoop`), но набор инструментов —
@@ -291,7 +284,7 @@ async function partnerToolLoop(
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
     const outcomes = await runTurnTools(result.tool_calls, seen, async (name, args) => {
       const r = await executeCrmTool(name, args, ctx);
-      if (r.ok && CRM_WRITE_TOOL_NAMES.includes(name)) writes.push(describeWrite(name, args));
+      if (r.ok && CRM_WRITE_TOOL_NAMES.includes(name)) writes.push(crmWriteSummary(name, args));
       return crmToolText(r);
     });
     for (const o of outcomes) {
