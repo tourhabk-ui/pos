@@ -1,23 +1,32 @@
 {
   "timeout": 40,
-  "retries": 2,
+  "retries": 1,
   "allowStale": false,
   "bytes": 300,
-  "note": "09.10. ТОЛЬКО ЧТЕНИЕ. Скрин владельца: термоточка 54.62N 160.30E «неделю в одном месте». Что сейчас в ленте: пожарные алерты FIRMS, их даты и сроки.",
-  "run": 751,
+  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. Приказ Камчатуправтодора о закрытии Октябрьской косы (Усть-Большерецк) — владелец показал пост MAX-канала «Право на руль». Есть ли у канала публичное зеркало в Telegram (t.me/s/pravonarul) с постом и снимком; что про косу сейчас в ленте Ведара.",
+  "run": 752,
   "urls": [
+    "https://t.me/s/pravonarul",
     "https://vedarai.ru/api/safety/alerts"
   ],
   "grep": [
-    "Термоточки"
+    "tgme_channel_info",
+    "Октябрьск",
+    "Камчатуправтодор",
+    "управлении автодорог",
+    "риказ",
+    "Большерецк",
+    "tgme_widget_message_photo_wrap"
   ],
-  "text": false,
+  "text": true,
   "around": [
-    "Термоточки"
+    "Октябрьск",
+    "Большерецк",
+    "риказ"
   ],
-  "aroundLines": 0,
-  "aroundHits": 1,
-  "aroundBefore": 0,
+  "aroundLines": 1,
+  "aroundHits": 3,
+  "aroundBefore": 1,
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
   "count": [],
   "retryDelay": 10
