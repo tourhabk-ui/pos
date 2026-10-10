@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { ListChecks } from 'lucide-react';
 import { ContactPanel } from './ContactPanel';
 import { TaskList } from './TaskList';
+import { AgentKeysPanel } from './AgentKeysPanel';
 
 export function TasksScreen() {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -26,6 +27,9 @@ export function TasksScreen() {
       </p>
 
       <TaskList onOpenContact={setOpenId} reloadKey={reloadKey} />
+
+      {/* Ключи MCP партнёра (1д-2): «Задачи» — единственный экран CRM во всех шести кабинетах. */}
+      <AgentKeysPanel />
 
       {openId && (
         <ContactPanel

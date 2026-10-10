@@ -22,8 +22,7 @@ import { callAIWaterfallOrNull, callToolsWaterfall } from '@/lib/ai/providers';
 import { getHistory, saveMsg } from '@/lib/kuzmich/core';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { PARTNER_ROLES } from '@/lib/auth/role-routes';
-import type { PartnerCategory } from '@/lib/crm/partner-context';
+import { crmCategoryFor, type PartnerCategory } from '@/lib/crm/partner-context';
 import { partnerCategoryLabel } from '@/lib/crm/labels';
 import {
   CRM_WRITE_TOOL_NAMES, crmToolDefinitions, crmToolText, executeCrmTool, type CrmToolContext,
@@ -59,12 +58,6 @@ export type PartnerChatLookup =
 
 const CHAT_COLUMN = { telegram: 'telegram_chat_id', max: 'max_chat_id' } as const;
 
-function crmCategoryOf(category: string, profileStatus: string | null): PartnerCategory | null {
-  const known = (PARTNER_ROLES as readonly string[]).includes(category) ? (category as PartnerCategory) : null;
-  if (known === 'agent' && profileStatus !== 'approved') return null;
-  return known;
-}
-
 /**
  * Партнёр по привязанному чату. Статус партнёра не проверяется — как и в
  * кабинете: прежнее условие `status != 'blocked'` не отсекало никого (такого
@@ -90,7 +83,7 @@ export async function findPartnerByChat(channel: keyof typeof CHAT_COLUMN, chatI
         partnerId: row.id,
         partnerName: row.name,
         category: row.category,
-        crmCategory: crmCategoryOf(row.category, row.profile_status),
+        crmCategory: crmCategoryFor(row.category, row.profile_status),
         userId: row.user_id,
       },
     };

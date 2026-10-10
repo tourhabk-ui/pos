@@ -1538,7 +1538,7 @@ export interface CrmTaskRow {
   due_at: Date;
   done_at: Date | null;
   done_by: string | null;
-  /** Кто завёл: пока только 'manual' (CHECK миграции 1197). */
+  /** Кто завёл: 'manual' | 'kuzmich' | 'mcp' (CHECK миграций 1197, 1202, 1203). */
   origin: string;
   created_by: string | null;
   created_at: Date;
@@ -1547,4 +1547,21 @@ export interface CrmTaskRow {
   reminded_at: Date | null;
   /** Исход напоминания: 'max' | 'telegram_stub' | 'unreachable'; пишется парой с reminded_at. */
   reminder_channel: string | null;
+}
+
+/** Ключ MCP партнёра к своей CRM (миграция 1203, шаг 1д-2). Самого ключа нет — только хеш. */
+export interface PartnerApiKeyRow {
+  id: string;
+  partner_id: string;
+  label: string;
+  /** Начало ключа («vdr_pk_ab12cd») — опознать в списке, не храня ключ. */
+  key_prefix: string;
+  /** sha256 ключа, hex. */
+  key_hash: string;
+  can_write: boolean;
+  created_by: string | null;
+  created_at: Date;
+  last_used_at: Date | null;
+  revoked_at: Date | null;
+  revoked_by: string | null;
 }

@@ -31,14 +31,15 @@ export const REMINDER_CHANNELS = ['max', 'telegram_stub', 'unreachable'] as cons
 export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
 
 /**
- * Кто завёл задачу (CHECK crm_tasks_origin_check, миграции 1197 и 1202):
- * человек в кабинете или Кузьмич в чате партнёра по его просьбе.
+ * Кто завёл задачу (CHECK crm_tasks_origin_check, миграции 1197, 1202, 1203):
+ * человек в кабинете, Кузьмич в чате партнёра по его просьбе или агент
+ * партнёра по ключу MCP.
  */
-export const TASK_ORIGINS = ['manual', 'kuzmich'] as const;
+export const TASK_ORIGINS = ['manual', 'kuzmich', 'mcp'] as const;
 export type TaskOrigin = (typeof TASK_ORIGINS)[number];
 
-/** Кто отметил выполненной — тот же, кто мог завести: партнёр руками или Кузьмич. */
-export type TaskActorKind = 'partner_user' | 'kuzmich';
+/** Кто отметил выполненной — тот же, кто мог завести: партнёр руками, Кузьмич или агент. */
+export type TaskActorKind = 'partner_user' | 'kuzmich' | 'mcp';
 
 export interface TaskItem {
   id: string;

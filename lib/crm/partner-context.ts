@@ -34,6 +34,18 @@ export const ROLE_TO_CATEGORY: Readonly<Record<string, PartnerCategory>> = {
   gear: 'gear',
 };
 
+/**
+ * Положена ли партнёрской записи CRM, когда партнёр опознан не входом в
+ * кабинет, а привязанным чатом или ключом MCP: роль из шести и, для агента,
+ * одобренный профиль — то же правило, что у partnerContextFor ниже. NULL —
+ * CRM этой записи не положена.
+ */
+export function crmCategoryFor(category: string, profileStatus: string | null): PartnerCategory | null {
+  const known = (PARTNER_ROLES as readonly string[]).includes(category) ? (category as PartnerCategory) : null;
+  if (known === 'agent' && profileStatus !== 'approved') return null;
+  return known;
+}
+
 export type PartnerContext =
   | { outcome: 'ok'; partnerId: string; category: PartnerCategory; userId: string }
   | { outcome: 'none'; reason: 'role' | 'profile' | 'not_approved' }
