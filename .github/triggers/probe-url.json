@@ -2,26 +2,24 @@
   "timeout": 40,
   "retries": 1,
   "allowStale": false,
-  "bytes": 200,
-  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. Сырая разметка t.me/s/pravonarul вокруг постов о закрытии Октябрьской косы: блок поста, снимок (photo_wrap), data-post, время — для парсера дорожных постов с основанием.",
-  "run": 753,
+  "bytes": 300,
+  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. Миграция 1211: второй кадр Алины Гусаковой («Скалы Три брата в Авачинской бухте, вид со смотровой») в галерее смотровой 60b06659. Проба ждёт выката и ищет подпись и автора в публичной карточке места.",
+  "run": 754,
   "urls": [
-    "https://t.me/s/pravonarul"
+    "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739"
   ],
   "grep": [
-    "data-post=\"pravonarul/",
-    "tgme_widget_message_photo_wrap",
-    "telesco.pe",
-    "datetime="
+    "Алина Гусакова",
+    "вид со смотровой",
+    "photoCount"
   ],
   "text": false,
   "around": [
-    "Октябрьскую косу закрыли",
-    "продлили ещё на сутки"
+    "вид со смотровой"
   ],
-  "aroundLines": 22,
-  "aroundHits": 1,
-  "aroundBefore": 45,
+  "aroundLines": 0,
+  "aroundHits": 2,
+  "aroundBefore": 200,
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
   "count": [
     "data-post=\"pravonarul/",
