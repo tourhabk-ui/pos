@@ -13,11 +13,18 @@
 import { useState, type ReactNode } from 'react';
 import { Bot, ShieldCheck } from 'lucide-react';
 import { PARTNER_OAUTH_DECISION_API } from '@/lib/crm/partner-oauth-public';
+import { useAuth } from '@/contexts/AuthContext';
+
+interface SwitchTarget {
+  role: string;
+  label: string;
+  name: string | null;
+}
 
 export type ConsentProps =
   | { mode: 'fatal'; message: string }
   | (CommonProps & { mode: 'login'; loginHref: string })
-  | (CommonProps & { mode: 'none'; message: string })
+  | (CommonProps & { mode: 'none'; message: string; loginHref: string; switchTo: SwitchTarget[] })
   | (CommonProps & { mode: 'unavailable' })
   | (CommonProps & {
       mode: 'consent';
@@ -57,9 +64,49 @@ function Deny({ href, label = 'Отказать' }: { href: string; label?: stri
 }
 
 export function ConsentClient(props: ConsentProps) {
+  const { signOut } = useAuth();
   const [canWrite, setCanWrite] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Войти как партнёр — тот же /api/auth/switch-role, что у переключателя в
+   * шапке: владение ролью проверяет сервер. Затем страница перерисовывается
+   * с новой ролью и показывает согласие. Прямой fetch, а не switchRole из
+   * контекста: в окне входа из Claude профиля в localStorage может не быть,
+   * а кука есть — контекст отказал бы «Не авторизован» при живом входе.
+   */
+  async function enterAs(role: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/switch-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      const json: unknown = await res.json().catch(() => null);
+      if (res.ok && isRecord(json) && json.success === true) {
+        window.location.reload();
+        return;
+      }
+      setError(isRecord(json) && typeof json.error === 'string' ? json.error : 'Не удалось переключить роль');
+    } catch {
+      setError('Нет связи с сервером — роль не переключена');
+    }
+    setBusy(false);
+  }
+
+  /** Войти другим аккаунтом: выход этого входа и форма входа с возвратом сюда. */
+  async function otherAccount(loginHref: string) {
+    setBusy(true);
+    try {
+      await signOut();
+    } catch {
+      // Выход не удался — форма входа всё равно заменит куку новым входом.
+    }
+    window.location.assign(loginHref);
+  }
 
   if (props.mode === 'fatal') {
     return (
@@ -87,7 +134,26 @@ export function ConsentClient(props: ConsentProps) {
     return (
       <Shell>
         <p className="text-sm text-[var(--text-secondary)]">{props.message}</p>
-        <Deny href={props.denyHref} label="Вернуться в Claude" />
+        <p className="text-sm text-[var(--text-secondary)]">
+          Чтобы подключить {props.clientName} к CRM, {props.switchTo.length > 0 ? 'войдите как партнёр или другим аккаунтом' : 'войдите аккаунтом партнёра'}.
+        </p>
+        <div className="flex flex-col gap-2">
+          {props.switchTo.map((t) => (
+            <button key={t.role} type="button" disabled={busy} onClick={() => void enterAs(t.role)} className="ds-btn ds-btn-primary">
+              Войти как {t.label}{t.name ? ` — ${t.name}` : ''}
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void otherAccount(props.loginHref)}
+            className={props.switchTo.length > 0 ? 'ds-btn ds-btn-secondary' : 'ds-btn ds-btn-primary'}
+          >
+            Войти другим аккаунтом
+          </button>
+          <Deny href={props.denyHref} label="Вернуться в Claude" />
+        </div>
+        {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
       </Shell>
     );
   }

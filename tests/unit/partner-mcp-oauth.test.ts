@@ -424,6 +424,48 @@ describe('экран согласия и возврат после входа', 
     expect(client).toMatch(/href=\{props\.denyHref\}|<Deny href=\{props\.denyHref\}/);
   });
 
+  it('вошёл не партнёр — не тупик: войти другим аккаунтом можно всегда, переключиться — в роль с готовым профилем (случай 10.10)', () => {
+    const page = read(`app${pub.PARTNER_OAUTH_AUTHORIZE_PATH}/page.tsx`);
+    expect(page).toMatch(/mode="none"[\s\S]*loginHref=\{loginHref\}[\s\S]*switchTo=\{await switchablePartnerRoles\(user\.userId\)\}/);
+    const client = read(`app${pub.PARTNER_OAUTH_AUTHORIZE_PATH}/_ConsentClient.tsx`);
+    const none = client.slice(client.indexOf("props.mode === 'none'"), client.indexOf("props.mode === 'unavailable'"));
+    expect(none).toContain('Войти другим аккаунтом');
+    expect(none).toMatch(/otherAccount\(props\.loginHref\)/);
+    expect(none).toMatch(/enterAs\(t\.role\)/);
+    // Переключение — тот же роут, что у шапки: владение ролью проверяет сервер.
+    expect(client).toMatch(/fetch\('\/api\/auth\/switch-role'/);
+  });
+
+  it('роли для переключения: только с профилем и CRM, по правилу шапки; отказ базы — пусто и лог', async () => {
+    const row = (over: Record<string, unknown>) => ({ category: 'operator', name: 'Вулкан-Тур', profile_status: 'approved', active_role: 'admin', roles: ['admin'], ...over });
+    query.mockResolvedValueOnce({ rows: [
+      row({}),
+      row({ category: 'operator', name: 'Второй профиль' }),
+      row({ category: 'agent', profile_status: 'pending' }),
+      row({ category: 'guide', name: 'Гид Иван' }),
+      row({ category: 'tourist' }),
+    ] });
+    expect(await oauth.switchablePartnerRoles(U)).toEqual([
+      { role: 'operator', label: 'Туроператор', name: 'Вулкан-Тур' },
+      { role: 'guide', label: 'Гид', name: 'Гид Иван' },
+    ]);
+    expect(String(query.mock.calls[0][0])).toMatch(/WHERE p\.user_id = \$1::uuid/);
+
+    // Не админ и роль не своя — переключения нет, даже при профиле.
+    query.mockResolvedValueOnce({ rows: [row({ active_role: 'tourist', roles: ['tourist'] })] });
+    expect(await oauth.switchablePartnerRoles(U)).toEqual([]);
+    query.mockResolvedValueOnce({ rows: [row({ active_role: 'tourist', roles: ['tourist', 'operator'] })] });
+    expect((await oauth.switchablePartnerRoles(U)).map((r) => r.role)).toEqual(['operator']);
+
+    query.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '08006' }));
+    expect(await oauth.switchablePartnerRoles(U)).toEqual([]);
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it('кнопка «Подобрать тур» на экране согласия не показывается', () => {
+    expect(read('components/shared/StickyLeadButton.tsx')).toMatch(/HIDDEN_PATHS = \[[^\]]*'\/oauth'/);
+  });
+
   it('middleware.ts этим не тронут: /api/mcp пропускается целиком, /oauth — вне matcher', () => {
     const mw = read('middleware.ts');
     expect(mw).toMatch(/if \(pathname\.startsWith\('\/api\/mcp'\)\)/);

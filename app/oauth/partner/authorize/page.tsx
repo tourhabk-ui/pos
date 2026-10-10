@@ -20,7 +20,8 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { partnerContextFor } from '@/lib/crm/partner-context';
-import { partnerDisplayName } from '@/lib/crm/partner-oauth';
+import { partnerDisplayName, switchablePartnerRoles } from '@/lib/crm/partner-oauth';
+import { ROLE_LABELS } from '@/lib/auth/role-switch';
 import { PARTNER_OAUTH_AUTHORIZE_PATH } from '@/lib/crm/partner-oauth-public';
 import {
   AUTHORIZE_PARAM_NAMES,
@@ -50,11 +51,11 @@ function readParams(sp: SearchParams): AuthorizeParams | null {
   return out;
 }
 
-const NONE_MESSAGES: Record<'role' | 'profile' | 'not_approved', string> = {
-  role: 'Вы вошли не в кабинет партнёра. Переключитесь на кабинет партнёра в меню профиля и нажмите «Подключить» в Claude ещё раз.',
-  profile: 'Профиль партнёра не найден. Заполните его в кабинете, затем подключите Claude снова.',
-  not_approved: 'Кабинет агента ещё не одобрен администратором — CRM откроется после одобрения.',
-};
+function noneMessage(reason: 'role' | 'profile' | 'not_approved', roleLabel: string): string {
+  if (reason === 'role') return `Сейчас вы вошли в роли «${roleLabel}» — у неё нет CRM партнёра.`;
+  if (reason === 'profile') return `В роли «${roleLabel}» профиль партнёра ещё не заполнен — CRM появится после заполнения.`;
+  return 'Кабинет агента ещё не одобрен администратором — CRM откроется после одобрения.';
+}
 
 export default async function PartnerOAuthAuthorizePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = readParams(await searchParams);
@@ -73,19 +74,31 @@ export default async function PartnerOAuthAuthorizePage({ searchParams }: { sear
     loopback: !request.redirectUri.startsWith('https://'),
   };
 
+  // Вход возвращает сюда же: тот же запрос подключения, тот же экран.
+  const query = new URLSearchParams(
+    Object.entries(params ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
+  const loginHref = `/auth/login?next=${encodeURIComponent(`${PARTNER_OAUTH_AUTHORIZE_PATH}?${query.toString()}`)}`;
+
   const cookieStore = await cookies();
   const user = await getUserFromRequest({ cookies: { get: (name) => cookieStore.get(name) } });
-  if (!user) {
-    const query = new URLSearchParams(
-      Object.entries(params ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string'),
-    );
-    const self = `${PARTNER_OAUTH_AUTHORIZE_PATH}?${query.toString()}`;
-    return <ConsentClient mode="login" {...base} loginHref={`/auth/login?next=${encodeURIComponent(self)}`} />;
-  }
+  if (!user) return <ConsentClient mode="login" {...base} loginHref={loginHref} />;
 
   const ctx = await partnerContextFor(user.userId, user.role);
   if (ctx.outcome === 'unavailable') return <ConsentClient mode="unavailable" {...base} />;
-  if (ctx.outcome === 'none') return <ConsentClient mode="none" {...base} message={NONE_MESSAGES[ctx.reason]} />;
+  if (ctx.outcome === 'none') {
+    // Тупика быть не должно: войти другим аккаунтом можно всегда, а
+    // переключиться — в роль партнёра, профиль которой у аккаунта уже есть.
+    return (
+      <ConsentClient
+        mode="none"
+        {...base}
+        message={noneMessage(ctx.reason, ROLE_LABELS[user.role] ?? user.role)}
+        loginHref={loginHref}
+        switchTo={await switchablePartnerRoles(user.userId)}
+      />
+    );
+  }
 
   const decision: Record<string, string> = {};
   for (const name of AUTHORIZE_PARAM_NAMES) {
