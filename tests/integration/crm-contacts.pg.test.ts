@@ -26,6 +26,7 @@ import { getContactCardForAdmin, listAllContacts } from '@/lib/crm/admin-queries
 import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitle } from '@/lib/crm/events';
 import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/lib/crm/tasks';
 import { runTaskReminders } from '@/lib/crm/reminders';
+import { loadInbox } from '@/lib/crm/inbox';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -605,6 +606,121 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     )).rows[0].id;
     await expect(pool.query(`UPDATE crm_tasks SET reminder_channel = 'max' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
     await expect(pool.query(`UPDATE crm_tasks SET reminded_at = NOW(), reminder_channel = 'sms' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('входящие: каждый вид исполняется, ответ партнёра идёт в медиану, автомат и чужое — нет', async () => {
+    const mk = async (name: string, category: string) =>
+      (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+      )).rows[0].id;
+    const op = await mk('Оператор входящих', 'operator');
+    const stay = await mk('Жильё входящих', 'stay');
+    const gear = await mk('Прокат входящих', 'gear');
+    const carrier = await mk('Перевозчик входящих', 'transfer');
+    const guide = await mk('Гид входящих', 'guide');
+    const tour = Number((await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price) VALUES ($1, 'Тур входящих', 5000) RETURNING id`, [op],
+    )).rows[0].id);
+    const age = async (table: string, id: string, interval: string) =>
+      pool.query(`UPDATE ${table} SET created_at = NOW() - $2::interval WHERE id::text = $1`, [id, interval]);
+    const event = (partner: string, kind: SourceKind, id: string, actor: string, minutesAfter: number, table: string) =>
+      pool.query(
+        `INSERT INTO crm_events (partner_id, source_kind, source_id, kind, actor_kind, title, occurred_at)
+         SELECT $1, $2, $3, 'status_change', $4, 'Ответ', created_at + make_interval(mins => $5::int)
+           FROM ${table} WHERE id::text = $3`,
+        [partner, kind, id, actor, minutesAfter],
+      );
+
+    // Пять броней за сутки с ответом оператора через 10..50 минут, одна —
+    // подтверждена автоматом (system) и в медиану не идёт, одна ждёт 3 часа.
+    for (const m of [10, 20, 30, 40, 50]) {
+      const id = await booking(tour, { name: 'Отвеченный', phone: null });
+      await pool.query(`UPDATE operator_bookings SET booking_status = 'confirmed' WHERE id = $1`, [id]);
+      await age('operator_bookings', id, '1 day');
+      await event(op, 'operator_booking', id, 'partner_user', m, 'operator_bookings');
+    }
+    const auto = await booking(tour, { name: 'Автомат', phone: null });
+    await pool.query(`UPDATE operator_bookings SET booking_status = 'confirmed' WHERE id = $1`, [auto]);
+    await event(op, 'operator_booking', auto, 'system', 0, 'operator_bookings');
+    // Умолчание колонки — confirmed; живая бронь заводится со статусом new
+    // явно (NEW_BOOKING_STATUS в lib/bookings/reserve.ts).
+    const waiting = await booking(tour, { name: 'Ждущий Турист', phone: '+79140005566' });
+    await pool.query(`UPDATE operator_bookings SET booking_status = 'new' WHERE id = $1`, [waiting]);
+    await age('operator_bookings', waiting, '3 hours');
+    await link('operator_booking', waiting);
+
+    await pool.query(
+      `INSERT INTO tour_seat_requests (tour_id, operator_id, tour_date, participants, tourist_name, tourist_phone,
+         reply_channel, status_token_hash, deadline_at, pd_consent_at)
+       VALUES ($1, $2, CURRENT_DATE + 20, 3, 'Скрытое Имя', '+79140007788', 'telegram',
+               encode(sha256('inbox-seat'::bytea), 'hex'), NOW() + INTERVAL '2 hours', NOW())`,
+      [tour, op],
+    );
+    await pool.query(
+      `INSERT INTO leads (name, phone, operator_id, status, route_title) VALUES ('Лид', '+79140009900', $1, 'awaiting_confirm', 'Мутновский')`, [op],
+    );
+    // Чужая заявка и чужая бронь этому оператору не видны.
+    await pool.query(`INSERT INTO leads (name, phone, operator_id, status) VALUES ('Чужой', '+79140009901', $1, 'new')`, [P.opB]);
+
+    const o = await loadInbox(op, 'operator', 'u', { db: pool, unreadChat: async () => 0 });
+    expect(o.failed).toEqual([]);
+    expect(o.items.map((i) => i.kind).sort()).toEqual(['lead', 'operator_booking', 'seat_request']);
+    const b = o.items.find((i) => i.kind === 'operator_booking')!;
+    expect(b).toMatchObject({ id: waiting, title: 'Тур входящих', contact_name: 'Ждущий Турист' });
+    expect(b.waiting_minutes).toBeGreaterThanOrEqual(179);
+    const seat = o.items.find((i) => i.kind === 'seat_request')!;
+    expect(seat).toMatchObject({ people: 3, contact_id: null, contact_name: null });
+    expect(JSON.stringify(o)).not.toMatch(/Скрытое Имя|7788/);
+    expect(o.items.find((i) => i.kind === 'lead')).toMatchObject({ title: 'Мутновский' });
+    expect(o.response).toMatchObject({ enough: true, responded: 5, median_minutes: 30, complete: true });
+
+    // Остальные роли: каждый запрос исполняется на настоящей схеме.
+    const acc = (await pool.query<{ id: string }>(
+      `INSERT INTO accommodations (partner_id, name, type, coordinates, moderation_status)
+       VALUES ($1, 'Дом у реки', 'hotel', '{"lat":53,"lng":158}', 'approved') RETURNING id`, [stay],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO accommodation_bookings
+         (user_id, accommodation_id, check_in_date, check_out_date, nights, adults, room_price_per_night, total_price)
+       VALUES ($1, $2, CURRENT_DATE + 3, CURRENT_DATE + 5, 2, 2, 4000, 8000)`, [touristId, acc],
+    );
+    const gi = (await pool.query<{ id: string }>(
+      `INSERT INTO gear_items (partner_id, name, category, price_per_day, moderation_status)
+       VALUES ($1, 'Спальник', 'sleeping', 300, 'approved') RETURNING id`, [gear],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO gear_rentals (gear_id, customer_name, customer_email, customer_phone, start_date, end_date, days_count, base_price, total_price)
+       VALUES ($1, 'Глеб', 'gleb2@example.com', '+79147770000', CURRENT_DATE + 1, CURRENT_DATE + 3, 2, 600, 600)`, [gi],
+    );
+    const veh = (await pool.query<{ id: string }>(
+      `INSERT INTO transfer_fleet_vehicles (partner_id, kind, title, seats) VALUES ($1, 'vahtovka', 'Урал', 20) RETURNING id`, [carrier],
+    )).rows[0].id;
+    const trip = (await pool.query<{ id: string }>(
+      `INSERT INTO transfer_trips (vehicle_id, trip_date, from_text, to_text, seats_total)
+       VALUES ($1, CURRENT_DATE + 4, 'Елизово', 'Толбачик', 16) RETURNING id`, [veh],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO transfer_seat_bookings (trip_id, ordered_by_user_id, seats, contact_phone) VALUES ($1, $2, 2, '+79148880000')`,
+      [trip, touristId],
+    );
+    await pool.query(`INSERT INTO guide_operator_invites (operator_id, guide_partner_id) VALUES ($1, $2)`, [op, guide]);
+    await pool.query(`INSERT INTO guide_reviews (guide_id, rating, comment) VALUES ($1, 4, 'Хорошо')`, [guide]);
+
+    const expectKinds = async (partner: string, category: 'stay' | 'gear' | 'transfer' | 'guide', want: string[]) => {
+      const r = await loadInbox(partner, category, 'u', { db: pool, unreadChat: async () => 0 });
+      expect(r.failed, category).toEqual([]);
+      expect(r.items.map((i) => i.kind).sort(), category).toEqual(want);
+      expect(r.response.enough, category).toBe(false);
+      return r;
+    };
+    await expectKinds(stay, 'stay', ['accommodation_booking']);
+    await expectKinds(gear, 'gear', ['gear_rental']);
+    const t = await expectKinds(carrier, 'transfer', ['transfer_seat_booking']);
+    expect(t.items[0]).toMatchObject({ title: 'Елизово — Толбачик', people: 2 });
+    const g = await expectKinds(guide, 'guide', ['guide_invite', 'guide_review']);
+    expect(g.items.find((i) => i.kind === 'guide_invite')).toMatchObject({ title: 'Оператор входящих' });
+    expect(g.items.find((i) => i.kind === 'guide_review')).toMatchObject({ title: 'Оценка 4 из 5' });
+    expect((await loadInbox(P.agent, 'agent', 'u', { db: pool })).items).toEqual([]);
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {

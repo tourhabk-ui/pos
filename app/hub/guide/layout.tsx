@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser, ListChecks } from 'lucide-react';
+import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser, ListChecks, BellDot } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -16,6 +16,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/guide/groups',   label: 'Группы',     icon: Users,         section: 'Работа' },
   // Свои клиенты гида — заведённые им самим: туристов из броней оператора
   // сюда не копирует никто, доступ гида к ним временный (CRM #2325).
+  { href: '/hub/guide/inbox',    label: 'Входящие',   icon: BellDot,       section: 'Работа' },
   { href: '/hub/guide/clients',  label: 'Клиенты',    icon: BookUser,      section: 'Работа' },
   { href: '/hub/guide/tasks',    label: 'Задачи',     icon: ListChecks,    section: 'Работа' },
 

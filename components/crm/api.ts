@@ -22,3 +22,6 @@ export const CRM_TASKS_API = '/api/hub/crm/tasks';
  * Только партнёрская: администратор клиентов не выгружает.
  */
 export const CRM_EXPORT_API = '/api/hub/crm/contacts/export';
+
+/** «Входящие» (1г) — только партнёрские: что ждёт ответа у вошедшего партнёра. */
+export const CRM_INBOX_API = '/api/hub/crm/inbox';

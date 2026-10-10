@@ -48,6 +48,33 @@ describe('экран «Клиенты» в кабинетах партнёров
     });
   }
 
+  // «Входящие» (1г) — там, где у роли есть что ждать ответа. Агенту ждать
+  // нечего: ни заявок, ни чата с туристами у роли нет, и пункт меню, который
+  // всегда пуст, был бы экраном без источника (правило 10.09).
+  const KNOWN_WITHOUT_INBOX: Readonly<Record<string, string>> = {
+    agent: 'у агента нет ни одного вида входящих: заявок и чата с туристами у роли пока нет (INBOX_BY_CATEGORY.agent пуст)',
+  };
+  for (const cab of CABINETS) {
+    if (cab in KNOWN_WITHOUT_INBOX) continue;
+    it(`${cab}: экран «Входящие» и пункт меню рядом с «Клиентами»`, () => {
+      const page = read(`app/hub/${cab}/inbox/page.tsx`);
+      expect(page).toMatch(/import \{ InboxScreen \} from '@\/components\/crm\/InboxScreen'/);
+      expect(page).toMatch(/<InboxScreen \/>/);
+      expect(page).toMatch(/robots: 'noindex, nofollow'/);
+      expect(read(`app/hub/${cab}/layout.tsx`)).toMatch(new RegExp(`href: '/hub/${cab}/inbox',\\s+label: 'Входящие'`));
+    });
+  }
+
+  it('кабинет без «Входящих» назван причиной, и причина ещё в силе', async () => {
+    const { INBOX_BY_CATEGORY } = await import('@/lib/crm/inbox-kinds');
+    for (const [cab, reason] of Object.entries(KNOWN_WITHOUT_INBOX)) {
+      expect(reason.length, cab).toBeGreaterThan(40);
+      expect(existsSync(join(ROOT, `app/hub/${cab}/inbox/page.tsx`)), cab).toBe(false);
+      // Появились входящие у роли — убрать из исключений и завести экран.
+      expect(INBOX_BY_CATEGORY[cab as keyof typeof INBOX_BY_CATEGORY], cab).toEqual([]);
+    }
+  });
+
   it('исключения названы причиной и не пережили её', () => {
     for (const [cab, reason] of Object.entries(KNOWN_WITHOUT_SCREEN)) {
       expect(reason.length, cab).toBeGreaterThan(40);
@@ -76,11 +103,11 @@ describe('экран CRM по правилам дизайн-системы', () 
     // Любой /api-литерал в экране — один из адресов CRM_API или задач.
     const literals = files.flatMap((f) => [...read(f).matchAll(/['`](\/api\/[^'`$?]*)/g)].map((m) => `${f}: ${m[1]}`));
     expect(literals.length).toBeGreaterThanOrEqual(3);
-    for (const l of literals) expect(l).toMatch(/^components\/crm\/api\.ts: \/api\/(hub|admin)\/crm\/contacts$|^components\/crm\/api\.ts: \/api\/hub\/crm\/(tasks|contacts\/export)$/);
+    for (const l of literals) expect(l).toMatch(/^components\/crm\/api\.ts: \/api\/(hub|admin)\/crm\/contacts$|^components\/crm\/api\.ts: \/api\/hub\/crm\/(tasks|contacts\/export|inbox)$/);
     // А fetch зовёт только через CRM_API / CRM_TASKS_API — своего адреса мимо карты нет.
     const fetches = files.flatMap((f) => [...read(f).matchAll(/fetch\(\s*([^,)]+)/g)].map((m) => `${f}: ${m[1]}`));
     expect(fetches.length).toBeGreaterThan(0);
-    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.partner(?!\w))|CRM_TASKS_API(?!\w)|CRM_EXPORT_API(?!\w))/);
+    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.partner(?!\w))|CRM_TASKS_API(?!\w)|CRM_EXPORT_API(?!\w)|CRM_INBOX_API(?!\w))/);
     // Выгрузка — только партнёрская: у администратора кнопки нет.
     expect(read('components/crm/ContactsScreen.tsx')).toMatch(/\{!isAdmin && \(\s*<div className="flex items-center gap-2">\s*<button\s+type="button"\s+onClick=\{\(\) => void exportCsv\(\)\}/);
     // Задачи — только партнёрские: администратору адреса задач экран не даёт.
