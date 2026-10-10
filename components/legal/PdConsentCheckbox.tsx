@@ -1,8 +1,9 @@
 'use client';
 
 import {
-  PD_CONSENT_TEXT,
   PD_CONSENT_POLICY_URL,
+  consentWording,
+  type PdConsentPurpose,
 } from '@/lib/legal/pd-consent';
 
 /**
@@ -37,10 +38,13 @@ export function PdConsentCheckbox({
   checked,
   onChange,
   id = 'pd-consent',
+  purpose = 'operator',
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   id?: string;
+  /** Кому уходят данные: туроператору (по умолчанию) или владельцу жилья. Текст и версия — из lib/legal/pd-consent. */
+  purpose?: PdConsentPurpose;
 }) {
   return (
     <label htmlFor={id} className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer text-xs leading-relaxed text-[var(--text-secondary)]">
@@ -52,7 +56,7 @@ export function PdConsentCheckbox({
         className="w-5 h-5 shrink-0 accent-[var(--accent)]"
       />
       <span>
-        {PD_CONSENT_TEXT} в соответствии с{' '}
+        {consentWording(purpose).text} в соответствии с{' '}
         <a
           href={PD_CONSENT_POLICY_URL}
           target="_blank"

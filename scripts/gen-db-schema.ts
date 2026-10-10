@@ -72,7 +72,7 @@ const DOMAINS: Array<{ title: string; note: string; re: RegExp }> = [
   {
     title: 'Жильё, снаряжение, трансферы',
     note: 'Три партнёрских модуля: stay, gear, carrier. Трансферы пересобраны 02.09 (`transfer_trips`, `transfer_seat_bookings`).',
-    re: /^(accommodation|gear_|transfer|vehicles|vehicle_|drivers|driver_)/,
+    re: /^(accommodation|stay_|gear_|transfer|vehicles|vehicle_|drivers|driver_)/,
   },
   {
     title: 'Турагенты (роль agent)',
