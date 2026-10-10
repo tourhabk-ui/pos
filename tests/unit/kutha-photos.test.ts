@@ -48,7 +48,7 @@ describe('миграция 1204: снимки «Кутхи»', () => {
   });
 
   it('пишет только объекту без фото и не плодит снимки на повторе', () => {
-    expect(CODE).toMatch(/NOT EXISTS \(SELECT 1 FROM accommodation_assets aa WHERE aa\.accommodation_id = a\.id\)/);
+    expect(CODE).toMatch(/NOT EXISTS \(SELECT 1 FROM accommodation_assets aa WHERE aa\.accommodation_id::text = a\.id::text\)/);
     expect(CODE).toMatch(/NOT EXISTS \(SELECT 1 FROM assets s WHERE s\.url = v\.url\)/);
   });
 

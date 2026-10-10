@@ -28,7 +28,7 @@ WITH k AS (
   SELECT a.id
     FROM accommodations a
    WHERE LOWER(a.name) = 'кутха'
-     AND NOT EXISTS (SELECT 1 FROM accommodation_assets aa WHERE aa.accommodation_id = a.id)
+     AND NOT EXISTS (SELECT 1 FROM accommodation_assets aa WHERE aa.accommodation_id::text = a.id::text)
 ),
 v(url, sha256, size, width, height, alt) AS (VALUES
   ('/images/kutha/kutha-01.jpg', '9c6d7cfb8f2c06d6e2ff510f94ea250adfedec9a621489f5e214fb6f12053a86', 182321, 960, 1280, 'Гостевой дом «Кутха» снаружи: бревенчатый дом с мансардой и газоном'),
