@@ -206,6 +206,36 @@ export function mergeForecastModels(
 }
 
 /**
+ * Причина отказа Open-Meteo словами — с тем, КАКОЙ лимит кончился (#2289).
+ *
+ * На 429 сервис пишет в теле `{"error":true,"reason":"Daily API request limit
+ * exceeded…"}` — минутный, часовой или суточный. До 10.10 тело выбрасывалось,
+ * и пост канала четвёртый день писал «Налычево — 429», а гадать приходилось,
+ * что именно кончилось: разные лимиты лечатся разным (минутный — разнести
+ * запросы, суточный — ключ или меньше вызовов; адрес исходящий общий, его
+ * делят Кузьмич, Rescue, планер и /weather). Догадка «лимит по координатам»
+ * из отчёта того же дня кодом не подтверждалась — теперь проверяется логом.
+ *
+ * Текст чужого сервиса наружу не пересказывается: узнаётся только род
+ * лимита, всё прочее — голый код, как раньше.
+ */
+export function openMeteoFailureReason(status: number, body: string): string {
+  const base = `Open-Meteo HTTP ${status}`;
+  let reason = '';
+  try {
+    const parsed = JSON.parse(body) as { reason?: unknown };
+    if (typeof parsed?.reason === 'string') reason = parsed.reason;
+  } catch {
+    // Тело не JSON (прокси, обрыв) — рода лимита не знаем, остаётся код.
+    return base;
+  }
+  if (/minutely/i.test(reason)) return `${base} (исчерпан минутный лимит запросов)`;
+  if (/hourly/i.test(reason)) return `${base} (исчерпан часовой лимит запросов)`;
+  if (/daily/i.test(reason)) return `${base} (исчерпан суточный лимит запросов)`;
+  return base;
+}
+
+/**
  * Суточный прогноз Open-Meteo по точке, до 16 дней, в поясе Камчатки.
  * Отказ сети, не-2xx и ответ не той формы — `{ ok: false }` и строка в логе.
  */
@@ -220,7 +250,8 @@ export async function fetchForecastDays(lat: number, lng: number, days: number):
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code&hourly=temperature_2m,precipitation,snowfall,wind_speed_10m&forecast_days=${horizon}&timezone=Asia/Kamchatka&models=${BASE_MODEL},${PRECIP_MODEL}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
-      result = { ok: false, reason: `Open-Meteo HTTP ${res.status}` };
+      const body = await res.text().catch(() => '');
+      result = { ok: false, reason: openMeteoFailureReason(res.status, body.slice(0, 2000)) };
     } else {
       const json = await res.json() as {
         elevation?: unknown;
