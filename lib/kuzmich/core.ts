@@ -2137,7 +2137,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // /transfers. Отказ базы возвращается словами «не смог проверить», а не
       // «поездок нет» — прежний инструмент выдавал поломку за факт (01.09).
       const { searchTransfersForKuzmich } = await import('@/lib/kuzmich/transfer-search');
-      return await searchTransfersForKuzmich({ from: args.from, to: args.to, seats: args.seats, place: args.place });
+      return await searchTransfersForKuzmich({ from: args.from, to: args.to, seats: args.seats, place: args.place }, { surface: opts.surface });
     }
     if (name === 'search_gear') {
       const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');

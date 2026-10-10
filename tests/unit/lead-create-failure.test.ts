@@ -121,3 +121,31 @@ describe('createLead: успешный путь не логирует ошибо
     spy.mockRestore();
   });
 });
+
+describe('createLead: skip_ai_processing — лид не про подбор тура', () => {
+  beforeEach(() => {
+    poolQueryMock.mockReset();
+    // Дедуп (SELECT ... FROM leads) ничего не находит, INSERT возвращает id.
+    poolQueryMock.mockImplementation(async (sql: string) =>
+      /INSERT INTO leads/.test(String(sql)) ? { rows: [{ id: 'lead-1' }] } : { rows: [] });
+  });
+  const insertParams = () => {
+    const call = poolQueryMock.mock.calls.find(([sql]) => /INSERT INTO leads/.test(String(sql)));
+    return call?.[1] as unknown[];
+  };
+  // Позиция processed_at в списке параметров INSERT: десятая колонка (индекс 9).
+  const PROCESSED_AT = 9;
+
+  it('по умолчанию лид остаётся открытым для AI-конвейера (processed_at пуст)', async () => {
+    await createLead({ name: 'Иван Петров', phone: '+79001234567', comment: 'Хочу тур на вулканы на неделю в июле, двое взрослых' });
+    expect(insertParams()[PROCESSED_AT]).toBeNull();
+  });
+
+  it('с флагом закрыт для cron сразу, а уведомление менеджеру всё равно уходит', async () => {
+    const { notifyAdminNewLead } = await import('@/lib/notifications/telegram-channel');
+    vi.mocked(notifyAdminNewLead).mockClear();
+    await createLead({ name: 'Иван Петров', phone: '+79001234567', comment: 'Хочу тур на вулканы на неделю в июле, двое взрослых', skip_ai_processing: true });
+    expect(insertParams()[PROCESSED_AT]).toBeInstanceOf(Date);
+    expect(notifyAdminNewLead).toHaveBeenCalledTimes(1);
+  });
+});

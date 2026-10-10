@@ -214,8 +214,8 @@ describe('аннотации — у каждого инструмента, и п
   });
 
   const NON_IDEMPOTENT_READS = new Set(['edit_trip_plan']);
-  it('пишущих ровно два, и это заявки; всё остальное только читает', () => {
-    expect([...WRITE_TOOL_NAMES].sort()).toEqual(['create_booking_request', 'create_lead']);
+  it('пишущих ровно три, и это заявки; всё остальное только читает', () => {
+    expect([...WRITE_TOOL_NAMES].sort()).toEqual(['create_booking_request', 'create_lead', 'request_charter']);
     for (const t of PUBLIC_MCP_TOOLS) {
       const a = t.annotations!;
       if (WRITE_TOOL_NAMES.has(t.name)) {

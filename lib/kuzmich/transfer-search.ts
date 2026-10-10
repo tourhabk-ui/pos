@@ -20,7 +20,7 @@
  * есть.
  */
 import { listPublishedTrips } from '@/lib/transfers/service';
-import { loadCharterCarriers, charterFootnote, describeFleet, type CharterCarrier } from '@/lib/transfers/charter';
+import { loadCharterCarriers, charterFootnote, describeFleet, matchDestinations, type CharterCarrier } from '@/lib/transfers/charter';
 import { getPublicBaseUrl } from '@/lib/config';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -58,7 +58,12 @@ export function resolveWindow(args: TransferSearchArgs, now = new Date()): { fro
  * Пустой список — раздела нет вовсе: говорить «под заказ никого нет» значило
  * бы утверждать больше, чем знает инструмент о рынке.
  */
-export function charterSection(carriers: CharterCarrier[] | null, place: string | undefined, base: string): string {
+export function charterSection(
+  carriers: CharterCarrier[] | null,
+  place: string | undefined,
+  base: string,
+  opts: { surface?: 'chat' | 'mcp' } = {},
+): string {
   if (carriers === null) {
     return '\n\nНе смог проверить прайс вахтовок под заказ — сбой на нашей стороне. Не говори, что таких перевозчиков нет; предложи посмотреть позже на /transfers.';
   }
@@ -66,7 +71,7 @@ export function charterSection(carriers: CharterCarrier[] | null, place: string 
   const needle = (place ?? '').trim().toLowerCase();
   const blocks = carriers.map(c => {
     const hit = needle
-      ? c.destinations.filter(d => d.to.toLowerCase().includes(needle) || d.from.toLowerCase().includes(needle))
+      ? matchDestinations(c.destinations, needle, { includeFrom: true })
       : c.destinations;
     const shown = hit.length > 0 ? hit : c.destinations;
     const miss = needle && hit.length === 0 ? `Направления «${place}» в прайсе нет; весь прайс: ` : '';
@@ -78,10 +83,16 @@ export function charterSection(carriers: CharterCarrier[] | null, place: string 
     const note = charterFootnote(c);
     return `${c.name}${fleet ? ` — ${fleet}` : ''}. ${miss}Цена за машину целиком: ${prices}${extra}.${note ? ` ${note}` : ''} Связь, фото и заказ — на карточке: ${base}/operators/${c.slug}`;
   });
-  return `\n\nПод заказ целой машиной (дат и мест нет; цена за машину, не за место; сколько дней и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую, через платформу не оплачивается):\n${blocks.join('\n')}`;
+  // Заявку на машину умеет оставить только внешний агент (MCP): у Кузьмича в
+  // чате такого инструмента нет, и отсылать его к request_charter значило бы
+  // обещать путь, которого нет (§4, объявленный исход без источника).
+  const order = opts.surface === 'mcp'
+    ? '\nОставить заявку на машину: request_charter (куда, даты выезда, сколько человек, имя, телефон, согласие). Машина этим не закрепляется — подтверждает менеджер с перевозчиком.'
+    : '';
+  return `\n\nПод заказ целой машиной (дат и мест нет; цена за машину, не за место; сколько дней и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую, через платформу не оплачивается):\n${blocks.join('\n')}${order}`;
 }
 
-export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promise<string> {
+export async function searchTransfersForKuzmich(args: TransferSearchArgs, opts: { surface?: 'chat' | 'mcp' } = {}): Promise<string> {
   const { from, to } = resolveWindow(args);
   const seatsNum = Number(args.seats);
   const minSeats = args.seats && Number.isFinite(seatsNum) && seatsNum >= 1 ? Math.min(60, Math.floor(seatsNum)) : 1;
@@ -101,9 +112,9 @@ export async function searchTransfersForKuzmich(args: TransferSearchArgs): Promi
     console.error('[kuzmich/search_transfers]', err instanceof Error ? err.message : err);
     // Не «поездок нет», а «не смог проверить»: одно от другого турист обязан отличать.
     return 'Не смог проверить витрину поездок перевозчиков — сбой на нашей стороне. Не говори, что мест нет; предложи посмотреть позже на /transfers.'
-      + charterSection(await charterPromise, args.place, base);
+      + charterSection(await charterPromise, args.place, base, opts);
   }
-  const charter = charterSection(await charterPromise, args.place, base);
+  const charter = charterSection(await charterPromise, args.place, base, opts);
 
   // Фильтр по направлению — по тексту «куда», как его написал перевозчик.
   const needle = (args.place ?? '').trim().toLowerCase();

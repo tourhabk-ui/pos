@@ -72,6 +72,36 @@ export const BOOKING_REQUEST_TOOL = {
 } as const;
 
 /**
+ * request_charter — заявка на вахтовку ЦЕЛОЙ МАШИНОЙ у перевозчика «под заказ»
+ * (решение владельца 10.10: «трансфер работает не по маршруту, а по заказам»).
+ *
+ * Не рейс и не место: у такого перевозчика нет календаря, направление и дни
+ * задаёт заказчик, цена — за машину по прайсу (lib/transfers/charter). Поэтому
+ * инструмент не проверяет занятость (её система не ведёт) и не создаёт
+ * бронь: заявка идёт общим createLead() к менеджеру, перевозчик подтверждает
+ * через него. Оплаты через платформу нет — расчёт напрямую.
+ */
+export const REQUEST_CHARTER_TOOL = {
+  name: 'request_charter',
+  description: 'Заявка на вахтовку целой машиной у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true, иначе заявка не создаётся.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      destination: { type: 'string', description: 'Куда ехать: слово или название из прайса («Горелый», «Толбачик») либо своё направление' },
+      date_from: { type: 'string', description: 'Дата выезда, YYYY-MM-DD' },
+      date_to: { type: 'string', description: 'Дата возвращения, YYYY-MM-DD, если известна' },
+      passengers: { type: 'string', description: 'Сколько человек (1–60)' },
+      name: { type: 'string', description: 'Имя заказчика' },
+      phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
+      carrier: { type: 'string', description: 'Перевозчик: название или slug из search_transfers. Не нужен, пока перевозчик один.' },
+      comment: { type: 'string', description: 'Пожелания: сколько дней нужна машина, что везти, откуда забирать' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
+    },
+    required: ['destination', 'date_from', 'passengers', 'name', 'phone', 'consent'],
+  },
+} as const;
+
+/**
  * Подсказки хосту о природе инструмента (MCP `ToolAnnotations`).
  *
  * Хост по ним решает, спрашивать ли человека перед вызовом, и каталоги
@@ -124,6 +154,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   edit_trip_plan:        { ...READ, idempotentHint: false },
   create_lead:           WRITE,
   create_booking_request: WRITE,
+  request_charter:       WRITE,
 };
 
 /**
@@ -162,6 +193,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true from the traveller, otherwise refused and nothing is stored.' },
   create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
+  request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers.' },
 };
 
 /**
@@ -255,6 +287,17 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     plan_id: { lead: 'Plan ID from make_trip_plan when this tour is part of that plan: the operator sees the whole trip.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
+  request_charter: {
+    destination: { lead: 'Where to go: a word from the carrier price list or your own destination.', example: 'Горелый' },
+    date_from: { lead: 'Departure date, YYYY-MM-DD.', example: '2027-07-15' },
+    date_to: { lead: 'Return date, YYYY-MM-DD, if known.', example: '2027-07-17' },
+    passengers: { lead: 'Number of people, 1–60.', example: '8' },
+    name: { lead: "Customer's name." },
+    phone: { lead: 'Contact phone, required.' },
+    carrier: { lead: 'Carrier name or slug from search_transfers; not needed while there is one carrier.', example: 'shatun' },
+    comment: { lead: 'Wishes: how many days the vehicle is needed, what to carry, pickup place.' },
+    consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
+  },
 };
 
 interface JsonSchemaLike {
@@ -308,6 +351,7 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
     })),
   withAnnotations(CREATE_LEAD_TOOL),
   withAnnotations(BOOKING_REQUEST_TOOL),
+  withAnnotations(REQUEST_CHARTER_TOOL),
 ];
 
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
@@ -328,5 +372,5 @@ export const MCP_SERVER_INFO = {
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
   version: '2.3.0',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи две: заявка на подбор (create_lead) и заявка оператору на тур и дату (create_booking_request) — обе подтверждает человек.',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи три: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request) и заявка на вахтовку целой машиной (request_charter) — все подтверждает человек.',
 } as const;

@@ -21,7 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PUBLIC_MCP_TOOLS, TOOL_ENGLISH, TOOL_ANNOTATIONS, EXCLUDED_TOOLS, PARAM_ENGLISH,
-  CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL,
+  CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL,
 } from '@/lib/mcp/public-tools';
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 
@@ -31,6 +31,7 @@ const CYRILLIC = /[А-Яа-яЁё]/;
 function kuzmichDescription(name: string): string {
   if (name === CREATE_LEAD_TOOL.name) return CREATE_LEAD_TOOL.description;
   if (name === BOOKING_REQUEST_TOOL.name) return BOOKING_REQUEST_TOOL.description;
+  if (name === REQUEST_CHARTER_TOOL.name) return REQUEST_CHARTER_TOOL.description;
   const t = Object.values(TOOL_REGISTRY).find((r) => r.definition.function.name === name);
   if (!t) throw new Error(`${name}: нет в реестре Кузьмича`);
   return t.definition.function.description;
@@ -40,6 +41,7 @@ function kuzmichDescription(name: string): string {
 function kuzmichSchema(name: string): { properties?: Record<string, { description?: string }> } {
   if (name === CREATE_LEAD_TOOL.name) return CREATE_LEAD_TOOL.inputSchema;
   if (name === BOOKING_REQUEST_TOOL.name) return BOOKING_REQUEST_TOOL.inputSchema;
+  if (name === REQUEST_CHARTER_TOOL.name) return REQUEST_CHARTER_TOOL.inputSchema;
   const t = Object.values(TOOL_REGISTRY).find((r) => r.definition.function.name === name);
   if (!t) throw new Error(`${name}: нет в реестре Кузьмича`);
   return t.definition.function.parameters as { properties?: Record<string, { description?: string }> };
@@ -57,7 +59,7 @@ const DISAMBIGUATION: Array<[string, string]> = [
 const ROLE_WORDS: Array<[RegExp, RegExp, string]> = [
   [/^(safety_status|get_guardian_context)$/, /\b(safety|alerts)\b/, 'safety или alerts'],
   [/^(get_tours|get_tour_availability|make_trip_plan|create_booking_request)$/, /\blive availability\b/, 'live availability'],
-  [/^(create_lead|create_booking_request)$/, /\bhuman-confirmed\b/, 'human-confirmed'],
+  [/^(create_lead|create_booking_request|request_charter)$/, /\bhuman-confirmed\b/, 'human-confirmed'],
 ];
 
 describe('английский слой наружу — у каждого инструмента', () => {

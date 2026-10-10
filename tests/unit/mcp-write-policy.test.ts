@@ -127,9 +127,9 @@ describe('согласие спрашивается и объясняется', 
     expect(v.decision).toBe('deny');
   });
 
-  it('оба заявочных инструмента ТРЕБУЮТ consent в схеме', () => {
+  it('все заявочные инструменты ТРЕБУЮТ consent в схеме', () => {
     const required = [...TOOLS.matchAll(/required:\s*\[([^\]]*)\]/g)].map((m) => m[1]);
-    expect(required.length).toBe(2);
+    expect(required.length).toBe(3);
     for (const r of required) expect(r).toContain("'consent'");
   });
 });
@@ -183,10 +183,10 @@ describe('в журнале нет персональных данных', () =>
   });
 });
 
-describe('согласие доезжает до лида обоими путями', () => {
-  it('оба createLead из MCP получают pd_consent', () => {
+describe('согласие доезжает до лида всеми путями', () => {
+  it('все createLead из MCP получают pd_consent', () => {
     const calls = [...ROUTE.matchAll(/createLead\(\{[\s\S]*?\n  \}\)/g)].map((m) => m[0]);
-    expect(calls.length).toBe(2);
+    expect(calls.length).toBe(3);
     for (const c of calls) expect(c).toContain('pd_consent');
   });
 

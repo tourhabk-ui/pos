@@ -35,9 +35,9 @@ describe('normalizePhone: мягкая E.164, не строго-РФ', () => {
   });
 });
 
-describe('оба пишущих инструмента нормализуют телефон до создания лида', () => {
-  it('create_lead и create_booking_request зовут normalizePhone', () => {
-    expect(ROUTE.match(/normalizePhone\(parsed\.data\.phone\)/g)?.length).toBe(2);
+describe('все пишущие инструменты нормализуют телефон до создания лида', () => {
+  it('create_lead, create_booking_request и request_charter зовут normalizePhone', () => {
+    expect(ROUTE.match(/normalizePhone\(parsed\.data\.phone\)/g)?.length).toBe(3);
     expect(ROUTE).toMatch(/Телефон не похож на номер/);
   });
 });
