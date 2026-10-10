@@ -478,3 +478,18 @@ export async function executeCrmTool(
 export function crmToolText(r: CrmToolResult): string {
   return r.ok ? JSON.stringify(r.data) : `Не выполнено: ${r.error}`;
 }
+
+/**
+ * Что записал пишущий инструмент — словами для партнёра. Нужна поверхности,
+ * где модель может не дойти до ответа после записи (чат партнёра): человек
+ * должен узнать, что записано, иначе попросит снова и получит дубль. Слова
+ * живут здесь, рядом с инструментами, а не в поверхности: новый пишущий
+ * инструмент получает свою строку там же, где заводится.
+ */
+export function crmWriteSummary(name: string, args: Record<string, unknown>): string {
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  if (name === 'crm_add_task') return `задача «${str(args.title)}» со сроком ${str(args.due)}`.trim();
+  if (name === 'crm_complete_task') return 'задача отмечена выполненной';
+  if (name === 'crm_add_touch') return `запись в ленту клиента «${str(args.title)}»`;
+  return name;
+}

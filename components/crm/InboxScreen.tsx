@@ -16,6 +16,7 @@ import { INBOX_ACTION, INBOX_KIND_LABELS, INBOX_SLOW_MINUTES, RESPONSE_MIN_SAMPL
 import { CRM_INBOX_API } from './api';
 import { formatSourceDate } from './labels';
 import { ContactPanel } from './ContactPanel';
+import { SeatRequestActions } from './SeatRequestActions';
 
 type LoadState =
   | { kind: 'loading' }
@@ -61,7 +62,7 @@ function ResponseLine({ data }: { data: InboxData }) {
   );
 }
 
-function ItemRow({ item, onOpenContact }: { item: InboxItem; onOpenContact: (id: string) => void }) {
+function ItemRow({ item, onOpenContact, onAnswered }: { item: InboxItem; onOpenContact: (id: string) => void; onAnswered: () => void }) {
   const action = INBOX_ACTION[item.kind];
   const slow = item.waiting_minutes >= INBOX_SLOW_MINUTES;
   const date = formatSourceDate(item.date);
@@ -101,6 +102,7 @@ function ItemRow({ item, onOpenContact }: { item: InboxItem; onOpenContact: (id:
       ) : (
         <p className="text-xs text-[var(--text-muted)]">{action.hint}</p>
       )}
+      {item.kind === 'seat_request' && <SeatRequestActions requestId={item.id} onAnswered={onAnswered} />}
     </li>
   );
 }
@@ -185,7 +187,7 @@ export function InboxScreen() {
           ) : (
             <ul className="space-y-2">
               {state.data.items.map((it) => (
-                <ItemRow key={`${it.kind}:${it.id}`} item={it} onOpenContact={setOpenId} />
+                <ItemRow key={`${it.kind}:${it.id}`} item={it} onOpenContact={setOpenId} onAnswered={refresh} />
               ))}
             </ul>
           )}

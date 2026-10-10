@@ -677,6 +677,26 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(o.items.find((i) => i.kind === 'lead')).toMatchObject({ title: 'Мутновский' });
     expect(o.response).toMatchObject({ enough: true, responded: 5, median_minutes: 30, complete: true });
 
+    // Отзыв о туре без ответа — входящее; ответ оператора убирает его; скрытый
+    // модерацией и старше окна отзывов — не входящее.
+    const rev = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tour_reviews (tour_id, author_name, rating, comment) VALUES ($1, 'Анна Петрова', 4, 'Хорошо') RETURNING id::text`,
+      [tour],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO operator_tour_reviews (tour_id, author_name, rating, comment, is_hidden) VALUES ($1, 'Скрытый', 1, 'x', TRUE)`, [tour],
+    );
+    const withReview = await loadInbox(op, 'operator', 'u', { db: pool, unreadChat: async () => 0 });
+    expect(withReview.failed).toEqual([]);
+    const tr = withReview.items.filter((i) => i.kind === 'tour_review');
+    expect(tr).toHaveLength(1);
+    expect(tr[0]).toMatchObject({ id: rev, contact_name: null });
+    expect(tr[0].title).toMatch(/Тур входящих · оценка 4 из 5/);
+    expect(JSON.stringify(withReview)).not.toMatch(/Петрова/);
+    await pool.query(`UPDATE operator_tour_reviews SET operator_reply = 'Спасибо', operator_reply_at = NOW() WHERE id = $1`, [rev]);
+    const answered = await loadInbox(op, 'operator', 'u', { db: pool, unreadChat: async () => 0 });
+    expect(answered.items.filter((i) => i.kind === 'tour_review')).toEqual([]);
+
     // Остальные роли: каждый запрос исполняется на настоящей схеме.
     const acc = (await pool.query<{ id: string }>(
       `INSERT INTO accommodations (partner_id, name, type, coordinates, moderation_status)
@@ -708,6 +728,15 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     );
     await pool.query(`INSERT INTO guide_operator_invites (operator_id, guide_partner_id) VALUES ($1, $2)`, [op, guide]);
     await pool.query(`INSERT INTO guide_reviews (guide_id, rating, comment) VALUES ($1, 4, 'Хорошо')`, [guide]);
+    // Отзыв гостя без ответа (1208) — входящее жилья; скрытый — нет.
+    await pool.query(
+      `INSERT INTO accommodation_reviews (user_id, accommodation_id, overall_rating, comment) VALUES ($1, $2, 5, 'Отлично')`,
+      [touristId, acc],
+    );
+    await pool.query(
+      `INSERT INTO accommodation_reviews (user_id, accommodation_id, overall_rating, comment, is_visible) VALUES ($1, $2, 1, 'x', FALSE)`,
+      [touristId, acc],
+    );
 
     const expectKinds = async (partner: string, category: 'stay' | 'gear' | 'transfer' | 'guide', want: string[]) => {
       const r = await loadInbox(partner, category, 'u', { db: pool, unreadChat: async () => 0 });
@@ -716,6 +745,13 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
       expect(r.response.enough, category).toBe(false);
       return r;
     };
+    const st = await expectKinds(stay, 'stay', ['accommodation_booking', 'stay_review']);
+    expect(st.items.find((i) => i.kind === 'stay_review')).toMatchObject({ title: 'Дом у реки · оценка 5 из 5', contact_name: null });
+    // Ответ и его время — парой; без пары база не примет.
+    await expect(pool.query(
+      `UPDATE accommodation_reviews SET owner_reply = 'x' WHERE accommodation_id = $1`, [acc],
+    )).rejects.toMatchObject({ code: '23514' });
+    await pool.query(`UPDATE accommodation_reviews SET owner_reply = 'Спасибо', owner_reply_at = NOW() WHERE accommodation_id = $1`, [acc]);
     await expectKinds(stay, 'stay', ['accommodation_booking']);
     await expectKinds(gear, 'gear', ['gear_rental']);
     const t = await expectKinds(carrier, 'transfer', ['transfer_seat_booking']);

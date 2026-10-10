@@ -10,7 +10,7 @@
  *   contact_id, contact_name — клиент CRM, если предмет к нему привязан.
  *
  * Параметры у всех: $1 — partners.id, $2 — начало окна медианы ответа,
- * $3 — начало окна отзывов. Запрос отдаёт ждущие предметы любого возраста
+ * $3 — начало окна отзывов (только у запросов отзывов). Запрос отдаёт ждущие предметы любого возраста
  * и все предметы окна — для медианы.
  *
  * Ответ партнёра по источникам CRM — первое событие ленты по этому источнику
@@ -138,4 +138,29 @@ export const INBOX_SQL: Readonly<Record<InboxKind, string>> = {
       FROM guide_reviews g
      WHERE g.guide_id = $1
        AND ((g.guide_reply IS NULL AND g.created_at >= $3) OR g.created_at >= $2)`,
+
+  // Отзыв о туре оператора: тот же уговор, что у отзыва о гиде. Скрытый
+  // модерацией (878) ответа не ждёт — на карточке его нет.
+  tour_review: `
+    SELECT r.id::text AS item_id, r.created_at, (t.title || ' · оценка ' || r.rating::text || ' из 5') AS title,
+           r.trip_date::text AS item_date, NULL::int AS people,
+           (r.operator_reply IS NULL AND r.created_at >= $3) AS waiting,
+           r.operator_reply_at AS responded_at,
+           ${NO_CONTACT}
+      FROM operator_tour_reviews r
+      JOIN operator_tours t ON t.id = r.tour_id
+     WHERE t.operator_id = $1 AND t.deleted_at IS NULL AND r.is_hidden = FALSE
+       AND ((r.operator_reply IS NULL AND r.created_at >= $3) OR r.created_at >= $2)`,
+
+  // Отзыв гостя о жилье (ответ — миграция 1208). Скрытый модерацией ответа не ждёт.
+  stay_review: `
+    SELECT r.id::text AS item_id, r.created_at, (a.name || ' · оценка ' || r.overall_rating::text || ' из 5') AS title,
+           NULL::text AS item_date, NULL::int AS people,
+           (r.owner_reply IS NULL AND r.created_at >= $3) AS waiting,
+           r.owner_reply_at AS responded_at,
+           ${NO_CONTACT}
+      FROM accommodation_reviews r
+      JOIN accommodations a ON a.id = r.accommodation_id
+     WHERE a.partner_id = $1 AND r.is_visible IS NOT FALSE
+       AND ((r.owner_reply IS NULL AND r.created_at >= $3) OR r.created_at >= $2)`,
 };

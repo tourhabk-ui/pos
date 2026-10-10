@@ -23,6 +23,7 @@ import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { redactPII } from '@/lib/security/pii-redact';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,7 +96,8 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        reviews: result.rows,
+        // Имя автора — «Имя Ф.», как на карточке тура (lib/reviews/public-name).
+        reviews: result.rows.map((r) => ({ ...r, author_name: publicReviewerName(r.author_name) })),
         summary: {
           totalReviews: totalCount,
           avgRating: summary.avg_rating ? parseFloat(summary.avg_rating).toFixed(2) : '0.00',

@@ -13,7 +13,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSystemPrompt, buildMessageHistory, ChatRole, ChatMessage } from '@/lib/ai/prompts';
 import { query } from '@/lib/database';
-import { pool } from '@/lib/db-pool';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
@@ -37,6 +36,7 @@ import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
+import { partnerContextFor } from '@/lib/crm/partner-context';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { withSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
 
@@ -285,10 +285,13 @@ export async function POST(request: NextRequest) {
     // Agentic Operator: authenticated operators → SDK tool calling for tour/booking management
     if (!answer && safeRole === 'operator' && isAuthenticated && userId) {
       try {
-        const partnerRes = await pool.query<{ id: string }>(
-          `SELECT id::text FROM partners WHERE user_id = $1 LIMIT 1`, [userId],
-        );
-        const partnerId = partnerRes.rows[0]?.id;
+        // Профиль оператора — по роли, а не первая строка partners этого
+        // человека: у кого есть ещё профиль гида или агента, тот получал бы
+        // инструменты броней на чужую категорию. Правило одно с кабинетом
+        // (partnerContextFor): категория и старший профиль; «не смогли
+        // проверить» записано в лог там же.
+        const opCtx = await partnerContextFor(userId, 'operator');
+        const partnerId = opCtx.outcome === 'ok' ? opCtx.partnerId : null;
         if (partnerId) {
           // Seed инвокации — из доверенного контекста запроса (сессия +
           // само сообщение): один пользовательский запрос — один эффект

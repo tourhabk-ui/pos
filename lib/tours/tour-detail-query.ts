@@ -20,6 +20,7 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { parseTourParam } from '@/lib/tours/tour-url';
 import { tourClips, type TourClip } from '@/lib/tours/tour-clips';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 /** Строка тура для карточки. `program`/`safety_notes` могут отсутствовать,
  *  если миграция 809 ещё не применилась — карточка это переживает. */
@@ -153,6 +154,8 @@ export interface TourCardReview {
   trip_date: string | null;
   /** Фото туристов (миграция 832); до неё колонки нет — карточка это переживает. */
   photos?: string[] | null;
+  /** Ответ оператора (миграция 878); NULL — не отвечал. */
+  operator_reply: string | null;
 }
 
 /** Колонки, добавленные миграциями 809 и 1194 — их может не быть, если миграция отстала. */
@@ -273,15 +276,19 @@ export async function getTourReviews(tourId: number): Promise<TourCardReview[]> 
   // должен попадать на публичную карточку тура. Без фильтра кнопка «Скрыть»
   // в /hub/admin/content/tour-reviews ничего не скрывала для туриста.
   const sql = (withPhotos: boolean) =>
-    `SELECT id, author_name, author_city, rating, comment, trip_date${withPhotos ? ', photos' : ''}
+    `SELECT id, author_name, author_city, rating, comment, trip_date, operator_reply${withPhotos ? ', photos' : ''}
        FROM operator_tour_reviews
       WHERE tour_id = $1
         AND is_hidden = FALSE
       ORDER BY created_at DESC
       LIMIT 6`;
+  // Имя автора на публичной карточке — «Имя Ф.», как у отзывов о жилье и
+  // маршрутах (lib/reviews/public-name): полное имя с фамилией туристу,
+  // оставившему отзыв, публиковать незачем (10.10).
+  const publicRows = (rows: TourCardReview[]) => rows.map((r) => ({ ...r, author_name: publicReviewerName(r.author_name) }));
   try {
     const { rows } = await pool.query<TourCardReview>(sql(true), [tourId]);
-    return rows;
+    return publicRows(rows);
   } catch (e) {
     if (!isUndefinedColumn(e)) {
       logReviewsFailure('with_photos', e);
@@ -290,7 +297,7 @@ export async function getTourReviews(tourId: number): Promise<TourCardReview[]> 
     // Миграция 832 (photos) ещё не применилась — отзывы без фото, но живые.
     try {
       const { rows } = await pool.query<TourCardReview>(sql(false), [tourId]);
-      return rows;
+      return publicRows(rows);
     } catch (e2) {
       logReviewsFailure('without_photos', e2);
       return [];
