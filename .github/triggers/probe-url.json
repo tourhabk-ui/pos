@@ -3,36 +3,30 @@
   "retries": 1,
   "allowStale": true,
   "retryDelay": 10,
-  "run": 757,
-  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. SEO, шаг 2 после сверки аудита 29.09 с кодом: подтвердить на живом сайте то, что код сделал, но прод не показывал. UA — Googlebot (он с 29.09 в htmlLimitedBots рядом с yandex: метаданные в <head>, рендер блокирующий). 1) несуществующие маршрут, тур и место — настоящий 404, а не 200 (Н2); 2) два адреса маршрутов из sitemap, отдававшие «не найден» (Н2/Н9) — что сейчас и есть ли они в sitemap; 3) карточка места по UUID — 308 на адрес по имени, canonical в <head> (Н4). Повтор 757: проба 756 остановилась на первом адресе — 404 она считает «не снятой предпосылкой», а здесь 404 и есть искомый ответ; allowStale: true, чтобы пройти все семь адресов.",
+  "run": 758,
+  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. SEO, шаг 3 после выката #2369 (0971df0cb, deploy 38094314336 success): карточка маршрута собирается на сервере (lib/routes/route-detail). Поисковик (UA Googlebot) должен получить в HTML содержимое карточки — заголовок, снаряжение, регистрацию, — а не сводку-заглушку «Маршрут на Камчатке» из прежнего клиентского рендера. Адрес по UUID уводит 308 на slug.",
   "urls": [
-    "https://vedarai.ru/routes/proba-net-takogo-marshruta-756",
-    "https://vedarai.ru/catalog/tours/proba-net-takogo-tura-756",
-    "https://vedarai.ru/places/proba-net-takogo-mesta-756",
-    "https://vedarai.ru/routes/visitkamchatka-geyzers-kron",
-    "https://vedarai.ru/routes/visitkamchatka-babiy-summer",
-    "https://vedarai.ru/places/60b06659-f636-43b7-8b18-0601d8744739",
-    "https://vedarai.ru/sitemap.xml"
+    "https://vedarai.ru/routes/66061e18-77ba-433f-b812-81e138266b2e",
+    "https://vedarai.ru/routes/vulkani"
   ],
   "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
   "grep": [
-    "rel=\"canonical\"",
-    "noindex",
-    "visitkamchatka-geyzers-kron",
-    "visitkamchatka-babiy-summer",
-    "<h1"
+    "Маршрут на Камчатке",
+    "Снаряжение",
+    "Регистрац",
+    "<h1",
+    "rel=\"canonical\""
   ],
   "count": [
-    "<url>",
+    "<h1",
     "rel=\"canonical\""
   ],
   "around": [
-    "rel=\"canonical\"",
-    "</head>",
-    "name=\"robots\""
+    "<h1",
+    "rel=\"canonical\""
   ],
-  "aroundBefore": 160,
-  "aroundHits": 2,
+  "aroundBefore": 80,
+  "aroundHits": 1,
   "aroundLines": 0,
   "text": false,
   "bytes": 0
