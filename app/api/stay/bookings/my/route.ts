@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { logStayFailure } from '@/lib/notifications/stay-booking';
+import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
          (SELECT ast.url FROM accommodation_assets aa
           JOIN assets ast ON aa.asset_id = ast.id
           WHERE aa.accommodation_id = a.id
-          ORDER BY ast.created_at ASC LIMIT 1) AS image_url,
+          ORDER BY ${STAY_PHOTO_ORDER_SQL} LIMIT 1) AS image_url,
          (b.check_in_date > (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
           AND b.status IN ('pending', 'confirmed')) AS cancellable,
          (b.status = 'completed'

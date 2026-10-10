@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { roomNightsSql } from '@/lib/stay/availability';
+import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 
 export const dynamic = 'force-dynamic';
 
@@ -251,11 +252,10 @@ export async function GET(request: NextRequest) {
         a.created_at,
         p.name as partner_name,
         (
-          SELECT json_agg(json_build_object('url', ast.url, 'alt', ast.alt))
+          SELECT json_agg(json_build_object('url', ast.url, 'alt', ast.alt) ORDER BY ${STAY_PHOTO_ORDER_SQL})
           FROM accommodation_assets aa
           JOIN assets ast ON aa.asset_id = ast.id
           WHERE aa.accommodation_id = a.id
-          LIMIT 5
         ) as images
       FROM accommodations a
       LEFT JOIN partners p ON a.partner_id = p.id

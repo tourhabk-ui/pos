@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
+import { OperatorGallery } from '@/components/operator/OperatorGallery';
+import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { formatContactPhone, messengerLinks, type NumberMessenger } from '@/lib/stay/contact-phone';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
@@ -96,6 +98,7 @@ export default function AccommodationDetailClient({ accommodationId, initialData
   const [data, setData] = useState<AccommodationDetail | null>(initialData ?? null);
   const [notFound, setNotFound] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [photo, setPhoto] = useState<number | null>(null);
 
   useEffect(() => {
     if (initialData) return;
@@ -169,9 +172,17 @@ export default function AccommodationDetailClient({ accommodationId, initialData
           <ChevronLeft className="w-3.5 h-3.5" /> Каталог жилья
         </Link>
 
-        {/* Фото */}
+        {/* Фото. До 10.10 карточка рисовала только первый снимок: у «Кутхи»
+            девятнадцать из двадцати фото было не увидеть никак. Главный кадр
+            открывается на весь экран, остальные — сеткой под ним; просмотрщик
+            общий с карточкой тура и страницей оператора. */}
         {data.images.length > 0 && (
-          <div className="relative w-full h-64 sm:h-80 rounded-lg overflow-hidden mb-6 bg-[var(--bg-hover)]">
+          <button
+            type="button"
+            onClick={() => setPhoto(0)}
+            className="relative block w-full h-64 sm:h-80 rounded-lg overflow-hidden mb-3 bg-[var(--bg-hover)]"
+            aria-label={`Открыть фото 1 из ${data.images.length}`}
+          >
             <Image
               src={data.images[0].url}
               alt={data.images[0].alt ?? data.name}
@@ -179,7 +190,22 @@ export default function AccommodationDetailClient({ accommodationId, initialData
               className="object-cover"
               sizes="(max-width: 896px) 100vw, 896px"
             />
+          </button>
+        )}
+        {data.images.length > 1 && (
+          <div className="mb-6">
+            <OperatorGallery images={data.images.slice(1).map(i => i.url)} name={data.name} />
           </div>
+        )}
+        {data.images.length === 1 && <div className="mb-3" />}
+        {photo !== null && (
+          <PhotoLightbox
+            images={data.images.map(i => i.url)}
+            alt={data.name}
+            startIdx={photo}
+            captions={data.images.map(i => i.alt)}
+            onClose={() => setPhoto(null)}
+          />
         )}
 
         {/* Заголовок */}
@@ -244,8 +270,10 @@ export default function AccommodationDetailClient({ accommodationId, initialData
             спрос на жильё, в NSM не входит. */}
         {data.contactPhone && phoneLabel && (
           <div className="ds-card p-5 mb-8 space-y-3">
+            {/* Цену владелец может назвать нам (1198, «Кутха»): тогда она есть
+                в карточке, и фраза «цены — у владельца» ей бы противоречила. */}
             <p className="text-sm text-[var(--text-secondary)]">
-              Цены, свободные даты и условия — у владельца объекта. Бронь и оплата идут напрямую с ним: платформа оплату не принимает.
+              {data.pricePerNight.from != null ? 'Свободные даты и условия' : 'Цены, свободные даты и условия'} — у владельца объекта. Бронь и оплата идут напрямую с ним: платформа оплату не принимает.
             </p>
             <a
               href={`tel:${data.contactPhone}`}
