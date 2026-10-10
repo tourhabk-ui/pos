@@ -2,33 +2,38 @@
   "timeout": 40,
   "retries": 1,
   "allowStale": false,
-  "bytes": 200,
-  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 754: первая шла ДО выката (until не был задан, ждать было нечем), а API места подписей кадров не отдаёт — только адреса галереи, авторов и photoCount. Читаем их: на смотровой 60b06659 должен прибавиться кадр Алины (миграция 1211).",
-  "run": 755,
+  "retryDelay": 10,
+  "run": 756,
+  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. SEO, шаг 2 после сверки аудита 29.09 с кодом: подтвердить на живом сайте то, что код сделал, но прод не показывал. UA — Googlebot (он с 29.09 в htmlLimitedBots рядом с yandex: метаданные в <head>, рендер блокирующий). 1) несуществующие маршрут, тур и место — настоящий 404, а не 200 (Н2); 2) два адреса маршрутов из sitemap, отдававшие «не найден» (Н2/Н9) — что сейчас и есть ли они в sitemap; 3) карточка места по UUID — 308 на адрес по имени, canonical в <head> (Н4).",
   "urls": [
-    "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739"
+    "https://vedarai.ru/routes/proba-net-takogo-marshruta-756",
+    "https://vedarai.ru/catalog/tours/proba-net-takogo-tura-756",
+    "https://vedarai.ru/places/proba-net-takogo-mesta-756",
+    "https://vedarai.ru/routes/visitkamchatka-geyzers-kron",
+    "https://vedarai.ru/routes/visitkamchatka-babiy-summer",
+    "https://vedarai.ru/places/60b06659-f636-43b7-8b18-0601d8744739",
+    "https://vedarai.ru/sitemap.xml"
   ],
+  "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
   "grep": [
-    "place-gallery",
-    "photoCount",
-    "Алина Гусакова"
+    "rel=\"canonical\"",
+    "noindex",
+    "visitkamchatka-geyzers-kron",
+    "visitkamchatka-babiy-summer",
+    "<h1"
   ],
-  "text": false,
-  "around": [
-    "photoCount",
-    "place-gallery",
-    "gallery_authors",
-    "\"authors\"",
-    "Алина Гусакова"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 6,
-  "aroundBefore": 80,
-  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
   "count": [
-    "data-post=\"pravonarul/",
-    "tgme_widget_message_photo_wrap",
-    "tgme_widget_message_text"
+    "<url>",
+    "rel=\"canonical\""
   ],
-  "retryDelay": 10
+  "around": [
+    "rel=\"canonical\"",
+    "</head>",
+    "name=\"robots\""
+  ],
+  "aroundBefore": 160,
+  "aroundHits": 2,
+  "aroundLines": 0,
+  "text": false,
+  "bytes": 0
 }
