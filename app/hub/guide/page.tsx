@@ -3,7 +3,7 @@ import GuideDashboardClient from './_GuideDashboardClient';
 
 export const metadata: Metadata = {
   title: 'Личный кабинет гида',
-  description: 'Управление расписанием, группами и доходами гида на Tourhab',
+  description: 'Управление расписанием, группами и доходами гида на Ведаре',
   robots: 'noindex, nofollow',
 };
 

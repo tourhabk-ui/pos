@@ -8,6 +8,12 @@ export type ChannelName = 'tripster' | 'avito' | 'sputnik8';
 
 export interface ChannelTour {
   id: number;
+  /**
+   * Адрес карточки по имени (ЧПУ, lib/tours/tour-url). Нет — ссылка числом,
+   * которое уводит 308 на адрес; лента, отдающая площадке редирект вместо
+   * карточки, — то, что сверка 10.10 нашла в фидах Яндекса и Авито.
+   */
+  slug?: string | null;
   title: string;
   description: string | null;
   short_description: string | null;

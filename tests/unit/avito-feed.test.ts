@@ -59,9 +59,12 @@ const tour: ChannelTour = {
 };
 
 describe('ссылка ведёт на живую публичную карточку', () => {
-  it('это канонический /catalog/tours/{id}, а не несуществующий /hub/tour', () => {
-    expect(tourPublicUrl(27)).toMatch(/\/catalog\/tours\/27$/);
-    expect(tourPublicUrl(27)).not.toMatch(/\/hub\//);
+  it('это канонический /catalog/tours/{адрес}, а не несуществующий /hub/tour', () => {
+    // Без адреса по имени — число (оно уводит 308 на карточку); с адресом —
+    // сразу он, без редиректа (сверка 10.10).
+    expect(tourPublicUrl({ id: 27 })).toMatch(/\/catalog\/tours\/27$/);
+    expect(tourPublicUrl({ id: 27, slug: 'splav-po-bystroy' })).toMatch(/\/catalog\/tours\/splav-po-bystroy$/);
+    expect(tourPublicUrl({ id: 27 })).not.toMatch(/\/hub\//);
   });
 
   it('в описании объявления стоит именно она', () => {

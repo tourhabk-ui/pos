@@ -26,6 +26,7 @@
  */
 
 import { priceLine } from '@/lib/channels/price-line';
+import { tourPath, type TourRef } from '@/lib/tours/tour-url';
 import type {
   ChannelAdapter, ChannelBooking, ChannelName,
   ChannelTour, PushBookingInput, PushBookingResult,
@@ -106,9 +107,10 @@ export function absoluteUrl(path: string): string {
 
 /** Публичная карточка тура. Раньше сюда шло /hub/tour/{id} — такого маршрута
  * нет и не было, а /hub/* вдобавок закрыт авторизацией: каждое объявление вело
- * бы в 404. Ради этого перехода объявление и размещается. */
-export function tourPublicUrl(id: number | string): string {
-  return `${SITE_URL.replace(/\/$/, '')}/catalog/tours/${id}`;
+ * бы в 404. Ради этого перехода объявление и размещается. Адрес — по имени
+ * (ЧПУ): число открывает карточку только через 308 (сверка 10.10). */
+export function tourPublicUrl(t: TourRef): string {
+  return `${SITE_URL.replace(/\/$/, '')}${tourPath(t)}`;
 }
 
 /** Длительность словами. Делить часы на 8 нельзя: четырёхчасовой тур давал «0 дн.». */
@@ -126,7 +128,7 @@ function tourDescription(tour: ChannelTour): string {
   const included = Array.isArray(tour.included) && tour.included.length > 0
     ? '\n\nВключено: ' + tour.included.join(', ')
     : '';
-  const link = `\n\nПодробнее и бронирование: ${tourPublicUrl(tour.id)}`;
+  const link = `\n\nПодробнее и бронирование: ${tourPublicUrl(tour)}`;
   return (price + base + included + link).slice(0, 7000);
 }
 
