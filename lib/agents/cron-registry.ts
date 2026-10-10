@@ -67,6 +67,9 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'safety-ingest', label: 'Safety Ingest',
     description: 'КБГС РАН / МЧС фиды → тревоги (цунами от 185 км ≈ 15 мин).',
+    // Адрес явно (10.10): тот же workflow второй ходкой зовёт
+    // /api/cron/road-basis — снимки приказов к дорожным закрытиям.
+    endpoint: 'safety-ingest',
     workflow: 'cron-safety-ingest.yml', cron: '*/5 * * * *', schedule: 'каждые 5 мин',
     everyMin: 5, tier: 'safety', agentId: 'safety-ingest', triggerable: false,
   },

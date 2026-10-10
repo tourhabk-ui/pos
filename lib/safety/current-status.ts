@@ -22,6 +22,7 @@
 import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { query } from '@/lib/database';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
+import { basisLine, basisOf, type AlertBasis } from '@/lib/safety/alert-basis';
 import { RESOLUTION_SQL_PATTERN } from '@/lib/safety/resolution-notice';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 
@@ -49,6 +50,12 @@ export interface CurrentSafetyStatus {
   feedCount: number | null;
   /** Заголовки этих предупреждений в порядке ленты сайта; `null` — не смогли прочитать. */
   feedTitles: string[] | null;
+  /**
+   * Основание каждого пункта ленты (приказ, распоряжение) — тем же порядком,
+   * что feedTitles; null у пункта — основания не нашли (10.10). Optional:
+   * старые места, собирающие статус руками, его не знают.
+   */
+  feedBasis?: (AlertBasis | null)[] | null;
 }
 
 /** Сколько заголовков лент MCP называет: столько же, сколько видно на сайте, с запасом. */
@@ -96,10 +103,12 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
     // порядок те же, что у ленты сайта (app/_home/data.ts, fetchSafety).
     let feedCount: number | null = null;
     let feedTitles: string[] | null = null;
+    let feedBasis: (AlertBasis | null)[] | null = null;
     try {
-      const feed = await query<{ title: string }>(`
-        SELECT title FROM (
-          SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at
+      const feed = await query<{ title: string; basis_title: string | null; basis_url: string | null; basis_origin: string | null }>(`
+        SELECT title, basis_title, basis_url, basis_origin FROM (
+          SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at,
+                 basis_title, basis_url, basis_origin
             FROM external_alerts
            WHERE expires_at > NOW()
              AND alert_type = ANY($1::text[])
@@ -109,6 +118,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       `, [[...FEED_ALERT_TYPES]]);
       feedCount = feed.rows.length;
       feedTitles = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => r.title);
+      feedBasis = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => basisOf(r));
     } catch (err) {
       console.error('[current-status] лента предупреждений не прочитана:', err instanceof Error ? err.message : err);
     }
@@ -129,6 +139,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
         : SAFETY_FEEDS_TEXT,
       feedCount,
       feedTitles,
+      feedBasis,
     };
   } catch (err) {
     // null — честное «не знаю» для вызывающего, но отказ чтения виден в логе (§4.0).
@@ -172,7 +183,13 @@ export function formatSafetyStatusForAgent(status: CurrentSafetyStatus | null): 
   }
   if (status.feedTitles && status.feedTitles.length > 0) {
     lines.push('Лента предупреждений (как на сайте):');
-    for (const t of status.feedTitles) lines.push(`- ${t}`);
+    status.feedTitles.forEach((t, i) => {
+      lines.push(`- ${t}`);
+      // Основание — документом, а не пересказом: агент обязан различать
+      // «внесено вручную» и «распознано со снимка» и так и передать человеку.
+      const basis = basisLine(status.feedBasis?.[i] ?? null);
+      if (basis) lines.push(`  ${basis}`);
+    });
     if (status.feedCount !== null && status.feedCount > status.feedTitles.length) {
       lines.push(`…и ещё ${status.feedCount - status.feedTitles.length}.`);
     }

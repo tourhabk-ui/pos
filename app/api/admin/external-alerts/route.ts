@@ -26,6 +26,13 @@ const CreateAlertSchema = z.object({
   expiresAt: z.string().datetime({ offset: true, message: 'expiresAt — ISO дата со смещением' }),
   sourceUrl: z.string().url().optional(),
   externalId: z.string().max(100).optional(),
+  /**
+   * Основание — документ, по которому введено ограничение (10.10): «Приказ
+   * КГКУ "Камчатуправтодор" от 08.10.2026 № 122 …». Вписанное человеком
+   * помечается manual — экран не пишет «распознано со снимка».
+   */
+  basisTitle: z.string().trim().min(5, 'Основание — минимум 5 символов').max(400).optional(),
+  basisUrl: z.string().url().regex(/^https:\/\//, 'Ссылка на основание — только https').max(500).optional(),
 });
 
 function slugify(title: string): string {
@@ -45,7 +52,8 @@ export async function GET(request: NextRequest) {
 
     const result = await query(
       `SELECT id, alert_type, severity, title, description, affected_zones,
-              created_at, expires_at, source_url, external_id
+              created_at, expires_at, source_url, external_id,
+              basis_title, basis_url, basis_origin, basis_check_outcome
        FROM external_alerts
        WHERE expires_at > NOW()
        ORDER BY severity DESC, created_at DESC
@@ -82,7 +90,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, description, alertType, severity, affectedZones, expiresAt, sourceUrl, externalId } = parsed.data;
+    const { title, description, alertType, severity, affectedZones, expiresAt, sourceUrl, externalId, basisTitle, basisUrl } = parsed.data;
 
     const expires = new Date(expiresAt);
     if (expires.getTime() <= Date.now()) {
@@ -97,11 +105,14 @@ export async function POST(request: NextRequest) {
     const result = await query(
       `INSERT INTO external_alerts (
         alert_type, severity, title, description,
-        affected_zones, created_at, expires_at, source_url, external_id
-      ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8)
+        affected_zones, created_at, expires_at, source_url, external_id,
+        basis_title, basis_url, basis_origin
+      ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9::text, $10::text,
+                CASE WHEN $9::text IS NULL THEN NULL ELSE 'manual' END)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
-      [alertType, severity, title, description ?? '', affectedZones, expires, sourceUrl ?? null, externalIdFinal]
+      [alertType, severity, title, description ?? '', affectedZones, expires, sourceUrl ?? null, externalIdFinal,
+        basisTitle ?? null, basisTitle ? (basisUrl ?? null) : null]
     );
 
     if (result.rows.length === 0) {

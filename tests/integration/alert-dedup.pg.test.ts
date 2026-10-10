@@ -86,7 +86,10 @@ function externalAlertsDdl(): string {
   const m1124 = readFileSync(join(process.cwd(), 'migrations', '1124_park_closure_alerts.sql'), 'utf-8');
   const parksCol = m1124.match(/ALTER TABLE external_alerts ADD COLUMN IF NOT EXISTS affected_parks [^;]+;/);
   if (!parksCol) throw new Error('в миграции 1124 не найдена колонка affected_parks');
-  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}`;
+  // 1212 (10.10): основание пункта ленты — проверки «основания дорожного
+  // закрытия» ниже пишут и читают его колонки.
+  const m1212 = readFileSync(join(process.cwd(), 'migrations', '1212_external_alerts_basis.sql'), 'utf-8');
+  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}\n${m1212}`;
 }
 
 // Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила
@@ -298,5 +301,89 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
     // GREATEST вернул прежнее значение — события нет: перечитанная лента не
     // событие. Именно ради этого различия и появился FROM-подзапрос.
     expect(afterLedger[0].n).toBe(beforeLedger[0].n);
+  });
+
+  // ── Основание дорожного закрытия (10.10, lib/safety/road-basis-queue) ──
+  // Моки не видят двух вещей, на которых держится обещание: что GREATEST и
+  // «только поверх пустого» сервер выполняет как задумано, и что CHECK
+  // миграции 1212 не пустит основание без происхождения. Живёт в этом файле,
+  // а не в своём: число pg-файлов держит размен «последовательно вместо
+  // изоляции» (pg-tests-run-in-ci).
+  describe('основание дорожного закрытия', () => {
+    let channel: typeof import('@/lib/services/safety/road-channel');
+    let queue: typeof import('@/lib/safety/road-basis-queue');
+
+    beforeAll(async () => {
+      channel = await import('@/lib/services/safety/road-channel');
+      queue = await import('@/lib/safety/road-basis-queue');
+    });
+
+    beforeEach(async () => {
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 't.me/pravonarul/%'`);
+    });
+
+    /** Пост канала «час назад» с закрытием до момента `untilText`. */
+    async function savePost(id: number, text: string) {
+      const published = new Date(Date.now() - HOUR);
+      const event = channel.classifyRoadChannelPost({
+        id: `t.me/pravonarul/${id}`, url: `https://t.me/pravonarul/${id}`, text, datetime: published.toISOString(), photos: [],
+      });
+      if (!event) throw new Error('пост не классифицирован');
+      expect(await parser.saveEvent(event)).toBe('inserted');
+      const { rows } = await pool.query<{ expires_at: Date }>(`SELECT expires_at FROM external_alerts WHERE external_id = $1`, [event.source_id]);
+      return { id: event.source_id, expiresAt: rows[0].expires_at };
+    }
+
+    it('запись из канала встаёт в очередь; найденное основание продлевает срок, но не сокращает', async () => {
+      const a = await savePost(1, 'Октябрьскую косу закрыли для проезда');
+      expect(await queue.pendingBasisChecks([a.id, 't.me/pravonarul/404'], pool as never)).toEqual(new Set([a.id]));
+
+      const later = new Date(a.expiresAt.getTime() + 20 * HOUR);
+      await queue.applyBasisReading(a.id, { outcome: 'found', title: 'Приказ КГКУ «Камчатуправтодор» от 08.10.2026 № 122', validUntil: later }, `https://${a.id}`, pool as never);
+      const row = (await pool.query(`SELECT basis_title, basis_url, basis_origin, basis_check_outcome, expires_at FROM external_alerts WHERE external_id = $1`, [a.id])).rows[0];
+      expect(row).toMatchObject({ basis_origin: 'image_ocr', basis_check_outcome: 'found', basis_url: `https://${a.id}` });
+      expect(new Date(row.expires_at).getTime()).toBe(later.getTime());
+      // Проверенный больше не в очереди.
+      expect(await queue.pendingBasisChecks([a.id], pool as never)).toEqual(new Set());
+
+      const b = await savePost(2, 'Закрыт проезд к перевалу из-за снега');
+      const earlier = new Date(b.expiresAt.getTime() - 10 * HOUR);
+      await queue.applyBasisReading(b.id, { outcome: 'found', title: 'Распоряжение X от 08.10.2026', validUntil: earlier }, `https://${b.id}`, pool as never);
+      const kept = (await pool.query(`SELECT expires_at FROM external_alerts WHERE external_id = $1`, [b.id])).rows[0];
+      expect(new Date(kept.expires_at).getTime()).toBe(b.expiresAt.getTime());
+    });
+
+    it('ручное основание автомат не трогает', async () => {
+      const a = await savePost(3, 'Октябрьскую косу закрыли для проезда');
+      await pool.query(`UPDATE external_alerts SET basis_title = 'Приказ от 08.10.2026 № 122 (вписан вручную)', basis_origin = 'manual' WHERE external_id = $1`, [a.id]);
+      expect(await queue.pendingBasisChecks([a.id], pool as never)).toEqual(new Set());
+      const changed = await queue.applyBasisReading(a.id, { outcome: 'found', title: 'Другое прочтение', validUntil: null }, `https://${a.id}`, pool as never);
+      expect(changed).toBe(false);
+      const row = (await pool.query(`SELECT basis_title, basis_origin FROM external_alerts WHERE external_id = $1`, [a.id])).rows[0];
+      expect(row).toEqual({ basis_title: 'Приказ от 08.10.2026 № 122 (вписан вручную)', basis_origin: 'manual' });
+    });
+
+    it('зрение не ответило — не «документа нет»: повтор через час', async () => {
+      const a = await savePost(4, 'Октябрьскую косу закрыли для проезда');
+      await queue.applyBasisReading(a.id, { outcome: 'unavailable', reason: 'qwen 503' }, `https://${a.id}`, pool as never);
+      expect(await queue.pendingBasisChecks([a.id], pool as never)).toEqual(new Set());
+      await pool.query(`UPDATE external_alerts SET basis_checked_at = NOW() - INTERVAL '2 hours' WHERE external_id = $1`, [a.id]);
+      expect(await queue.pendingBasisChecks([a.id], pool as never)).toEqual(new Set([a.id]));
+      // «Не документ» — окончательно: снимок второй раз не смотрим.
+      await queue.applyBasisReading(a.id, { outcome: 'no_document', reason: 'дорога на фото' }, `https://${a.id}`, pool as never);
+      await pool.query(`UPDATE external_alerts SET basis_checked_at = NOW() - INTERVAL '2 hours' WHERE external_id = $1`, [a.id]);
+      expect(await queue.pendingBasisChecks([a.id], pool as never)).toEqual(new Set());
+    });
+
+    it('CHECK миграции 1212: основание без происхождения, чужое происхождение и исход без отметки не пройдут', async () => {
+      const a = await savePost(5, 'Октябрьскую косу закрыли для проезда');
+      for (const sql of [
+        `UPDATE external_alerts SET basis_title = 'Приказ без происхождения' WHERE external_id = $1`,
+        `UPDATE external_alerts SET basis_title = 'Приказ X', basis_origin = 'model' WHERE external_id = $1`,
+        `UPDATE external_alerts SET basis_check_outcome = 'found' WHERE external_id = $1`,
+      ]) {
+        await expect(pool.query(sql, [a.id])).rejects.toMatchObject({ code: '23514' });
+      }
+    });
   });
 });

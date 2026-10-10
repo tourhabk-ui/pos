@@ -237,6 +237,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'referral-census': ['db_read'],
   'rescue': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'retrieval-probe': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  // Снимки приказов к дорожным закрытиям (10.10): зрение читает фото документа.
+  'road-basis': ['db_read', 'db_write', 'net_out', 'ai'],
   'route-core': ['db_read'],
   'route-core-ocr-peek': ['db_read'],
   'route-core-sources': ['db_read', 'pd_direct'],

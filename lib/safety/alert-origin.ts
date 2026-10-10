@@ -73,6 +73,10 @@ const RULES: readonly OriginRule[] = [
   // «источник не записан». Теперь префиксы читает из кода сам сторож.
   { test: (id) => id.startsWith('visitkamchatka/'), origin: { key: 'visitkamchatka', label: 'Турпортал Камчатского края (visitkamchatka.ru)' } },
   { test: (id) => id.startsWith('manual-'),        origin: { key: 'manual',   label: 'ручная запись администратора Ведара' } },
+  // Дорожный канал (10.10, road-channel): СМИ, а не ведомство — канал
+  // пересказывает управление автодорог, и подпись говорит, чьи это слова.
+  // Сам документ, если найден, идёт отдельным «основанием».
+  { test: (id) => id.startsWith('t.me/pravonarul/'), origin: { key: 'pravonarul', label: 'Telegram-канал «Право на Руль» (дороги)' } },
   // Любой другой Telegram-канал: имя канала — факт из id, не догадка.
   {
     test: (id) => /^t\.me\/[^/]+\//.test(id),
