@@ -117,10 +117,15 @@ function paramsFor(kind: InboxKind, partnerId: string, windowStart: Date, review
   return INBOX_SQL[kind].includes('$3') ? [partnerId, windowStart, reviewStart] : [partnerId, windowStart];
 }
 
+/**
+ * `userId` — аккаунт партнёра: по нему считается непрочитанное в чате
+ * платформы. NULL — у партнёрской записи нет аккаунта (Кузьмич в чате знает
+ * партнёра по привязанному чату), и чата платформы у неё нет вовсе.
+ */
 export async function loadInbox(
   partnerId: string,
   category: PartnerCategory,
-  userId: string,
+  userId: string | null,
   opts: { db?: Queryable; nowMs?: number; unreadChat?: (userId: string) => Promise<number> } = {},
 ): Promise<Inbox> {
   const db = opts.db ?? pool;
@@ -166,7 +171,7 @@ export async function loadInbox(
   const metricFailed = failed.some((k) => RESPONSE_METRIC_KINDS.has(k));
 
   let chat: ChatState = { state: 'none' };
-  if (INBOX_CHAT_CATEGORIES.has(category)) {
+  if (INBOX_CHAT_CATEGORIES.has(category) && userId !== null) {
     try {
       const unread = await (opts.unreadChat ?? ((u: string) => chatService.getTotalUnread(u)))(userId);
       chat = { state: 'ok', unread };

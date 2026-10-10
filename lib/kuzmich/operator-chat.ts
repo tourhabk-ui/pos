@@ -1,39 +1,104 @@
 /**
  * lib/kuzmich/operator-chat.ts
  *
- * AI-помощник для операторов в Telegram.
- * Оператор пишет боту → получает ответ с контекстом своего бизнеса.
+ * Кузьмич партнёра в его привязанном чате (Telegram, MAX). Имя файла
+ * историческое — до 10.10 помощник знал только оператора; теперь он отвечает
+ * партнёру любой роли CRM: оператору, гиду, перевозчику, жилью, прокату,
+ * агенту (CRM #2325, шаг 1д).
  *
- * Умеет отвечать на:
- * - "сколько бронирований на этой неделе?"
- * - "есть ли свободные места на 20 июля?"
- * - "помоги написать ответ туристу"
- * - "какие туры сейчас активны?"
+ * Умеет:
+ * - «кто ждёт ответа?» — входящие и время первого ответа;
+ * - «найди Анну, что у неё было?» — клиент, брони, лента, задачи;
+ * - «запиши, что звонил» / «напомни перезвонить завтра» / «сделал» —
+ *   касание, задача, выполнение;
+ * - помочь составить ответ клиенту.
+ * Данные о клиентах — только инструментами CRM (`lib/crm/tools.ts`), там же
+ * правило «телефонов и почт модели не отдаём». Оператору вдобавок
+ * подкладываются его туры и брони за неделю — без имён туристов.
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWaterfall } from '@/lib/ai/providers';
+import { callAIWaterfallOrNull, callToolsWaterfall } from '@/lib/ai/providers';
 import { getHistory, saveMsg } from '@/lib/kuzmich/core';
+import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { PARTNER_ROLES } from '@/lib/auth/role-routes';
+import type { PartnerCategory } from '@/lib/crm/partner-context';
+import { partnerCategoryLabel } from '@/lib/crm/labels';
+import {
+  CRM_WRITE_TOOL_NAMES, crmToolDefinitions, crmToolText, executeCrmTool, type CrmToolContext,
+} from '@/lib/crm/tools';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 
-interface OperatorContext {
-  partnerId: number;
+type ToolMsg = Parameters<typeof callToolsWaterfall>[0][number];
+
+export interface PartnerChatContext {
+  partnerId: string;
   partnerName: string;
+  /** `partners.category` как записан. */
+  category: string;
+  /**
+   * Категория CRM, если инструменты CRM этому партнёру положены: роль из
+   * шести и, для агента, одобренный профиль — то же правило, что у кабинета
+   * (`partnerContextFor`). NULL — помощник без инструментов CRM.
+   */
+  crmCategory: PartnerCategory | null;
+  /** `partners.user_id`; NULL — у записи нет аккаунта. */
+  userId: string | null;
 }
 
-/** Найти оператора по telegram_chat_id. Возвращает null если не оператор. */
-export async function findOperatorByChatId(chatId: number): Promise<OperatorContext | null> {
+/**
+ * Три исхода, как у кабинета (§4.0): партнёр / не партнёр / не смогли
+ * проверить. Последний не равен «не партнёр»: вызывающий решает, что с ним
+ * делать, но молча в него не превращает.
+ */
+export type PartnerChatLookup =
+  | { outcome: 'found'; partner: PartnerChatContext }
+  | { outcome: 'none' }
+  | { outcome: 'unavailable' };
+
+const CHAT_COLUMN = { telegram: 'telegram_chat_id', max: 'max_chat_id' } as const;
+
+function crmCategoryOf(category: string, profileStatus: string | null): PartnerCategory | null {
+  const known = (PARTNER_ROLES as readonly string[]).includes(category) ? (category as PartnerCategory) : null;
+  if (known === 'agent' && profileStatus !== 'approved') return null;
+  return known;
+}
+
+/**
+ * Партнёр по привязанному чату. Статус партнёра не проверяется — как и в
+ * кабинете: прежнее условие `status != 'blocked'` не отсекало никого (такого
+ * статуса нет в CHECK, миграции его не заводили). Один человек с двумя
+ * профилями на одном чате — берётся старший профиль, как у partnerContextFor.
+ */
+export async function findPartnerByChat(channel: keyof typeof CHAT_COLUMN, chatId: number): Promise<PartnerChatLookup> {
   try {
-    const { rows } = await pool.query<{ id: number; name: string }>(
-      `SELECT id, COALESCE(company_name, name) AS name
-       FROM partners
-       WHERE telegram_chat_id = $1 AND status != 'blocked'
-       LIMIT 1`,
-      [String(chatId)],
+    const { rows } = await pool.query<{ id: string; name: string; category: string; user_id: string | null; profile_status: string | null }>(
+      `SELECT id::text AS id, COALESCE(company_name, name) AS name, category,
+              user_id::text AS user_id, profile_status
+         FROM partners
+        WHERE ${CHAT_COLUMN[channel]} = $1
+        ORDER BY created_at ASC NULLS LAST, id ASC
+        LIMIT 1`,
+      [chatId],
     );
-    if (!rows[0]) return null;
-    return { partnerId: rows[0].id, partnerName: rows[0].name };
-  } catch { return null; }
+    const row = rows[0];
+    if (!row) return { outcome: 'none' };
+    return {
+      outcome: 'found',
+      partner: {
+        partnerId: row.id,
+        partnerName: row.name,
+        category: row.category,
+        crmCategory: crmCategoryOf(row.category, row.profile_status),
+        userId: row.user_id,
+      },
+    };
+  } catch (err) {
+    const code = (err as { code?: string })?.code ?? 'нет SQLSTATE';
+    console.error(`[partner-chat] партнёр по чату ${channel} не прочитан, SQLSTATE`, code);
+    return { outcome: 'unavailable' };
+  }
 }
 
 /**
@@ -42,13 +107,12 @@ export async function findOperatorByChatId(chatId: number): Promise<OperatorCont
  * переписывала его `telegram_chat_id` / `max_chat_id` на того, кто её прислал.
  * Почта партнёра — не секрет (она на его сайте и в визитках), а этот адрес
  * решает, куда уходят имена и телефоны туристов из новых броней, и кому
- * помощник оператора рассказывает о бронях. Правило владельца 29.09
+ * помощник партнёра рассказывает о его клиентах. Правило владельца 29.09
  * (`lib/partners/channel-link.ts`): назначать такой адрес может только тот,
  * чьё право проверено, — вошедший в свой кабинет (ссылка из кабинета,
  * решение владельца 09.10) или администратор.
  *
- * Уже привязанные чаты не тронуты: findOperatorByChatId/MaxChatId читают
- * колонки как раньше.
+ * Уже привязанные чаты не тронуты: findPartnerByChat читает колонки как раньше.
  */
 export const PARTNER_EMAIL_BIND_CLOSED =
   'Подключить чат по почте больше нельзя: так его мог подключить любой, кто знает адрес, ' +
@@ -56,23 +120,17 @@ export const PARTNER_EMAIL_BIND_CLOSED =
   'Войдите в кабинет на vedarai.ru: пока MAX не подключён, вверху будет кнопка «Подключить MAX» ' +
   '(и «Подключить Telegram»). Нажмите её и «Старт» в боте — чат подключится к карточке вашей компании.';
 
-/** Найти оператора по MAX chat_id. */
-export async function findOperatorByMaxChatId(chatId: number): Promise<OperatorContext | null> {
-  try {
-    const { rows } = await pool.query<{ id: number; name: string }>(
-      `SELECT id, COALESCE(company_name, name) AS name
-       FROM partners
-       WHERE max_chat_id = $1 AND status != 'blocked'
-       LIMIT 1`,
-      [chatId],
-    );
-    if (!rows[0]) return null;
-    return { partnerId: rows[0].id, partnerName: rows[0].name };
-  } catch { return null; }
+/** Приветствие на /start: что помощник умеет именно этому партнёру. */
+export function partnerGreeting(partner: PartnerChatContext): string {
+  return partner.crmCategory
+    ? `Привет, ${partner.partnerName}! Я твой помощник.\n\n`
+      + 'Подскажу, кто ждёт ответа, найду клиента и что у него было, запишу звонок или встречу, '
+      + 'заведу задачу с напоминанием, помогу составить ответ. Пиши.'
+    : `Привет, ${partner.partnerName}! Я твой помощник: помогу составить ответ клиенту или текст. Пиши.`;
 }
 
 /**
- * Загрузить бизнес-контекст оператора для системного промпта.
+ * Туры и брони оператора для системного промпта.
  *
  * Две правки 22.08 (находка эволюции):
  *
@@ -87,8 +145,12 @@ export async function findOperatorByMaxChatId(chatId: number): Promise<OperatorC
  *    «Бронирований на этой неделе нет» — Кузьмич уверенно сообщал оператору
  *    небылицу о его собственном бизнесе. Теперь у каждого блока есть третий
  *    исход: «не смог получить» (§4.0), и он отличается от «нет».
+ *
+ * Правка 10.10 (CRM 1д): имя туриста из брони в промпт не идёт. Промпт
+ * уходит зарубежной модели (§8), а клиент у помощника теперь есть свой —
+ * подписью «Анна П.» через инструменты CRM. Бронь называется номером.
  */
-async function buildOperatorContext(partnerId: number, partnerName: string): Promise<string> {
+async function buildOperatorContext(partnerId: string): Promise<string> {
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - now.getDay());
@@ -104,8 +166,8 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
        LIMIT 10`,
       [partnerId],
     ),
-    pool.query<{ tourist_name: string; booking_date: string; participants: number; final_price: number; booking_status: string }>(
-      `SELECT ob.tourist_name, ob.booking_date::text, ob.participants,
+    pool.query<{ id: string; booking_date: string; participants: number; final_price: number; booking_status: string }>(
+      `SELECT ob.id::text AS id, ob.booking_date::text, ob.participants,
               ob.final_price, ob.booking_status
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id
@@ -149,7 +211,7 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
     ? tours
         .map(
           t =>
-            `- "${t.title}" | ${t.base_price.toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
+            `- "${t.title}" | ${Number(t.base_price).toLocaleString('ru-RU')} ₽/чел | ${t.is_active ? 'активен' : 'неактивен'}${t.available_slots != null ? ` | мест: ${t.available_slots}` : ''}`,
         )
         .join('\n')
     : toursFailed
@@ -160,7 +222,7 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
     ? weekBookings
         .map(
           b =>
-            `- ${b.tourist_name}, ${b.participants} чел, ${new Date(b.booking_date).toLocaleDateString('ru-RU')}, ${Number(b.final_price).toLocaleString('ru-RU')} ₽ [${b.booking_status}]`,
+            `- бронь №${b.id}, ${b.participants} чел, ${new Date(b.booking_date).toLocaleDateString('ru-RU')}, ${Number(b.final_price).toLocaleString('ru-RU')} ₽ [${b.booking_status}]`,
         )
         .join('\n')
     : bookingsFailed
@@ -168,7 +230,6 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
       : 'Бронирований на этой неделе нет.';
 
   return [
-    `ОПЕРАТОР: ${partnerName}`,
     pendingFailed || pendingCount === null
       ? 'Предстоящие активные бронирования: НЕ УДАЛОСЬ ПРОЧИТАТЬ.'
       : `Предстоящих активных бронирований: ${pendingCount}`,
@@ -181,39 +242,128 @@ async function buildOperatorContext(partnerId: number, partnerName: string): Pro
   ].join('\n');
 }
 
-const OPERATOR_SYSTEM = `Ты AI-помощник оператора на туристической платформе TourHab (Камчатка).
-Помогаешь оператору управлять бизнесом: отвечаешь на вопросы о бронированиях, турах, статистике.
-Также помогаешь составлять ответы туристам и рекомендации по оптимизации туров.
-Общайся на русском, по делу. Данные о бизнесе оператора прилагаются ниже.`;
+/** Системный промпт: кто партнёр, какой сегодня день и чем помощник знает факты. */
+export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, tools: boolean): string {
+  const lines = [
+    `Ты помощник партнёра туристической платформы Ведар (Камчатка). Партнёр: ${partner.partnerName}, роль — ${partnerCategoryLabel(partner.category)}.`,
+    `Сегодня ${kamchatkaDate(new Date(nowMs))} по Камчатке (UTC+12).`,
+    'Помогаешь вести дела и составлять ответы клиентам. Отвечай по-русски, коротко и по делу, без эмодзи.',
+  ];
+  if (tools) {
+    lines.push(
+      'О клиентах, входящих и задачах знаешь только то, что вернули инструменты crm_*. Чего инструмент не вернул — не утверждай.',
+      'Клиента называй подписью из инструмента («Анна П.»). Телефонов и почт клиентов у тебя нет: связаться партнёр может из кабинета.',
+      'Записывай в CRM (касание, задачу, выполнение) только когда партнёр об этом просит, и коротко скажи, что записал.',
+    );
+  } else if (partner.crmCategory) {
+    lines.push('Данные CRM в этом ответе недоступны: о клиентах, входящих и задачах ничего не утверждай и ничего не обещай записать.');
+  }
+  return lines.join('\n');
+}
 
-export async function processOperatorMessage(opts: {
+const MAX_TOOL_TURNS = 4;
+
+/** Что инструмент записал — словами для партнёра, если модель не дошла до ответа. */
+function describeWrite(name: string, args: Record<string, string>): string {
+  if (name === 'crm_add_task') return `задача «${args.title ?? ''}» со сроком ${args.due ?? ''}`.trim();
+  if (name === 'crm_complete_task') return 'задача отмечена выполненной';
+  return `запись в ленту клиента «${args.title ?? ''}»`;
+}
+
+/**
+ * Цикл инструментов CRM: тот же водопад, обёртка недоверенного вывода и
+ * дедуп, что у Кузьмича туриста (`aiChatAgentLoop`), но набор инструментов —
+ * только CRM, а партнёр в них — из привязанного чата, не из аргументов
+ * модели. `writes` копит сделанные записи: если модель не дошла до ответа,
+ * партнёр всё равно узнает, что записано, и не попросит второй раз.
+ */
+async function partnerToolLoop(
+  system: string,
+  history: ChatMessage[],
+  ctx: CrmToolContext,
+  writes: string[],
+): Promise<string | null> {
+  const msgs: ToolMsg[] = [
+    { role: 'system', content: system },
+    ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content } as ToolMsg)),
+  ];
+  const tools = crmToolDefinitions(ctx.canWrite);
+  const seen = new Set<string>();
+
+  for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+    const result = await callToolsWaterfall(msgs, tools);
+    if (!result) return null;
+    if (!result.tool_calls?.length) return result.content;
+
+    msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
+    const outcomes = await runTurnTools(result.tool_calls, seen, async (name, args) => {
+      const r = await executeCrmTool(name, args, ctx);
+      if (r.ok && CRM_WRITE_TOOL_NAMES.includes(name)) writes.push(describeWrite(name, args));
+      return crmToolText(r);
+    });
+    for (const o of outcomes) {
+      msgs.push({ role: 'tool', content: o.executed ? wrapToolOutput(o.name, o.content) : o.content, tool_call_id: o.id });
+    }
+  }
+  return null;
+}
+
+export async function processPartnerMessage(opts: {
   chatId: number;
   text: string;
   fromName: string | null;
-  operator: OperatorContext;
+  partner: PartnerChatContext;
   reply: (chatId: number, text: string) => Promise<void>;
+  nowMs?: number;
 }): Promise<void> {
-  const { chatId, text, fromName, operator, reply } = opts;
+  const { chatId, text, fromName, partner, reply } = opts;
+  const nowMs = opts.nowMs ?? Date.now();
 
   await saveMsg(chatId, 'operator_tg', 'user', text, null, fromName);
 
   const [history, bizContext] = await Promise.all([
     getHistory(chatId, 'operator_tg'),
-    buildOperatorContext(operator.partnerId, operator.partnerName),
+    partner.category === 'operator' ? buildOperatorContext(partner.partnerId) : Promise.resolve(''),
   ]);
+  const withContext = (system: string) => (bizContext ? `${system}\n\n${bizContext}` : system);
 
-  const systemContent = `${OPERATOR_SYSTEM}\n\n${bizContext}`;
+  let answer = '';
+  const writes: string[] = [];
+  if (partner.crmCategory) {
+    const ctx: CrmToolContext = {
+      partnerId: partner.partnerId,
+      category: partner.crmCategory,
+      userId: partner.userId,
+      actor: 'kuzmich',
+      // Партнёр пишет в свой привязанный чат сам — просить записать ему можно.
+      canWrite: true,
+      nowMs,
+    };
+    try {
+      answer = (await partnerToolLoop(withContext(partnerSystemPrompt(partner, nowMs, true)), history, ctx, writes))?.trim() ?? '';
+    } catch (err) {
+      console.error('[partner-chat] цикл инструментов упал:', err instanceof Error ? err.message : String(err));
+      answer = '';
+    }
+  }
 
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemContent },
-    ...history,
-  ];
+  if (!answer && writes.length > 0) {
+    // Записи уже сделаны, а ответа модели нет: сказать, что записано, а не
+    // «не могу ответить» — иначе партнёр попросит снова и получит дубль.
+    answer = `Записал: ${writes.join('; ')}. Остальное ответить сейчас не получилось — спроси ещё раз.`;
+  }
 
-  let answer: string;
-  try {
-    answer = (await callAIWaterfall(messages))?.trim() ?? '';
-  } catch {
-    answer = '';
+  if (!answer) {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: withContext(partnerSystemPrompt(partner, nowMs, false)) },
+      ...history,
+    ];
+    try {
+      answer = (await callAIWaterfallOrNull(messages))?.trim() ?? '';
+    } catch (err) {
+      console.error('[partner-chat] водопад без инструментов упал:', err instanceof Error ? err.message : String(err));
+      answer = '';
+    }
   }
 
   if (!answer) {

@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { type PendingBooking, cleanupPending, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
-import { findOperatorByChatId, processOperatorMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
+import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
@@ -586,15 +586,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
-    // ── ЛИЧКА: оператор? ─────────────────────────────────────────────────
-    // Проверяем до туристского flow: если chatId есть в partners.telegram_chat_id
-    const operator = isPrivate ? await findOperatorByChatId(chatId) : null;
-    if (operator && msg.text) {
+    // ── ЛИЧКА: партнёр? ──────────────────────────────────────────────────
+    // Проверяем до туристского flow: если chatId есть в partners.telegram_chat_id.
+    // «Не смогли проверить» (база не ответила) записано в лог самой проверкой
+    // и ведёт в туристский поток: остановить из-за него всех туристов хуже,
+    // чем ответить партнёру как туристу один раз.
+    const lookup = isPrivate ? await findPartnerByChat('telegram', chatId) : null;
+    const partner = lookup?.outcome === 'found' ? lookup.partner : null;
+    if (partner && msg.text) {
       const text = msg.text.trim();
       if (text === '/start') {
-        await tgReply(chatId, `Привет, ${operator.partnerName}! Я твой AI-помощник.\n\nМогу ответить на вопросы о бронированиях, турах, статистике — или помочь составить ответ туристу. Пиши.`);
+        await tgReply(chatId, partnerGreeting(partner));
       } else {
-        await processOperatorMessage({ chatId, text, fromName, operator, reply: tgReply });
+        await processPartnerMessage({ chatId, text, fromName, partner, reply: tgReply });
       }
       return NextResponse.json({ ok: true });
     }

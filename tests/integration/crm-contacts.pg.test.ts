@@ -28,6 +28,7 @@ import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/l
 import { runTaskReminders } from '@/lib/crm/reminders';
 import { loadInbox } from '@/lib/crm/inbox';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
+import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -783,6 +784,43 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     )).rejects.toMatchObject({ code: '23514' });
     await expect(pool.query(
       `INSERT INTO crm_inbox_reminders (partner_id, item_kind, item_id, channel) VALUES ($1, 'gear_rental', 'x', 'sms')`, [stay],
+    )).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('инструменты CRM на настоящей базе: подпись без телефона; задача и выполнение — от Кузьмича', async () => {
+    const ctx = { partnerId: P.opA, category: 'operator' as const, userId: null, actor: 'kuzmich' as const, canWrite: true };
+    const anna = (await pool.query<{ id: string }>(
+      `SELECT id FROM crm_contacts WHERE partner_id = $1 AND phone_e164 = '+79141112233'`, [P.opA],
+    )).rows[0];
+
+    // Поиск по хвосту телефона находит клиента, но телефона модели не отдаёт.
+    const found = crmToolText(await executeCrmTool('crm_find_contact', { query: '2233' }, ctx, pool));
+    expect(found).toContain(anna.id);
+    expect(found).not.toMatch(/9141112233|@/);
+    // Чужой партнёр того же клиента не находит.
+    const foreign = await executeCrmTool('crm_find_contact', { query: '2233' }, { ...ctx, partnerId: P.opB }, pool);
+    expect(crmToolText(foreign)).not.toContain(anna.id);
+
+    const created = await executeCrmTool('crm_add_task', { title: 'Отправить памятку', due: '2030-05-01', contact_id: anna.id }, ctx, pool);
+    if (!created.ok) throw new Error(created.error);
+    const taskId = (created.data as { task_id: string }).task_id;
+    const row = (await pool.query<{ origin: string; due_at: Date }>(`SELECT origin, due_at FROM crm_tasks WHERE id = $1`, [taskId])).rows[0];
+    expect(row.origin).toBe('kuzmich');
+    expect(row.due_at.toISOString()).toBe('2030-04-30T22:00:00.000Z'); // 10:00 1 мая по Камчатке
+
+    expect((await executeCrmTool('crm_complete_task', { task_id: taskId }, ctx, pool)).ok).toBe(true);
+    const feed = await listContactEvents(P.opA, anna.id, 50, pool);
+    expect(feed.find((e) => e.kind === 'task_done' && e.title === 'Отправить памятку')?.actor_kind).toBe('kuzmich');
+
+    expect((await executeCrmTool('crm_add_touch', { contact_id: anna.id, kind: 'call', title: 'Обсудили дату' }, ctx, pool)).ok).toBe(true);
+    const card = crmToolText(await executeCrmTool('crm_contact_card', { contact_id: anna.id }, ctx, pool));
+    expect(card).toContain('Обсудили дату');
+    expect(card).not.toMatch(/9141112233|@/);
+    expect((await executeCrmTool('crm_inbox', {}, ctx, pool)).ok).toBe(true);
+
+    // origin «mcp» до шага 1д-2 база не примет: производителя у него ещё нет.
+    await expect(pool.query(
+      `INSERT INTO crm_tasks (partner_id, title, due_at, origin) VALUES ($1, 'x', NOW(), 'mcp')`, [P.opA],
     )).rejects.toMatchObject({ code: '23514' });
   });
 
