@@ -100,7 +100,7 @@ describe('правило сегмента и суммы — в SQL', () => {
     expect(OPERATOR_CLIENTS_LIST_SQL).toMatch(/FILTER \(WHERE b\.booking_status IN \('confirmed', 'completed'\)\)/);
     expect(OPERATOR_CLIENTS_LIST_SQL).toMatch(/WHEN st\.bookings = 0 THEN 'none'/);
     expect(OPERATOR_CLIENTS_LIST_SQL).toMatch(/st\.bookings >= 3 OR st\.booked_sum >= 100000 THEN 'vip'/);
-    expect(OPERATOR_CLIENTS_LIST_SQL).toMatch(/INTERVAL '90 days'/);
+    expect(OPERATOR_CLIENTS_LIST_SQL).toMatch(/INTERVAL '1 day' \* 90 /);
   });
 
   it('брони — только привязанные к контакту этого оператора, удалённые не считаются', () => {

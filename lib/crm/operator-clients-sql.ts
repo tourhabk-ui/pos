@@ -54,7 +54,7 @@ const SEGMENTED_CTE = `
            CASE
              WHEN st.bookings = 0 THEN 'none'
              WHEN st.bookings >= ${VIP_MIN_BOOKINGS} OR st.booked_sum >= ${VIP_MIN_SUM_RUB} THEN 'vip'
-             WHEN st.last_booking_at >= NOW() - INTERVAL '${ACTIVE_DAYS} days' THEN 'active'
+             WHEN st.last_booking_at >= NOW() - INTERVAL '1 day' * ${ACTIVE_DAYS} THEN 'active'
              ELSE 'inactive'
            END AS segment
       FROM st
