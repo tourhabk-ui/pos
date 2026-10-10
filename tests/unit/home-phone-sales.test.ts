@@ -186,8 +186,9 @@ describe('два направления и безопасность одним �
     // второй блок туров.
     const ribbons = (JSX.match(/\{tours\.map\(\(p, i\) =>/g) ?? []).length
       + (JSX.match(/\{\(drift\.looping \? \[\.\.\.cards, \.\.\.cards\] : cards\)\.map\(/g) ?? []).length;
-    // С 09.10 в ленте между турами — карточка трансфера (cards = туры + она).
-    expect(CODE).toMatch(/const cards = withTransferPlate\(tours, data\.transfer\);/);
+    // С 09.10 в ленте между турами — карточка трансфера, с 10.10 — и жилья
+    // (cards = туры + они).
+    expect(CODE).toMatch(/const cards = withStayPlate\(withTransferPlate\(tours, data\.transfer\), data\.stay, tours\.length > 0\);/);
     expect(ribbons).toBe(1);
   });
 

@@ -28,6 +28,9 @@ import { groupPlacesByElement } from '@/lib/stats/element-groups';
 import { plural } from '@/lib/home/data-freshness';
 import { orderPlates } from '@/lib/home/plate-facts';
 import { toTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
+import { toStayPlate, type StayPlate, type StayPlateRow } from '@/lib/home/stay-plate';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
@@ -206,6 +209,8 @@ export interface HomeV8Data {
    * перевозчика с прайсом или прочитать не смогли (причина в логе).
    */
   transfer: TransferPlate | null;
+  /** Жильё в ленте туров (10.10); null — нет объекта с ценой и фото или база не ответила. */
+  stay: StayPlate | null;
   /** Места для «Исследовать»; пусто — блока нет (причина отказа в логе). */
   explore: ExplorePlace[];
   feed: FeedItem[];
@@ -822,15 +827,47 @@ export async function fetchTransferPlate(): Promise<TransferPlate | null> {
   }
 }
 
+/**
+ * Жильё в ленте туров главной (владелец 10.10). Опубликованный объект с ценой
+ * и фото: проверенные первыми, затем с большим числом снимков. Главный кадр —
+ * по общему правилу порядка (lib/stay/photo-order). Отказ базы — в лог и
+ * «карточки нет», лента туров от этого не ломается.
+ */
+export async function fetchStayPlate(): Promise<StayPlate | null> {
+  try {
+    const { rows } = await query<StayPlateRow>(
+      `SELECT a.id, a.name, a.short_description, a.address,
+              a.price_per_night_from AS price_from,
+              (SELECT ast.url FROM accommodation_assets aa JOIN assets ast ON ast.id = aa.asset_id
+                WHERE aa.accommodation_id = a.id ORDER BY ${STAY_PHOTO_ORDER_SQL} LIMIT 1) AS image_url,
+              (SELECT COUNT(*) FROM accommodation_assets aa WHERE aa.accommodation_id = a.id) AS photos
+         FROM accommodations a
+        WHERE ${publicAccommodationSql('a')}
+          AND a.price_per_night_from IS NOT NULL
+        ORDER BY a.is_verified DESC, photos DESC, a.created_at DESC
+        LIMIT 5`,
+    );
+    for (const r of rows) {
+      const plate = toStayPlate(r);
+      if (plate) return plate;
+    }
+    return null;
+  } catch (err) {
+    const e = err as { message?: string; code?: string };
+    console.error('[home] карточка жилья не собрана:', e?.message ?? 'неизвестная ошибка', `SQLSTATE=${e?.code ?? 'нет'}`);
+    return null;
+  }
+}
+
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [live, zones, plates, transfer, explore, feedItems, counts] = await Promise.all([
+  const [live, zones, plates, transfer, stay, explore, feedItems, counts] = await Promise.all([
     getSafetyLiveData(),
-    fetchZones(), fetchPlates(), fetchTransferPlate(), fetchExplore(), fetchFeed(),
+    fetchZones(), fetchPlates(), fetchTransferPlate(), fetchStayPlate(), fetchExplore(), fetchFeed(),
     getPlatformCounts().catch(() => null),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'мониторинг угроз' }];
   const elements: Element[] = counts ? deriveElements(counts) : [];
 
-  return { ...live, zones, plates, transfer, explore, feed: feedItems, stats, elements };
+  return { ...live, zones, plates, transfer, stay, explore, feed: feedItems, stats, elements };
 }

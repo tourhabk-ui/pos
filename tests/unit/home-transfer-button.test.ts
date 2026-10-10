@@ -23,14 +23,17 @@ describe('кнопка «Трансфер» на главной', () => {
     expect(nav).toContain('qt-radar');
   });
 
-  it('телефон: «Туры» — кнопкой рядом с «Трансфером», ряд инструментов — сетка 2×2', () => {
+  it('телефон: «Туры» — кнопкой рядом с «Трансфером», три двери одним рядом', () => {
     // Владелец 09.10: «туры тогда тоже сделай кнопкой». Четыре плитки — два
     // ряда по две; «Трансфер» больше не растягивается на обе колонки.
     const c = read('app/_home/_HomeV8Client.tsx');
     const nav = c.slice(c.indexOf('className="qtools qt-top"'), c.indexOf('</nav>', c.indexOf('className="qtools qt-top"')));
     expect(nav).toMatch(/<Link href="\/catalog" className="qt qt-tours"/);
     expect(nav.indexOf('qt-tours')).toBeLessThan(nav.indexOf('qt-transfer'));
-    expect(c).not.toMatch(/\.v7 \.qt-transfer\{grid-column/);
+    // С 10.10 (владелец: «кнопку на главную жильё») Туры, Трансфер и Жильё —
+    // три двери по трети ширины; ни одна не растягивается на весь ряд.
+    expect(c).toMatch(/\.v7 \.qtools > \.qt-tours,\.v7 \.qtools > \.qt-transfer,\.v7 \.qtools > \.qt-stay\{grid-column:span 2/);
+    expect(nav.indexOf('qt-transfer')).toBeLessThan(nav.indexOf('qt-stay'));
     // подпись в полширины не длиннее, чем у соседей, — иначе обрежется на 360px
     for (const sub of [...nav.matchAll(/<b>[^<]+<\/b><span>([^<]+)<\/span>/g)].map((m) => m[1]!)) {
       expect(sub.length, sub).toBeLessThanOrEqual(16);

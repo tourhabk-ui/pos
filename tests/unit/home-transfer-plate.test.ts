@@ -69,7 +69,8 @@ describe('место в ленте', () => {
 describe('подключена в оба дерева', () => {
   it('телефон: лента «Туров сезона» строится из туров с трансфером, у трансфера своя ветка', () => {
     const src = read('app/_home/_HomeV8Client.tsx');
-    expect(src).toMatch(/const cards = withTransferPlate\(tours, data\.transfer\);/);
+    // С 10.10 лента оборачивается ещё и жильём (lib/home/stay-plate).
+    expect(src).toMatch(/const cards = withStayPlate\(withTransferPlate\(tours, data\.transfer\), data\.stay, tours\.length > 0\);/);
     expect(src).toMatch(/if \(isTransferPlate\(p\)\)/);
     expect(src).toContain('Смотреть перевозчика');
   });

@@ -7,7 +7,7 @@ import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import BottomNav from '@/components/shared/BottomNav'
 import HomeV8Client from './_home/_HomeV8Client'
-import { getHomeV8Data, fetchPlates, fetchTransferPlate } from './_home/data'
+import { getHomeV8Data, fetchPlates, fetchTransferPlate, fetchStayPlate } from './_home/data'
 import { homeTreeFor } from '@/lib/home/device-tree'
 import { queryCatalogSummaryForPage } from '@/lib/search'
 import { loadDeskBrief } from '@/lib/home/desk-brief'
@@ -94,10 +94,11 @@ export default async function Page() {
   // Сводка — та же, что уходит гидам и что говорит Кузьмич (lib/svodka);
   // витрина туров — та же, что у телефона (fetchPlates): порядок, фильтр
   // живого тура и правило сезона одни на оба дерева.
-  const [brief, plates, transfer, catalogSummary, counts] = await Promise.all([
+  const [brief, plates, transfer, stay, catalogSummary, counts] = await Promise.all([
     loadDeskBrief(),
     fetchPlates(),
     fetchTransferPlate(),
+    fetchStayPlate(),
     // Счётчик «Все туры» — из сводки каталога, не из длины витрины (§4.0:
     // не смогли посчитать — числа нет, отказ в логе).
     queryCatalogSummaryForPage().catch((e: unknown) => {
@@ -134,7 +135,7 @@ export default async function Page() {
           </section>
 
           <SectionErrorBoundary>
-            <DeskTours plates={plates} transfer={transfer} total={catalogSummary?.total ?? null} />
+            <DeskTours plates={plates} transfer={transfer} stay={stay} total={catalogSummary?.total ?? null} />
           </SectionErrorBoundary>
 
           <DeskHelp />

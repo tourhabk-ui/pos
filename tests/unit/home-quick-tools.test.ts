@@ -47,9 +47,14 @@ describe('короткие подписи', () => {
 describe('плитки на главной', () => {
   const tools = HOME.slice(HOME.indexOf('<nav className="qtools qt-top"'), HOME.indexOf('</nav>', HOME.indexOf('<nav className="qtools qt-top"')));
 
-  it('один ряд из двух плиток вместо двух полноширинных карточек', () => {
+  it('плитки рядами, а не полноширинными карточками', () => {
     expect(tools).not.toBe('');
-    expect(HOME).toMatch(/\.v7 \.qtools\{[^}]*grid-template-columns:1fr 1fr/);
+    // С 10.10 сетка в шесть долей: верхние плитки — по половине (span 3),
+    // три двери «Туры / Трансфер / Жильё» — по трети (span 2). Полноширинной
+    // карточки по-прежнему нет.
+    expect(HOME).toMatch(/\.v7 \.qtools\{[^}]*grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
+    expect(HOME).toMatch(/\.v7 \.qtools > \.qt\{grid-column:span 3\}/);
+    expect(HOME).not.toMatch(/grid-column:1 ?\/ ?-1|grid-column:span 6/);
     expect(HOME).not.toMatch(/className="planline"|<section className="live">/);
   });
 
