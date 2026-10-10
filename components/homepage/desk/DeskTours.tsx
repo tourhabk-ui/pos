@@ -181,12 +181,15 @@ export function DeskTours({ plates, transfer = null, stay = null, total }: { pla
   const rows = withStayPlate(withTransferPlate(plates.slice(0, 4), transfer), stay, plates.length > 0).slice(1);
   return (
     <section className="flex flex-col gap-6" aria-labelledby="desk-tours-title">
-      <div className="flex items-end justify-between gap-6">
+      {/* Ряд переносится: с третьей ссылкой (Жильё, 10.10) он перестал
+          помещаться в узкое окно, и ночной smoke на 375px поймал прокрутку
+          вбок (#2365). На широком экране вид прежний — одна строка. */}
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="flex flex-col gap-1.5">
           <h2 id="desk-tours-title" className="font-playfair text-4xl font-bold tracking-[-0.01em] text-[var(--text-primary)]">Можно поехать</h2>
           <p className="text-[15px] text-[var(--text-secondary)]">Туры операторов: цена, даты и условия отмены — до звонка</p>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
           {/* Трансфер (владелец 09.10: «доп кнопка на главной») — тот же адрес, что у плитки телефона. */}
           <Link href="/transfers" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
             Трансфер
