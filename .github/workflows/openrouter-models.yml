@@ -159,7 +159,14 @@ jobs:
               # Пусто — это ответ «такого id нет», а не «проба не сработала».
               print('СОВПАДЕНИЙ НЕТ: модели с таким именем в каталоге не существует.')
               sys.exit(0)
+          import datetime
           for m in sorted(hits, key=lambda x: x.get('id', '')):
               p = m.get('pricing', {}) or {}
-              print(f"{m.get('id')}  |  {m.get('name')}  |  вход {p.get('prompt')} / выход {p.get('completion')} за токен  |  контекст {m.get('context_length')}")
+              # Вызов инструментов и дата появления: цена и контекст не говорят,
+              # годится ли модель Кузьмичу (ему нужен function-calling) и новая ли
+              # она. Нет поля — «не записано», а не «нет».
+              params = m.get('supported_parameters')
+              tools = 'не записано' if params is None else ('да' if 'tools' in params else 'нет')
+              created = datetime.datetime.fromtimestamp(m['created'], datetime.timezone.utc).strftime('%Y-%m-%d') if m.get('created') else 'не записано'
+              print(f"{m.get('id')}  |  {m.get('name')}  |  вход {p.get('prompt')} / выход {p.get('completion')} за токен  |  контекст {m.get('context_length')}  |  инструменты: {tools}  |  появилась {created}")
           PY
