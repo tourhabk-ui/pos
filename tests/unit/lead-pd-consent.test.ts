@@ -91,8 +91,11 @@ describe('сервер требует согласие и записывает �
     expect(legal).toMatch(/PD_CONSENT_VERSION/);
     expect(legal).toMatch(/PD_CONSENT_TEXT/);
     const checkbox = read('components/legal/PdConsentCheckbox.tsx');
+    // С 10.10 текстов два (туроператору и владельцу жилья, 1206), выбор между
+    // ними — consentWording в lib/legal, а не в компоненте.
     expect(checkbox, 'компонент завёл свою формулировку — она разойдётся с записанной')
-      .toMatch(/PD_CONSENT_TEXT/);
+      .toMatch(/consentWording\(purpose\)\.text/);
+    expect(checkbox).not.toContain('Согласен на обработку');
   });
 
   it('«не зафиксировано» отличимо от «отказано»', () => {

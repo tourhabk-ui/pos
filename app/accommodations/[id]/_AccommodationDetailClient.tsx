@@ -11,6 +11,7 @@ import { Header } from '@/components/layout/Header';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
+import { StayRequestForm } from '@/components/stay/StayRequestForm';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { formatContactPhone, messengerLinks, type NumberMessenger } from '@/lib/stay/contact-phone';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
@@ -298,6 +299,13 @@ export default function AccommodationDetailClient({ accommodationId, initialData
                     Написать в {c.label}
                   </a>
                 ))}
+              </div>
+            )}
+            {/* Заявка хозяину одним сообщением в MAX (1206, 10.10) — у объекта
+                без своей брони и без номеров; сервер проверяет то же условие. */}
+            {!data.externalBookingUrl && data.rooms.length === 0 && (
+              <div className="pt-3 border-t border-[var(--border)]">
+                <StayRequestForm accommodationId={data.id} phoneLabel={phoneLabel} />
               </div>
             )}
           </div>

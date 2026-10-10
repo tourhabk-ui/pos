@@ -61,6 +61,10 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
     note: 'миграция 1195, шестая копия — типы как у 911/969/1108. Клиент партнёра (CRM #2325) своего согласия не собирает: оно КОПИРУЕТСЯ из брони тура или лида, где записано, и только в контакт без согласия. Жильё, прокат, перевозчик, клиент агента и ручной контакт — NULL, «не записано» (lib/crm/contacts.ts)',
   },
+  stay_requests: {
+    fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
+    note: 'миграция 1206, седьмая копия — типы как у 911. Заявка хозяину жилья без своей брони (форма карточки, 10.10): телефон гостя уходит хозяину в MAX, согласие — вариант «владельцу жилья» (PD_CONSENT_STAY_VERSION), в той же вставке, NOT NULL',
+  },
 };
 
 describe('где живёт согласие', () => {
@@ -128,6 +132,7 @@ const CONSENT_FORMS = [
   'components/marketplace/BookingFormClient.tsx',
   'components/planner/SeatRequestForm.tsx',
   'app/trip-group/[id]/_TripGroupClient.tsx',
+  'components/stay/StayRequestForm.tsx',
 ];
 
 /**
@@ -198,6 +203,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/hub/bookings/create/route.ts',
   'app/api/seat-requests/route.ts',
   'app/api/trip-groups/[id]/members/route.ts',
+  'app/api/accommodations/[id]/request/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

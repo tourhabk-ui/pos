@@ -26,6 +26,27 @@ export const PD_CONSENT_VERSION = '2026-10-08';
 export const PD_CONSENT_TEXT =
   'Согласен на обработку персональных данных и их передачу туроператору для связи по заявке';
 
+/**
+ * Вариант для жилья (10.10, заявка хозяину через форму карточки, 1206).
+ * Телефон туриста там уходит не туроператору, а хозяину гостевого дома, и
+ * согласие обязано назвать именно его: формулировка, которая молчит о главной
+ * передаче, её не покрывает (то же правило, что 08.10). Отдельная версия —
+ * чтобы по записи было видно, под каким из двух текстов человек согласился.
+ */
+export const PD_CONSENT_STAY_TEXT =
+  'Согласен на обработку персональных данных и их передачу владельцу жилья для связи по заявке';
+export const PD_CONSENT_STAY_VERSION = '2026-10-10-stay';
+
+/** Кому передаются данные по заявке: туроператору (по умолчанию) или владельцу жилья. */
+export type PdConsentPurpose = 'operator' | 'stay';
+
+/** Текст и версия согласия для цели заявки — единственный выбор между ними. */
+export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
+  return purpose === 'stay'
+    ? { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION }
+    : { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
+}
+
 /** Куда ведёт ссылка рядом с галочкой. */
 export const PD_CONSENT_POLICY_URL = '/legal/privacy';
 
@@ -51,12 +72,13 @@ export function buildConsentRecord(
   given: boolean | undefined,
   ip: string | null | undefined,
   source: string,
+  purpose: PdConsentPurpose = 'operator',
 ): PdConsentRecord | null {
   if (given !== true) return null;
   return {
     at: new Date(),
     ip: (ip ?? '').slice(0, 64) || 'неизвестен',
     source,
-    version: PD_CONSENT_VERSION,
+    version: consentWording(purpose).version,
   };
 }
