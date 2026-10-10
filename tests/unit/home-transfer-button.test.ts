@@ -46,6 +46,18 @@ describe('кнопка «Трансфер» на главной', () => {
     expect(d).toMatch(/href="\/catalog"/);
   });
 
+  // #2365, 10.10: с третьей ссылкой (Жильё) ряд перестал помещаться в 375px,
+  // и ночной smoke поймал прокрутку вбок (scrollWidth 461–483). Smoke ходит с
+  // десктопным UA — смотрит именно это дерево. Ряд ссылок и вся шапка обязаны
+  // переноситься: ссылок в ней будет больше, а не меньше.
+  it('десктоп: шапка «Можно поехать» и её ряд ссылок переносятся на узком окне', () => {
+    const d = read('components/homepage/desk/DeskTours.tsx');
+    const head = d.slice(d.indexOf('aria-labelledby="desk-tours-title"'), d.indexOf('href="/catalog"'));
+    expect(head).toMatch(/<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">/);
+    const links = head.slice(head.lastIndexOf('<div className=', head.indexOf('href="/transfers"')));
+    expect(links).toMatch(/^<div className="flex flex-wrap items-center/);
+  });
+
   it('у цели есть скелет перехода: страница читает прайс из базы и открывается не мгновенно', () => {
     expect(existsSync(join(process.cwd(), 'app/transfers/loading.tsx'))).toBe(true);
     expect(read('app/transfers/loading.tsx')).toMatch(/RouteLoading/);
