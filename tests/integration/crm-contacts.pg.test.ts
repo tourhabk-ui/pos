@@ -27,6 +27,7 @@ import { addContactTouch, listContactEvents, recordSourceEvent, statusChangeTitl
 import { completeTask, createTask, deleteTask, listTasks, updateTask } from '@/lib/crm/tasks';
 import { runTaskReminders } from '@/lib/crm/reminders';
 import { loadInbox } from '@/lib/crm/inbox';
+import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -721,6 +722,68 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(g.items.find((i) => i.kind === 'guide_invite')).toMatchObject({ title: 'Оператор входящих' });
     expect(g.items.find((i) => i.kind === 'guide_review')).toMatchObject({ title: 'Оценка 4 из 5' });
     expect((await loadInbox(P.agent, 'agent', 'u', { db: pool })).items).toEqual([]);
+  });
+
+  it('напоминание о входящем: 2 часа днём, до 24 часов, одно на предмет; исход записан', async () => {
+    // 10:00 по Камчатке — день; метки создания отсчитываются от этого «сейчас».
+    const now = new Date('2026-10-09T22:00:00Z');
+    const mk = async (name: string, category: string) =>
+      (await pool.query<{ id: string }>(`INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category])).rows[0].id;
+    const stay = await mk('Жильё напоминаний', 'stay');
+    const guide = await mk('Гид напоминаний', 'guide');
+    const op = await mk('Оператор напоминаний', 'operator');
+    const acc = (await pool.query<{ id: string }>(
+      `INSERT INTO accommodations (partner_id, name, type, coordinates, moderation_status)
+       VALUES ($1, 'Дом напоминаний', 'hotel', '{"lat":53,"lng":158}', 'approved') RETURNING id`, [stay],
+    )).rows[0].id;
+    const stayBooking = async (ago: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO accommodation_bookings
+         (user_id, accommodation_id, check_in_date, check_out_date, nights, adults, room_price_per_night, total_price, created_at)
+       VALUES ($1, $2, CURRENT_DATE + 3, CURRENT_DATE + 5, 2, 2, 4000, 8000, $3::timestamptz - $4::interval) RETURNING id`,
+      [touristId, acc, now.toISOString(), ago],
+    )).rows[0].id;
+    const due = await stayBooking('3 hours');
+    // Бронь привязана к клиенту, как это делает живой хук: имя в MAX — из контакта.
+    await link('accommodation_booking', due);
+    await stayBooking('1 hour');     // ещё рано
+    await stayBooking('30 hours');   // дверь Watchdog
+    await pool.query(
+      `INSERT INTO guide_operator_invites (operator_id, guide_partner_id, created_at) VALUES ($1, $2, $3::timestamptz - INTERVAL '5 hours')`,
+      [op, guide, now.toISOString()],
+    );
+
+    const sent: Array<{ text: string; stub: string }> = [];
+    const send = async (p: { text: string; stub: string }) => { sent.push(p); return { channel: 'max' as const, delivered: true, reason: 'ok' }; };
+    const reach = async (id: string) => (id === guide
+      ? { reachable: false, maxChatId: null, telegramChatId: null }
+      : { reachable: true, maxChatId: '1', telegramChatId: null }) as never;
+
+    const r = await runInboxReminders(now, { db: pool, reach, send: send as never });
+    expect(r.failed_kinds).toEqual([]);
+    // Предметы других тестов этого файла создавались «сейчас» по часам базы —
+    // их окно от фиксированного now не задевает; считаем свои.
+    const mine = await pool.query<{ partner_id: string; item_kind: string; item_id: string; channel: string }>(
+      `SELECT partner_id, item_kind, item_id, channel FROM crm_inbox_reminders WHERE partner_id = ANY($1::uuid[]) ORDER BY item_kind`,
+      [[stay, guide]],
+    );
+    expect(mine.rows).toEqual([
+      { partner_id: stay, item_kind: 'accommodation_booking', item_id: due, channel: 'max' },
+      { partner_id: guide, item_kind: 'guide_invite', item_id: expect.any(String), channel: 'unreachable' },
+    ]);
+    expect(sent.some((m) => m.text.includes('Бронь жилья «Дом напоминаний»') && m.text.includes('Аккаунт Туриста'))).toBe(true);
+
+    // Второй прогон — о тех же предметах не напоминает.
+    const again: string[] = [];
+    await runInboxReminders(now, { db: pool, reach, send: (async (p: { text: string }) => { again.push(p.text); return { channel: 'max', delivered: true, reason: 'ok' }; }) as never });
+    expect(again.filter((t) => t.includes('Дом напоминаний'))).toEqual([]);
+
+    // Канал без исхода и неизвестный вид база не примет.
+    await expect(pool.query(
+      `INSERT INTO crm_inbox_reminders (partner_id, item_kind, item_id, channel) VALUES ($1, 'lead', 'x', 'max')`, [stay],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(
+      `INSERT INTO crm_inbox_reminders (partner_id, item_kind, item_id, channel) VALUES ($1, 'gear_rental', 'x', 'sms')`, [stay],
+    )).rejects.toMatchObject({ code: '23514' });
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {
