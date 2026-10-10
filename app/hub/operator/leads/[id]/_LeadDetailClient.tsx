@@ -52,7 +52,8 @@ interface AdversarialVerdict {
 
 interface LeadIntent {
   activity_types: string[];
-  group_size: number;
+  /** null — размер группы не назван. */
+  group_size: number | null;
   budget_rub: number | null;
   desired_dates: string | null;
   duration_days: number | null;
@@ -133,6 +134,23 @@ function ScoreMeter({ score }: { score: number | null }) {
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${score}%` }} />
       </div>
       <span className={`text-2xl font-bold tabular-nums ${textColor}`}>{score}<span className="text-sm font-normal text-[var(--text-muted)]">/100</span></span>
+    </div>
+  );
+}
+
+/** Факт заявки: что назвал клиент, или честное «не назван». */
+function IntentFact({ icon, label, value, missing }: {
+  icon?: React.ReactNode;
+  label: string;
+  value: string | null;
+  missing: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">{icon}{label}</span>
+      {value
+        ? <span className="font-semibold text-[var(--text-primary)] text-sm">{value}</span>
+        : <span className="text-sm text-[var(--text-muted)]">{missing}</span>}
     </div>
   );
 }
@@ -424,40 +442,18 @@ export default function LeadDetailClient({ leadId }: Props) {
               <ScoreMeter score={proposal.ai_score} />
             </div>
 
-            {/* Параметры */}
+            {/* Параметры — то, что назвал клиент. Не названное так и
+                подписано: 10.10 здесь стояли «Группа 52», выведенная моделью
+                из «2 вахтовки по 26 мест», «Бюджет» — цена тура, и «Дней 24» —
+                длина чужого тура, а не запрос клиента. */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {proposal.intent.group_size > 0 && (
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-                    <Users className="w-3 h-3" />Группа
-                  </span>
-                  <span className="font-semibold text-[var(--text-primary)]">{proposal.intent.group_size} чел.</span>
-                </div>
-              )}
-              {proposal.price_from && (
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-                    <Wallet className="w-3 h-3" />Бюджет
-                  </span>
-                  <span className="font-semibold text-[var(--text-primary)]">
-                    от {proposal.price_from.toLocaleString('ru-RU')} ₽
-                  </span>
-                </div>
-              )}
-              {proposal.duration_days && (
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />Дней
-                  </span>
-                  <span className="font-semibold text-[var(--text-primary)]">{proposal.duration_days}</span>
-                </div>
-              )}
-              {proposal.intent.desired_dates && (
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs text-[var(--text-muted)]">Даты</span>
-                  <span className="font-medium text-[var(--text-primary)] text-sm">{proposal.intent.desired_dates}</span>
-                </div>
-              )}
+              <IntentFact icon={<Users className="w-3 h-3" />} label="Группа"
+                value={proposal.intent.group_size ? `${proposal.intent.group_size} чел.` : null} missing="не названа" />
+              <IntentFact icon={<Wallet className="w-3 h-3" />} label="Бюджет клиента"
+                value={proposal.intent.budget_rub ? `${proposal.intent.budget_rub.toLocaleString('ru-RU')} ₽` : null} missing="не назван" />
+              <IntentFact icon={<Calendar className="w-3 h-3" />} label="Срок"
+                value={proposal.intent.duration_days ? `${proposal.intent.duration_days} дн.` : null} missing="не назван" />
+              <IntentFact label="Даты" value={proposal.intent.desired_dates} missing="не названы" />
             </div>
 
             {/* Резюме */}

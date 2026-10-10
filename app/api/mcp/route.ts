@@ -37,6 +37,7 @@ import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
+import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
@@ -524,6 +525,9 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     source_data: leadSource,
     pd_consent,
     is_self: ctx.self,
+    // Заказ машины через create_lead (10.10: две вахтовки на Горелый) — не
+    // подбор тура: менеджеру уходит как есть, без AI-подбора туров к нему.
+    skip_ai_processing: isVehicleOrder(leadComment),
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');

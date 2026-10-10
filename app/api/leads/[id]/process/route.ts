@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { canAccessLead } from '@/lib/leads/ownership';
+import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 import type { JWTPayload } from '@/lib/auth/jwt';
 
 export async function POST(
@@ -33,7 +34,9 @@ export async function POST(
     return NextResponse.json({ success: true, proposal: result }, { status: 200 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка обработки лида';
-    const status = message.includes('не найден') ? 404
+    // Заявка на машину — не сбой, а не тот вид заявки: 422 с объяснением.
+    const status = err instanceof LeadIsVehicleOrderError ? 422
+      : message.includes('не найден') ? 404
       : message.includes('уже') ? 409
       : 500;
     return NextResponse.json({ success: false, error: message }, { status });

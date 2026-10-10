@@ -16,12 +16,16 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { tourDays } from '@/lib/tours/catalog-availability';
+import { groundIntentNumbers } from '@/lib/leads/intent-grounding';
+import { isVehicleOrder, LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
 export interface LeadIntent {
   activity_types: string[];      // ['trekking', 'volcano', 'fishing']
-  group_size: number;
+  /** NULL — размер группы не назван. Раньше на этом месте стояла 1 «по умолчанию». */
+  group_size: number | null;
   budget_rub: number | null;
   desired_dates: string | null;  // свободный текст
   duration_days: number | null;
@@ -110,9 +114,41 @@ interface TourRow {
   id: string;
   title: string;
   price: number;
-  duration_days: number | null;
+  duration_type: string | null;
+  multi_day_count: number | null;
+  duration_hours: number | string | null;
   activity_type: string | null;
   description: string | null;
+}
+
+/** Колонки длительности тура — для tourDays(), правила каталога и брони. */
+const TOUR_DURATION_COLUMNS = 'duration_type, multi_day_count, duration_hours';
+
+/**
+ * Сколько дней тур — по правилу каталога (tourDays): многодневный — его
+ * multi_day_count, иначе часы в сутки. До 10.10 здесь стояло
+ * CEIL(часы / 8): восьмидневный тур (192 часа) становился «24 дня» и в
+ * предложении, и в PDF клиенту.
+ */
+function rowTourDays(t: Pick<TourRow, 'duration_type' | 'multi_day_count' | 'duration_hours'>): number {
+  return tourDays({
+    duration_type: t.duration_type,
+    multi_day_count: t.multi_day_count == null ? null : Number(t.multi_day_count),
+    duration_hours: t.duration_hours == null ? null : Number(t.duration_hours),
+  });
+}
+
+/**
+ * Стратегия звонка без обращения по имени. Имени клиента у модели нет (ПД в
+ * модель не уходят), значит любое имя в приветствии — чужое: 10.10 Arbiter
+ * начал звонок клиенту с «Здравствуйте, Нина Васильевна!» — так в тексте
+ * заявки звали перевозчика.
+ */
+export function callStrategyWithoutName(s: string): string {
+  return s.replace(
+    /^(\s*)(здравствуйте|добрый\s+день|добрый\s+вечер|доброе\s+утро|приветствую|привет)\s*,\s*[^!.?\n]{1,60}?([!.?])/iu,
+    '$1$2$3',
+  );
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────────
@@ -159,6 +195,17 @@ export class LeadProcessorService {
       throw new Error('Лид уже имеет предложение');
     }
 
+    // Заявка на машину — не подбор тура. Лид закрывается для крона (как
+    // заявка из request_charter), статус остаётся прежним: его ведёт менеджер.
+    if (isVehicleOrder([lead.route_title, lead.comment].filter(Boolean).join('\n'))) {
+      await pool.query(
+        `UPDATE leads SET processed_at = COALESCE(processed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+        [leadId]
+      );
+      await this.logActivity(leadId, 'ai', 'skipped_vehicle_order', {});
+      throw new LeadIsVehicleOrderError();
+    }
+
     // 2. Ставим статус "в обработке"
     await pool.query(
       `UPDATE leads SET status = 'ai_processing', updated_at = NOW() WHERE id = $1`,
@@ -199,7 +246,9 @@ export class LeadProcessorService {
         highlights: proposal.highlights,
         priceFrom: tours[0]?.price ?? null,
         priceTo: tours[tours.length - 1]?.price ?? null,
-        durationDays: intent.duration_days ?? tours[0]?.duration_days ?? null,
+        // Срок, который назвал клиент. Длительность тура здесь не подставляется:
+        // 10.10 «Дней 24» на экране лида было длиной чужого тура, а не запросом.
+        durationDays: intent.duration_days,
         generationMs: Date.now() - start,
         verdict,
       });
@@ -246,7 +295,7 @@ export class LeadProcessorService {
         highlights:   proposal.highlights,
         price_from:   tours[0]?.price ?? null,
         price_to:     tours[tours.length - 1]?.price ?? null,
-        duration_days: intent.duration_days ?? tours[0]?.duration_days ?? null,
+        duration_days: intent.duration_days,
         primary_tour: tours[0] ?? null,
         alt_tours:    tours.slice(1),
         ai_score:     aiScore,
@@ -284,9 +333,11 @@ export class LeadProcessorService {
 Задача — извлечь СТРУКТУРИРОВАННОЕ намерение из текста заявки. Ты НЕ продаёшь и НЕ советуешь.
 
 ЖЕЛЕЗНЫЕ ПРАВИЛА (нарушение = брак):
-1. Бери ТОЛЬКО факты, явно присутствующие в заявке. Нет данных — null (или 1 для группы). НЕ додумывай бюджет, даты, длительность.
+1. Бери ТОЛЬКО факты, явно присутствующие в заявке. Нет данных — null. НЕ додумывай размер группы, бюджет, даты, длительность.
+   НЕ вычисляй: не умножай и не складывай числа из заявки. «2 машины по 26 мест» — не группа из 52 человек; «75 000 ₽ за машину» — цена машины, а не бюджет клиента.
 2. activity_types и interests — ТОЛЬКО из перечисленных значений, массивом. Не изобретай новые. Активность не ясна — пустой массив [].
-3. budget_rub — число в рублях как указал клиент ("100к" → 100000). Расплывчатое ("недорого") → null.
+3. budget_rub — сколько КЛИЕНТ готов потратить, в рублях, как он сказал ("бюджет 100к" → 100000). Цена чего-то (машины, тура, жилья) — не бюджет. Расплывчатое ("недорого") → null.
+3а. group_size — сколько человек едет, только если это число названо ("нас четверо" → 4). Иначе null.
 4. duration_days — только если назван срок ("на неделю" → 7). Иначе null. Не выводи из дат.
 5. qualification_notes — сухая выжимка фактов для менеджера, без приукрашивания.
 
@@ -310,7 +361,7 @@ export class LeadProcessorService {
 Верни ТОЛЬКО валидный JSON без markdown и комментариев:
 {
   "activity_types": ["trekking"|"volcano"|"fishing"|"thermal"|"helicopter"|"boat_trip"|"snowmobile"|"skiing"|"diving"|"kayak"|"horseback"|"birdwatching"|"photography"],
-  "group_size": <целое число, 1 если неизвестно>,
+  "group_size": <целое число или null>,
   "budget_rub": <целое число рублей или null>,
   "desired_dates": "<дословно как в заявке, или null>",
   "duration_days": <целое число или null>,
@@ -324,9 +375,9 @@ export class LeadProcessorService {
       { role: 'user', content: prompt },
     ]);
 
-    return safeJSON<LeadIntent>(raw, {
+    const parsed = safeJSON<LeadIntent>(raw, {
       activity_types: [],
-      group_size: lead.group_size ?? 1,
+      group_size: lead.group_size ?? null,
       budget_rub: lead.budget_rub ?? null,
       desired_dates: lead.desired_dates ?? null,
       duration_days: null,
@@ -334,6 +385,21 @@ export class LeadProcessorService {
       urgency: 'medium',
       qualification_notes: lead.comment ?? 'Нет данных',
     }, 'qualify_intent');
+
+    // Числа модели — сквозь проверку по тексту заявки (lib/leads/intent-grounding):
+    // не названное в заявке становится null, поле формы главнее модели.
+    const grounded = groundIntentNumbers(parsed, {
+      text: [lead.comment, lead.route_title, lead.desired_dates].filter(Boolean).join('\n'),
+      formGroupSize: lead.group_size,
+      formBudgetRub: lead.budget_rub,
+      sourceData: lead.source_data,
+    });
+    return {
+      ...parsed,
+      activity_types: Array.isArray(parsed.activity_types) ? parsed.activity_types : [],
+      interests: Array.isArray(parsed.interests) ? parsed.interests : [],
+      ...grounded,
+    };
   }
 
   /**
@@ -376,7 +442,7 @@ export class LeadProcessorService {
 
     const { rows } = await pool.query<TourRow>(
       `SELECT id::text, title, ROUND(base_price)::int AS price,
-              CEIL(COALESCE(duration_hours, 8) / 8.0)::int AS duration_days,
+              ${TOUR_DURATION_COLUMNS},
               activity_type, description
        FROM operator_tours
        WHERE is_active = true AND deleted_at IS NULL
@@ -392,22 +458,23 @@ export class LeadProcessorService {
   private rankTours(tours: TourRow[], intent: LeadIntent): MatchedTour[] {
     return tours
       .map(t => {
+        const days = rowTourDays(t);
         let score = 0;
         if (intent.activity_types.includes(t.activity_type ?? '')) score += 30;
         if (intent.budget_rub && t.price <= intent.budget_rub) score += 20;
-        if (intent.duration_days && t.duration_days === intent.duration_days) score += 15;
+        if (intent.duration_days && days === intent.duration_days) score += 15;
         const titleLower = t.title.toLowerCase();
         for (const interest of intent.interests) {
           if (titleLower.includes(interest.toLowerCase())) score += 10;
         }
-        return { ...t, score };
+        return { ...t, days, score };
       })
       .sort((a, b) => b.score - a.score)
       .map(t => ({
         id:            t.id,
         title:         t.title,
         price:         t.price,
-        duration_days: t.duration_days ?? 1,
+        duration_days: t.days,
         activity_type: t.activity_type ?? 'other',
         description:   (t.description ?? '').slice(0, 300),
         match_reason:  this.buildMatchReason(t, intent),
@@ -443,7 +510,7 @@ export class LeadProcessorService {
   ): Promise<AdversarialVerdict> {
     const context = `
 Лид: ${redactPII(lead.comment) || 'нет комментария'}
-Группа: ${intent.group_size} чел. | Бюджет: ${intent.budget_rub ? intent.budget_rub.toLocaleString('ru-RU') + ' ₽' : 'не указан'}
+Группа: ${intent.group_size ? `${intent.group_size} чел.` : 'не названа'} | Бюджет клиента: ${intent.budget_rub ? intent.budget_rub.toLocaleString('ru-RU') + ' ₽' : 'не назван'}
 Активности: ${intent.activity_types.join(', ') || 'не указаны'}
 Даты: ${intent.desired_dates ?? 'не указаны'}
 Туры: ${tours.map(t => `"${t.title}" ${t.price.toLocaleString('ru-RU')} ₽`).join(', ') || 'нет подходящих'}
@@ -512,7 +579,7 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
 {
   "conversion_prob": <целое 0-100 по шкале выше>,
   "recommended_action": "call_immediately"|"send_proposal"|"nurture"|"skip",
-  "call_strategy": "<одно конкретное предложение: с какой фразы начать звонок, чтобы снять ГЛАВНЫЙ риск Bear>",
+  "call_strategy": "<одно конкретное предложение: с какой фразы начать звонок, чтобы снять ГЛАВНЫЙ риск Bear. Без обращения по имени: имени клиента у тебя нет, а имена в тексте заявки — других людей (перевозчик, гид, оператор)>",
   "urgency": "hot"|"warm"|"cold"
 }`;
 
@@ -544,7 +611,7 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
                             .includes(arbiter.recommended_action as 'call_immediately')
                             ? arbiter.recommended_action as AdversarialVerdict['recommendedAction']
                             : 'send_proposal',
-      callStrategy:       arbiter.call_strategy ?? '',
+      callStrategy:       callStrategyWithoutName(typeof arbiter.call_strategy === 'string' ? arbiter.call_strategy : ''),
       urgency:            (['hot', 'warm', 'cold'] as const).includes(arbiter.urgency as 'hot')
                             ? arbiter.urgency as AdversarialVerdict['urgency']
                             : 'warm',
@@ -567,7 +634,7 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
       ? `\nГлавные возражения клиента (нейтрализуй их в тексте):\n${verdict.bearRisks.slice(0, 3).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
       : '';
 
-    const prompt = `Ты — менеджер платформы TourHab по турам на Камчатку. Составь персональное, честное коммерческое предложение.
+    const prompt = `Ты — менеджер платформы Ведар по турам на Камчатку. Составь персональное, честное коммерческое предложение.
 
 АНТИ-ГАЛЛЮЦИНАЦИИ (критично — текст уйдёт клиенту в PDF):
 - Пиши ТОЛЬКО о турах из списка ниже и о фактах из запроса клиента.
@@ -580,10 +647,10 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
 ПРИВЕТСТВИЕ: используй РОВНО плейсхолдер {name} (имя подставим сами, тебе оно не передаётся) — не выдумывай имя.
 
 Запрос: ${redactPII(lead.comment) || intent.qualification_notes}
-Группа: ${intent.group_size} чел.
+Группа: ${intent.group_size ? `${intent.group_size} чел.` : 'не названа'}
 Активности: ${intent.activity_types.join(', ') || 'любые'}
 Интересы: ${intent.interests.join(', ') || 'не указаны'}
-Бюджет: ${intent.budget_rub ? intent.budget_rub.toLocaleString('ru-RU') + ' ₽' : 'не указан'}
+Бюджет клиента: ${intent.budget_rub ? intent.budget_rub.toLocaleString('ru-RU') + ' ₽' : 'не назван (не выводи его из цен в запросе)'}
 Даты: ${intent.desired_dates ?? 'гибкие'}
 ${bearContext}
 
@@ -711,7 +778,9 @@ ${toursText}
          l.ai_intent,
          t.title      AS tour_title,
          t.base_price AS tour_price,
-         CEIL(COALESCE(t.duration_hours, 8) / 8.0)::int AS tour_duration_days,
+         t.duration_type    AS tour_duration_type,
+         t.multi_day_count  AS tour_multi_day_count,
+         t.duration_hours   AS tour_duration_hours,
          t.activity_type    AS tour_activity_type,
          t.description      AS tour_description
        FROM lead_proposals lp
@@ -728,7 +797,11 @@ ${toursText}
       id:            r.primary_tour_id,
       title:         r.tour_title,
       price:         Number(r.tour_price),
-      duration_days: r.tour_duration_days ?? 1,
+      duration_days: rowTourDays({
+        duration_type: r.tour_duration_type ?? null,
+        multi_day_count: r.tour_multi_day_count ?? null,
+        duration_hours: r.tour_duration_hours ?? null,
+      }),
       activity_type: r.tour_activity_type ?? 'other',
       description:   r.tour_description ?? '',
       match_reason:  '',
@@ -743,7 +816,7 @@ ${toursText}
     if (altIds.length > 0) {
       const { rows: altRows } = await pool.query<TourRow>(
         `SELECT id::text, title, ROUND(base_price)::int AS price,
-                CEIL(COALESCE(duration_hours, 8) / 8.0)::int AS duration_days,
+                ${TOUR_DURATION_COLUMNS},
                 activity_type, description
            FROM operator_tours
           WHERE id::text = ANY($1::text[])`,
@@ -757,7 +830,7 @@ ${toursText}
           id:            t.id,
           title:         t.title,
           price:         Number(t.price),
-          duration_days: t.duration_days ?? 1,
+          duration_days: rowTourDays(t),
           activity_type: t.activity_type ?? 'other',
           description:   (t.description ?? '').slice(0, 300),
           match_reason:  '',

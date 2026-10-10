@@ -563,7 +563,7 @@ async function createLeadFromTelegramFlow(
         proposal.intent.activity_types.length > 0
           ? `Направление: ${proposal.intent.activity_types.join(', ')}`
           : '',
-        proposal.intent.group_size > 1 ? `Группа: ${proposal.intent.group_size} чел.` : '',
+        (proposal.intent.group_size ?? 0) > 1 ? `Группа: ${proposal.intent.group_size} чел.` : '',
         proposal.intent.budget_rub ? `Бюджет: ~${(proposal.intent.budget_rub / 1000).toFixed(0)}к руб` : '',
         proposal.intent.desired_dates ? `Даты: ${esc(proposal.intent.desired_dates)}` : '',
         '',
