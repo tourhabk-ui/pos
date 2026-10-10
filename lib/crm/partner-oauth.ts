@@ -23,6 +23,8 @@ import { AGENT_KEY_PREFIX, generateAgentKey, hashAgentKey } from '@/lib/crm/agen
 import { SCOPE_READ, SCOPE_WRITE, trustedOAuthClient } from '@/lib/crm/partner-oauth-public';
 import { CODE_CHALLENGE_RE } from '@/lib/crm/partner-oauth-request';
 import type { PartnerOAuthCodeRow } from '@/lib/types/db-rows';
+import { crmCategoryFor } from '@/lib/crm/partner-context';
+import { canSwitchTo, ownedRoles, ROLE_LABELS } from '@/lib/auth/role-switch';
 
 interface Queryable {
   query: typeof pool.query;
@@ -220,5 +222,56 @@ export async function partnerDisplayName(partnerId: string, db: Queryable = pool
   } catch (err) {
     console.error('[partner-oauth] название кабинета не прочитано, SQLSTATE', sqlstate(err));
     return null;
+  }
+}
+
+export interface SwitchablePartnerRole {
+  role: string;
+  /** «Туроператор», «Гид» — подпись роли, как в переключателе шапки. */
+  label: string;
+  /** Название кабинета — чтобы партнёр с двумя профилями выбрал нужный. */
+  name: string | null;
+}
+
+/**
+ * В какие роли партнёра может переключиться вошедший, чтобы подключить CRM.
+ *
+ * Случай с прода 10.10: владелец открыл «Подключить» из Claude, будучи в
+ * роли администратора, и экран согласия сказал «вы вошли не в кабинет
+ * партнёра» — без единой кнопки, кроме «Вернуться в Claude». Выйти из
+ * тупика было нечем.
+ *
+ * Предлагается только роль, у которой УЖЕ есть профиль партнёра с CRM
+ * (crmCategoryFor: агент — одобренный), и в которую переключение разрешено
+ * тем же правилом, что у шапки (canSwitchTo). Переключение у админа
+ * заводит пустой профиль (ensurePartnerForRole), и предлагать его здесь
+ * значило бы подключить Claude к пустой CRM под видом настоящей.
+ * Не прочиталось — пустой список и строка в логе: экран всё равно
+ * предложит войти другим аккаунтом.
+ */
+export async function switchablePartnerRoles(userId: string, db: Queryable = pool): Promise<SwitchablePartnerRole[]> {
+  try {
+    const { rows } = await db.query<{ category: string; name: string | null; profile_status: string | null; active_role: string; roles: unknown }>(
+      `SELECT p.category, COALESCE(p.company_name, p.name) AS name, p.profile_status,
+              u.role AS active_role, u.preferences->'roles' AS roles
+         FROM partners p
+         JOIN users u ON u.id = p.user_id
+        WHERE p.user_id = $1::uuid
+        ORDER BY p.created_at ASC NULLS LAST, p.id ASC`,
+      [userId],
+    );
+    const seen = new Set<string>();
+    const out: SwitchablePartnerRole[] = [];
+    for (const r of rows) {
+      const category = crmCategoryFor(r.category, r.profile_status);
+      if (!category || seen.has(category)) continue;
+      if (!canSwitchTo(r.active_role, ownedRoles(r.roles, r.active_role), category)) continue;
+      seen.add(category);
+      out.push({ role: category, label: ROLE_LABELS[category] ?? category, name: r.name });
+    }
+    return out;
+  } catch (err) {
+    console.error('[partner-oauth] роли партнёра для переключения не прочитаны, SQLSTATE', sqlstate(err));
+    return [];
   }
 }
