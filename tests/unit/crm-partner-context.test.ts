@@ -102,3 +102,62 @@ describe('гард роутов', () => {
     expect(await requirePartner(req())).toEqual({ outcome: 'ok', partnerId: 'p-op', category: 'operator', userId: 'u1' });
   });
 });
+
+/**
+ * Профиль партнёра по человеку ищется С КАТЕГОРИЕЙ (10.10).
+ *
+ * `SELECT id FROM partners WHERE user_id = $1 LIMIT 1` отдаёт первую попавшуюся
+ * строку человека. У того, у кого два профиля (оператор и гид, оператор и
+ * агент), это может быть чужая категория — и инструменты броней оператора в
+ * чате сайта уходили на профиль гида (app/api/ai/chat, починено переходом на
+ * partnerContextFor). Перепись того же дня нашла форму ещё в девяти файлах.
+ * Менять их вслепую нельзя: у старых операторов категория строки на проде не
+ * сверена, и правка по категории могла бы отрезать живой календарь. Поэтому
+ * долг заморожен списком, который только сокращается, — новый такой запрос
+ * красный, починенный вычёркивается тем же коммитом.
+ */
+describe('поиск профиля по человеку — с категорией', () => {
+  const KNOWN_WITHOUT_CATEGORY: Readonly<Record<string, string>> = {
+    'app/api/carrier-trips/bookings/[id]/qr/route.ts': 'перевозчик; категория transfer на проде не сверена',
+    'app/api/carrier-trips/bookings/route.ts': 'перевозчик; категория transfer на проде не сверена',
+    'app/api/hub/operator/bookings-calendar/route.ts': 'календарь оператора; категория operator на проде не сверена',
+    'app/api/operator-agreements/content-consent/route.ts': 'согласие оператора на контент; категория не сверена',
+    'app/api/operator/calendar/block/route.ts': 'календарь оператора; категория operator на проде не сверена',
+    'app/api/operator/calendar/bulk-open/route.ts': 'календарь оператора; категория operator на проде не сверена',
+    'app/api/operator/calendar/ical/route.ts': 'календарь оператора; категория operator на проде не сверена',
+    'app/api/operator/calendar/route.ts': 'календарь оператора; категория operator на проде не сверена',
+    'lib/agents/agencies/guide-agency.ts': 'агентство гида; категория guide на проде не сверена',
+  };
+
+  async function lookupsWithoutCategory(): Promise<string[]> {
+    const { execSync } = await import('node:child_process');
+    const { readFileSync } = await import('node:fs');
+    const files = execSync("git ls-files 'app' 'lib'", { encoding: 'utf-8' })
+      .split('\n')
+      .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'));
+    const out: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(f, 'utf-8');
+      const hit = [...src.matchAll(/`([^`]*)`/g)].some(([, sql]) =>
+        /FROM\s+partners\b(?:\s+\w+)?\s+WHERE\s+(?:\w+\.)?user_id\s*=\s*\$1/.test(sql) && !sql.includes('category'));
+      if (hit) out.push(f);
+    }
+    return out.sort();
+  }
+
+  it('новый поиск профиля без категории — красный', async () => {
+    const added = (await lookupsWithoutCategory()).filter((f) => !(f in KNOWN_WITHOUT_CATEGORY));
+    expect(added, 'Профиль по человеку — через partnerContextFor или с AND category = …').toEqual([]);
+  });
+
+  it('починенный вычёркивается из долга тем же коммитом', async () => {
+    const current = await lookupsWithoutCategory();
+    const stale = Object.keys(KNOWN_WITHOUT_CATEGORY).filter((f) => !current.includes(f));
+    expect(stale).toEqual([]);
+  });
+
+  it('чат сайта ищет оператора по роли', async () => {
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('app/api/ai/chat/route.ts', 'utf-8')).toMatch(/partnerContextFor\(userId, 'operator'\)/);
+  });
+});
