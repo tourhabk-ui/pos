@@ -230,7 +230,7 @@ describe('каждый потребитель передаёт источник'
   ) as string;
 
   it('API отдаёт geometrySource рядом с track', () => {
-    const src = read('app/api/routes/[id]/route.ts');
+    const src = read('lib/routes/route-detail.ts');
     expect(src).toMatch(/geometrySource/);
   });
 

@@ -74,7 +74,7 @@ describe('маршрут без своих кадров: фото точки п�
     const card = read('app/routes/[id]/_RouteDetailClient.tsx');
     expect(card).toContain('wpPhotos.authors[i]');
     expect(card).toContain('Фото места «${place}»');
-    expect(read('app/api/routes/[id]/route.ts')).toContain("logQueryFailure('waypoint_photos', err, id)");
+    expect(read('lib/routes/route-detail.ts')).toContain("logQueryFailure('waypoint_photos', err, id)");
   });
 });
 

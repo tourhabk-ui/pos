@@ -25,7 +25,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
-const API_ROUTE = read('app/api/routes/[id]/route.ts');
+// Сборка карточки — lib/routes/route-detail (SEO 10.10); роут её только зовёт.
+const API_ROUTE = read('app/api/routes/[id]/route.ts') + read('lib/routes/route-detail.ts');
 const FIELD_CLIENT = read('app/planning/_PlanningClient.tsx');
 
 describe('/api/routes/[id] — coord_source доходит до ответа', () => {

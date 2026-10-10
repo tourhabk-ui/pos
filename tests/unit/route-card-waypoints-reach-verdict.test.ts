@@ -82,7 +82,8 @@ describe('координаты читаются под именами запро
 });
 
 describe('карточка не собирает свой вердикт на месте', () => {
-  const ROUTE = readFileSync(join(process.cwd(), 'app/api/routes/[id]/route.ts'), 'utf-8');
+  // Сборка карточки — lib/routes/route-detail (SEO 10.10).
+  const ROUTE = readFileSync(join(process.cwd(), 'lib/routes/route-detail.ts'), 'utf-8');
   const code = ROUTE.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
   it('зовёт общую функцию', () => {

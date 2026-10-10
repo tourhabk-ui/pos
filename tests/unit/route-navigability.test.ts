@@ -284,7 +284,8 @@ describe('отказ всегда назван словами', () => {
 });
 
 describe('черта живёт в одном месте, поверхности её спрашивают', () => {
-  const API = readFileSync(join(process.cwd(), 'app/api/routes/[id]/route.ts'), 'utf-8');
+  // Сборка карточки — lib/routes/route-detail (SEO 10.10).
+  const API = readFileSync(join(process.cwd(), 'lib/routes/route-detail.ts'), 'utf-8');
   const CLIENT = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
 
   it('вердикт считается на сервере — там есть и линия, и точки', () => {

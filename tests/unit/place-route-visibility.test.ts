@@ -19,7 +19,8 @@ const ROOT = process.cwd();
 // и Кузьмич. Карточка обязана брать его оттуда, а не держать свою копию.
 const placeCard = readFileSync(join(ROOT, 'lib/places/place-routes.ts'), 'utf-8');
 const placeDetail = readFileSync(join(ROOT, 'lib/places/place-detail.ts'), 'utf-8');
-const routeCard = readFileSync(join(ROOT, 'app/api/routes/[id]/route.ts'), 'utf-8');
+// Сборка карточки — lib/routes/route-detail (SEO 10.10).
+const routeCard = readFileSync(join(ROOT, 'lib/routes/route-detail.ts'), 'utf-8');
 
 describe('карточка места — блок «Маршруты»', () => {
   it('карточка берёт отбор из общего модуля, своей копии SQL нет', () => {

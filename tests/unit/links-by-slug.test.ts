@@ -67,8 +67,8 @@ describe('источники ссылок отдают ЧПУ', () => {
   });
 
   it('точки пути и ориентиры маршрута — по ЧПУ', () => {
-    expect(code('app/api/routes/[id]/route.ts')).toMatch(/p\.slug AS place_slug/);
-    expect(code('app/api/routes/[id]/route.ts')).toMatch(/SELECT p\.id, p\.slug, p\.name/);
+    expect(code('lib/routes/route-detail.ts')).toMatch(/p\.slug AS place_slug/);
+    expect(code('lib/routes/route-detail.ts')).toMatch(/SELECT p\.id, p\.slug, p\.name/);
     const client = code('app/routes/[id]/_RouteDetailClient.tsx');
     expect(client).not.toMatch(/`\/places\/\$\{w\.placeId\}`/);
     expect(client).not.toMatch(/`\/places\/\$\{wp\.placeId\}`/);

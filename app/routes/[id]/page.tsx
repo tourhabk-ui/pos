@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
-import RouteDetailClient from './_RouteDetailClient';
+import RouteDetailClient, { type RouteDetail } from './_RouteDetailClient';
+import { loadRouteDetail, logQueryFailure } from '@/lib/routes/route-detail';
 import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
@@ -556,12 +557,28 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     ],
   };
 
+  // Карточка целиком — с сервера (SEO 10.10, аудит 29.09 Н1): статы,
+  // опасности, подготовка, точки и туры в первом HTML, а не только сводка.
+  // Сборка та же, что у /api/routes/[id]; просмотр здесь не считается —
+  // его засчитывает запрос из браузера. Не собралась — карточка грузится из
+  // браузера, как раньше, а причина в логе (§4.0).
+  let initialRoute: RouteDetail | null = null;
+  try {
+    const detail = await loadRouteDetail(route.id, { explain: false, countView: false });
+    // Через JSON — ровно та форма, что отдаёт API клиенту (даты строками).
+    // Тип карточки клиент берёт из ответа API тем же доверием.
+    if (detail.kind === 'found') initialRoute = JSON.parse(JSON.stringify(detail.data)) as RouteDetail;
+  } catch (err) {
+    logQueryFailure('route_detail_ssr', err, route.id);
+  }
+
   return (
     <>
       <JsonLd data={jsonLd} />
       <JsonLd data={breadcrumbLd} />
       <RouteDetailClient
         id={route.id}
+        initialRoute={initialRoute}
         mapPackBaseUrl={process.env[MAP_PACK_BASE_URL_ENV] || null}
         summary={{
           title: route.title,

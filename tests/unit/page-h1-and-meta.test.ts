@@ -128,7 +128,7 @@ describe('заглушка в начале описания маршрута', (
 
   it('снимается везде, где маршрут показывается: страница, API, каталог, категории', () => {
     expect(code('app/routes/[id]/page.tsx')).toMatch(/description: stripFillerLead\(stripSourceAttribution\(/);
-    expect(code('app/api/routes/[id]/route.ts')).toMatch(/description: stripFillerLead\(r\.description as string \| null\)/);
+    expect(code('lib/routes/route-detail.ts')).toMatch(/description: stripFillerLead\(r\.description as string \| null\)/);
     expect(code('lib/routes/catalog-query.ts')).toMatch(/description: {2}stripFillerLead\(r\.description as string \| null\)/);
     expect(code('components/routes/CategoryPage.tsx')).toMatch(/description: stripFillerLead\(r\.description\)/);
   });

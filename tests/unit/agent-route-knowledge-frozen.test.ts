@@ -40,7 +40,6 @@ const KNOWN_READERS = new Set<string>([
   'app/api/public/stats/route.ts',
   'app/api/routes/[id]/export/route.ts',
   'app/api/routes/[id]/offline-bundle/route.ts',
-  'app/api/routes/[id]/route.ts',
   'app/api/routes/analysis/route.ts',
   'app/api/routes/by-region/route.ts',
   'app/api/routes/nearby/route.ts',
@@ -66,6 +65,9 @@ const KNOWN_READERS = new Set<string>([
   'lib/planner/engine.ts',
   'lib/routes/catalog-query.ts',
   'lib/routes/catalog-sitemap.ts',
+  // Не новый читатель: сборка карточки переехала сюда из
+  // app/api/routes/[id]/route.ts (SEO 10.10, серверный рендер карточки).
+  'lib/routes/route-detail.ts',
   'lib/services/ingest/ai-image-generator.ts',
   'lib/stats/platform-counts.ts',
 ]);
