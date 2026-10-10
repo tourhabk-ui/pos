@@ -190,6 +190,8 @@ describe('request_charter через MCP: заявка принята', () => {
     expect(r.text).toContain('Это заявка, не оплата');
     expect(r.text).toContain('итоговой суммы платформа не называет');
     expect(r.text).toContain('/operators/shatun');
+    // Сезон и проходимость — «не знаем» вслух, а не молчаливое принятие даты (проверка владельца 10.10).
+    expect(r.text).toContain('Сезонность и проходимость дороги прайс не называет');
     // Телефон перевозчика агенту не отдаётся — он уходит менеджеру.
     expect(r.text).not.toContain('79001112233');
 
@@ -204,6 +206,7 @@ describe('request_charter через MCP: заявка принята', () => {
     expect(String(lead.comment)).toContain('[Заявка на машину] «Шатун», с ');
     expect(String(lead.comment)).toContain('по прайсу: Вулкан Горелый 75000 руб за машину');
     expect(String(lead.comment)).toContain('телефон перевозчика: +79001112233');
+    expect(String(lead.comment)).toContain('в прайсе нет сезонности и проходимости');
     expect(lead.source_data).toMatchObject({
       source: 'mcp', tool: 'request_charter', kind: 'charter', carrier_id: 'partner-1',
       passengers: 8, price_line_rub: 75000, in_price_list: true, vehicles_needed: 1,

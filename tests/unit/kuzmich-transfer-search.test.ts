@@ -132,9 +132,20 @@ describe('вахтовки под заказ (1185): прайс на целую 
     charterMock.mockResolvedValue([CARRIER]);
     const mcp = await searchTransfersForKuzmich({}, { surface: 'mcp' });
     expect(mcp).toContain('request_charter');
+    // Какой перевозчик адресуется — названо словом, а не выводится агентом из ссылки.
+    expect(mcp).toContain('Параметр carrier — shatun (Шатун)');
+    expect(mcp).toContain('можно не передавать');
     const chat = await searchTransfersForKuzmich({}, { surface: 'chat' });
     expect(chat).not.toContain('request_charter');
     expect(await searchTransfersForKuzmich({})).not.toContain('request_charter');
+  });
+
+  it('перевозчиков несколько — параметр carrier перечислен поимённо, «можно не передавать» не говорится', async () => {
+    listMock.mockResolvedValue([]);
+    charterMock.mockResolvedValue([CARRIER, { ...CARRIER, partnerId: 'c2', slug: 'kamaz-tur', name: 'КамАЗ-Тур' }]);
+    const mcp = await searchTransfersForKuzmich({}, { surface: 'mcp' });
+    expect(mcp).toContain('Параметр carrier — shatun (Шатун); kamaz-tur (КамАЗ-Тур)');
+    expect(mcp).not.toContain('можно не передавать');
   });
 
   it('прайс не прочитался — «не смог проверить», поездки при этом не пропадают и «таких нет» не говорится', async () => {
