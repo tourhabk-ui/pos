@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1210_partner_oauth.sql`.
+> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1212_external_alerts_basis.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 266 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3555 |
+| Колонок | 3561 |
 | Внешних ключей | 307 |
 | Таблиц без единого FK в обе стороны | 76 |
 
@@ -341,9 +341,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `zone varchar` `contact_type varchar` `name varchar` `phone varchar` `location_lat numeric` `location_lng numeric` `service_hours text` `capabilities text[]` `updated_at timestamp=` `purpose varchar` `source varchar` `source_url text` `verified_at timestamptz` `verified_by text` `notes text`
 
-**external_alerts** · 21 кол. · PK id · индексов 5
+**external_alerts** · 27 кол. · PK id · индексов 5
 
-`id bigint!=` `alert_type varchar` `severity integer` `title varchar` `description text` `affected_zones text[]` `affected_locations uuid[]=` `created_at timestamp=` `expires_at timestamp` `source_url varchar` `external_id varchar` `updated_at timestamp=` `push_sent_at timestamptz` `magnitude numeric` `lat numeric` `lng numeric` `push_suppressed_at timestamptz` `push_suppressed_reason text` `volcano_name text` `volcano_ark_id uuid` `affected_parks text[]`
+`id bigint!=` `alert_type varchar` `severity integer` `title varchar` `description text` `affected_zones text[]` `affected_locations uuid[]=` `created_at timestamp=` `expires_at timestamp` `source_url varchar` `external_id varchar` `updated_at timestamp=` `push_sent_at timestamptz` `magnitude numeric` `lat numeric` `lng numeric` `push_suppressed_at timestamptz` `push_suppressed_reason text` `volcano_name text` `volcano_ark_id uuid` `affected_parks text[]` `basis_title text` `basis_url text` `basis_origin text` `basis_valid_until timestamptz` `basis_checked_at timestamptz` `basis_check_outcome text`
 
 **mchs_group_registrations** · 19 кол. · PK id · operator_partner_id → partners.id, operator_user_id → users.id · индексов 4
 

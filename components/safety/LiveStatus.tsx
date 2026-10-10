@@ -59,6 +59,14 @@ function fmtDate(iso: string | null): string {
 
 const KAMCHATKA_TZ = 'Asia/Kamchatka';
 
+/** Час по Камчатке: «10:00». Пояс явный — та же причина, что у fmtDate. */
+function fmtTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: KAMCHATKA_TZ });
+}
+
 /**
  * Наши технические TTL из ingest (lib/services/safety/seismic-parser.ts):
  * дорожные ограничения живут неделю, прочее — сутки или двое. Это срок жизни
@@ -99,7 +107,14 @@ export function alertStamp(a: { type: string | null; at: string | null; until: s
       return a.at ? `сообщение от ${fmtDate(a.at)}` : 'действует';
     }
     const until = fmtDate(a.until);
-    return until ? `действует до ${until}` : 'действует';
+    if (!until) return 'действует';
+    // Короткое ограничение («пока до 10 утра», 10.10) — с часом: «до 9 окт.»
+    // у закрытия до десяти утра обещал бы весь день. Длинные — датой, как было.
+    const span = a.at && a.until ? new Date(a.until).getTime() - new Date(a.at).getTime() : NaN;
+    if (Number.isFinite(span) && span > 0 && span <= 72 * 3_600_000) {
+      return `действует до ${until}, ${fmtTime(a.until)}`;
+    }
+    return `действует до ${until}`;
   }
   return `${fmtDate(a.at)}${a.at ? ` · ${fmtAgo(a.at)}` : ''}`;
 }
@@ -561,6 +576,17 @@ export function AlertsTicker({ alerts, lines }: { alerts: SafetyAlert[]; lines?:
       <span className="atx">
         {a.title}
         {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
+        {/* Основание — документ, по которому закрыли (10.10). Прочитанное со
+            снимка помечено: номер на фото бумаги модель может прочесть неточно. */}
+        {a.basis ? (
+          <span className="adesc abasis">
+            Основание:{' '}
+            {a.basis.url && !dup
+              ? <a href={a.basis.url} target="_blank" rel="noopener noreferrer">{a.basis.title}</a>
+              : a.basis.title}
+            {a.basis.recognized ? ' — распознано со снимка' : ''}
+          </span>
+        ) : null}
       </span>
       {/* «N мин назад» считается от часов: сервер и браузер расходятся на
           секунды, и на границе минуты текст разный (#418, 04.10). */}
@@ -825,6 +851,7 @@ export const LIVE_STATUS_CSS = `
 .kh-live .alerts i.sev-hi{background:var(--danger)}.kh-live .alerts i.sev-mid{background:var(--warning)}.kh-live .alerts i.sev-lo{background:var(--ocean)}
 .kh-live .alerts .atx{font:500 12px/1.4 var(--font-outfit),system-ui,sans-serif;flex:1}
 .kh-live .alerts .adesc{display:block;margin-top:2px;font:400 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
+.kh-live .alerts .abasis a{color:var(--ocean);text-decoration:underline}
 /* Свёрнутая бегущая лента: описание в одну строку. Многострочное описание
    маска окна режет посередине — у владельца 08.08 над «Вилючинским перевалом»
    висела одинокая строка «полотно…» (хвост записи о реконструкции дороги).

@@ -73,9 +73,21 @@ jobs:
           jq -s . /tmp/kamgov.json > /tmp/kamgov_xml.json 2>/dev/null || echo "[]" > /tmp/kamgov_xml.json
           jq -s . /tmp/kamgov_fetch.jsonl > /tmp/kamgov_fetch.json 2>/dev/null || echo "[]" > /tmp/kamgov_fetch.json
 
+          # «Право на Руль» — дорожный канал (10.10): закрытия и ограничения
+          # проезда, приказы Камчатуправтодора снимками. MAX-версию канала не
+          # прочитать (нет API, SPA), Telegram-зеркало открывается раннеру
+          # (проба 752). Сервер берёт только ограничения проезда
+          # (lib/services/safety/road-channel.ts).
+          curl -sf --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://t.me/s/pravonarul" > /tmp/pravonarul.html \
+            || echo "" > /tmp/pravonarul.html
+
           echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
           echo "minec:   $(wc -c < /tmp/minec.html) bytes"
+          echo "pravonarul: $(wc -c < /tmp/pravonarul.html) bytes"
           echo "kamgov:  $(jq 'length' /tmp/kamgov_xml.json) feeds"
 
           # Сводка Минтура пересказом kamtoday.ru (#2064, решение владельца
@@ -191,6 +203,7 @@ jobs:
             --rawfile kbgsras_html /tmp/kbgsras.html \
             --rawfile eqkam_html   /tmp/eqkam.html \
             --rawfile minec_html   /tmp/minec.html \
+            --rawfile pravonarul_html /tmp/pravonarul.html \
             --slurpfile max_items  /tmp/max_items.json \
             --slurpfile kamgov_xml /tmp/kamgov_xml.json \
             --slurpfile kamgov_fetch /tmp/kamgov_fetch.json \
@@ -198,6 +211,7 @@ jobs:
             --slurpfile kamtoday_fetch /tmp/kamtoday_fetch.json \
             '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}
               + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)
+              + (if ($pravonarul_html | length) > 0 then {pravonarul_html: $pravonarul_html} else {} end)
               + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)
               + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)
               + (if (($kamgov_fetch[0] // []) | length) > 0 then {kamgov_fetch: $kamgov_fetch[0]} else {} end)
@@ -215,3 +229,47 @@ jobs:
           echo "HTTP: $HTTP"
           cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # Основание дорожного закрытия (10.10): приказ часто лежит только
+      # снимком в посте «Права на Руль». Сервер в ответе приёма называет посты,
+      # чей снимок ещё не проверен (road_basis_needed, не больше трёх), — раннер
+      # скачивает только их (CDN Telegram с Timeweb закрыт) и шлёт байтами в
+      # /api/cron/road-basis; там снимок читает зрение. Каждый пост — один раз:
+      # проверенный в списке больше не появляется, отказ зрения — через час.
+      # Отказ шага не роняет приём тревог: он отдельный и говорит словами.
+      - name: Road basis — снимки приказов к дорожным закрытиям
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          NEED=$(jq -c '(.road_basis_needed // []) | if type == "array" then . else [] end' /tmp/out.json 2>/dev/null || echo '[]')
+          COUNT=$(echo "$NEED" | jq 'length')
+          echo "road_basis_needed: $COUNT"
+          [ "$COUNT" -gt 0 ] || exit 0
+          : > /tmp/rb.jsonl
+          for i in $(seq 0 $((COUNT - 1))); do
+            ID=$(echo "$NEED" | jq -r ".[$i].external_id")
+            URL=$(echo "$NEED" | jq -r ".[$i].photo_url")
+            case "$URL" in https://cdn*.telesco.pe/file/*) ;; *) echo "skip $ID: адрес не CDN Telegram"; continue ;; esac
+            if curl -sf --max-time 30 --max-filesize 4000000 -o /tmp/rb.img "$URL"; then
+              MIME=$(file -b --mime-type /tmp/rb.img)
+              case "$MIME" in image/jpeg|image/png|image/webp) ;; *) echo "skip $ID: $MIME"; continue ;; esac
+              base64 -w0 /tmp/rb.img > /tmp/rb.b64
+              jq -nc --arg id "$ID" --arg url "$URL" --arg mime "$MIME" --rawfile b64 /tmp/rb.b64 \
+                '{external_id: $id, photo_url: $url, mime: $mime, b64: $b64}' >> /tmp/rb.jsonl
+              echo "$ID: снимок $(wc -c < /tmp/rb.img) байт, $MIME"
+            else
+              echo "skip $ID: снимок не скачан"
+            fi
+          done
+          [ -s /tmp/rb.jsonl ] || { echo "снимков нет — нечего слать"; exit 0; }
+          jq -s '{photos: .}' /tmp/rb.jsonl > /tmp/rb_payload.json
+          HTTP=$(curl -s -o /tmp/rb_out.json -w "%{http_code}" --max-time 120 \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/rb_payload.json \
+            "https://vedarai.ru/api/cron/road-basis")
+          echo "road-basis HTTP: $HTTP"
+          cat /tmp/rb_out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] || { echo "FAIL road-basis $HTTP"; exit 1; }

@@ -6,6 +6,8 @@ import { EMSD_QUAKES_URL } from '@/lib/services/safety/emsd-quakes';
 import { kamgovUnreachable } from '@/lib/services/safety/kamgov-fetch';
 import { ingestKamtodayArticles } from '@/lib/services/safety/kamtoday';
 import { ingestEmsdQuakes, type EmsdIngestResult, ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestRoadChannelHtml, type RoadChannelResult } from '@/lib/services/safety/road-channel';
+import { pendingBasisChecks } from '@/lib/safety/road-basis-queue';
 import { appendSafetyEvent } from '@/lib/safety/ledger';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, ingestRunDetail, type RunSource, type IngestRunStatus } from '@/lib/services/safety/ingest-outcome';
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
@@ -682,6 +684,7 @@ function buildResponse(
     max?: ParseResultSummary;
     firms?: ParseResultSummary;
     meteoalert?: ParseResultSummary;
+    road?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -690,6 +693,12 @@ function buildResponse(
   trigger: IngestTrigger = 'workflow_post',
   extras?: {
     delegated_to_heartbeat?: string[];
+    /**
+     * Посты «Права на Руль» со снимком, чьё основание (приказ на фото) ещё не
+     * проверено: раннер скачивает именно их и шлёт в /api/cron/road-basis.
+     * Ошибка чтения — строкой, а не пустым списком (§4.0).
+     */
+    roadBasisNeeded?: Array<{ external_id: string; photo_url: string }> | { error: string };
     telegramSeismicAgeMin?: number | null;
     knownDormantSources?: KnownDormantSource[];
     /** Каким путём heartbeat прочитал каналы t.me и почему не смог. */
@@ -746,6 +755,7 @@ function buildResponse(
     ...(ingestResult.max?.errors ?? []),
     ...(ingestResult.firms?.errors ?? []),
     ...(ingestResult.meteoalert?.errors ?? []),
+    ...(ingestResult.road?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
     ...(pruned && 'error' in pruned ? [pruned.error] : []),
@@ -772,6 +782,7 @@ function buildResponse(
       ['max_mchs', ingestResult.max, undefined],
       ['firms', ingestResult.firms, 'FIRMS_MAP_KEY'],
       ['meteoalert', ingestResult.meteoalert, undefined],
+      ['pravonarul', ingestResult.road, undefined],
     ] as const).map(([key, result, requiresEnv]) => [
       key,
       sourceReport({
@@ -818,6 +829,13 @@ function buildResponse(
       inserted: ingestResult.minec.inserted,
       skipped: ingestResult.minec.skipped,
     } : undefined,
+    road: ingestResult.road ? {
+      events_found: ingestResult.road.events.length,
+      inserted: ingestResult.road.inserted,
+      skipped: ingestResult.road.skipped,
+    } : undefined,
+    // Раннер читает это поле и приносит снимки второй ходкой (cron-safety-ingest.yml).
+    road_basis_needed: extras?.roadBasisNeeded ?? [],
     vk: ingestResult.vk ? {
       events_found: ingestResult.vk.events.length,
       inserted: ingestResult.vk.inserted,
@@ -1186,6 +1204,12 @@ const HtmlBodySchema = z.object({
   // Optional: старый воркфлоу без этого поля продолжает работать.
   minec_html: z.string().optional(),
   /**
+   * Дорожный канал «Право на Руль» (t.me/s/pravonarul): закрытия и
+   * ограничения проезда, приказы — снимками (10.10, lib/services/safety/
+   * road-channel.ts). Optional: старый воркфлоу и реле его не шлют.
+   */
+  pravonarul_html: z.string().max(2_000_000).optional(),
+  /**
    * RSS kamgov.ru, скачанный раннером: с Timeweb гос-сайт не открывается, и
    * сервер каждый прогон писал «news feed unavailable: kamgov» при живом фиде.
    * Массив — у сайта несколько путей (/rss, /mintur/rss), дубли снимает разбор.
@@ -1280,7 +1304,7 @@ export async function POST(req: Request) {
   // t.me-HTML, kamgov-XML, minec-HTML и посты MAX, принесённые раннером.
   // Двойная работа снята: у VK API лимиты, и лишний поход туда каждые ~час
   // бесплатным не был.
-  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult, kamtodayResult] = await Promise.all([
+  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult, kamtodayResult, roadResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     // kamgov с сервера не тянется НИКОГДА (гео-блок с Timeweb): его приносит
     // раннер XML'ом ниже. Прежнее условие «тянуть, если раннер не принёс»
@@ -1304,6 +1328,11 @@ export async function POST(req: Request) {
     kamtodayFetch
       ? ingestKamtodayArticles(parsed.data.kamtoday_articles ?? [], kamtodayFetch)
       : Promise.resolve(undefined),
+    // «Право на Руль» — только когда раннер принёс страницу: реле и старый
+    // воркфлоу её не шлют, и «не ходили» не равно «канал молчит».
+    parsed.data.pravonarul_html
+      ? ingestRoadChannelHtml(parsed.data.pravonarul_html)
+      : Promise.resolve(undefined as RoadChannelResult | undefined),
   ]);
   // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
   // это по-прежнему один блок `news`.
@@ -1318,9 +1347,18 @@ export async function POST(req: Request) {
     news: newsResult,
     minec: minecResult,
     max: maxResult,
+    road: roadResult,
     total_inserted: telegramResult.total_inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0),
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0) + (roadResult?.inserted ?? 0),
   };
+  // Какие снимки дорожных постов ещё не проверены на основание — раннер
+  // принесёт только их. Отказ чтения называется в ответе, приём не роняет.
+  const roadBasisNeeded = roadResult && roadResult.photoCandidates.length > 0
+    ? await safely('road-basis-pending', async () => {
+      const pending = await pendingBasisChecks(roadResult.photoCandidates.map((c) => c.external_id));
+      return roadResult.photoCandidates.filter((c) => pending.has(c.external_id)).slice(0, 3);
+    })
+    : [];
   // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
   // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
   // старой записи — репортаж «спасатели обеспечили безопасность тургруппы».
@@ -1359,6 +1397,7 @@ export async function POST(req: Request) {
     { label: 'КБГС РАН (сейсмо)', errors: telegramResult.kbgsras.errors, inserted: telegramResult.kbgsras.inserted },
     { label: 'EMSD/EQKam (сейсмо)', errors: telegramResult.eqkam.errors, inserted: telegramResult.eqkam.inserted },
     ...(maxResult ? [{ label: 'MAX — МЧС Камчатки', errors: maxResult.errors, inserted: maxResult.inserted }] : []),
+    ...(roadResult ? [{ label: 'Право на Руль — дороги', errors: roadResult.errors, inserted: roadResult.inserted }] : []),
   ];
   logHeartbeat(
     startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'workflow_post',
@@ -1376,6 +1415,8 @@ export async function POST(req: Request) {
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
     // MAX не делегирован: его умеет читать только раннер, heartbeat не покрывает.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
+    // «Право на Руль» — только когда раннер принёс страницу (реле её не шлёт).
+    ...(parsed.data.pravonarul_html ? [entryFor('pravonarul', 'Право на Руль — дороги (Telegram)', roadResult)] : []),
     // kamgov — только когда раннер сообщил, что ходил (kamgov_fetch): POST'ы
     // реле Cloudflare его не тянут, и «не ходили» не должно читаться как
     // «молчит» (тот же приём, что с делегированными выше).
@@ -1399,5 +1440,6 @@ export async function POST(req: Request) {
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms', 'meteoalert'],
     knownDormantSources: knownDormantPost,
+    roadBasisNeeded,
   }, pruned, roadAnchors, volcanoAnchors, datedCaps);
 }

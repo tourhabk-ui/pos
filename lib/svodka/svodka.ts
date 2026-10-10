@@ -189,7 +189,12 @@ export function svodkaText(s: Svodka, siteUrl = 'https://vedarai.ru'): string {
   } else if (s.safety.feedTitles.length === 0) {
     out.push('— предупреждений, меняющих планы, нет');
   } else {
-    for (const t of s.safety.feedTitles.slice(0, ALERTS_LIMIT)) out.push(`— ${t}`);
+    s.safety.feedTitles.slice(0, ALERTS_LIMIT).forEach((t, i) => {
+      out.push(`— ${t}`);
+      const basis = s.safety?.feedBasis?.[i];
+      // Основание — документом и со степенью доверия (10.10, lib/safety/alert-basis).
+      if (basis) out.push(`  основание: ${basis.title}${basis.recognized ? ' (распознано со снимка)' : ''}${basis.url ? ` ${basis.url}` : ''}`);
+    });
     const rest = (s.safety.feedCount ?? 0) - Math.min(s.safety.feedTitles.length, ALERTS_LIMIT);
     if (rest > 0) out.push(`— и ещё ${rest}`);
   }

@@ -36,6 +36,7 @@ import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catal
 import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
+import { basisOf, type AlertBasis } from '@/lib/safety/alert-basis';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
 import { varietyByType } from '@/lib/home/explore-variety';
@@ -48,6 +49,12 @@ export interface SafetyAlert {
   at: string | null;
   /** До какой даты ограничение в силе (expires_at). Для дорожных важнее возраста новости. */
   until: string | null;
+  /**
+   * Основание — документ, по которому ограничение введено (10.10): приказ
+   * с датой и номером, ссылка, где его видно, и вписан ли он человеком или
+   * прочитан со снимка. null — основания не нашли.
+   */
+  basis: AlertBasis | null;
 }
 export interface ElevatedVolcano {
   name: string;
@@ -226,7 +233,7 @@ const ACC_RANK: Record<string, number> = { red: 3, orange: 2, yellow: 1 };
 async function fetchSafety(): Promise<SafetySnapshot> {
   try {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
-      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string; expires_at: string | null }>(
+      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string; expires_at: string | null; basis_title: string | null; basis_url: string | null; basis_origin: string | null }>(
         // Лента безопасности = только actionable-типы, меняющие решение
         // туриста сегодня (закрытия, вулканы, погода, стихии). Сам список —
         // lib/services/safety/feed-types: по нему же судит перепись
@@ -237,10 +244,12 @@ async function fetchSafety(): Promise<SafetySnapshot> {
         // description несёт важную деталь (объезд, окна проезда по пропускам).
         // expires_at — до какой даты ограничение в силе. Для дорожного закрытия
         // это и есть ответ туристу: не «новости 18 дней», а «действует до».
-        `SELECT title, description, alert_type, severity, created_at::text, expires_at::text
+        `SELECT title, description, alert_type, severity, created_at::text, expires_at::text,
+                basis_title, basis_url, basis_origin
            FROM (
              SELECT DISTINCT ON (lower(title))
-                    title, description, alert_type, severity::int AS severity, created_at, expires_at
+                    title, description, alert_type, severity::int AS severity, created_at, expires_at,
+                    basis_title, basis_url, basis_origin
                FROM external_alerts
               WHERE expires_at > NOW()
                 AND alert_type = ANY($1::text[])
@@ -270,6 +279,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
       severity: r.severity ?? 0,
       at: r.created_at,
       until: r.expires_at,
+      basis: basisOf(r),
     }));
     const volcanoes = volcRes.rows
       .map((r) => ({ name: r.name, acc: r.acc }))

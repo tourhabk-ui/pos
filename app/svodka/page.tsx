@@ -82,9 +82,23 @@ export default async function SvodkaPage() {
               <p>Предупреждений, меняющих планы, нет.</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {alerts.map((t) => (
-                  <li key={t} className="border-l-2 border-[var(--warning)] pl-3">{t}</li>
-                ))}
+                {alerts.map((t, i) => {
+                  const basis = s.safety?.feedBasis?.[i] ?? null;
+                  return (
+                    <li key={t} className="border-l-2 border-[var(--warning)] pl-3">
+                      {t}
+                      {basis && (
+                        <span className="block text-sm text-[var(--text-secondary)]">
+                          Основание:{' '}
+                          {basis.url
+                            ? <a href={basis.url} target="_blank" rel="noopener noreferrer" className="underline">{basis.title}</a>
+                            : basis.title}
+                          {basis.recognized ? ' — распознано со снимка, номер сверяйте по ссылке' : ''}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {s.safety && (
