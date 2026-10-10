@@ -2,24 +2,28 @@
   "timeout": 40,
   "retries": 1,
   "allowStale": false,
-  "bytes": 300,
-  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. Миграция 1211: второй кадр Алины Гусаковой («Скалы Три брата в Авачинской бухте, вид со смотровой») в галерее смотровой 60b06659. Проба ждёт выката и ищет подпись и автора в публичной карточке места.",
-  "run": 754,
+  "bytes": 200,
+  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 754: первая шла ДО выката (until не был задан, ждать было нечем), а API места подписей кадров не отдаёт — только адреса галереи, авторов и photoCount. Читаем их: на смотровой 60b06659 должен прибавиться кадр Алины (миграция 1211).",
+  "run": 755,
   "urls": [
     "https://vedarai.ru/api/places/60b06659-f636-43b7-8b18-0601d8744739"
   ],
   "grep": [
-    "Алина Гусакова",
-    "вид со смотровой",
-    "photoCount"
+    "place-gallery",
+    "photoCount",
+    "Алина Гусакова"
   ],
   "text": false,
   "around": [
-    "вид со смотровой"
+    "photoCount",
+    "place-gallery",
+    "gallery_authors",
+    "\"authors\"",
+    "Алина Гусакова"
   ],
   "aroundLines": 0,
-  "aroundHits": 2,
-  "aroundBefore": 200,
+  "aroundHits": 6,
+  "aroundBefore": 80,
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
   "count": [
     "data-post=\"pravonarul/",
