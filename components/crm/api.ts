@@ -25,3 +25,12 @@ export const CRM_EXPORT_API = '/api/hub/crm/contacts/export';
 
 /** «Входящие» (1г) — только партнёрские: что ждёт ответа у вошедшего партнёра. */
 export const CRM_INBOX_API = '/api/hub/crm/inbox';
+
+/**
+ * Ключи MCP партнёра (1д-2) — только партнёрские: ключ выпускает и отзывает
+ * сам партнёр. Сам ключ приходит один раз, в ответе на выпуск.
+ */
+export const CRM_KEYS_API = '/api/hub/crm/keys';
+
+/** Адрес MCP партнёра — его показывают агенту вместе с ключом. */
+export const PARTNER_MCP_PATH = '/api/mcp/partner';

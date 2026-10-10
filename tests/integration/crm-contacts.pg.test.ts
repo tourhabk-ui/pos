@@ -29,6 +29,7 @@ import { runTaskReminders } from '@/lib/crm/reminders';
 import { loadInbox } from '@/lib/crm/inbox';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
+import { createAgentKey, listAgentKeys, resolveAgentKey, revokeAgentKey, MAX_ACTIVE_KEYS } from '@/lib/crm/agent-keys';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -818,10 +819,48 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(card).not.toMatch(/9141112233|@/);
     expect((await executeCrmTool('crm_inbox', {}, ctx, pool)).ok).toBe(true);
 
-    // origin «mcp» до шага 1д-2 база не примет: производителя у него ещё нет.
+    // Чужое происхождение задачи база не примет.
     await expect(pool.query(
-      `INSERT INTO crm_tasks (partner_id, title, due_at, origin) VALUES ($1, 'x', NOW(), 'mcp')`, [P.opA],
+      `INSERT INTO crm_tasks (partner_id, title, due_at, origin) VALUES ($1, 'x', NOW(), 'robot')`, [P.opA],
     )).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('ключи MCP партнёра: хеш в базе, вход по ключу, запись от mcp, отзыв, предел', async () => {
+    const made = await createAgentKey(P.opA, { label: 'Claude', canWrite: true, createdBy: null }, pool);
+    if (made.outcome !== 'created') throw new Error('ключ не выпущен');
+    // В базе ключа нет — только хеш и начало.
+    const stored = await pool.query<{ key_hash: string; key_prefix: string }>(
+      `SELECT key_hash, key_prefix FROM partner_api_keys WHERE id = $1`, [made.item.id],
+    );
+    expect(stored.rows[0].key_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(stored.rows[0].key_hash).not.toContain(made.key);
+    expect(made.key.startsWith(stored.rows[0].key_prefix)).toBe(true);
+    expect(JSON.stringify(await listAgentKeys(P.opA, pool))).not.toContain(made.key);
+
+    const lookup = await resolveAgentKey(made.key, pool);
+    expect(lookup).toMatchObject({ outcome: 'ok', key: { partnerId: P.opA, category: 'operator', canWrite: true } });
+    if (lookup.outcome !== 'ok') throw new Error('ключ не принят');
+
+    const ctx = { partnerId: lookup.key.partnerId, category: lookup.key.category, userId: lookup.key.userId, actor: 'mcp' as const, canWrite: true };
+    const task = await executeCrmTool('crm_add_task', { title: 'Агент: уточнить даты', due: '2030-06-01' }, ctx, pool);
+    if (!task.ok) throw new Error(task.error);
+    const origin = await pool.query<{ origin: string }>(`SELECT origin FROM crm_tasks WHERE id = $1`, [(task.data as { task_id: string }).task_id]);
+    expect(origin.rows[0].origin).toBe('mcp');
+
+    // Чужой партнёр ключ не отзовёт; свой — отзывает, и ключ больше не пускает.
+    expect(await revokeAgentKey(P.opB, made.item.id, null, pool)).toBe(false);
+    expect(await revokeAgentKey(P.opA, made.item.id, null, pool)).toBe(true);
+    expect(await resolveAgentKey(made.key, pool)).toEqual({ outcome: 'invalid' });
+    expect(await revokeAgentKey(P.opA, made.item.id, null, pool)).toBe(false);
+
+    // Предел действующих ключей; отозванный в него не считается.
+    for (let i = 0; i < MAX_ACTIVE_KEYS; i++) {
+      expect((await createAgentKey(P.opA, { label: `k${i}`, canWrite: false, createdBy: null }, pool)).outcome).toBe('created');
+    }
+    expect(await createAgentKey(P.opA, { label: 'лишний', canWrite: false, createdBy: null }, pool)).toEqual({ outcome: 'limit' });
+    const list = await listAgentKeys(P.opA, pool);
+    expect(list.filter((k) => !k.revoked_at)).toHaveLength(MAX_ACTIVE_KEYS);
+    expect(list.at(-1)).toMatchObject({ label: 'Claude', revoked_at: expect.any(String) });
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {

@@ -29,6 +29,7 @@ import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
+import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
@@ -807,31 +808,4 @@ async function handlePost(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest) {
   return withCors(await handlePost(request));
-}
-
-/**
- * Самая длинная осмысленная заявка — комментарий до 2000 символов (около 4 КБ
- * в UTF-8), пакет чтений ещё короче: предел с запасом больше чем вдесятеро.
- */
-const MAX_BODY_BYTES = 64 * 1024;
-
-/** Тело как текст, не длиннее предела; null — длиннее. Чтение обрывается на пределе. */
-async function readBodyLimited(request: NextRequest): Promise<string | null> {
-  const declared = Number(request.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null;
-  if (!request.body) return '';
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString('utf-8');
 }
