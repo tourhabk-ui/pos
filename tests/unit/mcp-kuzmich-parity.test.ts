@@ -38,17 +38,19 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     const json = await res.json();
     const tools = json.result.tools as Array<{ name: string; description: string; inputSchema: unknown }>;
 
-    // НЕ-реестровых инструментов два, оба — заявки (сознательно MCP-only: у
+    // НЕ-реестровых инструментов три, все — заявки (сознательно MCP-only: у
     // Кузьмича лид- и бронь-поверхности живут вне tool-реестра):
     // create_lead — подбор, create_booking_request — бронь тура на дату
-    // (Эволюция 3.0 п.4, план согласован владельцем 08.08), create_stay_request —
-    // заявка хозяину жилья (решение владельца 10.10).
+    // (Эволюция 3.0 п.4, план согласован владельцем 08.08),
+    // request_charter — вахтовка целой машиной под заказ (владелец 10.10).
+    // create_stay_request — заявка хозяину жилья (решение владельца 10.10).
     // Любой другой инструмент вне реестра — возврат параллельного набора, падение.
     const expected = [
       ...Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)),
       'create_lead',
       'create_booking_request',
       'create_stay_request',
+      'request_charter',
     ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);
     // Реестр не должен схлопнуться до старых 4 инструментов

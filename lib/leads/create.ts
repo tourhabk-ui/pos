@@ -46,6 +46,15 @@ export interface CreateLeadParams {
    * и в уведомлении с пометкой, в счёт спроса не идёт, follow-up не шлётся.
    */
   is_self?: boolean;
+  /**
+   * Лид не про подбор тура — AI-конвейер (квалификация, три тура, PDF) ему не
+   * нужен и вреден: заявка на вахтовку целой машиной (MCP request_charter)
+   * получила бы «предложение» без единого тура и перезаписала бы статус и
+   * оценку, да ещё стоила бы несколько вызовов модели на каждый прогон cron.
+   * Лид закрывается для cron сразу (processed_at), как лид низкого качества, но
+   * менеджеру уведомление уходит, а статус остаётся 'new'.
+   */
+  skip_ai_processing?: boolean;
 }
 
 /**
@@ -98,6 +107,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
     status = 'new',
     pd_consent = null,
     is_self = false,
+    skip_ai_processing = false,
   } = params;
 
   // ── 1. Скоринг ──────────────────────────────────────────────────────────
@@ -169,7 +179,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
         source_data ? JSON.stringify(source_data) : null,
         sourceChannel,
         quickScore,
-        isLowQuality ? new Date() : null,   // низкое качество — сразу закрываем для cron
+        isLowQuality || skip_ai_processing ? new Date() : null,   // низкое качество или не про подбор тура — сразу закрываем для cron
         resolvedOperatorId,
         telegram_chat_id ?? null,
         status,

@@ -14,8 +14,9 @@
  * требует личности пользователя, здесь нет by construction — у Кузьмича
  * такие поверхности живут вне tool-реестра.
  *
- * Записи три: create_lead (заявка на подбор тура) и create_booking_request
- * (заявка на бронь тура на дату) — не бронь и не оплата, идут в общий
+ * Записи четыре: create_lead (заявка на подбор тура), create_booking_request
+ * (заявка на бронь тура на дату) и request_charter (заявка на вахтовку целой
+ * машиной у перевозчика «под заказ»): не бронь и не оплата, идут в общий
  * createLead() со скорингом и дедупом; create_stay_request (заявка хозяину
  * жилья на даты) — тем же путём, что форма на карточке объекта
  * (lib/stay/stay-request-service). Бронирование анонимному внешнему
@@ -28,7 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, STAY_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
@@ -53,6 +54,11 @@ import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNot
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
+import { loadCharterCarriers } from '@/lib/transfers/charter';
+import {
+  CHARTER_MAX_DAYS_AHEAD, CHARTER_MAX_TRIP_DAYS, charterAcceptedText, charterDedupPrefix,
+  charterLeadComment, charterSourceData, pickCarrier, planCharterRequest,
+} from '@/lib/transfers/charter-request';
 import { getPublicBaseUrl } from '@/lib/config';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
@@ -377,6 +383,123 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   return accepted;
 }
 
+// ── request_charter (решение владельца 10.10) ─────────────────
+// Заявка на машину целиком у перевозчика «под заказ». Календаря у него нет,
+// направление и дни задаёт заказчик: занятость не проверяется (система её не
+// ведёт), «нет машин» не отвечаем. Заявка — лид менеджеру с operator_id
+// перевозчика (createLead: скоринг, дедуп, уведомление, клиент в CRM
+// перевозчика); бронь и оплата отсюда не заводятся.
+const charterRequestArgsSchema = z.object({
+  destination: z.string().trim().min(2, 'Укажите, куда ехать').max(200, 'Направление длиннее 200 символов'),
+  date_from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата выезда в формате YYYY-MM-DD'),
+  date_to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата возвращения в формате YYYY-MM-DD').optional(),
+  passengers: z.coerce.number({ error: 'Число человек — целое число, например 8' })
+    .int('Число человек — целое число')
+    .min(1, 'Человек не меньше одного')
+    .max(60, 'Не больше 60 человек в одной заявке'),
+  name: personName,
+  phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
+  carrier: z.string().trim().max(120, 'Название перевозчика длиннее 120 символов').optional(),
+  comment: z.string().trim().max(2000, 'Комментарий длиннее 2000 символов').optional(),
+  consent: consentField,
+});
+
+/** Прибавить дни к дате YYYY-MM-DD (UTC-арифметика по календарным суткам). */
+function addDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
+  const parsed = charterRequestArgsSchema.safeParse(rawArgs);
+  if (!parsed.success) {
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
+  }
+  const { destination, date_from: dateFrom, passengers, name } = parsed.data;
+  const dateTo = parsed.data.date_to ?? null;
+  const comment = parsed.data.comment || null;
+
+  const phone = normalizePhone(parsed.data.phone);
+  if (!phone) {
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
+  }
+
+  // Даты — по Камчатке, как у заявки на бронь: по UTC с 12:00 до 24:00 прошедший
+  // там день принимался бы как сегодняшний.
+  if (!isRealDate(dateFrom) || (dateTo !== null && !isRealDate(dateTo))) {
+    throw new McpUserError('Такой даты нет в календаре — заявка не создана. Проверьте даты.', 'date_not_in_calendar');
+  }
+  const today = kamchatkaToday();
+  if (dateFrom < today) {
+    return `Дата выезда ${dateFrom} уже прошла — заявка не создана. Назовите дату не раньше ${today}.`;
+  }
+  if (dateFrom > addDays(today, CHARTER_MAX_DAYS_AHEAD)) {
+    return `Дата выезда ${dateFrom} слишком далека: прайс перевозчика годовой — заявка не создана. Назовите дату в пределах ${CHARTER_MAX_DAYS_AHEAD} дней.`;
+  }
+  if (dateTo !== null && (dateTo < dateFrom || dateTo > addDays(dateFrom, CHARTER_MAX_TRIP_DAYS))) {
+    return `Дата возвращения ${dateTo} не может быть раньше выезда или позже чем через ${CHARTER_MAX_TRIP_DAYS} дн. — заявка не создана. Уточните даты.`;
+  }
+
+  // Отказ базы — не «перевозчиков нет»: заявка не создаётся, агент знает, что
+  // это сбой нашей стороны (§4.0, как с турами).
+  const carriers = await loadCharterCarriers().catch((err: unknown) => {
+    console.error('[mcp/request_charter] перевозчики не прочитаны', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
+    throw new McpUserError('Не удалось проверить перевозчиков — заявка не создана, повторите позже.', 'charter_lookup_failed');
+  });
+  const pick = pickCarrier(carriers, parsed.data.carrier);
+  if (pick.kind === 'none') {
+    return 'Перевозчиков «под заказ» с прайсом сейчас нет в системе — заявка не создана. Можно оставить заявку на подбор через create_lead.';
+  }
+  if (pick.kind === 'ambiguous') {
+    return `Перевозчиков несколько (${pick.names.join(', ')}) — укажите, кому адресовать заявку (параметр carrier). Заявка не создана.`;
+  }
+  if (pick.kind === 'unknown') {
+    return `Перевозчик «${parsed.data.carrier}» не найден среди тех, у кого есть прайс (${pick.names.join(', ')}). Заявка не создана.`;
+  }
+  const carrier = pick.carrier;
+
+  const plan = planCharterRequest(carrier, destination, passengers);
+  if (plan.kind === 'too_many') {
+    return `В парке «${carrier.name}» всего ${plan.seatsTotal} мест, а нужно ${passengers} — заявка не создана. Разделите группу на несколько поездок или уточните число человек.`;
+  }
+  if (plan.kind === 'ambiguous') {
+    return `Под «${destination}» в прайсе «${carrier.name}» подходит несколько направлений: ${plan.options.join('; ')}. Уточните, какое нужно, — заявка не создана.`;
+  }
+  const facts = { carrier, plan, destination, dateFrom, dateTo, passengers, comment };
+
+  const leadComment = charterLeadComment(facts);
+  const leadSource = charterSourceData(facts);
+  refuseSilentLead(name, phone, leadComment, leadSource);
+
+  const pd_consent = await admitWrite(ctx, REQUEST_CHARTER_TOOL.name, phone, parsed.data.consent);
+
+  // Ответ на повтор совпадает с ответом на новую заявку (оракул «этот телефон
+  // уже просил эту машину»): см. charterAcceptedText и заявку на бронь.
+  const accepted = charterAcceptedText(facts, phone, getPublicBaseUrl());
+  const existing = await findRecentLeadByCommentPrefix(phone, charterDedupPrefix(carrier.name, dateFrom));
+  if (existing) return accepted;
+
+  const leadId = await createLead({
+    name,
+    phone,
+    comment: leadComment,
+    route_title: `Вахтовка: ${destination}`,
+    // Адресат известен — заявка ложится перевозчику (его клиент в CRM) и
+    // менеджеру; без operator_id она оставалась бы ничейной и уходила бы
+    // каждому оператору в «ничейные».
+    operator_id: carrier.partnerId,
+    source_url: 'mcp://vedar/charter',
+    source_data: leadSource,
+    pd_consent,
+    is_self: ctx.self,
+    // Заявка на машину — не подбор тура: AI-конвейер лидов ей не нужен (см. createLead).
+    skip_ai_processing: true,
+  });
+  if (!leadId) {
+    throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
+  }
+  return accepted;
+}
+
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
@@ -540,6 +663,9 @@ async function executeTool(
   }
   if (name === STAY_REQUEST_TOOL.name) {
     return executeCreateStayRequest(rawArgs, ctx);
+  }
+  if (name === REQUEST_CHARTER_TOOL.name) {
+    return executeRequestCharter(rawArgs, ctx);
   }
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,

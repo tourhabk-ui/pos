@@ -127,6 +127,16 @@ describe('вахтовки под заказ (1185): прайс на целую 
     expect(none).toContain('Вулкан Авачинский 65000 руб');
   });
 
+  it('request_charter назван только внешнему агенту (MCP): у Кузьмича в чате такого инструмента нет', async () => {
+    listMock.mockResolvedValue([]);
+    charterMock.mockResolvedValue([CARRIER]);
+    const mcp = await searchTransfersForKuzmich({}, { surface: 'mcp' });
+    expect(mcp).toContain('request_charter');
+    const chat = await searchTransfersForKuzmich({}, { surface: 'chat' });
+    expect(chat).not.toContain('request_charter');
+    expect(await searchTransfersForKuzmich({})).not.toContain('request_charter');
+  });
+
   it('прайс не прочитался — «не смог проверить», поездки при этом не пропадают и «таких нет» не говорится', async () => {
     listMock.mockResolvedValue([TRIP]);
     charterMock.mockRejectedValue(Object.assign(new Error('42P01'), { code: '42P01' }));
