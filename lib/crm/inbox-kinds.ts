@@ -20,12 +20,13 @@ export const INBOX_KINDS = [
   'transfer_seat_booking',
   'guide_invite',
   'guide_review',
+  'tour_review',
 ] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 
 /** Что ждёт ответа у роли. Порядок — порядок разделов на экране. */
 export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxKind[]>> = {
-  operator: ['seat_request', 'operator_booking', 'lead'],
+  operator: ['seat_request', 'operator_booking', 'lead', 'tour_review'],
   stay: ['accommodation_booking'],
   gear: ['gear_rental'],
   transfer: ['transfer_seat_booking'],
@@ -39,7 +40,6 @@ export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxK
  */
 export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>> = {
   operator: [
-    'Отзывы на туры: ответить на них из кабинета пока нельзя — экрана ответа нет.',
     'Заявки без оператора — в разделе «AI Заявки»: здесь только заявки, отданные вам.',
   ],
   stay: ['Отзывы о жилье: ответа на них на платформе пока нет.'],
@@ -61,6 +61,7 @@ export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   transfer_seat_booking: 'Места в машине',
   guide_invite: 'Приглашение в команду',
   guide_review: 'Отзыв без ответа',
+  tour_review: 'Отзыв о туре без ответа',
 };
 
 /**
@@ -78,6 +79,7 @@ export const INBOX_ACTION: Readonly<Record<InboxKind, { href: string | null; hin
   transfer_seat_booking: { href: '/hub/carrier', hint: 'Ответить во вкладке «Запросы»' },
   guide_invite: { href: '/hub/guide', hint: 'Принять или отклонить в «Обзоре»' },
   guide_review: { href: '/hub/guide/reviews', hint: 'Ответить в «Отзывах»' },
+  tour_review: { href: '/hub/operator/reviews', hint: 'Ответить в «Отзывах»' },
 };
 
 /**

@@ -48,10 +48,6 @@ const KNOWN_UNCONSUMED: Record<string, string> = {
     'публикация тура; живой SQL, потребитель появится вместе с экраном модерации',
   'app/api/operator/tours/[id]/deactivate/route.ts':
     'снятие тура с витрины; парный к publish',
-  'app/api/operator/reviews/route.ts':
-    'список отзывов оператора; читается вручную, экран отзывов ещё не собран',
-  'app/api/operator/reviews/[id]/reply/route.ts':
-    'ответ оператора на отзыв; парный к списку выше',
   'app/api/operator/messages/route.ts':
     'переписка по брони; зовётся из чата платформы по bookingId',
   'app/api/operator/mchs/[id]/route.ts':

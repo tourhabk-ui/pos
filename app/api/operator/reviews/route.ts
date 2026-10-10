@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
 
     // Parse query parameters
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20') || 20));
     const rating = searchParams.get('rating');
     const tourId = searchParams.get('tourId');
     const offset = (page - 1) * limit;
@@ -162,7 +162,8 @@ export async function GET(request: NextRequest) {
         reviews,
         stats: {
           totalReviews: parseInt(stats.total_reviews),
-          avgRating: parseFloat(stats.avg_rating ?? '0').toFixed(2),
+          // Отзывов нет — средней нет: средняя из пустоты не ноль (§4.0).
+          avgRating: stats.avg_rating === null ? null : parseFloat(stats.avg_rating).toFixed(2),
           distribution: {
             5: parseInt(stats.five_stars),
             4: parseInt(stats.four_stars),
@@ -181,6 +182,8 @@ export async function GET(request: NextRequest) {
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    const code = (error as { code?: string })?.code ?? 'нет SQLSTATE';
+    console.error('[operator-reviews] список отзывов не прочитан, SQLSTATE', code);
     return NextResponse.json({
       success: false,
       error: 'Ошибка при получении отзывов'
