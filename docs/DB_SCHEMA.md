@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1212_external_alerts_basis.sql`.
+> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1213_stay_request_delivery.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 266 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3561 |
+| Колонок | 3567 |
 | Внешних ключей | 307 |
 | Таблиц без единого FK в обе стороны | 76 |
 
@@ -881,9 +881,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `gear_id uuid!` `customer_name varchar!` `customer_email varchar!` `customer_phone varchar!` `start_date date!` `end_date date!` `quantity integer!=` `days_count integer!` `insurance boolean=` `base_price numeric!` `insurance_cost numeric=` `total_price numeric!` `comments text` `status varchar!=` `created_at timestamptz=` `updated_at timestamptz=`
 
-**stay_requests** · 13 кол. · PK id · accommodation_id → accommodations.id · индексов 2
+**stay_requests** · 19 кол. · PK id · accommodation_id → accommodations.id · индексов 2
 
-`id uuid!=` `accommodation_id uuid!` `check_in_date date!` `check_out_date date!` `guests integer!` `guest_name text!` `guest_phone text!` `comment text` `pd_consent_at timestamptz!` `pd_consent_ip varchar!` `pd_consent_source varchar!` `pd_consent_version varchar!` `created_at timestamptz!=`
+`id uuid!=` `accommodation_id uuid!` `check_in_date date!` `check_out_date date!` `guests integer!` `guest_name text!` `guest_phone text!` `comment text` `pd_consent_at timestamptz!` `pd_consent_ip varchar!` `pd_consent_source varchar!` `pd_consent_version varchar!` `created_at timestamptz!=` `door text` `owner_channel text` `owner_reason text` `platform_channel text` `platform_reason text` `delivery_recorded_at timestamptz`
 
 **transfer_charter_prices** · 14 кол. · PK id · partner_id → partners.id · индексов 4
 

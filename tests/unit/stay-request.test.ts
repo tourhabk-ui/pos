@@ -12,7 +12,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { stayRequestTexts, nightsBetween, ruDate, MAX_REQUEST_NIGHTS } from '@/lib/stay/stay-request';
+import {
+  stayRequestTexts, nightsBetween, ruDate, MAX_REQUEST_NIGHTS,
+  STAY_REQUESTS_ADMIN_PATH, ownerDeliveryLabel, platformDeliveryLabel,
+} from '@/lib/stay/stay-request';
 import {
   consentWording, buildConsentRecord,
   PD_CONSENT_TEXT, PD_CONSENT_VERSION, PD_CONSENT_STAY_TEXT, PD_CONSENT_STAY_VERSION,
@@ -35,12 +38,24 @@ const msg = {
 };
 
 describe('сообщение хозяину', () => {
-  it('ПД — в тексте для MAX, в заглушке для Telegram их нет', () => {
-    const { text, stub } = stayRequestTexts(msg);
+  it('ПД — в тексте для MAX, в заглушках для Telegram их нет', () => {
+    const { text, ownerStub, platformStub } = stayRequestTexts(msg);
     expect(text).toContain('+7 900 111-22-33');
-    expect(stub).not.toContain('+7 900 111-22-33');
-    expect(stub).not.toContain('Иван');
-    expect(stub).toMatch(/Имя и телефон гостя — в MAX/);
+    for (const stub of [ownerStub, platformStub]) {
+      expect(stub).not.toContain('+7 900 111-22-33');
+      expect(stub).not.toContain('Иван');
+      expect(stub).toContain('Заявка на жильё с Ведара: Кутха');
+    }
+  });
+
+  // 10.10: владелец получил заглушку «Имя и телефон гостя — в MAX», а в MAX
+  // ничего не было — заглушка уходит ровно тогда, когда MAX не сработал.
+  it('заглушка не обещает «в MAX»: платформе — путь в админку, хозяину — как подключиться', () => {
+    const { ownerStub, platformStub } = stayRequestTexts(msg);
+    for (const stub of [ownerStub, platformStub]) expect(stub).not.toMatch(/телефон гостя — в MAX/);
+    expect(platformStub).toMatch(/в админке, Жильё → «Заявки гостей»/);
+    expect(ownerStub).toMatch(/в Telegram не передаются[\s\S]*подключите MAX/);
+    expect(STAY_REQUESTS_ADMIN_PATH).toBe('/hub/admin/accommodations#requests');
   });
 
   it('ввод гостя экранирован: текст уходит как HTML', () => {
@@ -93,7 +108,11 @@ describe('согласие называет настоящего получат�
     expect(ROUTE).toMatch(/buildConsentRecord\(true, ip, 'stay-request', 'stay'\)/);
     expect(ROUTE).toMatch(/submitStayRequest\(\{[\s\S]{0,300}consent,\s*door: 'form'/);
     expect(SERVICE).toMatch(/INSERT INTO stay_requests[\s\S]{0,300}pd_consent_at/);
-    expect(SERVICE).not.toMatch(/UPDATE stay_requests/);
+    // Согласие пишется только вставкой; UPDATE (1213) трогает лишь исход доставки.
+    const updates = SERVICE.match(/UPDATE stay_requests[\s\S]*?WHERE/g) ?? [];
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).not.toMatch(/pd_consent/);
+    expect(updates[0]).toMatch(/SET owner_channel = \$2, owner_reason = \$3,\s*platform_channel = \$4, platform_reason = \$5,\s*delivery_recorded_at = NOW\(\)/);
   });
 });
 
@@ -112,8 +131,8 @@ describe('роут: кто может принять заявку и куда о
   });
 
   it('хозяину — строго в его адрес, оператору платформы — всегда; три исхода', () => {
-    expect(SERVICE).toMatch(/sendPdAlert\(\{ text, stub, buttons, to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
-    expect(SERVICE).toMatch(/const adminRes = await sendPdAlert\(\{ text, stub, buttons \}\)/);
+    expect(SERVICE).toMatch(/sendPdAlert\(\{ text, stub: ownerStub, buttons: \[card\], to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
+    expect(SERVICE).toMatch(/const adminRes = await sendPdAlert\(\{\s*text,\s*stub: platformStub,\s*buttons: \[card, \{ text: 'Заявки гостей', url: `\$\{base\}\$\{STAY_REQUESTS_ADMIN_PATH\}` \}\],\s*\}\)/);
     expect(SERVICE).toMatch(/ownerDelivered \? 'owner' : adminRes\.delivered \? 'platform' : 'none'/);
     // «Не дошло никому» — не успех.
     expect(ROUTE).toMatch(/delivered === 'none'[\s\S]{0,300}status: 502/);
@@ -140,6 +159,50 @@ describe('роут: кто может принять заявку и куда о
     expect(detail).toMatch(/\(p\.max_chat_id IS NOT NULL\) as owner_on_max/);
     expect(detail).toMatch(/ownerOnMax: accommodation\.owner_on_max === true/);
     expect(detail).not.toMatch(/p\.max_chat_id(::text)? as /i);
+  });
+});
+
+describe('куда дошла заявка — видно администратору (1213)', () => {
+  const sql = read('migrations/1213_stay_request_delivery.sql').replace(/--[^\n]*/g, '');
+  const API = read('app/api/admin/stay-requests/route.ts');
+  const SECTION = read('app/hub/admin/accommodations/_StayRequestsSection.tsx');
+  const PAGE = read('app/hub/admin/accommodations/_AccommodationModerationClient.tsx');
+
+  it('миграция: дверь и два исхода из закрытых списков; исход пишется целиком', () => {
+    expect(sql).toMatch(/CHECK \(door IS NULL OR door IN \('form', 'mcp'\)\)/);
+    expect(sql).toMatch(/CHECK \(owner_channel IS NULL OR owner_channel IN \('max', 'telegram-stub', 'none', 'no_address'\)\)/);
+    expect(sql).toMatch(/CHECK \(platform_channel IS NULL OR platform_channel IN \('max', 'telegram-stub', 'none'\)\)/);
+    expect(sql).toMatch(/delivery_recorded_at IS NULL AND owner_channel IS NULL AND platform_channel IS NULL\)\s*OR \(delivery_recorded_at IS NOT NULL AND owner_channel IS NOT NULL AND platform_channel IS NOT NULL/);
+  });
+
+  it('сервис: дверь — во вставке, исход — после обеих отправок, отказ записи слышен', () => {
+    expect(SERVICE).toMatch(/pd_consent_version, door\)\s*VALUES \(\$1, [^)]*\$12\)/);
+    expect(SERVICE).toMatch(/i\.consent\.version, i\.door,/);
+    const send = SERVICE.indexOf('const adminRes = await sendPdAlert');
+    const record = SERVICE.indexOf('await recordStayDelivery(requestId');
+    expect(send).toBeGreaterThan(0);
+    expect(record).toBeGreaterThan(send);
+    expect(SERVICE).toMatch(/let ownerChannel: StayOwnerChannel = 'no_address'/);
+    expect(SERVICE).toMatch(/исход доставки не записан:[\s\S]{0,120}SQLSTATE=/);
+  });
+
+  it('роут: только администратор, отказ базы — 503, а не пустой список', () => {
+    expect(API).toMatch(/const authOrResponse = await requireAdmin\(request\)/);
+    expect(API).toMatch(/FROM stay_requests r/);
+    expect(API).toMatch(/status: 503/);
+    expect(API).not.toMatch(/max_chat_id AS|max_chat_id::text/);
+  });
+
+  it('вкладка на странице жилья; ПД под Sensitive; не записанный исход — «не записан», не «не дошло»', () => {
+    expect(PAGE).toMatch(/<StayRequestsSection \/>/);
+    expect(SECTION).toMatch(/id="requests"/);
+    expect(SECTION).toMatch(/<Sensitive className="text-\[var\(--text-primary\)\]">\{r\.guestName\}<\/Sensitive>/);
+    expect(SECTION).toMatch(/<Sensitive>\{r\.guestPhone\}<\/Sensitive>/);
+    expect(ownerDeliveryLabel(null)).toEqual({ text: 'Исход для хозяина не записан', ok: null });
+    expect(platformDeliveryLabel(null).ok).toBeNull();
+    expect(ownerDeliveryLabel('max').ok).toBe(true);
+    expect(ownerDeliveryLabel('no_address').text).toMatch(/не подключён к боту/);
+    expect(platformDeliveryLabel('telegram-stub').text).toMatch(/MAX не сработал/);
   });
 });
 

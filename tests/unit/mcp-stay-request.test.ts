@@ -62,7 +62,7 @@ beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
   lookup = [{ id: KUTHA_ID, name: 'Кутха', has_site: false, has_rooms: false, has_phone: true }];
   owner = { max_chat_id: '777', telegram_chat_id: null };
-  sendPdAlertMock.mockReset().mockResolvedValue({ delivered: true, channel: 'max' });
+  sendPdAlertMock.mockReset().mockResolvedValue({ delivered: true, channel: 'max', reason: 'доставлено в MAX' });
   query.mockReset().mockImplementation(async (sql: string) => {
     if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
     if (/AS has_site/.test(sql)) {
@@ -101,6 +101,12 @@ describe('путь формы: запись, согласие, доставка'
     expect(params.slice(1, 7)).toEqual(['2027-07-10', '2027-07-12', 9, 'Иван Петров', '+79001234567', 'Баня вечером']);
     expect(params[9]).toBe('mcp');
     expect(params[10]).toBe(PD_CONSENT_STAY_VERSION);
+    // Дверь (1213) — в той же вставке.
+    expect(params[11]).toBe('mcp');
+    // Исход записан: хозяину и платформе — в MAX.
+    const upd = query.mock.calls.filter(([sql]) => /UPDATE stay_requests/.test(String(sql)));
+    expect(upd).toHaveLength(1);
+    expect(upd[0][1]).toEqual(['sr-1', 'max', 'доставлено в MAX', 'max', 'доставлено в MAX']);
 
     expect(sendPdAlertMock).toHaveBeenCalledTimes(2);
     const [toOwner, toAdmin] = sendPdAlertMock.mock.calls.map(([p]) => p as { to?: unknown; text: string; stub: string });
@@ -122,6 +128,9 @@ describe('путь формы: запись, согласие, доставка'
     expect(r.isError).toBeUndefined();
     expect(r.content[0].text).toMatch(/Заявка передана оператору Ведара/);
     expect(sendPdAlertMock).toHaveBeenCalledTimes(1);
+    // Слать хозяину было некуда — это и записано, а не «не дошло».
+    const upd = query.mock.calls.filter(([sql]) => /UPDATE stay_requests/.test(String(sql)));
+    expect((upd[0][1] as unknown[]).slice(1, 2)).toEqual(['no_address']);
   });
 
   it('не дошло никому — отказ, а не «владелец перезвонит»', async () => {
