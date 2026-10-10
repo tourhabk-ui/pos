@@ -61,7 +61,7 @@ interface SourceSpec {
 
 const SOURCE_SPECS: Readonly<Record<SourceKind, SourceSpec>> = {
   // Поле брони первым: его турист вписал под эту поездку. Аккаунт — где брони
-  // сказать нечего, как в «Клиентах» оператора.
+  // сказать нечего, как в «Бронированиях» оператора.
   operator_booking: {
     idType: 'bigint',
     from: `operator_bookings s

@@ -463,12 +463,7 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
                         </p>
                         {s.title && <p className="text-[var(--text-secondary)]">{s.title}</p>}
                         <p className="text-[var(--text-muted)]">
-                          {[
-                            from && (to && to !== from ? `${from} — ${to}` : from),
-                            s.people !== null && `${s.people} чел.`,
-                            s.amount !== null && `${new Intl.NumberFormat('ru-RU').format(s.amount)} ₽`,
-                            status,
-                          ]
+                          {[from && (to && to !== from ? `${from} — ${to}` : from), s.people !== null && `${s.people} чел.`, status]
                             .filter(Boolean).join(' · ')}
                         </p>
                         {s.person_name && s.person_name !== card.display_name && (

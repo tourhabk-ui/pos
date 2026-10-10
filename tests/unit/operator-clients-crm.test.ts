@@ -209,9 +209,4 @@ describe('переезд без потерь и без второго экран
     }
   });
 
-  it('карточка показывает цену брони тура — из неё складывается сумма списка', () => {
-    const q = read('lib/crm/contact-queries.ts');
-    expect(q).toMatch(/COALESCE\(b\.final_price, b\.base_total_price\)::float8 AS amount/);
-    expect(read('components/crm/ContactPanel.tsx')).toMatch(/s\.amount !== null &&/);
-  });
 });
