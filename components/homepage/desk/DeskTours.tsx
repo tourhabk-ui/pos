@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, CalendarCheck, CalendarX, MessageSquareText, RotateCcw, Truck } from 'lucide-react';
+import { ArrowRight, BedDouble, CalendarCheck, CalendarX, MessageSquareText, RotateCcw, Truck } from 'lucide-react';
 import type { Plate } from '@/app/_home/data';
 import { plateFacts } from '@/lib/home/plate-facts';
 import { activityLabel } from '@/lib/tours/labels';
@@ -7,6 +7,7 @@ import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import { tourPath } from '@/lib/tours/tour-url';
 import { withTransferPlate, isTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
+import { withStayPlate, isStayPlate, type StayPlate } from '@/lib/home/stay-plate';
 
 /**
  * «Можно поехать» — туры витрины крупной карточкой и строками (доска
@@ -24,6 +25,8 @@ import { withTransferPlate, isTransferPlate, type TransferPlate } from '@/lib/ho
  *
  * Между турами — строка трансфера (решение владельца 09.10), на том же месте,
  * что в ленте телефона: после второго тура. Цена — за машину, не за место.
+ * Последней строкой туров — жильё (владелец 10.10), как пятая карточка ленты
+ * телефона: цена «от» нижней за сутки.
  */
 
 function Availability({ p, glass = false }: { p: Plate; glass?: boolean }) {
@@ -145,11 +148,37 @@ function TransferRow({ t }: { t: TransferPlate }) {
   );
 }
 
-export function DeskTours({ plates, transfer = null, total }: { plates: readonly Plate[]; transfer?: TransferPlate | null; total: number | null }) {
+function StayRow({ t }: { t: StayPlate }) {
+  return (
+    <Link
+      href={t.href}
+      className="group grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] py-4 no-underline hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
+    >
+      <span className="relative h-24 w-24 overflow-hidden rounded-lg bg-[var(--bg-hover)]">
+        <span
+          className="absolute inset-0 bg-cover bg-top transition-transform duration-300 group-hover:scale-[1.06]"
+          style={{ backgroundImage: `url('${photoSrc(t.imageUrl, 640)}')` }}
+          aria-hidden
+        />
+      </span>
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-[13px] text-[var(--text-secondary)]">
+          <BedDouble size={13} aria-hidden /> {['Жильё', t.place].filter(Boolean).join(' · ')}
+        </span>
+        <span className="line-clamp-2 text-[17px] font-semibold leading-snug text-[var(--text-primary)] transition-colors duration-200 group-hover:text-[var(--accent)]">
+          {t.title}{t.caption ? `: ${t.caption}` : ''}
+        </span>
+        <span className="text-[15px] tabular-nums lining-nums text-[var(--text-primary)]">{t.price}</span>
+      </span>
+    </Link>
+  );
+}
+
+export function DeskTours({ plates, transfer = null, stay = null, total }: { plates: readonly Plate[]; transfer?: TransferPlate | null; stay?: StayPlate | null; total: number | null }) {
   const first = plates[0];
   // Трансфер встаёт между турами по общему правилу ленты (после второго тура);
   // первый тур — крупная карточка, строки — всё, что после него.
-  const rows = withTransferPlate(plates.slice(0, 4), transfer).slice(1);
+  const rows = withStayPlate(withTransferPlate(plates.slice(0, 4), transfer), stay, plates.length > 0).slice(1);
   return (
     <section className="flex flex-col gap-6" aria-labelledby="desk-tours-title">
       <div className="flex items-end justify-between gap-6">
@@ -163,6 +192,11 @@ export function DeskTours({ plates, transfer = null, total }: { plates: readonly
             Трансфер
             <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
           </Link>
+          {/* Жильё (владелец 10.10: «кнопку на главную жильё») — тот же адрес, что у плитки телефона. */}
+          <Link href="/accommodations" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
+            Жильё
+            <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
+          </Link>
           <Link href="/catalog" className="group inline-flex min-h-[44px] items-center gap-1.5 text-base font-semibold text-[var(--ocean)] no-underline hover:no-underline">
             {total != null && total > 0 ? `Все туры (${total})` : 'Все туры'}
             <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" aria-hidden />
@@ -174,7 +208,7 @@ export function DeskTours({ plates, transfer = null, total }: { plates: readonly
         <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14">
           <div className="lg:col-span-7"><Featured p={first} /></div>
           <div className="flex flex-col lg:col-span-5">
-            {rows.map((p) => (isTransferPlate(p) ? <TransferRow key={p.id} t={p} /> : <Row key={p.id} p={p} />))}
+            {rows.map((p) => (isStayPlate(p) ? <StayRow key={p.id} t={p} /> : isTransferPlate(p) ? <TransferRow key={p.id} t={p} /> : <Row key={p.id} p={p} />))}
             <Link
               href="/request"
               className="group flex items-center gap-4 border-y border-[var(--border)] py-4 no-underline hover:no-underline"

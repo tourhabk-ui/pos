@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, ClipboardCheck, LifeBuoy, Compass, Camera, Fish, Map as MapIcon, CalendarX, Pause, Play, CloudSun, Truck, Ticket, BedDouble, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -46,6 +46,7 @@ import { THEME_STORAGE_KEY, readDomTheme } from '@/lib/theme';
 import { tourPath } from '@/lib/tours/tour-url';
 import { usePlateDrift } from '@/hooks/use-plate-drift';
 import { withTransferPlate, isTransferPlate } from '@/lib/home/transfer-plate';
+import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
@@ -105,7 +106,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const tours = plates;
   // Лента «Туров сезона» с карточкой трансфера между турами (решение
   // владельца 09.10): тур — что посмотреть, перевозчик — как туда добраться.
-  const cards = withTransferPlate(tours, data.transfer);
+  // Лента: тур, тур, трансфер, тур, тур, жильё (владелец 09.10 и 10.10).
+  const cards = withStayPlate(withTransferPlate(tours, data.transfer), data.stay, tours.length > 0);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -478,6 +480,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <span className="qt-ic"><Truck size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Трансфер</b><span>места и вахтовка</span></span>
           </Link>
+          {/* Жильё (владелец 10.10: «кнопку на главную жильё») — дверь в
+              /accommodations. Туры, Трансфер и Жильё — три двери одним рядом
+              по трети ширины (значок над подписью): пятая плитка в сетке 2×2
+              заняла бы лишний ряд первого экрана (владелец 25.09). */}
+          <Link href="/accommodations" className="qt qt-stay" aria-label="Жильё на Камчатке: гостевые дома и базы, цены и заявка хозяину">
+            <span className="qt-ic"><BedDouble size={19} strokeWidth={1.8} aria-hidden /></span>
+            <span className="qt-tx"><b>Жильё</b><span>дома и базы</span></span>
+          </Link>
         </nav>
 
         {/* ТУРЫ СЕЗОНА — сразу под рядом «Своя поездка / Радар» (26.09): тур с
@@ -512,6 +522,25 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                       </div>
                       <div className="buy">
                         <Link className="buy-cta" href={p.href} tabIndex={clone ? -1 : undefined}>Смотреть перевозчика</Link>
+                      </div>
+                    </figure>
+                  );
+                }
+                if (isStayPlate(p)) {
+                  // Жильё (владелец 10.10): цена — «от» нижней за сутки, как
+                  // на карточке объекта (lib/home/stay-plate.ts).
+                  return (
+                    <figure className="plate transfer" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: жильё`} aria-hidden={clone || undefined}>
+                      <Link href={p.href} tabIndex={-1} aria-hidden><div className="img" style={{ backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` }} /></Link>
+                      <span className="kind"><BedDouble aria-hidden size={12} />Жильё</span>
+                      <div className="row"><b>{p.title}</b></div>
+                      {p.caption && <div className="cap">{p.caption}</div>}
+                      <div className="facts">
+                        <span className="price">{p.price}</span>
+                        {p.place && <span className="meta">{p.place}</span>}
+                      </div>
+                      <div className="buy">
+                        <Link className="buy-cta" href={p.href} tabIndex={clone ? -1 : undefined}>Смотреть жильё</Link>
                       </div>
                     </figure>
                   );
@@ -1155,7 +1184,10 @@ const CSS = `
 .v7 .hchip .hc-l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .hchip{background:color-mix(in srgb,var(--hc,var(--text-secondary)) 14%,var(--bg-card));border-color:color-mix(in srgb,var(--hc,var(--text-secondary)) 45%,transparent)}
 .v7 .hchip svg{color:var(--hc,var(--text-secondary))}
-.v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v7 .qtools{margin:10px 0 26px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.v7 .qtools > .qt{grid-column:span 3}
+.v7 .qtools > .qt-tours,.v7 .qtools > .qt-transfer,.v7 .qtools > .qt-stay{grid-column:span 2;flex-direction:column;justify-content:center;text-align:center;gap:5px;padding:9px 6px}
+.v7 .qt-tours .qt-tx,.v7 .qt-transfer .qt-tx,.v7 .qt-stay .qt-tx{align-items:center;max-width:100%}
 .v7 .qt{min-height:64px;min-width:0;display:flex;align-items:center;gap:8px;padding:8px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .qt:hover{background:var(--bg-hover)}
 .v7 .qt:active{transform:scale(.98)}

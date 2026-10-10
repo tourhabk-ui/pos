@@ -122,7 +122,7 @@ describe('третий исход (§4.0)', () => {
 describe('витрина туров', () => {
   it('одна выборка fetchPlates на всё дерево, счётчик — из сводки каталога', () => {
     expect(DESKTOP.match(/fetchPlates\(\)/g)?.length).toBe(1);
-    expect(DESKTOP).toMatch(/<DeskTours plates=\{plates\} transfer=\{transfer\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
+    expect(DESKTOP).toMatch(/<DeskTours plates=\{plates\} transfer=\{transfer\} stay=\{stay\} total=\{catalogSummary\?\.total \?\? null\} \/>/);
   });
 
   it('факты — plateFacts и исход по датам; выдуманных «мест» и «сегодня» нет', () => {
