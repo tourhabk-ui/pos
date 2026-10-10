@@ -22,8 +22,11 @@ import { containsPattern } from '@/lib/db/like';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import {
   MAX_REQUEST_NIGHTS,
+  STAY_REQUESTS_ADMIN_PATH,
   nightsBetween,
   stayRequestTexts,
+  type StayOwnerChannel,
+  type StayPlatformChannel,
   type StayRequestDelivery,
 } from '@/lib/stay/stay-request';
 
@@ -64,7 +67,7 @@ export interface StayRequestInput {
   guestPhone: string;
   comment: string | null;
   consent: PdConsentRecord;
-  /** Чьей дверью пришла заявка — только в лог. */
+  /** Чьей дверью пришла заявка — в строку заявки (1213) и в лог. */
   door: 'form' | 'mcp';
 }
 
@@ -101,12 +104,12 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
     const ins = await pool.query<{ id: string }>(
       `INSERT INTO stay_requests
          (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone, comment,
-          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
-       VALUES ($1, $2::date, $3::date, $4, $5, $6, $7, $8, $9, $10, $11)
+          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door)
+       VALUES ($1, $2::date, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id`,
       [
         i.accommodationId, i.checkIn, i.checkOut, i.guests, i.guestName, i.guestPhone, i.comment,
-        i.consent.at, i.consent.ip, i.consent.source, i.consent.version,
+        i.consent.at, i.consent.ip, i.consent.source, i.consent.version, i.door,
       ],
     );
     requestId = ins.rows[0].id;
@@ -116,7 +119,7 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
     return { ok: false, reason: 'save_failed' };
   }
 
-  const { text, stub } = stayRequestTexts({
+  const { text, ownerStub, platformStub } = stayRequestTexts({
     accommodationName: obj.name,
     checkIn: i.checkIn,
     checkOut: i.checkOut,
@@ -128,25 +131,64 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
     priceFrom: obj.price_from != null ? Number(obj.price_from) : null,
     priceTo: obj.price_to != null ? Number(obj.price_to) : null,
   });
-  const buttons = [{ text: 'Карточка объекта', url: `${getPublicBaseUrl()}/accommodations/${i.accommodationId}` }];
+  const base = getPublicBaseUrl();
+  const card = { text: 'Карточка объекта', url: `${base}/accommodations/${i.accommodationId}` };
 
   // Хозяину — только если у него есть адрес: без него strict-режим всё равно
   // ответил бы «не смог», а звать отправку заведомо впустую незачем.
+  let ownerChannel: StayOwnerChannel = 'no_address';
+  let ownerReason = 'у хозяина нет подключённого MAX или Telegram';
   let ownerDelivered = false;
   if (obj.max_chat_id || obj.telegram_chat_id) {
-    const r = await sendPdAlert({ text, stub, buttons, to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
+    const r = await sendPdAlert({ text, stub: ownerStub, buttons: [card], to: { maxChatId: obj.max_chat_id, telegramChatId: obj.telegram_chat_id } });
+    ownerChannel = r.channel;
+    ownerReason = r.reason;
     ownerDelivered = r.delivered;
     if (!r.delivered) console.error(`[stay-request:${i.door}] ${requestId}: хозяину не доставлено (${r.channel}) — ${r.reason}`);
   } else {
     console.error(`[stay-request:${i.door}] ${requestId}: у хозяина нет подключённого MAX — заявка только оператору платформы`);
   }
   // Оператору платформы — всегда: он видит каждую заявку и подхватывает ту,
-  // что хозяину не дошла.
-  const adminRes = await sendPdAlert({ text, stub, buttons });
+  // что хозяину не дошла. Вторая кнопка — туда, где заявка лежит целиком.
+  const adminRes = await sendPdAlert({
+    text,
+    stub: platformStub,
+    buttons: [card, { text: 'Заявки гостей', url: `${base}${STAY_REQUESTS_ADMIN_PATH}` }],
+  });
   if (!adminRes.delivered) console.error(`[stay-request:${i.door}] ${requestId}: оператору не доставлено (${adminRes.channel}) — ${adminRes.reason}`);
+
+  await recordStayDelivery(requestId, i.door, ownerChannel, ownerReason, adminRes.channel, adminRes.reason);
 
   const delivered: StayRequestDelivery = ownerDelivered ? 'owner' : adminRes.delivered ? 'platform' : 'none';
   return { ok: true, delivered, accommodationName: obj.name };
+}
+
+/**
+ * Записать, куда дошла заявка (1213). Отказ записи заявку не ломает — она уже
+ * в базе и уже отправлена, — но называется вслух с SQLSTATE: в админке
+ * такая строка покажет «исход не записан», а не «не дошло».
+ */
+async function recordStayDelivery(
+  requestId: string,
+  door: 'form' | 'mcp',
+  ownerChannel: StayOwnerChannel,
+  ownerReason: string,
+  platformChannel: StayPlatformChannel,
+  platformReason: string,
+): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE stay_requests
+          SET owner_channel = $2, owner_reason = $3,
+              platform_channel = $4, platform_reason = $5,
+              delivery_recorded_at = NOW()
+        WHERE id = $1`,
+      [requestId, ownerChannel, ownerReason.slice(0, 300), platformChannel, platformReason.slice(0, 300)],
+    );
+  } catch (err) {
+    const e = err as { message?: string; code?: string };
+    console.error(`[stay-request:${door}] ${requestId}: исход доставки не записан:`, e?.message ?? 'неизвестная ошибка', `SQLSTATE=${e?.code ?? 'нет'}`);
+  }
 }
 
 /**

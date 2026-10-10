@@ -57,11 +57,22 @@ export function nightsBetween(checkIn: string, checkOut: string): number | null 
 
 const money = (v: number) => new Intl.NumberFormat('ru-RU').format(v);
 
+/** Где администратор видит заявку целиком — вкладка «Заявки гостей» (1213). */
+export const STAY_REQUESTS_ADMIN_PATH = '/hub/admin/accommodations#requests';
+
 /**
- * Текст хозяину (с ПД — только для MAX) и заглушка без ПД (для Telegram).
+ * Текст с ПД (только для MAX) и две заглушки без ПД (для Telegram).
+ *
+ * Заглушка уходит ровно тогда, когда MAX НЕ сработал, — значит, обещать в ней
+ * «имя и телефон — в MAX» нельзя: так было до 10.10, и владелец получил
+ * заглушку, не найдя заявки ни в MAX, ни в админке. Заглушек две, потому что
+ * у получателей разный путь к телефону гостя:
+ *   - платформе — вкладка заявок в админке (STAY_REQUESTS_ADMIN_PATH);
+ *   - хозяину — кабинета у него может не быть вовсе (у «Кутхи» его нет),
+ *     поэтому ему говорится, как получать заявки целиком.
  * Всё, что ввёл гость, экранируется: текст уходит как HTML.
  */
-export function stayRequestTexts(m: StayRequestMessage): { text: string; stub: string } {
+export function stayRequestTexts(m: StayRequestMessage): { text: string; ownerStub: string; platformStub: string } {
   const price = m.priceFrom != null
     ? (m.priceTo != null && m.priceTo !== m.priceFrom
       ? `Цена за сутки на карточке: ${money(m.priceFrom)}–${money(m.priceTo)} ₽`
@@ -81,6 +92,39 @@ export function stayRequestTexts(m: StayRequestMessage): { text: string; stub: s
   const tail = 'Свяжитесь с гостем напрямую: даты и цену подтверждаете вы. Платформа оплату не принимает.';
   return {
     text: [...common, ...contacts, '', tail].join('\n'),
-    stub: [...common, 'Имя и телефон гостя — в MAX.', '', tail].join('\n'),
+    ownerStub: [
+      ...common,
+      'Имя и телефон гостя в Telegram не передаются. Чтобы получать заявки целиком, подключите MAX: ссылку на бота пришлёт администратор Ведара.',
+    ].join('\n'),
+    platformStub: [
+      ...common,
+      'MAX не сработал: имя и телефон гостя — в админке, Жильё → «Заявки гостей».',
+    ].join('\n'),
   };
+}
+
+export type StayOwnerChannel = 'max' | 'telegram-stub' | 'none' | 'no_address';
+export type StayPlatformChannel = 'max' | 'telegram-stub' | 'none';
+
+/**
+ * Исход доставки словами — для вкладки заявок. NULL канала — заявка до 1213
+ * или запись исхода не удалась: «не записано», а не «не дошло» (§4.0).
+ */
+export function ownerDeliveryLabel(ch: string | null): { text: string; ok: boolean | null } {
+  switch (ch) {
+    case 'max': return { text: 'Хозяину в MAX — с именем и телефоном', ok: true };
+    case 'telegram-stub': return { text: 'Хозяину — только заглушка в Telegram, без имени и телефона', ok: false };
+    case 'none': return { text: 'Хозяину не дошло', ok: false };
+    case 'no_address': return { text: 'Хозяин не подключён к боту — слать было некуда', ok: false };
+    default: return { text: 'Исход для хозяина не записан', ok: null };
+  }
+}
+
+export function platformDeliveryLabel(ch: string | null): { text: string; ok: boolean | null } {
+  switch (ch) {
+    case 'max': return { text: 'Платформе в MAX — с именем и телефоном', ok: true };
+    case 'telegram-stub': return { text: 'Платформе — только заглушка в Telegram (MAX не сработал)', ok: false };
+    case 'none': return { text: 'Платформе не дошло', ok: false };
+    default: return { text: 'Исход для платформы не записан', ok: null };
+  }
 }

@@ -7,6 +7,7 @@ import { Protected } from '@/components/auth/Protected';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 import { ZONE_IDS, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
+import { StayRequestsSection } from './_StayRequestsSection';
 
 /**
  * Проверка объектов жилья (решение владельца 26.09, миграция 1027):
@@ -214,6 +215,8 @@ export default function AccommodationModerationClient() {
           Владельцы как партнёры проверяются в разделе{' '}
           <Link href="/hub/admin/operators" className="text-[var(--ocean)] hover:underline">Операторы</Link>.
         </p>
+
+        <StayRequestsSection />
 
         <div className="flex gap-1 mb-4 bg-[var(--bg-primary)] rounded-lg p-1 w-fit flex-wrap">
           {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
