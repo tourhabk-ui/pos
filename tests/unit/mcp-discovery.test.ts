@@ -46,13 +46,16 @@ describe('манифест не расходится с сервером', () =>
 });
 
 describe('наружу — только то, что можно', () => {
-  it('пишущих инструментов ровно два, и оба — заявки, которые подтверждает человек', () => {
+  it('пишущих инструментов ровно три, и все — заявки, которые подтверждает человек', () => {
     // create_booking_request добавлен Эволюцией 3.0 п.4 (план согласован
     // владельцем 08.08): это заявка на бронь с проверкой реальной занятости,
     // НЕ мгновенная бронь — исполнение идёт в общий createLead, оператор
-    // подтверждает голосом. Мгновенной брони и оплаты наружу по-прежнему нет.
+    // подтверждает голосом. create_stay_request — заявка хозяину жилья на даты
+    // (решение владельца 10.10): тот же путь, что форма на карточке объекта,
+    // даты и цену подтверждает хозяин. Мгновенной брони и оплаты наружу
+    // по-прежнему нет.
     const writers = PUBLIC_MCP_TOOLS.filter((t) => /create|book|order|pay|cancel|delete|update/i.test(t.name));
-    expect(writers.map((t) => t.name).sort()).toEqual(['create_booking_request', 'create_lead']);
+    expect(writers.map((t) => t.name).sort()).toEqual(['create_booking_request', 'create_lead', 'create_stay_request']);
   });
 
   it('мгновенной брони и оплаты наружу нет', () => {
@@ -73,7 +76,7 @@ describe('наружу — только то, что можно', () => {
   it('в описаниях инструментов нет личных данных туристов', () => {
     for (const t of PUBLIC_MCP_TOOLS) {
       // У заявок телефон — это ввод, а не выдача
-      if (t.name === 'create_lead' || t.name === 'create_booking_request') continue;
+      if (t.name === 'create_lead' || t.name === 'create_booking_request' || t.name === 'create_stay_request') continue;
       expect(t.description, `${t.name}`).not.toMatch(/паспорт|email|почт[аы]|телефон туриста/i);
     }
   });

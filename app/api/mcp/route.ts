@@ -14,9 +14,11 @@
  * требует личности пользователя, здесь нет by construction — у Кузьмича
  * такие поверхности живут вне tool-реестра.
  *
- * Записи две: create_lead (заявка на подбор тура) и create_booking_request
- * (заявка на бронь тура на дату): не бронь и не оплата, идут в общий
- * createLead() со скорингом и дедупом. Бронирование анонимному внешнему
+ * Записи три: create_lead (заявка на подбор тура) и create_booking_request
+ * (заявка на бронь тура на дату) — не бронь и не оплата, идут в общий
+ * createLead() со скорингом и дедупом; create_stay_request (заявка хозяину
+ * жилья на даты) — тем же путём, что форма на карточке объекта
+ * (lib/stay/stay-request-service). Бронирование анонимному внешнему
  * агенту не отдаём сознательно. Единственное исключение по форме — тур без
  * расписания: вместо ложного «нет мест» уходит запрос мест оператору
  * (lib/seat-requests). Бронь и там заводит не агент, а оператор своим
@@ -26,7 +28,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, STAY_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
@@ -37,7 +39,7 @@ import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { planFromDraft, planSourceFields, planAttachNote } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
 import { checkMcpWrite } from '@/lib/mcp/write-guard';
-import { buildConsentRecord } from '@/lib/legal/pd-consent';
+import { buildConsentRecord, type PdConsentPurpose } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
 import { primaryArg, classifyExecutionError } from '@/lib/mcp/call-reason';
@@ -50,6 +52,8 @@ import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
+import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
+import { getPublicBaseUrl } from '@/lib/config';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
 // теми же функциями, какими их находят сами инструменты.
@@ -108,6 +112,9 @@ async function admitWrite(
   tool: string,
   phone: string,
   consent: boolean | undefined,
+  // Кому уходят ПД: оператору тура (по умолчанию) или владельцу жилья —
+  // версия текста согласия должна называть настоящего получателя.
+  purpose: PdConsentPurpose = 'operator',
 ) {
   const verdict = await checkMcpWrite({
     ip: ctx.ip,
@@ -122,7 +129,7 @@ async function admitWrite(
   if (verdict.decision !== 'allow') {
     throw new McpUserError(verdict.message, 'write_guard');
   }
-  return buildConsentRecord(true, ctx.ip, 'mcp');
+  return buildConsentRecord(true, ctx.ip, 'mcp', purpose);
 }
 
 /**
@@ -422,6 +429,101 @@ function refuseSilentLead(name: string, phone: string, comment: string, sourceDa
 
 
 // ── Execute tool by name ─────────────────────────────────────
+// ── create_stay_request (решение владельца 10.10) ─────────────
+// Заявка хозяину жилья — тот же путь, что форма на карточке объекта: какие
+// объекты её принимают, запись с согласием, доставка хозяину в MAX и
+// оператору платформы (lib/stay/stay-request-service). Отличие одно —
+// согласие: здесь его даёт человек словами ассистенту, и ассистент передаёт
+// consent: true; записывается вариант текста «владельцу жилья».
+const stayRequestArgsSchema = z.object({
+  accommodation: z.string().trim().min(1, 'Укажите объект: название или ID из search_accommodations').max(200, 'Название объекта длиннее 200 символов'),
+  check_in: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата заезда в формате YYYY-MM-DD'),
+  check_out: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата выезда в формате YYYY-MM-DD'),
+  guests: z.coerce.number({ error: 'Число гостей — целое число, например 4' })
+    .int('Число гостей — целое число')
+    .min(1, 'Гостей не меньше одного')
+    .max(50, 'Не больше 50 гостей в одной заявке')
+    .default(1),
+  name: personName,
+  phone: z.string().trim().min(5, 'Телефон обязателен — по нему перезвонит владелец').max(50, 'Телефон длиннее 50 символов'),
+  comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
+  consent: consentField,
+});
+
+async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
+  const parsed = stayRequestArgsSchema.safeParse(rawArgs);
+  if (!parsed.success) {
+    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
+  }
+  const { accommodation, check_in, check_out, guests, name, comment } = parsed.data;
+  const phone = normalizePhone(parsed.data.phone);
+  if (!phone) {
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
+  }
+  if (!isRealDate(check_in) || !isRealDate(check_out)) {
+    throw new McpUserError('Такой даты нет в календаре — заявка не создана. Проверьте даты заезда и выезда.', 'date_not_in_calendar');
+  }
+  const dates = checkStayDates(check_in, check_out, kamchatkaToday());
+  if (!dates.ok) {
+    throw new McpUserError(`${dates.error} — заявка не создана.`, `bad_dates:${dates.field}`);
+  }
+
+  // Отказ базы — не «объект не найден» (§4.0).
+  const found = await resolveStayForRequest(accommodation).catch((err: unknown) => {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[mcp] create_stay_request: объект не проверен,', `SQLSTATE=${typeof code === 'string' ? logText(code, 10) : 'нет'}`);
+    throw new McpUserError('Не удалось проверить объект — заявка не создана, повторите позже.', 'stay_lookup_failed');
+  });
+  const base = getPublicBaseUrl();
+  if (found.kind === 'not_found') {
+    return `Жильё по запросу "${accommodation}" не найдено среди опубликованных — заявка не создана. Найдите объект через search_accommodations и передайте его название или ID.`;
+  }
+  if (found.kind === 'ambiguous') {
+    return `Под "${accommodation}" подходит несколько объектов: ${found.names.join('; ')}. Заявка не создана — передайте точное название или ID.`;
+  }
+  if (found.kind === 'other_path') {
+    const where = found.path === 'site' ? 'бронь и свободные даты — на сайте объекта, ссылка на карточке'
+      : found.path === 'rooms' ? 'у него свои номера на платформе — бронь номера на карточке'
+      : 'телефона владельца на платформе нет';
+    return `"${found.name}" заявку владельцу через Ведар не принимает: ${where}. Карточка: ${base}/accommodations/${found.id}. Заявка не создана.`;
+  }
+
+  // Согласие и квота записи — после всех проверок без ПД, как у заявки на тур.
+  const consent = await admitWrite(ctx, STAY_REQUEST_TOOL.name, phone, parsed.data.consent, 'stay');
+  if (!consent) throw new McpUserError('Согласие на обработку персональных данных не получено — заявка не отправлена.', 'no_consent');
+  const r = await submitStayRequest({
+    accommodationId: found.id,
+    checkIn: check_in,
+    checkOut: check_out,
+    nights: dates.nights,
+    guests,
+    guestName: name,
+    guestPhone: phone,
+    comment: comment || null,
+    consent,
+    door: 'mcp',
+  });
+  if (!r.ok) {
+    if (r.reason === 'not_accepting') {
+      // Объект сняли или завели номера между поиском и записью.
+      return `"${found.name}" сейчас заявку владельцу не принимает — заявка не создана. Карточка: ${base}/accommodations/${found.id}.`;
+    }
+    throw new McpUserError(`Не удалось сохранить заявку — попробуйте позже или позвоните владельцу: телефон на карточке ${base}/accommodations/${found.id}.`, 'save_failed');
+  }
+  // Три исхода доставки (lib/stay/stay-request). «Не дошло никому» — отказ:
+  // строка записана, но обещать человеку звонок нельзя.
+  if (r.delivered === 'none') {
+    throw new McpUserError(`Заявка записана, но передать её владельцу сейчас не удалось. Пусть человек позвонит владельцу сам: телефон на карточке ${base}/accommodations/${found.id}.`, 'stay_delivery_failed');
+  }
+  const who = r.delivered === 'owner'
+    ? 'владельцу в мессенджер'
+    : 'оператору Ведара — владелец пока не подключил мессенджер, оператор передаст заявку ему';
+  // Телефон человека в ответ не повторяется: ответ уходит в модель (pd-guard).
+  return `Заявка передана ${who}: "${r.accommodationName}", заезд ${check_in}, выезд ${check_out} (ночей: ${dates.nights}), гостей ${guests}. `
+    + 'Владелец перезвонит по указанному телефону и подтвердит даты и цену. Это заявка, не бронь и не оплата: расчёт — напрямую с владельцем. '
+    + `Карточка объекта: ${base}/accommodations/${found.id}.`;
+}
+
 // Имя проверено вызывающим (неизвестный инструмент — ошибка протокола
 // -32602, а не результат с isError: так велит спецификация tools).
 async function executeTool(
@@ -435,6 +537,9 @@ async function executeTool(
   }
   if (name === BOOKING_REQUEST_TOOL.name) {
     return executeCreateBookingRequest(rawArgs, ctx);
+  }
+  if (name === STAY_REQUEST_TOOL.name) {
+    return executeCreateStayRequest(rawArgs, ctx);
   }
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,

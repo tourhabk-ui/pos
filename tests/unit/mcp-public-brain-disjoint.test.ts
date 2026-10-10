@@ -96,9 +96,10 @@ describe('запись публичного MCP остаётся заявкой,
    * удобной правки; расширение молчком и есть тот случай, ради которого
    * весь этот файл написан.
    */
-  it('на запись — только заявка на лид и заявка на бронь', () => {
+  // Третья — заявка хозяину жилья (решение владельца 10.10: «да делай»).
+  it('на запись — только заявки: на подбор, на бронь тура, хозяину жилья', () => {
     const write = toolNames(PUBLIC_SRC).filter((n) => /^create_|^update_|^delete_|^set_/.test(n));
-    expect(write.sort()).toEqual(['create_booking_request', 'create_lead']);
+    expect(write.sort()).toEqual(['create_booking_request', 'create_lead', 'create_stay_request']);
   });
 
   it('оплаты в публичных инструментах нет', () => {
