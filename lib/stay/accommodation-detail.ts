@@ -16,6 +16,7 @@ import { publicReviewerName } from '@/lib/reviews/public-name';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { normalizeContactPhone, NUMBER_MESSENGERS, type NumberMessenger } from '@/lib/stay/contact-phone';
+import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 
 export interface AccommodationRoom {
   id: string;
@@ -130,7 +131,7 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
           'url', ast.url,
           'alt', ast.alt,
           'mime_type', ast.mime_type
-        ))
+        ) ORDER BY ${STAY_PHOTO_ORDER_SQL})
         FROM accommodation_assets aa
         JOIN assets ast ON aa.asset_id = ast.id
         WHERE aa.accommodation_id = a.id
@@ -205,11 +206,10 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
       a.rating,
       a.review_count,
       (
-        SELECT json_agg(json_build_object('url', ast.url))
+        SELECT json_agg(json_build_object('url', ast.url) ORDER BY ${STAY_PHOTO_ORDER_SQL})
         FROM accommodation_assets aa
         JOIN assets ast ON aa.asset_id = ast.id
         WHERE aa.accommodation_id = a.id
-        LIMIT 1
       ) as images
     FROM accommodations a
     WHERE a.type = $1
