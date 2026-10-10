@@ -223,7 +223,7 @@ async function autoProcessLead(leadId: string, leadName: string): Promise<void> 
       proposal.intent.activity_types.length > 0
         ? `Активности: ${proposal.intent.activity_types.join(', ')}`
         : '',
-      proposal.intent.group_size > 1 ? `Группа: ${proposal.intent.group_size} чел.` : '',
+      (proposal.intent.group_size ?? 0) > 1 ? `Группа: ${proposal.intent.group_size} чел.` : '',
       proposal.intent.budget_rub ? `Бюджет: ${proposal.intent.budget_rub.toLocaleString('ru-RU')} руб` : '',
       proposal.intent.desired_dates ? `Даты: ${proposal.intent.desired_dates}` : '',
       ``,
