@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-09 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1200_operator_client_notes_to_crm.sql`.
+> Снято 2026-10-10 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1201_crm_inbox_reminders.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 262 |
+| Таблиц | 263 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3511 |
-| Внешних ключей | 300 |
+| Колонок | 3516 |
+| Внешних ключей | 301 |
 | Таблиц без единого FK в обе стороны | 76 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -26,7 +26,7 @@
 | [Гиды](#гиды) | 7 | `guide_availability` `guide_certifications` `guide_earnings` `guide_groups` `guide_operator_invites` `guide_reviews` `guide_schedule` |
 | [Жильё, снаряжение, трансферы](#жильё-снаряжение-трансферы) | 21 | `accommodation_assets` `accommodation_availability` `accommodation_bookings` `accommodation_reviews` `accommodation_rooms` `accommodations` `driver_documents` `driver_schedules` `drivers` `gear_availability` `gear_items` `gear_rentals` `transfer_charter_prices` `transfer_fleet_vehicles` `transfer_reviews` `transfer_routes` `transfer_seat_bookings` `transfer_trips` `transfers` `vehicle_documents` `vehicles` |
 | [Турагенты (роль agent)](#турагенты-роль-agent) | 4 | `agent_bookings` `agent_clients` `agent_referral_events` `agent_referral_links` |
-| [Лиды и продажи](#лиды-и-продажи) | 13 | `client_communications` `crm_contact_links` `crm_contacts` `crm_events` `crm_tasks` `funnel_events` `lead_activity_log` `lead_followups` `lead_proposals` `leads` `outreach_queue` `sales_campaigns` `sales_outreach_log` |
+| [Лиды и продажи](#лиды-и-продажи) | 14 | `client_communications` `crm_contact_links` `crm_contacts` `crm_events` `crm_inbox_reminders` `crm_tasks` `funnel_events` `lead_activity_log` `lead_followups` `lead_proposals` `leads` `outreach_queue` `sales_campaigns` `sales_outreach_log` |
 | [Кузьмич, чат, RAG](#кузьмич-чат-rag) | 23 | `chat_messages` `chat_sessions` `conversation_messages` `conversation_participants` `conversations` `knowledge_base_articles` `kuzmich_engagement_signals` `kuzmich_safety_reviews` `llm_usage_log` `mcp_clients` `mcp_handoff_events` `mcp_handoffs` `mcp_tool_calls` `mcp_write_attempts` `message_templates` `query_expansion_log` `rag_feedback` `rag_quality_log` `tg_booking_flow` `tg_conversations` `tg_operator_groups` `tg_ratings` `user_ai_memory` |
 | [AI-агенты, эволюция, ядро](#ai-агенты-эволюция-ядро) | 28 | `agent_actions` `agent_approvals` `agent_effects` `agent_events` `agent_experiments` `agent_knowledge` `agent_knowledge_links` `agent_memory` `agent_memory_edits` `agent_payout_items` `agent_run_history` `agent_sdk_sessions` `agent_tasks` `agent_tools` `ai_actions_log` `approval_execution_log` `board_meeting_sessions` `cron_leases` `evo_agent_state` `evo_evolution_log` `evo_feedback` `evo_growth_issues` `evo_growth_scans` `evo_review_ledger` `external_tools` `intelligence_sources` `legislation_docs` `stakeholder_wishes` |
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
@@ -749,7 +749,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `name varchar!` `source text` `website text` `details jsonb!=` `notes text` `status text!=` `created_at timestamptz!=` `updated_at timestamptz!=`
 
-**partners** · 90 кол. · PK id · agent_rate_set_by → users.id, guide_operator_id → partners.id, user_id → users.id, user_id → users.id, verified_by → users.id · на неё ссылаются: accommodations, booking_change_requests, booking_transfers, cancellation_policies, contingency_rules, crm_contact_links, crm_contacts, crm_events, crm_tasks, drivers, gear_items, guide_availability, guide_certifications, guide_earnings, guide_operator_invites, guide_reviews, guide_schedule, lead_proposals, leads, mchs_group_registrations, mchs_registrations, octo_api_keys, official_registry_operators, operator_ai_actions, operator_ai_config, operator_applications, operator_bookings, operator_client_notes, operator_commissions, operator_notification_reads, operator_payouts, operator_signups, operator_site_audits, operator_staff, operator_stats_cache, operator_tours, operator_vehicles, partner_assets, partner_integrations, refund_requests, tour_payments, tour_seat_requests, tour_selections, tour_transfer_requests, tours, transfer_charter_prices, transfer_fleet_vehicles, transfer_routes, transfer_seat_bookings, transfer_transactions, transfers, vehicles · индексов 16 · триггеры: trg_sync_partner_company_name, update_partners_updated_at
+**partners** · 90 кол. · PK id · agent_rate_set_by → users.id, guide_operator_id → partners.id, user_id → users.id, user_id → users.id, verified_by → users.id · на неё ссылаются: accommodations, booking_change_requests, booking_transfers, cancellation_policies, contingency_rules, crm_contact_links, crm_contacts, crm_events, crm_inbox_reminders, crm_tasks, drivers, gear_items, guide_availability, guide_certifications, guide_earnings, guide_operator_invites, guide_reviews, guide_schedule, lead_proposals, leads, mchs_group_registrations, mchs_registrations, octo_api_keys, official_registry_operators, operator_ai_actions, operator_ai_config, operator_applications, operator_bookings, operator_client_notes, operator_commissions, operator_notification_reads, operator_payouts, operator_signups, operator_site_audits, operator_staff, operator_stats_cache, operator_tours, operator_vehicles, partner_assets, partner_integrations, refund_requests, tour_payments, tour_seat_requests, tour_selections, tour_transfer_requests, tours, transfer_charter_prices, transfer_fleet_vehicles, transfer_routes, transfer_seat_bookings, transfer_transactions, transfers, vehicles · индексов 16 · триггеры: trg_sync_partner_company_name, update_partners_updated_at
 
 `id uuid!=` `user_id uuid` `name varchar!` `category varchar!` `description text` `contact jsonb!` `rating numeric=` `review_count integer=` `is_verified boolean=` `logo_asset_id uuid` `created_at timestamptz=` `updated_at timestamptz=` `legal_info jsonb` `bank_details jsonb` `consents jsonb` `operator_info jsonb` `roles jsonb` `password_hash varchar` `status varchar=` `slug varchar` `short_description text` `hero_image varchar` `gallery jsonb=` `services jsonb=` `features jsonb=` `faq jsonb=` `season_info jsonb=` `reviews_data jsonb=` `contacts jsonb=` `location jsonb` `is_public boolean=` `commission_rate numeric!=` `commission_rules jsonb=` `logo_image varchar` `payout_method varchar` `payout_details jsonb` `payout_verified boolean=` `payout_verified_at timestamp` `commission_start numeric=` `commission_current numeric=` `verified_at timestamp` `verified_by uuid` `company_name varchar` `profile_status text!=` `profile_draft jsonb` `profile_review_comment text` `onboarding_completed boolean!=` `applied_at timestamp` `telegram_chat_id bigint` `reestr_number text` `license_expiry date` `insurance_policy text` `insurance_amount numeric` `widget_enabled boolean=` `widget_domains text[]=` `widget_config jsonb=` `max_chat_id bigint` `company_inn varchar` `company_ogrn varchar` `legal_address text` `efrt_number varchar` `external_source varchar` `external_source_url text` `external_id varchar` `telegram_group_url text` `license_number varchar` `external_rating numeric` `website text` `uon_api_key text` `uon_company_id integer` `registry_status varchar!=` `registry_number varchar` `registry_source_url text` `registry_checked_at timestamptz` `is_available boolean=` `site_audit_consent text!=` `guide_operator_id uuid` `languages text[]` `specializations text[]` `photo_url text` `experience_years integer` `phone varchar` `agent_commission_rate numeric` `agent_rate_set_by uuid` `agent_rate_set_at timestamptz` `agent_rate_reason text` `video_url text` `video_poster_url text` `gallery_credits jsonb!=` `video_clips jsonb!=`
 
@@ -948,6 +948,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **crm_events** · 12 кол. · PK id · actor_user_id → users.id, contact_id → crm_contacts.id, partner_id → partners.id · индексов 4
 
 `id bigint!=` `partner_id uuid!` `contact_id uuid` `source_kind text` `source_id text` `kind text!` `actor_kind text!` `actor_user_id uuid` `title text!` `payload jsonb!=` `occurred_at timestamptz!=` `created_at timestamptz!=`
+
+**crm_inbox_reminders** · 5 кол. · PK partner_id, item_kind, item_id · partner_id → partners.id · индексов 1
+
+`partner_id uuid!` `item_kind text!` `item_id text!` `channel text!` `sent_at timestamptz!=`
 
 **crm_tasks** · 14 кол. · PK id · contact_id → crm_contacts.id, created_by → users.id, done_by → users.id, partner_id → partners.id · индексов 5
 
