@@ -86,3 +86,47 @@ describe('кадр Ильи на Козельском', () => {
     expect(sql).toContain('WHERE place_gallery_photos.caption = EXCLUDED.caption');
   });
 });
+
+describe('второй кадр Алины Гусаковой на смотровой (1211)', () => {
+  const sql = read('migrations/1211_tri_brata_view_gusakova_gallery.sql');
+  const CAPTION = 'Скалы Три брата в Авачинской бухте, вид со смотровой';
+
+  it('лёг в галерею живой смотровой с её именем; героя не трогает, лицензию не выдумывает', () => {
+    expect(sql).toContain("'Алина Гусакова'");
+    expect(sql).toContain("p.id::text = '60b06659-f636-43b7-8b18-0601d8744739'");
+    // Герой (ai_route_images) принадлежит 1140 и ручным снимкам: здесь только галерея.
+    expect(sql).not.toMatch(/INSERT INTO ai_route_images/);
+    // Колонок лицензии в списке нет вовсе: разрешение на публикацию — не лицензия.
+    expect(sql).toMatch(/INSERT INTO place_gallery_photos \(ark_id, position, image_data, mime_type, width, height, caption, author\)/);
+  });
+
+  it('повторный прогон кадр не дублирует: ключ — подпись на этом месте; позиция — следующая свободная', () => {
+    expect(sql).toContain(`g.ark_id = p.ark_id AND g.caption = '${CAPTION}'`);
+    expect(sql).toMatch(/COALESCE\(\(SELECT max\(g\.position\) FROM place_gallery_photos g WHERE g\.ark_id = p\.ark_id\), 0\) \+ 1/);
+    // Исход называется вслух: нет живой записи или кадр не один — предупреждение, не тишина.
+    expect(sql).toContain("RAISE WARNING '[1211] живой записи");
+  });
+
+  it('байты — настоящий JPEG 720x960 без EXIF, не больше 200 КБ (по образцу галереи 1129-1140)', () => {
+    const hex = [...sql.matchAll(/^\s*'([0-9a-f]{40,})'/gm)].map((m) => m[1]).join('');
+    const buf = Buffer.from(hex, 'hex');
+    expect(buf.subarray(0, 2).toString('hex')).toBe('ffd8');
+    expect(buf.subarray(-2).toString('hex')).toBe('ffd9');
+    expect(buf.length).toBeLessThan(200 * 1024);
+    // Размер из заголовка кадра (SOF), а не из слов в комментарии.
+    let i = 2;
+    let dims: [number, number] | null = null;
+    let exif = false;
+    while (i + 4 < buf.length) {
+      if (buf[i] !== 0xff) { i += 1; continue; }
+      const marker = buf[i + 1]!;
+      const len = buf.readUInt16BE(i + 2);
+      if (marker === 0xe1) exif = true;
+      if ((marker >= 0xc0 && marker <= 0xc3) && !dims) dims = [buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5)];
+      if (marker === 0xda) break;
+      i += 2 + len;
+    }
+    expect(dims).toEqual([720, 960]);
+    expect(exif).toBe(false);
+  });
+});
