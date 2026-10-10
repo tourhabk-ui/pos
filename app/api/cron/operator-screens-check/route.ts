@@ -21,8 +21,9 @@
  * чужие данные не трогаются. `DEALLOCATE ALL` возвращает соединение чистым.
  *
  * ПОЧЕМУ SQL НЕ СКОПИРОВАН. В отличие от `sql-shape-check`, копии здесь нет:
- * запросы импортируются из `lib/operator/screen-queries.ts` — того самого
- * модуля, который читают сами роуты. Расходиться нечему по построению.
+ * запросы импортируются из `lib/operator/screen-queries.ts` и (для «Клиентов»)
+ * `lib/crm/operator-clients-sql.ts` — тех самых модулей, которые читают сами
+ * роуты. Расходиться нечему по построению.
  *
  * ЧЕГО ПРОБА НЕ ДОКАЗЫВАЕТ. Что экран отдаёт ПРАВИЛЬНЫЕ числа, что права
  * оператора проверены и что у оператора есть данные. Разбор — про форму, не
@@ -37,8 +38,12 @@ import {
   COMPLETENESS_TOURS_SQL,
   ANALYTICS_SQL,
   GUIDES_SQL,
-  buildClientsSql,
 } from '@/lib/operator/screen-queries';
+import {
+  OPERATOR_CLIENTS_LIST_SQL,
+  OPERATOR_CLIENTS_COUNT_SQL,
+  OPERATOR_CLIENTS_SUMMARY_SQL,
+} from '@/lib/crm/operator-clients-sql';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -51,27 +56,18 @@ interface ScreenQuery {
 }
 
 /**
- * «Клиенты» собирают SQL во время работы (поиск и фильтр статуса
- * необязательны), поэтому проверяются ВСЕ четыре сочетания: запрос без
- * фильтров и запрос с фильтрами — разные тексты, и разобраться может один,
- * а другой нет.
+ * «Клиенты» с 10.10 — контакты CRM оператора с суммами и сегментом
+ * (lib/crm/operator-clients-sql, шаг 1а-2b). Модуль без записи: проба только
+ * разбирает запросы, и импорт не должен давать ей права менять данные. Текст у каждого запроса один на все
+ * фильтры (параметры могут быть NULL), поэтому сочетаний нет — по одному
+ * PREPARE на запрос.
  */
 function clientsQueries(): ScreenQuery[] {
-  const out: ScreenQuery[] = [];
-  for (const search of [false, true]) {
-    for (const status of [false, true]) {
-      const { countSql, dataSql } = buildClientsSql({
-        search,
-        status,
-        sortCol: 'total_spent',
-        order: 'DESC',
-      });
-      const suffix = `поиск=${search ? 'да' : 'нет'}, статус=${status ? 'да' : 'нет'}`;
-      out.push({ screen: 'clients', name: `Клиенты: счёт (${suffix})`, sql: countSql });
-      out.push({ screen: 'clients', name: `Клиенты: страница (${suffix})`, sql: dataSql });
-    }
-  }
-  return out;
+  return [
+    { screen: 'clients', name: 'Клиенты: страница', sql: OPERATOR_CLIENTS_LIST_SQL },
+    { screen: 'clients', name: 'Клиенты: счёт', sql: OPERATOR_CLIENTS_COUNT_SQL },
+    { screen: 'clients', name: 'Клиенты: итоги', sql: OPERATOR_CLIENTS_SUMMARY_SQL },
+  ];
 }
 
 function allQueries(): ScreenQuery[] {

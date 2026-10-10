@@ -1,5 +1,6 @@
 /**
- * GET  /api/hub/crm/contacts?q=&tag=&page=  — клиенты партнёра
+ * GET  /api/hub/crm/contacts?q=&tag=&page=  — клиенты партнёра; у оператора
+ *      ещё &segment=&sort= и в ответе суммы броней, сегмент и итоги (1а-2b)
  * POST /api/hub/crm/contacts                — клиент, заведённый руками
  *
  * CRM фаза 1, шаг 1а (#2325). Одна дверь на шесть ролей партнёров: кто
@@ -10,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requirePartner } from '@/lib/crm/partner-context';
 import { createManualContact, listContacts } from '@/lib/crm/contact-queries';
+import { listOperatorClients, OPERATOR_SEGMENTS, OPERATOR_SORTS } from '@/lib/crm/operator-clients';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +21,9 @@ const ListQuery = z.object({
   q: z.string().max(100).optional(),
   tag: z.string().max(40).optional(),
   page: z.coerce.number().int().min(1).max(1000).default(1),
+  // Сегмент и порядок — только у оператора: суммы считаются по его броням (1а-2b).
+  segment: z.enum(OPERATOR_SEGMENTS).optional(),
+  sort: z.enum(OPERATOR_SORTS).optional(),
 });
 
 const Tag = z.string().trim().min(1).max(40);
@@ -46,13 +51,33 @@ export async function GET(req: NextRequest) {
     q: sp.get('q') ?? undefined,
     tag: sp.get('tag') ?? undefined,
     page: sp.get('page') ?? undefined,
+    segment: sp.get('segment') ?? undefined,
+    sort: sp.get('sort') ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Некорректные параметры поиска' }, { status: 400 });
   }
-  const { q, tag, page } = parsed.data;
+  const { q, tag, page, segment, sort } = parsed.data;
+  const isOperator = ctx.category === 'operator';
+  // Фильтр, который молча не применился, отдал бы весь список под видом
+  // отфильтрованного (§4.0) — у других ролей сегментов нет, и это говорится.
+  if (!isOperator && (segment || sort)) {
+    return NextResponse.json(
+      { success: false, error: 'Сегменты и сортировка по сумме есть только у клиентов оператора' },
+      { status: 400 },
+    );
+  }
 
   try {
+    if (isOperator) {
+      const { items, total, summary } = await listOperatorClients(ctx.partnerId, {
+        q, tag, segment, sort, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE,
+      });
+      return NextResponse.json({
+        success: true,
+        data: { items, total, page, pageSize: PAGE_SIZE, category: ctx.category, summary },
+      });
+    }
     const { items, total } = await listContacts(ctx.partnerId, {
       q, tag, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE,
     });

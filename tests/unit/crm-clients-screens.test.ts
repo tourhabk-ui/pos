@@ -15,8 +15,6 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 
 /** Кабинет → своя причина, если экрана CRM в нём (пока) нет. */
 const KNOWN_WITHOUT_SCREEN: Readonly<Record<string, string>> = {
-  operator:
-    'переезд «Клиентов» оператора — шаг 1а-2b: старый экран считает суммы, VIP и выгрузку CSV, а метки и Telegram лежат в operator_client_notes — их нужно перенести, а не потерять',
   agent:
     'клиенты агента остаются в agent_clients до разговора с владельцем (ответ «обсудим потом», #2325 вопрос 5)',
 };
@@ -78,11 +76,13 @@ describe('экран CRM по правилам дизайн-системы', () 
     // Любой /api-литерал в экране — один из адресов CRM_API или задач.
     const literals = files.flatMap((f) => [...read(f).matchAll(/['`](\/api\/[^'`$?]*)/g)].map((m) => `${f}: ${m[1]}`));
     expect(literals.length).toBeGreaterThanOrEqual(3);
-    for (const l of literals) expect(l).toMatch(/^components\/crm\/api\.ts: \/api\/(hub|admin)\/crm\/contacts$|^components\/crm\/api\.ts: \/api\/hub\/crm\/tasks$/);
+    for (const l of literals) expect(l).toMatch(/^components\/crm\/api\.ts: \/api\/(hub|admin)\/crm\/contacts$|^components\/crm\/api\.ts: \/api\/hub\/crm\/(tasks|contacts\/export)$/);
     // А fetch зовёт только через CRM_API / CRM_TASKS_API — своего адреса мимо карты нет.
     const fetches = files.flatMap((f) => [...read(f).matchAll(/fetch\(\s*([^,)]+)/g)].map((m) => `${f}: ${m[1]}`));
     expect(fetches.length).toBeGreaterThan(0);
-    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.partner(?!\w))|CRM_TASKS_API(?!\w))/);
+    for (const call of fetches) expect(call).toMatch(/: (`\$\{)?(CRM_API(\[mode\]|\.partner(?!\w))|CRM_TASKS_API(?!\w)|CRM_EXPORT_API(?!\w))/);
+    // Выгрузка — только партнёрская: у администратора кнопки нет.
+    expect(read('components/crm/ContactsScreen.tsx')).toMatch(/\{!isAdmin && \(\s*<div className="flex items-center gap-2">\s*<button\s+type="button"\s+onClick=\{\(\) => void exportCsv\(\)\}/);
     // Задачи — только партнёрские: администратору адреса задач экран не даёт.
     expect(read('components/crm/ContactPanel.tsx')).toMatch(/\{!readOnly && \(\s*<section className="space-y-2" aria-label="Задачи">/);
   });
