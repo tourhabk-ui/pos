@@ -185,15 +185,20 @@ describe('пересказ проверяется, а не принимаетс�
 describe('подключение: за пересказ платят по нажатию', () => {
   const read = (rel: string) =>
     readFileSync(join(process.cwd(), rel), 'utf-8');
-  const ROUTE = read('app/api/routes/[id]/route.ts');
+  // Сборка карточки — lib/routes/route-detail (SEO 10.10); роут её только зовёт.
+  const ROUTE = read('app/api/routes/[id]/route.ts') + read('lib/routes/route-detail.ts');
   const CLIENT = read('app/planning/_PlanningClient.tsx');
   const code = (src: string) =>
     src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
   it('объяснение спрашивается явно, а не при каждом открытии карточки', () => {
     // Вызов модели на каждое открытие — это счёт за то, о чём не просили.
-    expect(code(ROUTE)).toMatch(/if \(wantExplain\)/);
+    expect(code(ROUTE)).toMatch(/if \(opts\.explain\)/);
+    expect(code(ROUTE)).toMatch(/explain: wantExplain/);
     expect(code(ROUTE)).toMatch(/explain.*===\s*'1'/);
+    // Серверный рендер карточки (10.10) открывается на КАЖДЫЙ заход, в том
+    // числе поисковика: модель он не зовёт никогда.
+    expect(code(read('app/routes/[id]/page.tsx'))).toMatch(/loadRouteDetail\(route\.id, \{ explain: false, countView: false \}\)/);
   });
 
   it('параметр проверяется схемой, а не читается как есть', () => {

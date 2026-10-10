@@ -118,7 +118,7 @@ describe('пространство id выбора маршрута едино (
   });
 
   it('детальный эндпоинт находит строку kamchatka_routes по обоим id', () => {
-    const src = read('app/api/routes/[id]/route.ts');
+    const src = read('lib/routes/route-detail.ts');
     expect(src).toMatch(/kr\.id = ark\.id OR kr\.ark_id = ark\.id/);
     // Внутренние таблицы (waypoints, marketplace, view_count) ищутся по
     // каноническому id строки, а не по id VIEW.
@@ -138,7 +138,7 @@ describe('паспорт доехал до выбора маршрута', () =>
   const client = read('app/planning/_PlanningClient.tsx');
 
   it('детальный эндпоинт отдаёт passport', () => {
-    expect(read('app/api/routes/[id]/route.ts')).toMatch(/buildRoutePassport/);
+    expect(read('lib/routes/route-detail.ts')).toMatch(/buildRoutePassport/);
   });
 
   it('списки отдают род линии', () => {

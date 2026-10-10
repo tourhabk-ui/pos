@@ -30,7 +30,8 @@ const FRESH_COLUMNS = ['link_kind'];
 
 /** Файлы, чей отказ виден человеку в поле. */
 const HOT_PATHS = [
-  'app/api/routes/[id]/route.ts',
+  // Сборка карточки маршрута (переехала из app/api/routes/[id]/route.ts, 10.10).
+  'lib/routes/route-detail.ts',
   'lib/routes/geometry-audit.ts',
   'app/api/cron/route-popularity/route.ts',
 ];

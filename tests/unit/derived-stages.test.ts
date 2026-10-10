@@ -21,7 +21,8 @@ import { join } from 'node:path';
 import { deriveStages, ON_LINE_KM, NEAR_LINE_KM } from '@/lib/routes/derived-stages';
 import { routeNavigability } from '@/lib/routes/navigability';
 
-const API = readFileSync(join(process.cwd(), 'app/api/routes/[id]/route.ts'), 'utf-8');
+// Сборка карточки — lib/routes/route-detail (SEO 10.10).
+const API = readFileSync(join(process.cwd(), 'lib/routes/route-detail.ts'), 'utf-8');
 const MODULE = readFileSync(join(process.cwd(), 'lib/routes/derived-stages.ts'), 'utf-8');
 
 /** Прямая линия на восток от Петропавловска — считать по ней просто. */

@@ -117,7 +117,10 @@ function formatDuration(hours: number, durationType?: string | null, multiDay?: 
 
 function formatSeasonDates(start: string | null, end: string | null): string | null {
   if (!start || !end) return null;
-  const fmt = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  // Дата без времени («2026-06-01») — это полночь UTC; без явного пояса
+  // браузер западнее Гринвича показывал предыдущий день, а сервер и браузер
+  // расходились бы в разметке карточки, отданной с сервера (SEO, 10.10).
+  const fmt = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   return `${fmt(start)} — ${fmt(end)}`;
 }
 
@@ -189,7 +192,7 @@ interface DerivedStages {
   nearLineKm: number;
 }
 
-interface RouteDetail {
+export interface RouteDetail {
   id: string; category: string; locationType: string | null; activityType: string | null;
   title: string; description: string;
   lat: number | null; lng: number | null;
@@ -284,7 +287,7 @@ function OfferCard({ offer, activityType, onBook }: {
 }) {
   const price = offer.effectivePrice ?? offer.priceBase;
   const nextDate = offer.nextDeparture
-    ? new Date(offer.nextDeparture).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+    ? new Date(offer.nextDeparture).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
     : null;
   const accentColor = ACTIVITY_COLORS[activityType ?? 'other'] ?? 'var(--accent)';
   const duration = offer.durationHours
@@ -452,12 +455,22 @@ function OfferCard({ offer, activityType, onBook }: {
   );
 }
 
-export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }: { id: string; mapPackBaseUrl: string | null; summary?: RouteSummary | null }) {
+export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null }: {
+  id: string;
+  mapPackBaseUrl: string | null;
+  summary?: RouteSummary | null;
+  /**
+   * Карточка, собранная на сервере (lib/routes/route-detail, SEO 10.10):
+   * поисковик и человек получают её в первом HTML. null — сервер собрать не
+   * смог, карточка грузится из браузера, как раньше.
+   */
+  initialRoute?: RouteDetail | null;
+}) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/routes');
   const router = useRouter();
-  const [route, setRoute] = useState<RouteDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [route, setRoute] = useState<RouteDetail | null>(initialRoute);
+  const [loading, setLoading] = useState(!initialRoute);
   const [notFound, setNotFound] = useState(false);
   const [showLead, setShowLead] = useState(false);
   const [bookingOffer, setBookingOffer] = useState<Offer | null>(null);
@@ -511,6 +524,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
   const CACHE_KEY = `route_cache_${id}`;
   const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 часа
 
+  // Запрос из браузера идёт и тогда, когда карточка пришла с сервера: он
+  // засчитывает просмотр (серверный рендер его не считает — туда ходят и
+  // поисковики) и кладёт свежую карточку в офлайн-кэш.
   useEffect(() => {
     fetch(`/api/routes/${id}`)
       .then(r => r.json())
@@ -518,11 +534,13 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
         if (j.success) {
           setRoute(j.data);
           try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: j.data, ts: Date.now() })); } catch { /* игнорируем */ }
-        } else {
+        } else if (!initialRoute) {
           setNotFound(true);
         }
       })
       .catch(() => {
+        // Карточка уже пришла с сервера — отказ обновления её не прячет.
+        if (initialRoute) return;
         // Сеть недоступна — пробуем кеш
         try {
           const raw = localStorage.getItem(CACHE_KEY);
@@ -1852,7 +1870,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null }
                     )}
                     <span className="text-xs text-[var(--text-muted)]">{rv.authorName}</span>
                     <span className="text-xs text-[var(--text-muted)]">
-                      {new Date(rv.createdAt).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' })}
+                      {new Date(rv.createdAt).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric', timeZone: 'Asia/Kamchatka' })}
                     </span>
                   </div>
                   {rv.comment && <p className="text-sm text-[var(--text-secondary)]">{rv.comment}</p>}

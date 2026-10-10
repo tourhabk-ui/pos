@@ -27,7 +27,8 @@ import { join } from 'node:path';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
-const DETAIL = read('app/api/routes/[id]/route.ts');
+// Сборка карточки — lib/routes/route-detail (SEO 10.10); роут её только зовёт.
+const DETAIL = read('app/api/routes/[id]/route.ts') + read('lib/routes/route-detail.ts');
 const DIAG = read('app/api/cron/catalog-diag/route.ts');
 
 /** Код без комментариев: в комментариях прежний глушитель описан намеренно. */
