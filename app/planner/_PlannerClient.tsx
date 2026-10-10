@@ -2010,9 +2010,11 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
   const stepHeader = (
     <div className="space-y-3">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-xs font-medium text-[var(--text-secondary)]" aria-live="polite">
-          Шаг {step} из 4
-        </p>
+        {/* H1 страницы — что это за страница, а не название шага: поисковик
+            видел H1 «Когда» (аудит 29.09, Н14). Название шага — H2 ниже. */}
+        <h1 className="text-xs font-medium text-[var(--text-secondary)]">
+          Конструктор маршрута по Камчатке · <span aria-live="polite">шаг {step} из 4</span>
+        </h1>
         {recommendation && (
           <button type="button" onClick={() => { setFormOpen(false); setStepError(''); }}
             className="text-xs font-medium text-[var(--ocean)] min-h-[44px] px-1 transition-colors duration-200 motion-reduce:transition-none">
@@ -2028,9 +2030,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
             }`} />
         ))}
       </div>
-      <h1 className="font-playfair text-3xl font-bold leading-tight text-[var(--text-primary)] text-balance">
+      <h2 className="font-playfair text-3xl font-bold leading-tight text-[var(--text-primary)] text-balance">
         {PLANNER_STEPS[step - 1].title}
-      </h1>
+      </h2>
       <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{PLANNER_STEPS[step - 1].lead}</p>
       {step === 1 && (
         // Групповое планирование (#2226): пожелания каждого — по ссылке.

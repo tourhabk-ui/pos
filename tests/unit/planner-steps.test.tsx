@@ -4,7 +4,7 @@
  *
  * Держит связку целиком, на настоящем компоненте:
  *   — шаги идут в порядке «Когда → Кто едет → Как хотите ехать → Что
- *     интересно», с прогрессом «Шаг N из 4» и кнопками «Назад» / «Дальше» /
+ *     интересно», с прогрессом «… · шаг N из 4» в H1 страницы и кнопками «Назад» / «Дальше» /
  *     «Собрать маршрут»;
  *   — без дат дальше первого шага не пускает и говорит почему (движок без
  *     дат собирает пустой план);
@@ -75,7 +75,9 @@ afterEach(() => {
 });
 
 const next = () => fireEvent.click(screen.getByRole('button', { name: /Дальше/ }));
-const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
+// Название шага — H2; H1 страницы называет саму страницу (аудит SEO 29.09,
+// Н14: поисковик видел H1 «Когда»).
+const heading = () => screen.getByRole('heading', { level: 2 }).textContent;
 
 function fillDates() {
   fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: '2030-08-03' } });
@@ -85,20 +87,21 @@ function fillDates() {
 describe('четыре шага по порядку', () => {
   it('Когда → Кто едет → Как хотите ехать → Что интересно', () => {
     render(<PlannerClient />);
-    expect(screen.getByText('Шаг 1 из 4')).toBeTruthy();
+    expect(screen.getByText('шаг 1 из 4')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/^Конструктор маршрута по Камчатке/);
     expect(heading()).toBe('Когда');
     // Быстрый путь — сверху первого шага.
     expect(screen.getByLabelText(/Опишите поездку/)).toBeTruthy();
     fillDates();
     expect(screen.getByText('9 дней на Камчатке')).toBeTruthy();
     next();
-    expect(screen.getByText('Шаг 2 из 4')).toBeTruthy();
+    expect(screen.getByText('шаг 2 из 4')).toBeTruthy();
     expect(heading()).toBe('Кто едет');
     next();
     expect(heading()).toBe('Как хотите ехать');
     next();
     expect(heading()).toBe('Что интересно');
-    expect(screen.getByText('Шаг 4 из 4')).toBeTruthy();
+    expect(screen.getByText('шаг 4 из 4')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Собрать маршрут/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Назад/ }));
     expect(heading()).toBe('Как хотите ехать');

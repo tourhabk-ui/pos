@@ -24,7 +24,7 @@ import { catalogAvailability } from '@/lib/tours/catalog-availability';
 import { hasAvailabilitySql } from '@/lib/search/tour-search';
 
 interface FeedRow {
-  id: number; title: string; description: string | null;
+  id: number; slug: string | null; title: string; description: string | null;
   short_description: string | null; activity_type: string;
   location_name: string | null; latitude: string | number | null;
   longitude: string | number | null; base_price: string;
@@ -51,7 +51,7 @@ export interface FeedSelection {
 
 const SQL = `
   SELECT
-    ot.id, ot.title, ot.description, ot.short_description,
+    ot.id, ot.slug, ot.title, ot.description, ot.short_description,
     ot.activity_type, ot.location_name, ot.latitude, ot.longitude,
     ot.base_price, ot.max_participants, ot.duration_hours,
     ot.difficulty, ot.photos, ot.included,
@@ -83,6 +83,7 @@ const SQL = `
 function toChannelTour(r: FeedRow): ChannelTour {
   return {
     id: r.id,
+    slug: r.slug,
     title: r.title,
     description: r.description,
     short_description: r.short_description,

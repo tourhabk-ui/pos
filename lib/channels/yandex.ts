@@ -15,6 +15,7 @@
 
 import { priceLine, priceUnitPhrase } from '@/lib/channels/price-line';
 import type { ChannelTour } from './types';
+import { tourPath } from '@/lib/tours/tour-url';
 import { stripTags } from '@/lib/html/text';
 import { absoluteUrl } from './avito';
 
@@ -128,7 +129,7 @@ function buildDescription(tour: ChannelTour): string {
     parts.push(`Включено: ${tour.included.join(', ')}.`);
   }
 
-  parts.push(`Подробнее и бронирование: ${SITE}/catalog/tours/${tour.id}`);
+  parts.push(`Подробнее и бронирование: ${SITE}${tourPath(tour)}`);
 
   return parts.join('\n\n').slice(0, 3000);
 }
@@ -185,7 +186,7 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
     const over = tour.availability ? tour.availability === 'season_over' : seasonEnded(tour.season_end);
     const available = over ? 'false' : 'true';
     return `    <offer id="${tour.id}" available="${available}">
-      <url>${escapeXml(`${SITE}/catalog/tours/${tour.id}`)}</url>
+      <url>${escapeXml(`${SITE}${tourPath(tour)}`)}</url>
       <name>${escapeXml(tour.title.slice(0, 120))}</name>
       <description>${escapeXml(desc)}</description>
       <price>${price}</price>

@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
+import { tourPath } from '@/lib/tours/tour-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ const FALLBACK_IMAGE = `${APP_URL}/images/hero/hero-dark.jpeg`;
 
 interface TourRow {
   id: number;
+  slug: string | null;
   title: string;
   description: string | null;
   base_price: string;
@@ -54,7 +56,8 @@ function buildProductEntry(tour: TourRow) {
     availability: 'in stock',
     condition: 'new',
     price: priceFormatted,
-    link: `${APP_URL}/catalog/tours/${tour.id}`,
+    // Адрес по имени (ЧПУ): число уводит 308 (сверка 10.10).
+    link: `${APP_URL}${tourPath(tour)}`,
     image_link: imageLink,
     brand: tour.operator_name ?? 'Vedarai',
     google_product_category: category,
@@ -74,7 +77,7 @@ export async function GET() {
   try {
     const result = await pool.query<TourRow>(
       `SELECT
-         ot.id, ot.title, ot.description, ot.base_price,
+         ot.id, ot.slug, ot.title, ot.description, ot.base_price,
          ot.location_name, ot.activity_type, ot.tour_image,
          ot.is_active,
          p.name AS operator_name

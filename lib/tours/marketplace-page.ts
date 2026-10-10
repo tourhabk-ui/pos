@@ -7,6 +7,8 @@
 
 import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
 import type { MarketplaceToursFilters, MarketplaceTourRow } from '@/lib/search';
+import { tourPath } from '@/lib/tours/tour-url';
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 const SORT_VALUES = ['recommended', 'price_asc', 'price_desc', 'recent'] as const;
 const DIFFICULTY_VALUES = ['easy', 'medium', 'hard'] as const;
@@ -83,10 +85,15 @@ export function buildToursItemListJsonLd(
       position: i + 1,
       item: {
         '@type': 'TouristTrip',
-        '@id': `${site}${basePath}/tours/${t.id}`,
+        // Адрес по имени (ЧПУ), как у sitemap и канонического адреса карточки:
+        // число уводит 308, и разметка называла бы поисковику не тот адрес,
+        // что страница считает своим (сверка 10.10).
+        '@id': `${site}${tourPath(t)}`,
         name: t.title,
         description: t.description?.slice(0, 160) ?? undefined,
-        ...(t.tour_image ? { image: t.tour_image } : {}),
+        // Картинка — абсолютным адресом: schema.org image — URL, а относительный
+        // путь из базы («/images/…») поисковик не разрешит (аудит 29.09, Н14).
+        ...(t.tour_image ? { image: absolutePhotoUrls([t.tour_image], site)[0] } : {}),
         provider: {
           '@type': 'TouristInformationCenter',
           name: t.operator_name,
@@ -97,7 +104,7 @@ export function buildToursItemListJsonLd(
           priceCurrency: 'RUB',
           // availability не объявляется: даты здесь не считались (аудит 01.10);
           // честный ответ — на карточке тура (lib/tours/open-dates).
-          url: `${site}${basePath}/tours/${t.id}`,
+          url: `${site}${tourPath(t)}`,
         },
       },
     })),
