@@ -5,7 +5,7 @@
  * `partners.telegram_chat_id` и `partners.max_chat_id` решают, куда уходят
  * имена и телефоны туристов из новых броней (`sendPdAlert` через
  * `reachForPartner`) и кому помощник оператора рассказывает о бронях
- * (`findOperatorByChatId`). До 09.10 команда боту «/partner EMAIL»
+ * (`findPartnerByChat`, до 10.10 — `findOperatorByChatId`). До 09.10 команда боту «/partner EMAIL»
  * («партнер EMAIL» в MAX) находила партнёра по `contact->>'email'` и молча
  * переписывала его адрес на того, кто прислал команду. Почта партнёра — не
  * секрет: она на его сайте и в визитках. Правило владельца 29.09

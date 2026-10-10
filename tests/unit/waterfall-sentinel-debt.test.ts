@@ -40,6 +40,10 @@ const ROOT = process.cwd();
  * `callAIQualityOrNull` — другое имя, та же строка-извинение на выходе.
  * Расширять предикат сейчас не стал: это перепись по другому основанию, и
  * делать её вслепую значит заморозить новый долг, не глядя на него.
+ *
+ * 10.10: вычеркнут `lib/kuzmich/operator-chat.ts` — помощник партнёра (CRM
+ * 1д) зовёт callAIWaterfallOrNull и при отказе всех провайдеров отвечает
+ * своим текстом, а не сохраняет заглушку в историю диалога как ответ.
  */
 const UNCHECKED_CALLERS: readonly string[] = [
   'app/api/agents/rescue-briefing/route.ts',
@@ -53,7 +57,6 @@ const UNCHECKED_CALLERS: readonly string[] = [
   'lib/agents/execution/handlers/code-change-executor.ts',
   'lib/import/passport-enrich-runner.ts',
   'lib/import/route-endpoints-runner.ts',
-  'lib/kuzmich/operator-chat.ts',
   'lib/services/ingest/legislation-importer.ts',
 ];
 

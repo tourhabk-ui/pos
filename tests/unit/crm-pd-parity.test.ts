@@ -94,6 +94,10 @@ describe('ПД из CRM не уходят ни в модель, ни в лог',
   const files = readdirSync(join(ROOT, 'lib', 'crm')).map((n) => `lib/crm/${n}`);
 
   it('слой CRM не зовёт модели: граница ПД (#2318) — модель видит id, а не телефон', () => {
+    // Данные для модели готовит один файл — lib/crm/tools.ts (шаг 1д), и
+    // моделей он тоже не зовёт: зовёт вызывающий. Что в его ответах нет
+    // телефонов и почт, держит исполнением tests/unit/crm-tools-model-safe.
+    expect(files).toContain('lib/crm/tools.ts');
     for (const f of files) {
       expect(read(f), f).not.toMatch(/from '@\/lib\/(ai|kuzmich)\//);
     }

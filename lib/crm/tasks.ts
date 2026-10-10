@@ -30,6 +30,16 @@ export const DONE_LIST_LIMIT = 50;
 export const REMINDER_CHANNELS = ['max', 'telegram_stub', 'unreachable'] as const;
 export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
 
+/**
+ * Кто завёл задачу (CHECK crm_tasks_origin_check, миграции 1197 и 1202):
+ * человек в кабинете или Кузьмич в чате партнёра по его просьбе.
+ */
+export const TASK_ORIGINS = ['manual', 'kuzmich'] as const;
+export type TaskOrigin = (typeof TASK_ORIGINS)[number];
+
+/** Кто отметил выполненной — тот же, кто мог завести: партнёр руками или Кузьмич. */
+export type TaskActorKind = 'partner_user' | 'kuzmich';
+
 export interface TaskItem {
   id: string;
   title: string;
@@ -110,6 +120,8 @@ export interface NewTaskInput {
   dueAt: Date;
   contactId?: string | null;
   createdBy?: string | null;
+  /** По умолчанию — 'manual': задачу завёл человек в кабинете. */
+  origin?: TaskOrigin;
 }
 
 export type CreateTaskResult = { outcome: 'created'; task: TaskItem } | { outcome: 'contact_not_found' };
@@ -125,12 +137,12 @@ export async function createTask(partnerId: string, input: NewTaskInput, db: Que
        SELECT id, display_name FROM crm_contacts WHERE id = $2::uuid AND partner_id = $1
      ), ins AS (
        INSERT INTO crm_tasks (partner_id, contact_id, title, details, due_at, origin, created_by)
-       SELECT $1, $2::uuid, $3, $4, $5::timestamptz, 'manual', $6
+       SELECT $1, $2::uuid, $3, $4, $5::timestamptz, $7::text, $6
         WHERE $2::uuid IS NULL OR EXISTS (SELECT 1 FROM owner)
        RETURNING id, title, details, due_at, done_at, contact_id, created_at, reminded_at, reminder_channel
      )
      SELECT ins.*, owner.display_name AS contact_name FROM ins LEFT JOIN owner ON owner.id = ins.contact_id`,
-    [partnerId, contactId, title, details, input.dueAt.toISOString(), input.createdBy ?? null],
+    [partnerId, contactId, title, details, input.dueAt.toISOString(), input.createdBy ?? null, input.origin ?? 'manual'],
   );
   if (!rows[0]) return { outcome: 'contact_not_found' };
   return { outcome: 'created', task: toItem(rows[0]) };
@@ -179,13 +191,15 @@ export type CompleteResult = { outcome: 'done'; task: TaskItem } | { outcome: 'n
 
 /**
  * Отметить выполненной. Повторная отметка — `not_found` (открытой задачи с
- * таким id нет), а не вторая запись в ленте.
+ * таким id нет), а не вторая запись в ленте. `actorKind` — кто нажал: в ленте
+ * событие от Кузьмича подписано «Кузьмич», а не «партнёр».
  */
 export async function completeTask(
   partnerId: string,
   taskId: string,
   doneBy: string | null,
   db: Queryable = pool,
+  actorKind: TaskActorKind = 'partner_user',
 ): Promise<CompleteResult> {
   const { rows } = await db.query<TaskJoinRow>(
     `WITH upd AS (
@@ -203,7 +217,7 @@ export async function completeTask(
       partnerId,
       contactId: row.contact_id,
       kind: 'task_done',
-      actorKind: 'partner_user',
+      actorKind,
       actorUserId: doneBy,
       title: row.title,
       payload: { task_id: row.id, due_at: iso(row.due_at) },

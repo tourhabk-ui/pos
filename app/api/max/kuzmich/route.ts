@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmich/core';
-import { PARTNER_EMAIL_BIND_CLOSED, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
+import { PARTNER_EMAIL_BIND_CLOSED, findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
@@ -464,11 +464,13 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     // Текст
     if (text) {
-      // Operator mode: if sender is a registered operator — route to operator assistant
-      const operator = await findOperatorByMaxChatId(chatId);
-      if (operator) {
-        const { processOperatorMessage } = await import('@/lib/kuzmich/operator-chat');
-        await processOperatorMessage({ chatId, text, fromName: userName, operator, reply: maxReply });
+      // Партнёр по привязанному чату — к помощнику партнёра (CRM 1д). «Не
+      // смогли проверить» записано в лог самой проверкой и ведёт в туристский
+      // поток — как в Telegram.
+      const lookup = await findPartnerByChat('max', chatId);
+      if (lookup.outcome === 'found') {
+        const { processPartnerMessage } = await import('@/lib/kuzmich/operator-chat');
+        await processPartnerMessage({ chatId, text, fromName: userName, partner: lookup.partner, reply: maxReply });
         return;
       }
 
