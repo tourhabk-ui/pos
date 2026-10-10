@@ -167,7 +167,7 @@ describe('роут', () => {
     expect((await r.json()).data.failed).toEqual(['seat_request']);
     expect(loadInboxMock).toHaveBeenCalledWith('op-1', 'operator', 'u-1');
 
-    loadInboxMock.mockResolvedValueOnce(data(['seat_request', 'operator_booking', 'lead']));
+    loadInboxMock.mockResolvedValueOnce(data(['seat_request', 'operator_booking', 'lead', 'tour_review']));
     expect((await GET(req())).status).toBe(503);
   });
 });

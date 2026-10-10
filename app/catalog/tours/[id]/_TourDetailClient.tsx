@@ -145,6 +145,8 @@ interface TourReview {
   comment: string;
   trip_date: string | null;
   photos?: string[] | null;
+  /** Ответ оператора под отзывом; нет — не отвечал. */
+  operator_reply?: string | null;
 }
 
 /* ─── Helpers ─── */
@@ -1046,6 +1048,12 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                         <div className="text-right shrink-0"><Stars rating={r.rating} />{r.trip_date && <p className="text-xs text-[var(--text-muted)] mt-1">{r.trip_date}</p>}</div>
                       </div>
                       <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{r.comment}</p>
+                      {r.operator_reply && (
+                        <div className="mt-3 border-l-2 border-[var(--ocean)] pl-3">
+                          <p className="text-xs text-[var(--text-muted)]">Ответ оператора</p>
+                          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{r.operator_reply}</p>
+                        </div>
+                      )}
                       {(r.photos?.length ?? 0) > 0 && (
                         <div className="flex gap-2 mt-3">
                           {r.photos!.slice(0, 3).map((url) => (

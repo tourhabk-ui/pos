@@ -20,13 +20,15 @@ export const INBOX_KINDS = [
   'transfer_seat_booking',
   'guide_invite',
   'guide_review',
+  'tour_review',
+  'stay_review',
 ] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 
 /** Что ждёт ответа у роли. Порядок — порядок разделов на экране. */
 export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxKind[]>> = {
-  operator: ['seat_request', 'operator_booking', 'lead'],
-  stay: ['accommodation_booking'],
+  operator: ['seat_request', 'operator_booking', 'lead', 'tour_review'],
+  stay: ['accommodation_booking', 'stay_review'],
   gear: ['gear_rental'],
   transfer: ['transfer_seat_booking'],
   guide: ['guide_invite', 'guide_review'],
@@ -39,10 +41,9 @@ export const INBOX_BY_CATEGORY: Readonly<Record<PartnerCategory, readonly InboxK
  */
 export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>> = {
   operator: [
-    'Отзывы на туры: ответить на них из кабинета пока нельзя — экрана ответа нет.',
     'Заявки без оператора — в разделе «AI Заявки»: здесь только заявки, отданные вам.',
   ],
-  stay: ['Отзывы о жилье: ответа на них на платформе пока нет.'],
+  stay: [],
   gear: [],
   transfer: [],
   guide: ['Назначение на бронь подтверждать не нужно — оно сразу в расписании.'],
@@ -61,22 +62,27 @@ export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   transfer_seat_booking: 'Места в машине',
   guide_invite: 'Приглашение в команду',
   guide_review: 'Отзыв без ответа',
+  tour_review: 'Отзыв о туре без ответа',
+  stay_review: 'Отзыв гостя без ответа',
 };
 
 /**
- * Где ответить. `null` — ответ не в кабинете: на запрос мест оператор
- * отвечает по ссылке из сообщения в MAX или Telegram (решение 29.09 —
- * контакты туриста открываются только после «есть места»).
+ * Где ответить. `null` — отдельного раздела нет: на запрос мест оператор
+ * отвечает кнопками прямо во «Входящих» (components/crm/SeatRequestActions)
+ * или в сообщении о запросе в MAX/Telegram. Контакты туриста открываются
+ * только после «есть места» (решение 29.09).
  */
 export const INBOX_ACTION: Readonly<Record<InboxKind, { href: string | null; hint: string }>> = {
   operator_booking: { href: '/hub/operator/bookings', hint: 'Подтвердить или отклонить в «Бронированиях»' },
-  seat_request: { href: null, hint: 'Ответ — по ссылке в сообщении о запросе (MAX или Telegram), срок — 2 часа' },
+  seat_request: { href: null, hint: 'Ответить во «Входящих» кабинета или в сообщении о запросе (MAX или Telegram), срок — 2 часа' },
   lead: { href: '/hub/operator/leads', hint: 'Ответить в «AI Заявках»' },
   accommodation_booking: { href: '/hub/stay/bookings', hint: 'Подтвердить или отклонить в «Бронях»' },
   gear_rental: { href: '/hub/gear/rentals', hint: 'Подтвердить или отклонить в «Арендах»' },
   transfer_seat_booking: { href: '/hub/carrier', hint: 'Ответить во вкладке «Запросы»' },
   guide_invite: { href: '/hub/guide', hint: 'Принять или отклонить в «Обзоре»' },
   guide_review: { href: '/hub/guide/reviews', hint: 'Ответить в «Отзывах»' },
+  tour_review: { href: '/hub/operator/reviews', hint: 'Ответить в «Отзывах»' },
+  stay_review: { href: '/hub/stay/reviews', hint: 'Ответить в «Отзывах»' },
 };
 
 /**
