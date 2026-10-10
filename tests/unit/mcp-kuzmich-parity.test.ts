@@ -43,11 +43,13 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     // create_lead — подбор, create_booking_request — бронь тура на дату
     // (Эволюция 3.0 п.4, план согласован владельцем 08.08),
     // request_charter — вахтовка целой машиной под заказ (владелец 10.10).
+    // create_stay_request — заявка хозяину жилья (решение владельца 10.10).
     // Любой другой инструмент вне реестра — возврат параллельного набора, падение.
     const expected = [
       ...Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)),
       'create_lead',
       'create_booking_request',
+      'create_stay_request',
       'request_charter',
     ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);

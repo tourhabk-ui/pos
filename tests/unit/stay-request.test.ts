@@ -22,6 +22,8 @@ import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 const ROUTE = read('app/api/accommodations/[id]/request/route.ts');
+// Запись и доставка — общий путь формы и MCP (create_stay_request).
+const SERVICE = read('lib/stay/stay-request-service.ts');
 const FORM = read('components/stay/StayRequestForm.tsx');
 const CARD = read('app/accommodations/[id]/_AccommodationDetailClient.tsx');
 
@@ -89,8 +91,9 @@ describe('согласие называет настоящего получат�
   it('роут записывает согласие варианта «жильё» в той же вставке', () => {
     expect(ROUTE).toMatch(/pd_consent: z\.literal\(true/);
     expect(ROUTE).toMatch(/buildConsentRecord\(true, ip, 'stay-request', 'stay'\)/);
-    expect(ROUTE).toMatch(/INSERT INTO stay_requests[\s\S]{0,300}pd_consent_at/);
-    expect(ROUTE).not.toMatch(/UPDATE stay_requests/);
+    expect(ROUTE).toMatch(/submitStayRequest\(\{[\s\S]{0,300}consent,\s*door: 'form'/);
+    expect(SERVICE).toMatch(/INSERT INTO stay_requests[\s\S]{0,300}pd_consent_at/);
+    expect(SERVICE).not.toMatch(/UPDATE stay_requests/);
   });
 });
 
@@ -103,21 +106,19 @@ describe('роут: кто может принять заявку и куда о
   });
 
   it('только объект «через владельца»: опубликован, есть телефон, нет своей брони и номеров', () => {
-    expect(ROUTE).toMatch(/publicAccommodationSql\('a'\)/);
-    expect(ROUTE).toMatch(/a\.contact_phone IS NOT NULL/);
-    expect(ROUTE).toMatch(/a\.external_booking_url IS NULL/);
-    expect(ROUTE).toMatch(/NOT EXISTS \(\s*SELECT 1 FROM accommodation_rooms r/);
+    expect(SERVICE).toMatch(/\$\{publicAccommodationSql\(a\)\}\s*AND \$\{a\}\.contact_phone IS NOT NULL\s*AND \$\{a\}\.external_booking_url IS NULL\s*AND NOT EXISTS \(\s*SELECT 1 FROM accommodation_rooms r/);
+    expect(SERVICE).toMatch(/WHERE a\.id = \$1\s*AND \$\{stayRequestEligibleSql\('a'\)\}/);
     expect(ROUTE).toMatch(/createRateLimiter\(\{ windowMs: 60_000, max: 5 \}\)/);
   });
 
   it('хозяину — строго в его адрес, оператору платформы — всегда; три исхода', () => {
-    expect(ROUTE).toMatch(/sendPdAlert\(\{ text, stub, buttons, to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
-    expect(ROUTE).toMatch(/const adminRes = await sendPdAlert\(\{ text, stub, buttons \}\)/);
-    expect(ROUTE).toMatch(/ownerDelivered \? 'owner' : adminRes\.delivered \? 'platform' : 'none'/);
+    expect(SERVICE).toMatch(/sendPdAlert\(\{ text, stub, buttons, to: \{ maxChatId: obj\.max_chat_id, telegramChatId: obj\.telegram_chat_id \} \}\)/);
+    expect(SERVICE).toMatch(/const adminRes = await sendPdAlert\(\{ text, stub, buttons \}\)/);
+    expect(SERVICE).toMatch(/ownerDelivered \? 'owner' : adminRes\.delivered \? 'platform' : 'none'/);
     // «Не дошло никому» — не успех.
     expect(ROUTE).toMatch(/delivered === 'none'[\s\S]{0,300}status: 502/);
     // Отказ базы не глушится.
-    expect(ROUTE).toMatch(/SQLSTATE=/);
+    expect(SERVICE).toMatch(/SQLSTATE=/);
   });
 
   it('гостю — честный итог: хозяин или оператор платформы, не «забронировано»', () => {

@@ -129,7 +129,7 @@ describe('согласие спрашивается и объясняется', 
 
   it('все заявочные инструменты ТРЕБУЮТ consent в схеме', () => {
     const required = [...TOOLS.matchAll(/required:\s*\[([^\]]*)\]/g)].map((m) => m[1]);
-    expect(required.length).toBe(3);
+    expect(required.length).toBe(4);
     for (const r of required) expect(r).toContain("'consent'");
   });
 });
@@ -191,7 +191,9 @@ describe('согласие доезжает до лида всеми путям�
   });
 
   it('источник согласия назван «mcp», а не подставлен от формы сайта', () => {
-    expect(ROUTE).toMatch(/buildConsentRecord\(true,\s*ctx\.ip,\s*'mcp'\)/);
+    expect(ROUTE).toMatch(/buildConsentRecord\(true,\s*ctx\.ip,\s*'mcp',\s*purpose\)/);
+    // Заявка хозяину жилья — вариант текста «владельцу жилья», а не туроператору.
+    expect(ROUTE).toMatch(/admitWrite\(ctx, STAY_REQUEST_TOOL\.name, phone, parsed\.data\.consent, 'stay'\)/);
   });
 
   it('интервал параметризован, а не склеен строкой', () => {

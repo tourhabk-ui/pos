@@ -72,6 +72,36 @@ export const BOOKING_REQUEST_TOOL = {
 } as const;
 
 /**
+ * create_stay_request — заявка хозяину жилья без своей брони (решение
+ * владельца 10.10: «да делай» на «MCP-инструмент — то же, что новая форма»).
+ *
+ * Тот же путь, что форма на карточке объекта (lib/stay/stay-request-service):
+ * строка stay_requests с согласием варианта «владельцу жилья», сообщение
+ * хозяину в MAX и оператору платформы. Не бронь и не оплата: даты и цену
+ * подтверждает хозяин, расчёт с ним напрямую. Принимают заявку только
+ * объекты «через владельца» — без номеров на платформе и без сайта брони;
+ * у остальных ответ называет их путь.
+ */
+export const STAY_REQUEST_TOOL = {
+  name: 'create_stay_request',
+  description: 'Заявка владельцу жилья на даты: заезд, выезд, сколько гостей, имя и телефон. Объект — из search_accommodations (название или ID из ссылки на карточку). Заявка уходит владельцу в мессенджер, он перезванивает сам и подтверждает даты и цену; это не бронь и не оплата, через платформу жильё не оплачивается. Принимают её только объекты без своих номеров на платформе и без сайта брони — для остальных ответ скажет, где бронировать. Имя и телефон — персональные данные, они передаются владельцу жилья: спроси согласие на это и передай consent: true.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      accommodation: { type: 'string', description: 'Название объекта или его ID (из search_accommodations)' },
+      check_in: { type: 'string', description: 'Дата заезда, YYYY-MM-DD' },
+      check_out: { type: 'string', description: 'Дата выезда, YYYY-MM-DD (позже заезда, не больше 60 ночей)' },
+      guests: { type: 'string', description: 'Сколько гостей (1–50). Не сказано — 1.' },
+      name: { type: 'string', description: 'Имя гостя' },
+      phone: { type: 'string', description: 'Телефон гостя — по нему перезвонит владелец (обязателен)' },
+      comment: { type: 'string', description: 'Пожелания владельцу: баня, время заезда, дети' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу владельцу жилья для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
+    },
+    required: ['accommodation', 'check_in', 'check_out', 'name', 'phone', 'consent'],
+  },
+} as const;
+
+/**
  * request_charter — заявка на вахтовку ЦЕЛОЙ МАШИНОЙ у перевозчика «под заказ»
  * (решение владельца 10.10: «трансфер работает не по маршруту, а по заказам»).
  *
@@ -154,6 +184,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   edit_trip_plan:        { ...READ, idempotentHint: false },
   create_lead:           WRITE,
   create_booking_request: WRITE,
+  create_stay_request:   WRITE,
   request_charter:       WRITE,
 };
 
@@ -186,13 +217,14 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source.' },
   get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
   get_volcano_status:    { title: 'Volcano status',        lead: 'Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context.' },
-  search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners.' },
+  search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
   search_transfers:      { title: 'Transfers',             lead: 'Kamchatka transfers: free seats in dated carrier trips, plus whole-vehicle charter prices (vakhtovka trucks). No dated trips is normal, not an error.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true from the traveller, otherwise refused and nothing is stored.' },
   create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
+  create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Needs consent: true, otherwise refused. For tours use create_booking_request.' },
   request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers.' },
 };
 
@@ -287,6 +319,16 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     plan_id: { lead: 'Plan ID from make_trip_plan when this tour is part of that plan: the operator sees the whole trip.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
+  create_stay_request: {
+    accommodation: { lead: 'Stay name or ID from search_accommodations.' },
+    check_in: { lead: 'Check-in date, YYYY-MM-DD.', example: '2027-07-15' },
+    check_out: { lead: 'Check-out date, YYYY-MM-DD, after check-in, at most 60 nights.', example: '2027-07-17' },
+    guests: { lead: 'Number of guests, 1–50; default 1.', example: '4' },
+    name: { lead: "Guest's name." },
+    phone: { lead: 'Phone the owner will call back, required.' },
+    comment: { lead: 'Wishes for the owner.' },
+    consent: { lead: "Explicit consent to process name and phone and pass them to the stay's owner; ask the person and pass true, otherwise the request is not created.", example: true },
+  },
   request_charter: {
     destination: { lead: 'Where to go: a word from the carrier price list or your own destination.', example: 'Горелый' },
     date_from: { lead: 'Departure date, YYYY-MM-DD.', example: '2027-07-15' },
@@ -351,6 +393,7 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
     })),
   withAnnotations(CREATE_LEAD_TOOL),
   withAnnotations(BOOKING_REQUEST_TOOL),
+  withAnnotations(STAY_REQUEST_TOOL),
   withAnnotations(REQUEST_CHARTER_TOOL),
 ];
 
@@ -371,6 +414,6 @@ export const MCP_SERVER_INFO = {
   // Имя для людей (serverInfo.title, ревизия 2025-06-18) — то, под которым
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
-  version: '2.3.0',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи три: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request) и заявка на вахтовку целой машиной (request_charter) — все подтверждает человек.',
+  version: '2.4.0',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи четыре: заявка на подбор (create_lead), заявка оператору на тур и дату (create_booking_request), заявка на вахтовку целой машиной (request_charter) и заявка владельцу жилья на даты (create_stay_request) — все подтверждает человек.',
 } as const;
