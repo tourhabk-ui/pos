@@ -18,6 +18,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
 import { crmCategoryFor, type PartnerCategory } from '@/lib/crm/partner-context';
+import { trustedOAuthClient } from '@/lib/crm/partner-oauth-public';
 import type { PartnerApiKeyRow } from '@/lib/types/db-rows';
 import type { AgentKeyItem } from '@/lib/crm/agent-key-item';
 
@@ -54,13 +55,13 @@ export function bearerKey(header: string | null): string | null {
   return m ? m[1] : null;
 }
 
-function iso(v: Date | string | null): string | null {
-  if (v === null) return null;
+function iso(v: Date | string | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
 }
 
 
-type KeyListRow = Pick<PartnerApiKeyRow, 'id' | 'label' | 'key_prefix' | 'can_write' | 'created_at' | 'last_used_at' | 'revoked_at'>;
+type KeyListRow = Pick<PartnerApiKeyRow, 'id' | 'label' | 'key_prefix' | 'can_write' | 'created_at' | 'last_used_at' | 'revoked_at' | 'oauth_client_id' | 'refresh_expires_at'>;
 
 function toItem(r: KeyListRow): AgentKeyItem {
   return {
@@ -71,10 +72,12 @@ function toItem(r: KeyListRow): AgentKeyItem {
     created_at: iso(r.created_at) ?? '',
     last_used_at: iso(r.last_used_at),
     revoked_at: iso(r.revoked_at),
+    oauth_client: r.oauth_client_id ? (trustedOAuthClient(r.oauth_client_id)?.name ?? 'Агент OAuth') : null,
+    expires_at: iso(r.refresh_expires_at),
   };
 }
 
-const LIST_COLUMNS = 'id, label, key_prefix, can_write, created_at, last_used_at, revoked_at';
+const LIST_COLUMNS = 'id, label, key_prefix, can_write, created_at, last_used_at, revoked_at, oauth_client_id, refresh_expires_at';
 
 /** Ключи партнёра: действующие сверху, отозванные — последние двадцать. */
 export async function listAgentKeys(partnerId: string, db: Queryable = pool): Promise<AgentKeyItem[]> {
@@ -94,7 +97,8 @@ export type CreateKeyResult =
 /**
  * Выпустить ключ. Сам ключ возвращается только здесь — партнёр видит его
  * один раз; в базу уходит хеш. Предел действующих ключей проверяется в том
- * же запросе, что и вставка.
+ * же запросе, что и вставка. Подключения OAuth в предел не считаются: у них
+ * свой (lib/crm/partner-oauth.ts), и новое вытесняет старое.
  */
 export async function createAgentKey(
   partnerId: string,
@@ -108,7 +112,8 @@ export async function createAgentKey(
   const { rows } = await db.query<KeyListRow>(
     `INSERT INTO partner_api_keys (partner_id, label, key_prefix, key_hash, can_write, created_by)
      SELECT $1::uuid, $2::text, $3::text, $4::text, $5::boolean, $6::uuid
-      WHERE (SELECT count(*) FROM partner_api_keys WHERE partner_id = $1::uuid AND revoked_at IS NULL) < $7::int
+      WHERE (SELECT count(*) FROM partner_api_keys
+              WHERE partner_id = $1::uuid AND revoked_at IS NULL AND oauth_client_id IS NULL) < $7::int
      RETURNING ${LIST_COLUMNS}`,
     [partnerId, label, key.slice(0, SHOWN_CHARS), hashAgentKey(key), input.canWrite, input.createdBy, MAX_ACTIVE_KEYS],
   );
@@ -141,9 +146,11 @@ export interface AgentKeyContext {
 }
 
 /**
- * Чей ключ. Три исхода и отказ (§4.0): ключ действует / ключа нет или он
- * отозван / CRM этой записи не положена (агент без одобрения) / база не
- * ответила. Последний не равен «ключа нет»: роут отвечает 503, а не 401.
+ * Чей ключ. Три исхода и отказ (§4.0): ключ действует / ключа нет, он
+ * отозван или (у подключения OAuth) истёк доступ / CRM этой записи не
+ * положена (агент без одобрения) / база не ответила. Последний не равен
+ * «ключа нет»: роут отвечает 503, а не 401. Истёкший доступ OAuth — 401:
+ * по нему клиент сам обновляет токен.
  */
 export type AgentKeyLookup =
   | { outcome: 'ok'; key: AgentKeyContext }
@@ -163,7 +170,8 @@ export async function resolveAgentKey(rawKey: string | null, db: Queryable = poo
               p.user_id::text AS user_id, p.profile_status
          FROM partner_api_keys k
          JOIN partners p ON p.id = k.partner_id
-        WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
+        WHERE k.key_hash = $1 AND k.revoked_at IS NULL
+          AND (k.access_expires_at IS NULL OR k.access_expires_at > NOW())`,
       [hashAgentKey(rawKey)],
     );
     const row = rows[0];

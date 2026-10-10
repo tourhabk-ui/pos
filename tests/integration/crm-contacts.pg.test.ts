@@ -30,6 +30,7 @@ import { loadInbox } from '@/lib/crm/inbox';
 import { runInboxReminders } from '@/lib/crm/inbox-reminders';
 import { executeCrmTool, crmToolText } from '@/lib/crm/tools';
 import { createAgentKey, listAgentKeys, resolveAgentKey, revokeAgentKey, MAX_ACTIVE_KEYS } from '@/lib/crm/agent-keys';
+import { exchangeAuthorizationCode, issueAuthorizationCode, refreshAccessToken, MAX_OAUTH_CONNECTIONS } from '@/lib/crm/partner-oauth';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -897,6 +898,94 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     const list = await listAgentKeys(P.opA, pool);
     expect(list.filter((k) => !k.revoked_at)).toHaveLength(MAX_ACTIVE_KEYS);
     expect(list.at(-1)).toMatchObject({ label: 'Claude', revoked_at: expect.any(String) });
+  });
+
+  it('OAuth MCP партнёра: код одноразовый, токены по хешу, ротация обновления, срок доступа, отзыв, вытеснение', async () => {
+    // RFC 7636, приложение B.
+    const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';
+    const client = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+    const cb = 'https://claude.ai/api/mcp/auth_callback';
+    const issue = (canWrite = false) => issueAuthorizationCode(
+      { partnerId: P.opA, userId: null, clientId: client, redirectUri: cb, codeChallenge: challenge, canWrite }, pool,
+    );
+    const exchange = (code: string, over: { verifier?: string; redirect?: string } = {}) => exchangeAuthorizationCode(
+      { code, clientId: client, redirectUri: over.redirect ?? cb, codeVerifier: over.verifier ?? verifier }, pool,
+    );
+
+    const code = await issue();
+    const codes = await pool.query<{ code_hash: string }>(`SELECT code_hash FROM partner_oauth_codes`);
+    expect(codes.rows.map((r) => r.code_hash).join()).not.toContain(code);
+
+    const first = await exchange(code);
+    if (first.outcome !== 'ok') throw new Error(`обмен не прошёл: ${JSON.stringify(first)}`);
+    expect(first.tokens.scope).toBe('crm.read');
+    // Код одноразовый: второй обмен — invalid_grant, строки кода больше нет.
+    expect((await exchange(code)).outcome).toBe('invalid_grant');
+    expect((await pool.query(`SELECT 1 FROM partner_oauth_codes WHERE code_hash = encode(sha256($1::bytea), 'hex')`, [code])).rowCount).toBe(0);
+
+    // Токен доступа пускает в MCP — тем же resolveAgentKey, что ключ; только чтение.
+    expect(await resolveAgentKey(first.tokens.access_token, pool)).toMatchObject({ outcome: 'ok', key: { partnerId: P.opA, canWrite: false } });
+    const row = await pool.query<{ key_hash: string; refresh_hash: string; oauth_client_id: string }>(
+      `SELECT key_hash, refresh_hash, oauth_client_id FROM partner_api_keys WHERE oauth_client_id IS NOT NULL`,
+    );
+    expect(row.rows[0].oauth_client_id).toBe(client);
+    expect(JSON.stringify(row.rows)).not.toContain(first.tokens.access_token);
+    expect(JSON.stringify(row.rows)).not.toContain(first.tokens.refresh_token);
+    // Подключение в предел ключей кабинета не считается: у opA уже MAX ключей, а подключиться можно.
+    const listed = (await listAgentKeys(P.opA, pool)).find((k) => k.oauth_client === 'Claude');
+    expect(listed).toMatchObject({ revoked_at: null, expires_at: expect.any(String) });
+
+    // Обновление с ротацией: старые доступ и обновление больше не действуют.
+    const second = await refreshAccessToken({ refreshToken: first.tokens.refresh_token, clientId: client }, pool);
+    if (second.outcome !== 'ok') throw new Error('обновление не прошло');
+    expect(await resolveAgentKey(first.tokens.access_token, pool)).toEqual({ outcome: 'invalid' });
+    expect((await resolveAgentKey(second.tokens.access_token, pool)).outcome).toBe('ok');
+    expect((await refreshAccessToken({ refreshToken: first.tokens.refresh_token, clientId: client }, pool)).outcome).toBe('invalid_grant');
+    expect((await refreshAccessToken({ refreshToken: second.tokens.refresh_token, clientId: 'https://claude.ai/oauth/claude-code-client-metadata' }, pool)).outcome).toBe('invalid_grant');
+
+    // Истёкший доступ не пускает; обновление его оживляет.
+    await pool.query(`UPDATE partner_api_keys SET access_expires_at = NOW() - INTERVAL '1 second' WHERE oauth_client_id IS NOT NULL`);
+    expect(await resolveAgentKey(second.tokens.access_token, pool)).toEqual({ outcome: 'invalid' });
+    const third = await refreshAccessToken({ refreshToken: second.tokens.refresh_token, clientId: client }, pool);
+    if (third.outcome !== 'ok') throw new Error('обновление после истечения не прошло');
+    expect((await resolveAgentKey(third.tokens.access_token, pool)).outcome).toBe('ok');
+
+    // Отзыв в кабинете: доступ и обновление перестают действовать сразу.
+    if (!listed) throw new Error('подключения нет в списке');
+    expect(await revokeAgentKey(P.opA, listed.id, null, pool)).toBe(true);
+    expect(await resolveAgentKey(third.tokens.access_token, pool)).toEqual({ outcome: 'invalid' });
+    expect((await refreshAccessToken({ refreshToken: third.tokens.refresh_token, clientId: client }, pool)).outcome).toBe('invalid_grant');
+
+    // Неверный verifier и чужой адрес возврата сжигают код.
+    const burned = await issue();
+    expect((await exchange(burned, { verifier: 'x'.repeat(43) })).outcome).toBe('invalid_grant');
+    expect((await exchange(burned)).outcome).toBe('invalid_grant');
+    const misdirected = await issue();
+    expect((await exchange(misdirected, { redirect: 'http://localhost:1/callback' })).outcome).toBe('invalid_grant');
+    // Просроченный код.
+    const stale = await issue();
+    await pool.query(`UPDATE partner_oauth_codes SET expires_at = NOW() - INTERVAL '1 second'`);
+    expect((await exchange(stale)).outcome).toBe('invalid_grant');
+
+    // Право записи — из кода.
+    const rw = await exchange(await issue(true));
+    expect(rw.outcome === 'ok' && rw.tokens.scope).toBe('crm.read crm.write');
+
+    // Вытеснение: действующих подключений не больше предела.
+    for (let i = 0; i < MAX_OAUTH_CONNECTIONS + 1; i++) {
+      expect((await exchange(await issue())).outcome).toBe('ok');
+    }
+    const active = await pool.query(
+      `SELECT count(*)::int AS n FROM partner_api_keys WHERE partner_id = $1 AND oauth_client_id IS NOT NULL AND revoked_at IS NULL`, [P.opA],
+    );
+    expect(active.rows[0].n).toBe(MAX_OAUTH_CONNECTIONS);
+
+    // Форма строки: подключение без токена обновления база не примет.
+    await expect(pool.query(
+      `INSERT INTO partner_api_keys (partner_id, label, key_prefix, key_hash, oauth_client_id, access_expires_at, refresh_expires_at)
+       VALUES ($1, 'x', 'vdr_pk_x', repeat('a', 64), 'https://claude.ai/x', NOW(), NOW())`, [P.opA],
+    )).rejects.toMatchObject({ code: '23514' });
   });
 
   it('контекст партнёра: профиль по категории, агент — только одобренный', async () => {

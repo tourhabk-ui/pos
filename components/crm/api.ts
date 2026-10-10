@@ -32,9 +32,6 @@ export const CRM_INBOX_API = '/api/hub/crm/inbox';
  */
 export const CRM_KEYS_API = '/api/hub/crm/keys';
 
-/** Адрес MCP партнёра — его показывают агенту вместе с ключом. */
-export const PARTNER_MCP_PATH = '/api/mcp/partner';
-
 /**
  * Ответ оператора на запрос мест из «Входящих» (хвосты фазы 1):
  * `${CRM_SEAT_ANSWER_API}/<id>/answer`. Та же функция, что кнопка в MAX и

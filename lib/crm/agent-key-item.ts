@@ -12,4 +12,12 @@ export interface AgentKeyItem {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /**
+   * Подключение по OAuth (кнопкой «Подключить» в Claude): имя приложения.
+   * NULL — ключ, выпущенный в кабинете. У подключения начало ключа меняется
+   * каждый час, поэтому экран показывает имя, а не key_prefix.
+   */
+  oauth_client: string | null;
+  /** Когда подключение OAuth истечёт без обновления; у ключа — NULL. */
+  expires_at: string | null;
 }

@@ -81,10 +81,10 @@ describe('ключ: хеш, форма, один показ', () => {
     if (r.outcome === 'created') expect(JSON.stringify(r.item)).not.toContain(KEY);
   });
 
-  it('предел действующих ключей — в том же запросе, что вставка', async () => {
+  it('предел действующих ключей — в том же запросе, что вставка; подключения OAuth в него не считаются', async () => {
     query.mockResolvedValueOnce({ rows: [] });
     expect(await keys.createAgentKey(P, { label: 'x', canWrite: false, createdBy: null }, { query } as never)).toEqual({ outcome: 'limit' });
-    expect(query.mock.calls[0][0]).toMatch(/count\(\*\) FROM partner_api_keys WHERE partner_id = \$1::uuid AND revoked_at IS NULL\) < \$7/);
+    expect(query.mock.calls[0][0]).toMatch(/count\(\*\) FROM partner_api_keys\s+WHERE partner_id = \$1::uuid AND revoked_at IS NULL AND oauth_client_id IS NULL\) < \$7/);
   });
 
   it('список кабинета не выбирает ни ключа, ни хеша', () => {
