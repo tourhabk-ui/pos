@@ -129,6 +129,29 @@ describe('номер не выходит за карточку (pd-guard)', () =
     expect(out).not.toContain('цена по запросу');
   });
 
+  it('объект без номеров: две цены, что за объект и форма заявки на карточке (10.10)', async () => {
+    poolQueryMock.mockResolvedValueOnce({
+      rows: [{
+        id: 'a1', name: 'Кутха', type: 'guesthouse', address: 'пос. Пионерский', location_zone: 'Пионерский',
+        price_per_night_from: '24000.00', price_per_night_to: '28000.00',
+        short_description: 'Дом целиком: 8 мест и 2 раскладушки, баня, крытый бассейн',
+        rating: null, external_booking_url: null, has_contact_phone: true, no_rooms: true,
+      }],
+    });
+    const out = await searchAccommodationsForKuzmich({});
+    expect(out).toContain('от 24000 до 28000 руб/ночь');
+    expect(out).toContain('Дом целиком: 8 мест и 2 раскладушки');
+    expect(out).toContain('Заявку владельцу можно оставить формой на карточке по ссылке выше');
+    expect(out).toContain('Даты и цену подтверждает владелец');
+    expect(out).not.toMatch(/\+7|8\s?9\d\d|962/);
+  });
+
+  it('инструмент спрашивает, есть ли у объекта номера (форма — только без них)', () => {
+    const src = read('lib/kuzmich/accommodation-search.ts');
+    expect(src).toMatch(/NOT EXISTS \(\s*SELECT 1 FROM accommodation_rooms r WHERE r\.accommodation_id = accommodations\.id AND r\.is_active = true\s*\) AS no_rooms/);
+    expect(src).toMatch(/a\.has_contact_phone && a\.no_rooms/);
+  });
+
   it('без номера и без сайта — прежнее «цена по запросу»', async () => {
     poolQueryMock.mockResolvedValueOnce({
       rows: [{
