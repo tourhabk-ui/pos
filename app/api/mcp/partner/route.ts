@@ -6,8 +6,14 @@
  * префикс /api/mcp без JWT (middleware.ts, публичный MCP) — middleware.ts
  * этим PR не тронут, проверка ключа живёт здесь, до разбора тела.
  *
+ * Вход второй дорогой — OAuth (кнопка «Подключить» в приложении Claude):
+ * токен доступа ищется тем же resolveAgentKey, что ключ. 401 несёт
+ * `resource_metadata` — по нему Claude находит наш сервер авторизации
+ * (lib/crm/partner-oauth-public.ts); без этого указателя приложение Claude
+ * не начнёт вход вовсе.
+ *
  * Исходы проверки ключа (§4.0):
- *   нет ключа / неверный / отозван — 401 с WWW-Authenticate;
+ *   нет ключа / неверный / отозван / истёк доступ OAuth — 401 с WWW-Authenticate;
  *   CRM этой записи не положена (агент без одобрения) — 403;
  *   база не ответила — 503, а не 401: «не смогли проверить» не равно
  *   «ключа нет».
@@ -23,6 +29,7 @@ import { jsonrpcError } from '@/lib/mcp/jsonrpc';
 import { isSupportedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { partnerWwwAuthenticate } from '@/lib/crm/partner-oauth-metadata';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,10 +39,10 @@ const ipLimiter = createRateLimiter({ windowMs: 60_000, max: 120 });
 const keyLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 const MAX_BATCH = 20;
 
-function unauthorized(message: string): NextResponse {
+function unauthorized(message: string, presented: boolean): NextResponse {
   return NextResponse.json(jsonrpcError(null, -32001, message), {
     status: 401,
-    headers: { 'WWW-Authenticate': 'Bearer realm="vedar-partner-crm"' },
+    headers: { 'WWW-Authenticate': partnerWwwAuthenticate(presented) },
   });
 }
 
@@ -51,9 +58,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(jsonrpcError(null, -32029, 'Слишком много запросов — подождите минуту'), { status: 429 });
   }
 
-  const lookup = await resolveAgentKey(bearerKey(request.headers.get('authorization')));
+  const presentedKey = bearerKey(request.headers.get('authorization'));
+  const lookup = await resolveAgentKey(presentedKey);
   if (lookup.outcome === 'invalid') {
-    return unauthorized('Нужен действующий ключ партнёра: Authorization: Bearer vdr_pk_… (выпускается в кабинете на vedarai.ru)');
+    return unauthorized(
+      'Нужен вход партнёра: «Подключить» в Claude либо ключ Authorization: Bearer vdr_pk_… (выпускается в кабинете на vedarai.ru)',
+      presentedKey !== null,
+    );
   }
   if (lookup.outcome === 'no_crm') {
     return NextResponse.json(jsonrpcError(null, -32003, 'CRM этого кабинета недоступна: профиль не одобрен'), { status: 403 });

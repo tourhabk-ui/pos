@@ -10,6 +10,7 @@ import { ROLE_HUB } from '@/lib/auth/role-routes';
 import TelegramLoginButton, { type TelegramUser } from './_TelegramLoginButton';
 import MaxLoginButton from './_MaxLoginButton';
 import { loadReferral, forgetReferral } from '@/lib/referral/link';
+import { safePartnerOAuthReturn } from '@/lib/crm/partner-oauth-public';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -31,11 +32,17 @@ export default function AuthPageClient() {
   const { signIn, completeMfaSignIn } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
+  // Куда вернуть после входа. Узко: только экран согласия OAuth MCP
+  // партнёра (подключение Claude к CRM) — открытого перенаправления быть не
+  // может, всё прочее ведёт в кабинет, как раньше.
+  const [returnTo, setReturnTo] = useState<string | null>(null);
   // /auth/login?mode=register — прямая дорога к регистрации аккаунта (с
   // /register, где регистрируют маршрут в МЧС, #1780). Читается после
   // монтирования, чтобы не тянуть useSearchParams и Suspense на страницу входа.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('mode') === 'register') setMode('register');
+    const search = new URLSearchParams(window.location.search);
+    if (search.get('mode') === 'register') setMode('register');
+    setReturnTo(safePartnerOAuthReturn(search.get('next')));
   }, []);
   const [userType, setUserType] = useState<UserType>('tourist');
   const [loading, setLoading] = useState(false);
@@ -80,7 +87,7 @@ export default function AuthPageClient() {
       await signIn(email, password);
       const storedUser = JSON.parse(localStorage.getItem('user') ?? '{}') as { role?: string };
       const role = storedUser.role ?? 'tourist';
-      router.push(ROLE_HUB[role] ?? '/hub/tourist');
+      router.push(returnTo ?? ROLE_HUB[role] ?? '/hub/tourist');
     } catch (err) {
       if (err instanceof MfaRequiredError) {
         setMfaPendingToken(err.mfaPendingToken);
@@ -103,7 +110,7 @@ export default function AuthPageClient() {
       await completeMfaSignIn(mfaPendingToken, mfaCode);
       const storedUser = JSON.parse(localStorage.getItem('user') ?? '{}') as { role?: string };
       const role = storedUser.role ?? 'tourist';
-      router.push(ROLE_HUB[role] ?? '/hub/tourist');
+      router.push(returnTo ?? ROLE_HUB[role] ?? '/hub/tourist');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Неверный код');
     } finally {
@@ -233,7 +240,7 @@ export default function AuthPageClient() {
 
       const userData = { ...result.data, preferences: {}, createdAt: new Date(), updatedAt: new Date() };
       localStorage.setItem('user', JSON.stringify(userData));
-      router.push('/hub/tourist');
+      router.push(returnTo ?? '/hub/tourist');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка входа через Telegram');
     } finally {
@@ -245,7 +252,7 @@ export default function AuthPageClient() {
     // Статус-эндпоинт уже выдал JWT + куку — осталось сохранить профиль и увести в ЛК.
     const userData = { ...maxUser, preferences: {}, createdAt: new Date(), updatedAt: new Date() };
     localStorage.setItem('user', JSON.stringify(userData));
-    router.push('/hub/tourist');
+    router.push(returnTo ?? '/hub/tourist');
   };
 
   return (

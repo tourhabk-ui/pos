@@ -1564,4 +1564,27 @@ export interface PartnerApiKeyRow {
   last_used_at: Date | null;
   revoked_at: Date | null;
   revoked_by: string | null;
+  /** client_id подключения OAuth (миграция 1210); NULL — ключ, выпущенный в кабинете. */
+  oauth_client_id: string | null;
+  /** sha256 токена обновления OAuth; меняется при каждом обновлении. */
+  refresh_hash: string | null;
+  /** Срок токена доступа OAuth (час); у ключа кабинета — NULL. */
+  access_expires_at: Date | null;
+  /** Срок токена обновления OAuth (90 дней с последнего обновления). */
+  refresh_expires_at: Date | null;
+}
+
+/** partner_oauth_codes — одноразовый код авторизации OAuth MCP партнёра (миграция 1210). */
+export interface PartnerOAuthCodeRow {
+  /** sha256 кода, hex. Самого кода в базе нет. */
+  code_hash: string;
+  partner_id: string;
+  user_id: string | null;
+  client_id: string;
+  redirect_uri: string;
+  /** PKCE S256: base64url(sha256(verifier)). */
+  code_challenge: string;
+  can_write: boolean;
+  expires_at: Date;
+  created_at: Date;
 }
