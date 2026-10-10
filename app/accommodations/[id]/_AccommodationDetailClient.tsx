@@ -12,6 +12,7 @@ import { StayBookingForm } from '@/components/booking/StayBookingForm';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import { StayRequestForm } from '@/components/stay/StayRequestForm';
+import { StayLocationMap, stayCoords } from '@/components/stay/StayLocationMap';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { formatContactPhone, messengerLinks, type NumberMessenger } from '@/lib/stay/contact-phone';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
@@ -62,6 +63,8 @@ interface AccommodationDetail {
   type: string;
   description: string | null;
   address: string;
+  /** {lat, lng} из accommodations.coordinates; не годятся — карты нет (StayLocationMap). */
+  coordinates?: unknown;
   starRating: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
@@ -265,6 +268,21 @@ export default function AccommodationDetailClient({ accommodationId, initialData
             ))}
           </div>
         )}
+
+        {/* Где находится (владелец 10.10: «точка на карте есть?») — своя карта,
+            чужих навигаторов нет. Координат нет или они негодные — блока нет. */}
+        {(() => {
+          const coords = stayCoords(data.coordinates);
+          return coords ? (
+            <section className="mb-8 space-y-2" aria-label="Где находится">
+              <h2 className="ds-h2">Где находится</h2>
+              <p className="text-sm text-[var(--text-secondary)] inline-flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5" /> {data.address}
+              </p>
+              <StayLocationMap coords={coords} name={data.name} />
+            </section>
+          ) : null;
+        })()}
 
         {/* Объект без своего сайта брони (миграция 1179, «Кутха»): цены и даты
             у владельца, связь — звонком. Номер уходит только сюда: в ответы

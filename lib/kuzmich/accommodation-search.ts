@@ -26,10 +26,16 @@ interface AccommodationRow {
   address: string | null;
   location_zone: string | null;
   price_per_night_from: string | null;
+  /** Верхняя цена за сутки (1205, «Кутха»: 28 000 с раскладушками); null — одна цена или не названа. */
+  price_per_night_to: string | null;
+  /** Короткое описание объекта — что это и на сколько человек; null — не записано. */
+  short_description: string | null;
   rating: string | null;
   external_booking_url: string | null;
   /** Есть ли у объекта телефон для связи. Сам номер сюда НЕ выбирается (pd-guard). */
   has_contact_phone: boolean;
+  /** Своих номеров у объекта нет — на карточке форма заявки хозяину (1206). */
+  no_rooms: boolean;
 }
 
 const appBase = getPublicBaseUrl;
@@ -53,8 +59,12 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   let rows: AccommodationRow[];
   try {
     ({ rows } = await pool.query<AccommodationRow>(
-      `SELECT id, name, type, address, location_zone, price_per_night_from, rating, external_booking_url,
-              (contact_phone IS NOT NULL) AS has_contact_phone
+      `SELECT id, name, type, address, location_zone, price_per_night_from, price_per_night_to,
+              short_description, rating, external_booking_url,
+              (contact_phone IS NOT NULL) AS has_contact_phone,
+              NOT EXISTS (
+                SELECT 1 FROM accommodation_rooms r WHERE r.accommodation_id = accommodations.id AND r.is_active = true
+              ) AS no_rooms
        FROM accommodations
        WHERE ${conds.join(' AND ')}
        ORDER BY rating DESC NULLS LAST
@@ -114,17 +124,26 @@ export async function searchAccommodationsForKuzmich(args: AccommodationSearchAr
   return rows.map(a => {
     // Объект с бронью на своём сайте (миграция 1109): цены и наличие там —
     // так и говорим, а не «цена по запросу», которая звала бы писать нам.
-    const price = a.price_per_night_from
-      ? `от ${Math.round(Number(a.price_per_night_from))} руб/ночь`
+    // Верхняя цена — когда объект назвал две (10.10, «Кутха»: 24 000 на 8 мест,
+    // 28 000 с раскладушками); иначе агент называл бы туристу только нижнюю.
+    const from = a.price_per_night_from ? Math.round(Number(a.price_per_night_from)) : null;
+    const to = a.price_per_night_to ? Math.round(Number(a.price_per_night_to)) : null;
+    const price = from
+      ? (to && to > from ? `от ${from} до ${to} руб/ночь` : `от ${from} руб/ночь`)
       : a.external_booking_url ? 'цены и свободные даты — на сайте объекта'
       : a.has_contact_phone ? 'цены и свободные даты — у владельца по телефону'
       : 'цена по запросу';
     const where = [a.location_zone, a.address].filter(Boolean).join(', ');
     // Номер модели не отдаётся: она зарубежная, а номер — контакт человека.
     // Телефон есть на карточке по ссылке выше, туда и отправляем.
+    // Объект без своих номеров и сайта брони (1206): на карточке форма заявки
+    // хозяину — даты, гости, телефон. Агент зовёт туда, а не только «звоните».
     const book = a.external_booking_url ? ` Бронь на сайте объекта: ${a.external_booking_url}`
+      : a.has_contact_phone && a.no_rooms
+        ? ' Заявку владельцу можно оставить формой на карточке по ссылке выше (даты, число гостей, телефон); там же телефон владельца. Даты и цену подтверждает владелец, бронь и оплата напрямую с объектом.'
       : a.has_contact_phone ? ' Телефон владельца — на карточке по ссылке выше; бронь и оплата напрямую с объектом.'
       : '';
-    return `${a.name}${a.type ? ` [${a.type}]` : ''} — ${price}${where ? `. ${where}` : ''}. ${base}/accommodations/${a.id}.${book}`;
+    const about = a.short_description?.trim() ? ` ${a.short_description.trim()}.` : '';
+    return `${a.name}${a.type ? ` [${a.type}]` : ''} — ${price}${where ? `. ${where}` : ''}.${about} ${base}/accommodations/${a.id}.${book}`;
   }).join('\n\n');
 }
