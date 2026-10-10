@@ -88,6 +88,11 @@ export interface AccommodationDetailData {
   reviewCount: number;
   isVerified: boolean;
   partner: { name: string | null; email: string | null; phone: string | null };
+  /**
+   * Хозяин подключил MAX к боту платформы (partners.max_chat_id): заявка с
+   * формы придёт ему туда. Только признак — сам адрес чата наружу не уходит.
+   */
+  ownerOnMax: boolean;
   images: { url: string; alt: string | null; mime_type?: string | null }[];
   rooms: AccommodationRoom[];
   reviews: AccommodationReview[];
@@ -122,12 +127,14 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
     amenities: unknown; languages: unknown; rating: string | null; review_count: unknown;
     is_verified: boolean; partner_name: string | null; partner_email: string | null;
     partner_phone: string | null; images: unknown; created_at: unknown; updated_at: unknown;
+    owner_on_max: boolean | null;
   }>(
     `SELECT
       a.*,
       p.name as partner_name,
       p.contact->>'email' as partner_email,
       p.contact->>'phone' as partner_phone,
+      (p.max_chat_id IS NOT NULL) as owner_on_max,
       (
         SELECT json_agg(json_build_object(
           'url', ast.url,
@@ -267,6 +274,7 @@ export async function loadAccommodationDetail(id: string): Promise<Accommodation
       email: accommodation.partner_email,
       phone: accommodation.partner_phone,
     },
+    ownerOnMax: accommodation.owner_on_max === true,
     images: Array.isArray(accommodation.images) ? (accommodation.images as AccommodationDetailData['images']) : [],
     rooms: roomsResult.rows.map(room => ({
       id: room.id,

@@ -131,6 +131,16 @@ describe('роут: кто может принять заявку и куда о
   it('карточка рисует форму только у объекта без своей брони и без номеров', () => {
     expect(CARD).toMatch(/\{!data\.externalBookingUrl && data\.rooms\.length === 0 && \(\s*<div[^>]*>\s*<StayRequestForm accommodationId=\{data\.id\}/);
   });
+  // Гость спросил «где MAX?» (10.10): кнопки по номеру в MAX не бывает, форма
+  // и есть путь в MAX. Обещание «в MAX» — только при подключённом хозяине.
+  it('«придёт в MAX» — только когда хозяин подключён; адрес чата наружу не уходит', () => {
+    expect(CARD).toMatch(/<StayRequestForm [^>]*ownerOnMax=\{data\.ownerOnMax\}/);
+    expect(FORM).toMatch(/\{ownerOnMax && \(\s*<p[^>]*>\s*Придёт владельцу сообщением в MAX/);
+    const detail = read('lib/stay/accommodation-detail.ts');
+    expect(detail).toMatch(/\(p\.max_chat_id IS NOT NULL\) as owner_on_max/);
+    expect(detail).toMatch(/ownerOnMax: accommodation\.owner_on_max === true/);
+    expect(detail).not.toMatch(/p\.max_chat_id(::text)? as /i);
+  });
 });
 
 describe('миграция 1206: партнёр «Кутха» и таблица заявок', () => {

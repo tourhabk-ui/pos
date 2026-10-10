@@ -30,10 +30,12 @@ function plusDays(ymd: string, days: number): string {
   return new Date(t).toISOString().slice(0, 10);
 }
 
-export function StayRequestForm({ accommodationId, phoneLabel }: {
+export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
   accommodationId: string;
   /** Телефон объекта для запасного пути, если заявка не дошла. */
   phoneLabel: string | null;
+  /** Хозяин подключил MAX: заявка придёт ему туда. Без этого «в MAX» не обещаем. */
+  ownerOnMax: boolean;
 }) {
   const today = kamchatkaToday();
   const [checkIn, setCheckIn] = useState(today);
@@ -107,7 +109,17 @@ export function StayRequestForm({ accommodationId, phoneLabel }: {
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <p className="text-sm font-semibold text-[var(--text-primary)]">Заявка владельцу</p>
+      <div>
+        <p className="text-sm font-semibold text-[var(--text-primary)]">Заявка владельцу</p>
+        {/* Владелец 10.10, вопрос гостя «где MAX?»: кнопки по номеру в MAX не
+            бывает, а эта форма и есть путь в MAX — говорим это прямо, но
+            только когда хозяин действительно подключён. */}
+        {ownerOnMax && (
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+            Придёт владельцу сообщением в MAX — он перезвонит сам.
+          </p>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className="ds-label">Заезд</span>

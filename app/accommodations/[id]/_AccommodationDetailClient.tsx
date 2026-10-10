@@ -77,6 +77,8 @@ interface AccommodationDetail {
   contactPhone: string | null;
   /** На каких мессенджерах заведён этот номер (миграция 1181); [] — не записано. */
   contactMessengers: NumberMessenger[];
+  /** Хозяин подключил MAX: заявка с формы придёт ему туда (lib/stay/accommodation-detail). */
+  ownerOnMax: boolean;
   /** null — объект никто не оценивал (§4.0), а не «нуль звёзд». */
   rating: number | null;
   reviewCount: number;
@@ -324,7 +326,7 @@ export default function AccommodationDetailClient({ accommodationId, initialData
                 без своей брони и без номеров; сервер проверяет то же условие. */}
             {!data.externalBookingUrl && data.rooms.length === 0 && (
               <div className="pt-3 border-t border-[var(--border)]">
-                <StayRequestForm accommodationId={data.id} phoneLabel={phoneLabel} />
+                <StayRequestForm accommodationId={data.id} phoneLabel={phoneLabel} ownerOnMax={data.ownerOnMax} />
               </div>
             )}
           </div>
