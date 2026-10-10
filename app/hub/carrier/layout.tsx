@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { LayoutDashboard, BookUser, ListChecks } from 'lucide-react';
+import { LayoutDashboard, BookUser, ListChecks, BellDot } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 
@@ -10,6 +10,7 @@ import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 // для всех партнёров (CRM #2325).
 const SIDEBAR_ITEMS = [
   { href: '/hub/carrier', label: 'Кабинет', icon: LayoutDashboard },
+  { href: '/hub/carrier/inbox', label: 'Входящие', icon: BellDot },
   { href: '/hub/carrier/clients', label: 'Клиенты', icon: BookUser },
   { href: '/hub/carrier/tasks', label: 'Задачи', icon: ListChecks },
 ];
