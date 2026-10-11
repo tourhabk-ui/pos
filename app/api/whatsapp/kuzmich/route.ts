@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { processMessage, type PendingBooking } from '@/lib/kuzmich/core';
-import { callVision } from '@/lib/ai/providers';
+import { describeKuzmichPhoto } from '@/lib/kuzmich/photo-vision';
 
 export const dynamic = 'force-dynamic';
 
@@ -146,11 +146,8 @@ export async function POST(req: NextRequest) {
             const media = await downloadWhatsAppMedia(msg.image.id);
             let imageDescription = '';
             if (media) {
-              const desc = await callVision(
-                media.base64,
-                media.mimeType,
-                'Describe what is in the photo in 1-2 sentences. Mention if it looks like Kamchatka (volcanoes, bears, hot springs, fishing). Respond in Russian.',
-              ).catch(() => null);
+              // Что видно и факты места из базы — одно правило на все каналы.
+              const desc = await describeKuzmichPhoto(media.base64, media.mimeType).catch(() => null);
               imageDescription = desc ? `[Фото: ${desc}]` : '[Пользователь прислал фото]';
             }
             await processMessage({
