@@ -108,7 +108,10 @@ describe('п.8: дашборд earnings', () => {
     expect(src).not.toMatch(/\.catch\(\(\) => \(\{ rows: \[\] \}\)\)/);
     const card = code('components/operator/OperatorEarningsCard.tsx');
     expect(card).not.toMatch(/Партнёрский трафик/);
-    expect(card).toMatch(/Прямых продаж за \{periodDays\} дней/);
+    // «Прямых продаж» переименовано 11.10 (CRM 2в): это оплата через
+    // платформу, а «напрямую» теперь — деньги, полученные оператором сам.
+    expect(card).toMatch(/Оплачено через платформу за \{periodDays\} дней/);
+    expect(card).toMatch(/Получено напрямую за \{periodDays\} дней/);
   });
 
   it('отказ запроса — в лог и честная ошибка, а не нули', () => {

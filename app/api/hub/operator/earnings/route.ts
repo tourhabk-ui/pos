@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 403 });
   }
 
-  // Брони за 30 дней по дням. Выручка («Прямых продаж») — только
+  // Брони за 30 дней по дням. Выручка («Оплачено через платформу») — только
   // ОПЛАЧЕННЫЕ и НЕ отменённые: прежде сумма шла по всем броням, включая
   // отменённые и неоплаченные, и оператор видел как продажи деньги, которых
   // не было. Счётчики броней остаются по всем — это воронка, не деньги.
@@ -60,6 +60,28 @@ export async function GET(request: NextRequest) {
   // и выглядело это как «клики были, но ноль», а не «не считаем вовсе».
   // Немой .catch(() => ({ rows: [] })) скрывал заодно и падение запроса.
 
+  // Получено напрямую (CRM фаза 2в, миграция 1215): деньги, которые
+  // турист отдал оператору сам, по дате получения. Не оплата через
+  // платформу — отдельная строка. Отказ — null («не прочитано»), сводка
+  // при этом не падает: так же переживается и таблица до миграции.
+  let directReceived: number | null = null;
+  try {
+    const direct = await pool.query<{ total: string | null }>(
+      `SELECT COALESCE(SUM(dp.amount), 0)::text AS total
+         FROM booking_direct_payments dp
+         JOIN operator_bookings b ON b.id = dp.booking_id
+         JOIN operator_tours t ON t.id = b.operator_tour_id
+        WHERE t.operator_id = $1
+          AND dp.voided_at IS NULL
+          AND dp.received_on > (NOW() AT TIME ZONE 'Asia/Kamchatka')::date - 30`,
+      [operatorId],
+    );
+    directReceived = Number(direct.rows[0]?.total ?? 0);
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[hub/operator/earnings] оплаты напрямую не прочитаны, SQLSTATE ${code}:`, err instanceof Error ? err.message : err);
+  }
+
   const sum = (key: string, parse: (v: string) => number) =>
     bookingsRows.reduce((s, r) => s + parse(String(r[key] ?? '0')), 0);
 
@@ -71,6 +93,7 @@ export async function GET(request: NextRequest) {
       totalRevenue: sum('total_revenue', (v) => parseFloat(v)),
       confirmedBookings: sum('confirmed_count', (v) => parseInt(v, 10)),
       pendingBookings: sum('pending_count', (v) => parseInt(v, 10)),
+      directReceived,
     },
     bookingsByDay: bookingsRows,
   });
