@@ -23,6 +23,7 @@ import {
   parsePhotoReading,
   photoForModel,
   describeKuzmichPhoto,
+  placeQueryCandidates,
 } from '@/lib/kuzmich/photo-vision';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
@@ -78,7 +79,12 @@ describe('текст для модели чата', () => {
 
   it('факты места — из базы; нет в базе и база не ответила — разные слова', () => {
     expect(photoForModel(reading, { kind: 'found', text: 'Три Брата [скалы]' })).toMatch(/Факты о нём из базы Ведара:\nТри Брата \[скалы\]/);
-    expect(photoForModel(reading, { kind: 'absent' })).toMatch(/В базе Ведара его нет/);
+    // «Не нашлось по этому названию», а не «нет в базе»: поиск по имени от зрения
+    // промахивается, и твёрдое «нет» запрещало модели проверить снова (скрин 11.10).
+    const absent = photoForModel(reading, { kind: 'absent' });
+    expect(absent).toMatch(/По этому названию в базе Ведара место не нашлось/);
+    expect(absent).toMatch(/get_place_info/);
+    expect(absent).not.toMatch(/его нет/);
     expect(photoForModel(reading, { kind: 'failed' })).toMatch(/не прочитались/);
   });
 });
@@ -93,6 +99,24 @@ describe('describeKuzmichPhoto', () => {
     expect(text).toContain('Факты о нём из базы Ведара');
     expect(text).toContain('/places/tri-brata');
     expect(text).toContain(PHOTO_ANSWER_RULE);
+  });
+
+  it('скрин 11.10: зрение назвало место с пояснением — сверка по короткому варианту находит его', async () => {
+    visionMock.mockResolvedValue('Место: Три Брата (Авачинская бухта)\nВидно: три скалы в воде.');
+    // База отвечает только на вариант без пояснения — как поиск «все слова в названии».
+    placeInfoMock.mockImplementation(async (name: string) => (name === 'Три Брата' ? 'Скалы Три Брата [скала]' : null));
+    const text = await describeKuzmichPhoto('b64', 'image/jpeg');
+    expect(placeInfoMock.mock.calls.map((c) => c[0])).toEqual(['Три Брата (Авачинская бухта)', 'Три Брата']);
+    expect(text).toContain('Факты о нём из базы Ведара');
+    expect(text).not.toMatch(/не нашлось/);
+  });
+
+  it('варианты названия: целиком, без скобок, до запятой, тире и «в …»; без повторов', () => {
+    expect(placeQueryCandidates('Скалы Три Брата в Авачинской бухте')).toEqual(['Скалы Три Брата в Авачинской бухте', 'Скалы Три Брата']);
+    expect(placeQueryCandidates('Три Брата, Петропавловск-Камчатский')).toEqual(['Три Брата, Петропавловск-Камчатский', 'Три Брата']);
+    expect(placeQueryCandidates('Вулкан Горелый — кратер')).toEqual(['Вулкан Горелый — кратер', 'Вулкан Горелый']);
+    // Дефис внутри слова — не тире: «Петропавловск-Камчатский» не режется.
+    expect(placeQueryCandidates('Петропавловск-Камчатский')).toEqual(['Петропавловск-Камчатский']);
   });
 
   it('база не ответила — «не прочитались» и лог, а не «места нет»', async () => {

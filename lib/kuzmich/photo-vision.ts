@@ -79,6 +79,28 @@ export function parsePhotoReading(text: string): PhotoReading {
   return { seen: seen || t, place };
 }
 
+/**
+ * Варианты названия для сверки с базой: целиком, затем без пояснения в
+ * скобках, после запятой, тире или «в …» («Скалы Три Брата в Авачинской
+ * бухте» → «Скалы Три Брата»). Не морфология и не нечёткий поиск: каждый
+ * вариант — тот же запрос «все слова в названии», только короче. Варианты
+ * короче двух букв и повторы отбрасываются.
+ */
+export function placeQueryCandidates(place: string): string[] {
+  const full = place.trim();
+  const cuts = [
+    full.split('(')[0],
+    full.split(',')[0],
+    full.split(/\s[—–-]\s/u)[0],
+    full.split(/\s(?:в|на|у|около|возле)\s/iu)[0],
+  ].map((x) => x.trim());
+  const out: string[] = [];
+  for (const c of [full, ...cuts]) {
+    if (c.length >= 2 && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
+
 /** Что известно о месте по базе: нашлось, нет в базе, база не ответила. */
 export type PlaceFacts =
   | { kind: 'found'; text: string }
@@ -95,7 +117,7 @@ export function photoForModel(reading: PhotoReading, facts: PlaceFacts | null): 
     const head = `Место по снимку: ${reading.place}.`;
     if (facts?.kind === 'found') parts.push(`${head} Факты о нём из базы Ведара:\n${facts.text}`);
     else if (facts?.kind === 'failed') parts.push(`${head} Факты о нём из базы сейчас не прочитались — сверх описания снимка о месте ничего не утверждай.`);
-    else parts.push(`${head} В базе Ведара его нет — фактов о нём сверх описания снимка нет.`);
+    else parts.push(`${head} По этому названию в базе Ведара место не нашлось — это не значит, что его там нет: назовёт человек место иначе или подтвердит его — проверь инструментом места (get_place_info), а не повторяй «нет в базе».`);
   }
   parts.push(PHOTO_ANSWER_RULE);
   return parts.join('\n\n');
@@ -112,7 +134,15 @@ export async function describeKuzmichPhoto(imageBase64: string, mimeType: string
   if (!reading.place) return photoForModel(reading, null);
   let facts: PlaceFacts;
   try {
-    const text = await placeInfoForKuzmich(reading.place, { pageLinks: true });
+    let text: string | null = null;
+    // Зрение пишет место с пояснением («Три Брата (Авачинская бухта)»), а
+    // поиск по базе требует ВСЕ слова запроса в названии — и «Скалы Три Брата»
+    // не находились (скрин владельца 11.10: «в базе нет», хотя место есть).
+    // Пробуем по убыванию длины; каждое сравнение — тем же правилом базы.
+    for (const name of placeQueryCandidates(reading.place)) {
+      text = await placeInfoForKuzmich(name, { pageLinks: true });
+      if (text) break;
+    }
     facts = text ? { kind: 'found', text } : { kind: 'absent' };
   } catch (err) {
     // Отказ базы — не «места нет» (§4.0): модели так и сказано, причина — в логе.
