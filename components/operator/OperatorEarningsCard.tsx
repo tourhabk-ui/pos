@@ -17,6 +17,8 @@ interface EarningsData {
     totalBookings: number;
     /** Только оплаченные и не отменённые брони. */
     totalRevenue: number;
+    /** Получено напрямую за период (CRM 2в); null — не прочитано. */
+    directReceived?: number | null;
     confirmedBookings: number;
     pendingBookings: number;
   };
@@ -88,11 +90,20 @@ export function OperatorEarningsCard() {
         </div>
         <div className="border-t border-[var(--border)] pt-2 mt-2">
           <div className="flex justify-between font-semibold">
-            <span>Прямых продаж за {periodDays} дней:</span>
+            <span>Оплачено через платформу за {periodDays} дней:</span>
             <span className="text-[var(--ocean)]">{summary.totalRevenue.toLocaleString('ru-RU')} ₽</span>
           </div>
           <p className="text-xs text-[var(--text-muted)] mt-1">
             Только оплаченные брони, отменённые не входят
+          </p>
+          <div className="flex justify-between font-semibold mt-2">
+            <span>Получено напрямую за {periodDays} дней:</span>
+            {summary.directReceived === null
+              ? <span className="text-[var(--text-muted)] font-normal">не прочитано</span>
+              : <span className="text-[var(--ocean)]">{(summary.directReceived ?? 0).toLocaleString('ru-RU')} ₽</span>}
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Наличные и переводы, записанные в карточках броней
           </p>
         </div>
       </div>

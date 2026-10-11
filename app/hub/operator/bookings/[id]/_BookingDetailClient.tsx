@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import GuideAssign from './_GuideAssign';
+import DirectPayments from './_DirectPayments';
 
 interface BookingDetail {
   id: string;
@@ -304,6 +305,9 @@ export default function BookingDetailClient({ bookingId }: Props) {
           </div>
         </div>
       )}
+
+      {/* Деньги, полученные оператором напрямую (CRM фаза 2в). */}
+      <DirectPayments bookingId={String(booking.id)} />
 
       {(canConfirm || canComplete || canCancel || canMarkNoShow) && (
         <div className="ds-card p-5">
