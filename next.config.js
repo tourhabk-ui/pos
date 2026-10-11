@@ -47,9 +47,22 @@ const nextConfig = {
 
   // pdfkit читает AFM-шрифты своего пакета при создании документа —
   // без include standalone-трассировка может их потерять, и любой PDF
-  // падает с ENOENT (~1 МБ данных, лимит 50 МБ не задевает)
+  // падает с ENOENT (~1 МБ данных, лимит 50 МБ не задевает).
+  //
+  // С pdfkit 0.20 стандартные шрифты грузятся НЕ файлами из js/data, а
+  // модулями через подпутевой импорт пакета: require('#standard-fonts/Helvetica')
+  // → js/standard-fonts/Helvetica.cjs (поле "imports" в его package.json).
+  // Трассировка standalone такие require по шаблону не видит, каталог в
+  // образ не попадал, и PDF предложения на проде падал «Cannot find module
+  // '#standard-fonts/Helvetica'» (скрин владельца 11.10). ~200 КБ. Сторож
+  // tests/unit/pdfkit-standalone-fonts.test.ts сверяет список с полем
+  // "imports" установленного pdfkit — обновят пакет, сменится путь, и он
+  // покраснеет до деплоя, а не на телефоне.
   outputFileTracingIncludes: {
-    '/api/**': ['./node_modules/pdfkit/js/data/**'],
+    '/api/**': [
+      './node_modules/pdfkit/js/data/**',
+      './node_modules/pdfkit/js/standard-fonts/**',
+    ],
   },
 
   // ESLint: skip during build (saves ~500MB RAM) — checks run locally via CI
