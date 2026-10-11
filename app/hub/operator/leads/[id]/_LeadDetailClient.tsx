@@ -7,10 +7,24 @@ import {
   Brain, Zap, FileText, CheckCircle, Clock, AlertCircle,
   Phone, MessageSquare, Download, ArrowLeft, User,
   TrendingUp, TrendingDown, Target, RefreshCw, Send,
-  MapPin, Calendar, Users, Wallet, ExternalLink,
+  MapPin, Calendar, Users, Wallet, ExternalLink, Ticket,
 } from 'lucide-react';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
+
+/** Бронь, заведённая из лида (CRM фаза 2). */
+interface LeadBooking {
+  id: string;
+  booking_date: string;
+  booking_status: string;
+  participants: number;
+  tour_title: string;
+}
+
+const BOOKING_STATUS_LABEL: Record<string, string> = {
+  new: 'новая', confirmed: 'подтверждена', completed: 'завершена',
+  cancelled: 'отменена', no_show: 'не пришёл',
+};
 
 interface Lead {
   id: string;
@@ -170,7 +184,7 @@ export default function LeadDetailClient({ leadId }: Props) {
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const { data: leadData, error: leadError, isLoading: leadLoading, mutate: mutateLead } =
-    useSWR<{ lead: Lead }>(`/api/leads/${leadId}`, fetcher);
+    useSWR<{ lead: Lead; bookings?: LeadBooking[] | null }>(`/api/leads/${leadId}`, fetcher);
 
   const { data: proposalData, error: proposalError, mutate: mutateProposal } =
     useSWR<{ proposal: Proposal }>(`/api/leads/${leadId}/proposal`, fetcher, {
@@ -178,6 +192,8 @@ export default function LeadDetailClient({ leadId }: Props) {
     });
 
   const lead = leadData?.lead;
+  // undefined — ответ ещё не пришёл; null — брони не прочитались (§4.0).
+  const leadBookings = leadData?.bookings;
   const proposal = proposalData?.proposal;
 
   const canProcess = lead ? ['new', 'contacted', 'qualified'].includes(lead.status) : false;
@@ -591,6 +607,43 @@ export default function LeadDetailClient({ leadId }: Props) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Бронь из лида (CRM фаза 2): лид доводится до брони здесь же, и
+            бронь помнит, из какого лида она заведена. */}
+        <div className="ds-card p-5 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="ds-h2 text-base flex items-center gap-2">
+              <Ticket className="w-4 h-4" />
+              Бронь по лиду
+            </h2>
+            <Link
+              href={`/hub/operator/bookings?lead=${leadId}`}
+              className="ds-btn ds-btn-primary text-sm gap-1.5"
+            >
+              <Ticket className="w-4 h-4" />
+              Завести бронь
+            </Link>
+          </div>
+          {leadBookings === null ? (
+            <p className="text-sm text-[var(--danger)]">Брони по лиду не прочитались — обновите страницу.</p>
+          ) : leadBookings && leadBookings.length > 0 ? (
+            <ul className="space-y-1.5">
+              {leadBookings.map(b => (
+                <li key={b.id} className="text-sm text-[var(--text-secondary)]">
+                  <Link href={`/hub/operator/bookings/${b.id}`} className="text-[var(--ocean)] hover:underline">
+                    Бронь №{b.id}
+                  </Link>
+                  {' '}· {b.tour_title} · {new Date(`${b.booking_date}T00:00:00Z`).toLocaleDateString('ru-RU', { timeZone: 'UTC', day: 'numeric', month: 'long' })}
+                  {' '}· {b.participants} чел. · {BOOKING_STATUS_LABEL[b.booking_status] ?? b.booking_status}
+                </li>
+              ))}
+            </ul>
+          ) : leadBookings ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              Броней по лиду ещё нет. Договорились с клиентом — заведите бронь: имя и телефон подставятся, а лид станет «Сделкой».
+            </p>
+          ) : null}
         </div>
 
         {/* Заметки оператора */}

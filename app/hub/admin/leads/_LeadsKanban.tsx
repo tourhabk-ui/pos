@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import {
   DndContext, PointerSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, DragOverlay,
@@ -22,11 +23,47 @@ import { STATUS_META, ScoreBadge, formatDate, type Lead } from './_LeadsClient';
  */
 export const COLUMNS = MANUAL_LEAD_STATUSES;
 
+/**
+ * Колонка доски: ручной статус, который ставит перенос (`key`), и статусы,
+ * чьих лидов колонка показывает (`members`).
+ */
+export interface KanbanColumnSpec {
+  key: LeadStatus;
+  members: readonly LeadStatus[];
+}
+
+/** Админ: колонка = ровно свой статус (решение выше). */
+export const ADMIN_COLUMNS: readonly KanbanColumnSpec[] = COLUMNS.map((s) => ({ key: s, members: [s] }));
+
+/**
+ * Оператор (CRM фаза 2, пилот): лиды конвейера лежат в колонке, куда
+ * относятся по смыслу, а не пропадают с доски. У оператора почти каждый лид
+ * проходит конвейер (крон обрабатывает новые), и доска только из ручных
+ * статусов была бы пустой: «AI-квалифицирован» — это новый лид, которому
+ * ещё не звонили; «КП отправлено» и «ждёт подтверждения» — лид в работе.
+ * Колонки по-прежнему ставят только ручные статусы: перенос выводит лида
+ * из статуса конвейера, но не ставит его. Точный статус виден на карточке.
+ * «AI обрабатывает» не переносится: конвейер ещё пишет в эту запись.
+ */
+export const OPERATOR_COLUMNS: readonly KanbanColumnSpec[] = [
+  { key: 'new',       members: ['new', 'ai_processing', 'ai_qualified'] },
+  { key: 'contacted', members: ['contacted', 'proposal_sent', 'awaiting_confirm'] },
+  { key: 'qualified', members: ['qualified'] },
+  { key: 'converted', members: ['converted'] },
+  { key: 'lost',      members: ['lost'] },
+];
+
 export async function fetchColumn(status: LeadStatus): Promise<Lead[]> {
   const res = await fetch(`/api/leads?status=${status}&limit=200`);
   if (!res.ok) throw new Error(`status ${status}: HTTP ${res.status}`);
   const data = await res.json() as { leads: Lead[] };
   return data.leads;
+}
+
+/** Лиды колонки — по всем её статусам, свежие сверху. */
+async function fetchSpec(spec: KanbanColumnSpec): Promise<Lead[]> {
+  const parts = await Promise.all(spec.members.map(fetchColumn));
+  return parts.flat().sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 /**
@@ -50,11 +87,13 @@ export function moveBetweenColumns(
   };
 }
 
-function KanbanCard({ lead }: { lead: Lead }) {
+function KanbanCard({ lead, columnKey, href }: { lead: Lead; columnKey: LeadStatus; href?: string }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
+    disabled: lead.status === 'ai_processing',
   });
+  const exactStatus = lead.status !== columnKey ? STATUS_META[lead.status] : null;
   const interests = lead.source_data?.interests ?? [];
 
   return (
@@ -69,9 +108,18 @@ function KanbanCard({ lead }: { lead: Lead }) {
       }}
     >
       <div className="flex items-start justify-between gap-2">
-        <Sensitive as="span" className="font-medium text-sm text-[var(--text-primary)] truncate">{lead.name}</Sensitive>
+        {href ? (
+          <Link href={href} className="font-medium text-sm text-[var(--text-primary)] truncate hover:text-[var(--ocean)] transition-colors">
+            <Sensitive>{lead.name}</Sensitive>
+          </Link>
+        ) : (
+          <Sensitive as="span" className="font-medium text-sm text-[var(--text-primary)] truncate">{lead.name}</Sensitive>
+        )}
         <ScoreBadge score={lead.ai_score} />
       </div>
+      {exactStatus && (
+        <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${exactStatus.color}`}>{exactStatus.label}</span>
+      )}
       <div className="flex items-center gap-1 mt-1 text-xs text-[var(--text-secondary)]">
         <Phone size={11} />
         <Sensitive>{lead.phone}</Sensitive>
@@ -90,7 +138,7 @@ function KanbanCard({ lead }: { lead: Lead }) {
   );
 }
 
-function KanbanColumn({ status, leads }: { status: LeadStatus; leads: Lead[] }) {
+function KanbanColumn({ status, leads, cardHref }: { status: LeadStatus; leads: Lead[]; cardHref?: (lead: Lead) => string }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
 
@@ -111,14 +159,19 @@ function KanbanColumn({ status, leads }: { status: LeadStatus; leads: Lead[] }) 
         {leads.length === 0 ? (
           <p className="text-xs text-[var(--text-muted)] text-center py-6">Пусто</p>
         ) : (
-          leads.map(lead => <KanbanCard key={lead.id} lead={lead} />)
+          leads.map(lead => <KanbanCard key={lead.id} lead={lead} columnKey={status} href={cardHref?.(lead)} />)
         )}
       </div>
     </div>
   );
 }
 
-export function LeadsKanban() {
+export function LeadsKanban({ columns: specs = ADMIN_COLUMNS, cardHref }: {
+  /** Колонки доски; по умолчанию — админская, по одному статусу. */
+  columns?: readonly KanbanColumnSpec[];
+  /** Ссылка с карточки на страницу лида. */
+  cardHref?: (lead: Lead) => string;
+} = {}) {
   const [columns, setColumns]   = useState<Record<LeadStatus, Lead[]> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
@@ -134,20 +187,20 @@ export function LeadsKanban() {
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const results = await Promise.all(COLUMNS.map(fetchColumn));
+      const results = await Promise.all(specs.map(fetchSpec));
       const next = {} as Record<LeadStatus, Lead[]>;
-      COLUMNS.forEach((s, i) => { next[s] = results[i]; });
+      specs.forEach((spec, i) => { next[spec.key] = results[i]; });
       setColumns(next);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Не удалось загрузить лиды');
     }
-  }, []);
+  }, [specs]);
 
   useEffect(() => { load(); }, [load]);
 
   const allLeads = useMemo(
-    () => columns ? COLUMNS.flatMap(s => columns[s]) : [],
-    [columns],
+    () => columns ? specs.flatMap(spec => columns[spec.key]) : [],
+    [columns, specs],
   );
 
   const handleDragStart = (e: DragStartEvent) => {
@@ -161,8 +214,11 @@ export function LeadsKanban() {
     const targetStatus = e.over?.id as LeadStatus | undefined;
     if (!targetStatus || !columns) return;
 
-    const fromStatus = COLUMNS.find(s => columns[s].some(l => l.id === leadId));
+    const fromStatus = specs.map(spec => spec.key).find(s => columns[s].some(l => l.id === leadId));
     if (!fromStatus || fromStatus === targetStatus) return;
+    // Статус до переноса — для отката: в колонке оператора лид мог стоять в
+    // статусе конвейера («AI-квалифицирован»), а не в ключе колонки.
+    const prevLead = columns[fromStatus].find(l => l.id === leadId);
 
     // Оптимистично двигаем карточку; при отказе PATCH — возвращаем на место.
     setColumns(prev => prev && moveBetweenColumns(prev, leadId, fromStatus, targetStatus));
@@ -175,7 +231,13 @@ export function LeadsKanban() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch {
-      setColumns(prev => prev && moveBetweenColumns(prev, leadId, targetStatus, fromStatus));
+      setColumns(prev => {
+        if (!prev) return prev;
+        const back = moveBetweenColumns(prev, leadId, targetStatus, fromStatus);
+        return prevLead
+          ? { ...back, [fromStatus]: back[fromStatus].map(l => (l.id === leadId ? prevLead : l)) }
+          : back;
+      });
       setLoadError('Не удалось сохранить статус — попробуй ещё раз');
     } finally {
       setMovingId(null);
@@ -200,7 +262,7 @@ export function LeadsKanban() {
   if (!columns) {
     return (
       <div className="flex gap-3 overflow-x-auto pb-2">
-        {COLUMNS.map(s => <div key={s} className="ds-skeleton w-72 h-64 rounded-lg shrink-0" />)}
+        {specs.map(spec => <div key={spec.key} className="ds-skeleton w-72 h-64 rounded-lg shrink-0" />)}
       </div>
     );
   }
@@ -212,8 +274,8 @@ export function LeadsKanban() {
       )}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-2">
-          {COLUMNS.map(status => (
-            <KanbanColumn key={status} status={status} leads={columns[status]} />
+          {specs.map(spec => (
+            <KanbanColumn key={spec.key} status={spec.key} leads={columns[spec.key]} cardHref={cardHref} />
           ))}
         </div>
         <DragOverlay>
