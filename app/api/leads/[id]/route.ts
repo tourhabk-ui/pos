@@ -5,6 +5,7 @@ import { requireAdmin, requireOperator } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { bookingsForLead, type LeadBookings } from '@/lib/leads/lead-bookings';
 
 const PatchSchema = z.object({
   status: z.enum([
@@ -116,7 +117,17 @@ export async function GET(
     return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
   }
 
-  return NextResponse.json({ lead: res.rows[0] });
+  // Брони, заведённые из лида (CRM фаза 2): оператору — только брони его
+  // туров; оператор без записи партнёра своих туров не имеет — пусто.
+  const operatorId = user.role === 'admin' ? null : (scope.vals[0] as string | undefined);
+  const bookings: LeadBookings = user.role !== 'admin' && !operatorId
+    ? { kind: 'ok', rows: [] }
+    : await bookingsForLead(id, operatorId ?? null);
+
+  return NextResponse.json({
+    lead: res.rows[0],
+    bookings: bookings.kind === 'ok' ? bookings.rows : null,
+  });
 }
 
 export async function DELETE(

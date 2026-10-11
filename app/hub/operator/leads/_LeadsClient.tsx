@@ -6,8 +6,12 @@ import Link from 'next/link';
 import {
   Brain, Zap, FileText, CheckCircle, Clock,
   AlertCircle, User, Phone, MessageSquare, Download,
-  ChevronRight, BarChart2, Filter, RefreshCw,
+  ChevronRight, BarChart2, Filter, RefreshCw, List, Columns3,
 } from 'lucide-react';
+import { LeadsKanban, OPERATOR_COLUMNS } from '@/app/hub/admin/leads/_LeadsKanban';
+
+type View = 'list' | 'board';
+const VIEW_STORAGE_KEY = 'operator-leads-view';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -194,12 +198,26 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
 // ── Главный компонент ──────────────────────────────────────────────────────────
 
 export default function LeadsClient() {
+  // Вид — список или доска (CRM фаза 2): выбор запоминается в браузере, как у админа.
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === 'undefined') return 'list';
+    try {
+      return localStorage.getItem(VIEW_STORAGE_KEY) === 'board' ? 'board' : 'list';
+    } catch { return 'list'; }
+  });
+  const setViewPersist = useCallback((v: View) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_STORAGE_KEY, v); } catch { /* приватное окно — не критично */ }
+  }, []);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  // «Обновить» на доске — пересборка доски со свежей загрузкой колонок.
+  const [boardKey, setBoardKey] = useState(0);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Доска грузит лидов сама, по колонкам; список не опрашивается зря.
   const { data, error, isLoading, mutate } = useSWR<LeadsResponse>(
-    `/api/leads?status=${statusFilter}&limit=50`,
+    view === 'list' ? `/api/leads?status=${statusFilter}&limit=50` : null,
     fetcher,
     { refreshInterval: 30000 }
   );
@@ -255,16 +273,52 @@ export default function LeadsClient() {
               Входящие заявки → AI-квалификация → персональное предложение за 15 сек
             </p>
           </div>
-          <button
-            onClick={() => mutate()}
-            className="ds-btn gap-1.5 text-sm"
-            aria-label="Обновить список"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Обновить
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-lg border border-[var(--border)] overflow-hidden text-sm" role="group" aria-label="Вид">
+              <button
+                type="button"
+                onClick={() => setViewPersist('list')}
+                aria-pressed={view === 'list'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                  view === 'list' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                }`}
+              >
+                <List className="w-4 h-4" />
+                Список
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewPersist('board')}
+                aria-pressed={view === 'board'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                  view === 'board' ? 'bg-[var(--accent)] text-[var(--bg-card)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+                }`}
+              >
+                <Columns3 className="w-4 h-4" />
+                Доска
+              </button>
+            </div>
+            <button
+              onClick={() => (view === 'board' ? setBoardKey((k) => k + 1) : mutate())}
+              className="ds-btn gap-1.5 text-sm"
+              aria-label="Обновить список"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Обновить
+            </button>
+          </div>
         </div>
 
+        {/* Доска: перетащите карточку — статус лида меняется (CRM фаза 2). */}
+        {view === 'board' && (
+          <LeadsKanban
+            key={boardKey}
+            columns={OPERATOR_COLUMNS}
+            cardHref={(l) => `/hub/operator/leads/${l.id}`}
+          />
+        )}
+
+        {view === 'list' && (<>
         {/* Статы */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           {[
@@ -362,6 +416,7 @@ export default function LeadsClient() {
             </span>
           </div>
         )}
+        </>)}
       </div>
     </div>
   );

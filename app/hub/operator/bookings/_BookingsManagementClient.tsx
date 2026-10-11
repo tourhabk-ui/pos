@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AutoConfirmToggle } from '@/components/operator/AutoConfirmToggle';
 import { formatDateOnly } from '@/lib/dates/date-only';
 import {
@@ -94,6 +95,40 @@ export default function BookingsManagementClient() {
   });
   const [saving, setSaving]           = useState(false);
   const [saveError, setSaveError]     = useState('');
+  // Бронь из лида (CRM фаза 2): ?lead=<id> с карточки лида открывает форму с
+  // контактами из заявки; бронь запомнит лид, а лид станет «Сделкой».
+  const [fromLead, setFromLead]       = useState<{ id: string; name: string } | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    const leadId = new URLSearchParams(window.location.search).get('lead');
+    if (!leadId || !/^[0-9a-f-]{36}$/i.test(leadId)) return;
+    fetch(`/api/leads/${leadId}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => null) as {
+          lead?: { id: string; name: string; phone: string | null; email: string | null; group_size: number | null };
+        } | null;
+        if (!r.ok || !d?.lead) {
+          setSaveError('Лид не найден — бронь можно завести и без него.');
+          setShowAdd(true);
+          return;
+        }
+        const l = d.lead;
+        setFromLead({ id: l.id, name: l.name });
+        setForm(f => ({
+          ...f,
+          tourist_name: l.name ?? '',
+          tourist_phone: l.phone ?? '',
+          tourist_email: l.email ?? '',
+          participants: l.group_size && l.group_size > 0 ? String(l.group_size) : f.participants,
+        }));
+        setShowAdd(true);
+      })
+      .catch(() => {
+        setSaveError('Лид не загрузился — проверьте связь или заведите бронь без него.');
+        setShowAdd(true);
+      });
+  }, []);
 
   // Действия над бронью: занятость строки, причина отказа и подтверждение
   // необратимого шага (#1802). Раньше ответ PATCH не читался вовсе — 4xx/5xx
@@ -164,6 +199,7 @@ export default function BookingsManagementClient() {
       if (form.tourist_phone) body.tourist_phone = form.tourist_phone;
       if (form.tourist_email) body.tourist_email = form.tourist_email;
       if (form.final_price)   body.final_price   = parseFloat(form.final_price);
+      if (fromLead)           body.lead_id       = fromLead.id;
 
       const r = await fetch('/api/hub/operator/bookings', {
         method: 'POST',
@@ -171,6 +207,11 @@ export default function BookingsManagementClient() {
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        // Из лида — обратно на его карточку: там видна бронь и «Сделка».
+        if (fromLead) {
+          router.push(`/hub/operator/leads/${fromLead.id}`);
+          return;
+        }
         setShowAdd(false);
         setForm(f => ({ ...f, booking_date: '', participants: '1', tourist_name: '', tourist_phone: '', tourist_email: '', final_price: '' }));
         await load();
@@ -317,6 +358,20 @@ export default function BookingsManagementClient() {
       {showAdd && (
         <div className="bg-[var(--bg-card)] border border-[var(--accent)] rounded-lg p-4 space-y-4">
           <h2 className="font-semibold text-[var(--text-primary)] text-sm">Ручной ввод бронирования</h2>
+          {fromLead && (
+            <div className="flex items-start justify-between gap-3 flex-wrap text-sm rounded-md px-3 py-2 bg-[var(--accent)]/10 text-[var(--text-primary)]">
+              <span>
+                Бронь по лиду «{fromLead.name}». Контакты подставлены из заявки; после сохранения лид станет «Сделкой».
+              </span>
+              <button
+                type="button"
+                onClick={() => setFromLead(null)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline"
+              >
+                Завести без лида
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {/* Tour */}

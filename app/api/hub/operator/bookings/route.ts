@@ -12,6 +12,8 @@ import { notifyNewBooking } from '@/lib/notifications/operator-booking';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { linkContactQuietly } from '@/lib/crm/contacts';
+import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +32,16 @@ const CreateBookingSchema = z.object({
   booking_status: z.enum(['new', 'confirmed']).default('new'),
   special_requests: z.string().max(1000).optional(),
   created_via: z.enum(['website', 'direct_contact', 'api']).default('direct_contact'),
+  /** Лид, из которого оператор заводит бронь (CRM фаза 2, миграция 1214). */
+  lead_id: z.string().uuid().optional(),
 });
+
+/** Колонки ручной брони — одни для брони из лида и без него. */
+const BOOKING_INSERT_COLUMNS = `operator_tour_id, tourist_name, tourist_phone, tourist_email,
+        booking_date, participants, adult_count, child_count,
+        base_total_price, final_price,
+        payment_status, payment_method, booking_status,
+        special_requests, created_via`;
 
 async function getOperatorRow(userId: string) {
   const result = await query(
@@ -183,16 +194,23 @@ export async function POST(request: NextRequest) {
     });
     const finalPrice = input.final_price ?? computedTotal;
 
-    const result = await query(
-      `INSERT INTO operator_bookings (
-        operator_tour_id, tourist_name, tourist_phone, tourist_email,
-        booking_date, participants, adult_count, child_count,
-        base_total_price, final_price,
-        payment_status, payment_method, booking_status,
-        special_requests, created_via
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      RETURNING id, booking_date::text AS booking_date, participants, final_price, booking_status`,
-      [
+    // Бронь из лида: лид должен быть доступен этому оператору (свой или
+    // ничейный — тот же скоуп, что у /api/leads). Чужой неотличим от
+    // несуществующего (404).
+    let lead: { id: string; status: string } | null = null;
+    if (input.lead_id) {
+      const scope = await leadOwnershipCond(authOrResponse, 2);
+      const leadRes = await query<{ id: string; status: string }>(
+        `SELECT id::text AS id, status FROM leads WHERE id = $1::uuid${scope.cond} LIMIT 1`,
+        [input.lead_id, ...scope.vals],
+      );
+      lead = leadRes.rows[0] ?? null;
+      if (!lead) {
+        return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+      }
+    }
+
+    const values = [
         tourId,
         input.tourist_name || null,
         input.tourist_phone || null,
@@ -208,10 +226,43 @@ export async function POST(request: NextRequest) {
         input.booking_status,
         input.special_requests || null,
         input.created_via,
-      ]
-    );
+      ];
+    // Без лида колонка lead_id не упоминается вовсе: ручная бронь не зависит
+    // от миграции 1214. С лидом — одним запросом бронь с lead_id и «Сделка»
+    // лиду; ничейный лид становится лидом этого оператора, как при первом
+    // действии над ним (app/api/leads/[id]).
+    const result = lead
+      ? await query(
+        `WITH b AS (
+           INSERT INTO operator_bookings (${BOOKING_INSERT_COLUMNS}, lead_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::uuid)
+           RETURNING id, booking_date::text AS booking_date, participants, final_price, booking_status
+         ), l AS (
+           UPDATE leads
+              SET status = 'converted', operator_id = COALESCE(operator_id, $17::uuid), updated_at = NOW()
+            WHERE id = $16::uuid
+           RETURNING id
+         )
+         SELECT b.* FROM b`,
+        [...values, lead.id, operator_id],
+      )
+      : await query(
+        `INSERT INTO operator_bookings (${BOOKING_INSERT_COLUMNS})
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         RETURNING id, booking_date::text AS booking_date, participants, final_price, booking_status`,
+        values,
+      );
 
     const booking = result.rows[0];
+
+    if (lead && lead.status !== 'converted') {
+      await recordSourceEventQuietly({
+        kind: 'status_change', sourceKind: 'lead', sourceId: lead.id,
+        actorKind: 'partner_user', actorUserId: authOrResponse.userId,
+        title: statusChangeTitle('lead', lead.status, 'converted'),
+        payload: { from: lead.status, to: 'converted', booking_id: String(booking.id) },
+      });
+    }
 
     // Клиент оператора в CRM (#2325): бронь, заведённая по звонку, — тоже клиент.
     await linkContactQuietly('operator_booking', booking.id as string | number);
