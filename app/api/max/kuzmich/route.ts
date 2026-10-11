@@ -374,13 +374,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       try {
         const mediaData = await downloadMedia(photoAtt.payload.url);
         if (mediaData) {
-          const { callVision } = await import('@/lib/ai/providers');
-          visionDescription = await callVision(
-            mediaData.base64, mediaData.mimeType,
-            'Опиши что на фото: место, природа, деятельность. Если это Камчатка — укажи конкретно что это. Кратко, 2-3 предложения.',
-          ) ?? undefined;
+          // Что видно и факты места из базы — одно правило на все каналы.
+          const { describeKuzmichPhoto } = await import('@/lib/kuzmich/photo-vision');
+          visionDescription = await describeKuzmichPhoto(mediaData.base64, mediaData.mimeType) ?? undefined;
         }
-      } catch { /* не критично */ }
+      } catch (err) {
+        // Ответ без фото лучше, чем никакой; но отказ виден в логе.
+        console.error('[max/kuzmich] фото не разобрано', err instanceof Error ? err.message : err);
+      }
 
       await processMessage({
         chatId, text: text || 'Что это за место?',

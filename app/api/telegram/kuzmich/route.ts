@@ -674,13 +674,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       try {
         const photoData = await downloadTgFile(bestPhoto.file_id);
         if (photoData) {
-          const { callVision } = await import('@/lib/ai/providers');
-          visionDescription = await callVision(
-            photoData.base64, photoData.mimeType,
-            'Опиши что на фото: место, природа, деятельность. Если это Камчатка — укажи конкретно что это. Кратко, 2-3 предложения.',
-          ) ?? undefined;
+          // Что видно и факты места из базы — одно правило на все каналы.
+          const { describeKuzmichPhoto } = await import('@/lib/kuzmich/photo-vision');
+          visionDescription = await describeKuzmichPhoto(photoData.base64, photoData.mimeType) ?? undefined;
         }
-      } catch { /* не критично */ }
+      } catch (err) {
+        // Ответ без фото лучше, чем никакой; но отказ виден в логе.
+        console.error('[telegram/kuzmich] фото не разобрано', err instanceof Error ? err.message : err);
+      }
 
       await processMessage({
         chatId, text: msg.caption?.trim() ?? 'Что это за место?',

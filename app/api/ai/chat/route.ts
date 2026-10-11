@@ -224,17 +224,17 @@ export async function POST(request: NextRequest) {
       userId ? loadTripHistory(userId) : Promise.resolve([]),
     ]);
 
-    // Vision: анализ фото от пользователя (Gemini)
+    // Vision: что видно на фото, и факты узнанного места — из базы
+    // (lib/kuzmich/photo-vision, одно правило на все каналы Кузьмича).
     let visionDescription: string | null = null;
     if (imageBase64 && imageMimeType && safeRole === 'tourist') {
       try {
-        const { callVision } = await import('@/lib/ai/providers');
-        visionDescription = await callVision(
-          imageBase64,
-          imageMimeType,
-          'Опиши что на фото: место, активность, природа Камчатки. Кратко, 1-2 предложения. Если узнаёшь локацию — назови. Отвечай на русском.',
-        );
-      } catch { /* не блокируем */ }
+        const { describeKuzmichPhoto } = await import('@/lib/kuzmich/photo-vision');
+        visionDescription = await describeKuzmichPhoto(imageBase64, imageMimeType);
+      } catch (err) {
+        // Ответ без фото лучше, чем никакой; но отказ виден в логе.
+        console.error('[ai/chat] фото не разобрано', err instanceof Error ? err.message : err);
+      }
     }
 
     // Build AI prompt
