@@ -82,7 +82,7 @@ describe('users_role_check покрывает роли, которые пише�
   it('CHECK не разрешает того, чего никто не пишет', () => {
     const written = new Set(Object.values(WRITERS).flat());
     // Литеральные писатели вне перечней: telegram/max → 'tourist',
-    // create-agent → 'agent', import-mestechko → 'operator'.
+    // create-agent → 'agent', admin/operators/[id]/account → 'operator'.
     for (const r of ['tourist', 'agent', 'operator']) written.add(r);
     const unproduced = [...allowed].filter(r => !written.has(r));
     expect(unproduced, `в CHECK без производителя: ${unproduced.join(', ')}`).toEqual([]);
