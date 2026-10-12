@@ -28,8 +28,10 @@ const nextConfig = {
   // принимает rel=canonical только из <head>: по замеру аудита SEO 29.09 (Н4)
   // около 790 из 880 адресов были для него без действующего canonical.
   // Строка ниже — список Next по умолчанию (next/dist/shared/lib/router/utils/
-  // html-bots.js) плюс Googlebot. Цена — блокирующий рендер для этих ботов.
-  htmlLimitedBots: /Googlebot|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
+  // html-bots.js) плюс Googlebot, плюс китайские обходчики Bytespider, PetalBot,
+  // YisouSpider и 360Spider (12.10; baiduspider и sogou в списке Next уже были).
+  // Цена — блокирующий рендер для этих ботов.
+  htmlLimitedBots: /Googlebot|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|Bytespider|PetalBot|YisouSpider|360Spider|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
   compress: true,
 
   // Здесь стоял experimental.serverActions.bodySizeLimit = '60mb'. Убрано

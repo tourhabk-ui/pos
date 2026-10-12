@@ -13,13 +13,17 @@
 import { NextResponse } from 'next/server';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
+import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
+import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { getPublicBaseUrl } from '@/lib/config';
 import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH } from '@/lib/a2a/agent-card';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request?: Request) {
+  // Перепись краулеров по семействам (12.10): кто читает манифест.
+  recordAgentEntryHit('/.well-known/mcp.json', request?.headers.get('user-agent') ?? null);
   const base = getPublicBaseUrl().replace(/\/$/, '');
 
   return NextResponse.json(
@@ -29,6 +33,9 @@ export async function GET() {
       // в реестре и Smithery: агент, пришедший из каталога, узнаёт запись.
       title: MCP_TITLE_EN,
       descriptionEn: MCP_DESCRIPTION_EN,
+      // Китайский слой (12.10) — для чатов и поисковиков КНР, текст в lib/mcp/zh-layer.
+      titleZh: MCP_TITLE_ZH,
+      descriptionZh: MCP_DESCRIPTION_ZH,
       // Где мы числимся — чтобы «нет в каталоге» проверялось, а не гадалось.
       catalogs: MCP_CATALOGS,
       // Как добавить одним касанием и что сказать модели, чтобы она выбирала

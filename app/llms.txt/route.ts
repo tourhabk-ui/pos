@@ -7,10 +7,14 @@ import { activityLabel } from '@/lib/tours/labels';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { llmsSectionZh } from '@/lib/mcp/zh-layer';
+import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 
 const BASE = 'https://vedarai.ru';
 
-export async function GET() {
+export async function GET(request?: Request) {
+  // Перепись краулеров по семействам (12.10): кто читает llms.txt.
+  recordAgentEntryHit('/llms.txt', request?.headers.get('user-agent') ?? null);
   // Места по категориям для AI-контекста. До 29.09 список брался из
   // agent_route_knowledge (VIEW мест и маршрутов вперемешку) и печатался
   // ссылками /routes/{id}: 228 из 277 адресов вели на двойников мест и на
@@ -230,6 +234,8 @@ ${planLines}
   push-уведомлений нет, задача завершается в ответе и хранится час
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
+
+${llmsSectionZh(BASE)}
 
 ${sections}
 

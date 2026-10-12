@@ -11,10 +11,13 @@
 import { NextResponse } from 'next/server';
 import { buildAgentCard } from '@/lib/a2a/agent-card';
 import { getPublicBaseUrl } from '@/lib/config';
+import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request?: Request) {
+  // Перепись краулеров по семействам (12.10): кто читает визитку.
+  recordAgentEntryHit('/.well-known/agent-card.json', request?.headers.get('user-agent') ?? null);
   const base = getPublicBaseUrl().replace(/\/$/, '');
   return NextResponse.json(buildAgentCard(base), {
     headers: {

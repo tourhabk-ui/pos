@@ -37,6 +37,10 @@ import type { Capability } from '@/lib/agents/cron-capabilities';
 
 export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'abandoned-bookings': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
+  // 12.10: перепись входов для агентов по семействам ботов — только чтение
+  // agent_entry_hits; список путей берёт из модуля без базы, чтобы db_write
+  // счётчика сюда не приезжал транзитивно.
+  'agent-entry-census': ['db_read'],
   'ai-channel-check': ['net_out', 'telegram', 'pd_direct'],
   'ai-models': ['db_read', 'db_write', 'net_out', 'ai'],
   'alert-scope-census': ['db_read'],
@@ -72,6 +76,10 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // человека. D1 судит по имени поля и иначе не может; объявляем, чтобы это
   // было видно, а не спрятано переименованием колонки в запросе.
   'mcp-census': ['db_read', 'pd_direct'],
+  // 12.10: проба «знает ли модель о нас». net_out и ai — НАСТОЯЩИЕ: четыре
+  // провайдера спрашиваются без поиска; db_read и db_write — ТРАНЗИТИВНЫЕ из
+  // графа импортов providers.ts (журнал расхода), сам роут в базу не ходит.
+  'model-knowledge-probe': ['db_read', 'db_write', 'net_out', 'ai'],
   'seismic-latency-census': ['db_read'],
   'channel-sync': ['db_read', 'db_write'],
   'checkin-watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
