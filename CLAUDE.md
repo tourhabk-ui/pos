@@ -48,6 +48,7 @@
 | `--success` | `#1A7A34` | `#3FB950` | Eco, успех |
 | `--warning` | `#876316` | `#D29922` | Предупреждения |
 | `--danger` | `#B91C1C` | `#F85149` | SOS, ошибки |
+| `--purple` | `#7C3AED` | `#A855F7` | Фиолетовый акцент: западная зона планера, спутниковая связь на SOS (решение владельца 12.10: «фиолетовый можно использовать» — токеном, не хардкодом) |
 | `--border` | `rgba(0,0,0,0.07)` | `rgba(255,255,255,0.08)` | Границы |
 
 **DS-утилиты:** `ds-page` `ds-card` `ds-input` `ds-btn` `ds-btn-primary` `ds-btn-secondary` `ds-btn-danger` `ds-section` `ds-badge` `ds-h1` `ds-h2` `ds-label` `ds-skeleton`
