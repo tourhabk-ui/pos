@@ -22,6 +22,16 @@
  * «заявки нет»; база не ответила — исключение с SQLSTATE в логе (§4.0), а не
  * «ждёт оператора».
  *
+ * ── Страница для человека (вторая половина ступени 1) ──────────────────────
+ *
+ * Тот же ключ открывает человеку страницу `/request-status#<ключ>`: состояние
+ * и ответ оператора — и галочка согласия на обработку ПД, та же, что на
+ * формах сайта. Согласие, записанное агентом (`consent: true` в вызове), —
+ * утверждение агента, не галочка человека (долг в шапке write-guard);
+ * подтверждение человека пишется поверх с источником `request-page`
+ * (`confirmConsent`). В ответе инструмента это видно полем `consent`:
+ * human / agent / none.
+ *
  * Сторожа: tests/unit/mcp-request-status.test.ts (форма, словарь, отсутствие
  * ПД, хеш вместо ключа), tests/integration/mcp-request-status.pg.test.ts
  * (SQL на схеме прода).
@@ -29,6 +39,8 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
+import { getPublicBaseUrl } from '@/lib/config';
+import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
@@ -40,6 +52,31 @@ export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/req
 
 /** Сколько живёт ключ. Заявка на тур следующего сезона старше трёх месяцев — редкость. */
 export const REQUEST_KEY_TTL_DAYS = 90;
+
+/** Страница заявки для человека: ключ — во фрагменте адреса, как у `/seat-request` (на сервер и в метрику не уходит). */
+export const REQUEST_STATUS_PAGE_PATH = '/request-status';
+
+export function requestStatusPageUrl(key: string): string {
+  return `${getPublicBaseUrl()}${REQUEST_STATUS_PAGE_PATH}#${key}`;
+}
+
+/**
+ * Источник согласия, записанный пишущим инструментом: `consent: true` ставит
+ * агент (`admitWrite` в роуте MCP — `buildConsentRecord(..., 'mcp')`), и такая
+ * запись значит «агент утверждает», а не «человек поставил галочку».
+ */
+export const AGENT_CONSENT_SOURCE = 'mcp';
+/** Источник согласия, которое человек подтвердил сам на странице заявки. */
+export const HUMAN_CONSENT_SOURCE = 'request-page';
+
+/** Чьё согласие на обработку ПД стоит у заявки. */
+export type ConsentBy = 'human' | 'agent' | 'none';
+
+/** Нет времени согласия — не записано; источник агента — агент; всё прочее (формы сайта, страница заявки) — человек. */
+export function consentBy(source: string | null | undefined, at: Date | string | null | undefined): ConsentBy {
+  if (!at) return 'none';
+  return source === AGENT_CONSENT_SOURCE ? 'agent' : 'human';
+}
 
 const KEY_RE = /^[A-Za-z0-9_-]+$/;
 
@@ -75,7 +112,9 @@ export async function issueRequestKey(target: RequestKeyTarget, toolName: string
 /** Хвост ответа пишущего инструмента: ключ есть — как им пользоваться; нет — так и сказано. */
 export function keyLine(key: string | null): string {
   return key
-    ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, ответил ли оператор (без имени и телефона). Храните ключ у себя или у человека, не публикуйте.`
+    ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, ответил ли оператор (без имени и телефона).`
+      + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на обработку данных и видит ответ оператора.`
+      + ' Ключ и ссылку не публикуйте.'
     : ' Ключ статуса заявки не выдан (сбой записи ключа): узнать исход можно только по звонку оператора.';
 }
 
@@ -89,6 +128,10 @@ export interface RequestStatusView {
   deadline: string | null;
   human: string;
   next: string;
+  /** Чьё согласие на обработку ПД записано: человек сам (страница заявки или форма сайта), агент при создании, никто. */
+  consent: ConsentBy;
+  /** Страница заявки для человека — ключ во фрагменте. */
+  page: string;
 }
 
 interface StatusRow {
@@ -109,6 +152,10 @@ interface StatusRow {
   alt_date: string | null;
   failure_kind: FailureKind | null;
   seat_tour: string | null;
+  lead_consent_at: Date | string | null;
+  lead_consent_source: string | null;
+  seat_consent_at: Date | string | null;
+  seat_consent_source: string | null;
 }
 
 /** Лид: сначала бронь по нему (если оператор уже завёл), иначе статус самого лида. */
@@ -195,7 +242,9 @@ export const REQUEST_STATUS_SQL = `
          l.status AS lead_status, l.route_title,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
-         r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour
+         r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
+         l.pd_consent_at AS lead_consent_at, l.pd_consent_source AS lead_consent_source,
+         r.pd_consent_at AS seat_consent_at, r.pd_consent_source AS seat_consent_source
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
     LEFT JOIN LATERAL (
@@ -236,6 +285,8 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
       deadline: state === 'awaiting_operator' ? iso(row.deadline_at) : null,
       human: HUMAN[state] + (state === 'failed' && row.failure_kind === 'unfinished' ? ' Ответ оператора был получен, но не записан.' : ''),
       next: NEXT[state],
+      consent: consentBy(row.seat_consent_source, row.seat_consent_at),
+      page: requestStatusPageUrl(key),
     };
   }
 
@@ -252,7 +303,67 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     deadline: null,
     human: HUMAN[state],
     next: NEXT[state],
+    consent: consentBy(row.lead_consent_source, row.lead_consent_at),
+    page: requestStatusPageUrl(key),
   };
+}
+
+export type ConfirmOutcome = 'recorded' | 'already' | 'gone';
+
+/**
+ * Один запрос: ключ живой → согласие человека пишется в лид или запрос мест
+ * ПОВЕРХ записи агента (основание сильнее — его и храним; факт вызова агента
+ * остаётся в журнале mcp_tool_calls). Уже подтверждал сам — запись не
+ * трогается: первое подтверждение и есть доказательство. Подзапросы к
+ * leads/tour_seat_requests в хвосте видят снимок ДО UPDATE той же команды —
+ * так и задумано: prior_source — что стояло раньше, target_exists — есть ли
+ * сама заявка.
+ */
+export const CONFIRM_CONSENT_SQL = `
+  WITH k AS (
+    SELECT lead_id, seat_request_id
+      FROM agent_request_keys
+     WHERE key_hash = $1 AND expires_at > NOW()
+  ), l AS (
+    UPDATE leads
+       SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
+     WHERE id = (SELECT lead_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
+    RETURNING id
+  ), r AS (
+    UPDATE tour_seat_requests
+       SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
+     WHERE id = (SELECT seat_request_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
+    RETURNING id
+  )
+  SELECT ((SELECT COUNT(*) FROM l) + (SELECT COUNT(*) FROM r))::int AS updated,
+         COALESCE(lp.pd_consent_source, rp.pd_consent_source) AS prior_source,
+         (lp.id IS NOT NULL OR rp.id IS NOT NULL) AS target_exists
+    FROM k
+    LEFT JOIN leads lp ON lp.id = k.lead_id
+    LEFT JOIN tour_seat_requests rp ON rp.id = k.seat_request_id`;
+
+interface ConfirmRow { updated: number; prior_source: string | null; target_exists: boolean }
+
+/**
+ * Человек подтвердил согласие на странице заявки. Ключ не найден или истёк —
+ * отказ по входу (McpUserError), как у чтения; база не ответила — исключение
+ * с SQLSTATE в логе, а не «записано».
+ */
+export async function confirmConsent(rawKey: unknown, record: PdConsentRecord): Promise<ConfirmOutcome> {
+  const key = readKey(rawKey);
+  let row: ConfirmRow | undefined;
+  try {
+    ({ rows: [row] } = await pool.query<ConfirmRow>(CONFIRM_CONSENT_SQL, [sha256(key), record.at, record.ip, record.source, record.version]));
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[request-status] согласие не записано:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
+    throw new Error('request-status: согласие не записано');
+  }
+  if (!row) {
+    throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней).`, 'key_not_found');
+  }
+  if (row.updated > 0) return 'recorded';
+  return row.target_exists ? 'already' : 'gone';
 }
 
 /** Исполнитель для роута MCP: JSON-строка того же объекта (как у search/fetch). */
