@@ -26,6 +26,7 @@
  */
 
 import manifest from '@/server.json';
+import { OPENAPI_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import {
@@ -965,7 +966,8 @@ export function buildOpenApiDocument(base: string): Json {
         + 'create_stay_request, request_charter (A2A DataPart или MCP tools/call), их подтверждает человек; '
         + 'мгновенной брони и оплаты нет. Данные на русском. Экстренный вызов на Камчатке — 112. '
         + 'Public Vedar API for Kamchatka travel agents without MCP or A2A clients: read endpoints, A2A REST binding, MCP endpoint. '
-        + 'Requests are human-confirmed; no instant booking or payment.',
+        + 'Requests are human-confirmed; no instant booking or payment.'
+        + ' ' + OPENAPI_DESCRIPTION_ZH,
       termsOfService: `${b}/legal/terms`,
       contact: { name: 'Ведар', url: `${b}/contact` },
     },
