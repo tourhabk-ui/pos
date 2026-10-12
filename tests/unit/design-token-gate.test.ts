@@ -91,10 +91,15 @@ describe('одна версия на всё: пин dembrandt и браузер 
     expect(WORKFLOW.indexOf('--install-browser')).toBeLessThan(WORKFLOW.lastIndexOf('run: node scripts/design-token-gate.mjs'));
   });
 
-  it('workflow зовёт скрипт по проду ночью и рукой', () => {
+  it('workflow зовёт скрипт по проду ночью, рукой и маркером', () => {
     expect(WORKFLOW).toMatch(/run: node scripts\/design-token-gate\.mjs\s*$/m);
     expect(WORKFLOW).toMatch(/schedule:/);
     expect(WORKFLOW).toMatch(/workflow_dispatch:/);
+    // Маркер — единственный запуск, доступный из агентной сессии (dispatch закрыт 403).
+    expect(WORKFLOW).toMatch(/paths:\n\s+- '\.github\/triggers\/design-token-gate\.json'/);
+    const marker = JSON.parse(read('.github/triggers/design-token-gate.json')) as { run: number; run1_reason: string };
+    expect(marker.run).toBeGreaterThanOrEqual(1);
+    expect(marker.run1_reason.length).toBeGreaterThan(40);
   });
 
   it('локальный запуск есть в npm-скриптах', () => {

@@ -1,0 +1,5 @@
+{
+  "note": "Маркер запуска design-token-gate.yml: правка этого файла в main гоняет токен-гейт по проду (https://vedarai.ru) вне ночного расписания — dembrandt рендерит /sos /routes /emergency /catalog в Chromium и сверяет палитру с токенами globals.css. Увеличивать run и записывать runN_reason.",
+  "run": 1,
+  "run1_reason": "12.10, починка #2378: первый прогон по проду с одним пином dembrandt@0.39.2 и Chromium от его же playwright-core. Локальный прогон 12.10 10:27 UTC по проду: 15 цветов, пять прежних исключений и один новый #a78bfa (намеренный акцент спутниковой связи, внесён в allowlist). Запуск через workflow_dispatch из сессии закрыт (403 Resource not accessible by integration) — отсюда и маркер."
+}

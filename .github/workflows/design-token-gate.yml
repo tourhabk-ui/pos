@@ -14,6 +14,13 @@ name: Design — токен-гейт (цвета вне дизайн-систе�
 on:
   schedule:
     - cron: '40 4 * * *'  # каждый день в 04:40 UTC, до утреннего разбора
+  # Ручной прогон — маркером, как у остальных workflow репозитория: запуск
+  # workflow_dispatch из агентной сессии закрыт (403 Resource not accessible by
+  # integration, 12.10), а правка маркера в main — обычный пуш.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/design-token-gate.json'
   workflow_dispatch:
     inputs:
       base_url:
@@ -24,9 +31,22 @@ on:
 jobs:
   token-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 45, а не 15: ожидание своей сборки по маркеру (до 35 мин) плюс Chromium и гейт.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+
+      # Маркер едет в main вместе с кодом, а Timeweb собирает образ 5–20 минут:
+      # прогон по маркеру без ожидания проверил бы вчерашний прод (сторож
+      # marker-waits-for-deploy). Только при запуске маркером: по расписанию и
+      # кнопке head_commit пуст, и шаг отсиживал бы зря.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
 
       - uses: actions/setup-node@v7
         with:
