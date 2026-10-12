@@ -18,6 +18,8 @@ import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { getPublicBaseUrl } from '@/lib/config';
 import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH } from '@/lib/a2a/agent-card';
+import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
+import { SERVER_CARD_PATH, AI_CATALOG_PATH } from '@/lib/mcp/server-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +48,10 @@ export async function GET(request?: Request) {
       transport: 'streamable-http',
       endpoint: `${base}/api/mcp`,
       documentation: `${base}/llms.txt`,
+      // Карточка сервера (расширение MCP Server Card) и каталог домена (AI
+      // Catalog) — то, что агент читает до рукопожатия (12.10).
+      serverCard: `${base}${SERVER_CARD_PATH}`,
+      aiCatalog: `${base}${AI_CATALOG_PATH}`,
       // Тот же агент по A2A (12.10) — для клиентов без MCP: визитки обеих
       // версий и оба биндинга. Агент, прочитавший один манифест, узнаёт о другом.
       a2a: {
@@ -53,6 +59,8 @@ export async function GET(request?: Request) {
         legacyAgentCard: `${base}${LEGACY_AGENT_CARD_PATH}`,
         jsonrpc: `${base}${A2A_JSONRPC_PATH}`,
         rest: `${base}${A2A_REST_PATH}`,
+        // Где визитка числится — проверяется, а не гадается.
+        catalogs: A2A_CATALOGS,
       },
       // Человекочитаемый первоисточник — для людей и поисковых AI-ответов.
       homepage: `${base}/mcp`,

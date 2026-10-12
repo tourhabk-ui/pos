@@ -14,6 +14,9 @@ export const AGENT_ENTRY_PATHS = [
   '/.well-known/mcp.json',
   '/.well-known/agent-card.json',
   '/.well-known/agent.json',
+  // 12.10: карточка MCP-сервера и каталог домена (lib/mcp/server-card).
+  '/api/mcp/server-card',
+  '/.well-known/ai-catalog.json',
 ] as const;
 
 export type AgentEntryPath = (typeof AGENT_ENTRY_PATHS)[number];
