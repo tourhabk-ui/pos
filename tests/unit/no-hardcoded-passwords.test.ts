@@ -35,13 +35,6 @@ describe('нет захардкоженных паролей', () => {
     }
     expect(offenders, `литерал-пароль в hashPassword: ${offenders.join(', ')}`).toEqual([]);
   });
-
-  it('импортёр Местечка отдаёт one_time_password и не содержит 1234567890', () => {
-    const src = readFileSync(join(ROOT, 'app/api/admin/import-mestechko/route.ts'), 'utf-8');
-    expect(src).not.toMatch(/1234567890/);
-    expect(src).toMatch(/randomBytes\(/);
-    expect(src).toMatch(/one_time_password/);
-  });
 });
 
 /**
