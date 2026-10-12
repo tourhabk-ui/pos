@@ -50,6 +50,7 @@ import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
+import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
@@ -672,6 +673,9 @@ async function executeTool(
   if (name === REQUEST_CHARTER_TOOL.name) {
     return executeRequestCharter(rawArgs, ctx);
   }
+  // Пара коннекторов ChatGPT (search/fetch, ступень 2): не из реестра
+  // Кузьмича, свои схемы и свой исполнитель (lib/mcp/connector-tools).
+  if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, rawArgs);
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
   // trim, обрезка длины), затем тот же исполнитель.
@@ -826,9 +830,27 @@ async function handleToolsCall(
       // первый элемент как ответ инструмента, получает чистые данные.
       const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
       if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
-      return jsonrpcSuccess(id, { content });
+      // structuredContent — у инструментов с outputSchema (search/fetch для
+      // ChatGPT): ревизия 2025-06-18 велит дублировать его текстом, что и так есть.
+      return jsonrpcSuccess(id, outcome.structured ? { content, structuredContent: outcome.structured } : { content });
     }
   }
+}
+
+/**
+ * JSON-текст инструмента → объект для structuredContent. Текст, который не
+ * разбирается, — не сбой ответа: клиент получит его как обычный текст, а
+ * расхождение видно в логе (инструмент обещал JSON и не дал).
+ */
+function parseStructured(text: string): Record<string, unknown> | undefined {
+  try {
+    const v: unknown = JSON.parse(text);
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) return v as Record<string, unknown>;
+  } catch {
+    // ниже — лог
+  }
+  console.error('[mcp] structuredContent: ответ инструмента не JSON-объект', logText(text, 80));
+  return undefined;
 }
 
 /**
@@ -921,7 +943,11 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
     const handoff = target
       ? await issueMcpHandoff({ mcpInvocationId: invocationId, toolName, target })
       : null;
-    return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null };
+    // search/fetch отдают JSON: тот же объект уходит structuredContent (MCP)
+    // и DataPart (A2A). Текст от этого не меняется — ChatGPT читает его как
+    // JSON-строку, остальные клиенты — как обычный ответ.
+    const structured = CONNECTOR_TOOL_NAMES.has(toolName) ? parseStructured(text) : undefined;
+    return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое
     // исключение уходит общим текстом, подробность — в лог: раньше аноним

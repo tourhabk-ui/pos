@@ -12,6 +12,7 @@
  */
 
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
+import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
 
 /**
  * Не для анонимного публичного входа: жгут внешние квоты и пишут учёт
@@ -182,6 +183,10 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   // лимит чтения, а не пять записей в час. Не идемпотентен: повтор
   // add_day добавит ещё один день.
   edit_trip_plan:        { ...READ, idempotentHint: false },
+  // Пара для коннекторов ChatGPT (ступень 2, 12.10): поиск по витрине и
+  // чтение записи по id — только чтение, повтор даёт то же.
+  search:                READ,
+  fetch:                 READ,
   create_lead:           WRITE,
   create_booking_request: WRITE,
   create_stay_request:   WRITE,
@@ -226,6 +231,10 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   create_booking_request: { title: 'Booking request',      lead: 'Booking request for a Kamchatka tour on a date; live availability checked first, human-confirmed by the operator, no payment. Needs consent: true, otherwise refused. No tour yet — use create_lead.' },
   create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Needs consent: true, otherwise refused. For tours use create_booking_request.' },
   request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers.' },
+  // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
+  // зовёт только их); форма ответа — по документации OpenAI.
+  search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
+  fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
 };
 
 /**
@@ -236,6 +245,13 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
  * (дата, число, тип); текстовые поля без примера честнее, чем с выдуманным.
  */
 export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; example?: string | boolean }>> = {
+  // Пара коннекторов ChatGPT (ступень 2, 12.10) — схемы в lib/mcp/connector-schemas.
+  search: {
+    query: { lead: 'Search words, 2–200 characters; Russian or English.', example: 'Курильское озеро медведи' },
+  },
+  fetch: {
+    id: { lead: 'Record id from search: tour:<id>, place:<slug>, stay:<uuid> or route:<slug>.', example: 'tour:12' },
+  },
   get_tours: {
     activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking.', example: 'вулканы' },
     page: { lead: 'Catalogue page, 7 tours each, starting at 1; the reply ends with the page count and the next page.', example: '2' },
@@ -367,10 +383,12 @@ export interface PublicMcpTool {
   title?: string;
   description: string;
   inputSchema: unknown;
+  /** Схема результата (ревизия 2025-06-18) — у инструментов, отдающих structuredContent. */
+  outputSchema?: unknown;
   annotations?: McpToolAnnotations;
 }
 
-function withAnnotations(tool: { name: string; description: string; inputSchema: unknown }): PublicMcpTool {
+function withAnnotations(tool: { name: string; description: string; inputSchema: unknown; outputSchema?: unknown }): PublicMcpTool {
   const hints = TOOL_ANNOTATIONS[tool.name];
   const en = TOOL_ENGLISH[tool.name];
   // Нет записи — нет подсказок и нет английского слоя, а не выдуманные. По
@@ -391,6 +409,11 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
       // OpenAI-style parameters — это та же JSON-схема, что MCP inputSchema
       inputSchema: t.definition.function.parameters,
     })),
+  // Пара коннекторов ChatGPT (lib/mcp/connector-tools): не из реестра
+  // Кузьмича — у чата свой поиск по словам ему не нужен, а ChatGPT без этих
+  // двух имён сервер не подключает.
+  withAnnotations(SEARCH_TOOL),
+  withAnnotations(FETCH_TOOL),
   withAnnotations(CREATE_LEAD_TOOL),
   withAnnotations(BOOKING_REQUEST_TOOL),
   withAnnotations(STAY_REQUEST_TOOL),
