@@ -247,7 +247,8 @@ describe('request_charter через MCP: заявка принята', () => {
     // одинаков по форме у новой и повторной заявки: по нему не отличить,
     // что заявка уже была (анти-оракул 29.09). Сам ответ — тот же.
     const keyOf = (t: string) => /Ключ статуса заявки: ([A-Za-z0-9_-]+)/.exec(t)?.[1] ?? '';
-    const sansKey = (t: string) => t.replace(keyOf(t), '<ключ>');
+    // Ключ стоит в ответе дважды — в строке ключа и во фрагменте ссылки для человека.
+    const sansKey = (t: string) => t.split(keyOf(t)).join('<ключ>');
     expect(keyOf(first.text)).not.toBe('');
     expect(keyOf(again.text)).not.toBe('');
     expect(keyOf(again.text)).not.toBe(keyOf(first.text));

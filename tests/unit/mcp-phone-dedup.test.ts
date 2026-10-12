@@ -66,11 +66,18 @@ describe('идемпотентность заявки на бронь: (теле
   // Остаток оракула (сверка 29.09): отличимый от успеха ответ на дубль всё
   // равно говорил «этот телефон уже просил». Ответ один и тот же, без номера.
   it('дубль и новая заявка отвечают одним и тем же текстом, без номера заявки', () => {
-    const fn = ROUTE.slice(ROUTE.indexOf('async function executeCreateBookingRequest'), ROUTE.indexOf('async function executeCreateLead'));
-    const dedup = fn.indexOf('findRecentLeadByCommentPrefix(phone, bookingPrefix)');
-    const dupBranch = fn.slice(dedup, fn.indexOf('}', dedup) + 1);
-    expect(dupBranch).toMatch(/if \(existing\) \{\s*return accepted;\s*\}/);
-    expect(fn.trimEnd()).toMatch(/return accepted;\s*\}$/);
+    // Только сама функция брони — до её закрывающей скобки в первой колонке,
+    // а не до executeCreateLead: между ними с 10.10 живёт заявка на вахтовку.
+    const start = ROUTE.indexOf('async function executeCreateBookingRequest');
+    const fn = ROUTE.slice(start, ROUTE.indexOf('\n}\n', start) + 2);
+    // Повтор и новая заявка выходят из функции ОДНИМ return: отдельной ветки
+    // «уже есть» с другим текстом нет. Ключ статуса в хвосте (ступень 1
+    // контура, 12.10) случайный на каждый вызов и новую от прежней не отличает.
+    expect(fn).toContain('findRecentLeadByCommentPrefix(phone, bookingPrefix)');
+    expect(fn).toMatch(/const leadId = existing \?\? await createLead\(/);
+    expect(fn).not.toMatch(/if \(existing\)/);
+    expect((fn.match(/return accepted/g) ?? []).length).toBe(1);
+    expect(fn.trimEnd()).toMatch(/return accepted \+ keyLine\(await issueRequestKey\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name\)\);\s*\}$/);
     expect(fn).not.toMatch(/номер \$\{leadId\}/);
   });
 

@@ -167,12 +167,15 @@ describe('роут MCP', () => {
   });
 
   it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка', () => {
+    // Бронь и вахтовка: повтор и новая заявка выходят одним return, ключ
+    // выдаётся в нём — на существующий лид или только что созданный.
     const issued = ROUTE.match(/keyLine\(await issueRequestKey\(/g) ?? [];
-    expect(issued.length).toBe(5);
+    expect(issued.length).toBe(3);
     expect(ROUTE).toContain("issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name)");
     expect(ROUTE).toContain('keyLine(statusKey)');
-    expect(ROUTE).toContain("issueRequestKey({ leadId: existing }, BOOKING_REQUEST_TOOL.name)");
+    expect(ROUTE).toContain("issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name)");
     expect(ROUTE).toContain("issueRequestKey({ leadId }, CREATE_LEAD_TOOL.name)");
-    expect(ROUTE).toContain("issueRequestKey({ leadId: existing }, REQUEST_CHARTER_TOOL.name)");
+    expect(ROUTE).toContain("issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name)");
+    expect((ROUTE.match(/const leadId = existing \?\? await createLead\(/g) ?? []).length).toBe(2);
   });
 });

@@ -365,12 +365,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     + planAttachNote(planAttach);
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
-  if (existing) {
-    // Ключ выдаётся и на повтор — случайный, он не различает новую и прежнюю.
-    return accepted + keyLine(await issueRequestKey({ leadId: existing }, BOOKING_REQUEST_TOOL.name));
-  }
-
-  const leadId = await createLead({
+  // Повтор (тот же телефон, тур и дата за 24 ч) идёт тем же выходом, что и
+  // новая заявка: текст тот же, второго лида нет, а ключ статуса — свой на
+  // каждый вызов (случайный, новую от прежней он не отличает).
+  const leadId = existing ?? await createLead({
     name,
     phone,
     comment: leadComment,
@@ -483,9 +481,8 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // уже просил эту машину»): см. charterAcceptedText и заявку на бронь.
   const accepted = charterAcceptedText(facts, phone, getPublicBaseUrl());
   const existing = await findRecentLeadByCommentPrefix(phone, charterDedupPrefix(carrier.name, dateFrom));
-  if (existing) return accepted + keyLine(await issueRequestKey({ leadId: existing }, REQUEST_CHARTER_TOOL.name));
-
-  const leadId = await createLead({
+  // Повтор идёт тем же выходом, что и новая заявка (см. заявку на бронь).
+  const leadId = existing ?? await createLead({
     name,
     phone,
     comment: leadComment,
