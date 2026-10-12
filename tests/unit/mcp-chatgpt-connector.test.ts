@@ -108,11 +108,29 @@ describe('search', () => {
     expect(out.results[0]).toEqual({ id: 'place:kurilskoe-ozero', title: 'Курильское озеро', url: 'https://vedarai.ru/places/kurilskoe-ozero' });
     expect(out.results[1].id).toBe('tour:7');
     for (const r of out.results) expect(r.url).toMatch(/^https:\/\/vedarai\.ru\//);
-    // Параметры: запрос и шаблон ILIKE с экранированием, без конкатенации.
+    // Параметры: запрос для similarity и шаблон ILIKE на КАЖДОЕ слово (основы),
+    // без конкатенации. До 12.10 вся строка шла одним куском, и пример из
+    // описания инструмента на проде отвечал пусто.
     for (const call of query.mock.calls) {
-      expect(call[1]).toEqual(['Курильское озеро', '%Курильское озеро%']);
+      expect(call[1]).toEqual(['Курильское озеро', '%курильск%', '%озер%']);
       expect(call[0]).not.toMatch(/\|\| *'%'/);
+      expect(call[0]).toContain('ILIKE $3');
     }
+  });
+
+  it('ранг — число совпавших слов раньше похожести: запись с двумя словами выше записи с одним', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM places')) {
+        return { rows: [
+          { key: 'ozero-tolmacheva', title: 'Озеро Толмачёва', score: 0.7, hits: 1 },
+          { key: 'kurilskoe-ozero', title: 'Курильское озеро', score: 0.4, hits: 2 },
+        ] };
+      }
+      return { rows: [] };
+    });
+    const out = await searchDocuments('Курильское озеро медведи', BASE);
+    expect(out.results.map((r) => r.id)).toEqual(['place:kurilskoe-ozero', 'place:ozero-tolmacheva']);
+    expect(query.mock.calls[0][1]).toEqual(['Курильское озеро медведи', '%курильск%', '%озер%', '%медве%']);
   });
 
   it('короткий запрос — отказ по входу (McpUserError), база не трогается', async () => {
