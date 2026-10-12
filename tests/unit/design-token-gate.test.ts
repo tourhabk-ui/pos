@@ -3,16 +3,21 @@
  *
  * Гейт (`scripts/design-token-gate.mjs`) рендерит страницы и сверяет палитру с
  * токенами `app/globals.css`; исключения живут в allowlist и не красят прогон.
- * Ровно поэтому у него два способа тихо выродиться:
+ * Ровно поэтому у него несколько способов тихо выродиться:
  *  · allowlist разрастается записями без причины — и «исключение» перестаёт
  *    отличаться от «забыли»;
  *  · токены перестают вычитываться из globals.css (переезд файла, свой список
- *    в скрипте) — тогда нарушением становится всё или ничего.
+ *    в скрипте) — тогда нарушением становится всё или ничего;
+ *  · браузер ставится не той версией Playwright, что бандлит извлекатель —
+ *    дрейф 17.08–12.10: 67 красных прогонов подряд с диагнозом «приложение
+ *    недоступно» при живом приложении (#2378). Теперь пин один (в скрипте),
+ *    браузер ставит сам dembrandt, а недоступность — измеренный факт.
  * Здесь проверяется то, что можно проверить без запущенного приложения.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -35,14 +40,66 @@ describe('токен-гейт: источник истины — globals.css', (
   it('нарушение красит прогон, а не только печатается', () => {
     expect(GATE).toMatch(/process\.exit\(1\)/);
   });
+});
 
-  it('недоступное приложение — не зелёный вердикт', () => {
+describe('три исхода, не два (§4.0)', () => {
+  it('недоступное приложение — не зелёный вердикт и не вина браузера: проба адреса до запуска браузера', () => {
     // Молча зелёный гейт хуже отсутствующего: он создаёт ложную уверенность.
-    expect(GATE).toMatch(/process\.exit\(2\)/);
+    expect(GATE).toMatch(/async function probeApp\(\)/);
+    expect(GATE).toMatch(/приложение недоступно по BASE_URL — браузер не запускался/);
+    // Проба стоит ДО извлечения: браузер при мёртвом адресе не запускается.
+    expect(GATE.indexOf('await probeApp()')).toBeLessThan(GATE.indexOf('data = extract()'));
+    // Поведением: закрытый порт → код 2 и названная причина, без запуска dembrandt.
+    const run = spawnSync(process.execPath, ['scripts/design-token-gate.mjs'], {
+      cwd: ROOT,
+      env: { ...process.env, BASE_URL: 'http://127.0.0.1:9', GATE_PATHS: '/sos' },
+      encoding: 'utf-8',
+      timeout: 60_000,
+    });
+    expect(run.status).toBe(2);
+    const lines = run.stdout.trim().split('\n').map((l) => JSON.parse(l) as { stage: string; message: string; url?: string });
+    expect(lines.at(-1)).toMatchObject({ stage: 'ERROR', message: expect.stringContaining('приложение недоступно'), url: 'http://127.0.0.1:9/sos' });
+    expect(run.stdout).not.toMatch(/палитра/);
   });
 
-  it('версия извлекателя закреплена', () => {
-    expect(GATE).toMatch(/dembrandt@\d+\.\d+\.\d+/);
+  it('отказ браузера или извлекателя при живом приложении назван отдельно, с подсказкой про браузер', () => {
+    expect(GATE).toMatch(/браузер или извлекатель не сработали при живом приложении/);
+    expect(GATE).toMatch(/hint: 'поставить браузер под закреплённый dembrandt: node scripts\/design-token-gate\.mjs --install-browser'/);
+  });
+
+  it('пустая палитра — отказ (код 2), а не «нарушений нет»', () => {
+    expect(GATE).toMatch(/if \(palette\.length === 0\) \{[\s\S]{0,500}?process\.exit\(2\);/);
+    expect(GATE).toMatch(/палитра пуста/);
+  });
+});
+
+describe('одна версия на всё: пин dembrandt и браузер от него же', () => {
+  it('версия извлекателя закреплена точно, без диапазона', () => {
+    expect(GATE).toMatch(/const DEMBRANDT = 'dembrandt@\d+\.\d+\.\d+';/);
+    expect(GATE).not.toMatch(/dembrandt@[\^~]/);
+  });
+
+  it('браузер ставит сам dembrandt того же пина; своей версии Playwright у workflow нет', () => {
+    expect(GATE).toMatch(/\['--yes', DEMBRANDT, 'install-browser', '--with-deps', 'chromium'\]/);
+    expect(GATE).toMatch(/process\.argv\.includes\('--install-browser'\)/);
+    expect(WORKFLOW).toMatch(/run: node scripts\/design-token-gate\.mjs --install-browser/);
+    // Вторая версия Playwright в workflow — ровно тот дрейф, что держал гейт красным.
+    // Судятся шаги, а не комментарии: комментарий как раз и рассказывает про 1.62.1.
+    const steps = WORKFLOW.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+    expect(steps).not.toMatch(/playwright@\d|playwright install|playwright-core/);
+    // Сначала браузер, потом гейт.
+    expect(WORKFLOW.indexOf('--install-browser')).toBeLessThan(WORKFLOW.lastIndexOf('run: node scripts/design-token-gate.mjs'));
+  });
+
+  it('workflow зовёт скрипт по проду ночью и рукой', () => {
+    expect(WORKFLOW).toMatch(/run: node scripts\/design-token-gate\.mjs\s*$/m);
+    expect(WORKFLOW).toMatch(/schedule:/);
+    expect(WORKFLOW).toMatch(/workflow_dispatch:/);
+  });
+
+  it('локальный запуск есть в npm-скриптах', () => {
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['design:tokens']).toMatch(/design-token-gate\.mjs/);
   });
 });
 
@@ -63,19 +120,5 @@ describe('allowlist: исключение с причиной, а не свал�
     for (const color of Object.keys(ALLOWLIST.colors)) {
       expect(tokens.has(color), `${color} есть в globals.css — исключение лишнее`).toBe(false);
     }
-  });
-});
-
-describe('гейт действительно запускается', () => {
-  it('workflow зовёт скрипт и ставит браузер под закреплённую версию', () => {
-    expect(WORKFLOW).toMatch(/node scripts\/design-token-gate\.mjs/);
-    const pinned = GATE.match(/dembrandt@(\d+\.\d+\.\d+)/)?.[1];
-    expect(pinned).toBeTruthy();
-    expect(WORKFLOW).toMatch(/playwright@\d+\.\d+\.\d+ install/);
-  });
-
-  it('локальный запуск есть в npm-скриптах', () => {
-    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
-    expect(pkg.scripts['design:tokens']).toMatch(/design-token-gate\.mjs/);
   });
 });

@@ -32,10 +32,14 @@ jobs:
         with:
           node-version: '22'
 
-      # Версия ровно та, что бандлит закреплённый в скрипте dembrandt@0.26.1:
-      # чужая ревизия Chromium ему не подходит, и он уходит в download.
-      - name: Chromium для Playwright
-        run: npx --yes playwright@1.62.1 install --with-deps chromium
+      # Браузер ставит сам извлекатель (dembrandt install-browser) — той версией
+      # playwright-core, которую бандлит закреплённый в скрипте dembrandt. До 12.10
+      # здесь стоял playwright@1.62.1, а dembrandt@0.26.1 держал playwright-core
+      # диапазоном ^1.60.0: диапазон уплыл на 1.64, ревизии Chromium разошлись, и
+      # гейт был красным 67 прогонов подряд с диагнозом «приложение недоступно»
+      # (#2378). Пин один, в скрипте; своей версии Playwright у workflow нет.
+      - name: Chromium под закреплённый dembrandt
+        run: node scripts/design-token-gate.mjs --install-browser
 
       - name: Токен-гейт
         env:
