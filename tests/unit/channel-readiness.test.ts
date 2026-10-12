@@ -6,6 +6,8 @@
  * ГОДНОСТЬ, а не строки, и что она не выдаёт ожидание за факт.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   missingFields, SCHEMA_GAPS, MIN_DESCRIPTION_CHARS, type ReadinessRow,
 } from '@/app/api/cron/channel-readiness/route';
@@ -113,5 +115,19 @@ describe('чего перепись не знает — названо вслу�
       ...full, pickup_type: null,
     });
     for (const g of SCHEMA_GAPS) expect(blocking).not.toContain(g.field);
+  });
+});
+
+describe('перепись судит тот же набор туров, что витрина', () => {
+  const ROUTE = readFileSync(join(process.cwd(), 'app/api/cron/channel-readiness/route.ts'), 'utf-8');
+
+  it('предикат живого тура — publicTourSql, как у фидов и operator-reach; черновики считаются отдельно, не как «не готов»', () => {
+    // 12.10: перепись брала все активные, включая неопубликованные, и
+    // насчитала 42 тура против 37 у витрины — пять черновиков числились
+    // «не готовыми» к площадке, куда они не попали бы при любых полях.
+    expect(ROUTE).toContain("WHERE ${publicTourSql('ot')}");
+    expect(ROUTE).not.toMatch(/WHERE ot\.is_active = TRUE\s*AND ot\.deleted_at IS NULL\s*ORDER BY/);
+    expect(ROUTE).toContain('drafts_excluded');
+    expect(ROUTE).toMatch(/COALESCE\(ot\.is_published, FALSE\) = FALSE/);
   });
 });

@@ -22,6 +22,15 @@
  * проведения, политика отмены, мгновенное подтверждение). Что из этого
  * площадка потребует — выяснится в переговорах; выдавать ожидание за факт
  * здесь нельзя, потому что по этой цифре будут принимать решение.
+ *
+ * КАКОЙ ТУР СЧИТАЕТСЯ (12.10). Тот же набор, что у фидов Авито и Яндекса
+ * (lib/channels/ready-tours: `is_active AND is_published`) и у переписи
+ * достижимости операторов (publicTourSql). До 12.10 перепись брала все
+ * активные, включая неопубликованные черновики: prod-check 112 насчитал 42
+ * тура против 37 у витрины, и пять черновиков числились «не готовыми» к
+ * площадке, на которую они не попали бы ни при каких полях. Черновики
+ * считаются отдельно (`drafts_excluded`) — это третье состояние, а не
+ * «не готов».
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -29,6 +38,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { MIN_DESCRIPTION_CHARS, missingFields, SCHEMA_GAPS, type ReadinessRow } from '@/lib/tours/readiness';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -72,10 +82,19 @@ export async function GET(req: NextRequest) {
         ), 0)                                               AS program_steps
       FROM operator_tours ot
       LEFT JOIN partners p ON p.id = ot.operator_id
-      WHERE ot.is_active = TRUE
-        AND ot.deleted_at IS NULL
+      -- Шлюз витрины (publicTourSql): неопубликованный черновик на чужую
+      -- площадку не попадёт, и считать его «не готовым» — завышать пробел.
+      WHERE ${publicTourSql('ot')}
       ORDER BY ot.id
     `);
+
+    // Черновики — активные, но не опубликованные: названы отдельно, чтобы
+    // «не готов» не смешивалось с «ещё не выложен».
+    const { rows: [draftRow] } = await pool.query<{ drafts: number }>(
+      `SELECT COUNT(*)::int AS drafts
+         FROM operator_tours ot
+        WHERE ot.is_active = TRUE AND ot.deleted_at IS NULL AND COALESCE(ot.is_published, FALSE) = FALSE`,
+    );
 
     const perTour = rows.map((r) => ({
       id: r.id,
@@ -103,6 +122,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       probe: 'channel_readiness_v1',
       tours_active: rows.length,
+      drafts_excluded: draftRow?.drafts ?? null,
       ready: ready.length,
       not_ready: perTour.length - ready.length,
       // Ноль активных туров — это отказ переписи, а не «всё готово».
