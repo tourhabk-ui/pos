@@ -329,6 +329,55 @@ jobs:
             echo "::warning::Большой вход отвергнут при прошедших малых — API судит цену запроса заранее, и черта ниже цены запроса руки: лимит расхода (Console → Settings → Limits; Workspaces → Default) или баланс меньше показанного."
           fi
 
+      # Прогон 22 (#2396): какой именно из трёх заголовков Claude Code запирает
+      # запрос. Пробы 20 и 21: все три разом — 400 «credit balance is too low»,
+      # без них тот же запрос — 200. Здесь каждый заголовок идёт ОТДЕЛЬНО на
+      # одном токене opus-5, плюс все три на haiku 4.5 (зависит ли черта от
+      # модели) и все три через шлюз Cloudflare (меняет ли путь вердикт).
+      # Исходы названы: заперт только anthropic-beta claude-code-20250219 —
+      # черта продукта Claude Code в Console (включение/лимит), подпись
+      # user-agent/x-app ни при чём; заперт только user-agent — гейт по клиенту;
+      # заперты все по одному — любой признак Claude Code; не заперт ни один
+      # по одиночке — черта срабатывает только на полный набор. Ключ — нигде.
+      - name: С раннера — какой заголовок Claude Code запирает запрос (по одному)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE: ${{ steps.gateway.outputs.base }}
+        run: |
+          set -u
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY не задан — разбор заголовков не пробуется."
+            exit 0
+          fi
+          BODY='{"model":"claude-opus-5","max_tokens":1,"messages":[{"role":"user","content":"Reply with the single word: ok"}]}'
+          probe() { # $1 — подпись исхода, $2 — адрес, $3 — модельное тело, остальное — доп. заголовки
+            local label="$1" url="$2" body="$3"; shift 3
+            local code
+            code=$(curl -s -D /tmp/h.h -o /tmp/h.json -w '%{http_code}' --max-time 60 -X POST \
+              -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' \
+              "$@" -d "$body" "$url" || true)
+            local err rid
+            err=$(jq -r '.error.message // empty' /tmp/h.json 2>/dev/null | head -c 120)
+            rid=$(tr -d '\r' < /tmp/h.h | grep -i '^request-id:' | head -1 | cut -d' ' -f2)
+            echo "$label: HTTP $code${err:+ — $err}${rid:+ [$rid]}"
+            echo "$code"
+          }
+          R1=$(probe 'только anthropic-beta claude-code-20250219, opus-5' https://api.anthropic.com/v1/messages "$BODY" -H 'anthropic-beta: claude-code-20250219' | tee /dev/stderr | tail -1)
+          R2=$(probe 'только user-agent claude-cli, opus-5' https://api.anthropic.com/v1/messages "$BODY" -H 'user-agent: claude-cli/2.1.288 (external, cli)' | tee /dev/stderr | tail -1)
+          R3=$(probe 'только x-app cli, opus-5' https://api.anthropic.com/v1/messages "$BODY" -H 'x-app: cli' | tee /dev/stderr | tail -1)
+          HBODY='{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}'
+          R4=$(probe 'все три заголовка, haiku 4.5' https://api.anthropic.com/v1/messages "$HBODY" -H 'anthropic-beta: claude-code-20250219' -H 'user-agent: claude-cli/2.1.288 (external, cli)' -H 'x-app: cli' | tee /dev/stderr | tail -1)
+          R5=$(probe 'все три заголовка, opus-5, через шлюз Cloudflare' "$BASE/v1/messages" "$BODY" -H 'anthropic-beta: claude-code-20250219' -H 'user-agent: claude-cli/2.1.288 (external, cli)' -H 'x-app: cli' | tee /dev/stderr | tail -1)
+          echo "Исход: beta=$R1 user-agent=$R2 x-app=$R3 все-haiku=$R4 все-шлюз=$R5"
+          if [ "$R1" != "200" ] && [ "$R2" = "200" ] && [ "$R3" = "200" ]; then
+            echo "::warning::Запирает один заголовок anthropic-beta claude-code-20250219 — черта продукта Claude Code в Console (включение или лимит Claude Code), подпись клиента ни при чём."
+          elif [ "$R2" != "200" ] && [ "$R1" = "200" ]; then
+            echo "::warning::Запирает user-agent claude-cli — гейт по клиенту, не по продукту."
+          elif [ "$R1" = "200" ] && [ "$R2" = "200" ] && [ "$R3" = "200" ]; then
+            echo "::warning::По одиночке проходят все — черта срабатывает только на полный набор заголовков."
+          else
+            echo "::warning::Запирает более одного признака: beta=$R1 user-agent=$R2 x-app=$R3."
+          fi
       - name: С раннера — шлюз доводит до Anthropic (контроль самого шлюза)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
