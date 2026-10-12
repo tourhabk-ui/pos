@@ -39,6 +39,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          # История за час — для CODE_PATHS в wait-for-deploy.sh (как у place-coords).
+          fetch-depth: 200
 
       # Замер шёл по ЧУЖОМУ контейнеру — и это уже стоило неверного вывода.
       # Прогон 6 (06.09, 02:16 UTC) сказал «ключ на проде старый», а новый
@@ -56,6 +59,12 @@ jobs:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          # 12.10: с прода проба зовёт один роут, и ждать сборку есть смысл
+          # только когда он (или его импорты) менялись за последний час —
+          # иначе прогон отсиживает до 35 минут ради ответа, который прод
+          # даёт уже сейчас (правило 03.10 в wait-for-deploy.sh). Шаги с
+          # раннера сборки не касаются вовсе.
+          CODE_PATHS: 'app/api/cron/anthropic-path-probe lib/security/timing-safe.ts lib/auth/cron.ts'
         run: bash scripts/wait-for-deploy.sh
 
       - name: Шлюз Cloudflare AI Gateway существует
@@ -124,13 +133,50 @@ jobs:
             "https://api.anthropic.com/v1/models?limit=100")
           echo "Раннер → api.anthropic.com напрямую: HTTP $CODE"
           grep -i '^request-id' /tmp/direct.h || echo "request-id: нет"
+          # Workspace, в котором ключ работает, Anthropic называет в заголовке ответа.
+          grep -i '^anthropic-workspace-id' /tmp/direct.h || echo "anthropic-workspace-id: в ответе нет"
           if [ "$CODE" = "200" ]; then
             echo "Ключ жив. Модели организации:"
             jq -r '.data[].id' /tmp/direct.json 2>/dev/null | head -40
-          else
-            head -c 300 /tmp/direct.json; echo
-            echo "::warning::Напрямую ключ отвергнут (HTTP $CODE) — дело в самом ключе, не в шлюзе."
+            exit 0
           fi
+          head -c 300 /tmp/direct.json; echo
+          # 12.10, третий исход. Ключ «на организацию» (на все workspace) Anthropic
+          # принимает, но требует назвать workspace в каждом запросе — 400 «not
+          # scoped to a workspace». Такой ключ вправе спросить список workspace у
+          # Admin API (ключ без привязки к workspace там допущен); берём Default и
+          # повторяем с заголовком anthropic-workspace-id. Id workspace — не секрет.
+          if [ "$CODE" = "400" ] && grep -qi 'workspace' /tmp/direct.json; then
+            echo "Ключ принят, но не привязан к workspace — спрашиваю список workspace организации."
+            WCODE=$(curl -s -o /tmp/ws.json -w '%{http_code}' --max-time 40 \
+              -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' \
+              "https://api.anthropic.com/v1/organizations/workspaces?include_default=true&limit=50")
+            echo "Admin API /v1/organizations/workspaces: HTTP $WCODE"
+            if [ "$WCODE" != "200" ]; then
+              head -c 300 /tmp/ws.json; echo
+              echo "::warning::Список workspace не отдан — заголовок подобрать не из чего; id искать в Console → Settings → Workspaces."
+              exit 0
+            fi
+            jq -r '.data[] | "\(.id)  \(.name)"' /tmp/ws.json
+            WS=$(jq -r '[.data[] | select(.name == "Default")][0].id // empty' /tmp/ws.json)
+            [ -n "$WS" ] || WS=$(jq -r '.data[0].id // empty' /tmp/ws.json)
+            if [ -z "$WS" ]; then
+              echo "::warning::Workspace в списке нет."
+              exit 0
+            fi
+            RCODE=$(curl -s -o /tmp/retry.json -w '%{http_code}' --max-time 40 \
+              -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' \
+              -H "anthropic-workspace-id: $WS" "https://api.anthropic.com/v1/models?limit=100")
+            echo "Повтор с anthropic-workspace-id: $WS → HTTP $RCODE"
+            if [ "$RCODE" = "200" ]; then
+              echo "С заголовком ключ работает. Модели организации:"
+              jq -r '.data[].id' /tmp/retry.json 2>/dev/null | head -40
+            else
+              head -c 300 /tmp/retry.json; echo
+            fi
+            exit 0
+          fi
+          echo "::warning::Напрямую ключ отвергнут (HTTP $CODE) — дело в самом ключе, не в шлюзе."
 
       - name: С раннера — шлюз доводит до Anthropic (контроль самого шлюза)
         env:
