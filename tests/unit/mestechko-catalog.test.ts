@@ -28,6 +28,13 @@ const CARD = readFileSync(join(ROOT, 'migrations/1216_mestechko_operator_card.sq
 const CARD_SQL = CARD.replace(/--[^\n]*/g, '');
 const TOURS = readFileSync(join(ROOT, 'migrations/1217_mestechko_tours.sql'), 'utf-8');
 const TOURS_SQL = TOURS.replace(/--[^\n]*/g, '');
+const COVERS_SQL = readFileSync(join(ROOT, 'migrations/1221_tour_covers_brighter.sql'), 'utf-8').replace(/--[^\n]*/g, '');
+/**
+ * Снимки, снятые из галерей позднейшей миграцией (1221: стоковый автобус у
+ * вертолётного тура — владелец 12.10). Файла в репозитории нет и быть не
+ * должно: вернувшийся файл снова попал бы в галерею следующим импортом.
+ */
+const REMOVED = [...COVERS_SQL.matchAll(/array_remove\(photos, '(\/images\/mestechko\/[^']+)'\)/g)].map((m) => m[1]);
 
 const SLUGS = [
   'mestechko-vulkan-gorelyy',
@@ -314,17 +321,22 @@ describe('фото туров «Местечка Камчатка»', () => {
       r.photos.forEach((p, i) => {
         expect(p).toBe(`/images/mestechko/${r.slug.replace(/^mestechko-/, '')}-0${i + 1}.jpg`);
         const file = join(ROOT, 'public', p);
+        if (REMOVED.includes(p)) {
+          expect(existsSync(file), `${p} снят миграцией 1221 — файла быть не должно`).toBe(false);
+          return;
+        }
         expect(existsSync(file), p).toBe(true);
         expect(statSync(file).size, p).toBeLessThan(300 * 1024);
       });
     }
   });
 
-  it('оригиналы с сайта в репозитории не лежат, файлов ровно столько, сколько названо, плюс логотип', () => {
+  it('оригиналы с сайта в репозитории не лежат, файлов ровно столько, сколько названо минус снятые, плюс логотип', () => {
     const dir = join(ROOT, 'public/images/mestechko');
     expect(existsSync(join(dir, 'raw'))).toBe(false);
+    expect(REMOVED.length, 'снятый автобус (1221) должен числиться снятым').toBeGreaterThan(0);
     const jpgs = readdirSync(dir).filter((f) => /^[a-z0-9-]+-0\d\.jpg$/.test(f));
-    const named = rows.flatMap((r) => r.photos.map((p) => p.replace('/images/mestechko/', '')));
+    const named = rows.flatMap((r) => r.photos.filter((p) => !REMOVED.includes(p)).map((p) => p.replace('/images/mestechko/', '')));
     expect(jpgs.sort()).toEqual([...named].sort());
     expect(existsSync(join(dir, 'logo.png'))).toBe(true);
   });

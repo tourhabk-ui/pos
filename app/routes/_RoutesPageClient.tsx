@@ -457,6 +457,16 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   })), [mapRoutes, kind]);
 
   const searchPlaceholder = kind === 'place' ? 'Поиск мест…' : 'Поиск маршрутов…';
+  /*
+   * Пока человек ищет, страница — выдача, а не витрина разделов (владелец
+   * 12.10, снимок с телефона: «если я хочу прочесть про место озеро
+   * Толмачёва, оно не очень удобно находится» — найденная карточка стояла
+   * ниже парков, категорий и чипов типов, двумя экранами под строкой
+   * поиска). Строка поиска стоит первой всегда; полосы парков и категорий
+   * и чипы типов — навигация по разделам — при непустом запросе не рисуются:
+   * за строкой сразу туры по запросу и найденные места.
+   */
+  const searching = query.trim().length > 0;
 
   return (
     <>
@@ -482,31 +492,6 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             {meta.total.toLocaleString('ru-RU')} {KIND_TABS.find(t => t.value === kind)?.desc}
           </p>
         </div>
-
-        {toursSlot}
-
-        {/* ── Kind tabs (скрыты в заблокированном разделе /places|/routes) ── */}
-        {!lockedKind && (
-        <div className="flex gap-1 mb-5 border-b border-[var(--border)]">
-          {KIND_TABS.map(tab => (
-            <button
-              key={tab.value}
-              onClick={() => handleKindChange(tab.value)}
-              className={`px-4 py-2.5 text-sm font-semibold transition-all duration-150 border-b-2 -mb-px ${
-                kind === tab.value
-                  ? 'border-[var(--accent)] text-[var(--accent)]'
-                  : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        )}
-
-        {/* ── Природные парки ───────────────────────────────── */}
-        <ParksStrip initialParks={initialParks} />
-        <CategoriesStrip categories={initialCategories} />
 
         {/* ── Search + controls ─────────────────────────────── */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -651,8 +636,37 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           </div>
         )}
 
+        {toursSlot}
+
+        {/* ── Kind tabs (скрыты в заблокированном разделе /places|/routes) ── */}
+        {!lockedKind && (
+        <div className="flex gap-1 mb-5 border-b border-[var(--border)]">
+          {KIND_TABS.map(tab => (
+            <button
+              key={tab.value}
+              onClick={() => handleKindChange(tab.value)}
+              className={`px-4 py-2.5 text-sm font-semibold transition-all duration-150 border-b-2 -mb-px ${
+                kind === tab.value
+                  ? 'border-[var(--accent)] text-[var(--accent)]'
+                  : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        )}
+
+        {/* ── Природные парки и категории — пока не ищут ────── */}
+        {!searching && (
+          <>
+            <ParksStrip initialParks={initialParks} />
+            <CategoriesStrip categories={initialCategories} />
+          </>
+        )}
+
         {/* ── Location type pills (места) ───────────────────── */}
-        {kind === 'place' && (
+        {kind === 'place' && !searching && (
           <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
             {PLACE_TYPES.map(({ value, label, Icon }) => (
               <button
@@ -672,7 +686,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         )}
 
         {/* ── Activity pills (маршруты) ─────────────────────── */}
-        {kind === 'route' && (
+        {kind === 'route' && !searching && (
           <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
             {ACTIVITIES.map(act => (
               <button
