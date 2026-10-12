@@ -15,6 +15,7 @@ import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { getPublicBaseUrl } from '@/lib/config';
+import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH } from '@/lib/a2a/agent-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +39,14 @@ export async function GET() {
       transport: 'streamable-http',
       endpoint: `${base}/api/mcp`,
       documentation: `${base}/llms.txt`,
+      // Тот же агент по A2A (12.10) — для клиентов без MCP: визитки обеих
+      // версий и оба биндинга. Агент, прочитавший один манифест, узнаёт о другом.
+      a2a: {
+        agentCard: `${base}${AGENT_CARD_PATH}`,
+        legacyAgentCard: `${base}${LEGACY_AGENT_CARD_PATH}`,
+        jsonrpc: `${base}${A2A_JSONRPC_PATH}`,
+        rest: `${base}${A2A_REST_PATH}`,
+      },
       // Человекочитаемый первоисточник — для людей и поисковых AI-ответов.
       homepage: `${base}/mcp`,
       // Данные публичные, ключей не требуем — но и писать наружу нечего,

@@ -49,6 +49,7 @@ import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/to
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
+import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
@@ -797,18 +798,64 @@ async function handleToolsCall(
   params: Record<string, unknown>,
 ): Promise<ReturnType<typeof jsonrpcSuccess> | ReturnType<typeof jsonrpcError>> {
   const toolName = typeof params.name === 'string' ? params.name : '';
+  // Свой клиент (метка владельца в адресе коннектора) пишется с флагом и
+  // в спрос не считается — lib/analytics/self-visit, решение 02.10.
+  const self = isSelfMcpCaller(request.nextUrl);
+  const outcome = await runPublicTool({
+    toolName,
+    rawArguments: params.arguments,
+    ip: clientIp(request),
+    userAgent: request.headers.get('user-agent') ?? '',
+    self,
+  });
+  switch (outcome.kind) {
+    case 'unknown_tool': {
+      const unknown = outcome;
+      return jsonrpcError(id, -32602, unknown.message, unknown.data);
+    }
+    case 'rate_limited':
+    case 'refused':
+    case 'failed':
+      return jsonrpcSuccess(id, { content: [{ type: 'text', text: outcome.text }], isError: true });
+    case 'ok': {
+      const { text } = outcome;
+      const handoff = outcome.handoffUrl ? { url: outcome.handoffUrl } : null;
+      // Ссылка — отдельным элементом ответа, не хвостом текста (внешняя
+      // проверка MCP 26.09: «для чистого MCP-клиента — шум»). Клиент,
+      // показывающий всё подряд, увидит её как прежде; клиент, берущий
+      // первый элемент как ответ инструмента, получает чистые данные.
+      const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
+      if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
+      return jsonrpcSuccess(id, { content });
+    }
+  }
+}
+
+/**
+ * Исполнение публичного инструмента — одно на оба протокольных входа:
+ * MCP (`tools/call` выше) и A2A (`app/api/a2a`, 12.10). Лимиты, журнал,
+ * стражи записи и ссылка «продолжить в Ведаре» живут здесь один раз; каждый
+ * вход только переводит исход (lib/mcp/tool-outcome) на свой язык:
+ * JSON-RPC-результат MCP или состояние Task в A2A.
+ */
+export interface PublicToolCall {
+  toolName: string;
+  rawArguments: unknown;
+  ip: string;
+  userAgent: string;
+  /** Свой клиент (метка владельца в адресе коннектора) — вне счёта спроса. */
+  self: boolean;
+}
+
+export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOutcome> {
+  const { toolName, ip, userAgent, self } = call;
   // Строка с JSON-объектом читается как объект; прочее не-объектное — как
   // пустота, но с запомненной формой для отказа и журнала (tool-arguments).
-  const read = readToolArguments(params.arguments);
+  const read = readToolArguments(call.rawArguments);
   const toolArgs = read.args;
 
   // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в
   // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
-  const ip = clientIp(request);
-  const userAgent = request.headers.get('user-agent') ?? '';
-  // Свой клиент (метка владельца в адресе коннектора) пишется с флагом и
-  // в спрос не считается — lib/analytics/self-visit, решение 02.10.
-  const self = isSelfMcpCaller(request.nextUrl);
 
   // Rate-limit до исполнения и до любой записи в базу: превышение — обычный
   // tool-ответ с isError, агент его прочитает и подождёт (429 на JSON-RPC
@@ -825,12 +872,12 @@ async function handleToolsCall(
     }
     // Окно записи — десять минут, чтения — минута; общий текст «подождите
     // минуту» на записи обещал неправду (проверка MCP 29.09).
-    return jsonrpcSuccess(id, {
-      content: [{ type: 'text', text: isWrite
+    return {
+      kind: 'rate_limited',
+      text: isWrite
         ? 'Слишком много заявок с этого адреса — подождите час и повторите.'
-        : 'Слишком много запросов — подождите минуту и повторите.' }],
-      isError: true,
-    });
+        : 'Слишком много запросов — подождите минуту и повторите.',
+    };
   }
 
   // Клиент мог не звать рукопожатие вовсе — тогда род из заголовка
@@ -846,7 +893,7 @@ async function handleToolsCall(
     // Списком живых имён и ближайшим по написанию, а не голым отказом:
     // клиенты зовут старые названия и не узнают, чем заменить (02.10).
     const unknown = unknownToolResponse(toolName);
-    return jsonrpcError(id, -32602, unknown.message, unknown.data);
+    return { kind: 'unknown_tool', message: unknown.message, data: unknown.data };
   }
 
   const startedAt = Date.now();
@@ -860,10 +907,7 @@ async function handleToolsCall(
     // несостоявшемуся ответу (проверка MCP 29.09).
     if (text === TOOL_EXECUTION_FAILED) {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', errorCode: 'tool_failed', durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
-      return jsonrpcSuccess(id, {
-        content: [{ type: 'text', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' }],
-        isError: true,
-      });
+      return { kind: 'failed', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' };
     }
     logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
 
@@ -877,14 +921,7 @@ async function handleToolsCall(
     const handoff = target
       ? await issueMcpHandoff({ mcpInvocationId: invocationId, toolName, target })
       : null;
-
-    // Ссылка — отдельным элементом ответа, не хвостом текста (внешняя
-    // проверка MCP 26.09: «для чистого MCP-клиента — шум»). Клиент,
-    // показывающий всё подряд, увидит её как прежде; клиент, берущий
-    // первый элемент как ответ инструмента, получает чистые данные.
-    const content: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-    if (handoff) content.push({ type: 'text', text: `Продолжить в Ведаре: ${handoff.url}` });
-    return jsonrpcSuccess(id, { content });
+    return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое
     // исключение уходит общим текстом, подробность — в лог: раньше аноним
@@ -910,10 +947,9 @@ async function handleToolsCall(
       userAgent,
       self,
     });
-    return jsonrpcSuccess(id, {
-      content: [{ type: 'text', text: userFacing ? toolErr.message : MCP_INTERNAL_ERROR_TEXT }],
-      isError: true,
-    });
+    return userFacing
+      ? { kind: 'refused', text: toolErr.message }
+      : { kind: 'failed', text: MCP_INTERNAL_ERROR_TEXT };
   }
 }
 
