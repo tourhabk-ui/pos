@@ -115,9 +115,10 @@ describe('фиолетовый — токен --purple, не хардкод (р�
     // Судится код, не комментарий: шапка компонента как раз рассказывает про прежний #a78bfa.
     const card = read('components/safety/SatelliteDictationCard.tsx').replace(/^\s*\/\/.*$/gm, '');
     expect(card).not.toMatch(/#a78bfa/i);
-    expect(card.match(/var\(--purple\)/g)?.length).toBeGreaterThanOrEqual(2);
-    // Карточка тёмная в обеих темах: токены внутри берут тёмные значения.
-    expect(card).toMatch(/<div data-theme="dark" style=\{\{/);
+    expect(card.match(/var\(--purple\)/g)?.length).toBeGreaterThanOrEqual(1);
+    // Без data-theme на корне: токен-гейт CI (scripts/token-gate.mjs) красит любое
+    // переопределение --accent/--danger на элементе /sos как теневое.
+    expect(card).not.toMatch(/data-theme=/);
     expect(read('CLAUDE.md')).toMatch(/^\| `--purple` \| `#7C3AED` \| `#A855F7` \|/m);
     expect(read('.claude/DESIGN_SYSTEM.md')).toMatch(/^\| `--purple` \|/m);
     // Узаконенный цвет не живёт в исключениях гейта.

@@ -1,10 +1,14 @@
 'use client';
 
 // Тёмная карточка SOS-экрана: экран всегда тёмный (§2: SOS непрозрачен), белые с альфой —
-// поверх тёмной подложки (допустимо). data-theme="dark" на корне — токены внутри берут
-// тёмные значения в обеих темах. Фиолетовый — токен --purple (решение владельца 12.10:
+// поверх тёмной подложки (допустимо). Фиолетовый — токен --purple (решение владельца 12.10:
 // «фиолетовый можно использовать»; до этого стоял хардкод #a78bfa, который токен-гейт поймал
-// первым же прогоном после починки #2378). #1a1a1a в <option> — фикс нативного дропдауна.
+// первым же прогоном после починки #2378). Без data-theme="dark" на корне: токен-гейт CI
+// (scripts/token-gate.mjs) считает любое переопределение --accent/--danger на элементе /sos
+// теневым — ровно тот класс дефекта, ради которого он есть. Поэтому фиолетовым красятся
+// иконка, рамка и подложка, а текст кнопки — белый: в светлой теме --purple (#7C3AED) на
+// тёмной подложке не дотягивает до AA 4,5:1 для 13px. #1a1a1a в <option> — фикс
+// нативного дропдауна.
 
 import { useState, useCallback } from 'react';
 import { CheckCircle, Copy, Satellite } from 'lucide-react';
@@ -74,7 +78,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
   }, [cardText]);
 
   return (
-    <div data-theme="dark" style={{
+    <div style={{
       borderRadius: '14px',
       border: '1px solid rgba(147,112,219,0.3)',
       background: 'rgba(147,112,219,0.06)',
@@ -227,7 +231,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
             borderRadius: '10px',
             border: '1px solid rgba(147,112,219,0.4)',
             background: copied ? 'rgba(63,185,80,0.15)' : 'rgba(147,112,219,0.15)',
-            color: copied ? 'var(--success)' : 'var(--purple)',
+            color: '#fff',
             fontWeight: 700,
             fontSize: '13px',
             cursor: 'pointer',
