@@ -238,12 +238,20 @@ describe('request_charter через MCP: заявка принята', () => {
     expect(withTo.text).toContain(`по ${inDays(32)}`);
   });
 
-  it('повтор заявки: ответ тот же, второго лида нет', async () => {
+  it('повтор заявки: ответ тот же, кроме ключа статуса — он у каждого вызова свой; второго лида нет', async () => {
     const first = await text(await POST(call(base())));
     recentLeadMock.mockResolvedValue('lead-1');
     createLeadMock.mockClear();
     const again = await text(await POST(call(base())));
-    expect(again.text).toBe(first.text);
+    // Ключ статуса (ступень 1 контура, 12.10) случайный на каждый вызов и
+    // одинаков по форме у новой и повторной заявки: по нему не отличить,
+    // что заявка уже была (анти-оракул 29.09). Сам ответ — тот же.
+    const keyOf = (t: string) => /Ключ статуса заявки: ([A-Za-z0-9_-]+)/.exec(t)?.[1] ?? '';
+    const sansKey = (t: string) => t.replace(keyOf(t), '<ключ>');
+    expect(keyOf(first.text)).not.toBe('');
+    expect(keyOf(again.text)).not.toBe('');
+    expect(keyOf(again.text)).not.toBe(keyOf(first.text));
+    expect(sansKey(again.text)).toBe(sansKey(first.text));
     expect(createLeadMock).not.toHaveBeenCalled();
     expect(String((recentLeadMock.mock.calls.at(-1) as unknown as [string, string])[1])).toBe(`[Заявка на машину] «Шатун», с ${base().date_from},`);
   });

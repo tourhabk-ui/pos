@@ -74,6 +74,7 @@ export const SKILL_TAGS: Record<string, string[]> = {
   create_booking_request: ['kamchatka', 'request', 'booking', 'human-confirmed', 'consent'],
   create_stay_request:    ['kamchatka', 'request', 'stay', 'human-confirmed', 'consent'],
   request_charter:        ['kamchatka', 'request', 'charter', 'vakhtovka', 'human-confirmed', 'consent'],
+  get_request_status:     ['kamchatka', 'request', 'status', 'operator-answer'],
 };
 
 /** Пример аргументов для DataPart — там, где форма однозначна; иначе пусто. */
