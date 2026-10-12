@@ -51,6 +51,7 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
+import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine } from '@/lib/mcp/request-status';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
@@ -251,11 +252,13 @@ async function requestSeatsFromOperator(a: {
     return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
+  const statusKey = await issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name);
   return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
     + `Места этим запросом НЕ закреплены, и это не оплата: если оператор ответит «Есть места», заявка подтвердится, ${seatRequestPaymentNote()}. `
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
     + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
-    + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.';
+    + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.'
+    + keyLine(statusKey);
 }
 
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
@@ -363,7 +366,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   if (existing) {
-    return accepted;
+    // Ключ выдаётся и на повтор — случайный, он не различает новую и прежнюю.
+    return accepted + keyLine(await issueRequestKey({ leadId: existing }, BOOKING_REQUEST_TOOL.name));
   }
 
   const leadId = await createLead({
@@ -383,7 +387,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
-  return accepted;
+  return accepted + keyLine(await issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name));
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
@@ -479,7 +483,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // уже просил эту машину»): см. charterAcceptedText и заявку на бронь.
   const accepted = charterAcceptedText(facts, phone, getPublicBaseUrl());
   const existing = await findRecentLeadByCommentPrefix(phone, charterDedupPrefix(carrier.name, dateFrom));
-  if (existing) return accepted;
+  if (existing) return accepted + keyLine(await issueRequestKey({ leadId: existing }, REQUEST_CHARTER_TOOL.name));
 
   const leadId = await createLead({
     name,
@@ -500,7 +504,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');
   }
-  return accepted;
+  return accepted + keyLine(await issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name));
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
@@ -537,7 +541,8 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   // Номер не называется, как и у заявки на бронь: createLead на точном дубле
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
   // такой телефон с таким текстом уже писал (проверка MCP 29.09).
-  return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach);
+  return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach)
+    + keyLine(await issueRequestKey({ leadId }, CREATE_LEAD_TOOL.name));
 }
 
 /**
@@ -676,6 +681,8 @@ async function executeTool(
   // Пара коннекторов ChatGPT (search/fetch, ступень 2): не из реестра
   // Кузьмича, свои схемы и свой исполнитель (lib/mcp/connector-tools).
   if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, rawArgs);
+  // Состояние заявки по ключу (ступень 1 контура): свой исполнитель, JSON как у пары.
+  if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
   // trim, обрезка длины), затем тот же исполнитель.
@@ -946,7 +953,7 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
     // search/fetch отдают JSON: тот же объект уходит structuredContent (MCP)
     // и DataPart (A2A). Текст от этого не меняется — ChatGPT читает его как
     // JSON-строку, остальные клиенты — как обычный ответ.
-    const structured = CONNECTOR_TOOL_NAMES.has(toolName) ? parseStructured(text) : undefined;
+    const structured = CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined;
     return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое
