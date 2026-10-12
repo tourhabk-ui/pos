@@ -3,11 +3,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, Filter, Edit2, Trash2, Eye, EyeOff, CheckCircle, XCircle,
-  ChevronLeft, ChevronRight, X, Save, MapPin, Clock, Users, DollarSign,
-  Mountain, Thermometer, Fish, Wind, Anchor, Footprints, Plus, Images,
+  ChevronLeft, ChevronRight, X, Save, Clock, Users, DollarSign,
+  Plus, Images,
   Upload, Loader2,
 } from 'lucide-react';
 import { readApiResponse } from '@/lib/http/api-response';
+import { activityIcon } from '@/lib/tours/activity-icons';
 import { locationTypeLabel, LOCATION_TYPES } from '@/lib/places/location-types';
 
 // ─────────────────────────────────────────────
@@ -72,15 +73,11 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 
 function ActivityIcon({ type, className }: { type: string; className?: string }) {
   const cls = className || 'w-3.5 h-3.5';
-  switch (type) {
-    case 'trekking': return <Footprints className={cls} />;
-    case 'thermal': return <Thermometer className={cls} />;
-    case 'fishing': return <Fish className={cls} />;
-    case 'boat_trip': return <Anchor className={cls} />;
-    case 'helicopter': return <Wind className={cls} />;
-    case 'volcano': return <Mountain className={cls} />;
-    default: return <MapPin className={cls} />;
-  }
+  // Значок — из единого словаря (lib/tours/activity-icons): здесь вертолёт
+  // был «ветром», а вулкан — горой, не как на витрине. createElement, а не
+  // «const Icon = …; <Icon/>»: линтер React Compiler читает второе как
+  // компонент, созданный в рендере, хотя это поиск в словаре.
+  return React.createElement(activityIcon(type), { className: cls });
 }
 
 function formatPrice(price: number) {

@@ -7,8 +7,9 @@
  * мгновенный, без внешних API.
  */
 
-import { Mountain, Fish, PawPrint, Snowflake, Anchor, Plane, Car, Compass, Waves, Droplets } from 'lucide-react';
+import { Mountain, Compass, Waves, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
 
 interface GradientConfig {
   gradient: string;
@@ -16,29 +17,34 @@ interface GradientConfig {
   label: string;
 }
 
+/** Крупный значок рода — из единого словаря (12.10), не своя копия. */
+function big(Icon: LucideIcon): ReactNode {
+  return <Icon size={48} />;
+}
+
 const ACTIVITY_GRADIENTS: Record<string, GradientConfig> = {
-  fishing:    { gradient: 'from-[#1a3a5c] via-[#2568B0] to-[#0a2240]',  icon: <Fish    size={48} />, label: 'Рыбалка' },
-  trekking:   { gradient: 'from-[#2d1b00] via-[#8B5E3C] to-[#1a3a1a]',  icon: <Mountain size={48} />, label: 'Трекинг' },
-  volcano:    { gradient: 'from-[#3d0a00] via-[#D44A0C] to-[#1a1a00]',  icon: <Mountain size={48} />, label: 'Вулканы' },
-  bears:      { gradient: 'from-[#1a1a0a] via-[#4a3520] to-[#0d2200]',  icon: <PawPrint size={48} />, label: 'Медведи' },
-  winter:     { gradient: 'from-[#0a1a2a] via-[#1e4060] to-[#001a3d]',  icon: <Snowflake size={48} />, label: 'Зима' },
-  diving:     { gradient: 'from-[#001a2e] via-[#003d5c] to-[#000d1a]',  icon: <Anchor   size={48} />, label: 'Дайвинг' },
-  helicopter: { gradient: 'from-[#0d1a2e] via-[#2568B0] to-[#3d1a0d]',  icon: <Plane    size={48} />, label: 'Вертолёт' },
-  offroad:    { gradient: 'from-[#1a1a00] via-[#4a4520] to-[#0d1a00]',  icon: <Car      size={48} />, label: 'Внедорожник' },
+  fishing:    { gradient: 'from-[#1a3a5c] via-[#2568B0] to-[#0a2240]',  icon: big(activityIcon('fishing')), label: 'Рыбалка' },
+  trekking:   { gradient: 'from-[#2d1b00] via-[#8B5E3C] to-[#1a3a1a]',  icon: big(activityIcon('trekking')), label: 'Трекинг' },
+  volcano:    { gradient: 'from-[#3d0a00] via-[#D44A0C] to-[#1a1a00]',  icon: big(activityIcon('volcano')), label: 'Вулканы' },
+  bears:      { gradient: 'from-[#1a1a0a] via-[#4a3520] to-[#0d2200]',  icon: big(activityIcon('bears')), label: 'Медведи' },
+  winter:     { gradient: 'from-[#0a1a2a] via-[#1e4060] to-[#001a3d]',  icon: big(activityIcon('winter_hiking')), label: 'Зима' },
+  diving:     { gradient: 'from-[#001a2e] via-[#003d5c] to-[#000d1a]',  icon: big(activityIcon('diving')), label: 'Дайвинг' },
+  helicopter: { gradient: 'from-[#0d1a2e] via-[#2568B0] to-[#3d1a0d]',  icon: big(activityIcon('helicopter')), label: 'Вертолёт' },
+  offroad:    { gradient: 'from-[#1a1a00] via-[#4a4520] to-[#0d1a00]',  icon: big(activityIcon('jeep_safari')), label: 'Внедорожник' },
 };
 
 const LOCATION_GRADIENTS: Record<string, GradientConfig> = {
   volcano:   ACTIVITY_GRADIENTS.volcano,
   sea:       ACTIVITY_GRADIENTS.diving,
   river:     ACTIVITY_GRADIENTS.fishing,
-  forest:    { gradient: 'from-[#0d1a0d] via-[#1a3d1a] to-[#0a2a0a]',  icon: <Mountain size={48} />, label: 'Тайга' },
-  thermal:   { gradient: 'from-[#2a0d00] via-[#8B3A0C] to-[#1a0a1a]',  icon: <Compass  size={48} />, label: 'Термальные' },
+  forest:    { gradient: 'from-[#0d1a0d] via-[#1a3d1a] to-[#0a2a0a]',  icon: big(locationIcon('forest')), label: 'Тайга' },
+  thermal:   { gradient: 'from-[#2a0d00] via-[#8B3A0C] to-[#1a0a1a]',  icon: big(activityIcon('thermal')), label: 'Термальные' },
   mountain:  ACTIVITY_GRADIENTS.trekking,
   // Роды, которых не было и которые сваливались в серый «other» с компасом:
   // на карточке «рядом» это и читалось как пустой серый квадрат.
-  lake:      { gradient: 'from-[#06202e] via-[#12546e] to-[#04121c]', icon: <Waves    size={48} />, label: 'Озеро' },
-  hot_spring: { gradient: 'from-[#2a0d00] via-[#8B3A0C] to-[#1a0a1a]', icon: <Droplets size={48} />, label: 'Источник' },
-  geyser:    { gradient: 'from-[#241000] via-[#7a4a12] to-[#140a02]', icon: <Droplets size={48} />, label: 'Гейзер' },
+  lake:      { gradient: 'from-[#06202e] via-[#12546e] to-[#04121c]', icon: big(locationIcon('lake')), label: 'Озеро' },
+  hot_spring: { gradient: 'from-[#2a0d00] via-[#8B3A0C] to-[#1a0a1a]', icon: big(locationIcon('hot_spring')), label: 'Источник' },
+  geyser:    { gradient: 'from-[#241000] via-[#7a4a12] to-[#140a02]', icon: big(locationIcon('geyser')), label: 'Гейзер' },
   waterfall: { gradient: 'from-[#05202a] via-[#186a7a] to-[#03141a]', icon: <Waves    size={48} />, label: 'Водопад' },
   rock:      { gradient: 'from-[#1a1712] via-[#4a4238] to-[#0d0b08]', icon: <Mountain size={48} />, label: 'Скала' },
   other:     { gradient: 'from-[#1a1a1a] via-[#2d2d2d] to-[#0d0d0d]',  icon: <Compass  size={48} />, label: 'Маршрут' },

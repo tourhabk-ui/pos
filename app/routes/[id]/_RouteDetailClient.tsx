@@ -1,16 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { createElement, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { linkKindLabel } from '@/lib/routes/link-kind';
+import { activityIcon } from '@/lib/tours/activity-icons';
 import Image from 'next/image';
 import {
-  ArrowLeft, MapPin, Clock, Calendar, Mountain,
-  AlertTriangle, Users, Send,
+  ArrowLeft, MapPin, Clock, Calendar, AlertTriangle, Users, Send,
   Star, CheckCircle, Phone, ChevronLeft, ChevronRight,
-  TrendingUp, Thermometer, MessageSquare,
-  Fish, Plane, PawPrint, Anchor, Snowflake, Car,
+  TrendingUp, MessageSquare,
   Download, Navigation, ShieldAlert, ExternalLink, FileText,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -276,12 +275,6 @@ interface RouteReview {
 
 // ── Карточка оффера ───────────────────────────────────────────────────────────
 
-const ACTIVITY_ICONS: Record<string, React.ElementType> = {
-  fishing: Fish, trekking: Mountain, thermal: Thermometer,
-  helicopter: Plane, bear_watching: PawPrint, boat_trip: Anchor,
-  snowmobile: Snowflake, jeep: Car, other: MapPin,
-};
-
 function OfferCard({ offer, activityType, onBook }: {
   offer: Offer; activityType: string | null; onBook: () => void;
 }) {
@@ -295,7 +288,6 @@ function OfferCard({ offer, activityType, onBook }: {
     : null;
   const isLowSlots = offer.nextSlots != null && offer.nextSlots > 0 && offer.nextSlots <= 3;
   const cardImage = offer.tourImage || offer.operatorHeroImage;
-  const ActivityIcon = ACTIVITY_ICONS[activityType ?? 'other'] ?? MapPin;
   const seasonStr = formatSeasonDates(offer.seasonStart, offer.seasonEnd);
 
   return (
@@ -318,7 +310,9 @@ function OfferCard({ offer, activityType, onBook }: {
             className="absolute inset-0 flex items-center justify-center"
             style={{ background: `color-mix(in srgb, ${accentColor} 12%, var(--bg-hover))` }}
           >
-            <ActivityIcon className="w-12 h-12 opacity-40" style={{ color: accentColor }} />
+            {/* Значок — из единого словаря (синонимы маршрутов bear_watching/jeep — там же);
+                createElement — чтобы линтер React Compiler не счёл поиск в словаре новым компонентом. */}
+            {createElement(activityIcon(activityType ?? 'other'), { className: 'w-12 h-12 opacity-40', style: { color: accentColor } })}
           </div>
         )}
         {/* Badge типа / сложность */}
