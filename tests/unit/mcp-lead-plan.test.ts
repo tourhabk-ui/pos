@@ -66,7 +66,8 @@ describe('MCP create_lead с plan_id', () => {
     const res = await POST(rpc('tools/call', { name: 'create_lead', arguments: { ...LEAD, plan_id: ID } }));
     const json = await res.json();
     expect(json.result.isError).toBeUndefined();
-    expect(json.result.content[0].text).toBe('Заявка принята. Менеджер Ведара свяжется по указанному телефону.');
+    // Хвост с ключом статуса (ступень 1 контура, 12.10) случайный на вызов — сравнивается только сам ответ.
+    expect(json.result.content[0].text).toMatch(/^Заявка принята\. Менеджер Ведара свяжется по указанному телефону\.( Ключ статуса заявки: [A-Za-z0-9_-]+ — |$)/);
     const sd = (createLeadMock.mock.calls[0]![0] as unknown as { source_data: Record<string, unknown> }).source_data;
     expect(sd.source).toBe('mcp');
     expect(sd.plan_id).toBe(ID);

@@ -94,6 +94,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают
     // HTML, а не JSON-манифест (диагноз 15.08 — Алиса галлюцинировала «MCP нет»).
     { url: `${BASE}/mcp`,                  lastModified: new Date('2026-08-15'), changeFrequency: 'monthly', priority: 0.7 },
+    // Китайский HTML-вход (12.10): поисковики КНР индексируют HTML, а не llms.txt.
+    { url: `${BASE}/zh`,                   lastModified: new Date('2026-10-12'), changeFrequency: 'monthly', priority: 0.7 },
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
     // Дата — ревизия текста плана (кластер или общая PLANS_TEXT_REVISION), а не

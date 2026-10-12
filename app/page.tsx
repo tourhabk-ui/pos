@@ -54,7 +54,8 @@ export const metadata: Metadata = {
   },
   twitter: { card: 'summary_large_image', title: HOME_TITLE, description: HOME_DESCRIPTION, images: [DEFAULT_OG_IMAGE] },
   robots: { index: true, follow: true },
-  alternates: { canonical: '/' },
+  // Китайский вход /zh (12.10): hreflang, чтобы поисковик КНР знал, где китайская версия.
+  alternates: { canonical: '/', languages: { ru: '/', 'zh-CN': '/zh', 'x-default': '/' } },
 }
 
 export default async function Page() {

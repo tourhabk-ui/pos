@@ -48,6 +48,9 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     // search и fetch — пара коннекторов ChatGPT (ступень 2, 12.10): ChatGPT
     // без этих двух имён сервер не подключает, а Кузьмичу поиск по словам
     // не нужен — у него свои инструменты. Живут в lib/mcp/connector-tools.
+    // get_request_status — состояние заявки по ключу из ответа пишущего
+    // инструмента (ступень 1 контура, 12.10): нужен агенту, который вернётся к
+    // человеку с ответом оператора; Кузьмич видит заявку сам.
     const expected = [
       ...Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)),
       'search',
@@ -56,6 +59,7 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
       'create_booking_request',
       'create_stay_request',
       'request_charter',
+      'get_request_status',
     ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);
     // Реестр не должен схлопнуться до старых 4 инструментов

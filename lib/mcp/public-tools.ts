@@ -13,6 +13,7 @@
 
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
+import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 
 /**
  * Не для анонимного публичного входа: жгут внешние квоты и пишут учёт
@@ -187,6 +188,7 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   // чтение записи по id — только чтение, повтор даёт то же.
   search:                READ,
   fetch:                 READ,
+  get_request_status:    READ,
   create_lead:           WRITE,
   create_booking_request: WRITE,
   create_stay_request:   WRITE,
@@ -235,6 +237,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // зовёт только их); форма ответа — по документации OpenAI.
   search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
   fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
+  get_request_status:    { title: 'Request status',        lead: 'Status of a Kamchatka request made via create_lead, create_booking_request or request_charter, by its status key: awaiting operator, confirmed, declined, other date, no answer. No personal data.' },
 };
 
 /**
@@ -251,6 +254,9 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   fetch: {
     id: { lead: 'Record id from search: tour:<id>, place:<slug>, stay:<uuid> or route:<slug>.', example: 'tour:12' },
+  },
+  get_request_status: {
+    key: { lead: 'Status key from the reply of the writing tool, as is.' },
   },
   get_tours: {
     activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking.', example: 'вулканы' },
@@ -414,6 +420,9 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   // двух имён сервер не подключает.
   withAnnotations(SEARCH_TOOL),
   withAnnotations(FETCH_TOOL),
+  // Состояние заявки по ключу (ступень 1 контура, 12.10): тоже не из реестра
+  // Кузьмича — в чате заявку видно и так, ключ нужен внешнему агенту.
+  withAnnotations(GET_REQUEST_STATUS_TOOL),
   withAnnotations(CREATE_LEAD_TOOL),
   withAnnotations(BOOKING_REQUEST_TOOL),
   withAnnotations(STAY_REQUEST_TOOL),

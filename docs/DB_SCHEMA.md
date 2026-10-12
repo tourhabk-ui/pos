@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-12 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1219_a2a_requests.sql`.
+> Снято 2026-10-12 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1220_agent_request_keys.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 269 |
+| Таблиц | 270 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3600 |
-| Внешних ключей | 311 |
+| Колонок | 3609 |
+| Внешних ключей | 313 |
 | Таблиц без единого FK в обе стороны | 78 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -28,7 +28,7 @@
 | [Турагенты (роль agent)](#турагенты-роль-agent) | 4 | `agent_bookings` `agent_clients` `agent_referral_events` `agent_referral_links` |
 | [Лиды и продажи](#лиды-и-продажи) | 14 | `client_communications` `crm_contact_links` `crm_contacts` `crm_events` `crm_inbox_reminders` `crm_tasks` `funnel_events` `lead_activity_log` `lead_followups` `lead_proposals` `leads` `outreach_queue` `sales_campaigns` `sales_outreach_log` |
 | [Кузьмич, чат, RAG](#кузьмич-чат-rag) | 23 | `chat_messages` `chat_sessions` `conversation_messages` `conversation_participants` `conversations` `knowledge_base_articles` `kuzmich_engagement_signals` `kuzmich_safety_reviews` `llm_usage_log` `mcp_clients` `mcp_handoff_events` `mcp_handoffs` `mcp_tool_calls` `mcp_write_attempts` `message_templates` `query_expansion_log` `rag_feedback` `rag_quality_log` `tg_booking_flow` `tg_conversations` `tg_operator_groups` `tg_ratings` `user_ai_memory` |
-| [AI-агенты, эволюция, ядро](#ai-агенты-эволюция-ядро) | 29 | `agent_actions` `agent_approvals` `agent_effects` `agent_entry_hits` `agent_events` `agent_experiments` `agent_knowledge` `agent_knowledge_links` `agent_memory` `agent_memory_edits` `agent_payout_items` `agent_run_history` `agent_sdk_sessions` `agent_tasks` `agent_tools` `ai_actions_log` `approval_execution_log` `board_meeting_sessions` `cron_leases` `evo_agent_state` `evo_evolution_log` `evo_feedback` `evo_growth_issues` `evo_growth_scans` `evo_review_ledger` `external_tools` `intelligence_sources` `legislation_docs` `stakeholder_wishes` |
+| [AI-агенты, эволюция, ядро](#ai-агенты-эволюция-ядро) | 30 | `agent_actions` `agent_approvals` `agent_effects` `agent_entry_hits` `agent_events` `agent_experiments` `agent_knowledge` `agent_knowledge_links` `agent_memory` `agent_memory_edits` `agent_payout_items` `agent_request_keys` `agent_run_history` `agent_sdk_sessions` `agent_tasks` `agent_tools` `ai_actions_log` `approval_execution_log` `board_meeting_sessions` `cron_leases` `evo_agent_state` `evo_evolution_log` `evo_feedback` `evo_growth_issues` `evo_growth_scans` `evo_review_ledger` `external_tools` `intelligence_sources` `legislation_docs` `stakeholder_wishes` |
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
@@ -655,7 +655,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `operator_tour_id bigint!` `rule_type varchar!` `date_from date` `date_to date` `days_before_min integer` `days_before_max integer` `occupancy_min integer` `guests_min integer` `multiplier numeric!` `is_active boolean=` `created_at timestamp=`
 
-**tour_seat_requests** · 31 кол. · PK id · booking_id → operator_bookings.id, operator_id → partners.id, tour_id → operator_tours.id · индексов 7
+**tour_seat_requests** · 31 кол. · PK id · booking_id → operator_bookings.id, operator_id → partners.id, tour_id → operator_tours.id · на неё ссылаются: agent_request_keys · индексов 7
 
 `id uuid!=` `tour_id bigint!` `operator_id uuid!` `tour_date date!` `participants integer!` `tourist_name varchar!` `tourist_phone varchar!` `reply_channel varchar!` `tourist_chat_id bigint` `status_token_hash character!` `status_token_enc text` `status varchar!=` `alt_date date` `booking_id bigint` `booking_access_token_enc text` `failure_reason text` `failure_kind varchar` `operator_delivery varchar` `deadline_at timestamptz!` `answered_at timestamptz` `answered_via varchar` `tourist_notified_at timestamptz` `tourist_notify_attempts integer!=` `referral_code varchar` `source varchar!=` `pd_consent_at timestamptz!` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `created_at timestamptz!=` `updated_at timestamptz!=`
 
@@ -991,7 +991,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `lead_id uuid!` `operator_id uuid` `primary_tour_id text` `alt_tour_ids text[]=` `headline varchar!` `summary text!` `highlights jsonb=` `price_from integer` `price_to integer` `duration_days smallint` `ai_model varchar` `generation_ms integer` `pdf_url text` `status varchar=` `sent_at timestamp` `accepted_at timestamp` `expires_at timestamp=` `created_at timestamp=` `updated_at timestamp=` `bull_signals jsonb=` `bear_risks jsonb=` `conversion_prob smallint` `recommended_action varchar=` `call_strategy text` `verdict_urgency varchar=`
 
-**leads** · 30 кол. · PK id · operator_id → partners.id, proposal_id → lead_proposals.id · на неё ссылаются: lead_activity_log, lead_followups, lead_proposals, operator_bookings · индексов 8 · триггеры: trg_leads_updated_at
+**leads** · 30 кол. · PK id · operator_id → partners.id, proposal_id → lead_proposals.id · на неё ссылаются: agent_request_keys, lead_activity_log, lead_followups, lead_proposals, operator_bookings · индексов 8 · триггеры: trg_leads_updated_at
 
 `id uuid!=` `name varchar!` `phone varchar!` `comment text` `route_id uuid` `route_title varchar` `source_url varchar` `status varchar!=` `created_at timestamptz!=` `updated_at timestamptz!=` `source_data jsonb` `notes text` `ai_score smallint` `ai_summary text` `ai_intent jsonb=` `matched_tour_ids text[]=` `operator_id uuid` `processed_at timestamp` `email varchar` `telegram_chat_id varchar` `group_size smallint=` `budget_rub integer` `desired_dates text` `proposal_id uuid` `source_channel varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `is_self boolean!=`
 
@@ -1150,6 +1150,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **agent_payout_items** · 9 кол. · PK id · agent_user_id → users.id, booking_id → operator_bookings.id, payout_id → commission_payouts.id · индексов 4
 
 `id uuid!=` `payout_id uuid!` `agent_user_id uuid!` `booking_id bigint!` `sale_amount numeric!` `rate numeric!` `amount numeric!` `released_at timestamptz` `created_at timestamptz!=`
+
+**agent_request_keys** · 9 кол. · PK id · lead_id → leads.id, seat_request_id → tour_seat_requests.id · индексов 4
+
+`id uuid!=` `key_hash character!` `lead_id uuid` `seat_request_id uuid` `tool_name text!` `created_at timestamptz!=` `expires_at timestamptz!` `last_read_at timestamptz` `read_count integer!=`
 
 **agent_run_history** · 16 кол. · PK id · индексов 3
 
