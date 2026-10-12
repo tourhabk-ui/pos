@@ -7,7 +7,7 @@ import {
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe, MapPin,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
-  Trash2, Webhook, Gauge, Package, BookUser,} from 'lucide-react';
+  Trash2, Webhook, Gauge, Package, BookUser, Bot,} from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -112,6 +112,9 @@ const SIDEBAR_ITEMS = [
   // MCP — четвёртый канал. Журнал вызовов копился с миграции 861, а входа в
   // него не было: владелец 17.08 искал запросы в админке и не нашёл.
   { href: '/hub/admin/mcp', label: 'Запросы через MCP', icon: Plug, section: 'Каналы' },
+  // A2A — пятый канал (12.10): владелец спросил, кто заходит из ИИ; журнал
+  // a2a_requests и эта страница заведены одним PR, чтобы вход был сразу.
+  { href: '/hub/admin/a2a', label: 'A2A: кто приходит', icon: Bot, section: 'Каналы' },
 
   // Безопасность
   { href: '/hub/admin/safety', label: 'Безопасность', icon: AlertTriangle, section: 'Безопасность' },

@@ -20,13 +20,14 @@ import { MCP_INTERNAL_ERROR_TEXT } from '@/lib/mcp/jsonrpc';
 import { handleA2A } from '@/lib/a2a/handle';
 import { a2aTaskStore } from '@/lib/a2a/task-store';
 import { buildAgentCard } from '@/lib/a2a/agent-card';
-import { a2aError, httpErrorBody, A2A_SUPPORTED_VERSIONS, type A2AError, type A2AOperation, type A2AVersion } from '@/lib/a2a/wire';
+import { a2aError, httpErrorBody, A2A_SUPPORTED_VERSIONS, type A2AError, type A2AOperation, type VersionRead } from '@/lib/a2a/wire';
 import { logText } from '@/lib/log/log-text';
-import { buildExecutors, CORS_HEADERS, optionsResponse, publicBase, versionOf } from '../../_shared';
+import { buildExecutors, CORS_HEADERS, journalA2a, optionsResponse, publicBase, versionOf } from '../../_shared';
 
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ path?: string[] }> };
+type VersionOk = Extract<VersionRead, { ok: true }>;
 
 function restError(err: A2AError): NextResponse {
   const { status, body } = httpErrorBody(err);
@@ -40,11 +41,13 @@ function restOk(result: Record<string, unknown>): NextResponse {
   });
 }
 
-async function run(request: NextRequest, version: A2AVersion, op: A2AOperation, params: unknown): Promise<NextResponse> {
+async function run(request: NextRequest, read: VersionOk, op: A2AOperation, params: unknown, startedAt: number): Promise<NextResponse> {
   try {
-    const out = await handleA2A(op, params, { version }, { executors: buildExecutors(request), store: a2aTaskStore });
+    const out = await handleA2A(op, params, { version: read.version }, { executors: buildExecutors(request), store: a2aTaskStore });
+    journalA2a(request, 'rest', startedAt, { op, version: read, out });
     return out.ok ? restOk(out.result) : restError(out.error);
   } catch (err) {
+    journalA2a(request, 'rest', startedAt, { op, version: read, errorCode: 'Internal' });
     const code = (err as { code?: unknown })?.code;
     console.error('[a2a/rest] операция упала:', op, typeof code === 'string' ? logText(code, 10) : '', logText(err instanceof Error ? err.message : err, 300));
     return restError(a2aError('Internal', MCP_INTERNAL_ERROR_TEXT));
@@ -55,10 +58,16 @@ async function pathOf(ctx: RouteContext): Promise<string> {
   return ((await ctx.params).path ?? []).join('/');
 }
 
-function versionOr400(request: NextRequest): { ok: true; version: A2AVersion } | { ok: false; res: NextResponse } {
+/** Отказ до диспетчера (версия, путь, неподдерживаемая операция) — тоже в журнал. */
+function refuse(request: NextRequest, startedAt: number, version: VersionRead, errorCode: string, err: A2AError): NextResponse {
+  journalA2a(request, 'rest', startedAt, { op: 'invalid', version, errorCode });
+  return restError(err);
+}
+
+function versionOr400(request: NextRequest, startedAt: number): { ok: true; read: VersionOk } | { ok: false; res: NextResponse } {
   const v = versionOf(request);
-  if (v.ok) return { ok: true, version: v.version };
-  return { ok: false, res: restError(a2aError('VersionNotSupported', `Unsupported A2A-Version: ${v.requested}. Supported: ${A2A_SUPPORTED_VERSIONS.join(', ')}`)) };
+  if (v.ok) return { ok: true, read: v };
+  return { ok: false, res: refuse(request, startedAt, v, 'VersionNotSupported', a2aError('VersionNotSupported', `Unsupported A2A-Version: ${v.requested}. Supported: ${A2A_SUPPORTED_VERSIONS.join(', ')}`)) };
 }
 
 const TASK_CANCEL = /^tasks\/([^/:]+):cancel$/;
@@ -74,53 +83,57 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: NextRequest, ctx: RouteContext) {
+  const startedAt = Date.now();
   const path = await pathOf(ctx);
   // Корень биндинга — визитка: человеку и curl удобно, спецификации не мешает.
   if (path === '' || path === 'card') {
+    journalA2a(request, 'rest', startedAt, { op: 'card', version: versionOf(request) });
     return NextResponse.json(buildAgentCard(publicBase()), { headers: { 'Cache-Control': 'public, max-age=3600', ...CORS_HEADERS } });
   }
-  const v = versionOr400(request);
+  const v = versionOr400(request, startedAt);
   if (!v.ok) return v.res;
 
-  if (path === 'tasks') return run(request, v.version, 'ListTasks', {});
-  if (path === 'extendedAgentCard') return run(request, v.version, 'GetExtendedAgentCard', {});
-  if (TASK_PUSH.test(path)) return restError(a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
+  if (path === 'tasks') return run(request, v.read, 'ListTasks', {}, startedAt);
+  if (path === 'extendedAgentCard') return run(request, v.read, 'GetExtendedAgentCard', {}, startedAt);
+  if (TASK_PUSH.test(path)) return refuse(request, startedAt, v.read, 'PushNotificationNotSupported', a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
   const get = TASK_GET.exec(path);
   if (get) {
     const hl = request.nextUrl.searchParams.get('historyLength');
     const historyLength = hl !== null && /^\d+$/.test(hl) ? Number(hl) : undefined;
-    return run(request, v.version, 'GetTask', { id: decodeURIComponent(get[1]), ...(historyLength !== undefined ? { historyLength } : {}) });
+    return run(request, v.read, 'GetTask', { id: decodeURIComponent(get[1]), ...(historyLength !== undefined ? { historyLength } : {}) }, startedAt);
   }
-  return restError(a2aError('MethodNotFound', `Нет такого пути: GET /${path.slice(0, 80)}`));
+  return refuse(request, startedAt, v.read, 'MethodNotFound', a2aError('MethodNotFound', `Нет такого пути: GET /${path.slice(0, 80)}`));
 }
 
 export async function POST(request: NextRequest, ctx: RouteContext) {
+  const startedAt = Date.now();
   const path = await pathOf(ctx);
-  const v = versionOr400(request);
+  const v = versionOr400(request, startedAt);
   if (!v.ok) return v.res;
 
-  if (path === 'message:stream') return restError(a2aError('UnsupportedOperation', UNSUPPORTED_STREAM));
-  if (TASK_SUBSCRIBE.test(path)) return restError(a2aError('UnsupportedOperation', UNSUPPORTED_STREAM));
-  if (TASK_PUSH.test(path)) return restError(a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
+  if (path === 'message:stream') return refuse(request, startedAt, v.read, 'UnsupportedOperation', a2aError('UnsupportedOperation', UNSUPPORTED_STREAM));
+  if (TASK_SUBSCRIBE.test(path)) return refuse(request, startedAt, v.read, 'UnsupportedOperation', a2aError('UnsupportedOperation', UNSUPPORTED_STREAM));
+  if (TASK_PUSH.test(path)) return refuse(request, startedAt, v.read, 'PushNotificationNotSupported', a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
   const cancel = TASK_CANCEL.exec(path);
-  if (cancel) return run(request, v.version, 'CancelTask', { id: decodeURIComponent(cancel[1]) });
+  if (cancel) return run(request, v.read, 'CancelTask', { id: decodeURIComponent(cancel[1]) }, startedAt);
 
   if (path === 'message:send') {
     const raw = await readBodyLimited(request);
-    if (raw === null) return restError(a2aError('InvalidRequest', `Тело больше ${MAX_BODY_BYTES / 1024} КБ`));
+    if (raw === null) return refuse(request, startedAt, v.read, 'BodyTooLarge', a2aError('InvalidRequest', `Тело больше ${MAX_BODY_BYTES / 1024} КБ`));
     let body: unknown;
     try {
       body = JSON.parse(raw);
     } catch {
-      return restError(a2aError('ParseError', 'Тело не JSON'));
+      return refuse(request, startedAt, v.read, 'ParseError', a2aError('ParseError', 'Тело не JSON'));
     }
-    return run(request, v.version, 'SendMessage', body);
+    return run(request, v.read, 'SendMessage', body, startedAt);
   }
-  return restError(a2aError('MethodNotFound', `Нет такого пути: POST /${path.slice(0, 80)}`));
+  return refuse(request, startedAt, v.read, 'MethodNotFound', a2aError('MethodNotFound', `Нет такого пути: POST /${path.slice(0, 80)}`));
 }
 
 export async function DELETE(request: NextRequest, ctx: RouteContext) {
+  const startedAt = Date.now();
   const path = await pathOf(ctx);
-  if (TASK_PUSH.test(path)) return restError(a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
-  return restError(a2aError('MethodNotFound', `Нет такого пути: DELETE /${path.slice(0, 80)}`));
+  if (TASK_PUSH.test(path)) return refuse(request, startedAt, versionOf(request), 'PushNotificationNotSupported', a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
+  return refuse(request, startedAt, versionOf(request), 'MethodNotFound', a2aError('MethodNotFound', `Нет такого пути: DELETE /${path.slice(0, 80)}`));
 }
