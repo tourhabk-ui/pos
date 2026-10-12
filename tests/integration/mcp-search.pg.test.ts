@@ -57,15 +57,18 @@ withPg('search коннектора на настоящем PostgreSQL', () => {
     execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     // Посев: оператор и два опубликованных тура; в описании одного — медведи.
+    // База не пуста: миграции (1176, 1217) сами вставляют туры про Курильское
+    // озеро, поэтому названия тестовых строк уникальны, а ожидания — о порядке
+    // и присутствии, не о точном списке.
     const op = await pool.query<{ id: string }>(
       `INSERT INTO partners (name, category, contact, is_verified, is_public, slug)
        VALUES ('Оператор поиска', 'operator', '{"phone":"+70000000000"}', TRUE, TRUE, 'search-op') RETURNING id`,
     );
     await pool.query(
       `INSERT INTO operator_tours (operator_id, title, description, base_price, max_participants, is_active, is_published, activity_type, difficulty, duration_hours)
-       VALUES ($1, 'Курильское озеро (вертолёт)', 'Медведи на нересте лосося, вертолётная экскурсия.', 105000, 10, TRUE, TRUE, 'helicopter', 'easy', 6),
-              ($1, 'Озеро Толмачёва', 'Джип-тур к озеру.', 14000, 10, TRUE, TRUE, 'jeep', 'easy', 8),
-              ($1, 'Черновик про медведей', 'Медведи, но тур не опубликован.', 1000, 10, TRUE, FALSE, 'jeep', 'easy', 8)`,
+       VALUES ($1, 'Курильское озеро — проба трёх слов', 'Медведи на нересте лосося, вертолётная экскурсия.', 105000, 10, TRUE, TRUE, 'helicopter', 'easy', 6),
+              ($1, 'Озеро проба одного слова', 'Джип-тур к озеру.', 14000, 10, TRUE, TRUE, 'jeep', 'easy', 8),
+              ($1, 'Черновик проба медведей', 'Медведи, но тур не опубликован.', 1000, 10, TRUE, FALSE, 'jeep', 'easy', 8)`,
       [op.rows[0].id],
     );
   }, 300_000);
@@ -85,17 +88,29 @@ withPg('search коннектора на настоящем PostgreSQL', () => {
     }
   });
 
-  it('«Курильское озеро медведи»: тур с двумя словами выше тура с одним; неопубликованный не виден', async () => {
+  it('«Курильское озеро медведи»: тур с тремя словами выше тура с одним, выдача упорядочена по hits; неопубликованный не виден', async () => {
     const params = searchParams('Курильское озеро медведи');
     const res = await pool.query<{ title: string; hits: number | string }>(searchSql(params.length - 1).tour, params);
-    expect(res.rows.map((r) => r.title)).toEqual(['Курильское озеро (вертолёт)', 'Озеро Толмачёва']);
-    expect(Number(res.rows[0].hits)).toBe(3);
-    expect(Number(res.rows[1].hits)).toBe(1);
+    const titles = res.rows.map((r) => r.title);
+    const three = titles.indexOf('Курильское озеро — проба трёх слов');
+    const one = titles.indexOf('Озеро проба одного слова');
+    expect(three).toBeGreaterThanOrEqual(0);
+    expect(Number(res.rows[three].hits)).toBe(3);
+    // Строка с одним словом либо ниже, либо не влезла в десятку — но не выше.
+    if (one >= 0) {
+      expect(one).toBeGreaterThan(three);
+      expect(Number(res.rows[one].hits)).toBe(1);
+    }
+    const hits = res.rows.map((r) => Number(r.hits));
+    expect([...hits].sort((a, b) => b - a)).toEqual(hits);
+    expect(titles).not.toContain('Черновик проба медведей');
   });
 
-  it('«Kurile Lake bears» находит то же через словарь', async () => {
+  it('«Kurile Lake bears» находит то же через словарь — тот же тур с тремя совпадениями', async () => {
     const params = searchParams('Kurile Lake bears');
-    const res = await pool.query<{ title: string }>(searchSql(params.length - 1).tour, params);
-    expect(res.rows[0]?.title).toBe('Курильское озеро (вертолёт)');
+    const res = await pool.query<{ title: string; hits: number | string }>(searchSql(params.length - 1).tour, params);
+    const row = res.rows.find((r) => r.title === 'Курильское озеро — проба трёх слов');
+    expect(row).toBeDefined();
+    expect(Number(row!.hits)).toBe(3);
   });
 });
