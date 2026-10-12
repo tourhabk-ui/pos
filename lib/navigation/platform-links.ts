@@ -24,7 +24,7 @@ import {
   Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus,
   MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase,
   Handshake, UserPlus, Bot, MessageSquare, Sparkles, ShieldAlert,
-  FileText, ScrollText, Receipt, Backpack, CloudSun, Heart,
+  FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -94,6 +94,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Партнёры',            href: '/operators',      icon: Handshake },
       { label: 'Стать партнёром',     href: '/for-operators',  icon: UserPlus },
       { label: 'MCP для ИИ-агентов',  href: '/mcp',            icon: Bot },
+      { label: '中文 — Ведар по-китайски', href: '/zh',        icon: Languages },
       { label: 'Оставить заявку',     href: '/contact',        icon: MessageSquare },
     ],
   },
