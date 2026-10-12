@@ -160,7 +160,7 @@ describe('fetch', () => {
     query.mockResolvedValueOnce({ rows: [{
       key: 'kurilskoe-ozero', name: 'Курильское озеро', description: 'Нерест нерки', essence: null, location_type: 'lake', category: null,
       district: 'Усть-Большерецкий', lat: '51.455', lng: '157.0983', best_season: 'август', access_info: null, eco_permit_required: true,
-      hazard_types: ['медведи'], difficulty_level: 'easy', nearest_medical_km: '120',
+      hazard_types: ['bears', 'no_such_key'], profile_source: 'manual', nearest_medical_km: '120',
     }] });
     const doc = await fetchDocument('place:kurilskoe-ozero', BASE);
     expect(query.mock.calls[0][0]).toMatch(/p\.is_visible = TRUE AND p\.merged_into_id IS NULL/);
@@ -169,6 +169,26 @@ describe('fetch', () => {
     expect(doc.text).toContain('Опасности: медведи');
     expect(doc.text).toContain('112');
     expect(doc.metadata).toMatchObject({ kind: 'place', hazards: ['медведи'] });
+  });
+
+  it('место: опасности, выведенные шаблоном 070 из типа места, фактом не произносятся (lib/safety/profile-source)', async () => {
+    query.mockResolvedValueOnce({ rows: [{
+      key: 'nikolskaya', name: 'Сопка Никольская', description: 'Городской парк', essence: null, location_type: 'volcano', category: null,
+      district: null, lat: '53.02', lng: '158.64', best_season: null, access_info: null, eco_permit_required: false,
+      hazard_types: ['avalanche', 'rockfall', 'thermal', 'altitude'], profile_source: 'type_template', nearest_medical_km: '1',
+    }] });
+    const doc = await fetchDocument('place:nikolskaya', BASE);
+    expect(query.mock.calls[0][0]).toMatch(/lsp\.profile_source/);
+    expect(doc.text).not.toMatch(/Опасности|лавин|камнепад/i);
+    expect(doc.text).toContain('До медпомощи: 1 км');
+    expect(doc.metadata).toMatchObject({ kind: 'place', hazards: [] });
+  });
+
+  it('схемы пары живут без базы: их читает реестр, а реестр — страница /mcp, собираемая на сборке', () => {
+    const schemas = read('lib/mcp/connector-schemas.ts');
+    expect(schemas).not.toMatch(/db-pool|from 'pg'|\bpool\b/);
+    expect(read('lib/mcp/public-tools.ts')).toMatch(/from '@\/lib\/mcp\/connector-schemas'/);
+    expect(read('lib/mcp/public-tools.ts')).not.toMatch(/from '@\/lib\/mcp\/connector-tools'/);
   });
 
   it('жильё: только одобренное и активное, без контактов; маршрут: только видимый', async () => {

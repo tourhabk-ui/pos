@@ -24,6 +24,8 @@ import {
   CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL,
 } from '@/lib/mcp/public-tools';
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
+// Пара коннекторов ChatGPT (ступень 2, 12.10): не из реестра Кузьмича, схемы свои.
+import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
 
 const CYRILLIC = /[А-Яа-яЁё]/;
 
@@ -33,6 +35,8 @@ function kuzmichDescription(name: string): string {
   if (name === BOOKING_REQUEST_TOOL.name) return BOOKING_REQUEST_TOOL.description;
   if (name === STAY_REQUEST_TOOL.name) return STAY_REQUEST_TOOL.description;
   if (name === REQUEST_CHARTER_TOOL.name) return REQUEST_CHARTER_TOOL.description;
+  if (name === SEARCH_TOOL.name) return SEARCH_TOOL.description;
+  if (name === FETCH_TOOL.name) return FETCH_TOOL.description;
   const t = Object.values(TOOL_REGISTRY).find((r) => r.definition.function.name === name);
   if (!t) throw new Error(`${name}: нет в реестре Кузьмича`);
   return t.definition.function.description;
@@ -44,6 +48,8 @@ function kuzmichSchema(name: string): { properties?: Record<string, { descriptio
   if (name === BOOKING_REQUEST_TOOL.name) return BOOKING_REQUEST_TOOL.inputSchema;
   if (name === STAY_REQUEST_TOOL.name) return STAY_REQUEST_TOOL.inputSchema;
   if (name === REQUEST_CHARTER_TOOL.name) return REQUEST_CHARTER_TOOL.inputSchema;
+  if (name === SEARCH_TOOL.name) return SEARCH_TOOL.inputSchema;
+  if (name === FETCH_TOOL.name) return FETCH_TOOL.inputSchema;
   const t = Object.values(TOOL_REGISTRY).find((r) => r.definition.function.name === name);
   if (!t) throw new Error(`${name}: нет в реестре Кузьмича`);
   return t.definition.function.parameters as { properties?: Record<string, { description?: string }> };

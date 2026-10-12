@@ -12,7 +12,7 @@
  */
 
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
-import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-tools';
+import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
 
 /**
  * Не для анонимного публичного входа: жгут внешние квоты и пишут учёт
@@ -234,7 +234,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
   // зовёт только их); форма ответа — по документации OpenAI.
   search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
-  fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar record by id from search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): description, price, program, safety facts, canonical url. Published records only.' },
+  fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
 };
 
 /**
@@ -245,6 +245,13 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
  * (дата, число, тип); текстовые поля без примера честнее, чем с выдуманным.
  */
 export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; example?: string | boolean }>> = {
+  // Пара коннекторов ChatGPT (ступень 2, 12.10) — схемы в lib/mcp/connector-schemas.
+  search: {
+    query: { lead: 'Search words, 2–200 characters; Russian or English.', example: 'Курильское озеро медведи' },
+  },
+  fetch: {
+    id: { lead: 'Record id from search: tour:<id>, place:<slug>, stay:<uuid> or route:<slug>.', example: 'tour:12' },
+  },
   get_tours: {
     activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking.', example: 'вулканы' },
     page: { lead: 'Catalogue page, 7 tours each, starting at 1; the reply ends with the page count and the next page.', example: '2' },

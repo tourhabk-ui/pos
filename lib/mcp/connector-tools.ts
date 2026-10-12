@@ -12,6 +12,10 @@
  * Объект уходит и как structuredContent, и JSON-строкой в content[0].text;
  * цитата у ChatGPT появляется только при непустом `url`.
  *
+ * Имена, лимиты и схемы — в lib/mcp/connector-schemas (без базы: их читает
+ * реестр, а реестр — страница /mcp, собираемая на сборке без DATABASE_URL).
+ * Здесь — исполнение с SQL.
+ *
  * ── Что ищется ────────────────────────────────────────────────────────────
  *
  * Четыре публичных источника, каждый под своим гейтом витрины — тем же, что
@@ -28,8 +32,10 @@
  *
  * Телефонов и почт: ни контактов жилья, ни контактов операторов, ни данных
  * туристов (pd-guard). Выдуманных полей: чего в строке нет — в тексте нет.
- * Частичных ответов: отказ любого из четырёх источников — отказ всего поиска
- * с SQLSTATE в логе (§4.0), а не «нашлось меньше».
+ * Опасностей, выведенных шаблоном 070 из типа места: правило одно на
+ * платформу (lib/safety/profile-source), и читает это чужой ИИ-клиент, который
+ * повторит как факт. Частичных ответов: отказ любого из четырёх источников —
+ * отказ всего поиска с SQLSTATE в логе (§4.0), а не «нашлось меньше».
  *
  * Сторож: tests/unit/mcp-chatgpt-connector.test.ts.
  */
@@ -43,72 +49,17 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { containsPattern } from '@/lib/db/like';
 import { logText } from '@/lib/log/log-text';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
+import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
+import { HAZARDS } from '@/lib/safety/hazard-labels';
+import {
+  SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
+  SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
+} from '@/lib/mcp/connector-schemas';
 
-export const SEARCH_TOOL_NAME = 'search';
-export const FETCH_TOOL_NAME = 'fetch';
-export const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set([SEARCH_TOOL_NAME, FETCH_TOOL_NAME]);
-
-export const SEARCH_RESULTS_MAX = 10;
-export const QUERY_MIN_CHARS = 2;
-export const QUERY_MAX_CHARS = 200;
-/** Потолок текста документа в fetch — ChatGPT режет длинные, а турист читает карточку. */
-export const FETCH_TEXT_MAX = 12_000;
-
-const RESULT_ITEM_SCHEMA = {
-  type: 'object',
-  properties: {
-    id: { type: 'string', description: 'Идентификатор документа для fetch: tour:<id>, place:<slug>, stay:<uuid>, route:<slug>' },
-    title: { type: 'string', description: 'Название для человека' },
-    url: { type: 'string', description: 'Каноническая страница на vedarai.ru — для цитаты' },
-  },
-  required: ['id', 'title', 'url'],
-} as const;
-
-export const SEARCH_TOOL = {
-  name: SEARCH_TOOL_NAME,
-  description:
-    'Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты '
-    + 'по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и '
-    + 'адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      query: { type: 'string', description: 'Слова запроса, 2–200 символов. Example: "Курильское озеро медведи"' },
-    },
-    required: ['query'],
-  },
-  outputSchema: {
-    type: 'object',
-    properties: { results: { type: 'array', items: RESULT_ITEM_SCHEMA } },
-    required: ['results'],
-  },
-} as const;
-
-export const FETCH_TOOL = {
-  name: FETCH_TOOL_NAME,
-  description:
-    'Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, '
-    + 'route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. '
-    + 'Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      id: { type: 'string', description: 'Идентификатор из search. Example: "tour:12"' },
-    },
-    required: ['id'],
-  },
-  outputSchema: {
-    type: 'object',
-    properties: {
-      id: { type: 'string' },
-      title: { type: 'string' },
-      text: { type: 'string', description: 'Полный текст записи' },
-      url: { type: 'string', description: 'Каноническая страница на vedarai.ru' },
-      metadata: { type: 'object', description: 'Род записи и факты: kind, price, duration, season…' },
-    },
-    required: ['id', 'title', 'text', 'url'],
-  },
-} as const;
+export {
+  SEARCH_TOOL, FETCH_TOOL, SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
+  SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
+} from '@/lib/mcp/connector-schemas';
 
 export type DocKind = 'tour' | 'place' | 'stay' | 'route';
 
@@ -329,7 +280,21 @@ interface PlaceRow {
   key: string; name: string; description: string | null; essence: string | null; location_type: string | null;
   category: string | null; district: string | null; lat: string | null; lng: string | null; best_season: string | null;
   access_info: string | null; eco_permit_required: boolean | null;
-  hazard_types: string[] | null; difficulty_level: string | null; nearest_medical_km: string | null;
+  hazard_types: string[] | null; profile_source: string | null; nearest_medical_km: string | null;
+}
+
+/**
+ * Опасности места словами — только те, что не выведены шаблоном 070 из типа
+ * места: правило одно на платформу (lib/safety/profile-source, миграция
+ * 1100). Код без подписи в словаре (HAZARDS) не произносится — та же
+ * практика, что у карточки места для Кузьмича (lib/kuzmich/place-info-tool).
+ */
+function honestHazards(p: Pick<PlaceRow, 'hazard_types' | 'profile_source'>): string[] {
+  const kept = honestSafetyFields(
+    { hazardTypes: p.hazard_types ?? [], capacityPerDay: null, optimalGroupSize: null, difficultyLevel: null, terrainType: null },
+    asProfileSource(p.profile_source),
+  ).hazardTypes;
+  return [...new Set(kept.map((h) => HAZARDS[h]?.label?.toLocaleLowerCase('ru-RU')).filter((h): h is string => Boolean(h)))];
 }
 
 async function fetchPlace(key: string, base: string): Promise<FetchResult> {
@@ -337,7 +302,7 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
   const { rows: [p] } = await pool.query<PlaceRow>(
     `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name, p.description, p.essence, p.location_type, p.category,
             p.district, p.lat::text AS lat, p.lng::text AS lng, p.best_season, p.access_info, p.eco_permit_required,
-            lsp.hazard_types, lsp.difficulty_level, lsp.nearest_medical_km::text AS nearest_medical_km
+            lsp.hazard_types, lsp.profile_source, lsp.nearest_medical_km::text AS nearest_medical_km
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
       WHERE p.is_visible = TRUE AND ${NOT_MERGED('p')}
@@ -347,6 +312,7 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
     [key],
   );
   if (!p) throw notFound(id);
+  const hazards = honestHazards(p);
   const text = joinLines([
     `${p.name}${p.location_type ? ` (${p.location_type})` : ''}${p.district ? `, ${p.district}` : ''}.`,
     p.lat && p.lng ? `Координаты: ${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : null,
@@ -355,8 +321,7 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
     line('Лучший сезон', p.best_season),
     line('Как добраться', p.access_info),
     p.eco_permit_required ? 'Нужно разрешение на посещение (ООПТ).' : null,
-    line('Опасности', p.hazard_types),
-    line('Сложность', p.difficulty_level),
+    line('Опасности', hazards),
     p.nearest_medical_km ? `До медпомощи: ${Number(p.nearest_medical_km)} км` : null,
     'Экстренный вызов на Камчатке — 112. Обстановка сейчас: инструмент get_guardian_context.',
   ]);
@@ -365,7 +330,7 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
     title: p.name,
     text,
     url: docUrl('place', p.key, base),
-    metadata: { kind: 'place', location_type: p.location_type, lat: p.lat ? Number(p.lat) : null, lng: p.lng ? Number(p.lng) : null, hazards: p.hazard_types ?? [] },
+    metadata: { kind: 'place', location_type: p.location_type, lat: p.lat ? Number(p.lat) : null, lng: p.lng ? Number(p.lng) : null, hazards },
   };
 }
 
