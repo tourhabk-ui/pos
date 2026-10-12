@@ -20,6 +20,7 @@
 | llms.txt, robots, перепись краулеров | `/llms.txt`, `/robots.txt`, `GET /api/cron/agent-entry-census` | `agents-china-layer.test.ts` |
 | Подтверждение домена для каталога ChatGPT | `/.well-known/openai-apps-challenge` отдаёт токен из `OPENAI_APPS_CHALLENGE_TOKEN` (Timeweb) | `agent-discovery-cards.test.ts` |
 | OpenAPI 3.1 и каталог API (RFC 9727) — для агентов без MCP и A2A | `https://vedarai.ru/openapi.json`, `https://vedarai.ru/.well-known/api-catalog`; заголовок `Link: rel="api-catalog"` на главной | `openapi-agents.test.ts` |
+| Кто приходит из ИИ — журнал A2A, клиенты MCP, семейства у визиток | `/hub/admin/a2a` (срез `GET /api/admin/analytics/a2a`, журнал `a2a_requests`, миграция 1219) | `a2a-journal-admin.test.ts` |
 
 Не подходит по построению: Docker MCP Catalog (`docker/mcp-registry`) принимает только серверы-образы, у нас удалённый Streamable HTTP.
 

@@ -15,7 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runPublicTool } from '@/app/api/mcp/route';
 import { answerAgentMessage } from '@/lib/a2a/chat';
-import type { A2AExecutors } from '@/lib/a2a/handle';
+import type { A2AExecutors, A2AResult } from '@/lib/a2a/handle';
+import { logA2aRequest, sendMessageFacts, type A2aBinding, type A2aJournalOp } from '@/lib/a2a/journal';
 import { readVersion, type VersionRead } from '@/lib/a2a/wire';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
@@ -47,6 +48,41 @@ export function versionOf(request: NextRequest): VersionRead {
     ?? request.nextUrl.searchParams.get('A2A-Version')
     ?? request.nextUrl.searchParams.get('a2a-version');
   return readVersion(raw);
+}
+
+export interface JournalFields {
+  op: A2aJournalOp;
+  version: VersionRead;
+  /** Ответ диспетчера; нет — отказ до него (errorCode) или визитка. */
+  out?: A2AResult | null;
+  errorCode?: string | null;
+}
+
+/**
+ * Факт запроса — в журнал A2A (lib/a2a/journal): кто пришёл, что просил, чем
+ * кончилось, сколько заняло. Зовётся на КАЖДОМ исходе роута, включая отказы
+ * до диспетчера: агент, упёршийся в версию или в размер тела, — тоже
+ * «заходит из ИИ», и панель обязана его видеть.
+ */
+export function journalA2a(request: NextRequest, binding: A2aBinding, startedAt: number, f: JournalFields): void {
+  const facts = f.out?.ok && f.op === 'SendMessage' ? sendMessageFacts(f.out.result) : null;
+  const ok = f.out ? f.out.ok : !f.errorCode;
+  logA2aRequest({
+    binding,
+    op: f.op,
+    version: f.version.ok ? f.version.version : f.version.requested,
+    versionDeclared: f.version.ok ? f.version.declared : true,
+    ok,
+    errorCode: ok ? null : (f.out && !f.out.ok ? f.out.error.kind : (f.errorCode ?? null)),
+    input: facts?.input ?? null,
+    tool: facts?.tool ?? null,
+    state: facts?.state ?? null,
+    contextId: facts?.contextId ?? null,
+    durationMs: Date.now() - startedAt,
+    ip: getTrustedClientIp(request.headers),
+    userAgent: request.headers.get('user-agent') ?? '',
+    self: isSelfMcpCaller(request.nextUrl),
+  });
 }
 
 export function publicBase(): string {
