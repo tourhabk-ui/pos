@@ -108,6 +108,29 @@ export default function McpLandingPage() {
             </div>
           </section>
 
+          {/* Второй вход для агентов без MCP-клиента (A2A, 12.10): визитка и
+              два биндинга поверх того же реестра инструментов. */}
+          <section className="space-y-3">
+            <h2 className="ds-h2">Для A2A-агентов</h2>
+            <div className="ds-card p-4 space-y-2 text-sm">
+              <p style={{ color: 'var(--text-secondary)' }}>
+                Тот же агент по протоколу Agent2Agent (A2A 1.0) — для фреймворков и песочниц без MCP-клиента.
+                Текстом отвечает Кузьмич с теми же инструментами; точный вызов инструмента — DataPart с полями
+                <code> tool </code> и <code> arguments</code>. Заявки те же четыре, подтверждает человек.
+              </p>
+              <p style={{ color: 'var(--text-primary)' }}>
+                Визитка:{' '}
+                <a className="underline" style={{ color: 'var(--ocean)' }} href={`${SITE}/.well-known/agent-card.json`} rel="noopener">
+                  <code>/.well-known/agent-card.json</code>
+                </a>
+                {' '}(для клиентов 0.3 — <code>/.well-known/agent.json</code>)
+              </p>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                JSON-RPC: <code>{SITE}/api/a2a</code> · REST: <code>{SITE}/api/a2a/v1</code> · версия — заголовок <code>A2A-Version</code>
+              </p>
+            </div>
+          </section>
+
           <section className="space-y-3">
             <h2 className="ds-h2">Инструменты ({PUBLIC_MCP_TOOLS.length})</h2>
             <div className="space-y-2">

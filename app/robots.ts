@@ -8,7 +8,11 @@ const PUBLIC_HUBS = ['/hub/safety', '/hub/fishing'];
 // Входы для агентов. /api/ закрыт целиком и правильно, но MCP-сервер живёт
 // именно там: агент, уважающий robots.txt, отказался бы его вызвать. Более
 // длинное правило Allow перебивает общий Disallow.
-const AGENT_ENTRYPOINTS = ['/api/mcp', '/llms.txt', '/.well-known/mcp.json'];
+const AGENT_ENTRYPOINTS = [
+  '/api/mcp', '/llms.txt', '/.well-known/mcp.json',
+  // A2A (12.10): визитки обеих версий и оба биндинга.
+  '/api/a2a', '/.well-known/agent-card.json', '/.well-known/agent.json',
+];
 
 // Закрыто для ВСЕХ групп одним списком. До 29.09 `/auth/` стоял только в
 // группе `*`, а именованные боты (Googlebot, Yandex и ещё 24) читают СВОЮ

@@ -213,6 +213,22 @@ ${planLines}
   (Cursor / VS Code: one-click links on ${BASE}/mcp)
 - System prompt line for hosts: ${MCP_SYSTEM_PROMPT_LINE_EN}
 
+## Для AI-агентов: A2A (Agent2Agent 1.0)
+
+Тот же агент по протоколу A2A — для фреймворков и песочниц без MCP-клиента:
+
+- Визитка (Agent Card 1.0): ${BASE}/.well-known/agent-card.json; для клиентов
+  0.3 — ${BASE}/.well-known/agent.json
+- JSON-RPC: ${BASE}/api/a2a (SendMessage / message/send, GetTask / tasks/get,
+  CancelTask / tasks/cancel; версия — заголовок A2A-Version)
+- REST: ${BASE}/api/a2a/v1 (POST /message:send, GET /tasks/{id}, POST /tasks/{id}:cancel)
+- Текстом (TextPart) — отвечает Кузьмич с теми же инструментами; точный вызов —
+  DataPart {"tool": "<имя>", "arguments": {...}} по схемам MCP
+- Заявки — те же четыре, подтверждает человек, нужен consent: true; потока и
+  push-уведомлений нет, задача завершается в ответе и хранится час
+- English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
+  ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
+
 ${sections}
 
 ## Контакт и API
@@ -221,6 +237,7 @@ ${sections}
 - Карта объектов: ${BASE}/map
 - API маршрутов: ${BASE}/api/routes (публичный, JSON)
 - MCP для агентов: ${BASE}/api/mcp (манифест: ${BASE}/.well-known/mcp.json)
+- A2A для агентов: ${BASE}/api/a2a (визитка: ${BASE}/.well-known/agent-card.json)
 - Ситкарта: ${BASE}/sitemap.xml
 - robots.txt: ${BASE}/robots.txt
 `;

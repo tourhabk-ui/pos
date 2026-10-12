@@ -65,6 +65,9 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/reports':    ['GET', 'POST'], // наблюдения туристов — анонимно по дизайну (rate-limit внутри)
   '/api/p':                 'ALL',   // публичные подборки туров + трекинг
   '/api/mcp': 'ALL',
+  // A2A-агент (12.10): тот же анонимный вход, что MCP, двумя биндингами —
+  // JSON-RPC (/api/a2a) и REST (/api/a2a/v1). Лимиты и стражи записи внутри.
+  '/api/a2a': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
   '/api/max': 'ALL',               // MAX bot webhook
   '/api/exolve/events': ['POST'],  // события SMS от МТС Exolve (статусы доставки, входящие); секрет в URL сверяется внутри
