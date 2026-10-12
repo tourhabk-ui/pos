@@ -208,7 +208,7 @@ async function main(): Promise<number> {
     }));
     const buttons = () => page.evaluate(() => Array.from(document.querySelectorAll('button'))
       .map(b => (b.getAttribute('aria-label') ?? b.textContent ?? '').replace(/\s+/g, ' ').trim())
-      .filter(t => /трек|Остановить|Стоп|Действия поля/i.test(t)).slice(0, 6));
+      .filter(t => t.length <= 60 && /трек|Остановить|Стоп|Действия поля/i.test(t)).slice(0, 6));
     const pressTrack = async (name: RegExp) => {
       const direct = page.getByRole('button', { name }).first();
       if (await direct.count() === 0) {
@@ -240,7 +240,8 @@ async function main(): Promise<number> {
   }
 
   const shots: string[] = [];
-  for (const wait of [7_000, 30_000]) {
+  // У проверки записи итог — строки выше; кадры экрана ей не нужны.
+  for (const wait of process.argv.includes('--track-reload') ? [] : [7_000, 30_000]) {
     await page.waitForTimeout(wait);
     const state = await page.evaluate(() => {
       const chips = Array.from(document.querySelectorAll('button'))
