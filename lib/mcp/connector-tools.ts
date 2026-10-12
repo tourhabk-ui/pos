@@ -25,8 +25,13 @@
  *   stay  — accommodations через publicAccommodationSql (модерация);
  *   route — v_kamchatka_routes_api с is_visible (CLAUDE.md §4: только через
  *           представление).
- * Похожесть — pg_trgm similarity() по названию (расширение в baseline прода,
- * им же считает сверка мест с OSM), отбор — ILIKE по названию и описанию.
+ * Отбор — по СЛОВАМ запроса, каждое своим параметром ILIKE по названию и
+ * описанию (lib/mcp/search-terms: русские основы, английский словарь);
+ * запись проходит при совпадении любого слова, ранг — число совпавших слов,
+ * затем pg_trgm similarity() по названию (расширение в baseline прода, им же
+ * считает сверка мест с OSM). До 12.10 вся строка шла в ILIKE одним куском,
+ * и «Курильское озеро медведи» — пример из описания инструмента — на проде
+ * отвечал пусто.
  *
  * ── Чего здесь нет ────────────────────────────────────────────────────────
  *
@@ -47,6 +52,7 @@ import { NOT_MERGED } from '@/lib/places/aliases';
 import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
 import { containsPattern } from '@/lib/db/like';
+import { searchTerms } from '@/lib/mcp/search-terms';
 import { logText } from '@/lib/log/log-text';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
@@ -107,6 +113,8 @@ interface HitRow {
   key: string;
   title: string;
   score: number | null;
+  /** Сколько слов запроса нашлось в записи (название или описание). */
+  hits: number | string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -129,53 +137,76 @@ function sqlFailure(source: string, err: unknown): Error {
 }
 
 /**
+ * Условие и ранг по словам запроса. Слова — параметры $2..$(n+1) ($1 занят
+ * строкой запроса для similarity). Запись проходит, если ЛЮБОЕ слово есть
+ * в любой из колонок; `hits` — сколько слов нашлось. Текст колонок — только
+ * литералы отсюда, параметры — только `$n`: конкатенации чужого текста нет.
+ */
+export function termSql(cols: readonly string[], terms: number): { where: string; hits: string } {
+  if (terms < 1) throw new Error('termSql: нужно хотя бы одно слово');
+  const perTerm = Array.from({ length: terms }, (_, i) => {
+    const p = `$${i + 2}`;
+    return `(${cols.map((c) => `${c} ILIKE ${p}`).join(' OR ')})`;
+  });
+  return {
+    where: perTerm.join(' OR '),
+    hits: perTerm.map((t) => `(${t})::int`).join(' + '),
+  };
+}
+
+/** Четыре запроса поиска для `terms` слов — одно место, которое читают и исполнение, и pg-тест. */
+export function searchSql(terms: number): Record<DocKind, string> {
+  const tour = termSql(['ot.title', "COALESCE(ot.short_description, '')", "COALESCE(ot.description, '')", "COALESCE(ot.location_name, '')"], terms);
+  const place = termSql(['p.name', "COALESCE(p.description, '')"], terms);
+  const stay = termSql(['a.name', "COALESCE(a.description, '')", "COALESCE(a.location_zone, '')"], terms);
+  const route = termSql(['r.title', "COALESCE(r.description, '')"], terms);
+  return {
+    tour: `SELECT ot.id::text AS key, ot.title, similarity(ot.title, $1) AS score, ${tour.hits} AS hits
+       FROM operator_tours ot
+      WHERE ${publicTourSql('ot')}
+        AND (${tour.where})
+      ORDER BY hits DESC, similarity(ot.title, $1) DESC, char_length(ot.title) ASC, ot.id ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    place: `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name AS title, similarity(p.name, $1) AS score, ${place.hits} AS hits
+       FROM places p
+      WHERE p.is_visible = TRUE AND ${NOT_MERGED('p')}
+        AND (${place.where})
+      ORDER BY hits DESC, similarity(p.name, $1) DESC, char_length(p.name) ASC, p.name ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    stay: `SELECT a.id::text AS key, a.name AS title, similarity(a.name, $1) AS score, ${stay.hits} AS hits
+       FROM accommodations a
+      WHERE ${publicAccommodationSql('a')}
+        AND (${stay.where})
+      ORDER BY hits DESC, similarity(a.name, $1) DESC, char_length(a.name) ASC, a.name ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    route: `SELECT COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, similarity(r.title, $1) AS score, ${route.hits} AS hits
+       FROM v_kamchatka_routes_api r
+      WHERE r.is_visible = TRUE
+        AND (${route.where})
+      ORDER BY hits DESC, similarity(r.title, $1) DESC, char_length(r.title) ASC, r.title ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+  };
+}
+
+/** Параметры к searchSql: строка запроса для similarity и шаблон ILIKE на каждое слово. */
+export function searchParams(query: string): string[] {
+  return [query, ...searchTerms(query).map(containsPattern)];
+}
+
+/**
  * Поиск по четырём источникам разом. Каждый источник — свой запрос под своим
- * гейтом; слияние — по similarity названия, при равенстве — короткое имя первым.
+ * гейтом; слияние — по числу совпавших слов, затем по similarity названия,
+ * при равенстве — короткое имя первым.
  */
 export async function searchDocuments(rawQuery: unknown, base: string = getPublicBaseUrl()): Promise<SearchResult> {
   const q = readQuery(rawQuery);
-  const like = containsPattern(q);
+  const params = searchParams(q);
+  const sql = searchSql(params.length - 1);
 
-  const tours = pool.query<HitRow>(
-    `SELECT ot.id::text AS key, ot.title, similarity(ot.title, $1) AS score
-       FROM operator_tours ot
-      WHERE ${publicTourSql('ot')}
-        AND (ot.title ILIKE $2 OR COALESCE(ot.short_description, '') ILIKE $2
-             OR COALESCE(ot.description, '') ILIKE $2 OR COALESCE(ot.location_name, '') ILIKE $2)
-      ORDER BY similarity(ot.title, $1) DESC, char_length(ot.title) ASC, ot.id ASC
-      LIMIT ${SEARCH_RESULTS_MAX}`,
-    [q, like],
-  ).catch((err: unknown) => { throw sqlFailure('tours', err); });
-
-  const places = pool.query<HitRow>(
-    `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name AS title, similarity(p.name, $1) AS score
-       FROM places p
-      WHERE p.is_visible = TRUE AND ${NOT_MERGED('p')}
-        AND (p.name ILIKE $2 OR COALESCE(p.description, '') ILIKE $2)
-      ORDER BY similarity(p.name, $1) DESC, char_length(p.name) ASC, p.name ASC
-      LIMIT ${SEARCH_RESULTS_MAX}`,
-    [q, like],
-  ).catch((err: unknown) => { throw sqlFailure('places', err); });
-
-  const stays = pool.query<HitRow>(
-    `SELECT a.id::text AS key, a.name AS title, similarity(a.name, $1) AS score
-       FROM accommodations a
-      WHERE ${publicAccommodationSql('a')}
-        AND (a.name ILIKE $2 OR COALESCE(a.description, '') ILIKE $2 OR COALESCE(a.location_zone, '') ILIKE $2)
-      ORDER BY similarity(a.name, $1) DESC, char_length(a.name) ASC, a.name ASC
-      LIMIT ${SEARCH_RESULTS_MAX}`,
-    [q, like],
-  ).catch((err: unknown) => { throw sqlFailure('stays', err); });
-
-  const routes = pool.query<HitRow>(
-    `SELECT COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, similarity(r.title, $1) AS score
-       FROM v_kamchatka_routes_api r
-      WHERE r.is_visible = TRUE
-        AND (r.title ILIKE $2 OR COALESCE(r.description, '') ILIKE $2)
-      ORDER BY similarity(r.title, $1) DESC, char_length(r.title) ASC, r.title ASC
-      LIMIT ${SEARCH_RESULTS_MAX}`,
-    [q, like],
-  ).catch((err: unknown) => { throw sqlFailure('routes', err); });
+  const tours = pool.query<HitRow>(sql.tour, params).catch((err: unknown) => { throw sqlFailure('tours', err); });
+  const places = pool.query<HitRow>(sql.place, params).catch((err: unknown) => { throw sqlFailure('places', err); });
+  const stays = pool.query<HitRow>(sql.stay, params).catch((err: unknown) => { throw sqlFailure('stays', err); });
+  const routes = pool.query<HitRow>(sql.route, params).catch((err: unknown) => { throw sqlFailure('routes', err); });
 
   const [t, p, s, r] = await Promise.all([tours, places, stays, routes]);
   const hits: Array<HitRow & { kind: DocKind }> = [
@@ -184,7 +215,11 @@ export async function searchDocuments(rawQuery: unknown, base: string = getPubli
     ...s.rows.map((x) => ({ ...x, kind: 'stay' as const })),
     ...r.rows.map((x) => ({ ...x, kind: 'route' as const })),
   ];
-  hits.sort((a, b) => (Number(b.score ?? 0) - Number(a.score ?? 0)) || a.title.length - b.title.length || a.title.localeCompare(b.title, 'ru'));
+  hits.sort((a, b) =>
+    (Number(b.hits ?? 0) - Number(a.hits ?? 0))
+    || (Number(b.score ?? 0) - Number(a.score ?? 0))
+    || a.title.length - b.title.length
+    || a.title.localeCompare(b.title, 'ru'));
   return {
     results: hits.slice(0, SEARCH_RESULTS_MAX).map((h) => ({
       id: docId(h.kind, h.key),
