@@ -178,6 +178,79 @@ jobs:
           fi
           echo "::warning::Напрямую ключ отвергнут (HTTP $CODE) — дело в самом ключе, не в шлюзе."
 
+      # 12.10, прогон 19: 200 на /v1/models — улика о ключе, не о деньгах,
+      # каталог биллинга не касается. Повтор маркера 18 (прогон workflow
+      # 38247259682, 12:09 UTC, ключ на workspace Default) дал 200 на каталог и
+      # 200 на один токен haiku через шлюз, а через две минуты летописец
+      # (weekly-chronicle run 17, apiKeySource ANTHROPIC_API_KEY, claude-opus-5
+      # напрямую) получил 400 billing_error «Credit balance is too low»,
+      # req_011CfxKaoY4DzhCWq5MVpaMM, при 238,04 $ на Console. Между успехом и
+      # отказом три различия: модель, max_tokens и шлюз на пути. Этот шаг
+      # снимает их по одному — напрямую, по одному токену ответа на запрос
+      # (доли цента):
+      #   haiku, 1 токен       — 400 → денег у организации этого ключа нет, и
+      #                          200 через шлюз был не этим ключом;
+      #   opus-5, 1 токен      — 400 при haiku 200 → отказ по модели;
+      #   opus-5, max_tokens   — 400 при opus-5/1 200 → API заранее считает,
+      #                          хватит ли баланса на весь max_tokens, и баланс,
+      #                          который он видит, меньше цены ответа руки —
+      #                          не те 238 $ или не та организация.
+      # Заголовок anthropic-organization-id печатается (id — не секрет):
+      # владелец сверяет его с Console → Settings → Organization, и «та ли
+      # организация» перестаёт быть догадкой. anthropic-ratelimit-* называют
+      # тир организации, то есть сколько в неё было внесено.
+      - name: С раннера — напрямую генерация (контроль денег, не ключа)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -u
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY не задан — генерация не пробуется."
+            exit 0
+          fi
+          # Один запрос: печатает исход и кладёт HTTP-код в LAST (000 — сеть не дошла).
+          gen() {
+            LAST=$(curl -s -D /tmp/gen.h -o /tmp/gen.json -w '%{http_code}' --max-time 60 -X POST \
+              -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' \
+              -d "{\"model\":\"$1\",\"max_tokens\":$2,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word: ok\"}]}" \
+              https://api.anthropic.com/v1/messages || true)
+            echo "$3 ($1, max_tokens=$2): HTTP $LAST"
+            if [ "$LAST" = "200" ]; then
+              jq -c '{stop_reason, input_tokens: .usage.input_tokens, output_tokens: .usage.output_tokens}' /tmp/gen.json
+            else
+              jq -c '.error // .' /tmp/gen.json 2>/dev/null || { head -c 300 /tmp/gen.json; echo; }
+            fi
+            tr -d '\r' < /tmp/gen.h | grep -iE '^(request-id|anthropic-organization-id|anthropic-workspace-id|anthropic-ratelimit-(requests|input-tokens|output-tokens)-limit):' \
+              || echo "заголовков организации в ответе нет"
+          }
+          gen claude-haiku-4-5-20251001 1 "haiku напрямую"
+          HAIKU=$LAST
+          gen claude-opus-5 1 "opus-5 напрямую, один токен"
+          OPUS1=$LAST
+          # Лестница max_tokens — до первого отказа. Сколько ставит рука, в её
+          # логе не видно; 32000 и 64000 — потолки Opus 4.1 и 4.5, 128000 —
+          # с запасом. Ответ на «ok» в любом случае в несколько токенов.
+          BIG=skip
+          if [ "$OPUS1" = "200" ]; then
+            for N in 32000 64000 128000; do
+              gen claude-opus-5 "$N" "opus-5 напрямую, max_tokens=$N"
+              BIG="$N:$LAST"
+              [ "$LAST" = "200" ] || break
+            done
+          fi
+          echo "Исход: haiku=$HAIKU opus-5/1=$OPUS1 opus-5/лестница=$BIG"
+          if [ "$HAIKU" = "000" ] || [ "$OPUS1" = "000" ]; then
+            echo "::warning::Сеть до api.anthropic.com не дошла — исход «не смог», не «денег нет»."
+          elif [ "$HAIKU" != "200" ]; then
+            echo "::warning::Генерация не проходит даже на haiku — у организации этого ключа денег нет; 200 через шлюз был не этим ключом или не этой организацией."
+          elif [ "$OPUS1" != "200" ]; then
+            echo "::warning::haiku проходит, opus-5 нет — отказ по модели, не по балансу вообще."
+          elif [ "${BIG##*:}" != "200" ]; then
+            echo "::warning::opus-5 проходит на один токен и не проходит на max_tokens=${BIG%%:*} — предпроверка цены ответа: баланс, который видит API, меньше 238 $. Сверить anthropic-organization-id выше с Console."
+          else
+            echo "Все генерации прошли напрямую — отказ летописца этим запросом не воспроизводится; разбирать его собственный запрос."
+          fi
+
       - name: С раннера — шлюз доводит до Anthropic (контроль самого шлюза)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
