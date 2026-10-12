@@ -190,9 +190,10 @@ describe('семейства ботов — один реестр', () => {
 });
 
 describe('перепись входов для агентов', () => {
-  it('пять входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
+  it('семь входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
     expect([...AGENT_ENTRY_PATHS]).toEqual([
       '/robots.txt', '/llms.txt', '/.well-known/mcp.json', '/.well-known/agent-card.json', '/.well-known/agent.json',
+      '/api/mcp/server-card', '/.well-known/ai-catalog.json',
     ]);
     recordAgentEntryHit('/robots.txt', 'Mozilla/5.0 (compatible; Baiduspider/2.0)');
     expect(query).toHaveBeenCalledTimes(1);
@@ -219,16 +220,19 @@ describe('перепись входов для агентов', () => {
     expect(ddl).not.toMatch(/user_agent|\bip\b/i);
   });
 
-  it('каждый из пяти входов зовёт счётчик своим путём', () => {
-    const sources: Record<string, string> = {
-      '/robots.txt': 'app/robots.ts',
-      '/llms.txt': 'app/llms.txt/route.ts',
-      '/.well-known/mcp.json': 'app/.well-known/mcp.json/route.ts',
-      '/.well-known/agent-card.json': 'app/.well-known/agent-card.json/route.ts',
-      '/.well-known/agent.json': 'app/.well-known/agent.json/route.ts',
+  it('каждый из семи входов зовёт счётчик своим путём', () => {
+    const sources: Record<string, [string, string]> = {
+      '/robots.txt': ['app/robots.ts', "recordAgentEntryHit('/robots.txt'"],
+      '/llms.txt': ['app/llms.txt/route.ts', "recordAgentEntryHit('/llms.txt'"],
+      '/.well-known/mcp.json': ['app/.well-known/mcp.json/route.ts', "recordAgentEntryHit('/.well-known/mcp.json'"],
+      '/.well-known/agent-card.json': ['app/.well-known/agent-card.json/route.ts', "recordAgentEntryHit('/.well-known/agent-card.json'"],
+      '/.well-known/agent.json': ['app/.well-known/agent.json/route.ts', "recordAgentEntryHit('/.well-known/agent.json'"],
+      // Карточка и каталог зовут счётчик константой пути (lib/mcp/server-card).
+      '/api/mcp/server-card': ['app/api/mcp/server-card/route.ts', 'recordAgentEntryHit(SERVER_CARD_PATH'],
+      '/.well-known/ai-catalog.json': ['app/.well-known/ai-catalog.json/route.ts', 'recordAgentEntryHit(AI_CATALOG_PATH'],
     };
-    for (const [path, file] of Object.entries(sources)) {
-      expect(read(file), file).toContain(`recordAgentEntryHit('${path}'`);
+    for (const [path, [file, call]] of Object.entries(sources)) {
+      expect(read(file), ` ()`).toContain(call);
     }
     // robots.txt — через headers(): файл становится динамическим, и это сказано.
     const robots = read('app/robots.ts');

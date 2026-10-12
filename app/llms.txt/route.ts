@@ -8,6 +8,7 @@ import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalo
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { llmsSectionZh } from '@/lib/mcp/zh-layer';
+import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 
 const BASE = 'https://vedarai.ru';
@@ -196,6 +197,8 @@ ${planLines}
 
 - Эндпоинт: ${BASE}/api/mcp (JSON-RPC 2.0, streamable-http, анонимно)
 - Манифест: ${BASE}/.well-known/mcp.json
+- Карточка сервера (MCP Server Card, application/mcp-server-card+json): ${BASE}/api/mcp/server-card;
+  каталог домена (AI Catalog, application/ai-catalog+json): ${BASE}/.well-known/ai-catalog.json
 - Страница о сервере (HTML): ${BASE}/mcp
 - Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
   занятость по датам (get_tour_availability), обстановка и безопасность
@@ -234,6 +237,8 @@ ${planLines}
   push-уведомлений нет, задача завершается в ответе и хранится час
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
+- В реестре A2A: ${A2A_CATALOGS.map((c) => `${c.catalog}: ${c.url}`).join('; ')} (регистрация 12.10;
+  запись появляется после проверки реестром)
 
 ${llmsSectionZh(BASE)}
 

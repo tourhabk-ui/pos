@@ -34,8 +34,9 @@ describe('варианты подключения — все на один ад�
     expect(MCP_ENDPOINT).toBe(`${CANONICAL_BASE_URL}/api/mcp`);
   });
 
-  it('пять вариантов: два deeplink, команда, шаги, JSON', () => {
-    expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual(['claude_ai', 'claude_code', 'cursor', 'json', 'vscode']);
+  it('семь вариантов: два deeplink, две команды, YAML, шаги, JSON', () => {
+    expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual(['claude_ai', 'claude_code', 'cursor', 'deepseek_harness', 'json', 'qwen_code', 'vscode']);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'command').length).toBe(2);
     expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').length).toBe(2);
   });
 
@@ -59,6 +60,22 @@ describe('варианты подключения — все на один ад�
   it('Claude Code: команда добавления по HTTP-транспорту', () => {
     const cc = MCP_CONNECT_OPTIONS.find((o) => o.id === 'claude_code')!;
     expect(cc.value).toBe(`claude mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`);
+  });
+
+  it('Qwen Code: та же команда с транспортом http (поле httpUrl в settings.json, не url — это SSE)', () => {
+    const qc = MCP_CONNECT_OPTIONS.find((o) => o.id === 'qwen_code')!;
+    expect(qc.value).toBe(`qwen mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`);
+    expect(qc.kind).toBe('command');
+  });
+
+  it('DeepSeek Harness: YAML для cordis.patch.yml с плагином dsh-mcp-client на наш адрес', () => {
+    const dsh = MCP_CONNECT_OPTIONS.find((o) => o.id === 'deepseek_harness')!;
+    expect(dsh.kind).toBe('yaml');
+    expect(dsh.value).toContain("name: '@deepseek-ai/dsh-mcp-client'");
+    expect(dsh.value).toContain('transport: streamable-http');
+    expect(dsh.value).toContain(`url: ${MCP_ENDPOINT}`);
+    expect(dsh.value).toContain(`serverName: ${MCP_SERVER_KEY}`);
+    expect(dsh.value).toMatch(/cordis\.patch\.yml/);
   });
 
   it('JSON: общая форма mcpServers, streamable-http, наш адрес; парсится', () => {

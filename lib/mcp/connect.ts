@@ -26,11 +26,11 @@ export const MCP_SERVER_KEY = 'vedar';
 
 export interface McpConnectOption {
   /** Устойчивый ключ для разметки и сторожей. */
-  id: 'cursor' | 'vscode' | 'claude_code' | 'claude_ai' | 'json';
+  id: 'cursor' | 'vscode' | 'claude_code' | 'qwen_code' | 'deepseek_harness' | 'claude_ai' | 'json';
   /** Клиент, как его называет человек. */
   client: string;
   /** Что это: ссылка-установка, команда терминала, JSON конфига или шаги в интерфейсе. */
-  kind: 'link' | 'command' | 'json' | 'steps';
+  kind: 'link' | 'command' | 'json' | 'yaml' | 'steps';
   /** Подпись кнопки или заголовок блока. */
   label: string;
   /** Ссылка, команда, JSON или шаги — одной строкой. */
@@ -74,6 +74,41 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     kind: 'command',
     label: 'Команда для Claude Code',
     value: `claude mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+  },
+  {
+    id: 'qwen_code',
+    client: 'Qwen Code',
+    kind: 'command',
+    label: 'Команда для Qwen Code',
+    // Qwen Code наследует формат Gemini CLI: Streamable HTTP — поле httpUrl в
+    // ~/.qwen/settings.json, SSE — url (устаревший). Команда даёт ту же запись
+    // (документация Qwen Code, разделы users/features/mcp и tools/mcp-server,
+    // 12.10). Ответ самого Qwen в чате владельца предлагал "type": "http" с
+    // url — это форма Claude Code, не Qwen Code.
+    value: `qwen mcp add --transport http ${MCP_SERVER_KEY} ${MCP_ENDPOINT}`,
+  },
+  {
+    id: 'deepseek_harness',
+    client: 'DeepSeek Harness (dsh)',
+    kind: 'yaml',
+    label: 'DeepSeek Harness: плагин dsh-mcp-client',
+    // DeepSeek Chat в вебе — не MCP-клиент; MCP у DeepSeek живёт в DeepSeek
+    // Harness (developer preview, сборка из исходников), где встроенный плагин
+    // @deepseek-ai/dsh-mcp-client монтируется по одному экземпляру на сервер в
+    // ~/.dsh/profiles/web/cordis.patch.yml. Инструменты видны модели как
+    // mcp__vedar__<tool>. Форма — по документации плагина (разбор 12.10);
+    // имён «dsh-mcp-center» и «deepseek-remote-mcp-bridge», которые называл
+    // сам DeepSeek в чате владельца, в каталогах не нашлось.
+    value: [
+      '# ~/.dsh/profiles/web/cordis.patch.yml',
+      '- insert:',
+      '    - id: mcp-' + MCP_SERVER_KEY,
+      "      name: '@deepseek-ai/dsh-mcp-client'",
+      '      config:',
+      '        serverName: ' + MCP_SERVER_KEY,
+      '        transport: streamable-http',
+      '        url: ' + MCP_ENDPOINT,
+    ].join('\n'),
   },
   {
     id: 'claude_ai',
