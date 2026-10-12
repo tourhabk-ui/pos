@@ -117,7 +117,10 @@ describe('третий исход есть в хуке и отделён от м
   });
 
   it('новая запись начинается с чистого листа', () => {
-    const at = HOOK.indexOf('const start = useCallback');
+    // Запуск прибора с 12.10 — общий у кнопки и у продолжения прерванной
+    // записи (beginWatch); часы приёма обнуляются в обоих случаях.
+    const at = HOOK.indexOf('const beginWatch = useCallback');
+    expect(at, 'запуск прибора не найден').toBeGreaterThan(0);
     const body = HOOK.slice(at, at + 900);
     expect(body).toMatch(/lastAcceptRef\.current = Date\.now\(\)/);
     expect(body).toMatch(/lastDropRef\.current = null/);

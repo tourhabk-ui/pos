@@ -3629,10 +3629,15 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // След следует за кнопкой: началась запись — прежний след этого маршрута
   // обнуляется (новая запись — новая линия), идёт запись — крошки пишутся,
   // остановлена — линия остаётся на экране как записанный трек, но не растёт.
+  //
+  // Продолжение — не новая запись (скрин владельца 12.10: «при повторном
+  // открытии не сохраняется трек»). Прерванная запись после перезапуска
+  // экрана идёт дальше сама, и стереть её след значило бы потерять линию
+  // ровно в ту минуту, когда человек вернулся посмотреть на пройденное.
   useEffect(() => {
     const was = recordingRef.current;
     recordingRef.current = recorder.recording;
-    if (recorder.recording && !was) {
+    if (recorder.recording && !was && !recorder.continued) {
       crumbsRef.current = [];
       setCrumbs([]);
       const routeId = crumbsRouteRef.current;
@@ -3641,7 +3646,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         catch (err) { console.error('[trail] не удалось обнулить след', err); }
       }
     }
-  }, [recorder.recording]);
+  }, [recorder.recording, recorder.continued]);
   const [obsOpen, setObsOpen] = useState(false);
   const obsQueueLen = useTrailObservationQueue();
   const [fieldBarError, setFieldBarError] = useState<string | null>(null);
@@ -3764,6 +3769,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    *   autoTried — от повторов в цикле: `recorder` пересоздаётся на каждом
    *     рендере, значит эффект по нему готов срабатывать бесконечно.
    * Настоящее возвращение связи замок autoTried снимает: это новый повод.
+   *
+   * ── Правка 12.10: дожимается только ОСТАНОВЛЕННАЯ запись ────────────────
+   *
+   * Черновик на диске не знал, нажимал ли человек «Остановить», и дожим при
+   * открытии экрана слал прерванную запись как готовый трек, а потом стирал
+   * её с телефона. Скрин владельца: «при повторном открытии не сохраняется
+   * трек». Теперь `packageDraft` отдаёт только запись с отметкой остановки,
+   * а прерванная продолжается сама (useTrackRecorder).
    */
   const trackFlushInFlightRef = useRef(false);
   const trackAutoTriedRef = useRef(false);

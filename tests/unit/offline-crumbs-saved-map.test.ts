@@ -113,7 +113,8 @@ describe('след переживает перезапуск', () => {
     expect(at).toBeGreaterThan(0);
     expect(SCREEN_SRC.slice(at, at + 200)).toMatch(/if \(routeForCrumbs && recordingRef\.current\)/);
     // Новая запись — новая линия: прежний след маршрута обнуляется на старте.
-    expect(SCREEN_SRC).toMatch(/if \(recorder\.recording && !was\)/);
+    // Продолжение прерванной записи (12.10) — та же линия, её не стирают.
+    expect(SCREEN_SRC).toMatch(/if \(recorder\.recording && !was && !recorder\.continued\)/);
   });
 
   it('«тихие» следы до v2 стираются, а не поднимаются', () => {
