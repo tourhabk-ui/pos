@@ -1,33 +1,19 @@
 {
-  "timeout": 40,
+  "timeout": 60,
   "retries": 1,
   "allowStale": true,
-  "retryDelay": 10,
-  "run": 758,
-  "note": "10.10. ТОЛЬКО ЧТЕНИЕ. SEO, шаг 3 после выката #2369 (0971df0cb, deploy 38094314336 success): карточка маршрута собирается на сервере (lib/routes/route-detail). Поисковик (UA Googlebot) должен получить в HTML содержимое карточки — заголовок, снаряжение, регистрацию, — а не сводку-заглушку «Маршрут на Камчатке» из прежнего клиентского рендера. Адрес по UUID уводит 308 на slug.",
+  "retryDelay": 15,
+  "run": 759,
+  "note": "12.10. ТОЛЬКО ЧТЕНИЕ. Вопрос владельца о названии: товарный знак VEDAR № 786432 (правообладатель — физлицо, бренд одежды из Агинского, регистрация 02.12.2020, срок до 30.04.2030 — по карточке РБК Компании). Нужны классы МКТУ и перечень товаров/услуг — задевает ли знак туризм (39, 41, 43), софт и сервисы (9, 42), рекламу и торговлю (35). Источник — открытый реестр ФИПС (карточка отдаётся в windows-1251 — отсюда правка снятия разметки в probe-url.yml).",
   "urls": [
-    "https://vedarai.ru/routes/66061e18-77ba-433f-b812-81e138266b2e",
-    "https://vedarai.ru/routes/vulkani"
+    "https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=786432&TypeFile=html"
   ],
-  "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
   "grep": [
-    "Маршрут на Камчатке",
-    "Снаряжение",
-    "Регистрац",
-    "<h1",
-    "rel=\"canonical\""
+    "786432",
+    "511",
+    "VEDAR"
   ],
-  "count": [
-    "<h1",
-    "rel=\"canonical\""
-  ],
-  "around": [
-    "<h1",
-    "rel=\"canonical\""
-  ],
-  "aroundBefore": 80,
-  "aroundHits": 1,
-  "aroundLines": 0,
-  "text": false,
-  "bytes": 0
+  "text": true,
+  "bytes": 20000
 }

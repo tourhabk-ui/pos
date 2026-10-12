@@ -170,7 +170,14 @@ jobs:
           # YAML требует отступа базы, и это легко сломать.
           cat > /tmp/strip.py <<'PY'
           import sys, re, html
-          raw = sys.stdin.buffer.read().decode('utf-8', 'replace')
+          # Реестр ФИПС отдаёт карточки в windows-1251: через utf-8 'replace'
+          # кириллица превращалась в знаки вопроса, и перечень товаров знака
+          # прочитать было нельзя. Сперва строгий utf-8, не вышло — cp1251.
+          data = sys.stdin.buffer.read()
+          try:
+              raw = data.decode('utf-8')
+          except UnicodeDecodeError:
+              raw = data.decode('cp1251', 'replace')
           raw = re.sub(r'(?is)<(script|style|noscript|svg)\b.*?</\1>', ' ', raw)
           raw = re.sub(r'(?i)<br\s*/?>|</(p|div|li|h[1-6]|tr|section|article|td|th|dt|dd)>', '\n', raw)
           raw = re.sub(r'(?s)<[^>]+>', ' ', raw)
