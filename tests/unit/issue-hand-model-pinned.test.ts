@@ -17,20 +17,33 @@
  * репозитория (§8, таблица двух ключей). Переменная приложения Timeweb сюда
  * не относится — путать их уже стоило вечера.
  *
- * С 12.10 руки считают ключом Anthropic из РЕПОЗИТОРНОГО секрета
- * `ANTHROPIC_API_KEY` (вход `anthropic_api_key`), деньги — с баланса Console
- * владельца. Решение владельца того же дня: «проверь, может не нужно
- * переключать [на OpenRouter], если есть 238 $» — и проба
- * `anthropic-path-probe` 18 показала, что новый ключ Anthropic принимает.
+ * С вечера 12.10 руки считают ТОКЕНОМ ПОДПИСКИ из репозиторного секрета
+ * `CLAUDE_CODE_OAUTH_TOKEN` (вход `claude_code_oauth_token`) — решение
+ * владельца «Подписка, бесплатно» после разбора #2396. Утром того же дня
+ * руки переводились на ключ `ANTHROPIC_API_KEY` («проверь, может не нужно
+ * переключать, если есть 238 $»; проба `anthropic-path-probe` 18: ключ
+ * принят) — и это было полдела: ключ принимался на любой обычный запрос и
+ * отвергался на каждый запрос руки.
+ *
+ * Причина нашлась в документации Anthropic, а не в ключе: 238 $ — месячные
+ * кредиты плана Max, которые по странице api-credits-for-subscribers
+ * покрывают API, Agent SDK и playground, но НЕ Claude Code; купленного
+ * баланса 0. Проба 22 (12.10) показала, по чему сервер узнаёт Claude Code:
+ * бета-заголовок `claude-code-20250219` ИЛИ user-agent `claude-cli` — по
+ * одному достаточно, модель и путь не играют. Токен подписки платит планом,
+ * не балансом (docs/authentication: «This token authenticates with your
+ * Claude subscription»).
  *
  * История, чтобы не ходить по кругу (#2396): `ANTHROPIC_API_KEY` с 09.09
  * отвечал 401 «API key is invalid» (каждая замена до 08.10 включительно);
- * `CLAUDE_CODE_OAUTH_TOKEN` с 10.09 вёл себя как ключ Console без привязки к
- * workspace, а не подписка — 400 «Credit balance is too low» (13.09–04.10),
- * затем 400 «not scoped to a workspace» (11–12.10). Месяц ни одна рука не
- * сделала ни одной работы, а прежняя редакция этой шапки («подписка, тот же
- * источник, что у сессий Remote») была неверна. Второй источник авторизации
- * рядом не держим: отказ должен читаться как «ключ», а не «какой из двух».
+ * `CLAUDE_CODE_OAUTH_TOKEN` образца 10.09 отвечал ошибками организации
+ * Console — 400 «Credit balance is too low» (13.09–04.10), затем «not scoped
+ * to a workspace» (11–12.10): выдан, по всей видимости, под организацией
+ * Console на шаге авторизации; новый токен авторизуется аккаунтом с Max.
+ * Второй источник авторизации рядом не держим — и не только ради читаемого
+ * отказа: по docs/authentication ключ `ANTHROPIC_API_KEY` СТАРШЕ токена, и
+ * в неинтерактивном режиме (-p) «the key is always used when present», то
+ * есть ключ рядом молча вернул бы руку на баланс Console.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -76,14 +89,17 @@ describe('модель руки задана явно', () => {
       expect(src).toContain(`--model ${PINNED}`);
     });
 
-    it(`${wf} — считает ключом Anthropic из секрета раннера, не переменной прода`, () => {
-      expect(src).toMatch(/^\s*anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/m);
+    it(`${wf} — считает токеном подписки из секрета раннера, не ключом Console`, () => {
+      expect(src).toMatch(/^\s*claude_code_oauth_token: \$\{\{ secrets\.CLAUDE_CODE_OAUTH_TOKEN \}\}/m);
     });
 
-    it(`${wf} — OAuth-токен рядом с ключом не задан`, () => {
-      // Незакомментированная строка `claude_code_oauth_token:` — второй
-      // источник авторизации; при отказе нельзя было бы сказать, который из двух.
-      expect(src).not.toMatch(/^\s*claude_code_oauth_token:/m);
+    it(`${wf} — ключ Console рядом с токеном не задан`, () => {
+      // Незакомментированная строка `anthropic_api_key:` — второй источник
+      // авторизации, и не равноправный: по старшинству ключ победил бы токен,
+      // и рука молча вернулась бы на баланс Console (-p: «the key is always
+      // used when present»). Та же проверка — на env ANTHROPIC_API_KEY у шага.
+      expect(src).not.toMatch(/^\s*anthropic_api_key:/m);
+      expect(src).not.toMatch(/^\s*ANTHROPIC_API_KEY:/m);
     });
 
     it(`${wf} — модель одна на весь файл, второй головы нет`, () => {
