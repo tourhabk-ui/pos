@@ -89,7 +89,15 @@ async function main(): Promise<void> {
     );
   }
 
-  const diverged = findDivergences(channels);
+  // #2362: канал mcp снимается страницами (get_tours отдаёт по 7 туров), и
+  // если какая-то страница не пришла, workflow оставляет mcp-pages.problem.
+  // Неполный канал в сверку не идёт — иначе каждый тур с недостающей
+  // страницы стал бы ложным «в mcp нет». Это третий исход — «не смог», и он
+  // краснит прогон своим текстом, а не чужим.
+  const mcpIncomplete = read('mcp-pages.problem').trim();
+  if (mcpIncomplete) problems.push(`не смог снять канал mcp целиком: ${mcpIncomplete}`);
+
+  const diverged = findDivergences(mcpIncomplete ? channels.filter((c) => c.channel !== 'mcp') : channels);
   if (diverged.length > 0) problems.push(formatDivergences(diverged));
 
   const urls = sitemapUrlCount(sitemap);

@@ -66,11 +66,36 @@ jobs:
           # пятисотку, а разбор тела их не различает — тело в обоих случаях
           # пустое. Восемь суток issue #1155 повторяла «канал mcp не отдал
           # туров», не называя ни одной из пяти возможных причин.
-          MCP_CODE=$(curl -s --max-time 60 -X POST "$BASE/api/mcp" \
-            -H 'Content-Type: application/json' \
-            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_tours","arguments":{}}}' \
-            -o mcp.json -w '%{http_code}' || echo 000)
+          #
+          # #2362: get_tours отдаёт каталог СТРАНИЦАМИ по 7 туров (#2314: клиент
+          # MCP резал длинный ответ), а сверка читала одну первую — и 15 из 22
+          # туров числились «в llms есть, в mcp нет» при живом канале. Листаем
+          # до последней: число страниц — из хвоста первой («Страница 1 из N»),
+          # страницы 2..N дописываются в mcp.json к content первой, для разбора
+          # это один ответ. Страница не пришла — это «не смог снять канал», и
+          # так и называется (mcp-pages.problem), а не расхождение каналов.
+          mcp_page() {
+            curl -s --max-time 60 -X POST "$BASE/api/mcp" \
+              -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":$1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_tours\",\"arguments\":{\"page\":\"$1\"}}}" \
+              -o "$2" -w '%{http_code}' || true
+          }
+          MCP_CODE=$(mcp_page 1 mcp.json)
           echo "MCP HTTP: $MCP_CODE"
+          PAGES=$(grep -oE 'Страница 1 из [0-9]+' mcp.json | head -1 | grep -oE '[0-9]+$' || true)
+          if [ -n "$PAGES" ] && [ "$PAGES" -gt 1 ]; then
+            for P in $(seq 2 "$PAGES"); do
+              CODE=$(mcp_page "$P" "mcp-page-$P.json")
+              if [ "$CODE" != "200" ] || ! jq -e '.result.content | length > 0' "mcp-page-$P.json" >/dev/null 2>&1; then
+                echo "страница $P из $PAGES не получена (HTTP $CODE)" > mcp-pages.problem
+                echo "::error::get_tours: $(cat mcp-pages.problem) — канал mcp снят не целиком."
+                break
+              fi
+              jq '.result.content += input.result.content' mcp.json "mcp-page-$P.json" > mcp.merged.json \
+                && mv mcp.merged.json mcp.json
+            done
+            echo "MCP: страниц $PAGES, в mcp.json склеено $(jq '.result.content | length' mcp.json) частей"
+          fi
           # Второй домен: интересует КОД ответа, а не тело.
           echo "$(curl -s -o alt.body -w '%{http_code}' --max-time 60 "$ALT_DOMAIN/llms.txt" || echo 000)" > alt.code
           for f in llms.txt sitemap.xml mcp.json; do
