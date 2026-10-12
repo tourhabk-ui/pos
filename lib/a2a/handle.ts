@@ -129,6 +129,9 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: { executors: 
       case 'ok': {
         const extra: Record<string, unknown> = { tool: call.tool };
         if (outcome.handoffUrl) extra.continue_url = outcome.handoffUrl;
+        // Инструменты, отдающие JSON (search/fetch), — объектом в DataPart,
+        // чтобы агенту не разбирать текст.
+        if (outcome.structured) extra.result = outcome.structured;
         task = makeTask({ ids, now, id: taskId, contextId, state: 'completed', text: outcome.text, extra, artifactName: call.tool, metadata });
         break;
       }

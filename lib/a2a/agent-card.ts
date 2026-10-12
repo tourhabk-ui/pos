@@ -65,6 +65,8 @@ export const SKILL_TAGS: Record<string, string[]> = {
   search_gear:            ['kamchatka', 'gear', 'rental'],
   make_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'weather'],
   edit_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'edit'],
+  search:                 ['kamchatka', 'search', 'catalogue', 'places', 'stays', 'routes'],
+  fetch:                  ['kamchatka', 'document', 'details', 'citation'],
   create_lead:            ['kamchatka', 'request', 'tour-selection', 'human-confirmed', 'consent'],
   create_booking_request: ['kamchatka', 'request', 'booking', 'human-confirmed', 'consent'],
   create_stay_request:    ['kamchatka', 'request', 'stay', 'human-confirmed', 'consent'],
@@ -84,6 +86,8 @@ const ARG_EXAMPLES: Record<string, Record<string, unknown>> = {
   search_transfers: { destination: 'Вулкан Горелый' },
   search_gear: { query: 'палатка' },
   make_trip_plan: { days: 5, interests: 'вулканы, медведи', when: 'август' },
+  search: { query: 'Курильское озеро медведи' },
+  fetch: { id: 'place:kurilskoe-ozero' },
 };
 
 /** Примеры свободного текста — для агентов, которые выбирают навык по словам. */

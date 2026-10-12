@@ -45,8 +45,13 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     // request_charter — вахтовка целой машиной под заказ (владелец 10.10).
     // create_stay_request — заявка хозяину жилья (решение владельца 10.10).
     // Любой другой инструмент вне реестра — возврат параллельного набора, падение.
+    // search и fetch — пара коннекторов ChatGPT (ступень 2, 12.10): ChatGPT
+    // без этих двух имён сервер не подключает, а Кузьмичу поиск по словам
+    // не нужен — у него свои инструменты. Живут в lib/mcp/connector-tools.
     const expected = [
       ...Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)),
+      'search',
+      'fetch',
       'create_lead',
       'create_booking_request',
       'create_stay_request',

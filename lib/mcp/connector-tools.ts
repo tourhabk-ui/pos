@@ -1,0 +1,484 @@
+/**
+ * `search` и `fetch` — пара инструментов, которую требуют коннекторы ChatGPT
+ * (ступень 2 агентного контура, решение владельца 12.10 «го, делай ступень 2»).
+ *
+ * ── Зачем ─────────────────────────────────────────────────────────────────
+ *
+ * ChatGPT без Developer Mode отвергает MCP-сервер, у которого нет инструментов
+ * ровно с именами `search` и `fetch`; deep research зовёт только их. Форма —
+ * по документации OpenAI (developers.openai.com/docs/mcp):
+ *   search(query)  → { results: [{ id, title, url }] }
+ *   fetch(id)      → { id, title, text, url, metadata? }
+ * Объект уходит и как structuredContent, и JSON-строкой в content[0].text;
+ * цитата у ChatGPT появляется только при непустом `url`.
+ *
+ * ── Что ищется ────────────────────────────────────────────────────────────
+ *
+ * Четыре публичных источника, каждый под своим гейтом витрины — тем же, что
+ * у страниц сайта, чтобы агент не нашёл то, чего турист не видит:
+ *   tour  — operator_tours через publicTourSql (lib/tours/public-visibility);
+ *   place — places: видимые и не слитые (NOT_MERGED, lib/places/aliases);
+ *   stay  — accommodations через publicAccommodationSql (модерация);
+ *   route — v_kamchatka_routes_api с is_visible (CLAUDE.md §4: только через
+ *           представление).
+ * Похожесть — pg_trgm similarity() по названию (расширение в baseline прода,
+ * им же считает сверка мест с OSM), отбор — ILIKE по названию и описанию.
+ *
+ * ── Чего здесь нет ────────────────────────────────────────────────────────
+ *
+ * Телефонов и почт: ни контактов жилья, ни контактов операторов, ни данных
+ * туристов (pd-guard). Выдуманных полей: чего в строке нет — в тексте нет.
+ * Частичных ответов: отказ любого из четырёх источников — отказ всего поиска
+ * с SQLSTATE в логе (§4.0), а не «нашлось меньше».
+ *
+ * Сторож: tests/unit/mcp-chatgpt-connector.test.ts.
+ */
+
+import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { NOT_MERGED } from '@/lib/places/aliases';
+import { tourPath } from '@/lib/tours/tour-url';
+import { getPublicBaseUrl } from '@/lib/config';
+import { containsPattern } from '@/lib/db/like';
+import { logText } from '@/lib/log/log-text';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
+
+export const SEARCH_TOOL_NAME = 'search';
+export const FETCH_TOOL_NAME = 'fetch';
+export const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set([SEARCH_TOOL_NAME, FETCH_TOOL_NAME]);
+
+export const SEARCH_RESULTS_MAX = 10;
+export const QUERY_MIN_CHARS = 2;
+export const QUERY_MAX_CHARS = 200;
+/** Потолок текста документа в fetch — ChatGPT режет длинные, а турист читает карточку. */
+export const FETCH_TEXT_MAX = 12_000;
+
+const RESULT_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', description: 'Идентификатор документа для fetch: tour:<id>, place:<slug>, stay:<uuid>, route:<slug>' },
+    title: { type: 'string', description: 'Название для человека' },
+    url: { type: 'string', description: 'Каноническая страница на vedarai.ru — для цитаты' },
+  },
+  required: ['id', 'title', 'url'],
+} as const;
+
+export const SEARCH_TOOL = {
+  name: SEARCH_TOOL_NAME,
+  description:
+    'Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты '
+    + 'по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и '
+    + 'адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Слова запроса, 2–200 символов. Example: "Курильское озеро медведи"' },
+    },
+    required: ['query'],
+  },
+  outputSchema: {
+    type: 'object',
+    properties: { results: { type: 'array', items: RESULT_ITEM_SCHEMA } },
+    required: ['results'],
+  },
+} as const;
+
+export const FETCH_TOOL = {
+  name: FETCH_TOOL_NAME,
+  description:
+    'Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, '
+    + 'route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. '
+    + 'Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Идентификатор из search. Example: "tour:12"' },
+    },
+    required: ['id'],
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      title: { type: 'string' },
+      text: { type: 'string', description: 'Полный текст записи' },
+      url: { type: 'string', description: 'Каноническая страница на vedarai.ru' },
+      metadata: { type: 'object', description: 'Род записи и факты: kind, price, duration, season…' },
+    },
+    required: ['id', 'title', 'text', 'url'],
+  },
+} as const;
+
+export type DocKind = 'tour' | 'place' | 'stay' | 'route';
+
+export interface DocId {
+  kind: DocKind;
+  key: string;
+}
+
+const KINDS: ReadonlySet<string> = new Set(['tour', 'place', 'stay', 'route']);
+const KEY_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/;
+
+/** `tour:12`, `place:kurilskoe-ozero`, `stay:<uuid>`, `route:<slug>` → род и ключ; мусор — null. */
+export function parseDocId(raw: unknown): DocId | null {
+  if (typeof raw !== 'string') return null;
+  const m = /^([a-z]+):(.+)$/.exec(raw.trim());
+  if (!m || !KINDS.has(m[1]) || !KEY_RE.test(m[2])) return null;
+  return { kind: m[1] as DocKind, key: m[2] };
+}
+
+export function docId(kind: DocKind, key: string): string {
+  return `${kind}:${key}`;
+}
+
+export function docUrl(kind: DocKind, key: string, base: string = getPublicBaseUrl()): string {
+  const b = base.replace(/\/$/, '');
+  switch (kind) {
+    case 'tour': return `${b}${tourPath({ id: key })}`;
+    case 'place': return `${b}/places/${encodeURIComponent(key)}`;
+    case 'stay': return `${b}/accommodations/${encodeURIComponent(key)}`;
+    case 'route': return `${b}/routes/${encodeURIComponent(key)}`;
+  }
+}
+
+export interface SearchResultItem {
+  id: string;
+  title: string;
+  url: string;
+}
+
+export interface SearchResult {
+  results: SearchResultItem[];
+}
+
+interface HitRow {
+  key: string;
+  title: string;
+  score: number | null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readQuery(raw: unknown): string {
+  const q = typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ') : '';
+  if (q.length < QUERY_MIN_CHARS) {
+    throw new McpUserError(`Запрос короче ${QUERY_MIN_CHARS} символов — искать нечего. Передайте слова запроса в поле query.`, 'invalid_args:query');
+  }
+  if (q.length > QUERY_MAX_CHARS) {
+    throw new McpUserError(`Запрос длиннее ${QUERY_MAX_CHARS} символов — сократите его.`, 'invalid_args:query');
+  }
+  return q;
+}
+
+function sqlFailure(source: string, err: unknown): Error {
+  const code = (err as { code?: unknown })?.code;
+  console.error(`[mcp/search] источник ${source} не прочитан:`, typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
+  return new Error(`search: источник ${source} не ответил`);
+}
+
+/**
+ * Поиск по четырём источникам разом. Каждый источник — свой запрос под своим
+ * гейтом; слияние — по similarity названия, при равенстве — короткое имя первым.
+ */
+export async function searchDocuments(rawQuery: unknown, base: string = getPublicBaseUrl()): Promise<SearchResult> {
+  const q = readQuery(rawQuery);
+  const like = containsPattern(q);
+
+  const tours = pool.query<HitRow>(
+    `SELECT ot.id::text AS key, ot.title, similarity(ot.title, $1) AS score
+       FROM operator_tours ot
+      WHERE ${publicTourSql('ot')}
+        AND (ot.title ILIKE $2 OR COALESCE(ot.short_description, '') ILIKE $2
+             OR COALESCE(ot.description, '') ILIKE $2 OR COALESCE(ot.location_name, '') ILIKE $2)
+      ORDER BY similarity(ot.title, $1) DESC, char_length(ot.title) ASC, ot.id ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    [q, like],
+  ).catch((err: unknown) => { throw sqlFailure('tours', err); });
+
+  const places = pool.query<HitRow>(
+    `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name AS title, similarity(p.name, $1) AS score
+       FROM places p
+      WHERE p.is_visible = TRUE AND ${NOT_MERGED('p')}
+        AND (p.name ILIKE $2 OR COALESCE(p.description, '') ILIKE $2)
+      ORDER BY similarity(p.name, $1) DESC, char_length(p.name) ASC, p.name ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    [q, like],
+  ).catch((err: unknown) => { throw sqlFailure('places', err); });
+
+  const stays = pool.query<HitRow>(
+    `SELECT a.id::text AS key, a.name AS title, similarity(a.name, $1) AS score
+       FROM accommodations a
+      WHERE ${publicAccommodationSql('a')}
+        AND (a.name ILIKE $2 OR COALESCE(a.description, '') ILIKE $2 OR COALESCE(a.location_zone, '') ILIKE $2)
+      ORDER BY similarity(a.name, $1) DESC, char_length(a.name) ASC, a.name ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    [q, like],
+  ).catch((err: unknown) => { throw sqlFailure('stays', err); });
+
+  const routes = pool.query<HitRow>(
+    `SELECT COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, similarity(r.title, $1) AS score
+       FROM v_kamchatka_routes_api r
+      WHERE r.is_visible = TRUE
+        AND (r.title ILIKE $2 OR COALESCE(r.description, '') ILIKE $2)
+      ORDER BY similarity(r.title, $1) DESC, char_length(r.title) ASC, r.title ASC
+      LIMIT ${SEARCH_RESULTS_MAX}`,
+    [q, like],
+  ).catch((err: unknown) => { throw sqlFailure('routes', err); });
+
+  const [t, p, s, r] = await Promise.all([tours, places, stays, routes]);
+  const hits: Array<HitRow & { kind: DocKind }> = [
+    ...t.rows.map((x) => ({ ...x, kind: 'tour' as const })),
+    ...p.rows.map((x) => ({ ...x, kind: 'place' as const })),
+    ...s.rows.map((x) => ({ ...x, kind: 'stay' as const })),
+    ...r.rows.map((x) => ({ ...x, kind: 'route' as const })),
+  ];
+  hits.sort((a, b) => (Number(b.score ?? 0) - Number(a.score ?? 0)) || a.title.length - b.title.length || a.title.localeCompare(b.title, 'ru'));
+  return {
+    results: hits.slice(0, SEARCH_RESULTS_MAX).map((h) => ({
+      id: docId(h.kind, h.key),
+      title: h.title,
+      url: docUrl(h.kind, h.key, base),
+    })),
+  };
+}
+
+export interface FetchResult {
+  id: string;
+  title: string;
+  text: string;
+  url: string;
+  metadata: Record<string, unknown>;
+}
+
+function line(label: string, value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.length ? `${label}: ${value.map(String).join('; ')}` : null;
+  const s = String(value).trim();
+  return s ? `${label}: ${s}` : null;
+}
+
+function joinLines(parts: Array<string | null>): string {
+  return parts.filter((x): x is string => Boolean(x)).join('\n').slice(0, FETCH_TEXT_MAX);
+}
+
+function notFound(id: string): McpUserError {
+  return new McpUserError(`Записи ${id} нет среди опубликованных — возможно, она снята с витрины. Повторите search.`, 'not_found');
+}
+
+interface TourRow {
+  id: string; title: string; slug: string | null; short_description: string | null; description: string | null;
+  base_price: string | null; currency: string | null; price_unit: string | null; duration_hours: string | null;
+  duration_type: string | null; multi_day_count: number | null; difficulty: string | null;
+  season_start: string | null; season_end: string | null; location_name: string | null;
+  included: string[] | null; not_included: string[] | null; what_to_bring: string[] | null; safety_notes: string[] | null;
+  program: Array<{ title?: string; text?: string }> | null; price_note: string | null; cancellation_policy: string | null;
+  operator_name: string | null;
+}
+
+async function fetchTour(key: string, base: string): Promise<FetchResult> {
+  const id = docId('tour', key);
+  if (!/^\d{1,15}$/.test(key)) throw notFound(id);
+  const { rows: [t] } = await pool.query<TourRow>(
+    `SELECT ot.id::text AS id, ot.title, ot.slug, ot.short_description, ot.description,
+            ot.base_price::text AS base_price, ot.currency, ot.price_unit, ot.duration_hours::text AS duration_hours,
+            ot.duration_type, ot.multi_day_count, ot.difficulty,
+            ot.season_start::text AS season_start, ot.season_end::text AS season_end, ot.location_name,
+            ot.included, ot.not_included, ot.what_to_bring, ot.safety_notes, ot.program, ot.price_note,
+            ot.cancellation_policy, p.name AS operator_name
+       FROM operator_tours ot
+       LEFT JOIN partners p ON p.id::text = ot.operator_id::text
+      WHERE ot.id = $1::bigint AND ${publicTourSql('ot')}
+      LIMIT 1`,
+    [key],
+  );
+  if (!t) throw notFound(id);
+  const program = Array.isArray(t.program)
+    ? t.program.map((s, i) => `${i + 1}. ${[s.title, s.text].filter(Boolean).join(' — ')}`).join('\n')
+    : null;
+  const price = t.base_price ? `${Math.round(Number(t.base_price))} ${t.currency ?? 'RUB'}${t.price_unit === 'per_person' ? ' за человека' : ''}` : null;
+  const duration = t.duration_type === 'multi_day' && t.multi_day_count ? `${t.multi_day_count} дн.` : (t.duration_hours ? `${Number(t.duration_hours)} ч` : null);
+  const text = joinLines([
+    `Тур «${t.title}»${t.operator_name ? ` — оператор ${t.operator_name}` : ''}.`,
+    line('Место', t.location_name),
+    line('Цена', price),
+    line('Длительность', duration),
+    line('Сложность', t.difficulty),
+    t.season_start && t.season_end ? `Сезон: ${t.season_start} — ${t.season_end}` : null,
+    t.short_description,
+    t.description,
+    program ? `Программа:\n${program}` : null,
+    line('Включено', t.included),
+    line('Не включено', t.not_included),
+    line('Что взять с собой', t.what_to_bring),
+    line('Безопасность', t.safety_notes),
+    line('Условия отмены', t.cancellation_policy),
+    line('Примечание к цене', t.price_note),
+    'Заявка на тур подтверждается оператором; оплата — напрямую оператору.',
+  ]);
+  return {
+    id,
+    title: t.title,
+    text,
+    url: `${base.replace(/\/$/, '')}${tourPath({ id: t.id, slug: t.slug })}`,
+    metadata: { kind: 'tour', price: t.base_price ? Number(t.base_price) : null, currency: t.currency, duration, season_start: t.season_start, season_end: t.season_end, operator: t.operator_name },
+  };
+}
+
+interface PlaceRow {
+  key: string; name: string; description: string | null; essence: string | null; location_type: string | null;
+  category: string | null; district: string | null; lat: string | null; lng: string | null; best_season: string | null;
+  access_info: string | null; eco_permit_required: boolean | null;
+  hazard_types: string[] | null; difficulty_level: string | null; nearest_medical_km: string | null;
+}
+
+async function fetchPlace(key: string, base: string): Promise<FetchResult> {
+  const id = docId('place', key);
+  const { rows: [p] } = await pool.query<PlaceRow>(
+    `SELECT COALESCE(p.slug, p.ark_id::text) AS key, p.name, p.description, p.essence, p.location_type, p.category,
+            p.district, p.lat::text AS lat, p.lng::text AS lng, p.best_season, p.access_info, p.eco_permit_required,
+            lsp.hazard_types, lsp.difficulty_level, lsp.nearest_medical_km::text AS nearest_medical_km
+       FROM places p
+       LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
+      WHERE p.is_visible = TRUE AND ${NOT_MERGED('p')}
+        AND (p.slug = $1 OR p.ark_id::text = $1)
+      ORDER BY (p.slug = $1) DESC
+      LIMIT 1`,
+    [key],
+  );
+  if (!p) throw notFound(id);
+  const text = joinLines([
+    `${p.name}${p.location_type ? ` (${p.location_type})` : ''}${p.district ? `, ${p.district}` : ''}.`,
+    p.lat && p.lng ? `Координаты: ${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : null,
+    p.essence,
+    p.description,
+    line('Лучший сезон', p.best_season),
+    line('Как добраться', p.access_info),
+    p.eco_permit_required ? 'Нужно разрешение на посещение (ООПТ).' : null,
+    line('Опасности', p.hazard_types),
+    line('Сложность', p.difficulty_level),
+    p.nearest_medical_km ? `До медпомощи: ${Number(p.nearest_medical_km)} км` : null,
+    'Экстренный вызов на Камчатке — 112. Обстановка сейчас: инструмент get_guardian_context.',
+  ]);
+  return {
+    id: docId('place', p.key),
+    title: p.name,
+    text,
+    url: docUrl('place', p.key, base),
+    metadata: { kind: 'place', location_type: p.location_type, lat: p.lat ? Number(p.lat) : null, lng: p.lng ? Number(p.lng) : null, hazards: p.hazard_types ?? [] },
+  };
+}
+
+interface StayRow {
+  id: string; name: string; type: string | null; description: string | null; short_description: string | null;
+  location_zone: string | null; price_from: string | null; price_to: string | null; currency: string | null;
+  amenities: unknown; cancellation_policy: string | null; external_booking_url: string | null;
+}
+
+async function fetchStay(key: string, base: string): Promise<FetchResult> {
+  const id = docId('stay', key);
+  if (!UUID_RE.test(key)) throw notFound(id);
+  const { rows: [a] } = await pool.query<StayRow>(
+    `SELECT a.id::text AS id, a.name, a.type, a.description, a.short_description, a.location_zone,
+            a.price_per_night_from::text AS price_from, a.price_per_night_to::text AS price_to, a.currency,
+            a.amenities, a.cancellation_policy, a.external_booking_url
+       FROM accommodations a
+      WHERE a.id = $1::uuid AND ${publicAccommodationSql('a')}
+      LIMIT 1`,
+    [key],
+  );
+  if (!a) throw notFound(id);
+  const amenities = Array.isArray(a.amenities) ? a.amenities.map(String) : null;
+  const price = a.price_from
+    ? `от ${Math.round(Number(a.price_from))}${a.price_to ? ` до ${Math.round(Number(a.price_to))}` : ''} ${a.currency ?? 'RUB'} за ночь`
+    : null;
+  const text = joinLines([
+    `Жильё «${a.name}»${a.type ? ` (${a.type})` : ''}${a.location_zone ? `, ${a.location_zone}` : ''}.`,
+    line('Цена', price),
+    a.short_description,
+    a.description,
+    line('Удобства', amenities),
+    line('Условия отмены', a.cancellation_policy),
+    a.external_booking_url ? 'Бронь и свободные даты — на сайте объекта, ссылка на карточке.' : 'Заявку на даты подтверждает владелец; расчёт — напрямую с ним. Контакты — на карточке.',
+  ]);
+  return {
+    id,
+    title: a.name,
+    text,
+    url: docUrl('stay', a.id, base),
+    metadata: { kind: 'stay', type: a.type, zone: a.location_zone, price_from: a.price_from ? Number(a.price_from) : null, currency: a.currency },
+  };
+}
+
+interface RouteRow {
+  key: string; title: string; description: string | null; difficulty: string | null; distance_km: string | null;
+  duration_hours: string | null; duration_days: number | null; elevation_gain_m: number | null; season: string | null;
+  route_type: string | null; hazards: string[] | null; equipment: string[] | null; mchs_registration_required: boolean | null;
+  park_name: string | null; zone: string | null;
+}
+
+async function fetchRoute(key: string, base: string): Promise<FetchResult> {
+  const id = docId('route', key);
+  const { rows: [r] } = await pool.query<RouteRow>(
+    `SELECT COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, r.description, r.difficulty,
+            r.distance_km::text AS distance_km, r.duration_hours::text AS duration_hours, r.duration_days,
+            r.elevation_gain_m, r.season, r.route_type, r.hazards, r.equipment, r.mchs_registration_required,
+            r.park_name, r.zone
+       FROM v_kamchatka_routes_api r
+      WHERE r.is_visible = TRUE
+        AND (r.slug = $1 OR r.ark_id::text = $1 OR r.id::text = $1)
+      ORDER BY (r.slug = $1) DESC
+      LIMIT 1`,
+    [key],
+  );
+  if (!r) throw notFound(id);
+  const text = joinLines([
+    `Маршрут «${r.title}»${r.zone ? `, ${r.zone}` : ''}.`,
+    line('Тип', r.route_type),
+    line('Сложность', r.difficulty),
+    r.distance_km ? `Дистанция: ${Number(r.distance_km)} км` : null,
+    r.duration_days ? `Длительность: ${r.duration_days} дн.` : (r.duration_hours ? `Длительность: ${Number(r.duration_hours)} ч` : null),
+    r.elevation_gain_m ? `Набор высоты: ${r.elevation_gain_m} м` : null,
+    line('Сезон', r.season),
+    r.description,
+    line('Опасности', r.hazards),
+    line('Снаряжение', r.equipment),
+    r.mchs_registration_required ? 'Требуется регистрация в МЧС перед выходом.' : null,
+    line('Природный парк', r.park_name),
+    'Экстренный вызов на Камчатке — 112.',
+  ]);
+  return {
+    id: docId('route', r.key),
+    title: r.title,
+    text,
+    url: docUrl('route', r.key, base),
+    metadata: { kind: 'route', difficulty: r.difficulty, distance_km: r.distance_km ? Number(r.distance_km) : null, season: r.season, mchs_registration_required: r.mchs_registration_required ?? null },
+  };
+}
+
+export async function fetchDocument(rawId: unknown, base: string = getPublicBaseUrl()): Promise<FetchResult> {
+  const parsed = parseDocId(rawId);
+  if (!parsed) {
+    throw new McpUserError('Поле id должно быть идентификатором из search: tour:<id>, place:<slug>, stay:<uuid> или route:<slug>.', 'invalid_args:id');
+  }
+  // Отказ базы — сбой, не «не найдено» (§4.0): исключение уходит наверх с
+  // SQLSTATE в логе, а не превращается в «записи нет».
+  try {
+    switch (parsed.kind) {
+      case 'tour': return await fetchTour(parsed.key, base);
+      case 'place': return await fetchPlace(parsed.key, base);
+      case 'stay': return await fetchStay(parsed.key, base);
+      case 'route': return await fetchRoute(parsed.key, base);
+    }
+  } catch (err) {
+    if (err instanceof McpUserError) throw err;
+    throw sqlFailure(parsed.kind, err);
+  }
+}
+
+/** Исполнение для MCP-роута: текст — JSON-строка того же объекта, что уходит structuredContent. */
+export async function runConnectorTool(name: string, rawArgs: Record<string, unknown>): Promise<string> {
+  if (name === SEARCH_TOOL_NAME) return JSON.stringify(await searchDocuments(rawArgs.query));
+  if (name === FETCH_TOOL_NAME) return JSON.stringify(await fetchDocument(rawArgs.id));
+  throw new McpUserError(`Инструмент ${logText(name, 40)} не из пары search/fetch`, 'unknown_tool');
+}

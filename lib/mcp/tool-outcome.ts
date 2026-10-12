@@ -17,4 +17,9 @@ export type PublicToolOutcome =
   | { kind: 'refused'; text: string }
   /** Наш код упал или не смог получить данные — сбой, не «ничего нет». */
   | { kind: 'failed'; text: string }
-  | { kind: 'ok'; text: string; handoffUrl: string | null };
+  /**
+   * `structured` — тот же ответ объектом, когда инструмент отдаёт JSON
+   * (search/fetch для коннекторов ChatGPT): MCP кладёт его в structuredContent,
+   * A2A — в DataPart. У текстовых инструментов поля нет.
+   */
+  | { kind: 'ok'; text: string; handoffUrl: string | null; structured?: Record<string, unknown> };

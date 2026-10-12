@@ -205,6 +205,8 @@ ${planLines}
   занятость не проверяется — менеджер согласует поездку с перевозчиком) и
   create_stay_request (заявка владельцу жилья на даты; даты и цену подтверждает он)
 - Мгновенного подтверждения и оплаты через MCP нет by design. Rate-limit по IP.
+- Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
+  турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы
 - В каталогах: ${MCP_CATALOGS.map((c) => `${c.catalog} — ${c.name}`).join('; ')}.
   Подключение из Smithery: ${MCP_CATALOGS.find((c) => c.install)?.install ?? '—'}
 - English: ${MCP_TITLE_EN}. ${MCP_DESCRIPTION_EN}. MCP endpoint
