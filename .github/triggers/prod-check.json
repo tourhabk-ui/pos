@@ -1,16 +1,13 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 112,
-  "why": "12.10 (run 112; номер 111 ушёл очереди треков в main), разбор открытых issues и контура агентов: (1) operator-reach — привязали ли каналы «Местечко Камчатка» и «Край Вулканов» (#2349, #2245 закрываются только по этому факту); (2) agent-entry-census — первые сутки переписи входов: приходят ли Baidu, ByteDance, Huawei; (3) mcp-census — self_since и клиенты за сутки (#2372 п.3, метка MCP_SELF_TAG); (4) channel-readiness — сколько туров готовы к витринам после импорта 15+11; (5) входы обнаружения после выкатов 12.10: визитка A2A, каталог AI, карточка MCP, api-catalog — отвечают ли с прода.",
+  "run": 113,
+  "why": "12.10, после выкатов #2403 (5001bfab) и #2404 (364f80df), только чтение: (1) /zh — китайский вход отвечает 200 с zh-CN в разметке и hreflang; (2) /request-status — страница заявки для человека отвечает 200 и закрыта от индексации; (3) /api/requests/status?k=short — ключ не той формы → 400, не 401 (роут в реестре Edge); (4) /api/mcp/server-card — в перечне инструментов есть get_request_status; (5) /.well-known/mcp.json — манифест жив после перечня из 20 инструментов.",
   "urls": [
-    "https://vedarai.ru/api/cron/operator-reach",
-    "https://vedarai.ru/api/cron/agent-entry-census",
-    "https://vedarai.ru/api/cron/mcp-census",
-    "https://vedarai.ru/api/cron/channel-readiness",
-    "https://vedarai.ru/.well-known/agent-card.json",
-    "https://vedarai.ru/.well-known/ai-catalog.json",
+    "https://vedarai.ru/zh",
+    "https://vedarai.ru/request-status",
+    "https://vedarai.ru/api/requests/status?k=short",
     "https://vedarai.ru/api/mcp/server-card",
-    "https://vedarai.ru/.well-known/api-catalog"
+    "https://vedarai.ru/.well-known/mcp.json"
   ],
   "run104_result": "ОТВЕТ ПОЛУЧЕН (run 37939692776, job 113850608063, 09.10 14:26 UTC, HTTP 200, 959 байт): scope=unlinked → одна строка: бронь #4 от 30.08, created_via service-payment-test, тур «Служебная проверка оплаты — не покупать» (неактивный), оператор «Служебный — проверка оплаты», cancelled, без аккаунта/телефона/почты/имени. Служебная проба оплаты — не клиент; исключена из отбора CRM в #2337.",
   "run103_result": "ОТВЕТ ПОЛУЧЕН (run 37932098258, job 113825067867, 09.10 13:21 UTC, HTTP 200, 271 байт): hours=720 → recent [], by_origin [], by_origin_30d [], failed [] — за 30 суток ни одной брони тура. Непривязанная у задела (operator_booking 1 в 11:55) старше окна; версия «автомат заводит брони» закрыта. Для неё — область unlinked (#2336), run 104.",
