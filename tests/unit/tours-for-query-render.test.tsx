@@ -39,4 +39,19 @@ describe('ToursForQuery', () => {
     expect(container.querySelector('a[href="/catalog/tours/27"]')).not.toBeNull();
     expect(container.textContent).toMatch(/от\s*13[\s  ]?000/);
   });
+
+  it('значок строки — по типу активности: джип-тур узнаётся машиной, а не билетом (владелец 12.10)', () => {
+    const { container } = render(
+      <ToursForQuery
+        q="озеро толмач"
+        state={{ status: 'ok', tours: [
+          { id: 60, slug: 'mestechko-ozero-tolmachevo', title: 'Озеро Толмачёва', operator_name: 'Местечко Камчатка', activity_type: 'jeep_safari', base_price: 14000 },
+          { id: 1, title: 'Неизвестный тип', operator_name: null, activity_type: 'zzz', base_price: null },
+        ] }}
+      />,
+    );
+    expect(container.querySelector('svg.lucide-car')).not.toBeNull();
+    // Неизвестный тип — общий значок, а не пустое место.
+    expect(container.querySelectorAll('svg.lucide-ticket')).toHaveLength(1);
+  });
 });

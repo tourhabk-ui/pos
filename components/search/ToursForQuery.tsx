@@ -14,10 +14,13 @@
  *                       «туров нет».
  *
  * Серверный компонент без состояния: данные приходят из RSC-страницы.
+ * Значок у строки — тип активности (lib/tours/activity-icons), решение
+ * владельца 12.10: джип-тур узнаётся машиной, а не общим билетом.
  */
 import Link from 'next/link';
-import { ArrowRight, Ticket } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { activityLabel } from '@/lib/tours/labels';
+import { activityIcon } from '@/lib/tours/activity-icons';
 import { tourPriceFrom } from '@/lib/search/tour-query-match';
 import { tourPath } from '@/lib/tours/tour-url';
 
@@ -71,6 +74,9 @@ export function ToursForQuery({ q, state }: { q: string; state: ToursForQuerySta
         {state.tours.map(t => {
           const price = tourPriceFrom(t.base_price);
           const kind = activityLabel(t.activity_type);
+          // Значок — по типу активности (владелец 12.10: «в турах, наверное,
+          // иконку активностей — в данном случае это джип-тур»), не билет.
+          const Icon = activityIcon(t.activity_type);
           return (
             <li key={String(t.id)} className="min-w-0">
               <Link
@@ -82,7 +88,7 @@ export function ToursForQuery({ q, state }: { q: string; state: ToursForQuerySta
                   style={{ background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' }}
                   aria-hidden
                 >
-                  <Ticket size={18} className="text-[var(--accent)]" />
+                  <Icon size={18} className="text-[var(--accent)]" />
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm font-semibold text-[var(--text-primary)] line-clamp-2">{t.title}</span>
