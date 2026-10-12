@@ -249,12 +249,26 @@ const nextConfig = {
       // Cache-Control, но это правило перебивало его — прод отвечал no-store,
       // а код обещал «кэш на час». Ни статуса дня, ни личных данных в них нет.
       // Сторож: tests/unit/seo-audit-2909-evening.test.ts.
+      //
+      // Документы для агентов (12.10) — манифест MCP, визитки A2A, карточка
+      // сервера, AI Catalog, OpenAPI и каталог API — ставят «час кэша» в самих
+      // роутах и тоже исключены: иначе прод отвечал бы no-store, а код обещал
+      // кэш (та же болезнь, что у sitemap 29.09). Личных данных в них нет.
+      // Сторож: tests/unit/openapi-agents.test.ts.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms\\.txt$|api/channels/(?:avito|yandex)/feed$).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },
         ],
+      },
+      // Каталог API по RFC 9727 (ступень 3, 12.10): заголовок Link на главной
+      // ведёт агента к /.well-known/api-catalog — там описание OpenAPI, карточка
+      // MCP и визитки A2A одним linkset. Относительная ссылка — по RFC 8288
+      // разрешается относительно запроса. Сторож: tests/unit/openapi-agents.test.ts.
+      {
+        source: '/',
+        headers: [{ key: 'Link', value: '</.well-known/api-catalog>; rel="api-catalog"' }],
       },
       {
         source: '/widget/:path*',

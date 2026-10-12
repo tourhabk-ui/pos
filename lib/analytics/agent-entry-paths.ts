@@ -17,6 +17,10 @@ export const AGENT_ENTRY_PATHS = [
   // 12.10: карточка MCP-сервера и каталог домена (lib/mcp/server-card).
   '/api/mcp/server-card',
   '/.well-known/ai-catalog.json',
+  // 12.10, ступень 3: описание OpenAPI 3.1 для агентов без MCP и A2A и каталог
+  // API по RFC 9727 (lib/api/openapi).
+  '/openapi.json',
+  '/.well-known/api-catalog',
 ] as const;
 
 export type AgentEntryPath = (typeof AGENT_ENTRY_PATHS)[number];

@@ -136,6 +136,29 @@ export default function McpLandingPage() {
             </div>
           </section>
 
+          {/* Третий вход (ступень 3, 12.10): агентам без MCP- и A2A-клиента —
+              описание OpenAPI 3.1 и каталог API по RFC 9727 (lib/api/openapi). */}
+          <section className="space-y-3">
+            <h2 className="ds-h2">Без MCP и A2A: REST и OpenAPI</h2>
+            <div className="ds-card p-4 space-y-2 text-sm">
+              <p style={{ color: 'var(--text-secondary)' }}>
+                GPT Actions, Copilot Studio и OpenAPI-наборы фреймворков читают описание OpenAPI 3.1: в нём REST-биндинг A2A
+                (любой инструмент одним POST), публичные читающие эндпоинты и входы обнаружения. Авторизации нет; запись —
+                те же четыре заявки, подтверждает человек.
+              </p>
+              <p style={{ color: 'var(--text-primary)' }}>
+                OpenAPI:{' '}
+                <a className="underline" style={{ color: 'var(--ocean)' }} href={`${SITE}/openapi.json`} rel="noopener">
+                  <code>/openapi.json</code>
+                </a>
+                {' '}· каталог API (RFC 9727):{' '}
+                <a className="underline" style={{ color: 'var(--ocean)' }} href={`${SITE}/.well-known/api-catalog`} rel="noopener">
+                  <code>/.well-known/api-catalog</code>
+                </a>
+              </p>
+            </div>
+          </section>
+
           <section className="space-y-3">
             <h2 className="ds-h2">Инструменты ({PUBLIC_MCP_TOOLS.length})</h2>
             <div className="space-y-2">

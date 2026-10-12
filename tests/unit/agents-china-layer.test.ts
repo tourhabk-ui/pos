@@ -13,8 +13,9 @@
  *    метаданные в <head> (htmlLimitedBots).
  * 3. Реестр семейств ботов один (lib/analytics/bot-detect), им же считает
  *    isBotUserAgent; «sogou» целиком не берётся — его носят и браузеры людей.
- * 4. Перепись входов для агентов: счётчик без UA и IP, пять входов, отказ
- *    базы не глушится; перепись читает и называет, чего не считает.
+ * 4. Перепись входов для агентов: счётчик без UA и IP, список входов
+ *    заморожен здесь (девять на 12.10), отказ базы не глушится; перепись
+ *    читает и называет, чего не считает.
  * 5. Проба «знает ли модель о нас»: три исхода, вопрос без слова «Камчатка»,
  *    обёртки провайдеров без прямого `await callX`, workflow ждёт свою сборку.
  */
@@ -190,10 +191,12 @@ describe('семейства ботов — один реестр', () => {
 });
 
 describe('перепись входов для агентов', () => {
-  it('семь входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
+  it('девять входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
     expect([...AGENT_ENTRY_PATHS]).toEqual([
       '/robots.txt', '/llms.txt', '/.well-known/mcp.json', '/.well-known/agent-card.json', '/.well-known/agent.json',
       '/api/mcp/server-card', '/.well-known/ai-catalog.json',
+      // Ступень 3 (12.10): OpenAPI для агентов без MCP и A2A и каталог API RFC 9727.
+      '/openapi.json', '/.well-known/api-catalog',
     ]);
     recordAgentEntryHit('/robots.txt', 'Mozilla/5.0 (compatible; Baiduspider/2.0)');
     expect(query).toHaveBeenCalledTimes(1);
@@ -220,7 +223,7 @@ describe('перепись входов для агентов', () => {
     expect(ddl).not.toMatch(/user_agent|\bip\b/i);
   });
 
-  it('каждый из семи входов зовёт счётчик своим путём', () => {
+  it('каждый из девяти входов зовёт счётчик своим путём', () => {
     const sources: Record<string, [string, string]> = {
       '/robots.txt': ['app/robots.ts', "recordAgentEntryHit('/robots.txt'"],
       '/llms.txt': ['app/llms.txt/route.ts', "recordAgentEntryHit('/llms.txt'"],
@@ -230,9 +233,13 @@ describe('перепись входов для агентов', () => {
       // Карточка и каталог зовут счётчик константой пути (lib/mcp/server-card).
       '/api/mcp/server-card': ['app/api/mcp/server-card/route.ts', 'recordAgentEntryHit(SERVER_CARD_PATH'],
       '/.well-known/ai-catalog.json': ['app/.well-known/ai-catalog.json/route.ts', 'recordAgentEntryHit(AI_CATALOG_PATH'],
+      // OpenAPI и каталог API зовут счётчик константами из lib/api/openapi.
+      '/openapi.json': ['app/openapi.json/route.ts', 'recordAgentEntryHit(OPENAPI_PATH'],
+      '/.well-known/api-catalog': ['app/.well-known/api-catalog/route.ts', 'recordAgentEntryHit(API_CATALOG_PATH'],
     };
+    expect(Object.keys(sources).sort()).toEqual([...AGENT_ENTRY_PATHS].sort());
     for (const [path, [file, call]] of Object.entries(sources)) {
-      expect(read(file), ` ()`).toContain(call);
+      expect(read(file), `${path} (${file})`).toContain(call);
     }
     // robots.txt — через headers(): файл становится динамическим, и это сказано.
     const robots = read('app/robots.ts');
