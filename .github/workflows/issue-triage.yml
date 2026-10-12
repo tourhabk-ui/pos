@@ -94,12 +94,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          # Подписка, а не API-ключ (владелец 10.09: «сделал claude_code_oauth_token»).
-          # ANTHROPIC_API_KEY с 09.09 отвечал 401 «API key is invalid» — обе руки
-          # стояли мёртвыми на одном секрете. Один источник авторизации, тот же, на
-          # котором идут сессии Claude Code Remote; второй рядом не держим, чтобы
-          # отказ был читаемым, а не «какой из двух».
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Ключ Anthropic из репозиторного секрета — прямой путь, деньги с баланса
+          # Console (решение владельца 12.10: «проверь, может не нужно переключать,
+          # если есть 238 $»; проба anthropic-path-probe 18 того же дня: ключ принят).
+          # До этого руки месяц не делали ни одной работы (#2396): ANTHROPIC_API_KEY
+          # с 09.09 отвечал 401 «API key is invalid», CLAUDE_CODE_OAUTH_TOKEN с 10.09
+          # вёл себя как ключ Console без привязки к workspace — 400 «credit balance
+          # is too low», затем «not scoped to a workspace». Раннер GitHub ходит в
+          # api.anthropic.com напрямую, без гео-блока; прод — нет (§8). Второй
+          # источник авторизации рядом не держим: отказ должен читаться как «ключ».
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Прогон, рождённый переводчиком, инициирует github-actions — бот,
           # и рука по умолчанию таких не пускает («Workflow initiated by
           # non-human actor», прогон 61). Разрешён ИМЕННО он, а не '*':

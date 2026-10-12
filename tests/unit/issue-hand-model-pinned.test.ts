@@ -17,11 +17,20 @@
  * репозитория (§8, таблица двух ключей). Переменная приложения Timeweb сюда
  * не относится — путать их уже стоило вечера.
  *
- * С 10.09 секрет — подписка (`CLAUDE_CODE_OAUTH_TOKEN`), а не API-ключ
- * (владелец: «сделал claude_code_oauth_token в гитхабе»). `ANTHROPIC_API_KEY`
- * с 09.09 отвечал 401 «API key is invalid», и все руки стояли мёртвыми на
- * одном секрете, хотя баланс консоли был не нулевой. Второй источник рядом
- * не держим: отказ должен читаться как «токен», а не «какой из двух».
+ * С 12.10 руки считают ключом Anthropic из РЕПОЗИТОРНОГО секрета
+ * `ANTHROPIC_API_KEY` (вход `anthropic_api_key`), деньги — с баланса Console
+ * владельца. Решение владельца того же дня: «проверь, может не нужно
+ * переключать [на OpenRouter], если есть 238 $» — и проба
+ * `anthropic-path-probe` 18 показала, что новый ключ Anthropic принимает.
+ *
+ * История, чтобы не ходить по кругу (#2396): `ANTHROPIC_API_KEY` с 09.09
+ * отвечал 401 «API key is invalid» (каждая замена до 08.10 включительно);
+ * `CLAUDE_CODE_OAUTH_TOKEN` с 10.09 вёл себя как ключ Console без привязки к
+ * workspace, а не подписка — 400 «Credit balance is too low» (13.09–04.10),
+ * затем 400 «not scoped to a workspace» (11–12.10). Месяц ни одна рука не
+ * сделала ни одной работы, а прежняя редакция этой шапки («подписка, тот же
+ * источник, что у сессий Remote») была неверна. Второй источник авторизации
+ * рядом не держим: отказ должен читаться как «ключ», а не «какой из двух».
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -31,6 +40,10 @@ const HANDS = [
   '.github/workflows/claude.yml',
   '.github/workflows/issue-triage.yml',
   '.github/workflows/weekly-chronicle.yml',
+  // Свипер — та же рука на том же экшене и том же ключе; до 12.10 он
+  // держался здесь только сторожем цены (agent-run-cost-guard), а ключ у
+  // него никто не проверял.
+  '.github/workflows/ci-sweeper.yml',
 ] as const;
 
 /**
@@ -63,18 +76,21 @@ describe('модель руки задана явно', () => {
       expect(src).toContain(`--model ${PINNED}`);
     });
 
-    it(`${wf} — считает секретом раннера (подписка), а не переменной прода`, () => {
-      expect(src).toMatch(/^\s*claude_code_oauth_token: \$\{\{ secrets\.CLAUDE_CODE_OAUTH_TOKEN \}\}/m);
+    it(`${wf} — считает ключом Anthropic из секрета раннера, не переменной прода`, () => {
+      expect(src).toMatch(/^\s*anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/m);
     });
 
-    it(`${wf} — API-ключ рядом с подпиской не задан`, () => {
-      // Незакомментированная строка `anthropic_api_key:` — второй источник
-      // авторизации; при отказе нельзя было бы сказать, который из двух.
-      expect(src).not.toMatch(/^\s*anthropic_api_key:/m);
+    it(`${wf} — OAuth-токен рядом с ключом не задан`, () => {
+      // Незакомментированная строка `claude_code_oauth_token:` — второй
+      // источник авторизации; при отказе нельзя было бы сказать, который из двух.
+      expect(src).not.toMatch(/^\s*claude_code_oauth_token:/m);
     });
 
     it(`${wf} — модель одна на весь файл, второй головы нет`, () => {
-      expect(src.match(/--model /g) ?? []).toHaveLength(1);
+      // Комментарии не в счёт: у свипера «--model» стоит и в пояснении,
+      // почему модель прибита. Судится код, а не слово.
+      const code = src.replace(/^[ \t]*#.*$/gm, '');
+      expect(code.match(/--model /g) ?? []).toHaveLength(1);
     });
   }
 });
