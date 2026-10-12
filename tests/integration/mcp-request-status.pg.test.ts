@@ -121,6 +121,35 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     expect(Number(k.read_count)).toBe(3);
   });
 
+  it('согласие человека пишется поверх записи агента — лид и запрос мест; повтор не трогает; агенту видно полем consent', async () => {
+    const { readRequestStatus, confirmConsent, AGENT_CONSENT_SOURCE, HUMAN_CONSENT_SOURCE } = await import('@/lib/mcp/request-status');
+    const { buildConsentRecord } = await import('@/lib/legal/pd-consent');
+    const record = buildConsentRecord(true, '203.0.113.7', HUMAN_CONSENT_SOURCE);
+    if (!record) throw new Error('запись согласия не собралась');
+
+    // Лид в сиде без согласия → none; после подтверждения → human, источник, версия и адрес записаны.
+    expect((await readRequestStatus(leadKey)).consent).toBe('none');
+    expect(await confirmConsent(leadKey, record)).toBe('recorded');
+    const lead = await pool.query<{ pd_consent_source: string; pd_consent_version: string; pd_consent_ip: string }>(
+      'SELECT pd_consent_source, pd_consent_version, pd_consent_ip FROM leads WHERE id = $1', [leadId]);
+    expect(lead.rows[0]).toMatchObject({ pd_consent_source: HUMAN_CONSENT_SOURCE, pd_consent_version: record.version, pd_consent_ip: '203.0.113.7' });
+    expect((await readRequestStatus(leadKey)).consent).toBe('human');
+    expect(await confirmConsent(leadKey, record)).toBe('already');
+
+    // Запрос мест с записью агента → agent; подтверждение человека ложится поверх.
+    await pool.query(
+      `UPDATE tour_seat_requests SET pd_consent_source = $1
+        WHERE id = (SELECT seat_request_id FROM agent_request_keys WHERE seat_request_id IS NOT NULL LIMIT 1)`,
+      [AGENT_CONSENT_SOURCE],
+    );
+    expect((await readRequestStatus(seatKey)).consent).toBe('agent');
+    expect(await confirmConsent(seatKey, record)).toBe('recorded');
+    expect((await readRequestStatus(seatKey)).consent).toBe('human');
+
+    // Чужой ключ — отказ по входу, не «записано».
+    await expect(confirmConsent('AbCdEfGhIjKlMnOpQrStUvWxYz012345', record)).rejects.toThrow(/не найден или истёк/);
+  });
+
   it('запрос мест pending → ждёт с дедлайном; просроченный ключ — «не найден или истёк»', async () => {
     const { readRequestStatus } = await import('@/lib/mcp/request-status');
     const v = await readRequestStatus(seatKey);
