@@ -39,6 +39,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          # История за час — для CODE_PATHS в wait-for-deploy.sh (как у place-coords).
+          fetch-depth: 200
 
       # Замер шёл по ЧУЖОМУ контейнеру — и это уже стоило неверного вывода.
       # Прогон 6 (06.09, 02:16 UTC) сказал «ключ на проде старый», а новый
@@ -56,6 +59,12 @@ jobs:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          # 12.10: с прода проба зовёт один роут, и ждать сборку есть смысл
+          # только когда он (или его импорты) менялись за последний час —
+          # иначе прогон отсиживает до 35 минут ради ответа, который прод
+          # даёт уже сейчас (правило 03.10 в wait-for-deploy.sh). Шаги с
+          # раннера сборки не касаются вовсе.
+          CODE_PATHS: 'app/api/cron/anthropic-path-probe lib/security/timing-safe.ts lib/auth/cron.ts'
         run: bash scripts/wait-for-deploy.sh
 
       - name: Шлюз Cloudflare AI Gateway существует
