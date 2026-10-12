@@ -9,6 +9,7 @@ import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connec
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
+import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 
 const BASE = 'https://vedarai.ru';
@@ -240,6 +241,19 @@ ${planLines}
 - В реестре A2A: ${A2A_CATALOGS.map((c) => `${c.catalog}: ${c.url}`).join('; ')} (регистрация 12.10;
   запись появляется после проверки реестром)
 
+## Для AI-агентов: REST и OpenAPI (без MCP и A2A)
+
+Агентам без MCP- и A2A-клиента (GPT Actions, Copilot Studio, OpenAPI-наборы
+фреймворков) — описание OpenAPI 3.1: ${BASE}${OPENAPI_PATH}. В нём REST-биндинг
+A2A (любой инструмент одним POST), публичные читающие эндпоинты (каталог мест,
+маршрутов и туров, туры и их занятость, карточка места, статус дня, сейсмика,
+вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же четыре
+заявки через DataPart с consent: true. Каталог API по RFC 9727 (linkset):
+${BASE}${API_CATALOG_PATH} — на него же указывает заголовок Link rel="api-catalog"
+главной страницы.
+- English: OpenAPI 3.1 for agents without MCP or A2A clients (GPT Actions,
+  Copilot Studio): ${BASE}${OPENAPI_PATH}; RFC 9727 api-catalog: ${BASE}${API_CATALOG_PATH}
+
 ${llmsSectionZh(BASE)}
 
 ${sections}
@@ -251,6 +265,7 @@ ${sections}
 - API маршрутов: ${BASE}/api/routes (публичный, JSON)
 - MCP для агентов: ${BASE}/api/mcp (манифест: ${BASE}/.well-known/mcp.json)
 - A2A для агентов: ${BASE}/api/a2a (визитка: ${BASE}/.well-known/agent-card.json)
+- OpenAPI 3.1 для агентов без MCP и A2A: ${BASE}${OPENAPI_PATH} (каталог API: ${BASE}${API_CATALOG_PATH})
 - Ситкарта: ${BASE}/sitemap.xml
 - robots.txt: ${BASE}/robots.txt
 `;

@@ -20,6 +20,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH } from '@/lib/a2a/agent-card';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { SERVER_CARD_PATH, AI_CATALOG_PATH } from '@/lib/mcp/server-card';
+import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,10 @@ export async function GET(request?: Request) {
       // Catalog) — то, что агент читает до рукопожатия (12.10).
       serverCard: `${base}${SERVER_CARD_PATH}`,
       aiCatalog: `${base}${AI_CATALOG_PATH}`,
+      // Для агентов без MCP и A2A (ступень 3, 12.10): описание OpenAPI 3.1 и
+      // каталог API по RFC 9727 — агент из манифеста узнаёт и этот вход.
+      openapi: `${base}${OPENAPI_PATH}`,
+      apiCatalog: `${base}${API_CATALOG_PATH}`,
       // Тот же агент по A2A (12.10) — для клиентов без MCP: визитки обеих
       // версий и оба биндинга. Агент, прочитавший один манифест, узнаёт о другом.
       a2a: {
