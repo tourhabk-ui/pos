@@ -2,28 +2,16 @@
 
 import { useCart } from '@/contexts/CartContext';
 import { useRouter } from 'next/navigation';
-import { ShoppingCart, Trash2, ArrowRight, Package, Fish, Mountain, PawPrint, Plane, Thermometer, Footprints, Snowflake, Anchor, Leaf, Flame, Waves } from 'lucide-react';
+import { ShoppingCart, Trash2, ArrowRight, Package } from 'lucide-react';
 import Image from 'next/image';
 
-const ACTIVITY_ICONS: Record<string, React.ElementType> = {
-  fishing:    Fish,
-  trekking:   Footprints,
-  helicopter: Plane,
-  bears:      PawPrint,
-  snowmobile: Snowflake,
-  boat_trip:  Anchor,
-  thermal:    Thermometer,
-  eco:        Leaf,
-  volcano:    Flame,
-  mountain:   Mountain,
-  river:      Waves,
-};
-
 /**
- * Подписи — из единого словаря. В корзине рядом лежат туры и места, поэтому
- * `anyTypeLabel`: сначала тип активности, затем тип локации.
+ * Подписи и значки — из единых словарей. В корзине рядом лежат туры и места,
+ * поэтому `anyTypeLabel` / `anyTypeIcon`: сначала тип активности, затем тип
+ * локации. Своя карта значков (12.10) снята — она расходилась с остальными.
  */
 import { anyTypeLabel } from '@/lib/tours/labels';
+import { anyTypeIcon } from '@/lib/tours/activity-icons';
 
 export default function CartClient() {
   const { items, remove, clear, count } = useCart();
@@ -67,7 +55,7 @@ export default function CartClient() {
         {/* Items */}
         <div className="space-y-3">
           {items.map(item => {
-            const Icon = ACTIVITY_ICONS[item.activityType] ?? Package;
+            const Icon = anyTypeIcon(item.activityType);
             return (
               <div key={item.tourId} className="ds-card rounded-lg flex gap-4 p-4">
                 {/* Image */}

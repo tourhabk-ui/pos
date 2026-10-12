@@ -11,6 +11,7 @@ import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { staySearchEntity, type StaySearchOutcome } from '@/lib/stay/demand';
 import { sessionState } from '@/lib/auth/session-state';
 import { ACCOMMODATIONS_FIRST_PAGE_LIMIT, ACCOMMODATIONS_DEFAULT_SORT } from '@/lib/stay/catalog-first-page';
+import { plural } from '@/lib/home/data-freshness';
 
 // Форма ответа GET /api/accommodations (camelCase — как отдаёт роут;
 // старый snake_case интерфейс не совпадал с API и листинг падал)
@@ -235,43 +236,48 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
   const hasMore = accommodations.length < total;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-10">
+    <div className="max-w-7xl mx-auto px-4 py-5 sm:py-10">
 
-      {/* Hero */}
-      <div className="mb-8">
-        <h1 className="font-playfair text-4xl md:text-5xl font-bold text-[var(--text-primary)] mb-3 leading-tight">
+      {/* Шапка — по образцу каталога туров (владелец 12.10, снимок с телефона:
+          «жильё: верхний блок забирает много места»). На телефоне заголовок
+          28px, подзаголовок только с sm: первый экран — даты, поиск и первый
+          объект, а не три строки описания. */}
+      <div className="mb-4 sm:mb-8">
+        <h1 className="font-playfair text-[28px] sm:text-4xl lg:text-5xl font-bold text-[var(--text-primary)] mb-1 sm:mb-3 leading-tight">
           Жильё на Камчатке
         </h1>
-        <p className="text-[var(--text-secondary)] text-lg max-w-xl">
+        <p className="hidden sm:block text-[var(--text-secondary)] text-lg max-w-xl">
           Отели, хостелы, глэмпинг и кемпинги — от центра Петропавловска до природных парков.
         </p>
       </div>
 
       {/* Даты поездки — первичный фильтр жилья (как в booking-сервисах):
           выбраны обе даты → каталог показывает только объекты со свободным
-          номером на все ночи окна */}
-      <div className="mb-6 flex flex-wrap items-end gap-3">
-        <div>
-          <label htmlFor="stay-check-in" className="ds-label block mb-1">Заезд</label>
-          <input
-            id="stay-check-in"
-            type="date"
-            value={filters.checkIn}
-            min={new Date().toISOString().slice(0, 10)}
-            onChange={e => handleFiltersChange({ ...filters, checkIn: e.target.value })}
-            className="ds-input"
-          />
-        </div>
-        <div>
-          <label htmlFor="stay-check-out" className="ds-label block mb-1">Выезд</label>
-          <input
-            id="stay-check-out"
-            type="date"
-            value={filters.checkOut}
-            min={filters.checkIn || new Date().toISOString().slice(0, 10)}
-            onChange={e => handleFiltersChange({ ...filters, checkOut: e.target.value })}
-            className="ds-input"
-          />
+          номером на все ночи окна. На телефоне заезд и выезд в одной строке. */}
+      <div className="mb-4 sm:mb-6 flex flex-wrap items-end gap-3">
+        <div className="grid grid-cols-2 gap-3 w-full sm:contents">
+          <div>
+            <label htmlFor="stay-check-in" className="ds-label block mb-1">Заезд</label>
+            <input
+              id="stay-check-in"
+              type="date"
+              value={filters.checkIn}
+              min={new Date().toISOString().slice(0, 10)}
+              onChange={e => handleFiltersChange({ ...filters, checkIn: e.target.value })}
+              className="ds-input w-full"
+            />
+          </div>
+          <div>
+            <label htmlFor="stay-check-out" className="ds-label block mb-1">Выезд</label>
+            <input
+              id="stay-check-out"
+              type="date"
+              value={filters.checkOut}
+              min={filters.checkIn || new Date().toISOString().slice(0, 10)}
+              onChange={e => handleFiltersChange({ ...filters, checkOut: e.target.value })}
+              className="ds-input w-full"
+            />
+          </div>
         </div>
         {(filters.checkIn || filters.checkOut) && (
           <button
@@ -290,7 +296,7 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
       </div>
 
       {/* Mobile search + filter toggle */}
-      <div className="flex gap-3 mb-6 lg:hidden">
+      <div className="flex gap-3 mb-4 sm:mb-6 lg:hidden">
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
           <input
@@ -333,7 +339,7 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
         <div className="flex-1 min-w-0">
           {/* Count */}
           <p className="text-sm text-[var(--text-muted)] mb-4">
-            {loading && accommodations.length === 0 ? '...' : `${total} объектов`}
+            {loading && accommodations.length === 0 ? '...' : `${total} ${plural(total, 'объект', 'объекта', 'объектов')}`}
           </p>
 
           {/* Grid */}

@@ -43,12 +43,30 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   birdwatching:  'Орнитология',
   cultural:      'Культурный тур',
   winter_hiking: 'Зимний поход',
+  surf:          'Сёрфинг',
   // Встречаются у МАРШРУТОВ (kamchatka_routes.activity_type), не только у туров.
   hiking:        'Пеший поход',
   ski:           'Лыжи',
   sightseeing:   'Обзорная экскурсия',
   other:         'Маршрут',
 };
+
+/**
+ * Синонимы типов у МАРШРУТОВ (kamchatka_routes.activity_type и фильтр
+ * /routes): другое написание того же вида, не другой вид. Подпись и значок
+ * берутся у канонического ключа — чтобы «bear_watching» не шёл сырым
+ * словом там, где «bears» подписан по-русски (12.10, единый словарь значков).
+ */
+export const ACTIVITY_ALIASES: Record<string, string> = {
+  bear_watching: 'bears',
+  jeep:          'jeep_safari',
+  photo:         'photography',
+};
+
+/** Канонический ключ типа: синоним → основной, остальное как есть. */
+export function canonicalActivity(type: string): string {
+  return ACTIVITY_ALIASES[type] ?? type;
+}
 
 /**
  * Короткие подписи — для чипов на плитке каталога, где длинная не помещается.
@@ -76,6 +94,7 @@ export const LOCATION_LABELS: Record<string, string> = {
   river:      'Реки',
   forest:     'Тайга',
   coast:      'Побережье',
+  geyser:     'Гейзеры',
 };
 
 /**
@@ -160,8 +179,9 @@ export const PRICE_UNIT_SHORT: Record<string, string> = {
  */
 export function activityLabel(type: string | null | undefined, short = false): string {
   if (!type) return '';
-  if (short) return ACTIVITY_SHORT[type] ?? ACTIVITY_LABELS[type] ?? type;
-  return ACTIVITY_LABELS[type] ?? type;
+  const key = canonicalActivity(type);
+  if (short) return ACTIVITY_SHORT[key] ?? ACTIVITY_LABELS[key] ?? type;
+  return ACTIVITY_LABELS[key] ?? type;
 }
 
 export function locationLabel(type: string | null | undefined): string {
@@ -175,7 +195,7 @@ export function locationLabel(type: string | null | undefined): string {
  */
 export function anyTypeLabel(type: string | null | undefined): string {
   if (!type) return '';
-  return ACTIVITY_LABELS[type] ?? LOCATION_LABELS[type] ?? type;
+  return ACTIVITY_LABELS[canonicalActivity(type)] ?? LOCATION_LABELS[type] ?? type;
 }
 
 export function priceUnitLabel(unit: string | null | undefined, short = false): string {

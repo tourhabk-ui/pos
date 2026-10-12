@@ -9,11 +9,10 @@ import { wishlistFailureText } from '@/lib/wishlist/contract';
 import {
   MapPin, ChevronRight, Heart, BadgeCheck,
   AlertCircle, Clock, Sparkles, Search, SlidersHorizontal,
-  X, ChevronDown, Flame, ThermometerSun, Fish,
-  PawPrint, Helicopter, Waves, Snowflake,
-  Mountain, ArrowRight, Anchor, Send,
+  X, ChevronDown, Mountain, ArrowRight, Send,
 } from 'lucide-react';
 import type { CatalogSummary } from '@/lib/search/tour-search';
+import { activityIcon } from '@/lib/tours/activity-icons';
 import {
   catalogAvailability, isInSeason, AVAILABILITY_LABEL, type CatalogAvailability,
 } from '@/lib/tours/catalog-availability';
@@ -239,25 +238,26 @@ function HeroSection({ summary }: { summary: CatalogSummary | null }) {
 /* Рейл фич каталожной карточки: иконки выводим детерминированно из активности
    и ключевых слов названия/описания тура (медведи/рыбалка/сплав/источники и
    т.д.). Без нового столбца в БД — работает на любом туре, до 4 иконок. */
+// Значки — из единого словаря (lib/tours/activity-icons); подписи рейла — свои, короткие.
 const ACTIVITY_FEATURE: Record<string, { Icon: React.ElementType; label: string }> = {
-  rafting:    { Icon: Waves,        label: 'Сплав' },
-  fishing:    { Icon: Fish,         label: 'Рыбалка' },
-  bears:      { Icon: PawPrint,     label: 'Медведи' },
-  thermal:    { Icon: ThermometerSun, label: 'Источники' },
-  trekking:   { Icon: Mountain,     label: 'Треккинг' },
-  helicopter: { Icon: Helicopter,   label: 'Вертолёт' },
-  boat_trip:  { Icon: Anchor,       label: 'Море' },
-  snowmobile: { Icon: Snowflake,    label: 'Снегоходы' },
+  rafting:    { Icon: activityIcon('rafting'),    label: 'Сплав' },
+  fishing:    { Icon: activityIcon('fishing'),    label: 'Рыбалка' },
+  bears:      { Icon: activityIcon('bears'),      label: 'Медведи' },
+  thermal:    { Icon: activityIcon('thermal'),    label: 'Источники' },
+  trekking:   { Icon: activityIcon('trekking'),   label: 'Треккинг' },
+  helicopter: { Icon: activityIcon('helicopter'), label: 'Вертолёт' },
+  boat_trip:  { Icon: activityIcon('boat_trip'),  label: 'Море' },
+  snowmobile: { Icon: activityIcon('snowmobile'), label: 'Снегоходы' },
 };
 const FEATURE_RULES: { re: RegExp; Icon: React.ElementType; label: string }[] = [
-  { re: /медвед/i,                        Icon: PawPrint,      label: 'Медведи' },
-  { re: /рыбалк|лосос|голец|удочк|рыбы?\b/i, Icon: Fish,        label: 'Рыбалка' },
-  { re: /сплав|рафт/i,                     Icon: Waves,         label: 'Сплав' },
-  { re: /источник|термальн|горяч/i,        Icon: ThermometerSun, label: 'Источники' },
-  { re: /вулкан/i,                         Icon: Flame,         label: 'Вулканы' },
-  { re: /вертол[её]т/i,                    Icon: Helicopter,    label: 'Вертолёт' },
-  { re: /море|океан|морск/i,               Icon: Anchor,        label: 'Море' },
-  { re: /снегоход/i,                       Icon: Snowflake,     label: 'Снегоходы' },
+  { re: /медвед/i,                        Icon: activityIcon('bears'),      label: 'Медведи' },
+  { re: /рыбалк|лосос|голец|удочк|рыбы?\b/i, Icon: activityIcon('fishing'),  label: 'Рыбалка' },
+  { re: /сплав|рафт/i,                     Icon: activityIcon('rafting'),    label: 'Сплав' },
+  { re: /источник|термальн|горяч/i,        Icon: activityIcon('thermal'),    label: 'Источники' },
+  { re: /вулкан/i,                         Icon: activityIcon('volcano'),    label: 'Вулканы' },
+  { re: /вертол[её]т/i,                    Icon: activityIcon('helicopter'), label: 'Вертолёт' },
+  { re: /море|океан|морск/i,               Icon: activityIcon('boat_trip'),  label: 'Море' },
+  { re: /снегоход/i,                       Icon: activityIcon('snowmobile'), label: 'Снегоходы' },
 ];
 function deriveFeatures(tour: Tour): { Icon: React.ElementType; label: string }[] {
   const text = `${tour.title} ${tour.short_description ?? tour.description ?? ''}`;
@@ -268,7 +268,7 @@ function deriveFeatures(tour: Tour): { Icon: React.ElementType; label: string }[
   // Виды рыб — единым справочником (детект тот же, что у сезонной сетки):
   // «Летняя: чавыча и нерка» без слова «рыбалка» иначе оставалась без иконки.
   if (!seen.has('Рыбалка') && detectFishSpecies(text).length > 0) {
-    out.push({ Icon: Fish, label: 'Рыбалка' });
+    out.push({ Icon: activityIcon('fishing'), label: 'Рыбалка' });
     seen.add('Рыбалка');
   }
   for (const r of FEATURE_RULES) {

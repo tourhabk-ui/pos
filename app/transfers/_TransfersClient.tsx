@@ -145,18 +145,25 @@ export default function TransfersClient({ charter, prefill = null }: { charter: 
       <Header />
       <main className="mx-auto max-w-2xl px-5 pt-6">
         {/* SOS — в общей шапке (Header, §2), своей копии рядом с заголовком нет. */}
-        <div className="mb-6">
-          <p className="ds-label mb-2">Перевозчики</p>
-          <h1 className="ds-h1 mb-2">Места в поездках</h1>
+        {/* Шапка — по образцу каталога туров (владелец 12.10: «трансферы тоже
+            нужно, наверное, по образцу туров»): заголовок 28px на телефоне,
+            одна строка сути, подробности — только с sm. Первый экран —
+            форма поиска и ответ, а не шесть строк описания. */}
+        <div className="mb-4 sm:mb-6">
+          <p className="ds-label mb-1 sm:mb-2">Перевозчики</p>
+          <h1 className="font-playfair text-[28px] sm:text-4xl font-bold text-[var(--text-primary)] leading-tight mb-1 sm:mb-2">Места в поездках</h1>
           <p className="text-sm text-[var(--text-secondary)] max-w-md">
-            Джипы и вахтовки идут под заказ. Когда места остаются, перевозчик выставляет их сюда.
-            Место занимается только после его подтверждения. Целую вахтовку можно заказать у перевозчика — ниже, с ценой за машину.
+            Свободные места в джипах и вахтовках перевозчиков; место закрепляется после подтверждения.
+            <span className="hidden sm:inline">
+              {' '}Джипы и вахтовки идут под заказ, и когда места остаются, перевозчик выставляет их сюда.
+              Целую вахтовку можно заказать у перевозчика — ниже, с ценой за машину.
+            </span>
           </p>
         </div>
 
         {/* Поиск */}
         <form
-          className="ds-card p-4 mb-6 grid grid-cols-2 gap-3"
+          className="ds-card p-4 mb-4 sm:mb-6 grid grid-cols-2 gap-3"
           onSubmit={(e) => { e.preventDefault(); void runSearch(); }}
         >
           <label className="text-xs text-[var(--text-secondary)]">

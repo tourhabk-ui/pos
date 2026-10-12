@@ -11,9 +11,7 @@ import Link from 'next/link';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
   Check, AlertTriangle, Sparkles, Loader,
-  Fish, Mountain, PawPrint, Plane,
-  Thermometer, Footprints, Wind, Anchor, Snowflake,
-  Waves, Flame, Droplets, GripVertical,
+  Wind, GripVertical,
   MapPin, Users, Trash2, Plus, Star, Phone,
   X, ChevronDown, ChevronUp, Truck,
   ArrowRight, ExternalLink, Map as MapIcon, List, Pencil,
@@ -26,6 +24,7 @@ import {
   BedDouble, Bus, Car,
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
+import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
 import { frameReason, tourGroup, insertIndex, orderProblem } from '@/lib/planner/plan-ops';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
@@ -66,22 +65,23 @@ const MAP_CENTER: [number, number] = [54.5, 158.5];
  * дней, и человек получал план без своего интереса и без слова о нём.
  * Сторож: tests/unit/planner-tiles-have-rules.test.ts.
  */
+// Значки плиток — из единых словарей (lib/tours/activity-icons), не своя копия.
 const PLACES: SelectItem[] = [
-  { id: 'volcano',    label: 'Вулканы',    Icon: Flame },
-  { id: 'hot_spring', label: 'Термальные', Icon: Thermometer },
-  { id: 'geyser',     label: 'Гейзеры',    Icon: Droplets },
-  { id: 'sea',        label: 'Побережье',  Icon: Waves },
-  { id: 'mountain',   label: 'Хребты',     Icon: Mountain },
-  { id: 'river',      label: 'Реки',       Icon: Waves },
+  { id: 'volcano',    label: 'Вулканы',    Icon: locationIcon('volcano') },
+  { id: 'hot_spring', label: 'Термальные', Icon: locationIcon('hot_spring') },
+  { id: 'geyser',     label: 'Гейзеры',    Icon: locationIcon('geyser') },
+  { id: 'sea',        label: 'Побережье',  Icon: locationIcon('sea') },
+  { id: 'mountain',   label: 'Хребты',     Icon: locationIcon('mountain') },
+  { id: 'river',      label: 'Реки',       Icon: locationIcon('river') },
 ];
 
 const ACTIVITIES: SelectItem[] = [
-  { id: 'trekking',   label: 'Треккинг',         Icon: Footprints },
-  { id: 'fishing',    label: 'Рыбалка',          Icon: Fish },
-  { id: 'helicopter', label: 'Вертолёт',         Icon: Plane },
-  { id: 'bears',      label: 'Медведи',          Icon: PawPrint },
-  { id: 'snowmobile', label: 'Снегоходы',        Icon: Snowflake },
-  { id: 'boat_trip',  label: 'Морская прогулка', Icon: Anchor },
+  { id: 'trekking',   label: 'Треккинг',         Icon: activityIcon('trekking') },
+  { id: 'fishing',    label: 'Рыбалка',          Icon: activityIcon('fishing') },
+  { id: 'helicopter', label: 'Вертолёт',         Icon: activityIcon('helicopter') },
+  { id: 'bears',      label: 'Медведи',          Icon: activityIcon('bears') },
+  { id: 'snowmobile', label: 'Снегоходы',        Icon: activityIcon('snowmobile') },
+  { id: 'boat_trip',  label: 'Морская прогулка', Icon: activityIcon('boat_trip') },
 ];
 
 const ZONE_LABELS: Record<string, string> = {
@@ -137,10 +137,10 @@ const INTEREST_PRICE: Record<string, [number, number]> = {
 };
 
 const TRANSPORT_OPTIONS: Record<TransportType, { label: string; Icon: React.ElementType; priceAdd: number }> = {
-  walking:    { label: 'Пешком',   Icon: Footprints, priceAdd: 0 },
+  walking:    { label: 'Пешком',   Icon: activityIcon('hiking'), priceAdd: 0 },
   jeep:       { label: 'Джип',     Icon: Truck,      priceAdd: 3000 },
-  boat:       { label: 'Катер',    Icon: Anchor,     priceAdd: 8000 },
-  helicopter: { label: 'Вертолёт', Icon: Plane,      priceAdd: 25000 },
+  boat:       { label: 'Катер',    Icon: activityIcon('boat_trip'), priceAdd: 8000 },
+  helicopter: { label: 'Вертолёт', Icon: activityIcon('helicopter'), priceAdd: 25000 },
 };
 
 const ACTIVITY_DEFAULT_TRANSPORT: Record<string, TransportType> = {
@@ -400,7 +400,7 @@ function DayCard({
   // потом отдых»). Производит движок; нет поля — метки нет, не угадываем.
   const modeConfig = {
     operator: { Icon: UserCheck, color: 'var(--accent)' },
-    self:     { Icon: Footprints, color: 'var(--success)' },
+    self:     { Icon: activityIcon('hiking'), color: 'var(--success)' },
     open:     { Icon: Compass, color: 'var(--text-muted)' },
   } as const;
   const mode = day.type === 'activity' && day.activityMode ? day.activityMode : null;
