@@ -52,6 +52,10 @@ async function main(): Promise<number> {
     // page.route, и офлайн-кэш сайта отдал бы рельеф, будто связь есть
     // (прогон 7: «отрезанный» вариант нарисовал всё из кэша).
     ...(process.argv.includes('--block') ? { serviceWorkers: 'block' as const } : {}),
+    // Запись трека (12.10): телефону нужна геопозиция с разрешением.
+    ...(process.argv.includes('--track-reload')
+      ? { permissions: ['geolocation'], geolocation: { latitude: 53.0, longitude: 158.65, accuracy: 5 } }
+      : {}),
   });
   const page = await ctx.newPage();
   const t0 = Date.now();
@@ -173,6 +177,66 @@ async function main(): Promise<number> {
     await page.waitForTimeout(4_000);
     await page.getByText(scrollText, { exact: false }).first().scrollIntoViewIfNeeded({ timeout: 15_000 })
       .then(() => console.log(`[${at()}] долистано до «${scrollText}»`), () => console.log(`[${at()}] текста «${scrollText}» нет`));
+  }
+
+  // Запись трека переживает перезагрузку (12.10, скрин владельца «при
+  // повторном открытии не сохраняется трек»). Телефон начинает запись,
+  // проходит восемь точек, страница перезагружается. Правильно: запись идёт
+  // дальше (кнопка «Остановить»), черновик без отметки остановки, отправок
+  // трека НОЛЬ. Прежний код слал обрывок на сервер и бросал запись.
+  // Отправка трека обрывается здесь же: на проде ничего не пишется.
+  if (process.argv.includes('--track-reload')) {
+    let posts = 0;
+    await page.route('**/api/field-check/track', (r) => {
+      posts++;
+      console.log(`[${at()}] ПОПЫТКА ОТПРАВИТЬ ТРЕК — оборвана, на прод не ушла`);
+      return r.abort('connectionfailed');
+    });
+    const draft = () => page.evaluate(() => new Promise<string>((resolve) => {
+      const req = indexedDB.open('kamchatour-offline');
+      req.onerror = () => resolve('база не открылась');
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('fieldTracks')) { resolve('хранилища записи нет'); return; }
+        const get = db.transaction('fieldTracks').objectStore('fieldTracks').get('current');
+        get.onerror = () => resolve('черновик не прочитан');
+        get.onsuccess = () => {
+          const d = get.result as { points?: unknown[]; stoppedAt?: number } | undefined;
+          resolve(d ? `точек ${d.points?.length ?? 0}, stoppedAt ${d.stoppedAt ?? 'нет'}` : 'черновика нет');
+        };
+      };
+    }));
+    const buttons = () => page.evaluate(() => Array.from(document.querySelectorAll('button'))
+      .map(b => (b.getAttribute('aria-label') ?? b.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .filter(t => /трек|Остановить|Стоп|Действия поля/i.test(t)).slice(0, 6));
+    const pressTrack = async (name: RegExp) => {
+      const direct = page.getByRole('button', { name }).first();
+      if (await direct.count() === 0) {
+        await page.getByRole('button', { name: /^Действия поля/ }).first().click({ timeout: 5_000 }).catch(() => undefined);
+      }
+      return page.getByRole('button', { name }).first().click({ timeout: 8_000 }).then(() => true, () => false);
+    };
+    const walk = async (from: number, n: number) => {
+      for (let i = from; i < from + n; i++) {
+        await ctx.setGeolocation({ latitude: 53.0 + i * 0.0003, longitude: 158.65, accuracy: 5 });
+        await page.waitForTimeout(1_500);
+      }
+    };
+
+    await page.waitForTimeout(5_000);
+    console.log(`[${at()}] кнопки до записи: ${(await buttons()).join(' | ') || 'нет'}`);
+    const started = await pressTrack(/Записать трек|Запись трека/);
+    console.log(`[${at()}] запись начата: ${started ? 'да' : 'НЕТ — кнопки не нашлось'}`);
+    await walk(1, 8);
+    console.log(`[${at()}] до перезагрузки: черновик ${await draft()} · кнопки: ${(await buttons()).join(' | ')}`);
+
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await page.waitForTimeout(8_000);
+    console.log(`[${at()}] после перезагрузки: черновик ${await draft()} · кнопки: ${(await buttons()).join(' | ')}`);
+    await walk(9, 4);
+    const resumed = await page.getByRole('button', { name: /Остановить/ }).count() > 0;
+    console.log(`[${at()}] ещё четыре точки: черновик ${await draft()}`);
+    console.log(`ИТОГ: запись после перезагрузки ${resumed ? 'ИДЁТ' : 'НЕ ИДЁТ'} · попыток отправить трек: ${posts}`);
   }
 
   const shots: string[] = [];
