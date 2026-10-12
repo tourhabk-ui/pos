@@ -16,6 +16,7 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalogs';
+import { MCP_TITLE_ZH, MCP_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_RU } from '@/lib/mcp/connect';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
@@ -81,6 +82,10 @@ export default function McpLandingPage() {
               </p>
               <p lang="en" style={{ color: 'var(--text-secondary)' }}>
                 {MCP_TITLE_EN}. {MCP_DESCRIPTION_EN}. Streamable HTTP, no auth.
+              </p>
+              {/* Китайский слой (12.10): текст в lib/mcp/zh-layer, тот же, что в манифесте и llms.txt. */}
+              <p lang="zh-CN" style={{ color: 'var(--text-secondary)' }}>
+                {MCP_TITLE_ZH}。{MCP_DESCRIPTION_ZH}
               </p>
             </div>
           </header>

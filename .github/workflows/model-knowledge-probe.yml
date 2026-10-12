@@ -1,0 +1,84 @@
+name: Знают ли модели о нас — проба с прода
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Решение владельца 12.10 («го» на китайский слой для агентов). Вопрос «знают
+# ли китайские модели о Ведаре» нельзя решить ни чтением весов, ни верой:
+# единственный честный замер — спросить каждую модель без поиска и записать
+# три исхода (знает / не знает / не смог спросить). Повторять раз в месяц —
+# иначе не увидеть, изменилось ли что-то после китайского слоя и регистраций.
+#
+# С ПРОДА, а не с раннера: ключи DeepSeek, DashScope, Moonshot и GLM лежат в
+# переменных Timeweb, и путь из РФ к этим провайдерам — наш путь. Здесь
+# workflow только зовёт прод-эндпоинт и печатает вердикт.
+#
+# Секреты: CRON_SECRET. Ключи провайдеров сюда не приезжают.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/model-knowledge-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # 40, а не 5: ожидание своей сборки (до 35 мин) плюс сама проба (до 2 мин).
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      # Проба по ЧУЖОМУ контейнеру стоила неверных выводов соседним пробам.
+      # Ждём СВОЮ сборку по маркеру /version.json. Только при запуске маркером:
+      # при workflow_dispatch head_commit пуст, и шаг отсиживал бы зря.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: С ПРОДА — спросить модели, знают ли они vedarai.ru
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — прод не ответит."
+            exit 1
+          fi
+
+          CODE=$(curl -s -o /tmp/probe.json -w '%{http_code}' --max-time 170 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/model-knowledge-probe")
+          echo "HTTP $CODE"
+          jq '.' /tmp/probe.json || cat /tmp/probe.json
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Прод не ответил на пробу (HTTP $CODE)."
+            exit 1
+          fi
+
+          echo "## Знают ли модели о нас" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "$(jq -r '.verdict // "вердикта нет"' /tmp/probe.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          jq '{place, asked_at, summary, legs: [.legs[] | {provider, model, outcome, signal, reason, latency_ms, answer_excerpt}]}' /tmp/probe.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          # Прогон КРАСНЫЙ только когда спросить не удалось никого: «не знает»
+          # — законный результат замера, а не поломка.
+          OK=$(jq -r '.ok // false' /tmp/probe.json)
+          if [ "$OK" != "true" ]; then
+            echo "::error::Проба не состоялась: $(jq -r '.error // "причина не названа"' /tmp/probe.json)"
+            exit 1
+          fi
+
+          # Не спрошенные модели — предупреждение с причиной: ключ или путь.
+          jq -r '.legs[] | select(.outcome == "could_not_ask") | "::warning::\(.provider): спросить не удалось — \(.reason)"' /tmp/probe.json

@@ -1,4 +1,6 @@
 import { MetadataRoute } from 'next';
+import { headers } from 'next/headers';
+import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 
 // Публичные хабы — открыты обходу, несмотря на закрытый /hub/*. Индексируется
 // из них только /hub/fishing (посадочная «Рыбалка» из шапки сайта);
@@ -21,7 +23,12 @@ const AGENT_ENTRYPOINTS = [
 // Список один — новая группа не может его «забыть».
 const DISALLOW = ['/hub/', '/api/', '/.next/', '/auth/', '/booking-success/', '/widget/'];
 
-export default function robots(): MetadataRoute.Robots {
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  // Перепись краулеров по семействам (12.10): robots.txt — первое, что берёт
+  // любой обходчик, и единственное место, где видно, приходят ли Baidu,
+  // ByteDance и Huawei вообще. headers() делает файл динамическим (он и так
+  // собирается из констант); запись не ждётся и ответ не роняет.
+  recordAgentEntryHit('/robots.txt', (await headers()).get('user-agent'));
   return {
     rules: [
       // Общие правила: всё открыто кроме внутренних хабов и API
@@ -158,6 +165,41 @@ export default function robots(): MetadataRoute.Robots {
       // ByteDance / TikTok AI
       {
         userAgent: 'Bytespider',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
+
+      // Baidu — главный поисковик КНР; на его индексе стоят и ответы их ИИ
+      {
+        userAgent: 'Baiduspider',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
+
+      // Huawei — Petal Search (телефоны Huawei без сервисов Google)
+      {
+        userAgent: 'PetalBot',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
+
+      // Alibaba — Shenma / Quark (поиск в браузерах UC и Quark; та же группа, что Qwen)
+      {
+        userAgent: 'YisouSpider',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
+
+      // Tencent — Sogou (поиск внутри WeChat)
+      {
+        userAgent: 'Sogou web spider',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
+
+      // 360 Search (so.com)
+      {
+        userAgent: '360Spider',
         allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
         disallow: DISALLOW,
       },

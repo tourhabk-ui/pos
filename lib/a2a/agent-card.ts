@@ -18,6 +18,7 @@
  */
 
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, TOOL_ENGLISH, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { A2A_DESCRIPTION_ZH, A2A_CHAT_EXAMPLE_ZH } from '@/lib/mcp/zh-layer';
 
 export const A2A_PROTOCOL_VERSION = '1.0';
 export const A2A_LEGACY_PROTOCOL_VERSION = '0.3.0';
@@ -45,7 +46,9 @@ export const A2A_DESCRIPTION =
   + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
   + 'English: Vedar Kamchatka travel agent — live tours and availability, safety alerts, places, weather, stays, '
   + 'trip plans. Free-text questions (Russian or English) or exact tool calls via DataPart {"tool", "arguments"}; '
-  + 'four human-confirmed requests, no payment, no auth.';
+  + 'four human-confirmed requests, no payment, no auth. '
+  // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
+  + A2A_DESCRIPTION_ZH;
 
 /**
  * Теги навыков по имени инструмента. Инструмент без записи здесь — красный
@@ -95,6 +98,7 @@ const TEXT_EXAMPLES: Record<string, string[]> = {
   [CHAT_SKILL_ID]: [
     'Какие туры на Курильское озеро есть в августе и безопасно ли там сейчас?',
     'Which Kamchatka tours have free seats next week? Any volcano alerts?',
+    A2A_CHAT_EXAMPLE_ZH,
   ],
   get_tours: ['Покажи туры на вулканы с ценами', 'List Kamchatka bear-watching tours'],
   get_tour_availability: ['Есть ли места на Курильское озеро 12 августа на двоих?'],
