@@ -257,6 +257,8 @@ describe('проба «знает ли модель о нас»', () => {
   it('вопрос без слова «Камчатка» ни на одном языке', () => {
     expect(KNOWLEDGE_QUESTION).toMatch(/vedarai\.ru/);
     expect(KNOWLEDGE_QUESTION).not.toMatch(/камчат|kamchat|堪察加/i);
+    // И без прежнего имени: его модель должна назвать сама.
+    expect(KNOWLEDGE_QUESTION).not.toMatch(/tour-?hab/i);
     expect(KNOWLEDGE_QUESTION).toMatch(CJK);
   });
 
@@ -266,13 +268,18 @@ describe('проба «знает ли модель о нас»', () => {
     expect(classifyAnswer('Vedar is a Kamchatka travel site').outcome).toBe('knows');
     expect(classifyAnswer('不知道。')).toMatchObject({ outcome: 'does_not_know', signal: expect.stringContaining('не знает') });
     expect(classifyAnswer('vedarai.ru 可能是一个关于吠陀哲学的 AI 网站')).toMatchObject({ outcome: 'does_not_know', signal: expect.stringContaining('выдумка') });
+    // Прежнее имя платформы в ответе — знает нас под старым брендом (владелец
+    // 12.10: Qwen отвечал про TourHab); флаг old_brand отдельный и виден в сводке.
+    expect(classifyAnswer('vedarai.ru — это TourHab, сервис туров')).toMatchObject({ outcome: 'knows', old_brand: true, signal: expect.stringContaining('прежнее имя') });
+    expect(classifyAnswer('TourHab 是堪察加的旅游平台')).toMatchObject({ outcome: 'knows', old_brand: true });
+    expect(classifyAnswer('Ведар — платформа о Камчатке').old_brand).toBe(false);
     expect(classifyAnswer(null).outcome).toBe('could_not_ask');
     expect(classifyAnswer('   ').outcome).toBe('could_not_ask');
     const s = summarize([
-      { provider: 'deepseek', model: null, outcome: 'knows', signal: '', reason: null, latency_ms: 1, answer_excerpt: null },
-      { provider: 'qwen', model: null, outcome: 'could_not_ask', signal: '', reason: 'x', latency_ms: 1, answer_excerpt: null },
+      { provider: 'deepseek', model: null, outcome: 'knows', signal: '', old_brand: true, reason: null, latency_ms: 1, answer_excerpt: null },
+      { provider: 'qwen', model: null, outcome: 'could_not_ask', signal: '', old_brand: false, reason: 'x', latency_ms: 1, answer_excerpt: null },
     ]);
-    expect(s).toEqual({ knows: ['deepseek'], does_not_know: [], could_not_ask: ['qwen'] });
+    expect(s).toEqual({ knows: ['deepseek'], does_not_know: [], could_not_ask: ['qwen'], old_brand: ['deepseek'] });
   });
 
   it('обёртки провайдеров передаются функциями, без прямого await; запуск — маркером, workflow ждёт свою сборку', () => {

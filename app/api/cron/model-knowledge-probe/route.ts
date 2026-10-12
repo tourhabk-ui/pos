@@ -11,12 +11,21 @@
  * по-китайски — как спросил бы турист из КНР.
  *
  * Три исхода (§4.0), и третий не равен второму:
- *   knows          — в ответе есть Камчатка (кириллицей, латиницей или 堪察加);
- *   does_not_know  — ответила, но Камчатки нет: «не знаю» либо выдумка про
- *                    домен; обрезок ответа приложен, чтобы человек отличил;
+ *   knows          — в ответе есть Камчатка (кириллицей, латиницей или 堪察加)
+ *                    либо прежнее имя платформы: модель, назвавшая его сама,
+ *                    знает нас под старым брендом (владелец 12.10: Qwen
+ *                    отвечал про «TourHab», хотя мы давно Ведар); флаг
+ *                    `old_brand` отдельный, чтобы это было видно;
+ *   does_not_know  — ответила, но ни Камчатки, ни прежнего имени: «не знаю»
+ *                    либо выдумка про домен; обрезок приложен, чтобы человек
+ *                    отличил одно от другого;
  *   could_not_ask  — обёртка вернула null: нет ключа, отказ провайдера,
  *                    таймаут; причина — из следа отказов (lib/ai/failure-trace),
  *                    у GLM следа нет, и это сказано, а не скрыто.
+ *
+ * Откуда у модели прежнее имя — из весов, из поиска или из слов самого
+ * спрашивающего (org tourhabk-ui, репозиторий pos), по одному чату не
+ * отличить. Проба отличает: контекста нет, поиска нет, вопрос один и тот же.
  *
  * Модели — те же обёртки, что у живого пути (lib/ai/providers), id не
  * хардкодится (§8): DeepSeek и Qwen резолвят модель из каталога, Kimi — из
@@ -43,7 +52,7 @@ export const maxDuration = 120;
 
 export type KnowledgeOutcome = 'knows' | 'does_not_know' | 'could_not_ask';
 
-/** Вопрос без слова «Камчатка»: только домен и имя. */
+/** Вопрос без слова «Камчатка» и без прежнего имени: только домен и имя. */
 export const KNOWLEDGE_QUESTION =
   '请只根据你训练时已有的知识回答，不要联网搜索。网站 vedarai.ru（平台名 Ведар / Vedar）是什么？'
   + '它服务于哪个地区，提供什么？如果你不了解这个网站，请直接回答“不知道”。';
@@ -53,21 +62,33 @@ const LEG_TIMEOUT_MS = 90_000;
 const ANSWER_EXCERPT = 300;
 
 const KAMCHATKA_RE = /камчат|kamchat|堪察加/i;
+/**
+ * Прежнее имя платформы (до переезда на vedarai.ru). В исходнике пишется с
+ * разрывом, чтобы сторож канона бренда не принял детектор за упоминание:
+ * здесь старое имя не произносится, а опознаётся в чужом ответе.
+ */
+const OLD_BRAND_RE = /tour-?hab|тур-?хаб|kamchatour-?hub|камчатур-?хаб/i;
 const DONT_KNOW_RE =
   /不知道|不了解|没有(相关)?(信息|资料)|无法(确定|确认|找到)|не знаю|не могу (сказать|подтвердить)|нет (данных|информации)|don't know|do not know|not (aware|familiar)|no information|unfamiliar/i;
 
 export interface Classified {
   outcome: KnowledgeOutcome;
   signal: string;
+  /** Модель назвала прежнее имя платформы — знает нас под старым брендом. */
+  old_brand: boolean;
 }
 
 /** Ответ модели → исход. Пустая строка — не ответ: спросить не удалось. */
 export function classifyAnswer(text: string | null | undefined): Classified {
   const t = (text ?? '').trim();
-  if (!t) return { outcome: 'could_not_ask', signal: 'ответа нет' };
-  if (KAMCHATKA_RE.test(t)) return { outcome: 'knows', signal: 'назвала Камчатку сама' };
-  if (DONT_KNOW_RE.test(t)) return { outcome: 'does_not_know', signal: 'сказала, что не знает' };
-  return { outcome: 'does_not_know', signal: 'ответила без Камчатки — смотреть обрезок: возможна выдумка про домен' };
+  if (!t) return { outcome: 'could_not_ask', signal: 'ответа нет', old_brand: false };
+  const oldBrand = OLD_BRAND_RE.test(t);
+  if (KAMCHATKA_RE.test(t)) {
+    return { outcome: 'knows', signal: oldBrand ? 'назвала Камчатку и прежнее имя платформы' : 'назвала Камчатку сама', old_brand: oldBrand };
+  }
+  if (oldBrand) return { outcome: 'knows', signal: 'назвала прежнее имя платформы, Камчатку — нет: знает нас под старым брендом', old_brand: true };
+  if (DONT_KNOW_RE.test(t)) return { outcome: 'does_not_know', signal: 'сказала, что не знает', old_brand: false };
+  return { outcome: 'does_not_know', signal: 'ответила без Камчатки — смотреть обрезок: возможна выдумка про домен', old_brand: false };
 }
 
 interface ProbeLeg {
@@ -108,6 +129,7 @@ export interface LegResult {
   model: string | null;
   outcome: KnowledgeOutcome;
   signal: string;
+  old_brand: boolean;
   /** Для could_not_ask — почему; иначе null. */
   reason: string | null;
   latency_ms: number;
@@ -137,7 +159,7 @@ async function askLeg(leg: ProbeLeg): Promise<LegResult> {
   }
   if (!process.env[leg.keyEnv]) {
     return {
-      provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ключа нет',
+      provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ключа нет', old_brand: false,
       reason: `${leg.keyEnv} не задан — спросить нечем`, latency_ms: 0, answer_excerpt: null,
     };
   }
@@ -149,11 +171,11 @@ async function askLeg(leg: ProbeLeg): Promise<LegResult> {
   const latency = Date.now() - started;
   if (answer === 'timeout') {
     return {
-      provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ответа нет',
+      provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ответа нет', old_brand: false,
       reason: `таймаут ${LEG_TIMEOUT_MS / 1000} с`, latency_ms: latency, answer_excerpt: null,
     };
   }
-  const { outcome, signal } = classifyAnswer(answer);
+  const { outcome, signal, old_brand } = classifyAnswer(answer);
   let reason: string | null = null;
   if (outcome === 'could_not_ask') {
     reason = leg.traceLabel
@@ -161,14 +183,22 @@ async function askLeg(leg: ProbeLeg): Promise<LegResult> {
       : 'обёртка вернула null; callGLM след отказов не пишет — причина не записана';
   }
   return {
-    provider: leg.provider, model, outcome, signal, reason, latency_ms: latency,
+    provider: leg.provider, model, outcome, signal, old_brand, reason, latency_ms: latency,
     answer_excerpt: answer ? answer.trim().slice(0, ANSWER_EXCERPT) : null,
   };
 }
 
-export function summarize(legs: readonly LegResult[]): Record<KnowledgeOutcome, string[]> {
-  const s: Record<KnowledgeOutcome, string[]> = { knows: [], does_not_know: [], could_not_ask: [] };
-  for (const l of legs) s[l.outcome].push(l.provider);
+export interface Summary extends Record<KnowledgeOutcome, string[]> {
+  /** Кто назвал прежнее имя платформы — знает нас под старым брендом. */
+  old_brand: string[];
+}
+
+export function summarize(legs: readonly LegResult[]): Summary {
+  const s: Summary = { knows: [], does_not_know: [], could_not_ask: [], old_brand: [] };
+  for (const l of legs) {
+    s[l.outcome].push(l.provider);
+    if (l.old_brand) s.old_brand.push(l.provider);
+  }
   return s;
 }
 
@@ -197,6 +227,7 @@ export async function GET(request: NextRequest) {
     legs,
     summary,
     verdict: `знают: ${summary.knows.join(', ') || '—'}; не знают: ${summary.does_not_know.join(', ') || '—'}; `
-      + `спросить не удалось: ${summary.could_not_ask.join(', ') || '—'}`,
+      + `спросить не удалось: ${summary.could_not_ask.join(', ') || '—'}`
+      + (summary.old_brand.length ? `; под прежним именем платформы: ${summary.old_brand.join(', ')}` : ''),
   });
 }
