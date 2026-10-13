@@ -98,6 +98,8 @@ export interface PlaceTour {
   durationDays: number | null;
   operatorName: string;
   operatorSlug: string | null;
+  /** partners.is_public — открыта ли страница оператора; null — не прочитано (13.10). */
+  operatorPublic: boolean | null;
 }
 
 export interface PlaceEco {

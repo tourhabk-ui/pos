@@ -3,6 +3,8 @@
 import { createElement, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
+import { operatorPagePath } from '@/lib/operators/page-link';
 import { linkKindLabel } from '@/lib/routes/link-kind';
 import { activityIcon } from '@/lib/tours/activity-icons';
 import Image from 'next/image';
@@ -142,7 +144,7 @@ interface Offer {
   rating: number | null; reviewCount: number | null;
   included: string[];
   seasonStart: string | null; seasonEnd: string | null;
-  operator: { id: string; name: string; slug: string | null; rating: number | null; reviewCount: number | null; verified: boolean; };
+  operator: { id: string; name: string; slug: string | null; isPublic: boolean | null; rating: number | null; reviewCount: number | null; verified: boolean; };
   tourImage: string | null; operatorHeroImage: string | null;
   nextDeparture: string | null; nextSlots: number | null;
 }
@@ -273,6 +275,21 @@ interface RouteReview {
   createdAt: string;
 }
 
+// ── Ссылка на страницу оператора первого предложения ─────────────────────────
+
+/** Страница есть у открытой карточки с адресом (lib/operators/page-link); нет — ссылки нет. */
+function OperatorProfileLink({ offers }: { offers: Offer[] }) {
+  const first = offers[0];
+  const href = first ? operatorPagePath({ slug: first.operator.slug, is_public: first.operator.isPublic }) : null;
+  if (!href) return null;
+  return (
+    <Link href={href} className="flex items-center justify-between text-xs text-[var(--ocean)] hover:underline py-1">
+      <span>Профиль оператора</span>
+      <ExternalLink className="w-3 h-3" />
+    </Link>
+  );
+}
+
 // ── Карточка оффера ───────────────────────────────────────────────────────────
 
 function OfferCard({ offer, activityType, onBook }: {
@@ -342,7 +359,11 @@ function OfferCard({ offer, activityType, onBook }: {
         {/* Оператор + рейтинг */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-[var(--text-muted)]">{offer.operator.name}</span>
+            {/* Имя — ссылка на страницу оператора (владелец 13.10); клик по
+                ней не открывает форму заявки всей карточки. */}
+            <span className="text-xs text-[var(--text-muted)]" onClick={e => e.stopPropagation()}>
+              <OperatorNameLink name={offer.operator.name} slug={offer.operator.slug} isPublic={offer.operator.isPublic} />
+            </span>
             {offer.operator.verified && <CheckCircle className="w-3.5 h-3.5 text-[var(--success)] flex-shrink-0" />}
           </div>
           {offer.operator.rating != null && offer.operator.rating > 0 && (
@@ -1743,13 +1764,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
                 </div>
               )}
 
-              {offers.length > 0 && offers[0].operator.slug && (
-                <Link href={`/operators/${offers[0].operator.slug}`}
-                  className="flex items-center justify-between text-xs text-[var(--ocean)] hover:underline py-1">
-                  <span>Профиль оператора</span>
-                  <ExternalLink className="w-3 h-3" />
-                </Link>
-              )}
+              <OperatorProfileLink offers={offers} />
             </div>
           </div>
         </div>

@@ -37,6 +37,9 @@ interface Tour {
   operator_id: string;
   /** partners.is_verified: «проверен» пишется только при true (§4.0). */
   operator_verified?: boolean | null;
+  /** partners.slug / partners.is_public — страница оператора; нет — имя текстом (13.10). */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
   bookings_count: number;
   duration_hours: number | null;
   duration_type: string | null;
@@ -76,6 +79,7 @@ import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { sessionState } from '@/lib/auth/session-state';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
@@ -439,7 +443,9 @@ function TourCard({
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)] mb-3">
           <span className="inline-flex items-center gap-1">
-            {tour.operator_name}
+            {/* Имя — ссылка на страницу оператора (владелец 13.10). Текстовый
+                блок под фото pointer-events-none, поэтому ссылке — auto. */}
+            <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
             {tour.operator_verified === true && (
               <span className="inline-flex items-center gap-0.5 font-semibold text-[var(--success)]">
                 <BadgeCheck className="w-3.5 h-3.5" aria-hidden /> проверен

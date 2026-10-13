@@ -120,8 +120,9 @@ describe('карточка тура и CSP', () => {
     expect(c).not.toMatch(/import \{[^}]*\} from '@\/lib\/tours\/tour-clips'/);
     expect(c).not.toMatch(/from '@\/lib\/storage\/s3'/);
     expect(c).toMatch(/<LazyClip url=\{c\.url\} poster=\{c\.poster\} label=\{c\.label\}/);
-    // Автор — оператор тура (слово владельца 09.10).
-    expect(c).toContain('Видео: {tour.operator_name}');
+    // Автор — оператор тура (слово владельца 09.10); с 13.10 имя — ссылка на
+    // его страницу (OperatorNameLink), текст подписи тот же.
+    expect(c).toMatch(/Видео: <OperatorNameLink name=\{tour\.operator_name\} slug=\{tour\.operator_slug\} isPublic=\{tour\.operator_public\} \/>/);
   });
 
   it('CSP пускает видео из хранилища в обеих политиках страниц', () => {

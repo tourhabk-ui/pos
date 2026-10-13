@@ -6,6 +6,7 @@ import { activityLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { withTransferPlate, isTransferPlate, type TransferPlate } from '@/lib/home/transfer-plate';
 import { withStayPlate, isStayPlate, type StayPlate } from '@/lib/home/stay-plate';
 
@@ -45,12 +46,15 @@ function Availability({ p, glass = false }: { p: Plate; glass?: boolean }) {
 function Featured({ p }: { p: Plate }) {
   const f = plateFacts(p);
   const activity = p.category && p.category !== 'tour' ? activityLabel(p.category) : null;
-  const meta = [activity, f.duration, f.operator].filter(Boolean).join(' · ');
   return (
-    <Link
-      href={tourPath(p)}
-      className="group grid h-[400px] grid-cols-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] no-underline shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:no-underline hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
-    >
+    <article className="group relative grid h-[400px] grid-cols-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl">
+      {/* Ссылка на тур — слоем под содержимым, имя оператора — своей ссылкой
+          поверх (владелец 13.10): <a> в <a> недопустим. */}
+      <Link
+        href={tourPath(p)}
+        aria-label={p.title}
+        className="absolute inset-0 z-[1] rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
+      />
       <div className="relative overflow-hidden bg-[var(--bg-hover)]">
         {p.imageUrl && (
           <div
@@ -61,8 +65,14 @@ function Featured({ p }: { p: Plate }) {
         )}
         <span className="absolute left-3.5 top-3.5"><Availability p={p} glass /></span>
       </div>
-      <div className="flex min-w-0 flex-col gap-2.5 p-6">
-        {meta && <span className="text-xs uppercase tracking-[0.08em] text-[var(--text-secondary)] line-clamp-1">{meta}</span>}
+      <div className="relative z-[2] flex min-w-0 flex-col gap-2.5 p-6 pointer-events-none">
+        {(activity || f.duration || f.operator) && (
+          <span className="text-xs uppercase tracking-[0.08em] text-[var(--text-secondary)] line-clamp-1">
+            {[activity, f.duration].filter(Boolean).join(' · ')}
+            {(activity || f.duration) && f.operator ? ' · ' : ''}
+            {f.operator && <OperatorNameLink name={f.operator} slug={p.operatorSlug} isPublic={p.operatorPublic} className="pointer-events-auto" />}
+          </span>
+        )}
         <h3 className="font-playfair text-[26px] font-bold leading-[1.15] text-[var(--text-primary)] line-clamp-3 transition-colors duration-200 group-hover:text-[var(--accent)]">
           {p.title}
         </h3>
@@ -83,17 +93,19 @@ function Featured({ p }: { p: Plate }) {
           </span>
         </div>
       </div>
-    </Link>
+    </article>
   );
 }
 
 function Row({ p }: { p: Plate }) {
   const f = plateFacts(p);
   return (
-    <Link
-      href={tourPath(p)}
-      className="group grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] py-4 no-underline hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
-    >
+    <div className="group relative grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] py-4">
+      <Link
+        href={tourPath(p)}
+        aria-label={p.title}
+        className="absolute inset-0 z-[1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
+      />
       <span className="relative h-24 w-24 overflow-hidden rounded-lg bg-[var(--bg-hover)]">
         {p.imageUrl && (
           <span
@@ -103,9 +115,11 @@ function Row({ p }: { p: Plate }) {
           />
         )}
       </span>
-      <span className="flex min-w-0 flex-col gap-1">
+      <span className="relative z-[2] flex min-w-0 flex-col gap-1 pointer-events-none">
         <span className="line-clamp-1 text-[13px] text-[var(--text-secondary)]">
-          {[AVAILABILITY_LABEL[p.availability], f.operator].filter(Boolean).join(' · ')}
+          {AVAILABILITY_LABEL[p.availability]}
+          {f.operator ? ' · ' : ''}
+          {f.operator && <OperatorNameLink name={f.operator} slug={p.operatorSlug} isPublic={p.operatorPublic} className="pointer-events-auto" />}
         </span>
         <span className="line-clamp-2 text-[17px] font-semibold leading-snug text-[var(--text-primary)] transition-colors duration-200 group-hover:text-[var(--accent)]">
           {p.title}
@@ -114,7 +128,7 @@ function Row({ p }: { p: Plate }) {
           ? <span className="text-[15px] tabular-nums lining-nums text-[var(--text-primary)]">{f.price}</span>
           : <span className="text-[15px] text-[var(--text-secondary)]">Цена по запросу</span>}
       </span>
-    </Link>
+    </div>
   );
 }
 

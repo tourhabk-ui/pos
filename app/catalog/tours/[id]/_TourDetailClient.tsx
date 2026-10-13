@@ -10,13 +10,15 @@ import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
   ChevronRight, Users, Backpack, Shield, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
-  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw,
+  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw, ArrowUpRight,
 } from 'lucide-react';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import { pickupForCard } from '@/lib/tours/pickup';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
+import { operatorPagePath } from '@/lib/operators/page-link';
 // Просмотрщик фото — общий для всех галерей (карточка тура, оператор, перевозчик).
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
@@ -126,6 +128,9 @@ interface TourFull {
   operator_logo?: string | null;
   /** partners.is_verified: true — отметка «проверен платформой», иначе её нет. */
   operator_verified?: boolean | null;
+  /** partners.slug / partners.is_public — адрес страницы оператора; закрыта или без адреса — ссылки нет. */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
   /** operator_tours.route_id: без маршрута нет и «контура безопасности». */
   route_id?: string | null;
   /**
@@ -357,6 +362,31 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [wishlistError, setWishlistError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  // Страница оператора (решение владельца 13.10: «отсюда открывать лендинг»):
+  // имя и логотип в «Кто проводит» ведут на неё. Закрыта или без адреса —
+  // остаются текстом: ссылка на 404 хуже её отсутствия.
+  const operatorHref = operatorPagePath({ slug: tour.operator_slug, is_public: tour.operator_public });
+  // Логотип партнёра, если он есть в partners.logo_image (804): своё лицо
+  // оператора вызывает больше доверия, чем буква в кружке. Нет логотипа —
+  // остаётся буква.
+  const operatorBadge = tour.operator_logo ? (
+    <div className="w-14 h-14 rounded-full overflow-hidden shrink-0 relative bg-[var(--bg-hover)]">
+      <Image
+        src={tour.operator_logo}
+        alt={`Логотип: ${tour.operator_name}`}
+        fill
+        className="object-cover"
+        sizes="56px"
+      />
+    </div>
+  ) : (
+    <div
+      className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 text-white"
+      style={{ background: 'radial-gradient(120% 120% at 30% 20%, var(--accent), color-mix(in srgb, var(--ocean) 55%, #06131a))', fontFamily: FD, fontWeight: 700, fontSize: 20 }}
+    >
+      {tour.operator_name.charAt(0).toUpperCase()}
+    </div>
+  );
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
@@ -717,7 +747,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 </ul>
                 {/* Подпись автора — оператором тура (слово владельца 09.10), тем же
                     правилом, что у клипов перевозчика: «Видео: <кто>». */}
-                <p className="text-xs text-[var(--text-muted)]">Видео: {tour.operator_name}</p>
+                <p className="text-xs text-[var(--text-muted)]">Видео: <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} /></p>
               </section>
             )}
 
@@ -952,30 +982,22 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <Eyebrow>Кто проводит</Eyebrow>
               <div className="ds-card p-5">
                 <div className="flex flex-wrap items-center gap-4">
-                  {/* Логотип партнёра, если он есть в partners.logo_image
-                      (804): своё лицо оператора вызывает больше доверия, чем
-                      буква в кружке. Нет логотипа — остаётся буква. */}
-                  {tour.operator_logo ? (
-                    <div className="w-14 h-14 rounded-full overflow-hidden shrink-0 relative bg-[var(--bg-hover)]">
-                      <Image
-                        src={tour.operator_logo}
-                        alt={`Логотип: ${tour.operator_name}`}
-                        fill
-                        className="object-cover"
-                        sizes="56px"
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 text-white"
-                      style={{ background: 'radial-gradient(120% 120% at 30% 20%, var(--accent), color-mix(in srgb, var(--ocean) 55%, #06131a))', fontFamily: FD, fontWeight: 700, fontSize: 20 }}
-                    >
-                      {tour.operator_name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  {operatorHref ? (
+                    <Link href={operatorHref} aria-label={`Страница оператора «${tour.operator_name}»`} className="shrink-0 rounded-full">
+                      {operatorBadge}
+                    </Link>
+                  ) : operatorBadge}
                   <div className="flex-1 min-w-[10rem]">
-                    <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
+                    <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>
+                      <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} />
+                    </p>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5">Проводит этот тур сам</p>
+                    {operatorHref && (
+                      <Link href={operatorHref} className="text-[13px] text-[var(--ocean)] inline-flex items-center gap-1 mt-1 hover:underline underline-offset-2">
+                        Страница оператора и все его туры
+                        <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
+                      </Link>
+                    )}
                     {/* Исполнитель — оператор, платформа — информационная система
                         (решение владельца 05.10); турист видит, с кем договаривается. Реквизиты не записаны — говорим это, не прячем. */}
                     <p className="text-xs text-[var(--text-muted)] mt-1">

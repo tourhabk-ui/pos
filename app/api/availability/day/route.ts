@@ -31,6 +31,8 @@ interface TourRow {
   operator_id: string;
   operator_name: string;
   operator_verified: boolean | null;
+  operator_slug: string | null;
+  operator_public: boolean | null;
   operator_rating: string | null;
   tags: string[] | null;
 }
@@ -87,6 +89,8 @@ export async function GET(request: NextRequest) {
          p.id::text                                                          AS operator_id,
          p.name                                                              AS operator_name,
          p.is_verified                                                       AS operator_verified,
+         p.slug                                                              AS operator_slug,
+         p.is_public                                                         AS operator_public,
          p.rating::text                                                      AS operator_rating,
          t.tags
        FROM tour_availability ta
@@ -131,6 +135,8 @@ export async function GET(request: NextRequest) {
         id:       r.operator_id,
         name:     r.operator_name,
         verified: r.operator_verified ?? false,
+        slug:     r.operator_slug,
+        isPublic: r.operator_public,
         rating:   r.operator_rating !== null ? Number(r.operator_rating) : null,
       },
       tags: r.tags ?? [],

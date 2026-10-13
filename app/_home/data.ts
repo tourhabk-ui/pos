@@ -100,6 +100,9 @@ export interface Plate {
   priceUnit: string | null;
   /** partners.name; null — имя не записано, и его не выдумываем. */
   operatorName: string | null;
+  /** partners.slug / partners.is_public — страница оператора; нет — имя текстом (13.10). */
+  operatorSlug?: string | null;
+  operatorPublic?: boolean | null;
   durationType: string | null;
   multiDayCount: number | null;
   durationHours: number | null;
@@ -344,6 +347,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       id: string; slug: string | null; title: string; description: string | null;
       image_url: string | null; base_price: string | null; activity_type: string | null;
       price_unit: string | null; operator_name: string | null;
+      operator_slug: string | null; operator_public: boolean | null;
       duration_hours: string | null; duration_type: string | null; multi_day_count: number | null;
       season_start: string | null; season_end: string | null;
       cancellation_policy: string | null; has_availability: boolean;
@@ -355,6 +359,7 @@ export async function fetchPlates(): Promise<Plate[]> {
              ot.activity_type,
              ot.price_unit,
              p.name AS operator_name,
+             p.slug AS operator_slug, p.is_public AS operator_public,
              ot.duration_hours::text, ot.duration_type, ot.multi_day_count,
              ot.season_start::text, ot.season_end::text,
              NULLIF(btrim(ot.cancellation_policy), '') AS cancellation_policy,
@@ -383,6 +388,8 @@ export async function fetchPlates(): Promise<Plate[]> {
         volcanoStatus: null,
         priceUnit: r.price_unit,
         operatorName: r.operator_name,
+        operatorSlug: r.operator_slug,
+        operatorPublic: r.operator_public,
         durationType: r.duration_type,
         multiDayCount: multi,
         durationHours: hours,
