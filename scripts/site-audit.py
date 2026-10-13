@@ -149,7 +149,8 @@ class Page(HTMLParser):
         self._in_h: str | None = None
         self.links: list[str] = []
         self.imgs = 0
-        self.imgs_no_alt = 0
+        self.imgs_no_alt = 0     # атрибута alt нет вовсе — дефект
+        self.imgs_empty_alt = 0  # alt="" — декоративная картинка рядом с подписью, так и надо (WCAG)
         self.scripts = 0
         self.jsonld: list[str] = []
         self._in_jsonld = False
@@ -214,8 +215,10 @@ class Page(HTMLParser):
             self.links.append(urllib.parse.urljoin(self.base, a['href']))
         elif tag == 'img':
             self.imgs += 1
-            if not (a.get('alt') or '').strip():
+            if 'alt' not in a:
                 self.imgs_no_alt += 1
+            elif not (a.get('alt') or '').strip():
+                self.imgs_empty_alt += 1
             if (a.get('src') or '').startswith('http://'):
                 self.http_assets += 1
         elif tag == 'script':
@@ -456,7 +459,12 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
     elif out['cert']['days_left'] < 14:
         iss.append({'severity': 'high', 'what': f"сертификат истекает через {out['cert']['days_left']} дн.", 'count': 1, 'urls': [base]})
     elif f'www.{host}' not in out['cert']['sans'] and not any(s.startswith('*.') for s in out['cert']['sans']):
-        iss.append({'severity': 'medium', 'what': 'сертификат не покрывает www', 'count': 1, 'urls': [f'https://www.{host}/']})
+        # Сертификат основного домена www может и не покрывать: по SNI сервер
+        # отдаёт для www свой. Судит сам вход по https://www. — находка, только
+        # если он не прошёл проверку TLS (прогон 5 на vedarai.ru назвал ложную).
+        www = next((e for e in out['entry'] if e['url'] == f'https://www.{host}/'), None)
+        if www and www['code'] == 0 and re.search(r'ssl|certificate|hostname', www['error'] or '', re.I):
+            iss.append({'severity': 'medium', 'what': 'сертификат не покрывает www', 'count': 1, 'urls': [f'https://www.{host}/']})
     for e in out['entry']:
         if e['code'] == 0:
             iss.append({'severity': 'high', 'what': f"адрес не отвечает: {e['error']}", 'count': 1, 'urls': [e['url']]})
@@ -617,11 +625,19 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
 
     # og:image — открывается ли сама картинка (превью в мессенджерах и выдаче).
     og_bad: list[str] = []
+    og_head_only: list[str] = []
     og_urls = sorted({r['og_image'] for r in ok if r.get('og_image')})
     for img in og_urls[:og_checks]:
+        # HEAD дешевле, но не везде открыт: реестр публичных API Ведара пускает
+        # /api/images только на GET, и HEAD получает 401 (прогон 5 назвал 67
+        # «не открываются» при рабочих картинках). Отказ на HEAD — переспросить
+        # GET'ом: превью забирают им; расхождение назвать отдельно.
         rr = fetch(img, method='HEAD')
-        if rr['code'] in (405, 403, 0) and not rr['error']:
+        if rr['code'] in (401, 403, 405) or (rr['code'] == 0 and not rr['error']):
+            head_code = rr['code']
             rr = fetch(img)
+            if rr['code'] == 200:
+                og_head_only.append(f"{img} → HEAD {head_code}, GET 200")
         if rr['code'] != 200:
             og_bad.append(f"{img} → {rr['code'] or rr['error']}")
         time.sleep(PAUSE / 2)
@@ -629,7 +645,7 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         'checked': len(rows), 'of': len(urls), 'ok': len(ok), 'rate_limited': limited,
         'by_section': by_section, 'issues': issues, 'checks': [n for n, _, _ in checks],
         'codes': {code: name for name, code, _ in checks},
-        'og_images': {'unique': len(og_urls), 'checked': min(len(og_urls), og_checks), 'bad': og_bad},
+        'og_images': {'unique': len(og_urls), 'checked': min(len(og_urls), og_checks), 'bad': og_bad, 'head_only': og_head_only},
         'median_ms': sorted(r['ms'] for r in rows)[len(rows) // 2] if rows else None,
         'rows': rows,
     }
@@ -653,6 +669,10 @@ def report_census(c: dict, ua: str, budget: int = 58000) -> str:
     L.append(f"- og:image: уникальных {og['unique']}, проверено {og['checked']}, не открываются {len(og['bad'])}")
     for b in og['bad'][:10]:
         L.append(f"  - {b}")
+    if og.get('head_only'):
+        L.append(f"- og:image открывается только на GET, HEAD отказан: {len(og['head_only'])} (не поломка превью, но HEAD обязан отвечать как GET)")
+        for b in og['head_only'][:3]:
+            L.append(f"  - {b}")
     L.append('')
     L.append('### По разделам')
     cols = ['urls', 'ok'] + [k for k in c['checks'] if any(v[k] for v in c['by_section'].values())]
