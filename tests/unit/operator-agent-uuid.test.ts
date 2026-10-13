@@ -35,7 +35,8 @@ describe('userId — строка UUID по всей цепочке', () => {
   it('типы userId — string', () => {
     expect(read('lib/agents/platform-agent.ts')).toMatch(/userId\?: string;/);
     expect(read('lib/agents/context-hub.ts')).toMatch(/userId\?: string;/);
-    expect(read('lib/agents/agencies/operator-agency.ts')).toMatch(/getPartnerId\(userId: string \| undefined\)/);
+    // Кабинет — operatorAccess(userId) (CRM 2г-2): тот же UUID, что в users.id.
+    expect(read('lib/agents/agencies/operator-agency.ts')).toMatch(/cabinet\(userId: string \| undefined, need\?/);
   });
 
   it('OperatorAgency ищет partners по той же UUID-строке', async () => {

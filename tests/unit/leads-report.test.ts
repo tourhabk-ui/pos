@@ -78,9 +78,11 @@ describe('отчёт партнёру: счётчики без ПД', () => {
     expect(REPORT).toMatch(/COUNT\(\*\)/);
   });
 
-  it('скоуп: оператор — только свой partner.id, админ — явный operator_id', () => {
+  it('скоуп: оператор — только свой кабинет (свой или команды, CRM 2г), админ — явный operator_id', () => {
     expect(REPORT).toMatch(/requireOperator\(request\)/);
-    expect(REPORT).toMatch(/SELECT id FROM partners WHERE user_id = \$1/);
+    expect(REPORT).toMatch(/const access = await operatorAccess\(user\.userId\);/);
+    expect(REPORT).toMatch(/operatorId = access\.partnerId;/);
+    expect(REPORT).not.toMatch(/FROM partners WHERE user_id/);
     expect(REPORT).toMatch(/operator_id = \$1/);
     expect(REPORT).toMatch(/user\.role === 'admin'/);
   });

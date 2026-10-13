@@ -11,9 +11,9 @@ export type Perm = 'can_edit_prices' | 'can_cancel_bookings';
 
 export type Gate =
   | { seat: 'owner' }
-  | { seat: 'team'; perms?: Perm[]; ownerOnly?: string; moneyHidden?: true }
+  | { seat: 'team'; perms?: Perm[]; ownerOnly?: string; moneyHidden?: true; resolvedIn?: string }
   | { seat: 'user'; why: string }
-  | { seat: 'legacy'; why: string; lookupIn?: string }
+  | { seat: 'legacy'; why: string }
   | { seat: 'public'; why: string };
 
 const CALENDAR_DEBT = '2г-2: поиск кабинета без категории — замороженный долг crm-partner-context; перевод после переписи категорий на проде';
@@ -28,6 +28,7 @@ export const GATES: Record<string, Gate> = {
   'app/api/hub/operator/team/route.ts': { seat: 'owner' },
   'app/api/hub/operator/team/[id]/route.ts': { seat: 'owner' },
   'app/api/operator/guides/invites/route.ts': { seat: 'owner' },
+  'app/api/operator/analytics/route.ts': { seat: 'owner' },
   'app/api/hub/crm/keys/route.ts': { seat: 'owner' },
   'app/api/hub/crm/keys/[id]/route.ts': { seat: 'owner' },
   'app/api/hub/crm/channel/route.ts': { seat: 'owner' },
@@ -40,6 +41,13 @@ export const GATES: Record<string, Gate> = {
   'app/api/operator/dashboard/route.ts': { seat: 'team', moneyHidden: true },
   'app/api/operator/stats/route.ts': { seat: 'team', moneyHidden: true },
   'app/api/hub/operator/notifications/route.ts': { seat: 'team' },
+  'app/api/hub/operator/leads/report/route.ts': { seat: 'team' },
+  'app/api/hub/selections/route.ts': { seat: 'team' },
+  // AI-помощник: роут отдаёт команду агентству, кабинет и права ищет оно.
+  'app/api/agents/operator/route.ts': {
+    seat: 'team', resolvedIn: 'lib/agents/agencies/operator-agency.ts',
+    perms: ['can_edit_prices'], ownerOnly: 'выручка за 7 и 30 дней',
+  },
   'app/api/hub/operator/weather/route.ts': { seat: 'team' },
   'app/api/hub/operator/bookings/route.ts': { seat: 'team', perms: ['can_edit_prices'], ownerOnly: '«оплачено» в ручной брони' },
   'app/api/hub/operator/bookings/[id]/route.ts': { seat: 'team', perms: ['can_cancel_bookings'] },
@@ -95,14 +103,6 @@ export const GATES: Record<string, Gate> = {
   'app/api/operator/calendar/block/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
   'app/api/operator/calendar/bulk-open/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
   'app/api/operator/calendar/ical/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
-  'app/api/hub/operator/leads/report/route.ts': { seat: 'legacy', why: '2г-2: отчёт по входящему спросу' },
-  'app/api/operator/analytics/route.ts': { seat: 'legacy', why: '2г-2: внутри выручка — при переводе станет owner' },
-  'app/api/operator/messages/route.ts': { seat: 'legacy', why: '2г-2: verifyBookingOwnership ищет бронь по user_id владельца' },
-  'app/api/hub/selections/route.ts': { seat: 'legacy', why: '2г-2: подборки туров для клиента' },
-  'app/api/agents/operator/route.ts': {
-    seat: 'legacy', why: '2г-2: AI-помощник, в том числе смена цены и выручка за неделю',
-    lookupIn: 'lib/agents/agencies/operator-agency.ts',
-  },
 
   // ── Без входа ──
   'app/api/hub/operator/payments/webhook/route.ts': {
@@ -133,12 +133,14 @@ export function code(src: string): string {
 
 export const OWNER_GATE = /\brequireOperatorOwner\(|\brequirePartnerOwner\(/;
 export const TEAM_RESOLVER = /\brequireOperatorTeam\(|\bgetOperatorPartnerId\(|\boperatorAccess\(|\boperatorOwnsBooking\(|\bleadOwnershipCond\(|\bpartnerContextFor\(|\brequirePartner\(/;
-export const INLINE_OWNER_LOOKUP = /FROM\s+partners\s+(?:p\s+)?WHERE\s+(?:p\.)?user_id\s*=\s*\$\d|\bp\.user_id\s*=\s*\$\d|\bverifyBookingOwnership\(/;
-export const OWNER_ACTION = /\bownerOnlyDenied\(\)|\brequireOperatorOwner\(|\brequirePartnerOwner\(/;
+export const INLINE_OWNER_LOOKUP = /FROM\s+partners\s+(?:p\s+)?WHERE\s+(?:p\.)?user_id\s*=\s*\$\d|\bp\.user_id\s*=\s*\$\d|\bverify(?:Booking|Tour)Ownership\(/;
+// this.cabinet(…, 'owner') — вызов, а не сигнатура: в объявлении `need?: 'owner' | …`
+// слово тоже есть, и признак по нему засчитывал бы снятый гейт.
+export const OWNER_ACTION = /\bownerOnlyDenied\(\)|\brequireOperatorOwner\(|\brequirePartnerOwner\(|\bthis\.cabinet\([^)]*'owner'/;
 export const MONEY_HIDDEN = /\bdashboardWithoutMoney\(|access\.kind\s*===\s*'owner'/;
 export const AUTH_CALL = /\brequire(?:Operator|Auth|Role|Admin|Partner|OperatorTeam|OperatorOwner|PartnerOwner)\(/;
 export const PERMS: Perm[] = ['can_edit_prices', 'can_cancel_bookings'];
-export const permGate = (perm: Perm) => new RegExp(`\\b(?:requireTeamPermission|managerMay|permissionDenied)\\([^)]*'${perm}'`);
+export const permGate = (perm: Perm) => new RegExp(`(?:\\b(?:requireTeamPermission|managerMay|permissionDenied)|\\bthis\\.cabinet)\\([^)]*'${perm}'`);
 
 /** Деньги и настройки по адресу: такие роуты не бывают командными. */
 export const MONEY_RE = /\/(?:earnings|payouts?|reports|payments?|direct-payments|commissions?|finance|settings|keys|channel|oauth|team|invites|analytics)(?:\/|$)/;

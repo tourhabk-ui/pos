@@ -11,8 +11,9 @@
  *                         серверным флагом из isVerifiedMaxWebhook (секрет в
  *                         URL, timingSafeCompare, fail-closed при отсутствии
  *                         секрета). Поля апдейта читаются ПОСЛЕ гейта;
- *   operator/messages:32 → воротами служит verifyBookingOwnership —
- *                         параметризованный запрос через partners.user_id.
+ *   operator/messages:32 → воротами служил verifyBookingOwnership; роут и
+ *                         помощник удалены 13.10 (CRM 2г-2): не работали ни
+ *                         разу (bigint против uuid), потребителя не было.
  *
  * Здесь закреплено то, что при разборе действительно оказалось поправимым:
  * сверка кода была `===` по строке (не постоянного времени), а четыре
@@ -83,8 +84,8 @@ describe('проверки владения оператора: отказ не 
     // getPartnerByUserId удалён 11.09 (#1803) вместе с обоими своими
     // вызывающими — роутами /api/operator/profile*, которые отвечали 500 и не
     // имели экрана. Оставшиеся три проверки владения — на месте.
-    for (const check of ['getOperatorPartnerId',
-                         'verifyTourOwnership', 'verifyBookingOwnership']) {
+    // verifyBookingOwnership удалён 13.10 вместе с /api/operator/messages.
+    for (const check of ['getOperatorPartnerId', 'verifyTourOwnership']) {
       expect(HELPERS, `${check} снова молчит при отказе`)
         .toMatch(new RegExp(`logCheckFailure\\('${check}'`));
     }

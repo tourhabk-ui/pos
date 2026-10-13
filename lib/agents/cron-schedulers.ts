@@ -167,6 +167,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'booking-attempts':          { kind: 'manual', writes: false, note: 'сколько броней создано, сколько не дошло до денег, сколько сорвалось пятисоткой; попытки-касания — только с починки маяка' },
   'bookings-origin-census':    { kind: 'manual', writes: false, note: 'откуда взялись брони тура за окно: created_via, статус, тур, оператор, есть ли контакт — без ПД (повод 09.10: две брони за минуту, которых владелец не создавал и не видит в админке)' },
   'locked-out-partners':       { kind: 'manual', writes: false, note: 'аккаунт есть, партнёрского профиля нет: точный счёт потерь на запертой двери регистрации' },
+  'operator-cabinet-census':   { kind: 'manual', writes: false, note: 'CRM 2г-2: один ли кабинет у оператора находят календарь и общий резолвер — туры и даты на профилях не оператора' },
   'backfill-partner-profile':  { kind: 'manual', writes: true,  note: 'создаёт недостающий партнёрский профиль через ensurePartnerForRole — возврат тех, кого заперла регистрация' },
   'route-core':                { kind: 'manual', writes: false, note: 'Ф5 плана порядка маршрутов: ядро из 20 по цене ошибки (lib/routes/error-cost.ts), не по спросу — правило владельца 21.08' },
   'route-core-sources':        { kind: 'manual', writes: false, note: 'диагностика по конкретным id ядра Ф5: есть ли source_url/pdf_url/park_approval_url — прежде чем звать это «нужны полевые треки»' },

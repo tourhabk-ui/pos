@@ -66,7 +66,16 @@ describe('реестр гейтов кабинета оператора', () => 
       }
 
       if (gate.seat === 'team') {
+        // Роут, отдающий работу модулю (resolvedIn), сверяется вместе с ним.
+        const full = () => c() + (gate.resolvedIn ? `\n${code(read(gate.resolvedIn))}` : '');
+
         it('кабинет находит общий резолвер, своего поиска по user_id нет', () => {
+          if (gate.resolvedIn) {
+            const mod = code(read(gate.resolvedIn));
+            expect(TEAM_RESOLVER.test(mod), `${gate.resolvedIn}: резолвера кабинета нет`).toBe(true);
+            expect(INLINE_OWNER_LOOKUP.test(full()), 'поиск кабинета по user_id владельца закрывает роут менеджеру').toBe(false);
+            return;
+          }
           const src = c();
           const hs = handlers(src);
           expect(hs.length).toBeGreaterThan(0);
@@ -81,15 +90,15 @@ describe('реестр гейтов кабинета оператора', () => 
         });
 
         it('права менеджера объявлены ровно те, что проверяет код', () => {
-          expect(permsInCode(c()).sort()).toEqual([...(gate.perms ?? [])].sort());
+          expect(permsInCode(full()).sort()).toEqual([...(gate.perms ?? [])].sort());
         });
 
         it('действия только владельцу объявлены, если код их делает', () => {
-          expect(OWNER_ACTION.test(c())).toBe(Boolean(gate.ownerOnly));
+          expect(OWNER_ACTION.test(full())).toBe(Boolean(gate.ownerOnly));
         });
 
         it('деньги вынимаются на сервере ровно там, где объявлено', () => {
-          expect(MONEY_HIDDEN.test(c())).toBe(Boolean(gate.moneyHidden));
+          expect(MONEY_HIDDEN.test(full())).toBe(Boolean(gate.moneyHidden));
         });
       }
 
@@ -107,8 +116,7 @@ describe('реестр гейтов кабинета оператора', () => 
         it('ищет кабинет по user_id владельца — менеджеру закрыт; переведённый требует снять запись', () => {
           expect(gate.why).toMatch(/2г-\d/);
           const src = c();
-          const lookupSrc = gate.lookupIn ? code(read(gate.lookupIn)) : src;
-          expect(INLINE_OWNER_LOOKUP.test(lookupSrc), 'старого поиска нет — объявите роут командным или владельческим').toBe(true);
+          expect(INLINE_OWNER_LOOKUP.test(src), 'старого поиска нет — объявите роут командным или владельческим').toBe(true);
           expect(TEAM_RESOLVER.test(src), 'роут переведён на общий резолвер — снимите запись legacy').toBe(false);
         });
       }

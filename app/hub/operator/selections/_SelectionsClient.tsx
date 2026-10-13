@@ -240,6 +240,9 @@ export default function SelectionsClient() {
   // List
   const [selections, setSelections] = useState<Selection[]>([]);
   const [loadingList, setLoadingList] = useState(true);
+  // Отказ сервера — не «подборок нет»: без входа в кабинет, при сбое базы и
+  // для снятого менеджера пустой список был бы неправдой.
+  const [listError, setListError] = useState<string | null>(null);
 
   // Builder
   const [showBuilder, setShowBuilder] = useState(false);
@@ -267,8 +270,15 @@ export default function SelectionsClient() {
     setLoadingList(true);
     try {
       const r = await fetch('/api/hub/selections');
-      const d = await r.json() as { selections: Selection[] };
-      setSelections(d.selections ?? []);
+      const d = await r.json().catch(() => null) as { selections?: Selection[]; error?: string } | null;
+      if (!r.ok) {
+        setListError(d?.error ?? `Подборки не загружены (HTTP ${r.status})`);
+        return;
+      }
+      setListError(null);
+      setSelections(d?.selections ?? []);
+    } catch {
+      setListError('Нет связи с сервером — подборки не загружены');
     } finally {
       setLoadingList(false);
     }
@@ -547,6 +557,10 @@ export default function SelectionsClient() {
             <div key={i} className="ds-skeleton" style={{ height: '110px', borderRadius: '12px' }} />
           ))}
         </div>
+      ) : listError ? (
+        <p role="alert" className="ds-card" style={{ padding: '16px', color: 'var(--text-primary)', fontSize: '14px' }}>
+          {listError}
+        </p>
       ) : selections.length === 0 ? (
         <div style={{
           textAlign: 'center', padding: '48px 24px',

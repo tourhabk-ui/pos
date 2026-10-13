@@ -2,13 +2,16 @@
  * GET  /api/hub/selections  — список подборок оператора (с engagement stats)
  * POST /api/hub/selections  — создать подборку
  *
- * Профиль оператора ищется с category = 'operator': у одного user_id бывает
- * несколько записей partners (гид + оператор), и LIMIT 1 без фильтра отдавал
- * произвольную — подборки уходили на гид-профиль и не находились в кабинете.
+ * Кабинет — свой у владельца или командный у менеджера (CRM 2г-2,
+ * operatorAccess): подборки для клиента — работа менеджера, денег в них нет.
+ * До 13.10 кабинет искался своим запросом по partners.user_id, и менеджер
+ * команды подборок не видел. «Профиля нет» и «не смогли проверить» — ответ
+ * с причиной, а не пустой список: пустота читалась бы как «подборок нет».
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
+import { accessFailure, operatorAccess } from '@/lib/operators/team-access';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
 
@@ -37,14 +40,14 @@ export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof NextResponse) return auth;
 
-  const operatorRow = await pool.query<{ id: string }>(
-    `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1`,
-    [auth.userId],
-  );
-  const operatorId = operatorRow.rows[0]?.id;
-
-  // Admin sees all; operator sees own
+  // Админ видит все подборки; оператор и менеджер — подборки своего кабинета.
   const isAdmin = auth.role === 'admin';
+  let operatorId: string | null = null;
+  if (!isAdmin) {
+    const access = await operatorAccess(auth.userId);
+    if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access, { noProfileStatus: 404 });
+    operatorId = access.partnerId;
+  }
 
   const { rows } = await pool.query(
     `SELECT
@@ -85,17 +88,17 @@ export async function POST(req: NextRequest) {
 
   const data = parsed.data;
 
-  const operatorRow = await pool.query<{ id: string }>(
-    `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1`,
-    [auth.userId],
-  );
-  const operatorId = operatorRow.rows[0]?.id ?? null;
-
-  // Не админ без профиля ОПЕРАТОРА подборку не создаёт. Раньше проверка
+  // Не админ без кабинета оператора подборку не создаёт. Раньше проверка
   // владения турами пропускалась при operatorId = null, и любой вошедший
   // (гид, турист) мог собрать подборку из чужих туров.
-  if (auth.role !== 'admin' && !operatorId) {
-    return NextResponse.json({ error: 'Подборки создаёт оператор: профиль оператора не найден' }, { status: 403 });
+  let operatorId: string | null = null;
+  if (auth.role !== 'admin') {
+    const access = await operatorAccess(auth.userId);
+    if (access.kind === 'none' && access.reason === 'no_profile') {
+      return NextResponse.json({ error: 'Подборки создаёт оператор: профиль оператора не найден' }, { status: 403 });
+    }
+    if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access);
+    operatorId = access.partnerId;
   }
 
   // Verify all tour_ids belong to this operator (or admin bypasses)

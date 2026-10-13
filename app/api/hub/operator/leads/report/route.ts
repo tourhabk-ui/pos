@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { accessFailure, operatorAccess } from '@/lib/operators/team-access';
 import type { JWTPayload } from '@/lib/auth/jwt';
 
 export const dynamic = 'force-dynamic';
@@ -38,18 +39,11 @@ export async function GET(request: NextRequest) {
       );
     }
   } else {
-    const opRes = await pool.query<{ id: string }>(
-      // category = 'operator': гид-профиль того же user_id — не отчёт оператора.
-      "SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1",
-      [user.userId],
-    );
-    operatorId = opRes.rows[0]?.id ?? null;
-    if (!operatorId) {
-      return NextResponse.json(
-        { error: 'Партнёрский профиль не найден' },
-        { status: 404 },
-      );
-    }
+    // Кабинет — свой у владельца или командный у менеджера (CRM 2г): отчёт о
+    // спросе — работа менеджера, денег в нём нет. «Не смогли проверить» — 503.
+    const access = await operatorAccess(user.userId);
+    if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access, { noProfileStatus: 404 });
+    operatorId = access.partnerId;
   }
 
   try {

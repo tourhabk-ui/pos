@@ -113,26 +113,11 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
   }
 }
 
-/**
- * Verify user owns a booking (through tour -> partner)
- */
-export async function verifyBookingOwnership(userId: string, bookingId: string): Promise<boolean> {
-  try {
-    const result = await query(
-      `SELECT b.id
-       FROM operator_bookings b
-       JOIN operator_tours t ON b.operator_tour_id = t.id
-       JOIN partners p ON t.operator_id = p.id
-       WHERE p.user_id = $1 AND b.id = $2 AND b.deleted_at IS NULL AND t.deleted_at IS NULL`,
-      [userId, bookingId]
-    );
-    
-    return result.rows.length > 0;
-  } catch (error) {
-    logCheckFailure('verifyBookingOwnership', error);
-    return false;
-  }
-}
+// verifyBookingOwnership удалён 13.10 (CRM 2г-2) вместе с единственным
+// вызывающим — /api/operator/messages, который не мог сработать ни разу:
+// бронь сверялась как operator_bookings.id (bigint), а переписка хранила её
+// как client_communications.booking_id (uuid). Владение бронью кабинета —
+// operatorOwnsBooking (lib/bookings/operator-owns.ts): свой кабинет или команды.
 
 interface OperatorStats {
   totalTours: number;
