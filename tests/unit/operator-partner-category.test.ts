@@ -26,8 +26,10 @@ describe('поиск профиля оператора по user_id', () => {
       const src = readFileSync(join(process.cwd(), f), 'utf8');
       const hits = src.match(LOOKUP) ?? [];
       // operatorAccess (CRM 2г) ищет кабинет с category = 'operator' — сторож
-      // operator-team-access держит это в самом резолвере.
-      const viaHelper = src.includes('getOperatorPartnerId(') || src.includes('operatorAccess(');
+      // operator-team-access держит это в самом резолвере; гарды
+      // requireOperatorOwner/requireOperatorTeam зовут его же.
+      const viaHelper = ['getOperatorPartnerId(', 'operatorAccess(', 'requireOperatorOwner(', 'requireOperatorTeam(']
+        .some((h) => src.includes(h));
       expect(hits.length > 0 || viaHelper, 'поиск профиля в файле не найден').toBe(true);
       for (const h of hits) {
         expect(h, `без фильтра категории: ${h}`).toMatch(/category = 'operator'/);
@@ -35,9 +37,12 @@ describe('поиск профиля оператора по user_id', () => {
     });
   }
 
-  it('подборку не создаёт не-админ без профиля оператора', () => {
+  it('подборку не создаёт не-админ без кабинета оператора', () => {
     const src = readFileSync(join(process.cwd(), 'app/api/hub/selections/route.ts'), 'utf8');
-    expect(src).toMatch(/auth\.role !== 'admin' && !operatorId\)[\s\S]{0,200}status: 403/);
+    // Кабинет — свой или команды (operatorAccess, CRM 2г-2); без него — 403
+    // до проверки туров и записи, «не смогли проверить» — 503 (accessFailure).
+    expect(src).toMatch(/if \(auth\.role !== 'admin'\) \{\s*const access = await operatorAccess\(auth\.userId\);\s*if \(access\.kind === 'none' && access\.reason === 'no_profile'\) \{\s*return NextResponse\.json\(\{ error: 'Подборки создаёт оператор: профиль оператора не найден' \}, \{ status: 403 \}\);/);
+    expect(src).toMatch(/if \(access\.kind !== 'owner' && access\.kind !== 'manager'\) return accessFailure\(access\);\s*operatorId = access\.partnerId;/);
   });
 
   it('период аналитики валидируется Zod, а не голым parseInt', () => {

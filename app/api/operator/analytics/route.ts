@@ -5,19 +5,20 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import { z } from 'zod';
 import { ANALYTICS_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const userOrResponse = await requireOperator(request);
-  if (userOrResponse instanceof NextResponse) {
-    return userOrResponse;
-  }
+  // Выручка и средний чек — деньги: только владелец кабинета (CRM 2г).
+  // Профиля нет — 404, а не нули: «нет профиля» не равно «выручки нет»
+  // (§4.0). До 13.10 здесь отвечали success с нулями.
+  const ctx = await requireOperatorOwner(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const partnerId = ctx.partnerId;
 
-  const userId = userOrResponse.userId;
   const { searchParams } = new URL(request.url);
   const periodParsed = z.coerce.number().int().min(1).max(365).safeParse(searchParams.get('period') ?? '30');
   if (!periodParsed.success) {
@@ -26,28 +27,6 @@ export async function GET(request: NextRequest) {
   const periodDays = periodParsed.data;
 
   try {
-    // Resolve userId → partnerId (operator_tours.operator_id is partners.id).
-    // category = 'operator': у user_id бывает и гид-профиль, LIMIT 1 без
-    // фильтра брал произвольный — аналитика показывала нули чужого профиля.
-    const partnerRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1`,
-      [userId]
-    );
-    const partnerId = partnerRes.rows[0]?.id;
-    if (!partnerId) {
-      return NextResponse.json({
-        success: true,
-        data: {
-          period: { days: periodDays, start: '', end: '' },
-          summary: { totalRevenue: 0, totalBookings: 0, avgBookingValue: 0, completedBookings: 0 },
-          revenue: [],
-          topTours: [],
-          conversion: { pageViews: 0, bookings: 0, rate: 0 },
-          statusBreakdown: {},
-        },
-      });
-    }
-
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - periodDays);
 

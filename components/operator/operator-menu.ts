@@ -48,7 +48,7 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   // текста заявки через AI, отличен от списка лидов ниже.
   { href: '/hub/operator/booking-intake', label: 'AI Приём', icon: MessageSquareText, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/leads', label: 'AI Заявки', icon: Inbox, section: 'Продажи', access: 'team' },
-  { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи', access: 'later' },
+  { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/inbox', label: 'Входящие', icon: BellDot, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/tasks', label: 'Задачи', icon: ListChecks, section: 'Продажи', access: 'team' },
@@ -70,7 +70,7 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator/guides', label: 'Гиды', icon: Contact, section: 'Логистика', access: 'team' },
 
   // Сирота-аудит 27.07: AI-помощник оператора жил без пункта меню.
-  { href: '/hub/operator/ai-assist', label: 'AI Помощник', icon: Bot, section: 'Кабинет', access: 'later' },
+  { href: '/hub/operator/ai-assist', label: 'AI Помощник', icon: Bot, section: 'Кабинет', access: 'team' },
   { href: '/hub/operator/notifications', label: 'Уведомления', icon: Bell, section: 'Кабинет', access: 'team' },
   { href: '/hub/operator/integrations', label: 'Интеграции', icon: Settings, section: 'Кабинет', access: 'owner' },
   { href: '/hub/operator/team', label: 'Команда', icon: UsersRound, section: 'Кабинет', access: 'owner' },

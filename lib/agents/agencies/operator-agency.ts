@@ -15,6 +15,7 @@
 import { pool } from '@/lib/db-pool';
 import { runAutoFillAI } from '@/app/api/operator/tours/auto-fill-ai/route';
 import type { AgentContext } from '../context-hub';
+import { managerMay, operatorAccess, type ManagerPermission } from '@/lib/operators/team-access';
 
 export interface KbFreshnessStats {
   rdc_total:        number;
@@ -90,7 +91,16 @@ interface RevenueRow {
   bookings_30d: string;
 }
 
-interface PartnerRow { id: string }
+
+/** Кабинет найден — или текст отказа для ответа помощника. */
+type Cabinet = { partnerId: string } | { denied: string };
+
+/** Отказы по правам команды (CRM 2г): деньги — владельцу, цены — по праву. */
+const NEED_DENIED: Record<'owner' | ManagerPermission, string> = {
+  owner: 'Выручку видит владелец кабинета: деньги менеджеру закрыты.',
+  can_edit_prices: 'Тур с ценой создаёт владелец кабинета или менеджер, которому он разрешил цены.',
+  can_cancel_bookings: 'Отменить бронь может владелец кабинета или менеджер, которому он это разрешил.',
+};
 
 export class OperatorAgency {
   async run(intent: string, context: AgentContext, originalMessage = ''): Promise<AgencyResult> {
@@ -105,21 +115,30 @@ export class OperatorAgency {
     }
   }
 
-  private async getPartnerId(userId: string | undefined): Promise<string | null> {
-    if (!userId) return null;
-    // category='operator': один user_id может держать несколько записей
-    // partners (гид+оператор — обычный случай), LIMIT 1 без фильтра и
-    // ORDER BY возвращал бы произвольную из них (аудит кабинета оператора).
-    const { rows } = await pool.query<PartnerRow>(
-      `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' ORDER BY created_at ASC LIMIT 1`,
-      [userId]
-    );
-    return rows[0]?.id ?? null;
+  /**
+   * Кабинет вошедшего: свой у владельца или командный у менеджера (CRM 2г-2,
+   * operatorAccess). need — что команда требует сверх входа: 'owner' (деньги)
+   * или право менеджера, которое даёт владелец. Отказ — текстом для ответа:
+   * «не смогли проверить» говорит о сбое, а не о том, что профиля нет (§4.0).
+   * До 13.10 кабинет искался своим запросом по partners.user_id, и менеджер
+   * команды получал «Профиль оператора не найден» на любую команду.
+   */
+  private async cabinet(userId: string | undefined, need?: 'owner' | ManagerPermission): Promise<Cabinet> {
+    if (!userId) return { denied: 'Профиль оператора не найден.' };
+    const access = await operatorAccess(userId);
+    if (access.kind === 'unavailable') return { denied: 'Не удалось проверить доступ к кабинету — попробуйте позже.' };
+    if (access.kind === 'none') {
+      return { denied: access.reason === 'revoked' ? 'Владелец кабинета закрыл вам доступ.' : 'Профиль оператора не найден.' };
+    }
+    if (need === 'owner' && access.kind !== 'owner') return { denied: NEED_DENIED.owner };
+    if (need && need !== 'owner' && !managerMay(access, need)) return { denied: NEED_DENIED[need] };
+    return { partnerId: access.partnerId };
   }
 
   async getToursSummary(context: AgentContext): Promise<AgencyResult> {
-    const partnerId = await this.getPartnerId(context.user.userId);
-    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+    const cab = await this.cabinet(context.user.userId);
+    if ('denied' in cab) return { response: cab.denied };
+    const { partnerId } = cab;
 
     const { rows } = await pool.query<TourSummaryRow>(`
       SELECT
@@ -153,8 +172,9 @@ export class OperatorAgency {
   }
 
   async getBookingsToday(context: AgentContext): Promise<AgencyResult> {
-    const partnerId = await this.getPartnerId(context.user.userId);
-    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+    const cab = await this.cabinet(context.user.userId);
+    if ('denied' in cab) return { response: cab.denied };
+    const { partnerId } = cab;
 
     const { rows } = await pool.query<BookingTodayRow>(`
       SELECT b.id, t.title AS tour_title, b.tourist_name, b.participants, b.final_price, b.booking_status AS status
@@ -180,8 +200,9 @@ export class OperatorAgency {
   }
 
   async getRevenue(context: AgentContext): Promise<AgencyResult> {
-    const partnerId = await this.getPartnerId(context.user.userId);
-    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+    const cab = await this.cabinet(context.user.userId, 'owner');
+    if ('denied' in cab) return { response: cab.denied };
+    const { partnerId } = cab;
 
     const { rows } = await pool.query<RevenueRow>(`
       SELECT
@@ -212,8 +233,9 @@ export class OperatorAgency {
   // ── Write: создать тур ────────────────────────────────────────────────────────────
 
   async createTour(context: AgentContext, message: string): Promise<AgencyResult> {
-    const partnerId = await this.getPartnerId(context.user.userId);
-    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+    const cab = await this.cabinet(context.user.userId, 'can_edit_prices');
+    if ('denied' in cab) return { response: cab.denied };
+    const { partnerId } = cab;
 
     // Извлечь заголовок и цену из сообщения простыми эвристиками
     const priceMatch = message.match(/(\d[\d\s]{2,8})/);
@@ -257,8 +279,9 @@ export class OperatorAgency {
   // ── Write: AI-заполнение тура ──────────────────────────────────────────────
 
   async fillAI(context: AgentContext, message: string): Promise<AgencyResult> {
-    const partnerId = await this.getPartnerId(context.user.userId);
-    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+    const cab = await this.cabinet(context.user.userId);
+    if ('denied' in cab) return { response: cab.denied };
+    const { partnerId } = cab;
 
     const idMatch = message.match(/\b(\d{1,8})\b/);
     if (!idMatch) {
@@ -292,8 +315,9 @@ export class OperatorAgency {
   // ── Write: добавить слоты доступности ─────────────────────────────────────────────
 
   async addSlots(context: AgentContext, message: string): Promise<AgencyResult> {
-    const partnerId = await this.getPartnerId(context.user.userId);
-    if (!partnerId) return { response: 'Профиль оператора не найден.' };
+    const cab = await this.cabinet(context.user.userId);
+    if ('denied' in cab) return { response: cab.denied };
+    const { partnerId } = cab;
 
     // Парсим: tour ID, дата начала, дата конца, кол-во мест
     const idMatch    = message.match(/тур(?:у|ам?)\s+(\d+)/i);

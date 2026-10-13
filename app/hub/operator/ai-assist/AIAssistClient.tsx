@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Sparkles, Loader, Send, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { OPERATOR_COMMAND_EXAMPLES } from '@/lib/agents/operator-commands';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 /**
  * Примеры — из того же модуля, что и ключевые фразы классификатора: список на
@@ -19,6 +20,12 @@ interface AgentResult {
 
 
 export function AIAssistClient() {
+  // Менеджеру команды (CRM 2г-2) не показываем команд, на которые помощник
+  // ему откажет: выручка — владельцу, тур с ценой — по праву цен.
+  const seat = useOperatorSeat();
+  const examples = isManagerSeat(seat)
+    ? EXAMPLES.filter((ex) => ex.intent !== 'op_revenue' && (ex.intent !== 'op_create_tour' || seat.perms.can_edit_prices))
+    : EXAMPLES;
   const [message, setMessage] = useState('');
   const [tourId, setTourId] = useState('');
   const [result, setResult] = useState<AgentResult | null>(null);
@@ -81,7 +88,7 @@ export function AIAssistClient() {
             Примеры команд
           </p>
           <div className="flex flex-wrap gap-2">
-            {EXAMPLES.map((ex) => (
+            {examples.map((ex) => (
               <button
                 key={ex.label}
                 onClick={() => sendMessage(ex.message)}
@@ -192,7 +199,7 @@ export function AIAssistClient() {
                   <p className="font-medium text-[var(--text-primary)] mb-1">
                     {group === 'read' ? 'Читать' : 'Создавать'}
                   </p>
-                  {EXAMPLES.filter((ex) => ex.group === group).map((ex) => (
+                  {examples.filter((ex) => ex.group === group).map((ex) => (
                     <p key={ex.label}>— {ex.message}</p>
                   ))}
                 </div>

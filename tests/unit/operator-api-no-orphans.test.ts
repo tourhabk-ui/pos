@@ -35,6 +35,12 @@ const REMOVED = [
   // одного. revenue числился «для админской сверки», но админка его не звала.
   'app/api/operator/finance/route.ts',
   'app/api/operator/reports/revenue/route.ts',
+  // 13.10 (CRM 2г-2): «переписка по брони» не работала ни разу — бронь
+  // сверялась как operator_bookings.id (bigint), а хранилась в
+  // client_communications.booking_id (uuid), 22P02 при любом номере.
+  // Потребителя не было; получатель уведомления брался из тела запроса
+  // без связи с бронью. Переписка с туристом — чат платформы (/api/chat).
+  'app/api/operator/messages/route.ts',
 ];
 
 /**
@@ -48,8 +54,6 @@ const KNOWN_UNCONSUMED: Record<string, string> = {
     'публикация тура; живой SQL, потребитель появится вместе с экраном модерации',
   'app/api/operator/tours/[id]/deactivate/route.ts':
     'снятие тура с витрины; парный к publish',
-  'app/api/operator/messages/route.ts':
-    'переписка по брони; зовётся из чата платформы по bookingId',
   'app/api/operator/mchs/[id]/route.ts':
     'карточка регистрации МЧС; открывается по прямой ссылке из панели',
 

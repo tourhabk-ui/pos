@@ -65,8 +65,9 @@ export function accessFromRow(row: AccessRow | undefined): OperatorAccess {
   return { kind: 'none', reason: row?.was_revoked ? 'revoked' : 'no_profile' };
 }
 
-// ORDER BY у своего кабинета: уникального индекса (user_id, category) нет, и
-// при задвоенном профиле LIMIT 1 без порядка отдавал бы разные строки.
+// Свой кабинет у человека один: уникальный индекс idx_partners_user_category
+// (user_id, category) в baseline. ORDER BY — не от задвоения, а чтобы ответ
+// оставался однозначным, даже если индекс когда-нибудь снимут.
 export const ACCESS_SQL = `
   WITH own AS (
     SELECT p.id::text AS partner_id

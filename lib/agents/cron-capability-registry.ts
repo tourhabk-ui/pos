@@ -197,6 +197,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'ocr-passports': ['db_read', 'db_write', 'net_out'],
   'ocr-passports-pending': ['db_read', 'net_out'],
   'ocr-passports-write': ['db_read', 'db_write'],
+  // 13.10, CRM 2г-2: перепись кабинетов операторов перед переводом календаря —
+  // только чтение, в ответе счёт и uuid, без почты и имён.
+  'operator-cabinet-census': ['db_read'],
   'operator-reach': ['db_read', 'pd_direct'],
   // money — потому что среди разбираемых запросов есть выручка оператора
   // (tour_payments). Разбором дело и ограничивается: PREPARE не выполняет

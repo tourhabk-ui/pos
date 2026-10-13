@@ -31,7 +31,10 @@ describe('примеры команд оператора', () => {
     expect(client).toMatch(/OPERATOR_COMMAND_EXAMPLES/);
     expect(client).not.toMatch(/const EXAMPLES = \[/);
     // Перечень «Доступные команды» — из того же массива, не вторым списком.
-    expect(client).toMatch(/EXAMPLES\.filter\(\(ex\) => ex\.group === group\)/);
+    // Менеджеру команды (CRM 2г-2) — тот же массив без команд, на которые
+    // помощник ему откажет; производный, а не свой.
+    expect(client).toMatch(/const examples = isManagerSeat\(seat\)\s*\?\s*EXAMPLES\.filter\([\s\S]{0,200}\)\s*:\s*EXAMPLES;/);
+    expect(client).toMatch(/examples\.filter\(\(ex\) => ex\.group === group\)/);
   });
 });
 
