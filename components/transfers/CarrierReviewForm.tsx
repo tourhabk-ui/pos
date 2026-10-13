@@ -2,16 +2,14 @@
 
 /**
  * Форма отзыва о перевозчике (миграция 1235; слово владельца 13.10: «делай
- * блок отзывов но логично»). Два пути — два доказательства поездки:
+ * блок отзывов но логично»). Доказательство поездки одно — ключ в адресе
+ * (#…) из ссылки менеджера Ведара по заявке на машину: сначала спрашиваем,
+ * что это за поездка (или почему ссылка не годится), потом подпись, оценка и
+ * текст. Аккаунт не нужен. Без ключа формы нет — только правило словами:
+ * машину заказывают целиком, мест в поездках нет (владелец 13.10).
  *
- *   · ключ в адресе (#…) — ссылка от менеджера Ведара по заявке на машину:
- *     сначала спрашиваем, что это за поездка (или почему ссылка не годится),
- *     потом подпись, оценка и текст. Аккаунт не нужен;
- *   · без ключа — места в поездках, заказанные через Ведар: нужен вход,
- *     список берётся с сервера, выбрать можно только подходящую поездку.
- *
- * Отказы сервера показываются его словами: «отзыв — на следующий день после
- * поездки» — это правило, а не сбой, и человек должен его прочитать.
+ * Отказы сервера показываются его словами: «ссылка устарела» — это правило,
+ * а не сбой, и человек должен его прочитать.
  */
 
 import { useEffect, useState } from 'react';
@@ -25,24 +23,19 @@ import {
 } from '@/lib/transfers/carrier-review-rules';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 
-interface Seat { seatBookingId: string; date: string; from: string; to: string }
-
 type Basis =
   | { kind: 'checking' }
   | { kind: 'link'; key: string; destination: string | null; dateFrom: string | null; dateTo: string | null }
-  | { kind: 'seats'; seats: Seat[] }
-  | { kind: 'login' }
+  | { kind: 'no_link' }
   | { kind: 'problem'; message: string };
 
 type Sending = 'idle' | 'sending' | 'sent';
 
-export function CarrierReviewForm({ carrierSlug, carrierName, initialSeat }: {
+export function CarrierReviewForm({ carrierSlug, carrierName }: {
   carrierSlug: string;
   carrierName: string;
-  initialSeat?: string;
 }) {
   const [basis, setBasis] = useState<Basis>({ kind: 'checking' });
-  const [seatId, setSeatId] = useState<string | null>(null);
   const [authorName, setAuthorName] = useState('');
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
@@ -73,40 +66,20 @@ export function CarrierReviewForm({ carrierSlug, carrierName, initialSeat }: {
           }
           return;
         }
-        if (key) {
-          setBasis({ kind: 'problem', message: 'Ссылка на отзыв не распознана — откройте её из сообщения целиком.' });
-          return;
-        }
-        const res = await fetch(`/api/carrier-reviews/eligible?carrier=${encodeURIComponent(carrierSlug)}`, { credentials: 'include' });
-        if (cancelled) return;
-        if (res.status === 401) { setBasis({ kind: 'login' }); return; }
-        const body = await res.json().catch(() => null) as { success?: boolean; error?: string; data?: { seats: Seat[] } } | null;
-        if (cancelled) return;
-        if (!res.ok || !body?.success || !body.data) {
-          setBasis({ kind: 'problem', message: body?.error ?? 'Не смогли проверить ваши поездки — попробуйте позже.' });
-          return;
-        }
-        const seats = body.data.seats;
-        setBasis({ kind: 'seats', seats });
-        setSeatId(seats.find((s) => s.seatBookingId === initialSeat)?.seatBookingId ?? (seats.length === 1 ? seats[0]!.seatBookingId : null));
+        setBasis(key
+          ? { kind: 'problem', message: 'Ссылка на отзыв не распознана — откройте её из сообщения целиком.' }
+          : { kind: 'no_link' });
       } catch {
         if (!cancelled) setBasis({ kind: 'problem', message: 'Нет связи с сервером. Проверьте подключение и обновите страницу.' });
       }
     })();
     return () => { cancelled = true; };
-  }, [carrierSlug, initialSeat]);
+  }, [carrierSlug]);
 
   async function submit() {
     if (rating < 1) { setError('Поставьте оценку от 1 до 5 звёзд'); return; }
-    let payload: Record<string, unknown>;
-    if (basis.kind === 'link') {
-      payload = { via: 'link', carrier: carrierSlug, key: basis.key, author_name: authorName, rating, comment: comment.trim() };
-    } else if (basis.kind === 'seats' && seatId) {
-      payload = { via: 'seat', carrier: carrierSlug, seat_booking_id: seatId, rating, comment: comment.trim() };
-    } else {
-      setError('Выберите поездку');
-      return;
-    }
+    if (basis.kind !== 'link') return;
+    const payload = { via: 'link', carrier: carrierSlug, key: basis.key, author_name: authorName, rating, comment: comment.trim() };
     setSending('sending');
     setError(null);
     try {
@@ -123,7 +96,7 @@ export function CarrierReviewForm({ carrierSlug, carrierName, initialSeat }: {
         return;
       }
       // Ключ погашен — убираем его из адресной строки, чтобы он не уехал дальше.
-      if (basis.kind === 'link') window.history.replaceState(null, '', carrierReviewPath(carrierSlug));
+      window.history.replaceState(null, '', carrierReviewPath(carrierSlug));
       setSending('sent');
     } catch {
       setError('Нет связи с сервером. Отзыв не отправлен.');
@@ -162,66 +135,38 @@ export function CarrierReviewForm({ carrierSlug, carrierName, initialSeat }: {
     );
   }
 
-  if (basis.kind === 'login') {
+  if (basis.kind === 'no_link') {
     return (
-      <div className="ds-card p-5 space-y-3 text-sm text-[var(--text-secondary)]">
+      <div className="ds-card p-5 space-y-3 text-sm text-[var(--text-secondary)]" data-testid="review-no-link">
         <p>
-          Ехали местом в поездке, заказанным через Ведар? <Link href={`/auth/login?from=${encodeURIComponent(carrierReviewPath(carrierSlug))}`} className="text-[var(--ocean)] hover:underline">Войдите</Link> в
-          тот аккаунт, в котором заказывали, — отзыв можно оставить на следующий день после поездки.
+          Отзыв о «{carrierName}» оставляет тот, кто ехал. После поездки на заказанной машине менеджер Ведара
+          присылает заказчику ссылку на отзыв — откройте её из сообщения целиком.
         </p>
-        <p>Заказывали машину целиком — отзыв по ссылке, которую после поездки присылает менеджер Ведара.</p>
-      </div>
-    );
-  }
-
-  if (basis.kind === 'seats' && basis.seats.length === 0) {
-    return (
-      <div className="ds-card p-5 space-y-3 text-sm text-[var(--text-secondary)]">
-        <p>
-          В вашем аккаунте нет поездок с «{carrierName}», по которым можно оставить отзыв. Отзыв появляется на
-          следующий день после поездки — по месту, которое перевозчик подтвердил, и одна поездка — один отзыв.
-        </p>
-        <p>Заказывали машину целиком — отзыв по ссылке, которую после поездки присылает менеджер Ведара.</p>
+        <p>Ссылки нет, а поездка была — напишите менеджеру Ведара: он сверит заявку и пришлёт её.</p>
       </div>
     );
   }
 
   return (
     <div className="ds-card p-5 space-y-4">
-      {basis.kind === 'link' ? (
-        <p className="text-sm text-[var(--text-secondary)]">
-          Поездка: машина под заказ{basis.destination ? ` — ${basis.destination}` : ''}
-          {basis.dateFrom ? `, ${rideDateWords(basis.dateFrom)}${basis.dateTo && basis.dateTo !== basis.dateFrom ? ` — ${rideDateWords(basis.dateTo)}` : ''}` : ''}.
-          Менеджер Ведара подтвердил, что она состоялась.
-        </p>
-      ) : (
-        <fieldset>
-          <legend className="ds-label mb-2">Поездка</legend>
-          <div className="space-y-2">
-            {basis.seats.map((s) => (
-              <label key={s.seatBookingId} className="flex items-center gap-2 text-sm text-[var(--text-primary)]" style={{ minHeight: 44 }}>
-                <input type="radio" name="seat" value={s.seatBookingId} checked={seatId === s.seatBookingId} onChange={() => setSeatId(s.seatBookingId)} />
-                {s.from} — {s.to}, {rideDateWords(s.date)}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
+      <p className="text-sm text-[var(--text-secondary)]">
+        Поездка: машина под заказ{basis.destination ? ` — ${basis.destination}` : ''}
+        {basis.dateFrom ? `, ${rideDateWords(basis.dateFrom)}${basis.dateTo && basis.dateTo !== basis.dateFrom ? ` — ${rideDateWords(basis.dateTo)}` : ''}` : ''}.
+        Менеджер Ведара подтвердил, что она состоялась.
+      </p>
 
-      {basis.kind === 'link' && (
-        <div>
-          <label htmlFor="review-author" className="ds-label">Подпись под отзывом</label>
-          <input
-            id="review-author"
-            className="ds-input w-full mt-1"
-            value={authorName}
-            onChange={(e) => setAuthorName(e.target.value.slice(0, 60))}
-            autoComplete="given-name"
-            placeholder="Например, Анна"
-          />
-          <p className="text-xs text-[var(--text-muted)] mt-1">Отзыв увидят все: на сайте будет имя и первая буква фамилии, если вы её напишете.</p>
-        </div>
-      )}
+      <div>
+        <label htmlFor="review-author" className="ds-label">Подпись под отзывом</label>
+        <input
+          id="review-author"
+          className="ds-input w-full mt-1"
+          value={authorName}
+          onChange={(e) => setAuthorName(e.target.value.slice(0, 60))}
+          autoComplete="given-name"
+          placeholder="Например, Анна"
+        />
+        <p className="text-xs text-[var(--text-muted)] mt-1">Отзыв увидят все: на сайте будет имя и первая буква фамилии, если вы её напишете.</p>
+      </div>
 
       <div>
         <p className="ds-label mb-1" id="review-rating-label">Оценка</p>

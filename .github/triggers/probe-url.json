@@ -1,22 +1,31 @@
 {
   "timeout": 60,
-  "retries": 1,
-  "retryDelay": 5,
-  "run": 779,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru, разбор переписи sitemap (site-audit прогон 5): два маршрута ответили 500 боту Googlebot — что они отвечают обычному заголовку; og:image маршрутов ответил 401 на HEAD — открывается ли он на GET.",
+  "retries": 45,
+  "retryDelay": 60,
+  "run": 787,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ, отзывов не пишет. Владелец: «у нас не правильная логика бронируют целую машину а не место в ней». /transfers — только машина под заказ и «Как заказать», мест в поездках нет; страница перевозчика — без «Поездки с датами», отзывы — только по ссылке менеджера; путь отзыва «местом» закрыт (400).",
+  "until": "Как заказать",
   "urls": [
-    "https://vedarai.ru/routes/avachinskij-pereval-baza-3-vulkana",
-    "https://vedarai.ru/routes/odnodnevnyj-pohod-k-avachinskomu-vulkanu",
-    "https://vedarai.ru/api/images/route/00a71c01-6a76-4227-91ba-c62ec50aefc1",
-    "https://vedarai.ru/api/images/route/2bf92082-0daf-4770-8031-a51c0f355be8"
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/transfers/shatun"
   ],
-  "bytes": 400,
+  "bytes": 600,
   "grep": [
-    "Internal Server Error",
-    "Application error",
-    "<h1",
-    "rel=\"canonical\"",
-    "Маршрут не найден",
-    "digest"
+    "Как заказать",
+    "Машина под заказ",
+    "цена за машину целиком",
+    "Места в поездках",
+    "Найти места",
+    "Поездки с датами",
+    "Запросить места",
+    "менеджер Ведара присылает заказчику ссылку на отзыв",
+    "Трансфер: машина под заказ",
+    "Отзыв оставляют по ссылке"
+  ],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/carrier-reviews",
+      "body": { "via": "seat", "carrier": "shatun", "seat_booking_id": "77777777-7777-4777-8777-777777777777", "rating": 5 }
+    }
   ]
 }

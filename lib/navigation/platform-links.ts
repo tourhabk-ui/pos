@@ -66,7 +66,8 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Конструктор маршрута',    href: '/planner',        icon: Route },
       { label: 'Жильё',                   href: '/accommodations', icon: BedDouble },
       { label: 'Избранное',               href: '/wishlist',       icon: Heart },
-      { label: 'Места в поездках перевозчиков', href: '/transfers', icon: Bus },
+      // Трансфер — машина целиком под заказ (владелец 13.10), не места в ней.
+      { label: 'Трансфер: машина под заказ', href: '/transfers', icon: Bus },
       { label: 'Планирование поездки',    href: '/partners',       icon: Plane },
       { label: 'Камчатская рыбалка',      href: '/hub/fishing',    icon: Fish },
       { label: 'Сертифицированные гиды',  href: '/guides',         icon: Award },

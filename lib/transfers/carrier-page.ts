@@ -2,55 +2,31 @@
  * Данные страницы перевозчика /transfers/[slug] — стандарт карточки трансфера
  * (решение владельца 13.10, «да делай»; CLAUDE.md §14).
  *
- * Три части с тремя исходами каждая, а не одна «загрузилось/нет»:
+ * Части с тремя исходами каждая, а не одна «загрузилось/нет»:
  *   · перевозчик — нашли / такого нет (404) / не смогли проверить (исключение,
  *     страница падает в ошибку, а не рисует «перевозчика нет»);
- *   · поездки с датами — список / пусто («под заказ», это норма) / не смогли;
  *   · опасности мест по направлениям — по месту / место без профиля
  *     («не записаны» ≠ «безопасно») / не смогли;
  *   · отзывы — список со сводкой по видимым / пусто / не смогли (миграция
  *     1235, lib/transfers/carrier-reviews).
  * Отказ второстепенной части не роняет страницу: прайс и заявка важнее.
+ *
+ * Поездок с местами здесь нет (владелец 13.10: «бронируют целую машину а не
+ * место в ней»): модуль мест (схема 926) спрятан, страница его не читает.
  */
 
 import { query } from '@/lib/database';
 import { loadCarrierBySlug } from '@/lib/transfers/charter';
-import type { CarrierProfile, CharterVehicleKind } from '@/lib/transfers/charter-format';
-import { listPublishedTrips } from '@/lib/transfers/service';
-import { kamchatkaToday } from '@/lib/seat-requests/core';
-import { tripsLink } from '@/lib/transfers/trips-link';
-import { addDays } from '@/lib/transfers/charter-request-service';
+import type { CarrierProfile } from '@/lib/transfers/charter-format';
 import { logText } from '@/lib/log/log-text';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { loadCarrierReviews, type CarrierReviewsBlock } from '@/lib/transfers/carrier-reviews';
-
-/** Окно поездок с датами — то же, что у витрины /transfers и search_transfers. */
-export const CARRIER_TRIPS_WINDOW_DAYS = 60;
-
-export interface CarrierTripView {
-  id: string;
-  date: string;
-  from: string;
-  to: string;
-  departureNote: string | null;
-  seatsFree: number;
-  seatsTotal: number;
-  /** Цена места; null — не названа (поездка могла уйти под одну группу). */
-  pricePerSeat: number | null;
-  vehicleKind: CharterVehicleKind;
-  vehicleTitle: string;
-  /** Витрина с этой поездкой в фокусе — там запрос мест. */
-  href: string;
-}
-
-export type CarrierTrips = { state: 'ok'; items: CarrierTripView[]; windowDays: number } | { state: 'failed' };
 
 /** placeId → опасности; места без профиля безопасности в карте нет. */
 export type DestinationSafety = { state: 'ok'; byPlace: Record<string, string[]> } | { state: 'failed' };
 
 export interface CarrierPageData {
   carrier: CarrierProfile;
-  trips: CarrierTrips;
   safety: DestinationSafety;
   reviews: CarrierReviewsBlock;
 }
@@ -61,36 +37,6 @@ function logFailure(what: string, err: unknown): void {
     `[transfers/carrier-page] ${what}: sqlstate=${typeof code === 'string' ? code : 'нет'}`,
     logText(err instanceof Error ? err.message : err, 200),
   );
-}
-
-async function loadTrips(partnerId: string, today: string): Promise<CarrierTrips> {
-  try {
-    const rows = await listPublishedTrips({
-      fromDate: today,
-      toDate: addDays(today, CARRIER_TRIPS_WINDOW_DAYS),
-      partnerId,
-    });
-    return {
-      state: 'ok',
-      windowDays: CARRIER_TRIPS_WINDOW_DAYS,
-      items: rows.map((t) => ({
-        id: t.id,
-        date: t.trip_date,
-        from: t.from_text,
-        to: t.to_text,
-        departureNote: t.departure_note,
-        seatsFree: t.seats_free,
-        seatsTotal: t.seats_total,
-        pricePerSeat: t.price_per_seat === null ? null : Number(t.price_per_seat),
-        vehicleKind: t.vehicle_kind,
-        vehicleTitle: t.vehicle_title,
-        href: tripsLink({ from: t.trip_date, to: t.trip_date, seats: 1, tripId: t.id }),
-      })),
-    };
-  } catch (err) {
-    logFailure('поездки не прочитаны', err);
-    return { state: 'failed' };
-  }
 }
 
 /**
@@ -127,14 +73,13 @@ async function loadDestinationSafety(placeIds: string[]): Promise<DestinationSaf
 }
 
 /** null — такого перевозчика нет; отказ чтения перевозчика — исключение. */
-export async function loadCarrierPage(slug: string, today: string = kamchatkaToday()): Promise<CarrierPageData | null> {
+export async function loadCarrierPage(slug: string): Promise<CarrierPageData | null> {
   const carrier = await loadCarrierBySlug(slug);
   if (!carrier) return null;
   const placeIds = [...new Set(carrier.destinations.flatMap((d) => (d.place ? [d.place.id] : [])))];
-  const [trips, safety, reviews] = await Promise.all([
-    loadTrips(carrier.partnerId, today),
+  const [safety, reviews] = await Promise.all([
     loadDestinationSafety(placeIds),
     loadCarrierReviews(carrier.partnerId),
   ]);
-  return { carrier, trips, safety, reviews };
+  return { carrier, safety, reviews };
 }

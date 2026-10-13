@@ -6,8 +6,9 @@
  *     заменяет ориентир ночи ценой стоянки, ставит поездку и уменьшает
  *     ориентир трансферов аэропорта; заявка уходит с выбранным;
  *   — ссылка на объект открывает форму брони с датами, гостями (не больше
- *     вместимости номера) и номером, и форма говорит, сколько номеров в плане;
- *   — ссылка на поездку открывает витрину на её дате и местах и выделяет её.
+ *     вместимости номера) и номером, и форма говорит, сколько номеров в плане.
+ * Витрина /transfers мест в поездках больше не показывает (владелец 13.10:
+ * «бронируют целую машину а не место в ней») — её судит transfers-page.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
@@ -39,7 +40,6 @@ vi.mock('@/components/marketplace/SbpQrPayment', () => ({ default: () => null })
 
 import { PlannerClient } from '@/app/planner/_PlannerClient';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
-import TransfersClient from '@/app/transfers/(list)/_TransfersClient';
 
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s/g, ' ');
 
@@ -200,25 +200,3 @@ describe('форма брони жилья подставляет ссылку �
   });
 });
 
-// ── Витрина поездок по ссылке ────────────────────────────────────────────────
-
-describe('/transfers открывается на поездке из плана', () => {
-  const TRIP = '33333333-3333-4333-8333-333333333333';
-  it('окно и места — из ссылки, поездка выделена и прокручена', async () => {
-    const scroll = vi.fn();
-    Element.prototype.scrollIntoView = scroll;
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      calls.push({ url: String(url), body: null });
-      return { ok: true, json: async () => ({
-        success: true, searched: true, window: { from: '2030-08-03', to: '2030-08-03' },
-        trips: [{ id: TRIP, trip_date: '2030-08-03', from_text: 'Аэропорт', to_text: 'Паратунка', departure_note: null,
-          seats_total: 8, seats_free: 6, price_per_seat: '1500', partner_name: 'Перевозчик', vehicle_kind: 'minibus', vehicle_title: 'Спринтер' }],
-      }) } as Response;
-    }));
-    render(<TransfersClient charter={{ state: 'ok', carriers: [] }} prefill={{ from: '2030-08-03', to: '2030-08-03', seats: 3, tripId: TRIP }} />);
-    await waitFor(() => expect(document.getElementById(`trip-${TRIP}`)).not.toBeNull());
-    expect(calls.find((c) => c.url.startsWith('/api/carrier-trips?'))?.url).toBe('/api/carrier-trips?from=2030-08-03&to=2030-08-03&min_seats=3');
-    expect(document.getElementById(`trip-${TRIP}`)!.className).toMatch(/ring-\[var\(--accent\)\]/);
-    await waitFor(() => expect(scroll).toHaveBeenCalled());
-  });
-});

@@ -12,17 +12,17 @@
  *   · ответ на повтор неотличим от ответа на новую заявку;
  *   · загрузчик: строка прайса ведёт на место только видимое и только по
  *     записанной связи; перевозчик — только публичный и категории transfer;
- *   · страница: отказ поездок или опасностей не роняет прайс и заявку.
+ *   · страница: отказ опасностей или отзывов не роняет прайс и заявку; поездок
+ *     с местами страница не читает — машину заказывают целиком (13.10).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { createLeadMock, recentLeadMock, carrierBySlug, dbQuery, tripsMock } = vi.hoisted(() => ({
+const { createLeadMock, recentLeadMock, carrierBySlug, dbQuery } = vi.hoisted(() => ({
   createLeadMock: vi.fn(),
   recentLeadMock: vi.fn(),
   carrierBySlug: vi.fn(),
   dbQuery: vi.fn(),
-  tripsMock: vi.fn(),
 }));
 
 vi.mock('@/lib/leads/create', () => ({
@@ -30,14 +30,13 @@ vi.mock('@/lib/leads/create', () => ({
   findRecentLeadByCommentPrefix: (...a: unknown[]) => recentLeadMock(...a),
 }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
-vi.mock('@/lib/transfers/service', () => ({ listPublishedTrips: (...a: unknown[]) => tripsMock(...a) }));
 vi.mock('@/lib/transfers/charter', async (orig) => ({
   ...(await orig<typeof import('@/lib/transfers/charter')>()),
   loadCarrierBySlug: (...a: unknown[]) => carrierBySlug(...a),
 }));
 
 import { POST } from '@/app/api/charter-requests/route';
-import { loadCarrierPage, CARRIER_TRIPS_WINDOW_DAYS } from '@/lib/transfers/carrier-page';
+import { loadCarrierPage } from '@/lib/transfers/carrier-page';
 import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { addDays } from '@/lib/transfers/charter-request-service';
@@ -78,7 +77,6 @@ beforeEach(() => {
   recentLeadMock.mockReset().mockResolvedValue(null);
   carrierBySlug.mockReset().mockResolvedValue(CARRIER);
   dbQuery.mockReset();
-  tripsMock.mockReset();
 });
 
 describe('POST /api/charter-requests: заявка ложится перевозчику общим путём', () => {
@@ -221,43 +219,38 @@ describe('данные страницы: три исхода у каждой ч�
     ],
   };
 
-  it('поездки — окно 60 дней этого перевозчика; опасности объединены по месту, шаблонные — не факт', async () => {
+  it('опасности объединены по месту, шаблонные — не факт; поездок с местами страница не читает', async () => {
     carrierBySlug.mockResolvedValue(LINKED);
-    tripsMock.mockResolvedValue([]);
     dbQuery.mockResolvedValue({ rows: [
       { place_id: 'pl-gor', hazard_types: ['volcanic_gas', 'weather'], profile_source: 'manual' },
       { place_id: 'pl-gor', hazard_types: ['weather', 'rockfall'], profile_source: null },
       // Шаблон по типу места (миграция 070) — не факт: «лавины» вулкану не выдумываем.
       { place_id: 'pl-gor', hazard_types: ['avalanche', 'altitude'], profile_source: 'type_template' },
     ] });
-    const d = await loadCarrierPage('shatun', '2026-10-13');
-    expect(tripsMock).toHaveBeenCalledWith({ fromDate: '2026-10-13', toDate: addDays('2026-10-13', CARRIER_TRIPS_WINDOW_DAYS), partnerId: 'p-1' });
-    expect(d?.trips).toEqual({ state: 'ok', items: [], windowDays: 60 });
+    const d = await loadCarrierPage('shatun');
+    expect(d && 'trips' in d).toBe(false);
+    expect(dbQuery.mock.calls.some(([sql]) => /transfer_trips|transfer_seat_bookings/.test(String(sql)))).toBe(false);
     expect(d?.safety).toEqual({ state: 'ok', byPlace: { 'pl-gor': ['volcanic_gas', 'weather', 'rockfall'] } });
     // Одно место у двух строк — один вопрос к базе про него.
     expect(dbQuery.mock.calls[0]![1]).toEqual([['pl-gor']]);
   });
 
-  it('отказ поездок и опасностей — «не смогли» по каждой части, перевозчик и прайс на месте', async () => {
+  it('отказ опасностей и отзывов — «не смогли» по каждой части, перевозчик и прайс на месте', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     carrierBySlug.mockResolvedValue(LINKED);
-    tripsMock.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
     dbQuery.mockRejectedValue(Object.assign(new Error('boom'), { code: '42P01' }));
-    const d = await loadCarrierPage('shatun', '2026-10-13');
+    const d = await loadCarrierPage('shatun');
     expect(d?.carrier.name).toBe('Шатун');
-    expect(d?.trips).toEqual({ state: 'failed' });
     expect(d?.safety).toEqual({ state: 'failed' });
     // Отзывы — та же база: не прочитались — «не смогли», а не «отзывов нет».
     expect(d?.reviews).toEqual({ state: 'failed' });
-    expect(err).toHaveBeenCalledWith(expect.stringContaining('sqlstate=57P01'), expect.any(String));
     expect(err).toHaveBeenCalledWith(expect.stringContaining('sqlstate=42P01'), expect.any(String));
     err.mockRestore();
   });
 
   it('нет связанных мест — база про опасности не спрашивается; нет перевозчика — null', async () => {
-    tripsMock.mockResolvedValue([]);
     dbQuery.mockResolvedValue({ rows: [] });
-    const d = await loadCarrierPage('shatun', '2026-10-13');
+    const d = await loadCarrierPage('shatun');
     expect(d?.safety).toEqual({ state: 'ok', byPlace: {} });
     expect(dbQuery.mock.calls.some(([sql]) => /location_safety_profile/.test(String(sql)))).toBe(false);
     expect(d?.reviews).toEqual({ state: 'ok', items: [], count: 0, average: null });

@@ -12,10 +12,10 @@ import { carrierPagePath } from '@/lib/transfers/charter-format';
  * /transfers/[slug]/review — отзыв о перевозчике (миграция 1235; слово
  * владельца 13.10: «делай блок отзывов но логично»).
  *
- * Сюда приводят два пути, и оба доказывают поездку: ссылка менеджера Ведара
- * по заявке на машину (ключ во фрагменте адреса — на сервер он не уходит) и
- * «Мои заказы мест» для того, кто ехал местом в поездке. Без одного из них
- * страница объясняет правило, а не открывает форму.
+ * Сюда приводит ссылка менеджера Ведара по заявке на машину (ключ во
+ * фрагменте адреса — на сервер он не уходит): она и доказывает поездку.
+ * Без неё страница объясняет правило, а не открывает форму. Машину
+ * заказывают целиком — пути «место в поездке» нет (владелец 13.10).
  *
  * Страница служебная — не индексируется. Перевозчика нет — 404; отказ базы —
  * ошибка страницы, а не «не найден» (§4.0).
@@ -34,15 +34,11 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   };
 }
 
-export default async function CarrierReviewPage({ params, searchParams }: {
-  params: Promise<Params>;
-  searchParams: Promise<{ seat?: string | string[] }>;
-}) {
+export default async function CarrierReviewPage({ params }: { params: Promise<Params> }) {
   const { slug } = await params;
   if (!CARRIER_SLUG_RE.test(slug)) notFound();
   const carrier = await findPublicCarrier(slug);
   if (!carrier) notFound();
-  const seat = (await searchParams).seat;
 
   return (
     <div style={{ background: 'var(--bg-primary)' }} className="min-h-screen">
@@ -57,7 +53,7 @@ export default async function CarrierReviewPage({ params, searchParams }: {
         <p className="text-sm text-[var(--text-secondary)] mb-6">
           Отзыв оставляет только тот, кто ехал, — и под ним будет видно, чем это подтверждено.
         </p>
-        <CarrierReviewForm carrierSlug={carrier.slug} carrierName={carrier.name} initialSeat={typeof seat === 'string' ? seat : undefined} />
+        <CarrierReviewForm carrierSlug={carrier.slug} carrierName={carrier.name} />
       </main>
       <Footer />
     </div>

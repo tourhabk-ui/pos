@@ -3,8 +3,8 @@
  * отзывов но логично»; CLAUDE.md §14, миграция 1235).
  *
  * Логика видна читателю, а не только верна в коде:
- *   · под каждым отзывом — чем доказано, что автор ехал (место в поездке
- *     через Ведар или машина под заказ, поездку подтвердил менеджер);
+ *   · под каждым отзывом — чем доказано, что автор ехал (машина под заказ,
+ *     поездку подтвердил менеджер Ведара);
  *   · сводка — средняя по ВИДИМЫМ отзывам, посчитанная при чтении; отзывов
  *     нет — нет и числа, а не «0,0»;
  *   · пусто — объяснение, кто и как может оставить отзыв; не смогли
@@ -13,12 +13,10 @@
  * Компонент без хуков: страница рисуется на сервере.
  */
 
-import Link from 'next/link';
-import { MessageSquare, PenLine, ShieldCheck, Star, AlertTriangle } from 'lucide-react';
+import { MessageSquare, ShieldCheck, Star, AlertTriangle } from 'lucide-react';
 import type { CarrierReviewsBlock } from '@/lib/transfers/carrier-reviews';
 import {
   CARRIER_REVIEWS_ANCHOR,
-  carrierReviewPath,
   ratingWords,
   reviewProofLine,
   reviewsCountWords,
@@ -34,27 +32,21 @@ function Stars({ rating, size = 'w-4 h-4' }: { rating: number; size?: string }) 
   );
 }
 
-/** Кто может оставить отзыв — одним текстом для пустого блока и для хвоста списка. */
-function WhoCanReview({ slug }: { slug: string }) {
+/**
+ * Кто может оставить отзыв — одним текстом для пустого блока и для хвоста
+ * списка. Кнопки «Оставить отзыв» здесь нет: без ссылки менеджера писать
+ * некуда, и кнопка вела бы на страницу, которая скажет то же самое.
+ */
+function WhoCanReview() {
   return (
-    <div className="text-sm text-[var(--text-secondary)] space-y-2">
-      <p>
-        Отзыв оставляет только тот, кто ехал. Заказывали машину через Ведар — после поездки менеджер пришлёт
-        ссылку на отзыв. Ехали местом в поездке, заказанным здесь, — отзыв можно оставить на следующий день,
-        войдя в аккаунт.
-      </p>
-      <Link
-        href={carrierReviewPath(slug)}
-        className="inline-flex items-center gap-2 border border-[var(--border)] rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
-        style={{ minHeight: 44 }}
-      >
-        <PenLine className="w-4 h-4 text-[var(--ocean)]" aria-hidden /> Оставить отзыв о поездке
-      </Link>
-    </div>
+    <p className="text-sm text-[var(--text-secondary)]">
+      Отзыв оставляет только тот, кто ехал: после поездки на заказанной машине менеджер Ведара присылает
+      заказчику ссылку на отзыв.
+    </p>
   );
 }
 
-export function CarrierReviews({ slug, reviews }: { slug: string; reviews: CarrierReviewsBlock }) {
+export function CarrierReviews({ reviews }: { reviews: CarrierReviewsBlock }) {
   return (
     <section id={CARRIER_REVIEWS_ANCHOR} aria-labelledby="carrier-reviews-title" className="scroll-mt-24">
       <h2 id="carrier-reviews-title" className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-4">Отзывы</h2>
@@ -68,7 +60,7 @@ export function CarrierReviews({ slug, reviews }: { slug: string; reviews: Carri
         <div className="py-8 px-6 border border-dashed border-[var(--border)] rounded-lg">
           <MessageSquare className="w-7 h-7 mb-2.5 text-[var(--text-muted)]" aria-hidden />
           <p className="text-[var(--text-primary)] font-medium mb-2">Отзывов пока нет</p>
-          <WhoCanReview slug={slug} />
+          <WhoCanReview />
         </div>
       ) : (
         <>
@@ -109,7 +101,7 @@ export function CarrierReviews({ slug, reviews }: { slug: string; reviews: Carri
             </p>
           )}
           <div className="mt-6">
-            <WhoCanReview slug={slug} />
+            <WhoCanReview />
           </div>
         </>
       )}

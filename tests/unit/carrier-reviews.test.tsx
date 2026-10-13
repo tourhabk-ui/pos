@@ -3,15 +3,15 @@
  * логично»; CLAUDE.md §14, миграция 1235). Судится вызовом правил и рендером
  * того, что видит человек:
  *
- *   · право на отзыв — только у того, кто ехал: место подтверждено, поездка не
- *     отменена, дата прошла (по Камчатке, на следующий день); по заявке на
- *     машину — после подтверждения менеджера и только с даты выезда;
+ *   · право на отзыв — только у того, кто ехал: машину заказывают целиком
+ *     (владелец 13.10), и право даёт подтверждение менеджера по заявке — не
+ *     раньше даты выезда — и одноразовая ссылка;
  *   · под каждым отзывом — чем доказано, что автор ехал;
  *   · средняя — по видимым, отзывов нет — нет и числа (не «0,0»);
  *   · пусто — объяснение, кто может оставить отзыв; не прочиталось — «сбой»;
  *   · подпись по ссылке — имя буквами, без телефона и почты;
  *   · форма: ключ из фрагмента адреса уходит в теле, отказ сервера — его
- *     словами; без входа — приглашение войти, а не пустая форма.
+ *     словами; без ссылки — правило словами, а не форма и не «войдите».
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -28,7 +28,6 @@ import {
   normalizeAuthorName,
   reviewProofLine,
   roundedAverage,
-  seatReviewVerdict,
 } from '@/lib/transfers/carrier-review-rules';
 
 const fetchMock = vi.fn();
@@ -40,22 +39,6 @@ beforeEach(() => {
 });
 
 const TODAY = '2026-10-14';
-
-describe('право на отзыв: место в поездке', () => {
-  const ok = { status: 'confirmed', tripStatus: 'planned', tripDate: '2026-10-13', reviewed: false };
-  it('подтверждённое место, поездка вчера — можно', () => {
-    expect(seatReviewVerdict(ok, TODAY)).toEqual({ ok: true });
-  });
-  it('в день поездки — ещё нельзя: машина может быть в пути', () => {
-    expect(seatReviewVerdict({ ...ok, tripDate: TODAY }, TODAY)).toEqual({ ok: false, reason: 'not_yet' });
-  });
-  it('не подтверждено, отменено, уже оставлен — нельзя, с причиной', () => {
-    expect(seatReviewVerdict({ ...ok, status: 'requested' }, TODAY)).toEqual({ ok: false, reason: 'not_confirmed' });
-    expect(seatReviewVerdict({ ...ok, status: 'declined' }, TODAY)).toEqual({ ok: false, reason: 'not_confirmed' });
-    expect(seatReviewVerdict({ ...ok, tripStatus: 'cancelled' }, TODAY)).toEqual({ ok: false, reason: 'trip_cancelled' });
-    expect(seatReviewVerdict({ ...ok, reviewed: true }, TODAY)).toEqual({ ok: false, reason: 'already' });
-  });
-});
 
 describe('право на отзыв: машина под заказ', () => {
   it('подтвердить поездку можно с даты выезда, не раньше', () => {
@@ -75,7 +58,7 @@ describe('право на отзыв: машина под заказ', () => {
     const url = carrierReviewInviteUrl('https://vedarai.ru', 'shatun', 'k'.repeat(32));
     expect(url).toBe(`https://vedarai.ru/transfers/shatun/review#${'k'.repeat(32)}`);
     expect(new URL(url).search).toBe('');
-    expect(carrierReviewPath('shatun', 'b-1')).toBe('/transfers/shatun/review?seat=b-1');
+    expect(carrierReviewPath('shatun')).toBe('/transfers/shatun/review');
   });
 });
 
@@ -99,7 +82,7 @@ describe('средняя и доказательство', () => {
     expect(roundedAverage(3, '4.6666666')).toBe(4.7);
     expect(roundedAverage(2, '4.5000000000000000')).toBe(4.5);
   });
-  it('строка доказательства называет путь и поездку', () => {
+  it('строка доказательства называет путь и поездку (род seat база допускает — читатель его понимает)', () => {
     expect(reviewProofLine({ proof: 'seat', rideDate: '2026-10-12', rideFrom: 'Петропавловск-Камчатский', rideTo: 'Вулкан Горелый' }))
       .toBe('Место в поездке Петропавловск-Камчатский — Вулкан Горелый, 12 октября: заказ через Ведар, перевозчик подтвердил');
     expect(reviewProofLine({ proof: 'charter', rideDate: '2026-10-12', rideFrom: null, rideTo: 'Вулкан Горелый' }))
@@ -109,7 +92,7 @@ describe('средняя и доказательство', () => {
 
 const review = (over: Partial<PublicCarrierReview>): PublicCarrierReview => ({
   id: '1', authorName: 'Анна П.', rating: 5, comment: 'Довезли вовремя.', createdAt: '2026-10-13T10:00:00Z',
-  proof: 'seat', rideDate: '2026-10-12', rideFrom: 'Петропавловск-Камчатский', rideTo: 'Вулкан Горелый', ...over,
+  proof: 'charter', rideDate: '2026-10-12', rideFrom: null, rideTo: 'Вулкан Горелый', ...over,
 });
 
 describe('блок отзывов на странице перевозчика', () => {
@@ -118,10 +101,10 @@ describe('блок отзывов на странице перевозчика',
       state: 'ok', count: 2, average: 4.5,
       items: [
         review({ id: '1' }),
-        review({ id: '2', authorName: 'Ирина С.', rating: 4, comment: 'Вахтовка тёплая.', proof: 'charter', rideFrom: null }),
+        review({ id: '2', authorName: 'Ирина С.', rating: 4, comment: 'Вахтовка тёплая.', rideTo: 'Вачкажец', rideDate: '2026-10-05' }),
       ],
     };
-    render(<CarrierReviews slug="shatun" reviews={block} />);
+    render(<CarrierReviews reviews={block} />);
     const rating = screen.getByTestId('carrier-rating');
     expect(rating.textContent).toContain('4,5');
     expect(rating.textContent).toContain('2 отзыва — только от тех, кто ехал');
@@ -129,34 +112,36 @@ describe('блок отзывов на странице перевозчика',
     expect(items).toHaveLength(2);
     expect(within(items[0]!).getByText('Анна П.')).toBeTruthy();
     expect(within(items[0]!).getByRole('img', { name: 'Оценка 5 из 5' })).toBeTruthy();
-    expect(items[0]!.textContent).toContain('Место в поездке Петропавловск-Камчатский — Вулкан Горелый, 12 октября');
-    expect(items[1]!.textContent).toContain('поездку подтвердил менеджер Ведара');
-    expect(screen.getByRole('link', { name: /Оставить отзыв/ }).getAttribute('href')).toBe('/transfers/shatun/review');
+    expect(items[0]!.textContent).toContain('Машина под заказ: Вулкан Горелый, 12 октября: поездку подтвердил менеджер Ведара');
+    expect(items[1]!.textContent).toContain('Машина под заказ: Вачкажец, 5 октября');
+    // Кнопки «Оставить отзыв» нет: без ссылки менеджера писать некуда.
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('отзывов нет — ни числа, ни звёзд сводки; объяснено, кто может оставить', () => {
-    const { container } = render(<CarrierReviews slug="shatun" reviews={{ state: 'ok', items: [], count: 0, average: null }} />);
+    const { container } = render(<CarrierReviews reviews={{ state: 'ok', items: [], count: 0, average: null }} />);
     expect(screen.queryByTestId('carrier-rating')).toBeNull();
     expect(container.textContent).not.toMatch(/0,0/);
     expect(container.textContent).toContain('Отзывов пока нет');
     expect(container.textContent).toContain('Отзыв оставляет только тот, кто ехал');
-    expect(container.textContent).toContain('менеджер пришлёт ссылку на отзыв');
+    expect(container.textContent).toContain('менеджер Ведара присылает заказчику ссылку на отзыв');
+    expect(container.textContent).not.toMatch(/местом в поездке|войдя в аккаунт/);
   });
 
   it('не прочиталось — так и сказано, а не «отзывов нет»', () => {
-    const { container } = render(<CarrierReviews slug="shatun" reviews={{ state: 'failed' }} />);
+    const { container } = render(<CarrierReviews reviews={{ state: 'failed' }} />);
     expect(container.textContent).toContain('Не смогли загрузить отзывы');
     expect(container.textContent).not.toContain('Отзывов пока нет');
   });
 
   it('список и сводка разошлись (отзыв скрыли между двумя запросами) — список виден, сводки нет, страница не падает', () => {
-    render(<CarrierReviews slug="shatun" reviews={{ state: 'ok', count: 0, average: null, items: [review({})] }} />);
+    render(<CarrierReviews reviews={{ state: 'ok', count: 0, average: null, items: [review({})] }} />);
     expect(screen.queryByTestId('carrier-rating')).toBeNull();
     expect(screen.getByText('Анна П.')).toBeTruthy();
   });
 
   it('показаны не все — сказано, что средняя по всем', () => {
-    render(<CarrierReviews slug="shatun" reviews={{ state: 'ok', count: 25, average: 4.8, items: [review({})] }} />);
+    render(<CarrierReviews reviews={{ state: 'ok', count: 25, average: 4.8, items: [review({})] }} />);
     expect(screen.getByText(/Показаны последние 1 из 25; средняя — по всем/)).toBeTruthy();
   });
 });
@@ -222,43 +207,20 @@ describe('форма отзыва: ссылка по заявке на маши�
   });
 });
 
-describe('форма отзыва: место в поездке', () => {
-  it('без входа — приглашение войти и объяснение пути по заявке, формы нет', async () => {
-    fetchMock.mockResolvedValueOnce(json(401, { success: false, error: 'Требуется аутентификация' }));
+describe('форма отзыва: без ссылки', () => {
+  it('ключа нет — правило словами: ссылку присылает менеджер; ни формы, ни «войдите», ни запросов', async () => {
     render(<CarrierReviewForm carrierSlug="shatun" carrierName="Шатун" />);
-    const login = await screen.findByRole('link', { name: 'Войдите' });
-    expect(login.getAttribute('href')).toBe(`/auth/login?from=${encodeURIComponent('/transfers/shatun/review')}`);
-    expect(screen.getByText(/по ссылке, которую после поездки присылает менеджер Ведара/)).toBeTruthy();
+    const box = await screen.findByTestId('review-no-link');
+    expect(box.textContent).toContain('менеджер Ведара присылает заказчику ссылку на отзыв');
     expect(screen.queryByRole('button', { name: /Опубликовать/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Войдите/ })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('поездок с правом на отзыв нет — правило словами, а не пустая форма', async () => {
-    fetchMock.mockResolvedValueOnce(json(200, { success: true, searched: true, data: { seats: [] } }));
+  it('в адресе мусор вместо ключа — «ссылка не распознана», а не форма', async () => {
+    window.location.hash = '#abc';
     render(<CarrierReviewForm carrierSlug="shatun" carrierName="Шатун" />);
-    await screen.findByText(/нет поездок с «Шатун», по которым можно оставить отзыв/);
-    expect(screen.queryByRole('button', { name: /Опубликовать/ })).toBeNull();
-  });
-
-  it('поездка из «Моих заказов» выбрана сразу; в запрос — она', async () => {
-    fetchMock
-      .mockResolvedValueOnce(json(200, { success: true, searched: true, data: { seats: [
-        { seatBookingId: 's-1', date: '2026-10-10', from: 'Елизово', to: 'Вачкажец' },
-        { seatBookingId: 's-2', date: '2026-10-12', from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый' },
-      ] } }))
-      .mockResolvedValueOnce(json(200, { success: true }));
-    render(<CarrierReviewForm carrierSlug="shatun" carrierName="Шатун" initialSeat="s-2" />);
-    const chosen = await screen.findByRole('radio', { name: /Вулкан Горелый, 12 октября/ });
-    expect((chosen as HTMLInputElement).checked).toBe(true);
-    expect(fetchMock.mock.calls[0]![0]).toBe('/api/carrier-reviews/eligible?carrier=shatun');
-    fireEvent.click(screen.getByRole('button', { name: 'Оценка 5 из 5' }));
-    fireEvent.click(screen.getByRole('button', { name: /Опубликовать отзыв/ }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({ via: 'seat', carrier: 'shatun', seat_booking_id: 's-2', rating: 5, comment: '' });
-  });
-
-  it('не смогли проверить поездки — так и сказано', async () => {
-    fetchMock.mockResolvedValueOnce(json(503, { success: false, searched: false, error: 'Не смогли проверить ваши поездки — попробуйте позже' }));
-    render(<CarrierReviewForm carrierSlug="shatun" carrierName="Шатун" />);
-    await screen.findByText(/Не смогли проверить ваши поездки/);
+    await screen.findByText(/Ссылка на отзыв не распознана/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

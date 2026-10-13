@@ -309,20 +309,13 @@ describe('связка: производитель, читатель и экра
     const fmt = read('lib/transfers/charter-format.ts');
     expect(fmt).not.toMatch(/@\/lib\/database|db-pool|from 'pg'/);
     expect(read('components/transfers/CharterCard.tsx')).not.toMatch(/@\/lib\/transfers\/charter'/);
-    expect(read('app/transfers/(list)/_TransfersClient.tsx')).not.toMatch(/@\/lib\/transfers\/charter'/);
+    expect(read('components/transfers/TransfersPage.tsx')).not.toMatch(/@\/lib\/transfers\/charter'/);
   });
 
-  it('/transfers: три исхода — нашли, искали и никого, не смогли проверить (говорит вслух)', () => {
-    const page = read('app/transfers/(list)/page.tsx');
-    expect(page).toMatch(/export const dynamic = 'force-dynamic'/);
-    expect(page).toMatch(/charter = \{ state: 'failed' \}/);
-    expect(page).toMatch(/console\.error\('\[transfers\/charter\]'/);
-    const client = read('app/transfers/(list)/_TransfersClient.tsx');
-    expect(client).toMatch(/charter\.state === 'failed'/);
-    expect(client).toMatch(/Не смогли проверить вахтовки под заказ/);
-    expect(client).toMatch(/Это не значит, что их нет/);
-    expect(client).toMatch(/charter\.carriers\.length > 0/);
-    expect(client).toMatch(/<CharterCard key=\{c\.partnerId\}/);
+  it('/transfers читает прайс на каждый запрос (в Docker-сборке базы нет)', () => {
+    // Три исхода витрины (есть / нет / не прочитались) судит рендер —
+    // tests/unit/transfers-page.test.tsx.
+    expect(read('app/transfers/(list)/page.tsx')).toMatch(/export const dynamic = 'force-dynamic'/);
   });
 
   // Страница перевозчика с 13.10 — /transfers/[slug] (стандарт карточки
