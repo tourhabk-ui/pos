@@ -101,7 +101,7 @@ describe('вахтовки под заказ (1185): прайс на целую 
     expect(out).toContain('Курильское озеро 450000 руб (плюс переправы)');
     expect(out).toContain('доплата 30000 руб в день (при эксплуатации транспорта на местности)');
     expect(out).toContain('Цена за машину целиком');
-    expect(out).toContain('https://vedarai.ru/operators/shatun');
+    expect(out).toContain('https://vedarai.ru/transfers/shatun');
     expect(out).toMatch(/Прайс 2026 года/);
   });
 

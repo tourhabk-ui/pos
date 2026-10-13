@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { ChevronRight, MapPin, ShieldCheck, BadgeCheck, Fish, Home, Calendar, Users, Star, Shield, Phone, Send } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
@@ -19,24 +19,16 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { CharterCard } from '@/components/transfers/CharterCard';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
 import { OperatorLegalInfo } from '@/components/operator/OperatorLegalInfo';
 import { OperatorLeadForm } from '@/components/operators/OperatorLeadForm';
-import { loadCharterCarriers } from '@/lib/transfers/charter';
-import type { CharterCarrier } from '@/lib/transfers/charter-format';
+import { carrierPagePath } from '@/lib/transfers/charter-format';
 
 export const dynamic = 'force-dynamic';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 type Params = { slug: string };
-
-/** Подпись автора у снимка перевозчика: названный автор, иначе сам перевозчик. */
-function galleryCaptions(gallery: string[], charter: CharterCarrier): string[] {
-  const credit = new Map(charter.photos.map((p) => [p.url, p.credit]));
-  return gallery.map((url) => `Фото: ${credit.get(url) ?? charter.name}`);
-}
 
 function parseScore(value: string | null | undefined): number {
   if (!value) return 0;
@@ -183,6 +175,11 @@ export default async function OperatorProfilePage(
 
   const profile = await getOperatorProfile(slug);
   if (!profile) notFound();
+  // Перевозчик — не туроператор: у него своя страница по стандарту карточки
+  // трансфера (13.10). Здесь он открывался шаблоном туроператора — с подписью
+  // «Проверенный оператор», FAQ про туры и без формы заказа машины. Старые
+  // ссылки и короткий адрес vedarai.ru/<slug> (rewrite сюда) ведут туда.
+  if (profile.category === 'transfer') permanentRedirect(carrierPagePath(profile.slug));
 
   const services  = extractServices(profile.services);
   const features  = extractFeatures(profile.features);
@@ -196,20 +193,6 @@ export default async function OperatorProfilePage(
 
   const heroImage = profile.hero_image ?? gallery[0] ?? null;
   const tours = await getOperatorTours(profile.id);
-
-  // Прайс перевозчика «под заказ» (миграция 1185) — только у категории
-  // transfer. Три исхода: нашли / у него прайса нет / не смогли проверить.
-  let charter: CharterCarrier | null = null;
-  let charterFailed = false;
-  if (profile.category === 'transfer') {
-    try {
-      charter = (await loadCharterCarriers({ partnerId: profile.id }))[0] ?? null;
-    } catch (err) {
-      const code = (err as { code?: string } | null)?.code ?? '';
-      console.error('[operators/charter]', code, err instanceof Error ? err.message : err);
-      charterFailed = true;
-    }
-  }
 
   // Организация оператора — тот же @id, на который ссылаются provider и
   // seller в разметке его туров (lib/seo/tour-structured-data, аудит 01.10).
@@ -305,24 +288,8 @@ export default async function OperatorProfilePage(
           {gallery.length > 1 && (
             <section className="ds-card p-5">
               <h2 className="font-playfair text-2xl font-bold mb-4">Галерея</h2>
-              {/* Снимки открываются (владелец 09.10: «галерея не открывается»).
-                  У перевозчика подпись автора — та же, что в его ленте фото:
-                  автор назван не у всех снимков, и без подписи кадры
-                  Сладченко читались бы как снимки перевозчика. */}
-              <OperatorGallery
-                images={gallery}
-                name={profile.name}
-                captions={charter ? galleryCaptions(gallery, charter) : undefined}
-              />
-            </section>
-          )}
-
-          {/* Прайс под заказ: у перевозчика вместо туров */}
-          {charter && <CharterCard carrier={charter} linkToProfile={false} showPhotos={false} />}
-          {charterFailed && (
-            <section className="ds-card p-5 border-[var(--warning)]">
-              <p className="text-sm text-[var(--text-primary)]">Не смогли проверить прайс перевозчика</p>
-              <p className="text-xs text-[var(--text-secondary)] mt-1">Сбой на нашей стороне. Это не значит, что прайса нет — загляните позже.</p>
+              {/* Снимки открываются (владелец 09.10: «галерея не открывается»). */}
+              <OperatorGallery images={gallery} name={profile.name} />
             </section>
           )}
 

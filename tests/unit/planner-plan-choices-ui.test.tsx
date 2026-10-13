@@ -39,7 +39,7 @@ vi.mock('@/components/marketplace/SbpQrPayment', () => ({ default: () => null })
 
 import { PlannerClient } from '@/app/planner/_PlannerClient';
 import { StayBookingForm } from '@/components/booking/StayBookingForm';
-import TransfersClient from '@/app/transfers/_TransfersClient';
+import TransfersClient from '@/app/transfers/(list)/_TransfersClient';
 
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s/g, ' ');
 

@@ -16,7 +16,7 @@ import { join } from 'node:path';
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const CATALOG = read('components/marketplace/MarketplaceClient.tsx');
 const STAYS = read('app/accommodations/_AccommodationsClient.tsx');
-const TRANSFERS = read('app/transfers/_TransfersClient.tsx');
+const TRANSFERS = read('app/transfers/(list)/_TransfersClient.tsx');
 
 const h1Class = (src: string) => /<h1\s+className="([^"]+)"/.exec(src)?.[1] ?? '';
 

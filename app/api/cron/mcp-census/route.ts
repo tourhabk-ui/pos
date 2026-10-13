@@ -25,6 +25,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
 import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { clientRegion } from '@/lib/mcp/china-clients';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -133,6 +134,16 @@ export async function GET(req: NextRequest) {
     errors_by_client_external: num(errorsByClient.value),
     requested_unknown: num(requested.value),
     clients: num(clients.value),
+    // Клиенты из экосистемы КНР (владелец 13.10) — по самоназванию, из тех же
+    // строк; null — перепись клиентов не прочиталась, а не «никого не было».
+    clients_china: clients.value ? (() => {
+      const rows = clients.value.filter((r) => clientRegion(r.client));
+      return {
+        clients: rows.length,
+        calls: rows.reduce((s, r) => s + Number(r.calls), 0),
+        names: rows.map((r) => `${r.client} (${r.origin}, ${r.calls})`),
+      };
+    })() : null,
     write_calls: writes.value,
     marks: marks.value ? {
       self_since: marks.value.self_since,

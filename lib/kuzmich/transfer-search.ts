@@ -22,6 +22,7 @@
 import { listPublishedTrips } from '@/lib/transfers/service';
 import { loadCharterCarriers, charterFootnote, describeFleet, matchDestinations, type CharterCarrier } from '@/lib/transfers/charter';
 import { getPublicBaseUrl } from '@/lib/config';
+import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
@@ -81,11 +82,12 @@ export function charterSection(
       : '';
     const fleet = describeFleet(c.vehicles);
     const note = charterFootnote(c);
-    return `${c.name}${fleet ? ` — ${fleet}` : ''}. ${miss}Цена за машину целиком: ${prices}${extra}.${note ? ` ${note}` : ''} Связь, фото и заказ — на карточке: ${base}/operators/${c.slug}`;
+    return `${c.name}${fleet ? ` — ${fleet}` : ''}. ${miss}Цена за машину целиком: ${prices}${extra}.${note ? ` ${note}` : ''} Связь, фото и заявка на машину — на странице перевозчика: ${base}${carrierPagePath(c.slug)}`;
   });
-  // Заявку на машину умеет оставить только внешний агент (MCP): у Кузьмича в
-  // чате такого инструмента нет, и отсылать его к request_charter значило бы
-  // обещать путь, которого нет (§4, объявленный исход без источника).
+  // Инструмент заявки на машину есть только у внешнего агента (MCP): у
+  // Кузьмича в чате его нет, и отсылать к request_charter значило бы обещать
+  // путь, которого нет (§4). Человеку в чате путь — форма на странице
+  // перевозчика (стандарт 13.10), ссылка на неё стоит в каждом блоке.
   // Параметр carrier называется здесь явно (проверка владельца 10.10: агент
   // сам подставил slug из ссылки на карточку; при нескольких перевозчиках он
   // угадывал бы). Один перевозчик — параметр можно не передавать.

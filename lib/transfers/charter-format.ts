@@ -14,6 +14,15 @@ export interface CharterVehicle {
   seats: number;
 }
 
+/** Место справочника, куда ведёт строка прайса (миграция 1232). */
+export interface CharterPlaceLink {
+  /** places.id — по нему страница перевозчика читает опасности места. */
+  id: string;
+  /** Адрес карточки места: /places/<slug или id>. */
+  href: string;
+  name: string;
+}
+
 export interface CharterPriceLine {
   from: string;
   to: string;
@@ -24,6 +33,12 @@ export interface CharterPriceLine {
   conditions: string | null;
   /** null — год прайса не записан. */
   validYear: number | null;
+  /**
+   * Место, куда идёт машина. null — строка с местом не связана (или место
+   * скрыто), и направление показывается словами перевозчика без ссылки.
+   * Связь пишется адресом, сверенным вручную, а не похожестью имени.
+   */
+  place?: CharterPlaceLink | null;
 }
 
 export interface CharterExtraDay {
@@ -83,11 +98,32 @@ export interface CharterCarrier {
 }
 
 /**
+ * Перевозчик для его страницы /transfers/[slug] (стандарт 13.10). Тот же
+ * разбор, что у прайса, плюс то, что нужно только странице: отметка проверки
+ * и описание. Прайса может не быть: тогда destinations пуст, extraDay null.
+ */
+export interface CarrierProfile extends CharterCarrier {
+  /** partners.is_verified: true — проверен платформой, иначе отметки нет. */
+  verified: boolean;
+  description: string | null;
+}
+
+/**
  * Что экран знает о перевозчиках под заказ: три исхода, не два. Пустой список
  * при `ok` — «искали, никого нет»; `failed` — «не смогли проверить», и экран
  * обязан сказать это вслух, а не промолчать.
  */
 export type CharterState = { state: 'ok'; carriers: CharterCarrier[] } | { state: 'failed' };
+
+/**
+ * Адрес страницы перевозчика — один на все ссылки: экран /transfers, ответы
+ * Кузьмича и MCP, сайтмап, переадресация со старого /operators/<slug>
+ * (стандарт карточки трансфера, 13.10). До этого перевозчик открывался в
+ * шаблоне туроператора.
+ */
+export function carrierPagePath(slug: string): string {
+  return `/transfers/${encodeURIComponent(slug)}`;
+}
 
 const KIND_FORM: Record<CharterVehicleKind, string> = {
   jeep: 'джип',
@@ -95,6 +131,11 @@ const KIND_FORM: Record<CharterVehicleKind, string> = {
   minibus: 'микроавтобус',
   other: 'транспорт',
 };
+
+/** Вид машины словом: «вахтовка», «джип». */
+export function vehicleKindWord(kind: CharterVehicleKind): string {
+  return KIND_FORM[kind];
+}
 
 /** «2 × вахтовка, 26 мест»: парк одной строкой; пусто, если машин не записано. */
 export function describeFleet(vehicles: CharterVehicle[]): string | null {

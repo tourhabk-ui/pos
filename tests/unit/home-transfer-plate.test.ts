@@ -38,7 +38,7 @@ describe('карточка из прайса перевозчика', () => {
   it('направления без повторов, не больше трёх; ссылка — на перевозчика', () => {
     const t = toTransferPlate(carrier());
     expect(t?.destinations).toEqual(['Мутновский', 'Вилючинский перевал', 'Налычево']);
-    expect(t?.href).toBe('/operators/shatun');
+    expect(t?.href).toBe('/transfers/shatun');
     expect(t?.fleet).toBe('2 × вахтовка, 26 мест');
   });
 

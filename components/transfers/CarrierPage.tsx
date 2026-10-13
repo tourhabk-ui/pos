@@ -1,0 +1,287 @@
+/**
+ * Страница перевозчика /transfers/[slug] — стандарт карточки трансфера
+ * (решение владельца 13.10, «да делай»; CLAUDE.md §14). По образцу карточки
+ * тура (§11), сверху вниз:
+ *
+ *   герой (фото, крошки, заголовок, полоса фактов) → фото и видео → о
+ *   перевозчике → прайс под заказ (направления ведут на места) → поездки с
+ *   датами → что входит в цену → безопасность по направлениям → перевозчик
+ *   (исполнитель, отметка проверки, связь) → Кузьмич; справа — закреплённая
+ *   заявка на машину.
+ *
+ * Единственная реализация: прежде перевозчик открывался в шаблоне
+ * туроператора (/operators/[slug]) — с подписью «Проверенный оператор», FAQ
+ * про туры и без формы заказа. Отзывов о перевозчике здесь нет: источника у
+ * них нет, и заводить его — решение владельца (вопрос 13.10 открыт).
+ *
+ * Компонент без хуков: страница рисуется на сервере, интерактивны только
+ * герой (просмотрщик фото), лента фото и форма заявки.
+ */
+
+import Link from 'next/link';
+import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, CalendarDays, Users, Bus, AlertTriangle, MessageSquare } from 'lucide-react';
+import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
+import { LazyClip } from '@/components/media/LazyClip';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
+import { CharterPhotos } from '@/components/transfers/CharterPhotos';
+import { CharterPriceList } from '@/components/transfers/CharterPriceList';
+import { CarrierHero } from '@/components/transfers/CarrierHero';
+import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
+import { formatContactPhone } from '@/lib/stay/contact-phone';
+import { formatRub, vehicleKindWord } from '@/lib/transfers/charter-format';
+import { carrierInstrument, minCharterPrice } from '@/lib/transfers/carrier-view';
+import type { CarrierPageData } from '@/lib/transfers/carrier-page';
+
+/** Якорь формы заявки: на него ведут кнопка героя и ссылки снаружи. */
+export const CHARTER_REQUEST_ANCHOR = 'charter-request';
+
+const CRUMB = 'inline-flex items-center min-h-[44px] px-1 text-white/85 hover:text-white visited:text-white/85 hover:no-underline transition-colors';
+
+function fmtDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+function H2({ id, children }: { id?: string; children: React.ReactNode }) {
+  return <h2 id={id} className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-4">{children}</h2>;
+}
+
+export function CarrierPage({ data }: { data: CarrierPageData }) {
+  const { carrier: c, trips, safety } = data;
+  const instrument = carrierInstrument(c);
+  const minPrice = minCharterPrice(c);
+  const phoneLabel = formatContactPhone(c.phone);
+  const linked = c.destinations.filter((d) => d.place);
+
+  return (
+    <div style={{ background: 'var(--bg-primary)' }}>
+      <Header overPhoto />
+
+      <CarrierHero name={c.name} photos={c.photos}>
+        <nav aria-label="Хлебные крошки" className="flex items-center gap-1 text-[13px] mb-2 -ml-1">
+          <Link href="/" className={CRUMB}>Главная</Link>
+          <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
+          <Link href="/transfers" className={CRUMB}>Трансферы</Link>
+        </nav>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-white mb-2">Перевозчик · под заказ</p>
+        <h1 className="font-playfair text-white font-bold leading-tight" style={{ fontSize: 'clamp(30px,5vw,52px)' }}>{c.name}</h1>
+        {c.shortDescription && (
+          <p className="mt-3 max-w-[56ch] text-[15px] leading-relaxed text-white/90">{c.shortDescription}</p>
+        )}
+        {instrument.length > 0 && (
+          <dl className="mt-5 inline-flex flex-wrap rounded-2xl overflow-hidden backdrop-blur-md bg-black/40 border border-white/15" aria-label="Факты о перевозчике">
+            {instrument.map((cell) => (
+              <div key={cell.k} className="px-4 py-2.5">
+                <dt className="text-[10px] uppercase tracking-[0.14em] text-white/70">{cell.k}</dt>
+                <dd className="text-[14px] font-semibold text-white mt-1">{cell.v}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <div className="mt-5">
+          <a href={`#${CHARTER_REQUEST_ANCHOR}`} className="ds-btn ds-btn-primary inline-flex items-center gap-2" style={{ minHeight: 44 }}>
+            <Send className="w-4 h-4" aria-hidden /> Заявка на машину
+          </a>
+        </div>
+      </CarrierHero>
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-6 pb-16">
+          <div className="lg:col-span-8 space-y-12">
+
+            {(c.photos.length > 1 || c.clips.length > 0 || c.video) && (
+              <section aria-label={`Фото и видео: ${c.name}`} className="space-y-4">
+                {c.photos.length > 1 && <CharterPhotos name={c.name} photos={c.photos.slice(1)} />}
+                {c.clips.length > 0 && (
+                  <ul className="flex gap-2 overflow-x-auto pb-2 snap-x" aria-label={`Короткие видео: ${c.name}`}>
+                    {c.clips.map((clip) => (
+                      <li key={clip.url} className="snap-start shrink-0 w-64">
+                        <LazyClip url={clip.url} poster={clip.poster} label={clip.label} className="aspect-video" />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {c.video && (
+                  <figure>
+                    {/* preload="none": ролик не качается, пока человек не нажал «играть». Звука нет (09.10). */}
+                    <video controls muted playsInline preload="none" poster={c.video.poster}
+                      className="w-full rounded-lg bg-[var(--bg-hover)]" aria-label={`Видео: ${c.name}`}>
+                      <source src={c.video.url} type="video/mp4" />
+                    </video>
+                    <figcaption className="text-xs text-[var(--text-muted)] mt-1">Видео: {c.name}</figcaption>
+                  </figure>
+                )}
+              </section>
+            )}
+
+            {c.description && (
+              <section>
+                <H2>О перевозчике</H2>
+                <p className="text-[var(--text-secondary)] leading-relaxed">{c.description}</p>
+              </section>
+            )}
+
+            {(c.destinations.length > 0 || c.extraDay) && (
+              <section aria-labelledby="carrier-price">
+                <H2 id="carrier-price">Прайс под заказ</H2>
+                <div className="ds-card px-5 py-3">
+                  <CharterPriceList carrier={c} />
+                </div>
+              </section>
+            )}
+
+            <section aria-labelledby="carrier-trips">
+              <H2 id="carrier-trips">Поездки с датами</H2>
+              {trips.state === 'failed' ? (
+                <p className="text-sm text-[var(--text-secondary)] flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" aria-hidden />
+                  Не смогли проверить поездки — это сбой на нашей стороне, а не «поездок нет».
+                </p>
+              ) : trips.items.length === 0 ? (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  В ближайшие {trips.windowDays} дней поездок с датами нет: машина идёт под заказ, направление и дни
+                  задаёте вы — заявка справа.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {trips.items.map((t) => (
+                    <li key={t.id} className="ds-card p-4 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-[var(--text-primary)]">{t.from} — {t.to}</p>
+                        <p className="text-xs text-[var(--text-secondary)] mt-1 flex flex-wrap items-center gap-1.5">
+                          <CalendarDays className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden /> {fmtDate(t.date)}{t.departureNote ? `, ${t.departureNote}` : ''}
+                          <span aria-hidden>·</span>
+                          <Bus className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden /> {vehicleKindWord(t.vehicleKind)}, {t.vehicleTitle}
+                        </p>
+                        <p className="text-xs text-[var(--text-secondary)] mt-1">
+                          {t.pricePerSeat !== null ? `${formatRub(t.pricePerSeat)} за место` : 'Цена места не названа'}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-semibold text-[var(--text-primary)] inline-flex items-center gap-1">
+                          <Users className="w-4 h-4 text-[var(--ocean)]" aria-hidden /> {t.seatsFree} из {t.seatsTotal}
+                        </p>
+                        <Link href={t.href} className="block text-sm text-[var(--ocean)] hover:underline mt-1">Запросить места</Link>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section aria-labelledby="carrier-included">
+              <H2 id="carrier-included">Что входит в цену</H2>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Перевозчик этого не записал: сколько дней входит в цену, есть ли водитель на месте и топливо — уточняется
+                у перевозчика при заказе. Оплата — напрямую ему: через Ведар машина не оплачивается.
+              </p>
+            </section>
+
+            <section aria-labelledby="carrier-safety">
+              <H2 id="carrier-safety">Безопасность по направлениям</H2>
+              {safety.state === 'failed' ? (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Не смогли проверить опасности мест — это сбой, а не «опасностей нет». Смотрите карточки мест.
+                </p>
+              ) : linked.length > 0 && (
+                <ul className="space-y-4">
+                  {linked.map((d) => {
+                    const place = d.place!;
+                    const hazards = safety.byPlace[place.id] ?? [];
+                    return (
+                      <li key={place.id}>
+                        <Link href={place.href} className="font-semibold text-[var(--ocean)] hover:underline">{place.name}</Link>
+                        {hazards.length > 0 ? (
+                          <HazardBadgeStrip hazards={hazards} className="mt-2" />
+                        ) : (
+                          <p className="text-xs text-[var(--text-muted)] mt-1">Опасности места не записаны — это не значит, что их нет.</p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {/* 112 — словами: вызов несёт кнопка SOS в шапке (EmergencyAction, с
+                  офлайн-веткой); вторая ссылка на tel:112 — вторая копия SOS (#887). */}
+              <p className="text-sm text-[var(--text-secondary)] mt-4">
+                Перед выездом — <Link href="/safety" className="text-[var(--ocean)] hover:underline">обстановка в крае</Link>.
+                Экстренный вызов — 112, кнопка SOS в шапке.
+              </p>
+            </section>
+
+            <section aria-labelledby="carrier-who">
+              <H2 id="carrier-who">Перевозчик</H2>
+              <div className="ds-card p-5 space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="font-semibold text-[var(--text-primary)]">{c.name}</p>
+                  {c.verified && (
+                    <span className="inline-flex items-center gap-1 text-sm text-[var(--success)]">
+                      <ShieldCheck className="w-4 h-4" aria-hidden /> Проверенный перевозчик
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {c.legal
+                    ? <>Исполнитель: {c.legal.name}{c.legal.inn ? `, ИНН ${c.legal.inn}` : ''}.</>
+                    : 'Реквизиты исполнителя не записаны.'}
+                </p>
+                {c.phone || c.telegramHref || c.whatsappHref ? (
+                  <div className="flex flex-wrap gap-2">
+                    {c.phone && phoneLabel && (
+                      <a href={`tel:${c.phone}`} className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
+                        <Phone className="w-4 h-4" aria-hidden /> Позвонить {phoneLabel}
+                      </a>
+                    )}
+                    {c.telegramHref && (
+                      <a href={c.telegramHref} target="_blank" rel="noopener noreferrer nofollow" className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
+                        <Send className="w-4 h-4" aria-hidden /> Telegram
+                      </a>
+                    )}
+                    {c.whatsappHref && (
+                      <a href={c.whatsappHref} target="_blank" rel="noopener noreferrer nofollow" className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
+                        <MessageCircle className="w-4 h-4" aria-hidden /> WhatsApp
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[var(--text-secondary)]">Контакты перевозчика не записаны — заявка дойдёт через менеджера Ведара.</p>
+                )}
+              </div>
+            </section>
+
+            <section aria-labelledby="carrier-kuzmich">
+              <H2 id="carrier-kuzmich">Спросить Кузьмича</H2>
+              <Link href="/kuzmich" className="ds-card p-5 flex items-start gap-3 hover:bg-[var(--bg-hover)] transition-colors">
+                <MessageSquare className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" aria-hidden />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  Как доехать, что взять с собой, какая обстановка на месте. Кузьмич знает прайс перевозчиков и сводку по
+                  краю — спросите, например: «сколько стоит вахтовка на Горелый и что взять».
+                </span>
+              </Link>
+            </section>
+          </div>
+
+          <aside className="lg:col-span-4">
+            <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
+              <section id={CHARTER_REQUEST_ANCHOR} className="ds-card p-5 scroll-mt-24" aria-labelledby="charter-request-title">
+                <h2 id="charter-request-title" className="font-playfair text-xl font-bold text-[var(--text-primary)]">Заявка на машину</h2>
+                {minPrice !== null && (
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">
+                    от <span className="font-semibold text-[var(--accent)]">{formatRub(minPrice)}</span> за машину по прайсу
+                  </p>
+                )}
+                <div className="mt-4">
+                  <CharterRequestForm carrierSlug={c.slug} carrierName={c.name} destinations={c.destinations.map((d) => d.to)} />
+                </div>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <Footer />
+    </div>
+  );
+}

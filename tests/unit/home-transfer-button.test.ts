@@ -59,7 +59,7 @@ describe('кнопка «Трансфер» на главной', () => {
   });
 
   it('у цели есть скелет перехода: страница читает прайс из базы и открывается не мгновенно', () => {
-    expect(existsSync(join(process.cwd(), 'app/transfers/loading.tsx'))).toBe(true);
-    expect(read('app/transfers/loading.tsx')).toMatch(/RouteLoading/);
+    expect(existsSync(join(process.cwd(), 'app/transfers/(list)/loading.tsx'))).toBe(true);
+    expect(read('app/transfers/(list)/loading.tsx')).toMatch(/RouteLoading/);
   });
 });

@@ -31,6 +31,7 @@ import { logText } from '@/lib/log/log-text';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/journal';
 import { RETENTION_DAYS } from '@/lib/a2a/dialog-log';
 import { isProbeClient } from '@/lib/mcp/probe-clients';
+import { clientRegion } from '@/lib/mcp/china-clients';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
 
 export const dynamic = 'force-dynamic';
@@ -156,6 +157,9 @@ export async function readA2a(days: number) {
   const byAgentRows = byAgent.rows.map((r) => ({
     ...r,
     kind: a2aAgentKind(r.agent, r.ua_family, r.is_self) as A2aAgentKind,
+    // «КНР» — продукт из реестра КНР по самоназванию или роду заголовка (13.10);
+    // null — не из реестра, а не «не из Китая»: страна по IP не читается.
+    region: clientRegion(r.agent, r.ua_family),
     versions: r.versions ? r.versions.split(',') : [],
     bindings: r.bindings ? r.bindings.split(',') : [],
   }));
@@ -227,6 +231,7 @@ export async function readMcp(days: number) {
       client: r.client_name ?? r.ua_family ?? 'не представился',
       kind: r.client_name ? 'представился' : (r.ua_family ? 'по заголовку' : 'неизвестно'),
       origin: isProbeClient(r.client_name, r.ua_family) ? 'probe' : 'external',
+      region: clientRegion(r.client_name, r.ua_family),
       caller_days: r.caller_days,
       days: r.days,
       first_seen: r.first_seen,

@@ -278,12 +278,9 @@ describe('карточка перевозчика', () => {
     expect(renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, video: null, clips: [] } }))).not.toContain('<video');
   });
 
-  it('на странице самого перевозчика нет ссылки на себя и второй ленты фото, а видео остаётся', () => {
-    const own = renderToStaticMarkup(createElement(CharterCard, { carrier: CARRIER, linkToProfile: false, showPhotos: false }));
-    expect(own).not.toContain('/operators/shatun');
-    expect(own).not.toContain('Фото: Сладченко');
-    expect(own).toContain('<video');
-    expect(html).toContain('/operators/shatun');
+  it('карточка в списке ведёт на страницу перевозчика /transfers/<slug>, а не в шаблон туроператора (стандарт 13.10)', () => {
+    expect(html).toContain('href="/transfers/shatun"');
+    expect(html).not.toContain('/operators/shatun');
   });
 
   it('нет ни одного канала связи — так и сказано, кнопок нет', () => {
@@ -312,15 +309,15 @@ describe('связка: производитель, читатель и экра
     const fmt = read('lib/transfers/charter-format.ts');
     expect(fmt).not.toMatch(/@\/lib\/database|db-pool|from 'pg'/);
     expect(read('components/transfers/CharterCard.tsx')).not.toMatch(/@\/lib\/transfers\/charter'/);
-    expect(read('app/transfers/_TransfersClient.tsx')).not.toMatch(/@\/lib\/transfers\/charter'/);
+    expect(read('app/transfers/(list)/_TransfersClient.tsx')).not.toMatch(/@\/lib\/transfers\/charter'/);
   });
 
   it('/transfers: три исхода — нашли, искали и никого, не смогли проверить (говорит вслух)', () => {
-    const page = read('app/transfers/page.tsx');
+    const page = read('app/transfers/(list)/page.tsx');
     expect(page).toMatch(/export const dynamic = 'force-dynamic'/);
     expect(page).toMatch(/charter = \{ state: 'failed' \}/);
     expect(page).toMatch(/console\.error\('\[transfers\/charter\]'/);
-    const client = read('app/transfers/_TransfersClient.tsx');
+    const client = read('app/transfers/(list)/_TransfersClient.tsx');
     expect(client).toMatch(/charter\.state === 'failed'/);
     expect(client).toMatch(/Не смогли проверить вахтовки под заказ/);
     expect(client).toMatch(/Это не значит, что их нет/);
@@ -328,13 +325,9 @@ describe('связка: производитель, читатель и экра
     expect(client).toMatch(/<CharterCard key=\{c\.partnerId\}/);
   });
 
-  it('карточка /operators/[slug]: прайс только у категории transfer, отказ называется вслух', () => {
-    const page = read('app/operators/[slug]/page.tsx');
-    expect(page).toMatch(/profile\.category === 'transfer'/);
-    expect(page).toMatch(/loadCharterCarriers\(\{ partnerId: profile\.id \}\)/);
-    expect(page).toMatch(/Не смогли проверить прайс перевозчика/);
-    expect(page).toMatch(/Перевозчик/);
-  });
+  // Страница перевозчика с 13.10 — /transfers/[slug] (стандарт карточки
+  // трансфера); переадресацию со старого /operators/<slug>, три исхода
+  // данных и форму заявки судит рендером tests/unit/transfer-card-standard.test.tsx.
 
   it('Кузьмич и MCP читают тот же загрузчик и называют вахтовки под заказ в описании', () => {
     const src = read('lib/kuzmich/transfer-search.ts');

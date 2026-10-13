@@ -134,6 +134,8 @@ const CONSENT_FORMS = [
   'app/trip-group/[id]/_TripGroupClient.tsx',
   'components/stay/StayRequestForm.tsx',
   'app/request-status/_RequestStatusClient.tsx',
+  // Заявка на машину со страницы перевозчика (13.10): шлёт СОСТОЯНИЕ галочки.
+  'components/transfers/CharterRequestForm.tsx',
 ];
 
 /**
@@ -206,6 +208,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/trip-groups/[id]/members/route.ts',
   'app/api/accommodations/[id]/request/route.ts',
   'app/api/requests/consent/route.ts',
+  'app/api/charter-requests/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

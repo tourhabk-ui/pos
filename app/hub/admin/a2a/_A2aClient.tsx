@@ -21,7 +21,7 @@ type Block<T> = ({ ok: true } & T) | { ok: false; error: string };
 type AgentKind = 'external' | 'registry' | 'probe' | 'self';
 
 interface AgentRow {
-  agent: string; ua_family: string; kind: AgentKind; is_self: boolean;
+  agent: string; ua_family: string; kind: AgentKind; is_self: boolean; region?: string | null;
   requests: number; sends: number; text_sends: number; tool_sends: number;
   completed: number; rejected: number; failed: number; protocol_errors: number; card_reads: number;
   dialogs: number; caller_days: number; versions: string[]; bindings: string[];
@@ -43,7 +43,7 @@ interface DialogItem {
   question: string; answer: string; state: string; duration_ms: number | null;
 }
 interface DialogsBlock { since: string | null; total: number; retention_days: number; limit: number; items: DialogItem[] }
-interface McpClientRow { client: string; kind: string; origin: 'probe' | 'external'; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
+interface McpClientRow { client: string; kind: string; origin: 'probe' | 'external'; region?: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
 interface McpBlock { clients: McpClientRow[] }
 interface EntryRow { family: string; vendor: string | null; hits: number; paths: number; last_day: string }
 interface EntriesBlock { since: string | null; total_all_time: number; total_window: number; by_family: EntryRow[] }
@@ -111,6 +111,19 @@ function DialogEntry({ d }: { d: DialogItem }) {
         <p className="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-wrap break-words">{d.answer}</p>
       </details>
     </li>
+  );
+}
+
+/** Клиент из экосистемы КНР — по самоназванию программы (lib/mcp/china-clients), не по стране запроса. */
+function RegionBadge({ label }: { label: string }) {
+  return (
+    <span
+      className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold align-middle"
+      style={{ background: 'var(--bg-hover)', color: 'var(--accent)' }}
+      title="Продукт из реестра КНР по самоназванию клиента; страна запроса не хранится"
+    >
+      {label}
+    </span>
   );
 }
 
@@ -269,7 +282,7 @@ export default function A2aClient() {
                     <tbody>
                       {a2a.by_agent.map((r) => (
                         <tr key={`${r.agent}:${r.ua_family}:${r.is_self}`} className="border-t border-[var(--border)]">
-                          <Td><span className="font-medium">{r.agent}</span> <span className="text-[var(--text-muted)]">({r.ua_family})</span></Td>
+                          <Td><span className="font-medium">{r.agent}</span> <span className="text-[var(--text-muted)]">({r.ua_family})</span>{r.region && <RegionBadge label={r.region} />}</Td>
                           <Td><span className={kindClass(r.kind)}>{KIND_LABEL[r.kind]}</span></Td>
                           <Td right>{r.requests}{r.card_reads > 0 && <span className="text-[var(--text-muted)]"> (визитка {r.card_reads})</span>}</Td>
                           <Td right>{r.dialogs}</Td>
@@ -412,7 +425,7 @@ export default function A2aClient() {
                   <tbody>
                     {data.mcp.clients.map((c) => (
                       <tr key={`${c.client}:${c.kind}`} className="border-t border-[var(--border)]">
-                        <Td><span className="font-medium">{c.client}</span></Td>
+                        <Td><span className="font-medium">{c.client}</span>{c.region && <RegionBadge label={c.region} />}</Td>
                         <Td muted>{c.kind}</Td>
                         <Td><span className={kindClass(c.origin)}>{KIND_LABEL[c.origin]}</span></Td>
                         <Td right>{c.days}</Td>

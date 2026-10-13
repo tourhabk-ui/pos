@@ -59,10 +59,8 @@ import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requ
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
-import {
-  CHARTER_MAX_DAYS_AHEAD, CHARTER_MAX_TRIP_DAYS, charterAcceptedText, charterDedupPrefix,
-  charterLeadComment, charterSourceData, pickCarrier, planCharterRequest,
-} from '@/lib/transfers/charter-request';
+import { charterAcceptedText, pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
+import { buildCharterLead, checkCharterDates, saveCharterLead } from '@/lib/transfers/charter-request-service';
 import { getPublicBaseUrl } from '@/lib/config';
 // Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
 // пути строит только серверный код по белому списку, сущности резолвятся
@@ -409,11 +407,6 @@ const charterRequestArgsSchema = z.object({
   consent: consentField,
 });
 
-/** Прибавить дни к дате YYYY-MM-DD (UTC-арифметика по календарным суткам). */
-function addDays(date: string, days: number): string {
-  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-}
-
 async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = charterRequestArgsSchema.safeParse(rawArgs);
   if (!parsed.success) {
@@ -429,19 +422,20 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   }
 
   // Даты — по Камчатке, как у заявки на бронь: по UTC с 12:00 до 24:00 прошедший
-  // там день принимался бы как сегодняшний.
-  if (!isRealDate(dateFrom) || (dateTo !== null && !isRealDate(dateTo))) {
-    throw new McpUserError('Такой даты нет в календаре — заявка не создана. Проверьте даты.', 'date_not_in_calendar');
-  }
-  const today = kamchatkaToday();
-  if (dateFrom < today) {
-    return `Дата выезда ${dateFrom} уже прошла — заявка не создана. Назовите дату не раньше ${today}.`;
-  }
-  if (dateFrom > addDays(today, CHARTER_MAX_DAYS_AHEAD)) {
-    return `Дата выезда ${dateFrom} слишком далека: прайс перевозчика годовой — заявка не создана. Назовите дату в пределах ${CHARTER_MAX_DAYS_AHEAD} дней.`;
-  }
-  if (dateTo !== null && (dateTo < dateFrom || dateTo > addDays(dateFrom, CHARTER_MAX_TRIP_DAYS))) {
-    return `Дата возвращения ${dateTo} не может быть раньше выезда или позже чем через ${CHARTER_MAX_TRIP_DAYS} дн. — заявка не создана. Уточните даты.`;
+  // там день принимался бы как сегодняшний. Правило — общее с формой на
+  // странице перевозчика (charter-request-service); тексты агенту — свои.
+  const dates = checkCharterDates(dateFrom, dateTo, kamchatkaToday());
+  if (!dates.ok) {
+    switch (dates.reason) {
+      case 'not_in_calendar':
+        throw new McpUserError('Такой даты нет в календаре — заявка не создана. Проверьте даты.', 'date_not_in_calendar');
+      case 'past':
+        return `Дата выезда ${dateFrom} уже прошла — заявка не создана. Назовите дату не раньше ${dates.today}.`;
+      case 'too_far':
+        return `Дата выезда ${dateFrom} слишком далека: прайс перевозчика годовой — заявка не создана. Назовите дату в пределах ${dates.maxDaysAhead} дней.`;
+      case 'bad_return':
+        return `Дата возвращения ${dateTo} не может быть раньше выезда или позже чем через ${dates.maxTripDays} дн. — заявка не создана. Уточните даты.`;
+    }
   }
 
   // Отказ базы — не «перевозчиков нет»: заявка не создаётся, агент знает, что
@@ -471,32 +465,19 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   }
   const facts = { carrier, plan, destination, dateFrom, dateTo, passengers, comment };
 
-  const leadComment = charterLeadComment(facts);
-  const leadSource = charterSourceData(facts);
-  refuseSilentLead(name, phone, leadComment, leadSource);
+  const lead = buildCharterLead(facts, 'mcp');
+  refuseSilentLead(name, phone, lead.comment, lead.sourceData);
 
-  const pd_consent = await admitWrite(ctx, REQUEST_CHARTER_TOOL.name, phone, parsed.data.consent);
+  // Телефон уходит перевозчику — согласие записывается текстом, который его и
+  // называет (purpose 'carrier', 13.10; до этого — версия «туроператору»).
+  const pd_consent = await admitWrite(ctx, REQUEST_CHARTER_TOOL.name, phone, parsed.data.consent, 'carrier');
 
   // Ответ на повтор совпадает с ответом на новую заявку (оракул «этот телефон
   // уже просил эту машину»): см. charterAcceptedText и заявку на бронь.
+  // Повтор и запись — общим путём с формой на странице перевозчика.
   const accepted = charterAcceptedText(facts, phone, getPublicBaseUrl());
-  const existing = await findRecentLeadByCommentPrefix(phone, charterDedupPrefix(carrier.name, dateFrom));
-  // Повтор идёт тем же выходом, что и новая заявка (см. заявку на бронь).
-  const leadId = existing ?? await createLead({
-    name,
-    phone,
-    comment: leadComment,
-    route_title: `Вахтовка: ${destination}`,
-    // Адресат известен — заявка ложится перевозчику (его клиент в CRM) и
-    // менеджеру; без operator_id она оставалась бы ничейной и уходила бы
-    // каждому оператору в «ничейные».
-    operator_id: carrier.partnerId,
-    source_url: 'mcp://vedar/charter',
-    source_data: leadSource,
-    pd_consent,
-    is_self: ctx.self,
-    // Заявка на машину — не подбор тура: AI-конвейер лидов ей не нужен (см. createLead).
-    skip_ai_processing: true,
+  const leadId = await saveCharterLead({
+    facts, lead, name, phone, consent: pd_consent, isSelf: ctx.self, sourceUrl: 'mcp://vedar/charter',
   });
   if (!leadId) {
     throw new McpUserError('Не удалось сохранить заявку — попробуйте позже', 'save_failed');

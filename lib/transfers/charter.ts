@@ -20,7 +20,9 @@ import { query } from '@/lib/database';
 import { extractGallery, telegramContactHref } from '@/lib/operators/profile-parse';
 import { normalizeContactPhone } from '@/lib/stay/contact-phone';
 import { videoSrc } from '@/lib/media/video-url';
-import type { CharterCarrier, CharterClip, CharterLegal, CharterPhoto, CharterVehicleKind } from '@/lib/transfers/charter-format';
+import type {
+  CarrierProfile, CharterCarrier, CharterClip, CharterLegal, CharterPhoto, CharterVehicleKind,
+} from '@/lib/transfers/charter-format';
 
 export * from '@/lib/transfers/charter-format';
 
@@ -40,6 +42,9 @@ interface PartnerRow {
   contacts: unknown;
 }
 
+/** Колонки партнёра, которые разбирает toCharterCarrier; один список на оба загрузчика. */
+const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.company_name, p.legal_info, p.contacts`;
+
 interface PriceRow {
   partner_id: string;
   vehicle_kind: CharterVehicleKind;
@@ -50,6 +55,10 @@ interface PriceRow {
   price_note: string | null;
   conditions: string | null;
   valid_year: number | null;
+  /** Связанное место (1232); null — не связано или скрыто. */
+  place_id: string | null;
+  place_slug: string | null;
+  place_name: string | null;
 }
 
 interface VehicleRow {
@@ -131,10 +140,83 @@ export function charterContacts(raw: unknown): { phone: string | null; telegramH
   };
 }
 
+/** Прайс и парк для набора перевозчиков — один запрос на оба загрузчика. */
+async function loadPricesAndFleet(ids: string[]): Promise<{ prices: PriceRow[]; vehicles: VehicleRow[] }> {
+  const [prices, vehicles] = await Promise.all([
+    // Место — только видимое: скрытое отвечает 404, и ссылка на него хуже,
+    // чем направление словами.
+    query<PriceRow>(
+      `SELECT c.partner_id::text AS partner_id, c.vehicle_kind, c.line_kind, c.from_text, c.to_text,
+              c.price_rub, c.price_note, c.conditions, c.valid_year,
+              pl.id AS place_id, pl.slug AS place_slug, pl.name AS place_name
+         FROM transfer_charter_prices c
+         LEFT JOIN places pl ON pl.id = c.place_id AND pl.is_visible = TRUE
+        WHERE c.is_active AND c.partner_id::text = ANY($1::text[])
+        ORDER BY c.sort_order, c.to_text`,
+      [ids],
+    ),
+    query<VehicleRow>(
+      `SELECT partner_id::text AS partner_id, kind, title, seats
+         FROM transfer_fleet_vehicles
+        WHERE is_active AND partner_id::text = ANY($1::text[])
+        ORDER BY title`,
+      [ids],
+    ),
+  ]);
+  return { prices: prices.rows, vehicles: vehicles.rows };
+}
+
+/** Строка партнёра + его прайс и парк → перевозчик. Один разбор на все экраны. */
+function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRow[]): CharterCarrier {
+  const mine = prices.filter((r) => r.partner_id === p.id);
+  const extra = mine.find((r) => r.line_kind === 'extra_day');
+  const photos = [p.hero_image, ...extractGallery(p.gallery)].filter(
+    (u, i, all): u is string => typeof u === 'string' && u.length > 0 && all.indexOf(u) === i,
+  );
+  return {
+    partnerId: p.id,
+    slug: p.slug,
+    name: p.name,
+    shortDescription: p.short_description,
+    vehicles: vehicles
+      .filter((v) => v.partner_id === p.id)
+      .map((v) => ({ kind: v.kind, title: v.title, seats: v.seats })),
+    destinations: mine
+      .filter((r) => r.line_kind === 'destination' && r.from_text && r.to_text)
+      .map((r) => ({
+        from: r.from_text as string,
+        to: r.to_text as string,
+        priceRub: r.price_rub,
+        note: r.price_note,
+        conditions: r.conditions,
+        validYear: r.valid_year,
+        place: r.place_id && r.place_name
+          ? { id: r.place_id, href: `/places/${r.place_slug ?? r.place_id}`, name: r.place_name }
+          : null,
+      })),
+    extraDay: extra
+      ? { priceRub: extra.price_rub, note: extra.price_note, conditions: extra.conditions, validYear: extra.valid_year }
+      : null,
+    photos: parsePhotos(photos, p.gallery_credits),
+    // В базе — пути /video/...; файлы с 09.10 в хранилище, и страница
+    // получает адрес объекта там (lib/media/video-url), а не круг через
+    // переадресацию /video/[...path].
+    clips: parseClips(p.video_clips, `Видео: ${p.name}`)
+      .map((c) => ({ ...c, url: videoSrc(c.url), poster: videoSrc(c.poster) })),
+    legal: parseLegal(p.company_name, p.legal_info),
+    // Ролик без обложки не показывается: база такого не допускает (CHECK
+    // partners_video_shape), но экран не должен верить только базе.
+    video: p.video_url && p.video_poster_url
+      ? { url: videoSrc(p.video_url), poster: videoSrc(p.video_poster_url) }
+      : null,
+    ...charterContacts(p.contacts),
+  };
+}
+
 /** Перевозчики с живым прайсом; partnerId — только один из них. */
 export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Promise<CharterCarrier[]> {
   const partners = await query<PartnerRow>(
-    `SELECT p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.company_name, p.legal_info, p.contacts
+    `SELECT ${PARTNER_COLUMNS}
        FROM partners p
       WHERE p.is_public = TRUE
         AND p.slug IS NOT NULL
@@ -147,65 +229,32 @@ export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Pr
   );
   if (partners.rows.length === 0) return [];
 
-  const ids = partners.rows.map((p) => p.id);
-  const [prices, vehicles] = await Promise.all([
-    query<PriceRow>(
-      `SELECT partner_id::text AS partner_id, vehicle_kind, line_kind, from_text, to_text,
-              price_rub, price_note, conditions, valid_year
-         FROM transfer_charter_prices
-        WHERE is_active AND partner_id::text = ANY($1::text[])
-        ORDER BY sort_order, to_text`,
-      [ids],
-    ),
-    query<VehicleRow>(
-      `SELECT partner_id::text AS partner_id, kind, title, seats
-         FROM transfer_fleet_vehicles
-        WHERE is_active AND partner_id::text = ANY($1::text[])
-        ORDER BY title`,
-      [ids],
-    ),
-  ]);
+  const { prices, vehicles } = await loadPricesAndFleet(partners.rows.map((p) => p.id));
+  return partners.rows.map((p) => toCharterCarrier(p, prices, vehicles));
+}
 
-  return partners.rows.map((p): CharterCarrier => {
-    const mine = prices.rows.filter((r) => r.partner_id === p.id);
-    const extra = mine.find((r) => r.line_kind === 'extra_day');
-    const photos = [p.hero_image, ...extractGallery(p.gallery)].filter(
-      (u, i, all): u is string => typeof u === 'string' && u.length > 0 && all.indexOf(u) === i,
-    );
-    return {
-      partnerId: p.id,
-      slug: p.slug,
-      name: p.name,
-      shortDescription: p.short_description,
-      vehicles: vehicles.rows
-        .filter((v) => v.partner_id === p.id)
-        .map((v) => ({ kind: v.kind, title: v.title, seats: v.seats })),
-      destinations: mine
-        .filter((r) => r.line_kind === 'destination' && r.from_text && r.to_text)
-        .map((r) => ({
-          from: r.from_text as string,
-          to: r.to_text as string,
-          priceRub: r.price_rub,
-          note: r.price_note,
-          conditions: r.conditions,
-          validYear: r.valid_year,
-        })),
-      extraDay: extra
-        ? { priceRub: extra.price_rub, note: extra.price_note, conditions: extra.conditions, validYear: extra.valid_year }
-        : null,
-      photos: parsePhotos(photos, p.gallery_credits),
-      // В базе — пути /video/...; файлы с 09.10 в хранилище, и страница
-      // получает адрес объекта там (lib/media/video-url), а не круг через
-      // переадресацию /video/[...path].
-      clips: parseClips(p.video_clips, `Видео: ${p.name}`)
-        .map((c) => ({ ...c, url: videoSrc(c.url), poster: videoSrc(c.poster) })),
-      legal: parseLegal(p.company_name, p.legal_info),
-      // Ролик без обложки не показывается: база такого не допускает (CHECK
-      // partners_video_shape), но экран не должен верить только базе.
-      video: p.video_url && p.video_poster_url
-        ? { url: videoSrc(p.video_url), poster: videoSrc(p.video_poster_url) }
-        : null,
-      ...charterContacts(p.contacts),
-    };
-  });
+/**
+ * Перевозчик для страницы /transfers/[slug]: публичный партнёр категории
+ * transfer. Прайса может не быть — страница тогда честно без него. null —
+ * такого перевозчика нет (страница отвечает 404); отказ базы — исключение,
+ * его ловит страница и говорит вслух (§4.0).
+ */
+export async function loadCarrierBySlug(slug: string): Promise<CarrierProfile | null> {
+  const partner = await query<PartnerRow & { is_verified: boolean | null; description: string | null }>(
+    `SELECT ${PARTNER_COLUMNS}, p.is_verified, p.description
+       FROM partners p
+      WHERE p.slug = $1
+        AND p.is_public = TRUE
+        AND p.category = 'transfer'
+      LIMIT 1`,
+    [slug],
+  );
+  const p = partner.rows[0];
+  if (!p) return null;
+  const { prices, vehicles } = await loadPricesAndFleet([p.id]);
+  return {
+    ...toCharterCarrier(p, prices, vehicles),
+    verified: p.is_verified === true,
+    description: p.description,
+  };
 }
