@@ -6,7 +6,8 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { pickToursForMessage } from '@/lib/ai/tour-place-relevance';
+import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export interface TourSuggestion {
   id: number;
@@ -67,6 +68,14 @@ const ACTIVITY_MAP: Record<string, string> = {
   снегоход:'snowmobile',
 };
 
+/** Первое слово словаря видов, встретившееся в тексте: по нему и тип, и поиск в названии. */
+function activityKeyword(lower: string): string | null {
+  for (const kw of Object.keys(ACTIVITY_MAP)) {
+    if (lower.includes(kw)) return kw;
+  }
+  return null;
+}
+
 // ── Detect booking/tour intent ────────────────────────────────────
 export function detectTourIntent(text: string): {
   detected: boolean;
@@ -78,12 +87,8 @@ export function detectTourIntent(text: string): {
   const detected = INTENT_KEYWORDS.some((kw) => keywordHit(lower, kw));
   if (!detected) return { detected: false, activityType: null, rawWords: '' };
 
-  let activityType: string | null = null;
-  for (const [kw, val] of Object.entries(ACTIVITY_MAP)) {
-    if (lower.includes(kw)) { activityType = val; break; }
-  }
-
-  return { detected: true, activityType, rawWords: text.slice(0, 200) };
+  const kw = activityKeyword(lower);
+  return { detected: true, activityType: kw ? ACTIVITY_MAP[kw]! : null, rawWords: text.slice(0, 200) };
 }
 
 // ── Fetch relevant tours from DB ──────────────────────────────────
@@ -98,10 +103,38 @@ export async function findRelevantTours(
   const candidates = Math.min(limit * 4, 20);
   try {
     const params: unknown[] = [candidates];
-    let actFilter = '';
+    // Шлюз витрины (lib/tours/public-visibility): снятый с витрины тур —
+    // демо, черновик, чужой партнёр — в чат не идёт, как и в каталог.
+    const where: string[] = [publicTourSql('ot')];
+    let placeFirst = '';
+
+    // Слово туриста — не всегда тип (тот же урок, что у get_tours в
+    // lib/kuzmich/tour-filter, 25.09 и 08.10): тип volcano — это восхождение,
+    // а «вулкан» в вопросе — любой тур к вулкану, и джип к Горелому, и облёт.
+    // Поэтому тип ИЛИ слово в названии тура.
+    let typeCond: string | null = null;
     if (activityType) {
-      actFilter = `AND ot.activity_type = $2`;
       params.push(activityType);
+      typeCond = `ot.activity_type = $${params.length}`;
+      const word = activityKeyword(rawText.toLowerCase());
+      if (word && ACTIVITY_MAP[word] === activityType) {
+        params.push(`%${word.replace(/ё/g, 'е')}%`);
+        typeCond = `(${typeCond} OR translate(ot.title, 'Ёё', 'Ее') ILIKE $${params.length})`;
+      }
+    }
+    // Названный вулкан приводит туры к нему любого типа (13.10): к Авачинскому
+    // ведут джип и снегоход, а слово «вулкан» давало тип volcano — один тур
+    // каталога, Ключевской. Тип не сужает туры к месту, а добавляет свои;
+    // туры к месту идут первыми, чтобы лимит не срезал их.
+    const patterns = volcanoNamePatterns(namedVolcanoes(rawText));
+    if (patterns.length > 0) {
+      params.push(patterns);
+      const placeCond = `translate(concat_ws(' ', ot.title, ot.location_name, ot.description), 'Ёё', 'Ее') ILIKE ANY($${params.length}::text[])`;
+      // Без типа отбор и так по всему каталогу — меняется только порядок.
+      if (typeCond) where.push(`(${typeCond} OR ${placeCond})`);
+      placeFirst = `(${placeCond}) DESC, `;
+    } else if (typeCond) {
+      where.push(typeCond);
     }
 
     const result = await pool.query<TourSuggestion>(
@@ -119,9 +152,8 @@ export async function findRelevantTours(
          p.slug AS operator_slug, p.is_public AS operator_public
        FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
-       WHERE ot.deleted_at IS NULL AND ot.is_active = TRUE
-       ${actFilter}
-       ORDER BY ot.created_at DESC
+       WHERE ${where.join(' AND ')}
+       ORDER BY ${placeFirst}ot.created_at DESC
        LIMIT $1`,
       params,
     );
@@ -139,7 +171,7 @@ export async function findRelevantTours(
            p.slug AS operator_slug, p.is_public AS operator_public
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
-         WHERE ot.deleted_at IS NULL AND ot.is_active = TRUE
+         WHERE ${publicTourSql('ot')}
            AND ot.title ILIKE $1
          ORDER BY ot.created_at DESC
          LIMIT $2`,

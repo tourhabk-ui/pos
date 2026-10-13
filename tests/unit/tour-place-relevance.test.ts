@@ -10,13 +10,23 @@
  * составных именах; тур про чужой вулкан не проходит, свой идёт первым,
  * общий остаётся; без названного вулкана — прежний порядок; подбор берёт
  * кандидатов с запасом и отдаёт отфильтрованное.
+ *
+ * Вечер того же дня, владелец: «и даже не один тур». Отсев чужого
+ * проверялся на выдуманном туре «Восхождение на Авачинский вулкан» с типом
+ * volcano. В настоящем каталоге к Авачинскому ведут джип и снегоход, а тип
+ * volcano — у одной Ключевской: SQL отбирал кандидатов по типу, и туров к
+ * Авачинскому среди них не было никогда. Поэтому вторая половина сторожа —
+ * на строках настоящего каталога и на том, что подбор отправляет в базу:
+ * названный вулкан приводит туры к нему ЛЮБОГО типа и первыми, слово
+ * «вулкан» — тип ИЛИ название, и всё это за шлюзом витрины. Отбор тем же
+ * SQL проверен на локальном PostgreSQL с каталогом из миграций.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
-import { namedVolcanoes, pickToursForMessage } from '@/lib/ai/tour-place-relevance';
+import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { findRelevantTours } from '@/lib/ai/booking-intent';
 
 const PROBE_QUESTION = 'Служебная проверка журнала общения Ведара: какая сейчас обстановка у Авачинского вулкана? Ответь в двух предложениях.';
@@ -68,14 +78,67 @@ describe('подбор туров для подсказки', () => {
   });
 });
 
-describe('findRelevantTours берёт кандидатов с запасом и отдаёт отфильтрованное', () => {
-  beforeEach(() => { query.mockReset(); });
+describe('образцы отбора по названному вулкану', () => {
+  it('основа каждого слова имени, только буквы', () => {
+    expect(volcanoNamePatterns(['Авачинский'])).toEqual(['%авачин%']);
+    expect(volcanoNamePatterns(['Плоский Толбачик'])).toEqual(['%плоск%', '%толбачик%']);
+    expect(volcanoNamePatterns([])).toEqual([]);
+    for (const p of volcanoNamePatterns(namedVolcanoes('Мутновский и Горелый, Ключевская сопка'))) {
+      expect(p).toMatch(/^%[а-я]+%$/);
+    }
+  });
+});
 
-  it('лимит кандидатов в SQL — вчетверо, наружу — не больше limit, без чужих вулканов', async () => {
-    const row = (t: typeof KLYUCH, id: string) => ({ id, slug: id, title: t.title, location: t.location, description: t.description, base_price: 1000, operator_name: 'Оператор' });
-    query.mockResolvedValueOnce({ rows: [row(KLYUCH, 'k'), row(GENERIC, 'g'), row(MUTNOV, 'm'), row(AVACHA, 'a')] });
+/** Строки настоящего каталога (MCP get_tours, 13.10): к Авачинскому — джип и снегоход, тип volcano — только у Ключевской. */
+const REAL = {
+  jeep: { id: 62, slug: null, title: 'Авачинский перевал', activity_type: 'jeep_safari', location: 'Авачинский перевал', description: 'Джип-тур по руслу Сухой речки к Авачинскому перевалу и подъём на экструзию Верблюд между Авачинским и Корякским вулканами.', base_price: 11000, operator_name: 'Местечко Камчатка' },
+  snow: { id: 52, slug: null, title: 'Авачинский перевал (снегоход)', activity_type: 'snowmobile', location: 'Авачинский перевал', description: 'Зимняя снегоходная экскурсия по руслу Сухой речки к подножию Авачинского и Корякского вулканов.', base_price: 10000, operator_name: 'Местечко Камчатка' },
+  klyuch: { id: 46, slug: null, title: 'Восхождение на вулкан Ключевская Сопка', activity_type: 'volcano', location: 'Вулкан Ключевская Сопка', description: 'Экстремальный тур для подготовленных: вертолётная заброска к кратеру Перевальный (2700 м), перевал Вулканологов', base_price: 320000, operator_name: 'Край Вулканов' },
+};
+
+describe('findRelevantTours: кандидаты по месту, а не только по типу', () => {
+  beforeEach(() => { query.mockReset(); });
+  const sqlOf = (i: number) => String(query.mock.calls[i]![0]).replace(/\s+/g, ' ');
+
+  it('«и даже не один тур»: туры к Авачинскому любого типа — в отборе и первыми, Ключевская отсеяна', async () => {
+    // Порядок строк — как его задаёт ORDER BY: совпавшие местом первыми.
+    query.mockResolvedValueOnce({ rows: [REAL.jeep, REAL.snow, REAL.klyuch] });
     const out = await findRelevantTours('volcano', PROBE_QUESTION, 3);
-    expect(query.mock.calls[0]![1]).toEqual([12, 'volcano']);
-    expect(out.map((t) => t.id)).toEqual(['a', 'g']);
+    expect(out.map((t) => t.id)).toEqual([62, 52]);
+
+    expect(query.mock.calls[0]![1]).toEqual([12, 'volcano', '%вулкан%', ['%авачин%']]);
+    const sql = sqlOf(0);
+    // Тип и место — через ИЛИ: тип не сужает туры к месту.
+    expect(sql).toContain(
+      "((ot.activity_type = $2 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $3) OR translate(concat_ws(' ', ot.title, ot.location_name, ot.description), 'Ёё', 'Ее') ILIKE ANY($4::text[]))",
+    );
+    expect(sql).toMatch(/ORDER BY \(translate\(concat_ws\(.+\) ILIKE ANY\(\$4::text\[\]\)\) DESC, ot\.created_at DESC LIMIT \$1/);
+  });
+
+  it('вулкан не назван: слово «вулкан» — тип ИЛИ название, порядок по новизне', async () => {
+    query.mockResolvedValueOnce({ rows: [REAL.jeep, REAL.klyuch] });
+    const out = await findRelevantTours('volcano', 'хочу на вулкан', 3);
+    expect(out.map((t) => t.id)).toEqual([62, 46]);
+    expect(query.mock.calls[0]![1]).toEqual([12, 'volcano', '%вулкан%']);
+    const sql = sqlOf(0);
+    expect(sql).toContain("(ot.activity_type = $2 OR translate(ot.title, 'Ёё', 'Ее') ILIKE $3)");
+    expect(sql).not.toContain('ILIKE ANY');
+    expect(sql).toMatch(/ORDER BY ot\.created_at DESC LIMIT \$1/);
+  });
+
+  it('без вида активности — весь каталог, туры к названному вулкану первыми', async () => {
+    query.mockResolvedValueOnce({ rows: [REAL.jeep, REAL.snow] });
+    await findRelevantTours(null, 'тур на Авачинский', 3);
+    expect(query.mock.calls[0]![1]).toEqual([12, ['%авачин%']]);
+    const sql = sqlOf(0);
+    expect(sql).not.toContain('activity_type =');
+    expect(sql).toContain("ILIKE ANY($2::text[])) DESC, ot.created_at DESC");
+  });
+
+  it('шлюз витрины в обоих запросах: снятый с витрины тур в чат не идёт', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    await findRelevantTours('rafting', 'хочу сплав', 3);
+    expect(query).toHaveBeenCalledTimes(2);
+    for (const i of [0, 1]) expect(sqlOf(i)).toContain('ot.is_published = true');
   });
 });
