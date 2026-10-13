@@ -1,74 +1,48 @@
 /**
  * lib/kuzmich/transfer-search.ts — инструмент Кузьмича search_transfers.
  *
- * Вернулся 02.09 поверх витрины схемы 926. Прежний инструмент удалён 01.09:
- * он читал таблицы, которых на проде не было, и Кузьмич отвечал бы
- * «трансферов не нашлось» на каждый вопрос — выдавал поломку за факт о мире.
+ * Трансфер на Камчатке — машина целиком под заказ, не место в ней (владелец
+ * 13.10: «бронируют целую машину а не место в ней»). Инструмент отвечает
+ * прайсом перевозчиков «под заказ» (миграция 1185) из lib/transfers/charter —
+ * того же загрузчика, что у экрана /transfers и страницы перевозчика.
  *
- * Читает ТОЛЬКО через listPublishedTrips — единственное место с фильтром
- * is_published (сторож carrier-api): Кузьмич видит ровно то, что видит
- * витрина /transfers, и ничего сверх.
+ * Мест в поездках (схема 926) он больше не называет. Модуль спрятан, а не
+ * удалён, но продавать место модель не должна: перевозчик сдаёт машину, и
+ * цена у него — за машину. До 13.10 ответ начинался с «никто не едет» по
+ * витрине поездок, которую не заполнял никто, а прайс машины шёл приложением.
  *
- * Три исхода (§4.0): нашли — список; искали и нет — «в эти дни никто не
- * едет» с окном дат; не смогли проверить — так и сказано, без выдумки.
+ * Три исхода (§4.0): прайс есть — прайс; перевозчиков с прайсом нет — так и
+ * сказано, это факт витрины; не смог прочитать — «не смог проверить», без
+ * «таких нет».
  *
- * Вторым разделом идёт прайс перевозчиков «под заказ» (целая машина, цена за
- * машину; миграция 1185) — из lib/transfers/charter, того же источника, что
- * у экрана /transfers и карточки перевозчика. Две поверхности друг от друга не
- * зависят: падение одной не прячет другую. Телефон перевозчика в ответ НЕ
- * кладётся (pd-guard: модели зарубежные) — только ссылка на карточку, где он
- * есть.
+ * Телефон перевозчика в ответ НЕ кладётся (pd-guard: модели зарубежные) —
+ * только ссылка на страницу перевозчика, где он есть.
  */
-import { listPublishedTrips } from '@/lib/transfers/service';
 import { loadCharterCarriers, charterFootnote, describeFleet, matchDestinations, type CharterCarrier } from '@/lib/transfers/charter';
 import { getPublicBaseUrl } from '@/lib/config';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
-import { kamchatkaToday } from '@/lib/seat-requests/core';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 export interface TransferSearchArgs {
-  from?: string;
-  to?: string;
-  seats?: string;
+  /** Куда или откуда — слово из вопроса человека. */
   place?: string;
 }
 
-const KIND_LABEL: Record<string, string> = { jeep: 'джип', vahtovka: 'вахтовка', minibus: 'микроавтобус', other: 'транспорт' };
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const DEFAULT_WINDOW_DAYS = 14;
-const MAX_WINDOW_DAYS = 60;
-
-function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
-
-/** Окно дат из аргументов модели: неразборчивые даты — окно по умолчанию. */
-export function resolveWindow(args: TransferSearchArgs, now = new Date()): { from: string; to: string } {
-  // «Сегодня» — по Камчатке: поездки местные, и по UTC с 12:00 до 24:00 окно
-  // начиналось со вчерашнего там дня (проверка MCP 29.09).
-  const from = args.from && DATE.test(args.from) ? args.from : kamchatkaToday(now.getTime());
-  let to = args.to && DATE.test(args.to) ? args.to : isoDate(new Date(Date.parse(from) + DEFAULT_WINDOW_DAYS * 86_400_000));
-  const span = (Date.parse(to) - Date.parse(from)) / 86_400_000;
-  if (!Number.isFinite(span) || span < 0 || span > MAX_WINDOW_DAYS) {
-    to = isoDate(new Date(Date.parse(from) + DEFAULT_WINDOW_DAYS * 86_400_000));
-  }
-  return { from, to };
-}
-
 /**
- * Раздел «под заказ». null — не смог проверить (отличается от пустого списка:
+ * Ответ по прайсу. null — не смог проверить (отличается от пустого списка:
  * «таких перевозчиков нет» и «не смог узнать» человеку говорятся по-разному).
- * Пустой список — раздела нет вовсе: говорить «под заказ никого нет» значило
- * бы утверждать больше, чем знает инструмент о рынке.
  */
-export function charterSection(
+export function charterAnswer(
   carriers: CharterCarrier[] | null,
   place: string | undefined,
   base: string,
   opts: { surface?: 'chat' | 'mcp' } = {},
 ): string {
   if (carriers === null) {
-    return '\n\nНе смог проверить прайс вахтовок под заказ — сбой на нашей стороне. Не говори, что таких перевозчиков нет; предложи посмотреть позже на /transfers.';
+    return `Не смог проверить прайс машин под заказ — сбой на нашей стороне. Не говори, что таких перевозчиков нет; предложи посмотреть позже на ${base}/transfers.`;
   }
-  if (carriers.length === 0) return '';
+  if (carriers.length === 0) {
+    return `Перевозчиков с прайсом под заказ на платформе пока нет — это факт витрины, не сбой. Перевозчиков, рейсов и цен не выдумывай. Витрина: ${base}/transfers.`;
+  }
   const needle = (place ?? '').trim().toLowerCase();
   const blocks = carriers.map(c => {
     const hit = needle
@@ -96,48 +70,17 @@ export function charterSection(
     ? '\nОставить заявку на машину: request_charter (куда, даты выезда, сколько человек, имя, телефон, согласие). Машина этим не закрепляется — подтверждает менеджер с перевозчиком.'
       + ` Параметр carrier — ${ids}${carriers.length === 1 ? '; пока перевозчик один, его можно не передавать' : ''}.`
     : '';
-  return `\n\nПод заказ целой машиной (дат и мест нет; цена за машину, не за место; сколько дней и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую, через платформу не оплачивается):\n${blocks.join('\n')}${order}`;
+  return `Трансфер — машина целиком под заказ: цена за машину, не за место; дату и направление задаёт заказчик. Сколько дней и что входит в цену — в прайсе не сказано, уточняется у перевозчика; расчёт напрямую с ним, через платформу не оплачивается.\n${blocks.join('\n')}${order}`;
 }
 
 export async function searchTransfersForKuzmich(args: TransferSearchArgs, opts: { surface?: 'chat' | 'mcp' } = {}): Promise<string> {
-  const { from, to } = resolveWindow(args);
-  const seatsNum = Number(args.seats);
-  const minSeats = args.seats && Number.isFinite(seatsNum) && seatsNum >= 1 ? Math.min(60, Math.floor(seatsNum)) : 1;
   const base = getPublicBaseUrl();
-
-  // Прайс «под заказ» читается рядом и независимо: отказ одной витрины не
-  // должен прятать другую.
-  const charterPromise: Promise<CharterCarrier[] | null> = loadCharterCarriers().catch((err: unknown) => {
-    console.error('[kuzmich/search_transfers/charter]', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
-    return null;
-  });
-
-  let trips;
+  let carriers: CharterCarrier[] | null;
   try {
-    trips = await listPublishedTrips({ fromDate: from, toDate: to, minSeats, placeId: null });
+    carriers = await loadCharterCarriers();
   } catch (err) {
-    console.error('[kuzmich/search_transfers]', err instanceof Error ? err.message : err);
-    // Не «поездок нет», а «не смог проверить»: одно от другого турист обязан отличать.
-    return 'Не смог проверить витрину поездок перевозчиков — сбой на нашей стороне. Не говори, что мест нет; предложи посмотреть позже на /transfers.'
-      + charterSection(await charterPromise, args.place, base, opts);
+    console.error('[kuzmich/search_transfers]', (err as { code?: string } | null)?.code ?? '', err instanceof Error ? err.message : err);
+    carriers = null;
   }
-  const charter = charterSection(await charterPromise, args.place, base, opts);
-
-  // Фильтр по направлению — по тексту «куда», как его написал перевозчик.
-  const needle = (args.place ?? '').trim().toLowerCase();
-  const matched = needle
-    ? trips.filter(t => t.to_text.toLowerCase().includes(needle) || t.from_text.toLowerCase().includes(needle))
-    : trips;
-
-  if (matched.length === 0) {
-    const where = needle ? ` в сторону «${args.place}»` : '';
-    return `Искал с ${from} по ${to}${where}, мест от ${minSeats}: опубликованных поездок нет — в эти дни никто не едет. Это факт витрины, не сбой. Другие даты или направление — ${base}/transfers.${charter}`;
-  }
-
-  const lines = matched.slice(0, 6).map(t => {
-    const price = t.price_per_seat ? `${Math.round(Number(t.price_per_seat))} руб/место` : 'цена по запросу';
-    const when = t.departure_note ? `${t.trip_date}, ${t.departure_note}` : t.trip_date;
-    return `${when}: ${t.from_text} — ${t.to_text}, ${KIND_LABEL[t.vehicle_kind] ?? t.vehicle_kind} «${t.vehicle_title}», свободно ${t.seats_free} из ${t.seats_total}, ${price}. Перевозчик: ${t.partner_name}.`;
-  });
-  return `Поездки с ${from} по ${to} (мест от ${minSeats}):\n${lines.join('\n')}\n\nЗапросить место (нужен вход; место занимается после подтверждения перевозчика, ${platformAcceptsPayments() ? 'оплата по QR СБП' : 'оплата перевозчику напрямую'}): ${base}/transfers${charter}`;
+  return charterAnswer(carriers, args.place, base, opts);
 }

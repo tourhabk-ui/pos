@@ -322,15 +322,15 @@ describe('связка: производитель, читатель и экра
   // трансфера); переадресацию со старого /operators/<slug>, три исхода
   // данных и форму заявки судит рендером tests/unit/transfer-card-standard.test.tsx.
 
-  it('Кузьмич и MCP читают тот же загрузчик и называют вахтовки под заказ в описании', () => {
+  it('Кузьмич и MCP читают тот же загрузчик; телефона перевозчика в ответе модели нет', () => {
+    // Что инструмент отвечает (прайс за машину, три исхода, ни слова о местах)
+    // и что обещают описания у Кузьмича и в MCP — судит вызов:
+    // tests/unit/kuzmich-transfer-search.test.ts. Критерий #2240 («пустая
+    // выдача поездок — норма») снят вместе с поездками 13.10: поездок с
+    // датами инструмент больше не ищет.
     const src = read('lib/kuzmich/transfer-search.ts');
     expect(src).toMatch(/loadCharterCarriers/);
     expect(src).not.toMatch(/\.phone\b|telegramHref|whatsappHref/);
-    expect(read('lib/kuzmich/tool-schemas.ts')).toMatch(/вахтовки под заказ целой машиной/);
-    expect(read('lib/mcp/public-tools.ts')).toMatch(/whole-vehicle charter prices/);
-    // критерий #2240: пустая выдача поездок названа нормой, а не ошибкой поиска, в обоих описаниях
-    expect(read('lib/mcp/public-tools.ts')).toMatch(/No dated trips is normal, not an error/);
-    expect(read('lib/kuzmich/tool-schemas.ts')).toMatch(/Пустая выдача поездок с датами — норма, а не ошибка поиска/);
   });
 });
 

@@ -24,19 +24,17 @@ describe('KUZMICH_TOOLS (generated from the registry)', () => {
       'safety_status',
       'search_accommodations', 'search_gear', 'search_kamchatka', 'search_taaft',
       // search_transfers удалён 01.09 (читал таблицы, которых на проде не было,
-      // и выдавал поломку за факт) и вернулся 02.09 поверх витрины схемы 926:
-      // тот же listPublishedTrips, что у /transfers, отказ базы — словами
-      // «не смог проверить», а не «поездок нет».
+      // и выдавал поломку за факт) и вернулся 02.09 поверх витрины схемы 926.
+      // С 13.10 отвечает прайсом машины целиком (владелец: «бронируют целую
+      // машину а не место в ней»); отказ базы — словами «не смог проверить».
       'search_transfers',
       ]);
   });
 
-  it('registers search_transfers with all filters optional (no required params)', () => {
+  it('registers search_transfers with its only filter optional (no required params)', () => {
     const def = KUZMICH_TOOLS.find(t => t.function.name === 'search_transfers')!;
     expect(def.function.parameters.required).toEqual([]);
-    expect(Object.keys(def.function.parameters.properties)).toEqual(
-      expect.arrayContaining(['from', 'to', 'seats', 'place']),
-    );
+    expect(Object.keys(def.function.parameters.properties)).toEqual(['place']);
   });
 
   it('registers search_gear with all filters optional (no required params)', () => {

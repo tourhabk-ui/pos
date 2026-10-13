@@ -59,7 +59,9 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
   it.each([
     'lib/kuzmich/core.ts',
     'components/kuzmich/KuzmichWidget.tsx',
-    'lib/kuzmich/transfer-search.ts',
+    // lib/kuzmich/transfer-search.ts снят 13.10: мест в поездках инструмент
+    // больше не продаёт, а машина под заказ через платформу не оплачивается
+    // никогда — об оплате он говорит без выключателя.
     'lib/seat-requests/core.ts',
     'app/api/hub/bookings/create/route.ts',
     'lib/telegram/booking-notify.ts',

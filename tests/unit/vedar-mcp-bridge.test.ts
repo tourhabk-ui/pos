@@ -59,6 +59,20 @@ describe('мост обещает о платформе только то, чт�
     }
   });
 
+  it('снимок совпадает с живой схемой целиком — описание и параметры, а не только имена', () => {
+    // 13.10 search_transfers стал прайсом машины целиком, а снимок ещё
+    // продавал «свободные места» с окном дат: сторож по именам этого не видел.
+    // Пересобрать: python3 vedar_mcp_bridge.py --schema vedar_tools.json
+    // (to_openai_tools: описание обрезается до 1024 знаков, схема — как есть).
+    const snapshot = JSON.parse(read(`${DIR}/vedar_tools.json`)) as Array<{ function: { name: string; description: string; parameters: unknown } }>;
+    const byName = new Map(snapshot.map((t) => [t.function.name, t.function]));
+    for (const live of PUBLIC_MCP_TOOLS) {
+      const snap = byName.get(live.name);
+      expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(live.description.trim().slice(0, 1024));
+      expect(snap?.parameters, `${live.name}: параметры в снимке устарели`).toEqual(live.inputSchema);
+    }
+  });
+
   it('имя клиента несёт провайдера, и журнал относит его к семейству модели', () => {
     expect(src).toContain('f"vedar-mcp-bridge/{cfg[\'provider\']}"');
     expect(chinaClientFamily('vedar-mcp-bridge/deepseek')).toBe('deepseek');

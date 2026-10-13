@@ -17,7 +17,8 @@ import {
   buildAgentCard, buildLegacyAgentCard, buildSkills, skillToolNames, SKILL_TAGS, CHAT_SKILL_ID,
   AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH, A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION,
 } from '@/lib/a2a/agent-card';
-import { PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOL_NAMES, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 
 const BASE = 'https://vedarai.ru';
 const card = buildAgentCard(BASE) as Record<string, unknown>;
@@ -97,6 +98,26 @@ describe('навыки — из реестра инструментов', () => 
         expect(s.tags, s.id).toContain('consent');
         expect(s.description, s.id).toMatch(/rejected/);
       }
+    }
+  });
+
+  it('пример DataPart называет только параметры инструмента, все обязательные, и схема их не отбрасывает', () => {
+    // До 13.10 четыре примера звали параметры, которых нет: лишнее поле
+    // схема отбрасывала молча, и скопировавший пример агент получал ответ не
+    // на свой вопрос (search_transfers с `destination`) или отказ
+    // (get_tour_details без `name`).
+    const schemaOf = new Map(PUBLIC_MCP_TOOLS.map(t => [t.name, t.inputSchema as { properties?: Record<string, unknown>; required?: string[] }]));
+    for (const s of skills.slice(1)) {
+      const { arguments: args } = JSON.parse(s.examples[0]) as { arguments: Record<string, unknown> };
+      const keys = Object.keys(args);
+      if (keys.length === 0) continue; // формы нет — пример пуст, а не выдуман
+      const schema = schemaOf.get(s.id)!;
+      for (const k of keys) expect(Object.keys(schema.properties ?? {}), `${s.id}: параметра «${k}» в схеме нет`).toContain(k);
+      for (const r of schema.required ?? []) expect(keys, `${s.id}: в примере нет обязательного «${r}»`).toContain(r);
+      const asStrings = Object.fromEntries(keys.map(k => [k, String(args[k])]));
+      const parsed = validateToolArgs(s.id, asStrings);
+      expect(parsed.ok, s.id).toBe(true);
+      if (parsed.ok) expect(Object.keys(parsed.args).sort(), `${s.id}: схема отбросила часть примера`).toEqual([...keys].sort());
     }
   });
 

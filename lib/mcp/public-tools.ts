@@ -225,7 +225,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
   get_volcano_status:    { title: 'Volcano status',        lead: 'Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. For one place or route use get_guardian_context.' },
   search_accommodations: { title: 'Stays',                 lead: 'Stays in Kamchatka from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
-  search_transfers:      { title: 'Transfers',             lead: 'Kamchatka transfers: free seats in dated carrier trips, plus whole-vehicle charter prices (vakhtovka trucks). No dated trips is normal, not an error.' },
+  search_transfers:      { title: 'Transfers',             lead: 'Kamchatka transfers are whole-vehicle charters (vakhtovka trucks, jeeps): carrier price lists by destination, price per vehicle, not per seat; no seats are sold. To request a vehicle: request_charter.' },
   search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
   make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan.' },
   edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were.' },
@@ -293,10 +293,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     price_max: { lead: 'Maximum price per night, RUB.', example: '8000' },
   },
   search_transfers: {
-    from: { lead: 'Window start, YYYY-MM-DD; default today.', example: '2027-07-15' },
-    to: { lead: 'Window end, YYYY-MM-DD; default +14 days, at most 60.', example: '2027-07-29' },
-    seats: { lead: 'Seats needed; default 1.', example: '2' },
-    place: { lead: 'Destination or origin keyword.', example: 'аэропорт' },
+    place: { lead: 'Destination or origin keyword; empty — the whole price list.', example: 'Горелый' },
   },
   search_gear: {
     query: { lead: 'What to rent: tent, sleeping bag, trekking poles, a brand.', example: 'палатка' },

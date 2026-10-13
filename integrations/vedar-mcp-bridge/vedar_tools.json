@@ -191,36 +191,15 @@
     "type": "function",
     "function": {
       "name": "search_transfers",
-      "description": "Kamchatka transfers: free seats in dated carrier trips, plus whole-vehicle charter prices (vakhtovka trucks). No dated trips is normal, not an error. Найти свободные места в поездках перевозчиков Камчатки (джипы, вахтовки, микроавтобусы) из витрины Ведара: дата, направление, остаток мест, цена места; а также вахтовки под заказ целой машиной — прайс по направлениям, цена за машину. Используй когда турист спрашивает как доехать, есть ли трансфер, заброска, попутный джип к вулкану или источникам, сколько стоит вахтовка. Место в поездке занимается только после подтверждения перевозчика; вахтовка под заказ — договорённость напрямую с перевозчиком. Пустая выдача поездок с датами — норма, а не ошибка поиска: перевозчики ходят под заказ, и тогда ответ называет прайс под заказ; рейсов не выдумывай.",
+      "description": "Kamchatka transfers are whole-vehicle charters (vakhtovka trucks, jeeps): carrier price lists by destination, price per vehicle, not per seat; no seats are sold. To request a vehicle: request_charter. Трансфер по Камчатке — машина целиком под заказ у перевозчика (вахтовки, джипы): прайс по направлениям, цена за машину целиком, не за место. Используй, когда турист спрашивает, как доехать, есть ли трансфер или заброска, сколько стоит вахтовка или джип к вулкану, источникам, озеру. Места в машине платформа не продаёт: дату и направление задаёт заказчик, машину с перевозчиком подтверждает менеджер Ведара, расчёт — напрямую с перевозчиком. Рейсов, свободных мест и цен, которых нет в ответе, не выдумывай.",
       "parameters": {
         "type": "object",
         "properties": {
-          "from": {
-            "type": "string",
-            "description": "Window start, YYYY-MM-DD; default today. Начало окна дат, ГГГГ-ММ-ДД (по умолчанию сегодня)",
-            "examples": [
-              "2027-07-15"
-            ]
-          },
-          "to": {
-            "type": "string",
-            "description": "Window end, YYYY-MM-DD; default +14 days, at most 60. Конец окна дат, ГГГГ-ММ-ДД (по умолчанию +14 дней, не больше 60)",
-            "examples": [
-              "2027-07-29"
-            ]
-          },
-          "seats": {
-            "type": "string",
-            "description": "Seats needed; default 1. Сколько мест нужно (по умолчанию 1)",
-            "examples": [
-              "2"
-            ]
-          },
           "place": {
             "type": "string",
-            "description": "Destination or origin keyword. Куда или откуда — слово из вопроса человека: место, вулкан, река; подходит и аэропорт",
+            "description": "Destination or origin keyword; empty — the whole price list. Куда или откуда — слово из вопроса человека: вулкан, озеро, река, посёлок; без него — весь прайс",
             "examples": [
-              "аэропорт"
+              "Горелый"
             ]
           }
         },

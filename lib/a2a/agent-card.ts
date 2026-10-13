@@ -77,17 +77,24 @@ export const SKILL_TAGS: Record<string, string[]> = {
   get_request_status:     ['kamchatka', 'request', 'status', 'operator-answer'],
 };
 
-/** Пример аргументов для DataPart — там, где форма однозначна; иначе пусто. */
+/**
+ * Пример аргументов для DataPart — там, где форма однозначна; иначе пусто.
+ * Имена — из схемы инструмента: до 13.10 четыре примера называли параметры,
+ * которых у инструмента нет (`tour` вместо `name`, `name` вместо `volcano`,
+ * `query` вместо `zone`, `destination` вместо `place`). Лишнее поле схема
+ * молча отбрасывает, и агент, скопировавший пример, получал ответ не на свой
+ * вопрос — а get_tour_details без `name` и вовсе отказ.
+ */
 const ARG_EXAMPLES: Record<string, Record<string, unknown>> = {
   get_tours: { activity_type: 'вулканы' },
-  get_tour_details: { tour: 'Курильское озеро' },
+  get_tour_details: { name: 'Курильское озеро' },
   get_tour_availability: { tour: 'Курильское озеро', date_from: '2027-08-01', days: 14, people: 2 },
   get_guardian_context: { place: 'Вулкан Горелый' },
   get_place_info: { name: 'Курильское озеро' },
   get_weather: { place: 'Петропавловск-Камчатский' },
-  get_volcano_status: { name: 'Шивелуч' },
-  search_accommodations: { query: 'Паратунка' },
-  search_transfers: { destination: 'Вулкан Горелый' },
+  get_volcano_status: { volcano: 'Шивелуч' },
+  search_accommodations: { zone: 'Паратунка' },
+  search_transfers: { place: 'Горелый' },
   search_gear: { query: 'палатка' },
   make_trip_plan: { days: 5, interests: 'вулканы, медведи', when: 'август' },
   search: { query: 'Курильское озеро медведи' },

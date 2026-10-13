@@ -2138,11 +2138,11 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       return await searchAccommodationsForKuzmich({ zone: args.zone, type: args.type, price_max: args.price_max });
     }
     if (name === 'search_transfers') {
-      // Поверх витрины схемы 926 (02.09): тот же listPublishedTrips, что у
-      // /transfers. Отказ базы возвращается словами «не смог проверить», а не
-      // «поездок нет» — прежний инструмент выдавал поломку за факт (01.09).
+      // Машина целиком под заказ (владелец 13.10): прайс перевозчиков тем же
+      // загрузчиком, что у /transfers. Отказ базы возвращается словами «не смог
+      // проверить», а не «перевозчиков нет».
       const { searchTransfersForKuzmich } = await import('@/lib/kuzmich/transfer-search');
-      return await searchTransfersForKuzmich({ from: args.from, to: args.to, seats: args.seats, place: args.place }, { surface: opts.surface });
+      return await searchTransfersForKuzmich({ place: args.place }, { surface: opts.surface });
     }
     if (name === 'search_gear') {
       const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');
