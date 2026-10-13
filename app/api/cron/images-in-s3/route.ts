@@ -28,7 +28,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { s3PublicBase } from '@/lib/storage/s3';
+import { s3PublicBase, s3PublicUrl } from '@/lib/storage/s3';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -74,17 +74,47 @@ async function listMoved(limit: number, offset: number) {
   return rows;
 }
 
-/** Счётчики: сколько уехало, сколько ещё байтами, и раскладка по роду. */
+/**
+ * Счётчики: сколько уехало, сколько ещё байтами, и раскладка по роду.
+ *
+ * Две таблицы, не одна (13.10). Герой места живёт в `ai_route_images`,
+ * остальные кадры — в `place_gallery_photos` (968); перепись, которая видит
+ * только героя, на вопрос владельца «фото все на s3?» отвечала «да» про
+ * половину снимков. Ключ `migrations/photos/<sha256>.jpg` считается
+ * отдельно: это снимки, вшитые прежде в миграции байтами и переведённые
+ * на ключ миграцией 1228 — по нему видно, что перевод на проде состоялся,
+ * а не только что мувер ночью кого-то увёз.
+ */
+const MIGRATION_KEY_PREFIX = 'migrations/photos/';
+
+interface TableCounts { in_s3: number; in_db: number; neither: number; migration_keys: number }
+
+async function tableCounts(table: 'ai_route_images' | 'place_gallery_photos'): Promise<TableCounts> {
+  // Имя таблицы — из замкнутого списка выше, не из запроса: в SQL попадает
+  // только одно из двух известных слов.
+  const { rows } = await pool.query<{ in_s3: string; in_db: string; neither: string; migration_keys: string }>(
+    `SELECT COUNT(*) FILTER (WHERE s3_key IS NOT NULL)::text AS in_s3,
+            COUNT(*) FILTER (WHERE image_data IS NOT NULL)::text AS in_db,
+            -- Ни байтов, ни ключа: строка есть, снимка нет. Это не ноль и
+            -- не успех — это состояние, которое обязано быть видно.
+            COUNT(*) FILTER (WHERE image_data IS NULL AND s3_key IS NULL)::text AS neither,
+            COUNT(*) FILTER (WHERE s3_key LIKE $1)::text AS migration_keys
+       FROM ${table}`,
+    [`${MIGRATION_KEY_PREFIX}%`],
+  );
+  const t = rows[0];
+  return {
+    in_s3:          Number(t?.in_s3 ?? 0),
+    in_db:          Number(t?.in_db ?? 0),
+    neither:        Number(t?.neither ?? 0),
+    migration_keys: Number(t?.migration_keys ?? 0),
+  };
+}
+
 async function counts() {
-  const [{ rows: totals }, { rows: byModel }] = await Promise.all([
-    pool.query<{ in_s3: string; in_db: string; neither: string }>(
-      `SELECT COUNT(*) FILTER (WHERE s3_key IS NOT NULL)::text AS in_s3,
-              COUNT(*) FILTER (WHERE image_data IS NOT NULL)::text AS in_db,
-              -- Ни байтов, ни ключа: строка есть, снимка нет. Это не ноль и
-              -- не успех — это состояние, которое обязано быть видно.
-              COUNT(*) FILTER (WHERE image_data IS NULL AND s3_key IS NULL)::text AS neither
-         FROM ai_route_images`,
-    ),
+  const [hero, gallery, { rows: byModel }] = await Promise.all([
+    tableCounts('ai_route_images'),
+    tableCounts('place_gallery_photos'),
     pool.query<{ model: string | null; n: string }>(
       `SELECT model, COUNT(*)::text AS n
          FROM ai_route_images
@@ -93,11 +123,13 @@ async function counts() {
         ORDER BY COUNT(*) DESC`,
     ),
   ]);
-  const t = totals[0];
   return {
-    in_s3:   Number(t?.in_s3 ?? 0),
-    in_db:   Number(t?.in_db ?? 0),
-    neither: Number(t?.neither ?? 0),
+    // Поля героя остаются на верхнем уровне, как читали их прежние прогоны.
+    in_s3:   hero.in_s3,
+    in_db:   hero.in_db,
+    neither: hero.neither,
+    migration_keys: hero.migration_keys,
+    gallery,
     by_model: byModel.map(m => ({ model: m.model, count: Number(m.n) })),
   };
 }
@@ -108,7 +140,7 @@ const MAX_CHECK = 20;
 
 type Reach = 'open' | 'denied' | 'missing' | 'http' | 'foreign' | 'unreachable';
 
-interface CheckRow { s3_url: string; s3_key: string; subject_name: string | null }
+interface CheckRow { s3_url: string | null; s3_key: string; subject_name: string | null }
 
 /**
  * ОТКРЫВАЕТСЯ ЛИ ОБЪЕКТ НА САМОМ ДЕЛЕ.
@@ -125,8 +157,10 @@ interface CheckRow { s3_url: string; s3_key: string; subject_name: string | null
  *
  * Спрашиваем HEAD, а не GET: нужен код ответа, а не байты.
  *
- * Адрес берётся из базы (именно его отдаёт карточка), но ХОДИМ только если он
- * начинается с нашей публичной базы. Строка в базе — не доказательство
+ * Адрес берётся из базы (именно его отдаёт карточка): `s3_url`, а у строк с
+ * одним ключом (снимки из миграций, 1228, до первого прогона уборщика) —
+ * тот же адрес, что собирает раздача из ключа (`s3PublicUrl`). ХОДИМ только
+ * если он начинается с нашей публичной базы. Строка в базе — не доказательство
  * происхождения, а роут ходит с прода: не хватало превратить пробу в
  * отправитель запросов куда попало. Чужой адрес не запрашивается вовсе и
  * попадает в ответ отдельным исходом.
@@ -135,13 +169,14 @@ async function checkReachable(rows: CheckRow[]): Promise<Array<{ name: string; k
   const base = s3PublicBase();
   return Promise.all(rows.map(async (r) => {
     const name = r.subject_name ?? '(ни места, ни маршрута)';
-    if (!r.s3_url.startsWith(base)) {
+    const address = r.s3_url && r.s3_url.trim() !== '' ? r.s3_url : s3PublicUrl(r.s3_key);
+    if (!address || !address.startsWith(base)) {
       return { name, key: r.s3_key, outcome: 'foreign' as Reach, status: null };
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10_000);
     try {
-      const res = await fetch(r.s3_url, { method: 'HEAD', signal: ctrl.signal, redirect: 'follow' });
+      const res = await fetch(address, { method: 'HEAD', signal: ctrl.signal, redirect: 'follow' });
       const outcome: Reach =
         res.ok            ? 'open'
         : res.status === 403 || res.status === 401 ? 'denied'
@@ -157,16 +192,27 @@ async function checkReachable(rows: CheckRow[]): Promise<Array<{ name: string; k
   }));
 }
 
-/** Случайная выборка перевезённых: проверять всегда первые — значит не узнать о прочих. */
+/**
+ * Случайная выборка перевезённых: проверять всегда первые — значит не узнать о
+ * прочих. Обе таблицы (герой и галерея) и обе формы записи (адрес или один
+ * ключ): проверяется то, что карточка в самом деле отдаст туристу.
+ */
 async function sampleForCheck(n: number): Promise<CheckRow[]> {
   const { rows } = await pool.query<CheckRow>(
-    `SELECT i.s3_url, i.s3_key, COALESCE(p.name, kr.title) AS subject_name
-       FROM ai_route_images i
-       LEFT JOIN places p           ON p.ark_id = i.route_id
-       LEFT JOIN kamchatka_routes kr ON kr.ark_id = i.route_id
-      WHERE i.s3_url IS NOT NULL AND btrim(i.s3_url) <> ''
-      ORDER BY random()
-      LIMIT $1`,
+    `SELECT s3_url, s3_key, subject_name FROM (
+        SELECT i.s3_url, i.s3_key, COALESCE(p.name, kr.title) AS subject_name
+          FROM ai_route_images i
+          LEFT JOIN places p           ON p.ark_id = i.route_id
+          LEFT JOIN kamchatka_routes kr ON kr.ark_id = i.route_id
+         WHERE i.s3_key IS NOT NULL OR (i.s3_url IS NOT NULL AND btrim(i.s3_url) <> '')
+        UNION ALL
+        SELECT g.s3_url, g.s3_key, p.name || ' · кадр ' || g.position AS subject_name
+          FROM place_gallery_photos g
+          LEFT JOIN places p ON p.ark_id = g.ark_id
+         WHERE g.s3_key IS NOT NULL OR (g.s3_url IS NOT NULL AND btrim(g.s3_url) <> '')
+     ) moved
+     ORDER BY random()
+     LIMIT $1`,
     [n],
   );
   return rows;

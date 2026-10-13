@@ -94,11 +94,13 @@ describe('исходы разделены, третий не выдаётся з
 describe('проба не превращается в отправитель запросов куда попало', () => {
   it('ходит только по адресам нашего хранилища', () => {
     expect(PROBE).toContain('s3PublicBase()');
-    expect(PROBE).toContain('r.s3_url.startsWith(base)');
+    // Адрес — из s3_url либо из ключа (13.10, галерея и снимки из миграций), но граница одна.
+    expect(PROBE).toContain('address.startsWith(base)');
   });
 
   it('чужой адрес не запрашивается, а попадает в ответ отдельным исходом', () => {
-    const at = PROBE.indexOf('if (!r.s3_url.startsWith(base))');
+    const at = PROBE.indexOf('if (!address || !address.startsWith(base))');
+    expect(at).toBeGreaterThan(-1);
     const branch = PROBE.slice(at, at + 200);
     expect(branch).toContain("'foreign'");
     expect(branch).not.toContain('fetch(');
