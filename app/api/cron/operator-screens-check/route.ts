@@ -72,7 +72,7 @@ function clientsQueries(): ScreenQuery[] {
 
 function allQueries(): ScreenQuery[] {
   return [
-    { screen: 'completeness', name: 'Полнота туров', sql: COMPLETENESS_TOURS_SQL },
+    { screen: 'completeness', name: 'Чего не хватает (готовность туров)', sql: COMPLETENESS_TOURS_SQL },
     ...clientsQueries(),
     { screen: 'analytics', name: 'Аналитика: выручка по месяцам', sql: ANALYTICS_SQL.revenueByMonth },
     { screen: 'analytics', name: 'Аналитика: топ туров', sql: ANALYTICS_SQL.topTours },

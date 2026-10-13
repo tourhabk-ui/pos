@@ -226,6 +226,17 @@ export default function EditTourClient() {
     load();
   }, [tourId]);
 
+  // Экран «Чего не хватает» ведёт на #якорь секции (lib/operator/blocker-targets).
+  // Форма рисуется после загрузки тура, а браузер прокручивает по хэшу в
+  // момент открытия страницы — на спиннер, где секции ещё нет. Поэтому
+  // прокручиваем сами, когда секция уже в документе.
+  useEffect(() => {
+    if (loading || !tour) return;
+    const anchor = window.location.hash.slice(1);
+    if (!anchor) return;
+    document.getElementById(anchor)?.scrollIntoView({ block: 'start' });
+  }, [loading, tour]);
+
   function setF<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
     setForm(f => ({ ...f, [key]: val }));
   }
@@ -380,7 +391,7 @@ export default function EditTourClient() {
       </section>
 
       {/* Основное */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+      <section id="basics" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <p className={heading}>Основная информация</p>
         <div>
           <label className={lbl}>Название тура</label>
@@ -397,7 +408,7 @@ export default function EditTourClient() {
       </section>
 
       {/* Фотографии */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+      <section id="photos" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
         <p className={heading}>Фотографии ({photos.length})</p>
         {photos.length > 0 ? (
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
@@ -488,7 +499,7 @@ export default function EditTourClient() {
       </section>
 
       {/* Категории */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+      <section id="location" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <p className={heading}>Категории и место</p>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -529,7 +540,7 @@ export default function EditTourClient() {
       </section>
 
       {/* Цена */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+      <section id="price" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <p className={heading}>Цена и участники</p>
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -572,7 +583,7 @@ export default function EditTourClient() {
       </section>
 
       {/* Длительность и сезон */}
-      <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
+      <section id="duration" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <p className={heading}>Длительность и сезон</p>
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -637,7 +648,8 @@ export default function EditTourClient() {
           <textarea className={inp + ' min-h-[60px] resize-y font-mono text-xs'} value={form.what_to_bring}
             onChange={e => setF('what_to_bring', e.target.value)} placeholder={'Удобная обувь\nДождевик'} />
         </div>
-        <div>
+        {/* Якоря pickup/cancellation — для экрана «Чего не хватает турам» (lib/operator/blocker-targets). */}
+        <div id="pickup" className="scroll-mt-20">
           <label className={lbl}>Как турист попадает на тур</label>
           <select className={inp} value={form.pickup_type} onChange={e => setF('pickup_type', e.target.value)}>
             <option value="">Не выбрано</option>
@@ -658,7 +670,7 @@ export default function EditTourClient() {
               : 'Без подробностей ответ бесполезен: напишите границы забора или адрес и время.'}
           </p>
         </div>
-        <div>
+        <div id="cancellation" className="scroll-mt-20">
           <label className={lbl}>Условия отмены и возврата</label>
           <textarea className={inp + ' min-h-[60px] resize-y text-xs'} value={form.cancellation_policy}
             onChange={e => setF('cancellation_policy', e.target.value)}
