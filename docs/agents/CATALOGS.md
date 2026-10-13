@@ -4,6 +4,7 @@
 > Строки «сделано» держат сторожа (`mcp-catalogs`, `agent-discovery-cards`); строки
 > «за владельцем» — чек-лист, его срок годности — до следующей сверки с порталами.
 > Решение владельца 12.10: «даю все права, сделай нас видимыми для всех агентов и A2A».
+> Китайский контур пошагово (ModelScope, mcp.so, Coze, Baidu, Bing, ключи Kimi и GLM) — `CHINA.md` (13.10).
 
 ## Что уже стоит (из репозитория, без аккаунтов)
 
@@ -38,10 +39,10 @@
 | mcp.so | https://mcp.so/submit | GitHub-логин | GitHub URL, короткое описание, теги, категория | индексация около суток (по сторонним описаниям) |
 | Cline MCP Marketplace | issue в https://github.com/cline/mcp-marketplace | GitHub | ссылка на репозиторий, PNG-логотип 400×400 (`public/icons/icon-400.png`), причина добавления; `llms-install.md` не обязателен — хватает README | вначале проверить, что Cline по README сам настраивает удалённый сервер |
 | Cursor Directory | https://cursor.directory/mcp | — | процесс подачи на 12.10 не найден | уточнить на самом сайте |
-| ModelScope MCP 广场 (Alibaba, Qwen) | https://modelscope.cn/mcp | аккаунт ModelScope (китайский контур) | официального описания процесса для удалённого URL на 12.10 не найдено | проверить в консоли: «创建 MCP 服务», есть ли вариант с внешним URL |
-| Coze / Volcano Engine (ByteDance, Doubao) | https://www.coze.cn | аккаунт КНР | процесс на 12.10 не найден | плагин-обёртка над MCP |
-| 百度千帆 (Baidu) | https://qianfan.cloud.baidu.com | аккаунт КНР | процесс на 12.10 не найден | |
-| Tencent Cloud MCP | https://cloud.tencent.com | аккаунт КНР | процесс на 12.10 не найден | |
+| ModelScope MCP 广场 (Alibaba, Qwen) | https://modelscope.cn/mcp → «创建MCP服务» | аккаунт ModelScope — вход через GitHub или телефон | запись по URL с типом `streamable_http` без кода; режим «可托管部署» требует анонимного `tools/list` (у нас есть) либо «仅分发展示»; форма обрабатывается до 3 рабочих дней | пошагово и тексты — `CHINA.md`, шаг 1 (сверено 13.10) |
+| Coze / Volcano Engine (ByteDance, Doubao) | https://www.coze.cn → 资源库 → +资源 → 插件 → тип MCP | аккаунт coze.cn (телефон; примет ли номер не КНР — только на месте) | HTTPS-адрес сервера (домен, не IP), заголовки, авторизация «不需要授权»; инструменты подтягиваются сами; затем 发布 и 扣子插件商店 | пошагово — `CHINA.md`, шаг 3 (сверено 13.10 по docs.coze.cn) |
+| Baidu 搜索资源平台 (вебмастер, для поиска Baidu и моделей на нём) | https://ziyuan.baidu.com → 站点管理 → 添加网站 | аккаунт Baidu (телефон) | верификация HTML-тегом `baidu-site-verification` (тег ставится из репозитория), sitemap, push-токен 普通收录; индексация 4–8 недель | `CHINA.md`, шаг 4. 百度千帆 как каталог MCP — процесс не найден, не подаём |
+| Bing Webmaster (Bing работает в КНР) | https://www.bing.com/webmasters | аккаунт Microsoft | верификация тегом `msvalidate.01` или импорт из Google Search Console; sitemap; IndexNow уже стоит | `CHINA.md`, шаг 5. Tencent Cloud MCP — процесс не найден, не подаём |
 | a2a-registry.org (другой реестр) | https://www.a2a-registry.org | DNS- или GitHub-верификация | — | не путать с a2aregistry.org, где мы уже есть |
 
 ## Материалы для форм
