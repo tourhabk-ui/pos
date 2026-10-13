@@ -6,7 +6,7 @@ import { ChatWidget } from '@/components/chat/ChatWidget';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { ForcePasswordChangeBanner } from '@/components/operator/ForcePasswordChangeBanner';
 import { OPERATOR_MENU, menuForSeat } from '@/components/operator/operator-menu';
-import { useOperatorSeat } from '@/hooks/use-operator-seat';
+import { useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 // Пункты меню и кому они видны — components/operator/operator-menu.ts (CRM 2г):
 // менеджеру команды не показываются деньги и настройки, а скидки — только с

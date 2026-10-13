@@ -10,7 +10,7 @@ import {
 import Link from 'next/link';
 import GuideAssign from './_GuideAssign';
 import DirectPayments from './_DirectPayments';
-import { isManagerSeat, useOperatorSeat } from '@/hooks/use-operator-seat';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 interface BookingDetail {
   id: string;

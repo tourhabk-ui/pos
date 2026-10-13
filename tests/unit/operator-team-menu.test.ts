@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { OPERATOR_MENU, menuForSeat, type OperatorMenuItem } from '@/components/operator/operator-menu';
-import { parseOperatorSeat, type OperatorSeat } from '@/hooks/use-operator-seat';
+import { parseOperatorSeat, type OperatorSeat } from '@/components/operator/use-operator-seat';
 import { GATES, ROOT, apiUrlsIn, read, resolveRoute, sourceFiles } from '../helpers/operator-gates';
 
 const labels = (items: OperatorMenuItem[]) => items.map(i => i.label);

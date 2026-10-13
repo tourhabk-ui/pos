@@ -5,7 +5,7 @@ import { Protected } from '@/components/auth/Protected';
 import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle, RefreshCw, BadgeCheck, UserMinus } from 'lucide-react';
 import { plural } from '@/lib/home/data-freshness';
 import GuideInvites from './_GuideInvites';
-import { isManagerSeat, useOperatorSeat } from '@/hooks/use-operator-seat';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 /**
  * Гиды оператора — живой экран.

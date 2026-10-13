@@ -15,7 +15,7 @@ import {
   Settings, Bell, HelpCircle, CheckCircle, Inbox, User,
   Download, BookMarked, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star, UsersRound,
 } from 'lucide-react';
-import { isManagerSeat, type OperatorSeat } from '@/hooks/use-operator-seat';
+import { isManagerSeat, type OperatorSeat } from '@/components/operator/use-operator-seat';
 
 /**
  * team — владелец и менеджер;
