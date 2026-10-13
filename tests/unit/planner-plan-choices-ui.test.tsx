@@ -1,14 +1,15 @@
 /**
- * Сторож экрана: жильё и трансфер — пункты плана (#2304, шаг 3).
+ * Сторож экрана: жильё — пункт плана (#2304, шаг 3); трансфер — машина
+ * целиком под заказ, пунктом плана не бывает (владелец 13.10: «бронируют
+ * целую машину а не место в ней»).
  *
  * Сквозь экраны, поведением:
- *   — в /planner жильё и поездку перевозчика можно взять в план: смета тут же
- *     заменяет ориентир ночи ценой стоянки, ставит поездку и уменьшает
- *     ориентир трансферов аэропорта; заявка уходит с выбранным;
+ *   — в /planner жильё можно взять в план: смета тут же заменяет ориентир
+ *     ночи ценой стоянки; заявка уходит с выбранным;
+ *   — трансфер — перевозчики «под заказ» со ссылкой на прайс и заявку; кнопки
+ *     «в план» у них нет, ориентир трансферов аэропорта в смете остаётся;
  *   — ссылка на объект открывает форму брони с датами, гостями (не больше
  *     вместимости номера) и номером, и форма говорит, сколько номеров в плане.
- * Витрина /transfers мест в поездках больше не показывает (владелец 13.10:
- * «бронируют целую машину а не место в ней») — её судит transfers-page.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
@@ -66,9 +67,8 @@ const EXTRAS = {
       }] } }],
   },
   transfer: {
-    state: 'ok', window: { from: '2030-08-03', to: '2030-08-12', seats: 2 },
-    items: [{ id: 't1', tripDate: '2030-08-03', departureNote: '10:00', fromText: 'Аэропорт Елизово', toText: 'Паратунка',
-      seatsFree: 6, seatsTotal: 8, pricePerSeat: 1500, vehicleKind: 'minibus', vehicleTitle: 'Спринтер', partnerName: 'Перевозчик' }],
+    state: 'ok',
+    items: [{ slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 9 }],
   },
 };
 
@@ -124,25 +124,26 @@ describe('/planner: взять в план', () => {
     expect(text(after)).toContain('Жильё «Дом у вулкана», 03.08–04.08');
     expect(text(after)).toContain('1 ночь × 1 номер «Двухместный» · выбрано');
     expect(text(after)).not.toContain('Проживание в Авачинской зоне');
-    expect(text(after)).toMatch(/Выбранные жильё и трансфер — по ценам на платформе \(12 000 ₽\)/);
+    expect(text(after)).toMatch(/Выбранное жильё — по ценам на платформе \(12 000 ₽\)/);
 
     // Повторное нажатие — ориентир вернулся.
     fireEvent.click(within(section).getByRole('button', { name: 'Убрать из плана: Дом у вулкана' }));
     expect(text(screen.getByTestId('price-estimate'))).toContain('Проживание в Авачинской зоне');
   });
 
-  it('поездка из аэропорта в плане — своя строка и ориентир на другую сторону; заявка уходит с выбранным', async () => {
+  it('трансфер — машина целиком: в план не берётся, ориентир аэропорта остаётся; заявка уходит с жильём', async () => {
     const section = await planWithExtras();
     const body = calls.find((c) => c.url === '/api/planner/trip-extras')!.body!;
     expect(body.tripOrigin).toBe('visitor');
 
+    const transfer = within(section).getByTestId('extras-transfer');
+    expect(text(transfer)).toContain('Трансфер — машина целиком');
+    expect(text(transfer)).toContain('цена за машину, не за место');
+    expect(within(transfer).queryAllByRole('button')).toHaveLength(0);
     fireEvent.click(within(section).getByRole('button', { name: 'Взять в план: Дом у вулкана' }));
-    fireEvent.click(within(section).getByRole('button', { name: 'Взять в план: Аэропорт Елизово — Паратунка' }));
     const estimate = text(screen.getByTestId('price-estimate'));
-    expect(estimate).toContain('Трансфер Аэропорт Елизово — Паратунка, 03.08');
-    expect(estimate).toContain('1 500 ₽ × 2 места · выбрано');
-    expect(estimate).toContain('Трансфер аэропорта в другую сторону');
-    expect(estimate).not.toContain('Трансферы аэропорта');
+    expect(estimate).toContain('Трансферы аэропорта');
+    expect(estimate).not.toMatch(/\d мест|за место/);
 
     fireEvent.click(screen.getAllByRole('button', { name: /Запросить подробное предложение/ })[0]!);
     fireEvent.change(screen.getByPlaceholderText('Ваше имя'), { target: { value: 'Иван Петров' } });
@@ -152,15 +153,14 @@ describe('/planner: взять в план', () => {
     await waitFor(() => expect(calls.some((c) => c.url === '/api/leads')).toBe(true));
     const plan = (calls.find((c) => c.url === '/api/leads')!.body!.source_data as { plan: Record<string, unknown> }).plan;
     expect(plan.lodging).toEqual([expect.objectContaining({ accommodation_id: 'acc-1', total: 12000, check_in: '2030-08-03' })]);
-    expect(plan.transfers).toEqual([expect.objectContaining({ trip_id: 't1', seats: 2, price_per_seat: 1500 })]);
+    expect(plan).not.toHaveProperty('transfers');
   });
 
-  it('ссылки: объект — с датами стоянки, составом и номером; поездка — с её датой и местами', async () => {
+  it('ссылки: объект — с датами стоянки, составом и номером; перевозчик — на его прайс и заявку', async () => {
     const section = await planWithExtras();
     expect(within(section).getByText('Дом у вулкана').closest('a')?.getAttribute('href'))
       .toBe(`/accommodations/acc-1?check_in=2030-08-03&check_out=2030-08-04&adults=2&children=0&room=${ROOM}`);
-    expect(within(section).getByText('Аэропорт Елизово — Паратунка').closest('a')?.getAttribute('href'))
-      .toBe('/transfers?from=2030-08-03&to=2030-08-03&seats=2&trip=t1');
+    expect(within(section).getByText('Шатун').closest('a')?.getAttribute('href')).toBe('/transfers/shatun');
   });
 });
 

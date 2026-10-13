@@ -55,9 +55,11 @@ const EXTRAS = {
     ],
   },
   transfer: {
-    state: 'ok', window: { from: '2030-08-03', to: '2030-08-12', seats: 2 },
-    items: [{ id: 't1', tripDate: '2030-08-03', departureNote: '10:00', fromText: 'Аэропорт Елизово', toText: 'Паратунка',
-      seatsFree: 6, seatsTotal: 8, pricePerSeat: 1500, vehicleKind: 'minibus', vehicleTitle: 'Спринтер', partnerName: 'Перевозчик' }],
+    state: 'ok',
+    items: [
+      { slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 9 },
+      { slug: 'bez-praisa', name: 'Без прайса', fleet: null, priceFromRub: null, destinations: 0 },
+    ],
   },
   car: { state: 'not_offered', message: 'Аренды автомобилей на платформе пока нет', hint: 'Доехать можно трансфером перевозчика или выбрать тур, где транспорт уже включён.' },
 };
@@ -171,14 +173,17 @@ describe('результат: настоящее, пустое, непровер
     expect(within(section).getByText('На ваши даты свободного жилья в этой зоне на платформе нет.')).toBeTruthy();
     expect(within(section).getByText('Весь каталог жилья').closest('a')?.getAttribute('href')).toBe('/accommodations');
     expect(within(section).getByText(/без разметки зоны: 4/)).toBeTruthy();
-    // Трансфер: маршрут, свободные места, цена, витрина перевозчиков.
-    expect(within(section).getByText('Аэропорт Елизово — Паратунка')).toBeTruthy();
-    expect(within(section).getByText(/свободно 6 из 8/)).toBeTruthy();
-    expect(within(section).getByText(/в день прилёта/)).toBeTruthy();
-    expect(within(section).getByText('Аэропорт Елизово — Паратунка').closest('a')?.getAttribute('href'))
-      .toBe('/transfers?from=2030-08-03&to=2030-08-03&seats=2&trip=t1');
-    expect(within(section).getByText('Все поездки на эти даты').closest('a')?.getAttribute('href'))
-      .toBe('/transfers?from=2030-08-03&to=2030-08-12&seats=2');
+    // Трансфер — машина целиком под заказ (владелец 13.10): перевозчик, парк,
+    // цена за машину и ссылка на его прайс и заявку; мест и дат поездок нет.
+    const transfer = within(section).getByTestId('extras-transfer');
+    expect(transfer.textContent).toMatch(/Трансфер — машина целиком/);
+    expect(transfer.textContent).toMatch(/цена за машину, не за место/);
+    const [shatun, bare] = within(transfer).getAllByTestId('charter-offer');
+    expect(within(shatun!).getByText('Шатун').closest('a')?.getAttribute('href')).toBe('/transfers/shatun');
+    expect(shatun!.textContent?.replace(/\s/g, ' ')).toMatch(/2 × вахтовка, 26 мест.*от 65 000 ₽ за машину · 9 направлений в прайсе/);
+    // Прайса нет — цена не выдумана.
+    expect(bare!.textContent).toMatch(/Цену машины назовёт перевозчик/);
+    expect(transfer.textContent).not.toMatch(/свободно|за место ·|мест\)|Все поездки/);
     // Машина — «пока нет», без ссылок.
     const car = within(section).getByTestId('extras-car');
     expect(car.textContent).toMatch(/Аренды автомобилей на платформе пока нет/);

@@ -137,7 +137,7 @@ export function stayPriceForGroup(rooms: readonly RoomStayFacts[], people: numbe
   return best ?? { kind: 'no_fit', people };
 }
 
-/** Размер группы для мест в трансфере: взрослые и дети — каждому место. */
+/** Размер группы: взрослые и дети — каждому место (жильё на группу). */
 export function groupSeats(adults: number, children: readonly number[]): number {
   return Math.max(1, adults) + children.length;
 }

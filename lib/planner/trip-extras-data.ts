@@ -1,7 +1,7 @@
 /**
- * Настоящие предложения к плану поездки: жильё на ночи плана и поездки
- * перевозчиков на даты поездки (решение владельца 26.09). Чистая часть —
- * lib/planner/trip-extras.ts.
+ * Настоящие предложения к плану поездки: жильё на ночи плана (решение
+ * владельца 26.09) и перевозчики «под заказ» — машина целиком (13.10). Чистая
+ * часть — lib/planner/trip-extras.ts.
  *
  * У каждого ответа три исхода (§4.0): нашли — варианты; искали и нет —
  * `empty`; не смогли проверить — `unavailable`, с именем проверки и
@@ -17,14 +17,16 @@
  * свободные на все ночи, с вместимостью, остатком и суммой цен ночей из той
  * же формулы; раскладку группы по номерам считает stayPriceForGroup.
  *
- * Трансферы — только через listPublishedTrips: единственное место с
- * фильтром опубликованности (сторож carrier-api).
+ * Трансфер — прайс перевозчиков тем же загрузчиком, что у /transfers
+ * (loadCharterCarriers). Места в поездках (схема 926) планер больше не
+ * предлагает: до 13.10 он искал «места на всю группу» на даты поездки, а
+ * такого товара нет — перевозчик сдаёт машину целиком.
  */
 
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { roomNightsSql } from '@/lib/stay/availability';
-import { listPublishedTrips } from '@/lib/transfers/service';
+import { loadCharterCarriers, describeFleet } from '@/lib/transfers/charter';
 import { sqlState } from '@/lib/guides/db-failure';
 import {
   LODGING_OPTIONS_PER_STAY, stayPriceForGroup, type LodgingStay, type StayPrice,
@@ -50,19 +52,20 @@ export interface LodgingOption {
   stay: StayPrice;
 }
 
-export interface TransferOption {
-  id: string;
-  tripDate: string;
-  departureNote: string | null;
-  fromText: string;
-  toText: string;
-  seatsFree: number;
-  seatsTotal: number;
-  /** null — место поштучно не продаётся. */
-  pricePerSeat: number | null;
-  vehicleKind: string;
-  vehicleTitle: string;
-  partnerName: string;
+/**
+ * Перевозчик «под заказ» к плану: машина целиком, цена за машину (владелец
+ * 13.10). Только то, что нужно строке плана; телефон и прайс целиком — на
+ * странице перевозчика, куда ведёт строка.
+ */
+export interface CharterOffer {
+  slug: string;
+  name: string;
+  /** «2 × вахтовка, 26 мест»; null — парк не записан. */
+  fleet: string | null;
+  /** Самая низкая цена строки прайса, ₽ за машину; null — направлений в прайсе нет. */
+  priceFromRub: number | null;
+  /** Сколько направлений в прайсе. */
+  destinations: number;
 }
 
 function logExtrasFailure(check: string, err: unknown): void {
@@ -167,39 +170,27 @@ export async function countUnzonedPublicLodging(): Promise<number | null> {
   }
 }
 
-export async function findTransfers(params: {
-  fromDate: string;
-  toDate: string;
-  seats: number;
-}): Promise<CheckOutcome<TransferOption>> {
+/**
+ * Трансфер к плану — перевозчики «под заказ» (владелец 13.10: «бронируют
+ * целую машину а не место в ней»). От дат плана не зависит: прайс один на
+ * сезон, а направление и даты заказчик пишет в заявке перевозчику.
+ */
+export async function findCharterOffers(): Promise<CheckOutcome<CharterOffer>> {
   try {
-    const trips = await listPublishedTrips({
-      fromDate: params.fromDate,
-      toDate: params.toDate,
-      minSeats: params.seats,
-      placeId: null,
-    });
-    if (trips.length === 0) return { state: 'empty' };
+    const carriers = await loadCharterCarriers();
+    if (carriers.length === 0) return { state: 'empty' };
     return {
       state: 'ok',
-      // Только нужное туристу. `comment` перевозчика — свободный текст, в
-      // нём бывают телефоны: наружу не отдаётся (pd-guard §2).
-      items: trips.slice(0, 6).map((t) => ({
-        id: t.id,
-        tripDate: t.trip_date,
-        departureNote: t.departure_note,
-        fromText: t.from_text,
-        toText: t.to_text,
-        seatsFree: Number(t.seats_free),
-        seatsTotal: Number(t.seats_total),
-        pricePerSeat: t.price_per_seat === null ? null : Number(t.price_per_seat),
-        vehicleKind: t.vehicle_kind,
-        vehicleTitle: t.vehicle_title,
-        partnerName: t.partner_name,
+      items: carriers.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        fleet: describeFleet(c.vehicles),
+        priceFromRub: c.destinations.length > 0 ? Math.min(...c.destinations.map((d) => d.priceRub)) : null,
+        destinations: c.destinations.length,
       })),
     };
   } catch (err) {
-    logExtrasFailure('поиск поездок перевозчиков', err);
+    logExtrasFailure('прайс машин под заказ', err);
     return { state: 'unavailable' };
   }
 }

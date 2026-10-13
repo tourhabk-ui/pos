@@ -5,7 +5,7 @@
  * - Анализ запроса пользователя (AI)
  * - Подбор туров из БД
  * - Подбор размещения из БД
- * - Подбор трансферов из БД
+ * - Трансфер — машина целиком под заказ (прайс перевозчиков; 13.10)
  * - Генерация детального маршрута с логистикой
  * - Расчет общей стоимости
  */
@@ -15,6 +15,7 @@ import { callAIWaterfallOrNull } from '@/lib/ai/providers';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { findCharterOffers } from '@/lib/planner/trip-extras-data';
 import { config } from '@/lib/config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
@@ -74,29 +75,6 @@ interface AccommodationCard {
   coordinates: { lat: number; lng: number };
 }
 
-interface TransferCard {
-  id: string;
-  route_name: string;
-  from_location: string;
-  to_location: string;
-  /**
-   * Расстояние, длительность и цена места — `null`, когда их НЕТ в данных.
-   *
-   * Прежний код подставлял `0` и `60` по умолчанию, и эти числа уходили прямо
-   * в промпт планировщика: «(60мин, 0₽)». Модель повторяла их туристу как
-   * факт о поездке. Схема 926 длительность и расстояние не хранит вовсе —
-   * перевозчик их не сообщает, — а цена места законно отсутствует, когда
-   * поездка ушла под одну группу. Пустое поле честнее придуманного (§4.0).
-   */
-  distance_km: number | null;
-  duration_minutes: number | null;
-  price_per_person: number | null;
-  vehicle_type: string;
-  /** Дата выезда и остаток мест: без них предложение — обещание без покрытия. */
-  trip_date: string;
-  seats_free: number;
-}
-
 interface DayPlan {
   day: number;
   date?: string;
@@ -129,7 +107,6 @@ interface TripPlan {
   days: DayPlan[];
   tours: TourCard[];
   accommodations: AccommodationCard[];
-  transfers: TransferCard[];
   recommendations: string[];
   important_notes: string[];
 }
@@ -180,8 +157,8 @@ export async function POST(request: NextRequest) {
     // Шаг 3: Подбор размещения из БД
     const accommodations = await selectAccommodations(tripRequest.days, tripRequest.budget, tripRequest.groupSize);
 
-    // Шаг 4: Подбор трансферов из БД
-    const transfers = await selectTransfers(tours, accommodations);
+    // Шаг 4: трансфер — машина целиком под заказ (прайс перевозчиков)
+    const charter = await charterForPrompt();
 
     // Шаг 5: Генерация детального маршрута через AI
     const tripPlan = await generateTripPlan(
@@ -189,7 +166,7 @@ export async function POST(request: NextRequest) {
       userIntent,
       tours,
       accommodations,
-      transfers
+      charter
     );
 
     return NextResponse.json({
@@ -380,79 +357,27 @@ async function selectAccommodations(
 }
 
 /**
- * Подбор трансферов из БД
+ * Трансфер для промпта — машина целиком под заказ (владелец 13.10: «бронируют
+ * целую машину а не место в ней»). До этого сюда шли опубликованные поездки
+ * перевозчиков со свободными местами и ценой места — товар, которого нет.
+ * Прайс читается тем же загрузчиком, что у /transfers и планера; три исхода
+ * словами: прайс, «перевозчиков с прайсом нет», «прайс не прочитался».
  */
-async function selectTransfers(
-  tours: TourCard[],
-  accommodations: AccommodationCard[]
-): Promise<TransferCard[]> {
-  try {
-    // ── Перенацелено 01.09 на схему 926 ────────────────────────────────────
-    //
-    // Прежний запрос шёл в transfer_routes / transfer_schedules /
-    // transfer_vehicles. Двух последних на проде НЕТ (перепись реестра схемы,
-    // прогон 2, канарейка видна), поэтому он падал с 42P01 — и падал ВНУТРЬ
-    // catch, который возвращал пустой массив. Планировщик получал «трансферов
-    // нет» и говорил это туристу: поломка выдавалась за факт о мире (§4.0).
-    //
-    // Теперь берём опубликованные поездки со СВОБОДНЫМИ местами: предлагать
-    // полную машину значит обещать то, чего нет.
-    const sql = `
-      SELECT t.id,
-             t.to_text AS route_name,
-             t.from_text AS from_location,
-             t.to_text AS to_location,
-             t.price_per_seat::text AS price_per_seat,
-             v.kind AS vehicle_kind,
-             to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date,
-             (t.seats_total - COALESCE(b.taken, 0))::int AS seats_free
-        FROM transfer_trips t
-        JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
-        LEFT JOIN LATERAL (
-          SELECT SUM(sb.seats) AS taken
-            FROM transfer_seat_bookings sb
-           WHERE sb.trip_id = t.id AND sb.status = 'confirmed'
-        ) b ON true
-       WHERE t.is_published
-         AND t.status IN ('planned', 'confirmed')
-         AND t.trip_date >= CURRENT_DATE
-         AND (t.seats_total - COALESCE(b.taken, 0)) > 0
-       ORDER BY t.trip_date
-       LIMIT 20
-    `;
-
-    const result = await query<{
-      id: string; route_name: string; from_location: string; to_location: string;
-      price_per_seat: string | null; vehicle_kind: string; trip_date: string; seats_free: number;
-    }>(sql, []);
-
-    return result.rows.map(row => ({
-      id: row.id,
-      route_name: row.route_name,
-      from_location: row.from_location,
-      to_location: row.to_location,
-      // Расстояния и длительности схема не хранит: перевозчик их не сообщает.
-      // null, а не ноль и не «60 минут» — иначе выдумка уйдёт в промпт.
-      distance_km: null,
-      duration_minutes: null,
-      price_per_person: row.price_per_seat === null ? null : parseFloat(row.price_per_seat),
-      vehicle_type: row.vehicle_kind,
-      trip_date: row.trip_date,
-      seats_free: row.seats_free,
-    }));
-
-  } catch (error) {
-    // Пустой catch и был механизмом, которым 42P01 превращался в «трансферов
-    // нет». Ловить можно, молчать нельзя: имя проверки и SQLSTATE — в лог
-    // (§4.0). Планировщик по-прежнему отдаёт пустой список, потому что уронить
-    // весь план из-за одного блока хуже, — но теперь отказ оставляет след.
-    const e = error as { message?: string; code?: string };
-    console.error(
-      '[trip/plan] selectTransfers:',
-      `${e.code ? `[${e.code}] ` : ''}${e.message ?? String(error)}`,
-    );
-    return [];
+async function charterForPrompt(): Promise<string> {
+  const offers = await findCharterOffers();
+  if (offers.state === 'unavailable') {
+    return 'Прайс машин под заказ не прочитался — сбой на нашей стороне. Не называй перевозчиков и цен трансфера.';
   }
+  if (offers.state === 'empty') {
+    return 'Перевозчиков с прайсом под заказ на платформе пока нет. Перевозчиков и цен трансфера не выдумывай.';
+  }
+  return offers.items.map((o) => {
+    const facts = [
+      o.fleet,
+      o.priceFromRub === null ? 'цену машины называет перевозчик' : `от ${o.priceFromRub}₽ за машину`,
+    ].filter(Boolean);
+    return `- ${o.name} (${facts.join(', ')})`;
+  }).join('\n');
 }
 
 /**
@@ -463,7 +388,7 @@ async function generateTripPlan(
   userIntent: UserIntent,
   tours: TourCard[],
   accommodations: AccommodationCard[],
-  transfers: TransferCard[]
+  charter: string
 ): Promise<TripPlan> {
   
   const systemPrompt = `Ты - эксперт планировщик поездок на Камчатку. 
@@ -471,7 +396,6 @@ async function generateTripPlan(
 У тебя есть:
 - ${tours.length} доступных туров
 - ${accommodations.length} вариантов размещения
-- ${transfers.length} трансферов
 
 Создай ДЕТАЛЬНЫЙ план на ${request.days} дней. Для КАЖДОГО дня включи:
 1. Утро (9:00-12:00): активности, туры
@@ -544,20 +468,8 @@ ${tours.map(t => `- ${t.id}: ${t.name} (${t.duration}ч, ${t.price}₽, ${t.diff
 ДОСТУПНОЕ РАЗМЕЩЕНИЕ:
 ${accommodations.map(a => `- ${a.id}: ${a.name} (${a.price_per_night}₽/ночь, ${a.type})`).join('\n')}
 
-ДОСТУПНЫЕ ТРАНСФЕРЫ:
-${transfers.slice(0, 5).map(t => {
-  // В промпт уходит только известное. Прежняя строка печатала «60мин, 0₽» из
-  // подставленных умолчаний, и модель повторяла эти числа туристу как факт о
-  // поездке. Чего нет в данных — того нет и в строке (§4.0: промпт не требует
-  // того, чего в данных нет).
-  const facts = [
-    `${t.trip_date}`,
-    t.duration_minutes === null ? null : `${t.duration_minutes}мин`,
-    t.price_per_person === null ? 'цена по запросу' : `${t.price_per_person}₽/место`,
-    `свободно ${t.seats_free}`,
-  ].filter(Boolean);
-  return `- ${t.from_location} → ${t.to_location} (${facts.join(', ')})`;
-}).join('\n')}
+ТРАНСФЕР — МАШИНА ЦЕЛИКОМ ПОД ЗАКАЗ (цена за машину, не за место; мест в машине не продают; направление и даты заказчик пишет в заявке перевозчику; как card_id в activities не ставь):
+${charter}
 `;
 
   const aiResponse = await callAI(systemPrompt, userPrompt);
@@ -574,12 +486,6 @@ ${transfers.slice(0, 5).map(t => {
     
     plan.accommodations = accommodations.filter(a =>
       plan.days.some((d: DayPlan) => d.accommodation?.id === a.id)
-    );
-    
-    plan.transfers = transfers.filter(t =>
-      plan.days.some((d: DayPlan) =>
-        d.activities.some(a => a.card_id === t.id)
-      )
     );
     
     return plan;
@@ -650,7 +556,6 @@ function createFallbackPlan(
     days,
     tours,
     accommodations: accommodations.slice(0, 1),
-    transfers: [],
     recommendations: [
       'Возьмите теплую одежду - погода изменчива',
       'Носите удобную обувь для походов',

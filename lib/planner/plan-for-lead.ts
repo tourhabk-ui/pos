@@ -76,7 +76,11 @@ export interface PlanForLead {
     /** Цена стоянки на группу по правилу брони; нет — смотри price_note. */
     total?: number; rooms?: number; room?: string; price_note?: string;
   }>;
-  /** Выбранные поездки перевозчиков; нет — не выбирали. */
+  /**
+   * Места в поездках перевозчиков — только в заявках до 13.10: продажу мест
+   * сняли (владелец: «бронируют целую машину а не место в ней»), и planForLead
+   * их больше не пишет. Читатель оставлен ради старых заявок в карточке лида.
+   */
   transfers?: Array<{
     trip_id: string; date: string; from: string; to: string; seats: number;
     price_per_seat?: number; carrier: string;
@@ -133,12 +137,6 @@ export function planForLead(
         ...(st.price?.kind === 'priced'
           ? { total: st.price.total, rooms: st.price.rooms, room: st.price.roomName }
           : { price_note: st.price ? 'группа в один тип номеров не помещается — номера и цену подберёт хозяин' : 'цену на группу назовёт хозяин' }),
-      })),
-    } : {}),
-    ...(choices && choices.transfers.length > 0 ? {
-      transfers: choices.transfers.map((t) => ({
-        trip_id: t.tripId, date: t.date, from: t.from, to: t.to, seats: t.seats, carrier: t.carrier,
-        ...(t.pricePerSeat !== null ? { price_per_seat: t.pricePerSeat } : {}),
       })),
     } : {}),
   };

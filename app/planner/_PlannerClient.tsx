@@ -42,7 +42,7 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
-import { EMPTY_SELECTION, resolveChoices, toggleLodging, toggleTransfer, type ChoiceSelection } from '@/lib/planner/plan-choices';
+import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { escapeHtml } from '@/lib/text/escape-html';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
@@ -1240,7 +1240,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       arrivalDate: arrival || undefined,
       departureDate: departure || undefined,
       // Состав и «откуда едут» — плана, а не формы: цена стоянки на группу
-      // и места в трансфере обязаны совпасть со сметой (#2304, шаг 3).
+      // обязана совпасть со сметой (#2304, шаг 3).
       adults: planProfile?.adults ?? adults,
       children: planProfile?.children ?? childAges,
       tripOrigin: planProfile?.tripOrigin ?? tripOrigin,
@@ -1278,7 +1278,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [extrasBody]);
-  // Выбранные жильё и трансфер (#2304, шаг 3): храним только ключи, пункты
+  // Выбранное жильё (#2304, шаг 3): храним только ключи, пункты
   // плана — из ТЕКУЩЕГО ответа (lib/planner/plan-choices). Объект, которого
   // в новом ответе нет, из сметы выходит сам: цена прежних ночей — не его.
   const [choiceSel, setChoiceSel] = useState<ChoiceSelection>(EMPTY_SELECTION);
@@ -2413,7 +2413,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         <div className="grid gap-2">
           {([
             { key: 'lodging', label: 'Жильё', hint: 'Покажем свободные объекты платформы на ночи плана', Icon: BedDouble, on: needsLodging, set: setNeedsLodging },
-            { key: 'transfer', label: 'Трансфер из аэропорта', hint: 'Покажем поездки перевозчиков на ваши даты с местами на всю группу', Icon: Bus, on: needsAirportTransfer, set: setNeedsAirportTransfer },
+            { key: 'transfer', label: 'Трансфер из аэропорта', hint: 'Покажем перевозчиков под заказ: машина целиком, цена за машину, а не за место', Icon: Bus, on: needsAirportTransfer, set: setNeedsAirportTransfer },
             { key: 'car', label: 'Машина напрокат', hint: 'Скажем честно, есть ли прокат на платформе', Icon: Car, on: needsCar, set: setNeedsCar },
           ] as const).map(({ key, label, hint, Icon, on, set }) => (
             <button key={key} type="button" aria-pressed={on} data-need={key}
@@ -2738,10 +2738,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
           )}
 
           {extras && (
-            <TripExtrasSection load={extras} arrival={arrival} departure={departure}
+            <TripExtrasSection load={extras}
               selection={choiceSel}
               onToggleLodging={(key, id) => setChoiceSel((sel) => toggleLodging(sel, key, id))}
-              onToggleTransfer={(id) => setChoiceSel((sel) => toggleTransfer(sel, id))}
               party={{ adults: planProfile?.adults ?? adults, children: planProfile?.children ?? childAges }} />
           )}
 

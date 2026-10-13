@@ -5,8 +5,9 @@
  * ещё нужно (жильё, трансфер, машина), и в результате видит НАСТОЯЩИЕ
  * варианты с платформы, а не оценку:
  *   - жильё — объекты витрины в зоне ночёвки, свободные на ночи плана;
- *   - трансфер — опубликованные поездки перевозчиков на даты поездки с
- *     местами на всю группу;
+ *   - трансфер — перевозчики «под заказ»: машина целиком, цена за машину
+ *     (13.10; до этого — «места на всю группу» в поездках на даты плана,
+ *     товар, которого нет);
  *   - машина — честное «пока нет».
  *
  * Отдельным роутом, а не полем /api/planner/recommend: план правится на
@@ -14,7 +15,7 @@
  * ТЕКУЩИМ дням, а не по тем, что вернул движок.
  *
  * Публичный (планер работает без входа) — поэтому лимитер. Персональных
- * данных не принимает и не отдаёт: дни плана, даты, число мест.
+ * данных не принимает и не отдаёт: дни плана, даты, состав группы.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,15 +24,13 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
 import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER } from '@/lib/planner/trip-extras';
 import {
-  findLodgingForStay, countUnzonedPublicLodging, findTransfers,
+  findLodgingForStay, countUnzonedPublicLodging, findCharterOffers,
 } from '@/lib/planner/trip-extras-data';
 
 export const dynamic = 'force-dynamic';
 
 const extrasLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
-/** Потолок окна трансферов — тот же, что у витрины /api/carrier-trips. */
-const MAX_TRANSFER_WINDOW_DAYS = 60;
 /** Больше стоянок в одном плане не бывает; потолок держит число запросов. */
 const MAX_STAYS = 8;
 
@@ -102,18 +101,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (needs.transfer) {
-    if (!hasDates || !arrivalDate || !departureDate) {
-      data.transfer = { state: 'no_dates' };
-    } else {
-      const spanDays = Math.round((Date.parse(departureDate) - Date.parse(arrivalDate)) / 86_400_000);
-      const window = { from: arrivalDate, to: departureDate, seats: groupSeats(adults, children) };
-      if (spanDays > MAX_TRANSFER_WINDOW_DAYS) {
-        data.transfer = { state: 'window_too_long', window, maxDays: MAX_TRANSFER_WINDOW_DAYS };
-      } else {
-        const result = await findTransfers({ fromDate: window.from, toDate: window.to, seats: window.seats });
-        data.transfer = { ...result, window };
-      }
-    }
+    // Машина целиком под заказ (владелец 13.10): прайс от дат плана не
+    // зависит — направление и даты заказчик пишет в заявке перевозчику.
+    data.transfer = await findCharterOffers();
   }
 
   if (needs.car) {

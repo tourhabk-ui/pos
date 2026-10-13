@@ -5,7 +5,7 @@
  *
  * Считается не здесь: lib/planner/estimate.ts, та же формула, что у движка и
  * Кузьмича. Экран только показывает и подписывает: цена тура оператора и цена
- * выбранного жилья или перевозчика на платформе — это цены, всё остальное —
+ * выбранного жилья на платформе — это цены, всё остальное —
  * ориентир по средним ценам, и это сказано у каждой строки и под итогом.
  * Строка без цены в итог не входит и названа.
  */
@@ -18,7 +18,7 @@ const range = ([a, b]: [number, number]) => (a === b ? `${fmt(a)} ₽` : `${fmt(
 function sourcesLine(fromTours: [number, number], fromOffers: [number, number], fromEstimates: [number, number]): string {
   const parts = [
     fromTours[1] > 0 ? `цены туров — от операторов (${range(fromTours)})` : null,
-    fromOffers[1] > 0 ? `выбранные жильё и трансфер — по ценам на платформе (${range(fromOffers)})` : null,
+    fromOffers[1] > 0 ? `выбранное жильё — по ценам на платформе (${range(fromOffers)})` : null,
   ].filter((x): x is string => x !== null);
   if (parts.length === 0) return 'Все суммы — ориентир по средним ценам, не предложения.';
   if (fromEstimates[1] === 0 && parts.length === 1) {
@@ -66,7 +66,7 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
       {unpriced.length > 0 && (
         <p className="text-[9px] text-[var(--warning)] px-1">
           Не вошло в итог: {unpriced.join('; ')} — {unpricedOffers
-            ? 'цену назовут оператор, хозяин жилья или перевозчик.'
+            ? 'цену назовут оператор или хозяин жилья.'
             : 'сумму смотрите в карточке тура.'}
         </p>
       )}

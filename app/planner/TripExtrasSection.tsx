@@ -2,8 +2,8 @@
 
 /**
  * «Что ещё нужно» на экране результата планера (решение владельца 26.09):
- * настоящее жильё на ночи плана, поездки перевозчиков на даты поездки и
- * честный ответ про аренду машин.
+ * настоящее жильё на ночи плана, перевозчики «под заказ» и честный ответ про
+ * аренду машин.
  *
  * Здесь только то, что лежит на платформе. Оценка стоимости проживания и
  * транспорта — выше, в «Оценке стоимости», и подписана оценкой: одно не
@@ -12,31 +12,31 @@
  * У каждого ответа три исхода: варианты; «на платформе нет» со ссылкой на
  * каталог; «не смогли проверить» — это не «нет», и экран так и говорит.
  *
- * Жильё и поездку перевозчика можно взять в план (#2304, шаг 3): выбранное
- * встаёт в смету своей ценой вместо ориентира и уходит в заявку
- * (lib/planner/plan-choices). Ссылки ведут на объект и на витрину поездок с
- * датами и составом плана — не с пустой формой.
+ * Жильё можно взять в план (#2304, шаг 3): выбранное встаёт в смету своей
+ * ценой вместо ориентира и уходит в заявку (lib/planner/plan-choices).
+ * Трансфер — машина целиком под заказ (владелец 13.10): в план его не берут
+ * и в смету он не встаёт — цена зависит от направления, которое заказчик
+ * пишет в заявке на странице перевозчика; туда и ведёт строка.
  */
 
 import Link from 'next/link';
 import { BedDouble, Bus, Car, Star, ArrowRight, AlertTriangle, BadgeCheck, Check } from 'lucide-react';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 import { stayLink } from '@/lib/stay/stay-link';
-import { tripsLink } from '@/lib/transfers/trips-link';
+import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { stayKey, type ChoiceSelection } from '@/lib/planner/plan-choices';
-import type { TripExtrasData, LodgingStayView, LodgingOptionView, TransferOptionView } from './planner-types';
+import type { TripExtrasData, LodgingStayView, LodgingOptionView, CharterOfferView } from './planner-types';
 
-/** Состав плана: для ссылок с гостями и для мест в трансфере. */
+/** Состав плана: для ссылок на жильё с гостями. */
 export interface ExtrasParty {
   adults: number;
   children: number[];
 }
 
-/** Выбор жилья и поездок: нет обработчиков — блок только показывает. */
+/** Выбор жилья: нет обработчика — блок только показывает. */
 export interface ExtrasChoiceProps {
   selection?: ChoiceSelection;
   onToggleLodging?: (stayKey: string, accommodationId: string) => void;
-  onToggleTransfer?: (tripId: string) => void;
   party?: ExtrasParty;
 }
 
@@ -46,10 +46,6 @@ export type ExtrasLoad =
   | { status: 'ready'; data: TripExtrasData };
 
 const TYPE_LABELS: Record<string, string> = ACCOMMODATION_TYPE_LABELS;
-
-const KIND_LABEL: Record<string, string> = {
-  jeep: 'джип', vahtovka: 'вахтовка', minibus: 'микроавтобус', other: 'транспорт',
-};
 
 function fmtRub(n: number): string {
   return `${new Intl.NumberFormat('ru-RU').format(n)} ₽`;
@@ -193,47 +189,34 @@ function StayBlock({ stay, choice }: { stay: LodgingStayView; choice: ExtrasChoi
   );
 }
 
-function TransferRow({ t, arrival, departure, seats, chosen, onToggle }: {
-  t: TransferOptionView;
-  arrival: string;
-  departure: string;
-  seats: number;
-  chosen: boolean;
-  onToggle?: () => void;
-}) {
-  const tag = t.tripDate === arrival ? 'в день прилёта' : t.tripDate === departure ? 'в день отъезда' : null;
+function directionsRu(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n} направление`;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} направления`;
+  return `${n} направлений`;
+}
+
+/** Перевозчик «под заказ»: машина целиком, цена за машину; строка ведёт на его прайс и заявку. */
+function CharterOfferRow({ o }: { o: CharterOfferView }) {
   return (
-    <li data-testid="transfer-option"
-      className={`rounded-lg border bg-[var(--bg-card)] px-3 py-2.5 transition-colors duration-200 motion-reduce:transition-none ${chosen ? 'border-[var(--accent)]' : 'border-[var(--border)]'}`}>
-      <Link href={tripsLink({ from: t.tripDate, to: t.tripDate, seats, tripId: t.id })}
-        className="text-sm font-medium text-[var(--text-primary)]">
-        {t.fromText} — {t.toText}
+    <li data-testid="charter-offer" className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2.5">
+      <Link href={carrierPagePath(o.slug)} className="text-sm font-medium text-[var(--text-primary)]">
+        {o.name}
       </Link>
+      {o.fleet && <p className="text-xs text-[var(--text-secondary)] mt-0.5">{o.fleet}</p>}
       <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-        {fmtDay(t.tripDate)}{t.departureNote ? `, ${t.departureNote}` : ''}
-        {tag && <span className="text-[var(--ocean)]"> · {tag}</span>}
+        {o.priceFromRub === null
+          ? 'Цену машины назовёт перевозчик'
+          : `от ${fmtRub(o.priceFromRub)} за машину · ${directionsRu(o.destinations)} в прайсе`}
       </p>
-      <div className="mt-0.5 flex items-center justify-between gap-2">
-        <p className="text-xs text-[var(--text-secondary)]">
-          {KIND_LABEL[t.vehicleKind] ?? t.vehicleKind} «{t.vehicleTitle}» · {t.partnerName}
-          {' · '}свободно {t.seatsFree} из {t.seatsTotal}
-          {' · '}{t.pricePerSeat === null ? 'цена за место не указана' : `${fmtRub(t.pricePerSeat)} за место`}
-        </p>
-        {onToggle && <PlanToggle chosen={chosen} onClick={onToggle} label={`${t.fromText} — ${t.toText}`} />}
-      </div>
     </li>
   );
 }
 
-export function TripExtrasSection({ load, arrival, departure, ...choice }: {
+export function TripExtrasSection({ load, ...choice }: {
   load: ExtrasLoad;
-  arrival: string;
-  departure: string;
 } & ExtrasChoiceProps) {
-  // Окно поездок — для ссылок на витрину и для мест в каждой поездке.
-  const transfer = load.status === 'ready' ? load.data.transfer : undefined;
-  const transferWindow = transfer && 'window' in transfer ? transfer.window : null;
-  const onToggleTransfer = choice.onToggleTransfer;
   return (
     <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4" aria-label="Что ещё нужно" data-testid="trip-extras">
       <div>
@@ -292,44 +275,27 @@ export function TripExtrasSection({ load, arrival, departure, ...choice }: {
           {load.data.transfer && (
             <div className="space-y-2" data-testid="extras-transfer">
               <p className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-                <Bus className="w-4 h-4 text-[var(--ocean)]" />Трансфер
+                <Bus className="w-4 h-4 text-[var(--ocean)]" />Трансфер — машина целиком
               </p>
-              {load.data.transfer.state === 'no_dates' && (
-                <p className="text-sm text-[var(--text-secondary)]">Укажите даты прилёта и отъезда — без них поездки перевозчиков не проверить.</p>
-              )}
-              {load.data.transfer.state === 'window_too_long' && (
-                <div>
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    Поездка длиннее {load.data.transfer.maxDays} дней — поездки перевозчиков смотрите на витрине по датам.
-                  </p>
-                  <CatalogueLink href="/transfers">Поездки перевозчиков</CatalogueLink>
-                </div>
-              )}
-              {load.data.transfer.state === 'ok' && transferWindow && (
+              {load.data.transfer.state === 'ok' && (
                 <>
                   <p className="text-xs text-[var(--text-secondary)]">
-                    С {fmtDay(load.data.transfer.window.from)} по {fmtDay(load.data.transfer.window.to)}, места на всю группу ({load.data.transfer.window.seats} чел.):
+                    Под заказ: цена за машину, не за место. Направление и даты укажете в заявке на странице перевозчика; машину подтверждает менеджер Ведара, расчёт — напрямую с перевозчиком.
                   </p>
                   <ul className="space-y-1.5">
-                    {load.data.transfer.items.map((t) => (
-                      <TransferRow key={t.id} t={t} arrival={arrival} departure={departure}
-                        seats={transferWindow.seats}
-                        chosen={choice.selection?.transfers.includes(t.id) ?? false}
-                        onToggle={onToggleTransfer ? () => onToggleTransfer(t.id) : undefined} />
-                    ))}
+                    {load.data.transfer.items.map((o) => <CharterOfferRow key={o.slug} o={o} />)}
                   </ul>
-                  <CatalogueLink href={tripsLink(transferWindow)}>Все поездки на эти даты</CatalogueLink>
                 </>
               )}
               {load.data.transfer.state === 'empty' && (
                 <div>
                   <p className="text-sm text-[var(--text-secondary)]">
-                    С {fmtDay(load.data.transfer.window.from)} по {fmtDay(load.data.transfer.window.to)} поездок перевозчиков, где хватит мест на всю группу ({load.data.transfer.window.seats} чел.), на платформе нет.
+                    Перевозчиков с прайсом под заказ на платформе пока нет.
                   </p>
-                  <CatalogueLink href="/transfers">Поездки перевозчиков</CatalogueLink>
+                  <CatalogueLink href="/transfers">Трансферы</CatalogueLink>
                 </div>
               )}
-              {load.data.transfer.state === 'unavailable' && <Unavailable what="поездки перевозчиков" />}
+              {load.data.transfer.state === 'unavailable' && <Unavailable what="машины под заказ" />}
             </div>
           )}
 

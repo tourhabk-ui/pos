@@ -10,11 +10,10 @@ import { planForLead } from '@/lib/planner/plan-for-lead';
 import { dayPriceLine } from '@/lib/planner/day-price';
 import type { TripChoices, TripDayPlan, TripParty } from '@/lib/trips/trip-schema';
 import { stayLink } from '@/lib/stay/stay-link';
-import { tripsLink } from '@/lib/transfers/trips-link';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
-  Phone, Check, Pencil, PlaneLanding, PlaneTakeoff, BedDouble, Bus,
+  Phone, Check, Pencil, PlaneLanding, PlaneTakeoff, BedDouble,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -76,7 +75,7 @@ const TRANSPORT_LABELS: Record<string, string> = {
 function tripEstimate(trip: TripDetail) {
   if (!trip.party || trip.days.length === 0 || trip.days.some((d) => !d.type)) return null;
   const days = trip.days.map((d) => ({ ...d, type: d.type! }));
-  // Выбранное жильё и трансфер (#2304, шаг 3б) — той же сметой, что в планировщике.
+  // Выбранное жильё (#2304, шаг 3б) — той же сметой, что в планировщике.
   return estimateGroup(days, { ...trip.party, arrivalDate: trip.arrival_date?.slice(0, 10) ?? null }, trip.choices ?? undefined);
 }
 
@@ -91,17 +90,18 @@ const shortDay = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 /**
- * Жильё и трансфер, взятые в план (#2304, шаг 3б). Цена — снимок на день
- * сохранения: свободные номера и цены у хозяина меняются, и экран так и
- * говорит, а ссылка ведёт на объект и витрину с датами плана.
+ * Жильё, взятое в план (#2304, шаг 3б). Цена — снимок на день сохранения:
+ * свободные номера и цены у хозяина меняются, и экран так и говорит, а ссылка
+ * ведёт на объект с датами плана. Поездок перевозчиков с местами здесь с 13.10
+ * нет: трансфер — машина целиком под заказ, в план его не берут.
  */
 function ChoicesBlock({ choices, party }: { choices: TripChoices; party: TripParty | null }) {
-  if (choices.stays.length === 0 && choices.transfers.length === 0) return null;
+  if (choices.stays.length === 0) return null;
   return (
     <div className="ds-card p-5 space-y-3" data-testid="trip-choices">
       <div>
-        <h2 className="text-sm font-semibold text-[var(--text-primary)]">Жильё и трансфер в плане</h2>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5">Цены — на день сохранения поездки; свободные номера и места проверьте по ссылке.</p>
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">Жильё в плане</h2>
+        <p className="text-xs text-[var(--text-muted)] mt-0.5">Цены — на день сохранения поездки; свободные номера проверьте по ссылке.</p>
       </div>
       {choices.stays.map((st) => (
         <div key={`${st.zone}-${st.checkIn}`} className="flex items-start gap-2">
@@ -121,21 +121,6 @@ function ChoicesBlock({ choices, party }: { choices: TripChoices; party: TripPar
               {st.price?.kind === 'priced'
                 ? `${rub(st.price.total)} на группу, номеров: ${st.price.rooms} «${st.price.roomName}»`
                 : st.price ? 'номера и цену подберёт хозяин' : 'цену назовёт хозяин'}
-            </p>
-          </div>
-        </div>
-      ))}
-      {choices.transfers.map((t) => (
-        <div key={t.tripId} className="flex items-start gap-2">
-          <Bus className="w-4 h-4 mt-0.5 shrink-0 text-[var(--ocean)]" />
-          <div className="min-w-0 text-sm">
-            <Link className="font-medium" href={tripsLink({ from: t.date, to: t.date, seats: t.seats, tripId: t.tripId })}>
-              {t.from} — {t.to}
-            </Link>
-            <p className="text-xs text-[var(--text-secondary)]">
-              {shortDay(t.date)} · {t.carrier} · мест: {t.seats}
-              {' · '}
-              {t.pricePerSeat === null ? 'цену назовёт перевозчик' : `${rub(t.pricePerSeat)} за место`}
             </p>
           </div>
         </div>

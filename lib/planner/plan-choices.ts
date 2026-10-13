@@ -1,6 +1,6 @@
 /**
- * lib/planner/plan-choices.ts — жильё и трансфер пунктами плана (#2304,
- * шаг 3). Чистый модуль: считает и браузер (/planner), и смета.
+ * lib/planner/plan-choices.ts — жильё пунктами плана (#2304, шаг 3). Чистый
+ * модуль: считает и браузер (/planner), и смета.
  *
  * ── Что было до 09.10 ─────────────────────────────────────────────────────
  *
@@ -11,22 +11,29 @@
  *
  * ── Что здесь ─────────────────────────────────────────────────────────────
  *
- * Выбор человека — это только ключи: стоянка → объект, список поездок.
+ * Выбор человека — это только ключи: стоянка → объект.
  * Пункты плана собираются из ТЕКУЩЕГО ответа /api/planner/trip-extras: план
  * правится, стоянки пересчитываются, и выбор, которого в новом ответе нет
  * (объект занят на новые даты, стоянка исчезла), в смету не попадает —
  * старая цена за другие ночи была бы враньём.
+ *
+ * ── Трансфера здесь нет (13.10) ───────────────────────────────────────────
+ *
+ * До 13.10 в план брали и поездку перевозчика — «N мест × цена места». Такого
+ * товара нет (владелец: «бронируют целую машину а не место в ней»): машину
+ * заказывают целиком, направление и даты — в заявке перевозчику, и цену
+ * машины до заявки не знает никто. Поэтому трансфер в смету не встаёт, а
+ * экран ведёт на страницу перевозчика.
  */
 import type { ZoneId } from '@/lib/planner/constants';
 import type { StayPrice } from '@/lib/planner/trip-extras';
 
-/** Выбор человека: ключ стоянки → id объекта; id поездок перевозчиков. */
+/** Выбор человека: ключ стоянки → id объекта. */
 export interface ChoiceSelection {
   lodging: Record<string, string>;
-  transfers: string[];
 }
 
-export const EMPTY_SELECTION: ChoiceSelection = { lodging: {}, transfers: [] };
+export const EMPTY_SELECTION: ChoiceSelection = { lodging: {} };
 
 /** Ключ стоянки: зона и дата заезда — то же, что ключ блока на экране. */
 export const stayKey = (s: { zone: string; checkIn: string }) => `${s.zone}-${s.checkIn}`;
@@ -44,22 +51,8 @@ export interface ChosenStay {
   price: StayPrice | null;
 }
 
-/** Выбранная поездка перевозчика — пункт плана. */
-export interface ChosenTransfer {
-  tripId: string;
-  date: string;
-  from: string;
-  to: string;
-  /** Мест — на всю группу. */
-  seats: number;
-  /** null — место поштучно не продаётся, цену назовёт перевозчик. */
-  pricePerSeat: number | null;
-  carrier: string;
-}
-
 export interface PlanChoices {
   stays: ChosenStay[];
-  transfers: ChosenTransfer[];
 }
 
 /** Ответ дополнений в том объёме, что нужен выбору (совместим с экраном). */
@@ -72,15 +65,6 @@ export interface ExtrasForChoices {
         zone: string; checkIn: string; checkOut: string; nights: number;
         result: { state: 'ok'; items: Array<{ id: string; name: string; stay?: StayPrice }> } | { state: 'empty' } | { state: 'unavailable' };
       }>;
-    };
-  transfer?:
-    | { state: 'no_dates' }
-    | { state: 'window_too_long' }
-    | { state: 'empty' } | { state: 'unavailable' }
-    | {
-      state: 'ok';
-      window: { seats: number };
-      items: Array<{ id: string; tripDate: string; fromText: string; toText: string; pricePerSeat: number | null; partnerName: string }>;
     };
 }
 
@@ -101,18 +85,7 @@ export function resolveChoices(data: ExtrasForChoices | null | undefined, sel: C
       });
     }
   }
-  const transfers: ChosenTransfer[] = [];
-  const t = data?.transfer;
-  if (t?.state === 'ok') {
-    for (const item of t.items) {
-      if (!sel.transfers.includes(item.id)) continue;
-      transfers.push({
-        tripId: item.id, date: item.tripDate, from: item.fromText, to: item.toText,
-        seats: t.window.seats, pricePerSeat: item.pricePerSeat, carrier: item.partnerName,
-      });
-    }
-  }
-  return { stays, transfers };
+  return { stays };
 }
 
 /** Выбрать объект на стоянку; повторное нажатие на выбранный — снять выбор. */
@@ -122,18 +95,3 @@ export function toggleLodging(sel: ChoiceSelection, key: string, id: string): Ch
   return { ...sel, lodging };
 }
 
-export function toggleTransfer(sel: ChoiceSelection, id: string): ChoiceSelection {
-  return {
-    ...sel,
-    transfers: sel.transfers.includes(id) ? sel.transfers.filter((x) => x !== id) : [...sel.transfers, id],
-  };
-}
-
-/**
- * Поездка — трансфер аэропорта? По словам маршрута: отдельного признака у
- * поездки перевозчика нет. Нужен смете, чтобы ориентир «Трансферы аэропорта»
- * не стоял рядом с выбранной поездкой из аэропорта — та же дорога дважды.
- */
-export function isAirportTransfer(t: Pick<ChosenTransfer, 'from' | 'to'>): boolean {
-  return /аэропорт/i.test(`${t.from} ${t.to}`);
-}

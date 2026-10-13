@@ -31,10 +31,11 @@
  * Чего не знаем — строка «цена не указана», и в итог она не входит (§4.0):
  * ноль вместо неизвестной цены выдал бы смету за точную.
  *
- * Выбранные жильё и трансфер (#2304, шаг 3; lib/planner/plan-choices) —
- * пункты плана с ценой предложения на платформе: ночи выбранной стоянки
- * выходят из ориентира по зоне, а стоянка встаёт своей строкой. Ориентир
- * «Трансферы аэропорта» уступает выбранной поездке из аэропорта.
+ * Выбранное жильё (#2304, шаг 3; lib/planner/plan-choices) — пункт плана с
+ * ценой предложения на платформе: ночи выбранной стоянки выходят из
+ * ориентира по зоне, а стоянка встаёт своей строкой. Трансфер — машина
+ * целиком под заказ (13.10): цены до заявки перевозчику нет, и смета держит
+ * «Трансферы аэропорта» ориентиром.
  */
 // Только чистые модули: смету считает браузер, а движок тянет базу и модели
 // (сторож client-no-node-builtins идёт и по импортам типов).
@@ -42,7 +43,7 @@ import { ZONE_SLEEPS_IN, sleepZoneOf, type ZoneId, type BudgetTier, type DayType
 import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } from '@/lib/planner/trip-origin';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
-import { isAirportTransfer, type PlanChoices } from '@/lib/planner/plan-choices';
+import type { PlanChoices } from '@/lib/planner/plan-choices';
 
 // ── Входные данные ───────────────────────────────────────────────────────────
 
@@ -310,7 +311,6 @@ const nightWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'ночь' : 
 
 const times = ([a, b]: [number, number], k: number): [number, number] => [a * k, b * k];
 const roomWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'номер' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'номера' : 'номеров');
-const seatWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'место' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'места' : 'мест');
 const ddmm = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 
 /**
@@ -493,7 +493,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
     }
   }
 
-  // Переезды, выбранные поездки перевозчиков и трансферы аэропорта.
+  // Переезды и трансферы аэропорта.
   for (const d of days) {
     if (d.type !== 'travel') continue;
     if (d.priceFrom <= 0 && d.priceTo <= 0) continue;
@@ -503,29 +503,12 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
       total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
     });
   }
-  const transfers = choices?.transfers ?? [];
-  for (const t of transfers) {
-    const label = `Трансфер ${t.from} — ${t.to}, ${ddmm(t.date)}`;
-    lines.push(t.pricePerSeat === null
-      ? {
-        kind: 'transport', label, basis: `${t.seats} ${seatWord(t.seats)}`, total: null, source: 'offer',
-        note: 'Цена за место не указана — её назовёт перевозчик.',
-      }
-      : {
-        kind: 'transport', label, basis: `${fmt(t.pricePerSeat)} ₽ × ${t.seats} ${seatWord(t.seats)}`,
-        total: [t.pricePerSeat * t.seats, t.pricePerSeat * t.seats], source: 'offer',
-      });
-  }
-  // Ориентир — на дорогу туда и обратно; выбранная поездка из аэропорта
-  // закрывает одну сторону, две — обе.
-  const airportChosen = Math.min(2, transfers.filter(isAirportTransfer).length);
-  if (paysAirportTransfers(origin) && days.length > 0 && airportChosen < 2) {
-    const share = airportChosen === 0 ? 1 : 0.5;
-    const each: [number, number] = [AIRPORT_TRANSFER[0] * share, AIRPORT_TRANSFER[1] * share];
+  // Ориентир — на дорогу туда и обратно.
+  if (paysAirportTransfers(origin) && days.length > 0) {
     lines.push({
-      kind: 'transport', label: airportChosen === 0 ? 'Трансферы аэропорта' : 'Трансфер аэропорта в другую сторону',
-      basis: `${fmt(each[0])}–${fmt(each[1])} ₽ × ${peopleWord(people)}`,
-      total: times(each, people), source: 'estimate',
+      kind: 'transport', label: 'Трансферы аэропорта',
+      basis: `${fmt(AIRPORT_TRANSFER[0])}–${fmt(AIRPORT_TRANSFER[1])} ₽ × ${peopleWord(people)}`,
+      total: times(AIRPORT_TRANSFER, people), source: 'estimate',
     });
   }
 

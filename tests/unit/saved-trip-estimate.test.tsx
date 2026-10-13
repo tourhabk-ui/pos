@@ -177,7 +177,7 @@ describe('роуты поездки: состав и тур доходят до 
   });
 });
 
-// ── Шаг 3б: выбранные жильё и трансфер хранятся в поездке ────────────────────
+// ── Шаг 3б: выбранное жильё хранится в поездке ───────────────────────────────
 
 const CHOICES = {
   stays: [{
@@ -185,20 +185,22 @@ const CHOICES = {
     accommodationId: 'acc-1', name: 'Дом у вулкана',
     price: { kind: 'priced' as const, total: 12000, rooms: 1, roomId: 'r-1', roomName: 'Двухместный', maxGuests: 2 },
   }],
-  transfers: [{
-    tripId: 't1', date: '2030-08-03', from: 'Аэропорт Елизово', to: 'Паратунка', seats: 2, pricePerSeat: 1500, carrier: 'Перевозчик',
-  }],
 };
+// Снимок, сохранённый до 13.10: тогда в план брали и место в поездке
+// перевозчика. Трансфер — машина целиком (владелец), и такие места больше
+// нигде не показываются и не считаются, хотя в базе остались.
+const LEGACY_TRANSFERS = [{
+  tripId: 't1', date: '2030-08-03', from: 'Аэропорт Елизово', to: 'Паратунка', seats: 2, pricePerSeat: 1500, carrier: 'Перевозчик',
+}];
 
-describe('выбранное жильё и трансфер в сохранённой поездке (#2304, шаг 3б)', () => {
+describe('выбранное жильё в сохранённой поездке (#2304, шаг 3б)', () => {
   const req = (body: unknown) => ({ json: async () => body, cookies: { get: () => undefined } }) as unknown as Parameters<typeof createTrip>[0];
   beforeEach(() => { dbCalls.length = 0; });
 
-  it('схема: снимок выбора проходит, лишнее срезается, негодное — нет', () => {
-    const parsed = TripChoicesSchema.parse({ ...CHOICES, extra: 1, stays: [{ ...CHOICES.stays[0], phone: '+7' }] });
+  it('схема: снимок выбора проходит, лишнее (и места в поездках) срезается, негодное — нет', () => {
+    const parsed = TripChoicesSchema.parse({ ...CHOICES, extra: 1, transfers: LEGACY_TRANSFERS, stays: [{ ...CHOICES.stays[0], phone: '+7' }] });
     expect(parsed).toEqual(CHOICES);
-    expect(TripChoicesSchema.safeParse({ ...CHOICES, transfers: [{ ...CHOICES.transfers[0], seats: 0 }] }).success).toBe(false);
-    expect(TripChoicesSchema.safeParse({ stays: [{ ...CHOICES.stays[0], price: { kind: 'bogus' } }], transfers: [] }).success).toBe(false);
+    expect(TripChoicesSchema.safeParse({ stays: [{ ...CHOICES.stays[0], price: { kind: 'bogus' } }] }).success).toBe(false);
   });
 
   it('создание и правка: выбор — в запросе; правка без выбора прежний не трогает', async () => {
@@ -207,24 +209,26 @@ describe('выбранное жильё и трансфер в сохранён�
     expect(JSON.parse(String(insert.params[14]))).toEqual(CHOICES);
     dbCalls.length = 0;
     const ctx = { params: Promise.resolve({ id: 'trip-1' }) };
-    await patchTrip(req({ choices: { stays: [], transfers: [] } }), ctx);
-    expect(JSON.parse(String(dbCalls.find((c) => c.sql.includes('UPDATE user_trips'))!.params[14]))).toEqual({ stays: [], transfers: [] });
+    await patchTrip(req({ choices: { stays: [], transfers: LEGACY_TRANSFERS } }), ctx);
+    expect(JSON.parse(String(dbCalls.find((c) => c.sql.includes('UPDATE user_trips'))!.params[14]))).toEqual({ stays: [] });
     dbCalls.length = 0;
     await patchTrip(req({ title: 'Новое имя' }), ctx);
     expect(dbCalls.find((c) => c.sql.includes('UPDATE user_trips'))!.params[14]).toBeNull();
   });
 
-  it('страница: блок со ссылками на даты плана; смета и заявка — с выбранным', async () => {
-    tripReply = { ...TRIP, arrival_date: '2030-08-03', choices: CHOICES };
+  it('страница: блок со ссылкой на даты плана; смета и заявка — с выбранным; места старого снимка не видны', async () => {
+    tripReply = { ...TRIP, arrival_date: '2030-08-03', choices: { ...CHOICES, transfers: LEGACY_TRANSFERS } };
     render(<TripDetailClient tripId="trip-1" />);
     const block = await screen.findByTestId('trip-choices');
     expect(block.querySelector('a[href^="/accommodations/acc-1?"]')?.getAttribute('href'))
       .toBe('/accommodations/acc-1?check_in=2030-08-03&check_out=2030-08-04&adults=2&children=0&room=r-1');
-    expect(block.querySelector('a[href^="/transfers?"]')?.getAttribute('href')).toBe('/transfers?from=2030-08-03&to=2030-08-03&seats=2&trip=t1');
+    expect(block.querySelector('a[href^="/transfers"]')).toBeNull();
     expect(text(block)).toContain('12 000 ₽ на группу');
+    expect(text(block)).not.toMatch(/Аэропорт Елизово|за место|мест:/);
     const est = text(screen.getByTestId('price-estimate'));
     expect(est).toContain('Жильё «Дом у вулкана», 03.08–04.08');
-    expect(est).toContain('Трансфер Аэропорт Елизово — Паратунка, 03.08');
+    expect(est).not.toContain('Трансфер Аэропорт Елизово — Паратунка');
+    expect(est).not.toMatch(/\d мест|за место/);
 
     fireEvent.click(screen.getByRole('button', { name: /Запросить подробное предложение/ }));
     fireEvent.change(screen.getByPlaceholderText('Ваше имя'), { target: { value: 'Иван Петров' } });
@@ -234,7 +238,7 @@ describe('выбранное жильё и трансфер в сохранён�
     const call = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/leads');
     const plan = JSON.parse(String(call![1]!.body)).source_data.plan;
     expect(plan.lodging).toEqual([expect.objectContaining({ accommodation_id: 'acc-1', total: 12000 })]);
-    expect(plan.transfers).toEqual([expect.objectContaining({ trip_id: 't1', price_per_seat: 1500 })]);
+    expect(plan).not.toHaveProperty('transfers');
   });
 
   it('без выбора — блока нет', async () => {

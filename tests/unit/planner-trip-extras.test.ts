@@ -8,9 +8,10 @@
  *   жильё     — только витрина (одобрено и не скрыто), только размеченная
  *               зона (NULL не предлагается), свободность — общей формулой
  *               каталога (roomNightsSql), не своей;
- *   трансфер  — только listPublishedTrips, окно = даты поездки, места на
- *               всю группу (взрослые + дети); свободный текст перевозчика
- *               наружу не уходит;
+ *   трансфер  — машина целиком под заказ (владелец 13.10): перевозчики с
+ *               прайсом тем же загрузчиком, что у /transfers, цена «от» за
+ *               машину; от дат не зависит, мест в поездках не ищет;
+ *               контакты перевозчика наружу не уходят;
  *   машина    — честное «пока нет», без прокатчиков и ссылок наружу;
  *   три исхода — «не смог» не выдаётся за «нет» и пишет в лог имя и SQLSTATE;
  *   зона      — миграция 1031 (CHECK из четырёх зон движка, без угадывания),
@@ -30,6 +31,12 @@ const listTripsMock = vi.fn();
 vi.mock('@/lib/transfers/service', () => ({
   listPublishedTrips: (...args: unknown[]) => listTripsMock(...args),
 }));
+// Прайс «под заказ»: загрузчик подменён, чистое форматирование — настоящее.
+const charterMock = vi.fn();
+vi.mock('@/lib/transfers/charter', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/transfers/charter-format')>('@/lib/transfers/charter-format');
+  return { ...actual, loadCharterCarriers: (...a: unknown[]) => charterMock(...a) };
+});
 const queryMock = vi.fn();
 vi.mock('@/lib/database', () => ({ query: (...args: unknown[]) => queryMock(...args) }));
 const requireAuthMock = vi.fn();
@@ -43,7 +50,7 @@ vi.mock('@/lib/auth/partner-profile', () => ({ ensurePartnerForRole: vi.fn().moc
 
 import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER, type ExtrasDay } from '@/lib/planner/trip-extras';
 import {
-  LODGING_FOR_STAY_SQL, UNZONED_PUBLIC_COUNT_SQL, findLodgingForStay, findTransfers,
+  LODGING_FOR_STAY_SQL, UNZONED_PUBLIC_COUNT_SQL, findLodgingForStay, findCharterOffers,
 } from '@/lib/planner/trip-extras-data';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { ZONE_IDS, sleepZoneOf } from '@/lib/planner/constants';
@@ -118,7 +125,7 @@ describe('стоянки из дней плана', () => {
     expect(stays).toEqual([{ zone: 'avachinsky', checkIn: '2030-08-03', checkOut: '2030-08-04', nights: 1 }]);
   });
 
-  it('места в трансфере — на всех: взрослые и дети', () => {
+  it('состав группы — на всех: взрослые и дети', () => {
     expect(groupSeats(2, [5, 9])).toBe(4);
   });
 });
@@ -174,39 +181,50 @@ describe('жильё: только витрина, только размечен
 
 // ── Трансфер ────────────────────────────────────────────────────────────────
 
-describe('трансфер: витрина перевозчиков, окно дат, места на всю группу', () => {
-  const trip = {
-    id: 't1', vehicle_id: 'v1', trip_date: '2030-08-03', from_text: 'Аэропорт', to_text: 'Паратунка',
-    to_place_id: null, to_route_id: null, departure_note: '10:00', seats_total: 8, price_per_seat: '1500',
-    is_published: true, status: 'planned', comment: 'звоните +79990000000',
-    partner_id: 'p1', partner_name: 'Перевозчик', vehicle_kind: 'minibus', vehicle_title: 'Спринтер',
-    seats_taken: 0, seats_free: 8,
-  };
-
-  it('зовёт listPublishedTrips с окном и числом мест; комментарий перевозчика не отдаёт', async () => {
-    listTripsMock.mockResolvedValue([trip]);
-    const r = await findTransfers({ fromDate: '2030-08-03', toDate: '2030-08-12', seats: 4 });
-    expect(listTripsMock).toHaveBeenCalledWith({ fromDate: '2030-08-03', toDate: '2030-08-12', minSeats: 4, placeId: null });
-    expect(r.state).toBe('ok');
-    expect(JSON.stringify(r)).not.toContain('+7999');
-    expect(JSON.stringify(r)).not.toContain('comment');
+describe('трансфер: машина целиком под заказ (владелец 13.10)', () => {
+  const carrier = (over: Record<string, unknown> = {}) => ({
+    partnerId: 'c1', slug: 'shatun', name: 'Шатун', shortDescription: null,
+    vehicles: [{ kind: 'vahtovka', title: 'КамАЗ синяя', seats: 26 }, { kind: 'vahtovka', title: 'КамАЗ оранжевая', seats: 26 }],
+    destinations: [
+      { from: 'Петропавловск-Камчатский', to: 'Вулкан Горелый', priceRub: 75000, note: null, conditions: null, validYear: 2026, place: null },
+      { from: 'Петропавловск-Камчатский', to: 'Вулкан Авачинский', priceRub: 65000, note: null, conditions: null, validYear: 2026, place: null },
+    ],
+    extraDay: null, photos: [], clips: [], legal: null, video: null,
+    phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: 'https://wa.me/79294560102',
+    ...over,
   });
 
-  it('роут: окно = даты поездки, места = взрослые + дети', async () => {
-    listTripsMock.mockResolvedValue([]);
-    const { json } = await extras({
-      needs: { transfer: true }, arrivalDate: '2030-08-03', departureDate: '2030-08-12', adults: 2, children: [7],
+  it('перевозчик — парк, цена «от» за машину по прайсу и число направлений; контакты наружу не уходят', async () => {
+    charterMock.mockResolvedValue([carrier()]);
+    const r = await findCharterOffers();
+    expect(r).toEqual({
+      state: 'ok',
+      items: [{ slug: 'shatun', name: 'Шатун', fleet: '2 × вахтовка, 26 мест', priceFromRub: 65000, destinations: 2 }],
     });
-    expect(listTripsMock).toHaveBeenCalledWith({ fromDate: '2030-08-03', toDate: '2030-08-12', minSeats: 3, placeId: null });
-    expect(json.data?.transfer).toEqual({ state: 'empty', window: { from: '2030-08-03', to: '2030-08-12', seats: 3 } });
+    expect(JSON.stringify(r)).not.toMatch(/9294560102|t\.me|wa\.me|phone/);
   });
 
-  it('отказ витрины — «unavailable», а не «поездок нет»', async () => {
+  it('направлений в прайсе нет — цена не выдумывается', async () => {
+    charterMock.mockResolvedValue([carrier({ destinations: [], vehicles: [] })]);
+    expect(await findCharterOffers()).toEqual({
+      state: 'ok', items: [{ slug: 'shatun', name: 'Шатун', fleet: null, priceFromRub: null, destinations: 0 }],
+    });
+  });
+
+  it('роут: от дат и состава не зависит, витрину мест не читает', async () => {
+    charterMock.mockResolvedValue([carrier()]);
+    const { json } = await extras({ needs: { transfer: true }, adults: 2, children: [7] });
+    expect(json.data?.transfer).toMatchObject({ state: 'ok', items: [{ slug: 'shatun', priceFromRub: 65000 }] });
+    expect(listTripsMock).not.toHaveBeenCalled();
+  });
+
+  it('перевозчиков с прайсом нет — «empty»; отказ — «unavailable» с именем проверки и SQLSTATE', async () => {
+    charterMock.mockResolvedValue([]);
+    expect(await findCharterOffers()).toEqual({ state: 'empty' });
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    listTripsMock.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
-    const r = await findTransfers({ fromDate: '2030-08-03', toDate: '2030-08-12', seats: 1 });
-    expect(r).toEqual({ state: 'unavailable' });
-    expect(String(spy.mock.calls[0]?.[0])).toMatch(/sqlstate=57P01/);
+    charterMock.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
+    expect(await findCharterOffers()).toEqual({ state: 'unavailable' });
+    expect(String(spy.mock.calls[0]?.[0])).toMatch(/прайс машин под заказ.*sqlstate=57P01/);
     spy.mockRestore();
   });
 });

@@ -56,9 +56,14 @@ export const TripPartySchema = z.object({
 });
 
 /**
- * Выбранные в плане жильё и поездки перевозчиков (#2304, шаг 3б) — снимок на
- * день сохранения: цена стоянки на группу по правилу брони или «не
- * помещается»; null — цену не посчитали. Форма — lib/planner/plan-choices.
+ * Выбранное в плане жильё (#2304, шаг 3б) — снимок на день сохранения: цена
+ * стоянки на группу по правилу брони или «не помещается»; null — цену не
+ * посчитали. Форма — lib/planner/plan-choices.
+ *
+ * Поездок перевозчиков («N мест × цена места») здесь с 13.10 нет: трансфер —
+ * машина целиком под заказ (владелец). У поездок, сохранённых раньше, поле
+ * `transfers` в базе осталось — схема его не читает и при новом сохранении
+ * не пишет.
  */
 export const TripChoicesSchema = z.object({
   stays: z.array(z.object({
@@ -77,15 +82,6 @@ export const TripChoicesSchema = z.object({
       z.object({ kind: z.literal('no_fit'), people: z.number().int().min(1).max(100) }),
     ]).nullable(),
   })).max(8),
-  transfers: z.array(z.object({
-    tripId: z.string().min(1).max(64),
-    date: z.string().date(),
-    from: z.string().max(255),
-    to: z.string().max(255),
-    seats: z.number().int().min(1).max(60),
-    pricePerSeat: z.number().min(0).max(10_000_000).nullable(),
-    carrier: z.string().max(255),
-  })).max(6),
 });
 
 export type TripDayPlan = z.infer<typeof TripDayPlanSchema>;

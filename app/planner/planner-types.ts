@@ -156,27 +156,19 @@ export interface LodgingStayView {
   result: ExtrasOutcome<LodgingOptionView>;
 }
 
-export interface TransferOptionView {
-  id: string;
-  tripDate: string;
-  departureNote: string | null;
-  fromText: string;
-  toText: string;
-  seatsFree: number;
-  seatsTotal: number;
-  pricePerSeat: number | null;
-  vehicleKind: string;
-  vehicleTitle: string;
-  partnerName: string;
+/** Перевозчик «под заказ» — машина целиком (форма lib/planner/trip-extras-data, CharterOffer). */
+export interface CharterOfferView {
+  slug: string;
+  name: string;
+  fleet: string | null;
+  priceFromRub: number | null;
+  destinations: number;
 }
 
 export interface TripExtrasData {
   lodging?:
     | { state: 'no_dates' }
     | { state: 'checked'; stays: LodgingStayView[]; nightsInTours: number; unzonedCount: number | null };
-  transfer?:
-    | { state: 'no_dates' }
-    | { state: 'window_too_long'; window: { from: string; to: string; seats: number }; maxDays: number }
-    | (ExtrasOutcome<TransferOptionView> & { window: { from: string; to: string; seats: number } });
+  transfer?: ExtrasOutcome<CharterOfferView>;
   car?: { state: 'not_offered'; message: string; hint: string };
 }
