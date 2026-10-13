@@ -12,6 +12,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
 import { REFUSAL_KINDS } from '@/lib/mcp/call-log';
+import { clientRegion } from '@/lib/mcp/china-clients';
 
 /**
  * Внешний вызов — не свой (метка владельца, is_self) и не проверка (смоук,
@@ -238,6 +239,8 @@ export async function GET(request: NextRequest) {
         client: r.client,
         kind: r.kind,
         origin: r.origin,
+        // Продукт из реестра КНР (lib/mcp/china-clients) — по имени или роду; null — не из реестра.
+        region: clientRegion(r.client),
         calls: Number(r.calls),
         caller_days: Number(r.caller_days),
         last_seen: r.last_seen,

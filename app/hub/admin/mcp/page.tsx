@@ -61,6 +61,7 @@ interface ClientRow {
   kind: string;
   /** external — внешний спрос; self — метка владельца; probe — смоук, пробы, curl. */
   origin?: 'external' | 'self' | 'probe' | string;
+  region?: string | null;
   calls: number;
   caller_days: number;
   last_seen: string | null;
@@ -394,6 +395,11 @@ export default function AdminMcpPage() {
                         <span className="text-[var(--text-secondary)] truncate">
                           {c.client}
                           <span className="text-[10px] text-[var(--text-muted)] ml-2">{c.kind}</span>
+                          {c.region && (
+                            <span className="text-[10px] ml-2 font-semibold" style={{ color: 'var(--accent)' }} title="Продукт из реестра КНР по самоназванию клиента; страна запроса не хранится">
+                              {c.region}
+                            </span>
+                          )}
                           {c.origin && c.origin !== 'external' && (
                             <span className="text-[10px] ml-2" style={{ color: 'var(--warning)' }}>
                               {ORIGIN_LABELS[c.origin] ?? c.origin}
