@@ -165,7 +165,7 @@ async function announceMemberBinding(
       { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
       rebound
         ? `Уведомления кабинета для менеджера ${who} перенесены в другой чат ${CHANNEL_LABEL[channel]}. Если вы этого не ждали — снимите менеджера в разделе «Команда».`
-        : `К уведомлениям кабинета подключён ${CHANNEL_LABEL[channel]} менеджера ${who}: новые брони, заявки и запросы мест будут приходить и туда.`,
+        : `К уведомлениям кабинета подключён ${CHANNEL_LABEL[channel]} менеджера ${who}: новые брони, заявки, запросы мест и напоминания о задачах будут приходить и туда.`,
       { text: 'Команда', url: `${getPublicBaseUrl()}/hub/operator/team` },
       `кабинету ${row.partner_id} о канале менеджера`,
     );
@@ -203,7 +203,7 @@ export function memberBindReplyText(channel: MemberChannel, result: MemberBindRe
   }
   const tail = channel === 'telegram'
     ? 'Сюда будут приходить номера броней и заявок и ссылки в кабинет. Имя и телефон туриста по закону о персональных данных приходят только в MAX — подключите и его.'
-    : 'Сюда будут приходить новые брони, заявки и запросы мест кабинета — с именем и телефоном туриста.';
+    : 'Сюда будут приходить новые брони, заявки, запросы мест и напоминания о задачах кабинета — с именами и телефонами клиентов.';
   return `Готово: ${CHANNEL_LABEL[channel]} подключён к уведомлениям кабинета «${escapeHtml(result.partnerName)}». ${tail}`;
 }
 

@@ -12,10 +12,17 @@
  *  - **Канал — один адрес партнёра** (`reachForPartner`), доставка — через
  *    единственную дверь для ПД (`sendPdAlert`): имена клиентов и заголовки
  *    задач уходят только в MAX; в Telegram — заглушка без них.
- *  - **Три исхода, не два (§4.0).** Доставлено в MAX, ушла заглушка, слать
- *    некуда — записывается в `reminder_channel` и видно на экране задач.
- *    Отказ доставки не записывается: следующий прогон пробует снова.
- *    «Не смог прочитать адрес» — тоже повтор, а не «каналов нет».
+ *  - **Копия — менеджерам команды оператора** (решение владельца 13.10,
+ *    `notifyTeam`, lib/operators/team-notify): тот же текст, ПД только в MAX
+ *    менеджера. Копия уходит в том прогоне, в котором напоминание
+ *    записывается: отказ доставки кабинету и «адрес не прочитан» повторяются
+ *    следующим прогоном вместе с копией — иначе менеджер получал бы одно и
+ *    то же каждые полчаса.
+ *  - **Четыре исхода (§4.0).** Доставлено в MAX, ушла заглушка, у кабинета
+ *    канала нет, но дошло до менеджеров (`team`), слать некуда — пишется в
+ *    `reminder_channel` и видно на экране задач. Отказ доставки не
+ *    записывается: следующий прогон пробует снова. «Не смог прочитать адрес»
+ *    — тоже повтор, а не «каналов нет».
  *  - **Окно — 7 суток.** Пропущенный прогон догонит следующий, но задача,
  *    просроченная неделю назад, — не повод будить сегодня. Задача, заведённая
  *    уже просроченной («перезвонить вчера»), не напоминается: её срок
@@ -27,6 +34,7 @@ import { ROLE_HUB } from '@/lib/auth/role-routes';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { reachForPartner, type PartnerReach } from '@/lib/partners/reach';
 import { sendPdAlert, type PdAlertParams, type PdAlertResult } from '@/lib/notifications/pd-alert';
+import { notifyTeam, type TeamMessage, type TeamNotifyResult } from '@/lib/operators/team-notify';
 import type { ReminderChannel } from '@/lib/crm/tasks';
 
 interface Queryable {
@@ -111,7 +119,7 @@ function tasksWord(n: number): string {
  * уходит только в MAX; `stub` — без них, для Telegram. Всё, что ввёл
  * человек, экранируется: HTML разбирает мессенджер.
  */
-export function reminderMessage(tasks: readonly DueTaskRow[]): Pick<PdAlertParams, 'text' | 'stub' | 'buttons'> {
+export function reminderMessage(tasks: readonly DueTaskRow[]): Required<TeamMessage> {
   const n = tasks.length;
   const head = `<b>Подошёл срок: ${n} ${tasksWord(n)}</b>`;
   const lines = tasks.slice(0, SHOWN_PER_MESSAGE).map((t) => {
@@ -139,6 +147,13 @@ export interface ReminderReport {
   unreachable: number;
   failed: number;
   reach_unknown: number;
+  /** Команда оператора (CRM 2г): у кабинета канала нет — дошло только до менеджеров. */
+  team_only: number;
+  /** Менеджерам: ПД дошли в MAX / только заглушка в Telegram (по людям). */
+  team_sent_max: number;
+  team_sent_stub: number;
+  /** Команду не прочитать — копия не ушла, напоминание кабинету записано. */
+  team_unknown: number;
   /** Упёрлись в BATCH_LIMIT — остаток в следующем прогоне. */
   truncated: boolean;
 }
@@ -147,6 +162,7 @@ export interface ReminderDeps {
   db?: Queryable;
   reach?: (partnerId: string) => Promise<PartnerReach | null>;
   send?: (p: PdAlertParams) => Promise<PdAlertResult>;
+  team?: (partnerId: string, msg: TeamMessage, what: string) => Promise<TeamNotifyResult>;
 }
 
 const CHANNEL_OF: Readonly<Record<'max' | 'telegram-stub', ReminderChannel>> = {
@@ -159,8 +175,10 @@ export async function runTaskReminders(now: Date, deps: ReminderDeps = {}): Prom
   const db = deps.db ?? pool;
   const reach = deps.reach ?? reachForPartner;
   const send = deps.send ?? sendPdAlert;
+  const team = deps.team ?? notifyTeam;
   const report: ReminderReport = {
-    quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0, truncated: false,
+    quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0,
+    team_only: 0, team_sent_max: 0, team_sent_stub: 0, team_unknown: 0, truncated: false,
   };
   if (isQuietHour(now)) return { ...report, quiet: true };
 
@@ -186,17 +204,34 @@ export async function runTaskReminders(now: Date, deps: ReminderDeps = {}): Prom
       report.reach_unknown += 1;
       continue;
     }
+    const message = reminderMessage(tasks);
+    // Команда есть только у кабинета оператора (CRM 2г). Зовётся лишь там,
+    // где напоминание сейчас будет записано, — см. шапку модуля.
+    const copyToTeam = async (): Promise<number> => {
+      if (tasks[0]?.category !== 'operator') return 0;
+      const r = await team(partnerId, message, `напоминание о задачах (${tasks.length})`);
+      if (r.state === 'unknown') {
+        report.team_unknown += 1;
+        return 0;
+      }
+      report.team_sent_max += r.delivered;
+      report.team_sent_stub += r.stubbed;
+      return r.delivered + r.stubbed;
+    };
     if (!to.reachable) {
-      await mark(partnerId, tasks, 'unreachable');
-      report.unreachable += 1;
+      const reached = await copyToTeam();
+      await mark(partnerId, tasks, reached > 0 ? 'team' : 'unreachable');
+      if (reached > 0) report.team_only += 1;
+      else report.unreachable += 1;
       continue;
     }
-    const res = await send({ ...reminderMessage(tasks), to: { maxChatId: to.maxChatId, telegramChatId: to.telegramChatId } });
+    const res = await send({ ...message, to: { maxChatId: to.maxChatId, telegramChatId: to.telegramChatId } });
     if (res.channel === 'none') {
       console.error('[crm-reminders] напоминание не доставлено, повтор в следующем прогоне:', res.reason);
       report.failed += 1;
       continue;
     }
+    await copyToTeam();
     await mark(partnerId, tasks, CHANNEL_OF[res.channel]);
     if (res.channel === 'max') report.sent_max += 1;
     else report.sent_stub += 1;

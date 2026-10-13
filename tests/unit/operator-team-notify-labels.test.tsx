@@ -44,7 +44,7 @@ describe('«Команда»: куда менеджеру приходят ув�
     expect(within(await row('Новый гид')).queryByText(/Уведомления/)).toBeNull();
 
     const page = document.body.textContent ?? '';
-    expect(page).toMatch(/приходят и менеджерам/);
+    expect(page).toMatch(/брони, заявки, запросы мест и напоминания о задачах приходят и менеджерам/);
     expect(page).not.toMatch(/в его (MAX|Telegram)|подключил /);
   });
 

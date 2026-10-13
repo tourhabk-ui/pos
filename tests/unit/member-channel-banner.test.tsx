@@ -46,6 +46,8 @@ describe('баннер мессенджера менеджера', () => {
     const f = serve(manager(false, false));
     render(<MemberChannelBanner />);
     await waitFor(() => expect(screen.getByText(/Подключите MAX — туда будут приходить новые брони/)).toBeTruthy());
+    // Обещание совпадает с тем, что рассылается менеджеру (2г-4, 2г-5).
+    expect(screen.getByText(/брони, заявки, запросы мест и напоминания о задачах кабинета/)).toBeTruthy();
     await waitFor(() => expect(screen.getByRole('link', { name: /Подключить MAX/ }).getAttribute('href')).toBe(LINKS.max));
     expect(screen.getByRole('link', { name: /Подключить Telegram/ }).getAttribute('href')).toBe(LINKS.telegram);
     expect(screen.getByText(/Ссылка действует сутки/)).toBeTruthy();

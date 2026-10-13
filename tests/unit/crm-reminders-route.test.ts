@@ -17,7 +17,10 @@ const { GET } = await import('@/app/api/cron/crm-reminders/route');
 describe('GET /api/cron/crm-reminders', () => {
   const call = (auth = 'Bearer s3cret') =>
     GET(new Request('http://localhost/api/cron/crm-reminders', { headers: { authorization: auth } }));
-  const base = { quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0, truncated: false };
+  const base = {
+    quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0,
+    team_only: 0, team_sent_max: 0, team_sent_stub: 0, team_unknown: 0, truncated: false,
+  };
   const inboxBase = { quiet: false, due: 0, partners: 0, sent_max: 0, sent_stub: 0, unreachable: 0, failed: 0, reach_unknown: 0, failed_kinds: [] };
 
   beforeEach(() => {
@@ -70,6 +73,13 @@ describe('GET /api/cron/crm-reminders', () => {
     expect(r.status).toBe(200);
     expect((await r.json()).inbox.sent_stub).toBe(1);
     expect(recordCronRun).toHaveBeenCalledWith('crm-reminders', expect.any(Number), 'success', { items: 3 });
+  });
+
+  it('у кабинета канала нет, а менеджерам дошло (CRM 2г) — партнёр обработан, 200; в журнале — доставка', async () => {
+    run.mockResolvedValueOnce({ ...base, due: 2, partners: 2, failed: 1, team_only: 1, team_sent_max: 1 });
+    const r = await call();
+    expect(r.status).toBe(200);
+    expect(recordCronRun).toHaveBeenCalledWith('crm-reminders', expect.any(Number), 'success', { items: 1 });
   });
 
   it('отказ базы — 500, в ответе нет текста ошибки базы', async () => {
