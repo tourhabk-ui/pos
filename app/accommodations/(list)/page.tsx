@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { NextRequest } from 'next/server';
-import { AccommodationsClient, type AccommodationsInitial } from './_AccommodationsClient';
+import { AccommodationsClient, type AccommodationsInitial } from '../_AccommodationsClient';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { defaultOgImages } from '@/lib/seo/og-image';

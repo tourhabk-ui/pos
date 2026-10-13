@@ -65,7 +65,7 @@ describe('/accommodations: первая страница с сервера', () 
   });
 
   it('страница читает тот же обработчик, без своего SQL, и не запекается сборкой', () => {
-    const page = readFileSync('app/accommodations/page.tsx', 'utf-8');
+    const page = readFileSync('app/accommodations/(list)/page.tsx', 'utf-8');
     expect(page).toMatch(/import \{ GET as getAccommodations \} from '@\/app\/api\/accommodations\/route'/);
     expect(page).toMatch(/ACCOMMODATIONS_FIRST_PAGE_QUERY/);
     expect(page).toMatch(/export const dynamic = 'force-dynamic'/);

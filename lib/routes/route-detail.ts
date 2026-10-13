@@ -30,6 +30,7 @@ import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
+import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -459,15 +460,16 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       sourceUrl:   (r.source_url as string | null) ?? null,
       sourceName:  (r.source_name as string | null) ?? null,
       priceFrom:   payload.price_from != null ? Number(payload.price_from) : null,
-      season:      (payload.season as string | null) ?? null,
-      difficulty:  (payload.difficulty as string | null) ?? null,
+      // payload — JSONB: season бывает массивом (перепись 13.10) — тип проверяется.
+      season:      payloadText(payload.season),
+      difficulty:  payloadText(payload.difficulty),
       durationDays: payload.duration_days != null ? Number(payload.duration_days) : null,
-      bestMonths:  (payload.best_months as string[] | null) ?? null,
+      bestMonths:  payloadStrings(payload.best_months),
       altitude:    payload.altitude != null ? Number(payload.altitude) : null,
       groupSizeMax: payload.group_size_max != null ? Number(payload.group_size_max) : null,
       dangerLevel: (payload.danger_level as string | null) ?? null,
       equipment:   (r.kr_equipment as string[] | null) ?? (payload.required_equipment as string[] | null) ?? null,
-      photos:      (payload.photos as string[] | null) ?? null,
+      photos:      payloadStrings(payload.photos),
       kuzmichReview: (r.kuzmich_review as string | null) ?? null,
       hasRealImage: Boolean(r.has_real_image),
       waypointPhotos: waypointPhotos && waypointPhotos.urls.length > 0 ? waypointPhotos : null,

@@ -128,7 +128,8 @@ export function routeFactsLine(f: RouteMetaFacts): string {
   if (f.durationDays != null && f.durationDays > 1) parts.push(`${f.durationDays} дн.`);
   else if (f.durationHours != null && f.durationHours > 0) parts.push(`${fmtNum(f.durationHours)} ч`);
   if (f.difficulty) parts.push(`сложность ${DIFFICULTY_RU[f.difficulty] ?? f.difficulty.toLowerCase()}`);
-  if (f.season) parts.push(`сезон ${SEASON_RU[f.season] ?? f.season.toLowerCase()}`);
+  // Сезон бывает списком («summer, autumn» — payloadText склеивает массив): переводится каждый.
+  if (f.season) parts.push(`сезон ${f.season.split(/\s*,\s*/).map((x) => SEASON_RU[x] ?? x.toLowerCase()).join(', ')}`);
   return parts.join(' · ');
 }
 

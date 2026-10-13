@@ -154,7 +154,7 @@ describe('страницы, собираемые на сборке, не чит�
 
   it('пять страниц аудита 01.10 рендерятся на запросе', () => {
     for (const f of [
-      'app/guides/page.tsx',
+      'app/guides/(list)/page.tsx',
       'app/faq/page.tsx',
       'app/about/page.tsx',
       'app/operators/join/page.tsx',
