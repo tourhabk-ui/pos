@@ -1,7 +1,10 @@
 name: Cron — Tour Review Request
 
 # Runs daily at 08:00 UTC (20:00 Kamchatka time):
-# Asks tourists whose booking an operator marked "completed" to leave a review.
+# 1. Completes confirmed bookings whose tour ended yesterday or earlier
+#    (owner's decision 13.10: «тур завершать автоматически»).
+# 2. Asks tourists with completed bookings to leave a review — the same
+#    evening for tours completed by step 1.
 
 on:
   schedule:
@@ -13,6 +16,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Complete bookings whose tour has ended
+        id: autocomplete
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+
+          HTTP=$(curl -s -o /tmp/auto_complete_resp.json -w "%{http_code}" \
+            --max-time 120 \
+            "https://vedarai.ru/api/cron/booking-auto-complete" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "HTTP: $HTTP"
+          cat /tmp/auto_complete_resp.json 2>/dev/null || true
+
+          if [ "$HTTP" != "200" ]; then
+            echo "Unexpected HTTP $HTTP"
+            exit 1
+          fi
+
       - name: Send review requests for completed bookings
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -36,3 +63,12 @@ jobs:
             echo "Unexpected HTTP $HTTP"
             exit 1
           fi
+
+      # Отказ автозавершения не отменяет просьбы об отзыве по уже завершённым
+      # броням (у первого шага continue-on-error), но job краснеет: молча
+      # пропущенное завершение — тот же «не смог», что и в ответе роута.
+      - name: Fail if auto-complete failed
+        if: steps.autocomplete.outcome == 'failure'
+        run: |
+          echo "Автозавершение броней не прошло — см. шаг «Complete bookings whose tour has ended»"
+          exit 1

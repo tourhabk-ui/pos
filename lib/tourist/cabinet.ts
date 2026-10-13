@@ -38,6 +38,13 @@ export interface MyBooking {
   participants: number;
   totalPrice: number;
   status: string;
+  /**
+   * Можно ли оставить отзыв об этом туре — то же правило, что у сервера
+   * (POST /api/reviews/tour: только бронь со статусом completed). `status`
+   * показывает «не явился» тоже завершённой поездкой, и форма отзыва бралась
+   * по нему — сервер такой отзыв отклонял 403 (разбор 13.10).
+   */
+  canReview: boolean;
   paymentStatus: string | null;
   specialRequests: string | null;
   createdAt: string | Date;
@@ -53,7 +60,7 @@ export interface MyBooking {
   operator: { name: string | null; contact: unknown };
 }
 
-interface BookingRow {
+export interface BookingRow {
   id: string;
   booking_date: string | Date;
   participants: number;
@@ -74,7 +81,7 @@ interface BookingRow {
   operator_contact: unknown;
 }
 
-function rowToBooking(row: BookingRow, idPrefix = ''): MyBooking {
+export function rowToBooking(row: BookingRow, idPrefix = ''): MyBooking {
   const photos = Array.isArray(row.tour_photos) ? row.tour_photos.filter((p) => typeof p === 'string' && p) : [];
   const images = photos.length ? photos : row.tour_image ? [row.tour_image] : [];
   return {
@@ -83,6 +90,7 @@ function rowToBooking(row: BookingRow, idPrefix = ''): MyBooking {
     participants: row.participants,
     totalPrice: row.final_price != null ? Number(row.final_price) : 0,
     status: OP_STATUS_MAP[row.booking_status] ?? row.booking_status,
+    canReview: row.booking_status === 'completed',
     paymentStatus: row.payment_status,
     specialRequests: row.special_requests ?? null,
     createdAt: row.created_at,

@@ -22,11 +22,22 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { reviewTourOptions } from '@/app/hub/tourist/reviews/review-options';
+import { rowToBooking, type BookingRow } from '@/lib/tourist/cabinet';
 
 const SRC = readFileSync(
   join(process.cwd(), 'app/hub/tourist/reviews/_ReviewsClient.tsx'),
   'utf-8',
 );
+
+/** Строка брони кабинета с нужным статусом — остальное не влияет на canReview. */
+const row = (booking_status: string): BookingRow => ({
+  id: '7', booking_date: '2026-10-10', participants: 2, final_price: '22000', booking_status,
+  payment_status: null, special_requests: null, created_at: '2026-10-01', updated_at: '2026-10-11',
+  tour_id: '62', tour_title: 'Авачинский перевал', tour_description: null, tour_difficulty: null,
+  duration_hours: null, tour_photos: null, tour_image: null, operator_name: 'Местечко Камчатка',
+  operator_contact: null,
+} as BookingRow);
 
 describe('форма отзыва спрашивает свои поездки', () => {
   it('источник вариантов — брони туриста', () => {
@@ -43,9 +54,23 @@ describe('форма отзыва спрашивает свои поездки',
     ).toBe(false);
   });
 
-  it('в варианты попадают только завершённые поездки, без повторов', () => {
-    expect(SRC).toMatch(/status !== 'completed'/);
-    expect(SRC).toMatch(/seen\.has\(id\)/);
+  it('в варианты попадают только поездки, где отзыв примет сервер, без повторов', () => {
+    // 13.10: «не явился» показывается завершённой поездкой (status), но отзыв по
+    // нему сервер отклоняет 403 — решает canReview, то же правило, что у сервера.
+    expect(reviewTourOptions([
+      { status: 'completed', canReview: true, tour: { id: '1', name: 'Вулкан Горелый' } },
+      { status: 'completed', canReview: false, tour: { id: '2', name: 'Не явился' } },
+      { status: 'confirmed', canReview: false, tour: { id: '3', name: 'Ещё не был' } },
+      { status: 'completed', canReview: true, tour: { id: '1', name: 'Вулкан Горелый' } },
+      { status: 'completed', canReview: true, tour: { id: '4' } },
+    ])).toEqual([{ id: '1', name: 'Вулкан Горелый' }]);
+    expect(reviewTourOptions(undefined)).toEqual([]);
+  });
+
+  it('canReview отдаёт кабинет по статусу брони, а не по статусу показа', () => {
+    expect(rowToBooking(row('completed')).canReview).toBe(true);
+    expect(rowToBooking(row('no_show'))).toMatchObject({ status: 'completed', canReview: false });
+    expect(rowToBooking(row('confirmed')).canReview).toBe(false);
   });
 
   it('пустой список назван словами, а не пустым селектом', () => {

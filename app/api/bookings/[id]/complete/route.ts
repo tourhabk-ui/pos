@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth';
 import { completeBooking } from '@/lib/bookings/booking.service';
 import { operatorOwnsBooking } from '@/lib/bookings/operator-owns';
-import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
+import { awardCompletionLoyalty } from '@/lib/bookings/completion-loyalty';
 import { ApiResponse } from '@/types';
 
 export async function PATCH(
@@ -57,14 +57,9 @@ export async function PATCH(
     // 3. Бизнес-логика
     const booking = await completeBooking(bookingId, auth.userId);
 
-    // 4. Начислить баллы лояльности (fire-and-forget)
-    if (booking.tourist?.id && booking.totalAmount > 0) {
-      loyaltySystem.earnPoints(booking.tourist.id, bookingId, booking.totalAmount).catch(() => {});
-      // Бонус «Первое бронирование» (+100) — обещан в UI лояльности
-      // (_LoyaltyClient «как заработать»), но раньше нигде не вызывался.
-      // Внутри earnActivityPoints свой дедуп-гард: начислится ровно один раз.
-      loyaltySystem.earnActivityPoints(booking.tourist.id, 'first_booking', bookingId).catch(() => {});
-    }
+    // 4. Начислить баллы лояльности (fire-and-forget) — тем же местом, что и
+    // автоматическое завершение тура (lib/bookings/completion-loyalty).
+    awardCompletionLoyalty(booking, bookingId);
 
     return NextResponse.json({
       success: true,

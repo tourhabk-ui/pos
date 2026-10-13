@@ -34,4 +34,16 @@ describe('buildReviewRequestMessage', () => {
     const text = buildReviewRequestMessage(base);
     expect(text).toContain('Сплав по реке Быстрая');
   });
+
+  it('имя и название экранированы: сообщение уходит с parse_mode HTML', () => {
+    const text = buildReviewRequestMessage({ ...base, touristName: 'Анна <b', tourTitle: 'Джип & сплав' });
+    expect(text).toContain('Анна &lt;b, привет!');
+    expect(text).toContain('Джип &amp; сплав');
+    expect(text).not.toContain('Анна <b');
+  });
+
+  it('якорь ссылки — тот же, что у блока отзывов на карточке тура', async () => {
+    const { TOUR_REVIEWS_ANCHOR } = await import('@/lib/tours/tour-anchors');
+    expect(buildReviewRequestMessage(base)).toContain(`/catalog/tours/27#${TOUR_REVIEWS_ANCHOR}"`);
+  });
 });

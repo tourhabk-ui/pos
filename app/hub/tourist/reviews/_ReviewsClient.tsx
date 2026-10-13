@@ -12,6 +12,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
+import { reviewTourOptions, type BookingForReview, type TourOption } from './review-options';
 
 interface Review {
   id: string;
@@ -27,10 +28,6 @@ interface ReviewsApiData {
   total: number;
 }
 
-interface TourOption {
-  id: string;
-  name: string;
-}
 
 /**
  * Список туров для формы отзыва — из СВОИХ поездок, а не из витрины.
@@ -44,7 +41,7 @@ interface TourOption {
  * Источник один и правильный: `/api/bookings/my`.
  */
 interface BookingsApiData {
-  bookings: Array<{ status?: string; tour?: { id?: string; name?: string } }>;
+  bookings: BookingForReview[];
 }
 
 interface FormState {
@@ -59,19 +56,9 @@ function transformReviews(d: ReviewsApiData): Review[] {
   return (d?.reviews ?? []).map((r) => ({ ...r, comment: r.comment ?? '' }));
 }
 
-/** Свои поездки → варианты для отзыва: завершённые, без повторов. */
+/** Свои поездки → варианты для отзыва (правило — review-options). */
 function transformTours(d: BookingsApiData): TourOption[] {
-  const seen = new Set<string>();
-  const out: TourOption[] = [];
-  for (const b of d?.bookings ?? []) {
-    if (b?.status !== 'completed') continue;
-    const id = b.tour?.id;
-    const name = b.tour?.name;
-    if (!id || !name || seen.has(id)) continue;
-    seen.add(id);
-    out.push({ id, name });
-  }
-  return out;
+  return reviewTourOptions(d?.bookings);
 }
 
 function StarRating({ rating }: { rating: number }) {

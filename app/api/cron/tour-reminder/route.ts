@@ -9,9 +9,11 @@
  *
  * Для бронирований через бот (metadata.tg_chat_id) и, с 28.08 (issue #1422,
  * «гостевой опыт в брони»), для броней с сайта под аккаунтом с привязанным
- * users.telegram_chat_id — раньше напоминание получали только гости бота,
- * хотя у брони с сайта тот же Telegram есть, просто известен через другую
- * колонку. У кого нет ни того, ни другого — честно нет канала, не шлём.
+ * Telegram — раньше напоминание получали только гости бота. Адрес —
+ * TOURIST_TG_CHAT_SQL (lib/notifications/tourist-telegram): до 13.10 здесь
+ * читалась только users.telegram_chat_id, которую не пишет никто, а привязка
+ * пишет telegram_id, — и туристы с сайта напоминания не получали всё равно.
+ * У кого нет ни того, ни другого — честно нет канала, не шлём.
  * После отправки ставит reminder_sent_24h = true.
  */
 
@@ -21,6 +23,7 @@ import { callAIFast } from '@/lib/ai/providers';
 import { maxBot } from '@/lib/max/max-fetch';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { TOURIST_TG_CHAT_SQL } from '@/lib/notifications/tourist-telegram';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,13 +126,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Туры на завтра с chat_id — из бота (metadata) либо из привязанного
-  // аккаунта (users.telegram_chat_id, если брони с сайта). Бот в приоритете:
+  // аккаунта (TOURIST_TG_CHAT_SQL, если брони с сайта; до 13.10 здесь стояла
+  // users.telegram_chat_id, которую не пишет никто). Бот в приоритете:
   // если бронь пришла из бота, там тот же чат, что и в metadata.
   const { rows: bookings } = await pool.query<BookingRow>(`
     SELECT ob.id, ob.tourist_name, ob.booking_date::text, ob.participants,
            ot.title AS tour_title, ot.activity_type, ot.location_name,
            ot.difficulty,
-           COALESCE((ob.metadata->>'tg_chat_id')::bigint, u.telegram_chat_id) AS tg_chat_id,
+           COALESCE((ob.metadata->>'tg_chat_id')::bigint, ${TOURIST_TG_CHAT_SQL}) AS tg_chat_id,
            COALESCE(ob.metadata->>'platform', 'telegram') AS platform
     FROM operator_bookings ob
     JOIN operator_tours ot ON ot.id = ob.operator_tour_id
@@ -138,7 +142,7 @@ export async function GET(request: NextRequest) {
       AND ob.booking_status IN ('confirmed', 'pending_payment')
       AND ob.reminder_sent_24h = false
       AND ob.deleted_at IS NULL
-      AND (ob.metadata->>'tg_chat_id' IS NOT NULL OR u.telegram_chat_id IS NOT NULL)
+      AND (ob.metadata->>'tg_chat_id' IS NOT NULL OR ${TOURIST_TG_CHAT_SQL} IS NOT NULL)
   `);
 
   if (bookings.length === 0) {

@@ -51,6 +51,7 @@ import {
 import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -1034,8 +1035,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               </div>
             </section>
 
-            {/* Отзывы */}
-            <section>
+            {/* Отзывы. id — якорь ссылки из просьбы об отзыве после тура
+                (lib/tours/tour-anchors): до 13.10 его не было, и ссылка
+                открывала карточку с начала. */}
+            <section id={TOUR_REVIEWS_ANCHOR} className="scroll-mt-24">
               <SectionTitle icon={Star} iconColor="var(--warning)">
                 Отзывы
                 {reviews.length > 0 && <span className="text-sm font-normal text-[var(--text-muted)] ml-1" style={{ fontFamily: FM }}>({reviews.length})</span>}

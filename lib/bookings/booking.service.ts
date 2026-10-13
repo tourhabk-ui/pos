@@ -501,11 +501,16 @@ export async function rescheduleBooking(
 
 /**
  * Завершить бронирование: confirmed -> completed
- * Вызывается оператором или админом после проведения тура.
+ * Вызывается оператором или админом после проведения тура — или, с 13.10 по
+ * решению владельца («тур завершать автоматически»), автоматическим
+ * завершением на следующий день после даты тура (lib/bookings/auto-complete-past).
+ * Тогда `operatorId` — null: перевод сделал не человек, в журнале броней
+ * changed_by пуст, в CRM — актор «system», а комментарий называет причину.
  */
 export async function completeBooking(
   bookingId: string,
-  operatorId: string
+  operatorId: string | null,
+  opts: { comment?: string } = {},
 ): Promise<BookingWithDetails> {
   const done = await transaction(async (client) => {
     const result = await client.query(
@@ -526,7 +531,7 @@ export async function completeBooking(
       [bookingId]
     );
 
-    await logStatusChange(client, bookingId, currentStatus, 'completed', operatorId, 'Тур завершён');
+    await logStatusChange(client, bookingId, currentStatus, 'completed', operatorId, opts.comment ?? 'Тур завершён');
 
     const updated = await client.query(
       `${BOOKING_SELECT} AND b.id = $1`,
@@ -537,7 +542,7 @@ export async function completeBooking(
 
   await recordSourceEventQuietly({
     kind: 'status_change', sourceKind: 'operator_booking', sourceId: bookingId,
-    actorKind: 'partner_user', actorUserId: operatorId,
+    actorKind: operatorId ? 'partner_user' : 'system', actorUserId: operatorId,
     title: statusChangeTitle('operator_booking', done.from, 'completed'),
     payload: { from: done.from, to: 'completed' },
   });

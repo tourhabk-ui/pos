@@ -317,6 +317,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'tour-pickup': ['db_read', 'db_write'],
   'tour-reminder': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'pd_direct'],
   'tour-review-request': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
+  // 13.10: завершает подтверждённые брони после даты тура и начисляет баллы — только база.
+  'booking-auto-complete': ['db_read', 'db_write'],
   'tour-tracks-census': ['db_read'],
   'track-attachment-audit': ['db_read', 'db_write'],
   'track-import-queue': ['db_read', 'db_write', 'net_out'],

@@ -172,7 +172,8 @@ docs/                   этот файл, DB_SCHEMA.md, ARCHITECTURE.md и ис
 | Бронь | `POST /api/hub/bookings/create` (турист), `POST /api/agent/bookings` (агент за клиента) | единственный писатель `reserveBooking`: `operator_bookings` в статусе `new`, код агентской ссылки → `referral_link_id` + `agent_user_id`; оплата — только после подтверждения оператором | `lib/bookings/reserve.ts` |
 | Оплата | CloudPayments / СБП Точка | вебхуки в `app/api/payments/*` (§7, не трогать): ставят `paid_at`, комиссия — ТОЛЬКО `recordCommissionFromBooking()` | `lib/payments/*` |
 | Заявка без брони | `POST /api/leads` | `leads` → квалификация `lead-processor.service.ts` → Telegram оператору | `lib/notifications/lead-notify.ts` |
-| После | `/hub/tourist/bookings`, `/booking-success/[id]` | напоминания — кроны `tour-reminder`, `tour-review-request` | |
+| После | `/hub/tourist/bookings`, `/booking-success/[id]` | напоминания — кроны `tour-reminder`, `tour-review-request`; адрес туриста в Telegram — одно правило `TOURIST_TG_CHAT_SQL` | `lib/notifications/tourist-telegram.ts` |
+| Завершение | кнопка оператора «Завершить» или сам на следующий день после последнего дня тура (решение владельца 13.10) | `confirmed` → `completed` одним путём `completeBooking`; автомат — крон `booking-auto-complete` шагом раньше просьбы об отзыве, «не явился» оператора главнее; отзыв о туре сервер принимает только по `completed` | `lib/bookings/auto-complete-past.ts` |
 
 Оператор видит бронь в `/hub/operator` (25 страниц): туры, слоты, брони, выплаты
 (`operator_payouts`, крон `payouts` — внешний, cron-job.org).

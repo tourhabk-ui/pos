@@ -128,13 +128,18 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
     }
   } catch (err) { alertProbeFailed('idle_tours', err); }
 
-  // 4. Всплеск плохих отзывов (≥3 с rating≤2 за 7д на один тур)
+  // 4. Всплеск плохих отзывов (≥3 с rating≤2 за 7д на один тур).
+  // Отзывы о турах — operator_tour_reviews (tour_id bigint → operator_tours.id).
+  // До 13.10 проба читала `reviews` (отзывы о маршрутах и местах, tour_id —
+  // uuid маршрута) и соединяла uuid с bigint: 42883 на каждом прогоне, алерт
+  // не мог сработать ни разу. Скрытые админом отзывы не считаются.
   try {
     const result = await query<AlertBadReviewBurstRow>(
       `SELECT t.title as tour_name, COUNT(*) as bad_reviews
-       FROM reviews r
+       FROM operator_tour_reviews r
        JOIN operator_tours t ON r.tour_id = t.id
        WHERE r.rating <= 2 AND r.created_at >= NOW() - INTERVAL '7 days'
+         AND r.is_hidden = FALSE
          AND t.deleted_at IS NULL
        GROUP BY t.id, t.title
        HAVING COUNT(*) >= 3
@@ -149,8 +154,8 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
         message: `«${row.tour_name}»: ${row.bad_reviews} отзывов с оценкой ≤2 за неделю`,
         timestamp: now,
         read: false,
-        actionUrl: '/hub/admin/content/reviews',
-        actionLabel: 'Модерация',
+        actionUrl: '/hub/admin/content/tour-reviews',
+        actionLabel: 'Отзывы о турах',
       });
     }
   } catch (err) { alertProbeFailed('bad_review_burst', err); }

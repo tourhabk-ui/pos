@@ -4,8 +4,17 @@ import { query } from '@/lib/database';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { ApiResponse } from '@/types';
 import { ReviewAdminRow, CountRow } from '@/lib/types/db-rows';
+import { logText } from '@/lib/log/log-text';
 
 export const dynamic = 'force-dynamic';
+
+function logFailure(what: string, err: unknown): void {
+  const code = (err as { code?: unknown } | null)?.code;
+  console.error(
+    `[admin/content/reviews] ${what}: sqlstate=${typeof code === 'string' ? code : 'нет'}`,
+    logText(err instanceof Error ? err.message : err, 200),
+  );
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,7 +39,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      conditions.push(`(u.name ILIKE $${paramIndex} OR r.comment ILIKE $${paramIndex} OR t.title ILIKE $${paramIndex})`);
+      // Название — маршрута или места (kr, pl); до 13.10 здесь стоял t.title
+      // без таблицы t в запросе — поиск падал 42P01.
+      conditions.push(`(u.name ILIKE $${paramIndex} OR r.comment ILIKE $${paramIndex} OR kr.title ILIKE $${paramIndex} OR pl.name ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
       paramIndex++;
     }
@@ -40,6 +51,8 @@ export async function GET(request: NextRequest) {
     const countResult = await query<CountRow>(
       `SELECT COUNT(*) as count FROM reviews r
        LEFT JOIN users u ON r.user_id = u.id
+       LEFT JOIN kamchatka_routes kr ON kr.ark_id = r.tour_id
+       LEFT JOIN places pl ON pl.ark_id = r.place_id
        ${whereClause}`,
       params
     );
@@ -88,6 +101,9 @@ export async function GET(request: NextRequest) {
       },
     } as ApiResponse<unknown>);
   } catch (error) {
+    // До 13.10 отказ здесь не оставлял строки в логе — так поиск месяцами
+    // падал 42P01 незаметно (§4.0).
+    logFailure('список отзывов не прочитан', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при получении отзывов' } as ApiResponse<null>,
       { status: 500 }
@@ -122,6 +138,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true, message: 'Действие выполнено' });
   } catch (error) {
+    logFailure('отзыв не обновлён', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при обновлении отзыва' } as ApiResponse<null>,
       { status: 500 }

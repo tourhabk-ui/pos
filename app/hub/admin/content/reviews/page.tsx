@@ -10,18 +10,10 @@ import {
   Column
 } from '@/components/admin/shared';
 import { Star, Sparkles, Loader2, MessageSquareText } from 'lucide-react';
+import { toAdminReview, type AdminReview, type ApiReviewRow } from './review-row';
 
-interface AdminReview {
-  id: string;
-  userId: string;
-  userName: string;
-  tourId: string;
-  subjectName: string;
-  rating: number;
-  comment: string;
-  isVerified: boolean;
-  createdAt: Date;
-}
+/** Фильтр экрана → параметр API: «Одобренные» — verified, «На модерации» — unverified. */
+const STATUS_PARAM: Record<string, string> = { true: 'verified', false: 'unverified' };
 
 interface AiAnalysis {
   sentiment: 'positive' | 'negative' | 'neutral';
@@ -32,6 +24,7 @@ interface AiAnalysis {
 export default function ReviewsManagement() {
   const [reviews, setReviews] = useState<AdminReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [verifiedFilter, setVerifiedFilter] = useState('all');
@@ -45,17 +38,22 @@ export default function ReviewsManagement() {
   const fetchReviews = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const params = new URLSearchParams({ page: currentPage.toString(), limit: '20' });
-      if (verifiedFilter !== 'all') params.append('verified', verifiedFilter);
+      const status = STATUS_PARAM[verifiedFilter];
+      if (status) params.append('status', status);
 
       const response = await fetch(`/api/admin/content/reviews?${params}`);
-      const result = await response.json();
-      if (result.success) {
-        setReviews(result.data.data);
-        setTotalPages(result.data.pagination.totalPages);
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error ?? `HTTP ${response.status}`);
       }
-    } catch {
-      // ignore
+      setReviews(((result.data?.reviews ?? []) as ApiReviewRow[]).map(toAdminReview));
+      setTotalPages(result.data?.pagination?.totalPages ?? 1);
+    } catch (err) {
+      // Отказ — отказом, не «отзывов нет» (§4.0).
+      setReviews([]);
+      setLoadError(err instanceof Error ? err.message : 'неизвестная ошибка');
     } finally {
       setLoading(false);
     }
@@ -218,6 +216,8 @@ export default function ReviewsManagement() {
         <div className="flex items-center justify-center py-20">
           <LoadingSpinner size="lg" message="Загрузка отзывов..." />
         </div>
+      ) : loadError ? (
+        <EmptyState title="Отзывы не загрузились" description={`Список не прочитан: ${loadError}. Это сбой, а не «отзывов нет».`} />
       ) : reviews.length === 0 ? (
         <EmptyState title="Отзывы не найдены" description="Отзывов для модерации пока нет" />
       ) : (

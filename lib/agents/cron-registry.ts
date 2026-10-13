@@ -228,8 +228,17 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
   },
   {
+    key: 'booking-auto-complete', label: 'Booking Auto-Complete',
+    description: 'Подтверждённая бронь завершается сама на следующий день после тура (решение владельца 13.10).',
+    // Общий workflow с просьбой об отзыве: первым шагом завершает, вторым — просит.
+    endpoint: 'booking-auto-complete',
+    workflow: 'cron-tour-review-request.yml', cron: '0 8 * * *', schedule: 'ежедневно · 08:00 UTC',
+    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+  },
+  {
     key: 'tour-review-request', label: 'Tour Review Request',
     description: 'Просьба оставить отзыв по завершённым (completed) броням.',
+    endpoint: 'tour-review-request',
     workflow: 'cron-tour-review-request.yml', cron: '0 8 * * *', schedule: 'ежедневно · 08:00 UTC',
     everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
   },
@@ -551,6 +560,8 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'support-escalate': 'unknown',
   'tour-reminder': 'unknown',
   'tour-review-request': 'unknown',
+  // Ноль подходящих броней — норма: туров с прошедшей датой может не быть.
+  'booking-auto-complete': 'unknown',
   'trip-reminders': 'unknown',
   'booking-stall': 'unknown',
   'ssr-sentinel': 'unknown',
