@@ -3,6 +3,7 @@ import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
 import RouteDetailClient, { type RouteDetail } from './_RouteDetailClient';
 import { loadRouteDetail, logQueryFailure } from '@/lib/routes/route-detail';
+import { relatedRoutesFor, type RelatedRoute } from '@/lib/routes/related';
 import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
@@ -576,6 +577,19 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     logQueryFailure('route_detail_ssr', err, route.id);
   }
 
+  // «Похожие маршруты» — с сервера, соседи по кольцу (lib/routes/related):
+  // до 13.10 блок собирался в браузере, и карточки маршрутов в первом HTML
+  // не ссылались друг на друга вовсе. Не собрались — блок спросит браузер,
+  // а причина в логе (§4.0).
+  let initialRelated: RelatedRoute[] | null = null;
+  if (initialRoute) {
+    try {
+      initialRelated = await relatedRoutesFor({ id: route.id, activityType: initialRoute.activityType ?? null });
+    } catch (err) {
+      logQueryFailure('route_related_ssr', err, route.id);
+    }
+  }
+
   return (
     <>
       <JsonLd data={jsonLd} />
@@ -583,6 +597,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
       <RouteDetailClient
         id={route.id}
         initialRoute={initialRoute}
+        initialRelated={initialRelated}
         mapPackBaseUrl={process.env[MAP_PACK_BASE_URL_ENV] || null}
         summary={{
           title: route.title,

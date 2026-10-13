@@ -24,7 +24,8 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
-import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
+import { type RouteItem } from '@/components/routes/RouteCard';
+import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline/route-map-save';
 import { parseSavedMap, savedMapKey } from '@/lib/offline/saved-map';
@@ -470,7 +471,7 @@ function OfferCard({ offer, activityType, onBook }: {
   );
 }
 
-export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null }: {
+export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null, initialRelated = null }: {
   id: string;
   mapPackBaseUrl: string | null;
   summary?: RouteSummary | null;
@@ -480,6 +481,12 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
    * смог, карточка грузится из браузера, как раньше.
    */
   initialRoute?: RouteDetail | null;
+  /**
+   * «Похожие маршруты» с сервера (lib/routes/related, 13.10): соседи по
+   * кольцу, ссылки в первом HTML. null — сервер не собрал, блок грузится из
+   * браузера, как раньше; [] — похожих нет, и спрашивать незачем.
+   */
+  initialRelated?: RouteItem[] | null;
 }) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/routes');
@@ -489,7 +496,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const [notFound, setNotFound] = useState(false);
   const [showLead, setShowLead] = useState(false);
   const [bookingOffer, setBookingOffer] = useState<Offer | null>(null);
-  const [relatedRoutes, setRelatedRoutes] = useState<RouteItem[]>([]);
+  const [relatedRoutes, setRelatedRoutes] = useState<RouteItem[]>(initialRelated ?? []);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [showAllOffers, setShowAllOffers] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
@@ -571,14 +578,14 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   }, [id]);
 
   useEffect(() => {
-    if (!route) return;
-    fetch(`/api/routes?activity_type=${route.activityType ?? ''}&limit=5&sort=recommended`)
+    if (!route || initialRelated) return;
+    fetch(`/api/routes?kind=route&activity_type=${route.activityType ?? ''}&limit=5&sort=recommended`)
       .then(r => r.json())
       .then(j => {
         if (j.success) setRelatedRoutes((j.data as RouteItem[]).filter(r => r.id !== id).slice(0, 4));
       })
       .catch(() => {});
-  }, [route, id]);
+  }, [route, id, initialRelated]);
 
   // Один запрос вердикта на страницу: его читают и блок наверху, и строка под
   // кнопкой навигации. Два fetch дали бы два источника правды об одном дне.
@@ -1889,21 +1896,8 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           </div>
         )}
 
-        {/* ── Похожие ───────────────────────────────────────────────────────── */}
-        {relatedRoutes.length > 0 && (
-          <div className="mt-16 pt-8 border-t border-[var(--border)]">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-semibold text-[var(--text-primary)]">Похожие маршруты</h2>
-              <Link href={`/routes?activity_type=${route.activityType ?? ''}`}
-                className="text-sm text-[var(--ocean)] hover:underline">
-                Все →
-              </Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {relatedRoutes.map(r => <RouteCard key={r.id} route={r} />)}
-            </div>
-          </div>
-        )}
+        {/* ── Похожие: соседи по кольцу с сервера (lib/routes/related) ───── */}
+        <RelatedRoutes routes={relatedRoutes} activityType={route.activityType ?? null} />
       </div>
 
       {/*

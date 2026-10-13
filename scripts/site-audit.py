@@ -55,6 +55,9 @@ PAUSE = float(os.environ.get('SITE_AUDIT_PAUSE', '0.4'))
 # lib/seo/title-fit (аудит 01.10): инструмент, строже правила проекта, звал на
 # правку 13 заголовков, которые правило считает нормальными (прогон 5).
 TITLE_LIMIT = 65
+# Сколько страниц-продолжений списков (?page=N) перепись обходит как источники
+# ссылок, больше — нет: у самого длинного списка Ведара их меньше двадцати.
+PAGED_CAP = 200
 
 # Заголовки ботов — ТОЛЬКО для нашего домена (см. шапку). Строки — те, что
 # боты присылают сами; по ним Next решает, отдавать ли метаданные в <head>.
@@ -588,6 +591,16 @@ def jsonld_problems(blocks: list[str]) -> list[str]:
     return out
 
 
+def page_of(link: str, base: str) -> bool:
+    """Страница-продолжение того же списка: тот же хост и путь, а в запросе только page=N (N ≥ 2).
+    Фильтры в запросе — другой список, не продолжение этого."""
+    a, b = urllib.parse.urlsplit(link), urllib.parse.urlsplit(base)
+    if (a.scheme, a.netloc.lower(), a.path or '/') != (b.scheme, b.netloc.lower(), b.path or '/'):
+        return False
+    q = urllib.parse.parse_qs(a.query, keep_blank_values=True)
+    return list(q) == ['page'] and len(q['page']) == 1 and q['page'][0].isdigit() and int(q['page'][0]) >= 2
+
+
 def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
     """Каждый адрес sitemap — без перехода по редиректу: адрес в sitemap обязан отвечать сам."""
     rows: list[dict] = []
@@ -640,14 +653,45 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
     # sitemap: так страницу видит обходчик, не исполняющий JS. Ноль — сирота:
     # поисковик знает о ней только из sitemap, и вес ей не передаёт никто.
     sm_norm = {norm(r['url']): r for r in rows}
+    # Страницы-продолжения списков (?page=N того же пути) в sitemap не входят —
+    # канон списка его первая страница, — но обходчик по ним ходит, и ссылки
+    # с них настоящие. Прогон 6 (13.10) без них назвал сиротами 95 маршрутов,
+    # стоящих на 2–16-й страницах /routes. Они — источники ссылок, а не
+    # адреса переписи: проверок у них нет.
+    queue = [l for r in rows for l in r.get('_links', set()) if l not in sm_norm and page_of(l, r['url'])]
+    paged: dict[str, set] = {}
+    paged_errors: list[str] = []
+    while queue and len(paged) + len(paged_errors) < PAGED_CAP:
+        u = queue.pop(0)
+        if u in paged or any(e.startswith(u + ' ') for e in paged_errors):
+            continue
+        t_start = time.monotonic()
+        rr = fetch(u, follow=False)
+        if rr['code'] == 200 and 'html' in rr['headers'].get('content-type', '') and rr['body']:
+            pp = Page(u)
+            try:
+                pp.feed(rr['body'].decode('utf-8', 'replace'))
+            except Exception:
+                pass
+            paged[u] = {norm(x.split('#')[0]) for x in pp.links}
+            queue.extend(l for l in paged[u] if l not in sm_norm and l not in paged and page_of(l, u))
+        else:
+            paged_errors.append(f"{u} → {rr['code'] or rr['error']}")
+        time.sleep(max(PAUSE, interval - (time.monotonic() - t_start)))
     inbound: Counter = Counter()
+    inbound_paged: Counter = Counter()
     for r in rows:
         own = norm(r['url'])
         for link in r.pop('_links', set()):
             if link != own and link in sm_norm:
                 inbound[link] += 1
+    for links in paged.values():
+        for link in links:
+            if link in sm_norm:
+                inbound_paged[link] += 1
     for r in rows:
         r['inbound'] = inbound.get(norm(r['url']), 0)
+        r['inbound_paged'] = inbound_paged.get(norm(r['url']), 0)
     linked_pages = sum(1 for r in rows if r['code'] == 200 and 'title' in r)
 
     ok = [r for r in rows if r['code'] == 200 and 'title' in r]
@@ -686,9 +730,12 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         ('нет JSON-LD', 'ld0', lambda r: 'title' in r and not r['jsonld']),
         ('JSON-LD с ошибкой', 'ldbad', lambda r: bool(r.get('jsonld_problems'))),
         # Главная — вход сайта, ссылок на неё изнутри может и не быть; сирота — все прочие.
-        ('сирота (ни одной ссылки с других страниц sitemap)', 'orph',
-         lambda r: r['code'] == 200 and linked_pages > 1 and r.get('inbound', 0) == 0
+        ('сирота (ни одной ссылки ни со страниц sitemap, ни с продолжений списков)', 'orph',
+         lambda r: r['code'] == 200 and linked_pages > 1 and r.get('inbound', 0) == 0 and r.get('inbound_paged', 0) == 0
          and (urllib.parse.urlsplit(r['url']).path or '/') != '/'),
+        # Достижима, но только через 2-ю и дальше страницу списка: вес до неё доходит слабый.
+        ('ссылки только со страниц-продолжений списков (?page=N)', 'deep',
+         lambda r: r['code'] == 200 and r.get('inbound', 0) == 0 and r.get('inbound_paged', 0) > 0),
         ('картинки без alt', 'alt', lambda r: (r.get('imgs_no_alt') or 0) > 0),
         ('медленно (>2 с)', 'slow', lambda r: r['ms'] > 2000),
     ]
@@ -751,6 +798,7 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
             '2-5': sum(1 for r in ok if 2 <= r.get('inbound', 0) <= 5),
             '6+': sum(1 for r in ok if r.get('inbound', 0) >= 6),
         },
+        'paged': {'fetched': len(paged), 'errors': paged_errors},
         'by_section': by_section, 'issues': issues, 'checks': [n for n, _, _ in checks],
         'codes': {code: name for name, code, _ in checks},
         'og_images': {'unique': len(og_urls), 'checked': min(len(og_urls), og_checks), 'bad': og_bad, 'head_only': og_head_only},
@@ -776,6 +824,11 @@ def report_census(c: dict, ua: str, budget: int = 58000) -> str:
     ih = c.get('inbound_hist')
     if ih:
         L.append(f"- входящих ссылок с других страниц sitemap (серверный HTML): 0 — {ih['0']}, 1 — {ih['1']}, 2–5 — {ih['2-5']}, 6 и больше — {ih['6+']}")
+    pg = c.get('paged')
+    if pg is not None:
+        L.append(f"- страниц-продолжений списков (?page=N) учтено источниками ссылок: {pg['fetched']}; не открылись: {len(pg['errors'])}")
+        for e in pg['errors'][:5]:
+            L.append(f"  - {e}")
     og = c['og_images']
     L.append(f"- og:image: уникальных {og['unique']}, проверено {og['checked']}, не открываются {len(og['bad'])}")
     for b in og['bad'][:10]:
