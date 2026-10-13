@@ -4,12 +4,11 @@
  * Кроn: повторные уведомления по лидам из всех источников.
  *
  * Логика:
- *   1. Находим лиды БЕЗ адресата (`operator_id IS NULL`) со статусом 'new',
- *      старше 2 часов — `selectFollowupLeads` (lib/leads/followup-selection).
- *      Заявка, адресованная конкретному партнёру (тур, машина перевозчика,
- *      письмо со страницы оператора), другому партнёру не уходит НИКОГДА:
- *      согласие человек давал на передачу адресату (решение владельца 13.10,
- *      #2447). Без ответа её видят Watchdog и кабинет адресата.
+ *   1. Находим лиды со статусом 'new', старше 2 часов, и только БЕЗ адресата
+ *      (lib/leads/followup-scope, #2447, решение владельца 13.10 «да, только
+ *      без адресата»). Заявка, адресованная партнёру (на его тур, на машину
+ *      перевозчика, письмо со страницы оператора), остаётся у адресата и
+ *      другому партнёру не уходит; без ответа её видят Watchdog и кабинет.
  *   2. Для каждого лида ищем следующего оператора с подходящими активностями,
  *      ещё не получавшего уведомление об этом лиде.
  *      Если интересы не указаны — берём любого оператора.
@@ -31,11 +30,37 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
-import { selectFollowupLeads, type LeadSourceData } from '@/lib/leads/followup-selection';
+import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToCarrier } from '@/lib/leads/followup-scope';
+import { sqlState } from '@/lib/guides/db-failure';
 
 export const dynamic = 'force-dynamic';
 
 // ── Типы данных ───────────────────────────────────────────────────────────────
+
+interface LeadSourceData {
+  source?: string;
+  /** 'charter' — заявка на машину перевозчику (lib/transfers/charter-request). */
+  kind?: string;
+  interests?: string[];
+  date_from?: string;
+  date_to?: string;
+  arrival?: string;    // TripPlanner alias for date_from
+  departure?: string;  // TripPlanner alias for date_to
+  trip_days?: number;
+  chat_id?: string;
+  notified_operators?: string[];
+  followup_count?: number;
+  last_followup?: string;
+  escalated_to_admin?: boolean;
+}
+
+interface FollowupLead {
+  id: string;
+  name: string;
+  phone: string;
+  source_data: LeadSourceData;
+  pd_consent_version: string | null;
+}
 
 /**
  * Оператор-кандидат и его адрес — тремя колонками правила достижимости
@@ -76,10 +101,13 @@ export async function GET(request: NextRequest) {
 
   try {
     // ── Выбираем лиды, требующие followup ───────────────────────────────────
-    // Только лиды без адресата: правило и запрос — lib/leads/followup-selection.
-    const leads = await selectFollowupLeads(pool);
+    // Условия — в lib/leads/followup-scope: 'new' старше 2 часов, без адресата,
+    // без свежей добивки, не отданные админу и не заявки на машину. Прежний
+    // комментарий здесь обещал фильтр по источнику 'telegram_bot', которого в
+    // SQL не было.
+    const leadsRes = await pool.query<FollowupLead>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
 
-    if (leads.length === 0) {
+    if (leadsRes.rows.length === 0) {
       return NextResponse.json({ ok: true, processed: 0, message: 'Нет лидов для обработки' });
     }
 
@@ -99,8 +127,11 @@ export async function GET(request: NextRequest) {
     let escalated = 0;
     let noOperators = 0;
 
-    for (const lead of leads) {
+    for (const lead of leadsRes.rows) {
       const sd: LeadSourceData = lead.source_data ?? {};
+      // Заявку на машину другому партнёру не отдаём ни по одной ветке (#2447):
+      // выборка её уже не берёт, а здесь — на случай, если выборку поправят.
+      if (addressedToCarrier(sd, lead.pd_consent_version)) continue;
       const interests = sd.interests ?? [];
       const alreadyNotified = sd.notified_operators ?? [];
       const followupCount = sd.followup_count ?? 0;
@@ -271,7 +302,7 @@ export async function GET(request: NextRequest) {
       processed,
       escalated_to_admin: escalated,
       no_operator_found: noOperators,
-      leads_found: leads.length,
+      leads_found: leadsRes.rows.length,
       operators_total: Number(diag.total),
       operators_with_telegram: Number(diag.with_telegram),
       operators_with_max: Number(diag.with_max),
@@ -283,14 +314,8 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (err) {
-    // §4.0: отказ не глушится. Прежний catch отвечал 500 без единой строки в
-    // логе, и упавший крон был неотличим от крона, которому нечего делать.
-    const e = err as { code?: unknown; message?: unknown } | null;
-    console.error(
-      '[cron/leads-followup] прогон не выполнен:',
-      `sqlstate=${typeof e?.code === 'string' ? e.code : 'нет'}`,
-      typeof e?.message === 'string' ? e.message : String(err),
-    );
+    // §4.0: отказ не глушится — имя проверки и SQLSTATE в лог, без строк лида.
+    console.error(`[leads-followup] не выполнился: sqlstate=${sqlState(err)}`, err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: false, error: 'Internal error' }, { status: 500 });
   }
 }
