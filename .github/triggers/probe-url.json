@@ -1,31 +1,29 @@
 {
   "timeout": 60,
-  "retries": 45,
-  "retryDelay": 60,
-  "run": 787,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ, отзывов не пишет. Владелец: «у нас не правильная логика бронируют целую машину а не место в ней». /transfers — только машина под заказ и «Как заказать», мест в поездках нет; страница перевозчика — без «Поездки с датами», отзывы — только по ссылке менеджера; путь отзыва «местом» закрыт (400).",
-  "until": "Как заказать",
+  "retries": 3,
+  "retryDelay": 30,
+  "run": 788,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Трансфер — машина целиком (владелец 13.10), фазы 2–3 на проде: планер отвечает на «трансфер» перевозчиками под заказ (цена «от» за машину), без мест в поездках и окна дат; визитка A2A зовёт search_transfers параметром place, а не destination.",
   "urls": [
-    "https://vedarai.ru/transfers",
-    "https://vedarai.ru/transfers/shatun"
+    "https://vedarai.ru/.well-known/agent-card.json"
   ],
-  "bytes": 600,
+  "bytes": 300,
   "grep": [
-    "Как заказать",
-    "Машина под заказ",
-    "цена за машину целиком",
-    "Места в поездках",
-    "Найти места",
-    "Поездки с датами",
-    "Запросить места",
-    "менеджер Ведара присылает заказчику ссылку на отзыв",
-    "Трансфер: машина под заказ",
-    "Отзыв оставляют по ссылке"
+    "\"transfer\":{\"state\":\"ok\"",
+    "\"slug\":\"shatun\"",
+    "priceFromRub",
+    "seatsFree",
+    "pricePerSeat",
+    "\"window\"",
+    "\\\"place\\\":\\\"Горелый\\\"",
+    "destination\\\":\\\"Вулкан Горелый",
+    "whole-vehicle charters",
+    "free seats in dated carrier trips"
   ],
   "post": [
     {
-      "url": "https://vedarai.ru/api/carrier-reviews",
-      "body": { "via": "seat", "carrier": "shatun", "seat_booking_id": "77777777-7777-4777-8777-777777777777", "rating": 5 }
+      "url": "https://vedarai.ru/api/planner/trip-extras",
+      "body": { "needs": { "transfer": true }, "adults": 2 }
     }
   ]
 }
