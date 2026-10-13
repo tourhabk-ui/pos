@@ -5,6 +5,7 @@ import { ArrowLeft, BookOpen } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG } from '@/lib/chronicle/articles';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { metaDescription } from '@/lib/seo/meta-description';
 
 // Статьи — константа в коде, базы страница не трогает: собрать их на сборке
 // безопасно (ср. tests/unit/no-build-time-db.test.ts).
@@ -19,14 +20,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const a = CHRONICLE_BY_SLUG[slug];
   if (!a) return { title: 'Статья не найдена' };
   const url = `https://vedarai.ru/letopis/${a.slug}`;
+  // Лид статьи длиннее сниппета (перепись 13.10: 177–205 знаков) — в выдачу
+  // он идёт обрезанным по предложению или слову, на странице остаётся целым.
+  const description = metaDescription(a.lead);
   return {
     title: `${a.title} — Летопись Камчатки`,
-    description: a.lead,
+    description,
     alternates: { canonical: url },
     openGraph: {
       images: defaultOgImages(),
       title: a.title,
-      description: a.lead,
+      description,
       url,
       siteName: 'Ведар',
       locale: 'ru_RU',

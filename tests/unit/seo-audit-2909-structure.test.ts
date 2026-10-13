@@ -4,7 +4,7 @@
  * <head> и для Google, карточки мест и маршрутов несут текст в HTML.
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { metaDescription } from '@/lib/seo/meta-description';
 
@@ -24,15 +24,46 @@ function loadingAbove(pageDir: string): string[] {
   return out;
 }
 
+/**
+ * Публичные динамические страницы, которые отвечают «нет» или «переехало»:
+ * зовут notFound() или permanentRedirect(). Список не руками — перепись
+ * 13.10 нашла /guides/<нет> и /accommodations/<нет> с ответом 200: у их
+ * разделов loading.tsx лежал над [id], а в ручном списке стояли только три
+ * карточки. Кабинеты (/hub) закрыты от индекса и сюда не входят.
+ */
+function publicStatusPages(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      const rel = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (rel === join('app', 'hub') || rel === join('app', 'api')) continue;
+        walk(rel);
+      } else if (e.name === 'page.tsx' && /\[[^/]+\]/.test(dir) && /\b(notFound|permanentRedirect)\(/.test(code(rel))) {
+        out.push(dir);
+      }
+    }
+  };
+  walk('app');
+  return out.sort();
+}
+
 describe('Н2: над карточками нет loading.tsx — иначе 404 и 308 уходят как 200', () => {
-  for (const dir of ['app/routes/[id]', 'app/catalog/tours/[id]', 'app/places/[id]']) {
+  const pages = publicStatusPages();
+  it('карточки нашлись (перепись не пуста)', () => {
+    for (const dir of ['app/routes/[id]', 'app/catalog/tours/[id]', 'app/places/[id]', 'app/guides/[id]', 'app/accommodations/[id]']) {
+      expect(pages).toContain(dir);
+    }
+  });
+  for (const dir of pages) {
     it(dir, () => {
       expect(loadingAbove(dir), `${dir}: под файлом загрузки notFound()/permanentRedirect() не меняют статус`).toEqual([]);
     });
   }
   it('скелеты списков сохранены в группе (list)', () => {
-    expect(existsSync(join(ROOT, 'app/routes/(list)/loading.tsx'))).toBe(true);
-    expect(existsSync(join(ROOT, 'app/catalog/(list)/loading.tsx'))).toBe(true);
+    for (const p of ['app/routes/(list)/loading.tsx', 'app/catalog/(list)/loading.tsx', 'app/guides/(list)/loading.tsx', 'app/accommodations/(list)/loading.tsx']) {
+      expect(existsSync(join(ROOT, p)), p).toBe(true);
+    }
   });
   it('«не найдено» объявляет noindex, а корневой layout не ставит index/follow рядом', () => {
     expect(code('app/routes/[id]/page.tsx')).toMatch(/'Маршрут не найден', robots: \{ index: false/);

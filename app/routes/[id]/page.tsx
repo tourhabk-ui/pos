@@ -16,6 +16,7 @@ import { routeDescription } from '@/lib/seo/place-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -194,15 +195,18 @@ async function getRouteRaw(idOrSlug: string) {
       priceFrom: payload.price_from != null ? Number(payload.price_from) : null,
       durationDays: payload.duration_days != null ? Number(payload.duration_days)
         : r.kr_duration_days != null ? Number(r.kr_duration_days) : null,
-      season: (payload.season as string | null) ?? (r.kr_season as string | null) ?? null,
-      difficulty: (payload.difficulty as string | null) ?? (r.kr_difficulty as string | null) ?? null,
+      // Тип проверяется, а не обещается: у двух маршрутов season — массив, и
+      // каст `as string` ронял generateMetadata (500 боту, перепись 13.10).
+      season: payloadText(payload.season) ?? payloadText(r.kr_season),
+      difficulty: payloadText(payload.difficulty) ?? payloadText(r.kr_difficulty),
       zone: (r.kr_zone as string | null) ?? null,
       distanceKm: r.distance_km != null ? Number(r.distance_km) : null,
       durationHours: r.duration_hours != null ? Number(r.duration_hours) : null,
       elevationGainM: r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
       mchsRequired: r.mchs_registration_required === true,
-      bestMonths: Array.isArray(payload.best_months) ? payload.best_months as string[] : null,
-      photos: Array.isArray(payload.photos) ? payload.photos as string[] : null,
+      bestMonths: payloadStrings(payload.best_months),
+      // Не строка в og:image — тот же 500: Next склеивает адрес path.join'ом.
+      photos: payloadStrings(payload.photos),
       hasRealPhoto: r.has_real_photo === true,
       locationType: (r.location_type as string | null) ?? null,
       activityType: (r.activity_type as string | null) ?? null,

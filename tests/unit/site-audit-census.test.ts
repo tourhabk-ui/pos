@@ -32,7 +32,7 @@ const words = (n: number) => Array.from({ length: n }, (_, i) => `слово${i}
 const DESC_OK = 'Вулкан Горелый: маршрут к кратеру, сезон, опасности и что взять с собой — по данным платформы.';
 const DESC_CUT = 'Озеро Курильское: медведи, нерка, вертолётные экскурсии из Петропавловска, сезон с июля по сентябрь и всё что нужно знать до поездки на юг Камчатки, включая погоду и обстан';
 
-function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean }): string {
+function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string }): string {
   const base = `http://127.0.0.1:${port}`;
   const canon = `<link rel="canonical" href="${base}${o.path}">`;
   const robots = (o.robots ?? ['index, follow']).map((r) => `<meta name="robots" content="${r}">`).join('');
@@ -47,6 +47,9 @@ function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' |
     + `</head><body>${o.streamed ? titleDesc : ''}${o.canonicalIn === 'body' ? canon : ''}`
     // <title> внутри <svg> — подпись иконки, не второй заголовок страницы.
     + `<svg viewBox="0 0 1 1"><title>Иконка вулкана</title></svg>`
+    // alt="" — декоративная картинка рядом с подписью (так и надо, WCAG); alt со словами — снимок.
+    + `<img src="/og.jpg" alt=""><span>Кузьмич</span><img src="/og.jpg" alt="Кратер вулкана">`
+    + (o.img ?? '')
     + `<h1>${o.h1 ?? o.title}</h1><p>${words(220)}</p></body></html>`;
 }
 
@@ -60,13 +63,18 @@ beforeAll(async () => {
     if (url === '/robots.txt') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`); return; }
     if (url === '/sitemap.xml') {
       const locs = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone', '/places/cut', '/places/bad-og',
-        '/places/streamed', '/places/limited']
+        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head']
         .map((p) => `<url><loc>${base}${p}</loc></url>`).join('');
       res.writeHead(200, { 'content-type': 'application/xml' });
       res.end(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs}</urlset>`);
       return;
     }
     if (url === '/og.jpg') { res.writeHead(200, { 'content-type': 'image/jpeg' }); res.end('jpg'); return; }
+    // Как /api/images Ведара: публично только GET, HEAD — 401. Картинка при этом открывается.
+    if (url === '/og-head.jpg') {
+      if (req.method === 'HEAD') { res.writeHead(401); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'image/jpeg' }); res.end('jpg'); return;
+    }
     if (url === '/places/good' || url === '/') return html(page({ path: url, title: 'Вулкан Горелый — место на Камчатке', desc: DESC_OK }));
     if (url === '/places/body-canonical') return html(page({ path: url, title: 'Озеро Толмачёва', desc: DESC_OK + ' Озеро.', canonicalIn: 'body' }));
     if (url === '/routes/double-robots') return html(page({ path: url, title: 'Мутновский', desc: DESC_OK + ' Маршрут.', robots: ['index, follow', 'noindex'] }));
@@ -76,6 +84,8 @@ beforeAll(async () => {
     if (url === '/places/cut') return html(page({ path: url, title: 'Курильское озеро', desc: DESC_CUT }));
     if (url === '/places/bad-og') return html(page({ path: url, title: 'Долина гейзеров', desc: DESC_OK + ' Долина.', og: '/missing.jpg' }));
     if (url === '/places/streamed') return html(page({ path: url, title: 'Вилючинский', desc: DESC_OK + ' Вилючинский.', streamed: true }));
+    if (url === '/places/no-alt') return html(page({ path: url, title: 'Озеро Дальнее', desc: DESC_OK + ' Дальнее.', img: '<img src="/og.jpg">' }));
+    if (url === '/places/og-head') return html(page({ path: url, title: 'Бухта Русская', desc: DESC_OK + ' Бухта.', og: '/og-head.jpg' }));
     if (url === '/places/limited') {
       // Первый запрос — 429, как ограничитель сайта; повтор — страница.
       if (!limitedOnce) { limitedOnce = true; res.writeHead(429, { 'retry-after': '0' }); res.end('Too many requests'); return; }
@@ -101,7 +111,7 @@ async function audit(extra: string[] = []) {
   { env: { ...process.env, SITE_AUDIT_PAUSE: '0' }, timeout: 60_000 });
   const json = JSON.parse(readFileSync(out, 'utf-8')) as {
     census: { checked: number; ok: number; rate_limited: number; issues: { what: string; count: number; examples: string[] }[];
-      by_section: Record<string, Record<string, number>>; og_images: { bad: string[] } };
+      by_section: Record<string, Record<string, number>>; og_images: { bad: string[]; head_only: string[] } };
   };
   return { stdout, census: json.census };
 }
@@ -112,7 +122,7 @@ const hits = (c: { issues: { what: string; examples: string[] }[] }, what: strin
 describe('перепись sitemap: каждый дефект назван, здоровое не тронуто', () => {
   it('проходит все адреса sitemap без перехода по редиректу', async () => {
     const { census } = await audit();
-    expect(census.checked).toBe(10);
+    expect(census.checked).toBe(12);
     expect(hits(census, 'не 200 в sitemap').sort()).toEqual(['/operators/gone', '/routes/moved']);
     // 429 — ждёт и повторяет, но счёт таких ответов называет.
     expect(census.rate_limited).toBe(1);
@@ -140,18 +150,30 @@ describe('перепись sitemap: каждый дефект назван, зд
     expect(census.og_images.bad.map((b) => b.split(' ')[0].replace(/^http:\/\/127\.0\.0\.1:\d+/, ''))).toEqual(['/missing.jpg']);
   }, 60_000);
 
+  it('alt="" у декоративной картинки — не находка; картинка вовсе без alt — находка', async () => {
+    const { census } = await audit();
+    expect(hits(census, 'картинки без alt')).toEqual(['/places/no-alt']);
+  }, 60_000);
+
+  it('og:image, закрытый только на HEAD, открывается GET и не числится сломанным', async () => {
+    const { census } = await audit();
+    const strip = (x: string) => x.split(' ')[0].replace(/^http:\/\/127\.0\.0\.1:\d+/, '');
+    expect(census.og_images.bad.map(strip)).toEqual(['/missing.jpg']);
+    expect(census.og_images.head_only.map(strip)).toEqual(['/og-head.jpg']);
+  }, 60_000);
+
   it('чистая страница не попадает ни в одну находку', async () => {
     const { census } = await audit();
     // Адрес находки — первое слово примера; «→ 308 …/places/good» у редиректа — его цель, не находка.
     for (const i of census.issues) {
       expect({ what: i.what, hit: hits(census, i.what).includes('/places/good') }).toEqual({ what: i.what, hit: false });
     }
-    expect(census.ok).toBe(8);
+    expect(census.ok).toBe(10);
   }, 60_000);
 
   it('разделы считаются по первому сегменту пути', async () => {
     const { census } = await audit();
-    expect(census.by_section['/places/*'].urls).toBe(6);
+    expect(census.by_section['/places/*'].urls).toBe(8);
     expect(census.by_section['/routes/*']['soft-404 (200 с «не найден»)']).toBe(1);
   }, 60_000);
 });

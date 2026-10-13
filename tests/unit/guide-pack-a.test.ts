@@ -191,7 +191,7 @@ describe('4. статистика гида: подзапросы, а не раз
 
 // ── 5. Видимость гидов ──────────────────────────────────────────────────────
 describe('5. публичный реестр — одно условие, и оно выполнимо', () => {
-  const USERS = ['app/guides/page.tsx', 'app/guides/[id]/page.tsx', 'app/api/cron/guide-readiness/route.ts'];
+  const USERS = ['app/guides/(list)/page.tsx', 'app/guides/[id]/page.tsx', 'app/api/cron/guide-readiness/route.ts'];
 
   it('условие — одобренные платформой, а не несуществующий статус', () => {
     const w = publicGuideWhere('p');
