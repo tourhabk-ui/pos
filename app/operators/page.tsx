@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   openGraph: {
     images: defaultOgImages(),
     title: 'Операторы Камчатки',
-    description: 'Проверенные туроператоры Камчатки — от рыбалки до вулканов.',
+    description: 'Туроператоры Камчатки — от рыбалки до вулканов.',
     url: `${SITE}/operators`,
     siteName: 'Ведар',
     locale: 'ru_RU',

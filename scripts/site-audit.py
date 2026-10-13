@@ -51,6 +51,10 @@ UA = 'Mozilla/5.0 (compatible; VedarSiteAudit/1.0; +https://vedarai.ru)'
 TIMEOUT = 20
 # Пауза между запросами; переменная окружения — только для теста скрипта на локальном сервере.
 PAUSE = float(os.environ.get('SITE_AUDIT_PAUSE', '0.4'))
+# Длина <title> целиком, с названием сайта. Тот же предел, что TITLE_LIMIT в
+# lib/seo/title-fit (аудит 01.10): инструмент, строже правила проекта, звал на
+# правку 13 заголовков, которые правило считает нормальными (прогон 5).
+TITLE_LIMIT = 65
 
 # Заголовки ботов — ТОЛЬКО для нашего домена (см. шапку). Строки — те, что
 # боты присылают сами; по ним Next решает, отдавать ли метаданные в <head>.
@@ -431,7 +435,7 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
 
     add('high', 'страница без <title>', [p['url'] for p in ok_pages if not p['title']])
     add('medium', 'одинаковый <title> на нескольких страницах', [f'«{t[:60]}» × {n}' for t, n in titles.items() if n > 1 and t])
-    add('low', '<title> длиннее 60 знаков (в выдаче обрежется)', [p['url'] for p in ok_pages if len(p['title']) > 60])
+    add('low', f'<title> длиннее {TITLE_LIMIT} знаков (в выдаче обрежется)', [p['url'] for p in ok_pages if len(p['title']) > TITLE_LIMIT])
     add('high', 'нет meta description', [p['url'] for p in ok_pages if not p['description']])
     add('medium', 'одинаковый description на нескольких страницах', [f'«{d[:60]}» × {n}' for d, n in descs.items() if n > 1])
     add('low', 'description короче 70 или длиннее 160 знаков', [p['url'] for p in ok_pages if p['description'] and not (70 <= len(p['description']) <= 160)])
@@ -661,6 +665,7 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         ('title повторяется', 'tdup', lambda r: 'title' in r and r['title'] and titles[r['title']] > 1),
         ('title вне <head>', 'thead', lambda r: r.get('titles') and not any(t['head'] for t in r['titles'])),
         ('title больше одного', 't2', lambda r: len(r.get('titles') or []) > 1),
+        (f'title длиннее {TITLE_LIMIT} знаков', 'tlen', lambda r: bool(r.get('title')) and len(r['title']) > TITLE_LIMIT),
         ('нет description', 'd0', lambda r: 'title' in r and not r['desc']),
         ('description <70 или >160', 'dlen', lambda r: r.get('desc') and not (70 <= len(r['desc']) <= 160)),
         ('description оборван посреди слова', 'dcut', lambda r: r.get('desc') and cut_mid_word(r['desc'])),

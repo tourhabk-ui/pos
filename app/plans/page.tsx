@@ -20,7 +20,7 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: 'Туры на Камчатку: готовые планы поездки на 5, 7, 10 и 14 дней',
+  title: 'Туры на Камчатку: готовые планы на 5, 7, 10 и 14 дней',
   description: 'Готовые планы поездки на Камчатку по дням: вулканы, рыбалка, медведи, океан. У каждого дня — тур оператора с ценой, статус безопасности и заявка.',
   alternates: { canonical: `${SITE}/plans` },
   openGraph: {

@@ -788,7 +788,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 loading="lazy"
                 decoding="async"
               />
-              <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам проверенному оператору.</q>
+              <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам оператору.</q>
             </div>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
             <div className="acts">
@@ -844,7 +844,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
-            <p>Опишите поездку — подберём маршруты и передадим проверенным операторам. Ответ сегодня.</p>
+            <p>Опишите поездку — подберём маршруты и передадим операторам. Ответ сегодня.</p>
             <div className="chips">
               {CHIPS.map((c) => (
                 <button key={c} className="chip" aria-pressed={!!chips[c]}

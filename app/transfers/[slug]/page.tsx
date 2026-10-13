@@ -7,6 +7,7 @@ import { carrierJsonLd, minCharterPrice } from '@/lib/transfers/carrier-view';
 import { carrierPagePath, formatRub } from '@/lib/transfers/charter-format';
 import { loadCarrierBySlug } from '@/lib/transfers/charter';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { fitTitleRequired, CARRIER_TITLE_TAILS } from '@/lib/seo/title-fit';
 
 /**
  * /transfers/[slug] — страница перевозчика по стандарту карточки трансфера
@@ -33,7 +34,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   if (!carrier) return { title: 'Перевозчик не найден', robots: { index: false, follow: true } };
 
   const min = minCharterPrice(carrier);
-  const title = `${carrier.name} — машина под заказ на Камчатке`;
+  const title = fitTitleRequired(carrier.name, CARRIER_TITLE_TAILS);
   const description = carrier.shortDescription
     ?? (min !== null ? `Машина целиком по прайсу: от ${formatRub(min)} за машину. Заявка — на странице.` : `Перевозчик «${carrier.name}» на Ведаре.`);
   const url = `${SITE}${carrierPagePath(carrier.slug)}`;

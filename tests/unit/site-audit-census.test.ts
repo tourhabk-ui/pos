@@ -34,7 +34,7 @@ const DESC_CUT = 'Озеро Курильское: медведи, нерка, �
 
 // Навигация как на сайте: каждая страница ссылается на все прочие, кроме сироты.
 const NAV = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone',
-  '/places/cut', '/places/bad-og', '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld'];
+  '/places/cut', '/places/bad-og', '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/long-title'];
 const nav = () => `<nav>${NAV.map((p) => `<a href="${p}#top">${p}</a>`).join('')}</nav>`;
 
 function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string; ld?: string }): string {
@@ -68,7 +68,7 @@ beforeAll(async () => {
     if (url === '/robots.txt') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`); return; }
     if (url === '/sitemap.xml') {
       const locs = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone', '/places/cut', '/places/bad-og',
-        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/orphan']
+        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/orphan', '/places/long-title']
         .map((p) => `<url><loc>${base}${p}</loc></url>`).join('');
       res.writeHead(200, { 'content-type': 'application/xml' });
       res.end(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs}</urlset>`);
@@ -90,7 +90,10 @@ beforeAll(async () => {
     if (url === '/places/bad-og') return html(page({ path: url, title: 'Долина гейзеров', desc: DESC_OK + ' Долина.', og: '/missing.jpg' }));
     if (url === '/places/streamed') return html(page({ path: url, title: 'Вилючинский', desc: DESC_OK + ' Вилючинский.', streamed: true }));
     if (url === '/places/no-alt') return html(page({ path: url, title: 'Озеро Дальнее', desc: DESC_OK + ' Дальнее.', img: '<img src="/og.jpg">' }));
-    if (url === '/places/og-head') return html(page({ path: url, title: 'Бухта Русская', desc: DESC_OK + ' Бухта.', og: '/og-head.jpg' }));
+    // Заголовок ровно в предел (65 знаков) — не находка.
+    if (url === '/places/og-head') return html(page({ path: url, title: 'Бухта Русская — медведи, косатки и морские котики: как добраться.', desc: DESC_OK + ' Бухта.', og: '/og-head.jpg' }));
+    // На знак длиннее предела — находка.
+    if (url === '/places/long-title') return html(page({ path: url, title: 'Вулкан Мутновский — фумаролы, ледник и кратер: что знать до выхода', desc: DESC_OK + ' Мутновский.' }));
     // Рейтинг при нуле отзывов — поисковик такую разметку отвергает.
     if (url === '/places/bad-ld') return html(page({ path: url, title: 'Озеро Кроноцкое', desc: DESC_OK + ' Кроноцкое.',
       ld: '{"@type":"TouristAttraction","name":"Озеро","aggregateRating":{"@type":"AggregateRating","ratingValue":4.5,"reviewCount":0}}' }));
@@ -132,7 +135,7 @@ const hits = (c: { issues: { what: string; examples: string[] }[] }, what: strin
 describe('перепись sitemap: каждый дефект назван, здоровое не тронуто', () => {
   it('проходит все адреса sitemap без перехода по редиректу', async () => {
     const { census } = await audit();
-    expect(census.checked).toBe(14);
+    expect(census.checked).toBe(15);
     expect(hits(census, 'не 200 в sitemap').sort()).toEqual(['/operators/gone', '/routes/moved']);
     // 429 — ждёт и повторяет, но счёт таких ответов называет.
     expect(census.rate_limited).toBe(1);
@@ -179,6 +182,11 @@ describe('перепись sitemap: каждый дефект назван, зд
     expect(ex).toContain('рейтинг без отзывов');
   }, 60_000);
 
+  it('title длиннее предела проекта назван; ровно в предел — нет', async () => {
+    const { census } = await audit();
+    expect(hits(census, 'title длиннее 65 знаков')).toEqual(['/places/long-title']);
+  }, 60_000);
+
   it('сирота — страница, на которую не ссылается ни одна другая', async () => {
     const { census } = await audit();
     expect(hits(census, 'сирота (ни одной ссылки с других страниц sitemap)')).toEqual(['/places/orphan']);
@@ -190,12 +198,12 @@ describe('перепись sitemap: каждый дефект назван, зд
     for (const i of census.issues) {
       expect({ what: i.what, hit: hits(census, i.what).includes('/places/good') }).toEqual({ what: i.what, hit: false });
     }
-    expect(census.ok).toBe(12);
+    expect(census.ok).toBe(13);
   }, 60_000);
 
   it('разделы считаются по первому сегменту пути', async () => {
     const { census } = await audit();
-    expect(census.by_section['/places/*'].urls).toBe(10);
+    expect(census.by_section['/places/*'].urls).toBe(11);
     expect(census.by_section['/routes/*']['soft-404 (200 с «не найден»)']).toBe(1);
   }, 60_000);
 });
@@ -218,6 +226,16 @@ describe('заголовок бота — только у себя', () => {
     expect(r.code).toBe(2);
     expect(r.stdout).toContain('только для vedarai.ru');
   }, 30_000);
+});
+
+describe('предел заголовка — один на проект и инструмент', () => {
+  it('TITLE_LIMIT скрипта равен TITLE_LIMIT из lib/seo/title-fit', async () => {
+    const { TITLE_LIMIT } = await import('@/lib/seo/title-fit');
+    const py = execFileSync('python3', ['-c',
+      'import importlib.util,sys; s=importlib.util.spec_from_file_location("sa", sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.TITLE_LIMIT)',
+      SCRIPT], { encoding: 'utf-8' }).trim();
+    expect(Number(py)).toBe(TITLE_LIMIT);
+  });
 });
 
 describe('jsonld_problems: правила разметки — вызовом на граничных данных', () => {

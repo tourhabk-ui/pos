@@ -167,7 +167,7 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
             Рыбалка на Камчатке
           </h1>
           <p className="text-lg text-[rgba(255,255,255,0.7)] mb-8 leading-relaxed max-w-xl">
-            Лосось, кижуч, чавыча, нерка. Туры проверенных операторов: что входит
+            Лосось, кижуч, чавыча, нерка. Туры операторов: что входит
             в стоимость, а что оплачивается отдельно, — в карточке каждого тура.
           </p>
           <div className="flex flex-wrap gap-3">
