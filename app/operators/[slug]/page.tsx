@@ -17,6 +17,8 @@ import {
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { operatorMetaDescription } from '@/lib/seo/operator-meta';
+import { metaDescription } from '@/lib/seo/meta-description';
 import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
@@ -144,9 +146,7 @@ export async function generateMetadata(
   }
 
   const title = `${profile.name} - оператор Камчатки`;
-  const description = profile.short_description
-    ?? profile.description
-    ?? 'Публичный профиль проверенного оператора на Ведаре.';
+  const description = operatorMetaDescription(profile);
 
   return {
     title,
@@ -197,14 +197,15 @@ export default async function OperatorProfilePage(
   // Организация оператора — тот же @id, на который ссылаются provider и
   // seller в разметке его туров (lib/seo/tour-structured-data, аудит 01.10).
   const pageUrl = `${SITE}/operators/${profile.slug}`;
-  const orgDescription = profile.short_description ?? profile.description;
+  // Первое НЕПУСТОЕ: `??` пропускал '' и оставлял организацию без описания (Н14).
+  const orgDescription = [profile.short_description, profile.description].map((t) => (t ?? '').trim()).find(Boolean) ?? null;
   const orgJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     '@id': operatorOrgId(SITE, profile.slug),
     name: profile.name,
     url: pageUrl,
-    ...(orgDescription ? { description: orgDescription.slice(0, 500) } : {}),
+    ...(orgDescription ? { description: metaDescription(orgDescription, 500) } : {}),
     ...(profile.logo_image
       ? { logo: profile.logo_image.startsWith('http') ? profile.logo_image : `${SITE}${profile.logo_image.startsWith('/') ? '' : '/'}${profile.logo_image}` }
       : {}),
