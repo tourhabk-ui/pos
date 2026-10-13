@@ -3,10 +3,10 @@
  * Описание «Камчатка Семейный Рафтинг» на проде было заглушкой «Мы есть»
  * (prod-check 117): миграция 1222 писала только в пустое поле и её не тронула.
  * Решение владельца 13.10: заменить текстом миграции («сезон закончили, теперь
- * просто для красивой картинки»). Миграция 1223 правит ТОЛЬКО заглушку.
+ * просто для красивой картинки»). Миграция 1224 правит ТОЛЬКО заглушку.
  *
  * Что держит сторож:
- *  - текст 1223 дословно равен тексту описания из 1222 — один источник;
+ *  - текст 1224 дословно равен тексту описания из 1222 — один источник;
  *  - гейт узнаёт заглушку и пустоту, но не чужой текст: «Мы есть», «мы есть.»,
  *    '' и NULL попадают под правку, «Свой текст» — нет;
  *  - правка адресована одному slug; своих BEGIN/COMMIT нет; шапка называет
@@ -18,7 +18,7 @@ import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
-const MIG = read('migrations/1223_rafting_description_placeholder.sql');
+const MIG = read('migrations/1224_rafting_description_placeholder.sql');
 const PREV = read('migrations/1222_operator_landings_three.sql');
 
 /** Литерал описания: всё между `SET description = ` и `,\n       updated_at`. */
@@ -34,7 +34,7 @@ function gateMatches(description: string | null): boolean {
   return trimmed === 'мы есть' || trimmed === '';
 }
 
-describe('миграция 1223: описание рафтинга поверх заглушки', () => {
+describe('Миграция 1224: описание рафтинга поверх заглушки', () => {
   it('текст — дословно из 1222', () => {
     expect(descriptionLiteral(MIG)).toBe(descriptionLiteral(PREV));
     expect(descriptionLiteral(MIG)).toContain('спокойные однодневные сплавы по реке Быстрой');
