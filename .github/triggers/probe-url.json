@@ -1,18 +1,32 @@
 {
   "timeout": 90,
-  "retries": 50,
-  "retryDelay": 60,
-  "run": 766,
-  "note": "13.10. Проверка 4cd1889 (вулкан в аргументе — тот, о котором говорит человек; примеры-магниты убраны из описаний). Датчик сборки — tools/list публичного MCP (ТОЛЬКО ЧТЕНИЕ): в новой сборке описание параметра volcano «как его назвал человек». Затем тот же вопрос Кузьмичу по A2A от служебной пробы — ждём ответ про Авачинский, без Ключевского и Мутновского. Идёт в окно пика DeepSeek, когда отвечает запасная модель. Цена — один вызов модели.",
-  "until": "как его назвал человек",
+  "retries": 1,
+  "allowStale": true,
+  "retryDelay": 15,
+  "run": 767,
+  "note": "13.10. Проверка 44bc336 (вопрос агента доходит до Кузьмича). Сначала метка сборки прода /version.json (ТОЛЬКО ЧТЕНИЕ): built_at должен быть позже 08:41 UTC, иначе ответы ниже — прежней сборки. Затем два вопроса Кузьмичу по A2A от служебной пробы: про Авачинский (пробы 764–766) и дословно вопрос внешнего агента agent-collector из журнала общения (19:57 по Камчатке) про Курильское озеро. Цена — два вызова модели.",
+  "urls": [
+    "https://vedarai.ru/version.json"
+  ],
   "post": [
     {
-      "url": "https://vedarai.ru/api/mcp",
+      "url": "https://vedarai.ru/api/a2a",
       "body": {
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "tools/list",
-        "params": {}
+        "method": "SendMessage",
+        "params": {
+          "message": {
+            "messageId": "vedar-dialog-probe-767a",
+            "role": "ROLE_USER",
+            "contextId": "vedar-dialog-probe-767a",
+            "parts": [
+              {
+                "text": "Служебная проверка журнала общения Ведара: какая сейчас обстановка у Авачинского вулкана? Ответь в двух предложениях."
+              }
+            ]
+          }
+        }
       }
     },
     {
@@ -23,12 +37,12 @@
         "method": "SendMessage",
         "params": {
           "message": {
-            "messageId": "vedar-dialog-probe-766",
+            "messageId": "vedar-dialog-probe-767b",
             "role": "ROLE_USER",
-            "contextId": "vedar-dialog-probe-766",
+            "contextId": "vedar-dialog-probe-767b",
             "parts": [
               {
-                "text": "Служебная проверка журнала общения Ведара: какая сейчас обстановка у Авачинского вулкана? Ответь в двух предложениях."
+                "text": "Какие туры на Курильское озеро есть в августе и безопасно ли там сейчас?"
               }
             ]
           }
@@ -37,22 +51,22 @@
     }
   ],
   "headers": [
-    "A2A-Version: 1.0",
-    "Accept: application/json, text/event-stream"
+    "A2A-Version: 1.0"
   ],
   "ua": "VedarDialogProbe/1.0",
   "grep": [
-    "как его назвал человек",
+    "built_at",
     "TASK_STATE_COMPLETED",
     "Авачинск",
+    "Мутновск",
     "Ключевск",
-    "Мутновск"
+    "Курильск"
   ],
   "around": [
-    "TASK_STATE"
+    "\"text\""
   ],
   "aroundBefore": 0,
-  "aroundLines": 6,
+  "aroundLines": 12,
   "aroundHits": 1,
-  "bytes": 1500
+  "bytes": 600
 }
