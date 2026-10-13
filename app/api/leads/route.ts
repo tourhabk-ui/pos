@@ -4,7 +4,7 @@ import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { requireRole } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
-import { notifyOperatorNewLead } from '@/lib/notifications/lead-notify';
+import { notifyOperatorNewLead, notifyPartnerNewLeadPersonally } from '@/lib/notifications/lead-notify';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
@@ -129,14 +129,20 @@ export async function POST(req: NextRequest) {
   // правка формы.
   const embeddedSlug = typeof source_data?.partner_slug === 'string' ? source_data.partner_slug : undefined;
   const widgetSlug = partner_slug ?? (embeddedSlug && embeddedSlug.length <= 100 ? embeddedSlug : undefined);
-  let operatorId: string | null = null;
+  // Виджет на сайте партнёра — по включённому виджету; форма на странице
+  // оператора на Ведаре (vedarai.ru/<slug>, #2414) — по публичности карточки:
+  // та же граница, что показывает саму страницу. До 13.10 стоял только первый
+  // гейт, и заявка со страницы оператора без виджета вставала без оператора —
+  // в пул, а не в его кабинет, вопреки тексту над формой.
+  let operator: { id: string; name: string | null } | null = null;
   if (widgetSlug) {
-    const pRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE slug = $1 AND widget_enabled = true LIMIT 1`,
+    const pRes = await pool.query<{ id: string; name: string | null }>(
+      `SELECT id, name FROM partners WHERE slug = $1 AND (widget_enabled = true OR is_public = true) LIMIT 1`,
       [widgetSlug]
     );
-    operatorId = pRes.rows[0]?.id ?? null;
+    operator = pRes.rows[0] ?? null;
   }
+  const operatorId = operator?.id ?? null;
 
   // Атрибуция MCP-handoff: подписанная HttpOnly-cookie после перехода по
   // /mcp/h/<token>. В source_data попадает только UUID handoff-а — ни
@@ -186,14 +192,32 @@ export async function POST(req: NextRequest) {
       .catch(() => null);
   }
 
-  // Уведомление оператора с ссылкой на AI-обработку
-  notifyOperatorNewLead({
-    leadId,
-    name,
-    phone,
-    comment:    comment,
-    routeTitle: route_title,
-  }).catch(() => undefined);
+  // Уведомления: лично оператору, которому заявка адресована (если он
+  // привязан к MAX/Telegram), затем рабочему чату платформы — с исходом личной
+  // доставки. Ответ туристу их не ждёт; отказ — в лог, не в тишину.
+  const sourceKind = typeof source_data?.source === 'string' ? source_data.source : '';
+  const origin = sourceKind === 'operator_page'
+    ? 'форма на вашей странице на Ведаре'
+    : sourceKind === 'partner_widget' ? 'виджет на вашем сайте' : 'форма на Ведаре';
+  const partner = operator;
+  void (async () => {
+    const personal = partner
+      ? await notifyPartnerNewLeadPersonally({
+          operatorId: partner.id, leadId, name, phone, comment,
+          routeTitle: route_title, origin, sourceUrl: source_url,
+        })
+      : null;
+    await notifyOperatorNewLead({
+      leadId,
+      name,
+      phone,
+      comment:    comment,
+      routeTitle: route_title,
+      forPartner: partner ? { name: partner.name ?? widgetSlug ?? partner.id, outcome: personal } : undefined,
+    });
+  })().catch((e: unknown) => {
+    console.error(`[leads] уведомления о заявке ${leadId} не отправлены:`, e instanceof Error ? e.message : e);
+  });
 
   // AI обработка — fire-and-forget, не блокирует ответ туристу
   void autoProcessLead(leadId, name);

@@ -30,7 +30,10 @@ const { poolQuery, createLeadMock } = vi.hoisted(() => ({
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
 vi.mock('@/lib/leads/create', () => ({ createLead: createLeadMock }));
 vi.mock('@/lib/notifications/telegram', () => ({ telegramService: { sendMessage: vi.fn(async () => null) } }));
-vi.mock('@/lib/notifications/lead-notify', () => ({ notifyOperatorNewLead: vi.fn(async () => ({ ok: true })) }));
+vi.mock('@/lib/notifications/lead-notify', () => ({
+  notifyOperatorNewLead: vi.fn(async () => ({ ok: true })),
+  notifyPartnerNewLeadPersonally: vi.fn(async () => ({ state: 'no_channel' })),
+}));
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: vi.fn(async () => ({ ok: true })) }));
 vi.mock('@/lib/services/operators/lead-processor.service', () => ({ leadProcessor: { processLead: vi.fn(async () => null) } }));
 vi.mock('@/lib/mcp/handoff', () => ({
