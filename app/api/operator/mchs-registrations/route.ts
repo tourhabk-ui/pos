@@ -68,6 +68,18 @@ export async function GET(request: NextRequest) {
       return userOrResponse;
     }
 
+    // Регистрации кабинета, а не аккаунта (CRM 2г): группу может
+    // зарегистрировать менеджер команды, и владелец обязан её видеть — иначе
+    // он зарегистрировал бы ту же группу второй раз. Строки без кабинета
+    // (operator_partner_id пуст) остаются видны тому, кто их завёл.
+    const operatorPartnerId = await getOperatorPartnerId(userOrResponse.userId);
+    if (!operatorPartnerId) {
+      return NextResponse.json(
+        { success: false, error: 'Партнёрский профиль оператора не найден' } as ApiResponse<null>,
+        { status: 404 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const limitRaw = parseInt(searchParams.get('limit') || '20', 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
@@ -87,10 +99,11 @@ export async function GET(request: NextRequest) {
          submitted_at,
          created_at
        FROM mchs_group_registrations
-       WHERE operator_user_id = $1
+       WHERE operator_partner_id = $1::uuid
+          OR (operator_partner_id IS NULL AND operator_user_id = $2::uuid)
        ORDER BY created_at DESC
-       LIMIT $2`,
-      [userOrResponse.userId, limit]
+       LIMIT $3`,
+      [operatorPartnerId, userOrResponse.userId, limit]
     );
 
     const summaryResult = await query<{
@@ -107,8 +120,9 @@ export async function GET(request: NextRequest) {
          COUNT(*) FILTER (WHERE status = 'rejected')::text as rejected,
          COUNT(*) FILTER (WHERE status = 'failed')::text as failed
        FROM mchs_group_registrations
-       WHERE operator_user_id = $1`,
-      [userOrResponse.userId]
+       WHERE operator_partner_id = $1::uuid
+          OR (operator_partner_id IS NULL AND operator_user_id = $2::uuid)`,
+      [operatorPartnerId, userOrResponse.userId]
     );
 
     const summaryRow = summaryResult.rows[0] || {

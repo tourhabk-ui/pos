@@ -406,11 +406,15 @@ describe('экран согласия и возврат после входа', 
     }
   });
 
-  it('каждый путь входа уважает возврат, и только через safePartnerOAuthReturn', () => {
+  it('каждый путь входа уважает возврат, и только через проверенные пути', () => {
     const src = read('app/auth/login/_AuthPageClient.tsx');
-    expect(src).toMatch(/setReturnTo\(safePartnerOAuthReturn\(search\.get\('next'\)\)\)/);
+    // Экран согласия OAuth или страница приглашения в команду (CRM 2г) — и только они.
+    expect(src).toMatch(/const next = search\.get\('next'\);\s*setReturnTo\(safePartnerOAuthReturn\(next\) \?\? safeTeamJoinReturn\(next\)\)/);
+    expect(src.match(/setReturnTo\(/g)?.length).toBe(1);
     // Пароль, MFA, Telegram, MAX.
     expect(src.match(/router\.push\(returnTo \?\? /g)?.length).toBe(4);
+    // После регистрации — только на приглашение в команду, экран согласия OAuth не трогается.
+    expect(src).toMatch(/router\.push\(safeTeamJoinReturn\(returnTo\) \?\? ROLE_HUB\[primaryRole\]/);
   });
 
   it('экран — вне /hub, вход проверяется с живой сессией, отказ — ссылкой, запись по умолчанию выключена, адрес кода показан', () => {

@@ -46,7 +46,8 @@ const ROUTE = read('app/api/hub/operator/pricing-rules/route.ts');
 const ROUTE_CODE = code(ROUTE);
 const SCREEN = read('app/hub/operator/pricing/_PricingClient.tsx');
 const SCREEN_CODE = code(SCREEN);
-const NAV = read('app/hub/operator/layout.tsx');
+// Меню кабинета — components/operator/operator-menu.ts (CRM 2г), layout его фильтрует.
+const NAV = read('components/operator/operator-menu.ts');
 
 describe('процент и множитель не путаются', () => {
   it('минус пятнадцать процентов — это 0.85, а не 0.15', () => {

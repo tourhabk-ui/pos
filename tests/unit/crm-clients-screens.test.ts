@@ -9,9 +9,15 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { navModulePaths } from '@/lib/agents/evo/structural-scan';
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
+/** Сайдбар кабинета: layout вместе с модулем меню, если он вынесен (меню оператора — CRM 2г). */
+const nav = (cab: string) => {
+  const layout = read(`app/hub/${cab}/layout.tsx`);
+  return [layout, ...navModulePaths(layout, (p) => existsSync(join(ROOT, p))).map(read)].join('\n');
+};
 
 /** Кабинет → своя причина, если экрана CRM в нём (пока) нет. */
 const KNOWN_WITHOUT_SCREEN: Readonly<Record<string, string>> = {
@@ -32,7 +38,7 @@ describe('экран «Клиенты» в кабинетах партнёров
     });
 
     it(`${cab}: пункт «Клиенты» в меню кабинета`, () => {
-      expect(read(`app/hub/${cab}/layout.tsx`)).toMatch(new RegExp(`href: '/hub/${cab}/clients',\\s+label: 'Клиенты'`));
+      expect(nav(cab)).toMatch(new RegExp(`href: '/hub/${cab}/clients',\\s+label: 'Клиенты'`));
     });
   }
 
@@ -44,7 +50,7 @@ describe('экран «Клиенты» в кабинетах партнёров
       expect(page).toMatch(/import \{ TasksScreen \} from '@\/components\/crm\/TasksScreen'/);
       expect(page).toMatch(/<TasksScreen \/>/);
       expect(page).toMatch(/robots: 'noindex, nofollow'/);
-      expect(read(`app/hub/${cab}/layout.tsx`)).toMatch(new RegExp(`href: '/hub/${cab}/tasks',\\s+label: 'Задачи'`));
+      expect(nav(cab)).toMatch(new RegExp(`href: '/hub/${cab}/tasks',\\s+label: 'Задачи'`));
     });
   }
 
@@ -61,7 +67,7 @@ describe('экран «Клиенты» в кабинетах партнёров
       expect(page).toMatch(/import \{ InboxScreen \} from '@\/components\/crm\/InboxScreen'/);
       expect(page).toMatch(/<InboxScreen \/>/);
       expect(page).toMatch(/robots: 'noindex, nofollow'/);
-      expect(read(`app/hub/${cab}/layout.tsx`)).toMatch(new RegExp(`href: '/hub/${cab}/inbox',\\s+label: 'Входящие'`));
+      expect(nav(cab)).toMatch(new RegExp(`href: '/hub/${cab}/inbox',\\s+label: 'Входящие'`));
     });
   }
 

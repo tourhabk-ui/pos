@@ -17,7 +17,7 @@ import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { requireTeamPermission } from '@/lib/operators/team-access';
-import { touchesTourPrice } from '@/lib/operators/team-money';
+import { changesTourPrice } from '@/lib/operators/team-money';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export const dynamic = 'force-dynamic';
@@ -99,8 +99,10 @@ export async function PATCH(
     const input = UpdateTourSchema.parse(body);
 
     // Цена тура — право, которое даёт владелец кабинета (CRM 2г): менеджер
-    // без него правит программу, описание и даты, но не цену.
-    if (!isAdmin && touchesTourPrice(input)) {
+    // без него правит программу, описание и даты, но не цену. Редактор шлёт
+    // форму целиком, поэтому судим по изменению против строки из базы, а не
+    // по тому, что поле прислано.
+    if (!isAdmin && changesTourPrice(input, tour as Record<string, unknown>)) {
       const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
       if (denied) return denied;
     }

@@ -3,7 +3,8 @@
  *
  * Роуты были, экрана не было, и во «Входящих» отзыв числился «ответить
  * нельзя». Держит:
- *  - владение — в самом UPDATE (тур отзыва — партнёра вошедшего оператора);
+ *  - владение — в самом UPDATE (тур отзыва — кабинета вошедшего: своего у
+ *    владельца, командного у менеджера, CRM 2г);
  *  - сохранённый ответ не превращается в 500 из-за уведомления: у отзыва
  *    без аккаунта уведомления нет, отказ записи уведомления — в лог;
  *  - отказ базы — 503 со SQLSTATE в логе, а не немой 500;
@@ -17,12 +18,18 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const requireOperator = vi.fn();
 const query = vi.fn();
+const operatorAccess = vi.fn();
 vi.mock('@/lib/auth/middleware', () => ({ requireOperator: (...a: unknown[]) => requireOperator(...a) }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => query(...a) }));
+vi.mock('@/lib/operators/team-access', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/operators/team-access')>()),
+  operatorAccess: (...a: unknown[]) => operatorAccess(...a),
+}));
 
 const { POST, DELETE } = await import('@/app/api/operator/reviews/[id]/reply/route');
 
 const OP = { userId: 'u-op', role: 'operator' };
+const CABINET = '00000000-0000-4000-8000-0000000000a1';
 const req = (body?: unknown) => new NextRequest('http://localhost/api/operator/reviews/7/reply', {
   method: body === undefined ? 'DELETE' : 'POST',
   headers: { 'content-type': 'application/json' },
@@ -37,6 +44,8 @@ beforeEach(() => {
   requireOperator.mockReset();
   query.mockReset();
   requireOperator.mockResolvedValue(OP);
+  operatorAccess.mockReset();
+  operatorAccess.mockResolvedValue({ kind: 'owner', partnerId: CABINET });
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
@@ -47,12 +56,30 @@ describe('ответ на отзыв', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('владение — в самом UPDATE: тур отзыва принадлежит партнёру вошедшего', async () => {
+  it('владение — в самом UPDATE: тур отзыва принадлежит кабинету вошедшего', async () => {
     query.mockResolvedValueOnce({ rows: [savedRow()] }).mockResolvedValueOnce({ rows: [] });
     expect((await POST(req({ reply: '  Спасибо!  ' }), ctx())).status).toBe(200);
+    expect(operatorAccess).toHaveBeenCalledWith('u-op');
     const [sql, params] = query.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/UPDATE operator_tour_reviews r[\s\S]*r\.tour_id = t\.id AND t\.operator_id = p\.id AND p\.user_id = \$2/);
-    expect(params).toEqual([7, 'u-op', 'Спасибо!']);
+    expect(sql).toMatch(/UPDATE operator_tour_reviews r[\s\S]*r\.tour_id = t\.id AND t\.operator_id = \$2::uuid/);
+    expect(sql).not.toMatch(/user_id = \$2/);
+    expect(params).toEqual([7, CABINET, 'Спасибо!']);
+  });
+
+  it('менеджер команды отвечает от кабинета владельца; снятый и «не смогли проверить» — до базы', async () => {
+    operatorAccess.mockResolvedValueOnce({
+      kind: 'manager', partnerId: CABINET, memberId: 'm1', perms: { can_edit_prices: false, can_cancel_bookings: false },
+    });
+    query.mockResolvedValueOnce({ rows: [savedRow()] }).mockResolvedValueOnce({ rows: [] });
+    expect((await POST(req({ reply: 'Спасибо!' }), ctx())).status).toBe(200);
+    expect((query.mock.calls[0] as [string, unknown[]])[1][1]).toBe(CABINET);
+
+    query.mockReset();
+    operatorAccess.mockResolvedValueOnce({ kind: 'none', reason: 'revoked' });
+    expect((await POST(req({ reply: 'x' }), ctx())).status).toBe(403);
+    operatorAccess.mockResolvedValueOnce({ kind: 'unavailable', reason: 'sqlstate 57P01' });
+    expect((await DELETE(req(), ctx())).status).toBe(503);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('не его отзыв — 404, и уведомления нет', async () => {
@@ -90,7 +117,8 @@ describe('ответ на отзыв', () => {
   it('удалить ответ — тем же предикатом владения; нечего удалять — 404', async () => {
     query.mockResolvedValueOnce({ rowCount: 1 });
     expect((await DELETE(req(), ctx())).status).toBe(200);
-    expect(query.mock.calls[0][0]).toMatch(/p\.user_id = \$2[\s\S]*operator_reply IS NOT NULL/);
+    expect(query.mock.calls[0][0]).toMatch(/t\.operator_id = \$2::uuid[\s\S]*operator_reply IS NOT NULL/);
+    expect(query.mock.calls[0][1]).toEqual([7, CABINET]);
     query.mockResolvedValueOnce({ rowCount: 0 });
     expect((await DELETE(req(), ctx())).status).toBe(404);
   });
@@ -104,7 +132,8 @@ describe('экран, «Входящие», карточка', () => {
     expect(screen).toMatch(/fetch\('\/api\/operator\/reviews\?limit=50'/);
     expect(screen).toMatch(/<ReviewReplyBox endpoint=\{`\/api\/operator\/reviews\/\$\{r\.id\}\/reply`\}/);
     expect(read('app/hub/operator/reviews/page.tsx')).toMatch(/robots: 'noindex, nofollow'/);
-    expect(read('app/hub/operator/layout.tsx')).toMatch(/href: '\/hub\/operator\/reviews', label: 'Отзывы'/);
+    // Меню кабинета — components/operator/operator-menu.ts (CRM 2г), layout его фильтрует.
+    expect(read('components/operator/operator-menu.ts')).toMatch(/href: '\/hub\/operator\/reviews', label: 'Отзывы'/);
   });
 
   it('отзыв о туре без ответа — во «Входящих» оператора, и больше не в «чего здесь нет»', async () => {

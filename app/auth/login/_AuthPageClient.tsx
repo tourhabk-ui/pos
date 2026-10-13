@@ -11,6 +11,7 @@ import TelegramLoginButton, { type TelegramUser } from './_TelegramLoginButton';
 import MaxLoginButton from './_MaxLoginButton';
 import { loadReferral, forgetReferral } from '@/lib/referral/link';
 import { safePartnerOAuthReturn } from '@/lib/crm/partner-oauth-public';
+import { safeTeamJoinReturn } from '@/lib/operators/team-join-path';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -32,9 +33,10 @@ export default function AuthPageClient() {
   const { signIn, completeMfaSignIn } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
-  // Куда вернуть после входа. Узко: только экран согласия OAuth MCP
-  // партнёра (подключение Claude к CRM) — открытого перенаправления быть не
-  // может, всё прочее ведёт в кабинет, как раньше.
+  // Куда вернуть после входа. Узко: экран согласия OAuth MCP партнёра
+  // (подключение Claude к CRM) и страница приглашения в команду оператора
+  // (CRM 2г) — открытого перенаправления быть не может, всё прочее ведёт в
+  // кабинет, как раньше.
   const [returnTo, setReturnTo] = useState<string | null>(null);
   // /auth/login?mode=register — прямая дорога к регистрации аккаунта (с
   // /register, где регистрируют маршрут в МЧС, #1780). Читается после
@@ -42,7 +44,8 @@ export default function AuthPageClient() {
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     if (search.get('mode') === 'register') setMode('register');
-    setReturnTo(safePartnerOAuthReturn(search.get('next')));
+    const next = search.get('next');
+    setReturnTo(safePartnerOAuthReturn(next) ?? safeTeamJoinReturn(next));
   }, []);
   const [userType, setUserType] = useState<UserType>('tourist');
   const [loading, setLoading] = useState(false);
@@ -198,9 +201,12 @@ export default function AuthPageClient() {
       };
       localStorage.setItem('user', JSON.stringify(userData));
 
-      // Редирект в кабинет главной роли
+      // Редирект в кабинет главной роли. Исключение — приглашение в команду
+      // оператора: ради него человек и заводил аккаунт, и принять его надо
+      // сразу. Экран согласия OAuth новому аккаунту без кабинета ничего не
+      // даст — туда, как раньше, не ведём.
       const primaryRole = userType === 'tourist' ? 'tourist' : partnerRoles[0] ?? 'operator';
-      router.push(ROLE_HUB[primaryRole] ?? '/hub/tourist');
+      router.push(safeTeamJoinReturn(returnTo) ?? ROLE_HUB[primaryRole] ?? '/hub/tourist');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка регистрации');
     } finally {
