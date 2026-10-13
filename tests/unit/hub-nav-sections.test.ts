@@ -17,7 +17,9 @@ import { join } from 'path';
 
 const HUB_LAYOUTS = [
   'app/hub/agent/layout.tsx',
-  'app/hub/operator/layout.tsx',
+  // Меню оператора живёт рядом с правилом, кому какой пункт (CRM 2г):
+  // layout его только фильтрует.
+  'components/operator/operator-menu.ts',
   'app/hub/tourist/layout.tsx',
   'app/hub/guide/layout.tsx',
   'app/hub/gear/layout.tsx',

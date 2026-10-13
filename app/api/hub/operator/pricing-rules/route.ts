@@ -43,6 +43,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
+import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
@@ -102,12 +103,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireOperator(request);
+  // Скидки — это цены: менеджеру команды — только с правом can_edit_prices,
+  // которое даёт владелец кабинета (CRM 2г, решение владельца 11.10).
+  const auth = await requireOperatorTeam(request);
   if (auth instanceof NextResponse) return auth;
-  const operatorId = await getOperatorPartnerId(auth.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 403 });
-  }
+  if (!managerMay(auth.access, 'can_edit_prices')) return permissionDenied('can_edit_prices');
+  const operatorId = auth.partnerId;
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -171,12 +172,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireOperator(request);
+  // Скидки — это цены: менеджеру команды — только с правом can_edit_prices,
+  // которое даёт владелец кабинета (CRM 2г, решение владельца 11.10).
+  const auth = await requireOperatorTeam(request);
   if (auth instanceof NextResponse) return auth;
-  const operatorId = await getOperatorPartnerId(auth.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 403 });
-  }
+  if (!managerMay(auth.access, 'can_edit_prices')) return permissionDenied('can_edit_prices');
+  const operatorId = auth.partnerId;
   const id = request.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ success: false, error: 'id обязателен' }, { status: 400 });
 

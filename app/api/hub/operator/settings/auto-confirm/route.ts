@@ -7,12 +7,14 @@
  * ожидания. Хранится в `operator_settings.auto_confirm_bookings` по аккаунту
  * оператора (`user_id`); читается через `partners.user_id`.
  *
- * AUTH: requireOperator — настройку меняет только сам оператор, своим входом.
+ * AUTH: requireOperatorOwner — настройку читает и меняет только владелец
+ * кабинета, своим входом. Менеджеру команды (CRM 2г) настройки закрыты, а
+ * строка operator_settings ключуется по аккаунту владельца: чтение по
+ * аккаунту менеджера показало бы «выключено» там, где включено.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireOperator } from '@/lib/auth/middleware';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import { query } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
@@ -20,10 +22,8 @@ export const dynamic = 'force-dynamic';
 const PutSchema = z.object({ enabled: z.boolean({ message: 'Укажите, включить или выключить' }) });
 
 export async function GET(request: NextRequest) {
-  const auth = await requireOperator(request);
+  const auth = await requireOperatorOwner(request);
   if (auth instanceof NextResponse) return auth;
-  const partnerId = await getOperatorPartnerId(auth.userId);
-  if (!partnerId) return NextResponse.json({ error: 'Профиль оператора не найден' }, { status: 403 });
   try {
     const { rows } = await query<{ enabled: boolean }>(
       `SELECT COALESCE(auto_confirm_bookings, false) AS enabled FROM operator_settings WHERE user_id = $1`,
@@ -38,10 +38,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = await requireOperator(request);
+  const auth = await requireOperatorOwner(request);
   if (auth instanceof NextResponse) return auth;
-  const partnerId = await getOperatorPartnerId(auth.userId);
-  if (!partnerId) return NextResponse.json({ error: 'Профиль оператора не найден' }, { status: 403 });
 
   const parsed = PutSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

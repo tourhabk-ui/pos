@@ -33,7 +33,10 @@ describe('lib/leads/ownership.ts — единственный источник �
     expect(OWNERSHIP).toMatch(/operator_id = \$\$\{nextIdx\} OR operator_id IS NULL/);
     expect(OWNERSHIP).toMatch(/user\.role === 'admin'.*\{ cond: '', vals: \[\] \}/);
     expect(OWNERSHIP).toMatch(/AND operator_id IS NULL/);
-    expect(OWNERSHIP).toMatch(/SELECT id FROM partners WHERE user_id = \$1/);
+    // Партнёр — кабинет вошедшего, свой или команды (CRM 2г): один резолвер,
+    // «не смогли проверить» не превращается в «только ничейные».
+    expect(OWNERSHIP).toMatch(/const access = await operatorAccess\(user\.userId\)/);
+    expect(OWNERSHIP).toMatch(/access\.kind === 'unavailable'\) throw/);
   });
 
   it('canAccessLead применяет ту же формулу через leadOwnershipCond', () => {

@@ -5,6 +5,7 @@ import { Protected } from '@/components/auth/Protected';
 import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle, RefreshCw, BadgeCheck, UserMinus } from 'lucide-react';
 import { plural } from '@/lib/home/data-freshness';
 import GuideInvites from './_GuideInvites';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 /**
  * Гиды оператора — живой экран.
@@ -36,6 +37,10 @@ export default function GuidesClient() {
   const [search, setSearch] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<Guide | null>(null);
+  // Состав команды гидов — настройка кабинета: приглашать и исключать гидов
+  // может только владелец (CRM 2г). Менеджеру кнопок не показываем — сервер
+  // ему всё равно откажет.
+  const manager = isManagerSeat(useOperatorSeat());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -127,7 +132,7 @@ export default function GuidesClient() {
           </div>
         </div>
 
-        <GuideInvites />
+        {!manager && <GuideInvites />}
 
         {confirmRemove && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
@@ -230,13 +235,15 @@ export default function GuidesClient() {
                       <><UserCheck className="w-4 h-4" /> Включить</>
                     )}
                   </button>
-                  <button
-                    onClick={() => setConfirmRemove(guide)}
-                    disabled={busyId === guide.id}
-                    className="min-h-[44px] px-3 py-2 rounded-lg text-sm border border-[var(--border)] text-[var(--danger)] hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors inline-flex items-center gap-1.5"
-                  >
-                    <UserMinus className="w-4 h-4" /> Исключить
-                  </button>
+                  {!manager && (
+                    <button
+                      onClick={() => setConfirmRemove(guide)}
+                      disabled={busyId === guide.id}
+                      className="min-h-[44px] px-3 py-2 rounded-lg text-sm border border-[var(--border)] text-[var(--danger)] hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <UserMinus className="w-4 h-4" /> Исключить
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

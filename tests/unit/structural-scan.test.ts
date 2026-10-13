@@ -6,12 +6,13 @@
  * ручной аудит 27.07 (сироты трансфер-оператора), и молчать про onboarding.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import {
   findOrphanHubPages,
   findPostWithoutClientUsage,
   hubLayoutPaths,
+  navModulePaths,
   ORPHAN_EXCLUDED_SEGMENTS,
 } from '@/lib/agents/evo/structural-scan';
 
@@ -99,6 +100,27 @@ describe('findPostWithoutClientUsage (синтетика)', () => {
   });
 });
 
+describe('navModulePaths: меню, вынесенное из layout', () => {
+  it('модуль меню, импортированный layout, — часть сайдбара; прочие импорты — нет', () => {
+    const layout = [
+      "import { HubLayout } from '@/components/layout/HubLayout';",
+      "import { DEMO_MENU } from '@/components/demo/demo-menu';",
+      "import { useSeat } from '@/hooks/use-seat';",
+    ].join('\n');
+    const exists = (p: string) => p === 'components/demo/demo-menu.ts';
+    expect(navModulePaths(layout, exists)).toEqual(['components/demo/demo-menu.ts']);
+    expect(navModulePaths(layout, () => false)).toEqual([]);
+  });
+
+  it('страница из модуля меню — не сирота, если вызывающий склеил layout с меню', () => {
+    const files = ['app/hub/demo/layout.tsx', 'app/hub/demo/team/page.tsx'];
+    const bare = new Map([['app/hub/demo/layout.tsx', "import { DEMO_MENU } from '@/components/demo/demo-menu';"]]);
+    expect(findOrphanHubPages(files, bare)).toHaveLength(1);
+    const glued = new Map([['app/hub/demo/layout.tsx', `${bare.get('app/hub/demo/layout.tsx')}\n{ href: '/hub/demo/team', label: 'Команда' }`]]);
+    expect(findOrphanHubPages(files, glued)).toHaveLength(0);
+  });
+});
+
 describe('живой прогон по дереву репозитория', () => {
   function walkPages(dir: string, acc: string[]): void {
     for (const name of readdirSync(dir)) {
@@ -115,8 +137,15 @@ describe('живой прогон по дереву репозитория', () 
     walkPages(join(process.cwd(), 'app/hub'), files);
     const layouts = new Map<string, string>();
     for (const p of hubLayoutPaths(files)) {
-      layouts.set(p, readFileSync(join(process.cwd(), p), 'utf-8'));
+      const body = readFileSync(join(process.cwd(), p), 'utf-8');
+      // Меню, вынесенное из layout в свой модуль, — тоже сайдбар (как в scanStructural).
+      const menus = navModulePaths(body, (path) => existsSync(join(process.cwd(), path)))
+        .map((m) => readFileSync(join(process.cwd(), m), 'utf-8'));
+      layouts.set(p, [body, ...menus].join('\n'));
     }
+    // Меню оператора живёт в модуле (CRM 2г) — без склейки весь хаб читался бы сиротой.
+    expect(navModulePaths(layouts.get('app/hub/operator/layout.tsx') ?? '', (path) => existsSync(join(process.cwd(), path))))
+      .toEqual(['components/operator/operator-menu.ts']);
     // Тот же двухпроходный протокол, что в scanStructural: кандидаты →
     // чтение их тел → redirect-страницы отсеяны.
     const candidates = findOrphanHubPages(files, layouts);

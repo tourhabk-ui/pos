@@ -8,7 +8,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requirePartner } from '@/lib/crm/partner-context';
+import { requirePartnerOwner } from '@/lib/crm/partner-context';
 import { revokeAgentKey } from '@/lib/crm/agent-keys';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ type Ctx = { params: Promise<{ id: string }> };
 const Id = z.string().uuid();
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
-  const ctx = await requirePartner(req);
+  const ctx = await requirePartnerOwner(req);
   if (ctx instanceof NextResponse) return ctx;
 
   const id = Id.safeParse((await params).id);

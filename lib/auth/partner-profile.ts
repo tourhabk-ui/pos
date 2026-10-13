@@ -8,6 +8,7 @@
 
 import { query } from '@/lib/database';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
+import { hasActiveMembership } from '@/lib/operators/team-access';
 
 const PARTNER_ROLE_SET = new Set<string>(PARTNER_ROLES);
 
@@ -25,6 +26,14 @@ export async function ensurePartnerForRole(userId: string, role: string): Promis
   );
   if (existing.rows.length > 0) {
     return existing.rows[0].id as string;
+  }
+
+  // Менеджер команды оператора (CRM 2г, миграция 1223) входит с ролью
+  // operator, но кабинет у него чужой — владельца. Свой пустой профиль
+  // оператора ему не заводится: иначе резолвер кабинета нашёл бы его первым
+  // и спрятал команду. null — «своего профиля нет», кабинет откроет резолвер.
+  if (role === 'operator' && await hasActiveMembership(userId)) {
+    return null;
   }
 
   const userResult = await query<{ name: string; email: string }>(

@@ -93,6 +93,12 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'GET /api/chat/unread',
   'POST /api/chat/conversations/X/read',
   'POST /api/chat/conversations/X/messages',
+  // Приглашение в команду оператора (CRM 2г, 13.10): /team/join/<ключ>
+  // открывают по личной ссылке, в том числе без входа. Гостю API отвечает 401,
+  // и страница показывает «Войти» / «Зарегистрироваться» с возвратом на эту
+  // же ссылку. Путь не открывается: приглашение принимает аккаунт, а не ключ.
+  'GET /api/team/join/X',
+  'POST /api/team/join/X',
 ]);
 
 function walk(dir: string, out: string[]) {

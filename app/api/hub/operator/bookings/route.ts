@@ -13,6 +13,9 @@ import { query } from '@/lib/database';
 import { z } from 'zod';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
+import {
+  managerMay, operatorAccess, ownerOnlyDenied, permissionDenied, type OperatorAccessOk,
+} from '@/lib/operators/team-access';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
@@ -43,19 +46,27 @@ const BOOKING_INSERT_COLUMNS = `operator_tour_id, tourist_name, tourist_phone, t
         payment_status, payment_method, booking_status,
         special_requests, created_via`;
 
+/**
+ * Кабинет вошедшего — свой или команды (CRM 2г): менеджер ведёт брони своего
+ * оператора. null — не оператор; «не смогли проверить» — бросаем, роут
+ * отвечает 500 с логом, а не «вы не оператор».
+ */
 async function getOperatorRow(userId: string) {
-  const result = await query(
+  const access = await operatorAccess(userId);
+  if (access.kind === 'unavailable') throw new Error(`доступ к кабинету не проверен: ${access.reason}`);
+  if (access.kind === 'none') return null;
+  const result = await query<{ id: string; name: string; max_chat_id: string | null; telegram_chat_id: string | null }>(
     `SELECT p.id, p.name,
             p.max_chat_id::text AS max_chat_id,
             -- Колонка, а не contacts: её пишет привязка бота и её же читает
             -- reachForPartner. contacts->>'telegram_chat_id' не заполняет
             -- никто, и ручная бронь не доходила до Telegram оператора (25.09).
             p.telegram_chat_id::text AS telegram_chat_id
-     FROM partners p WHERE p.user_id = $1 AND p.category = 'operator'
-     ORDER BY p.created_at ASC LIMIT 1`,
-    [userId]
+     FROM partners p WHERE p.id = $1::uuid`,
+    [access.partnerId]
   );
-  return result.rows[0] || null;
+  const row = result.rows[0];
+  return row ? { ...row, access } : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -193,6 +204,17 @@ export async function POST(request: NextRequest) {
       },
     });
     const finalPrice = input.final_price ?? computedTotal;
+
+    // CRM 2г: своя цена брони — по праву can_edit_prices; «оплачено» — деньги,
+    // их отмечает только владелец кабинета. Цена тура без правки — любому.
+    const access: OperatorAccessOk = operator.access;
+    if (input.final_price !== undefined && input.final_price !== computedTotal
+        && !managerMay(access, 'can_edit_prices')) {
+      return permissionDenied('can_edit_prices');
+    }
+    if (input.payment_status === 'paid' && access.kind !== 'owner') {
+      return ownerOnlyDenied();
+    }
 
     // Бронь из лида: лид должен быть доступен этому оператору (свой или
     // ничейный — тот же скоуп, что у /api/leads). Чужой неотличим от

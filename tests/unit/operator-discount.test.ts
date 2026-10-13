@@ -46,7 +46,8 @@ const ROUTE = read('app/api/hub/operator/pricing-rules/route.ts');
 const ROUTE_CODE = code(ROUTE);
 const SCREEN = read('app/hub/operator/pricing/_PricingClient.tsx');
 const SCREEN_CODE = code(SCREEN);
-const NAV = read('app/hub/operator/layout.tsx');
+// Меню кабинета — components/operator/operator-menu.ts (CRM 2г), layout его фильтрует.
+const NAV = read('components/operator/operator-menu.ts');
 
 describe('процент и множитель не путаются', () => {
   it('минус пятнадцать процентов — это 0.85, а не 0.15', () => {
@@ -120,7 +121,11 @@ describe('свой тур и чужой', () => {
   });
 
   it('оператор без партнёрской записи получает отказ, а не пустой список', () => {
-    expect((ROUTE_CODE.match(/Профиль оператора не найден/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    // GET — своим ответом; запись скидок — через гард кабинета (CRM 2г), он
+    // отвечает тем же «Профиль оператора не найден».
+    expect((ROUTE_CODE.match(/Профиль оператора не найден/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((ROUTE_CODE.match(/await requireOperatorTeam\(request\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(readFileSync(join(process.cwd(), 'lib/operators/team-access.ts'), 'utf8')).toMatch(/Профиль оператора не найден/);
   });
 });
 

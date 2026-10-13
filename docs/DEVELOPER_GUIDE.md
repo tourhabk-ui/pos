@@ -243,6 +243,18 @@ Rate-limit SOS: 1 сигнал в 10 минут на пользователя и
 - Роли: `tourist`, `operator`, `guide`, `agent` (турагент), `transfer_operator`,
   `admin`; партнёры жилья/снаряжения — через `partners.partner_type`.
   Кабинеты по роли — `lib/auth/role-routes.ts`.
+- **Команда оператора (CRM 2г, миграция 1223).** В кабинет оператора входит
+  владелец или менеджер его команды; роли `manager` в JWT нет, кто ты кабинету —
+  решает `operator_members`, по базе, на каждом запросе
+  (`operatorAccess`, `lib/operators/team-access.ts`). Менеджеру — всё, кроме
+  денег и настроек; цены и отмена броней — права от владельца. Роут кабинета
+  находит кабинет только общим резолвером (`requireOperatorTeam`,
+  `getOperatorPartnerId`, `partnerContextFor`), деньги и настройки — через
+  `requireOperatorOwner` / `requirePartnerOwner`, право —
+  `requireTeamPermission` / `managerMay`. Новый роут кабинета объявляется в
+  реестре `tests/helpers/operator-gates.ts` — иначе краснеет
+  `operator-team-gates`; пункт меню — в `components/operator/operator-menu.ts`
+  с пометкой, кому он виден.
 
 ### 4.4 База данных
 

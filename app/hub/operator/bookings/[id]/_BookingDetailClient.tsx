@@ -10,6 +10,7 @@ import {
 import Link from 'next/link';
 import GuideAssign from './_GuideAssign';
 import DirectPayments from './_DirectPayments';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 interface BookingDetail {
   id: string;
@@ -81,6 +82,10 @@ export default function BookingDetailClient({ bookingId }: Props) {
    */
   const [confirmNoShow, setConfirmNoShow] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Менеджер команды (CRM 2г): деньги ему закрыты, отмена — по праву от
+  // владельца. Блоки прячутся здесь, а закрывает их сервер.
+  const seat = useOperatorSeat();
+  const manager = isManagerSeat(seat);
 
   const booking = data?.data;
 
@@ -137,7 +142,8 @@ export default function BookingDetailClient({ bookingId }: Props) {
 
   const canConfirm = booking.booking_status === 'new' || booking.booking_status === 'pending_payment';
   const canComplete = booking.booking_status === 'confirmed';
-  const canCancel = ['new', 'pending_payment', 'confirmed'].includes(booking.booking_status);
+  const canCancel = ['new', 'pending_payment', 'confirmed'].includes(booking.booking_status)
+    && !(manager && !seat.perms.can_cancel_bookings);
   const canMarkNoShow = booking.booking_status === 'confirmed';
 
   return (
@@ -306,8 +312,8 @@ export default function BookingDetailClient({ bookingId }: Props) {
         </div>
       )}
 
-      {/* Деньги, полученные оператором напрямую (CRM фаза 2в). */}
-      <DirectPayments bookingId={String(booking.id)} />
+      {/* Деньги, полученные оператором напрямую (CRM фаза 2в): только владельцу кабинета. */}
+      {!manager && <DirectPayments bookingId={String(booking.id)} />}
 
       {(canConfirm || canComplete || canCancel || canMarkNoShow) && (
         <div className="ds-card p-5">

@@ -11,12 +11,15 @@ export interface OperatorMetrics {
   confirmedBookings: number;
   completedBookings: number;
   cancelledBookings: number;
-  /** Выставлено по неотменённым броням — не то же, что получено. */
-  totalRevenue: number;
-  monthlyRevenue: number;
-  /** Реально оплачено (payment_status = 'paid'). */
-  paidRevenue: number;
-  paidRevenueMonth: number;
+  /**
+   * Выставлено по неотменённым броням — не то же, что получено.
+   * null — деньги скрыты: вошёл менеджер команды (CRM 2г), не владелец.
+   */
+  totalRevenue: number | null;
+  monthlyRevenue: number | null;
+  /** Реально оплачено (payment_status = 'paid'). null — как выше. */
+  paidRevenue: number | null;
+  paidRevenueMonth: number | null;
   /** null — никто ещё не оценивал; ноль звёзд был бы выдумкой (§4.0). */
   averageRating: number | null;
   totalReviews: number;
@@ -31,7 +34,8 @@ export interface TourStats {
   tourId: string;
   tourName: string;
   bookingsCount: number;
-  revenue: number;
+  /** null — деньги скрыты от менеджера команды (CRM 2г). */
+  revenue: number | null;
   averageRating: number;
   reviewCount: number;
   completionRate: number;
@@ -125,6 +129,11 @@ export interface OperatorReport {
 
 // Dashboard данные
 export interface OperatorDashboardData {
+  /**
+   * Вошёл менеджер команды (CRM 2г): выручка, график выручки и сводка доходов
+   * не отдаются — деньги ведёт владелец кабинета.
+   */
+  moneyHidden?: boolean;
   metrics: OperatorMetrics;
   recentBookings: OperatorBooking[];
   topTours: TourStats[];

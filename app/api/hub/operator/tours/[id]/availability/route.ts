@@ -12,6 +12,7 @@ import {
   getAvailability,
 } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 import { ZodError } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,12 @@ export async function POST(
 
     const body = await request.json();
     const { dates } = AddAvailabilitySchema.parse(body);
+    // Цена на дату — это цена: менеджеру команды только с правом владельца
+    // (CRM 2г). Даты и места без своей цены добавляет любой из команды.
+    if (dates.some(d => d.price_override !== undefined)) {
+      const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
+      if (denied) return denied;
+    }
 
     await addAvailability(tourId, dates);
 

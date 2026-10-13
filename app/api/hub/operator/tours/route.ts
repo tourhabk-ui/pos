@@ -14,6 +14,7 @@ import {
   getToursByOperator,
 } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export async function GET(request: NextRequest) {
@@ -60,6 +61,11 @@ export async function POST(request: NextRequest) {
     if (!operator_id) {
       return NextResponse.json({ error: 'You are not registered as an operator' }, { status: 403 });
     }
+
+    // Новый тур — это и его цена: менеджеру команды только с правом
+    // can_edit_prices, которое даёт владелец кабинета (CRM 2г).
+    const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
+    if (denied) return denied;
 
     const body = await request.json();
     const input = CreateTourSchema.parse(body);

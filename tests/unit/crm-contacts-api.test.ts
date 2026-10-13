@@ -72,7 +72,8 @@ describe('форма роутов', () => {
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const f of files) {
       const src = readFileSync(f, 'utf8');
-      const handlers = [...src.matchAll(/export async function (GET|POST|PATCH|PUT|DELETE)\([^)]*\)\s*\{\s*\n\s*const ctx = await requirePartner\(/g)];
+      // requirePartnerOwner — тот же гард партнёра плюс «только владелец» (CRM 2г: ключи, канал).
+      const handlers = [...src.matchAll(/export async function (GET|POST|PATCH|PUT|DELETE)\([^)]*\)\s*\{\s*\n\s*const ctx = await requirePartner(?:Owner)?\(/g)];
       const exported = [...src.matchAll(/export async function (GET|POST|PATCH|PUT|DELETE)\b/g)];
       expect(handlers.length, f).toBe(exported.length);
     }

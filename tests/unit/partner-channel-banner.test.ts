@@ -22,7 +22,12 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 const requirePartner = vi.fn();
 const reachForPartner = vi.fn();
 const buildPartnerChannelLinks = vi.fn();
-vi.mock('@/lib/crm/partner-context', () => ({ requirePartner: (...a: unknown[]) => requirePartner(...a) }));
+// Канал карточки — настройка владельца (CRM 2г): роуты зовут requirePartnerOwner.
+// Здесь он отдаёт то же, что гард партнёра; отказ менеджеру — в operator-team-access.
+vi.mock('@/lib/crm/partner-context', () => ({
+  requirePartner: (...a: unknown[]) => requirePartner(...a),
+  requirePartnerOwner: (...a: unknown[]) => requirePartner(...a),
+}));
 vi.mock('@/lib/partners/reach', () => ({ reachForPartner: (...a: unknown[]) => reachForPartner(...a) }));
 vi.mock('@/lib/partners/channel-link', () => ({ buildPartnerChannelLinks: (...a: unknown[]) => buildPartnerChannelLinks(...a) }));
 

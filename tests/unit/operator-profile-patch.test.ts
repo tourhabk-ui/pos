@@ -30,6 +30,24 @@ const partnerIdMock = vi.fn();
 vi.mock('@/lib/auth/operator-helpers', () => ({
   getOperatorPartnerId: (...args: unknown[]) => partnerIdMock(...args),
 }));
+// Кабинет — через гарды CRM 2г (lib/operators/team-access): здесь вошёл
+// владелец кабинета partnerIdMock(); нет кабинета — код ответа, который роут
+// просит у гарда (у профиля — прежний 404).
+const seatMock = vi.fn(() => 'owner');
+vi.mock('@/lib/operators/team-access', async () => {
+  const { NextResponse: R } = await import('next/server');
+  const gate = (ownerOnly: boolean) => async (_req: unknown, opts?: { noProfileStatus?: number }) => {
+    const partnerId = await partnerIdMock('user-1');
+    if (!partnerId) return R.json({ success: false, error: 'Профиль оператора не найден' }, { status: opts?.noProfileStatus ?? 403 });
+    const kind = seatMock();
+    if (ownerOnly && kind !== 'owner') return R.json({ success: false, error: 'Этот раздел ведёт владелец кабинета' }, { status: 403 });
+    const access = kind === 'owner'
+      ? { kind: 'owner', partnerId }
+      : { kind: 'manager', partnerId, memberId: 'm-1', perms: { can_edit_prices: false, can_cancel_bookings: false } };
+    return { userId: 'user-1', email: 'o@x.ru', role: 'operator', partnerId, access };
+  };
+  return { requireOperatorTeam: gate(false), requireOperatorOwner: gate(true) };
+});
 
 import { GET, PATCH } from '@/app/api/hub/operator/profile/route';
 import { mergeClearable, isCleared } from '@/lib/operator/profile-patch';
@@ -104,10 +122,27 @@ describe('три исхода поля: записать / очистить / н
 });
 
 describe('партнёр — общим helper-ом, не произвольной записью', () => {
-  it('роут профиля зовёт getOperatorPartnerId, своего выбора по user_id нет', () => {
+  // CRM 2г: кабинет решают гарды команды (свой или команды, category='operator'),
+  // правка профиля — только владельцу.
+  it('роут профиля идёт через гарды кабинета, своего выбора по user_id нет', () => {
     const src = read('app/api/hub/operator/profile/route.ts');
-    expect(src).toMatch(/getOperatorPartnerId\(authOrResponse\.userId\)/);
+    expect(src).toMatch(/requireOperatorTeam\(request, \{ noProfileStatus: 404 \}\)/);
+    expect(src).toMatch(/requireOperatorOwner\(request, \{ noProfileStatus: 404 \}\)/);
     expect(src).not.toMatch(/FROM partners WHERE user_id = \$1 LIMIT 1/);
+  });
+
+  it('менеджер команды: профиль читает без денег, править не может', async () => {
+    seatMock.mockReturnValue('manager');
+    queryMock.mockImplementation((sql: string) => (sql.includes('FROM partners p')
+      ? Promise.resolve({ rows: [{ id: 'partner-op', payout_method: 'card', payout_verified: true, commission_current: '10' }] })
+      : Promise.resolve({ rows: [] })));
+    reachMock.mockResolvedValue({ reachable: true, telegramChatId: null, maxChatId: null });
+    const got = await (await GET({} as NextRequest)).json() as { data: Record<string, unknown> };
+    expect(got.data).toMatchObject({ payout_method: null, payout_verified: null, commission_current: null });
+    const res = await PATCH(patchReq({ phone: '1' }));
+    expect(res.status).toBe(403);
+    expect(queryMock.mock.calls.some(([sql]) => String(sql).startsWith('UPDATE partners'))).toBe(false);
+    seatMock.mockReturnValue('owner');
   });
 
   it('нет партнёрской записи — честный 404, а не 500', async () => {

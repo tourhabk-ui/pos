@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { accessFailure, operatorAccess } from '@/lib/operators/team-access';
 import { callAIWaterfall } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
@@ -285,21 +286,16 @@ export async function POST(request: NextRequest) {
     return userOrResponse;
   }
 
-  const userId = userOrResponse.userId;
+  // Кабинет — свой у владельца или командный у менеджера (CRM 2г). Цен
+  // автозаполнение не трогает (только описание, состав, сложность,
+  // длительность, место), поэтому права can_edit_prices не нужно. Прежний
+  // свой поиск по partners.user_id закрывал роут менеджеру, хотя экран
+  // «Полнота туров» ему открыт. «Не смогли проверить» — 503, а не «нет».
+  const access = await operatorAccess(userOrResponse.userId);
+  if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access);
+  const operatorId = access.partnerId;
 
   try {
-    // category='operator': один user_id может держать несколько записей
-    // partners (гид+оператор — обычный случай), LIMIT 1 без фильтра и
-    // ORDER BY возвращал бы произвольную из них (аудит кабинета оператора).
-    const partnerRes = await pool.query<{ id: string }>(
-      `SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' ORDER BY created_at ASC LIMIT 1`,
-      [userId]
-    );
-    const operatorId = partnerRes.rows[0]?.id;
-    if (!operatorId) {
-      return NextResponse.json({ error: 'Operator not found' }, { status: 403 });
-    }
-
     const body = await request.json();
     const { tourId } = body;
 

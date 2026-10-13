@@ -25,7 +25,9 @@ describe('поиск профиля оператора по user_id', () => {
     it(`${f}: каждый поиск фильтрует category = 'operator'`, () => {
       const src = readFileSync(join(process.cwd(), f), 'utf8');
       const hits = src.match(LOOKUP) ?? [];
-      const viaHelper = src.includes('getOperatorPartnerId(');
+      // operatorAccess (CRM 2г) ищет кабинет с category = 'operator' — сторож
+      // operator-team-access держит это в самом резолвере.
+      const viaHelper = src.includes('getOperatorPartnerId(') || src.includes('operatorAccess(');
       expect(hits.length > 0 || viaHelper, 'поиск профиля в файле не найден').toBe(true);
       for (const h of hits) {
         expect(h, `без фильтра категории: ${h}`).toMatch(/category = 'operator'/);

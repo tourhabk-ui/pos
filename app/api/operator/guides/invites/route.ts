@@ -9,15 +9,14 @@
  * partners.guide_operator_id не было ни одного писателя, и экран «Гиды»
  * оператора был пуст по построению.
  *
- * Роль: operator (или admin с партнёрским профилем оператора). Оператор видит
- * и отзывает ТОЛЬКО свои приглашения — условие по operator_id в SQL.
+ * Роль: владелец кабинета оператора (requireOperatorOwner, CRM 2г). Оператор
+ * видит и отзывает ТОЛЬКО свои приглашения — условие по operator_id в SQL.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
-import { requireRole } from '@/lib/auth/middleware';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import type { ApiResponse } from '@/types';
 import { TEAM_SQL } from '@/lib/guides/team-queries';
 import { logGuideFailure, notifyUser, INVITE_STATUSES, type InviteStatus } from '@/lib/guides/team';
@@ -31,17 +30,12 @@ const RevokeSchema = z.object({
   inviteId: z.string().uuid('Некорректное приглашение'),
 });
 
+// Состав команды — настройка владельца кабинета (CRM 2г): приглашать и
+// отзывать гидов менеджер не может.
 async function operatorFrom(request: NextRequest): Promise<{ operatorId: string; userId: string } | NextResponse> {
-  const auth = await requireRole(request, ['operator', 'admin']);
-  if (auth instanceof NextResponse) return auth;
-  const operatorId = await getOperatorPartnerId(auth.userId);
-  if (!operatorId) {
-    return NextResponse.json(
-      { success: false, error: 'Профиль оператора не найден' } as ApiResponse<null>,
-      { status: 404 },
-    );
-  }
-  return { operatorId, userId: auth.userId };
+  const owner = await requireOperatorOwner(request, { noProfileStatus: 404 });
+  if (owner instanceof NextResponse) return owner;
+  return { operatorId: owner.partnerId, userId: owner.userId };
 }
 
 function isInviteStatus(v: string): v is InviteStatus {

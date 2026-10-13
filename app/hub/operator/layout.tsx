@@ -1,61 +1,20 @@
 'use client';
 
 import { ReactNode } from 'react';
-import {
-  BarChart3, Map, Calendar, CalendarDays, Users, CreditCard,
-  Settings, Bell, FileText, HelpCircle, CheckCircle, Inbox, User,
-  Download, BookMarked, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star,
-} from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 import { ForcePasswordChangeBanner } from '@/components/operator/ForcePasswordChangeBanner';
+import { OPERATOR_MENU, menuForSeat } from '@/components/operator/operator-menu';
+import { useOperatorSeat } from '@/components/operator/use-operator-seat';
 
-// Пункты сгруппированы по section: на мобиле HubSidebar тогда рендерит
-// сворачиваемую сетку иконок по разделам вместо горизонтальной ленты, в
-// которую 17 пунктов не влезали — всё после четвёртого жило за правым краем.
-const SIDEBAR_ITEMS = [
-  { href: '/hub/operator', label: 'Обзор', icon: BarChart3 },
-
-  { href: '/hub/operator/tours', label: 'Туры', icon: Map, section: 'Продажи' },
-  { href: '/hub/operator/completeness', label: 'Полнота туров', icon: CheckCircle, section: 'Продажи' },
-  { href: '/hub/operator/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи' },
-  // Сирота-аудит 27.07: страница жила без пункта меню — разбор входящего
-  // текста заявки через AI, отличен от списка лидов ниже.
-  { href: '/hub/operator/booking-intake', label: 'AI Приём', icon: MessageSquareText, section: 'Продажи' },
-  { href: '/hub/operator/leads', label: 'AI Заявки', icon: Inbox, section: 'Продажи' },
-  { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи' },
-  { href: '/hub/operator/inbox', label: 'Входящие', icon: BellDot, section: 'Продажи' },
-  { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи' },
-  { href: '/hub/operator/tasks', label: 'Задачи', icon: ListChecks, section: 'Продажи' },
-  { href: '/hub/operator/reviews', label: 'Отзывы', icon: Star, section: 'Продажи' },
-  { href: '/hub/operator/calendar', label: 'Календарь', icon: CalendarDays, section: 'Продажи' },
-  // Скидки оператора на свои туры (27.09). До этого правила цены заводил
-  // только администратор, и скидку на последние места назначить было нельзя
-  // тому, кто продаёт.
-  { href: '/hub/operator/pricing', label: 'Скидки', icon: Percent, section: 'Продажи' },
-
-  { href: '/hub/operator/finance', label: 'Финансы', icon: CreditCard, section: 'Финансы' },
-  { href: '/hub/operator/analytics', label: 'Аналитика', icon: BarChart3, section: 'Финансы' },
-  { href: '/hub/operator/reports', label: 'Отчёты', icon: Download, section: 'Финансы' },
-
-  // Пункты «Трансферы» и «Автопарк» убраны 01.09 вместе с мёртвым модулем:
-  // обе страницы читали таблицы, которых на проде нет, и падали с 42P01.
-  // Вернутся, когда будет построен кабинет перевозчика на схеме 926.
-  // Сирота-аудит 27.07: живой CRUD гидов (GET+POST) без пункта меню.
-  { href: '/hub/operator/guides', label: 'Гиды', icon: Contact, section: 'Логистика' },
-
-  // Сирота-аудит 27.07: AI-помощник оператора жил без пункта меню.
-  { href: '/hub/operator/ai-assist', label: 'AI Помощник', icon: Bot, section: 'Кабинет' },
-  { href: '/hub/operator/notifications', label: 'Уведомления', icon: Bell, section: 'Кабинет' },
-  { href: '/hub/operator/integrations', label: 'Интеграции', icon: Settings, section: 'Кабинет' },
-  { href: '/hub/operator/help', label: 'Справка', icon: HelpCircle, section: 'Кабинет' },
-  { href: '/hub/operator/profile', label: 'Профиль', icon: User, section: 'Кабинет' },
-];
-
+// Пункты меню и кому они видны — components/operator/operator-menu.ts (CRM 2г):
+// менеджеру команды не показываются деньги и настройки, а скидки — только с
+// правом цен. Защита при этом на сервере; меню лишь не зовёт туда, где откажут.
 export default function OperatorHubLayout({ children }: { children: ReactNode }) {
+  const seat = useOperatorSeat();
   return (
-    <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Кабинет оператора" requiredRole={['operator', 'admin']}>
+    <HubLayout sidebarItems={menuForSeat(OPERATOR_MENU, seat)} sidebarTitle="Кабинет оператора" requiredRole={['operator', 'admin']}>
       <ForcePasswordChangeBanner />
       <PartnerChannelBanner />
       {children}

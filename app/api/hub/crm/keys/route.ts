@@ -5,10 +5,13 @@
  * CRM фаза 1, шаг 1д-2 (#2325). Та же дверь шести ролей, что у клиентов и
  * задач: чей партнёр — решает requirePartner. Ключ хранится хешем; в списке
  * его нет, и второй раз его не показать — только выпустить новый.
+ *
+ * Ключи — настройки кабинета: выпускает и видит только владелец
+ * (requirePartnerOwner), менеджеру команды оператора — 403 (CRM 2г).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requirePartner } from '@/lib/crm/partner-context';
+import { requirePartnerOwner } from '@/lib/crm/partner-context';
 import { createAgentKey, listAgentKeys, MAX_ACTIVE_KEYS } from '@/lib/crm/agent-keys';
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +29,7 @@ function failed(err: unknown, what: string, message: string): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
-  const ctx = await requirePartner(req);
+  const ctx = await requirePartnerOwner(req);
   if (ctx instanceof NextResponse) return ctx;
   try {
     return NextResponse.json({ success: true, data: { items: await listAgentKeys(ctx.partnerId), max_active: MAX_ACTIVE_KEYS } });
@@ -36,7 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const ctx = await requirePartner(req);
+  const ctx = await requirePartnerOwner(req);
   if (ctx instanceof NextResponse) return ctx;
 
   const body: unknown = await req.json().catch(() => null);
