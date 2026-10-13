@@ -4,7 +4,12 @@
  * Кроn: повторные уведомления по лидам из всех источников.
  *
  * Логика:
- *   1. Находим все лиды со статусом 'new', старше 2 часов.
+ *   1. Находим лиды БЕЗ адресата (`operator_id IS NULL`) со статусом 'new',
+ *      старше 2 часов — `selectFollowupLeads` (lib/leads/followup-selection).
+ *      Заявка, адресованная конкретному партнёру (тур, машина перевозчика,
+ *      письмо со страницы оператора), другому партнёру не уходит НИКОГДА:
+ *      согласие человек давал на передачу адресату (решение владельца 13.10,
+ *      #2447). Без ответа её видят Watchdog и кабинет адресата.
  *   2. Для каждого лида ищем следующего оператора с подходящими активностями,
  *      ещё не получавшего уведомление об этом лиде.
  *      Если интересы не указаны — берём любого оператора.
@@ -26,32 +31,11 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
+import { selectFollowupLeads, type LeadSourceData } from '@/lib/leads/followup-selection';
 
 export const dynamic = 'force-dynamic';
 
 // ── Типы данных ───────────────────────────────────────────────────────────────
-
-interface LeadSourceData {
-  source?: string;
-  interests?: string[];
-  date_from?: string;
-  date_to?: string;
-  arrival?: string;    // TripPlanner alias for date_from
-  departure?: string;  // TripPlanner alias for date_to
-  trip_days?: number;
-  chat_id?: string;
-  notified_operators?: string[];
-  followup_count?: number;
-  last_followup?: string;
-  escalated_to_admin?: boolean;
-}
-
-interface FollowupLead {
-  id: string;
-  name: string;
-  phone: string;
-  source_data: LeadSourceData;
-}
 
 /**
  * Оператор-кандидат и его адрес — тремя колонками правила достижимости
@@ -92,26 +76,10 @@ export async function GET(request: NextRequest) {
 
   try {
     // ── Выбираем лиды, требующие followup ───────────────────────────────────
-    // Условия:
-    //   - статус 'new' (ещё не обработан)
-    //   - источник 'telegram_bot'
-    //   - создан более 2 часов назад
-    //   - либо ещё не было followup, либо последний followup был > 2 часов назад
-    const leadsRes = await pool.query<FollowupLead>(`
-      SELECT id::text, name, phone, source_data
-      FROM leads
-      WHERE status = 'new'
-        AND created_at < NOW() - INTERVAL '2 hours'
-        AND (
-          source_data->>'last_followup' IS NULL
-          OR (source_data->>'last_followup')::timestamptz < NOW() - INTERVAL '2 hours'
-        )
-        AND COALESCE((source_data->>'escalated_to_admin')::boolean, false) = false
-      ORDER BY created_at ASC
-      LIMIT 20
-    `);
+    // Только лиды без адресата: правило и запрос — lib/leads/followup-selection.
+    const leads = await selectFollowupLeads(pool);
 
-    if (leadsRes.rows.length === 0) {
+    if (leads.length === 0) {
       return NextResponse.json({ ok: true, processed: 0, message: 'Нет лидов для обработки' });
     }
 
@@ -131,7 +99,7 @@ export async function GET(request: NextRequest) {
     let escalated = 0;
     let noOperators = 0;
 
-    for (const lead of leadsRes.rows) {
+    for (const lead of leads) {
       const sd: LeadSourceData = lead.source_data ?? {};
       const interests = sd.interests ?? [];
       const alreadyNotified = sd.notified_operators ?? [];
@@ -303,7 +271,7 @@ export async function GET(request: NextRequest) {
       processed,
       escalated_to_admin: escalated,
       no_operator_found: noOperators,
-      leads_found: leadsRes.rows.length,
+      leads_found: leads.length,
       operators_total: Number(diag.total),
       operators_with_telegram: Number(diag.with_telegram),
       operators_with_max: Number(diag.with_max),
@@ -315,6 +283,14 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (err) {
+    // §4.0: отказ не глушится. Прежний catch отвечал 500 без единой строки в
+    // логе, и упавший крон был неотличим от крона, которому нечего делать.
+    const e = err as { code?: unknown; message?: unknown } | null;
+    console.error(
+      '[cron/leads-followup] прогон не выполнен:',
+      `sqlstate=${typeof e?.code === 'string' ? e.code : 'нет'}`,
+      typeof e?.message === 'string' ? e.message : String(err),
+    );
     return NextResponse.json({ ok: false, error: 'Internal error' }, { status: 500 });
   }
 }
