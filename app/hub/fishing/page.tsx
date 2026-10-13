@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { tourPath } from '@/lib/tours/tour-url';
 import { operatorPagePath } from '@/lib/operators/page-link';
+import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +83,24 @@ function operatorUrl(t: Pick<FishingTour, 'operator_slug' | 'operator_public'>):
   return path ? `${SITE}${path}` : undefined;
 }
 
+/**
+ * Оператор в разметке — организация, как у карточки тура (аудит 01.10,
+ * operatorOrganization). Здесь оставался `TouristInformationCenter`: так
+ * поисковик видит не того, кто проводит тур, а «справочное бюро». Открыта
+ * страница оператора — адрес и тот же `@id`, что она объявляет у себя.
+ */
+/** Первый снимок тура абсолютным адресом (одно правило с постами тура) или undefined. */
+function firstPhoto(t: Pick<FishingTour, 'photos'>): string | undefined {
+  return absolutePhotoUrls(t.photos, SITE)[0];
+}
+
+function operatorProvider(t: Pick<FishingTour, 'operator_name' | 'operator_slug' | 'operator_public'>): Record<string, unknown> {
+  const url = operatorUrl(t);
+  return url
+    ? { '@type': 'Organization', '@id': `${url}#organization`, name: t.operator_name, url }
+    : { '@type': 'Organization', name: t.operator_name };
+}
+
 export default async function FishingPage() {
   const tours = await getFishingTours();
 
@@ -90,7 +109,7 @@ export default async function FishingPage() {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name: 'Рыболовные туры на Камчатке',
-    description: 'Рыбалка на реке Камчатка: лосось, кижуч, чавыча, нерка. Профессиональные гиды.',
+    description: 'Рыболовные туры на Камчатке: лосось, кижуч, чавыча, нерка — цена, программа и заявка оператору.',
     url: `${SITE}/hub/fishing`,
     numberOfItems: tours.length,
     itemListElement: tours.map((t, i) => ({
@@ -107,11 +126,7 @@ export default async function FishingPage() {
         url: `${SITE}${tourPath(t)}`,
         touristType: 'Рыбаки, любители активного отдыха',
         availableLanguage: 'Russian',
-        provider: {
-          '@type': 'TouristInformationCenter',
-          name: t.operator_name,
-          url: operatorUrl(t),
-        },
+        provider: operatorProvider(t),
         offers: {
           '@type': 'Offer',
           price: t.base_price,
@@ -121,16 +136,12 @@ export default async function FishingPage() {
           // Честный ответ по датам — на карточке тура (lib/tours/open-dates).
           url: `${SITE}${tourPath(t)}`,
         },
-        ...(t.duration_hours && {
-          itinerary: {
-            '@type': 'ItemList',
-            numberOfItems: 1,
-            description: `Продолжительность: ${Math.round(t.duration_hours / 24)} дн.`,
-          },
-        }),
-        ...(t.photos?.[0] && {
-          image: t.photos[0],
-        }),
+        // Снимок — абсолютным адресом: относительный путь поисковик в разметке
+        // не разрешает (перепись 13.10, прогон 6). Длительность здесь больше не
+        // объявляется: «Продолжительность: N дн.» считалась округлением часов до
+        // суток и у дневного выезда на 8 часов давала «0 дн.». Честная
+        // длительность — на карточке тура.
+        ...(firstPhoto(t) && { image: firstPhoto(t) }),
       },
     })),
   };

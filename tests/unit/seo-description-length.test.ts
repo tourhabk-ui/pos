@@ -75,6 +75,20 @@ describe('описания из данных — обрезаны по пред�
     expect(d).toMatch(/[.!?…»]$/);
   });
 
+  // Прогон 6 (13.10): описание, собранное шаблоном и «+», литеральная проверка
+  // выше не видит — а правка #2446 оставила в нём хвост прежней строки, и
+  // фраза пошла дважды подряд, 219 знаков. Такие описания — вызовом модуля.
+  it('памятка /prepare: описание из шаблона в пределе и без повтора фразы', async () => {
+    const { metadata } = await import('@/app/prepare/page');
+    const d = String(metadata.description ?? '');
+    expect(d.length).toBeGreaterThanOrEqual(70);
+    expect(d.length).toBeLessThanOrEqual(160);
+    expect(d).toMatch(/[.!?…»]$/);
+    const phrases = d.split(/[.!?]\s*/).filter(Boolean);
+    expect(new Set(phrases).size).toBe(phrases.length);
+    expect(d.match(/памятка перед походом/g)?.length ?? 0).toBeLessThanOrEqual(1);
+  });
+
   it('жильё: короткое описание добирается из полного, а не уходит в 57 знаков', async () => {
     poolQuery.mockReset();
     poolQuery.mockResolvedValue({ rows: [{

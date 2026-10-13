@@ -32,8 +32,7 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const TITLE = 'Как подготовиться к поездке на Камчатку';
 const DESCRIPTION =
-  `Регистрация группы в МЧС за ${MCHS_LEAD_WORKING_DAYS} рабочих дней, разрешение парка, медведи, реки и непогода, экстренные номера — памятка перед походом.` +
-  'сложность маршрута, медведи, реки и непогода, экстренные номера — памятка перед походом.';
+  `Регистрация группы в МЧС за ${MCHS_LEAD_WORKING_DAYS} рабочих дней, разрешение парка, медведи, реки и непогода, экстренные номера — памятка перед походом.`;
 
 export const metadata: Metadata = {
   title: TITLE,
