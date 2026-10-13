@@ -102,8 +102,7 @@ HTML-страница одна — `/zh`, и названия туров на н
    читают наверняка.
 
 Итог 13.10: `dsh-vedar` выложен с темами; карточка подана — PR duhu2000/dsh-mcp-connector-registry#44;
-строка для Awesome-MCP-ZH лежит в ветке `add-vedar` форка, PR открывает владелец по ссылке
-`https://github.com/yzfly/Awesome-MCP-ZH/compare/main...tourhabk-ui:Awesome-MCP-ZH:add-vedar?expand=1`;
+строка для Awesome-MCP-ZH подана — PR yzfly/Awesome-MCP-ZH#727;
 в awesome-remote-mcp-servers Ведар уже стоял (запись с бейджем Glama), форк не понадобился. Проверить подключение можно уже сейчас по вашей инструкции
 (`dsh-mcp-center`): после разговора с DeepSeek в `/hub/admin/mcp` → «Кто звал» клиент
 встанет с меткой «КНР» (#2435).
