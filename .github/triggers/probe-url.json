@@ -2,83 +2,34 @@
   "timeout": 90,
   "retries": 45,
   "retryDelay": 60,
-  "until": "MCP-сервер Ведара",
-  "run": 769,
-  "note": "13.10. Проверка выката хранилища задач A2A (миграция 1229) — часть 1 из 2. Датчик свежести — ответ на MCP-метод initialize по адресу A2A: в новой сборке он называет адрес MCP («MCP-сервер Ведара»), в прежней — нет; модель не зовётся. Затем: вызов инструмента get_tours DataPart'ом (модель не зовётся) — его id задачи прочитает часть 2 ПОСЛЕ следующего перезапуска (prod-check с ожиданием свежей сборки): нашлась — значит, из базы; и вопрос Кузьмичу про туры к Авачинскому (один вызов модели) — сквозная проверка обеих правок подбора туров на новой сборке.",
-  "urls": [],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/a2a",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {}
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/a2a",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "SendMessage",
-        "params": {
-          "message": {
-            "messageId": "vedar-dialog-probe-769a",
-            "role": "ROLE_USER",
-            "contextId": "vedar-dialog-probe-769a",
-            "parts": [
-              {
-                "data": {
-                  "tool": "get_tours",
-                  "arguments": {
-                    "activity_type": "Авачинский вулкан"
-                  }
-                }
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/a2a",
-      "body": {
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "SendMessage",
-        "params": {
-          "message": {
-            "messageId": "vedar-dialog-probe-769b",
-            "role": "ROLE_USER",
-            "contextId": "vedar-dialog-probe-769b",
-            "parts": [
-              {
-                "text": "Служебная проверка журнала общения Ведара: какие туры есть к Авачинскому вулкану? Коротко, с ценами."
-              }
-            ]
-          }
-        }
-      }
-    }
+  "until": "Реестровый номер туроператора",
+  "run": 770,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Две проверки после перезапуска. 1) Владелец: «где у операторов номер в реестре?» (f5f7bd3) — страницы «Края Вулканов» и «Местечка Камчатки»: номер строкой «Юридической информации» с пометкой «с реестром не сверен» (датчик свежести — сама строка, в прежней сборке её нет). 2) Хранилище задач A2A, часть 2 из 2: задача eba545e0, созданная пробой 769 в 10:01:52 UTC на сборке d09e87e, читается ПОСЛЕ перезапуска — значит, из базы a2a_tasks; TASK_NOT_FOUND — хранилище не пережило перезапуск. Модель не зовётся.",
+  "urls": [
+    "https://vedarai.ru/operators/volcanoesland",
+    "https://vedarai.ru/operators/mestechko",
+    "https://vedarai.ru/api/a2a/v1/tasks/eba545e0-8814-4c39-bc85-d9c928b2f0cd"
   ],
   "headers": [
     "A2A-Version: 1.0"
   ],
   "ua": "VedarDialogProbe/1.0",
   "grep": [
-    "MCP-сервер Ведара",
+    "Реестровый номер туроператора",
+    "с реестром не сверен",
+    "РТО 018339",
+    "РТО В031-00161-00/04108813",
+    "eba545e0-8814-4c39-bc85-d9c928b2f0cd",
     "TASK_STATE_COMPLETED",
-    "continue_url",
-    "Туры, где упоминается",
-    "Авачинский перевал",
-    "Тура с типом"
+    "TASK_NOT_FOUND",
+    "Туры, где упоминается"
   ],
   "around": [
-    "\"task\""
+    "Реестровый номер туроператора",
+    "\"status\""
   ],
   "aroundBefore": 0,
-  "aroundLines": 4,
+  "aroundLines": 3,
   "aroundHits": 1,
-  "bytes": 1600
+  "bytes": 700
 }
