@@ -119,7 +119,8 @@ async function tourTitle(title: string): Promise<string> {
   return String((await generateMetadata({ params: Promise.resolve({ id: 'test-tour' }) })).title);
 }
 
-describe('карточка тура', () => {
+// Первый импорт страницы тура тянет за собой весь её граф модулей — на раннере CI дольше 5 с.
+describe('карточка тура', { timeout: 30_000 }, () => {
   it('короткое имя — с полным хвостом, без второй черты и в пределе', async () => {
     const t = await tourTitle('Мыс Маячный');
     expect(t).toBe('Мыс Маячный — тур на Камчатке');
@@ -140,7 +141,7 @@ describe('карточка тура', () => {
   });
 });
 
-describe('карточка оператора', () => {
+describe('карточка оператора', { timeout: 30_000 }, () => {
   async function operatorTitle(name: string): Promise<string> {
     dbQuery.mockResolvedValue({ rows: [{ id: '1', slug: 'op', name, category: 'operator', is_verified: false, short_description: null, description: null }] });
     const { generateMetadata } = await import('@/app/operators/[slug]/page');
@@ -161,7 +162,7 @@ describe('карточка оператора', () => {
   });
 });
 
-describe('карточка перевозчика', () => {
+describe('карточка перевозчика', { timeout: 30_000 }, () => {
   async function carrierTitle(name: string): Promise<string> {
     loadCarrierBySlug.mockResolvedValue({ name, slug: 'shatun', shortDescription: null, photos: [] });
     const { generateMetadata } = await import('@/app/transfers/[slug]/page');

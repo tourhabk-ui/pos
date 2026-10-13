@@ -66,7 +66,7 @@ async function render(): Promise<{ ld: Record<string, unknown>; items: Record<st
   return { ld: ld!, items };
 }
 
-describe('/hub/fishing: разметка туров', () => {
+describe('/hub/fishing: разметка туров', { timeout: 30_000 }, () => {
   it('снимок — абсолютным адресом; уже абсолютный не трогается', async () => {
     const { items } = await render();
     expect(items[0].image).toBe(`${SITE}/images/activities/fishing.jpg`);

@@ -47,9 +47,16 @@ const BY_DATA: Record<string, string> = {
   'app/operators/[slug]/page.tsx': 'подпись под именем — только внутри {profile.is_verified && …}',
 };
 
+/**
+ * Дешёвый отсев до разбора: обе ветви CLAIM содержат «проверенн», и файл без
+ * этих букв фразы не содержит ни в строке, ни в разметке. Разбор всех ~1800
+ * файлов в AST на раннере CI не уложился в 5 с (PR #2452) — разбираются
+ * только кандидаты.
+ */
+const MAY_CLAIM = /проверенн/i;
+
 /** Тексты, которые видит человек или модель: строки, шаблоны, текст JSX. Комментарии — мимо. */
-function userTexts(file: string): string[] {
-  const src = readFileSync(join(ROOT, file), 'utf-8');
+function userTexts(file: string, src: string = readFileSync(join(ROOT, file), 'utf-8')): string[] {
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, false, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const out: string[] = [];
   const visit = (n: ts.Node) => {
@@ -91,13 +98,15 @@ describe('огульное «проверенные операторы» — т�
     const hits: string[] = [];
     for (const f of files) {
       if (BY_DATA[f]) continue;
-      for (const t of userTexts(f)) {
+      const src = readFileSync(join(ROOT, f), 'utf-8');
+      if (!MAY_CLAIM.test(src)) continue;
+      for (const t of userTexts(f, src)) {
         const m = t.match(CLAIM);
         if (m) hits.push(`${f}: «…${t.slice(Math.max(0, m.index! - 30), m.index! + 40).replace(/\s+/g, ' ')}…»`);
       }
     }
     expect(hits).toEqual([]);
-  });
+  }, 30_000);
 
   it('исключения по данным живы: фраза в файле есть', () => {
     for (const f of Object.keys(BY_DATA)) {
@@ -107,7 +116,8 @@ describe('огульное «проверенные операторы» — т�
   });
 });
 
-describe('про конкретного оператора — по его is_verified', () => {
+// Импорт страницы тура и llms.txt тянет их граф модулей — на раннере CI дольше 5 с.
+describe('про конкретного оператора — по его is_verified', { timeout: 30_000 }, () => {
   beforeEach(() => {
     poolQuery.mockReset();
     loadTourCard.mockReset();
