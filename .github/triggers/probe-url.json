@@ -1,19 +1,61 @@
 {
-  "timeout": 60,
+  "timeout": 40,
   "retries": 1,
   "allowStale": true,
-  "retryDelay": 15,
-  "run": 759,
-  "note": "12.10. ТОЛЬКО ЧТЕНИЕ. Вопрос владельца о названии: товарный знак VEDAR № 786432 (правообладатель — физлицо, бренд одежды из Агинского, регистрация 02.12.2020, срок до 30.04.2030 — по карточке РБК Компании). Нужны классы МКТУ и перечень товаров/услуг — задевает ли знак туризм (39, 41, 43), софт и сервисы (9, 42), рекламу и торговлю (35). Источник — открытый реестр ФИПС (карточка отдаётся в windows-1251 — отсюда правка снятия разметки в probe-url.yml).",
+  "retryDelay": 10,
+  "run": 760,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Вопрос владельца: слабые места «Лагуны Экспедиции» (SEO и конструктор). 09.10 снята только главная laguna-expedition.online (пробы 734–737) — SEO-признаков там почти не смотрели. Здесь: голова страниц (title, description, canonical, og, JSON-LD, h1), robots.txt и sitemap обоих доменов — конструктора (.online) и основного сайта (.ru), плюс две страницы туров, на которые ссылается конструктор.",
   "urls": [
-    "https://fips.ru/registers-doc-view/fips_servlet?DB=RUTM&DocNumber=786432&TypeFile=html"
+    "https://laguna-expedition.online/",
+    "https://laguna-expedition.online/robots.txt",
+    "https://laguna-expedition.online/wp-sitemap.xml",
+    "https://laguna-expedition.ru/",
+    "https://laguna-expedition.ru/robots.txt",
+    "https://laguna-expedition.ru/sitemap.xml",
+    "https://laguna-expedition.ru/tours/na-vezdekhode-sever-truck",
+    "https://laguna-expedition.ru/tours/41878-transfer-iz-aeroporta-v-spa-otel-laguna"
   ],
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+  "ua": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
   "grep": [
-    "786432",
-    "511",
-    "VEDAR"
+    "<title",
+    "name=\"description\"",
+    "name='description'",
+    "rel=\"canonical\"",
+    "og:title",
+    "og:image",
+    "application/ld+json",
+    "noindex",
+    "hreflang",
+    "<h1",
+    "Sitemap:",
+    "Disallow",
+    "Clean-param",
+    "yandex-verification",
+    "google-site-verification",
+    "mc.yandex.ru",
+    "googletagmanager"
   ],
-  "text": true,
-  "bytes": 20000
+  "count": [
+    "<h1",
+    "<h2",
+    "<img",
+    "alt=\"\"",
+    "application/ld+json",
+    "<loc>",
+    "<a "
+  ],
+  "around": [
+    "<title",
+    "name=\"description\"",
+    "name='description'",
+    "<h1",
+    "application/ld+json",
+    "og:title",
+    "Sitemap:",
+    "Disallow"
+  ],
+  "aroundLines": 6,
+  "aroundBefore": 0,
+  "aroundHits": 3,
+  "bytes": 2500
 }
