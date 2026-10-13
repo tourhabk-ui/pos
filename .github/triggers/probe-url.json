@@ -1,12 +1,12 @@
 {
   "timeout": 90,
-  "retries": 40,
+  "retries": 45,
   "retryDelay": 60,
-  "run": 764,
-  "note": "13.10. Журнал общения A2A (e74fe7e, миграция 1225) после выката e249e58. 1) schema-drift (ТОЛЬКО ЧТЕНИЕ): ждём сборку с 686 файлами миграций; a2a_dialogs не должна стоять в missing_tables. 2) Один вопрос Кузьмичу по A2A от служебной пробы (UA VedarDialogProbe — в журнале род «проверка», не «внешний»): ждём completed с текстом ответа; реплика ляжет в a2a_dialogs и будет видна на /hub/admin/a2a. Цена — один вызов модели.",
-  "until": "\"migration_files\":686",
+  "run": 765,
+  "note": "13.10. Повтор пробы 764 после выката e5ecfc9 (туры в подсказке — про названный вулкан). Датчик сборки — новая перепись kuzmich-quality-census (до выката 404; ТОЛЬКО ЧТЕНИЕ). Затем тот же вопрос Кузьмичу по A2A от служебной пробы: ждём ответ про Авачинский, без Ключевской сопки и без тура за 320 000 ₽. Цена — один вызов модели.",
+  "until": "\"outcomes_total\"",
   "urls": [
-    "https://vedarai.ru/api/cron/schema-drift"
+    "https://vedarai.ru/api/cron/kuzmich-quality-census?days=1"
   ],
   "post": [
     {
@@ -17,9 +17,9 @@
         "method": "SendMessage",
         "params": {
           "message": {
-            "messageId": "vedar-dialog-probe-764",
+            "messageId": "vedar-dialog-probe-765",
             "role": "ROLE_USER",
-            "contextId": "vedar-dialog-probe-764",
+            "contextId": "vedar-dialog-probe-765",
             "parts": [
               {
                 "text": "Служебная проверка журнала общения Ведара: какая сейчас обстановка у Авачинского вулкана? Ответь в двух предложениях."
@@ -35,18 +35,17 @@
   ],
   "ua": "VedarDialogProbe/1.0",
   "grep": [
-    "a2a_dialogs",
-    "\"migration_files\":686",
-    "\"drift_total\":0",
+    "\"outcomes_total\"",
     "TASK_STATE_COMPLETED",
-    "TASK_STATE_FAILED"
+    "Авачинск",
+    "Ключевск",
+    "320"
   ],
   "around": [
-    "\"drift_total\"",
     "TASK_STATE"
   ],
   "aroundBefore": 0,
-  "aroundLines": 3,
-  "aroundHits": 2,
-  "bytes": 2500
+  "aroundLines": 6,
+  "aroundHits": 1,
+  "bytes": 1800
 }
