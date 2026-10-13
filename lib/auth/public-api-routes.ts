@@ -94,6 +94,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   // снимки по id места; ПД нет, метод один.
   '/api/images': ['GET'],
   '/api/analytics/hit': ['POST'],    // трекинг просмотров страниц (без авторизации)
+  '/api/client-errors': ['POST'],    // ловушка ошибок браузера (13.10): без авторизации, без ПД, частота по IP внутри
   '/api/seat-requests': ['GET', 'POST'], // запрос свободных мест (29.09): турист без аккаунта; статус — по ключу статуса, ответ оператора — по подписи (lib/seat-requests/core), rate-limit внутри
   '/api/requests': ['GET', 'POST'],      // страница заявки для человека (12.10, #2371): состояние по ключу из ответа агента и согласие на ПД своей рукой; ПД в ответе нет, rate-limit внутри
   '/api/funnel': ['POST'],           // маяк воронки — публичный by design (rate-limit + bot-detect внутри); Edge молча резал его 401, и funnel_events был пуст для всех гостей (сквозной прогон 14.08)

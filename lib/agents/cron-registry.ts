@@ -183,6 +183,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 60, tier: 'ops', agentId: 'llm-budget', triggerable: false,
   },
   {
+    key: 'client-errors-census', label: 'Ошибки в браузере',
+    description: 'Суточная перепись ловушки ошибок браузера: группы по отпечатку, чистка старше 30 дней, дайджест в Telegram.',
+    workflow: 'cron-client-errors.yml', cron: '17 19 * * *', schedule: 'раз в сутки, 19:17 UTC (07:17 по Камчатке)',
+    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+  },
+  {
     key: 'payments', label: 'Abandoned Booking Recovery',
     description: 'Поиск брошенных бронирований.',
     workflow: 'cron-payments.yml', cron: '0 * * * *', schedule: 'каждый час',
@@ -538,6 +544,11 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'volcano-merge-gate': 'normal',
   // Ноль проблем со здоровьем системы и ноль сгоревших эко — норма.
   'health': 'normal',
+  // Ноль ошибок в браузере за сутки — норма (или ловушка молчит; это
+  // различимо в ответе переписи: marks.rows_total и since говорят, пишет ли
+  // приёмник вообще). Отказ самой переписи — HTTP не 200 или ok=false, и он
+  // красит прогон на месте.
+  'client-errors-census': 'normal',
   'eco-expire': 'normal',
   // Ноль напоминаний = ни у кого из туристов документ не кончается в ближайшие
   // 30 дней. При нынешнем числе загруженных документов это обычное дело, а не

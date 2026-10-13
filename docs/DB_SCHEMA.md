@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-13 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1235_carrier_reviews.sql`.
+> Снято 2026-10-13 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1236_client_errors.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 276 |
+| Таблиц | 277 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3675 |
+| Колонок | 3690 |
 | Внешних ключей | 325 |
-| Таблиц без единого FK в обе стороны | 81 |
+| Таблиц без единого FK в обе стороны | 82 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 19 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `carrier_review_invites` `carrier_reviews` `model_catalog` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` |
+| [Прочее](#прочее) | 20 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `carrier_review_invites` `carrier_reviews` `client_errors` `model_catalog` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -461,7 +461,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 **place_gallery_photos** · 15 кол. · PK id · индексов 2
 
-`id uuid!=` `ark_id uuid!` `position integer!` `image_data bytea` `s3_url text` `s3_key text` `mime_type varchar!=` `width integer!` `height integer!` `caption text` `author text` `license text` `license_url text` `source_url text` `created_at timestamptz!=`
+`id uuid!=` `ark_id uuid!` `position integer!` `image_data bytea` `s3_url text` `mime_type varchar!=` `width integer!` `height integer!` `caption text` `author text` `license text` `license_url text` `source_url text` `created_at timestamptz!=` `s3_key text`
 
 **place_safety_reports** · 9 кол. · PK id · индексов 3
 
@@ -1394,6 +1394,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **carrier_reviews** · 17 кол. · PK id · lead_id → leads.id, partner_id → partners.id, seat_booking_id → transfer_seat_bookings.id, user_id → users.id · индексов 4
 
 `id bigint!=` `partner_id uuid!` `proof varchar!` `seat_booking_id uuid` `lead_id uuid` `user_id uuid` `author_name varchar!` `rating smallint!` `comment text!=` `ride_date date` `ride_from text` `ride_to text` `is_hidden boolean!=` `hidden_reason text` `hidden_at timestamptz` `created_at timestamptz!=` `updated_at timestamptz!=`
+
+**client_errors** · 15 кол. · PK id · индексов 3
+
+`id bigint!=` `created_at timestamptz!=` `occurred_at timestamptz` `kind varchar!` `message varchar!` `stack varchar` `fingerprint varchar!` `path varchar!` `device varchar!` `browser varchar!` `online boolean` `build varchar` `visitor_hash varchar` `is_bot boolean!=` `is_self boolean!=`
 
 **model_catalog** · 9 кол. · PK model_id · индексов 3
 

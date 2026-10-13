@@ -1,5 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
+import { reportClientError } from '@/lib/client-errors/report';
+
 export default function GlobalError({
   error,
   reset,
@@ -7,6 +10,8 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Падение корневого layout: window-перехватчик уже не живёт, докладывает граница.
+  useEffect(() => { reportClientError('boundary', error); }, [error]);
   return (
     <html lang="ru">
       <head>

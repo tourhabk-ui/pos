@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { reportClientError } from '@/lib/client-errors/report';
 
 export default function Error({
   error,
@@ -9,6 +11,9 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Ошибка рендера, пойманная границей, до window.onerror не доходит —
+  // докладывает сама граница (ловушка ошибок, 13.10).
+  useEffect(() => { reportClientError('boundary', error); }, [error]);
   return (
     <div
       className="min-h-screen flex items-center justify-center p-6"

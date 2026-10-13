@@ -8,6 +8,7 @@ import { CartProvider } from '@/contexts/CartContext';
 import { GeoProvider } from '@/contexts/GeoContext';
 import { Toaster } from 'react-hot-toast';
 import PageViewTracker from '@/components/shared/PageViewTracker';
+import ClientErrorTrap from '@/components/shared/ClientErrorTrap';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -22,6 +23,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             </CartProvider>
             <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
             <PageViewTracker />
+            <ClientErrorTrap />
           </OrdersProvider>
         </RoleProvider>
       </AuthProvider>
