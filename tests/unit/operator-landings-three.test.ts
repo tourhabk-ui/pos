@@ -173,7 +173,12 @@ describe('миграция 1222: из данных, не из головы', () 
   });
 
   it('шапка называет сайты партнёров и миграции с данными оператора сплава', () => {
-    const head = MIG.slice(0, MIG.indexOf('BEGIN;'));
+    // Шапка — всё до первой правки. (Срез до 'BEGIN;' устарел вместе с самим
+    // BEGIN: indexOf отвечал -1, и «шапкой» оказывался весь файл без последнего
+    // символа — проверка проходила, не проверяя шапку.)
+    const firstUpdate = MIG.indexOf('UPDATE partners');
+    expect(firstUpdate).toBeGreaterThan(0);
+    const head = MIG.slice(0, firstUpdate);
     for (const s of ['mestechkokam.ru', 'volcanoesland.ru', '793', '806', '822']) expect(head).toContain(s);
     expect(head).toMatch(/Чего в источниках нет|чего в источниках нет/i);
   });

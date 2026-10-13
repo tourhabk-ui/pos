@@ -68,10 +68,17 @@ function isNonTransactional(sql) {
  * получил «выражение», начинающееся с половины слова из комментария:
  * `syntax error at or near "условие"`. Из четырёх индексов на прод доехал
  * один, миграция ретраилась каждый деплой.
+ *
+ * Сканирует по индексам и режет slice'ом, не склеивая строку посимвольно
+ * (13.10): склейка давала ~0,9 с на пятимегабайтном файле снимков (1129) и
+ * 7 с на переписи по всем файлам миграций (сторож в migrate-no-swallow).
+ * Вывод сверен с прежней реализацией на всех файлах — совпадает до символа.
  */
+const DOLLAR_TAG = /\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$/y;
+
 function splitSqlStatements(sql) {
   const out = [];
-  let buf = '';
+  let start = 0;
   let state = 'code'; // code | line | block | quote | dollar
   let dollarTag = '';
   let i = 0;
@@ -80,43 +87,37 @@ function splitSqlStatements(sql) {
     const next = sql[i + 1];
     if (state === 'code') {
       if (ch === '-' && next === '-') {
-        state = 'line'; buf += ch;
+        state = 'line';
       } else if (ch === '/' && next === '*') {
-        state = 'block'; buf += ch;
+        state = 'block';
       } else if (ch === "'") {
-        state = 'quote'; buf += ch;
+        state = 'quote';
       } else if (ch === '$') {
-        const m = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
-        if (m) { state = 'dollar'; dollarTag = m[0]; buf += m[0]; i += m[0].length; continue; }
-        buf += ch;
+        DOLLAR_TAG.lastIndex = i;
+        const m = DOLLAR_TAG.exec(sql);
+        if (m) { state = 'dollar'; dollarTag = m[0]; i += m[0].length; continue; }
       } else if (ch === ';') {
-        out.push(buf); buf = '';
-      } else {
-        buf += ch;
+        out.push(sql.slice(start, i)); start = i + 1;
       }
     } else if (state === 'line') {
-      buf += ch;
       if (ch === '\n') state = 'code';
     } else if (state === 'block') {
-      if (ch === '*' && next === '/') { buf += '*/'; i += 2; state = 'code'; continue; }
-      buf += ch;
+      if (ch === '*' && next === '/') { i += 2; state = 'code'; continue; }
     } else if (state === 'quote') {
-      if (ch === "'" && next === "'") { buf += "''"; i += 2; continue; }
-      buf += ch;
+      if (ch === "'" && next === "'") { i += 2; continue; }
       if (ch === "'") state = 'code';
     } else { // dollar
-      if (sql.startsWith(dollarTag, i)) { buf += dollarTag; i += dollarTag.length; state = 'code'; continue; }
-      buf += ch;
+      if (sql.startsWith(dollarTag, i)) { i += dollarTag.length; state = 'code'; continue; }
     }
     i += 1;
   }
-  if (buf.trim()) out.push(buf);
+  const tail = sql.slice(start);
+  if (tail.trim()) out.push(tail);
   // Кусок из одних комментариев и пустот — не выражение: нечего слать в базу.
   return out
     .map(s => s.trim())
     .filter(s => s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim().length > 0);
 }
-
 /**
  * Причина отказа сохраняется в базу, а оттуда её показывает аудит и вотчдог.
  * Значит текст уезжает в лог GitHub Actions — то есть за границу. Сообщения
@@ -196,9 +197,24 @@ function isAlreadyExistsError(msg, stmt = '') {
  * файла (019, 040) внутри уже открытой транзакции ломали бы SAVEPOINT-логику.
  * PL/pgSQL-`BEGIN` внутри $$...$$ сюда не попадает — сплиттер держит
  * dollar-quoted блок одним выражением.
+ *
+ * Комментарии снимаются ДО сравнения (kernel-pg 13.10, миграция 1222).
+ * Сплиттер приклеивает комментарий к СЛЕДУЮЩЕМУ выражению, и
+ * `-- послесловие\nCOMMIT` читалось как код: уходило в базу, закрывало
+ * транзакцию раннера, а следующий RELEASE SAVEPOINT падал с «can only be
+ * used in transaction blocks». Перепись тем же сплиттером по всем
+ * транзакционным миграциям: так приклеены 205 BEGIN (шапка файла над
+ * `BEGIN;` — внутри открытой транзакции Postgres лишь предупреждает) и два
+ * COMMIT (060, 0646) — тот же отказ, что у 1222; оба внутри baseline, под
+ * этот раннер не попадали. Формы с WORK/TRANSACTION — те же выражения по
+ * документации Postgres. Сторож: tests/unit/migrate-no-swallow.test.ts.
  */
 function isTxControlStatement(stmt) {
-  return /^(BEGIN|BEGIN\s+TRANSACTION|START\s+TRANSACTION|COMMIT|END)\s*$/i.test(stmt.trim());
+  const code = String(stmt || '')
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+  return /^(BEGIN(\s+(WORK|TRANSACTION))?|START\s+TRANSACTION|COMMIT(\s+(WORK|TRANSACTION))?|END(\s+(WORK|TRANSACTION))?)$/i.test(code);
 }
 
 /**

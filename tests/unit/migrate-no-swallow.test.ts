@@ -12,7 +12,7 @@
  * сплиттер (урок 843).
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -20,8 +20,12 @@ const requireCjs = createRequire(import.meta.url);
 const {
   isTxControlStatement,
   applyTransactionalFile,
+  splitSqlStatements,
+  isNonTransactional,
 } = requireCjs('../../scripts/migrate-standalone.js') as {
   isTxControlStatement: (s: string) => boolean;
+  splitSqlStatements: (sql: string) => string[];
+  isNonTransactional: (sql: string) => boolean;
   applyTransactionalFile: (
     client: { query: (sql: string, vals?: unknown[]) => Promise<unknown> },
     sql: string,
@@ -86,6 +90,66 @@ describe('applyTransactionalFile: конфликт пропускает выра
     expect(isTxControlStatement('CREATE TABLE begin_log (id INT)')).toBe(false);
     expect(isTxControlStatement('CREATE FUNCTION f() RETURNS void AS $$ BEGIN NULL; END $$ LANGUAGE plpgsql')).toBe(false);
   });
+
+  it('isTxControlStatement: комментарий, приклеенный сплиттером, не делает COMMIT «кодом» (kernel-pg 13.10, 1222)', () => {
+    // Сплиттер отдаёт комментарий вместе со СЛЕДУЮЩИМ выражением. Строка
+    // послесловия над `COMMIT;` превращала его в выражение: он уходил в базу,
+    // закрывал транзакцию раннера, и следующий RELEASE SAVEPOINT падал.
+    expect(isTxControlStatement('-- Чего мы не знаем: оператор не присылал.\n-- Спросить.\n\nCOMMIT')).toBe(true);
+    expect(isTxControlStatement('-- Шапка файла\nBEGIN')).toBe(true);
+    expect(isTxControlStatement('/* шапка */ BEGIN')).toBe(true);
+    expect(isTxControlStatement('COMMIT -- готово')).toBe(true);
+    // Формы с WORK/TRANSACTION — те же выражения по документации Postgres.
+    expect(isTxControlStatement('COMMIT WORK')).toBe(true);
+    expect(isTxControlStatement('END TRANSACTION')).toBe(true);
+    expect(isTxControlStatement('begin work')).toBe(true);
+    // Слово внутри строки — по-прежнему код.
+    expect(isTxControlStatement("UPDATE t SET note = 'COMMIT -- нет' WHERE id = 1")).toBe(false);
+    expect(isTxControlStatement('-- только комментарий')).toBe(false);
+  });
+
+  it('COMMIT после строки комментария фильтруется — транзакцию закрывает раннер, а не файл', async () => {
+    const c = fakeClient(/никогда/, new Error('x'));
+    const sql = [
+      '-- Шапка миграции',
+      'BEGIN;',
+      "UPDATE partners SET faq = '[]'::jsonb WHERE slug = 'x';",
+      '-- Чего мы не знаем: оператор этого не присылал.',
+      'COMMIT;',
+    ].join('\n');
+    const res = await applyTransactionalFile(c, sql);
+    expect(res.statements).toBe(1);
+    expect(c.log).toEqual(['BEGIN', 'SAVEPOINT mig_stmt', 'UPDATE partners SET', 'RELEASE SAVEPOINT mig_stmt', 'COMMIT']);
+  });
+});
+
+describe('управление транзакцией узнаётся во всех транзакционных миграциях', () => {
+  // Перепись тем же сплиттером, что раннер. Выражение, которое ПО КОДУ (без
+  // комментариев) есть BEGIN/COMMIT, обязано узнаваться и с приклеенным
+  // комментарием. До 13.10 не узнавались 207 из 410: 205 BEGIN под шапкой
+  // файла (внутри открытой транзакции Postgres лишь предупреждает) и два
+  // COMMIT (060, 0646) — тот же отказ, что у 1222.
+  const code = (s: string) => s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+  const TX_BY_CODE = /^(BEGIN(\s+(WORK|TRANSACTION))?|START\s+TRANSACTION|COMMIT(\s+(WORK|TRANSACTION))?|END(\s+(WORK|TRANSACTION))?)$/i;
+
+  it('ни одного BEGIN/COMMIT, которого раннер не узнал бы из-за комментария', () => {
+    const files = readdirSync(join(ROOT, 'migrations')).filter((f) => f.endsWith('.sql'));
+    const missed: string[] = [];
+    let seen = 0;
+    for (const f of files) {
+      const sql = readFileSync(join(ROOT, 'migrations', f), 'utf-8');
+      if (isNonTransactional(sql)) continue;
+      for (const s of splitSqlStatements(sql)) {
+        if (!TX_BY_CODE.test(code(s))) continue;
+        seen++;
+        if (!isTxControlStatement(s)) missed.push(`${f}: …${s.slice(-60).replace(/\n/g, '⏎')}`);
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(400);
+    expect(missed).toEqual([]);
+    // 58 МБ миграций с диска: локально 1,3 с, на раннере CI диск и воркеры
+    // делятся — порог не по умолчанию, чтобы сторож не краснел от очереди.
+  }, 30_000);
 });
 
 describe('non-transactional путь тоже не глотает (ревизия 15.08, P0)', () => {
