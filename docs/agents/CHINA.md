@@ -34,7 +34,11 @@ HTML-страница одна — `/zh`, и названия туров на н
 
 | Шаг | Что | Когда |
 |---|---|---|
-| 0 | Журнал видит КНР: семейства Qwen Code, Cherry Studio, Dify, Trae, Lingma, Kimi/Moonshot, Doubao/Coze, ModelScope, DeepSeek в `ua_family` и в реестре краулеров; в `/hub/admin/mcp` и `/hub/admin/a2a` — метка «КНР»; у `mcp-census` — отдельная группа | сегодня, PR |
+| 0 | Журнал видит КНР: семейства Qwen Code, Cherry Studio, Dify, Trae, Lingma, Kimi/Moonshot, Doubao/Coze, ModelScope, DeepSeek в `ua_family` и в реестре краулеров; в `/hub/admin/mcp` и `/hub/admin/a2a` — метка «КНР»; у `mcp-census` — отдельная группа | сделано 13.10 (#2434); DeepSeek Harness и панели `dsh-mcp-*` — #2435 |
+| 1а | DeepSeek Harness: файлы плагина `integrations/dsh-vedar/` и карточка каталога коннекторов `integrations/dsh-mcp-connector-registry/connectors/vedar.json`; сторож `dsh-integrations` | сделано 13.10; в чужие репозитории уходит после ваших кликов (шаг 1а) |
+| 1б | README репозитория по-китайски: что это, адрес MCP, 20 инструментов, как подключить | сделано 13.10 |
+| 1в | Проба знания с поиском: нога `qwen-search` (`enable_search` DashScope), маркер run 2 | сделано 13.10; итог — в сводке прогона workflow после выката |
+| 1г | Ваш мост `integrations/vedar-mcp-bridge/` (любой LLM с OpenAI-совместимым API → инструменты Ведара): в репозитории, с именем клиента `vedar-mcp-bridge/<провайдер>` для журнала; живой прогон с DeepSeek и Qwen с раннера — `china-bridge-probe.yml`, маркер run 1 | сделано 13.10; итог — в сводке прогона |
 | 4б, 5б | Метатеги `baidu-site-verification` и `msvalidate.01` в `verification.other`; push новых страниц в Baidu (普通收录 API) рядом с IndexNow | как только пришлёте токены |
 | 6б | Повтор пробы знания с ключами Kimi и GLM (маркер run 2) и ежемесячное расписание с записью итога в маркер | как только ключи встанут на Timeweb |
 | 7 | Китайские страницы туров и мест | по вашему решению (шаг 7) |
@@ -71,7 +75,43 @@ HTML-страница одна — `/zh`, и названия туров на н
 5. Как увижу: в `/hub/admin/a2a` → «Кто читает визитки и манифесты» появится семейство
    ModelScope (после шага 0), в «По MCP» — клиент площадки.
 
+### Шаг 1а. DeepSeek Harness (dsh) — каталог коннекторов и плагин: четыре клика на GitHub
+
+Факты 13.10. `dsh` — официальный открытый агентный клиент DeepSeek (репозиторий
+`deepseek-ai/deepseek-harness`, 249 тыс. звёзд), «всё — плагин». MCP-серверы подключает
+официальный мост `@deepseek-ai/dsh-mcp-client` строкой в `cordis.patch.yml`
+(`serverName`, `transport: streamable-http`, `url`); панели `dsh-mcp-center`,
+`dsh-mcp-panel`, `dsh-mcp-connector`, `dsh-mcp-manage` существуют в npm (проверено в
+реестре, не поиском). Инструкция DeepSeek, которую вы прислали, рабочая.
+
+У `dsh-mcp-connector` есть публичный каталог коннекторов (109 карточек на 06.10): карточка
+— файл `connectors/<id>.json`, подаётся PR из форка. Плагины dsh находят по теме GitHub
+`dsh-plugin` (19 тыс. репозиториев), каталоги 1024Store и `dshmarket` читают её сами.
+
+Токен приложения Claude в этой сессии не вправе ни форкать чужие репозитории, ни создавать
+новые (403 от GitHub 13.10), поэтому четыре клика ваши; всё остальное после них — моё:
+
+1. **Fork** https://github.com/duhu2000/dsh-mcp-connector-registry (кнопка Fork → Create fork).
+2. **Fork** https://github.com/yzfly/Awesome-MCP-ZH и https://github.com/punkpeye/awesome-remote-mcp-servers
+   (шаги 2а и 2б ниже).
+3. **New repository** `dsh-vedar`, публичный, без README (https://github.com/new); затем в
+   About (шестерёнка справа) → Topics: `dsh-plugin`, `mcp`, `kamchatka`. Файлы кладу я из
+   `integrations/dsh-vedar/`.
+4. Заодно в About репозитория `pos`: описание (сейчас слово «pos») и темы `mcp-server`,
+   `a2a`, `kamchatka`, `travel` — GitHub единственный корпус, который китайские лаборатории
+   читают наверняка.
+
+После кликов напишите «готово»: я подключу форки к сессии, залью ветки с карточкой и
+строками, и вам останется нажать «Create pull request» в каждом (если токен не сможет
+открыть PR сам). Проверить подключение можно уже сейчас по вашей инструкции
+(`dsh-mcp-center`): после разговора с DeepSeek в `/hub/admin/mcp` → «Кто звал» клиент
+встанет с меткой «КНР» (#2435).
+
 ### Шаг 2. mcp.so — каталог, которым пользуются китайские разработчики (двуязычный)
+
+**13.10, ваша проверка: бесплатной подачи больше нет — только 39 $.** Серверов там 16
+тысяч, одна строка среди них стоит мало; решение за вами, шаг не обязателен. Ниже — как
+было до этого.
 
 1. https://mcp.so/submit → Sign In (GitHub).
 2. Вкладка «Remote Server» (если нет — «MCP Server»). Поля: Name `Vedar — Kamchatka travel`,
@@ -96,6 +136,9 @@ HTML-страница одна — `/zh`, и названия туров на н
 5. 发布 → затем «扣子插件商店» (публичный магазин плагинов) по его руководству.
 
 ### Шаг 4. Baidu 搜索资源平台 — чтобы нас видел поиск Baidu и модели на нём (文心 и другие)
+
+**13.10: у вас ziyuan.baidu.com не открывается — вероятно, гео-ограничение для РФ.** Без
+VPN шаг пропускается; из всех шагов у него самая низкая отдача на единицу хлопот.
 
 Источник: [справка по верификации сайта в Baidu](https://help.aliyun.com/zh/swbs/user-guide/verify-a-website-on-baidu-webmaster-platform).
 Индексация после подачи — 4–8 недель; ICP-регистрация нужна только для хостинга в КНР,
@@ -152,7 +195,16 @@ Doubao — контент экосистемы Toutiao и новостные и�
 - Переписи только для чтения: `GET /api/cron/agent-entry-census` (краулеры по семействам,
   китайские отдельной строкой), `GET /api/cron/mcp-census?days=30` (клиенты). Запускаю
   через prod-check после каждого вашего шага.
-- Проба знания — ежемесячно; первое «знает» появится, когда модель с поиском найдёт `/zh`.
+- Проба знания — ежемесячно; с 13.10 у неё пятая нога `qwen-search` (встроенный поиск
+  DashScope): первое «знает» появится там, когда поиск Alibaba найдёт `/zh` или README.
+  Поиск платный без бесплатной квоты — в режиме «только бесплатная квота» нога ответит
+  «спросить не удалось» с причиной, и это не «не нашла».
+- DeepSeek Harness: после карточки в каталоге коннекторов и плагина — клиенты `dsh-*` в
+  `/hub/admin/mcp` с меткой «КНР».
+- Мост (`china-bridge-probe`): в сводке прогона — какие инструменты позвала модель и что
+  ответила; в `/hub/admin/mcp` — клиенты `vedar-mcp-bridge/deepseek` и
+  `vedar-mcp-bridge/qwen` с меткой «КНР». Ответ без единого вызова инструмента красит
+  прогон: это «не подключена», а не «подключена, но промолчала».
 
 Чего измерить нельзя из репозитория: доступность vedarai.ru из КНР (нет точки в Китае)
 и индексацию в Baidu и Bing (оба отвечают раннеру капчей) — это видно только в их
@@ -168,3 +220,13 @@ Doubao — контент экосистемы Toutiao и новостные и�
   ```json
   {"mcpServers":{"vedar":{"type":"streamable_http","url":"https://vedarai.ru/api/mcp"}}}
   ```
+- Строка для Awesome-MCP-ZH (раздел «🌍 地理位置与出行», таблица из трёх колонок, по алфавиту):
+  ```markdown
+  | [Vedar（堪察加旅游）](https://github.com/tourhabk-ui/pos) | 俄罗斯堪察加半岛旅游平台的官方 MCP 服务器：本地旅行社的团队游及真实余位、火山与地震安全状况、地点与路线、住宿、接送、天气、行程规划；四种申请均由人工确认。 | 官方实现, TypeScript, 远程 Streamable HTTP（无需认证）, 数据为俄文 |
+  ```
+- Строка для awesome-remote-mcp-servers (таблица «Remote MCP Server List»):
+  ```markdown
+  | Vedar — Kamchatka travel | Other | `https://vedarai.ru/api/mcp` | None | [Vedar](https://vedarai.ru) |
+  ```
+- DeepSeek Harness, строка `cordis.patch.yml` и карточка каталога — `integrations/dsh-vedar/`
+  и `integrations/dsh-mcp-connector-registry/`.

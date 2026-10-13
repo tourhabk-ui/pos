@@ -35,7 +35,13 @@ export interface ChinaClientFamily {
 export const CHINA_CLIENT_FAMILIES: readonly ChinaClientFamily[] = [
   { family: 'qwen-code',     vendor: 'Alibaba (Qwen, Tongyi, Lingma), КНР',   markers: ['qwen', 'qwencode', 'qwen-code', 'tongyi', 'lingma'] },
   { family: 'modelscope',    vendor: 'ModelScope (魔搭), КНР',                 markers: ['modelscope'] },
-  { family: 'deepseek',      vendor: 'DeepSeek, КНР',                         markers: ['deepseek', 'dsh-mcp-client'] },
+  // dsh — DeepSeek Harness, официальный агентный клиент DeepSeek: мост к MCP
+  // `@deepseek-ai/dsh-mcp-client` и панели `dsh-mcp-center`, `dsh-mcp-panel`,
+  // `dsh-mcp-connector`, `dsh-mcp-manage` (реестр npm, 13.10). Какое имя
+  // каждая панель пишет в clientInfo.name, из их README не видно — у центра
+  // свой транспорт без SDK, — поэтому маркер «dsh» по границе слова ловит
+  // любое `dsh-*`, а не перечень панелей, который устареет первым.
+  { family: 'deepseek',      vendor: 'DeepSeek, КНР',                         markers: ['deepseek', 'deepseek-harness', 'dsh', 'dsh-mcp-client'] },
   { family: 'kimi',          vendor: 'Moonshot (Kimi), КНР',                  markers: ['kimi', 'moonshot'] },
   { family: 'doubao',        vendor: 'ByteDance (Doubao, Coze, Volcengine), КНР', markers: ['doubao', 'coze', 'volcengine', 'bytedance'] },
   { family: 'trae',          vendor: 'ByteDance (Trae), КНР',                 markers: ['trae'] },

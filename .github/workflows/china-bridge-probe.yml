@@ -1,0 +1,122 @@
+name: Китайская модель ходит в Ведар — мост с раннера
+
+# ── Зачем ────────────────────────────────────────────────────────────
+#
+# 13.10 владелец прислал мост integrations/vedar-mcp-bridge (любой LLM с
+# OpenAI-совместимым API → MCP Ведара через function calling) и сказал
+# «карт-бланш, но подключи китайские модели». Единственный честный ответ на
+# «подключены ли» — живой разговор: китайская модель получает вопрос туриста,
+# зовёт инструменты Ведара и отвечает по их данным.
+#
+# С раннера, не с прода: ключи DeepSeek и DashScope лежат в секретах
+# репозитория, а мост ходит на vedarai.ru как любой внешний клиент — журнал
+# /hub/admin/mcp видит его как vedar-mcp-bridge/<провайдер> с меткой «КНР».
+#
+# Три исхода на провайдера (§4.0): инструменты позваны и ответ есть —
+# зелёный; ответ без единого вызова инструмента — красный «модель не пошла в
+# Ведар»; ключа нет или провайдер отказал — красный с причиной. Ключи моделей
+# наружу не выходят; CRON_SECRET мосту не нужен.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/china-bridge-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [deepseek, qwen]
+    env:
+      LLM_PROVIDER: ${{ matrix.provider }}
+      HTTP_TIMEOUT: '120'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ключ провайдера из секретов
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: |
+          set -euo pipefail
+          case "$LLM_PROVIDER" in
+            deepseek) KEY="${DEEPSEEK_API_KEY:-}" ;;
+            qwen)     KEY="${DASHSCOPE_API_KEY:-}" ;;
+            *)        KEY="" ;;
+          esac
+          if [ -z "$KEY" ]; then
+            echo "::error::ключа для $LLM_PROVIDER в секретах нет — спросить нечем"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "LLM_API_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Мост → китайская модель → инструменты Ведара
+        run: |
+          set -uo pipefail
+          BRIDGE=integrations/vedar-mcp-bridge/vedar_mcp_bridge.py
+          Q='八月去堪察加，哪里能看到棕熊？现在那里安全吗？请根据工具数据回答，不要提交任何申请。'
+
+          # Ключ DashScope привязан к контуру (китайский или международный);
+          # какой — выясняется пробой, не памятью: сперва один, на 401 — другой.
+          if [ "$LLM_PROVIDER" = "qwen" ]; then
+            BASES="https://dashscope-intl.aliyuncs.com/compatible-mode/v1 https://dashscope.aliyuncs.com/compatible-mode/v1"
+          else
+            BASES="preset"
+          fi
+
+          OK=0; CALLS=0; CODE=0
+          for BASE in $BASES; do
+            if [ "$BASE" != "preset" ]; then export LLM_BASE_URL="$BASE"; fi
+            echo "════ $LLM_PROVIDER · ${LLM_BASE_URL:-preset} ════"
+            python3 "$BRIDGE" --doctor 2>&1 | tee /tmp/doctor.txt
+            python3 "$BRIDGE" "$Q" >/tmp/answer.txt 2>/tmp/trace.txt
+            CODE=$?
+            cat /tmp/trace.txt
+            echo "--- ответ ---"
+            cat /tmp/answer.txt
+            echo
+            CALLS=$(grep -c '^  -> ' /tmp/trace.txt || true)
+            if [ "$CODE" = "0" ] && [ "$CALLS" -gt 0 ] && [ -s /tmp/answer.txt ]; then
+              OK=1
+              break
+            fi
+            if grep -q 'HTTP Error 401' /tmp/trace.txt /tmp/doctor.txt; then
+              echo "ключ не принят на этом контуре, пробую следующий"
+              continue
+            fi
+            break
+          done
+
+          {
+            echo "### $LLM_PROVIDER"
+            echo ""
+            echo "вызовов инструментов: $CALLS, код выхода моста: $CODE"
+            echo ""
+            echo '```'
+            grep '^  -> ' /tmp/trace.txt || echo '(инструменты не вызывались)'
+            echo '```'
+            echo ""
+            echo '```'
+            head -c 3000 /tmp/answer.txt
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$OK" != "1" ]; then
+            if [ "$CODE" = "0" ] && [ "$CALLS" = "0" ]; then
+              echo "::error::$LLM_PROVIDER ответила, не позвав ни одного инструмента Ведара — не подключена"
+            elif [ "$CODE" != "0" ]; then
+              echo "::error::$LLM_PROVIDER: мост не довёл разговор (код $CODE) — причина в выводе выше"
+            fi
+            exit 1
+          fi
+          echo "::notice::$LLM_PROVIDER позвала инструменты Ведара $CALLS раз и ответила по данным"

@@ -46,6 +46,11 @@ describe('род клиента по заголовку знает продук�
     ['Kimi-Agent/2 python-httpx/0.27', 'kimi'],
     ['ModelScope-MCP-Playground/1.0', 'modelscope'],
     ['Coze/3 node-fetch', 'doubao'],
+    // DeepSeek Harness: мост @deepseek-ai/dsh-mcp-client и панели dsh-mcp-*
+    // представляются каждая своим именем; все начинаются с «dsh-».
+    ['dsh-mcp-client/0.2.0 node', 'deepseek'],
+    ['dsh-mcp-center/0.1.2', 'deepseek'],
+    ['DeepSeek-Harness/0.2.1 (web)', 'deepseek'],
   ])('%s → %s', (ua, family) => {
     expect(uaFamily(ua)).toBe(family);
     expect(CHINA_CLIENT_FAMILIES.map((f) => f.family)).toContain(family);
@@ -61,6 +66,9 @@ describe('род клиента по заголовку знает продук�
   it('совпадение только по границе слова: «modify» — не Dify, «traefik» — не Trae', () => {
     expect(chinaClientFamily('modify-agent/1.0')).toBeNull();
     expect(chinaClientFamily('Traefik/3.0')).toBeNull();
+    // «dsh» — только отдельным словом: «redshift» и «bradshaw» — не DeepSeek Harness.
+    expect(chinaClientFamily('redshift-connector/2.0')).toBeNull();
+    expect(chinaClientFamily('bradshaw-bot/1.0')).toBeNull();
     expect(uaFamily('modify-agent/1.0')).toBe('неизвестен');
     expect(uaFamily('Traefik/3.0')).toBe('неизвестен');
   });
@@ -72,6 +80,7 @@ describe('метка региона — по самоназванию, не по
     expect(clientRegion(null, 'kimi')).toBe(CHINA_REGION_LABEL);
     expect(clientRegion('CherryStudio', 'неизвестен')).toBe(CHINA_REGION_LABEL);
     expect(clientRegion('deepseek-harness', 'python')).toBe(CHINA_REGION_LABEL);
+    expect(clientRegion('dsh-mcp-panel', 'неизвестен')).toBe(CHINA_REGION_LABEL);
   });
 
   it('не из реестра — null, а не пустая строка и не «другая страна»', () => {
