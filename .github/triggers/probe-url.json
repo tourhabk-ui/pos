@@ -1,21 +1,12 @@
 {
   "timeout": 60,
-  "retries": 15,
-  "retryDelay": 60,
-  "run": 773,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Автозавершение туров — сухим прогоном (?dry_run=1: тот же отбор, ни одна бронь не завершается); якорь блока отзывов на карточке тура 62; подпись у перевозчика «Шатун» на его нынешней странице. Просьбу об отзыве и напоминание не зову: они пишут людям, а сейчас ночь по Камчатке.",
-  "until": "\"dry_run\":true",
-  "urls": [
-    "https://vedarai.ru/api/cron/booking-auto-complete?dry_run=1",
-    "https://vedarai.ru/catalog/tours/62",
-    "https://vedarai.ru/operators/shatun"
-  ],
-  "bytes": 3000,
-  "grep": [
-    "\"dry_run\":true",
-    "booking_ids_due",
-    "id=\"reviews\"",
-    "Проверенный оператор",
-    "Перевозчик"
-  ]
+  "retries": 0,
+  "run": 774,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. virtustur: что за адрес t.me/virtustur (канал, группа или личный контакт) — от этого зависит, под каким ключом он ляжет в контакты карточки оператора; и какой ресурс страницы virtustur.tilda.ws грузится по http:// (смешанный контент из site-audit 4).",
+  "urls": ["https://t.me/virtustur", "https://virtustur.tilda.ws/"],
+  "bytes": 300,
+  "grep": ["tgme_page_extra", "subscribers", "members", "tgme_action_button", "src=\"http://", "href=\"http://", "url(http://"],
+  "around": ["tgme_page_title", "tgme_page_extra", "tgme_page_description", "http://"],
+  "aroundLines": 1,
+  "aroundHits": 12
 }
