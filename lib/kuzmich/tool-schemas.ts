@@ -264,7 +264,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       function: {
         name: 'get_tour_details',
         description: 'Полные детали КОНКРЕТНОГО тура: описание, программа, точка сбора и логистика (старт/забор), что входит и не входит, что взять с собой. Используй ВСЕГДА, когда турист спрашивает про конкретный тур — что там по программе, откуда стартуют, где сбор, что взять. Не выдумывай эти детали сам — бери отсюда.',
-        parameters: { type: 'object', properties: { name: { type: 'string', description: 'Название тура или ключевое слово (например «сплав», «Быстрая», «рыбалка»)' } }, required: ['name'] },
+        parameters: { type: 'object', properties: { name: { type: 'string', description: 'Название тура или ключевое слово так, как их назвал человек' } }, required: ['name'] },
       },
     },
     schema: getTourDetailsSchema,
@@ -300,9 +300,9 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
         parameters: {
           type: 'object',
           properties: {
-            place: { type: 'string', description: 'Название места из справочника платформы, например «Мутновский» или «Налычево».' },
-            lat: { type: 'string', description: 'Широта в градусах, например 52.45. Вместе с lng; координаты главнее названия.' },
-            lng: { type: 'string', description: 'Долгота в градусах, например 158.19. Вместе с lat.' },
+            place: { type: 'string', description: 'Название места так, как его назвал человек; ищется в справочнике платформы.' },
+            lat: { type: 'string', description: 'Широта в градусах — из вопроса человека или из ответа другого инструмента. Вместе с lng; координаты главнее названия.' },
+            lng: { type: 'string', description: 'Долгота в градусах — оттуда же, откуда широта. Вместе с lat.' },
             days: { type: 'string', description: 'Сколько дней прогноза, 1–7; по умолчанию 3.' },
           },
           required: [],
@@ -320,7 +320,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
         parameters: {
           type: 'object',
           properties: {
-            volcano: { type: 'string', description: 'Название вулкана, например «Ключевской» или «Мутновский». Пусто — все повышенные.' },
+            volcano: { type: 'string', description: 'Название вулкана так, как его назвал человек. Пусто — все повышенные.' },
           },
           required: [],
         },
@@ -337,7 +337,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
         parameters: {
           type: 'object',
           properties: {
-            zone: { type: 'string', description: 'Зона расположения (например: Петропавловск-Камчатский, Налычево, Паратунка)' },
+            zone: { type: 'string', description: 'Зона расположения — город, долина или курорт, как их назвал человек' },
             type: { type: 'string', description: 'Тип жилья: hotel, hostel, guesthouse, glamping, apartment, cottage' },
             price_max: { type: 'string', description: 'Максимальная цена за ночь в рублях' },
           },
@@ -359,7 +359,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
             from: { type: 'string', description: 'Начало окна дат, ГГГГ-ММ-ДД (по умолчанию сегодня)' },
             to: { type: 'string', description: 'Конец окна дат, ГГГГ-ММ-ДД (по умолчанию +14 дней, не больше 60)' },
             seats: { type: 'string', description: 'Сколько мест нужно (по умолчанию 1)' },
-            place: { type: 'string', description: 'Куда или откуда: слово из направления, например «Горелый», «Толбачик», «аэропорт»' },
+            place: { type: 'string', description: 'Куда или откуда — слово из вопроса человека: место, вулкан, река; подходит и аэропорт' },
           },
           required: [],
         },
@@ -376,7 +376,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
         parameters: {
           type: 'object',
           properties: {
-            query: { type: 'string', description: 'Что ищут: например "палатка", "спальник", "треккинговые палки", бренд' },
+            query: { type: 'string', description: 'Что ищут — вещь или бренд, как их назвал человек' },
             category: { type: 'string', description: 'Категория снаряжения (если известна)' },
             price_max: { type: 'string', description: 'Максимальная цена за сутки в рублях' },
           },

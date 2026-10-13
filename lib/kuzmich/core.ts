@@ -36,6 +36,7 @@ import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
+import { guardPlaceArgs } from '@/lib/kuzmich/place-arg-guard';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -2215,6 +2216,25 @@ export async function aiChatAgentLoop(
 
   const seenToolSigs = new Set<string>(); // дедуп повторных вызовов между ходами
 
+  // Вулкан в аргументе — тот, о котором говорит человек (lib/kuzmich/
+  // place-arg-guard, пробы 764/765): запасная модель в пик DeepSeek
+  // подставляла в вызов пример из описания параметра, и ответ с настоящими
+  // цифрами уходил про чужой вулкан. Разговор — вопрос и история, без
+  // системного промпта: там свои имена, и человек их не называл.
+  const conversation = [userText, ...history.map(m => m.content), ...extraUserMsg.map(m => m.content)].join('\n');
+  const execGuarded = async (name: string, args: Record<string, string>): Promise<string> => {
+    const d = guardPlaceArgs(name, args, conversation);
+    if (d.kind === 'ask') {
+      console.warn(`[kuzmich-place-guard] ${name}: вулкан не из разговора, названо несколько — вызов не исполнен`);
+      return d.message;
+    }
+    if (d.kind === 'rebind') {
+      console.warn(`[kuzmich-place-guard] ${name}: «${d.from}» заменён на названный в разговоре «${d.to}»`);
+      return executeTool(name, d.args);
+    }
+    return executeTool(name, args);
+  };
+
   for (let turn = 0; turn < 4; turn++) {
     const result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
     if (!result) return null;
@@ -2227,7 +2247,7 @@ export async function aiChatAgentLoop(
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
 
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
-    const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool, validateToolArgs);
+    const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, execGuarded, validateToolArgs);
     for (const o of outcomes) {
       // Вывод кладётся ОБРЕЗАННЫМ: журнал живёт в памяти запроса и уходит в
       // контекст судьи, а не в диалог. Целиком инструмент может вернуть
