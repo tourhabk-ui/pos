@@ -88,12 +88,13 @@ describe('свободный текст', () => {
     const d = deps({ kind: 'failed', text: 'не должен звать' });
     const first = await handleA2A('SendMessage', { message: { parts: [{ text: 'Что на Горелом?' }], contextId: 'ctx-1' } }, ctx(), d);
     expect(first.ok && (first.result.task as { status: { state: string }; contextId: string }).contextId).toBe('ctx-1');
-    expect(d.executors.chat).toHaveBeenCalledWith('Что на Горелом?', []);
+    // contextId третьим аргументом — для журнала общения (lib/a2a/dialog-log).
+    expect(d.executors.chat).toHaveBeenCalledWith('Что на Горелом?', [], 'ctx-1');
     await handleA2A('SendMessage', { message: { parts: [{ text: 'А погода?' }], contextId: 'ctx-1' } }, ctx(), d);
     expect(d.executors.chat).toHaveBeenLastCalledWith('А погода?', [
       { role: 'user', content: 'Что на Горелом?' },
       { role: 'assistant', content: 'Кузьмич отвечает' },
-    ]);
+    ], 'ctx-1');
     expect(d.executors.runTool).not.toHaveBeenCalled();
   });
 

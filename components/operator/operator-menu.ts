@@ -39,7 +39,9 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator', label: 'Обзор', icon: BarChart3, access: 'team' },
 
   { href: '/hub/operator/tours', label: 'Туры', icon: Map, section: 'Продажи', access: 'team' },
-  { href: '/hub/operator/completeness', label: 'Полнота туров', icon: CheckCircle, section: 'Продажи', access: 'team' },
+  // «Чего не хватает» — готовность туров к витринам по правилу лент; до 13.10
+  // пункт звался «Полнота туров» и вёл с выдуманного процента.
+  { href: '/hub/operator/completeness', label: 'Чего не хватает', icon: CheckCircle, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи', access: 'team' },
   // Сирота-аудит 27.07: страница жила без пункта меню — разбор входящего
   // текста заявки через AI, отличен от списка лидов ниже.

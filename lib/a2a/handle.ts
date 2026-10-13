@@ -38,7 +38,8 @@ import {
 
 export interface A2AExecutors {
   runTool(name: string, args: unknown): Promise<PublicToolOutcome>;
-  chat(text: string, history: ChatTurn[]): Promise<AgentAnswer>;
+  /** contextId — для журнала общения (lib/a2a/dialog-log): реплики одного разговора связываются его hash. */
+  chat(text: string, history: ChatTurn[], contextId: string): Promise<AgentAnswer>;
 }
 
 export interface A2AContext {
@@ -155,7 +156,7 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: { executors: 
     const hasFile = message.parts.some((p) => p.kind === 'file');
     return { ok: false, error: a2aError(hasFile ? 'ContentTypeNotSupported' : 'InvalidParams', hasFile ? FILES_NOT_ACCEPTED : EMPTY_MESSAGE) };
   }
-  const answer = await deps.executors.chat(text, deps.store.historyFor(contextId));
+  const answer = await deps.executors.chat(text, deps.store.historyFor(contextId), contextId);
   const metadata = { input: 'text' };
   const task = answer.ok
     ? makeTask({ ids, now, id: taskId, contextId, state: 'completed', text: answer.text, metadata })

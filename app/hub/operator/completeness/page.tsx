@@ -2,8 +2,8 @@ import { Metadata } from 'next';
 import CompletenessClient from './_CompletenessClient';
 
 export const metadata: Metadata = {
-  title: 'Полнота туров | Оператор',
-  description: 'Проверка заполненности полей туров',
+  title: 'Чего не хватает турам | Оператор',
+  description: 'Готовность туров к витринам: что заполнить и где',
   robots: 'noindex, nofollow',
 };
 

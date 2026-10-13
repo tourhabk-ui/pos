@@ -290,7 +290,7 @@ export async function POST(request: NextRequest) {
   // автозаполнение не трогает (только описание, состав, сложность,
   // длительность, место), поэтому права can_edit_prices не нужно. Прежний
   // свой поиск по partners.user_id закрывал роут менеджеру, хотя экран
-  // «Полнота туров» ему открыт. «Не смогли проверить» — 503, а не «нет».
+  // «Чего не хватает» ему открыт. «Не смогли проверить» — 503, а не «нет».
   const access = await operatorAccess(userOrResponse.userId);
   if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access);
   const operatorId = access.partnerId;

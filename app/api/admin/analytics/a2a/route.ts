@@ -11,11 +11,16 @@
  *  3. Визитки и манифесты — agent_entry_hits (1218): какие семейства
  *     обходчиков читают robots, llms.txt, манифесты, визитки и OpenAPI.
  *
+ *  4. Журнал общения — a2a_dialogs (lib/a2a/dialog-log, миграция 1225; решение
+ *     владельца 13.10): что агенты спросили у Кузьмича и что он ответил.
+ *     Последние DIALOG_LIMIT реплик без привязки к окну; текст — после
+ *     redactPII и не старше RETENTION_DAYS.
+ *
  * Три исхода у КАЖДОГО блока отдельно (§4.0): данные; «за окно пусто» с датой,
  * с которой журнал ведётся (ноль только что заведённой таблицы — не «никто не
  * ходит»); «не прочиталось» — блок ok:false с SQLSTATE в логе, остальные
- * блоки живут. Сырых User-Agent, IP, текстов и аргументов нет ни в одном
- * источнике — показывать нечего и некому.
+ * блоки живут. Сырых User-Agent и IP нет ни в одном источнике; текст есть
+ * только в журнале общения, с вычищенными телефонами и почтами.
  *
  * Сторож: tests/unit/a2a-journal-admin.test.ts.
  */
@@ -24,6 +29,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/journal';
+import { RETENTION_DAYS } from '@/lib/a2a/dialog-log';
 import { isProbeClient } from '@/lib/mcp/probe-clients';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
 
@@ -32,6 +38,7 @@ export const dynamic = 'force-dynamic';
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 90;
 const RECENT_LIMIT = 50;
+const DIALOG_LIMIT = 50;
 
 export function readWindowDays(raw: string | null): number {
   const n = Number(raw ?? DEFAULT_DAYS);
@@ -79,6 +86,10 @@ interface A2aRecentRow {
   duration_ms: number | null; agent: string; ua_family: string; is_self: boolean;
 }
 interface BoundsRow { since: string | null; total: number }
+interface DialogRow {
+  at: string; agent: string; ua_family: string; is_self: boolean; context_key: string | null;
+  turn: number; question: string; answer: string; state: string; duration_ms: number | null;
+}
 interface McpClientRow { client_name: string | null; ua_family: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
 interface EntryFamilyRow { family: string; hits: number; paths: number; last_day: string }
 
@@ -160,6 +171,44 @@ export async function readA2a(days: number) {
   };
 }
 
+/**
+ * Журнал общения: последние реплики разговоров с Кузьмичом. Без окна — как
+ * «последние запросы»: разговоров немного, и прятать вчерашний за окном в
+ * семь суток незачем. Диалог показывается коротким ключом (8 знаков hash) —
+ * чтобы видеть реплики одного разговора, не раскрывая contextId.
+ */
+export async function readDialogs() {
+  const [bounds, rows] = await Promise.all([
+    pool.query<BoundsRow>(`SELECT to_char(MIN(created_at) ${KAM}, 'YYYY-MM-DD') AS since, COUNT(*)::int AS total FROM a2a_dialogs`),
+    pool.query<DialogRow>(
+      `SELECT to_char(created_at ${KAM}, 'YYYY-MM-DD HH24:MI:SS') AS at,
+              agent, ua_family, is_self, context_key, turn, question, answer, state, duration_ms
+         FROM a2a_dialogs
+        ORDER BY created_at DESC
+        LIMIT $1::int`,
+      [DIALOG_LIMIT],
+    ),
+  ]);
+  const b = bounds.rows[0] ?? { since: null, total: 0 };
+  return {
+    since: b.since,
+    total: b.total,
+    retention_days: RETENTION_DAYS,
+    limit: DIALOG_LIMIT,
+    items: rows.rows.map((r) => ({
+      at: r.at,
+      agent: r.agent,
+      kind: a2aAgentKind(r.agent, r.ua_family, r.is_self),
+      dialog: r.context_key ? r.context_key.slice(0, 8) : null,
+      turn: r.turn,
+      question: r.question,
+      answer: r.answer,
+      state: r.state,
+      duration_ms: r.duration_ms,
+    })),
+  };
+}
+
 export async function readMcp(days: number) {
   const res = await pool.query<McpClientRow>(
     `SELECT client_name, ua_family,
@@ -215,12 +264,13 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const days = readWindowDays(request.nextUrl.searchParams.get('days'));
-  const [a2a, mcp, entries] = await Promise.all([
+  const [a2a, mcp, entries, dialogs] = await Promise.all([
     block('a2a', () => readA2a(days)),
     block('mcp', () => readMcp(days)),
     block('entries', () => readEntries(days)),
+    block('dialogs', () => readDialogs()),
   ]);
-  const degraded = (['a2a', 'mcp', 'entries'] as const).filter((k) => !({ a2a, mcp, entries })[k].ok);
+  const degraded = (['a2a', 'mcp', 'entries', 'dialogs'] as const).filter((k) => !({ a2a, mcp, entries, dialogs })[k].ok);
 
   return NextResponse.json({
     success: true,
@@ -229,11 +279,13 @@ export async function GET(request: NextRequest) {
     a2a,
     mcp,
     entries,
-    // Что не прочиталось — названо; пустой список здесь значит «все три блока прочитаны».
+    dialogs,
+    // Что не прочиталось — названо; пустой список здесь значит «все блоки прочитаны».
     degraded,
     note:
       'Самоназвание агента — из заголовка User-Agent (имя программы, не строка целиком); ' +
-      'клиент MCP — из его рукопожатия. Сырых User-Agent, IP, текстов вопросов и аргументов ' +
-      'инструментов ни один из трёх журналов не хранит. Сутки — камчатские.',
+      'клиент MCP — из его рукопожатия. Сырых User-Agent и IP не хранит ни один журнал. ' +
+      `Текст есть только в журнале общения A2A: вопрос и ответ с вычищенными телефонами и почтами, ${RETENTION_DAYS} суток. ` +
+      'Аргументы инструментов не хранятся. Сутки — камчатские.',
   });
 }
