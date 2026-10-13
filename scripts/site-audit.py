@@ -154,6 +154,8 @@ class Page(HTMLParser):
         self.scripts = 0
         self.jsonld: list[str] = []
         self._in_jsonld = False
+        self._jsonld_buf = ''
+        self.jsonld_blocks: list[str] = []   # текст каждого <script type="application/ld+json">
         self.http_assets = 0
         self.hreflang = 0
         self.favicon = False
@@ -247,6 +249,9 @@ class Page(HTMLParser):
         elif tag in ('script', 'style', 'noscript', 'svg'):
             self._skip = max(0, self._skip - 1)
             if tag == 'script':
+                if self._in_jsonld:
+                    self.jsonld_blocks.append(self._jsonld_buf)
+                    self._jsonld_buf = ''
                 self._in_jsonld = False
             if tag == 'svg':
                 self._svg = max(0, self._svg - 1)
@@ -257,6 +262,7 @@ class Page(HTMLParser):
                 self.title += data
             self.titles[-1][0] += data
         elif self._in_jsonld:
+            self._jsonld_buf += data
             for m in re.finditer(r'"@type"\s*:\s*"([^"]+)"', data):
                 self.jsonld.append(m.group(1))
         elif self._skip == 0:
@@ -511,6 +517,73 @@ def cut_mid_word(desc: str) -> bool:
     return len(d) >= 100 and bool(re.search(r'[A-Za-zА-Яа-яЁё0-9]$', d))
 
 
+JUNK_RE = re.compile(r'\bundefined\b|\bNaN\b|\[object Object\]')
+
+
+def jsonld_problems(blocks: list[str]) -> list[str]:
+    """Ошибки разметки, из-за которых поисковик не строит расширенный сниппет.
+
+    Только то, что ломает разметку наверняка: не разбирается как JSON;
+    рейтинг без отзывов; предложение без цены или валюты; хлебные крошки без
+    адреса или позиции; относительный адрес картинки или ссылки; мусор из
+    шаблона (undefined, NaN, [object Object]). Вкус и «рекомендуемые» поля —
+    не находка.
+    """
+    out: list[str] = []
+
+    def add(p: str) -> None:
+        if p not in out:
+            out.append(p)
+
+    def walk(node: object) -> None:
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+            return
+        if not isinstance(node, dict):
+            return
+        t = node.get('@type')
+        types = set(t if isinstance(t, list) else [t])
+        if 'AggregateRating' in types:
+            cnt = node.get('reviewCount', node.get('ratingCount'))
+            try:
+                ok = cnt is not None and float(cnt) > 0 and node.get('ratingValue') not in (None, '')
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
+                add('рейтинг без отзывов или без оценки')
+        if 'Offer' in types and (node.get('price') in (None, '') or not node.get('priceCurrency')):
+            add('Offer без price/priceCurrency')
+        if 'AggregateOffer' in types and (node.get('lowPrice') in (None, '') or not node.get('priceCurrency')):
+            add('AggregateOffer без lowPrice/priceCurrency')
+        if 'BreadcrumbList' in types:
+            items = node.get('itemListElement') or []
+            items = items if isinstance(items, list) else [items]
+            for i, it in enumerate(items):
+                if not isinstance(it, dict) or it.get('position') in (None, '') or not it.get('name'):
+                    add('крошка без позиции или имени')
+                elif i < len(items) - 1 and not it.get('item'):
+                    add('крошка без адреса')
+        for k in ('image', 'logo', 'url', 'item'):
+            v = node.get(k)
+            vals = v if isinstance(v, list) else [v]
+            for x in vals:
+                if isinstance(x, str) and x.startswith('/') and not x.startswith('//'):
+                    add(f'относительный адрес в «{k}»')
+        for k, v in node.items():
+            if isinstance(v, str) and JUNK_RE.search(v):
+                add('мусор из шаблона (undefined/NaN/[object Object])')
+            elif isinstance(v, (dict, list)):
+                walk(v)
+
+    for b in blocks:
+        try:
+            walk(json.loads(b))
+        except ValueError:
+            add('JSON-LD не разбирается')
+    return out
+
+
 def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
     """Каждый адрес sitemap — без перехода по редиректу: адрес в sitemap обязан отвечать сам."""
     rows: list[dict] = []
@@ -549,12 +622,29 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
                 'canonicals': [{'href': c, 'head': hd} for c, hd in p.canonicals],
                 'robots': [{'content': c, 'head': hd} for c, hd in p.robots_metas],
                 'og_image': urllib.parse.urljoin(u, p.og['image']) if p.og.get('image') else '', 'jsonld': p.jsonld[:8],
+                'jsonld_problems': jsonld_problems(p.jsonld_blocks),
+                # Исходящие ссылки — для счёта входящих у адресов sitemap (сироты); в JSON не пишутся.
+                '_links': {norm(x.split('#')[0]) for x in p.links},
                 'imgs': p.imgs, 'imgs_no_alt': p.imgs_no_alt,
                 'x_robots': r['headers'].get('x-robots-tag', ''),
                 'soft404': bool(SOFT404_RE.search(title) or any(SOFT404_RE.search(x) for x in h1)),
             })
         rows.append(row)
         time.sleep(max(PAUSE, interval - (time.monotonic() - t_start)))
+
+    # Входящие ссылки на каждый адрес sitemap из серверного HTML ДРУГИХ адресов
+    # sitemap: так страницу видит обходчик, не исполняющий JS. Ноль — сирота:
+    # поисковик знает о ней только из sitemap, и вес ей не передаёт никто.
+    sm_norm = {norm(r['url']): r for r in rows}
+    inbound: Counter = Counter()
+    for r in rows:
+        own = norm(r['url'])
+        for link in r.pop('_links', set()):
+            if link != own and link in sm_norm:
+                inbound[link] += 1
+    for r in rows:
+        r['inbound'] = inbound.get(norm(r['url']), 0)
+    linked_pages = sum(1 for r in rows if r['code'] == 200 and 'title' in r)
 
     ok = [r for r in rows if r['code'] == 200 and 'title' in r]
     titles = Counter(r['title'] for r in ok if r['title'])
@@ -589,6 +679,11 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         ('тонкая (<150 слов в серверном HTML)', 'thin', lambda r: 'title' in r and r['words'] < 150),
         ('нет og:image', 'og0', lambda r: 'title' in r and not r['og_image']),
         ('нет JSON-LD', 'ld0', lambda r: 'title' in r and not r['jsonld']),
+        ('JSON-LD с ошибкой', 'ldbad', lambda r: bool(r.get('jsonld_problems'))),
+        # Главная — вход сайта, ссылок на неё изнутри может и не быть; сирота — все прочие.
+        ('сирота (ни одной ссылки с других страниц sitemap)', 'orph',
+         lambda r: r['code'] == 200 and linked_pages > 1 and r.get('inbound', 0) == 0
+         and (urllib.parse.urlsplit(r['url']).path or '/') != '/'),
         ('картинки без alt', 'alt', lambda r: (r.get('imgs_no_alt') or 0) > 0),
         ('медленно (>2 с)', 'slow', lambda r: r['ms'] > 2000),
     ]
@@ -620,6 +715,8 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
                     extra = ' [' + ' | '.join(x['content'] + ('' if x['head'] else ' (в body)') for x in r['robots']) + ']'
                 elif name == 'медленно (>2 с)':
                     extra = f" ({r['ms']} мс)"
+                elif name == 'JSON-LD с ошибкой':
+                    extra = ' [' + '; '.join(r['jsonld_problems']) + ']'
                 ex.append(r['url'] + extra)
             issues.append({'what': name, 'code': code, 'count': len(hit), 'examples': ex})
 
@@ -643,6 +740,12 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         time.sleep(PAUSE / 2)
     return {
         'checked': len(rows), 'of': len(urls), 'ok': len(ok), 'rate_limited': limited,
+        'inbound_hist': {
+            '0': sum(1 for r in ok if r.get('inbound', 0) == 0),
+            '1': sum(1 for r in ok if r.get('inbound', 0) == 1),
+            '2-5': sum(1 for r in ok if 2 <= r.get('inbound', 0) <= 5),
+            '6+': sum(1 for r in ok if r.get('inbound', 0) >= 6),
+        },
         'by_section': by_section, 'issues': issues, 'checks': [n for n, _, _ in checks],
         'codes': {code: name for name, code, _ in checks},
         'og_images': {'unique': len(og_urls), 'checked': min(len(og_urls), og_checks), 'bad': og_bad, 'head_only': og_head_only},
@@ -665,6 +768,9 @@ def report_census(c: dict, ua: str, budget: int = 58000) -> str:
         L.append(f"- **{i['what']}** (`{i['code']}`) — {i['count']}")
         for e in i['examples']:
             L.append(f"  - {e}")
+    ih = c.get('inbound_hist')
+    if ih:
+        L.append(f"- входящих ссылок с других страниц sitemap (серверный HTML): 0 — {ih['0']}, 1 — {ih['1']}, 2–5 — {ih['2-5']}, 6 и больше — {ih['6+']}")
     og = c['og_images']
     L.append(f"- og:image: уникальных {og['unique']}, проверено {og['checked']}, не открываются {len(og['bad'])}")
     for b in og['bad'][:10]:

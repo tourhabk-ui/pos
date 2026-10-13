@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,7 +32,12 @@ const words = (n: number) => Array.from({ length: n }, (_, i) => `слово${i}
 const DESC_OK = 'Вулкан Горелый: маршрут к кратеру, сезон, опасности и что взять с собой — по данным платформы.';
 const DESC_CUT = 'Озеро Курильское: медведи, нерка, вертолётные экскурсии из Петропавловска, сезон с июля по сентябрь и всё что нужно знать до поездки на юг Камчатки, включая погоду и обстан';
 
-function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string }): string {
+// Навигация как на сайте: каждая страница ссылается на все прочие, кроме сироты.
+const NAV = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone',
+  '/places/cut', '/places/bad-og', '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld'];
+const nav = () => `<nav>${NAV.map((p) => `<a href="${p}#top">${p}</a>`).join('')}</nav>`;
+
+function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string; ld?: string }): string {
   const base = `http://127.0.0.1:${port}`;
   const canon = `<link rel="canonical" href="${base}${o.path}">`;
   const robots = (o.robots ?? ['index, follow']).map((r) => `<meta name="robots" content="${r}">`).join('');
@@ -43,13 +48,13 @@ function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' |
     + (o.canonicalIn === 'head' || o.canonicalIn === undefined ? canon : '')
     + robots
     + `<meta property="og:title" content="${o.title}"><meta property="og:image" content="${o.og ?? '/og.jpg'}">`
-    + `<script type="application/ld+json">{"@type":"TouristAttraction"}</script>`
+    + `<script type="application/ld+json">${o.ld ?? '{"@type":"TouristAttraction","name":"Место","image":"https://example.org/a.jpg"}'}</script>`
     + `</head><body>${o.streamed ? titleDesc : ''}${o.canonicalIn === 'body' ? canon : ''}`
     // <title> внутри <svg> — подпись иконки, не второй заголовок страницы.
     + `<svg viewBox="0 0 1 1"><title>Иконка вулкана</title></svg>`
     // alt="" — декоративная картинка рядом с подписью (так и надо, WCAG); alt со словами — снимок.
     + `<img src="/og.jpg" alt=""><span>Кузьмич</span><img src="/og.jpg" alt="Кратер вулкана">`
-    + (o.img ?? '')
+    + (o.img ?? '') + nav()
     + `<h1>${o.h1 ?? o.title}</h1><p>${words(220)}</p></body></html>`;
 }
 
@@ -63,7 +68,7 @@ beforeAll(async () => {
     if (url === '/robots.txt') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`); return; }
     if (url === '/sitemap.xml') {
       const locs = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone', '/places/cut', '/places/bad-og',
-        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head']
+        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/orphan']
         .map((p) => `<url><loc>${base}${p}</loc></url>`).join('');
       res.writeHead(200, { 'content-type': 'application/xml' });
       res.end(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs}</urlset>`);
@@ -86,6 +91,11 @@ beforeAll(async () => {
     if (url === '/places/streamed') return html(page({ path: url, title: 'Вилючинский', desc: DESC_OK + ' Вилючинский.', streamed: true }));
     if (url === '/places/no-alt') return html(page({ path: url, title: 'Озеро Дальнее', desc: DESC_OK + ' Дальнее.', img: '<img src="/og.jpg">' }));
     if (url === '/places/og-head') return html(page({ path: url, title: 'Бухта Русская', desc: DESC_OK + ' Бухта.', og: '/og-head.jpg' }));
+    // Рейтинг при нуле отзывов — поисковик такую разметку отвергает.
+    if (url === '/places/bad-ld') return html(page({ path: url, title: 'Озеро Кроноцкое', desc: DESC_OK + ' Кроноцкое.',
+      ld: '{"@type":"TouristAttraction","name":"Озеро","aggregateRating":{"@type":"AggregateRating","ratingValue":4.5,"reviewCount":0}}' }));
+    // На сироту не ссылается ни одна страница — она известна только из sitemap.
+    if (url === '/places/orphan') return html(page({ path: url, title: 'Вулкан Ключевской', desc: DESC_OK + ' Ключевской.' }));
     if (url === '/places/limited') {
       // Первый запрос — 429, как ограничитель сайта; повтор — страница.
       if (!limitedOnce) { limitedOnce = true; res.writeHead(429, { 'retry-after': '0' }); res.end('Too many requests'); return; }
@@ -122,7 +132,7 @@ const hits = (c: { issues: { what: string; examples: string[] }[] }, what: strin
 describe('перепись sitemap: каждый дефект назван, здоровое не тронуто', () => {
   it('проходит все адреса sitemap без перехода по редиректу', async () => {
     const { census } = await audit();
-    expect(census.checked).toBe(12);
+    expect(census.checked).toBe(14);
     expect(hits(census, 'не 200 в sitemap').sort()).toEqual(['/operators/gone', '/routes/moved']);
     // 429 — ждёт и повторяет, но счёт таких ответов называет.
     expect(census.rate_limited).toBe(1);
@@ -162,18 +172,30 @@ describe('перепись sitemap: каждый дефект назван, зд
     expect(census.og_images.head_only.map(strip)).toEqual(['/og-head.jpg']);
   }, 60_000);
 
+  it('рейтинг без отзывов в JSON-LD назван, исправная разметка — нет', async () => {
+    const { census } = await audit();
+    expect(hits(census, 'JSON-LD с ошибкой')).toEqual(['/places/bad-ld']);
+    const ex = census.issues.find((i) => i.what === 'JSON-LD с ошибкой')?.examples[0] ?? '';
+    expect(ex).toContain('рейтинг без отзывов');
+  }, 60_000);
+
+  it('сирота — страница, на которую не ссылается ни одна другая', async () => {
+    const { census } = await audit();
+    expect(hits(census, 'сирота (ни одной ссылки с других страниц sitemap)')).toEqual(['/places/orphan']);
+  }, 60_000);
+
   it('чистая страница не попадает ни в одну находку', async () => {
     const { census } = await audit();
     // Адрес находки — первое слово примера; «→ 308 …/places/good» у редиректа — его цель, не находка.
     for (const i of census.issues) {
       expect({ what: i.what, hit: hits(census, i.what).includes('/places/good') }).toEqual({ what: i.what, hit: false });
     }
-    expect(census.ok).toBe(10);
+    expect(census.ok).toBe(12);
   }, 60_000);
 
   it('разделы считаются по первому сегменту пути', async () => {
     const { census } = await audit();
-    expect(census.by_section['/places/*'].urls).toBe(8);
+    expect(census.by_section['/places/*'].urls).toBe(10);
     expect(census.by_section['/routes/*']['soft-404 (200 с «не найден»)']).toBe(1);
   }, 60_000);
 });
@@ -196,4 +218,33 @@ describe('заголовок бота — только у себя', () => {
     expect(r.code).toBe(2);
     expect(r.stdout).toContain('только для vedarai.ru');
   }, 30_000);
+});
+
+describe('jsonld_problems: правила разметки — вызовом на граничных данных', () => {
+  const cases: Array<[string, unknown, string[]]> = [
+    ['исправная разметка', { '@type': 'TouristTrip', name: 'Тур', image: 'https://vedarai.ru/a.jpg',
+      offers: { '@type': 'Offer', price: 5000, priceCurrency: 'RUB' } }, []],
+    ['Offer без валюты', { '@type': 'Product', offers: { '@type': 'Offer', price: 5000 } }, ['Offer без price/priceCurrency']],
+    ['AggregateOffer без нижней цены', { '@type': 'AggregateOffer', priceCurrency: 'RUB' }, ['AggregateOffer без lowPrice/priceCurrency']],
+    ['крошка без адреса в середине', { '@type': 'BreadcrumbList', itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Главная' },
+      { '@type': 'ListItem', position: 2, name: 'Маршруты', item: 'https://vedarai.ru/routes' }] }, ['крошка без адреса']],
+    ['последняя крошка без адреса — можно', { '@type': 'BreadcrumbList', itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Главная', item: 'https://vedarai.ru' },
+      { '@type': 'ListItem', position: 2, name: 'Маршрут' }] }, []],
+    ['относительная картинка', { '@type': 'Organization', logo: '/images/logo.png' }, ['относительный адрес в «logo»']],
+    ['мусор из шаблона', { '@type': 'Place', name: 'undefined' }, ['мусор из шаблона (undefined/NaN/[object Object])']],
+    ['рейтинг строкой без отзывов', { '@graph': [{ '@type': 'AggregateRating', ratingValue: '4.5' }] }, ['рейтинг без отзывов или без оценки']],
+  ];
+  const run = (blocks: string[]) => JSON.parse(execFileSync('python3', ['-c',
+    'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("sa", sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(json.dumps(m.jsonld_problems(json.loads(sys.argv[2]))))',
+    SCRIPT, JSON.stringify(blocks)], { encoding: 'utf-8' })) as string[];
+
+  it.each(cases)('%s', (_name, ld, want) => {
+    expect(run([JSON.stringify(ld)])).toEqual(want);
+  });
+
+  it('битый JSON — так и сказано, а не «ошибок нет»', () => {
+    expect(run(['{"@type": "Place", '])).toEqual(['JSON-LD не разбирается']);
+  });
 });
