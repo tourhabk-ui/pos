@@ -34,6 +34,8 @@ export const GATES: Record<string, Gate> = {
 
   // ── Команда: владелец и менеджер ──
   'app/api/hub/operator/me/route.ts': { seat: 'team' },
+  // Свой мессенджер менеджера для уведомлений кабинета (2г-4): строка команды — из гарда.
+  'app/api/hub/operator/me/messenger/route.ts': { seat: 'team' },
   'app/api/hub/operator/profile/route.ts': { seat: 'team', ownerOnly: 'правка профиля компании', moneyHidden: true },
   'app/api/operator/dashboard/route.ts': { seat: 'team', moneyHidden: true },
   'app/api/operator/stats/route.ts': { seat: 'team', moneyHidden: true },

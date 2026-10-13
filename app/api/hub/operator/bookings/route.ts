@@ -303,6 +303,7 @@ export async function POST(request: NextRequest) {
       operator_telegram_chat_id: telegram_chat_id,
       operator_max_chat_id: max_chat_id,
       via: input.created_via,
+      operator_partner_id: operator_id,
     }).catch(() => undefined);
 
     return NextResponse.json(

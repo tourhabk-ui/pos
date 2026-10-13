@@ -17,6 +17,7 @@ import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { reachForTour } from '@/lib/partners/reach';
+import { notifyTeamOfTour } from '@/lib/operators/team-notify';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
@@ -1581,6 +1582,9 @@ async function notifyOperatorNewBooking(
         (reach === null ? ' (адреса прочитать не удалось)' : ''),
       );
     }
+
+    // Менеджеры команды кабинета (CRM 2г-4) — тот же текст своим адресом.
+    await notifyTeamOfTour(b.tour.id, { text, stub, buttons }, `бронь #${bookingId}`);
   } catch (err) {
     // Пустой catch тут означал: уведомления нет и следа нет.
     console.error(`[notifyOperatorNewBooking] бронь ${bookingId}:`, err instanceof Error ? err.message : err);

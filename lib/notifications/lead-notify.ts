@@ -20,6 +20,7 @@ import type { LeadProposalData } from '@/lib/services/operators/lead-processor.s
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendPdAlert, type PdAlertChannel, type PdAlertResult } from '@/lib/notifications/pd-alert';
 import { reachForPartner } from '@/lib/partners/reach';
+import { notifyTeam } from '@/lib/operators/team-notify';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -181,16 +182,6 @@ export async function notifyPartnerNewLeadPersonally(params: {
   origin?: string;
   sourceUrl?: string;
 }): Promise<PersonalLeadOutcome> {
-  const reach = await reachForPartner(params.operatorId);
-  if (reach === null) {
-    console.error(`[lead-notify] адрес оператора ${params.operatorId} не прочитался — о заявке ${params.leadId} лично не сообщено`);
-    return { state: 'unknown' };
-  }
-  if (!reach.reachable) {
-    console.error(`[lead-notify] у оператора ${params.operatorId} нет ни MAX, ни Telegram — о заявке ${params.leadId} он узнает из кабинета`);
-    return { state: 'no_channel' };
-  }
-
   const baseUrl = getPublicBaseUrl();
   // Общая часть — без ПД: её видно в обоих каналах.
   const common = [
@@ -213,10 +204,26 @@ export async function notifyPartnerNewLeadPersonally(params: {
     'Имя и телефон — в кабинете: в Telegram они не передаются.',
   ].filter(Boolean).join('\n');
 
+  const buttons = [{ text: 'Открыть заявку', url: `${baseUrl}/hub/operator/leads/${params.leadId}` }];
+
+  // Менеджеры команды кабинета (CRM 2г-4) — до проверки адреса кабинета: у
+  // команды свои адреса, и заявка доходит до неё, даже если у кабинета канала нет.
+  await notifyTeam(params.operatorId, { text, stub, buttons }, `заявка ${params.leadId}`);
+
+  const reach = await reachForPartner(params.operatorId);
+  if (reach === null) {
+    console.error(`[lead-notify] адрес оператора ${params.operatorId} не прочитался — о заявке ${params.leadId} лично не сообщено`);
+    return { state: 'unknown' };
+  }
+  if (!reach.reachable) {
+    console.error(`[lead-notify] у оператора ${params.operatorId} нет ни MAX, ни Telegram — о заявке ${params.leadId} он узнает из кабинета`);
+    return { state: 'no_channel' };
+  }
+
   const res = await sendPdAlert({
     text,
     stub,
-    buttons: [{ text: 'Открыть заявку', url: `${baseUrl}/hub/operator/leads/${params.leadId}` }],
+    buttons,
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return { state: 'delivered', channel: 'max' };

@@ -20,6 +20,7 @@ import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
 import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
+import { handleMemberStart } from '@/lib/operators/member-channel';
 import { parseAnswerPayload, operatorReplyText, statusTokenFromStart } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 
@@ -328,6 +329,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
       const chatId = update.chat_id;
       if (await handlePartnerStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
+      // Менеджер команды оператора — свой чат к уведомлениям кабинета (2г-4).
+      if (await handleMemberStart(startArg, 'max', chatId, (text) => maxReply(chatId, text))) return;
     }
 
     let capturedStart = '';

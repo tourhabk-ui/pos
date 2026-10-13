@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-13 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1229_a2a_tasks_contexts.sql`.
+> Снято 2026-10-13 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1230_operator_members_channel.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 274 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3646 |
+| Колонок | 3649 |
 | Внешних ключей | 317 |
 | Таблиц без единого FK в обе стороны | 81 |
 
@@ -1395,9 +1395,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `operator_id uuid!` `user_id uuid!` `tags text[]!=` `telegram text` `updated_at timestamptz!=`
 
-**operator_members** · 15 кол. · PK id · invited_by → users.id, partner_id → partners.id, revoked_by → users.id, user_id → users.id · индексов 4
+**operator_members** · 18 кол. · PK id · invited_by → users.id, partner_id → partners.id, revoked_by → users.id, user_id → users.id · индексов 4
 
-`id uuid!=` `partner_id uuid!` `user_id uuid` `status text!=` `label text` `invite_token_hash text` `invite_expires_at timestamptz` `invited_by uuid` `can_edit_prices boolean!=` `can_cancel_bookings boolean!=` `created_at timestamptz!=` `accepted_at timestamptz` `revoked_at timestamptz` `revoked_by uuid` `updated_at timestamptz!=`
+`id uuid!=` `partner_id uuid!` `user_id uuid` `status text!=` `label text` `invite_token_hash text` `invite_expires_at timestamptz` `invited_by uuid` `can_edit_prices boolean!=` `can_cancel_bookings boolean!=` `created_at timestamptz!=` `accepted_at timestamptz` `revoked_at timestamptz` `revoked_by uuid` `updated_at timestamptz!=` `max_chat_id bigint` `telegram_chat_id bigint` `channel_bound_at timestamptz`
 
 **operator_notification_reads** · 3 кол. · PK partner_id, notification_id · partner_id → partners.id · индексов 2
 

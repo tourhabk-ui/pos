@@ -11,6 +11,7 @@
  */
 
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { notifyTeam } from '@/lib/operators/team-notify';
 import { getPublicBaseUrl } from '@/lib/config';
 
 async function tgSend(chatId: string, text: string): Promise<void> {
@@ -51,6 +52,11 @@ export interface BookingNotifyPayload {
   operator_phone?: string | null;
   operator_email?: string | null;
   via?: string; // 'website' | 'direct_contact' | 'api' | 'agent'
+  /**
+   * Кабинет оператора (partners.id). Есть — копия уходит и активным менеджерам
+   * его команды с подключённым мессенджером (CRM 2г-4, lib/operators/team-notify).
+   */
+  operator_partner_id?: string;
 }
 
 /** Чем кончилась доставка заявки оператору — три исхода, не два (§4.0). */
@@ -124,6 +130,14 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     console.error(`[notifyNewBooking] админу ПД не доставлены (${adminRes.channel}) — ${adminRes.reason}`);
   }
 
+  // Менеджеры команды кабинета (CRM 2г-4) — тот же текст, своим адресом. На
+  // исход доставки чату кабинета копия не влияет, но «нет канала» ниже знает,
+  // дошли ли контакты туриста до команды (в MAX; заглушка в Telegram их не несёт).
+  const team = payload.operator_partner_id
+    ? await notifyTeam(payload.operator_partner_id, { text, stub, buttons: [link] }, `бронь #${payload.booking_id}`)
+    : null;
+  const teamDelivered = team?.state === 'sent' ? team.delivered : 0;
+
   // Оператор — только если у него есть хоть один адрес.
   if (payload.operator_max_chat_id || payload.operator_telegram_chat_id) {
     const opRes = await sendPdAlert({
@@ -150,7 +164,9 @@ export async function notifyNewBooking(payload: BookingNotifyPayload): Promise<O
     payload.operator_email ? `Почта: ${esc(payload.operator_email)}` : null,
   ].filter(Boolean) as string[];
   const handoff = [
-    `<b>Заявка не дойдёт до оператора — нет канала</b>`,
+    teamDelivered > 0
+      ? `<b>У кабинета оператора нет своего канала — бронь с контактами туриста дошла только до менеджеров команды (${teamDelivered})</b>`
+      : `<b>Заявка не дойдёт до оператора — нет канала</b>`,
     `Оператор: ${esc(payload.operator_name)}`,
     `Бронь #${payload.booking_id}, тур: ${esc(payload.tour_title)}`,
     `Дата: ${payload.booking_date}, участников: ${payload.participants}`,

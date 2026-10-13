@@ -37,6 +37,8 @@ describe('notifyOperatorOfNewBooking', () => {
     expect(notifyMock.mock.calls[0]![0]).toMatchObject({
       booking_id: '42', tourist_name: 'Иван', tourist_phone: '+79000000000',
       operator_max_chat_id: '1', operator_telegram_chat_id: '2', operator_phone: '+7', via: 'seat_request',
+      // Кабинет — чтобы копия дошла до менеджеров его команды (CRM 2г-4).
+      operator_partner_id: 'op',
     });
     expect(uonMock).not.toHaveBeenCalled();
   });
