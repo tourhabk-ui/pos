@@ -5,9 +5,9 @@ import { LayoutDashboard, BookUser, ListChecks, BellDot } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
 
-// Кабинет перевозчика (схема 926, 02.09): парк, поездки и запросы мест живут
-// на одном экране вкладками. Клиенты — отдельным разделом: экран CRM общий
-// для всех партнёров (CRM #2325).
+// Кабинет перевозчика: парк машин (с 13.10 без поездок и запросов мест —
+// трансфер продаётся машиной целиком). Клиенты — отдельным разделом: экран CRM
+// общий для всех партнёров (CRM #2325).
 const SIDEBAR_ITEMS = [
   { href: '/hub/carrier', label: 'Кабинет', icon: LayoutDashboard },
   { href: '/hub/carrier/inbox', label: 'Входящие', icon: BellDot },

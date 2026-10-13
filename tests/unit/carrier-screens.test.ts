@@ -3,7 +3,8 @@
  * Экраны трансферов (схема 926, 02.09): витрина /transfers и кабинет /hub/carrier.
  *
  *   1. Витрины мест больше нет (владелец 13.10: «бронируют целую машину а не
- *      место в ней»); /transfers судит рендер — tests/unit/transfers-page.
+ *      место в ней»); /transfers судит рендер — tests/unit/transfers-page,
+ *      кабинет без поездок и запросов мест — tests/unit/carrier-cabinet.
  *   2. Оплата места — общий SbpQrPayment со своими адресами; второго
  *      компонента QR нет (компонент — общий, адреса мест спят вместе с
  *      модулем). Свой SOS кабинет не рисует (#887).
@@ -64,7 +65,9 @@ describe('4. экраны ходят только в /api', () => {
     // адреса перечислены в reloadAll теми же литералами.
     const writes = [...CABINET.matchAll(/fetch\(\s*[`'"]([^`'"]+)/g)].map(m => m[1]);
     const reads = [...CABINET.matchAll(/load<\w+>\(\s*'([^']+)'/g)].map(m => m[1]);
-    expect(writes.length + reads.length).toBeGreaterThanOrEqual(6);
+    // Парк (чтение и запись) и ждущие ответа запросы мест (чтение и ответ);
+    // поездок кабинет с 13.10 не заводит — трансфер продаётся машиной целиком.
+    expect(writes.length + reads.length).toBeGreaterThanOrEqual(4);
     for (const w of [...writes, ...reads]) expect(w.startsWith('/api/hub/carrier'), `посторонний адрес ${w}`).toBe(true);
     for (const w of writes) expect(w.startsWith('/api/hub/carrier'), `посторонний адрес ${w}`).toBe(true);
   });

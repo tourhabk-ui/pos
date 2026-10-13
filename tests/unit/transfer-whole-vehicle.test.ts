@@ -52,3 +52,13 @@ describe('поверхности выбора трансфера не прода
     for (const [re, what] of SEAT_SALE) expect(src, `${f}: ${what}`).not.toMatch(re);
   });
 });
+
+describe('кабинет перевозчика не заводит поездок с местами', () => {
+  // Ждущие ответа запросы мест кабинет показывает, пока они есть
+  // (tests/unit/carrier-cabinet); новых поездок в витрину он не выставляет.
+  it('app/hub/carrier/_CarrierClient.tsx', () => {
+    const src = code('app/hub/carrier/_CarrierClient.tsx');
+    expect(src).not.toMatch(/\/api\/hub\/carrier\/trips/);
+    expect(src).not.toMatch(/price_per_seat|seats_free|Завести поездку/);
+  });
+});

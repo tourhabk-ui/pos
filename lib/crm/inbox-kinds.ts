@@ -45,7 +45,11 @@ export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>
   ],
   stay: [],
   gear: [],
-  transfer: [],
+  // Трансфер — машина целиком (владелец 13.10). Заявку на машину ведёт
+  // менеджер: ответить на неё из кабинета нельзя, и сюда она не попадает.
+  transfer: [
+    'Заявки на машину целиком подтверждает с вами менеджер Ведара — отвечать на них здесь не нужно; сами заявки видны в «Клиентах».',
+  ],
   guide: ['Назначение на бронь подтверждать не нужно — оно сразу в расписании.'],
   agent: ['У агента входящих пока нет: заявок и чата с туристами у роли ещё нет.'],
 };
@@ -78,7 +82,7 @@ export const INBOX_ACTION: Readonly<Record<InboxKind, { href: string | null; hin
   lead: { href: '/hub/operator/leads', hint: 'Ответить в «AI Заявках»' },
   accommodation_booking: { href: '/hub/stay/bookings', hint: 'Подтвердить или отклонить в «Бронях»' },
   gear_rental: { href: '/hub/gear/rentals', hint: 'Подтвердить или отклонить в «Арендах»' },
-  transfer_seat_booking: { href: '/hub/carrier', hint: 'Ответить во вкладке «Запросы»' },
+  transfer_seat_booking: { href: '/hub/carrier', hint: 'Ответить в «Кабинете», раздел «Запросы мест»' },
   guide_invite: { href: '/hub/guide', hint: 'Принять или отклонить в «Обзоре»' },
   guide_review: { href: '/hub/guide/reviews', hint: 'Ответить в «Отзывах»' },
   tour_review: { href: '/hub/operator/reviews', hint: 'Ответить в «Отзывах»' },
