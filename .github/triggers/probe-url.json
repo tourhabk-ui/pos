@@ -3,59 +3,26 @@
   "retries": 1,
   "allowStale": true,
   "retryDelay": 10,
-  "run": 760,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Вопрос владельца: слабые места «Лагуны Экспедиции» (SEO и конструктор). 09.10 снята только главная laguna-expedition.online (пробы 734–737) — SEO-признаков там почти не смотрели. Здесь: голова страниц (title, description, canonical, og, JSON-LD, h1), robots.txt и sitemap обоих доменов — конструктора (.online) и основного сайта (.ru), плюс две страницы туров, на которые ссылается конструктор.",
+  "run": 761,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO-аудит «Лагуны Экспедиции» с начала (слово владельца), дополнение к site-audit прогонов 2–3: полный список адресов sitemap обоих доменов с lastmod (сверить покрытие обхода и шаблоны адресов), llms.txt, поведение пагинации каталога (?start= закрыт в robots).",
   "urls": [
-    "https://laguna-expedition.online/",
-    "https://laguna-expedition.online/robots.txt",
-    "https://laguna-expedition.online/wp-sitemap.xml",
-    "https://laguna-expedition.ru/",
-    "https://laguna-expedition.ru/robots.txt",
     "https://laguna-expedition.ru/sitemap.xml",
-    "https://laguna-expedition.ru/tours/na-vezdekhode-sever-truck",
-    "https://laguna-expedition.ru/tours/41878-transfer-iz-aeroporta-v-spa-otel-laguna"
-  ],
-  "ua": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-  "grep": [
-    "<title",
-    "name=\"description\"",
-    "name='description'",
-    "rel=\"canonical\"",
-    "og:title",
-    "og:image",
-    "application/ld+json",
-    "noindex",
-    "hreflang",
-    "<h1",
-    "Sitemap:",
-    "Disallow",
-    "Clean-param",
-    "yandex-verification",
-    "google-site-verification",
-    "mc.yandex.ru",
-    "googletagmanager"
+    "https://laguna-expedition.online/wp-sitemap-posts-page-1.xml",
+    "https://laguna-expedition.ru/llms.txt",
+    "https://laguna-expedition.online/llms.txt"
   ],
   "count": [
-    "<h1",
-    "<h2",
-    "<img",
-    "alt=\"\"",
-    "application/ld+json",
     "<loc>",
-    "<a "
+    "<lastmod>",
+    "<image:loc>",
+    "<changefreq>",
+    "<priority>"
   ],
   "around": [
-    "<title",
-    "name=\"description\"",
-    "name='description'",
-    "<h1",
-    "application/ld+json",
-    "og:title",
-    "Sitemap:",
-    "Disallow"
+    "<loc>"
   ],
-  "aroundLines": 6,
+  "aroundLines": 3,
   "aroundBefore": 0,
-  "aroundHits": 3,
-  "bytes": 2500
+  "aroundHits": 400,
+  "bytes": 300
 }
