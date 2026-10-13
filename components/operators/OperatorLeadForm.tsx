@@ -33,14 +33,18 @@ export function OperatorLeadForm({ partnerSlug, partnerName }: Props) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [comment, setComment] = useState('');
-  const [consent, setConsent] = useState(false);
+  const [pdConsent, setPdConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
 
-  const ready = name.trim().length >= 2 && phone.trim().length >= 7 && consent && !submitting;
+  const ready = name.trim().length >= 2 && phone.trim().length >= 7 && pdConsent && !submitting;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    // Без согласия на ПД заявка не уходит — общий закон форм платформы
+    // (сторож lead-pd-consent): кнопка и так неактивна, но проверка
+    // держится и при отправке клавишей.
+    if (!pdConsent) { setOutcome({ kind: 'error', message: 'Нужно согласие на обработку персональных данных.' }); return; }
     if (!ready) return;
     setSubmitting(true);
     setOutcome({ kind: 'idle' });
@@ -137,7 +141,7 @@ export function OperatorLeadForm({ partnerSlug, partnerName }: Props) {
           maxLength={1000}
         />
       </div>
-      <PdConsentCheckbox checked={consent} onChange={setConsent} id="operator-lead-consent" />
+      <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="operator-lead-consent" />
       {outcome.kind === 'error' && (
         <p role="alert" className="flex items-start gap-2 text-sm text-[var(--danger)]">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
