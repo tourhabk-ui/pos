@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ChevronRight, MapPin, ShieldCheck, BadgeCheck, Fish, Home, Calendar, Users, Star, Shield, Phone } from 'lucide-react';
+import { ChevronRight, MapPin, ShieldCheck, BadgeCheck, Fish, Home, Calendar, Users, Star, Shield, Phone, Send } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
@@ -21,6 +21,7 @@ import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { CharterCard } from '@/components/transfers/CharterCard';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
+import { OperatorLeadForm } from '@/components/operators/OperatorLeadForm';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import type { CharterCarrier } from '@/lib/transfers/charter-format';
 
@@ -274,6 +275,10 @@ export default async function OperatorProfilePage(
                 {profile.description && (
                   <p className="text-[var(--text-secondary)] leading-relaxed">{profile.description}</p>
                 )}
+                {/* Заявка-разговор, не бронь: бронь живёт на карточке тура (владелец 02.10). */}
+                <a href="#lead-form" className="ds-btn ds-btn-primary inline-flex items-center gap-2 mt-5">
+                  <Send className="w-4 h-4" /> Написать оператору
+                </a>
               </div>
               <div>
                 <div className="relative w-full h-64 sm:h-80 rounded-lg overflow-hidden bg-[var(--bg-hover)] border border-[var(--border)]">
@@ -438,6 +443,15 @@ export default async function OperatorProfilePage(
               </div>
             </section>
           )}
+
+          {/* Lead form — заявка уходит в ящик этого оператора (владелец 13.10: «форму можно») */}
+          <section id="lead-form" className="ds-card p-5 scroll-mt-24">
+            <h2 className="font-playfair text-2xl font-bold mb-1">Написать оператору</h2>
+            <p className="text-sm text-[var(--text-secondary)] mb-4">
+              Заявка попадёт в кабинет оператора «{profile.name}» на Ведаре. Ответит он сам — по телефону или в мессенджере.
+            </p>
+            <OperatorLeadForm partnerSlug={profile.slug} partnerName={profile.name} />
+          </section>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Contacts */}
