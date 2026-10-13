@@ -2,7 +2,8 @@
  * CRM 2г-4: уведомления менеджерам команды оператора (решение владельца
  * 11.10: «уведомления менеджерам — да»).
  *
- * Что держит сторож:
+ * Что держит сторож (вызовами; по тексту исходника — только запреты, CLAUDE.md
+ * §4 «Сторож судит поведение, не текст»):
  *  - ссылка менеджера (`om_`) подписана своим доменом: ссылка кабинета (`op_`)
  *    ею не проходит, и наоборот; срок, подпись и «нет секрета» — разные исходы;
  *  - чат пишется только в АКТИВНУЮ строку команды; владелец узнаёт о привязке;
@@ -10,12 +11,17 @@
  *    с названным получателем; кнопки — только ссылки (действие в чате
  *    менеджера было бы мёртвым); «не смог прочитать команду» — не «никого нет»;
  *    заглушка в Telegram — штатный исход, а не отказ; шлётся параллельно;
- *  - каждая дверь уведомления кабинета о новой работе шлёт копию команде
- *    (бронь — все вызовы notifyNewBooking с кабинетом, бронь из чата
- *    Кузьмича, личная заявка, запрос мест) — список дверей закрыт;
- *  - адрес менеджера пишут только привязка и снятие (закрытый список);
- *  - оба бота разбирают `om_`; MAX — только из заверенного апдейта;
- *  - снятие из команды стирает адрес; роут менеджера берёт строку из гарда.
+ *  - вызова notifyNewBooking без кабинета нет; адрес менеджера не пишет никто,
+ *    кроме привязки и снятия; снятие стирает адрес;
+ *  - роут менеджера берёт строку из гарда, владельцу ссылку не выдаёт.
+ *
+ * Двери и экраны проверяются вызовом и рендером рядом:
+ *  - бронь (notifyNewBooking, задача «нет канала») — operator-booking-team-copy;
+ *  - бронь из чата Кузьмича — kuzmich-booking-team-copy;
+ *  - личная заявка — lead-personal-to-operator; запрос мест — seat-requests;
+ *  - оба бота и `om_` — member-channel-bots;
+ *  - баннеры кабинета — operator-layout-banners, member-channel-banner;
+ *  - подписи на «Команде» — operator-team-notify-labels.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { execSync } from 'node:child_process';
@@ -177,25 +183,23 @@ describe('рассылка команде', () => {
     expect(lines[0]).toMatch(/менеджеру m2 не ушло ни в MAX, ни в Telegram/);
   });
 
-  it('задача администратору «нет канала» знает, дошли ли контакты до команды', () => {
-    const src = read('lib/notifications/operator-booking.ts');
-    expect(src).toMatch(/const teamDelivered = team\?\.state === 'sent' \? team\.delivered : 0;/);
-    expect(src).toMatch(/teamDelivered > 0\s*\?\s*`<b>У кабинета оператора нет своего канала — бронь с контактами туриста дошла только до менеджеров команды/);
-  });
-
-  it('кнопки рассылки — только ссылки (тип не пускает действие)', () => {
-    const src = read('lib/operators/team-notify.ts');
-    expect(src).toMatch(/buttons\?: Array<\{ text: string; url: string \}>/);
+  it('кнопка-действие до чата менеджера не доходит — только ссылки', async () => {
+    query.mockResolvedValueOnce({ rows: [{ member_id: 'm1', max_chat_id: '11', telegram_chat_id: null }] });
+    const mixed = { ...msg, buttons: [{ text: 'Есть места', payload: 'sr:yes:1' }, ...msg.buttons] } as never;
+    await tn.notifyTeam(CABINET, mixed, 'запрос мест 1');
+    expect(pdMock.mock.calls[0][0].buttons).toEqual(msg.buttons);
   });
 });
 
-describe('двери уведомлений кабинета шлют копию команде', () => {
-  const files = () => execSync("git ls-files 'app' 'lib'", { encoding: 'utf-8' }).split('\n').filter(f => /\.tsx?$/.test(f));
-
-  it('каждый вызов notifyNewBooking называет кабинет', () => {
+describe('вызова notifyNewBooking без кабинета быть не должно', () => {
+  // Запрет, а не поиск строки-обещания: бронь, ушедшая без кабинета, до
+  // менеджеров не дойдёт. Что notifyNewBooking делает с кабинетом, держит
+  // вызов (operator-booking-team-copy).
+  it('у каждого вызова есть operator_partner_id', () => {
+    const files = execSync("git ls-files 'app' 'lib'", { encoding: 'utf-8' }).split('\n').filter(f => /\.tsx?$/.test(f));
     const missing: string[] = [];
     let calls = 0;
-    for (const f of files()) {
+    for (const f of files) {
       if (f === 'lib/notifications/operator-booking.ts') continue;
       const src = read(f);
       for (const m of src.matchAll(/notifyNewBooking\(\{/g)) {
@@ -204,27 +208,13 @@ describe('двери уведомлений кабинета шлют копию
         if (!/operator_partner_id:/.test(body)) missing.push(f);
       }
     }
-    expect(calls, 'вызовы notifyNewBooking найдены').toBeGreaterThanOrEqual(3);
+    expect(calls, 'вызовы notifyNewBooking не найдены — правило проверять нечем').toBeGreaterThanOrEqual(3);
     expect(missing, 'бронь без кабинета не дойдёт до менеджеров').toEqual([]);
-    expect(read('lib/notifications/operator-booking.ts')).toMatch(/notifyTeam\(payload\.operator_partner_id, \{ text, stub, buttons: \[link\] \}/);
-  });
-
-  it('бронь из чата Кузьмича, личная заявка и запрос мест — копия команде', () => {
-    expect(read('lib/kuzmich/core.ts')).toMatch(/notifyTeamOfTour\(b\.tour\.id, \{ text, stub, buttons \}/);
-    const lead = read('lib/notifications/lead-notify.ts');
-    const personal = lead.slice(lead.indexOf('export async function notifyPartnerNewLeadPersonally'));
-    // До проверки адреса кабинета: у команды свои адреса.
-    expect(personal.indexOf('notifyTeam(params.operatorId')).toBeGreaterThan(0);
-    expect(personal.indexOf('notifyTeam(params.operatorId')).toBeLessThan(personal.indexOf('reachForPartner(params.operatorId)'));
-    const seat = read('lib/seat-requests/service.ts');
-    const team = seat.slice(seat.indexOf('await notifyTeam('), seat.indexOf('await notifyTeam(') + 400);
-    expect(team).toMatch(/tour\.operator_id/);
-    expect(team).not.toMatch(/payload/);
   });
 });
 
 describe('адрес менеджера: кто пишет и кто стирает', () => {
-  it('пишут только привязка и снятие (закрытый список)', () => {
+  it('адрес менеджера не пишет никто, кроме привязки и снятия', () => {
     const writers = execSync("git ls-files 'app' 'lib'", { encoding: 'utf-8' }).split('\n')
       .filter(f => /\.tsx?$/.test(f))
       .filter(f => {
@@ -235,24 +225,26 @@ describe('адрес менеджера: кто пишет и кто стира�
     expect(writers).toEqual(['lib/operators/member-channel.ts', 'lib/operators/team.ts']);
   });
 
-  it('снятие из команды стирает адрес тем же запросом', () => {
-    const team = read('lib/operators/team.ts');
-    const revoke = team.slice(team.indexOf('export async function revokeMember'));
-    expect(revoke.slice(0, revoke.indexOf('RETURNING'))).toMatch(/max_chat_id = NULL, telegram_chat_id = NULL/);
-  });
-
-  it('оба бота разбирают om_; MAX — только из заверенного апдейта', () => {
-    expect(read('app/api/telegram/webhook/route.ts')).toMatch(/handleMemberStart\(arg, 'telegram', update\.message\.chat\.id/);
-    const max = read('app/api/max/kuzmich/route.ts');
-    const gate = max.indexOf('if (opts?.verifiedOrigin === true) {');
-    const call = max.indexOf("handleMemberStart(startArg, 'max'");
-    expect(gate).toBeGreaterThan(0);
-    expect(call).toBeGreaterThan(gate);
-    expect(call).toBeLessThan(max.indexOf('let capturedStart'));
-  });
-
-  it('кабинет менеджеру показывает его баннер, владельцу — баннер кабинета', () => {
-    expect(read('app/hub/operator/layout.tsx')).toMatch(/isManagerSeat\(seat\) \? <MemberChannelBanner \/> : <PartnerChannelBanner \/>/);
+  it('снятие из команды стирает адрес тем же запросом, что ставит revoked', async () => {
+    // SQL — артефакт: его смысл (какие колонки обнуляются в UPDATE снятия)
+    // проверяется на запросе, который действительно уходит в базу. На
+    // настоящем PostgreSQL то же проверено pg-скриптом (см. PR).
+    const sent: Array<[string, unknown[]]> = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        sent.push([sql, params ?? []]);
+        return /SET status = 'revoked'/.test(sql) ? { rows: [{ id: MEMBER, user_id: null }] } : { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    const { pool } = await import('@/lib/db-pool');
+    vi.mocked(pool.connect).mockResolvedValueOnce(client as never);
+    const { revokeMember } = await import('@/lib/operators/team');
+    await revokeMember(CABINET, MEMBER, '00000000-0000-4000-8000-0000000000a1');
+    const revoke = sent.find(([sql]) => /SET status = 'revoked'/.test(sql))![0];
+    for (const col of ['max_chat_id', 'telegram_chat_id', 'channel_bound_at']) {
+      expect(revoke, `${col} не стирается при снятии`).toMatch(new RegExp(`${col} = NULL`));
+    }
   });
 });
 

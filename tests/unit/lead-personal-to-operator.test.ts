@@ -46,7 +46,7 @@ beforeEach(() => {
   pdMock.mockReset();
   pdMock.mockResolvedValue({ channel: 'max', delivered: true, reason: 'ok' });
   teamMock.mockReset();
-  teamMock.mockResolvedValue({ state: 'sent', members: 0, delivered: 0 });
+  teamMock.mockResolvedValue({ state: 'sent', members: 0, delivered: 0, stubbed: 0 });
 });
 
 describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД только в MAX', () => {

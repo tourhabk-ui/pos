@@ -20,6 +20,7 @@ const confirmMock = vi.hoisted(() => vi.fn());
 const notifyOpMock = vi.hoisted(() => vi.fn());
 const tgSendMock = vi.hoisted(() => vi.fn<(m: { chatId: string; text: string }) => Promise<{ success: boolean }>>());
 const maxSendMock = vi.hoisted(() => vi.fn<(chatId: string | number, text: string) => Promise<{ ok: boolean }>>());
+const teamMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) } }));
 vi.mock('@/lib/partners/reach', () => ({ reachForPartner: (id: string) => reachMock(id) }));
@@ -28,6 +29,7 @@ vi.mock('@/lib/notifications/telegram', () => ({ telegramService: { sendMessage:
 vi.mock('@/lib/notifications/max-channel', () => ({ maxSendDm: (c: string | number, t: string) => maxSendMock(c, t) }));
 vi.mock('@/lib/bookings/booking.service', () => ({ confirmBooking: (...a: unknown[]) => confirmMock(...a) }));
 vi.mock('@/lib/bookings/notify-operator', () => ({ notifyOperatorOfNewBooking: (b: unknown) => notifyOpMock(b) }));
+vi.mock('@/lib/operators/team-notify', () => ({ notifyTeam: (...a: unknown[]) => teamMock(...a) }));
 vi.mock('@/lib/bookings/reserve', async () => {
   class ReserveError extends Error { constructor(public code: string, m: string) { super(m); } }
   return { reserveBooking: (i: unknown) => reserveMock(i), ReserveError };
@@ -66,7 +68,8 @@ beforeEach(() => {
   vi.stubEnv('JWT_SECRET', 'test-secret-long-enough-0123456789');
   vi.stubEnv('CONNECT_TOKEN_SECRET', '');
   vi.stubEnv('ENCRYPTION_KEY', 'a'.repeat(64));
-  for (const m of [poolQueryMock, reachMock, pdAlertMock, reserveMock, confirmMock, notifyOpMock, tgSendMock, maxSendMock]) m.mockReset();
+  for (const m of [poolQueryMock, reachMock, pdAlertMock, reserveMock, confirmMock, notifyOpMock, tgSendMock, maxSendMock, teamMock]) m.mockReset();
+  teamMock.mockResolvedValue({ state: 'sent', members: 0, delivered: 0, stubbed: 0 });
   tgSendMock.mockResolvedValue({ success: true });
   maxSendMock.mockResolvedValue({ ok: true });
   notifyOpMock.mockResolvedValue({ state: 'notified', outcome: { state: 'delivered', channel: 'max' } });
@@ -380,6 +383,30 @@ describe('создание запроса', () => {
     const upd = findCall(/SET operator_delivery/)!;
     expect(upd[0]).toMatch(/failure_kind = CASE WHEN \$3::boolean THEN 'delivery'/);
     expect(upd[1]).toEqual([RID, 'none', true, expect.stringContaining('MAX отказал')]);
+    // Запрос закрыт — команде слать нечего: «ответьте до …» было бы ложью.
+    expect(teamMock).not.toHaveBeenCalled();
+  });
+
+  it('команде кабинета (CRM 2г-4) — тот же текст без ПД и только ссылка «Ответить на сайте»', async () => {
+    setDb([TOUR, { match: /AS op_pending/, rows: [{ op_pending: 0, phone_pending: 0, phone_day: 0 }] },
+      { match: /INSERT INTO tour_seat_requests/, rows: [{ id: RID }] }]);
+    reachMock.mockResolvedValue(reachOk);
+    pdAlertMock.mockResolvedValue({ channel: 'max', delivered: true, reason: 'ok' });
+    expect(await createSeatRequest(input)).toMatchObject({ ok: true });
+
+    expect(teamMock).toHaveBeenCalledTimes(1);
+    const [cabinet, msg, what] = teamMock.mock.calls[0] as [string, { text: string; stub: string; buttons: Array<Record<string, string>> }, string];
+    expect(cabinet).toBe('op');
+    expect(what).toBe(`запрос мест ${RID}`);
+    const owner = pdAlertMock.mock.calls[0]![0] as { text: string };
+    expect(msg.text).toBe(owner.text);
+    expect(msg.stub).toBe(msg.text);
+    // Контакты туриста оператор получает только после «есть места» (решение 29.09).
+    expect(msg.text).not.toContain('Иван Петров');
+    expect(msg.text).not.toMatch(/900.?000/);
+    // Кнопки «Есть места / Мест нет» бот примет только из чата кабинета —
+    // менеджеру одна ссылка на страницу ответа.
+    expect(msg.buttons).toEqual([{ text: 'Ответить на сайте', url: expect.stringContaining(`/seat-request/answer/${RID}?k=`) }]);
   });
 });
 

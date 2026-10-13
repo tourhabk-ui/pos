@@ -72,6 +72,11 @@ export interface TeamMessage {
   buttons?: Array<{ text: string; url: string }>;
 }
 
+/** Только ссылки: тип это держит при сборке, фильтр — при вызове в обход типа. */
+function linkButtons(buttons: TeamMessage['buttons']): TeamMessage['buttons'] {
+  return buttons?.filter((b) => typeof (b as { url?: unknown }).url === 'string');
+}
+
 export type TeamNotifyResult =
   /** members — кому слали; delivered — ПД дошли в MAX; stubbed — дошла только заглушка в Telegram. */
   | { state: 'sent'; members: number; delivered: number; stubbed: number }
@@ -87,12 +92,13 @@ export async function notifyTeam(partnerId: string, msg: TeamMessage, what: stri
     console.error(`[team-notify] ${what}: команде кабинета ${partnerId} не разослано — команда не прочитана`);
     return { state: 'unknown' };
   }
+  const buttons = linkButtons(msg.buttons);
   const channels = await Promise.all(members.map(async (m): Promise<PdAlertChannel> => {
     try {
       const res = await sendPdAlert({
         text: msg.text,
         stub: msg.stub,
-        buttons: msg.buttons,
+        buttons,
         to: { maxChatId: m.maxChatId, telegramChatId: m.telegramChatId },
       });
       if (res.channel === 'none') console.error(`[team-notify] ${what}: менеджеру ${m.memberId} не ушло ни в MAX, ни в Telegram — ${res.reason}`);
