@@ -74,7 +74,7 @@ function kindClass(kind: AgentKind): string {
 
 function ErrorCard({ title, error, consequence }: { title: string; error: string; consequence: string }) {
   return (
-    <div className="ds-card border-[var(--danger)]">
+    <div className="ds-card p-4 border-[var(--danger)]">
       <div className="flex items-start gap-2">
         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--danger)' }} aria-hidden />
         <div>
@@ -220,7 +220,7 @@ export default function A2aClient() {
                 consequence="Это отказ чтения, а не «никто не приходил»: журнал пишется при каждом запросе, но прочитать его сейчас не удалось."
               />
             ) : a2a.total_all_time === 0 ? (
-              <div className="ds-card">
+              <div className="ds-card p-4">
                 <p className="font-medium text-[var(--text-primary)]">Журнал пуст</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-2xl">
                   Он заведён этим деплоем и пишет каждый запрос к <code>/api/a2a</code> и <code>/api/a2a/v1</code>, включая
@@ -229,7 +229,7 @@ export default function A2aClient() {
                 </p>
               </div>
             ) : a2a.total_window === 0 ? (
-              <div className="ds-card">
+              <div className="ds-card p-4">
                 <p className="font-medium text-[var(--text-primary)]">За {data.window_days} дн. — ни одного запроса</p>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">
                   Журнал ведётся с {a2a.since}; всего записей {a2a.total_all_time}. Расширьте окно, чтобы увидеть прежние.
@@ -238,25 +238,25 @@ export default function A2aClient() {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="ds-card">
+                  <div className="ds-card p-4">
                     <p className="text-xs text-[var(--text-muted)]">Запросов за окно</p>
                     <p className="text-2xl font-semibold text-[var(--text-primary)]">{a2a.total_window}</p>
                   </div>
-                  <div className="ds-card">
+                  <div className="ds-card p-4">
                     <p className="text-xs text-[var(--text-muted)]">Агентов (самоназваний)</p>
                     <p className="text-2xl font-semibold text-[var(--text-primary)]">{a2a.by_agent.length}</p>
                   </div>
-                  <div className="ds-card">
+                  <div className="ds-card p-4">
                     <p className="text-xs text-[var(--text-muted)]">Внешних агентов</p>
                     <p className="text-2xl font-semibold text-[var(--text-primary)]">{a2a.by_agent.filter((r) => r.kind === 'external').length}</p>
                   </div>
-                  <div className="ds-card">
+                  <div className="ds-card p-4">
                     <p className="text-xs text-[var(--text-muted)]">Журнал ведётся с</p>
                     <p className="text-2xl font-semibold text-[var(--text-primary)]">{a2a.since ?? '—'}</p>
                   </div>
                 </div>
 
-                <div className="ds-card overflow-x-auto">
+                <div className="ds-card p-4 overflow-x-auto">
                   <p className="text-xs font-semibold text-[var(--text-secondary)] mb-2">Кто приходит</p>
                   <table className="w-full text-xs">
                     <thead>
@@ -291,7 +291,7 @@ export default function A2aClient() {
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-3">
-                  <div className="ds-card">
+                  <div className="ds-card p-4">
                     <p className="text-xs font-semibold text-[var(--text-secondary)] mb-2">По дням (камчатские сутки)</p>
                     <ul className="space-y-1">
                       {a2a.by_day.map((d) => (
@@ -305,7 +305,7 @@ export default function A2aClient() {
                       ))}
                     </ul>
                   </div>
-                  <div className="ds-card overflow-x-auto">
+                  <div className="ds-card p-4 overflow-x-auto">
                     <p className="text-xs font-semibold text-[var(--text-secondary)] mb-2">Инструменты через A2A</p>
                     {a2a.by_tool.length === 0 ? (
                       <p className="text-xs text-[var(--text-muted)]">За окно инструменты через DataPart не звали — только текст или визитка.</p>
@@ -327,7 +327,7 @@ export default function A2aClient() {
                   </div>
                 </div>
 
-                <div className="ds-card overflow-x-auto">
+                <div className="ds-card p-4 overflow-x-auto">
                   <p className="text-xs font-semibold text-[var(--text-secondary)] mb-2">Последние запросы (до {a2a.recent_limit}, без привязки к окну)</p>
                   <table className="w-full text-xs">
                     <thead>
@@ -370,7 +370,7 @@ export default function A2aClient() {
               {!data.dialogs.ok ? (
                 <ErrorCard title="Журнал общения не прочитался" error={data.dialogs.error} consequence="Это отказ чтения a2a_dialogs, а не «агенты ничего не спрашивали»." />
               ) : data.dialogs.items.length === 0 ? (
-                <div className="ds-card">
+                <div className="ds-card p-4">
                   <p className="text-sm text-[var(--text-secondary)]">
                     {data.dialogs.since
                       ? `Разговоров за ${data.dialogs.retention_days} сут. нет.`
@@ -378,7 +378,7 @@ export default function A2aClient() {
                   </p>
                 </div>
               ) : (
-                <div className="ds-card">
+                <div className="ds-card p-4">
                   <p className="text-[10px] text-[var(--text-muted)] mb-3">
                     Последние {data.dialogs.items.length} из {data.dialogs.total} реплик (ведётся с {data.dialogs.since}).
                     Телефоны и почты вычищены до записи, текст хранится {data.dialogs.retention_days} суток.
@@ -398,11 +398,11 @@ export default function A2aClient() {
             {!data.mcp.ok ? (
               <ErrorCard title="Клиенты MCP не прочитались" error={data.mcp.error} consequence="Это отказ чтения mcp_clients, а не «никто не подключался»." />
             ) : data.mcp.clients.length === 0 ? (
-              <div className="ds-card">
+              <div className="ds-card p-4">
                 <p className="text-sm text-[var(--text-secondary)]">За {data.window_days} дн. рукопожатий и вызовов MCP не было.</p>
               </div>
             ) : (
-              <div className="ds-card overflow-x-auto">
+              <div className="ds-card p-4 overflow-x-auto">
                 <p className="text-[10px] text-[var(--text-muted)] mb-2">
                   Клиент называет себя сам при подключении («представился»); заголовок — запасной ответ, когда рукопожатия не было.
                   Подробный срез вызовов — <a className="underline" style={{ color: 'var(--ocean)' }} href="/hub/admin/mcp">Запросы через MCP</a>.
@@ -433,7 +433,7 @@ export default function A2aClient() {
             {!data.entries.ok ? (
               <ErrorCard title="Счётчик входов не прочитался" error={data.entries.error} consequence="Это отказ чтения agent_entry_hits, а не «никто не читает»." />
             ) : data.entries.total_window === 0 ? (
-              <div className="ds-card">
+              <div className="ds-card p-4">
                 <p className="text-sm text-[var(--text-secondary)]">
                   {data.entries.since
                     ? `За ${data.window_days} дн. ни одного запроса к входам; счётчик ведётся с ${data.entries.since}.`
@@ -441,7 +441,7 @@ export default function A2aClient() {
                 </p>
               </div>
             ) : (
-              <div className="ds-card overflow-x-auto">
+              <div className="ds-card p-4 overflow-x-auto">
                 <p className="text-[10px] text-[var(--text-muted)] mb-2">
                   Входы: robots.txt, llms.txt, манифест MCP, визитки A2A, карточка сервера, AI Catalog, OpenAPI, каталог API.
                   Семейство — по самоназванию обходчика; вызовы инструментов сюда не входят.
