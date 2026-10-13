@@ -316,6 +316,12 @@ describe('срез /api/admin/analytics/a2a', () => {
   const adminReq = (qs = '') => new NextRequest(`http://localhost/api/admin/analytics/a2a${qs}`, { method: 'GET' });
 
   function answer(sql: string): { rows: unknown[] } {
+    // Журнал общения (1225) — раньше общего «ORDER BY created_at DESC»: тот
+    // ловит и последние запросы, и последние реплики.
+    if (/AS total FROM a2a_dialogs/.test(sql)) return { rows: [{ since: '2026-10-13', total: 1 }] };
+    if (/FROM a2a_dialogs/.test(sql)) {
+      return { rows: [{ at: '2026-10-13 16:21:00', agent: 'brick.blue-proxy', ua_family: 'неизвестен', is_self: false, context_key: 'a'.repeat(32), turn: 1, question: 'Что с погодой на Горелом? [телефон]', answer: 'Ответ Кузьмича', state: 'completed', duration_ms: 8085 }] };
+    }
     if (/AS total FROM a2a_requests/.test(sql)) return { rows: [{ since: '2026-10-12', total: 3 }] };
     if (/GROUP BY agent, ua_family, is_self/.test(sql)) {
       return { rows: [
@@ -364,6 +370,9 @@ describe('срез /api/admin/analytics/a2a', () => {
     expect(json.entries.ok).toBe(true);
     expect(json.entries.by_family[0]).toMatchObject({ family: 'openai', vendor: 'OpenAI', hits: 7 });
     expect(json.entries.by_family[1].vendor).toBe(PSEUDO_FAMILY_LABELS.tool);
+    // Журнал общения: реплика с родом агента, разговор — 8 знаков hash, не contextId.
+    expect(json.dialogs).toMatchObject({ ok: true, since: '2026-10-13', total: 1, retention_days: 90, limit: 50 });
+    expect(json.dialogs.items[0]).toMatchObject({ agent: 'brick.blue-proxy', kind: 'external', dialog: 'aaaaaaaa', turn: 1, state: 'completed', duration_ms: 8085 });
     // Окно уходит параметром и считается без склейки строк (sql-interval-not-concatenated).
     const windowSql = query.mock.calls.map((c) => String(c[0])).find((s) => /GROUP BY agent, ua_family, is_self/.test(s)) ?? '';
     expect(windowSql).toContain("created_at >= NOW() - ($1::int * INTERVAL '1 day')");
@@ -384,6 +393,7 @@ describe('срез /api/admin/analytics/a2a', () => {
     expect(json.degraded).toEqual(['a2a']);
     expect(json.mcp.ok).toBe(true);
     expect(json.entries.ok).toBe(true);
+    expect(json.dialogs.ok).toBe(true);
     expect(err).toHaveBeenCalledWith(expect.stringContaining('[admin/analytics/a2a] блок a2a не прочитался: SQLSTATE=42P01'), expect.any(String));
   });
 

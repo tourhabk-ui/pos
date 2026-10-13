@@ -17,6 +17,7 @@ import { runPublicTool } from '@/app/api/mcp/route';
 import { answerAgentMessage } from '@/lib/a2a/chat';
 import type { A2AExecutors, A2AResult } from '@/lib/a2a/handle';
 import { logA2aRequest, sendMessageFacts, type A2aBinding, type A2aJournalOp } from '@/lib/a2a/journal';
+import { logA2aDialog } from '@/lib/a2a/dialog-log';
 import { readVersion, type VersionRead } from '@/lib/a2a/wire';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
@@ -35,9 +36,26 @@ export function buildExecutors(request: NextRequest): A2AExecutors {
   const self = isSelfMcpCaller(request.nextUrl);
   return {
     runTool: (toolName, rawArguments) => runPublicTool({ toolName, rawArguments, ip, userAgent, self }),
-    chat: async (text, history) => {
+    chat: async (text, history, contextId) => {
+      // Отказ по лимиту — без записи в журнал общения: он виден в журнале
+      // запросов, а его текст дал бы спамеру писать в базу без предела.
       if (!chatLimiter.check(`a2a-chat:${ip}`)) return { ok: false, text: CHAT_RATE_LIMITED_TEXT, rejected: true };
-      return answerAgentMessage(text, history);
+      const startedAt = Date.now();
+      const answer = await answerAgentMessage(text, history);
+      // Журнал общения (решение владельца 13.10): что спросили и что ответили,
+      // после redactPII и на 90 суток — lib/a2a/dialog-log.
+      logA2aDialog({
+        question: text,
+        answer: answer.text,
+        state: answer.ok ? 'completed' : (answer.rejected ? 'rejected' : 'failed'),
+        contextId,
+        turn: history.filter((t) => t.role === 'user').length + 1,
+        durationMs: Date.now() - startedAt,
+        ip,
+        userAgent,
+        self,
+      });
+      return answer;
     },
   };
 }
