@@ -1,0 +1,74 @@
+name: Снимки из миграций в хранилище
+
+# Снимки, вшитые в migrations/ hex-литералами (decode('…','hex')), — в бакет под
+# migrations/photos/<sha256>.jpg (решение владельца 13.10: «согласен, перенеси
+# в S3»). Список — в маркере .github/triggers/migration-photos-to-s3.json,
+# построенном из самих миграций; перед заливкой он сверяется с ними заново,
+# каждый объект после заливки читается обратно по публичному адресу.
+#
+# Где исполняется (§8): раннер (ключи S3); прод только раздаёт. Миграции,
+# которые перестанут носить байты и начнут писать ключи, идут ОТДЕЛЬНЫМ PR
+# после того, как этот прогон отчитался «каждый снимок лежит» (образец — 1194).
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - '.github/triggers/migration-photos-to-s3.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-photos-to-s3
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+
+      - name: Параметры — из файла-триггера
+        id: cfg
+        run: |
+          set -euo pipefail
+          UPLOAD=$(python3 -c "import json;print(str(json.load(open('.github/triggers/migration-photos-to-s3.json')).get('upload',False)).lower())")
+          echo "upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "заливка: $UPLOAD"
+
+      - name: Сверить маркер с миграциями, залить и прочитать обратно
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${{ steps.cfg.outputs.upload }}" != "true" ]; then FLAG="--dry-run"; fi
+          mkdir -p .cache/media
+          npx tsx scripts/migration-photos-to-s3.ts $FLAG | tee .cache/media/migration-photos.log
+
+      - name: Итог — в сводку прогона
+        if: always()
+        run: |
+          {
+            echo '### Снимки из миграций в хранилище'
+            echo '```'
+            cat .cache/media/migration-photos.log 2>/dev/null || echo 'лог не найден'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Снимки НЕ залиты — сказать это громко
+        if: ${{ steps.cfg.outputs.upload != 'true' }}
+        run: |
+          echo "::warning::Сухой прогон: список сверен с миграциями, в хранилище ничего не записано (upload=false)."

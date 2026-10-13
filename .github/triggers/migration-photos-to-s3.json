@@ -1,0 +1,1239 @@
+{
+  "upload": true,
+  "run": 1,
+  "note": "13.10, решение владельца «согласен, перенеси в S3» (п. 5 списка улучшений). Прогон 1: все 154 снимка из 59 миграций (24 708 445 байт; 52 героя ai_route_images, 102 кадра place_gallery_photos; пять дублей по хэшу лягут одним объектом) — в migrations/photos/<sha256>.jpg. Фаза 1: только заливка и чтение обратно; миграции байты пока носят. Фаза 2 (отдельный PR после «каждый снимок лежит»): миграции пишут s3_key вместо байтов, прод-строки переводятся по sha256(image_data), раздача читает ключ.",
+  "items": [
+    {
+      "migration": "1000_bolshoy_kar_zhukova_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "35abcb1cd064cd7dfa14a14e2e43275919da06d9310753f4455a974f2a0630b0",
+      "bytes": 169566,
+      "key": "migrations/photos/35abcb1cd064cd7dfa14a14e2e43275919da06d9310753f4455a974f2a0630b0.jpg"
+    },
+    {
+      "migration": "1001_alaid_photo_unattributed_yields.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "6b4c7452bce2806b480474c175439d67649c6e24237a615f5b253fda78e1c799",
+      "bytes": 144728,
+      "key": "migrations/photos/6b4c7452bce2806b480474c175439d67649c6e24237a615f5b253fda78e1c799.jpg"
+    },
+    {
+      "migration": "1002_snezhnaya_dolina_is_a_base.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "28cc9f6881533d31fc28f1bc4b8c2d87852c83e40db8361de1f76bb1435cbf36",
+      "bytes": 405914,
+      "key": "migrations/photos/28cc9f6881533d31fc28f1bc4b8c2d87852c83e40db8361de1f76bb1435cbf36.jpg"
+    },
+    {
+      "migration": "1007_tolmacheva_lake_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "f517dc0ad0daca916fe7a67006a92a53b4f52c7981b379db8af2903ab216484c",
+      "bytes": 103926,
+      "key": "migrations/photos/f517dc0ad0daca916fe7a67006a92a53b4f52c7981b379db8af2903ab216484c.jpg"
+    },
+    {
+      "migration": "1007_tolmacheva_lake_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "9c573d9cf5b6bc2aadda98e24c1a65e5ac4502c6e60e0706a57d346cb02761c1",
+      "bytes": 44818,
+      "key": "migrations/photos/9c573d9cf5b6bc2aadda98e24c1a65e5ac4502c6e60e0706a57d346cb02761c1.jpg"
+    },
+    {
+      "migration": "1007_tolmacheva_lake_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "0f47b90912a5d7990ad4ff58f2a46f08a825e22a3a74f0e37f41c7e75bef8a0e",
+      "bytes": 44341,
+      "key": "migrations/photos/0f47b90912a5d7990ad4ff58f2a46f08a825e22a3a74f0e37f41c7e75bef8a0e.jpg"
+    },
+    {
+      "migration": "1007_tolmacheva_lake_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "3aa833ce843057ea975e2b3bd4ac41b58c3e8aa15575fdd8c15f132655ab3027",
+      "bytes": 74283,
+      "key": "migrations/photos/3aa833ce843057ea975e2b3bd4ac41b58c3e8aa15575fdd8c15f132655ab3027.jpg"
+    },
+    {
+      "migration": "1007_tolmacheva_lake_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "ed47c24ce0b787e363c9162f3857848bcab6a50069610724b9ee3015d63119d9",
+      "bytes": 97751,
+      "key": "migrations/photos/ed47c24ce0b787e363c9162f3857848bcab6a50069610724b9ee3015d63119d9.jpg"
+    },
+    {
+      "migration": "1007_tolmacheva_lake_photos.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "8ad867b2d90ea76dfebf6bceae80c5be4702a6131f50c1e809fe1f8661801f36",
+      "bytes": 30746,
+      "key": "migrations/photos/8ad867b2d90ea76dfebf6bceae80c5be4702a6131f50c1e809fe1f8661801f36.jpg"
+    },
+    {
+      "migration": "1008_malki_hot_springs_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "ea4ac97f140b46e3af8b87b6e518394eb24e1d089a57dddeba0fd8d1f37139f4",
+      "bytes": 66426,
+      "key": "migrations/photos/ea4ac97f140b46e3af8b87b6e518394eb24e1d089a57dddeba0fd8d1f37139f4.jpg"
+    },
+    {
+      "migration": "1008_malki_hot_springs_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "930be7f249affa0fb02ce26ba2567449655ff61932fd462c5fafb629488c9fad",
+      "bytes": 77971,
+      "key": "migrations/photos/930be7f249affa0fb02ce26ba2567449655ff61932fd462c5fafb629488c9fad.jpg"
+    },
+    {
+      "migration": "1033_mikizha_owner_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "f2c008d45cb331f5236be1944992e571f63f8e821616d0f63951605f1178488c",
+      "bytes": 214595,
+      "key": "migrations/photos/f2c008d45cb331f5236be1944992e571f63f8e821616d0f63951605f1178488c.jpg"
+    },
+    {
+      "migration": "1033_mikizha_owner_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "7d7ffec42b993e5958aba62e6f96d157c2c912058cb61a548d7122ecd13adab5",
+      "bytes": 79146,
+      "key": "migrations/photos/7d7ffec42b993e5958aba62e6f96d157c2c912058cb61a548d7122ecd13adab5.jpg"
+    },
+    {
+      "migration": "1033_mikizha_owner_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "b8192a6a93b8f7c4c88d7b0251340456ea93f72f562b33966d05f0aa0ba5b04b",
+      "bytes": 309542,
+      "key": "migrations/photos/b8192a6a93b8f7c4c88d7b0251340456ea93f72f562b33966d05f0aa0ba5b04b.jpg"
+    },
+    {
+      "migration": "1036_mikizha_vilyuchinsky_view.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "30494ef171e05e79c40796bb6e3ba15457ee34fffcba7723da247571aba69a06",
+      "bytes": 89177,
+      "key": "migrations/photos/30494ef171e05e79c40796bb6e3ba15457ee34fffcba7723da247571aba69a06.jpg"
+    },
+    {
+      "migration": "1037_vilyuchinsky_owner_view.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "30494ef171e05e79c40796bb6e3ba15457ee34fffcba7723da247571aba69a06",
+      "bytes": 89177,
+      "key": "migrations/photos/30494ef171e05e79c40796bb6e3ba15457ee34fffcba7723da247571aba69a06.jpg"
+    },
+    {
+      "migration": "1038_khalaktyrskoe_lake_owner_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "ceab1971753d0773bb0faf53f64df505ad287a079befd41be82cd307ce1e959d",
+      "bytes": 120042,
+      "key": "migrations/photos/ceab1971753d0773bb0faf53f64df505ad287a079befd41be82cd307ce1e959d.jpg"
+    },
+    {
+      "migration": "1038_khalaktyrskoe_lake_owner_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "fb9a17aafbd6d840a9f7d633c0170d9bdd7242450afcaa07fa70c04bb89b1430",
+      "bytes": 180114,
+      "key": "migrations/photos/fb9a17aafbd6d840a9f7d633c0170d9bdd7242450afcaa07fa70c04bb89b1430.jpg"
+    },
+    {
+      "migration": "1039_vilyuchinsky_mikizha_better_frame.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "2a3ed3fe611c1f0be0a0bc878f12b956b0798bf2c52569981149aa1ea0cdf26b",
+      "bytes": 216343,
+      "key": "migrations/photos/2a3ed3fe611c1f0be0a0bc878f12b956b0798bf2c52569981149aa1ea0cdf26b.jpg"
+    },
+    {
+      "migration": "1041_malki_steam_frame.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "00e1e11d3b5ecfba8261a4ffe85f11264d75c03f4d8473e8846c9f1e686456c3",
+      "bytes": 60700,
+      "key": "migrations/photos/00e1e11d3b5ecfba8261a4ffe85f11264d75c03f4d8473e8846c9f1e686456c3.jpg"
+    },
+    {
+      "migration": "1115_chertov_most_pravaya_avacha_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "d881eafe736334371c4b23ec602576f87d3db7fbad990d50ef309e984bc7b220",
+      "bytes": 137338,
+      "key": "migrations/photos/d881eafe736334371c4b23ec602576f87d3db7fbad990d50ef309e984bc7b220.jpg"
+    },
+    {
+      "migration": "1115_chertov_most_pravaya_avacha_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "b621b82fe302e26e79393d3c24e8daa404a29bdf804811a4702f6b7c424919d9",
+      "bytes": 189141,
+      "key": "migrations/photos/b621b82fe302e26e79393d3c24e8daa404a29bdf804811a4702f6b7c424919d9.jpg"
+    },
+    {
+      "migration": "1115_chertov_most_pravaya_avacha_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "bfe4fa9729a4586360566016941575bb66d1db3eae192448fd738a7c12c1456a",
+      "bytes": 110409,
+      "key": "migrations/photos/bfe4fa9729a4586360566016941575bb66d1db3eae192448fd738a7c12c1456a.jpg"
+    },
+    {
+      "migration": "1115_chertov_most_pravaya_avacha_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "828a5c72933dc7302f1d5275aab5d0a4f28c6ce18b8b63a239d98712a8c98de6",
+      "bytes": 139522,
+      "key": "migrations/photos/828a5c72933dc7302f1d5275aab5d0a4f28c6ce18b8b63a239d98712a8c98de6.jpg"
+    },
+    {
+      "migration": "1115_chertov_most_pravaya_avacha_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "da00eff47a5103014d62c08e7fc579c0b0c5872cffb6fb3334181655cc31ae4a",
+      "bytes": 151415,
+      "key": "migrations/photos/da00eff47a5103014d62c08e7fc579c0b0c5872cffb6fb3334181655cc31ae4a.jpg"
+    },
+    {
+      "migration": "1116_kozelsky_owner_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "2a4c6d21995eb80ea8d90cfbb33088e3de1ca2cf99f376f28f2b91e1e5871e73",
+      "bytes": 86077,
+      "key": "migrations/photos/2a4c6d21995eb80ea8d90cfbb33088e3de1ca2cf99f376f28f2b91e1e5871e73.jpg"
+    },
+    {
+      "migration": "1116_kozelsky_owner_photos.sql",
+      "n": 2,
+      "table": "ai_route_images",
+      "sha256": "2a4c6d21995eb80ea8d90cfbb33088e3de1ca2cf99f376f28f2b91e1e5871e73",
+      "bytes": 86077,
+      "key": "migrations/photos/2a4c6d21995eb80ea8d90cfbb33088e3de1ca2cf99f376f28f2b91e1e5871e73.jpg"
+    },
+    {
+      "migration": "1116_kozelsky_owner_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "973283447660868f138a13b006d81dc109c2f02456e5607fb189646389886837",
+      "bytes": 37536,
+      "key": "migrations/photos/973283447660868f138a13b006d81dc109c2f02456e5607fb189646389886837.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "0fa01233a677c2b79ffed3242079499343d31039e52586667d0301aede45f817",
+      "bytes": 197213,
+      "key": "migrations/photos/0fa01233a677c2b79ffed3242079499343d31039e52586667d0301aede45f817.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "a9ffb5a0cea9f046d3be61fdd57258adcb1cf473eb3623267bb70eb735f5c385",
+      "bytes": 148614,
+      "key": "migrations/photos/a9ffb5a0cea9f046d3be61fdd57258adcb1cf473eb3623267bb70eb735f5c385.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "533aecd121df375a1a31eac25565ef332c37314a3007711f1132cc15729cd2d0",
+      "bytes": 211242,
+      "key": "migrations/photos/533aecd121df375a1a31eac25565ef332c37314a3007711f1132cc15729cd2d0.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "69aca2cf6e090f4a4e902b85ca87f4468f6f63f1eef2e34dee7798271da4da63",
+      "bytes": 244463,
+      "key": "migrations/photos/69aca2cf6e090f4a4e902b85ca87f4468f6f63f1eef2e34dee7798271da4da63.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "5df09e1b4e0f1ad4578e7cedcc9f636156e08d12b53fefca6207dd65691e1acb",
+      "bytes": 167933,
+      "key": "migrations/photos/5df09e1b4e0f1ad4578e7cedcc9f636156e08d12b53fefca6207dd65691e1acb.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "c9fa32780ef7542f1d5338e659aef2426a67835311957d36cacacd3e93163ca0",
+      "bytes": 224969,
+      "key": "migrations/photos/c9fa32780ef7542f1d5338e659aef2426a67835311957d36cacacd3e93163ca0.jpg"
+    },
+    {
+      "migration": "1119_akvarium_levaya_avacha_photos.sql",
+      "n": 7,
+      "table": "place_gallery_photos",
+      "sha256": "a8b73722e61a146622f015f4e18f74682a7d20c9fd1ad50a577542046aa93839",
+      "bytes": 161961,
+      "key": "migrations/photos/a8b73722e61a146622f015f4e18f74682a7d20c9fd1ad50a577542046aa93839.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "261b1dfc1dec9a186a59b690a707fb6df5986dace3f0843578e38b80276c59bc",
+      "bytes": 108635,
+      "key": "migrations/photos/261b1dfc1dec9a186a59b690a707fb6df5986dace3f0843578e38b80276c59bc.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "e517d250d4aacf85a4796e76b31bd42565fce81c0bdaff4a48f1fa6465e4cf50",
+      "bytes": 115542,
+      "key": "migrations/photos/e517d250d4aacf85a4796e76b31bd42565fce81c0bdaff4a48f1fa6465e4cf50.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "77240a9563f9a9b5d99bf5be5a05626109de83c6c42ac96327144aeba40ac813",
+      "bytes": 263206,
+      "key": "migrations/photos/77240a9563f9a9b5d99bf5be5a05626109de83c6c42ac96327144aeba40ac813.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "7822bc643babadcf3853c92d1ca7068558e6bccee278edd6404a7112b1101ee4",
+      "bytes": 99955,
+      "key": "migrations/photos/7822bc643babadcf3853c92d1ca7068558e6bccee278edd6404a7112b1101ee4.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "984d48b30b47fec4846194fbd56b77e11757f8d2a131fd94a6dc55ab76fe2858",
+      "bytes": 130402,
+      "key": "migrations/photos/984d48b30b47fec4846194fbd56b77e11757f8d2a131fd94a6dc55ab76fe2858.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "69c946777a7ec42d8104bb026c300b687d66c0d65628bff0d52c05fc4c1893be",
+      "bytes": 270563,
+      "key": "migrations/photos/69c946777a7ec42d8104bb026c300b687d66c0d65628bff0d52c05fc4c1893be.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 7,
+      "table": "place_gallery_photos",
+      "sha256": "657da9873eb410c8d5c947920efd6fd8ef64685ab4182bdb865f1fbe51e857b2",
+      "bytes": 129108,
+      "key": "migrations/photos/657da9873eb410c8d5c947920efd6fd8ef64685ab4182bdb865f1fbe51e857b2.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 8,
+      "table": "place_gallery_photos",
+      "sha256": "ad58bbb3e9e2cd062d925da331696cab80ca85ff0d08b30c7585c4ecd49c4ce9",
+      "bytes": 157387,
+      "key": "migrations/photos/ad58bbb3e9e2cd062d925da331696cab80ca85ff0d08b30c7585c4ecd49c4ce9.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 9,
+      "table": "place_gallery_photos",
+      "sha256": "25e73f92e3702f09c72963215be92dd63d3d4d0ada00745c045c15aced658cab",
+      "bytes": 193344,
+      "key": "migrations/photos/25e73f92e3702f09c72963215be92dd63d3d4d0ada00745c045c15aced658cab.jpg"
+    },
+    {
+      "migration": "1120_vachkazhets_gusakova_photos.sql",
+      "n": 10,
+      "table": "place_gallery_photos",
+      "sha256": "f235e073cfb248ed778fc9d732e95fdb3ed5ebade2459d371a77286bde1eee0b",
+      "bytes": 253817,
+      "key": "migrations/photos/f235e073cfb248ed778fc9d732e95fdb3ed5ebade2459d371a77286bde1eee0b.jpg"
+    },
+    {
+      "migration": "1121_vilyuchinsky_pass_gusakova_photos.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "db9ddea1dd8ec2e9a654078987b4ccfd32eb1a78f2c9c58e775ecfbb8fe6c9c9",
+      "bytes": 65431,
+      "key": "migrations/photos/db9ddea1dd8ec2e9a654078987b4ccfd32eb1a78f2c9c58e775ecfbb8fe6c9c9.jpg"
+    },
+    {
+      "migration": "1121_vilyuchinsky_pass_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "a8b9f3741823e833661dfd936c8fab62c2e79a2d57587af42114e68457f92b85",
+      "bytes": 85486,
+      "key": "migrations/photos/a8b9f3741823e833661dfd936c8fab62c2e79a2d57587af42114e68457f92b85.jpg"
+    },
+    {
+      "migration": "1121_vilyuchinsky_pass_gusakova_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "f16195016b815c0119155ca02cf078368d06c33dbd018811c9a91d8783f02dd2",
+      "bytes": 149188,
+      "key": "migrations/photos/f16195016b815c0119155ca02cf078368d06c33dbd018811c9a91d8783f02dd2.jpg"
+    },
+    {
+      "migration": "1121_vilyuchinsky_pass_gusakova_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "e8e7def7f599fac3cb2a5c1b4a775424425baa3782d400595b24214c088ebdb8",
+      "bytes": 220607,
+      "key": "migrations/photos/e8e7def7f599fac3cb2a5c1b4a775424425baa3782d400595b24214c088ebdb8.jpg"
+    },
+    {
+      "migration": "1121_vilyuchinsky_pass_gusakova_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "e2c7051b6d2293797c9f4bee72477346e922a6db6784aeb05e026d00b0254bf8",
+      "bytes": 103888,
+      "key": "migrations/photos/e2c7051b6d2293797c9f4bee72477346e922a6db6784aeb05e026d00b0254bf8.jpg"
+    },
+    {
+      "migration": "1121_vilyuchinsky_pass_gusakova_photos.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "baa03f5e356f38a30c00818154562923798a2321ac39cb58f0260f82e37b0a6c",
+      "bytes": 91284,
+      "key": "migrations/photos/baa03f5e356f38a30c00818154562923798a2321ac39cb58f0260f82e37b0a6c.jpg"
+    },
+    {
+      "migration": "1122_gorely_lava_caves_gusakova_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "0148e729faaffe23aab50b19045195f4593f4640f9e0c91d6b23e1be5205c6f4",
+      "bytes": 154160,
+      "key": "migrations/photos/0148e729faaffe23aab50b19045195f4593f4640f9e0c91d6b23e1be5205c6f4.jpg"
+    },
+    {
+      "migration": "1122_gorely_lava_caves_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "31b11db6aa362bc809f6cc2115a6bcca761b51e4a927986bb51fc4bd357c9eec",
+      "bytes": 91226,
+      "key": "migrations/photos/31b11db6aa362bc809f6cc2115a6bcca761b51e4a927986bb51fc4bd357c9eec.jpg"
+    },
+    {
+      "migration": "1122_gorely_lava_caves_gusakova_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "eca1047b9680b1a2a580daec73470396051e7056bbbe8fc8139ca4721bc4c48a",
+      "bytes": 106678,
+      "key": "migrations/photos/eca1047b9680b1a2a580daec73470396051e7056bbbe8fc8139ca4721bc4c48a.jpg"
+    },
+    {
+      "migration": "1125_mutnovsky_geopp_gusakova_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "6f00f8643f72eeda1bd562d45ed7510eca53120442fb40730d10869d8b19f30e",
+      "bytes": 167375,
+      "key": "migrations/photos/6f00f8643f72eeda1bd562d45ed7510eca53120442fb40730d10869d8b19f30e.jpg"
+    },
+    {
+      "migration": "1125_mutnovsky_geopp_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "03a5dec01ee8990a3a7e3199b560634325b81762e54e188dcbfdb27701980484",
+      "bytes": 161555,
+      "key": "migrations/photos/03a5dec01ee8990a3a7e3199b560634325b81762e54e188dcbfdb27701980484.jpg"
+    },
+    {
+      "migration": "1126_dachnye_springs_gusakova_photos.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "ca6833a858a6a7d12fa3e6649208b3bd499c49410f21d54fbb6074b685992e45",
+      "bytes": 437264,
+      "key": "migrations/photos/ca6833a858a6a7d12fa3e6649208b3bd499c49410f21d54fbb6074b685992e45.jpg"
+    },
+    {
+      "migration": "1126_dachnye_springs_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "0881a996c9a04254a9508528e8e4245abf8996b1de38f7471d11e58e9a69ca21",
+      "bytes": 125901,
+      "key": "migrations/photos/0881a996c9a04254a9508528e8e4245abf8996b1de38f7471d11e58e9a69ca21.jpg"
+    },
+    {
+      "migration": "1126_dachnye_springs_gusakova_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "da81ff7670789c7a2e64fe5f05e5326322d293e570813bb7afefa71088059f60",
+      "bytes": 190504,
+      "key": "migrations/photos/da81ff7670789c7a2e64fe5f05e5326322d293e570813bb7afefa71088059f60.jpg"
+    },
+    {
+      "migration": "1126_dachnye_springs_gusakova_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "961286aa3242f6520284b851e88845f0e958b507d18e5a262ff4d5ac0fcfd60f",
+      "bytes": 160383,
+      "key": "migrations/photos/961286aa3242f6520284b851e88845f0e958b507d18e5a262ff4d5ac0fcfd60f.jpg"
+    },
+    {
+      "migration": "1127_vachkazhets_hero_gusakova.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "f399943c6d623cb2979ec96b6d65ca1236e965a0c40c3043cf079f545199fdb8",
+      "bytes": 224608,
+      "key": "migrations/photos/f399943c6d623cb2979ec96b6d65ca1236e965a0c40c3043cf079f545199fdb8.jpg"
+    },
+    {
+      "migration": "1128_spokoyny_waterfall_gusakova_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "6bbf443b3c37eb6bc3384abcaa956fbc7f88c85ab404b34ea3248e9a1547bbea",
+      "bytes": 284496,
+      "key": "migrations/photos/6bbf443b3c37eb6bc3384abcaa956fbc7f88c85ab404b34ea3248e9a1547bbea.jpg"
+    },
+    {
+      "migration": "1128_spokoyny_waterfall_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "ca3900c317bfc6ed45b199ec16372e6aa81d759e78cac8cfe278cd5f9530d512",
+      "bytes": 308666,
+      "key": "migrations/photos/ca3900c317bfc6ed45b199ec16372e6aa81d759e78cac8cfe278cd5f9530d512.jpg"
+    },
+    {
+      "migration": "1128_spokoyny_waterfall_gusakova_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "0f81e4318dd6cbf310bbcb1e6defbeeed0e2d6dc65dd1ed401f8663bcaf01d2f",
+      "bytes": 198321,
+      "key": "migrations/photos/0f81e4318dd6cbf310bbcb1e6defbeeed0e2d6dc65dd1ed401f8663bcaf01d2f.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "ce682d911b587d052881445dcd015c6fc669e96ec69d33a63b2058d36c22a2a0",
+      "bytes": 308437,
+      "key": "migrations/photos/ce682d911b587d052881445dcd015c6fc669e96ec69d33a63b2058d36c22a2a0.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "2ba9bb9a786f2be5c10b880501a289df3959584fc6416a6061e363761c19caa0",
+      "bytes": 255610,
+      "key": "migrations/photos/2ba9bb9a786f2be5c10b880501a289df3959584fc6416a6061e363761c19caa0.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "f5af7b6dfa4261f852d71aa9dd4b686781aaf9432b0a8d151a4c23963fde9f5e",
+      "bytes": 297110,
+      "key": "migrations/photos/f5af7b6dfa4261f852d71aa9dd4b686781aaf9432b0a8d151a4c23963fde9f5e.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "da8c5524f9a594e97584acc8fb51556044e1fa0eb23b1a572ff8fd025d736f9d",
+      "bytes": 440107,
+      "key": "migrations/photos/da8c5524f9a594e97584acc8fb51556044e1fa0eb23b1a572ff8fd025d736f9d.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "cbaca84dd74b12f5e8c12ed22c232ea1923d87cfe01125cc9d03a0aae75d0611",
+      "bytes": 258403,
+      "key": "migrations/photos/cbaca84dd74b12f5e8c12ed22c232ea1923d87cfe01125cc9d03a0aae75d0611.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "a51e7af336fb7f0b63da46170e33355fb4c2656f8ccdb784bb720876d9ac186f",
+      "bytes": 458431,
+      "key": "migrations/photos/a51e7af336fb7f0b63da46170e33355fb4c2656f8ccdb784bb720876d9ac186f.jpg"
+    },
+    {
+      "migration": "1129_akvarium_gusakova_photos_3x4.sql",
+      "n": 7,
+      "table": "place_gallery_photos",
+      "sha256": "f58eef85aecf5f053fb71491e722f20e5eef055a8522167abc3031e3fd7d9706",
+      "bytes": 307045,
+      "key": "migrations/photos/f58eef85aecf5f053fb71491e722f20e5eef055a8522167abc3031e3fd7d9706.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "08958e37d8d8b5e59cab561b2e59484899a3056552ac60dd53ac7563818b54a3",
+      "bytes": 226157,
+      "key": "migrations/photos/08958e37d8d8b5e59cab561b2e59484899a3056552ac60dd53ac7563818b54a3.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "6438b8ee2755e6f9115ea1d235fa421e76abc119921c2abceeea5ac4c856ed3c",
+      "bytes": 148540,
+      "key": "migrations/photos/6438b8ee2755e6f9115ea1d235fa421e76abc119921c2abceeea5ac4c856ed3c.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "862d0e9001dd8f4e3838016d6b6afbf8837223982af42cc6daf51b8c21e0051a",
+      "bytes": 214134,
+      "key": "migrations/photos/862d0e9001dd8f4e3838016d6b6afbf8837223982af42cc6daf51b8c21e0051a.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "c608899d4e6bd3e6df760d478d55104181833b5b9a6a081ed751ccf0f8c2ec8c",
+      "bytes": 110440,
+      "key": "migrations/photos/c608899d4e6bd3e6df760d478d55104181833b5b9a6a081ed751ccf0f8c2ec8c.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "25d2a1e4b78b93b73393109807a48457e8c5a70947c6368b31c3ffb02c4c6c6e",
+      "bytes": 264732,
+      "key": "migrations/photos/25d2a1e4b78b93b73393109807a48457e8c5a70947c6368b31c3ffb02c4c6c6e.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "58e72afbfd6ddea7ad6139eb16d1213cd6d41c3b277a1ca2c2ca83b57f50fdd2",
+      "bytes": 229537,
+      "key": "migrations/photos/58e72afbfd6ddea7ad6139eb16d1213cd6d41c3b277a1ca2c2ca83b57f50fdd2.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 7,
+      "table": "place_gallery_photos",
+      "sha256": "8b71983bd61d2e81ac5561633c2afad0199b351c4d97348e5dbef8b3b7e70453",
+      "bytes": 137357,
+      "key": "migrations/photos/8b71983bd61d2e81ac5561633c2afad0199b351c4d97348e5dbef8b3b7e70453.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 8,
+      "table": "place_gallery_photos",
+      "sha256": "1a02e797f978da8d4c114aee09fc25b5dba857de848a94a58e63cdd97743595b",
+      "bytes": 177576,
+      "key": "migrations/photos/1a02e797f978da8d4c114aee09fc25b5dba857de848a94a58e63cdd97743595b.jpg"
+    },
+    {
+      "migration": "1130_vachkazhets_gusakova_photos_3x4.sql",
+      "n": 9,
+      "table": "place_gallery_photos",
+      "sha256": "9c257927729b9058691b75d0cd191188f7616fc6355bb87e2310621ed2f1312b",
+      "bytes": 283001,
+      "key": "migrations/photos/9c257927729b9058691b75d0cd191188f7616fc6355bb87e2310621ed2f1312b.jpg"
+    },
+    {
+      "migration": "1131_vilyuchinsky_pass_gusakova_photos_3x4.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "1904df006534bae8115bfccce1eaaafec315bdf98bcd2a643af83276b7850b42",
+      "bytes": 174651,
+      "key": "migrations/photos/1904df006534bae8115bfccce1eaaafec315bdf98bcd2a643af83276b7850b42.jpg"
+    },
+    {
+      "migration": "1131_vilyuchinsky_pass_gusakova_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "2b65b4418a05fc15a846061aa50adfa053a44d6a521ee79fa73b18ed84872740",
+      "bytes": 170598,
+      "key": "migrations/photos/2b65b4418a05fc15a846061aa50adfa053a44d6a521ee79fa73b18ed84872740.jpg"
+    },
+    {
+      "migration": "1131_vilyuchinsky_pass_gusakova_photos_3x4.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "79f48280dd16a81ff3affc3cf936a2abdec667b236e62c0d0af0bec6ef68e2bb",
+      "bytes": 262221,
+      "key": "migrations/photos/79f48280dd16a81ff3affc3cf936a2abdec667b236e62c0d0af0bec6ef68e2bb.jpg"
+    },
+    {
+      "migration": "1131_vilyuchinsky_pass_gusakova_photos_3x4.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "b7d591b06bf93bfc83347f1c5fdc459d6b6c2a1e94492089bdc61c2ca53d35bf",
+      "bytes": 323193,
+      "key": "migrations/photos/b7d591b06bf93bfc83347f1c5fdc459d6b6c2a1e94492089bdc61c2ca53d35bf.jpg"
+    },
+    {
+      "migration": "1131_vilyuchinsky_pass_gusakova_photos_3x4.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "3918b7dfebbfc10e876696cbbd0cc8e48ee8645ba04111d363854277b945dd2b",
+      "bytes": 72061,
+      "key": "migrations/photos/3918b7dfebbfc10e876696cbbd0cc8e48ee8645ba04111d363854277b945dd2b.jpg"
+    },
+    {
+      "migration": "1131_vilyuchinsky_pass_gusakova_photos_3x4.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "a2f23a75e513affeafc993609ae42b2c3c01b8fe8eb9dee66e4c3005e27f3bac",
+      "bytes": 60030,
+      "key": "migrations/photos/a2f23a75e513affeafc993609ae42b2c3c01b8fe8eb9dee66e4c3005e27f3bac.jpg"
+    },
+    {
+      "migration": "1132_gorely_caves_gusakova_photos_3x4.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "134d91de24091f7fbba5aba6a1bd59d455fd995f4f937f1c8ad6d89b4fd11594",
+      "bytes": 296136,
+      "key": "migrations/photos/134d91de24091f7fbba5aba6a1bd59d455fd995f4f937f1c8ad6d89b4fd11594.jpg"
+    },
+    {
+      "migration": "1132_gorely_caves_gusakova_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "a2c089a18022927e691f843c210011c4261130e70b430344f3550aadbd9966a2",
+      "bytes": 176061,
+      "key": "migrations/photos/a2c089a18022927e691f843c210011c4261130e70b430344f3550aadbd9966a2.jpg"
+    },
+    {
+      "migration": "1132_gorely_caves_gusakova_photos_3x4.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "16043fbd67dd28781e921b08518af1256e9988e99f5f86eb6acf58f9feb4a943",
+      "bytes": 197596,
+      "key": "migrations/photos/16043fbd67dd28781e921b08518af1256e9988e99f5f86eb6acf58f9feb4a943.jpg"
+    },
+    {
+      "migration": "1133_mutnovsky_geopp_gusakova_photos_3x4.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "7f37bf442374746fe1b009914932cdc417bcf2b3639db475c381a218b78dfb58",
+      "bytes": 243058,
+      "key": "migrations/photos/7f37bf442374746fe1b009914932cdc417bcf2b3639db475c381a218b78dfb58.jpg"
+    },
+    {
+      "migration": "1133_mutnovsky_geopp_gusakova_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "e32021dcca02b4c2fd3862c2a8e0864b81a6fe661b1a43e672bdc7ae22c84d46",
+      "bytes": 217261,
+      "key": "migrations/photos/e32021dcca02b4c2fd3862c2a8e0864b81a6fe661b1a43e672bdc7ae22c84d46.jpg"
+    },
+    {
+      "migration": "1134_dachnye_gusakova_photos_3x4.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "9820f661b331842c2e117263745b563b627b274f472768f56226e972cad9e3fb",
+      "bytes": 453943,
+      "key": "migrations/photos/9820f661b331842c2e117263745b563b627b274f472768f56226e972cad9e3fb.jpg"
+    },
+    {
+      "migration": "1134_dachnye_gusakova_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "ceb659a3c7909f47eacfdffb2f0bb555672a5877360ad863ae72e626e6978dce",
+      "bytes": 287867,
+      "key": "migrations/photos/ceb659a3c7909f47eacfdffb2f0bb555672a5877360ad863ae72e626e6978dce.jpg"
+    },
+    {
+      "migration": "1134_dachnye_gusakova_photos_3x4.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "61c25edd959d5bd70e52d5dcb8ca75b98daf604b3fab9f28d9a9378849cb8371",
+      "bytes": 103388,
+      "key": "migrations/photos/61c25edd959d5bd70e52d5dcb8ca75b98daf604b3fab9f28d9a9378849cb8371.jpg"
+    },
+    {
+      "migration": "1134_dachnye_gusakova_photos_3x4.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "1c8f4da5acbcbb65cf123933247e00cd612c271d498541981f79ad17f4b0ddda",
+      "bytes": 317614,
+      "key": "migrations/photos/1c8f4da5acbcbb65cf123933247e00cd612c271d498541981f79ad17f4b0ddda.jpg"
+    },
+    {
+      "migration": "1139_mayachny_cape_gusakova_photos.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "4d1518ce28c5e5f9c4d8120b23dc908f992f14a186349b2496c4ba42c8115ae2",
+      "bytes": 73294,
+      "key": "migrations/photos/4d1518ce28c5e5f9c4d8120b23dc908f992f14a186349b2496c4ba42c8115ae2.jpg"
+    },
+    {
+      "migration": "1139_mayachny_cape_gusakova_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "95783b8c28db73360aeceb65cf14f18160833abbc775615980c994245908d86b",
+      "bytes": 39532,
+      "key": "migrations/photos/95783b8c28db73360aeceb65cf14f18160833abbc775615980c994245908d86b.jpg"
+    },
+    {
+      "migration": "1139_mayachny_cape_gusakova_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "91c4b5e2f2d278582cb6d06f2769698396d4ad4cfbd97d21c3c29a6b3dade033",
+      "bytes": 78637,
+      "key": "migrations/photos/91c4b5e2f2d278582cb6d06f2769698396d4ad4cfbd97d21c3c29a6b3dade033.jpg"
+    },
+    {
+      "migration": "1139_mayachny_cape_gusakova_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "6319386815fc532793fcdbf5acb2c08f8f681a8e1198c4e3040c42ccb7b86e58",
+      "bytes": 82765,
+      "key": "migrations/photos/6319386815fc532793fcdbf5acb2c08f8f681a8e1198c4e3040c42ccb7b86e58.jpg"
+    },
+    {
+      "migration": "1139_mayachny_cape_gusakova_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "392b70f165287548298a04a74282d9525abe330c5b19769bcf5953f175bb8102",
+      "bytes": 79366,
+      "key": "migrations/photos/392b70f165287548298a04a74282d9525abe330c5b19769bcf5953f175bb8102.jpg"
+    },
+    {
+      "migration": "1139_mayachny_cape_gusakova_photos.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "a5b1f78432591fd6c29f2541ded7273b2d389ca00b39d9c5a78acccb053bcd04",
+      "bytes": 98398,
+      "key": "migrations/photos/a5b1f78432591fd6c29f2541ded7273b2d389ca00b39d9c5a78acccb053bcd04.jpg"
+    },
+    {
+      "migration": "1140_tri_brata_viewpoint_gusakova_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "1a217e3bdd6d1fffb23932c58b6b42056ec4b647675eeb997c81ed93a1dc4fab",
+      "bytes": 230854,
+      "key": "migrations/photos/1a217e3bdd6d1fffb23932c58b6b42056ec4b647675eeb997c81ed93a1dc4fab.jpg"
+    },
+    {
+      "migration": "1140_tri_brata_viewpoint_gusakova_photo.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "b3ea265f616a2b447b9d6000e4c46af4b5fc8e55efe2135113ab4f1fab3f6083",
+      "bytes": 129731,
+      "key": "migrations/photos/b3ea265f616a2b447b9d6000e4c46af4b5fc8e55efe2135113ab4f1fab3f6083.jpg"
+    },
+    {
+      "migration": "1147_maksutov_battery_owner_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "2e0ed46ce520907a6d9c3032e226c559fc289575a57d893fdfb61735f2f88f4f",
+      "bytes": 172567,
+      "key": "migrations/photos/2e0ed46ce520907a6d9c3032e226c559fc289575a57d893fdfb61735f2f88f4f.jpg"
+    },
+    {
+      "migration": "1147_maksutov_battery_owner_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "79094380f8eb69ad813225ce7718d38d161f26e19ab9096ef1a6fa4ae2f3898a",
+      "bytes": 90444,
+      "key": "migrations/photos/79094380f8eb69ad813225ce7718d38d161f26e19ab9096ef1a6fa4ae2f3898a.jpg"
+    },
+    {
+      "migration": "1147_maksutov_battery_owner_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "bda08f9b697ec687d3a7b714636da0da38331c12038a311c8e1698f057c52656",
+      "bytes": 98318,
+      "key": "migrations/photos/bda08f9b697ec687d3a7b714636da0da38331c12038a311c8e1698f057c52656.jpg"
+    },
+    {
+      "migration": "1155_tri_brata_owner_photos_3x4.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "463fbaaebb9fdcb0f8a1928b51097e38ae2cf10712e2d6e21f44768bd423e7ed",
+      "bytes": 172050,
+      "key": "migrations/photos/463fbaaebb9fdcb0f8a1928b51097e38ae2cf10712e2d6e21f44768bd423e7ed.jpg"
+    },
+    {
+      "migration": "1155_tri_brata_owner_photos_3x4.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "1bdc91b9bb660a0894792b10f0a5ced05f8b183d3e1f7fab5528b392b5df0236",
+      "bytes": 132604,
+      "key": "migrations/photos/1bdc91b9bb660a0894792b10f0a5ced05f8b183d3e1f7fab5528b392b5df0236.jpg"
+    },
+    {
+      "migration": "1155_tri_brata_owner_photos_3x4.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "3141c794058f1195a049a5cfbc0d7c7c7ee3c940d58dabe783dff4ae3543d362",
+      "bytes": 147266,
+      "key": "migrations/photos/3141c794058f1195a049a5cfbc0d7c7c7ee3c940d58dabe783dff4ae3543d362.jpg"
+    },
+    {
+      "migration": "1162_kozelsky_onopriychuk_photo.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "6effebc17fe4ae898ce9d9d2e73bbd1896c94e016b888cb649692d876dc02f3a",
+      "bytes": 82395,
+      "key": "migrations/photos/6effebc17fe4ae898ce9d9d2e73bbd1896c94e016b888cb649692d876dc02f3a.jpg"
+    },
+    {
+      "migration": "1166_nikolskaya_onopriychuk_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "085ee4cf5f8518f25b39dbd9cbb6d63cf5978b84ab08eac231df709b6eda0c08",
+      "bytes": 126543,
+      "key": "migrations/photos/085ee4cf5f8518f25b39dbd9cbb6d63cf5978b84ab08eac231df709b6eda0c08.jpg"
+    },
+    {
+      "migration": "1166_nikolskaya_onopriychuk_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "aa5f5b5b042dfbf56498b5594269cd19174b3b88b1b5f0afdf2a2f115f6bec09",
+      "bytes": 60609,
+      "key": "migrations/photos/aa5f5b5b042dfbf56498b5594269cd19174b3b88b1b5f0afdf2a2f115f6bec09.jpg"
+    },
+    {
+      "migration": "1167_kozelsky_owner_ascent_photos.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "6b980fed70f7767865914f7f265c7f948962cef2309eb36f23ec944ebaf56611",
+      "bytes": 121873,
+      "key": "migrations/photos/6b980fed70f7767865914f7f265c7f948962cef2309eb36f23ec944ebaf56611.jpg"
+    },
+    {
+      "migration": "1167_kozelsky_owner_ascent_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "0d9c0ba8d1827171ef681a27bc99aef4e8477b098a3e7468de934f74a6b200b5",
+      "bytes": 75548,
+      "key": "migrations/photos/0d9c0ba8d1827171ef681a27bc99aef4e8477b098a3e7468de934f74a6b200b5.jpg"
+    },
+    {
+      "migration": "1167_kozelsky_owner_ascent_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "8c6d220c9b83c53df3178ec038010343561c784b028b38e03d410be892c31781",
+      "bytes": 113985,
+      "key": "migrations/photos/8c6d220c9b83c53df3178ec038010343561c784b028b38e03d410be892c31781.jpg"
+    },
+    {
+      "migration": "1167_kozelsky_owner_ascent_photos.sql",
+      "n": 4,
+      "table": "place_gallery_photos",
+      "sha256": "4ede2a9a2f423007e57c54dd7772e36610f2ccd7072a3b5abc037aed5f9a2d32",
+      "bytes": 99072,
+      "key": "migrations/photos/4ede2a9a2f423007e57c54dd7772e36610f2ccd7072a3b5abc037aed5f9a2d32.jpg"
+    },
+    {
+      "migration": "1167_kozelsky_owner_ascent_photos.sql",
+      "n": 5,
+      "table": "place_gallery_photos",
+      "sha256": "b1529f730ca8ab832a6ca8eb12d67e58cd139c73906abda67be910a2ffa985a2",
+      "bytes": 87408,
+      "key": "migrations/photos/b1529f730ca8ab832a6ca8eb12d67e58cd139c73906abda67be910a2ffa985a2.jpg"
+    },
+    {
+      "migration": "1167_kozelsky_owner_ascent_photos.sql",
+      "n": 6,
+      "table": "place_gallery_photos",
+      "sha256": "9368cc71d33418d9d31a9c5a3538d50a217f7e2be8a70d9f66fa5d5801a1cdba",
+      "bytes": 124797,
+      "key": "migrations/photos/9368cc71d33418d9d31a9c5a3538d50a217f7e2be8a70d9f66fa5d5801a1cdba.jpg"
+    },
+    {
+      "migration": "1211_tri_brata_view_gusakova_gallery.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "c5a5a8d79baf32d42ef026408fe84dc95dec79fa859c2a9bdc1a2e24f0c088a1",
+      "bytes": 132437,
+      "key": "migrations/photos/c5a5a8d79baf32d42ef026408fe84dc95dec79fa859c2a9bdc1a2e24f0c088a1.jpg"
+    },
+    {
+      "migration": "930_sinichkino_coords_and_owner_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "05ccf375a569824b5c4e33cec691f52ee021f7771baf8df4b9f3363ebf17fde8",
+      "bytes": 100909,
+      "key": "migrations/photos/05ccf375a569824b5c4e33cec691f52ee021f7771baf8df4b9f3363ebf17fde8.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "8553f67769b6977a0c140e7803860c1fdbc9e0008693a606577928298055eaa7",
+      "bytes": 166602,
+      "key": "migrations/photos/8553f67769b6977a0c140e7803860c1fdbc9e0008693a606577928298055eaa7.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 2,
+      "table": "ai_route_images",
+      "sha256": "0e929b45c16c973f195cefd54069217965bcc8d0b1e205fd1ad1d2d143c879ff",
+      "bytes": 229125,
+      "key": "migrations/photos/0e929b45c16c973f195cefd54069217965bcc8d0b1e205fd1ad1d2d143c879ff.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 3,
+      "table": "ai_route_images",
+      "sha256": "3d62dec14e03a014204028d56d1c73e8d3394ccd37a7e33664126696a9744b8e",
+      "bytes": 103744,
+      "key": "migrations/photos/3d62dec14e03a014204028d56d1c73e8d3394ccd37a7e33664126696a9744b8e.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 4,
+      "table": "ai_route_images",
+      "sha256": "84b7294d8bc4892a9aefd9c649ad207cf4f94b4cb5d79cdb6dc6770d8b2bc750",
+      "bytes": 79158,
+      "key": "migrations/photos/84b7294d8bc4892a9aefd9c649ad207cf4f94b4cb5d79cdb6dc6770d8b2bc750.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 5,
+      "table": "ai_route_images",
+      "sha256": "a496a386c922e4fa9a00d2fd750d604cb0f7ae352733f5dc19917c010f55b056",
+      "bytes": 78908,
+      "key": "migrations/photos/a496a386c922e4fa9a00d2fd750d604cb0f7ae352733f5dc19917c010f55b056.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 6,
+      "table": "ai_route_images",
+      "sha256": "ef667c9d78d260906132979f244f8de47af922cb251d9f660549549df1d899ed",
+      "bytes": 98776,
+      "key": "migrations/photos/ef667c9d78d260906132979f244f8de47af922cb251d9f660549549df1d899ed.jpg"
+    },
+    {
+      "migration": "958_owner_photos_seven_places.sql",
+      "n": 7,
+      "table": "ai_route_images",
+      "sha256": "8247e0568e2e4bc306465bbd355e750756f925918bb7cd0fdf7b5ed836821886",
+      "bytes": 40568,
+      "key": "migrations/photos/8247e0568e2e4bc306465bbd355e750756f925918bb7cd0fdf7b5ed836821886.jpg"
+    },
+    {
+      "migration": "959_owner_photos_pauzhetka_dachnye.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "5b8e48298ff3a359b4663691c3dd5598ae2db08a475cc3d97ebc67a0a50ce33e",
+      "bytes": 48700,
+      "key": "migrations/photos/5b8e48298ff3a359b4663691c3dd5598ae2db08a475cc3d97ebc67a0a50ce33e.jpg"
+    },
+    {
+      "migration": "959_owner_photos_pauzhetka_dachnye.sql",
+      "n": 2,
+      "table": "ai_route_images",
+      "sha256": "62abe71c1e41ca0ade614b8f436978eb79c0a5d8e0e55b8f9a33241ebf39620f",
+      "bytes": 93135,
+      "key": "migrations/photos/62abe71c1e41ca0ade614b8f436978eb79c0a5d8e0e55b8f9a33241ebf39620f.jpg"
+    },
+    {
+      "migration": "960_niitaka_cenotaph_place.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "01bba6aa393bddbe06a962f763349ec1e792f40f30cbea8e23d72f6ed3c7a95d",
+      "bytes": 153591,
+      "key": "migrations/photos/01bba6aa393bddbe06a962f763349ec1e792f40f30cbea8e23d72f6ed3c7a95d.jpg"
+    },
+    {
+      "migration": "961_owner_photo_three_brothers.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "707fb18716257d6ebab3bca0b4b5cc240ee2175f40460839f18f4730cd19ba61",
+      "bytes": 136426,
+      "key": "migrations/photos/707fb18716257d6ebab3bca0b4b5cc240ee2175f40460839f18f4730cd19ba61.jpg"
+    },
+    {
+      "migration": "962_owner_photo_mayachny.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "774930a0a9f2ad1e0022160406b229d3be192ab6cb91901e391d31fdf0f0b738",
+      "bytes": 180082,
+      "key": "migrations/photos/774930a0a9f2ad1e0022160406b229d3be192ab6cb91901e391d31fdf0f0b738.jpg"
+    },
+    {
+      "migration": "963_owner_photo_halaktyrsky_rocks.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "a727c89ae39996b9283f0c2f3e6dd27678b86347fa0c2d9adafe4c58b4446d39",
+      "bytes": 145708,
+      "key": "migrations/photos/a727c89ae39996b9283f0c2f3e6dd27678b86347fa0c2d9adafe4c58b4446d39.jpg"
+    },
+    {
+      "migration": "964_owner_photo_razdolie.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "f529c014929f0d1d119cea4faf4111617e4d45f19f24f4a74405907fb235efd0",
+      "bytes": 139479,
+      "key": "migrations/photos/f529c014929f0d1d119cea4faf4111617e4d45f19f24f4a74405907fb235efd0.jpg"
+    },
+    {
+      "migration": "965_owner_photo_sinichkino_sup.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "22f7baa32019a1bbe442e6f10db9db78ce5bf5d32a4d8786f959b2f2357d710a",
+      "bytes": 134821,
+      "key": "migrations/photos/22f7baa32019a1bbe442e6f10db9db78ce5bf5d32a4d8786f959b2f2357d710a.jpg"
+    },
+    {
+      "migration": "966_chertov_palets_place.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "2f5a23d2a5fee814216e0664034c2c615ec4a776af41691074af705c3d3baf85",
+      "bytes": 178099,
+      "key": "migrations/photos/2f5a23d2a5fee814216e0664034c2c615ec4a776af41691074af705c3d3baf85.jpg"
+    },
+    {
+      "migration": "967_dikie_ozerki_photo_and_coord_source.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "dc582b7dc43681c7a5070a7605dbe89299e0070674c7c60d007436e812a2702c",
+      "bytes": 131169,
+      "key": "migrations/photos/dc582b7dc43681c7a5070a7605dbe89299e0070674c7c60d007436e812a2702c.jpg"
+    },
+    {
+      "migration": "969_razdolie_repair_live_record.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "f529c014929f0d1d119cea4faf4111617e4d45f19f24f4a74405907fb235efd0",
+      "bytes": 139479,
+      "key": "migrations/photos/f529c014929f0d1d119cea4faf4111617e4d45f19f24f4a74405907fb235efd0.jpg"
+    },
+    {
+      "migration": "977_lighthouse_owner_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "226d5f1e5626972d0fea94218d746c5c0ffdda92b5b4871a439c94005ac2fea7",
+      "bytes": 37620,
+      "key": "migrations/photos/226d5f1e5626972d0fea94218d746c5c0ffdda92b5b4871a439c94005ac2fea7.jpg"
+    },
+    {
+      "migration": "977_lighthouse_owner_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "bf5377184223f63dcda51db2ca732438d8abea6c0645263137572edac97eca54",
+      "bytes": 97236,
+      "key": "migrations/photos/bf5377184223f63dcda51db2ca732438d8abea6c0645263137572edac97eca54.jpg"
+    },
+    {
+      "migration": "977_lighthouse_owner_photos.sql",
+      "n": 3,
+      "table": "place_gallery_photos",
+      "sha256": "5bf26a6080be0e710941c197d4de67697a778dc80fcd3bc1f02bc3bf775e30d7",
+      "bytes": 140136,
+      "key": "migrations/photos/5bf26a6080be0e710941c197d4de67697a778dc80fcd3bc1f02bc3bf775e30d7.jpg"
+    },
+    {
+      "migration": "979_vilyuchinsky_owner_photos.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "853153582f366d4ae158232755482abd3a1aeab87588ba3817c862d10ffe82cc",
+      "bytes": 101439,
+      "key": "migrations/photos/853153582f366d4ae158232755482abd3a1aeab87588ba3817c862d10ffe82cc.jpg"
+    },
+    {
+      "migration": "979_vilyuchinsky_owner_photos.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "aca97f853e5d79667d908e18fec5b7b0762d7ec113a7be82da843a6713bc4c38",
+      "bytes": 98139,
+      "key": "migrations/photos/aca97f853e5d79667d908e18fec5b7b0762d7ec113a7be82da843a6713bc4c38.jpg"
+    },
+    {
+      "migration": "980_gamuly_move_to_pass.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "aca97f853e5d79667d908e18fec5b7b0762d7ec113a7be82da843a6713bc4c38",
+      "bytes": 98139,
+      "key": "migrations/photos/aca97f853e5d79667d908e18fec5b7b0762d7ec113a7be82da843a6713bc4c38.jpg"
+    },
+    {
+      "migration": "981_avachinsky_owner_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "9709aadfdd86fc17b70cc652c386b05711800fb50f57c839464d8821bc09e07f",
+      "bytes": 93585,
+      "key": "migrations/photos/9709aadfdd86fc17b70cc652c386b05711800fb50f57c839464d8821bc09e07f.jpg"
+    },
+    {
+      "migration": "983_koryaksky_owner_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "f29a7db12f8529b6378c42971f67e9086fd60ff3101065cff0acfa3effa64b37",
+      "bytes": 161308,
+      "key": "migrations/photos/f29a7db12f8529b6378c42971f67e9086fd60ff3101065cff0acfa3effa64b37.jpg"
+    },
+    {
+      "migration": "984_shiveluch_canyon_guide_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "05fb32b4059e65311aa8f53fdce6349f912a54ffb6b668673f12b53802fee6c7",
+      "bytes": 82817,
+      "key": "migrations/photos/05fb32b4059e65311aa8f53fdce6349f912a54ffb6b668673f12b53802fee6c7.jpg"
+    },
+    {
+      "migration": "985_koryaksky_evening_gallery.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "804cf57c49320b6be83b40eaf2e7052a14ef08afda5e98abd950b6ed1a015ee2",
+      "bytes": 135080,
+      "key": "migrations/photos/804cf57c49320b6be83b40eaf2e7052a14ef08afda5e98abd950b6ed1a015ee2.jpg"
+    },
+    {
+      "migration": "988_gamuly_canyon_is_the_shiveluch_one.sql",
+      "n": 1,
+      "table": "place_gallery_photos",
+      "sha256": "2b582e090a76b2ac7436f9fc90377d6fe4b6c8234e7ef87b75dc23211469001f",
+      "bytes": 98718,
+      "key": "migrations/photos/2b582e090a76b2ac7436f9fc90377d6fe4b6c8234e7ef87b75dc23211469001f.jpg"
+    },
+    {
+      "migration": "988_gamuly_canyon_is_the_shiveluch_one.sql",
+      "n": 2,
+      "table": "place_gallery_photos",
+      "sha256": "e6e7ac71d60bee449fa9a7aa14606608f839f5b1846c4d721bc1761fc0c87b00",
+      "bytes": 131665,
+      "key": "migrations/photos/e6e7ac71d60bee449fa9a7aa14606608f839f5b1846c4d721bc1761fc0c87b00.jpg"
+    },
+    {
+      "migration": "989_shiveluch_owner_road_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "9fd5bab784b534df8d4d08c6e46d39ba391dbed6bbcdd8142b30e8c35e981f82",
+      "bytes": 242405,
+      "key": "migrations/photos/9fd5bab784b534df8d4d08c6e46d39ba391dbed6bbcdd8142b30e8c35e981f82.jpg"
+    },
+    {
+      "migration": "996_alaid_sklyarov_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "6b4c7452bce2806b480474c175439d67649c6e24237a615f5b253fda78e1c799",
+      "bytes": 144728,
+      "key": "migrations/photos/6b4c7452bce2806b480474c175439d67649c6e24237a615f5b253fda78e1c799.jpg"
+    },
+    {
+      "migration": "997_russia_starts_here_stela.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "c1d701563f6fa928f15b1ba02e6a54f5dcba62f4b9bf35cbcecdc277596a8faa",
+      "bytes": 382486,
+      "key": "migrations/photos/c1d701563f6fa928f15b1ba02e6a54f5dcba62f4b9bf35cbcecdc277596a8faa.jpg"
+    },
+    {
+      "migration": "999_klyuchevskoy_owner_photo.sql",
+      "n": 1,
+      "table": "ai_route_images",
+      "sha256": "49fa3135f34aef99411ce172b422999a421dc8e31cf1f01706b8e6cc794270a0",
+      "bytes": 199481,
+      "key": "migrations/photos/49fa3135f34aef99411ce172b422999a421dc8e31cf1f01706b8e6cc794270a0.jpg"
+    }
+  ]
+}
