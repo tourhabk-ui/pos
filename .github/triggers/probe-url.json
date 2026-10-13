@@ -1,34 +1,21 @@
 {
   "timeout": 60,
-  "retries": 0,
-  "run": 772,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Сайт оператора virtustur.tilda.ws, вторая проба: ссылки соцсетей и мессенджеров из сырого HTML (проба 771 снимала текст без разметки, адреса ссылок в нём пропали), title, логотип. Для полей карточки. Ничего не пишется.",
+  "retries": 15,
+  "retryDelay": 60,
+  "run": 773,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Автозавершение туров — сухим прогоном (?dry_run=1: тот же отбор, ни одна бронь не завершается); якорь блока отзывов на карточке тура 62; подпись у перевозчика «Шатун» на его нынешней странице. Просьбу об отзыве и напоминание не зову: они пишут людям, а сейчас ночь по Камчатке.",
+  "until": "\"dry_run\":true",
   "urls": [
-    "https://virtustur.tilda.ws/"
+    "https://vedarai.ru/api/cron/booking-auto-complete?dry_run=1",
+    "https://vedarai.ru/catalog/tours/62",
+    "https://vedarai.ru/operators/shatun"
   ],
-  "bytes": 2000,
-  "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0)",
+  "bytes": 3000,
   "grep": [
-    "t.me/",
-    "wa.me/",
-    "instagram.com",
-    "vk.com",
-    "max.ru",
-    "mailto:",
-    "tel:",
-    "og:image",
-    "logo"
-  ],
-  "around": [
-    "t.me/",
-    "wa.me/",
-    "instagram.com",
-    "vk.com",
-    "mailto:",
-    "tel:",
-    "og:image",
-    "<title"
-  ],
-  "aroundLines": 1,
-  "aroundHits": 4
+    "\"dry_run\":true",
+    "booking_ids_due",
+    "id=\"reviews\"",
+    "Проверенный оператор",
+    "Перевозчик"
+  ]
 }

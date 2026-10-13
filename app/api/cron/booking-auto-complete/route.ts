@@ -9,12 +9,15 @@
  *
  * Отказ отбора — 502 с SQLSTATE, а не «завершать нечего» (§4.0); отказ одной
  * брони — в ответе списком failed, остальные завершаются.
+ *
+ * ?dry_run=1 — тот же отбор без завершения: кого завершил бы прогон. Завершение
+ * необратимо («не явился» после него не поставить), и список стоит видеть до.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { autoCompletePastTours } from '@/lib/bookings/auto-complete-past';
+import { autoCompletePastTours, listDueBookings } from '@/lib/bookings/auto-complete-past';
 import { logText } from '@/lib/log/log-text';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +29,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (request.nextUrl.searchParams.get('dry_run') === '1') {
+      const ids = await listDueBookings();
+      return NextResponse.json({
+        success: true,
+        dry_run: true,
+        due: ids.length,
+        booking_ids_due: ids,
+        timestamp: new Date().toISOString(),
+      });
+    }
     const s = await autoCompletePastTours();
     return NextResponse.json({
       success: s.failed.length === 0,

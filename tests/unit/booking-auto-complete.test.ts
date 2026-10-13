@@ -154,6 +154,20 @@ describe('роут /api/cron/booking-auto-complete', () => {
     expect(empty.status).toBe(200);
     expect(await empty.json()).toMatchObject({ success: true, due: 0, completed: 0, failed: [] });
   });
+
+  it('сухой прогон: тот же отбор, список броней — и ни одна не завершена', async () => {
+    process.env.CRON_SECRET = SECRET;
+    const { GET } = await import('@/app/api/cron/booking-auto-complete/route');
+    poolQuery.mockResolvedValueOnce({ rows: [{ id: '11' }, { id: '12' }] });
+    const dry = await GET(new NextRequest('https://vedarai.ru/api/cron/booking-auto-complete?dry_run=1', {
+      headers: { authorization: `Bearer ${SECRET}` },
+    }));
+    expect(dry.status).toBe(200);
+    expect(await dry.json()).toMatchObject({ success: true, dry_run: true, due: 2, booking_ids_due: ['11', '12'] });
+    expect(poolQuery).toHaveBeenCalledWith(DUE_BOOKINGS_SQL, [AUTO_COMPLETE_BATCH]);
+    expect(completeBookingMock).not.toHaveBeenCalled();
+    expect(awardMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('расписание и реестр', () => {

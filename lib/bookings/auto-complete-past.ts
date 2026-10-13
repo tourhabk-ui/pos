@@ -58,10 +58,16 @@ export interface AutoCompleteSummary {
   failed: Array<{ id: string; error: string }>;
 }
 
-export async function autoCompletePastTours(): Promise<AutoCompleteSummary> {
+/** Кого завершил бы прогон — тот же отбор, без завершения (сухой прогон крона). */
+export async function listDueBookings(): Promise<string[]> {
   const { rows } = await pool.query<{ id: string }>(DUE_BOOKINGS_SQL, [AUTO_COMPLETE_BATCH]);
-  const summary: AutoCompleteSummary = { due: rows.length, completed: [], failed: [] };
-  for (const { id } of rows) {
+  return rows.map((r) => r.id);
+}
+
+export async function autoCompletePastTours(): Promise<AutoCompleteSummary> {
+  const ids = await listDueBookings();
+  const summary: AutoCompleteSummary = { due: ids.length, completed: [], failed: [] };
+  for (const id of ids) {
     try {
       const booking = await completeBooking(id, null, { comment: AUTO_COMPLETE_COMMENT });
       awardCompletionLoyalty(booking, id);
