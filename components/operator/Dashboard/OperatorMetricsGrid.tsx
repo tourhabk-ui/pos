@@ -126,25 +126,30 @@ export function OperatorMetricsGrid({ metrics, loading = false }: OperatorMetric
         note={metrics.pendingBookings > 0 ? 'ответьте туристу' : undefined}
       />
 
-      <MetricCard
-        title="Выставлено по броням"
-        value={formatCurrency(metrics.totalRevenue)}
-        icon={Wallet}
-        iconColor="text-[var(--text-secondary)]"
-        bgColor="bg-[var(--bg-hover)]"
-        suffix=" ₽"
-        note="включая неоплаченные"
-      />
+      {/* null — деньги скрыты: вошёл менеджер команды (CRM 2г). */}
+      {metrics.totalRevenue !== null && (
+        <MetricCard
+          title="Выставлено по броням"
+          value={formatCurrency(metrics.totalRevenue)}
+          icon={Wallet}
+          iconColor="text-[var(--text-secondary)]"
+          bgColor="bg-[var(--bg-hover)]"
+          suffix=" ₽"
+          note="включая неоплаченные"
+        />
+      )}
 
-      <MetricCard
-        title="Получено"
-        value={formatCurrency(metrics.paidRevenue)}
-        icon={TrendingUp}
-        iconColor="text-[var(--accent)]"
-        bgColor="bg-[var(--accent)]/10"
-        suffix=" ₽"
-        note={`за период: ${formatCurrency(metrics.paidRevenueMonth)} ₽`}
-      />
+      {metrics.paidRevenue !== null && (
+        <MetricCard
+          title="Получено"
+          value={formatCurrency(metrics.paidRevenue)}
+          icon={TrendingUp}
+          iconColor="text-[var(--accent)]"
+          bgColor="bg-[var(--accent)]/10"
+          suffix=" ₽"
+          note={metrics.paidRevenueMonth !== null ? `за период: ${formatCurrency(metrics.paidRevenueMonth)} ₽` : undefined}
+        />
+      )}
 
       <MetricCard
         title="Средний рейтинг"

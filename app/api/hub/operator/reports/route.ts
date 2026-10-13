@@ -3,9 +3,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import { pool } from '@/lib/db-pool';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { toCSV } from '@/lib/operator/csv';
 import { CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
 import { PLATFORM_COMMISSION_PERCENT } from '@/lib/payments/commission';
@@ -13,19 +12,17 @@ import { PLATFORM_COMMISSION_PERCENT } from '@/lib/payments/commission';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const auth = await requireOperator(req);
-  if (auth instanceof NextResponse) return auth;
+  // Отчёты с выручкой и клиентами — только владельцу кабинета (CRM 2г).
+  const owner = await requireOperatorOwner(req);
+  if (owner instanceof NextResponse) return owner;
 
   const { searchParams } = new URL(req.url);
   const type   = searchParams.get('type')   ?? 'bookings';
   const format = searchParams.get('format') ?? 'json';
 
-  // Общий helper (lib/auth/operator-helpers.ts): партнёр может держать
-  // несколько записей под одним user_id (гид + оператор — обычный
-  // камчатский случай), выбор без фильтра по category возвращал бы
-  // произвольную из них.
-  const operatorId = await getOperatorPartnerId(auth.userId);
-  if (!operatorId) return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
+  // Кабинет решает operatorAccess (только category='operator'): у одного
+  // user_id бывает и гид-профиль, выбор без фильтра брал бы произвольный.
+  const operatorId = owner.partnerId;
 
   if (type === 'bookings') {
     const rows = await pool.query<Record<string, unknown>>(

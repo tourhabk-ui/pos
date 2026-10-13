@@ -72,6 +72,7 @@ export const METRIKA_EXCLUDED_PREFIXES: ReadonlyArray<{ prefix: string; reason: 
   { prefix: '/emergency', reason: 'экстренные номера: офлайн-контур' },
   { prefix: '/offline', reason: 'страница «связи нет»: грузить нечего' },
   { prefix: '/field-check', reason: 'полевая проверка маршрутов: офлайн-контур' },
+  { prefix: '/team', reason: 'приглашение в команду оператора: в адресе одноразовый ключ, по которому входят в кабинет' },
 ];
 
 export function shouldTrackPath(pathname: string | null | undefined): boolean {

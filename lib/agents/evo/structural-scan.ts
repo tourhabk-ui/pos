@@ -31,6 +31,26 @@ export function hubLayoutPaths(files: string[]): string[] {
 }
 
 /**
+ * Модули меню, которые импортирует layout хаба. Сайдбар — это layout ВМЕСТЕ
+ * с ними: меню оператора живёт в components/operator/operator-menu.ts рядом
+ * с правилом, кому какой пункт (CRM 2г), а layout его только фильтрует. Без
+ * этих модулей все страницы такого хаба читались бы сиротами.
+ *
+ * Модуль меню узнаётся по имени импорта (`…menu`); exists отвечает, есть ли
+ * такой файл в репозитории (список файлов у эволюции, диск у сторожа).
+ */
+export function navModulePaths(layoutBody: string, exists: (path: string) => boolean): string[] {
+  const out: string[] = [];
+  for (const m of layoutBody.matchAll(/from\s+'@\/([^']*menu)'/g)) {
+    for (const ext of ['.ts', '.tsx']) {
+      const path = `${m[1]}${ext}`;
+      if (exists(path)) out.push(path);
+    }
+  }
+  return out;
+}
+
+/**
  * Страница хаба верхнего уровня, которой нет в сайдбаре собственного layout.
  *
  * Проверяется ФАКТ «href отсутствует в тексте layout.tsx» — ровно то, что
@@ -51,6 +71,8 @@ export function findOrphanHubPages(
     if (ORPHAN_EXCLUDED_SEGMENTS.has(segment)) continue;
 
     const layoutPath = `app/hub/${role}/layout.tsx`;
+    // Текст сайдбара: layout вместе с модулями меню (navModulePaths) — их
+    // склеивает вызывающий.
     const layout = layoutBodies.get(layoutPath);
     // Нет layout или не прочитали — молчим: без текста сайдбара факта нет.
     if (!layout) continue;

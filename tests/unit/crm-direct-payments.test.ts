@@ -39,8 +39,14 @@ const ROW = {
   created_at: 'x', voided_at: null, void_reason: null,
 };
 
-function db() {
+const USER = '00000000-0000-4000-8000-0000000000a1';
+const OWNER_ROW = { own_partner_id: 'op-1', member_partner_id: null, member_id: null, can_edit_prices: null, can_cancel_bookings: null, was_revoked: false };
+const MANAGER_ROW = { own_partner_id: null, member_partner_id: 'op-1', member_id: 'm-1', can_edit_prices: true, can_cancel_bookings: true, was_revoked: false };
+
+function db(access: Record<string, unknown> = OWNER_ROW) {
   poolQueryMock.mockImplementation(async (sql: string) => {
+    // Кабинет вошедшего (operatorAccess, CRM 2г).
+    if (/WITH own AS/.test(sql)) return { rows: [access] };
     if (/INSERT INTO booking_direct_payments/.test(sql)) return { rows: [ROW] };
     if (/UPDATE booking_direct_payments/.test(sql)) return { rows: [] };
     if (/FROM booking_direct_payments/.test(sql)) return { rows: [ROW] };
@@ -53,7 +59,7 @@ beforeEach(() => {
   poolQueryMock.mockReset();
   ownsMock.mockReset();
   eventMock.mockClear();
-  authMock.mockResolvedValue({ userId: 'u-1', role: 'operator' });
+  authMock.mockResolvedValue({ userId: USER, role: 'operator' });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -107,6 +113,20 @@ describe('роут', () => {
       payload: { amount: 30000, method: 'cash', received_on: '2026-10-10' },
     }));
     expect(JSON.stringify(eventMock.mock.calls)).not.toMatch(/\+7900|Анна/);
+  });
+
+  it('менеджер команды — 403 «деньги ведёт владелец», в базу ничего не пишется (CRM 2г)', async () => {
+    db(MANAGER_ROW);
+    ownsMock.mockResolvedValue('ok');
+    for (const res of [
+      await GET(req('GET'), params),
+      await POST(req('POST', { amount: 100, method: 'cash', received_on: '2026-10-10' }), params),
+      await PATCH(req('PATCH', { payment_id: '6f1c2c1e-1111-4222-8333-444455556666', reason: 'ошибка в сумме' }), params),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toMatch(/владелец кабинета/);
+    }
+    expect(poolQueryMock.mock.calls.some((c) => /booking_direct_payments/.test(String(c[0])))).toBe(false);
   });
 
   it('аннулирование без записи или повторное — 404', async () => {

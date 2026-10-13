@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 import { TotalRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
@@ -337,6 +338,9 @@ export async function POST(request: NextRequest) {
         } as ApiResponse<null>, { status: 404 });
       }
       effectiveOperatorId = resolvedOperatorId;
+      // Новый тур — это и цена: менеджеру команды только с правом владельца (CRM 2г).
+      const denied = await requireTeamPermission(authResult.userId, 'can_edit_prices');
+      if (denied) return denied;
     }
 
     if (!effectiveOperatorId) {

@@ -4,7 +4,10 @@
  *
  * Отзыв — operator_tour_reviews (миграции 087, 832, 878), ответ — колонки
  * operator_reply / operator_reply_at. Владение — в самом UPDATE: тур отзыва
- * принадлежит партнёру вошедшего оператора.
+ * принадлежит кабинету вошедшего — своему у владельца или командному у
+ * менеджера (CRM 2г, operatorAccess). До 13.10 условие было «партнёр с
+ * user_id вошедшего», и менеджер видел отзыв в списке (/api/operator/reviews
+ * ищет кабинет общим резолвером), а ответ получал «Отзыв не найден».
  *
  * Правка 10.10 (CRM, хвосты фазы 1): у роута появился экран
  * (/hub/operator/reviews), и вместе с ним сняты три дефекта:
@@ -18,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { requireOperator } from '@/lib/auth/middleware';
+import { accessFailure, operatorAccess } from '@/lib/operators/team-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,8 +43,8 @@ function failed(err: unknown, what: string): NextResponse {
   return NextResponse.json({ success: false, error: 'Ответ не сохранён, попробуйте позже' }, { status: 503 });
 }
 
-/** Тур отзыва принадлежит партнёру этого оператора — предикат один на оба метода. */
-const OWNED = `r.tour_id = t.id AND t.operator_id = p.id AND p.user_id = $2 AND t.deleted_at IS NULL`;
+/** Тур отзыва принадлежит кабинету вошедшего — предикат один на оба метода. */
+const OWNED = `r.tour_id = t.id AND t.operator_id = $2::uuid AND t.deleted_at IS NULL`;
 
 interface SavedRow {
   id: number;
@@ -62,15 +66,18 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
   }
 
+  const access = await operatorAccess(auth.userId);
+  if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access);
+
   let saved: SavedRow | undefined;
   try {
     ({ rows: [saved] } = await query<SavedRow>(
       `UPDATE operator_tour_reviews r
           SET operator_reply = $3, operator_reply_at = NOW(), updated_at = NOW()
-         FROM operator_tours t, partners p
+         FROM operator_tours t
         WHERE r.id = $1 AND ${OWNED}
         RETURNING r.id, r.user_id, r.operator_reply, r.operator_reply_at`,
-      [id.data, auth.userId, parsed.data.reply],
+      [id.data, access.partnerId, parsed.data.reply],
     ));
   } catch (err) {
     return failed(err, 'ответ на отзыв не сохранён');
@@ -105,13 +112,16 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
   const id = Id.safeParse((await params).id);
   if (!id.success) return NextResponse.json(NOT_FOUND, { status: 404 });
 
+  const access = await operatorAccess(auth.userId);
+  if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access);
+
   try {
     const { rowCount } = await query(
       `UPDATE operator_tour_reviews r
           SET operator_reply = NULL, operator_reply_at = NULL, updated_at = NOW()
-         FROM operator_tours t, partners p
+         FROM operator_tours t
         WHERE r.id = $1 AND ${OWNED} AND r.operator_reply IS NOT NULL`,
-      [id.data, auth.userId],
+      [id.data, access.partnerId],
     );
     if (!rowCount) return NextResponse.json(NOT_FOUND, { status: 404 });
     return NextResponse.json({ success: true });

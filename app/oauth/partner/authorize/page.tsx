@@ -100,6 +100,21 @@ export default async function PartnerOAuthAuthorizePage({ searchParams }: { sear
     );
   }
 
+  // Доступ к CRM для приложения — настройка кабинета: даёт только владелец.
+  // Менеджеру команды оператора (CRM 2г) — объяснение, не тупик: войти
+  // аккаунтом владельца можно по той же ссылке.
+  if (ctx.seat !== 'owner') {
+    return (
+      <ConsentClient
+        mode="none"
+        {...base}
+        message="Подключить приложение к CRM может владелец кабинета оператора. Попросите его или войдите его аккаунтом."
+        loginHref={loginHref}
+        switchTo={[]}
+      />
+    );
+  }
+
   const decision: Record<string, string> = {};
   for (const name of AUTHORIZE_PARAM_NAMES) {
     const v = params?.[name];

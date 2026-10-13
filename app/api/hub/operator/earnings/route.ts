@@ -4,21 +4,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import { pool } from '@/lib/db-pool';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const userOrResponse = await requireOperator(request);
-  if (userOrResponse instanceof NextResponse) return userOrResponse;
-
-  const operatorId = await getOperatorPartnerId(userOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 403 });
-  }
+  // Деньги — только владельцу кабинета (CRM 2г): менеджеру выручка закрыта.
+  const owner = await requireOperatorOwner(request);
+  if (owner instanceof NextResponse) return owner;
+  const operatorId = owner.partnerId;
 
   // Брони за 30 дней по дням. Выручка («Оплачено через платформу») — только
   // ОПЛАЧЕННЫЕ и НЕ отменённые: прежде сумма шла по всем броням, включая

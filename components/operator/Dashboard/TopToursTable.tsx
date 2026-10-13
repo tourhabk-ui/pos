@@ -36,16 +36,17 @@ export function TopToursTable({ tours }: TopToursTableProps) {
         </div>
       )
     },
-    {
+    // Выручки нет у менеджера команды (CRM 2г): колонка не показывается.
+    ...(tours.some(t => t.revenue === null) ? [] : [{
       key: 'revenue',
       title: 'Выручка',
       sortable: true,
-      render: (tour) => (
+      render: (tour: TourStats) => (
         <span className="font-semibold text-[var(--accent)]">
-          {formatCurrency(tour.revenue)}
+          {formatCurrency(tour.revenue ?? 0)}
         </span>
       )
-    },
+    } satisfies Column<TourStats>]),
     {
       key: 'averageRating',
       title: 'Рейтинг',

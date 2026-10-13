@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadSchemaModel } from '@/lib/agents/evo/schema-model';
 import { scanSourceAgainstSchema, schemaMismatchToIssue } from '@/lib/agents/evo/schema-lens';
-import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
+import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths, navModulePaths } from '@/lib/agents/evo/structural-scan';
 import { paymentAvailability } from '@/lib/payments/availability';
 
 export interface GrowthIssue {
@@ -1232,9 +1232,17 @@ async function scanStructural(): Promise<GrowthIssue[]> {
 
   // 1. Сироты: страницы хабов вне сайдбара собственного layout.
   const layouts = new Map<string, string>();
+  const fileSet = new Set(files);
   for (const p of hubLayoutPaths(files)) {
     const body = await readFileForReview(p);
-    if (body) layouts.set(p, body);
+    if (!body) continue;
+    // Меню, вынесенное из layout в свой модуль, — тоже сайдбар.
+    const menus: string[] = [];
+    for (const m of navModulePaths(body, (path) => fileSet.has(path))) {
+      const menu = await readFileForReview(m);
+      if (menu) menus.push(menu);
+    }
+    layouts.set(p, [body, ...menus].join('\n'));
   }
   // Два прохода: первый находит кандидатов, затем читаем ТОЛЬКО их тела
   // (единицы файлов) — чтобы отличить сироту от страницы-редиректа

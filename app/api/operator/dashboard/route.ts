@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { OperatorDashboardData, OperatorMetrics, OperatorBooking, ChartDataPoint } from '@/types/operator';
-import { requireOperator } from '@/lib/auth/middleware';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireOperatorTeam } from '@/lib/operators/team-access';
+import { dashboardWithoutMoney } from '@/lib/operators/team-money';
 import {
   OpDashboardMetricsRow,
   OpDashboardBookingRow,
@@ -19,7 +19,7 @@ interface DashboardTourStats {
   tourId: string;
   tourName: string;
   bookingsCount: number;
-  revenue: number;
+  revenue: number | null;
   averageRating: number;
   reviewCount: number;
   completionRate: number;
@@ -30,16 +30,11 @@ interface DashboardTourStats {
  */
 export async function GET(request: NextRequest) {
   try {
-    const userOrResponse = await requireOperator(request);
-    if (userOrResponse instanceof NextResponse) return userOrResponse;
-
-    const partnerId = await getOperatorPartnerId(userOrResponse.userId);
-    if (!partnerId) {
-      return NextResponse.json({
-        success: false,
-        error: 'Партнёрский профиль оператора не найден'
-      } as ApiResponse<null>, { status: 404 });
-    }
+    // Обзор общий для владельца и менеджера команды (CRM 2г); деньги
+    // менеджеру не отдаются — dashboardWithoutMoney ниже.
+    const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+    if (ctx instanceof NextResponse) return ctx;
+    const partnerId = ctx.partnerId;
 
     const { searchParams } = new URL(request.url);
     const period = parseInt(searchParams.get('period') || '30');
@@ -267,7 +262,8 @@ export async function GET(request: NextRequest) {
       upcomingTours,
     };
 
-    return NextResponse.json({ success: true, data: dashboardData } as ApiResponse<OperatorDashboardData>);
+    const visible = ctx.access.kind === 'owner' ? dashboardData : dashboardWithoutMoney(dashboardData);
+    return NextResponse.json({ success: true, data: visible } as ApiResponse<OperatorDashboardData>);
   } catch {
     return NextResponse.json({ success: false, error: 'Ошибка загрузки дашборда' } as ApiResponse<null>, { status: 500 });
   }

@@ -1,5 +1,6 @@
 import { pool } from '@/lib/db-pool';
 import type { JWTPayload } from '@/lib/auth/jwt';
+import { operatorAccess } from '@/lib/operators/team-access';
 
 /**
  * Скоуп владения лидом — единая формула для всех эндпоинтов /api/leads/*:
@@ -19,13 +20,14 @@ export async function leadOwnershipCond(
   nextIdx: number
 ): Promise<{ cond: string; vals: unknown[] }> {
   if (user.role === 'admin') return { cond: '', vals: [] };
-  const opRes = await pool.query<{ id: string }>(
-    // category = 'operator': у user_id бывает и гид-профиль, LIMIT 1 без
-    // фильтра брал произвольный — и оператор не видел своих лидов.
-    "SELECT id FROM partners WHERE user_id = $1 AND category = 'operator' LIMIT 1",
-    [user.userId]
-  );
-  const operatorId = opRes.rows[0]?.id;
+  // Кабинет — свой или команды (CRM 2г, миграция 1223): менеджер видит лиды
+  // своего оператора. operatorAccess ищет партнёра только category='operator'
+  // — у user_id бывает и гид-профиль, LIMIT 1 без фильтра брал произвольный.
+  const access = await operatorAccess(user.userId);
+  // «Не смогли проверить» — не «партнёра нет»: иначе оператор молча увидел бы
+  // только ничейные лиды. Бросаем — роут отвечает ошибкой, как при сбое базы.
+  if (access.kind === 'unavailable') throw new Error(`доступ к кабинету не проверен: ${access.reason}`);
+  const operatorId = access.kind === 'none' ? null : access.partnerId;
   if (!operatorId) return { cond: ' AND operator_id IS NULL', vals: [] };
   return { cond: ` AND (operator_id = $${nextIdx} OR operator_id IS NULL)`, vals: [operatorId] };
 }

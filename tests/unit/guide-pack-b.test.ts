@@ -63,6 +63,13 @@ vi.mock('@/lib/auth/middleware', () => ({
 }));
 vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: vi.fn(async () => GUIDE) }));
 vi.mock('@/lib/auth/operator-helpers', () => ({ getOperatorPartnerId: vi.fn(async () => OPERATOR) }));
+// Состав команды гидов — настройка владельца кабинета (CRM 2г): роуты гидов
+// оператора идут через requireOperatorOwner. Здесь вошёл владелец OPERATOR.
+vi.mock('@/lib/operators/team-access', () => ({
+  requireOperatorOwner: vi.fn(async () => ({
+    userId: 'user-1', role: 'operator', partnerId: OPERATOR, access: { kind: 'owner', partnerId: OPERATOR },
+  })),
+}));
 
 const sqlCalls = (sql: string) => calls.filter((c) => c.sql === sql);
 

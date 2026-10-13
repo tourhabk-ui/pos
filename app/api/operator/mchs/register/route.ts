@@ -256,9 +256,10 @@ export async function POST(request: NextRequest) {
     const data = validation.data;
 
     // Проверка владения бронированием: operator_bookings -> operator_tours ->
-    // partners, где partners.user_id — текущий пользователь, а категория —
-    // оператор. operatorId уже получен тем же условием (getOperatorPartnerId),
-    // JOIN на partners держит связку явно в самом запросе.
+    // кабинет, который вернул getOperatorPartnerId: свой у владельца или
+    // командный у менеджера (CRM 2г). Условие по partners.user_id убрано
+    // 13.10: оно повторяло резолвер для владельца и закрывало менеджеру
+    // регистрацию броней кабинета, которые он видит в списке ниже.
     const ownershipResult = await query<{ id: string }>(
       `SELECT b.id::text AS id
        FROM operator_bookings b
@@ -266,11 +267,10 @@ export async function POST(request: NextRequest) {
        JOIN partners p ON p.id = t.operator_id
        WHERE b.id = $1::bigint
          AND t.operator_id = $2
-         AND p.user_id = $3
          AND p.category = 'operator'
          AND b.deleted_at IS NULL AND t.deleted_at IS NULL
        LIMIT 1`,
-      [data.bookingId, operatorId, userOrResponse.userId]
+      [data.bookingId, operatorId]
     );
 
     if (ownershipResult.rows.length === 0) {

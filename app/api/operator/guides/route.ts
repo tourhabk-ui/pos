@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { query, transaction } from '@/lib/database';
 import { requireRole } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import type { ApiResponse } from '@/types';
 import { GUIDES_SQL, logScreenQueryFailure } from '@/lib/operator/screen-queries';
 import { TEAM_SQL } from '@/lib/guides/team-queries';
@@ -128,8 +129,11 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const partnerId = await operatorPartnerId(request);
-  if (partnerId instanceof NextResponse) return partnerId;
+  // Состав команды — настройка владельца кабинета (CRM 2г): исключить гида
+  // менеджер не может, включать и выключать доступность — может (PATCH).
+  const owner = await requireOperatorOwner(request, { noProfileStatus: 404 });
+  if (owner instanceof NextResponse) return owner;
+  const partnerId = owner.partnerId;
 
   const parsed = RemoveSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

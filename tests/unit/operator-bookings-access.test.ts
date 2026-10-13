@@ -26,11 +26,15 @@ describe('подтверждение и завершение — только с
     });
   }
 
-  it('владение идёт через тур к партнёру пользователя, отказ базы — не «нет доступа»', () => {
+  // С CRM 2г (миграция 1216) владеет кабинет: партнёр вошедшего — свой или
+  // команды, его решает operatorAccess. Связь «тур → партнёр кабинета» та же.
+  it('владение идёт через тур к партнёру кабинета, отказ базы — не «нет доступа»', () => {
     const src = read('lib/bookings/operator-owns.ts');
     expect(src).toMatch(/JOIN operator_tours t ON b\.operator_tour_id = t\.id/);
-    expect(src).toMatch(/JOIN partners p ON t\.operator_id = p\.id/);
-    expect(src).toMatch(/p\.user_id = \$2/);
+    expect(src).toMatch(/const access = await operatorAccess\(userId\)/);
+    expect(src).toMatch(/access\.kind === 'unavailable'\) return 'unknown'/);
+    expect(src).toMatch(/t\.operator_id = \$2::uuid/);
+    expect(src).toMatch(/\[bookingId, access\.partnerId\]/);
     expect(src).toMatch(/catch[\s\S]{0,200}console\.error[\s\S]{0,200}return 'unknown'/);
   });
 });
@@ -113,7 +117,9 @@ describe('ручная бронь доходит до Telegram оператор�
     const src = read('app/api/hub/operator/bookings/route.ts');
     expect(src).toMatch(/p\.telegram_chat_id::text AS telegram_chat_id/);
     expect(src).not.toMatch(/p\.contacts->>'telegram_chat_id' as/);
-    expect(src).toMatch(/p\.category = 'operator'/);
+    // Кабинет — через operatorAccess (там category = 'operator'), строка партнёра — по его id.
+    expect(src).toMatch(/const access = await operatorAccess\(userId\)/);
+    expect(src).toMatch(/FROM partners p WHERE p\.id = \$1::uuid/);
   });
 });
 

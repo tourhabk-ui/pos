@@ -56,14 +56,21 @@ describe('журнал брони — только своим', () => {
     expect((await res.json()).data).toHaveLength(1);
   });
 
+  // CRM 2г: бронью владеет кабинет — владелец или менеджер команды. Сначала
+  // спрашивается кабинет вошедшего (operatorAccess), затем бронь — тура этого кабинета.
   it('оператор чужого тура — 404; оператор своего — 200', async () => {
-    h.auth = { userId: 'op-1', role: 'operator', email: 'o@x.ru' };
-    h.own.mockResolvedValueOnce({ rows: [] });
+    const OP = '00000000-0000-4000-8000-0000000000d1';
+    h.auth = { userId: OP, role: 'operator', email: 'o@x.ru' };
+    const cabinet = { rows: [{ own_partner_id: 'p-op', member_partner_id: null, member_id: null,
+      can_edit_prices: null, can_cancel_bookings: null, was_revoked: false }] };
+    h.own.mockResolvedValueOnce(cabinet).mockResolvedValueOnce({ rows: [] });
     expect((await GET(req, ctx('42'))).status).toBe(404);
     expect(h.logs).not.toHaveBeenCalled();
-    h.own.mockResolvedValueOnce({ rows: [{ 1: 1 }] });
+    h.own.mockResolvedValueOnce(cabinet).mockResolvedValueOnce({ rows: [{ 1: 1 }] });
     expect((await GET(req, ctx('42'))).status).toBe(200);
-    expect(String(h.own.mock.calls[1]?.[0])).toMatch(/JOIN partners p ON t\.operator_id = p\.id/);
+    expect(String(h.own.mock.calls[3]?.[0])).toMatch(/JOIN operator_tours t ON b\.operator_tour_id = t\.id/);
+    expect(String(h.own.mock.calls[3]?.[0])).toMatch(/t\.operator_id = \$2::uuid/);
+    expect(h.own.mock.calls[3]?.[1]).toEqual(['42', 'p-op']);
   });
 
   it('база не ответила — 503, не «не найдена»', async () => {

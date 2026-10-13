@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
+import { touchesTourPrice } from '@/lib/operators/team-money';
 import { isQuickFillField, parseQuickFillValue } from '@/lib/operator/quick-fill-fields';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,11 @@ export async function PATCH(request: NextRequest) {
     const parsed = parseQuickFillValue(field, value);
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    // Цена — право, которое даёт владелец кабинета (CRM 2г).
+    if (touchesTourPrice({ [field]: parsed.value })) {
+      const denied = await requireTeamPermission(userId, 'can_edit_prices');
+      if (denied) return denied;
     }
 
     // Verify tour belongs to operator

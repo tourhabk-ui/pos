@@ -3,6 +3,7 @@ import { query, transaction } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { accessFailure, operatorAccess, ownerOnlyDenied, requireTeamPermission } from '@/lib/operators/team-access';
 import { z } from 'zod';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
@@ -48,6 +49,18 @@ export async function PUT(
       return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' }, { status: 400 });
     }
     const { status, paymentStatus, notes } = parsed.data;
+
+    // CRM 2г: статус оплаты — деньги, его меняет только владелец кабинета;
+    // отмена — по праву can_cancel_bookings, которое даёт владелец.
+    if (paymentStatus) {
+      const access = await operatorAccess(userId);
+      if (access.kind === 'manager') return ownerOnlyDenied();
+      if (access.kind !== 'owner') return accessFailure(access);
+    }
+    if (status === 'cancelled') {
+      const denied = await requireTeamPermission(userId, 'can_cancel_bookings');
+      if (denied) return denied;
+    }
 
     // Build update query
     const updateFields: string[] = [];

@@ -4,10 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import { query } from '@/lib/database';
 import { encryptPayoutDetails } from '@/lib/operators/payout-details';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { z } from 'zod';
 
 const PayoutDetailsSchema = z.discriminatedUnion('method', [
@@ -32,13 +31,10 @@ const PayoutDetailsSchema = z.discriminatedUnion('method', [
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorPartnerId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ error: 'Оператор не найден' }, { status: 403 });
-  }
+  // Выплаты и реквизиты — только владельцу кабинета (CRM 2г).
+  const owner = await requireOperatorOwner(request);
+  if (owner instanceof NextResponse) return owner;
+  const operatorId = owner.partnerId;
 
   // Сводка: баланс к выплате, удержано, выплачено всего
   const summaryResult = await query(
@@ -112,11 +108,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorPartnerId(authOrResponse.userId);
-  if (!operatorId) return NextResponse.json({ error: 'Оператор не найден' }, { status: 403 });
+  const owner = await requireOperatorOwner(request);
+  if (owner instanceof NextResponse) return owner;
+  const operatorId = owner.partnerId;
 
   const body: unknown = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Неверный JSON' }, { status: 400 });
