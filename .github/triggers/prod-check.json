@@ -1,9 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 121,
-  "why": "13.10, ТОЛЬКО ЧТЕНИЕ. Вопрос владельца «понять, почему Кузьмич периодически деградирует». Перепись нагрузки и расхода: какими моделями (llm_usage_log по route, без agent_id — верхняя граница живого пути Кузьмича) он отвечал за 7 и 30 суток, сколько обращений по каналам и дням. Нужна смена моделей во времени — она первая подозреваемая.",
+  "run": 122,
+  "why": "13.10, ТОЛЬКО ЧТЕНИЕ. «Почему Кузьмич периодически деградирует»: новая перепись kuzmich-quality-census — каким путём (инструменты или запасной без них) и каким провайдером отвечал Кузьмич в Telegram и MAX по дням, доля низких оценок и незаземлённых по путям. Плюс перепись нагрузки (какие модели в llm_usage_log).",
   "urls": [
-    "https://vedarai.ru/api/cron/kuzmich-load-census?days=7",
+    "https://vedarai.ru/api/cron/kuzmich-quality-census?days=30",
     "https://vedarai.ru/api/cron/kuzmich-load-census?days=30"
   ],
   "run113_result": "ОТВЕТ ПОЛУЧЕН (run 38278672621, job 114910303506, 12.10 17:13 UTC): /zh 200 — 37 туров отрисованы, hreflang ru/zh-CN/x-default, canonical /zh, JSON-LD WebPage inLanguage zh-CN, команда Qwen Code и ссылки на MCP/A2A/OpenAPI; /request-status 200 с noindex (отрисовка клиентская, серверный main пуст — тексты страницы этим замером не видны); /api/requests/status?k=short — 400 с текстом «Ключ статуса не похож на выданный…», Edge пускает; /mcp — 20 инструментов, get_request_status 16-й; /.well-known/mcp.json — titleZh, descriptionZh, serverCard, aiCatalog, connect (qwen_code, deepseek_harness), 20 инструментов. Шаг ожидания сборки: «своей сборки не дождались» (прод отдаёт commit unknown, no_git_head, 70/70), образ сменился в 16:45 — по содержимому страниц измерена сборка с #2404.",
