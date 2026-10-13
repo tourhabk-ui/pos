@@ -21,6 +21,7 @@ import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { CharterCard } from '@/components/transfers/CharterCard';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
+import { OperatorLegalInfo } from '@/components/operator/OperatorLegalInfo';
 import { OperatorLeadForm } from '@/components/operators/OperatorLeadForm';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import type { CharterCarrier } from '@/lib/transfers/charter-format';
@@ -74,7 +75,9 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
             hero_image, logo_image, gallery, services, features, faq, season_info,
             reviews_data, contacts, location, legal_info, contact,
             rating::text, review_count::text, is_verified,
-            registry_status, registry_number, created_at::text
+            registry_status, registry_number,
+            to_char(registry_checked_at AT TIME ZONE 'Asia/Kamchatka', 'DD.MM.YYYY') AS registry_checked_at,
+            created_at::text
      FROM partners
      WHERE slug = ANY($1) AND is_public = TRUE
      ORDER BY CASE
@@ -498,42 +501,13 @@ export default async function OperatorProfilePage(
               </section>
             )}
 
-            {/* Legal */}
-            {legalInfo && (
-              <section className="ds-card p-5">
-                <h2 className="font-playfair text-2xl font-bold mb-4">Юридическая информация</h2>
-                {typeof legalInfo === 'string' ? (
-                  <p className="text-[var(--text-secondary)] leading-relaxed">{legalInfo}</p>
-                ) : (
-                  <dl className="space-y-2 text-sm">
-                    {legalInfo.companyName && (
-                      <div><dt className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Компания</dt>
-                        <dd className="font-medium text-[var(--text-primary)]">{legalInfo.companyName}</dd></div>
-                    )}
-                    {legalInfo.inn && (
-                      <div><dt className="text-[var(--text-muted)] text-xs uppercase tracking-wide">ИНН</dt>
-                        <dd className="text-[var(--text-secondary)]">{legalInfo.inn}</dd></div>
-                    )}
-                    {legalInfo.ogrn && (
-                      <div><dt className="text-[var(--text-muted)] text-xs uppercase tracking-wide">ОГРН</dt>
-                        <dd className="text-[var(--text-secondary)]">{legalInfo.ogrn}</dd></div>
-                    )}
-                    {legalInfo.address && (
-                      <div><dt className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Адрес</dt>
-                        <dd className="text-[var(--text-secondary)]">{legalInfo.address}</dd></div>
-                    )}
-                    {legalInfo.license && (
-                      <div><dt className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Лицензия</dt>
-                        <dd className="text-[var(--text-secondary)]">{legalInfo.license}</dd></div>
-                    )}
-                    {legalInfo.fishingArea && (
-                      <div><dt className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Рыболовный участок</dt>
-                        <dd className="text-[var(--text-secondary)]">{legalInfo.fishingArea}</dd></div>
-                    )}
-                  </dl>
-                )}
-              </section>
-            )}
+            {/* Legal: реквизиты и номер в реестре туроператоров с тем, сверен ли он */}
+            <OperatorLegalInfo
+              legal={legalInfo}
+              registryNumber={profile.registry_number}
+              registryStatus={profile.registry_status}
+              registryCheckedAt={profile.registry_checked_at}
+            />
           </div>
 
         </div>

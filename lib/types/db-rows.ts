@@ -1355,6 +1355,8 @@ export interface OperatorProfileRow {
   is_verified: boolean;
   registry_status: string | null;
   registry_number: string | null;
+  /** Дата последней сверки с реестром, «ДД.ММ.ГГГГ» по Камчатке; не сверялся — null. */
+  registry_checked_at: string | null;
   created_at: string;
 }
 
