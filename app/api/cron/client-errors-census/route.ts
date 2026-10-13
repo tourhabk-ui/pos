@@ -54,7 +54,7 @@ export interface ErrorGroup {
   n: number;
   visitor_days: number;
   paths: string[];
-  phone: number;
+  from_phone: number;
   offline_n: number;
   builds: string[];
   first_seen: string;
@@ -63,7 +63,7 @@ export interface ErrorGroup {
 
 interface GroupRow {
   fingerprint: string; kind: string; message: string; n: string; visitor_days: string;
-  paths: string[] | null; phone: string; offline_n: string; builds: string[] | null; first_seen: string; last_seen: string;
+  paths: string[] | null; from_phone: string; offline_n: string; builds: string[] | null; first_seen: string; last_seen: string;
 }
 
 const num = (v: string | number | null | undefined) => Number(v ?? 0);
@@ -72,7 +72,7 @@ function toGroup(r: GroupRow): ErrorGroup {
   return {
     fingerprint: r.fingerprint, kind: r.kind, message: r.message,
     n: num(r.n), visitor_days: num(r.visitor_days), paths: r.paths ?? [],
-    phone: num(r.phone), offline_n: num(r.offline_n), builds: r.builds ?? [],
+    from_phone: num(r.from_phone), offline_n: num(r.offline_n), builds: r.builds ?? [],
     first_seen: r.first_seen, last_seen: r.last_seen,
   };
 }
@@ -81,7 +81,7 @@ const GROUP_SELECT = `
   SELECT fingerprint, kind, MIN(message) AS message, COUNT(*) AS n,
          COUNT(DISTINCT visitor_hash) AS visitor_days,
          (array_agg(DISTINCT path))[1:3] AS paths,
-         COUNT(*) FILTER (WHERE device = 'phone') AS phone,
+         COUNT(*) FILTER (WHERE device = 'phone') AS from_phone,
          COUNT(*) FILTER (WHERE online = FALSE) AS offline_n,
          array_agg(DISTINCT build) FILTER (WHERE build IS NOT NULL) AS builds,
          to_char(MIN(created_at), 'YYYY-MM-DD HH24:MI') AS first_seen,
@@ -97,8 +97,8 @@ export function digestText(days: number, totals: Totals, groups: ErrorGroup[], s
   lines.push(`<b>Ошибки в браузере за ${days} дн.</b>: внешних ${totals.external} (человеко-дней ${totals.visitor_days}), своих ${totals.self}, ботов ${totals.bot}`);
   groups.slice(0, 5).forEach((g, i) => {
     const where = g.paths.slice(0, 2).map(escapeHtml).join(', ');
-    const phone = g.phone ? `, с телефона ${g.phone}` : '';
-    lines.push(`${i + 1}. ${escapeHtml(g.message.slice(0, 160))} — ${g.n} раз, человеко-дней ${g.visitor_days}${phone}; ${where}`);
+    const fromPhone = g.from_phone ? `, с телефона ${g.from_phone}` : '';
+    lines.push(`${i + 1}. ${escapeHtml(g.message.slice(0, 160))} — ${g.n} раз, человеко-дней ${g.visitor_days}${fromPhone}; ${where}`);
   });
   if (selfGroups.length) {
     lines.push(`<b>Свои</b>: ${selfGroups.slice(0, 3).map((g) => `${escapeHtml(g.message.slice(0, 80))} (${g.n})`).join('; ')}`);

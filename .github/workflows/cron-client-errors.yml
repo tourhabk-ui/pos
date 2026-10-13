@@ -50,7 +50,7 @@ jobs:
             jq -r '"внешних \(.totals.external // "?") (человеко-дней \(.totals.visitor_days // "?")), своих \(.totals.self // "?"), ботов \(.totals.bot // "?"); удалено старше \(.retention_days) дн.: \(.pruned // "—"); дайджест: \(.notify.reason // "—")"' /tmp/census.json
             echo ""
             echo '```json'
-            jq '{totals, groups: [.groups[]? | {message, kind, n, visitor_days, paths, phone, offline_n, builds, last_seen}], self_groups: [.self_groups[]? | {message, n, paths}], by_path, failed_measures}' /tmp/census.json
+            jq '{totals, groups: [.groups[]? | {message, kind, n, visitor_days, paths, from_phone, offline_n, builds, last_seen}], self_groups: [.self_groups[]? | {message, n, paths}], by_path, failed_measures}' /tmp/census.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

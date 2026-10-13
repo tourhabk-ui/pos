@@ -32,7 +32,7 @@ import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
 
 const ROOT = process.cwd();
 
-const GROUP = { fingerprint: 'abc123abc123abc1', kind: 'error', message: "Cannot read properties of undefined (reading 'map')", n: '14', visitor_days: '9', paths: ['/catalog', '/catalog/tours/51'], phone: '11', offline_n: '2', builds: ['d9793da8'], first_seen: '2026-10-13 05:10', last_seen: '2026-10-13 18:40' };
+const GROUP = { fingerprint: 'abc123abc123abc1', kind: 'error', message: "Cannot read properties of undefined (reading 'map')", n: '14', visitor_days: '9', paths: ['/catalog', '/catalog/tours/51'], from_phone: '11', offline_n: '2', builds: ['d9793da8'], first_seen: '2026-10-13 05:10', last_seen: '2026-10-13 18:40' };
 
 function healthyAnswer(sql: string): Row[] {
   if (/COUNT\(\*\) AS rows,/.test(sql)) return [{ rows: '20', external: '16', self: '3', bot: '1', visitor_days: '9' }];
@@ -63,7 +63,7 @@ describe('перепись', () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.totals).toEqual({ rows: 20, external: 16, self: 3, bot: 1, visitor_days: 9 });
-    expect(body.groups[0]).toMatchObject({ fingerprint: 'abc123abc123abc1', n: 14, visitor_days: 9, phone: 11, offline_n: 2, builds: ['d9793da8'], paths: ['/catalog', '/catalog/tours/51'] });
+    expect(body.groups[0]).toMatchObject({ fingerprint: 'abc123abc123abc1', n: 14, visitor_days: 9, from_phone: 11, offline_n: 2, builds: ['d9793da8'], paths: ['/catalog', '/catalog/tours/51'] });
     expect(body.self_groups[0]).toMatchObject({ message: 'owner-only crash', n: 3 });
     expect(body.by_path).toEqual([{ path: '/catalog', n: 12, groups: 1 }]);
     expect(body.marks).toEqual({ rows_total: 120, since: '2026-10-13' });
@@ -129,7 +129,7 @@ describe('дайджест в Telegram', () => {
   });
 
   it('digestText экранирует HTML и укладывается в потолок', () => {
-    const t = digestText(1, { rows: 1, external: 1, self: 0, bot: 0, visitor_days: 1 }, [{ fingerprint: 'f', kind: 'error', message: '<script>alert(1)</script>', n: 1, visitor_days: 1, paths: ['/x'], phone: 0, offline_n: 0, builds: [], first_seen: '', last_seen: '' }], []);
+    const t = digestText(1, { rows: 1, external: 1, self: 0, bot: 0, visitor_days: 1 }, [{ fingerprint: 'f', kind: 'error', message: '<script>alert(1)</script>', n: 1, visitor_days: 1, paths: ['/x'], from_phone: 0, offline_n: 0, builds: [], first_seen: '', last_seen: '' }], []);
     expect(t).toContain('&lt;script&gt;');
     expect(t).not.toContain('<script>');
     expect(t.length).toBeLessThanOrEqual(3500);
