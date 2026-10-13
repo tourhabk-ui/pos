@@ -1,23 +1,22 @@
 {
   "timeout": 60,
-  "retries": 45,
-  "retryDelay": 60,
-  "run": 778,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «что за поиск в трансфере… не понимаю смысл формы». /transfers: формы дат нет; сначала «Машина под заказ» (карточка Шатуна), ниже «Места в поездках» — списком на 60 дней (грузится в браузере, в HTML — «Проверяем поездки»); ссылка из плана — «Поездки на ваши даты».",
-  "until": "Машина под заказ",
+  "retries": 1,
+  "retryDelay": 5,
+  "run": 779,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru, разбор переписи sitemap (site-audit прогон 5): два маршрута ответили 500 боту Googlebot — что они отвечают обычному заголовку; og:image маршрутов ответил 401 на HEAD — открывается ли он на GET.",
   "urls": [
-    "https://vedarai.ru/transfers",
-    "https://vedarai.ru/transfers?from=2026-11-03&to=2026-11-03&seats=3"
+    "https://vedarai.ru/routes/avachinskij-pereval-baza-3-vulkana",
+    "https://vedarai.ru/routes/odnodnevnyj-pohod-k-avachinskomu-vulkanu",
+    "https://vedarai.ru/api/images/route/00a71c01-6a76-4227-91ba-c62ec50aefc1",
+    "https://vedarai.ru/api/images/route/2bf92082-0daf-4770-8031-a51c0f355be8"
   ],
-  "bytes": 600,
+  "bytes": 400,
   "grep": [
-    "Машина под заказ",
-    ">Трансферы</h1>",
-    "Места в поездках",
-    "Проверяем поездки",
-    "Найти места",
-    "type=\"date\"",
-    "Шатун",
-    "Поездки на ваши даты"
+    "Internal Server Error",
+    "Application error",
+    "<h1",
+    "rel=\"canonical\"",
+    "Маршрут не найден",
+    "digest"
   ]
 }
