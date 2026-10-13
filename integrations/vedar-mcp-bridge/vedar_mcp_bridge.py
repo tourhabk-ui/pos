@@ -226,10 +226,14 @@ def llm_chat(cfg, messages, tools):
     payload = {
         "model": cfg["model"],
         "messages": messages,
-        "tools": tools,
-        "tool_choice": "auto",
         "temperature": 0.2,
     }
+    # Пустой список инструментов не посылаем: DashScope отвечает 400
+    # «[] is too short - 'tools'» (прогон 1, 13.10), а --doctor зовёт модель
+    # как раз без инструментов.
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
     res = _post(
         f"{cfg['base_url']}/chat/completions",
         payload,
