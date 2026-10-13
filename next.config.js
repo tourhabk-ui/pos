@@ -239,6 +239,25 @@ const nextConfig = {
     ];
   },
 
+  // ── Короткий адрес партнёра: vedarai.ru/<slug> ──────────────────────────
+  // Решение владельца 13.10: «адрес vedarai.ru/<slug>». Это та же страница
+  // оператора /operators/<slug>: rewrite держит короткий адрес в строке
+  // браузера, а canonical страницы остаётся /operators/<slug> — в поиске
+  // страница одна. Именно rewrite, а не маршрут app/[slug]: верхний
+  // динамический сегмент делает «страницей» любой односегментный адрес, и
+  // правило Next no-html-link-for-pages краснит все жёсткие <a href="/…">
+  // проекта, включая намеренные (field-nav-hard) — 17 ошибок lint на #2414.
+  // Rewrite из массива — afterFiles: статические страницы и файлы public
+  // старше него, /catalog, /about и /robots.txt он не перехватывает.
+  // Форма slug — латиница, цифры, дефис, от двух знаков, без точек: опечатки
+  // и /favicon.ico в базу не ходят; неизвестный slug — notFound самой
+  // страницы оператора. Сторож: tests/unit/partner-short-address.
+  async rewrites() {
+    return [
+      { source: '/:slug([a-z0-9][a-z0-9-]+)', destination: '/operators/:slug' },
+    ];
+  },
+
   async headers() {
     return [
       // HTML-страницы не должны кэшироваться на CDN/прокси —
