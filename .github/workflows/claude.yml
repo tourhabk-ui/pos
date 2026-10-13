@@ -67,22 +67,22 @@ jobs:
       - name: Run Claude
         uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
         with:
-          # Токен подписки (claude setup-token под входом Max), не ключ Console —
-          # решение владельца 12.10 вечером: «Подписка, бесплатно» (#2396). Разбор
-          # того же дня: 238 $ на счету Console — месячные кредиты плана Max, и по
-          # документации Anthropic (api-credits-for-subscribers) они покрывают API,
-          # Agent SDK и playground, но НЕ Claude Code; купленный баланс 0. Поэтому
-          # обычные запросы ключом шли 200, а любой с подписью Claude Code
-          # (бета-заголовок claude-code-20250219 или user-agent claude-cli — проба
-          # 22, по одному достаточно) получал 400 «credit balance is too low» —
-          # тот самый отказ руки. Токен подписки платит планом, не балансом
-          # (docs/authentication: «authenticates with your Claude subscription»).
-          # Токен 10.09 отвечал ошибками организации Console (400 «credit balance»,
-          # «not scoped to a workspace») — выдан, по всей видимости, под той
-          # организацией; новый авторизован аккаунтом с Max. Ключ anthropic_api_key
-          # рядом НЕ держать: в неинтерактивном режиме (-p) ключ старше токена и
-          # побеждает всегда. Сторож: tests/unit/issue-hand-model-pinned.test.ts.
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Ключ Console из репозиторного секрета — решение владельца 13.10:
+          # «я пополню лучше баланс», после того как выпуск токена подписки
+          # (claude setup-token) с компьютера упёрся в гео-блок claude.ai.
+          # Что известно (#2396, пробы 19–22 и документация Anthropic,
+          # api-credits-for-subscribers): 238 $ на счету Console — месячные
+          # кредиты плана Max, они покрывают API, Agent SDK и playground, но НЕ
+          # Claude Code; любой запрос с подписью Claude Code (бета-заголовок
+          # claude-code-20250219 или user-agent claude-cli) получал 400 «credit
+          # balance is too low», потому что купленного баланса было 0. Купленные
+          # кредиты эту дыру закрывают: Claude Code списывает с них, обычные
+          # запросы — по-прежнему с месячных. Руки оживают в момент пополнения,
+          # без правок; пока баланс не куплен, отказ тот же 400, читать его как
+          # «не пополнено», а не «ключ сломан». Токен подписки рядом НЕ держать:
+          # отказ должен читаться как «ключ», а не «какой из двух».
+          # Сторож: tests/unit/issue-hand-model-pinned.test.ts.
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # --max-turns 60, как у ночного триажа (решение владельца 06.09).
           # Прогон 550 без потолка ушёл на 70 ходов; у соседних рук потолки
           # стояли с самого начала, у этой не было. Потолок может обрезать
