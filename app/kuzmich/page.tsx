@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: 'Кузьмич — AI-помощник по турам Камчатки',
   description: 'Опишите мечту — AI-оператор Кузьмич подберёт лучший тур. Рыбалка, вулканы, медведи, горячие источники.',
   robots: 'index, follow',
+  alternates: { canonical: '/kuzmich' },
 };
 
 export default function KuzmichPage() {

@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: 'Оставить заявку на тур',
   description: 'Персональный подбор туров на Камчатку. AI-помощник Кузьмич обработает заявку за 15 секунд и подберёт 3 лучших тура.',
   robots: 'index, follow',
+  alternates: { canonical: '/request' },
 };
 
 export default function RequestPage() {
