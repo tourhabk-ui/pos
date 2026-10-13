@@ -604,6 +604,29 @@ withPg('клиент партнёра на настоящем PostgreSQL', () =>
     expect(moved?.reminder).toBeNull();
   });
 
+  it('напоминания оператору (CRM 2г): у кабинета канала нет, дошло до менеджеров — база записывает исход team', async () => {
+    const T = new Date('2030-06-03T00:00:00Z');
+    const at = (minutes: number) => new Date(T.getTime() + minutes * 60_000).toISOString();
+    const id = (await pool.query<{ id: string }>(
+      `INSERT INTO crm_tasks (partner_id, title, due_at, created_at) VALUES ($1, 'Позвонить группе', $2, $3) RETURNING id`,
+      [P.opA, at(-30), at(-120)],
+    )).rows[0].id;
+    const copies: Array<{ pid: string; text: string }> = [];
+    const r = await runTaskReminders(T, {
+      db: pool,
+      // Остальные партнёры — «адрес не прочитан»: их строк прогон не трогает.
+      reach: async (pid) => (pid === P.opA ? { telegramChatId: null, maxChatId: null, telegramSource: null, reachable: false } : null),
+      send: async () => { throw new Error('кабинету слать некуда — сюда не дойдёт'); },
+      team: async (pid, msg) => { copies.push({ pid, text: msg.text }); return { state: 'sent', members: 1, delivered: 1, stubbed: 0 }; },
+    });
+    expect(copies).toEqual([{ pid: P.opA, text: expect.stringContaining('Позвонить группе') }]);
+    expect(r).toMatchObject({ team_only: 1 });
+    const { rows } = await pool.query<{ reminder_channel: string | null; reminded: boolean }>(
+      `SELECT reminder_channel, reminded_at IS NOT NULL AS reminded FROM crm_tasks WHERE id = $1`, [id],
+    );
+    expect(rows[0]).toEqual({ reminder_channel: 'team', reminded: true });
+  });
+
   it('напоминания: исход без момента база не примет', async () => {
     const id = (await pool.query<{ id: string }>(
       `INSERT INTO crm_tasks (partner_id, title, due_at) VALUES ($1, 'пара', NOW()) RETURNING id`, [P.guide],

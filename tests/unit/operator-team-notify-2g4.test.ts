@@ -19,6 +19,8 @@
  *  - бронь (notifyNewBooking, задача «нет канала») — operator-booking-team-copy;
  *  - бронь из чата Кузьмича — kuzmich-booking-team-copy;
  *  - личная заявка — lead-personal-to-operator; запрос мест — seat-requests;
+ *  - напоминание о задаче — crm-reminders (копия в прогоне записи, исход
+ *    team), crm-contacts.pg (team в настоящей базе), crm-task-reminder-labels;
  *  - оба бота и `om_` — member-channel-bots;
  *  - баннеры кабинета — operator-layout-banners, member-channel-banner;
  *  - подписи на «Команде» — operator-team-notify-labels.
@@ -103,6 +105,7 @@ describe('привязка: только активная строка кома�
     expect(params).toEqual(['555', MEMBER]);
     expect(noticeMock).toHaveBeenCalledTimes(1);
     expect(String(noticeMock.mock.calls[0][1])).toMatch(/К уведомлениям кабинета подключён MAX менеджера «Анна»/);
+    expect(String(noticeMock.mock.calls[0][1])).toMatch(/напоминания о задачах/);
   });
 
   it('строки нет или менеджер снят — not_active, ничего не шлётся', async () => {

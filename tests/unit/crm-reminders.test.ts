@@ -10,7 +10,7 @@
  * Исполнение SQL — в интеграционном crm-contacts.pg.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DUE_TASKS_SQL, MARK_REMINDED_SQL, isQuietHour, kamchatkaHour, reminderMessage, runTaskReminders, tasksUrl,
@@ -137,6 +137,77 @@ describe('прогон: три исхода пишутся, отказ — не�
   });
 });
 
+describe('команда оператора (CRM 2г, решение владельца 13.10)', () => {
+  const OK = async (_p: PdAlertParams): Promise<PdAlertResult> => ({ channel: 'max', delivered: true, reason: 'ok' });
+  const teamGot = (delivered: number, stubbed = 0) =>
+    vi.fn(async (_pid: string, _msg: unknown, _what: string) => ({ state: 'sent' as const, members: delivered + stubbed, delivered, stubbed }));
+  const markOf = (calls: { sql: string; params: unknown[] }[]) => calls.find((c) => c.sql === MARK_REMINDED_SQL)?.params[2];
+  const op = (over: Partial<DueTaskRow> = {}) => task({ category: 'operator', ...over });
+
+  it('копия менеджерам — тем же сообщением, что кабинету; исход — канал кабинета', async () => {
+    const { db, calls } = fakeDb([op({ id: 'a' }), op({ id: 'b', title: 'Второе' })]);
+    const send = vi.fn(OK);
+    const team = teamGot(1);
+    const r = await runTaskReminders(NOON, { db, send, team, reach: async () => REACH_BOTH });
+    expect(team).toHaveBeenCalledTimes(1);
+    const [pid, msg, what] = team.mock.calls[0]!;
+    expect(pid).toBe('p-1');
+    const { to: _to, ...toCabinet } = send.mock.calls[0]![0];
+    expect(msg).toEqual(toCabinet);
+    expect(what).not.toMatch(/Анна|Перезвонить/); // в лог — без ПД и заголовков
+    expect(markOf(calls)).toBe('max');
+    expect(r).toMatchObject({ sent_max: 1, team_sent_max: 1, team_only: 0, unreachable: 0 });
+  });
+
+  it('у кабинета канала нет, менеджерам дошло — исход team, а не «не отправлено»', async () => {
+    const { db, calls } = fakeDb([op()]);
+    const send = vi.fn(OK);
+    const r = await runTaskReminders(NOON, { db, send, team: teamGot(0, 1), reach: async () => REACH_NONE });
+    expect(send).not.toHaveBeenCalled();
+    expect(markOf(calls)).toBe('team');
+    expect(r).toMatchObject({ team_only: 1, unreachable: 0, team_sent_stub: 1 });
+  });
+
+  it('у кабинета канала нет и менеджерам не дошло (или команду не прочитать) — unreachable, как раньше', async () => {
+    for (const team of [teamGot(0), vi.fn(async () => ({ state: 'unknown' as const }))]) {
+      const { db, calls } = fakeDb([op()]);
+      const r = await runTaskReminders(NOON, { db, send: vi.fn(OK), team, reach: async () => REACH_NONE });
+      expect(markOf(calls)).toBe('unreachable');
+      expect(r.team_only).toBe(0);
+      expect(r.unreachable).toBe(1);
+    }
+  });
+
+  it('отказ доставки кабинету или адрес не прочитан — копии нет: повтор следующим прогоном, без дублей менеджерам', async () => {
+    const { db, calls } = fakeDb([op({ id: 'a', partner_id: 'p-1' }), op({ id: 'b', partner_id: 'p-2' })]);
+    const team = teamGot(1);
+    const r = await runTaskReminders(NOON, {
+      db, team,
+      send: async () => ({ channel: 'none', delivered: false, reason: 'MAX API error' }),
+      reach: async (pid) => (pid === 'p-1' ? REACH_BOTH : null),
+    });
+    expect(team).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.sql === MARK_REMINDED_SQL)).toHaveLength(0);
+    expect(r).toMatchObject({ failed: 1, reach_unknown: 1 });
+  });
+
+  it('команду не прочитать — напоминание кабинету записано, в отчёте team_unknown', async () => {
+    const { db, calls } = fakeDb([op()]);
+    const r = await runTaskReminders(NOON, {
+      db, send: vi.fn(OK), reach: async () => REACH_BOTH, team: vi.fn(async () => ({ state: 'unknown' as const })),
+    });
+    expect(markOf(calls)).toBe('max');
+    expect(r).toMatchObject({ sent_max: 1, team_unknown: 1 });
+  });
+
+  it('команда есть только у оператора: гиду и остальным ролям копии нет', async () => {
+    const { db } = fakeDb([task({ category: 'guide' })]);
+    const team = teamGot(1);
+    await runTaskReminders(NOON, { db, send: vi.fn(OK), team, reach: async () => REACH_BOTH });
+    expect(team).not.toHaveBeenCalled();
+  });
+});
+
 describe('SQL отбора', () => {
   it('открытые, без напоминания, срок наступил, окно — параметром-числом, а не склейкой', () => {
     expect(DUE_TASKS_SQL).toMatch(/t\.done_at IS NULL/);
@@ -153,10 +224,15 @@ describe('SQL отбора', () => {
     expect(MARK_REMINDED_SQL).toMatch(/reminded_at IS NULL/);
   });
 
-  it('словарь исходов — один в коде и в CHECK миграции', async () => {
+  it('словарь исходов — один в коде и в CHECK последней миграции, что его задаёт', async () => {
     const { REMINDER_CHANNELS } = await import('@/lib/crm/tasks');
+    // Словарь расширялся (1199 → 1231, исход team): судит последнее слово базы.
+    const defs = readdirSync(join(ROOT, 'migrations'))
+      .filter((f) => f.endsWith('.sql') && /ADD CONSTRAINT crm_tasks_reminder_channel_check/.test(read(`migrations/${f}`)))
+      .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    expect(defs.length, 'CHECK исхода не найден ни в одной миграции').toBeGreaterThan(0);
     const m = /crm_tasks_reminder_channel_check\s+CHECK \(reminder_channel IS NULL OR reminder_channel IN \(([^)]*)\)\)/
-      .exec(read('migrations/1199_crm_task_reminders.sql'));
+      .exec(read(`migrations/${defs.at(-1)}`));
     expect(m, 'CHECK исхода не найден').not.toBeNull();
     expect([...(m?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort()).toEqual([...REMINDER_CHANNELS].sort());
   });

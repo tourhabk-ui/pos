@@ -61,6 +61,7 @@ function errorText(json: unknown, fallback: string): string {
 const REMINDER_LABELS: Readonly<Record<ReminderChannel, string>> = {
   max: 'напоминание ушло в MAX',
   telegram_stub: 'в Telegram ушло напоминание без подробностей',
+  team: 'напоминание ушло менеджерам: у кабинета не подключён ни MAX, ни Telegram',
   unreachable: 'напоминание не отправлено: не подключён ни MAX, ни Telegram',
 };
 

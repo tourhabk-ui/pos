@@ -5,7 +5,8 @@
  *  - о входящем без ответа 2 часа (1г-2, `lib/crm/inbox-reminders.ts`) —
  *    поле `inbox`.
  * Общие правила: тихие часы 22–08 по Камчатке, канал из `reachForPartner`,
- * ПД только в MAX, три исхода записываются. Ответ — только числа.
+ * ПД только в MAX, исходы записываются. Напоминание о задаче уходит копией и
+ * менеджерам команды оператора (CRM 2г, `team_*` в ответе). Ответ — только числа.
  *
  * Исход прогона:
  *  - 500 — база не ответила;
@@ -32,8 +33,9 @@ export async function GET(req: Request) {
     const now = new Date();
     const r = await runTaskReminders(now);
     const inbox = await runInboxReminders(now);
-    const stalled = (x: { sent_max: number; sent_stub: number; unreachable: number; failed: number; reach_unknown: number }) =>
-      x.failed + x.reach_unknown > 0 && x.sent_max + x.sent_stub + x.unreachable === 0;
+    // team_only — напоминание записано: дошло до менеджеров команды (CRM 2г).
+    const stalled = (x: { sent_max: number; sent_stub: number; unreachable: number; failed: number; reach_unknown: number; team_only?: number }) =>
+      x.failed + x.reach_unknown > 0 && x.sent_max + x.sent_stub + x.unreachable + (x.team_only ?? 0) === 0;
     const problems = [
       stalled(r) && `задачи: не обработан ни один партнёр из ${r.partners}`,
       stalled(inbox) && `входящие: не обработан ни один партнёр из ${inbox.partners}`,
@@ -46,7 +48,7 @@ export async function GET(req: Request) {
         { status: 502 },
       );
     }
-    recordCronRun('crm-reminders', started, 'success', { items: r.sent_max + r.sent_stub + inbox.sent_max + inbox.sent_stub });
+    recordCronRun('crm-reminders', started, 'success', { items: r.sent_max + r.sent_stub + r.team_only + inbox.sent_max + inbox.sent_stub });
     return Response.json({ success: true, duration_ms: Date.now() - started, ...r, inbox });
   } catch (e) {
     const code = (e as { code?: string })?.code ?? 'нет SQLSTATE';
