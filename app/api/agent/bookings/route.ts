@@ -273,6 +273,7 @@ export async function POST(request: NextRequest) {
           operator_phone:            op?.phone ?? null,
           operator_email:            op?.email ?? null,
           via:                       AGENT_BOOKING_VIA,
+          operator_partner_id:       result.operatorId,
         });
       } catch (err) {
         console.error(

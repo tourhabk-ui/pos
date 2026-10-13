@@ -38,6 +38,12 @@ export interface TeamMember {
   revoked_at: string | null;
   /** Ссылка ждёт, но срок вышел. */
   expired: boolean;
+  /**
+   * Подключил ли менеджер свой мессенджер для уведомлений кабинета (2г-4).
+   * Только «да/нет»: сам chat_id владельцу ни к чему.
+   */
+  max_bound: boolean;
+  telegram_bound: boolean;
 }
 
 interface Queryable {
@@ -50,7 +56,8 @@ const MEMBER_COLUMNS = `
   m.can_edit_prices, m.can_cancel_bookings,
   m.created_at::text AS created_at, m.invite_expires_at::text AS invite_expires_at,
   m.accepted_at::text AS accepted_at, m.revoked_at::text AS revoked_at,
-  (m.status = 'invited' AND m.invite_expires_at <= NOW()) AS expired`;
+  (m.status = 'invited' AND m.invite_expires_at <= NOW()) AS expired,
+  (m.max_chat_id IS NOT NULL) AS max_bound, (m.telegram_chat_id IS NOT NULL) AS telegram_bound`;
 
 /** Команда кабинета: действующие и ждущие сверху, снятые — последние 20. */
 export async function listTeam(partnerId: string, db: Queryable = pool): Promise<TeamMember[]> {
@@ -136,7 +143,9 @@ export async function updateMember(
  * Снять менеджера или отозвать ждущую ссылку. Доступ закрывается сразу:
  * резолвер кабинета спрашивает базу на каждом запросе. Снятому убирается
  * роль operator из его ролей, если своего кабинета оператора у него нет, —
- * иначе при следующем входе он попадал бы в пустой кабинет.
+ * иначе при следующем входе он попадал бы в пустой кабинет. Его мессенджер
+ * стирается тем же запросом (2г-4): рассылка и так берёт только активных, но
+ * адрес, по которому больше ничего не положено слать, хранить незачем.
  */
 export async function revokeMember(partnerId: string, memberId: string, revokedBy: string): Promise<TeamMember | null> {
   const client = await pool.connect();
@@ -145,7 +154,9 @@ export async function revokeMember(partnerId: string, memberId: string, revokedB
     const { rows } = await client.query<{ id: string; user_id: string | null }>(
       `UPDATE operator_members
           SET status = 'revoked', revoked_at = NOW(), revoked_by = $3::uuid,
-              invite_token_hash = NULL, updated_at = NOW()
+              invite_token_hash = NULL,
+              max_chat_id = NULL, telegram_chat_id = NULL, channel_bound_at = NULL,
+              updated_at = NOW()
         WHERE id = $2::uuid AND partner_id = $1::uuid AND status IN ('invited', 'active')
         RETURNING id::text AS id, user_id::text AS user_id`,
       [partnerId, memberId, revokedBy],

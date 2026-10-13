@@ -23,8 +23,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const { reachMock, pdMock } = vi.hoisted(() => ({ reachMock: vi.fn(), pdMock: vi.fn() }));
+const { reachMock, pdMock, teamMock } = vi.hoisted(() => ({ reachMock: vi.fn(), pdMock: vi.fn(), teamMock: vi.fn() }));
 vi.mock('@/lib/partners/reach', () => ({ reachForPartner: reachMock }));
+// Копия команде кабинета (CRM 2г-4) — своим модулем со своим сторожем.
+vi.mock('@/lib/operators/team-notify', () => ({ notifyTeam: teamMock }));
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: pdMock }));
 vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
 
@@ -43,6 +45,8 @@ beforeEach(() => {
   reachMock.mockReset();
   pdMock.mockReset();
   pdMock.mockResolvedValue({ channel: 'max', delivered: true, reason: 'ok' });
+  teamMock.mockReset();
+  teamMock.mockResolvedValue({ state: 'sent', members: 0, delivered: 0 });
 });
 
 describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД только в MAX', () => {
@@ -67,10 +71,17 @@ describe('notifyPartnerNewLeadPersonally — адрес оператора, ПД
     expect(args.buttons?.some((b) => 'payload' in b)).toBe(false);
   });
 
-  it('оператор не привязан → no_channel, ничего не шлётся', async () => {
+  it('оператор не привязан → no_channel, кабинету ничего не шлётся; команде — тот же текст своим адресом', async () => {
     reachMock.mockResolvedValue({ maxChatId: null, telegramChatId: null, telegramSource: null, reachable: false });
     expect(await notifyPartnerNewLeadPersonally(LEAD)).toEqual({ state: 'no_channel' });
     expect(pdMock).not.toHaveBeenCalled();
+    // Заявка доходит до менеджеров, даже если у кабинета канала нет (2г-4).
+    expect(teamMock).toHaveBeenCalledTimes(1);
+    const [partnerId, msg] = teamMock.mock.calls[0] as [string, { text: string; stub: string; buttons: Array<Record<string, string>> }];
+    expect(partnerId).toBe('op-mestechko');
+    expect(msg.text).toContain('+79990000000');
+    expect(msg.stub).not.toContain('+79990000000');
+    expect(msg.buttons.every((b) => 'url' in b && !('payload' in b))).toBe(true);
   });
 
   it('адрес не прочитался → unknown, а не «адреса нет»', async () => {

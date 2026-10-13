@@ -34,6 +34,16 @@ interface Member {
   accepted_at: string | null;
   revoked_at: string | null;
   expired: boolean;
+  /** Свой мессенджер для копий уведомлений кабинета (2г-4); старый ответ без полей — «нет». */
+  max_bound?: boolean;
+  telegram_bound?: boolean;
+}
+
+/** Куда менеджеру приходят копии броней и заявок — словами для владельца. */
+function notifyLabel(m: Member): string {
+  if (m.max_bound) return 'Уведомления: в MAX';
+  if (m.telegram_bound) return 'Уведомления: в Telegram, без имён и телефонов — MAX не подключён';
+  return 'Уведомления не подключены — о новых бронях узнает из кабинета';
 }
 
 const PERMS: { key: Perm; title: string; hint: string }[] = [
@@ -366,7 +376,8 @@ export default function TeamClient() {
               </div>
             </dl>
             <p className="text-xs text-[var(--text-muted)]">
-              Уведомления о новых заявках и бронях пока приходят только вам — менеджерам добавим отдельным шагом.
+              Новые брони, заявки и запросы мест приходят и менеджерам — в MAX или Telegram, подключённый в их
+              кабинете. Снятому менеджеру они перестают приходить сразу.
             </p>
           </section>
 
@@ -395,6 +406,9 @@ export default function TeamClient() {
                           </div>
                           <span className="text-xs text-[var(--text-muted)]">в команде с {day(m.accepted_at)}</span>
                         </div>
+                        <p className={`text-xs ${m.max_bound ? 'text-[var(--text-secondary)]' : 'text-[var(--warning)]'}`}>
+                          {notifyLabel(m)}
+                        </p>
                         {permBoxes(m)}
                         {removeButton(m, 'Снять')}
                       </li>

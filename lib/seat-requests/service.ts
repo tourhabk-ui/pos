@@ -52,6 +52,7 @@ import {
   type TouristMessageState,
 } from '@/lib/seat-requests/core';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { notifyTeam } from '@/lib/operators/team-notify';
 
 // ── Потолки ───────────────────────────────────────────────────────────────
 // Публичная запись без аккаунта: без потолков один скрипт заваливал бы
@@ -311,6 +312,16 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
     console.error(`[seat-requests] запрос ${requestId} не доставлен оператору: ${delivery.reason}`);
     return { ok: false, reason: 'delivery_failed' };
   }
+
+  // Менеджеры команды кабинета (CRM 2г-4): тот же текст без ПД, но без кнопок
+  // «Есть места / Мест нет» — их бот принимает только из чата кабинета
+  // (requestBelongsToMaxChat). Ответить менеджер может ссылкой на сайте.
+  await notifyTeam(
+    tour.operator_id,
+    { text, stub: text, buttons: answerUrl ? [{ text: 'Ответить на сайте', url: answerUrl }] : [] },
+    `запрос мест ${requestId}`,
+  );
+
   return { ok: true, requestId, statusToken: token, deadlineAt, operatorDelivery: delivery.channel as 'max' | 'telegram-stub' };
 }
 

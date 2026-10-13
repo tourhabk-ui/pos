@@ -51,6 +51,7 @@ import { verifyConnectToken } from '@/lib/telegram/connect-token';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
+import { handleMemberStart } from '@/lib/operators/member-channel';
 import { statusTokenFromStart } from '@/lib/seat-requests/core';
 import { bindTouristChat } from '@/lib/seat-requests/service';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
@@ -659,6 +660,13 @@ export async function POST(request: NextRequest) {
         }
         const bound = await bindPartnerChannel(check.partnerId, 'telegram', update.message.chat.id);
         await sendHTML(chatId, bindReplyText('telegram', bound));
+        return NextResponse.json({ ok: true });
+      }
+
+      // /start om_{token} — менеджер команды оператора подключает этот чат к
+      // уведомлениям кабинета (CRM 2г-4). Пишется в ЕГО строку команды, а не в
+      // карточку партнёра: чат кабинета остаётся за владельцем.
+      if (await handleMemberStart(arg, 'telegram', update.message.chat.id, (t) => sendHTML(chatId, t))) {
         return NextResponse.json({ ok: true });
       }
 
