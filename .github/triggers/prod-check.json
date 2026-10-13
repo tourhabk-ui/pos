@@ -1,10 +1,9 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 119,
-  "why": "13.10, после 1224 (описание «Семейного Рафтинга» поверх заглушки «Мы есть» — решение владельца «сезон закончили, теперь просто для красивой картинки»): на /operators/kamchatka-rafting в герое вместо «Мы есть» должен стоять текст 1222 («спокойные однодневные сплавы по реке Быстрой…», «Ведар оплату не принимает»). Заодно дочитать витрину, которую run 118 обрезал потолком лога: /catalog?activity_type=jeep_safari — у карточек Местечка имя оператора <a href=\"/operators/mestechko\">, ссылка на тур слоем, вложенных <a> нет.",
+  "run": 120,
+  "why": "13.10, после #2422 (CRM 2г-2а): перепись кабинетов операторов перед переводом календаря на общий резолвер (шаг 2г-2б). Ждём 200 и probe operator_cabinet_census_v1. calendar_switch_safe: true — у людей с ролью оператора нет туров и дат на профиле не оператора, календарь переводится без потерь; false — список at_risk (только uuid) и разбор данных до перевода. В ответе не должно быть ни почты, ни имён — только счёт и uuid. 503 с sqlstate — перепись не выполнилась, вывода нет.",
   "urls": [
-    "https://vedarai.ru/operators/kamchatka-rafting",
-    "https://vedarai.ru/catalog?activity_type=jeep_safari"
+    "https://vedarai.ru/api/cron/operator-cabinet-census"
   ],
   "run113_result": "ОТВЕТ ПОЛУЧЕН (run 38278672621, job 114910303506, 12.10 17:13 UTC): /zh 200 — 37 туров отрисованы, hreflang ru/zh-CN/x-default, canonical /zh, JSON-LD WebPage inLanguage zh-CN, команда Qwen Code и ссылки на MCP/A2A/OpenAPI; /request-status 200 с noindex (отрисовка клиентская, серверный main пуст — тексты страницы этим замером не видны); /api/requests/status?k=short — 400 с текстом «Ключ статуса не похож на выданный…», Edge пускает; /mcp — 20 инструментов, get_request_status 16-й; /.well-known/mcp.json — titleZh, descriptionZh, serverCard, aiCatalog, connect (qwen_code, deepseek_harness), 20 инструментов. Шаг ожидания сборки: «своей сборки не дождались» (прод отдаёт commit unknown, no_git_head, 70/70), образ сменился в 16:45 — по содержимому страниц измерена сборка с #2404.",
   "run114_result": "ОТВЕТ ПОЛУЧЕН (run 38286520699, job 114936098240, 12.10 18:23 UTC, оба адреса HTTP 200): channel-readiness после выравнивания с витриной — tours_active 37, drafts_excluded 5, ready 11 (Камчатская рыбалка 10, Рафтинг 1), not_ready 26, blocking_by_field: cancellation_policy 26 (Край Вулканов 11, Местечко 15), coordinates 1 («Озеро Толмачёва»); operator-reach — те же 37 живых туров, reachable 0 / unreachable 4, verdict gap. Две переписи сошлись (было 42 против 37 в run 112).",
