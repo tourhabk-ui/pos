@@ -2,37 +2,20 @@
   "timeout": 60,
   "retries": 0,
   "retryDelay": 5,
+  "allowStale": true,
+  "run": 784,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru: два маршрута из sitemap отвечают Googlebot 500, браузеру 200 без canonical — похоже, падает generateMetadata на данных маршрута. Снимаем публичную карточку /api/routes/<slug> (поля photos, title) и для сравнения рабочий маршрут.",
   "urls": [
     "https://vedarai.ru/robots.txt",
-    "https://vedarai.ru/routes/net-takogo-marshruta-seo-1310",
-    "https://vedarai.ru/routes/00000000-0000-4000-8000-000000001310",
-    "https://vedarai.ru/places/net-takogo-mesta-seo-1310",
-    "https://vedarai.ru/catalog/tours/net-takogo-tura-seo-1310",
-    "https://vedarai.ru/tours/net-takogo-tura-seo-1310",
-    "https://vedarai.ru/operators/net-takogo-operatora-seo-1310",
-    "https://vedarai.ru/articles/net-takoy-stati-seo-1310",
-    "https://vedarai.ru/plans/net-takogo-plana-seo-1310",
-    "https://vedarai.ru/fish/net-takoy-ryby-seo-1310",
-    "https://vedarai.ru/weather/net-takogo-mesta-seo-1310",
-    "https://vedarai.ru/collections/net-takoy-podborki-seo-1310",
-    "https://vedarai.ru/park/net-takogo-parka-seo-1310",
-    "https://vedarai.ru/letopis/net-takoy-zapisi-seo-1310",
-    "https://vedarai.ru/guides/00000000-0000-4000-8000-000000001310",
-    "https://vedarai.ru/transfers/net-takogo-perevozchika-seo-1310",
-    "https://vedarai.ru/accommodations/00000000-0000-4000-8000-000000001310",
-    "https://vedarai.ru/routes/avachinskij-pereval-baza-3-vulkana"
+    "https://vedarai.ru/api/routes/avachinskij-pereval-baza-3-vulkana",
+    "https://vedarai.ru/api/routes/odnodnevnyj-pohod-k-avachinskomu-vulkanu",
+    "https://vedarai.ru/api/routes/goryachie-istochniki-nalychevo"
   ],
-  "bytes": 200,
+  "bytes": 9000,
   "grep": [
-    "не найден",
-    "Не найден",
-    "404",
-    "Ошибка загрузки",
-    "noindex",
-    "rel=\"canonical\""
-  ],
-  "run": 783,
-  "ua": "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru: те же несуществующие адреса глазами Googlebot (свой домен) — 404, 200 или 500. Пара к пробе 782. Повтор 780/781: 404 проба считала «ещё не выкатилось» и вставала на первом адресе — первым теперь robots.txt (датчик), allowStale, без повторов.",
-  "allowStale": true
+    "\"photos\"",
+    "\"title\"",
+    "\"slug\"",
+    "\"error\""
+  ]
 }
