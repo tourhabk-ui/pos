@@ -131,7 +131,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   // Состав команды — настройка владельца кабинета (CRM 2г): исключить гида
   // менеджер не может, включать и выключать доступность — может (PATCH).
-  const owner = await requireOperatorOwner(request);
+  const owner = await requireOperatorOwner(request, { noProfileStatus: 404 });
   if (owner instanceof NextResponse) return owner;
   const partnerId = owner.partnerId;
 

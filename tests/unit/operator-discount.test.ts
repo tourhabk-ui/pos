@@ -120,7 +120,11 @@ describe('свой тур и чужой', () => {
   });
 
   it('оператор без партнёрской записи получает отказ, а не пустой список', () => {
-    expect((ROUTE_CODE.match(/Профиль оператора не найден/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    // GET — своим ответом; запись скидок — через гард кабинета (CRM 2г), он
+    // отвечает тем же «Профиль оператора не найден».
+    expect((ROUTE_CODE.match(/Профиль оператора не найден/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((ROUTE_CODE.match(/await requireOperatorTeam\(request\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(readFileSync(join(process.cwd(), 'lib/operators/team-access.ts'), 'utf8')).toMatch(/Профиль оператора не найден/);
   });
 });
 

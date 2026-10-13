@@ -66,8 +66,9 @@ describe('связка: настройка — дверь брони — пра�
     expect(CREATE).toMatch(/booking_status: bookingStatus/);
   });
 
+  // CRM 2г: «сам оператор» — владелец кабинета; менеджеру команды настройки закрыты.
   it('настройку меняет только сам оператор, по своему аккаунту', () => {
-    expect(SETTINGS).toMatch(/requireOperator\(request\)/);
+    expect(SETTINGS).toMatch(/requireOperatorOwner\(request\)/);
     expect(SETTINGS).toMatch(/\[auth\.userId, parsed\.data\.enabled\]/);
     expect(readFileSync('app/hub/operator/bookings/_BookingsManagementClient.tsx', 'utf8')).toMatch(/<AutoConfirmToggle \/>/);
   });

@@ -14,10 +14,17 @@ const query = vi.fn();
 vi.mock('@/lib/auth/middleware', () => ({ requireRole: (...a: unknown[]) => requireRole(...a) }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
-const { ROLE_TO_CATEGORY, partnerContextFor, requirePartner } = await import('@/lib/crm/partner-context');
+const { ROLE_TO_CATEGORY, partnerContextFor, requirePartner, requirePartnerOwner } = await import('@/lib/crm/partner-context');
 const { PARTNER_ROLES } = await import('@/lib/auth/role-routes');
 
 const db = { query: (...a: unknown[]) => query(...a) } as unknown as Parameters<typeof partnerContextFor>[2];
+
+/** Оператор ищется через кабинет (operatorAccess, CRM 2г): uuid и строка запроса кабинета. */
+const OP_USER = '00000000-0000-4000-8000-0000000000c1';
+const accessRow = (r: Partial<Record<'own_partner_id' | 'member_partner_id' | 'member_id', string>>) => ({
+  own_partner_id: null, member_partner_id: null, member_id: null,
+  can_edit_prices: null, can_cancel_bookings: null, was_revoked: false, ...r,
+});
 
 beforeEach(() => {
   requireRole.mockReset();
@@ -43,7 +50,7 @@ describe('три исхода', () => {
   it('профиль ищется по категории роли, самый ранний при задвоении', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'p-transfer', profile_status: null }] });
     expect(await partnerContextFor('u1', 'transfer_operator', db))
-      .toEqual({ outcome: 'ok', partnerId: 'p-transfer', category: 'transfer', userId: 'u1' });
+      .toEqual({ outcome: 'ok', partnerId: 'p-transfer', category: 'transfer', userId: 'u1', seat: 'owner' });
     const [sql, params] = query.mock.calls[0] as [string, unknown[]];
     expect(params).toEqual(['u1', 'transfer']);
     expect(sql).toMatch(/category = \$2/);
@@ -84,8 +91,9 @@ describe('гард роутов', () => {
   });
 
   it('профиля нет — 403 с понятной причиной; база молчит — 503', async () => {
-    requireRole.mockResolvedValue({ userId: 'u1', role: 'operator' });
-    query.mockResolvedValueOnce({ rows: [] });
+    // Оператор — через кабинет (CRM 2г): ни своего профиля, ни команды.
+    requireRole.mockResolvedValue({ userId: OP_USER, role: 'operator' });
+    query.mockResolvedValueOnce({ rows: [accessRow({})] });
     const none = (await requirePartner(req())) as NextResponse;
     expect(none.status).toBe(403);
     expect((await none.json()).error).toMatch(/Профиль партнёра не найден/);
@@ -97,9 +105,25 @@ describe('гард роутов', () => {
   });
 
   it('профиль есть — контекст с partnerId', async () => {
-    requireRole.mockResolvedValue({ userId: 'u1', role: 'operator' });
-    query.mockResolvedValueOnce({ rows: [{ id: 'p-op', profile_status: null }] });
-    expect(await requirePartner(req())).toEqual({ outcome: 'ok', partnerId: 'p-op', category: 'operator', userId: 'u1' });
+    requireRole.mockResolvedValue({ userId: OP_USER, role: 'operator' });
+    query.mockResolvedValueOnce({ rows: [accessRow({ own_partner_id: 'p-op' })] });
+    expect(await requirePartner(req())).toEqual({ outcome: 'ok', partnerId: 'p-op', category: 'operator', userId: OP_USER, seat: 'owner' });
+  });
+
+  // CRM 2г: менеджер команды оператора видит CRM кабинета владельца, но
+  // настройки (ключи MCP, канал, OAuth) — только владельцу.
+  it('менеджер команды — кабинет владельца, seat=manager; гард настроек — 403', async () => {
+    requireRole.mockResolvedValue({ userId: OP_USER, role: 'operator' });
+    query.mockResolvedValueOnce({ rows: [accessRow({ member_partner_id: 'p-op', member_id: 'm-1' })] });
+    expect(await requirePartner(req())).toEqual({ outcome: 'ok', partnerId: 'p-op', category: 'operator', userId: OP_USER, seat: 'manager' });
+
+    query.mockResolvedValueOnce({ rows: [accessRow({ member_partner_id: 'p-op', member_id: 'm-1' })] });
+    const denied = (await requirePartnerOwner(req())) as NextResponse;
+    expect(denied.status).toBe(403);
+    expect((await denied.json()).error).toMatch(/владелец кабинета/);
+
+    query.mockResolvedValueOnce({ rows: [accessRow({ own_partner_id: 'p-op' })] });
+    expect(await requirePartnerOwner(req())).toMatchObject({ outcome: 'ok', partnerId: 'p-op', seat: 'owner' });
   });
 });
 

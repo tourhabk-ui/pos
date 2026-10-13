@@ -154,18 +154,27 @@ export function ownerOnlyDenied(): NextResponse {
   return NextResponse.json({ success: false, error: OWNER_ONLY_MESSAGE }, { status: 403 });
 }
 
+/**
+ * Как роут отвечал на «профиля оператора нет» до CRM 2г: одни 403, другие
+ * 404. Гард сохраняет прежний код, чтобы экраны кабинета, которые на него
+ * смотрят, не поменяли поведение.
+ */
+export interface GateOptions {
+  noProfileStatus?: 403 | 404;
+}
+
 /** Ответ на исход «не владелец и не менеджер» / «не смогли проверить». */
-export function accessFailure(access: Exclude<OperatorAccess, OperatorAccessOk>): NextResponse {
+export function accessFailure(access: Exclude<OperatorAccess, OperatorAccessOk>, opts: GateOptions = {}): NextResponse {
   if (access.kind === 'unavailable') {
     return NextResponse.json(
       { success: false, error: 'Не удалось проверить доступ к кабинету оператора — попробуйте позже' },
       { status: 503 },
     );
   }
-  const error = access.reason === 'revoked'
-    ? 'Владелец кабинета закрыл вам доступ'
-    : 'Профиль оператора не найден';
-  return NextResponse.json({ success: false, error }, { status: 403 });
+  if (access.reason === 'revoked') {
+    return NextResponse.json({ success: false, error: 'Владелец кабинета закрыл вам доступ' }, { status: 403 });
+  }
+  return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: opts.noProfileStatus ?? 403 });
 }
 
 /**
@@ -182,17 +191,17 @@ export async function requireTeamPermission(userId: string, perm: ManagerPermiss
 export type OperatorTeamContext = JWTPayload & { partnerId: string; access: OperatorAccessOk };
 
 /** Гард кабинета: владелец или менеджер. */
-export async function requireOperatorTeam(request: NextRequest): Promise<OperatorTeamContext | NextResponse> {
+export async function requireOperatorTeam(request: NextRequest, opts: GateOptions = {}): Promise<OperatorTeamContext | NextResponse> {
   const auth = await requireOperator(request);
   if (auth instanceof NextResponse) return auth;
   const access = await operatorAccess(auth.userId);
-  if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access);
+  if (access.kind !== 'owner' && access.kind !== 'manager') return accessFailure(access, opts);
   return { ...auth, partnerId: access.partnerId, access };
 }
 
 /** Гард денег и настроек: только владелец кабинета. */
-export async function requireOperatorOwner(request: NextRequest): Promise<OperatorTeamContext | NextResponse> {
-  const ctx = await requireOperatorTeam(request);
+export async function requireOperatorOwner(request: NextRequest, opts: GateOptions = {}): Promise<OperatorTeamContext | NextResponse> {
+  const ctx = await requireOperatorTeam(request, opts);
   if (ctx instanceof NextResponse) return ctx;
   if (ctx.access.kind !== 'owner') return ownerOnlyDenied();
   return ctx;

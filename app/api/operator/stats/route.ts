@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     // Статистика общая для владельца и менеджера команды (CRM 2г); выручку
     // менеджеру не отдаём — деньги ведёт владелец кабинета.
-    const ctx = await requireOperatorTeam(request);
+    const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
     if (ctx instanceof NextResponse) return ctx;
     const operatorId = ctx.partnerId;
     const moneyVisible = ctx.access.kind === 'owner';

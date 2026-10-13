@@ -16,8 +16,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
-import { requireTeamPermission } from '@/lib/operators/team-access';
 import { requireOperator } from '@/lib/auth/middleware';
 import { z } from 'zod';
 
@@ -33,9 +31,13 @@ const BulkOpenSchema = z.object({
   skipExisting:  z.boolean().optional().default(false),
 });
 
-// Кабинет — свой или команды (CRM 2г), только category='operator': прежний
-// `partners WHERE user_id LIMIT 1` без категории мог взять профиль гида.
-const getOperatorId = getOperatorPartnerId;
+async function getOperatorId(userId: string): Promise<string | null> {
+  const { rows } = await pool.query(
+    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  );
+  return rows[0]?.id ?? null;
+}
 
 function datesInRange(start: string, end: string, weekdayFilter?: number[]): string[] {
   const result: string[] = [];
@@ -77,13 +79,6 @@ export async function POST(request: NextRequest) {
     );
   }
   const { tourId, startDate, endDate, slots, weekdays, priceOverride, skipExisting } = parsed.data;
-
-  // Цена на дату — право владельца кабинета (CRM 2г): без него менеджер
-  // открывает даты, но цену не задаёт и уже заданную не стирает.
-  const priceDenied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
-  // 503 — не смогли проверить; 403 с ценой в запросе — права нет.
-  if (priceDenied && (priceDenied.status !== 403 || priceOverride !== undefined)) return priceDenied;
-  const mayPrice = priceDenied === null;
 
   // Проверяем владение туром
   const { rows: ownerRows } = await pool.query(
@@ -129,11 +124,10 @@ export async function POST(request: NextRequest) {
          FROM UNNEST($4::text[]) AS d
          ON CONFLICT (operator_tour_id, date) DO UPDATE SET
            available_slots     = EXCLUDED.available_slots,
-           base_price_override = CASE WHEN $5::boolean THEN EXCLUDED.base_price_override
-                                      ELSE tour_availability.base_price_override END,
+           base_price_override = EXCLUDED.base_price_override,
            is_cancelled        = false,
            updated_at          = NOW()`,
-        [tourId, slots, priceOverride ?? null, datesToInsert, mayPrice],
+        [tourId, slots, priceOverride ?? null, datesToInsert],
       );
     }
 

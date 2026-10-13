@@ -41,7 +41,7 @@ async function telegramNotifications(partnerId: string): Promise<{
 export async function GET(request: NextRequest) {
   // Профиль читает и менеджер команды (CRM 2г), но без денег: способ и
   // проверка выплат, ставка комиссии ему не показываются.
-  const ctx = await requireOperatorTeam(request);
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
   if (ctx instanceof NextResponse) return ctx;
   const partnerId = ctx.partnerId;
 
@@ -98,7 +98,7 @@ const PatchSchema = z.object({
 
 export async function PATCH(request: NextRequest) {
   // Профиль компании — настройки: правит только владелец кабинета (CRM 2г).
-  const owner = await requireOperatorOwner(request);
+  const owner = await requireOperatorOwner(request, { noProfileStatus: 404 });
   if (owner instanceof NextResponse) return owner;
   const partnerId = owner.partnerId;
 

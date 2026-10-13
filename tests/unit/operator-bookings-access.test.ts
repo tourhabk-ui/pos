@@ -117,7 +117,9 @@ describe('ручная бронь доходит до Telegram оператор�
     const src = read('app/api/hub/operator/bookings/route.ts');
     expect(src).toMatch(/p\.telegram_chat_id::text AS telegram_chat_id/);
     expect(src).not.toMatch(/p\.contacts->>'telegram_chat_id' as/);
-    expect(src).toMatch(/p\.category = 'operator'/);
+    // Кабинет — через operatorAccess (там category = 'operator'), строка партнёра — по его id.
+    expect(src).toMatch(/const access = await operatorAccess\(userId\)/);
+    expect(src).toMatch(/FROM partners p WHERE p\.id = \$1::uuid/);
   });
 });
 

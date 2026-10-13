@@ -32,6 +32,8 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a
 vi.mock('@/lib/crm/partner-context', async (orig) => ({
   ...(await orig<typeof import('@/lib/crm/partner-context')>()),
   requirePartner: (...a: unknown[]) => requirePartner(...a),
+  // Выдача доступа к CRM — настройка владельца (CRM 2г): роут зовёт requirePartnerOwner.
+  requirePartnerOwner: (...a: unknown[]) => requirePartner(...a),
 }));
 
 const pub = await import('@/lib/crm/partner-oauth-public');

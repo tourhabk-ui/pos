@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   try {
     // Обзор общий для владельца и менеджера команды (CRM 2г); деньги
     // менеджеру не отдаются — dashboardWithoutMoney ниже.
-    const ctx = await requireOperatorTeam(request);
+    const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
     if (ctx instanceof NextResponse) return ctx;
     const partnerId = ctx.partnerId;
 

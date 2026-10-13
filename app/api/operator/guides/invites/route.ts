@@ -33,7 +33,7 @@ const RevokeSchema = z.object({
 // Состав команды — настройка владельца кабинета (CRM 2г): приглашать и
 // отзывать гидов менеджер не может.
 async function operatorFrom(request: NextRequest): Promise<{ operatorId: string; userId: string } | NextResponse> {
-  const owner = await requireOperatorOwner(request);
+  const owner = await requireOperatorOwner(request, { noProfileStatus: 404 });
   if (owner instanceof NextResponse) return owner;
   return { operatorId: owner.partnerId, userId: owner.userId };
 }
