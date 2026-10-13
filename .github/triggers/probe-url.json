@@ -3,63 +3,31 @@
   "retries": 1,
   "allowStale": true,
   "retryDelay": 10,
-  "run": 762,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO-аудит «Лагуны Экспедиции» с начала, добор после site-audit прогонов 2–3: забытая «Пример страницы» WordPress в sitemap конструктора; тестовый поддомен staging из сертификата (открыт ли поиску); дубли «Контакты» и «Туристам»; разметка Schema.org на странице тура, блога, контактов, влога и транспортной страницы с путём «-2»; форматы и ленивая загрузка картинок.",
+  "run": 763,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката CRM 2г-1 (#2419, c81f8abc5): страница приглашения в команду оператора по ключу формата ссылки (43 знака base64url, ключ выдуман — такого приглашения нет) — ждём 200, robots noindex и referrer no-referrer в HTML; API приглашения и /api/hub/operator/me без входа — 401 от Edge.",
   "urls": [
-    "https://laguna-expedition.online/sample-page/",
-    "https://staging.laguna-expedition.online/",
-    "https://staging.laguna-expedition.online/robots.txt",
-    "https://laguna-expedition.ru/contacts",
-    "https://laguna-expedition.ru/kontakty",
-    "https://laguna-expedition.ru/turistam",
-    "https://laguna-expedition.ru/tours/33895-ozero-tolmacheva",
-    "https://laguna-expedition.ru/blog/sobiraem-veshchi-na-kamchatku",
-    "https://laguna-expedition.ru/vlog/dukh-kamchatki-kajnyran",
-    "https://laguna-expedition.ru/odnodnevnye-ekskursii-2/transfery/46921-gruppovoj-transfer-iz-aeroporta-v-spa-otel-laguna-v-aeroport",
-    "https://laguna-expedition.ru/o-kompanii"
+    "https://vedarai.ru/team/join/probe763xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "https://vedarai.ru/api/team/join/probe763xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "https://vedarai.ru/api/hub/operator/me"
   ],
   "grep": [
-    "Это пример страницы",
-    "Sample Page",
     "noindex",
-    "Disallow: /",
-    "aggregateRating",
-    "\"offers\"",
-    "TouristTrip",
-    "LocalBusiness",
-    "TravelAgency",
-    "\"address\"",
-    "\"telephone\"",
-    "FAQPage",
-    "BlogPosting",
-    "VideoObject",
-    "youtube.com",
-    "rutube.ru",
-    "vk.com/video",
-    "реестр",
-    "B031-00161-77",
-    "ИНН"
+    "no-referrer",
+    "Unauthorized",
+    "Не авторизован",
+    "Требуется авторизация",
+    "Приглашение"
   ],
   "count": [
-    "<img",
-    "loading=\"lazy\"",
-    ".webp",
-    ".avif",
-    "srcset=",
-    "fetchpriority",
-    "\"@type\"",
-    "<h1",
-    "<h2"
+    "<script"
   ],
   "around": [
-    "<title",
-    "rel=\"canonical\"",
-    "\"@type\"",
     "name=\"robots\"",
-    "Это пример страницы"
+    "name=\"referrer\"",
+    "<title"
   ],
   "aroundLines": 1,
   "aroundBefore": 0,
-  "aroundHits": 8,
-  "bytes": 150
+  "aroundHits": 4,
+  "bytes": 300
 }
