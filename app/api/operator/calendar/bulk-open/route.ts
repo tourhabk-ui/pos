@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireOperator } from '@/lib/auth/middleware';
+import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -31,13 +31,8 @@ const BulkOpenSchema = z.object({
   skipExisting:  z.boolean().optional().default(false),
 });
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
+// Кабинет — свой у владельца или командный у менеджера (CRM 2г). Даты и места
+// открывает любой из команды, цену на даты — владелец или менеджер с правом.
 
 function datesInRange(start: string, end: string, weekdayFilter?: number[]): string[] {
   const result: string[] = [];
@@ -58,13 +53,9 @@ function datesInRange(start: string, end: string, weekdayFilter?: number[]): str
 }
 
 export async function POST(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
-  }
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -79,6 +70,9 @@ export async function POST(request: NextRequest) {
     );
   }
   const { tourId, startDate, endDate, slots, weekdays, priceOverride, skipExisting } = parsed.data;
+
+  const mayPrice = managerMay(ctx.access, 'can_edit_prices');
+  if (priceOverride !== undefined && !mayPrice) return permissionDenied('can_edit_prices');
 
   // Проверяем владение туром
   const { rows: ownerRows } = await pool.query(
@@ -114,7 +108,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (datesToInsert.length > 0) {
-      // Один batch INSERT для всех дат через UNNEST
+      // Один batch INSERT для всех дат через UNNEST. Без права цен повторное
+      // открытие даты цену не трогает ($5 = false), иначе сбросило бы цену
+      // владельца на базовую.
       await pool.query(
         `INSERT INTO tour_availability (
            operator_tour_id, date, day_of_week, available_slots, booked_slots,
@@ -124,10 +120,11 @@ export async function POST(request: NextRequest) {
          FROM UNNEST($4::text[]) AS d
          ON CONFLICT (operator_tour_id, date) DO UPDATE SET
            available_slots     = EXCLUDED.available_slots,
-           base_price_override = EXCLUDED.base_price_override,
+           base_price_override = CASE WHEN $5::boolean THEN EXCLUDED.base_price_override
+                                      ELSE tour_availability.base_price_override END,
            is_cancelled        = false,
            updated_at          = NOW()`,
-        [tourId, slots, priceOverride ?? null, datesToInsert],
+        [tourId, slots, priceOverride ?? null, datesToInsert, mayPrice],
       );
     }
 
@@ -138,7 +135,8 @@ export async function POST(request: NextRequest) {
       message: `Открыто ${opened} дат${skipped > 0 ? `, пропущено ${skipped}` : ''}`,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст ошибки базы — в лог, а не человеку: он про колонки, а не про даты.
+    console.error('[operator/calendar/bulk-open] не выполнено, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
+    return NextResponse.json({ success: false, error: 'Не удалось открыть даты — попробуйте позже' }, { status: 500 });
   }
 }

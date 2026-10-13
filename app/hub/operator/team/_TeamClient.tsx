@@ -354,7 +354,7 @@ export default function TeamClient() {
             <dl className="space-y-2 text-sm">
               <div>
                 <dt className="text-[var(--text-secondary)]">Всегда</dt>
-                <dd className="text-[var(--text-primary)]">{labelsBy('team').join(', ')}. Обзор и статистика — без выручки.</dd>
+                <dd className="text-[var(--text-primary)]">{labelsBy('team').join(', ')}. Обзор, статистика и календарь — без выручки.</dd>
               </div>
               <div>
                 <dt className="text-[var(--text-secondary)]">С правом «Цены»</dt>
@@ -364,12 +364,6 @@ export default function TeamClient() {
                 <dt className="text-[var(--text-secondary)]">Только вы</dt>
                 <dd className="text-[var(--text-primary)]">{labelsBy('owner').join(', ')}; статус «оплачено» у брони.</dd>
               </div>
-              {labelsBy('later').length > 0 && (
-                <div>
-                  <dt className="text-[var(--text-secondary)]">Пока закрыто и менеджеру — откроем следующим шагом</dt>
-                  <dd className="text-[var(--text-primary)]">{labelsBy('later').join(', ')}.</dd>
-                </div>
-              )}
             </dl>
             <p className="text-xs text-[var(--text-muted)]">
               Уведомления о новых заявках и бронях пока приходят только вам — менеджерам добавим отдельным шагом.

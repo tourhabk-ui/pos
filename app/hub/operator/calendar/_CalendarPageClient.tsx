@@ -9,6 +9,7 @@ import {
   TrendingUp, TrendingDown, Zap, Minus, FolderOpen,
 } from 'lucide-react';
 import FreeDatesPanel from './_FreeDatesPanel';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,8 +54,11 @@ interface CalendarData {
     confirmed: number;
     completed: number;
     cancelled: number;
-    revenue: number;
+    /** null — выручка не для этого места (менеджер команды), а не «ноль». */
+    revenue: number | null;
   };
+  /** Менеджеру команды выручку не показываем: деньги кабинета — владельцу (CRM 2г). */
+  money_hidden?: boolean;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -112,16 +116,16 @@ interface Insight {
   value: string;
 }
 
-function buildInsights(data: CalendarData, maxRev: number): Insight[] {
+function buildInsights(data: CalendarData, maxRev: number, showMoney: boolean): Insight[] {
   const allDates = Object.entries(data.bookings_by_date);
   const insights: Insight[] = [];
 
   // Топ день по выручке
-  const topDay = allDates.reduce<[string, number] | null>((best, [date, bks]) => {
+  const topDay = showMoney ? allDates.reduce<[string, number] | null>((best, [date, bks]) => {
     const rev = dayRevenue(bks);
     if (!best || rev > best[1]) return [date, rev];
     return best;
-  }, null);
+  }, null) : null;
   if (topDay && topDay[1] > 0) {
     insights.push({
       type: 'high',
@@ -131,7 +135,7 @@ function buildInsights(data: CalendarData, maxRev: number): Insight[] {
   }
 
   // Дни с высоким спросом (выручка > 75% от макс) — рекомендация поднять цену
-  const highDays = allDates.filter(([, bks]) => dayRevenue(bks) >= maxRev * 0.75);
+  const highDays = showMoney ? allDates.filter(([, bks]) => dayRevenue(bks) >= maxRev * 0.75) : [];
   if (highDays.length >= 2) {
     insights.push({
       type: 'high',
@@ -158,17 +162,18 @@ function buildInsights(data: CalendarData, maxRev: number): Insight[] {
 // ─── Day Cell ─────────────────────────────────────────────────────────────────
 
 function DayCell({
-  day, year, month, data, maxRev, selected, isToday, isPast, onClick,
+  day, year, month, data, maxRev, showMoney, selected, isToday, isPast, onClick,
 }: {
   day: number; year: number; month: number;
-  data: CalendarData | null; maxRev: number;
+  data: CalendarData | null; maxRev: number; showMoney: boolean;
   selected: boolean; isToday: boolean; isPast: boolean;
   onClick: () => void;
 }) {
   const iso      = toISO(year, month, day);
   const bookings = data?.bookings_by_date[iso] ?? [];
   const avail    = data?.availability_by_date[iso] ?? [];
-  const rev      = dayRevenue(bookings);
+  // Без денег — ни суммы дня, ни окраски по выручке.
+  const rev      = showMoney ? dayRevenue(bookings) : 0;
   const newCount = bookings.filter(b => b.booking_status === 'new').length;
   const confCnt  = bookings.filter(b => b.booking_status === 'confirmed').length;
   const totalSlots  = avail.reduce((s, a) => s + a.available_slots, 0);
@@ -248,11 +253,13 @@ function DayCell({
 // ─── Booking Card ─────────────────────────────────────────────────────────────
 
 function BookingCard({
-  booking, onStatusChange, updating,
+  booking, onStatusChange, updating, canCancel,
 }: {
   booking: Booking;
   onStatusChange: (id: string, status: string) => void;
   updating: string | null;
+  /** Отменить и отклонить — владелец или менеджер с правом отмены (CRM 2г). */
+  canCancel: boolean;
 }) {
   const meta       = STATUS_META[booking.booking_status] ?? STATUS_META.new;
   const StIcon     = meta.Icon;
@@ -319,13 +326,15 @@ function BookingCard({
               Подтвердить
             </button>
           )}
-          <button onClick={() => onStatusChange(booking.id, 'cancelled')}
-            disabled={isUpdating}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold border transition-colors hover:bg-[var(--danger)]/10"
-            style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
-            <X className="w-3.5 h-3.5" />
-            {booking.booking_status === 'new' ? 'Отклонить' : 'Отменить'}
-          </button>
+          {canCancel && (
+            <button onClick={() => onStatusChange(booking.id, 'cancelled')}
+              disabled={isUpdating}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold border transition-colors hover:bg-[var(--danger)]/10"
+              style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
+              <X className="w-3.5 h-3.5" />
+              {booking.booking_status === 'new' ? 'Отклонить' : 'Отменить'}
+            </button>
+          )}
           {booking.booking_status === 'confirmed' && (
             <button onClick={() => onStatusChange(booking.id, 'completed')}
               disabled={isUpdating}
@@ -355,6 +364,9 @@ export default function CalendarPageClient() {
   // Отказ — словами, а не пустым месяцем или «успехом» (до 25.09 ответ
   // PATCH не читался вовсе, отказ загрузки показывал пустой календарь).
   const [error, setError] = useState<string | null>(null);
+  // Кнопки по праву — удобство: отмену без права сервер всё равно отклонит.
+  const seat = useOperatorSeat();
+  const canCancel = !(isManagerSeat(seat) && !seat.perms.can_cancel_bookings);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -420,8 +432,11 @@ export default function CalendarPageClient() {
 
   const todayISO = toISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
+  // Выручка — только владельцу: сервер отдаёт money_hidden менеджеру команды.
+  const showMoney = data !== null && data.money_hidden !== true;
+
   // Максимальная выручка за день (для нормализации heatmap)
-  const maxRev = data
+  const maxRev = data && showMoney
     ? Math.max(
         ...Object.values(data.bookings_by_date).map(bks => dayRevenue(bks)),
         1
@@ -429,14 +444,14 @@ export default function CalendarPageClient() {
     : 1;
 
   // Insights
-  const insights = data ? buildInsights(data, maxRev) : [];
+  const insights = data ? buildInsights(data, maxRev, showMoney) : [];
 
   // Выбранный день
   const selectedDay: DaySummary | null = selectedDate ? {
     date:          selectedDate,
     bookings:      data?.bookings_by_date[selectedDate] ?? [],
     avail:         data?.availability_by_date[selectedDate] ?? [],
-    revenue:       dayRevenue(data?.bookings_by_date[selectedDate] ?? []),
+    revenue:       showMoney ? dayRevenue(data?.bookings_by_date[selectedDate] ?? []) : 0,
     newCount:      (data?.bookings_by_date[selectedDate] ?? []).filter(b => b.booking_status === 'new').length,
     confirmedCount:(data?.bookings_by_date[selectedDate] ?? []).filter(b => b.booking_status === 'confirmed').length,
   } : null;
@@ -463,7 +478,7 @@ export default function CalendarPageClient() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Календарь</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            Бронирования · Выручка · Управление датами
+            {showMoney || !data ? 'Бронирования · Выручка · Управление датами' : 'Бронирования · Управление датами'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -507,13 +522,15 @@ export default function CalendarPageClient() {
 
       {/* ── Вкладка: Бронирования ───────────────────────────────────────── */}
       {tab === 'bookings' && summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div className={`grid grid-cols-2 gap-2 ${showMoney ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
           {[
             { label: 'Всего',        value: summary.total,       color: 'var(--text-primary)' },
             { label: 'Новых',        value: summary.new,         color: 'var(--warning)'      },
             { label: 'Подтверждено', value: summary.confirmed,   color: 'var(--success)'      },
             { label: 'Завершено',    value: summary.completed,   color: 'var(--ocean)'        },
-            { label: 'Выручка',      value: RUB(summary.revenue),color: 'var(--accent)',  isText: true },
+            ...(showMoney
+              ? [{ label: 'Выручка', value: RUB(summary.revenue), color: 'var(--accent)', isText: true }]
+              : []),
           ].map(s => (
             <div key={s.label} className="ds-card p-3 text-center">
               <div className="font-bold text-base" style={{ color: s.color }}>{s.value}</div>
@@ -609,6 +626,7 @@ export default function CalendarPageClient() {
                     month={month}
                     data={data}
                     maxRev={maxRev}
+                    showMoney={showMoney}
                     selected={selectedDate === iso}
                     isToday={iso === todayISO}
                     isPast={isPast}
@@ -629,10 +647,12 @@ export default function CalendarPageClient() {
               <span className="w-2.5 h-2.5 rounded" style={{ background: 'var(--success)' }} />
               Подтверждены
             </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded" style={{ background: 'rgba(212,74,12,0.32)' }} />
-              Высокая выручка
-            </span>
+            {showMoney && (
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded" style={{ background: 'rgba(212,74,12,0.32)' }} />
+                Высокая выручка
+              </span>
+            )}
             <span>0/8 — слоты: занято/всего</span>
           </div>
         </div>
@@ -714,6 +734,7 @@ export default function CalendarPageClient() {
                     booking={booking}
                     onStatusChange={handleStatusChange}
                     updating={updating}
+                    canCancel={canCancel}
                   />
                 ))}
               </div>
@@ -726,7 +747,7 @@ export default function CalendarPageClient() {
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 Нажмите на дату чтобы увидеть бронирования и слоты
               </p>
-              {summary && summary.revenue > 0 && (
+              {showMoney && summary && (summary.revenue ?? 0) > 0 && (
                 <div className="w-full border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                   <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Выручка месяца</div>
                   <div className="font-bold text-base mt-1" style={{ color: 'var(--accent)' }}>

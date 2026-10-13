@@ -12,7 +12,7 @@ import {
   getAvailability,
 } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
-import { requireTeamPermission } from '@/lib/operators/team-access';
+import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { ZodError } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -30,16 +30,13 @@ export async function POST(
   try {
     const tourId = BigInt(id);
 
-    const authOrResponse = await requireOperator(request);
-    if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-    const operator_id = await getOperatorId(authOrResponse.userId);
-    if (!operator_id) {
-      return NextResponse.json({ error: 'Not an operator' }, { status: 403 });
-    }
+    // Кабинет и права — одним резолвером (CRM 2г): право цен нужно не только
+    // для цены в запросе, но и чтобы upsert без цены её не сбрасывал.
+    const ctx = await requireOperatorTeam(request);
+    if (ctx instanceof NextResponse) return ctx;
 
     const tour = await getTourById(tourId);
-    if (!tour || tour.operator_id !== operator_id) {
+    if (!tour || tour.operator_id !== ctx.partnerId) {
       return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
     }
 
@@ -47,12 +44,12 @@ export async function POST(
     const { dates } = AddAvailabilitySchema.parse(body);
     // Цена на дату — это цена: менеджеру команды только с правом владельца
     // (CRM 2г). Даты и места без своей цены добавляет любой из команды.
-    if (dates.some(d => d.price_override !== undefined)) {
-      const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
-      if (denied) return denied;
+    const mayPrice = managerMay(ctx.access, 'can_edit_prices');
+    if (!mayPrice && dates.some(d => d.price_override !== undefined)) {
+      return permissionDenied('can_edit_prices');
     }
 
-    await addAvailability(tourId, dates);
+    await addAvailability(tourId, dates, mayPrice);
 
     return NextResponse.json(
       {

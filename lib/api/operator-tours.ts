@@ -267,22 +267,30 @@ export async function createTour(
   return tour;
 }
 
+/**
+ * mayPrice — может ли вошедший ставить цену (владелец или менеджер с правом
+ * can_edit_prices). Без права повторное открытие даты цену не трогает: до
+ * 13.10 upsert писал base_price_override = NULL, и менеджер без права цен
+ * молча сбрасывал цену даты на базовую.
+ */
 export async function addAvailability(
   tourId: bigint,
-  dates: Array<{ date: string; available_slots: number; price_override?: number }>
+  dates: Array<{ date: string; available_slots: number; price_override?: number }>,
+  mayPrice: boolean,
 ) {
   for (const slot of dates) {
     await query(
       `INSERT INTO tour_availability (operator_tour_id, date, available_slots, base_price_override)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (operator_tour_id, date) DO UPDATE
-       SET available_slots = $3, base_price_override = $4,
+       SET available_slots = $3,
+           base_price_override = CASE WHEN $5::boolean THEN $4 ELSE tour_availability.base_price_override END,
            -- Повторно открытая дата открывается и туристу: до 25.09 upsert
            -- оставлял is_cancelled/deleted_at, ответ был 201, а /slots
            -- дату по-прежнему скрывал.
            is_cancelled = FALSE, cancellation_reason = NULL, deleted_at = NULL,
            updated_at = NOW()`,
-      [tourId, slot.date, slot.available_slots, slot.price_override || null]
+      [tourId, slot.date, slot.available_slots, slot.price_override || null, mayPrice]
     );
   }
 }

@@ -29,8 +29,15 @@ vi.mock('@/lib/db-pool', () => ({
 vi.mock('@/lib/auth/middleware', () => ({
   requireRole: vi.fn().mockResolvedValue({ userId: 'u-agent', role: 'agent' }),
   requireAgent: vi.fn().mockResolvedValue({ userId: 'u-agent', role: 'agent' }),
-  requireOperator: vi.fn().mockResolvedValue({ userId: 'u-op', role: 'operator' }),
+  requireOperator: vi.fn().mockResolvedValue({ userId: '00000000-0000-4000-8000-0000000000a1', role: 'operator' }),
 }));
+
+// Кабинет календаря находит общий резолвер (CRM 2г-2б) по uuid вошедшего:
+// строка его запроса — владелец кабинета op-1.
+const OWNER_ROW = { rows: [{
+  own_partner_id: 'op-1', member_partner_id: null, member_id: null,
+  can_edit_prices: null, can_cancel_bookings: null, was_revoked: false,
+}] };
 
 import { GET as findTours } from '@/app/api/agent/find-tours/route';
 import { GET as bookingsCalendar } from '@/app/api/hub/operator/bookings-calendar/route';
@@ -69,7 +76,7 @@ describe('agent/find-tours — свободные места из реальны
 describe('operator bookings-calendar — заполненность из SUM(participants)', () => {
   it('availability_by_date считается из operator_bookings, не из счётчика', async () => {
     poolQueryMock.mockImplementation((sql: string) => {
-      if (sql.includes('FROM partners')) return Promise.resolve({ rows: [{ id: 'op-1' }] });
+      if (sql.includes('own_partner_id')) return Promise.resolve(OWNER_ROW);
       if (sql.includes('FROM operator_bookings b')) return Promise.resolve({ rows: [] });
       if (sql.includes('FROM tour_availability')) {
         return Promise.resolve({ rows: [{
@@ -97,7 +104,7 @@ describe('operator bookings-calendar — заполненность из SUM(par
 describe('operator/calendar GET — booked_spots = люди, не брони', () => {
   it('подзапрос суммирует participants со статусами NOT IN cancelled/rejected', async () => {
     poolQueryMock.mockImplementation((sql: string) => {
-      if (sql.includes('FROM partners')) return Promise.resolve({ rows: [{ id: 'op-1' }] });
+      if (sql.includes('own_partner_id')) return Promise.resolve(OWNER_ROW);
       return Promise.resolve({ rows: [] });
     });
 

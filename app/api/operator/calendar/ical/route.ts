@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorTeam } from '@/lib/operators/team-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,30 +69,21 @@ function foldLine(line: string): string {
   return lines.join('\r\n');
 }
 
-async function getOperatorId(userId: string): Promise<string | null> {
+/** Имя календаря — имя кабинета, а не того, кто его скачал (менеджер команды). */
+async function getCabinetName(partnerId: string): Promise<string> {
   const { rows } = await pool.query(
-    `SELECT id, name FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
-
-async function getOperatorName(userId: string): Promise<string> {
-  const { rows } = await pool.query(
-    `SELECT name FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
+    `SELECT name FROM partners WHERE id = $1`,
+    [partnerId]
   );
   return (rows[0]?.name as string | undefined) ?? 'Оператор';
 }
 
 export async function GET(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
-  }
+  // Кабинет — свой у владельца или командный у менеджера (CRM 2г). Брони с
+  // контактами туристов менеджер и так ведёт в списке броней.
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
 
   const { searchParams } = new URL(request.url);
   const months = Math.min(12, Math.max(1, Number(searchParams.get('months') ?? '3')));
@@ -123,7 +114,7 @@ export async function GET(request: NextRequest) {
     [operatorId, dateFrom, dateTo]
   );
 
-  const operatorName = await getOperatorName(authOrResponse.userId);
+  const operatorName = await getCabinetName(operatorId);
   const now = new Date();
 
   const STATUS_ICAL: Record<string, string> = {
