@@ -4,7 +4,9 @@
  * Кроn: повторные уведомления по лидам из всех источников.
  *
  * Логика:
- *   1. Находим все лиды со статусом 'new', старше 2 часов.
+ *   1. Находим лиды со статусом 'new', старше 2 часов — кроме заявок на
+ *      машину (lib/leads/followup-scope, #2447): их согласие — на передачу
+ *      перевозчику, и другому партнёру они не уходят.
  *   2. Для каждого лида ищем следующего оператора с подходящими активностями,
  *      ещё не получавшего уведомление об этом лиде.
  *      Если интересы не указаны — берём любого оператора.
@@ -26,6 +28,8 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
+import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToCarrier } from '@/lib/leads/followup-scope';
+import { sqlState } from '@/lib/guides/db-failure';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +37,8 @@ export const dynamic = 'force-dynamic';
 
 interface LeadSourceData {
   source?: string;
+  /** 'charter' — заявка на машину перевозчику (lib/transfers/charter-request). */
+  kind?: string;
   interests?: string[];
   date_from?: string;
   date_to?: string;
@@ -51,6 +57,7 @@ interface FollowupLead {
   name: string;
   phone: string;
   source_data: LeadSourceData;
+  pd_consent_version: string | null;
 }
 
 /**
@@ -92,24 +99,10 @@ export async function GET(request: NextRequest) {
 
   try {
     // ── Выбираем лиды, требующие followup ───────────────────────────────────
-    // Условия:
-    //   - статус 'new' (ещё не обработан)
-    //   - источник 'telegram_bot'
-    //   - создан более 2 часов назад
-    //   - либо ещё не было followup, либо последний followup был > 2 часов назад
-    const leadsRes = await pool.query<FollowupLead>(`
-      SELECT id::text, name, phone, source_data
-      FROM leads
-      WHERE status = 'new'
-        AND created_at < NOW() - INTERVAL '2 hours'
-        AND (
-          source_data->>'last_followup' IS NULL
-          OR (source_data->>'last_followup')::timestamptz < NOW() - INTERVAL '2 hours'
-        )
-        AND COALESCE((source_data->>'escalated_to_admin')::boolean, false) = false
-      ORDER BY created_at ASC
-      LIMIT 20
-    `);
+    // Условия — в lib/leads/followup-scope: 'new' старше 2 часов, без свежей
+    // добивки, не отданные админу и не заявки на машину. Прежний комментарий
+    // здесь обещал фильтр по источнику 'telegram_bot', которого в SQL не было.
+    const leadsRes = await pool.query<FollowupLead>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
 
     if (leadsRes.rows.length === 0) {
       return NextResponse.json({ ok: true, processed: 0, message: 'Нет лидов для обработки' });
@@ -133,6 +126,9 @@ export async function GET(request: NextRequest) {
 
     for (const lead of leadsRes.rows) {
       const sd: LeadSourceData = lead.source_data ?? {};
+      // Заявку на машину другому партнёру не отдаём ни по одной ветке (#2447):
+      // выборка её уже не берёт, а здесь — на случай, если выборку поправят.
+      if (addressedToCarrier(sd, lead.pd_consent_version)) continue;
       const interests = sd.interests ?? [];
       const alreadyNotified = sd.notified_operators ?? [];
       const followupCount = sd.followup_count ?? 0;
@@ -315,6 +311,8 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (err) {
+    // §4.0: отказ не глушится — имя проверки и SQLSTATE в лог, без строк лида.
+    console.error(`[leads-followup] не выполнился: sqlstate=${sqlState(err)}`, err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: false, error: 'Internal error' }, { status: 500 });
   }
 }
