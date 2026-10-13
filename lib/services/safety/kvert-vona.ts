@@ -128,6 +128,15 @@ const VOLCANO_ALIASES: Record<string, { slug: string; ru: string }> = {
   'плоский толбачик': { slug: 'plosky-tolbachik', ru: 'Плоский Толбачик' },
 };
 
+/**
+ * Русские имена вулканов из того же справочника — для распознавания названного
+ * вулкана в свободном тексте (lib/ai/tour-place-relevance). Список один: имя,
+ * которого нет здесь, не распознаётся нигде, и это видно по одному месту.
+ */
+export const KNOWN_VOLCANO_NAMES_RU: readonly string[] = Array.from(
+  new Set(Object.values(VOLCANO_ALIASES).map((v) => v.ru)),
+);
+
 /** Убирает CAVW-код, регистр, лишние пробелы: "Klyuchevskoy (CAVW #300260)" → "klyuchevskoy". */
 export function cleanVolcanoName(raw: string): string {
   return raw

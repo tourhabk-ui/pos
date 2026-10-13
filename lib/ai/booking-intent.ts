@@ -6,6 +6,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { pickToursForMessage } from '@/lib/ai/tour-place-relevance';
 
 export interface TourSuggestion {
   id: number;
@@ -88,8 +89,12 @@ export async function findRelevantTours(
   rawText: string,
   limit = 3,
 ): Promise<TourSuggestion[]> {
+  // Кандидатов — с запасом: если в вопросе назван вулкан, туры про чужие
+  // вулканы отсеиваются (lib/ai/tour-place-relevance, проба 764), и тур про
+  // названный не должен остаться за лимитом в три самых новых.
+  const candidates = Math.min(limit * 4, 20);
   try {
-    const params: unknown[] = [limit];
+    const params: unknown[] = [candidates];
     let actFilter = '';
     if (activityType) {
       actFilter = `AND ot.activity_type = $2`;
@@ -133,12 +138,12 @@ export async function findRelevantTours(
            AND ot.title ILIKE $1
          ORDER BY ot.created_at DESC
          LIMIT $2`,
-        [`%${rawText.split(' ').slice(0, 3).join('%')}%`, limit],
+        [`%${rawText.split(' ').slice(0, 3).join('%')}%`, candidates],
       );
-      return fallback.rows;
+      return pickToursForMessage(rawText, fallback.rows, limit);
     }
 
-    return result.rows;
+    return pickToursForMessage(rawText, result.rows, limit);
   } catch (e) {
     // Подсказки туров необязательны для ответа, но отказ — в лог (§4.0).
     console.error('[booking-intent] подбор туров не выполнен', {
