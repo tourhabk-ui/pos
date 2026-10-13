@@ -46,4 +46,15 @@ describe('site-audit: только чтение', () => {
     expect(MARKER.host).toMatch(/^[a-z0-9.-]+\.[a-z]{2,}$/);
     expect(MARKER.maxPages ?? 60).toBeLessThanOrEqual(200);
   });
+
+  it('перепись sitemap: маркер в пределах, заголовок бота — только для своего домена', () => {
+    const m = MARKER as { host?: string; census?: number; ua?: string };
+    expect(m.census ?? 0).toBeLessThanOrEqual(2000);
+    expect(['default', 'googlebot', 'yandex']).toContain(m.ua ?? 'default');
+    if ((m.ua ?? 'default') !== 'default') expect(m.host).toBe('vedarai.ru');
+    // Маркер доходит до скрипта, а длинный отчёт переписи — до своего check-run.
+    expect(WF).toMatch(/--sitemap-census "\$CENSUS" --ua "\$UAK" --census-md \/tmp\/site-audit-census\.md/);
+    expect(WF).toMatch(/name: Publish census as check-run\s*\n\s*if: always\(\)/);
+    expect(WF).toContain("'name': 'site-audit-census'");
+  });
 });

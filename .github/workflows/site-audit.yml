@@ -13,7 +13,12 @@
 #
 # Итог — в сводке задачи и в check-run «site-audit» на коммите: лог job из
 # контейнера агента не читается (blob-хранилище за прокси), check-run читается.
-# Сторож: tests/unit/site-audit-workflow.test.ts.
+#
+# Перепись sitemap (13.10, своё SEO): census — до N адресов sitemap, каждый
+# без перехода по редиректу; ua — googlebot|yandex, смотреть глазами бота,
+# и ТОЛЬКО для vedarai.ru (скрипт откажет на чужом домене). Отчёт переписи
+# длинный — у него свой check-run «site-audit-census».
+# Сторожа: tests/unit/site-audit-workflow.test.ts, tests/unit/site-audit-census.test.ts.
 name: Аудит стороннего сайта (вручную, по маркеру, только чтение)
 
 on:
@@ -34,7 +39,7 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
 
@@ -47,8 +52,12 @@ jobs:
           HOST=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"]))["host"])')
           MAXP=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"])).get("maxPages",60))')
           LINKS=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"])).get("linkChecks",120))')
-          echo "хост: $HOST · страниц до $MAXP · проверок ссылок до $LINKS"
+          CENSUS=$(python3 -c 'import json,os;print(int(json.load(open(os.environ["MARKER"])).get("census",0)))')
+          UAK=$(python3 -c 'import json,os;print(json.load(open(os.environ["MARKER"])).get("ua","default"))')
+          echo "хост: $HOST · страниц до $MAXP · проверок ссылок до $LINKS · перепись sitemap до $CENSUS · UA $UAK"
+          set -o pipefail
           python3 scripts/site-audit.py --host "$HOST" --max-pages "$MAXP" --link-checks "$LINKS" \
+            --sitemap-census "$CENSUS" --ua "$UAK" --census-md /tmp/site-audit-census.md \
             --json /tmp/site-audit.json --lh-pages /tmp/lh-pages.txt | tee /tmp/site-audit.md
 
       - name: Lighthouse (мобильный)
@@ -119,6 +128,42 @@ jobs:
               'output': {
                   'title': f"Аудит сайта, прогон {os.environ.get('GITHUB_RUN_NUMBER', '?')}: {outcome}",
                   'summary': 'Копия отчёта scripts/site-audit.py и Lighthouse для чтения через API репозитория.',
+                  'text': text,
+              },
+          }
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/check-runs",
+              data=json.dumps(body).encode('utf-8'),
+              headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}", 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=30) as r:
+              j = json.load(r)
+              print(f"check-run {j['id']} создан: {j['html_url']}")
+          PY
+
+      - name: Publish census as check-run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STEP_OUTCOME: ${{ steps.crawl.outcome }}
+        run: |
+          [ -s /tmp/site-audit-census.md ] || { echo "переписи не было"; exit 0; }
+          python3 - <<'PY'
+          import json, os, urllib.request
+          text = open('/tmp/site-audit-census.md', encoding='utf-8', errors='replace').read()
+          limit = 60000
+          if len(text) > limit:
+              text = text[:limit] + '\n…(обрезано по лимиту check-run)'
+          outcome = os.environ.get('STEP_OUTCOME', 'failure')
+          body = {
+              'name': 'site-audit-census',
+              'head_sha': os.environ['GITHUB_SHA'],
+              'status': 'completed',
+              'conclusion': 'success' if outcome == 'success' else 'failure',
+              'output': {
+                  'title': f"Перепись sitemap, прогон {os.environ.get('GITHUB_RUN_NUMBER', '?')}: {outcome}",
+                  'summary': 'Каждый адрес sitemap: код, метаданные и где они стоят, robots, soft-404, og:image — по разделам и поадресно.',
                   'text': text,
               },
           }
