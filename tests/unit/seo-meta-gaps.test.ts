@@ -16,11 +16,18 @@ import { describe, it, expect, vi } from 'vitest';
 import type { Metadata } from 'next';
 
 const dbQuery = vi.fn();
+const poolQuery = vi.fn();
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => poolQuery(...a) } }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 vi.mock('@/components/layout/Footer', () => ({ Footer: () => null }));
 vi.mock('@/app/profile/_ProfilePageClient', () => ({ default: () => null }));
+vi.mock('@/app/ai-assistant/_AIAssistantClient', () => ({ default: () => null }));
+vi.mock('@/app/calendar/_CalendarClient', () => ({ default: () => null }));
+vi.mock('@/app/kuzmich/_KuzmichClient', () => ({ default: () => null }));
+vi.mock('@/app/request/_RequestClient', () => ({ default: () => null }));
+vi.mock('@/app/trip-group/_NewTripGroupClient', () => ({ NewTripGroupClient: () => null }));
+vi.mock('@/app/operators/join/_JoinClient', () => ({ default: () => null }));
 
 const LONG = 'Сплавы по рекам Камчатки с 2009 года. Группы до двенадцати человек, '
   + 'снаряжение выдаём на базе, трансфер из Петропавловска входит в цену. '
@@ -65,5 +72,39 @@ describe('служебные страницы закрыты от выдачи',
     const { metadata } = (await load()) as { metadata: Metadata };
     expect((metadata.robots as { index?: boolean } | undefined)?.index).toBe(false);
     expect(typeof metadata.title === 'string' && metadata.title.length > 0).toBe(true);
+  });
+});
+
+describe('индексируемые страницы называют свой канон', () => {
+  it.each([
+    ['/ai-assistant', () => import('@/app/ai-assistant/page')],
+    ['/calendar', () => import('@/app/calendar/page')],
+    ['/kuzmich', () => import('@/app/kuzmich/page')],
+    ['/request', () => import('@/app/request/page')],
+    ['/trip-group', () => import('@/app/trip-group/page')],
+    ['/operators/join', () => import('@/app/operators/join/page')],
+  ])('%s', async (path, load) => {
+    const { metadata } = (await load()) as { metadata: Metadata };
+    expect(metadata.alternates?.canonical).toBe(path);
+    expect((metadata.robots as { index?: boolean } | string | undefined)).not.toEqual(expect.objectContaining({ index: false }));
+  });
+
+  it('профиль гида: канон по id, пустое описание не глушит запас, длинное режется по слову', async () => {
+    const { generateMetadata } = await import('@/app/guides/[id]/page');
+    const guide = (description: string | null) => ({ id: 'g-1', name: 'Гид Тестовый', company_name: null, description, rating: 0, review_count: 0,
+      is_verified: false, languages: null, specializations: null, experience_years: null, photo_url: null, phone: null });
+
+    poolQuery.mockReset();
+    poolQuery.mockResolvedValueOnce({ rows: [guide('')] }).mockResolvedValue({ rows: [] });
+    const empty = await generateMetadata({ params: Promise.resolve({ id: 'g-1' }) });
+    expect(empty.alternates?.canonical).toBe('/guides/g-1');
+    expect(String(empty.description)).toMatch(/^Гид Тестовый: /);
+
+    poolQuery.mockReset();
+    poolQuery.mockResolvedValueOnce({ rows: [guide(LONG)] }).mockResolvedValue({ rows: [] });
+    const long = String((await generateMetadata({ params: Promise.resolve({ id: 'g-1' }) })).description);
+    expect(long.length).toBeLessThanOrEqual(160);
+    expect(LONG.startsWith(long.replace(/…$/, ''))).toBe(true);
+    expect(long).toMatch(/[.…]$/);
   });
 });

@@ -5,6 +5,7 @@ import { pool } from '@/lib/db-pool';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 import { Shield, Award, Star, ArrowLeft, Languages, Mountain, BadgeCheck, Phone, Clock } from 'lucide-react';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { metaDescription } from '@/lib/seo/meta-description';
 
 // Публичный профиль гида — витрина доверия (паттерн 57hours): турист видит
 // ПОДТВЕРЖДЁННЫЕ аттестаты до брони, а не просто «112 аттестованных» цифрой.
@@ -100,11 +101,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   if (!data) return { title: 'Гид не найден' };
   const { guide } = data;
   const title = `${guide.name} — сертифицированный гид Камчатки`;
-  const description = guide.description?.slice(0, 160)
-    ?? `${guide.name}: подтверждённые аттестаты, специализации, рейтинг. Проверенный гид для безопасного путешествия по Камчатке.`;
+  // metaDescription: по предложению или слову, а не slice посреди слова; пустое — запас (`??` пропускал '').
+  const description = metaDescription(guide.description)
+    || `${guide.name}: подтверждённые аттестаты, специализации, рейтинг. Проверенный гид для безопасного путешествия по Камчатке.`;
   return {
     title,
     description,
+    alternates: { canonical: `/guides/${id}` },
     openGraph: { title, description, url: `https://vedarai.ru/guides/${id}`, siteName: 'Ведар', locale: 'ru_RU', type: 'profile', images: defaultOgImages() },
   };
 }

@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Стать оператором',
   description: 'Зарегистрируйтесь как туроператор Камчатки. Оплату туристы вносят вам напрямую.',
+  alternates: { canonical: '/operators/join' },
 };
 
 export default async function JoinPage() {
