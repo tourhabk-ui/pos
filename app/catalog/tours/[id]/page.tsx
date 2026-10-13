@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { fitTitleRequired, TOUR_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { loadTourCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import { tourPath } from '@/lib/tours/tour-url';
 import { reachForTour } from '@/lib/partners/reach';
@@ -30,7 +31,7 @@ async function getReviews(tourId: number) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const tour = (await loadTourCard(id))?.tour;
-  if (!tour) return { title: 'Тур не найден | Туры Камчатки', robots: { index: false, follow: false } };
+  if (!tour) return { title: 'Тур не найден', robots: { index: false, follow: false } };
 
   const activity = activityLabel(tour.activity_type);
   // Короткое описание у рыболовных туров — 43–83 знака (аудит SEO 29.09, Н11):
@@ -38,8 +39,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // по предложению, а не посреди слова. Только данные тура, без сочинённого.
   const short = (tour.short_description ?? '').trim();
   const full = metaDescription([short, tour.description ?? ''].filter(Boolean).join(' '));
+  // Запас без описаний — только из данных тура: «проверенного» лишь при
+  // partners.is_verified = true, как отметка на самой карточке (аудит П6, #138).
+  const byOperator = tour.operator_name
+    ? `: тур ${tour.operator_verified === true ? 'проверенного оператора' : 'оператора'} ${tour.operator_name}`
+    : '';
   const desc = (short.length >= 110 ? metaDescription(short) : full)
-    || `${activity} на Камчатке. Реальный тур от проверенного оператора.`;
+    || `${activity} на Камчатке${byOperator}. Программа, цена и заявка оператору на Ведаре.`;
 
   // Кадр для OG — по общему правилу (обложка раньше галереи). До 02.10 это
   // правило стояло только в мёртвой копии страницы под /marketplace, а живая
@@ -48,7 +54,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const images = hero ? [{ url: hero }] : [];
 
   return {
-    title: `${tour.title} | Реальные туры Камчатки`,
+    title: fitTitleRequired(tour.title, TOUR_TITLE_TAILS),
     description: desc,
     alternates: { canonical: `${SITE}${tourPath(tour)}` },
     openGraph: {

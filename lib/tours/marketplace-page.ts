@@ -77,7 +77,7 @@ export function buildToursItemListJsonLd(
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name: 'Реальные туры по Камчатке',
-    description: 'Каталог реальных туров по Камчатке от проверенных операторов',
+    description: 'Каталог туров по Камчатке от туроператоров',
     url: `${site}${basePath}`,
     numberOfItems: tours.length,
     itemListElement: tours.map((t, i) => ({

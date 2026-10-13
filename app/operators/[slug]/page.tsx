@@ -18,6 +18,7 @@ import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { operatorMetaDescription } from '@/lib/seo/operator-meta';
+import { fitTitleRequired, OPERATOR_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { operatorOrgId } from '@/lib/seo/tour-structured-data';
 import { JsonLd } from '@/components/seo/JsonLd';
@@ -145,7 +146,7 @@ export async function generateMetadata(
     };
   }
 
-  const title = `${profile.name} - оператор Камчатки`;
+  const title = fitTitleRequired(profile.name, OPERATOR_TITLE_TAILS);
   const description = operatorMetaDescription(profile);
 
   return {

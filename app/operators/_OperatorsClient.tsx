@@ -139,7 +139,7 @@ export default function OperatorsPageClient({
             Операторы Камчатки
           </h1>
           <p className="text-[var(--text-secondary)] text-lg">
-            {meta ? `${meta.total} проверенных оператора` : 'Проверенные туристические операторы'}
+            {meta ? `Операторов на платформе: ${meta.total}` : 'Туристические операторы Камчатки'}
           </p>
         </div>
       </div>

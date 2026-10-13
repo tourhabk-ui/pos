@@ -145,11 +145,11 @@ describe('источники данных отдают slug и is_public ряд�
     expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v2'\]/);
   });
 
-  it('JSON-LD рыбалки даёт адрес оператора только открытой карточке', () => {
-    const page = code('app/hub/fishing/page.tsx');
-    expect(page).toMatch(/url: operatorUrl\(t\)/);
-    expect(page).toMatch(/operatorPagePath\(\{ slug: t\.operator_slug, is_public: t\.operator_public \}\)/);
-    expect(page).not.toMatch(/\/operators\/\$\{/);
+  // Адрес оператора в JSON-LD рыбалки только у открытой карточки — проверяется
+  // вызовом страницы на строках «из базы» (tests/unit/fishing-jsonld.test.ts),
+  // а не литералом исходника (правило 13.10). Здесь — только запрет ручной сборки.
+  it('JSON-LD рыбалки не собирает адрес оператора руками', () => {
+    expect(code('app/hub/fishing/page.tsx')).not.toMatch(/\/operators\/\$\{/);
   });
 
   it('витрина: смена формы строки — смена ключа кэша', () => {
