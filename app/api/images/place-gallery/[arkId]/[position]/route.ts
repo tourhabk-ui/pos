@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { s3PublicUrl } from '@/lib/storage/s3';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +19,12 @@ interface Props { params: Promise<{ arkId: string; position: string }> }
  * переезд байтов в S3):
  *
  *   s3_url есть  → редирект на объект, база и Node из пути уходят;
- *   s3_url пуст  → отдаём байты;
- *   ни того, ни другого → 404.
+ *   s3_key есть  → тот же редирект, адрес из S3_BUCKET (13.10: снимки из
+ *                  миграций пишут ключ, не адрес; колонка — 1227);
+ *   иначе        → отдаём байты;
+ *   ничего       → 404.
  *
- * Строки без обоих полей в таблице быть не может — это держит CHECK
+ * Строки без всех трёх полей в таблице быть не может — это держит CHECK
  * `place_gallery_photos_has_image`; 404 здесь на случай, если места или
  * позиции нет вовсе.
  */
@@ -40,9 +43,9 @@ export async function GET(_req: NextRequest, { params }: Props) {
 
   try {
     const { rows } = await pool.query<{
-      image_data: Buffer | null; mime_type: string; s3_url: string | null;
+      image_data: Buffer | null; mime_type: string; s3_url: string | null; s3_key: string | null;
     }>(
-      `SELECT image_data, mime_type, s3_url
+      `SELECT image_data, mime_type, s3_url, s3_key
          FROM place_gallery_photos
         WHERE ark_id = $1::uuid AND position = $2
         LIMIT 1`,
@@ -57,6 +60,17 @@ export async function GET(_req: NextRequest, { params }: Props) {
         headers: {
           'Cache-Control': 'public, max-age=31536000, immutable',
           'X-Source': 's3',
+        },
+      });
+    }
+
+    const keyUrl = row?.s3_key ? s3PublicUrl(row.s3_key) : null;
+    if (keyUrl) {
+      return NextResponse.redirect(keyUrl, {
+        status: 302,
+        headers: {
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Source': 's3-key',
         },
       });
     }

@@ -114,3 +114,13 @@ describe('актуатор умеет ту же задачу вручную', ()
     expect(src).toContain("a.get('moved_count'");
   });
 });
+
+describe('галерея мест тоже едет в хранилище (13.10)', () => {
+  it('уборщик знает place_gallery_photos, а не только героя', () => {
+    // До 13.10 шапки миграций обещали «байты увезёт уборщик», а уборщик галереи
+    // не знал: правило «увозит всё» держалось только на герое (§4.1).
+    const route = readFileSync(join(process.cwd(), 'app/api/cron/images-to-s3/route.ts'), 'utf-8');
+    expect(route).toContain('FROM place_gallery_photos');
+    expect(route).toContain('async function backfillUrls()');
+  });
+});

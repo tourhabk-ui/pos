@@ -36,6 +36,7 @@ export const REFERENCE_COLUMNS: ReadonlyArray<{ table: string; expr: string }> =
   { table: 'ai_route_images', expr: 's3_key' },
   { table: 'ai_route_images', expr: 's3_url' },
   { table: 'place_gallery_photos', expr: 's3_url' },
+  { table: 'place_gallery_photos', expr: 's3_key' },
   { table: 'places', expr: 'photo_url' },
   { table: 'places', expr: 'images::text' },
   { table: 'user_place_photos', expr: 'url' },

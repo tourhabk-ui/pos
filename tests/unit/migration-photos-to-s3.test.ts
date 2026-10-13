@@ -1,6 +1,8 @@
 /**
  * Снимки из миграций — в хранилище (решение владельца 13.10: «согласен,
- * перенеси в S3»), фаза 1: заливка по маркеру, построенному из самих миграций.
+ * перенеси в S3»). Фаза 1 — заливка по маркеру, построенному из самих
+ * миграций; фаза 2 — миграции пишут ключ вместо байтов, прод переведён по
+ * хэшу байтов (1228), раздача читает ключ.
  *
  * Перепись 13.10: 59 файлов migrations/ несут 154 JPEG hex-литералами —
  * 24,7 МБ байтов в 53 МБ SQL, 95% каталога. Что держит сторож:
@@ -15,14 +17,15 @@
  *  - workflow зовёт скрипт по маркеру с ключами хранилища, сухой прогон без
  *    `upload: true`, одна очередь без отмены.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  extractPhotos, buildManifest, diffMarker, keyFor, readMarker, MARKER, KEY_PREFIX, MIN_BYTES,
+  extractPhotos, buildManifest, keyFor, readMarker, MARKER, KEY_PREFIX, MIN_BYTES,
 } from '../../scripts/migration-photos-to-s3';
-import { PLACE_IMAGE_KEY_RE } from '@/lib/storage/orphan-delete';
+import { PLACE_IMAGE_KEY_RE, REFERENCE_COLUMNS } from '@/lib/storage/orphan-delete';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -86,36 +89,95 @@ describe('разборщик hex-снимков', () => {
   });
 });
 
-describe('маркер заливки построен из миграций и равен им до байта', () => {
+describe('фаза 2: миграции байтов не носят, маркер — запись о том, что залито', () => {
   const marker = readMarker(ROOT);
+  const unique = [...new Map(marker.items.map((p) => [p.sha256, p])).values()];
 
-  it('перестройка даёт ровно то, что лежит в маркере', () => {
-    const actual = buildManifest(ROOT);
-    expect(actual.length).toBeGreaterThan(0);
-    expect(diffMarker(marker.items, actual)).toEqual([]);
-    expect(actual).toEqual(marker.items);
+  it('ни в одной миграции не осталось hex-снимка', () => {
+    expect(buildManifest(ROOT)).toEqual([]);
   }, 60_000);
 
-  it('каждая запись — JPEG по размеру, ключ по своему хэшу, таблица названа', () => {
+  it('каждый снимок маркера записан ключом в своей миграции', () => {
     for (const p of marker.items) {
-      expect(p.key, p.migration).toBe(keyFor(p.sha256));
-      expect(p.sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(p.bytes).toBeGreaterThanOrEqual(MIN_BYTES);
+      const sql = read(`migrations/${p.migration}`);
+      expect(sql, `${p.migration} #${p.n}`).toContain(`'${p.key}'`);
+      expect(p.key).toBe(keyFor(p.sha256));
       expect(['ai_route_images', 'place_gallery_photos']).toContain(p.table);
     }
-    expect(marker.run).toBeGreaterThanOrEqual(1);
-    expect(marker.note.length).toBeGreaterThan(20);
+    expect(marker.items.length).toBeGreaterThan(100);
   });
 
-  it('расхождение называется словами: чужой хэш, лишний и пропавший снимок', () => {
-    const a = buildManifest(ROOT).slice(0, 3);
-    const changed = [{ ...a[0], sha256: 'f'.repeat(64) }, a[1]];
-    expect(diffMarker(changed, a)).toEqual([
-      `${a[0].migration}#${a[0].n}: запись маркера расходится с миграцией`,
-      `${a[2].migration}#${a[2].n}: снимок есть в миграции, но не в маркере`,
-    ]);
-    expect(diffMarker([...a, { ...a[0], n: 99 }], a)).toEqual([`${a[0].migration}#99: в миграциях такого снимка нет`]);
-  }, 60_000);
+  it('1228 переводит прод-строки по хэшу байтов: каждая пара (sha256, ключ), один проход на таблицу', () => {
+    const sql = read('migrations/1228_migration_photos_to_s3_keys.sql');
+    for (const p of unique) expect(sql).toContain(`('${p.sha256}', '${p.key}')`);
+    expect((sql.match(/encode\(sha256\(/g) ?? []).length).toBe(2);
+    expect(sql).toMatch(/UPDATE ai_route_images i\s+SET s3_key = k\.s3_key, image_data = NULL/);
+    expect(sql).toMatch(/UPDATE place_gallery_photos g\s+SET s3_key = k\.s3_key, image_data = NULL/);
+    expect(sql).toMatch(/CREATE TEMP TABLE _migration_photo_keys/);
+    // s3_url не трогается: у строки с байтами его нет, а чужой адрес — не наш.
+    expect(sql).not.toMatch(/s3_url\s*=/);
+  });
+
+  it('схема готова к ключу и на проде (1227), и на чистой базе (968, 930)', () => {
+    const m1226 = read('migrations/1227_place_gallery_photos_s3_key.sql');
+    expect(m1226).toMatch(/ADD COLUMN IF NOT EXISTS s3_key TEXT/);
+    expect(m1226).toMatch(/DROP CONSTRAINT IF EXISTS place_gallery_photos_has_image/);
+    expect(m1226).toMatch(/CHECK \(image_data IS NOT NULL OR s3_url IS NOT NULL OR s3_key IS NOT NULL\)/);
+    const m968 = read('migrations/968_place_gallery_photos.sql');
+    expect(m968).toMatch(/s3_key\s+TEXT,/);
+    expect(m968).toMatch(/CHECK \(image_data IS NOT NULL OR s3_url IS NOT NULL OR s3_key IS NOT NULL\)/);
+    const m930 = read('migrations/930_sinichkino_coords_and_owner_photo.sql');
+    expect(m930).toMatch(/ADD COLUMN IF NOT EXISTS s3_key TEXT/);
+    expect(m930).toMatch(/ALTER COLUMN image_data DROP NOT NULL/);
+    expect(m930.indexOf('DROP NOT NULL')).toBeLessThan(m930.indexOf('INSERT INTO ai_route_images'));
+  });
+
+  it('уборка сирот знает ключ галереи', () => {
+    expect(REFERENCE_COLUMNS.map((c) => `${c.table}.${c.expr}`)).toContain('place_gallery_photos.s3_key');
+  });
+});
+
+describe('раздача читает ключ: адрес из S3_BUCKET, после s3_url и раньше байтов', () => {
+  const KEY = keyFor('a'.repeat(64));
+  let rows: Array<Record<string, unknown>> = [];
+  const query = vi.fn(async () => ({ rows }));
+
+  async function routes() {
+    vi.resetModules();
+    vi.stubEnv('S3_BUCKET', 'vedar-test');
+    vi.stubEnv('S3_ENDPOINT', 'https://s3.twcstorage.ru');
+    vi.doMock('@/lib/db-pool', () => ({ pool: { query } }));
+    const hero = await import('@/app/api/images/route/[routeId]/route');
+    const gallery = await import('@/app/api/images/place-gallery/[arkId]/[position]/route');
+    return { hero, gallery };
+  }
+  const ark = '7190e0a4-52f1-47fb-ba17-0fcb493d99df';
+  const req = (url: string) => new NextRequest(url);
+
+  afterEach(() => { vi.unstubAllEnvs(); vi.doUnmock('@/lib/db-pool'); });
+
+  it('только ключ — 302 на объект хранилища', async () => {
+    const { hero, gallery } = await routes();
+    rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: null, s3_key: KEY, thumb_url: null }];
+    const h = await hero.GET(req(`http://x/api/images/route/${ark}`), { params: Promise.resolve({ routeId: ark }) });
+    expect(h.status).toBe(302);
+    expect(h.headers.get('location')).toBe(`https://s3.twcstorage.ru/vedar-test/${KEY}`);
+    expect(h.headers.get('x-source')).toBe('s3-key');
+    const g = await gallery.GET(req(`http://x/api/images/place-gallery/${ark}/1`), { params: Promise.resolve({ arkId: ark, position: '1' }) });
+    expect(g.status).toBe(302);
+    expect(g.headers.get('location')).toBe(`https://s3.twcstorage.ru/vedar-test/${KEY}`);
+  });
+
+  it('адрес s3_url старше ключа; байты — только когда нет ни того, ни другого', async () => {
+    const { hero, gallery } = await routes();
+    rows = [{ image_data: Buffer.from('x'), mime_type: 'image/jpeg', s3_url: 'https://s3.twcstorage.ru/vedar-test/places/old.jpg', s3_key: KEY, thumb_url: null }];
+    const h = await hero.GET(req(`http://x/api/images/route/${ark}`), { params: Promise.resolve({ routeId: ark }) });
+    expect(h.headers.get('location')).toBe('https://s3.twcstorage.ru/vedar-test/places/old.jpg');
+    rows = [{ image_data: Buffer.from('jpegbytes'), mime_type: 'image/jpeg', s3_url: null, s3_key: null }];
+    const g = await gallery.GET(req(`http://x/api/images/place-gallery/${ark}/1`), { params: Promise.resolve({ arkId: ark, position: '1' }) });
+    expect(g.status).toBe(200);
+    expect(g.headers.get('x-source')).toBe('stored');
+  });
 });
 
 describe('workflow заливки', () => {

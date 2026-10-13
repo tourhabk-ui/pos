@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS place_gallery_photos (
   position    INT          NOT NULL,
   image_data  BYTEA,
   s3_url      TEXT,
+  -- 13.10: ключ объекта в хранилище — снимки из миграций пишут его вместо байтов
+  -- (migrations/photos/<sha256>.jpg); адрес собирает раздача из S3_BUCKET. На проде
+  -- колонку заводит 1227, здесь — чтобы чистая база пришла к той же форме до 977+.
+  s3_key      TEXT,
   mime_type   VARCHAR(20)  NOT NULL DEFAULT 'image/jpeg',
   width       INT          NOT NULL,
   height      INT          NOT NULL,
@@ -71,7 +75,7 @@ CREATE TABLE IF NOT EXISTS place_gallery_photos (
   -- Строка без байтов И без ссылки — это не снимок, а запись о его отсутствии.
   -- Такую в галерее показывать нечем, и заводить её незачем.
   CONSTRAINT place_gallery_photos_has_image
-    CHECK (image_data IS NOT NULL OR s3_url IS NOT NULL)
+    CHECK (image_data IS NOT NULL OR s3_url IS NOT NULL OR s3_key IS NOT NULL)
 );
 
 -- Порядок в пределах места однозначен: две фотографии не могут быть обе

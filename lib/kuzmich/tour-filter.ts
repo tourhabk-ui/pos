@@ -24,7 +24,21 @@
  * И ответ больше не теряет туры: совпал тип — сначала они, а туры, где
  * слово стоит в названии или описании при другом типе (треккинг к вулкану,
  * облёт вулканов), идут следом отдельным блоком с той же оговоркой.
+ *
+ * ── 13.10: место — не вид отдыха ─────────────────────────────────────────
+ *
+ * Владелец: «тур на Авачинский вулкан есть». На «авачинский вулкан» ответ
+ * начинался словами «Тура с типом «авачинский вулкан» нет» — и только потом
+ * шли все пять туров к нему с припиской «тип у них другой, уточни, прежде
+ * чем предлагать». Модель читала первую строку и отвечала «туров нет».
+ * Фраза про тип верна только для слова, которое и есть вид отдыха
+ * («дайвинг»: тип такой есть, туров этого типа нет). Название места типом не
+ * бывает: для него ответ сразу — туры, где место упоминается, без отрицания
+ * впереди и с просьбой назвать их, а что именно там делают — уточнить.
+ * Вид ли это отдыха, решает словарь видов (typeMatches по всем его типам).
  */
+
+import { ACTIVITY_LABELS } from '@/lib/tours/labels';
 
 type ActivityLabel = (slug: string, short?: boolean) => string;
 
@@ -67,7 +81,12 @@ export function typeMatches(slug: string, want: string, activityLabel: ActivityL
   return wantStems.every((ws) => typeWords.some((tw) => tw.startsWith(ws) || ws.startsWith(wordStem(tw))));
 }
 
-export function filterTourCatalog(ctx: string, want: string, activityLabel: ActivityLabel): string {
+export function filterTourCatalog(
+  ctx: string,
+  want: string,
+  activityLabel: ActivityLabel,
+  knownTypes: readonly string[] = Object.keys(ACTIVITY_LABELS),
+): string {
   const lines = ctx.split('\n');
   const isTourLine = (l: string) => /^ID\d+:/.test(l);
   const firstTour = lines.findIndex(isTourLine);
@@ -94,6 +113,16 @@ export function filterTourCatalog(ctx: string, want: string, activityLabel: Acti
     ].join('\n');
   }
   if (mentioned.length > 0) {
+    const isActivity = knownTypes.some((t) => typeMatches(t, want, activityLabel));
+    if (!isActivity) {
+      return [
+        ...head,
+        `Туры, где упоминается «${want}» (в названии, месте или описании). Назови их; `
+          + 'едет ли тур к самому месту и что там делают, уточни через get_tour_details:',
+        ...mentioned,
+        ...tail,
+      ].join('\n');
+    }
     return `Тура с типом «${want}» нет. ${mentionedNote}\n${mentioned.join('\n')}`;
   }
   return `Туров «${want}» у операторов платформы сейчас нет — ни по типу, ни в описаниях. `

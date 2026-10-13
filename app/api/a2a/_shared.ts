@@ -74,6 +74,8 @@ export interface JournalFields {
   /** Ответ диспетчера; нет — отказ до него (errorCode) или визитка. */
   out?: A2AResult | null;
   errorCode?: string | null;
+  /** Имя неизвестного метода или «ГЛАГОЛ /путь» — только при MethodNotFound. */
+  method?: string | null;
 }
 
 /**
@@ -97,6 +99,7 @@ export function journalA2a(request: NextRequest, binding: A2aBinding, startedAt:
     state: facts?.state ?? null,
     contextId: facts?.contextId ?? null,
     durationMs: Date.now() - startedAt,
+    method: f.method ?? null,
     ip: getTrustedClientIp(request.headers),
     userAgent: request.headers.get('user-agent') ?? '',
     self: isSelfMcpCaller(request.nextUrl),
