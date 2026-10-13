@@ -6,6 +6,8 @@
  * браузерный бандл. Здесь ни сети, ни базы.
  */
 
+import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
+
 export type CharterVehicleKind = 'jeep' | 'vahtovka' | 'minibus' | 'other';
 
 export interface CharterVehicle {
@@ -62,10 +64,27 @@ export interface CharterClip {
 }
 
 /** С кем договор: название исполнителя и, если назван, ИНН. */
+/**
+ * Исполнитель по договору — то, что записано в partners.legal_info, как у
+ * карточки тура (lib/tours/seller-requisites). Каждое поле может отсутствовать;
+ * нет ни одного — `legal: null`.
+ */
 export interface CharterLegal {
-  name: string;
+  /** Юрлицо или ИП (legal_info.companyName); null — не записано. */
+  name: string | null;
   /** 10 или 12 цифр; null — не записан или записан не по форме. */
   inn: string | null;
+  /** ОГРН (13 цифр) или ОГРНИП (15); null — не записан или не по форме. */
+  ogrn: string | null;
+}
+
+/**
+ * Строка «Исполнитель: …» — та же, что на карточке тура: наименование, ИНН,
+ * ОГРН из записанного. null — реквизитов нет, и экран говорит «не записаны».
+ */
+export function charterRequisitesLine(legal: CharterLegal | null): string | null {
+  if (!legal) return null;
+  return sellerRequisitesLine({ operator_legal_name: legal.name, operator_inn: legal.inn, operator_ogrn: legal.ogrn });
 }
 
 /** Ролик перевозчика: адрес и кадр-обложка вместе (миграция 1185) или ничего. */

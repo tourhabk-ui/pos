@@ -164,8 +164,11 @@ describe('POST /api/charter-requests: отказ — с полем, ничего
 describe('загрузчик перевозчика (lib/transfers/charter)', () => {
   const partnerRow = {
     id: 'p-1', slug: 'shatun', name: 'Шатун', short_description: null, hero_image: null, gallery: [],
-    video_url: null, video_poster_url: null, gallery_credits: {}, video_clips: [], company_name: null,
-    legal_info: null, contacts: null, is_verified: true, description: 'Две вахтовки',
+    video_url: null, video_poster_url: null, gallery_credits: {}, video_clips: [],
+    // company_name триггер 052 держит равным вывеске — юрлицо из него не берётся.
+    company_name: 'Шатун',
+    legal_info: { companyName: 'ИП Миронова Нина Васильевна', inn: '250302356113' },
+    contacts: null, is_verified: true, description: 'Две вахтовки',
   };
   const priceRow = (to: string, place: { id: string; slug: string | null; name: string } | null) => ({
     partner_id: 'p-1', vehicle_kind: 'vahtovka', line_kind: 'destination', from_text: 'Петропавловск-Камчатский',
@@ -187,7 +190,8 @@ describe('загрузчик перевозчика (lib/transfers/charter)', ()
     });
     const actual = await vi.importActual<typeof import('@/lib/transfers/charter')>('@/lib/transfers/charter');
     const c = await actual.loadCarrierBySlug('shatun');
-    expect(c).toMatchObject({ verified: true, description: 'Две вахтовки' });
+    expect(c).toMatchObject({ verified: true, description: 'Две вахтовки', name: 'Шатун' });
+    expect(c!.legal).toEqual({ name: 'ИП Миронова Нина Васильевна', inn: '250302356113', ogrn: null });
     expect(c!.destinations.map((d) => d.place)).toEqual([
       { id: 'pl-gor', href: '/places/vulkan-gorelyj', name: 'Вулкан Горелый' },
       { id: 'pl-x', href: '/places/pl-x', name: 'Место без адреса' },

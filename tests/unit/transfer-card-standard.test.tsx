@@ -62,7 +62,7 @@ const CARRIER: CarrierProfile = {
     { url: '/images/shatun/shatun-16.jpg', credit: 'Сладченко Виктор Леонидович' },
   ],
   clips: [],
-  legal: { name: 'ИП Миронова Нина Васильевна', inn: '250302356113' },
+  legal: { name: 'ИП Миронова Нина Васильевна', inn: '250302356113', ogrn: null },
   video: null,
   phone: '+79294560102', telegramHref: 'https://t.me/+79294560102', whatsappHref: 'https://wa.me/79294560102',
 };
@@ -182,6 +182,18 @@ describe('перевозчик: отметка, исполнитель, связ
     unmount();
     const plain = render(<CarrierPage data={{ ...DATA, carrier: { ...CARRIER, verified: false } }} />);
     expect(plain.container.textContent).not.toContain('Проверенный перевозчик');
+  });
+
+  it('вывеска — имя перевозчика, ИП — исполнителем, как на карточке тура; нет реквизитов — «не записаны»', () => {
+    const { unmount } = render(<CarrierPage data={DATA} />);
+    const who = screen.getByRole('heading', { name: 'Перевозчик' }).parentElement as HTMLElement;
+    expect(within(who).getByText('Шатун')).toBeTruthy();
+    expect(who.textContent).toContain('Исполнитель: ИП Миронова Нина Васильевна, ИНН 250302356113');
+    expect(who.textContent).toContain('2 × вахтовка, 26 мест');
+    unmount();
+    render(<CarrierPage data={{ ...DATA, carrier: { ...CARRIER, legal: null } }} />);
+    const bare = screen.getByRole('heading', { name: 'Перевозчик' }).parentElement as HTMLElement;
+    expect(bare.textContent).toContain('Исполнитель: реквизиты перевозчика не записаны на платформе');
   });
 
   it('отзывов без источника нет', () => {

@@ -4,7 +4,7 @@ import { LazyClip } from '@/components/media/LazyClip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
-import { carrierPagePath, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { carrierPagePath, charterRequisitesLine, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 /**
  * Перевозчик «под заказ»: парк, прайс на целую машину, связь, фото.
@@ -50,11 +50,11 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
         на машину — на странице перевозчика; расчёт — напрямую с ним: через платформу вахтовки под заказ не оплачиваются.
       </p>
 
-      {carrier.legal && (
-        <p className="text-xs text-[var(--text-secondary)]">
-          Исполнитель: {carrier.legal.name}{carrier.legal.inn ? `, ИНН ${carrier.legal.inn}` : ''}.
-        </p>
-      )}
+      {/* Исполнитель — как на карточке тура: из записанного в legal_info; нет —
+          так и сказано, не спрятано. */}
+      <p className="text-xs text-[var(--text-secondary)]">
+        Исполнитель: {charterRequisitesLine(carrier.legal) ?? 'реквизиты перевозчика не записаны на платформе'}.
+      </p>
 
       {hasContacts ? (
         <div className="space-y-2">

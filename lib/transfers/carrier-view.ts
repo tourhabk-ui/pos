@@ -66,7 +66,8 @@ export function carrierJsonLd(
     name: c.name,
     url,
     ...(c.shortDescription ? { description: c.shortDescription.slice(0, 500) } : {}),
-    ...(c.legal ? { legalName: c.legal.name, ...(c.legal.inn ? { taxID: c.legal.inn } : {}) } : {}),
+    ...(c.legal?.name ? { legalName: c.legal.name } : {}),
+    ...(c.legal?.inn ? { taxID: c.legal.inn } : {}),
     ...(c.destinations.length > 0
       ? {
         makesOffer: c.destinations.map((d) => ({

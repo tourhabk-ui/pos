@@ -52,7 +52,7 @@ const CARRIER: CharterCarrier = {
     { url: '/images/shatun/shatun-01.jpg', credit: null },
     { url: '/images/shatun/shatun-16.jpg', credit: 'Сладченко Виктор Леонидович' },
   ],
-  legal: { name: 'ИП Миронова Нина Васильевна', inn: '250302356113' },
+  legal: { name: 'ИП Миронова Нина Васильевна', inn: '250302356113', ogrn: null },
   clips: [
     { url: '/video/shatun/clip-water-approach.mp4', poster: '/video/shatun/clip-water-approach.poster.jpg', label: 'Вахтовка идёт через воду' },
   ],
@@ -446,22 +446,30 @@ describe('миграция 1187: исполнитель — только наз�
 });
 
 describe('исполнитель в загрузчике и на карточке', () => {
-  it('название из company_name, запасное — из legal_info; ИНН только по форме; без названия реквизитов нет', async () => {
+  // Правило карточки тура (13.10): юрлицо — только из legal_info.companyName.
+  // partners.company_name триггер 052 держит равным вывеске, и «исполнителем»
+  // стала бы вывеска — у «Шатуна» вышло наоборот: ИП стал вывеской (миграция 1233).
+  it('наименование, ИНН и ОГРН — только из legal_info и только по форме; нет ничего — реквизитов нет', async () => {
     const { parseLegal } = await import('@/lib/transfers/charter');
-    expect(parseLegal('ИП Миронова Нина Васильевна', { inn: '250302356113' })).toEqual({ name: 'ИП Миронова Нина Васильевна', inn: '250302356113' });
-    expect(parseLegal(null, { companyName: ' ИП Иванов ', inn: '2503 023561 13' })).toEqual({ name: 'ИП Иванов', inn: '250302356113' });
-    expect(parseLegal('ООО «Х»', { inn: '1234' })).toEqual({ name: 'ООО «Х»', inn: null });
-    expect(parseLegal('ООО «Х»', null)).toEqual({ name: 'ООО «Х»', inn: null });
-    expect(parseLegal(null, { inn: '250302356113' })).toBeNull();
-    expect(parseLegal('  ', 'мусор')).toBeNull();
+    expect(parseLegal({ companyName: 'ИП Миронова Нина Васильевна', inn: '250302356113', license: 'есть' }))
+      .toEqual({ name: 'ИП Миронова Нина Васильевна', inn: '250302356113', ogrn: null });
+    expect(parseLegal({ companyName: ' ИП Иванов ', inn: '2503 023561 13', ogrn: '316410100012345' }))
+      .toEqual({ name: 'ИП Иванов', inn: '250302356113', ogrn: '316410100012345' });
+    expect(parseLegal({ companyName: 'ООО «Х»', inn: '1234', ogrn: '12' })).toEqual({ name: 'ООО «Х»', inn: null, ogrn: null });
+    // ИНН без имени — тоже реквизит, как у тура: строка покажет то, что записано.
+    expect(parseLegal({ inn: 250302356113 })).toEqual({ name: null, inn: '250302356113', ogrn: null });
+    expect(parseLegal(null)).toBeNull();
+    expect(parseLegal('мусор')).toBeNull();
+    expect(parseLegal({ companyName: '  ', inn: 'нет' })).toBeNull();
   });
 
-  it('карточка называет исполнителя; нет реквизитов — строки нет', () => {
+  it('карточка называет исполнителя; нет реквизитов — «не записаны»', () => {
     const html = renderToStaticMarkup(createElement(CharterCard, { carrier: CARRIER }));
     expect(html).toContain('Исполнитель: ИП Миронова Нина Васильевна, ИНН 250302356113.');
+    // Нет реквизитов — сказано словами, как на карточке тура, а не спрятано.
     const none = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, legal: null } }));
-    expect(none).not.toContain('Исполнитель');
-    const noInn = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, legal: { name: 'ИП Иванов', inn: null } } }));
+    expect(none).toContain('Исполнитель: реквизиты перевозчика не записаны на платформе.');
+    const noInn = renderToStaticMarkup(createElement(CharterCard, { carrier: { ...CARRIER, legal: { name: 'ИП Иванов', inn: null, ogrn: null } } }));
     expect(noInn).toContain('Исполнитель: ИП Иванов.');
     expect(noInn).not.toContain('ИНН');
   });
