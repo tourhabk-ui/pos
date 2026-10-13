@@ -70,39 +70,56 @@ jobs:
 
           # Ключ DashScope привязан к контуру (китайский или международный);
           # какой — выясняется пробой, не памятью: сперва один, на 401 — другой.
+          #
+          # Бесплатная квота DashScope кончается ПО МОДЕЛЯМ, не у ключа (решение
+          # владельца 25.09 «работаем на бесплатной», lib/ai/qwen-free-quota.ts):
+          # прогон 2, 13.10 — qwen-plus отвечает HTTP 403 «free quota has been
+          # exhausted», у алиаса qwen-plus-latest квота своя. Здесь то же правило,
+          # что на живом пути Кузьмича: сперва модель пресета, на 403 по квоте —
+          # её алиас -latest. Другой 403 (регион, права) алиасом не лечится и
+          # остаётся красным с причиной.
           if [ "$LLM_PROVIDER" = "qwen" ]; then
             BASES="https://dashscope-intl.aliyuncs.com/compatible-mode/v1 https://dashscope.aliyuncs.com/compatible-mode/v1"
+            MODELS="preset qwen-plus-latest"
           else
             BASES="preset"
+            MODELS="preset"
           fi
 
           OK=0; CALLS=0; CODE=0
           for BASE in $BASES; do
-            if [ "$BASE" != "preset" ]; then export LLM_BASE_URL="$BASE"; fi
-            echo "════ $LLM_PROVIDER · ${LLM_BASE_URL:-preset} ════"
-            python3 "$BRIDGE" --doctor 2>&1 | tee /tmp/doctor.txt
-            python3 "$BRIDGE" "$Q" >/tmp/answer.txt 2>/tmp/trace.txt
-            CODE=$?
-            cat /tmp/trace.txt
-            echo "--- ответ ---"
-            cat /tmp/answer.txt
-            echo
-            CALLS=$(grep -c '^  -> ' /tmp/trace.txt || true)
-            if [ "$CODE" = "0" ] && [ "$CALLS" -gt 0 ] && [ -s /tmp/answer.txt ]; then
-              OK=1
-              break
-            fi
-            if grep -q 'HTTP Error 401' /tmp/trace.txt /tmp/doctor.txt; then
-              echo "ключ не принят на этом контуре, пробую следующий"
-              continue
-            fi
-            break
+            if [ "$BASE" = "preset" ]; then unset LLM_BASE_URL; else export LLM_BASE_URL="$BASE"; fi
+            for MODEL in $MODELS; do
+              if [ "$MODEL" = "preset" ]; then unset LLM_MODEL; else export LLM_MODEL="$MODEL"; fi
+              echo "════ $LLM_PROVIDER · ${LLM_BASE_URL:-preset} · ${LLM_MODEL:-preset} ════"
+              python3 "$BRIDGE" --doctor 2>&1 | tee /tmp/doctor.txt
+              python3 "$BRIDGE" "$Q" >/tmp/answer.txt 2>/tmp/trace.txt
+              CODE=$?
+              cat /tmp/trace.txt
+              echo "--- ответ ---"
+              cat /tmp/answer.txt
+              echo
+              CALLS=$(grep -c '^  -> ' /tmp/trace.txt || true)
+              if [ "$CODE" = "0" ] && [ "$CALLS" -gt 0 ] && [ -s /tmp/answer.txt ]; then
+                OK=1
+                break 2
+              fi
+              if grep -q 'HTTP Error 401' /tmp/trace.txt /tmp/doctor.txt; then
+                echo "ключ не принят на этом контуре, пробую следующий"
+                continue 2
+              fi
+              if grep -qiE 'free quota has been exhausted|FreeTierOnly' /tmp/doctor.txt /tmp/trace.txt; then
+                echo "бесплатная квота модели ${LLM_MODEL:-пресета} исчерпана, пробую алиас -latest"
+                continue
+              fi
+              break 2
+            done
           done
 
           {
             echo "### $LLM_PROVIDER"
             echo ""
-            echo "вызовов инструментов: $CALLS, код выхода моста: $CODE"
+            echo "вызовов инструментов: $CALLS, код выхода моста: $CODE, модель: ${LLM_MODEL:-пресет}, контур: ${LLM_BASE_URL:-пресет}"
             echo ""
             echo '```'
             grep '^  -> ' /tmp/trace.txt || echo '(инструменты не вызывались)'
