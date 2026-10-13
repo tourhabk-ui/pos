@@ -3,26 +3,63 @@
   "retries": 1,
   "allowStale": true,
   "retryDelay": 10,
-  "run": 761,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO-аудит «Лагуны Экспедиции» с начала (слово владельца), дополнение к site-audit прогонов 2–3: полный список адресов sitemap обоих доменов с lastmod (сверить покрытие обхода и шаблоны адресов), llms.txt, поведение пагинации каталога (?start= закрыт в robots).",
+  "run": 762,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO-аудит «Лагуны Экспедиции» с начала, добор после site-audit прогонов 2–3: забытая «Пример страницы» WordPress в sitemap конструктора; тестовый поддомен staging из сертификата (открыт ли поиску); дубли «Контакты» и «Туристам»; разметка Schema.org на странице тура, блога, контактов, влога и транспортной страницы с путём «-2»; форматы и ленивая загрузка картинок.",
   "urls": [
-    "https://laguna-expedition.ru/sitemap.xml",
-    "https://laguna-expedition.online/wp-sitemap-posts-page-1.xml",
-    "https://laguna-expedition.ru/llms.txt",
-    "https://laguna-expedition.online/llms.txt"
+    "https://laguna-expedition.online/sample-page/",
+    "https://staging.laguna-expedition.online/",
+    "https://staging.laguna-expedition.online/robots.txt",
+    "https://laguna-expedition.ru/contacts",
+    "https://laguna-expedition.ru/kontakty",
+    "https://laguna-expedition.ru/turistam",
+    "https://laguna-expedition.ru/tours/33895-ozero-tolmacheva",
+    "https://laguna-expedition.ru/blog/sobiraem-veshchi-na-kamchatku",
+    "https://laguna-expedition.ru/vlog/dukh-kamchatki-kajnyran",
+    "https://laguna-expedition.ru/odnodnevnye-ekskursii-2/transfery/46921-gruppovoj-transfer-iz-aeroporta-v-spa-otel-laguna-v-aeroport",
+    "https://laguna-expedition.ru/o-kompanii"
+  ],
+  "grep": [
+    "Это пример страницы",
+    "Sample Page",
+    "noindex",
+    "Disallow: /",
+    "aggregateRating",
+    "\"offers\"",
+    "TouristTrip",
+    "LocalBusiness",
+    "TravelAgency",
+    "\"address\"",
+    "\"telephone\"",
+    "FAQPage",
+    "BlogPosting",
+    "VideoObject",
+    "youtube.com",
+    "rutube.ru",
+    "vk.com/video",
+    "реестр",
+    "B031-00161-77",
+    "ИНН"
   ],
   "count": [
-    "<loc>",
-    "<lastmod>",
-    "<image:loc>",
-    "<changefreq>",
-    "<priority>"
+    "<img",
+    "loading=\"lazy\"",
+    ".webp",
+    ".avif",
+    "srcset=",
+    "fetchpriority",
+    "\"@type\"",
+    "<h1",
+    "<h2"
   ],
   "around": [
-    "<loc>"
+    "<title",
+    "rel=\"canonical\"",
+    "\"@type\"",
+    "name=\"robots\"",
+    "Это пример страницы"
   ],
-  "aroundLines": 3,
+  "aroundLines": 1,
   "aroundBefore": 0,
-  "aroundHits": 400,
-  "bytes": 300
+  "aroundHits": 8,
+  "bytes": 150
 }
