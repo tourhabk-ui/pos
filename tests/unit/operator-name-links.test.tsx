@@ -17,6 +17,12 @@
  *    слоем под содержимым, а имя оператора — своей ссылкой поверх: <a> в <a>
  *    недопустим (проверено рендером, не только по исходнику);
  *  - на телефонной главной у ссылки тач-зона 44px (правило home-hitboxes).
+ *
+ * Хвост (владелец 13.10, «улучши»): планы /plans и /trip, модалка операторов
+ * планера, /fish/[id], «Туры проводят» на /hub/fishing (и адрес оператора в
+ * JSON-LD только у открытой карточки), карточки туров в чатах Кузьмича и
+ * ИИ-помощника, строка «Журнал» на главной. Там же, где карточка была ссылкой
+ * на тур целиком, — слой-ссылка, имя оператора — своей ссылкой поверх.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
@@ -27,6 +33,7 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import PlaceTours from '@/components/places/PlaceTours';
 import { ToursForQuery } from '@/components/search/ToursForQuery';
+import { FishingPageClient } from '@/app/hub/fishing/_FishingPageClient';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -70,6 +77,15 @@ const SURFACES: Array<{ file: string; bare: RegExp }> = [
   { file: 'app/routes/[id]/_RouteDetailClient.tsx', bare: />\{offer\.operator\.name\}</ },
   { file: 'app/booking-success/[id]/_BookingSuccessClient.tsx', bare: />\{booking\.operator_name\}</ },
   { file: 'app/calendar/_CalendarClient.tsx', bare: /^\s*\{tour\.operator\.name\}\s*$/m },
+  // Хвост 13.10.
+  { file: 'app/plans/[slug]/page.tsx', bare: /\{tour\.title\} · \{tour\.operator_name\}/ },
+  { file: 'app/trip/[token]/_TripShareClient.tsx', bare: /^\s*\{tour\.operator_name\}\s*$/m },
+  { file: 'app/fish/[id]/page.tsx', bare: /^\s*\{tour\.operator_name\}\s*$/m },
+  { file: 'app/hub/fishing/_FishingPageClient.tsx', bare: /operators\.join\(', '\)/ },
+  { file: 'app/kuzmich/_KuzmichClient.tsx', bare: /">\{tour\.operator_name\}<\/p>/ },
+  { file: 'app/ai-assistant/_AIAssistantClient.tsx', bare: /">\{tour\.operator_name\}<\/p>/ },
+  { file: 'app/_home/_HomeV8Client.tsx', bare: /<span className="t">\{feed\[0\]\.text\}|· \{feed\[0\]\.operatorName\}/ },
+  { file: 'app/planner/_PlannerClient.tsx', bare: /">\{p\.name\}<\/p>/ },
 ];
 
 describe('поверхности с именем оператора', () => {
@@ -109,8 +125,31 @@ describe('источники данных отдают slug и is_public ряд�
     ['app/api/availability/day/route.ts', /p\.is_public\s+AS operator_public/],
     ['app/api/hub/bookings/[id]/route.ts', /p\.is_public\s+AS operator_public/],
     ['lib/routes/route-detail.ts', /JOIN partners p ON p\.id = v\.operator_id[\s\S]*?p\.is_public AS operator_public|p\.is_public AS operator_public[\s\S]*?JOIN partners p ON p\.id = v\.operator_id/],
+    // Хвост 13.10.
+    ['app/fish/[id]/page.tsx', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
+    ['app/hub/fishing/page.tsx', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
+    ['app/_home/data.ts', /p\.slug AS operator_slug, p\.is_public AS operator_public, ob\.created_at::text/],
+    ['app/api/planner/partners/route.ts', /p\.slug,\s*p\.is_public,/],
   ])('%s', (file, re) => {
     expect(read(file)).toMatch(re);
+  });
+
+  it('у резолверов с двумя SELECT поля стоят в обоих: туры плана и подсказки чата', () => {
+    for (const file of ['lib/tours/top-tour-by-activity.ts', 'lib/ai/booking-intent.ts']) {
+      const n = (read(file).match(/p\.slug AS operator_slug, p\.is_public AS operator_public/g) ?? []).length;
+      expect(n, `${file}: slug и is_public в каждом SELECT`).toBe(2);
+    }
+  });
+
+  it('кэш страницы плана сменил ключ вместе с формой строки тура', () => {
+    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v2'\]/);
+  });
+
+  it('JSON-LD рыбалки даёт адрес оператора только открытой карточке', () => {
+    const page = code('app/hub/fishing/page.tsx');
+    expect(page).toMatch(/url: operatorUrl\(t\)/);
+    expect(page).toMatch(/operatorPagePath\(\{ slug: t\.operator_slug, is_public: t\.operator_public \}\)/);
+    expect(page).not.toMatch(/\/operators\/\$\{/);
   });
 
   it('витрина: смена формы строки — смена ключа кэша', () => {
@@ -144,6 +183,24 @@ describe('карточка-ссылка на тур: имя оператора �
     const hrefs = [...container.querySelectorAll('li a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['/catalog/tours/mestechko-halaktyrskiy-plyazh', '/operators/mestechko']);
     expect(container.querySelectorAll('a a')).toHaveLength(0);
+  });
+
+  it('«Туры проводят» на странице рыбалки: открытый оператор — ссылкой, закрытый — текстом, без дублей', () => {
+    const base = {
+      id: 1, slug: 't', title: 'Рыбалка', short_description: null, description: null, base_price: 25000,
+      duration_hours: 10, max_participants: 8, min_participants: 1, difficulty: null, photos: [], included: null,
+      season_start: null, season_end: null, operator_name: 'Камчатская рыбалка', operator_slug: 'fishingkam', operator_public: true,
+    };
+    const { container } = render(<FishingPageClient tours={[
+      base,
+      { ...base, id: 2, slug: 'u', title: 'Ещё рыбалка' },
+      { ...base, id: 3, slug: 'v', title: 'Закрытый', operator_name: 'Тихий оператор', operator_slug: 'tihiy', operator_public: false },
+    ]} />);
+    const sentence = [...container.querySelectorAll('p')].find((p) => p.textContent?.startsWith('Туры проводят:'));
+    expect(sentence).toBeDefined();
+    expect(sentence?.textContent).toMatch(/^Туры проводят: Камчатская рыбалка, Тихий оператор\./);
+    const links = [...sentence!.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href')]);
+    expect(links).toEqual([['Камчатская рыбалка', '/operators/fishingkam']]);
   });
 
   it('DeskTours: ссылка на тур — слоем, содержимое поверх, вложенного <Link> нет', () => {

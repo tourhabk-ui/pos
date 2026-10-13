@@ -12,6 +12,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import Image from 'next/image';
 import { paceIsShowable } from '@/lib/routes/route-contradiction';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
@@ -27,6 +28,9 @@ interface TourSuggestion {
   location: string | null;
   tour_image: string | null;
   operator_name: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
 }
 
 interface RouteRec {
@@ -190,11 +194,12 @@ function WarningCard({ text }: { text: string }) {
 
 function TourCard({ tour }: { tour: TourSuggestion }) {
   return (
-    <Link
-      href={tourPath(tour)}
-      className="group flex items-start gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/40 hover:bg-[var(--bg-hover)] transition-all"
+    <div
+      className="group relative flex items-start gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/40 hover:bg-[var(--bg-hover)] transition-all"
     >
-      <div className="relative w-16 h-16 rounded-md overflow-hidden shrink-0 bg-[var(--bg-hover)]">
+      {/* Ссылка на тур — слоем, имя оператора — своей ссылкой поверх (13.10). */}
+      <Link href={tourPath(tour)} className="absolute inset-0 z-[1] rounded-lg" aria-label={tour.title} />
+      <div className="relative z-[2] pointer-events-none w-16 h-16 rounded-md overflow-hidden shrink-0 bg-[var(--bg-hover)]">
         {tour.tour_image ? (
           <Image src={tour.tour_image} alt={tour.title} fill sizes="64px" className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} />
         ) : (
@@ -203,16 +208,16 @@ function TourCard({ tour }: { tour: TourSuggestion }) {
           </div>
         )}
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="relative z-[2] pointer-events-none flex-1 min-w-0">
         <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{tour.title}</p>
-        <p className="text-xs text-[var(--text-secondary)] truncate">{tour.operator_name}</p>
+        <p className="text-xs text-[var(--text-secondary)] truncate"><OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" /></p>
         {tour.description && (
           <p className="text-xs text-[var(--text-muted)] mt-0.5 line-clamp-2">{tour.description}</p>
         )}
         <p className="text-xs font-medium text-[var(--accent)] mt-1">от {formatPrice(tour.base_price)}</p>
       </div>
-      <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--accent)] shrink-0 mt-1 transition-colors" />
-    </Link>
+      <ChevronRight className="relative z-[2] pointer-events-none w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--accent)] shrink-0 mt-1 transition-colors" />
+    </div>
   );
 }
 

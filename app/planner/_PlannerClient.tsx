@@ -8,6 +8,7 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { parseInterestWords } from '@/lib/planner/interest-words';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
   Check, AlertTriangle, Sparkles, Loader,
@@ -786,7 +787,7 @@ function PartnersModal({ activityType, onClose }: {
             return (
               <div key={p.id} className="bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg p-3 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">{p.name}</p>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]"><OperatorNameLink name={p.name} slug={p.slug} isPublic={p.is_public} /></p>
                   {Number(p.rating) > 0 && (
                     <div className="flex items-center gap-1 shrink-0">
                       <Star className="w-3 h-3 text-[var(--warning)] fill-current" />

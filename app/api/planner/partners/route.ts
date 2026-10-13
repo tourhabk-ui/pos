@@ -24,6 +24,8 @@ interface PartnerRow {
   id: string;
   name: string;
   slug: string;
+  /** Всегда TRUE по фильтру ниже; отдаётся, чтобы ссылка на страницу строилась одним правилом (operatorPagePath). */
+  is_public: boolean | null;
   rating: number;
   review_count: number;
   hero_image: string | null;
@@ -60,6 +62,7 @@ export async function GET(req: NextRequest) {
         p.id,
         p.name,
         p.slug,
+        p.is_public,
         COALESCE(p.rating, 0)        AS rating,
         COALESCE(p.review_count, 0)  AS review_count,
         p.hero_image,

@@ -128,7 +128,8 @@ export interface ExplorePlace {
   urlSlug: string | null;
 }
 
-export interface FeedItem { text: string }
+/** Строка «Журнала»: заявка на тур у оператора; slug/is_public — страница оператора (13.10). */
+export interface FeedItem { tourTitle: string; operatorName: string; operatorSlug: string | null; operatorPublic: boolean | null }
 export interface Stat { value: string; label: string; href?: string }
 export interface Element { key: string; label: string; count: number; href: string }
 export interface Quake { magnitude: number; place: string; time: number; depth: number | null }
@@ -448,8 +449,9 @@ export async function fetchExplore(): Promise<ExplorePlace[]> {
 
 async function fetchFeed(): Promise<FeedItem[]> {
   try {
-    const res = await query<{ tour_title: string; operator_name: string; created_at: string }>(
-      `SELECT ot.title AS tour_title, p.name AS operator_name, ob.created_at::text
+    const res = await query<{ tour_title: string; operator_name: string; operator_slug: string | null; operator_public: boolean | null; created_at: string }>(
+      `SELECT ot.title AS tour_title, p.name AS operator_name,
+              p.slug AS operator_slug, p.is_public AS operator_public, ob.created_at::text
          FROM operator_bookings ob
          JOIN operator_tours ot ON ob.operator_tour_id = ot.id
          JOIN partners p ON ot.operator_id = p.id
@@ -459,9 +461,16 @@ async function fetchFeed(): Promise<FeedItem[]> {
         LIMIT 6`,
     );
     return res.rows.map((r) => ({
-      text: `Заявка на «${r.tour_title}» · ${r.operator_name}`,
+      tourTitle: r.tour_title,
+      operatorName: r.operator_name,
+      operatorSlug: r.operator_slug,
+      operatorPublic: r.operator_public,
     }));
-  } catch {
+  } catch (e) {
+    // Журнал необязателен, но отказ — в лог (§4.0), не «заявок не было».
+    console.error('[home] журнал заявок не прочитан', {
+      code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+    });
     return [];
   }
 }

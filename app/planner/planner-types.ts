@@ -101,6 +101,8 @@ export interface Partner {
   id: string;
   name: string;
   slug: string;
+  /** partners.is_public — страница оператора открыта (ссылка строится одним правилом). */
+  is_public?: boolean | null;
   rating: number;
   review_count: number;
   short_description: string;

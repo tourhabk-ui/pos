@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert, Download, Navigation, LifeBuoy } from 'lucide-react';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { funnelBeacon } from '@/lib/funnel/beacon';
@@ -37,6 +38,9 @@ interface ShareTour {
   title: string;
   base_price: string;
   operator_name: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
 }
 
 export interface Trip {
@@ -380,13 +384,14 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     ? `${tourPath(tour)}?date=${avail.date}`
                     : tourPath(tour);
                   return (
-                    <Link href={href}
-                      className="mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
+                    <div className="relative mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
                       style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
-                      <div className="min-w-0">
+                      {/* Ссылка на тур — слоем, имя оператора — своей ссылкой поверх (13.10). */}
+                      <Link href={href} className="absolute inset-0 z-[1] rounded-md" aria-label={`${tour.title}: оставить заявку`} />
+                      <div className="relative z-[2] pointer-events-none min-w-0">
                         <div className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{tour.title}</div>
                         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          {tour.operator_name}
+                          <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
                           {avail && (
                             <span style={{ color: 'var(--success)' }}>
                               {' '}· на {shortDate(avail.date)} — {avail.remaining} {avail.remaining === 1 ? 'место' : avail.remaining < 5 ? 'места' : 'мест'}
@@ -394,10 +399,10 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                           )}
                         </div>
                       </div>
-                      <span className="text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
+                      <span className="relative z-[2] pointer-events-none text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
                         от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
                       </span>
-                    </Link>
+                    </div>
                   );
                 })()}
                 {/* Погода на дату дня (B-5): прогноз Open-Meteo по координатам
