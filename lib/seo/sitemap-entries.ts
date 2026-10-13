@@ -11,6 +11,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
+import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plans/presets';
@@ -338,6 +339,26 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('операторы', e);
   }
 
+  // Страницы перевозчиков /transfers/[slug] (стандарт карточки трансфера,
+  // 13.10). Условие то же, что у самой страницы: публичный партнёр категории
+  // transfer со slug — иначе sitemap раздавал бы адреса, отвечающие 404.
+  let carrierPages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
+      `SELECT slug, updated_at FROM partners
+       WHERE category = 'transfer' AND slug IS NOT NULL AND is_public = TRUE
+       ORDER BY updated_at DESC LIMIT 200`
+    );
+    carrierPages = rows.map(row => ({
+      url: `${BASE}${carrierPagePath(row.slug)}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'weekly' as const,
+      priority: 0.6,
+    }));
+  } catch (e) {
+    fail('перевозчики', e);
+  }
+
   // Карточки парков (01.10): с серверной отрисовкой у них есть содержимое —
   // прежде страница собиралась в браузере, и поисковик видел 12–13 слов.
   let parkPages: MetadataRoute.Sitemap = [];
@@ -392,6 +413,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ...marketplacePages,
     ...collectionPages,
     ...operatorPages,
+    ...carrierPages,
     ...parkPages,
   ];
   return { entries, degraded };

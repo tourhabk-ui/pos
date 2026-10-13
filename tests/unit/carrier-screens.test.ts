@@ -21,7 +21,7 @@ const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
-const VITRINA = strip(read('app/transfers/_TransfersClient.tsx'));
+const VITRINA = strip(read('app/transfers/(list)/_TransfersClient.tsx'));
 const CABINET = strip(read('app/hub/carrier/_CarrierClient.tsx'));
 const CABINET_LAYOUT = strip(read('app/hub/carrier/layout.tsx'));
 const QR = strip(read('components/marketplace/SbpQrPayment.tsx'));

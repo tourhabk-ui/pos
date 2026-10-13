@@ -239,12 +239,15 @@ export async function createTrip(input: CreateTripInput): Promise<TransferResult
  * Остаток считается по ПОДТВЕРЖДЁННЫМ местам. Запросы («хочу три места»)
  * ничего не держат: иначе забытая заявка блокировала бы витрину, и вахтовка
  * ехала бы полупустой при живом спросе.
+ *
+ * partnerId — поездки одного перевозчика (страница /transfers/[slug], 13.10).
  */
 export async function listPublishedTrips(params: {
   fromDate: string;
   toDate: string;
   minSeats?: number;
   placeId?: string | null;
+  partnerId?: string | null;
 }): Promise<PublishedTrip[]> {
   const { rows } = await pool.query<PublishedTrip>(
     `SELECT t.id, t.vehicle_id, to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date,
@@ -267,9 +270,10 @@ export async function listPublishedTrips(params: {
         AND t.status IN ('planned', 'confirmed')
         AND t.trip_date BETWEEN $1::date AND $2::date
         AND ($4::text IS NULL OR t.to_place_id = $4::text)
+        AND ($5::text IS NULL OR v.partner_id::text = $5::text)
         AND (t.seats_total - COALESCE(b.taken, 0)) >= $3
       ORDER BY t.trip_date, p.name`,
-    [params.fromDate, params.toDate, params.minSeats ?? 1, params.placeId ?? null],
+    [params.fromDate, params.toDate, params.minSeats ?? 1, params.placeId ?? null, params.partnerId ?? null],
   );
   return rows;
 }

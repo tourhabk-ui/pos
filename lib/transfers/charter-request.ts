@@ -20,6 +20,7 @@
  */
 
 import {
+  carrierPagePath,
   charterFootnote,
   describeFleet,
   fleetCapacity,
@@ -160,11 +161,13 @@ export function charterLeadComment(f: CharterRequestFacts): string {
   return `${charterDedupPrefix(f.carrier.name, f.dateFrom)} ${tail.join('; ')}.`;
 }
 
+/** Чьей дверью пришла заявка: форма на странице перевозчика или инструмент MCP. */
+export type CharterDoor = 'form' | 'mcp';
+
 /** Структурные поля в source_data лида — чтобы заявку можно было разобрать, не парся комментарий. */
-export function charterSourceData(f: CharterRequestFacts): Record<string, unknown> {
+export function charterSourceData(f: CharterRequestFacts, door: CharterDoor = 'mcp'): Record<string, unknown> {
   return {
-    source: 'mcp',
-    tool: 'request_charter',
+    ...(door === 'mcp' ? { source: 'mcp', tool: 'request_charter' } : { source: 'transfer_page' }),
     kind: 'charter',
     carrier_id: f.carrier.partnerId,
     carrier_slug: f.carrier.slug,
@@ -200,5 +203,5 @@ export function charterAcceptedText(f: CharterRequestFacts, phone: string, baseU
     + ` Машина этим НЕ закреплена, занятость на даты система не ведёт: менеджер Ведара свяжется по телефону ${phone}, согласует поездку с перевозчиком и подтвердит.`
     + ` ${SEASON_UNKNOWN_AGENT}`
     + ` Это заявка, не оплата: расчёт с перевозчиком напрямую, через платформу не оплачивается.`
-    + `${note ? ` ${note}` : ''} Карточка перевозчика: ${baseUrl}/operators/${c.slug}`;
+    + `${note ? ` ${note}` : ''} Карточка перевозчика: ${baseUrl}${carrierPagePath(c.slug)}`;
 }

@@ -1,12 +1,46 @@
 {
   "timeout": 60,
-  "retries": 0,
-  "run": 774,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. virtustur: что за адрес t.me/virtustur (канал, группа или личный контакт) — от этого зависит, под каким ключом он ляжет в контакты карточки оператора; и какой ресурс страницы virtustur.tilda.ws грузится по http:// (смешанный контент из site-audit 4).",
-  "urls": ["https://t.me/virtustur", "https://virtustur.tilda.ws/"],
-  "bytes": 300,
-  "grep": ["tgme_page_extra", "subscribers", "members", "tgme_action_button", "src=\"http://", "href=\"http://", "url(http://"],
-  "around": ["tgme_page_title", "tgme_page_extra", "tgme_page_description", "http://"],
-  "aroundLines": 1,
-  "aroundHits": 12
+  "retries": 45,
+  "retryDelay": 60,
+  "run": 775,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Стандарт карточки трансфера: страница перевозчика /transfers/shatun (прайс со ссылками на места, «Проверенный перевозчик», форма с согласием «перевозчику»), переадресация со старого /operators/shatun, сайтмап. Заодно — то, что не дождалась проба 773: автозавершение туров СУХИМ прогоном (?dry_run=1, ни одна бронь не завершается) и якорь отзывов на карточке тура 62. POST формы — заведомо отклоняемый (без согласия): роут публичен на Edge и отказывает словами; заявка не создаётся.",
+  "until": "Прайс под заказ",
+  "urls": [
+    "https://vedarai.ru/transfers/shatun",
+    "https://vedarai.ru/operators/shatun",
+    "https://vedarai.ru/api/cron/booking-auto-complete?dry_run=1",
+    "https://vedarai.ru/catalog/tours/62",
+    "https://vedarai.ru/sitemap.xml"
+  ],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/charter-requests",
+      "body": {
+        "carrier": "shatun",
+        "destination": "Вулкан Горелый",
+        "date_from": "2027-07-10",
+        "passengers": 8,
+        "name": "Проба без согласия",
+        "phone": "+79000000000",
+        "pd_consent": false
+      }
+    }
+  ],
+  "bytes": 1500,
+  "grep": [
+    "Прайс под заказ",
+    "Проверенный перевозчик",
+    "Проверенный оператор",
+    "/places/vulkan-gorelyj",
+    "/places/kurilskoe-ozero",
+    "Поездки с датами",
+    "Безопасность по направлениям",
+    "передачу перевозчику",
+    "/transfers/shatun",
+    "/operators/shatun",
+    "Нужно согласие",
+    "\"dry_run\":true",
+    "booking_ids_due",
+    "id=\"reviews\""
+  ]
 }

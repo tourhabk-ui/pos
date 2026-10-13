@@ -130,8 +130,13 @@ describe('свои заявки отделены (1145)', () => {
     expect(read('app/api/leads/route.ts')).toContain("is_self: isSelfVisit(req.headers.get('cookie'))");
     const mcp = read('app/api/mcp/route.ts');
     expect(mcp).toMatch(/interface McpCallContext \{[^}]*self: boolean/);
-    // Три заявки из MCP: подбор, бронь тура, вахтовка целой машиной (10.10).
-    expect((mcp.match(/is_self: ctx\.self/g) ?? []).length).toBe(3);
+    // Три заявки из MCP: подбор, бронь тура, вахтовка целой машиной (10.10);
+    // вахтовка с 13.10 — общим путём с формой на странице перевозчика.
+    expect((mcp.match(/is_self: ctx\.self/g) ?? []).length).toBe(2);
+    expect(mcp).toMatch(/saveCharterLead\(\{[\s\S]*?isSelf: ctx\.self/);
+    expect(read('lib/transfers/charter-request-service.ts')).toContain('is_self: i.isSelf');
+    // Форма на странице перевозчика метит свой визит так же, как /api/leads.
+    expect(read('app/api/charter-requests/route.ts')).toContain("isSelf: isSelfVisit(req.headers.get('cookie'))");
     // Второй аргумент — разобранные аргументы с формой (lib/mcp/tool-arguments, 08.10); флаг self — в контексте, как был.
     expect(mcp).toContain('executeTool(toolName, read, { ip, userAgent, self })');
   });

@@ -63,7 +63,7 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     'lib/seat-requests/core.ts',
     'app/api/hub/bookings/create/route.ts',
     'lib/telegram/booking-notify.ts',
-    'app/transfers/_TransfersClient.tsx',
+    'app/transfers/(list)/_TransfersClient.tsx',
     'app/catalog/tours/[id]/_TourDetailClient.tsx',
     // Влились из автоподтверждения 04.10 вместе с этой правкой.
     'components/marketplace/BookingFormClient.tsx',

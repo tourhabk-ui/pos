@@ -37,14 +37,24 @@ export const PD_CONSENT_STAY_TEXT =
   'Согласен на обработку персональных данных и их передачу владельцу жилья для связи по заявке';
 export const PD_CONSENT_STAY_VERSION = '2026-10-10-stay';
 
-/** Кому передаются данные по заявке: туроператору (по умолчанию) или владельцу жилья. */
-export type PdConsentPurpose = 'operator' | 'stay';
+/**
+ * Вариант для заявки на машину перевозчику (13.10, стандарт карточки
+ * трансфера): телефон уходит перевозчику, а не туроператору. До 13.10 заявка
+ * на машину через MCP записывала версию «туроператору» — согласие молчало о
+ * настоящем получателе (то же правило, что 08.10 и 10.10).
+ */
+export const PD_CONSENT_CARRIER_TEXT =
+  'Согласен на обработку персональных данных и их передачу перевозчику для связи по заявке';
+export const PD_CONSENT_CARRIER_VERSION = '2026-10-13-carrier';
+
+/** Кому передаются данные по заявке: туроператору (по умолчанию), владельцу жилья или перевозчику. */
+export type PdConsentPurpose = 'operator' | 'stay' | 'carrier';
 
 /** Текст и версия согласия для цели заявки — единственный выбор между ними. */
 export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
-  return purpose === 'stay'
-    ? { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION }
-    : { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
+  if (purpose === 'stay') return { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION };
+  if (purpose === 'carrier') return { text: PD_CONSENT_CARRIER_TEXT, version: PD_CONSENT_CARRIER_VERSION };
+  return { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
 }
 
 /** Куда ведёт ссылка рядом с галочкой. */

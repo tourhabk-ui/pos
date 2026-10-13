@@ -251,6 +251,9 @@ describe('роут MCP', () => {
     expect(ROUTE).toContain("issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name)");
     expect(ROUTE).toContain("issueRequestKey({ leadId }, CREATE_LEAD_TOOL.name)");
     expect(ROUTE).toContain("issueRequestKey({ leadId }, REQUEST_CHARTER_TOOL.name)");
-    expect((ROUTE.match(/const leadId = existing \?\? await createLead\(/g) ?? []).length).toBe(2);
+    expect((ROUTE.match(/const leadId = existing \?\? await createLead\(/g) ?? []).length).toBe(1);
+    // Вахтовка: повтор и новая — одним путём saveCharterLead (общим с формой на
+    // странице перевозчика, 13.10), он отдаёт прежний лид или новый; ключ — в том же return.
+    expect(ROUTE).toContain('const leadId = await saveCharterLead(');
   });
 });

@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-13 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1231_crm_task_reminder_team.sql`.
+> Снято 2026-10-13 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1232_charter_price_place_and_carrier_verified.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 274 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3649 |
-| Внешних ключей | 317 |
+| Колонок | 3650 |
+| Внешних ключей | 318 |
 | Таблиц без единого FK в обе стороны | 81 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -471,7 +471,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `place_id text!` `volcano_place_id text!` `reason text!` `created_at timestamptz!=`
 
-**places** · 45 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, place_description_drafts, reviews, route_waypoints, volcano_status · индексов 8
+**places** · 45 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, place_description_drafts, reviews, route_waypoints, transfer_charter_prices, volcano_status · индексов 8
 
 `id text!` `name text!` `description text` `category text` `category_slug text` `lat numeric!` `lng numeric!` `district text` `length_km numeric` `duration varchar` `difficulty varchar` `images jsonb=` `created_at timestamptz=` `ark_id uuid` `location_type varchar` `activity_type varchar` `zone varchar` `source_url text` `source_name varchar` `updated_at timestamptz=` `search_count integer!=` `is_visible boolean!=` `essence text` `photo_url text` `best_season text` `seasonal_notes jsonb` `access_info text` `eco_zone varchar` `eco_permit_required boolean=` `eco_rules text` `eco_permit_url text` `indigenous_info jsonb` `view_count integer!=` `dedupe_key text` `kuzmich_review text` `embedding jsonb` `merged_into_id uuid` `merged_at timestamptz` `geocode_failed_at timestamptz` `slug varchar` `coord_source varchar!=` `coord_source_at timestamptz` `visitor_limit_per_day integer` `visitor_limit_source text` `visitor_limit_set_at timestamptz`
 
@@ -891,9 +891,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `accommodation_id uuid!` `check_in_date date!` `check_out_date date!` `guests integer!` `guest_name text!` `guest_phone text!` `comment text` `pd_consent_at timestamptz!` `pd_consent_ip varchar!` `pd_consent_source varchar!` `pd_consent_version varchar!` `created_at timestamptz!=` `door text` `owner_channel text` `owner_reason text` `platform_channel text` `platform_reason text` `delivery_recorded_at timestamptz`
 
-**transfer_charter_prices** · 14 кол. · PK id · partner_id → partners.id · индексов 4
+**transfer_charter_prices** · 15 кол. · PK id · partner_id → partners.id, place_id → places.id · индексов 4
 
-`id uuid!=` `partner_id uuid!` `vehicle_kind varchar!` `line_kind varchar!` `from_text varchar` `to_text varchar` `price_rub integer!` `price_note varchar` `conditions text` `valid_year integer` `sort_order integer!=` `is_active boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `partner_id uuid!` `vehicle_kind varchar!` `line_kind varchar!` `from_text varchar` `to_text varchar` `price_rub integer!` `price_note varchar` `conditions text` `valid_year integer` `sort_order integer!=` `is_active boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=` `place_id text`
 
 **transfer_fleet_vehicles** · 9 кол. · PK id · partner_id → partners.id · на неё ссылаются: transfer_trips · индексов 2
 

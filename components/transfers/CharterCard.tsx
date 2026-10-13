@@ -3,12 +3,14 @@ import { Bus, MessageCircle, Phone, Send } from 'lucide-react';
 import { LazyClip } from '@/components/media/LazyClip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
-import { charterFootnote, describeFleet, formatRub, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { CharterPriceList } from '@/components/transfers/CharterPriceList';
+import { carrierPagePath, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 /**
  * Перевозчик «под заказ»: парк, прайс на целую машину, связь, фото.
  *
- * Один компонент на два экрана — /transfers и карточку /operators/[slug]:
+ * Карточка в списке /transfers; полная страница перевозчика — /transfers/[slug]
+ * (стандарт 13.10). Строки прайса у обоих — один компонент (CharterPriceList):
  * прайс, нарисованный двумя вёрстками, разошёлся бы в подписях. Данные —
  * только из lib/transfers/charter (миграция 1185); здесь ничего не считается.
  *
@@ -16,19 +18,8 @@ import { charterFootnote, describeFleet, formatRub, type CharterCarrier } from '
  * перевозчик её не называл (§4.0). Номер телефона показан здесь и в ответы
  * Кузьмича и MCP не уходит (pd-guard) — им даётся ссылка на карточку.
  */
-export function CharterCard({
-  carrier,
-  linkToProfile = true,
-  showPhotos = true,
-}: {
-  carrier: CharterCarrier;
-  /** На странице самого перевозчика ссылка на неё же не нужна. */
-  linkToProfile?: boolean;
-  /** Там же галерею рисует сама страница — вторая лента повторяла бы её. Видео это не касается: у страницы его места нет. */
-  showPhotos?: boolean;
-}) {
+export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
   const fleet = describeFleet(carrier.vehicles);
-  const footnote = charterFootnote(carrier);
   const phoneLabel = formatContactPhone(carrier.phone);
   const hasContacts = Boolean(carrier.phone || carrier.telegramHref || carrier.whatsappHref);
 
@@ -44,46 +35,19 @@ export function CharterCard({
             </p>
           )}
         </div>
-        {linkToProfile && (
-          <Link
-            href={`/operators/${carrier.slug}`}
-            className="text-xs text-[var(--ocean)] underline shrink-0"
-          >
-            Карточка перевозчика
-          </Link>
-        )}
+        <Link
+          href={carrierPagePath(carrier.slug)}
+          className="text-xs text-[var(--ocean)] underline shrink-0"
+        >
+          Карточка перевозчика
+        </Link>
       </div>
 
-      <dl>
-        {carrier.destinations.map((d) => (
-          <div
-            key={`${d.from}/${d.to}`}
-            className="flex items-baseline justify-between gap-3 py-2 border-b border-[var(--border)]"
-          >
-            <dt className="text-sm text-[var(--text-primary)]">{d.to}</dt>
-            <dd className="text-right">
-              <span className="text-sm font-semibold text-[var(--accent)]">{formatRub(d.priceRub)}</span>
-              {d.note && <span className="block text-xs text-[var(--text-muted)]">{d.note}</span>}
-            </dd>
-          </div>
-        ))}
-        {carrier.extraDay && (
-          <div className="flex items-baseline justify-between gap-3 py-2">
-            <dt className="text-sm text-[var(--text-primary)]">Доплата за день</dt>
-            <dd className="text-right">
-              <span className="text-sm font-semibold text-[var(--accent)]">+{formatRub(carrier.extraDay.priceRub)} в день</span>
-              {carrier.extraDay.note && (
-                <span className="block text-xs text-[var(--text-muted)]">{carrier.extraDay.note}</span>
-              )}
-            </dd>
-          </div>
-        )}
-      </dl>
+      <CharterPriceList carrier={carrier} />
 
       <p className="text-xs text-[var(--text-muted)]">
-        Цена — за машину целиком, не за место.{footnote ? ` ${footnote}` : ''} Сколько дней в поездке и что входит
-        в цену — в прайсе не указано, уточняйте у перевозчика при заказе. Заказ и расчёт — напрямую с ним: через платформу
-        вахтовки под заказ не оплачиваются.
+        Сколько дней в поездке и что входит в цену — в прайсе не указано, уточняйте у перевозчика при заказе. Заявка
+        на машину — на странице перевозчика; расчёт — напрямую с ним: через платформу вахтовки под заказ не оплачиваются.
       </p>
 
       {carrier.legal && (
@@ -173,7 +137,7 @@ export function CharterCard({
         </figure>
       )}
 
-      {showPhotos && carrier.photos.length > 0 && (
+      {carrier.photos.length > 0 && (
         // Подпись — под каждым снимком: автор назван не у всех, и одна общая
         // строка «Фото: Шатун» приписала бы чужие кадры перевозчику. Снимок
         // открывается на весь экран (CharterPhotos), а не сырым файлом.

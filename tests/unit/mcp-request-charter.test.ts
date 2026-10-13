@@ -43,6 +43,7 @@ vi.mock('@/lib/db-pool', () => {
 import { POST } from '@/app/api/mcp/route';
 import { matchDestinations, vehiclesNeeded, fleetCapacity, type CharterCarrier } from '@/lib/transfers/charter-format';
 import { pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
+import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
 
 const ROOT = process.cwd();
 const ROUTE = readFileSync(join(ROOT, 'app/api/mcp/route.ts'), 'utf-8');
@@ -189,7 +190,9 @@ describe('request_charter через MCP: заявка принята', () => {
     expect(r.text).toContain('НЕ закреплена');
     expect(r.text).toContain('Это заявка, не оплата');
     expect(r.text).toContain('итоговой суммы платформа не называет');
-    expect(r.text).toContain('/operators/shatun');
+    // Карточка перевозчика — его страница по стандарту трансфера (13.10), не шаблон туроператора.
+    expect(r.text).toContain('/transfers/shatun');
+    expect(r.text).not.toContain('/operators/shatun');
     // Сезон и проходимость — «не знаем» вслух, а не молчаливое принятие даты (проверка владельца 10.10).
     expect(r.text).toContain('Сезонность и проходимость дороги прайс не называет');
     // Телефон перевозчика агенту не отдаётся — он уходит менеджеру.
@@ -201,6 +204,9 @@ describe('request_charter через MCP: заявка принята', () => {
     expect(lead.source_url).toBe('mcp://vedar/charter');
     expect(lead.phone).toBe('+79001234567');
     expect(lead.pd_consent).toBeTruthy();
+    // Телефон уходит перевозчику — и согласие записано текстом, который называет перевозчика.
+    expect((lead.pd_consent as { version: string }).version).toBe(PD_CONSENT_CARRIER_VERSION);
+    expect(lead.source_data).toMatchObject({ source: 'mcp', tool: 'request_charter', kind: 'charter' });
     // Не подбор тура: AI-конвейер лидов (квалификация, туры, PDF) ему не нужен.
     expect(lead.skip_ai_processing).toBe(true);
     expect(String(lead.comment)).toContain('[Заявка на машину] «Шатун», с ');
@@ -261,10 +267,11 @@ describe('request_charter через MCP: заявка принята', () => {
 describe('request_charter: заявка НЕ создаётся', () => {
   const noLead = () => expect(createLeadMock).not.toHaveBeenCalled();
 
-  it('без согласия — отказ, ничего не записано', async () => {
+  it('без согласия — отказ, ничего не записано и повтор не спрашивался (не оракул без допуска)', async () => {
     const r = await text(await POST(call({ ...base(), consent: false })));
     expect(r.isError).toBe(true);
     noLead();
+    expect(recentLeadMock).not.toHaveBeenCalled();
   });
 
   it('в аргументах нет согласия — отказ про поле, а не про отказ человека', async () => {
@@ -348,9 +355,11 @@ describe('request_charter: границы по коду', () => {
     expect(fn.length).toBeGreaterThan(500);
     expect(fn).not.toMatch(/INSERT INTO|UPDATE |DELETE FROM/i);
     expect(fn).not.toMatch(/operator_bookings|lib\/payments|recordCommission/);
-    expect(fn).toMatch(/createLead\(\{/);
-    // Согласие проверяется ДО записи, дедуп — после согласия (не оракул без допуска).
-    expect(fn.indexOf('admitWrite(')).toBeLessThan(fn.indexOf('findRecentLeadByCommentPrefix('));
-    expect(fn.indexOf('findRecentLeadByCommentPrefix(')).toBeLessThan(fn.indexOf('createLead({'));
+    // Запись — общим путём с формой на странице перевозчика (13.10): ни своего
+    // SQL, ни броней, ни платежей нет и там. Порядок «согласие → повтор →
+    // запись» держат вызовы выше (без согласия повтор не спрашивается).
+    const svc = readFileSync(join(ROOT, 'lib/transfers/charter-request-service.ts'), 'utf-8');
+    expect(svc).not.toMatch(/INSERT INTO|UPDATE |DELETE FROM/i);
+    expect(svc).not.toMatch(/operator_bookings|lib\/payments|recordCommission/);
   });
 });

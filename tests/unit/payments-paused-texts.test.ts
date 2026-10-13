@@ -64,7 +64,7 @@ describe('тексты при выключенной оплате', () => {
 
   it('метаданные публичных страниц не обещают оплату на платформе', () => {
     expect(readFileSync('app/help/page.tsx', 'utf8')).not.toMatch(/забронировать и оплатить тур/);
-    expect(readFileSync('app/transfers/page.tsx', 'utf8')).not.toMatch(/оплата по СБП\./);
+    expect(readFileSync('app/transfers/(list)/page.tsx', 'utf8')).not.toMatch(/оплата по СБП\./);
     expect(readFileSync('app/help/tourists/page.tsx', 'utf8')).not.toMatch(/оплатить/);
     expect(readFileSync('app/help/operators/page.tsx', 'utf8')).not.toMatch(/выплаты/);
   });

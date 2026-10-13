@@ -16,7 +16,7 @@
  */
 
 import type { CharterCarrier } from '@/lib/transfers/charter-format';
-import { describeFleet, formatRub } from '@/lib/transfers/charter-format';
+import { carrierPagePath, describeFleet, formatRub } from '@/lib/transfers/charter-format';
 
 export interface TransferPlate {
   kind: 'transfer';
@@ -46,7 +46,7 @@ export function toTransferPlate(c: CharterCarrier): TransferPlate | null {
     price: Number.isFinite(min) ? `от ${formatRub(min)} за машину` : null,
     destinations: [...new Set(c.destinations.map((d) => d.to))].slice(0, DESTINATIONS_SHOWN),
     imageUrl: c.photos[0]?.url ?? null,
-    href: `/operators/${c.slug}`,
+    href: carrierPagePath(c.slug),
   };
 }
 
