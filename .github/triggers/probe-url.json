@@ -1,33 +1,52 @@
 {
-  "timeout": 40,
-  "retries": 1,
-  "allowStale": true,
-  "retryDelay": 10,
-  "run": 763,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката CRM 2г-1 (#2419, c81f8abc5): страница приглашения в команду оператора по ключу формата ссылки (43 знака base64url, ключ выдуман — такого приглашения нет) — ждём 200, robots noindex и referrer no-referrer в HTML; API приглашения и /api/hub/operator/me без входа — 401 от Edge.",
+  "timeout": 90,
+  "retries": 40,
+  "retryDelay": 60,
+  "run": 764,
+  "note": "13.10. Журнал общения A2A (e74fe7e, миграция 1225) после выката e249e58. 1) schema-drift (ТОЛЬКО ЧТЕНИЕ): ждём сборку с 686 файлами миграций; a2a_dialogs не должна стоять в missing_tables. 2) Один вопрос Кузьмичу по A2A от служебной пробы (UA VedarDialogProbe — в журнале род «проверка», не «внешний»): ждём completed с текстом ответа; реплика ляжет в a2a_dialogs и будет видна на /hub/admin/a2a. Цена — один вызов модели.",
+  "until": "\"migration_files\":686",
   "urls": [
-    "https://vedarai.ru/team/join/probe763xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "https://vedarai.ru/api/team/join/probe763xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "https://vedarai.ru/api/hub/operator/me"
+    "https://vedarai.ru/api/cron/schema-drift"
   ],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/a2a",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "SendMessage",
+        "params": {
+          "message": {
+            "messageId": "vedar-dialog-probe-764",
+            "role": "ROLE_USER",
+            "contextId": "vedar-dialog-probe-764",
+            "parts": [
+              {
+                "text": "Служебная проверка журнала общения Ведара: какая сейчас обстановка у Авачинского вулкана? Ответь в двух предложениях."
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "headers": [
+    "A2A-Version: 1.0"
+  ],
+  "ua": "VedarDialogProbe/1.0",
   "grep": [
-    "noindex",
-    "no-referrer",
-    "Unauthorized",
-    "Не авторизован",
-    "Требуется авторизация",
-    "Приглашение"
-  ],
-  "count": [
-    "<script"
+    "a2a_dialogs",
+    "\"migration_files\":686",
+    "\"drift_total\":0",
+    "TASK_STATE_COMPLETED",
+    "TASK_STATE_FAILED"
   ],
   "around": [
-    "name=\"robots\"",
-    "name=\"referrer\"",
-    "<title"
+    "\"drift_total\"",
+    "TASK_STATE"
   ],
-  "aroundLines": 1,
   "aroundBefore": 0,
-  "aroundHits": 4,
-  "bytes": 300
+  "aroundLines": 3,
+  "aroundHits": 2,
+  "bytes": 2500
 }
