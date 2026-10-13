@@ -27,6 +27,12 @@ function gateway() {
     if (u.endsWith('/models')) {
       return new Response(JSON.stringify({ data: [{ id: 'qwen-plus' }] }), { status: 200 });
     }
+    // Считаются только чаты. На раннере (GITHUB_ACTIONS=true) logLLMUsage шлёт
+    // расход на прод через usage-sink тем же fetch — это не чат, в счёт не идёт;
+    // CI 13.10 поймал именно это: «ожидали 2, получили 3».
+    if (!u.endsWith('/chat/completions')) {
+      return new Response('{"ok":true}', { status: 200 });
+    }
     const body = JSON.parse(String(init?.body)) as ChatBody;
     chats.push(body);
     const content = body.enable_search === true
