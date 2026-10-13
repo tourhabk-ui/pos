@@ -1,26 +1,25 @@
 import type { Metadata } from 'next';
-import TransfersClient from './_TransfersClient';
+import { TransfersPage } from '@/components/transfers/TransfersPage';
 import { loadCharterCarriers, type CharterState } from '@/lib/transfers/charter';
-import { parseTripsPrefill } from '@/lib/transfers/trips-link';
-import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/transfers' },
-  title: 'Трансферы и вахтовки на Камчатке — места в поездках и машины под заказ',
+  title: 'Трансферы и вахтовки на Камчатке — машина под заказ',
   description:
-    'Свободные места в джипах и вахтовках перевозчиков Камчатки и вахтовки под заказ с ценой за машину: к вулканам, источникам и на побережье. Запрос места и подтверждение перевозчика; оплата — перевозчику напрямую.',
+    'Вахтовки и машины целиком под заказ у перевозчиков Камчатки: цена за машину по прайсу, к вулканам, источникам и на побережье. Заявка на сайте, подтверждение с перевозчиком; оплата — перевозчику напрямую.',
 };
 
 // Прайс читается из базы на каждый запрос: статическая страница запекла бы
 // в HTML состояние сборки (в Docker базы нет), а цены меняются.
 export const dynamic = 'force-dynamic';
 
-export default async function TransfersPage({ searchParams }: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  // Даты, места и поездка из ссылки планера (lib/transfers/trips-link, #2304):
-  // список поездок открывается на них, а не на ближайшие 60 дней.
-  const prefill = parseTripsPrefill(await searchParams);
+/**
+ * Трансфер — машина целиком под заказ (владелец 13.10: «бронируют целую машину
+ * а не место в ней»). Параметры прежних ссылок на «места в поездках»
+ * (?from&to&seats&trip, lib/transfers/trips-link) страница не читает: такого
+ * товара нет, и ссылка открывает ту же витрину машин.
+ */
+export default async function TransfersRoute() {
   let charter: CharterState;
   try {
     charter = { state: 'ok', carriers: await loadCharterCarriers() };
@@ -30,7 +29,5 @@ export default async function TransfersPage({ searchParams }: {
     console.error('[transfers/charter]', code, err instanceof Error ? err.message : err);
     charter = { state: 'failed' };
   }
-  // «Сегодня» — по Камчатке и с сервера: даты поездок местные, а часы
-  // браузера утром по Камчатке ещё показывают вчерашнее число UTC.
-  return <TransfersClient charter={charter} prefill={prefill} today={kamchatkaToday()} />;
+  return <TransfersPage charter={charter} />;
 }

@@ -4,10 +4,10 @@
  * тура (§11), сверху вниз:
  *
  *   герой (фото, крошки, заголовок, полоса фактов) → фото и видео → о
- *   перевозчике → прайс под заказ (направления ведут на места) → поездки с
- *   датами → что входит в цену → безопасность по направлениям → перевозчик
- *   (исполнитель, отметка проверки, связь) → отзывы → Кузьмич; справа —
- *   закреплённая заявка на машину.
+ *   перевозчике → прайс под заказ (направления ведут на места) → что входит
+ *   в цену → безопасность по направлениям → перевозчик (исполнитель, отметка
+ *   проверки, связь) → отзывы → Кузьмич; справа — закреплённая заявка на
+ *   машину. Мест в поездках нет: машину заказывают целиком (владелец 13.10).
  *
  * Единственная реализация: прежде перевозчик открывался в шаблоне
  * туроператора (/operators/[slug]) — с подписью «Проверенный оператор», FAQ
@@ -21,7 +21,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, CalendarDays, Users, Bus, AlertTriangle, MessageSquare } from 'lucide-react';
+import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, AlertTriangle, MessageSquare } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { LazyClip } from '@/components/media/LazyClip';
@@ -32,7 +32,7 @@ import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
 import { CarrierReviews } from '@/components/transfers/CarrierReviews';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
-import { charterRequisitesLine, describeFleet, formatRub, vehicleKindWord } from '@/lib/transfers/charter-format';
+import { charterRequisitesLine, describeFleet, formatRub } from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
 import { carrierInstrument, minCharterPrice } from '@/lib/transfers/carrier-view';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
@@ -42,19 +42,12 @@ export const CHARTER_REQUEST_ANCHOR = 'charter-request';
 
 const CRUMB = 'inline-flex items-center min-h-[44px] px-1 text-white/85 hover:text-white visited:text-white/85 hover:no-underline transition-colors';
 
-function fmtDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
-}
-
 function H2({ id, children }: { id?: string; children: React.ReactNode }) {
   return <h2 id={id} className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-4">{children}</h2>;
 }
 
 export function CarrierPage({ data }: { data: CarrierPageData }) {
-  const { carrier: c, trips, safety, reviews } = data;
+  const { carrier: c, safety, reviews } = data;
   const instrument = carrierInstrument(c);
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
@@ -138,44 +131,6 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
               </section>
             )}
 
-            <section aria-labelledby="carrier-trips">
-              <H2 id="carrier-trips">Поездки с датами</H2>
-              {trips.state === 'failed' ? (
-                <p className="text-sm text-[var(--text-secondary)] flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" aria-hidden />
-                  Не смогли проверить поездки — это сбой на нашей стороне, а не «поездок нет».
-                </p>
-              ) : trips.items.length === 0 ? (
-                <p className="text-sm text-[var(--text-secondary)]">
-                  В ближайшие {trips.windowDays} дней поездок с датами нет: машина идёт под заказ, направление и дни
-                  задаёте вы — заявка справа.
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {trips.items.map((t) => (
-                    <li key={t.id} className="ds-card p-4 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-[var(--text-primary)]">{t.from} — {t.to}</p>
-                        <p className="text-xs text-[var(--text-secondary)] mt-1 flex flex-wrap items-center gap-1.5">
-                          <CalendarDays className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden /> {fmtDate(t.date)}{t.departureNote ? `, ${t.departureNote}` : ''}
-                          <span aria-hidden>·</span>
-                          <Bus className="w-3.5 h-3.5 text-[var(--ocean)]" aria-hidden /> {vehicleKindWord(t.vehicleKind)}, {t.vehicleTitle}
-                        </p>
-                        <p className="text-xs text-[var(--text-secondary)] mt-1">
-                          {t.pricePerSeat !== null ? `${formatRub(t.pricePerSeat)} за место` : 'Цена места не названа'}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-semibold text-[var(--text-primary)] inline-flex items-center gap-1">
-                          <Users className="w-4 h-4 text-[var(--ocean)]" aria-hidden /> {t.seatsFree} из {t.seatsTotal}
-                        </p>
-                        <Link href={t.href} className="block text-sm text-[var(--ocean)] hover:underline mt-1">Запросить места</Link>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
 
             <section aria-labelledby="carrier-included">
               <H2 id="carrier-included">Что входит в цену</H2>
@@ -268,7 +223,7 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
               </div>
             </section>
 
-            <CarrierReviews slug={c.slug} reviews={reviews} />
+            <CarrierReviews reviews={reviews} />
 
             <section aria-labelledby="carrier-kuzmich">
               <H2 id="carrier-kuzmich">Спросить Кузьмича</H2>

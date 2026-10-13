@@ -3,15 +3,16 @@
  * «делай блок отзывов но логично»; CLAUDE.md §14, миграция 1235).
  *
  * «Логично» значит одно: отзыв оставляет только тот, кто ехал, и каждый отзыв
- * называет, чем это доказано. Доказательств два:
+ * называет, чем это доказано. Машину заказывают целиком (владелец 13.10:
+ * «бронируют целую машину а не место в ней»), и заявка — не поездка: машина
+ * ею не закрепляется, и состоялась ли поездка, система не знает. Право даёт
+ * подтверждение менеджера Ведара «поездка состоялась» и одноразовая ссылка,
+ * которую он отправляет заказчику ('charter').
  *
- *   · место в поездке ('seat') — заказ места через Ведар, который перевозчик
- *     подтвердил; поездка не отменена, её дата прошла по Камчатке. Право
- *     появляется на следующий день — как у тура, который завершается сам;
- *   · машина под заказ ('charter') — заявка на машину целиком. Заявка — не
- *     поездка: машина ею не закрепляется, и состоялась ли поездка, система не
- *     знает. Право даёт подтверждение менеджера Ведара «поездка состоялась» и
- *     одноразовая ссылка, которую он отправляет заказчику.
+ * Род 'seat' (место в поездке) в схеме 1235 остался: продажа мест спрятана
+ * вместе со своим модулем, и путь отзыва по месту снят с нею. Читатель
+ * обязан понимать любое значение, которое допускает база, поэтому тип и
+ * строка доказательства его знают.
  *
  * Анонимного пути нет. Рейтинг — из видимых отзывов при чтении.
  */
@@ -27,10 +28,9 @@ export const CARRIER_REVIEW_INVITE_DAYS = 30;
 /** Якорь блока отзывов на странице перевозчика. */
 export const CARRIER_REVIEWS_ANCHOR = 'reviews';
 
-/** Страница отзыва; `seat` — заказ места, который выбрать сразу. */
-export function carrierReviewPath(slug: string, seatBookingId?: string): string {
-  const base = `${carrierPagePath(slug)}/review`;
-  return seatBookingId ? `${base}?seat=${encodeURIComponent(seatBookingId)}` : base;
+/** Страница отзыва по ссылке менеджера. */
+export function carrierReviewPath(slug: string): string {
+  return `${carrierPagePath(slug)}/review`;
 }
 
 /**
@@ -51,35 +51,6 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Дата в форме ГГГГ-ММ-ДД или null — чтобы мусор из JSON не уронил ::date. */
 export function isoDateOrNull(v: unknown): string | null {
   return typeof v === 'string' && ISO_DATE.test(v) ? v : null;
-}
-
-// ── Место в поездке ───────────────────────────────────────────────────────
-
-export interface SeatRideFacts {
-  /** transfer_seat_bookings.status */
-  status: string;
-  /** transfer_trips.status */
-  tripStatus: string;
-  /** ГГГГ-ММ-ДД */
-  tripDate: string;
-  /** Отзыв по этому месту уже есть. */
-  reviewed: boolean;
-}
-
-export type SeatReviewVerdict =
-  | { ok: true }
-  | { ok: false; reason: 'not_confirmed' | 'trip_cancelled' | 'not_yet' | 'already' };
-
-/**
- * Даёт ли заказанное место право на отзыв. Дата поездки должна быть СТРОГО
- * раньше сегодняшней по Камчатке: в день поездки машина может быть ещё в пути.
- */
-export function seatReviewVerdict(f: SeatRideFacts, today: string): SeatReviewVerdict {
-  if (f.reviewed) return { ok: false, reason: 'already' };
-  if (f.status !== 'confirmed') return { ok: false, reason: 'not_confirmed' };
-  if (f.tripStatus === 'cancelled') return { ok: false, reason: 'trip_cancelled' };
-  if (!(f.tripDate < today)) return { ok: false, reason: 'not_yet' };
-  return { ok: true };
 }
 
 // ── Машина под заказ ──────────────────────────────────────────────────────

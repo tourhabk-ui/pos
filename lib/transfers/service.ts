@@ -702,13 +702,8 @@ export async function settleSeatPayment(params: {
 /** Заказы мест глазами заказчика: пользователь либо его партнёрские профили. */
 export interface CustomerSeatBooking extends SeatBookingPaymentRow {
   partner_name: string;
-  /** Адрес страницы перевозчика — для ссылки на отзыв (миграция 1235). */
-  partner_slug: string;
   vehicle_title: string;
   departure_note: string | null;
-  trip_status: string;
-  /** Отзыв по этому месту уже оставлен. */
-  reviewed: boolean;
 }
 
 export async function listSeatBookingsForCustomer(params: {
@@ -716,9 +711,7 @@ export async function listSeatBookingsForCustomer(params: {
   partnerIds: string[];
 }): Promise<CustomerSeatBooking[]> {
   const { rows } = await pool.query<CustomerSeatBooking>(
-    `SELECT ${PAYMENT_FIELDS}, p.name AS partner_name, p.slug AS partner_slug, v.title AS vehicle_title,
-            t.departure_note, t.status AS trip_status,
-            EXISTS (SELECT 1 FROM carrier_reviews cr WHERE cr.seat_booking_id = sb.id) AS reviewed
+    `SELECT ${PAYMENT_FIELDS}, p.name AS partner_name, v.title AS vehicle_title, t.departure_note
        ${PAYMENT_FROM}
        JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
        JOIN partners p ON p.id = v.partner_id

@@ -2,10 +2,11 @@
 /**
  * Экраны трансферов (схема 926, 02.09): витрина /transfers и кабинет /hub/carrier.
  *
- *   1. Витрина различает три исхода поездок — судит рендер
- *      (tests/unit/transfers-page.test.tsx).
+ *   1. Витрины мест больше нет (владелец 13.10: «бронируют целую машину а не
+ *      место в ней»); /transfers судит рендер — tests/unit/transfers-page.
  *   2. Оплата места — общий SbpQrPayment со своими адресами; второго
- *      компонента QR нет. Свой SOS экраны не рисуют (#887).
+ *      компонента QR нет (компонент — общий, адреса мест спят вместе с
+ *      модулем). Свой SOS кабинет не рисует (#887).
  *   3. Роль перевозчика ведёт в живой кабинет: /hub/carrier существует,
  *      требует роль transfer, а мёртвый /hub/transfer-operator нигде не
  *      назначением.
@@ -20,31 +21,18 @@ const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
-const VITRINA = strip(read('app/transfers/(list)/_TransfersClient.tsx'));
 const CABINET = strip(read('app/hub/carrier/_CarrierClient.tsx'));
 const CABINET_LAYOUT = strip(read('app/hub/carrier/layout.tsx'));
 const QR = strip(read('components/marketplace/SbpQrPayment.tsx'));
 
-// 1. Три исхода поездок на витрине (список / пусто словами / не смогли
-// проверить, searched: true обязателен), вход для запроса мест и порядок
-// блоков судит рендер — tests/unit/transfers-page.test.tsx (витрина
-// переделана 13.10: форма дат снята, сначала машина под заказ).
+// 1. Витрины мест нет (13.10); /transfers судит рендер — transfers-page.
 
 describe('2. оплата и SOS', () => {
-  it('оплата места — общий SbpQrPayment с адресами заказа мест', () => {
-    expect(VITRINA).toMatch(/<SbpQrPayment\b/);
-    expect(VITRINA).toMatch(/\/api\/carrier-trips\/bookings\/\$\{b\.id\}\/qr/);
+  it('QR СБП — один общий компонент, адреса ему передаёт экран', () => {
     expect(QR).toMatch(/api\?\.issue/);
     expect(QR).toMatch(/api\?\.status/);
-    // Второго компонента QR нет: ищем по назначению — img с QR СБП.
-    expect(VITRINA).not.toMatch(/data:image\/png;base64/);
   });
-  it('витрина несёт общий EmergencyAction и таб-бар, кабинет — под HubLayout', () => {
-    // SOS с 10.09 живёт в общей шапке (§2, #1775): витрина рендерит <Header />,
-    // и он несёт EmergencyAction (сторож sos-always-reachable); своя копия
-    // рядом с заголовком была бы второй кнопкой на экране.
-    expect(VITRINA).toMatch(/<Header\b/);
-    expect(VITRINA).toMatch(/<BottomNav\b/);
+  it('кабинет — под HubLayout (SOS там общий, своей копии нет)', () => {
     expect(CABINET_LAYOUT).toMatch(/<HubLayout\b/);
   });
 });
@@ -67,7 +55,7 @@ describe('3. роль перевозчика', () => {
 
 describe('4. экраны ходят только в /api', () => {
   it('ни SQL, ни таблиц трансферов в клиентах', () => {
-    for (const src of [VITRINA, CABINET]) {
+    for (const src of [CABINET]) {
       expect(src).not.toMatch(/FROM transfer_|INSERT INTO|UPDATE transfer_|db-pool|@\/lib\/database/);
     }
   });

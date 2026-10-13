@@ -3,13 +3,13 @@
  * CLAUDE.md §14): страница перевозчика /transfers/[slug] по образцу карточки
  * тура (§11). Судится рендером — тем, что видит человек:
  *
- *   · блоки по порядку: о перевозчике → прайс под заказ → поездки с датами →
- *     что входит в цену → безопасность по направлениям → перевозчик →
- *     отзывы → Кузьмич; справа — заявка на машину;
+ *   · блоки по порядку: о перевозчике → прайс под заказ → что входит в цену →
+ *     безопасность по направлениям → перевозчик → отзывы → Кузьмич; справа —
+ *     заявка на машину. Поездок с местами нет: машину заказывают целиком
+ *     (владелец 13.10: «бронируют целую машину а не место в ней»);
  *   · только записанное: направление, связанное с местом, — ссылка на его
  *     карточку, не связанное — словами; «что входит в цену» — «уточняется у
- *     перевозчика»; поездок нет — «под заказ», не тишина; не смогли
- *     проверить — так и сказано;
+ *     перевозчика»; не смогли проверить — так и сказано;
  *   · подпись «Проверенный перевозчик» — только по отметке, «оператор» на
  *     странице перевозчика не появляется (владелец 13.10: «проверен мной»);
  *   · отзывы — только от тех, кто ехал, с доказательством под каждым
@@ -70,7 +70,6 @@ const CARRIER: CarrierProfile = {
 
 const DATA: CarrierPageData = {
   carrier: CARRIER,
-  trips: { state: 'ok', items: [], windowDays: 60 },
   safety: { state: 'ok', byPlace: { 'pl-gor': ['volcanic_gas', 'weather'] } },
   reviews: { state: 'ok', items: [], count: 0, average: null },
 };
@@ -88,7 +87,7 @@ describe('страница перевозчика: блоки и порядок'
     const { container } = render(<CarrierPage data={DATA} />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Шатун');
     expect(headings(container)).toEqual([
-      'О перевозчике', 'Прайс под заказ', 'Поездки с датами', 'Что входит в цену',
+      'О перевозчике', 'Прайс под заказ', 'Что входит в цену',
       'Безопасность по направлениям', 'Перевозчик', 'Отзывы', 'Спросить Кузьмича', 'Заявка на машину',
     ]);
     expect(container.querySelector(`#${CHARTER_REQUEST_ANCHOR} form`)).not.toBeNull();
@@ -128,29 +127,10 @@ describe('прайс: направления ведут на места, цен�
 });
 
 describe('честные исходы', () => {
-  it('поездок нет — «под заказ», а не тишина; не смогли — так и сказано', () => {
-    const { unmount } = render(<CarrierPage data={DATA} />);
-    expect(screen.getByText(/поездок с датами нет: машина идёт под заказ/)).toBeTruthy();
-    unmount();
-    render(<CarrierPage data={{ ...DATA, trips: { state: 'failed' } }} />);
-    expect(screen.getByText(/Не смогли проверить поездки/)).toBeTruthy();
-  });
-
-  it('поездка с датами ведёт на витрину с этой поездкой в фокусе', () => {
-    render(<CarrierPage data={{
-      ...DATA,
-      trips: {
-        state: 'ok', windowDays: 60, items: [{
-          id: 'f2b6a8a0-1111-4c3c-9d7e-123456789abc', date: '2026-11-02', from: 'Петропавловск', to: 'Горелый',
-          departureNote: 'в 7:00', seatsFree: 4, seatsTotal: 26, pricePerSeat: 3500, vehicleKind: 'vahtovka',
-          vehicleTitle: 'КамАЗ-1', href: '/transfers?from=2026-11-02&to=2026-11-02&seats=1&trip=f2b6a8a0-1111-4c3c-9d7e-123456789abc',
-        }],
-      },
-    }} />);
-    const trips = screen.getByRole('heading', { name: 'Поездки с датами' }).parentElement as HTMLElement;
-    expect(trips.textContent).toContain('4 из 26');
-    expect(trips.textContent).toContain(`${formatRub(3500)} за место`);
-    expect(within(trips).getByRole('link', { name: 'Запросить места' }).getAttribute('href')).toContain('trip=f2b6a8a0');
+  it('мест в поездках на странице нет: ни поездок с датами, ни «Запросить места»; цена — за машину целиком', () => {
+    const { container } = render(<CarrierPage data={DATA} />);
+    expect(container.textContent).not.toMatch(/Запросить места|Поездки с датами|мест свободно/);
+    expect(container.textContent).toContain('Цена — за машину целиком, не за место.');
   });
 
   it('что входит в цену — не записано и сказано так', () => {
@@ -198,12 +178,12 @@ describe('перевозчик: отметка, исполнитель, связ
     expect(bare.textContent).toContain('Исполнитель: реквизиты перевозчика не записаны на платформе');
   });
 
-  it('отзывы — после перевозчика: пусто — кто может оставить, а не тишина; ссылка ведёт на страницу отзыва', () => {
+  it('отзывы — после перевозчика: пусто — кто и как может оставить, а не тишина', () => {
     render(<CarrierPage data={DATA} />);
     const block = screen.getByRole('heading', { name: 'Отзывы' }).closest('section') as HTMLElement;
     expect(block.id).toBe('reviews');
     expect(block.textContent).toContain('Отзыв оставляет только тот, кто ехал');
-    expect(within(block).getByRole('link', { name: /Оставить отзыв/ }).getAttribute('href')).toBe('/transfers/shatun/review');
+    expect(block.textContent).toContain('менеджер Ведара присылает заказчику ссылку на отзыв');
   });
 });
 

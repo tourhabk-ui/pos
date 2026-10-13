@@ -120,7 +120,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
       url: `${BASE}/letopis/${a.slug}`, lastModified: new Date(a.checkedAt), changeFrequency: 'monthly' as const, priority: 0.6,
     })),
     { url: `${BASE}/accommodations`,       lastModified: RECENT,      changeFrequency: 'daily',   priority: 0.8 },
-    // Витрина мест в поездках перевозчиков (схема 926, экран 02.09).
+    // Трансферы: машина целиком под заказ (13.10; витрина мест в поездках снята).
     { url: `${BASE}/transfers`,            lastModified: new Date('2026-09-02'), changeFrequency: 'daily', priority: 0.7 },
     { url: `${BASE}/collections`,          lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/trending`,             lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.7 },

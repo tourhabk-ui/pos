@@ -4,48 +4,40 @@
  * «делай блок отзывов но логично»). Сторож держит:
  *
  *   · анонимного пути нет: POST публичен только потому, что у заказчика
- *     машины доказательство — ключ ссылки; путь «место» требует входа, без
- *     входа писатель не зовётся; GET «мои поездки» за входом;
+ *     машины доказательство — ключ ссылки; пути «место в поездке» нет —
+ *     машину заказывают целиком (владелец 13.10);
  *   · подпись по ссылке — имя буквами, иначе отказ с полем и без записи;
- *   · отказы — словами правила с честным кодом (403 «после поездки», 409 «уже
- *     оставлен», 410 «ссылка использована/устарела»); отказ базы — 503 и
- *     строка с SQLSTATE в логе, а не «нет такого»;
+ *   · отказы — словами правила с честным кодом (404 «ссылка не найдена», 410
+ *     «использована/устарела»); отказ базы — 503 и строка с SQLSTATE в логе,
+ *     а не «нет такого»;
  *   · ссылку выдаёт только администратор и только с даты выезда; ключ — во
  *     фрагменте;
  *   · скрыть — с причиной не короче 8; экран менеджера получает «можно ли
  *     подтвердить» тем же правилом, что проверит выдача;
- *   · публичный блок считает и показывает только видимые отзывы;
- *   · «Мои заказы мест» дают ссылку на отзыв только по своему месту с правом.
+ *   · публичный блок считает и показывает только видимые отзывы.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
 const m = vi.hoisted(() => ({
-  requireAuth: vi.fn(),
   requireAdmin: vi.fn(),
   findPublicCarrier: vi.fn(),
-  writeSeatReview: vi.fn(),
   writeInviteReview: vi.fn(),
   checkInvite: vi.fn(),
-  listReviewableSeats: vi.fn(),
   issueCharterInvite: vi.fn(),
   listCarrierReviewsForAdmin: vi.fn(),
   listCharterLeadsForAdmin: vi.fn(),
   setCarrierReviewHidden: vi.fn(),
   dbQuery: vi.fn(),
-  listSeatBookingsForCustomer: vi.fn(),
 }));
 
-vi.mock('@/lib/auth/middleware', () => ({ requireAuth: m.requireAuth, requireAdmin: m.requireAdmin }));
+vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: m.requireAdmin }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => m.dbQuery(...a), transaction: vi.fn() }));
-vi.mock('@/lib/transfers/service', () => ({ listSeatBookingsForCustomer: m.listSeatBookingsForCustomer }));
 vi.mock('@/lib/transfers/carrier-reviews', async (orig) => ({
   ...(await orig<typeof import('@/lib/transfers/carrier-reviews')>()),
   findPublicCarrier: m.findPublicCarrier,
-  writeSeatReview: m.writeSeatReview,
   writeInviteReview: m.writeInviteReview,
   checkInvite: m.checkInvite,
-  listReviewableSeats: m.listReviewableSeats,
   issueCharterInvite: m.issueCharterInvite,
   listCarrierReviewsForAdmin: m.listCarrierReviewsForAdmin,
   listCharterLeadsForAdmin: m.listCharterLeadsForAdmin,
@@ -54,11 +46,9 @@ vi.mock('@/lib/transfers/carrier-reviews', async (orig) => ({
 
 import { POST as postReview } from '@/app/api/carrier-reviews/route';
 import { POST as postInviteCheck } from '@/app/api/carrier-reviews/invite/route';
-import { GET as getEligible } from '@/app/api/carrier-reviews/eligible/route';
 import { POST as postIssue } from '@/app/api/admin/carrier-reviews/invites/route';
 import { PATCH as patchReview } from '@/app/api/admin/carrier-reviews/[id]/route';
 import { GET as getAdmin } from '@/app/api/admin/carrier-reviews/route';
-import { GET as getMyBookings } from '@/app/api/carrier-trips/bookings/route';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { loadCarrierReviews } from '@/lib/transfers/carrier-reviews';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
@@ -74,20 +64,17 @@ const req = (url: string, init?: { method?: string; body?: unknown }) => {
     ...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
 };
-const unauthorized = () => NextResponse.json({ success: false, error: 'Требуется аутентификация' }, { status: 401 });
 
 beforeEach(() => {
   for (const f of Object.values(m)) f.mockReset();
   m.findPublicCarrier.mockResolvedValue(CARRIER);
-  m.requireAuth.mockResolvedValue({ userId: 'u-1', role: 'tourist' });
   m.requireAdmin.mockResolvedValue({ userId: '11111111-1111-4111-8111-111111111111', role: 'admin' });
 });
 
 describe('реестр: публичен только приём отзыва', () => {
-  it('POST отзыва и проверки ссылки — без JWT; «мои поездки» и чтение — за входом', () => {
+  it('POST отзыва и проверки ссылки — без JWT; чтение и выдача ссылки — за входом', () => {
     expect(isPublicApiPath('/api/carrier-reviews', 'POST')).toBe(true);
     expect(isPublicApiPath('/api/carrier-reviews/invite', 'POST')).toBe(true);
-    expect(isPublicApiPath('/api/carrier-reviews/eligible', 'GET')).toBe(false);
     expect(isPublicApiPath('/api/carrier-reviews', 'GET')).toBe(false);
     expect(isPublicApiPath('/api/admin/carrier-reviews/invites', 'POST')).toBe(false);
   });
@@ -95,13 +82,14 @@ describe('реестр: публичен только приём отзыва', 
 
 describe('POST /api/carrier-reviews', () => {
   const linkBody = (over: Record<string, unknown> = {}) => ({ via: 'link', carrier: 'shatun', key: KEY, author_name: 'Ирина  Смирнова', rating: 5, comment: ' Хорошо ', ...over });
-  const seatBody = (over: Record<string, unknown> = {}) => ({ via: 'seat', carrier: 'shatun', seat_booking_id: '22222222-2222-4222-8222-222222222222', rating: 4, ...over });
 
-  it('без пути — отказ; анонимного отзыва нет', async () => {
+  it('без ссылки — отказ; анонимного отзыва и пути «место в поездке» нет', async () => {
     const res = await postReview(req('/api/carrier-reviews', { method: 'POST', body: { carrier: 'shatun', rating: 5, comment: 'x', author_name: 'Аноним' } }));
     expect(res.status).toBe(400);
+    const seat = await postReview(req('/api/carrier-reviews', { method: 'POST', body: { via: 'seat', carrier: 'shatun', seat_booking_id: '22222222-2222-4222-8222-222222222222', rating: 5 } }));
+    expect(seat.status).toBe(400);
+    expect((await seat.json()).error).toContain('по ссылке');
     expect(m.writeInviteReview).not.toHaveBeenCalled();
-    expect(m.writeSeatReview).not.toHaveBeenCalled();
   });
 
   it('по ссылке: подпись приведена, оценка и текст — как есть', async () => {
@@ -110,7 +98,6 @@ describe('POST /api/carrier-reviews', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).message).toBe('Отзыв опубликован');
     expect(m.writeInviteReview).toHaveBeenCalledWith({ partnerId: 'p-1', key: KEY, authorName: 'Ирина Смирнова', rating: 5, comment: 'Хорошо' });
-    expect(m.requireAuth).not.toHaveBeenCalled();
   });
 
   it('подпись с телефоном — отказ с полем, ничего не записано', async () => {
@@ -142,26 +129,6 @@ describe('POST /api/carrier-reviews', () => {
     expect(m.findPublicCarrier).not.toHaveBeenCalled();
   });
 
-  it('место в поездке без входа — 401, писатель не зовётся', async () => {
-    m.requireAuth.mockResolvedValue(unauthorized());
-    const res = await postReview(req('/api/carrier-reviews', { method: 'POST', body: seatBody() }));
-    expect(res.status).toBe(401);
-    expect((await res.json()).error).toContain('Войдите');
-    expect(m.writeSeatReview).not.toHaveBeenCalled();
-  });
-
-  it('место в поездке: человек из входа, сегодня — по Камчатке; «рано» — словами правила', async () => {
-    m.writeSeatReview.mockResolvedValue({ ok: false, reason: 'not_yet' });
-    const res = await postReview(req('/api/carrier-reviews', { method: 'POST', body: seatBody() }));
-    expect(m.writeSeatReview).toHaveBeenCalledWith({
-      userId: 'u-1', partnerId: 'p-1', seatBookingId: '22222222-2222-4222-8222-222222222222', rating: 4, comment: '', today: kamchatkaToday(),
-    });
-    expect(res.status).toBe(403);
-    expect((await res.json()).error).toBe('Отзыв можно оставить на следующий день после поездки');
-    m.writeSeatReview.mockResolvedValue({ ok: false, reason: 'already' });
-    expect((await postReview(req('/api/carrier-reviews', { method: 'POST', body: seatBody() }))).status).toBe(409);
-  });
-
   it('нет перевозчика — 404; отказ базы — 503 и SQLSTATE в логе', async () => {
     m.findPublicCarrier.mockResolvedValueOnce(null);
     expect((await postReview(req('/api/carrier-reviews', { method: 'POST', body: linkBody() }))).status).toBe(404);
@@ -185,23 +152,6 @@ describe('POST /api/carrier-reviews/invite — что за поездка по �
     const b = await res.json();
     expect(b.data.state).toBe('expired');
     expect(b.data.message).toContain('Ссылка устарела');
-  });
-});
-
-describe('GET /api/carrier-reviews/eligible', () => {
-  it('за входом; список мест; отказ базы — 503 «не смогли», а не пусто', async () => {
-    m.requireAuth.mockResolvedValueOnce(unauthorized());
-    expect((await getEligible(req('/api/carrier-reviews/eligible?carrier=shatun'))).status).toBe(401);
-    m.listReviewableSeats.mockResolvedValueOnce([{ seatBookingId: 's-1', date: '2026-10-12', from: 'А', to: 'Б' }]);
-    const ok = await getEligible(req('/api/carrier-reviews/eligible?carrier=shatun'));
-    expect((await ok.json()).data.seats).toHaveLength(1);
-    expect(m.listReviewableSeats).toHaveBeenCalledWith('u-1', 'p-1', kamchatkaToday());
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    m.listReviewableSeats.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57P01' }));
-    const bad = await getEligible(req('/api/carrier-reviews/eligible?carrier=shatun'));
-    expect(bad.status).toBe(503);
-    expect((await bad.json()).searched).toBe(false);
-    err.mockRestore();
   });
 });
 
@@ -280,26 +230,5 @@ describe('публичный блок читает только видимые',
     m.dbQuery.mockRejectedValue(Object.assign(new Error('x'), { code: '57P01' }));
     expect(await loadCarrierReviews('p-1')).toEqual({ state: 'failed' });
     err.mockRestore();
-  });
-});
-
-describe('«Мои заказы мест» — ссылка на отзыв', () => {
-  it('только по своему месту с правом; место группы туроператора и будущее — без ссылки', async () => {
-    m.dbQuery.mockResolvedValue({ rows: [{ id: 'partner-of-user' }] });
-    const base = { status: 'confirmed', trip_status: 'planned', trip_date: '2020-01-01', reviewed: false, partner_slug: 'shatun', ordered_by_user_id: 'u-1', ordered_by_partner_id: null };
-    m.listSeatBookingsForCustomer.mockResolvedValue([
-      { ...base, id: 'own-past' },
-      { ...base, id: 'group', ordered_by_user_id: null, ordered_by_partner_id: 'partner-of-user' },
-      { ...base, id: 'future', trip_date: '2999-01-01' },
-      { ...base, id: 'done', reviewed: true },
-    ]);
-    const res = await getMyBookings(req('/api/carrier-trips/bookings'));
-    const list = (await res.json()).bookings as Array<{ id: string; review_href: string | null }>;
-    expect(Object.fromEntries(list.map((b) => [b.id, b.review_href]))).toEqual({
-      'own-past': '/transfers/shatun/review?seat=own-past',
-      group: null,
-      future: null,
-      done: null,
-    });
   });
 });

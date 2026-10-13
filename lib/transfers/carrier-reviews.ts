@@ -3,12 +3,10 @@
  * lib/transfers/carrier-review-rules; слово владельца 13.10 «делай блок
  * отзывов но логично»).
  *
- * Два пути записи, и у каждого своё доказательство поездки:
- *   · место в поездке — вход в аккаунт и подтверждённое место, дата прошла;
- *   · машина под заказ — ключ одноразовой ссылки, выданной менеджером Ведара
- *     после подтверждения «поездка состоялась».
- * Один отзыв на место и на заявку держит UNIQUE в базе: повтор — «уже есть»,
- * а не второй отзыв.
+ * Путь записи один — машина под заказ: ключ одноразовой ссылки, выданной
+ * менеджером Ведара после подтверждения «поездка состоялась». Пути «место в
+ * поездке» нет: машину заказывают целиком (владелец 13.10). Один отзыв на
+ * заявку держит UNIQUE в базе: повтор — «уже есть», а не второй отзыв.
  *
  * Чтение для страницы — с тремя исходами: отзывы / пусто / не смогли
  * проверить. Пустой список при отказе базы читался бы как «отзывов нет».
@@ -24,7 +22,6 @@ import {
   inviteKeyVerdict,
   isoDateOrNull,
   roundedAverage,
-  seatReviewVerdict,
   type CarrierReviewProof,
 } from '@/lib/transfers/carrier-review-rules';
 
@@ -136,83 +133,10 @@ export async function loadCarrierReviews(partnerId: string): Promise<CarrierRevi
   }
 }
 
-// ── Место в поездке ───────────────────────────────────────────────────────
-
-export interface ReviewableSeat {
-  seatBookingId: string;
-  date: string;
-  from: string;
-  to: string;
-}
-
-interface SeatRow {
-  id: string;
-  trip_date: string;
-  from_text: string;
-  to_text: string;
-  status: string;
-  trip_status: string;
-  reviewed: boolean;
-}
-
-const SEAT_ROWS_SQL = `
-  SELECT sb.id::text, to_char(t.trip_date, 'YYYY-MM-DD') AS trip_date, t.from_text, t.to_text,
-         sb.status, t.status AS trip_status,
-         EXISTS (SELECT 1 FROM carrier_reviews cr WHERE cr.seat_booking_id = sb.id) AS reviewed
-    FROM transfer_seat_bookings sb
-    JOIN transfer_trips t ON t.id = sb.trip_id
-    JOIN transfer_fleet_vehicles v ON v.id = t.vehicle_id
-   WHERE sb.ordered_by_user_id = $1 AND v.partner_id = $2`;
-
-function seatFacts(r: SeatRow) {
-  return { status: r.status, tripStatus: r.trip_status, tripDate: r.trip_date, reviewed: r.reviewed };
-}
-
-/**
- * Места этого человека у этого перевозчика, по которым можно оставить отзыв.
- * Только заказанные им лично: место, которое туроператор взял на свою группу,
- * не доказывает, что ехал именно этот человек.
- */
-export async function listReviewableSeats(userId: string, partnerId: string, today: string): Promise<ReviewableSeat[]> {
-  const { rows } = await query<SeatRow>(`${SEAT_ROWS_SQL} ORDER BY t.trip_date DESC LIMIT 50`, [userId, partnerId]);
-  return rows
-    .filter((r) => seatReviewVerdict(seatFacts(r), today).ok)
-    .map((r) => ({ seatBookingId: r.id, date: r.trip_date, from: r.from_text, to: r.to_text }));
-}
-
 export type WriteReviewResult =
   | { ok: true; id: string }
-  | { ok: false; reason: 'not_found' | 'not_confirmed' | 'trip_cancelled' | 'not_yet' | 'already' | 'unknown' | 'expired' | 'used' };
+  | { ok: false; reason: 'unknown' | 'expired' | 'used' };
 
-export async function writeSeatReview(p: {
-  userId: string;
-  partnerId: string;
-  seatBookingId: string;
-  rating: number;
-  comment: string;
-  today: string;
-}): Promise<WriteReviewResult> {
-  if (!UUID_RE.test(p.seatBookingId)) return { ok: false, reason: 'not_found' };
-  const { rows } = await query<SeatRow>(`${SEAT_ROWS_SQL} AND sb.id = $3`, [p.userId, p.partnerId, p.seatBookingId]);
-  const row = rows[0];
-  if (!row) return { ok: false, reason: 'not_found' };
-  const verdict = seatReviewVerdict(seatFacts(row), p.today);
-  if (!verdict.ok) return { ok: false, reason: verdict.reason };
-
-  // Подпись — имя аккаунта, как у отзыва о туре; публично — «Имя Ф.».
-  const user = await query<{ name: string | null }>(`SELECT name FROM users WHERE id = $1`, [p.userId]);
-  const authorName = (user.rows[0]?.name ?? '').trim().slice(0, 80) || 'Гость Ведара';
-
-  const ins = await query<{ id: string }>(
-    `INSERT INTO carrier_reviews
-       (partner_id, proof, seat_booking_id, user_id, author_name, rating, comment, ride_date, ride_from, ride_to)
-     VALUES ($1, 'seat', $2, $3, $4, $5, $6, $7::date, $8, $9)
-     ON CONFLICT (seat_booking_id) DO NOTHING
-     RETURNING id::text`,
-    [p.partnerId, row.id, p.userId, authorName, p.rating, p.comment, row.trip_date, row.from_text, row.to_text],
-  );
-  return ins.rows[0] ? { ok: true, id: ins.rows[0].id } : { ok: false, reason: 'already' };
-}
 
 // ── Машина под заказ: ссылка ──────────────────────────────────────────────
 
