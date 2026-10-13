@@ -22,6 +22,7 @@
 | Подтверждение домена для каталога ChatGPT | `/.well-known/openai-apps-challenge` отдаёт токен из `OPENAI_APPS_CHALLENGE_TOKEN` (Timeweb) | `agent-discovery-cards.test.ts` |
 | OpenAPI 3.1 и каталог API (RFC 9727) — для агентов без MCP и A2A | `https://vedarai.ru/openapi.json`, `https://vedarai.ru/.well-known/api-catalog`; заголовок `Link: rel="api-catalog"` на главной | `openapi-agents.test.ts` |
 | Кто приходит из ИИ — журнал A2A, клиенты MCP, семейства у визиток | `/hub/admin/a2a` (срез `GET /api/admin/analytics/a2a`, журнал `a2a_requests`, миграция 1219) | `a2a-journal-admin.test.ts` |
+| Российские ИИ (13.10, «остались российские ИИ»): журнал видит клиентов РФ (метка «РФ», группа `clients_ru` в `mcp-census`), агент Яндекса с нашим MCP — проба `GET /api/cron/yandex-mcp-probe` по маркеру, нога `yandex` в пробе знания | `docs/agents/RUSSIA.md` | `ru-clients.test.ts`, `yandex-mcp-probe.test.ts` |
 
 Не подходит по построению: Docker MCP Catalog (`docker/mcp-registry`) принимает только серверы-образы, у нас удалённый Streamable HTTP.
 
@@ -48,6 +49,8 @@
 | Baidu 搜索资源平台 (вебмастер, для поиска Baidu и моделей на нём) | https://ziyuan.baidu.com → 站点管理 → 添加网站 | аккаунт Baidu (телефон) | верификация HTML-тегом `baidu-site-verification` (тег ставится из репозитория), sitemap, push-токен 普通收录; индексация 4–8 недель | `CHINA.md`, шаг 4. 百度千帆 как каталог MCP — процесс не найден, не подаём |
 | Bing Webmaster (Bing работает в КНР) | https://www.bing.com/webmasters | аккаунт Microsoft | верификация тегом `msvalidate.01` или импорт из Google Search Console; sitemap; IndexNow уже стоит | `CHINA.md`, шаг 5. Tencent Cloud MCP — процесс не найден, не подаём |
 | a2a-registry.org (другой реестр) | https://www.a2a-registry.org | DNS- или GitHub-верификация | — | не путать с a2aregistry.org, где мы уже есть |
+| Yandex AI Studio — MCP Hub (внешний MCP-сервер для ваших агентов; публичного каталога MCP у Яндекса нет) | AI Studio → Agent Atelier → MCP-серверы → Создать → Внешний MCP-сервер | аккаунт Yandex Cloud с ролями `serverless.mcpGateways.editor`, `iam.serviceAccounts.user` | имя `vedar`, URL `https://vedarai.ru/api/mcp`, Streamable HTTP, «Без авторизации», выбрать инструменты (20 из лимита 50) | пошагово — `RUSSIA.md`, шаг 2. Проба с прода (`yandex-mcp-probe`) идёт и без этого — через Responses API с `server_url` |
+| GigaChat (Сбер) | каталога нет: подключение MCP только кодом разработчика (GigaChain, `langchain-mcp-adapters`) | — | — | `RUSSIA.md`, шаг 3: отдельная обёртка и ключ GigaChat — по решению владельца; мост не подходит |
 
 ## Материалы для форм
 

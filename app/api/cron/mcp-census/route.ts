@@ -25,7 +25,8 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
 import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
-import { clientRegion } from '@/lib/mcp/china-clients';
+import { clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
+import { RU_REGION_LABEL } from '@/lib/mcp/ru-clients';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -137,7 +138,17 @@ export async function GET(req: NextRequest) {
     // Клиенты из экосистемы КНР (владелец 13.10) — по самоназванию, из тех же
     // строк; null — перепись клиентов не прочиталась, а не «никого не было».
     clients_china: clients.value ? (() => {
-      const rows = clients.value.filter((r) => clientRegion(r.client));
+      const rows = clients.value.filter((r) => clientRegion(r.client) === CHINA_REGION_LABEL);
+      return {
+        clients: rows.length,
+        calls: rows.reduce((s, r) => s + Number(r.calls), 0),
+        names: rows.map((r) => `${r.client} (${r.origin}, ${r.calls})`),
+      };
+    })() : null,
+    // Клиенты из экосистемы РФ (владелец 13.10: «остались российские ИИ») —
+    // тем же способом, своей меткой.
+    clients_ru: clients.value ? (() => {
+      const rows = clients.value.filter((r) => clientRegion(r.client) === RU_REGION_LABEL);
       return {
         clients: rows.length,
         calls: rows.reduce((s, r) => s + Number(r.calls), 0),

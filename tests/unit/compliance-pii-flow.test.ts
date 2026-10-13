@@ -277,7 +277,10 @@ describe('D2 — незнакомый хост ловится, а не игно�
 
   it('у каждой записи реестра есть юрисдикция, домашний сток по-прежнему один', () => {
     for (const e of LLM_ENDPOINTS) expect(e.jurisdiction.length, e.host).toBeGreaterThan(2);
-    expect(LLM_ENDPOINTS.filter((e) => e.domestic).map((e) => e.host)).toEqual(['llm.api.cloud.yandex.net']);
+    // Два домашних хоста, оба Яндекса (13.10, «остались российские ИИ»):
+    // YandexGPT и AI Studio Responses API — один вендор, одна юрисдикция;
+    // модель угрозы не менялась, ПД в эти промпты не идут.
+    expect(LLM_ENDPOINTS.filter((e) => e.domestic).map((e) => e.host)).toEqual(['llm.api.cloud.yandex.net', 'ai.api.cloud.yandex.net']);
   });
 });
 

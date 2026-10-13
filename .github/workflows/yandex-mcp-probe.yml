@@ -1,0 +1,85 @@
+name: Российская модель ходит в Ведар — агент Яндекса с прода
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Решение владельца 13.10 («остались российские ИИ»). Китайский контур того же
+# дня закончился живым разговором: DeepSeek позвала инструменты Ведара и
+# ответила по данным. Единственный честный ответ на «подключены ли российские
+# модели» — такой же разговор: модель Яндекса получает вопрос туриста, зовёт
+# наш MCP-сервер и отвечает по его данным.
+#
+# С ПРОДА, а не с раннера: YANDEX_API_KEY и YANDEX_FOLDER_ID лежат в
+# переменных Timeweb, путь из РФ в Яндекс — наш путь. Здесь workflow только
+# зовёт прод-эндпоинт и печатает вердикт.
+#
+# Три исхода (§4.0): инструменты позваны и ответ есть — зелёный; ответ без
+# единого вызова — красный «модель не пошла в Ведар»; ключа нет или провайдер
+# отказал — красный с причиной.
+#
+# Секреты: CRON_SECRET. Ключ Яндекса сюда не приезжает.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/yandex-mcp-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # 40, а не 5: ожидание своей сборки (до 35 мин) плюс сама проба (до 2 мин).
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      # Ждём СВОЮ сборку по маркеру /version.json — только при запуске маркером:
+      # при workflow_dispatch head_commit пуст, и шаг отсиживал бы зря.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: С ПРОДА — агент Яндекса с инструментами Ведара
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — прод не ответит."
+            exit 1
+          fi
+
+          CODE=$(curl -s -o /tmp/probe.json -w '%{http_code}' --max-time 170 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/yandex-mcp-probe")
+          echo "HTTP $CODE"
+          jq '.' /tmp/probe.json || cat /tmp/probe.json
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Прод не ответил на пробу (HTTP $CODE)."
+            exit 1
+          fi
+
+          {
+            echo "## Агент Яндекса и инструменты Ведара"
+            echo ""
+            echo "$(jq -r '.verdict // "вердикта нет"' /tmp/probe.json)"
+            echo ""
+            echo '```json'
+            jq '{place, asked_at, outcome, reason, model, http_status, latency_ms, output_types, listed_tools, mcp_calls, journal_during_probe, answer_excerpt}' /tmp/probe.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          OK=$(jq -r '.ok // false' /tmp/probe.json)
+          if [ "$OK" != "true" ]; then
+            echo "::error::$(jq -r '.outcome // "исход не назван"' /tmp/probe.json): $(jq -r '.verdict // .reason // "причина не названа"' /tmp/probe.json)"
+            exit 1
+          fi
+          echo "::notice::$(jq -r '.verdict' /tmp/probe.json)"

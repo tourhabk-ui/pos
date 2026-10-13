@@ -1602,9 +1602,12 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
 // ── YandexGPT Lite (Yandex Cloud) ─────────────────────────────
 // Лучший по русскому языку. Без геоблока для России.
 // Env: YANDEX_API_KEY (Api-Key), YANDEX_FOLDER_ID (каталог YC)
+// Причины отказа — в след (lib/ai/failure-trace), как у остальных ног (13.10):
+// до этого любой отказ приводился к null, и нога «yandex» пробы знания не
+// могла назвать причину (§4.0: «не смог» не равно «не знает»).
 export async function callYandexGPT(messages: ChatMessage[]): Promise<string | null> {
   const yandex = getYandexKey();
-  if (!yandex) return null;
+  if (!yandex) { recordAiLegFailure('yandex', 'no_key'); return null; }
   const { apiKey, folderId } = yandex;
 
   try {
@@ -1643,13 +1646,145 @@ export async function callYandexGPT(messages: ChatMessage[]): Promise<string | n
       },
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      recordAiLegFailure('yandex', httpFailureReason(res.status, await res.text().catch(() => '')));
+      return null;
+    }
     const data = await res.json();
     const text: string | undefined =
       data?.result?.alternatives?.[0]?.message?.text;
-    return text?.trim() || null;
-  } catch {
+    if (!text?.trim()) { recordAiLegFailure('yandex', 'empty'); return null; }
+    return text.trim();
+  } catch (e) {
+    recordAiLegFailure('yandex', errorFailureReason(e));
     return null;
+  }
+}
+
+// ── Yandex AI Studio: агент с ВНЕШНИМ MCP через Responses API ────────────
+/**
+ * Модель Яндекса сама зовёт наш MCP-сервер (владелец 13.10: «остались
+ * российские ИИ»).
+ *
+ * Из российских провайдеров задокументированный путь «модель зовёт чужой
+ * MCP-сервер без кода на нашей стороне» есть у одного Яндекса:
+ * `POST https://ai.api.cloud.yandex.net/v1/responses`, инструмент
+ * `{ type: 'mcp', server_label, server_url, metadata: { description } }`
+ * (документация AI Studio «Подключить внешний MCP-сервер», сверено 13.10).
+ * Авторизация — тот же `Api-Key`, что у callYandexGPT. Ключу, созданному в
+ * AI Studio, право `yc.serverless.mcpGateways.invoke` выдаётся при создании;
+ * у ключа старого образца его может не быть — тогда провайдер ответит 403, и
+ * причина уйдёт в след, а не в null. Отдельный ключ для агента —
+ * YANDEX_AGENT_API_KEY, чтобы не трогать тот, которым живёт YandexGPT.
+ *
+ * Модель — алиас семейства `yandexgpt` из примеров документации, не версия
+ * (§8: id версии не хардкодится); переопределяется YANDEX_AGENT_MODEL.
+ *
+ * Возвращает не строку, а разбор ответа: позвала ли модель инструменты
+ * (элементы `mcp_call` в `output`), что ответила, какие типы элементов
+ * пришли. Форма ответа у Яндекса задокументирована только для текста —
+ * список типов отдаётся как есть, чтобы первый живой прогон показал её, а не
+ * догадка. Без повторов намеренно: повтор удвоил бы вызовы инструментов в
+ * нашем же журнале.
+ */
+export interface YandexMcpCall { name: string | null; server_label: string | null; error: string | null }
+
+export interface YandexMcpAgentResult {
+  /** Имя модели без префикса gpt://<folder>/ — как в запросе. */
+  model: string;
+  http_status: number | null;
+  /** Причина отказа без ключей; null — ответ получен. */
+  error: string | null;
+  answer: string | null;
+  mcp_calls: YandexMcpCall[];
+  /** Сколько инструментов сервер перечислил в mcp_list_tools; null — элемента не было. */
+  listed_tools: number | null;
+  output_types: string[];
+  latency_ms: number;
+}
+
+export interface YandexMcpAgentOptions {
+  mcpUrl: string;
+  serverLabel: string;
+  description: string;
+  timeoutMs?: number;
+}
+
+const YANDEX_RESPONSES_URL = 'https://ai.api.cloud.yandex.net/v1/responses';
+
+function asNonEmptyString(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v : null;
+}
+
+export async function callYandexAgentWithMcp(question: string, opts: YandexMcpAgentOptions): Promise<YandexMcpAgentResult> {
+  const started = Date.now();
+  const modelName = process.env.YANDEX_AGENT_MODEL || 'yandexgpt';
+  const base: YandexMcpAgentResult = {
+    model: modelName, http_status: null, error: null, answer: null, mcp_calls: [], listed_tools: null, output_types: [], latency_ms: 0,
+  };
+  const done = (patch: Partial<YandexMcpAgentResult>): YandexMcpAgentResult => ({ ...base, ...patch, latency_ms: Date.now() - started });
+
+  const folderId = process.env.YANDEX_FOLDER_ID;
+  const apiKey = process.env.YANDEX_AGENT_API_KEY || process.env.YANDEX_API_KEY;
+  if (!apiKey || !folderId) {
+    recordAiLegFailure('yandex:mcp', 'no_key');
+    return done({ error: 'no_key: YANDEX_API_KEY (или YANDEX_AGENT_API_KEY) и YANDEX_FOLDER_ID не заданы — спросить нечем' });
+  }
+
+  try {
+    const res = await fetch(YANDEX_RESPONSES_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Api-Key ${apiKey}` },
+      body: JSON.stringify({
+        model: `gpt://${folderId}/${modelName}`,
+        input: question,
+        tools: [{ type: 'mcp', server_label: opts.serverLabel, server_url: opts.mcpUrl, metadata: { description: opts.description } }],
+      }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
+    });
+    if (!res.ok) {
+      const reason = httpFailureReason(res.status, await res.text().catch(() => ''));
+      recordAiLegFailure('yandex:mcp', reason);
+      return done({ http_status: res.status, error: reason });
+    }
+    const data = await res.json() as { output_text?: unknown; output?: unknown; usage?: Record<string, unknown> };
+    const output = Array.isArray(data.output) ? data.output : [];
+    const types: string[] = [];
+    const calls: YandexMcpCall[] = [];
+    const texts: string[] = [];
+    let listed: number | null = null;
+    for (const raw of output) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      const type = typeof item.type === 'string' ? item.type : 'unknown';
+      types.push(type);
+      if (type === 'mcp_call') {
+        calls.push({ name: asNonEmptyString(item.name), server_label: asNonEmptyString(item.server_label), error: asNonEmptyString(item.error) });
+      } else if (type === 'mcp_list_tools') {
+        listed = (listed ?? 0) + (Array.isArray(item.tools) ? item.tools.length : 0);
+      } else if (type === 'message' && Array.isArray(item.content)) {
+        for (const c of item.content) {
+          const part = c as Record<string, unknown> | null;
+          if (part && part.type === 'output_text' && typeof part.text === 'string') texts.push(part.text);
+        }
+      } else if (type === 'output_text' && typeof item.text === 'string') {
+        texts.push(item.text);
+      }
+    }
+    const answer = asNonEmptyString(data.output_text)?.trim() ?? (texts.join('\n').trim() || null);
+    const u = data.usage;
+    if (u && (typeof u.input_tokens === 'number' || typeof u.prompt_tokens === 'number')) {
+      logLLMUsage(modelName, {
+        prompt_tokens: Number(u.prompt_tokens ?? u.input_tokens ?? 0),
+        completion_tokens: Number(u.completion_tokens ?? u.output_tokens ?? 0),
+      });
+    }
+    if (!answer && calls.length === 0) recordAiLegFailure('yandex:mcp', `empty: типы элементов ${types.join(',') || 'нет'}`);
+    return done({ http_status: res.status, answer, mcp_calls: calls, listed_tools: listed, output_types: types });
+  } catch (e) {
+    const reason = errorFailureReason(e);
+    recordAiLegFailure('yandex:mcp', reason);
+    return done({ error: reason });
   }
 }
 

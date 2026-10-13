@@ -114,13 +114,13 @@ function DialogEntry({ d }: { d: DialogItem }) {
   );
 }
 
-/** Клиент из экосистемы КНР — по самоназванию программы (lib/mcp/china-clients), не по стране запроса. */
+/** Клиент из реестра КНР (lib/mcp/china-clients) или РФ (lib/mcp/ru-clients) — по самоназванию программы, не по стране запроса. */
 function RegionBadge({ label }: { label: string }) {
   return (
     <span
       className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold align-middle"
       style={{ background: 'var(--bg-hover)', color: 'var(--accent)' }}
-      title="Продукт из реестра КНР по самоназванию клиента; страна запроса не хранится"
+      title={`Продукт из реестра ${label} по самоназванию клиента; страна запроса не хранится`}
     >
       {label}
     </span>

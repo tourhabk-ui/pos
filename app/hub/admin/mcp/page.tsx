@@ -396,7 +396,7 @@ export default function AdminMcpPage() {
                           {c.client}
                           <span className="text-[10px] text-[var(--text-muted)] ml-2">{c.kind}</span>
                           {c.region && (
-                            <span className="text-[10px] ml-2 font-semibold" style={{ color: 'var(--accent)' }} title="Продукт из реестра КНР по самоназванию клиента; страна запроса не хранится">
+                            <span className="text-[10px] ml-2 font-semibold" style={{ color: 'var(--accent)' }} title={`Продукт из реестра ${c.region} по самоназванию клиента; страна запроса не хранится`}>
                               {c.region}
                             </span>
                           )}

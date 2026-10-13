@@ -56,6 +56,8 @@ beforeEach(() => {
   vi.stubEnv('DEEPSEEK_API_KEY', '');
   vi.stubEnv('MOONSHOT_API_KEY', '');
   vi.stubEnv('GLM_API_KEY', '');
+  vi.stubEnv('YANDEX_API_KEY', '');
+  vi.stubEnv('YANDEX_FOLDER_ID', '');
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -108,7 +110,7 @@ describe('проба: нога qwen-search отдельно от qwen', () => {
     expect(byProvider['qwen-search']).toBe('knows');
     expect(body.summary.knows).toEqual(['qwen-search']);
     expect(body.summary.does_not_know).toEqual(['qwen']);
-    expect(body.summary.could_not_ask).toEqual(expect.arrayContaining(['deepseek', 'kimi', 'glm']));
+    expect(body.summary.could_not_ask).toEqual(expect.arrayContaining(['deepseek', 'kimi', 'glm', 'yandex']));
     // В шлюз ушли два чата Qwen: без поиска — вопрос без поиска, с поиском — вопрос с поиском.
     const plain = chats.find((c) => c.enable_search !== true);
     const search = chats.find((c) => c.enable_search === true);

@@ -23,6 +23,8 @@
  * Сторож: tests/unit/mcp-china-clients.test.ts.
  */
 
+import { ruClientFamily, RU_FAMILY_SET, RU_REGION_LABEL } from '@/lib/mcp/ru-clients';
+
 export interface ChinaClientFamily {
   /** Род для `ua_family` и для группировки. */
   family: string;
@@ -56,6 +58,9 @@ export const CHINA_CLIENT_FAMILIES: readonly ChinaClientFamily[] = [
 /** Метка региона в срезах — одно слово, одинаковое везде. */
 export const CHINA_REGION_LABEL = 'КНР';
 
+/** Регион клиента по самоназванию: КНР или РФ (ru-clients.ts); null — не из реестров. */
+export type ClientRegion = typeof CHINA_REGION_LABEL | typeof RU_REGION_LABEL;
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Совпадение по границе слова: буквы и цифры по краям маркера — не совпадение. */
@@ -66,9 +71,12 @@ const MARKER_RES: ReadonlyArray<{ family: string; re: RegExp }> = CHINA_CLIENT_F
 const CHINA_FAMILY_SET = new Set(CHINA_CLIENT_FAMILIES.map((f) => f.family));
 
 /** Род клиента КНР по самоназванию или заголовку; null — не из реестра. */
+/** Адрес в заголовке — не самоназвание (то же правило, что в ru-clients): вырезается до сличения. */
+const ADDRESS_RE = /https?:\/\/\S+/g;
+
 export function chinaClientFamily(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = raw.toLowerCase();
+  const s = raw.toLowerCase().replace(ADDRESS_RE, ' ');
   for (const { family, re } of MARKER_RES) {
     if (re.test(s)) return family;
   }
@@ -80,11 +88,18 @@ export function chinaClientFamily(raw: string | null | undefined): string | null
  * агента — указывает на продукт из реестра; иначе null, а не пустая строка:
  * «не из КНР» и «не знаем» здесь одно и то же, и это честно сказано в шапке.
  */
-export function clientRegion(...parts: Array<string | null | undefined>): typeof CHINA_REGION_LABEL | null {
+export function clientRegion(...parts: Array<string | null | undefined>): ClientRegion | null {
   for (const p of parts) {
     if (!p) continue;
     if (CHINA_FAMILY_SET.has(p.toLowerCase())) return CHINA_REGION_LABEL;
     if (chinaClientFamily(p)) return CHINA_REGION_LABEL;
+  }
+  // РФ — вторым реестром (13.10, «остались российские ИИ»): тот же механизм,
+  // своя метка. Порядок проверки роли не играет: маркеры реестров не пересекаются.
+  for (const p of parts) {
+    if (!p) continue;
+    if (RU_FAMILY_SET.has(p.toLowerCase())) return RU_REGION_LABEL;
+    if (ruClientFamily(p)) return RU_REGION_LABEL;
   }
   return null;
 }
