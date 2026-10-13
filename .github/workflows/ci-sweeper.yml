@@ -112,16 +112,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          # Ключ Anthropic из репозиторного секрета — прямой путь, деньги с баланса
-          # Console (решение владельца 12.10: «проверь, может не нужно переключать,
-          # если есть 238 $»; проба anthropic-path-probe 18 того же дня: ключ принят).
-          # До этого руки месяц не делали ни одной работы (#2396): ANTHROPIC_API_KEY
-          # с 09.09 отвечал 401 «API key is invalid», CLAUDE_CODE_OAUTH_TOKEN с 10.09
-          # вёл себя как ключ Console без привязки к workspace — 400 «credit balance
-          # is too low», затем «not scoped to a workspace». Раннер GitHub ходит в
-          # api.anthropic.com напрямую, без гео-блока; прод — нет (§8). Второй
-          # источник авторизации рядом не держим: отказ должен читаться как «ключ».
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Токен подписки (claude setup-token под входом Max), не ключ Console —
+          # решение владельца 12.10 вечером: «Подписка, бесплатно» (#2396). Разбор
+          # того же дня: 238 $ на счету Console — месячные кредиты плана Max, и по
+          # документации Anthropic (api-credits-for-subscribers) они покрывают API,
+          # Agent SDK и playground, но НЕ Claude Code; купленный баланс 0. Поэтому
+          # обычные запросы ключом шли 200, а любой с подписью Claude Code
+          # (бета-заголовок claude-code-20250219 или user-agent claude-cli — проба
+          # 22, по одному достаточно) получал 400 «credit balance is too low» —
+          # тот самый отказ руки. Токен подписки платит планом, не балансом
+          # (docs/authentication: «authenticates with your Claude subscription»).
+          # Токен 10.09 отвечал ошибками организации Console (400 «credit balance»,
+          # «not scoped to a workspace») — выдан, по всей видимости, под той
+          # организацией; новый авторизован аккаунтом с Max. Ключ anthropic_api_key
+          # рядом НЕ держать: в неинтерактивном режиме (-p) ключ старше токена и
+          # побеждает всегда. Сторож: tests/unit/issue-hand-model-pinned.test.ts.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Модель ПРИБИТА, потолок ходов снижен (разбор расходов 06.09).
           #
           # Без --model цену определяет умолчание экшена: обновили пин экшена —
