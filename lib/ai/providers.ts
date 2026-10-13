@@ -1790,13 +1790,21 @@ export function getQwenConfig(): { apiKey: string | null; base: string; model: s
 
 export async function callQwen(
   messages: ChatMessage[],
-  opts: { maxTokens?: number } = {},
+  opts: { maxTokens?: number; enableSearch?: boolean } = {},
 ): Promise<string | null> {
   const { apiKey, base } = getQwenConfig();
   if (!apiKey) { recordAiLegFailure('qwen', 'no_key'); return null; }
   // 800 по умолчанию — чат Кузьмича; структурные ответы (JSON-массив
   // предложений эволюции) просят больше явно, иначе рвутся на полуслове.
   const maxTokens = opts.maxTokens ?? 800;
+  // enableSearch — встроенный веб-поиск DashScope (`enable_search: true` в
+  // OpenAI-совместимом режиме; документация Model Studio, сверено 13.10).
+  // Платная функция без бесплатной квоты: в режиме «только бесплатная
+  // квота» провайдер может отказать — тогда это честный отказ в следе, а не
+  // «не нашла». Нужен одной пробе знания (model-knowledge-probe); живой путь
+  // Кузьмича его не включает — у него свои источники фактов.
+  const enableSearch = opts.enableSearch === true;
+  const legLabel = enableSearch ? 'qwen+search' : 'qwen';
 
   // Сильнейшая доступная, а не прибитый средний тир (CLAUDE.md §8). Кончилась
   // бесплатная квота у сильнейшей — резолвер её пропускает, и тот же вызов
@@ -1817,12 +1825,13 @@ export async function callQwen(
           temperature: 0.4,
           max_tokens: maxTokens,
           messages: payload,
+          ...(enableSearch ? { enable_search: true } : {}),
         }),
-      }, { timeoutMs: 25_000, label: `qwen:${model}` });
+      }, { timeoutMs: enableSearch ? 60_000 : 25_000, label: `${legLabel}:${model}` });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         if (isFreeQuotaExhausted(res.status, body)) { markFreeQuotaExhausted(model); continue; }
-        recordAiLegFailure('qwen', httpFailureReason(res.status, body));
+        recordAiLegFailure(legLabel, httpFailureReason(res.status, body));
         return null;
       }
       const data = await res.json() as {
@@ -1831,14 +1840,14 @@ export async function callQwen(
       };
       const text: string | undefined = data?.choices?.[0]?.message?.content;
       if (text?.trim()) {
-        logLLMUsage(`qwen:${answeredModel(model, data)}`, data.usage);
+        logLLMUsage(`${legLabel}:${answeredModel(model, data)}`, data.usage);
         return text;
       }
-      recordAiLegFailure('qwen', 'empty');
+      recordAiLegFailure(legLabel, 'empty');
       return null;
-    } catch (e) { recordAiLegFailure('qwen', errorFailureReason(e)); return null; }
+    } catch (e) { recordAiLegFailure(legLabel, errorFailureReason(e)); return null; }
   }
-  recordAiLegFailure('qwen', `free_quota_exhausted: ${exhaustedModels().join(', ')}`);
+  recordAiLegFailure(legLabel, `free_quota_exhausted: ${exhaustedModels().join(', ')}`);
   return null;
 }
 

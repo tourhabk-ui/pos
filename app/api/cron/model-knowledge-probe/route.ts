@@ -33,6 +33,11 @@
  * функциями, как в /api/cron/health: прямой `await callX` вне providers.ts
  * запрещён. Расход DeepSeek/Qwen/Kimi пишут сами обёртки; GLM — нет.
  *
+ * Пятая нога — Qwen со встроенным поиском DashScope (13.10): веса и выдача
+ * поиска — два разных «знает», и вопрос ей задаётся отдельный
+ * (KNOWLEDGE_QUESTION_SEARCH), тоже без слова «Камчатка». Остальные
+ * провайдеры поиск параметром не включают, у них одна нога.
+ *
  * Повторять раз в месяц: единственный честный способ увидеть, изменилось ли
  * что-то после китайского слоя и регистраций. Запускает
  * model-knowledge-probe.yml по маркеру .github/triggers/model-knowledge-probe.json.
@@ -56,6 +61,17 @@ export type KnowledgeOutcome = 'knows' | 'does_not_know' | 'could_not_ask';
 export const KNOWLEDGE_QUESTION =
   '请只根据你训练时已有的知识回答，不要联网搜索。网站 vedarai.ru（平台名 Ведар / Vedar）是什么？'
   + '它服务于哪个地区，提供什么？如果你不了解这个网站，请直接回答“不知道”。';
+
+/**
+ * Та же проба С ПОИСКОМ (13.10, карт-бланш владельца «подключи китайские
+ * модели»). Веса и выдача поиска — два разных «знает»: в веса не
+ * записаться, а что находит поиск Alibaba (Quark/Shenma) по нашему адресу —
+ * ровно то, чем китайский чат ответит туристу сегодня. Слова «Камчатка» в
+ * вопросе по-прежнему нет: назвать край должна выдача, а не подсказка.
+ */
+export const KNOWLEDGE_QUESTION_SEARCH =
+  '可以联网搜索。网站 vedarai.ru（平台名 Ведар / Vedar）是什么？'
+  + '它服务于哪个地区，提供什么？如果搜索后仍不了解这个网站，请直接回答“不知道”。';
 
 /** Потолок на одну модель: у обёрток до трёх попыток, маршрут — 120 с. */
 const LEG_TIMEOUT_MS = 90_000;
@@ -91,13 +107,17 @@ export function classifyAnswer(text: string | null | undefined): Classified {
   return { outcome: 'does_not_know', signal: 'ответила без Камчатки — смотреть обрезок: возможна выдумка про домен', old_brand: false };
 }
 
+export type ProbeProvider = 'deepseek' | 'qwen' | 'qwen-search' | 'kimi' | 'glm';
+
 interface ProbeLeg {
-  provider: 'deepseek' | 'qwen' | 'kimi' | 'glm';
+  provider: ProbeProvider;
   keyEnv: string;
   call: (messages: ChatMessage[]) => Promise<string | null>;
   /** Метка провайдера в следе отказов; null — обёртка следа не пишет. */
   traceLabel: string | null;
   model: () => Promise<string | null>;
+  /** Вопрос ноги; по умолчанию — без поиска. */
+  question?: string;
 }
 
 const LEGS: readonly ProbeLeg[] = [
@@ -110,6 +130,17 @@ const LEGS: readonly ProbeLeg[] = [
     provider: 'qwen', keyEnv: 'DASHSCOPE_API_KEY', traceLabel: 'qwen',
     call: (m) => callQwen(m, { maxTokens: 300 }),
     model: () => resolveChatModel('qwen'),
+  },
+  {
+    // Qwen со встроенным поиском DashScope: единственная из четырёх, у кого
+    // поиск включается параметром API. Платная функция без бесплатной
+    // квоты — в режиме «только бесплатная квота» (решение владельца 25.09)
+    // провайдер может отказать; тогда исход «спросить не удалось» с причиной
+    // из следа `qwen+search`, а не «не нашла» (§4.0).
+    provider: 'qwen-search', keyEnv: 'DASHSCOPE_API_KEY', traceLabel: 'qwen+search',
+    call: (m) => callQwen(m, { maxTokens: 300, enableSearch: true }),
+    model: () => resolveChatModel('qwen'),
+    question: KNOWLEDGE_QUESTION_SEARCH,
   },
   {
     provider: 'kimi', keyEnv: 'MOONSHOT_API_KEY', traceLabel: 'kimi',
@@ -163,7 +194,7 @@ async function askLeg(leg: ProbeLeg): Promise<LegResult> {
       reason: `${leg.keyEnv} не задан — спросить нечем`, latency_ms: 0, answer_excerpt: null,
     };
   }
-  const messages: ChatMessage[] = [{ role: 'user', content: KNOWLEDGE_QUESTION }];
+  const messages: ChatMessage[] = [{ role: 'user', content: leg.question ?? KNOWLEDGE_QUESTION }];
   const answer = await withTimeout(leg.call(messages).catch((err: unknown) => {
     console.error(`[model-knowledge-probe] ${leg.provider}: обёртка бросила:`, err instanceof Error ? err.message : err);
     return null;
@@ -224,6 +255,7 @@ export async function GET(request: NextRequest) {
     place: runPlace(),
     asked_at: askedAt,
     question: KNOWLEDGE_QUESTION,
+    question_with_search: KNOWLEDGE_QUESTION_SEARCH,
     legs,
     summary,
     verdict: `знают: ${summary.knows.join(', ') || '—'}; не знают: ${summary.does_not_know.join(', ') || '—'}; `
