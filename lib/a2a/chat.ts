@@ -51,11 +51,14 @@ export async function answerAgentMessage(text: string, history: ChatTurn[]): Pro
   const toolRuns: ToolRun[] = [];
   let answer: string | null = null;
   try {
+    // Вопрос агента — последним сообщением человека. До 13.10 здесь стоял
+    // пустой список: вопрос не доходил до модели вовсе, и Кузьмич отвечал
+    // про то, что видел в подсказке (пробы 764–766, журнал общения A2A).
     answer = await aiChatAgentLoop(
       text,
       KUZMICH_SYSTEM + A2A_AGENT_NOTE + rag,
       history.map((t) => ({ role: t.role, content: t.content })),
-      [],
+      [{ role: 'user', content: text }],
       toolRuns,
     );
   } catch (err) {
