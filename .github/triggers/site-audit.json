@@ -1,9 +1,11 @@
 {
-  "note": "Маркер запуска site-audit.yml — аудит стороннего сайта с раннера, ТОЛЬКО ЧТЕНИЕ (GET/HEAD). host — домен без схемы; maxPages — потолок обхода; linkChecks — сколько внутренних ссылок проверить HEAD; lighthouse — гонять ли Lighthouse на главной и двух самых ссылаемых страницах. Итог — в сводке и в check-run «site-audit».",
-  "host": "virtustur.tilda.ws",
+  "note": "Маркер запуска site-audit.yml — аудит сайта с раннера, ТОЛЬКО ЧТЕНИЕ (GET/HEAD). host — домен без схемы; maxPages — потолок обхода; linkChecks — сколько внутренних ссылок проверить HEAD; lighthouse — гонять ли Lighthouse на главной и двух самых ссылаемых страницах; census — пройти до N адресов sitemap (свой check-run «site-audit-census»); ua — default|googlebot|yandex, заголовок бота только для vedarai.ru. Итог — в сводке и в check-run «site-audit».",
+  "host": "vedarai.ru",
   "maxPages": 60,
   "linkChecks": 80,
   "lighthouse": true,
-  "run": 4,
-  "reason": "Слово владельца 13.10: «https://virtustur.tilda.ws/ сео и заведи оператора но пока без туров». Прогон 4 — сайт оператора на Tilda: вход, TLS, robots/sitemap, обход, битые ссылки, находки, Lighthouse."
+  "census": 1500,
+  "ua": "googlebot",
+  "run": 5,
+  "reason": "Слово владельца 13.10: «твоя задача seo до совершенства довести». Прогон 5 — vedarai.ru глазами Googlebot: обход, битые ссылки, Lighthouse и перепись каждого адреса sitemap (до 1500) — замер до правок."
 }
