@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { s3PublicUrl } from '@/lib/storage/s3';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +21,11 @@ interface Props { params: Promise<{ routeId: string }> }
  * либо байты, и порядок такой:
  *
  *   s3_url есть   → редирект на объект: байты не идут через Node вовсе;
- *   s3_url пуст   → отдаём image_data, как отдавали всегда;
- *   ни того, ни другого → 404, снимка нет.
+ *   s3_key есть   → тот же редирект, адрес собирается из S3_BUCKET (13.10:
+ *                   снимки из миграций пишут ключ, не адрес — имени бакета в
+ *                   репозитории нет, как у клипов туров, 1194);
+ *   иначе         → отдаём image_data, как отдавали всегда;
+ *   ничего        → 404, снимка нет.
  *
  * Порядок не переставлять: строка с обоими полями — это снимок, чей объект
  * уже подтверждён, а байты ещё не убраны. Отдавать в этом случае байты не
@@ -50,7 +54,7 @@ export async function GET(req: NextRequest, { params }: Props) {
     // попадалась первой — та и уходила, включая случаи, когда постер канала
     // выбирал этот URL ради wikimedia-фото, а эндпоинт отдавал другой блоб.
     const { rows } = await pool.query(
-      `SELECT image_data, mime_type, s3_url, thumb_url FROM ai_route_images
+      `SELECT image_data, mime_type, s3_url, s3_key, thumb_url FROM ai_route_images
        WHERE route_id = $1
        ORDER BY CASE WHEN ${shownPhotoSql('model')} THEN 0 ELSE 1 END,
                 created_at DESC
@@ -75,6 +79,19 @@ export async function GET(req: NextRequest, { params }: Props) {
         headers: {
           'Cache-Control': forCard ? CACHE_UNTIL_THUMB : CACHE_LONG,
           'X-Source': 's3',
+        },
+      });
+    }
+
+    // Ключ без адреса — снимок из миграций (13.10); без S3_BUCKET адреса нет,
+    // и тогда остаются байты или 404, а не редирект в корень хранилища.
+    const keyUrl = typeof row?.s3_key === 'string' && row.s3_key ? s3PublicUrl(row.s3_key) : null;
+    if (keyUrl) {
+      return NextResponse.redirect(keyUrl, {
+        status: 302,
+        headers: {
+          'Cache-Control': forCard ? CACHE_UNTIL_THUMB : CACHE_LONG,
+          'X-Source': 's3-key',
         },
       });
     }

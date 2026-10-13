@@ -66,7 +66,8 @@ describe('производитель — таблица галереи', () => {
   it('строка без байтов и без ссылки не заводится', () => {
     // Иначе в галерее появляется позиция, по которой отдавать нечего: счётчик
     // считает её, а человек видит пустой кадр.
-    expect(MIGRATION).toMatch(/CHECK \(image_data IS NOT NULL OR s3_url IS NOT NULL\)/);
+    // 13.10: третий источник — ключ хранилища (снимки из миграций пишут s3_key).
+    expect(MIGRATION).toMatch(/CHECK \(image_data IS NOT NULL OR s3_url IS NOT NULL OR s3_key IS NOT NULL\)/);
   });
 
   it('герой не трогается: ни ALTER, ни DROP по ai_route_images', () => {

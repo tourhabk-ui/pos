@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-13 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1226_mchs_group_registrations_cabinet.sql`.
+> Снято 2026-10-13 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1228_migration_photos_to_s3_keys.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 272 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3636 |
+| Колонок | 3637 |
 | Внешних ключей | 317 |
 | Таблиц без единого FK в обе стороны | 79 |
 
@@ -459,9 +459,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `place_id text!` `source text!` `source_ref text!` `original_text text!` `translated_text text!` `model text!` `status text!=` `created_at timestamptz!=` `reviewed_at timestamptz` `reviewed_by uuid`
 
-**place_gallery_photos** · 14 кол. · PK id · индексов 2
+**place_gallery_photos** · 15 кол. · PK id · индексов 2
 
-`id uuid!=` `ark_id uuid!` `position integer!` `image_data bytea` `s3_url text` `mime_type varchar!=` `width integer!` `height integer!` `caption text` `author text` `license text` `license_url text` `source_url text` `created_at timestamptz!=`
+`id uuid!=` `ark_id uuid!` `position integer!` `image_data bytea` `s3_url text` `s3_key text` `mime_type varchar!=` `width integer!` `height integer!` `caption text` `author text` `license text` `license_url text` `source_url text` `created_at timestamptz!=`
 
 **place_safety_reports** · 9 кол. · PK id · индексов 3
 

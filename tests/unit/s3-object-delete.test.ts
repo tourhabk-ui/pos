@@ -72,7 +72,7 @@ describe('ссылки из базы', () => {
   it('проверяются все колонки, где живут адреса снимков', () => {
     const cols = REFERENCE_COLUMNS.map((c) => `${c.table}.${c.expr}`);
     for (const need of ['ai_route_images.s3_key', 'ai_route_images.s3_url', 'place_gallery_photos.s3_url',
-      'places.photo_url', 'places.images::text', 'user_place_photos.url']) {
+      'place_gallery_photos.s3_key', 'places.photo_url', 'places.images::text', 'user_place_photos.url']) {
       expect(cols).toContain(need);
     }
     // strpos, а не LIKE: `_` в ключе для LIKE — подстановка.

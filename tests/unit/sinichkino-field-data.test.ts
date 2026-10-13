@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { clipAtWord } from '@/lib/text/clip-at-word';
+import { readMarker } from '../../scripts/migration-photos-to-s3';
 
 const ROOT = process.cwd();
 const MIGRATION = readFileSync(join(ROOT, 'migrations/930_sinichkino_coords_and_owner_photo.sql'), 'utf-8');
@@ -42,28 +43,25 @@ describe('миграция 930: координата', () => {
 });
 
 describe('миграция 930: снимок владельца', () => {
-  // Hex разбит на смежные литералы по строкам (Postgres склеивает их в один):
-  // одна 200-килобайтная строка делала регулярки других сторожей квадратичными.
-  const decodeMatch = /decode\(\s*((?:'[0-9a-f]+'\s*)+),\s*'hex'\)/.exec(MIGRATION);
-  const hexMatch = decodeMatch
-    ? [decodeMatch[0], decodeMatch[1].replace(/['\s]/g, '')]
-    : null;
+  // 13.10: байты снимка вынесены в хранилище (решение владельца «перенеси в
+  // S3»); миграция пишет ключ из маркера заливки, а колонки хранилища и снятый
+  // NOT NULL у байтов заводит сама — она идёт раньше 944.
+  const photo = readMarker(ROOT).items.find((i) => i.migration.startsWith('930_'));
 
   it('кладётся как настоящий снимок в каноне ручной загрузки', () => {
     expect(MIGRATION).toMatch(/'manual-upload'/);
     expect(MIGRATION).toMatch(/1280,\s*\n\s*720/);
-    expect(MIGRATION).toMatch(/route_id, image_data, mime_type, prompt, model, width, height, author/);
+    expect(MIGRATION).toMatch(/route_id, image_data, mime_type, prompt, model, width, height, author, s3_key/);
   });
 
-  it('байты — валидный JPEG разумного размера', () => {
-    expect(hexMatch, 'в миграции нет decode(..., hex)').not.toBeNull();
-    const buf = Buffer.from(hexMatch![1], 'hex');
-    // SOI-маркер JPEG.
-    expect(buf.subarray(0, 3).toString('hex')).toBe('ffd8ff');
-    // EOI-маркер — файл не обрезан.
-    expect(buf.subarray(-2).toString('hex')).toBe('ffd9');
-    expect(buf.length).toBeGreaterThan(20_000);
-    expect(buf.length).toBeLessThan(300_000);
+  it('снимок — ключом хранилища из маркера заливки; байтов в миграции нет', () => {
+    expect(photo, 'в маркере заливки нет снимка 930').toBeDefined();
+    expect(photo!.bytes).toBeGreaterThan(20_000);
+    expect(photo!.bytes).toBeLessThan(300_000);
+    expect(MIGRATION).toContain(`'${photo!.key}'`);
+    expect(MIGRATION).not.toMatch(/decode\(\s*'[0-9a-f]/);
+    expect(MIGRATION).toMatch(/ADD COLUMN IF NOT EXISTS s3_key TEXT/);
+    expect(MIGRATION).toMatch(/ALTER COLUMN image_data DROP NOT NULL/);
   });
 
   it('не затирает уже лежащий настоящий снимок', () => {
