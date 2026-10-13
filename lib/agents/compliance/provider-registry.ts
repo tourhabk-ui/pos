@@ -26,6 +26,9 @@ export interface LLMEndpoint {
 export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // Единственный ДОМАШНИЙ сток: сервер в РФ, трансграничной передачи нет.
   { host: 'llm.api.cloud.yandex.net', jurisdiction: 'Russia', domestic: true, provider: 'YandexGPT' },
+  // Yandex AI Studio, Responses API: агент на YandexGPT с нашим MCP как
+  // инструментом (13.10, «остались российские ИИ»). Тот же контур Яндекса, РФ.
+  { host: 'ai.api.cloud.yandex.net', jurisdiction: 'Russia', domestic: true, provider: 'Yandex AI Studio (Responses API, агент с внешним MCP)' },
   { host: 'api.deepseek.com', jurisdiction: 'China', domestic: false, provider: 'DeepSeek' },
   { host: 'openrouter.ai', jurisdiction: 'USA', domestic: false, provider: 'OpenRouter (реле флагманов)' },
   { host: 'generativelanguage.googleapis.com', jurisdiction: 'USA', domestic: false, provider: 'Google Gemini' },

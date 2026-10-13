@@ -38,6 +38,11 @@
  * (KNOWLEDGE_QUESTION_SEARCH), тоже без слова «Камчатка». Остальные
  * провайдеры поиск параметром не включают, у них одна нога.
  *
+ * Шестая нога — YandexGPT (13.10, владелец: «остались российские ИИ»):
+ * единственный домашний сток (provider-registry, РФ), спрашивается на своём
+ * языке (KNOWLEDGE_QUESTION_RU) по тем же правилам: без слова «Камчатка» и без
+ * прежнего имени. Модель — как в обёртке callYandexGPT, id здесь не называется.
+ *
  * Повторять раз в месяц: единственный честный способ увидеть, изменилось ли
  * что-то после китайского слоя и регистраций. Запускает
  * model-knowledge-probe.yml по маркеру .github/triggers/model-knowledge-probe.json.
@@ -47,7 +52,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { callDeepSeek, callQwen, callKimi, callGLM, resolveChatModel } from '@/lib/ai/providers';
+import { callDeepSeek, callQwen, callKimi, callGLM, callYandexGPT, resolveChatModel } from '@/lib/ai/providers';
 import { recentAiFailures } from '@/lib/ai/failure-trace';
 import { runPlace } from '@/lib/ai/key-identity';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -72,6 +77,16 @@ export const KNOWLEDGE_QUESTION =
 export const KNOWLEDGE_QUESTION_SEARCH =
   '可以联网搜索。网站 vedarai.ru（平台名 Ведар / Vedar）是什么？'
   + '它服务于哪个地区，提供什么？如果搜索后仍不了解这个网站，请直接回答“不知道”。';
+
+/**
+ * Вопрос по-русски для российской ноги (13.10): YandexGPT спрашивается на
+ * своём языке. Правила те же, что у китайского вопроса: домен и имя есть,
+ * слова «Камчатка» и прежнего имени платформы нет — назвать край модель
+ * должна сама.
+ */
+export const KNOWLEDGE_QUESTION_RU =
+  'Отвечай только по своим знаниям, без поиска в интернете. Что такое сайт vedarai.ru (платформа «Ведар» / Vedar)? '
+  + 'Какому региону он посвящён и что предлагает? Если ты не знаешь этот сайт, ответь просто: «не знаю».';
 
 /** Потолок на одну модель: у обёрток до трёх попыток, маршрут — 120 с. */
 const LEG_TIMEOUT_MS = 90_000;
@@ -107,7 +122,7 @@ export function classifyAnswer(text: string | null | undefined): Classified {
   return { outcome: 'does_not_know', signal: 'ответила без Камчатки — смотреть обрезок: возможна выдумка про домен', old_brand: false };
 }
 
-export type ProbeProvider = 'deepseek' | 'qwen' | 'qwen-search' | 'kimi' | 'glm';
+export type ProbeProvider = 'deepseek' | 'qwen' | 'qwen-search' | 'kimi' | 'glm' | 'yandex';
 
 interface ProbeLeg {
   provider: ProbeProvider;
@@ -151,6 +166,14 @@ const LEGS: readonly ProbeLeg[] = [
     provider: 'glm', keyEnv: 'GLM_API_KEY', traceLabel: null,
     call: (m) => callGLM(m),
     model: async () => null,
+  },
+  {
+    // Российская нога (13.10): YandexGPT, домашний сток. Вопрос по-русски;
+    // обёртка не отдаёт имени модели, а в след отказов пишет (label 'yandex').
+    provider: 'yandex', keyEnv: 'YANDEX_API_KEY', traceLabel: 'yandex',
+    call: (m) => callYandexGPT(m),
+    model: async () => null,
+    question: KNOWLEDGE_QUESTION_RU,
   },
 ];
 
@@ -256,6 +279,7 @@ export async function GET(request: NextRequest) {
     asked_at: askedAt,
     question: KNOWLEDGE_QUESTION,
     question_with_search: KNOWLEDGE_QUESTION_SEARCH,
+    question_ru: KNOWLEDGE_QUESTION_RU,
     legs,
     summary,
     verdict: `знают: ${summary.knows.join(', ') || '—'}; не знают: ${summary.does_not_know.join(', ') || '—'}; `
