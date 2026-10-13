@@ -1,19 +1,30 @@
 'use client';
 
 /**
- * Витрина мест в поездках перевозчиков (схема 926) + мои заказы + оплата по QR.
+ * /transfers — как доехать: машина целиком под заказ и места в поездках
+ * перевозчиков (схема 926), мои заказы мест, оплата по QR.
  *
- * Три состояния поиска, а не два (урок удалённого transfer-empty-state, 02.08):
- *   · ещё не искали — форма и приглашение;
- *   · искали, нашли ноль — сказано словами и предложены другие даты;
- *   · не смогли проверить — 503 от витрины, экран говорит это прямо.
- * Пустой список никогда не выдаётся за «никто не едет» без searched: true.
+ * Порядок — от того, что есть, к тому, что бывает (владелец 13.10: «что за
+ * поиск в трансфере… не понимаю смысл формы»). Первым экраном стояла форма
+ * «с даты / по дату / мест нужно / Найти места», а мест в поездках на проде
+ * не выставлял никто: форма всегда отвечала «никто не едет», а настоящее
+ * предложение — вахтовка под заказ с ценой за машину — лежало ниже сгиба.
+ * Теперь сверху вниз:
+ *   1. Машина под заказ — прайс перевозчиков, цена за машину.
+ *   2. Места в поездках — списком на 60 дней вперёд, без формы: угадывать
+ *      даты не нужно, поездок мало. Ссылка из плана (lib/transfers/trips-link)
+ *      открывает свои даты и свою поездку и даёт «показать все».
+ *   3. Мои заказы мест — только когда они есть.
+ *
+ * У поездок три исхода (урок удалённого transfer-empty-state, 02.08): список /
+ * пусто — словами / не смогли проверить — 503 от витрины, сказано прямо.
+ * Пустой список без searched: true не выдаётся за «мест нет».
  *
  * Запрос мест — за входом (CHECK схемы 926 требует заказчика). Оплата — общий
  * SbpQrPayment со своими адресами (миграция 928): второй компонент QR
  * разошёлся бы поведением.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bus, CalendarDays, Users, AlertCircle, Loader2, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
@@ -24,6 +35,9 @@ import { CharterCard } from '@/components/transfers/CharterCard';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import type { CharterState } from '@/lib/transfers/charter-format';
 import type { TripsPrefill } from '@/lib/transfers/trips-link';
+
+/** Насколько вперёд показываются поездки — потолок окна /api/carrier-trips. */
+export const TRIPS_WINDOW_DAYS = 60;
 
 interface Trip {
   id: string;
@@ -58,24 +72,29 @@ interface MyBooking {
   reviewed?: boolean;
 }
 
-type Search =
-  | { state: 'idle' }
+type Trips =
   | { state: 'loading' }
-  | { state: 'ok'; trips: Trip[]; window: { from: string; to: string } }
+  | { state: 'ok'; trips: Trip[] }
   | { state: 'failed'; message: string };
 
 type Mine =
   | { state: 'idle' }
-  | { state: 'loading' }
   | { state: 'ok'; bookings: MyBooking[] }
   | { state: 'failed'; message: string };
 
+/** Какие поездки показаны: ближайшие 60 дней или даты из ссылки плана. */
+interface TripsWindow { from: string; to: string; seats: number; fromPlan: boolean }
+
 const KIND_LABEL: Record<string, string> = { jeep: 'джип', vahtovka: 'вахтовка', minibus: 'микроавтобус', other: 'транспорт' };
 
-function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 function fmtDate(s: string): string {
-  const d = new Date(`${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const d = new Date(`${s}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
 }
 function money(v: string | null): string | null {
   if (v === null) return null;
@@ -88,179 +107,178 @@ function amountOf(b: MyBooking): number | null {
   return null;
 }
 
-export default function TransfersClient({ charter, prefill = null }: { charter: CharterState; prefill?: TripsPrefill | null }) {
+async function fetchTrips(w: TripsWindow): Promise<Trips> {
+  try {
+    const qs = new URLSearchParams({ from: w.from, to: w.to, min_seats: String(w.seats) });
+    const res = await fetch(`/api/carrier-trips?${qs}`);
+    const body = (await res.json().catch(() => null)) as
+      | { success: boolean; searched?: boolean; trips?: Trip[]; error?: string }
+      | null;
+    if (!res.ok || !body?.success || body.searched !== true || !body.trips) {
+      return { state: 'failed', message: body?.error ?? 'Не удалось проверить поездки — попробуйте позже.' };
+    }
+    return { state: 'ok', trips: body.trips };
+  } catch {
+    return { state: 'failed', message: 'Нет связи с сервером. Проверьте подключение и попробуйте ещё раз.' };
+  }
+}
+
+async function fetchMine(): Promise<Mine> {
+  try {
+    const res = await fetch('/api/carrier-trips/bookings', { credentials: 'include' });
+    const body = (await res.json().catch(() => null)) as
+      | { success: boolean; searched?: boolean; bookings?: MyBooking[]; error?: string }
+      | null;
+    if (!res.ok || !body?.success || body.searched !== true || !body.bookings) {
+      return { state: 'failed', message: body?.error ?? 'Не удалось проверить заказы — попробуйте позже' };
+    }
+    return { state: 'ok', bookings: body.bookings };
+  } catch {
+    return { state: 'failed', message: 'Нет связи с сервером.' };
+  }
+}
+
+export default function TransfersClient({ charter, prefill = null, today = new Date().toISOString().slice(0, 10) }: {
+  charter: CharterState;
+  prefill?: TripsPrefill | null;
+  /** Сегодня по Камчатке, ГГГГ-ММ-ДД — передаёт сервер. */
+  today?: string;
+}) {
   const { user, isLoading: authLoading } = useAuth();
-  const today = new Date();
-  const [from, setFrom] = useState(prefill?.from ?? isoDate(today));
-  const [to, setTo] = useState(prefill?.to ?? isoDate(new Date(today.getTime() + 14 * 86_400_000)));
-  const [minSeats, setMinSeats] = useState(prefill?.seats ?? 1);
-  const [search, setSearch] = useState<Search>({ state: 'idle' });
+  const nextDays: TripsWindow = { from: today, to: addDays(today, TRIPS_WINDOW_DAYS), seats: 1, fromPlan: false };
+  const [win, setWin] = useState<TripsWindow>(
+    prefill ? { from: prefill.from, to: prefill.to, seats: prefill.seats, fromPlan: true } : nextDays,
+  );
+  const [trips, setTrips] = useState<Trips>({ state: 'loading' });
   const [mine, setMine] = useState<Mine>({ state: 'idle' });
   const [payingId, setPayingId] = useState<string | null>(null);
+  // Номер перечитки: запрос мест или оплата меняют остаток и статус заказа.
+  const [tick, setTick] = useState(0);
+  const reload = () => setTick((t) => t + 1);
 
-  const runSearch = useCallback(async () => {
-    setSearch({ state: 'loading' });
-    try {
-      const qs = new URLSearchParams({ from, to, min_seats: String(minSeats) });
-      const res = await fetch(`/api/carrier-trips?${qs}`);
-      const body = (await res.json().catch(() => null)) as
-        | { success: boolean; searched?: boolean; trips?: Trip[]; window?: { from: string; to: string }; error?: string }
-        | null;
-      if (!res.ok || !body?.success || body.searched !== true || !body.trips || !body.window) {
-        setSearch({ state: 'failed', message: body?.error ?? 'Не удалось проверить поездки — попробуйте позже' });
-        return;
-      }
-      setSearch({ state: 'ok', trips: body.trips, window: body.window });
-    } catch {
-      setSearch({ state: 'failed', message: 'Нет связи с сервером. Проверьте подключение и попробуйте ещё раз.' });
-    }
-  }, [from, to, minSeats]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTrips(win).then((t) => { if (!cancelled) setTrips(t); });
+    return () => { cancelled = true; };
+  }, [win, tick]);
 
-  const loadMine = useCallback(async () => {
-    setMine({ state: 'loading' });
-    try {
-      const res = await fetch('/api/carrier-trips/bookings', { credentials: 'include' });
-      const body = (await res.json().catch(() => null)) as
-        | { success: boolean; searched?: boolean; bookings?: MyBooking[]; error?: string }
-        | null;
-      if (!res.ok || !body?.success || body.searched !== true || !body.bookings) {
-        setMine({ state: 'failed', message: body?.error ?? 'Не удалось проверить заказы — попробуйте позже' });
-        return;
-      }
-      setMine({ state: 'ok', bookings: body.bookings });
-    } catch {
-      setMine({ state: 'failed', message: 'Нет связи с сервером.' });
-    }
-  }, []);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void fetchMine().then((m) => { if (!cancelled) setMine(m); });
+    return () => { cancelled = true; };
+  }, [user, tick]);
 
-  useEffect(() => { void runSearch(); /* окно по умолчанию — сразу, чтобы экран не был пустым */ // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => { if (user) void loadMine(); }, [user, loadMine]);
   // Поездка, ради которой пришли из плана: карточка в поле зрения.
   const focusTripId = prefill?.tripId ?? null;
   useEffect(() => {
-    if (!focusTripId || search.state !== 'ok') return;
+    if (!focusTripId || trips.state !== 'ok') return;
     document.getElementById(`trip-${focusTripId}`)?.scrollIntoView({ block: 'center' });
-  }, [focusTripId, search.state]);
+  }, [focusTripId, trips.state]);
+
+  const showAllTrips = () => {
+    setTrips({ state: 'loading' });
+    setWin(nextDays);
+  };
+
+  const hasTrips = trips.state === 'ok' && trips.trips.length > 0;
+  const showMine = !!user && (mine.state === 'failed' || (mine.state === 'ok' && mine.bookings.length > 0));
 
   return (
     <div className="ds-page" style={{ paddingBottom: 96 }}>
       <Header />
       <main className="mx-auto max-w-2xl px-5 pt-6">
         {/* SOS — в общей шапке (Header, §2), своей копии рядом с заголовком нет. */}
-        {/* Шапка — по образцу каталога туров (владелец 12.10: «трансферы тоже
-            нужно, наверное, по образцу туров»): заголовок 28px на телефоне,
-            одна строка сути, подробности — только с sm. Первый экран —
-            форма поиска и ответ, а не шесть строк описания. */}
-        <div className="mb-4 sm:mb-6">
+        {/* Шапка — по образцу каталога туров (владелец 12.10): заголовок 28px
+            на телефоне, одна строка сути, подробности — только с sm. */}
+        <div className="mb-6">
           <p className="ds-label mb-1 sm:mb-2">Перевозчики</p>
-          <h1 className="font-playfair text-[28px] sm:text-4xl font-bold text-[var(--text-primary)] leading-tight mb-1 sm:mb-2">Места в поездках</h1>
+          <h1 className="font-playfair text-[28px] sm:text-4xl font-bold text-[var(--text-primary)] leading-tight mb-1 sm:mb-2">Трансферы</h1>
           <p className="text-sm text-[var(--text-secondary)] max-w-md">
-            Свободные места в джипах и вахтовках перевозчиков; место закрепляется после подтверждения.
+            Машина целиком под заказ — по прайсу перевозчика, цена за машину.
             <span className="hidden sm:inline">
-              {' '}Джипы и вахтовки идут под заказ, и когда места остаются, перевозчик выставляет их сюда.
-              Целую вахтовку можно заказать у перевозчика — ниже, с ценой за машину.
+              {' '}Ниже — места в поездках: когда машина уже идёт на дату, перевозчик выставляет свободные места.
             </span>
           </p>
         </div>
 
-        {/* Поиск */}
-        <form
-          className="ds-card p-4 mb-4 sm:mb-6 grid grid-cols-2 gap-3"
-          onSubmit={(e) => { e.preventDefault(); void runSearch(); }}
-        >
-          <label className="text-xs text-[var(--text-secondary)]">
-            С даты
-            <input type="date" className="ds-input mt-1 w-full" value={from} onChange={e => setFrom(e.target.value)} required />
-          </label>
-          <label className="text-xs text-[var(--text-secondary)]">
-            По дату
-            <input type="date" className="ds-input mt-1 w-full" value={to} onChange={e => setTo(e.target.value)} required />
-          </label>
-          <label className="text-xs text-[var(--text-secondary)]">
-            Мест нужно
-            <input type="number" min={1} max={60} className="ds-input mt-1 w-full" value={minSeats} onChange={e => setMinSeats(Math.max(1, Number(e.target.value) || 1))} />
-          </label>
-          <div className="flex items-end">
-            <button type="submit" className="ds-btn ds-btn-primary w-full" disabled={search.state === 'loading'}>
-              {search.state === 'loading' ? 'Ищем…' : 'Найти места'}
-            </button>
-          </div>
-        </form>
-
-        {/* Три состояния поиска */}
-        {search.state === 'idle' && (
-          <p className="text-sm text-[var(--text-muted)] mb-8">Выберите даты — покажем, кто едет и сколько мест свободно.</p>
-        )}
-        {search.state === 'loading' && (
-          <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] mb-8"><Loader2 size={16} className="animate-spin" /> Проверяем поездки…</div>
-        )}
-        {search.state === 'failed' && (
-          <div className="ds-card p-4 mb-8 flex items-start gap-2 border-[var(--warning)]">
-            <AlertCircle size={16} className="text-[var(--warning)] shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm text-[var(--text-primary)]">Не смогли проверить поездки</p>
-              <p className="text-xs text-[var(--text-secondary)] mt-1">{search.message} Это не значит, что мест нет.</p>
+        {/* 1. Машина под заказ: прайс перевозчика, дат и мест здесь нет */}
+        <section aria-labelledby="charter-title" className="mb-10">
+          <h2 id="charter-title" className="ds-h2 mb-3">Машина под заказ</h2>
+          {charter.state === 'failed' ? (
+            <div className="ds-card p-4 flex items-start gap-2 border-[var(--warning)]">
+              <AlertCircle size={16} className="text-[var(--warning)] shrink-0 mt-0.5" aria-hidden />
+              <div>
+                <p className="text-sm text-[var(--text-primary)]">Не смогли проверить вахтовки под заказ</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">Сбой на нашей стороне. Это не значит, что их нет — загляните позже.</p>
+              </div>
             </div>
-          </div>
-        )}
-        {search.state === 'ok' && search.trips.length === 0 && (
-          <div className="ds-card p-5 mb-8">
-            <p className="text-sm text-[var(--text-primary)] font-semibold mb-1">
-              С {fmtDate(search.window.from)} по {fmtDate(search.window.to)} никто не едет
-            </p>
-            <p className="text-xs text-[var(--text-secondary)]">
-              Мы искали и не нашли ни одной опубликованной поездки с таким остатком мест. Попробуйте другие даты или меньше мест.
-            </p>
-          </div>
-        )}
-        {search.state === 'ok' && search.trips.length > 0 && (
-          <ul className="flex flex-col gap-3 mb-8">
-            {search.trips.map(t => (
-              <li key={t.id} id={`trip-${t.id}`}
-                className={t.id === focusTripId ? 'rounded-lg ring-2 ring-[var(--accent)]' : undefined}>
-                <TripCard
-                  trip={t}
-                  authed={!!user}
-                  authLoading={authLoading}
-                  onRequested={() => { void loadMine(); void runSearch(); }}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Целая машина под заказ: прайс перевозчика, дат и мест здесь нет */}
-        {charter.state === 'failed' && (
-          <div className="ds-card p-4 mb-8 flex items-start gap-2 border-[var(--warning)]">
-            <AlertCircle size={16} className="text-[var(--warning)] shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm text-[var(--text-primary)]">Не смогли проверить вахтовки под заказ</p>
-              <p className="text-xs text-[var(--text-secondary)] mt-1">Сбой на нашей стороне. Это не значит, что их нет — загляните позже.</p>
-            </div>
-          </div>
-        )}
-        {charter.state === 'ok' && charter.carriers.length > 0 && (
-          <section className="mb-8">
-            <h2 className="ds-h2 mb-3">Вахтовки под заказ</h2>
+          ) : charter.carriers.length > 0 ? (
             <div className="flex flex-col gap-4">
               {charter.carriers.map(c => <CharterCard key={c.partnerId} carrier={c} />)}
             </div>
-          </section>
-        )}
+          ) : (
+            <p className="text-sm text-[var(--text-secondary)]">Перевозчиков с прайсом под заказ пока нет.</p>
+          )}
+        </section>
 
-        {/* Мои заказы */}
-        {user && (
-          <section className="mb-8">
-            <h2 className="ds-h2 mb-3">Мои заказы мест</h2>
-            {mine.state === 'loading' && <p className="text-sm text-[var(--text-muted)]">Проверяем…</p>}
+        {/* 2. Места в поездках: списком, без формы дат */}
+        <section aria-labelledby="trips-title" className="mb-10">
+          <h2 id="trips-title" className="ds-h2 mb-1">Места в поездках</h2>
+          <p className="text-sm text-[var(--text-secondary)] mb-3">
+            Когда машина уже идёт на дату и в ней остались места, перевозчик выставляет их сюда. Место закрепляется после его подтверждения.
+          </p>
+          {win.fromPlan && (
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <p className="text-xs text-[var(--text-secondary)]">
+                Поездки на ваши даты: {fmtDate(win.from)}{win.to !== win.from ? ` — ${fmtDate(win.to)}` : ''}{win.seats > 1 ? `, мест от ${win.seats}` : ''}
+              </p>
+              <button type="button" onClick={showAllTrips} className="text-xs text-[var(--ocean)] hover:underline min-h-[44px]">
+                Все поездки на {TRIPS_WINDOW_DAYS} дней
+              </button>
+            </div>
+          )}
+          {trips.state === 'loading' && (
+            <p className="flex items-center gap-2 text-sm text-[var(--text-muted)]" role="status">
+              <Loader2 size={16} className="animate-spin" aria-hidden /> Проверяем поездки…
+            </p>
+          )}
+          {trips.state === 'failed' && (
+            <div className="ds-card p-4 flex items-start gap-2 border-[var(--warning)]">
+              <AlertCircle size={16} className="text-[var(--warning)] shrink-0 mt-0.5" aria-hidden />
+              <div>
+                <p className="text-sm text-[var(--text-primary)]">Не смогли проверить поездки</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">{trips.message} Это не значит, что мест нет.</p>
+              </div>
+            </div>
+          )}
+          {trips.state === 'ok' && trips.trips.length === 0 && (
+            <p className="text-sm text-[var(--text-secondary)]" data-testid="trips-empty">
+              {win.fromPlan
+                ? 'На эти даты мест в поездках никто не выставил.'
+                : `В ближайшие ${TRIPS_WINDOW_DAYS} дней мест в поездках никто не выставил. Нужна машина — закажите её целиком выше.`}
+            </p>
+          )}
+          {hasTrips && trips.state === 'ok' && (
+            <ul className="flex flex-col gap-3">
+              {trips.trips.map(t => (
+                <li key={t.id} id={`trip-${t.id}`}
+                  className={t.id === focusTripId ? 'rounded-lg ring-2 ring-[var(--accent)]' : undefined}>
+                  <TripCard trip={t} authed={!!user} authLoading={authLoading} onRequested={reload} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 3. Мои заказы мест — только когда есть что показать */}
+        {showMine && (
+          <section aria-labelledby="mine-title" className="mb-8">
+            <h2 id="mine-title" className="ds-h2 mb-3">Мои заказы мест</h2>
             {mine.state === 'failed' && (
               <p className="text-sm text-[var(--text-secondary)]">Не смогли проверить заказы: {mine.message}</p>
             )}
-            {mine.state === 'ok' && mine.bookings.length === 0 && (
-              <p className="text-sm text-[var(--text-muted)]">Заказов пока нет.</p>
-            )}
-            {mine.state === 'ok' && mine.bookings.length > 0 && (
+            {mine.state === 'ok' && (
               <ul className="flex flex-col gap-3">
                 {mine.bookings.map(b => (
                   <li key={b.id} className="ds-card p-4">
@@ -295,7 +313,7 @@ export default function TransfersClient({ charter, prefill = null }: { charter: 
                             amount={amountOf(b) ?? 0}
                             api={{ issue: `/api/carrier-trips/bookings/${b.id}/qr`, status: `/api/carrier-trips/bookings/${b.id}/qr` }}
                             unavailableHint="Оплата по СБП сейчас недоступна — договоритесь с перевозчиком напрямую."
-                            onPaid={() => { setPayingId(null); void loadMine(); }}
+                            onPaid={() => { setPayingId(null); reload(); }}
                           />
                         ) : (
                           <button className="ds-btn ds-btn-primary text-sm" onClick={() => setPayingId(b.id)}>
@@ -309,11 +327,6 @@ export default function TransfersClient({ charter, prefill = null }: { charter: 
               </ul>
             )}
           </section>
-        )}
-        {!user && !authLoading && (
-          <p className="text-xs text-[var(--text-muted)] mb-8">
-            <Link href="/auth/login?from=/transfers" className="text-[var(--ocean)] underline">Войдите</Link>, чтобы запросить места и видеть свои заказы.
-          </p>
         )}
       </main>
       <BottomNav activePath="/transfers" />

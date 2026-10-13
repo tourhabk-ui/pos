@@ -2,9 +2,8 @@
 /**
  * Экраны трансферов (схема 926, 02.09): витрина /transfers и кабинет /hub/carrier.
  *
- *   1. Витрина различает три исхода поиска: «ещё не искали», «искали — никто
- *      не едет», «не смогли проверить». Пустой список без searched: true не
- *      выдаётся за «мест нет» (урок удалённого transfer-empty-state, 02.08).
+ *   1. Витрина различает три исхода поездок — судит рендер
+ *      (tests/unit/transfers-page.test.tsx).
  *   2. Оплата места — общий SbpQrPayment со своими адресами; второго
  *      компонента QR нет. Свой SOS экраны не рисуют (#887).
  *   3. Роль перевозчика ведёт в живой кабинет: /hub/carrier существует,
@@ -26,24 +25,10 @@ const CABINET = strip(read('app/hub/carrier/_CarrierClient.tsx'));
 const CABINET_LAYOUT = strip(read('app/hub/carrier/layout.tsx'));
 const QR = strip(read('components/marketplace/SbpQrPayment.tsx'));
 
-describe('1. витрина — три исхода поиска', () => {
-  it('состояния названы и не сливаются', () => {
-    for (const s of ["state: 'idle'", "state: 'loading'", "state: 'ok'", "state: 'failed'"]) expect(VITRINA).toContain(s);
-  });
-  it('успех требует searched: true от API, иначе — «не смогли проверить»', () => {
-    expect(VITRINA).toMatch(/body\.searched !== true/);
-    expect(VITRINA).toMatch(/Не смогли проверить поездки/);
-    expect(VITRINA).toMatch(/Это не значит, что мест нет/);
-  });
-  it('ноль результатов сказан словами, а не пустотой', () => {
-    expect(VITRINA).toMatch(/никто не едет/);
-    expect(VITRINA).toMatch(/Попробуйте другие даты/);
-  });
-  it('запрос мест — за входом, гость видит дорогу ко входу', () => {
-    expect(VITRINA).toMatch(/\/auth\/login\?from=\/transfers/);
-    expect(VITRINA).toMatch(/Запрос ничего не держит/);
-  });
-});
+// 1. Три исхода поездок на витрине (список / пусто словами / не смогли
+// проверить, searched: true обязателен), вход для запроса мест и порядок
+// блоков судит рендер — tests/unit/transfers-page.test.tsx (витрина
+// переделана 13.10: форма дат снята, сначала машина под заказ).
 
 describe('2. оплата и SOS', () => {
   it('оплата места — общий SbpQrPayment с адресами заказа мест', () => {

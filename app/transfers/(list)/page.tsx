@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import TransfersClient from './_TransfersClient';
 import { loadCharterCarriers, type CharterState } from '@/lib/transfers/charter';
 import { parseTripsPrefill } from '@/lib/transfers/trips-link';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/transfers' },
@@ -18,7 +19,7 @@ export default async function TransfersPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   // Даты, места и поездка из ссылки планера (lib/transfers/trips-link, #2304):
-  // окно поиска открывается на них, а не на ближайшие две недели.
+  // список поездок открывается на них, а не на ближайшие 60 дней.
   const prefill = parseTripsPrefill(await searchParams);
   let charter: CharterState;
   try {
@@ -29,5 +30,7 @@ export default async function TransfersPage({ searchParams }: {
     console.error('[transfers/charter]', code, err instanceof Error ? err.message : err);
     charter = { state: 'failed' };
   }
-  return <TransfersClient charter={charter} prefill={prefill} />;
+  // «Сегодня» — по Камчатке и с сервера: даты поездок местные, а часы
+  // браузера утром по Камчатке ещё показывают вчерашнее число UTC.
+  return <TransfersClient charter={charter} prefill={prefill} today={kamchatkaToday()} />;
 }
