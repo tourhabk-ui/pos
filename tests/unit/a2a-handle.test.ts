@@ -8,11 +8,12 @@
  * completed, переписка запоминается по contextId), ошибки протокола для
  * того, чего нет (поток, push, список, расширенная карточка), GetTask и
  * CancelTask, и то, что входящее сообщение агента в историю задачи не
- * попадает (pd-guard).
+ * попадает (pd-guard). С 13.10 — и третий исход чтения: хранилище не
+ * прочиталось — InternalError, а не «задачи нет».
  */
 import { describe, it, expect, vi } from 'vitest';
 import { handleA2A, readText, readToolCall, type A2AExecutors } from '@/lib/a2a/handle';
-import { createTaskStore } from '@/lib/a2a/task-store';
+import { memoryTaskStore, type A2ATaskStore } from '@/lib/a2a/task-store';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 
 function deps(toolOutcome: PublicToolOutcome, chat: Awaited<ReturnType<A2AExecutors['chat']>> = { ok: true, text: 'Кузьмич отвечает' }) {
@@ -20,7 +21,7 @@ function deps(toolOutcome: PublicToolOutcome, chat: Awaited<ReturnType<A2AExecut
     runTool: vi.fn(async () => toolOutcome),
     chat: vi.fn(async () => chat),
   };
-  const store = createTaskStore();
+  const store = memoryTaskStore();
   return { executors, store };
 }
 
@@ -162,6 +163,38 @@ describe('задачи и то, чего нет', () => {
     const d = deps({ kind: 'ok', text: 'ок', handoffUrl: null });
     const out = await handleA2A('SendMessage', { ...dataMsg('get_tours'), configuration: { historyLength: 0 } }, ctx(), d);
     expect(out.ok && (out.result.task as { history: unknown[] }).history).toEqual([]);
+  });
+});
+
+describe('хранилище не прочиталось', () => {
+  // Хранилище, у которого база не ответила: «не смог» не выдаётся за «задачи нет».
+  const broken: A2ATaskStore = {
+    put: vi.fn(async () => {}),
+    get: vi.fn(async () => ({ kind: 'unavailable' as const })),
+    historyFor: vi.fn(async () => []),
+    remember: vi.fn(async () => {}),
+  };
+
+  it('GetTask, CancelTask и продолжение по taskId — InternalError со словами «не читается», не TaskNotFound', async () => {
+    const d = { ...deps({ kind: 'ok', text: 'ок', handoffUrl: null }), store: broken };
+    for (const [op, params] of [
+      ['GetTask', { id: 't-1' }],
+      ['CancelTask', { id: 't-1' }],
+      ['SendMessage', dataMsg('get_tours', {}, { taskId: 't-1' })],
+    ] as const) {
+      const out = await handleA2A(op, params, ctx(), d);
+      expect(!out.ok && out.error.code, op).toBe(-32603);
+      expect(!out.ok && out.error.message, op).toMatch(/не читается/);
+      expect(!out.ok && out.error.data, op).toEqual({ taskId: 't-1' });
+    }
+  });
+
+  it('задача нашлась в хранилище — читается, даже если в памяти диспетчера её нет', async () => {
+    const d = deps({ kind: 'ok', text: 'ок', handoffUrl: null });
+    const sent = await handleA2A('SendMessage', dataMsg('get_tours'), ctx(), d);
+    const id = sent.ok ? (sent.result.task as { id: string }).id : '';
+    const got = await handleA2A('GetTask', { id }, ctx('0.3'), d);
+    expect(got.ok && got.result).toMatchObject({ kind: 'task', id, status: { state: 'completed' } });
   });
 });
 

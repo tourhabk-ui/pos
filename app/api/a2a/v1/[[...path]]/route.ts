@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { MCP_INTERNAL_ERROR_TEXT } from '@/lib/mcp/jsonrpc';
 import { handleA2A } from '@/lib/a2a/handle';
-import { a2aTaskStore } from '@/lib/a2a/task-store';
+import { a2aTaskStore } from '@/lib/a2a/durable-store';
 import { buildAgentCard } from '@/lib/a2a/agent-card';
 import { a2aError, httpErrorBody, A2A_SUPPORTED_VERSIONS, type A2AError, type A2AOperation, type VersionRead } from '@/lib/a2a/wire';
 import { logText } from '@/lib/log/log-text';
@@ -64,6 +64,13 @@ function refuse(request: NextRequest, startedAt: number, version: VersionRead, e
   return restError(err);
 }
 
+/** Пути нет: в журнал — что прислали («ГЛАГОЛ /путь»), агенту — то же, что прежде. */
+function noSuchPath(request: NextRequest, startedAt: number, version: VersionRead, path: string): NextResponse {
+  const method = `${request.method} /${path.slice(0, 80)}`;
+  journalA2a(request, 'rest', startedAt, { op: 'invalid', version, errorCode: 'MethodNotFound', method });
+  return restError(a2aError('MethodNotFound', `Нет такого пути: ${method}`));
+}
+
 function versionOr400(request: NextRequest, startedAt: number): { ok: true; read: VersionOk } | { ok: false; res: NextResponse } {
   const v = versionOf(request);
   if (v.ok) return { ok: true, read: v };
@@ -102,7 +109,7 @@ export async function GET(request: NextRequest, ctx: RouteContext) {
     const historyLength = hl !== null && /^\d+$/.test(hl) ? Number(hl) : undefined;
     return run(request, v.read, 'GetTask', { id: decodeURIComponent(get[1]), ...(historyLength !== undefined ? { historyLength } : {}) }, startedAt);
   }
-  return refuse(request, startedAt, v.read, 'MethodNotFound', a2aError('MethodNotFound', `Нет такого пути: GET /${path.slice(0, 80)}`));
+  return noSuchPath(request, startedAt, v.read, path);
 }
 
 export async function POST(request: NextRequest, ctx: RouteContext) {
@@ -128,12 +135,12 @@ export async function POST(request: NextRequest, ctx: RouteContext) {
     }
     return run(request, v.read, 'SendMessage', body, startedAt);
   }
-  return refuse(request, startedAt, v.read, 'MethodNotFound', a2aError('MethodNotFound', `Нет такого пути: POST /${path.slice(0, 80)}`));
+  return noSuchPath(request, startedAt, v.read, path);
 }
 
 export async function DELETE(request: NextRequest, ctx: RouteContext) {
   const startedAt = Date.now();
   const path = await pathOf(ctx);
   if (TASK_PUSH.test(path)) return refuse(request, startedAt, versionOf(request), 'PushNotificationNotSupported', a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
-  return refuse(request, startedAt, versionOf(request), 'MethodNotFound', a2aError('MethodNotFound', `Нет такого пути: DELETE /${path.slice(0, 80)}`));
+  return noSuchPath(request, startedAt, versionOf(request), path);
 }

@@ -23,13 +23,17 @@
  * CancelTask у завершённой задачи — TaskNotCancelableError: задачи здесь
  * рождаются уже завершёнными.
  *
+ * Задачи хранятся час и переживают перезапуск (13.10, lib/a2a/durable-store).
+ * Хранилище, которое не ответило, — InternalError с этими словами, а не
+ * TaskNotFound: «не смог прочитать» и «задачи нет» агенту нужно различать.
+ *
  * Сторож: tests/unit/a2a-handle.test.ts.
  */
 
 import { randomUUID } from 'node:crypto';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import type { AgentAnswer } from './chat';
-import type { ChatTurn, TaskStore } from './task-store';
+import type { A2ATaskStore, ChatTurn, TaskLookup } from './task-store';
 import {
   a2aError, encodeSendMessageResult, encodeTask, readSendMessageParams, readTaskIdParams,
   TERMINAL_STATES,
@@ -100,7 +104,18 @@ function makeTask(a: {
 const EMPTY_MESSAGE = 'В сообщении нет ни текста, ни DataPart с полем tool. Пришлите вопрос TextPart или вызов {"tool": "<имя>", "arguments": {...}}.';
 const FILES_NOT_ACCEPTED = 'Файлы не принимаются: только text/plain (вопрос) или application/json (DataPart {"tool", "arguments"}).';
 
-async function sendMessage(params: unknown, ctx: A2AContext, deps: { executors: A2AExecutors; store: TaskStore }): Promise<A2AResult> {
+/** Нашлась — задача; нет её — TaskNotFound; хранилище не прочиталось — InternalError, не «нет». */
+function lookupResult(lookup: TaskLookup, id: string): { ok: true; task: TaskRecord } | { ok: false; error: A2AError } {
+  if (lookup.kind === 'found') return { ok: true, task: lookup.task };
+  if (lookup.kind === 'missing') {
+    return { ok: false, error: a2aError('TaskNotFound', `Задача ${id} не найдена или старше часа (задачи хранятся час).`, { taskId: id }) };
+  }
+  return { ok: false, error: a2aError('Internal', `Хранилище задач сейчас не читается — это сбой на стороне Ведара, а не «задачи ${id} нет». Повторите позже.`, { taskId: id }) };
+}
+
+type Deps = { executors: A2AExecutors; store: A2ATaskStore };
+
+async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promise<A2AResult> {
   const read = readSendMessageParams(params);
   if (!read.ok) return { ok: false, error: a2aError('InvalidParams', read.reason) };
   const { message, historyLength } = read.params;
@@ -111,8 +126,9 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: { executors: 
   // продолжать нечего — агенту честно сказано, как начать новую в том же
   // контексте. Неизвестный taskId — TaskNotFound, как у GetTask.
   if (message.taskId) {
-    const prev = deps.store.get(message.taskId);
-    if (!prev) return { ok: false, error: a2aError('TaskNotFound', `Задача ${message.taskId} не найдена или истекла (задачи хранятся час).`, { taskId: message.taskId }) };
+    const found = lookupResult(await deps.store.get(message.taskId), message.taskId);
+    if (!found.ok) return found;
+    const prev = found.task;
     if (TERMINAL_STATES.has(prev.state)) {
       return { ok: false, error: a2aError('InvalidParams', `Задача ${message.taskId} уже завершена (${prev.state}). Отправьте новое сообщение без taskId; contextId можно оставить тот же.`, { taskId: message.taskId, state: prev.state }) };
     }
@@ -147,7 +163,7 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: { executors: 
         task = makeTask({ ids, now, id: taskId, contextId, state: 'failed', text: outcome.text, metadata });
         break;
     }
-    deps.store.put(task);
+    await deps.store.put(task);
     return { ok: true, result: encodeSendMessageResult(task, ctx.version, historyLength) };
   }
 
@@ -156,13 +172,13 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: { executors: 
     const hasFile = message.parts.some((p) => p.kind === 'file');
     return { ok: false, error: a2aError(hasFile ? 'ContentTypeNotSupported' : 'InvalidParams', hasFile ? FILES_NOT_ACCEPTED : EMPTY_MESSAGE) };
   }
-  const answer = await deps.executors.chat(text, deps.store.historyFor(contextId), contextId);
+  const answer = await deps.executors.chat(text, await deps.store.historyFor(contextId), contextId);
   const metadata = { input: 'text' };
   const task = answer.ok
     ? makeTask({ ids, now, id: taskId, contextId, state: 'completed', text: answer.text, metadata })
     : makeTask({ ids, now, id: taskId, contextId, state: answer.rejected ? 'rejected' : 'failed', text: answer.text, metadata });
-  if (answer.ok) deps.store.remember(contextId, [{ role: 'user', content: text }, { role: 'assistant', content: answer.text }]);
-  deps.store.put(task);
+  if (answer.ok) await deps.store.remember(contextId, [{ role: 'user', content: text }, { role: 'assistant', content: answer.text }]);
+  await deps.store.put(task);
   return { ok: true, result: encodeSendMessageResult(task, ctx.version, historyLength) };
 }
 
@@ -170,7 +186,7 @@ export async function handleA2A(
   op: A2AOperation,
   params: unknown,
   ctx: A2AContext,
-  deps: { executors: A2AExecutors; store: TaskStore },
+  deps: Deps,
 ): Promise<A2AResult> {
   switch (op) {
     case 'SendMessage':
@@ -178,16 +194,17 @@ export async function handleA2A(
     case 'GetTask': {
       const read = readTaskIdParams(params);
       if (!read.ok) return { ok: false, error: a2aError('InvalidParams', read.reason) };
-      const task = deps.store.get(read.id);
-      if (!task) return { ok: false, error: a2aError('TaskNotFound', `Задача ${read.id} не найдена или истекла (задачи хранятся час).`, { taskId: read.id }) };
-      return { ok: true, result: encodeTask(task, ctx.version, read.historyLength) };
+      const found = lookupResult(await deps.store.get(read.id), read.id);
+      if (!found.ok) return found;
+      return { ok: true, result: encodeTask(found.task, ctx.version, read.historyLength) };
     }
     case 'CancelTask': {
       const read = readTaskIdParams(params);
       if (!read.ok) return { ok: false, error: a2aError('InvalidParams', read.reason) };
-      const task = deps.store.get(read.id);
-      if (!task) return { ok: false, error: a2aError('TaskNotFound', `Задача ${read.id} не найдена или истекла (задачи хранятся час).`, { taskId: read.id }) };
-      return { ok: false, error: a2aError('TaskNotCancelable', `Задача ${read.id} уже завершена (${task.state}): отменять нечего.`, { taskId: read.id, state: task.state }) };
+      const found = lookupResult(await deps.store.get(read.id), read.id);
+      if (!found.ok) return found;
+      const { state } = found.task;
+      return { ok: false, error: a2aError('TaskNotCancelable', `Задача ${read.id} уже завершена (${state}): отменять нечего.`, { taskId: read.id, state }) };
     }
     case 'ListTasks':
       return { ok: false, error: a2aError('UnsupportedOperation', 'Список задач анонимному клиенту не отдаётся: задачи читаются по id (GetTask).') };

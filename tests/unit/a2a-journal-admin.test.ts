@@ -40,7 +40,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a
 vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: (...a: unknown[]) => requireAdmin(...a) }));
 
 import {
-  agentLabel, a2aAgentKind, contextKey, sendMessageFacts, logA2aRequest, UNKNOWN_AGENT, AGENT_LABEL_MAX,
+  agentLabel, a2aAgentKind, contextKey, sendMessageFacts, logA2aRequest, safeMethodName, UNKNOWN_AGENT, AGENT_LABEL_MAX,
 } from '@/lib/a2a/journal';
 import { POST, GET } from '@/app/api/a2a/route';
 import { POST as restPost, GET as restGet, DELETE as restDelete } from '@/app/api/a2a/v1/[[...path]]/route';
@@ -51,7 +51,7 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
 const INSERT_COLUMNS = [
   'binding', 'op', 'version', 'version_declared', 'ok', 'error_code', 'input', 'tool', 'state',
-  'duration_ms', 'agent', 'ua_family', 'caller_hash', 'context_key', 'is_self',
+  'duration_ms', 'agent', 'ua_family', 'caller_hash', 'context_key', 'is_self', 'method',
 ];
 const HASH = /^[0-9a-f]{32}$/;
 
@@ -154,12 +154,14 @@ describe('запись в журнал', () => {
     });
     const { sql, params } = lastInsert();
     expect(sql).toContain(`INSERT INTO a2a_requests (${INSERT_COLUMNS.join(', ')})`);
-    expect(sql).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$15\)/);
+    expect(sql).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$15, \$16\)/);
     expect(params).toHaveLength(INSERT_COLUMNS.length);
     expect(params.slice(0, 12)).toEqual(['rest', 'SendMessage', '1.0', true, true, null, 'tool', 'get_tours', 'completed', 43, 'A2A-Registry-TaskProbe', 'неизвестен']);
     expect(params[12]).toMatch(HASH);
     expect(params[13]).toMatch(HASH);
     expect(params[14]).toBe(false);
+    // Имя метода пишется только при MethodNotFound.
+    expect(params[15]).toBeNull();
     const flat = JSON.stringify(params);
     expect(flat).not.toContain('203.0.113.7');
     expect(flat).not.toContain('a2aregistry.org');
@@ -178,6 +180,18 @@ describe('запись в журнал', () => {
     ({ params } = lastInsert());
     expect(params[7]).toBe('unknown');
     expect(params[9]).toBeNull();
+  });
+
+  it('имя неизвестного метода — только безопасные знаки; телефон и почта не пишутся', () => {
+    expect(safeMethodName('initialize')).toBe('initialize');
+    expect(safeMethodName('tools/call')).toBe('tools/call');
+    expect(safeMethodName('POST /tasks/abc:cancel')).toBe('POST /tasks/abc:cancel');
+    expect(safeMethodName('GET /79991234567')).toBe('other');
+    expect(safeMethodName('ivan@mail.ru')).toBe('other');
+    expect(safeMethodName('<script>')).toBe('other');
+    expect(safeMethodName('x'.repeat(200))).toHaveLength(64);
+    expect(safeMethodName('')).toBeNull();
+    expect(safeMethodName(null)).toBeNull();
   });
 
   it('отказ записи — в лог с SQLSTATE, не наружу', async () => {
@@ -233,6 +247,8 @@ describe('оба биндинга журналируют каждый исход
     expect(lastInsert().params.slice(0, 6)).toEqual(['jsonrpc', 'invalid', '2.0', true, false, 'VersionNotSupported']);
     await rpc('tasks/explode', {}, { 'A2A-Version': '1.0' });
     expect(lastInsert().params.slice(0, 6)).toEqual(['jsonrpc', 'invalid', '1.0', true, false, 'MethodNotFound']);
+    // 13.10: что прислал агент — теперь видно (BrickBlueBot получил MethodNotFound, а что прислал, журнал не знал).
+    expect(lastInsert().params[15]).toBe('tasks/explode');
     await POST(req('/api/a2a', { method: 'POST', body: { jsonrpc: '2.0', method: 'message/send', params: {} } }));
     expect(lastInsert().params.slice(0, 6)).toEqual(['jsonrpc', 'notification', '0.3', false, true, null]);
     await POST(req('/api/a2a', { method: 'POST', body: 'не json' }));
@@ -258,6 +274,7 @@ describe('оба биндинга журналируют каждый исход
     expect(lastInsert().params.slice(0, 6)).toEqual(['rest', 'invalid', '1.0', true, false, 'UnsupportedOperation']);
     await restGet(req('/api/a2a/v1/nothing', { method: 'GET', headers: { 'A2A-Version': '1.0' } }), restCtx('nothing'));
     expect(lastInsert().params.slice(0, 6)).toEqual(['rest', 'invalid', '1.0', true, false, 'MethodNotFound']);
+    expect(lastInsert().params[15]).toBe('GET /nothing');
     const bad = await restGet(req('/api/a2a/v1/tasks/x', { method: 'GET', headers: { 'A2A-Version': '9.9' } }), restCtx('tasks/x'));
     expect(bad.status).toBe(400);
     expect(lastInsert().params.slice(0, 6)).toEqual(['rest', 'invalid', '9.9', true, false, 'VersionNotSupported']);
@@ -265,6 +282,7 @@ describe('оба биндинга журналируют каждый исход
     expect(lastInsert().params.slice(0, 6)).toEqual(['rest', 'invalid', '1.0', true, false, 'ParseError']);
     await restDelete(req('/api/a2a/v1/tasks/x', { method: 'DELETE' }), restCtx('tasks/x'));
     expect(lastInsert().params.slice(0, 6)).toEqual(['rest', 'invalid', '0.3', false, false, 'MethodNotFound']);
+    expect(lastInsert().params[15]).toBe('DELETE /tasks/x');
     ({ params } = lastInsert());
     expect(params[13]).toBeNull();
   });
@@ -283,15 +301,17 @@ describe('оба биндинга журналируют каждый исход
   it('в исходниках: каждый ранний выход роутов зовёт журнал', () => {
     const rpcSrc = read('app/api/a2a/route.ts');
     for (const code of ['VersionNotSupported', 'BodyTooLarge', 'ParseError', 'InvalidRequest', 'MethodNotFound', 'Internal']) {
-      expect(rpcSrc, code).toMatch(new RegExp(`note\\(\\{ op(?:: 'invalid')?, errorCode: '${code}' \\}\\)`));
+      expect(rpcSrc, code).toMatch(new RegExp(`note\\(\\{ op(?:: 'invalid')?, errorCode: '${code}'(?:, method: msg\\.method)? \\}\\)`));
     }
     expect(rpcSrc).toMatch(/note\(\{ op: 'notification' \}\)/);
     expect(rpcSrc).toMatch(/note\(\{ op, out \}\)/);
     expect(rpcSrc).toMatch(/journalA2a\(request, 'jsonrpc', Date\.now\(\), \{ op: 'card'/);
     const rest = read('app/api/a2a/v1/[[...path]]/route.ts');
-    for (const code of ['VersionNotSupported', 'BodyTooLarge', 'ParseError', 'UnsupportedOperation', 'PushNotificationNotSupported', 'MethodNotFound']) {
+    for (const code of ['VersionNotSupported', 'BodyTooLarge', 'ParseError', 'UnsupportedOperation', 'PushNotificationNotSupported']) {
       expect(rest, code).toContain(`'${code}', a2aError(`);
     }
+    // Неизвестный путь журналируется вместе с тем, что прислали (13.10).
+    expect(rest).toMatch(/journalA2a\(request, 'rest', startedAt, \{ op: 'invalid', version, errorCode: 'MethodNotFound', method \}\)/);
     expect(rest).toMatch(/journalA2a\(request, 'rest', startedAt, \{ op, version: read, out \}\)/);
     expect(rest).toMatch(/journalA2a\(request, 'rest', startedAt, \{ op, version: read, errorCode: 'Internal' \}\)/);
     expect(rest).toMatch(/journalA2a\(request, 'rest', startedAt, \{ op: 'card'/);
@@ -303,7 +323,9 @@ describe('миграция 1219', () => {
     const sql = read('migrations/1219_a2a_requests.sql');
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS a2a_requests/);
     const ddl = sql.slice(sql.indexOf('CREATE TABLE'), sql.indexOf(');')).replace(/--.*$/gm, '');
-    for (const col of INSERT_COLUMNS) expect(ddl, col).toMatch(new RegExp(`^\\s*${col}\\s+`, 'm'));
+    // method добавлен миграцией 1229 — проверяется у неё.
+    for (const col of INSERT_COLUMNS.filter((c) => c !== 'method')) expect(ddl, col).toMatch(new RegExp(`^\\s*${col}\\s+`, 'm'));
+    expect(read('migrations/1229_a2a_tasks_contexts.sql')).toMatch(/ALTER TABLE a2a_requests ADD COLUMN IF NOT EXISTS method VARCHAR\(64\)/);
     expect(ddl).not.toMatch(/user_agent|\bip\b|\btext\b|arguments|question/i);
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_a2a_requests_created_at/);
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_a2a_requests_agent_created/);

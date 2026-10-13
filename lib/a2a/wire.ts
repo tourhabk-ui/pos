@@ -105,6 +105,14 @@ export function readOperation(method: string): A2AOperation | null {
 /** Все имена, которые принимает сервер, — для карточки и сторожа. */
 export const A2A_METHOD_NAMES: readonly string[] = Object.keys(METHOD_NAMES);
 
+/**
+ * Методы MCP: с ними на адрес A2A приходит MCP-клиент (13.10 MethodNotFound
+ * получил BrickBlueBot — клиент нашего MCP). Ответ тот же, но с адресом MCP.
+ */
+export const MCP_METHOD_NAMES: ReadonlySet<string> = new Set([
+  'initialize', 'ping', 'tools/list', 'tools/call', 'resources/list', 'resources/read', 'prompts/list', 'prompts/get',
+]);
+
 // ── Ошибки ────────────────────────────────────────────────────────────────
 
 /**

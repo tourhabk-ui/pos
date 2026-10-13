@@ -82,7 +82,7 @@ interface A2aDayRow { day: string; requests: number; agents: number }
 interface A2aToolRow { tool: string; calls: number; completed: number; rejected: number; failed: number; agents: number }
 interface A2aRecentRow {
   at: string; binding: string; op: string; version: string; version_declared: boolean; ok: boolean;
-  error_code: string | null; input: string | null; tool: string | null; state: string | null;
+  error_code: string | null; method: string | null; input: string | null; tool: string | null; state: string | null;
   duration_ms: number | null; agent: string; ua_family: string; is_self: boolean;
 }
 interface BoundsRow { since: string | null; total: number }
@@ -145,7 +145,7 @@ export async function readA2a(days: number) {
     ),
     pool.query<A2aRecentRow>(
       `SELECT to_char(created_at ${KAM}, 'YYYY-MM-DD HH24:MI:SS') AS at,
-              binding, op, version, version_declared, ok, error_code, input, tool, state, duration_ms, agent, ua_family, is_self
+              binding, op, version, version_declared, ok, error_code, method, input, tool, state, duration_ms, agent, ua_family, is_self
          FROM a2a_requests
         ORDER BY created_at DESC
         LIMIT $1::int`,

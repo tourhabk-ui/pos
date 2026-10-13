@@ -5,16 +5,22 @@
  * ошибки протокола уходят телом JSON-RPC с HTTP 200 (как у MCP), REST
  * отвечает google.rpc.Status со статусом из таблицы, тип содержимого
  * application/a2a+json, CORS на каждом ответе.
+ *
+ * 13.10: задачи переживают перезапуск — задача, которой нет в памяти процесса,
+ * читается из базы (a2a_tasks); база не ответила — -32603 и HTTP 500, а не
+ * «задачи нет». MCP-клиент, пришедший на адрес A2A, получает адрес MCP.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { runPublicTool, answerAgentMessage } = vi.hoisted(() => ({
+const { runPublicTool, answerAgentMessage, query } = vi.hoisted(() => ({
   runPublicTool: vi.fn(),
   answerAgentMessage: vi.fn(),
+  query: vi.fn(),
 }));
 vi.mock('@/app/api/mcp/route', () => ({ runPublicTool }));
 vi.mock('@/lib/a2a/chat', () => ({ answerAgentMessage }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => query(...a) } }));
 
 import { POST, GET, OPTIONS } from '@/app/api/a2a/route';
 import { POST as restPost, GET as restGet, DELETE as restDelete } from '@/app/api/a2a/v1/[[...path]]/route';
@@ -39,6 +45,8 @@ const restCtx = (path: string) => ({ params: Promise.resolve({ path: path === ''
 beforeEach(() => {
   runPublicTool.mockReset();
   answerAgentMessage.mockReset();
+  query.mockReset();
+  query.mockResolvedValue({ rows: [] });
   runPublicTool.mockResolvedValue({ kind: 'ok', text: 'Два тура', handoffUrl: 'https://vedarai.ru/mcp/h/x' });
   answerAgentMessage.mockResolvedValue({ ok: true, text: 'Ответ Кузьмича' });
 });
@@ -84,6 +92,37 @@ describe('JSON-RPC биндинг', () => {
     expect(unknown.error.code).toBe(-32601);
     expect(unknown.error.data.methods).toContain('SendMessage');
     expect(unknown.error.data.methods).toContain('message/send');
+    // tools/call — метод MCP: агенту назван адрес MCP (13.10, BrickBlueBot).
+    expect(unknown.error.data.mcp).toMatch(/\/api\/mcp$/);
+    expect(unknown.error.message).toContain('MCP-сервер Ведара');
+    const other = await (await rpc('tasks/explode', {})).json();
+    expect(other.error.code).toBe(-32601);
+    expect(other.error.data).not.toHaveProperty('mcp');
+  });
+
+  it('после перезапуска задача читается из базы; база не ответила — -32603 и HTTP 500, не «задачи нет»', async () => {
+    const stored = {
+      id: 'from-db', contextId: 'ctx-db', state: 'completed', timestamp: '2026-10-13T09:00:00.000Z', metadata: { input: 'text' },
+      statusMessage: { messageId: 'm', role: 'agent', parts: [{ text: 'Ответ из базы' }], contextId: 'ctx-db', taskId: 'from-db' },
+      artifacts: [{ artifactId: 'a', name: 'answer', parts: [{ text: 'Ответ из базы' }] }],
+      history: [],
+    };
+    query.mockImplementation((sql: string, params: unknown[] = []) =>
+      Promise.resolve({ rows: /FROM a2a_tasks/.test(sql) && params[0] === 'from-db' ? [{ record: stored }] : [] }));
+    const got = await (await rpc('GetTask', { id: 'from-db' }, { 'A2A-Version': '1.0' })).json();
+    expect(got.result).toMatchObject({ id: 'from-db', contextId: 'ctx-db', status: { state: 'TASK_STATE_COMPLETED' } });
+    expect((await (await rpc('GetTask', { id: 'other' }, { 'A2A-Version': '1.0' })).json()).error.code).toBe(-32001);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    query.mockImplementation((sql: string) => /FROM a2a_tasks/.test(sql)
+      ? Promise.reject(Object.assign(new Error('connection terminated'), { code: '57P01' }))
+      : Promise.resolve({ rows: [] }));
+    const down = await (await rpc('GetTask', { id: 'from-db' }, { 'A2A-Version': '1.0' })).json();
+    expect(down.error.code).toBe(-32603);
+    expect(down.error.message).toMatch(/не читается/);
+    const rest = await restGet(req('/api/a2a/v1/tasks/from-db', { method: 'GET', headers: { 'A2A-Version': '1.0' } }), restCtx('tasks/from-db'));
+    expect(rest.status).toBe(500);
+    spy.mockRestore();
   });
 
   it('уведомление — 202 без тела; не JSON — 400 и -32700; пакет — -32600', async () => {

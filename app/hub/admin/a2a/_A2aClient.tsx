@@ -31,7 +31,7 @@ interface DayRow { day: string; requests: number; agents: number }
 interface ToolRow { tool: string; calls: number; completed: number; rejected: number; failed: number; agents: number }
 interface RecentRow {
   at: string; binding: string; op: string; version: string; version_declared: boolean; ok: boolean;
-  error_code: string | null; input: string | null; tool: string | null; state: string | null;
+  error_code: string | null; method: string | null; input: string | null; tool: string | null; state: string | null;
   duration_ms: number | null; agent: string; ua_family: string; is_self: boolean; kind: AgentKind;
 }
 interface A2aBlock {
@@ -348,7 +348,7 @@ export default function A2aClient() {
                           <Td>
                             {r.ok
                               ? (r.state ? STATE_LABEL[r.state] ?? r.state : 'ответ')
-                              : <span className="text-[var(--warning)]">ошибка: {r.error_code ?? '?'}</span>}
+                              : <span className="text-[var(--warning)]">ошибка: {r.error_code ?? '?'}{r.method ? <> · <code>{r.method}</code></> : null}</span>}
                           </Td>
                           <Td right muted>{r.duration_ms ?? '—'}</Td>
                         </tr>

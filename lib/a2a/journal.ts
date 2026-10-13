@@ -43,6 +43,7 @@ import { mcpCallerHash, safeToolName } from '@/lib/mcp/call-log';
 import { uaFamily } from '@/lib/mcp/client-id';
 import { PROBE_NAME_PATTERN } from '@/lib/mcp/probe-clients';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
+import { redactPII } from '@/lib/security/pii-redact';
 import type { A2AOperation } from '@/lib/a2a/wire';
 
 export type A2aBinding = 'jsonrpc' | 'rest';
@@ -68,6 +69,8 @@ export interface A2aJournalEntry {
   /** contextId агента — в журнал уходит только hash. */
   contextId?: string | null;
   durationMs?: number | null;
+  /** Что прислал агент, когда метода или пути у нас нет (MethodNotFound); иначе не пишется. */
+  method?: string | null;
   ip: string;
   userAgent: string;
   self: boolean;
@@ -164,11 +167,23 @@ function clip(value: string | null | undefined, max: number): string | null {
   return value.slice(0, max);
 }
 
+/**
+ * Имя неизвестного метода (JSON-RPC) или «ГЛАГОЛ /путь» (REST) — для разбора
+ * MethodNotFound (13.10: BrickBlueBot получил его, а что прислал, журнал не
+ * знал). Сначала redactPII: телефон или почта в пути станут плейсхолдером и не
+ * пройдут проверку знаков. Чужие знаки — «other», не обрезок строки.
+ */
+export function safeMethodName(method: string | null | undefined): string | null {
+  if (!method || !method.trim()) return null;
+  const m = redactPII(method.trim()).slice(0, 64);
+  return /^[A-Za-z0-9/._:\- ]+$/.test(m) ? m : 'other';
+}
+
 export function logA2aRequest(entry: A2aJournalEntry): void {
   void pool
     .query(
-      `INSERT INTO a2a_requests (binding, op, version, version_declared, ok, error_code, input, tool, state, duration_ms, agent, ua_family, caller_hash, context_key, is_self)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      `INSERT INTO a2a_requests (binding, op, version, version_declared, ok, error_code, input, tool, state, duration_ms, agent, ua_family, caller_hash, context_key, is_self, method)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         entry.binding,
         clip(entry.op, 32),
@@ -185,6 +200,7 @@ export function logA2aRequest(entry: A2aJournalEntry): void {
         mcpCallerHash(entry.ip, entry.userAgent),
         contextKey(entry.contextId),
         entry.self,
+        safeMethodName(entry.method),
       ],
     )
     .catch((err: unknown) => {

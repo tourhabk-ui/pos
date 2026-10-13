@@ -21,9 +21,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, MCP_INTERNAL_ERROR_TEXT } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { handleA2A } from '@/lib/a2a/handle';
-import { a2aTaskStore } from '@/lib/a2a/task-store';
+import { a2aTaskStore } from '@/lib/a2a/durable-store';
 import { buildAgentCard } from '@/lib/a2a/agent-card';
-import { A2A_ERROR, A2A_METHOD_NAMES, A2A_SUPPORTED_VERSIONS, readOperation } from '@/lib/a2a/wire';
+import { A2A_ERROR, A2A_METHOD_NAMES, A2A_SUPPORTED_VERSIONS, MCP_METHOD_NAMES, readOperation } from '@/lib/a2a/wire';
 import { logText } from '@/lib/log/log-text';
 import { buildExecutors, journalA2a, optionsResponse, publicBase, versionOf, withCors, type JournalFields } from './_shared';
 
@@ -83,8 +83,11 @@ export async function POST(request: NextRequest) {
 
   const op = readOperation(msg.method);
   if (!op) {
-    note({ op: 'invalid', errorCode: 'MethodNotFound' });
-    return withCors(NextResponse.json(jsonrpcError(msg.id, A2A_ERROR.MethodNotFound.code, `Method not found: ${msg.method.slice(0, 80)}`, { methods: A2A_METHOD_NAMES })));
+    note({ op: 'invalid', errorCode: 'MethodNotFound', method: msg.method });
+    // MCP-клиент, пришедший сюда, получает адрес MCP, а не только список методов A2A.
+    const mcp = MCP_METHOD_NAMES.has(msg.method) ? `${publicBase()}/api/mcp` : null;
+    const text = `Method not found: ${msg.method.slice(0, 80)}${mcp ? `. Это адрес A2A; MCP-сервер Ведара — ${mcp}` : ''}`;
+    return withCors(NextResponse.json(jsonrpcError(msg.id, A2A_ERROR.MethodNotFound.code, text, { methods: A2A_METHOD_NAMES, ...(mcp ? { mcp } : {}) })));
   }
 
   try {
