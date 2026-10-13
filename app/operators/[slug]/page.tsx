@@ -50,7 +50,11 @@ function parseCount(value: string | null | undefined): number {
 }
 
 /** Подпись категории на карточке: сырое `transfer` человеку ничего не говорит. Прочие — как в базе. */
-const CATEGORY_LABEL: Record<string, string> = { transfer: 'Перевозчик' };
+// prod-check 117 (13.10): бейдж в герое печатал сырое «operator» — ключ категории
+// вместо слова. Неизвестный ключ по-прежнему печатается как есть, не прячется.
+const CATEGORY_LABEL: Record<string, string> = {
+  operator: 'Туроператор', transfer: 'Перевозчик', guide: 'Гид', stay: 'Жильё', gear: 'Прокат', agent: 'Агент',
+};
 
 const ICON_MAP: Record<string, React.ElementType> = {
   Shield, Fish, Home, Calendar, Users, Star, MapPin, Phone,

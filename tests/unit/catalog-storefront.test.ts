@@ -98,7 +98,10 @@ describe('карточка говорит только то, что знает',
   });
   it('состав (included) и оператор выводятся, описание — в две строки', () => {
     expect(CARD).toMatch(/\(tour\.included \?\? \[\]\)[\s\S]*?\.slice\(0, 3\)/);
-    expect(CARD).toMatch(/\{tour\.operator_name\}/);
+    // 13.10: имя оператора — ссылка на его страницу, slug и is_public — из той же строки поиска.
+    expect(CARD).toMatch(/<OperatorNameLink name=\{tour\.operator_name\} slug=\{tour\.operator_slug\} isPublic=\{tour\.operator_public\}/);
+    expect(SEARCH).toMatch(/p\.slug as operator_slug/);
+    expect(SEARCH).toMatch(/p\.is_public as operator_public/);
     expect(CARD).toMatch(/line-clamp-2 mb-1\.5">\s*\{tour\.short_description \?\? tour\.description\}/);
   });
   it('ссылки — сразу на канонический /catalog/tours/{id}, без 308 через /marketplace (#129)', () => {

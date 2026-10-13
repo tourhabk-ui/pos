@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import {
   ChevronLeft, ChevronRight, Users, Clock, Star,
   CheckCircle, X, SlidersHorizontal, CalendarDays,
@@ -40,6 +41,9 @@ interface Tour {
     name: string;
     verified: boolean;
     rating: number | null;
+    /** Страница оператора (partners.slug / is_public); нет — имя текстом (13.10). */
+    slug?: string | null;
+    isPublic?: boolean | null;
   };
 }
 
@@ -163,7 +167,7 @@ function TourCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            {tour.operator.name}
+            <OperatorNameLink name={tour.operator.name} slug={tour.operator.slug} isPublic={tour.operator.isPublic} />
           </span>
           {tour.operator.verified && (
             <CheckCircle className="w-3 h-3" style={{ color: 'var(--success)' }} />

@@ -37,6 +37,7 @@ import {
   dataFreshness, freshnessDot, freshnessShort, plural,
 } from '@/lib/home/data-freshness';
 import { plateFacts } from '@/lib/home/plate-facts';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { AVAILABILITY_LABEL } from '@/lib/tours/catalog-availability';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 import { ShareButton } from '@/components/shared/ShareButton';
@@ -547,7 +548,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 }
                 const href = p.kind === 'tour' ? tourPath(p) : `/routes/${p.id}`;
                 const pf = plateFacts(p);
-                const meta = [pf.duration, pf.operator].filter(Boolean).join(' · ');
                 return (
                   <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: тур`} aria-hidden={clone || undefined}>
                     <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
@@ -557,7 +557,15 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                     {p.description && <div className="cap">{p.description}</div>}
                     <div className="facts">
                       {pf.price ? <span className="price">{pf.price}</span> : <span className="price muted">Цена по запросу</span>}
-                      {meta && <span className="meta">{meta}</span>}
+                      {(pf.duration || pf.operator) && (
+                        <span className="meta">
+                          {pf.duration}
+                          {pf.duration && pf.operator ? ' · ' : ''}
+                          {/* Имя — ссылка на страницу оператора (владелец 13.10);
+                              тач-зона 44px — отступами без сдвига строки. */}
+                          {pf.operator && <OperatorNameLink name={pf.operator} slug={p.operatorSlug} isPublic={p.operatorPublic} className="inline-block py-[15px] -my-[15px]" />}
+                        </span>
+                      )}
                     </div>
                     {/* Условия отмены — дословно из поля тура (решение владельца
                         24.09 п.3): своей сетки сроков и процентов здесь нет. */}

@@ -23,12 +23,15 @@ import { activityLabel } from '@/lib/tours/labels';
 import { activityIcon } from '@/lib/tours/activity-icons';
 import { tourPriceFrom } from '@/lib/search/tour-query-match';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 
 export interface ToursForQueryItem {
   id: number | string;
   slug?: string | null;
   title: string;
   operator_name: string | null;
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
   activity_type: string | null;
   base_price: number | string | null;
 }
@@ -79,10 +82,10 @@ export function ToursForQuery({ q, state }: { q: string; state: ToursForQuerySta
           const Icon = activityIcon(t.activity_type);
           return (
             <li key={String(t.id)} className="min-w-0">
-              <Link
-                href={tourPath(t)}
-                className="ds-card flex items-center gap-3 p-3 min-h-[64px] transition-all duration-200 hover:border-[var(--accent)]"
-              >
+              {/* Ссылка на тур — слоем под содержимым, имя оператора — своей
+                  ссылкой поверх (владелец 13.10): <a> в <a> недопустим. */}
+              <div className="ds-card relative flex items-center gap-3 p-3 min-h-[64px] transition-all duration-200 hover:border-[var(--accent)]">
+                <Link href={tourPath(t)} className="absolute inset-0 z-[1] rounded-lg" aria-label={t.title} />
                 <span
                   className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                   style={{ background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' }}
@@ -90,16 +93,20 @@ export function ToursForQuery({ q, state }: { q: string; state: ToursForQuerySta
                 >
                   <Icon size={18} className="text-[var(--accent)]" />
                 </span>
-                <span className="flex-1 min-w-0">
+                <span className="flex-1 min-w-0 relative z-[2] pointer-events-none">
                   <span className="block text-sm font-semibold text-[var(--text-primary)] line-clamp-2">{t.title}</span>
                   <span className="block text-xs text-[var(--text-secondary)] truncate">
-                    {[kind, t.operator_name].filter(Boolean).join(' · ')}
+                    {kind}
+                    {kind && t.operator_name ? ' · ' : ''}
+                    {t.operator_name && (
+                      <OperatorNameLink name={t.operator_name} slug={t.operator_slug} isPublic={t.operator_public} className="pointer-events-auto" />
+                    )}
                   </span>
                 </span>
                 {price && (
-                  <span className="text-sm font-bold text-[var(--text-primary)] shrink-0 whitespace-nowrap">{price}</span>
+                  <span className="text-sm font-bold text-[var(--text-primary)] shrink-0 whitespace-nowrap relative z-[2] pointer-events-none">{price}</span>
                 )}
-              </Link>
+              </div>
             </li>
           );
         })}

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Script from 'next/script';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import {
   CheckCircle, Copy, Home, Calendar, Users, Phone,
   MessageSquare, Loader2, AlertCircle, CreditCard, BadgeCheck, ExternalLink,
@@ -22,6 +23,9 @@ interface BookingData {
   payment_status: string;
   total_price: number;
   operator_name: string;
+  /** Страница оператора (partners.slug / is_public); нет — имя текстом (13.10). */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
   operator_phone: string | null;
   operator_telegram: string | null;
   cp_public_id: string;
@@ -519,7 +523,9 @@ export default function BookingSuccessClient() {
               {contactsShown && (
                 <div className="pt-3 border-t border-[var(--border)]">
                   <p className="text-[11px] text-[var(--text-muted)] mb-2">Оператор</p>
-                  <p className="text-sm font-medium text-[var(--text-primary)] mb-2">{booking.operator_name}</p>
+                  <p className="text-sm font-medium text-[var(--text-primary)] mb-2">
+                    <OperatorNameLink name={booking.operator_name} slug={booking.operator_slug} isPublic={booking.operator_public} />
+                  </p>
                   <div className="flex flex-wrap gap-3">
                     {booking.operator_phone && (
                       <a href={`tel:${booking.operator_phone}`}

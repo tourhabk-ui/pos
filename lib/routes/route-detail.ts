@@ -149,39 +149,43 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
   {
     const offersResult = await query(
       `SELECT
-         tour_id,
-         tour_name,
-         tour_short_desc,
-         tour_price_base,
-         price_old,
-         price_unit,
-         effective_price,
-         tour_duration_hours,
-         duration_type,
-         multi_day_count,
-         tour_difficulty,
-         max_group_size,
-         min_group_size,
-         tour_rating,
-         tour_review_count,
-         included,
-         season_start,
-         season_end,
-         operator_id,
-         operator_name,
-         operator_slug,
-         operator_rating,
-         operator_review_count,
-         operator_verified,
-         tour_image,
-         operator_hero_image,
-         commission_rate,
-         next_departure_date,
-         next_departure_slots,
-         marketplace_score
-       FROM v_route_marketplace
-       WHERE route_id = $1
-       ORDER BY marketplace_score DESC`,
+         v.tour_id,
+         v.tour_name,
+         v.tour_short_desc,
+         v.tour_price_base,
+         v.price_old,
+         v.price_unit,
+         v.effective_price,
+         v.tour_duration_hours,
+         v.duration_type,
+         v.multi_day_count,
+         v.tour_difficulty,
+         v.max_group_size,
+         v.min_group_size,
+         v.tour_rating,
+         v.tour_review_count,
+         v.included,
+         v.season_start,
+         v.season_end,
+         v.operator_id,
+         v.operator_name,
+         v.operator_slug,
+         v.operator_rating,
+         v.operator_review_count,
+         v.operator_verified,
+         v.tour_image,
+         v.operator_hero_image,
+         v.commission_rate,
+         v.next_departure_date,
+         v.next_departure_slots,
+         v.marketplace_score,
+         p.is_public AS operator_public
+       FROM v_route_marketplace v
+       -- Открыта ли карточка оператора — из partners, а не «по построению»
+       -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
+       JOIN partners p ON p.id = v.operator_id
+       WHERE v.route_id = $1
+       ORDER BY v.marketplace_score DESC`,
       [routeDbId]
     );
 
@@ -208,6 +212,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
         id:           o.operator_id as string,
         name:         o.operator_name as string,
         slug:         (o.operator_slug as string | null) ?? null,
+        isPublic:     (o.operator_public as boolean | null) ?? null,
         rating:       o.operator_rating != null ? Number(o.operator_rating) : null,
         reviewCount:  o.operator_review_count != null ? Number(o.operator_review_count) : null,
         verified:     o.operator_verified as boolean,

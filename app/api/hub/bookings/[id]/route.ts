@@ -64,6 +64,8 @@ export async function GET(
     operator_name: string;
     operator_phone: string | null;
     operator_telegram: string | null;
+    operator_slug: string | null;
+    operator_public: boolean | null;
     final_price: string;
     payment_status: string;
     tourist_email: string | null;
@@ -85,6 +87,8 @@ export async function GET(
        COALESCE(p.name, u.name, u.email) AS operator_name,
        COALESCE(p.contacts->>'phone', u.phone)    AS operator_phone,
        COALESCE(p.contacts->>'telegram', u.telegram_username) AS operator_telegram,
+       p.slug             AS operator_slug,
+       p.is_public        AS operator_public,
        b.tourist_email,
        p.id::text         AS partner_id,
        p.telegram_chat_id,
@@ -132,6 +136,8 @@ export async function GET(
       operator_name: row.operator_name,
       operator_phone: row.operator_phone,
       operator_telegram: row.operator_telegram,
+      operator_slug: row.operator_slug ?? null,
+      operator_public: row.operator_public ?? null,
       cp_public_id: pay.cardPublicId ?? '',
       /** Готова ли оплата по QR СБП. Раньше вкладка СБП была заперта внутри
        *  проверки ключа CloudPayments — настроенная Точка не спасала. */

@@ -143,6 +143,8 @@ export default async function RoutesPage({ searchParams }: PageProps) {
             slug: t.slug,
             title: t.title,
             operator_name: t.operator_name,
+            operator_slug: t.operator_slug,
+            operator_public: t.operator_public,
             activity_type: t.activity_type,
             base_price: t.base_price,
           })),

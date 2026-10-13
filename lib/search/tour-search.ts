@@ -61,6 +61,9 @@ export interface MarketplaceTourRow {
    * (§4.0): безусловная отметка была бы обещанием без источника.
    */
   operator_verified: boolean | null;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug: string | null;
+  operator_public: boolean | null;
   bookings_count: number;
   has_availability: boolean;
 }
@@ -137,6 +140,8 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
       p.name as operator_name,
       p.id as operator_id,
       p.is_verified as operator_verified,
+      p.slug as operator_slug,
+      p.is_public as operator_public,
       COUNT(ob.id)::INT as bookings_count,
       ${hasAvailabilitySql()} as has_availability`;
 
@@ -221,9 +226,10 @@ export async function queryMarketplaceToursForPage(filters: MarketplaceToursFilt
   if (filters.search) return queryMarketplaceTours(filters);
   return unstable_cache(
     () => queryMarketplaceTours(filters),
-    // v2: строка получила operator_verified (аудит П5). Смена формы строки —
-    // смена ключа, иначе кэш 600с отдаёт карточке строки без поля.
-    ['marketplace-tours-query-v2', JSON.stringify(filters)],
+    // v2: строка получила operator_verified (аудит П5); v3 — operator_slug и
+    // operator_public (ссылка на страницу оператора, 13.10). Смена формы
+    // строки — смена ключа, иначе кэш 600с отдаёт карточке строки без поля.
+    ['marketplace-tours-query-v3', JSON.stringify(filters)],
     { revalidate: 600 }
   )();
 }
