@@ -1,7 +1,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireOperator } from '@/lib/auth/middleware';
+import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -19,27 +19,18 @@ const SetAvailabilitySchema = z.object({
   notes:           z.string().optional(),
 });
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
+// Кабинет — свой у владельца или командный у менеджера (CRM 2г). Прежний
+// поиск «первый профиль человека» не знал ни категории, ни команды: менеджер
+// получал «профиль не найден». Перевод — после переписи 13.10
+// (/api/cron/operator-cabinet-census): CENSUS_RESULT.
 
 // ─── GET /api/operator/calendar ───────────────────────────────────────────────
 // Возвращает доступность слотов по турам оператора за диапазон дат.
 
 export async function GET(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
-  }
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
 
   const { searchParams } = new URL(request.url);
   const tourId    = searchParams.get('tourId');
@@ -103,7 +94,8 @@ export async function GET(request: NextRequest) {
     }));
 
     return NextResponse.json({ success: true, data: { availability } });
-  } catch {
+  } catch (err) {
+    console.error('[operator/calendar] GET не выполнен, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
     return NextResponse.json({ success: false, error: 'Ошибка при получении календаря' }, { status: 500 });
   }
 }
@@ -112,13 +104,9 @@ export async function GET(request: NextRequest) {
 // Устанавливает / обновляет доступность для конкретной даты тура.
 
 export async function POST(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
-  }
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -134,6 +122,10 @@ export async function POST(request: NextRequest) {
   }
   const { tourId, date, availableSlots, isBlocked, blockReason, priceOverride, weatherStatus } = parsed.data;
 
+  // Цена на дату — это цена: менеджеру только с правом владельца (CRM 2г).
+  const mayPrice = managerMay(ctx.access, 'can_edit_prices');
+  if (priceOverride !== undefined && !mayPrice) return permissionDenied('can_edit_prices');
+
   // Проверяем владение туром
   const { rows: ownerRows } = await pool.query(
     `SELECT 1 FROM operator_tours WHERE id = $1 AND operator_id = $2 LIMIT 1`,
@@ -144,6 +136,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Без права цен сохранение даты цену не трогает ($8 = false): иначе
+    // «сохранить места» молча сбрасывало бы цену, которую поставил владелец.
     const { rows } = await pool.query(
       `INSERT INTO tour_availability (
          operator_tour_id, date, available_slots,
@@ -153,7 +147,8 @@ export async function POST(request: NextRequest) {
          available_slots     = EXCLUDED.available_slots,
          is_cancelled        = EXCLUDED.is_cancelled,
          cancellation_reason = EXCLUDED.cancellation_reason,
-         base_price_override = EXCLUDED.base_price_override,
+         base_price_override = CASE WHEN $8::boolean THEN EXCLUDED.base_price_override
+                                    ELSE tour_availability.base_price_override END,
          weather_status      = EXCLUDED.weather_status,
          updated_at          = NOW()
        RETURNING id::text, operator_tour_id::text AS tour_id, date::text, available_slots, is_cancelled`,
@@ -165,11 +160,13 @@ export async function POST(request: NextRequest) {
         blockReason ?? null,
         priceOverride ?? null,
         weatherStatus ?? 'unknown',
+        mayPrice,
       ]
     );
 
     return NextResponse.json({ success: true, data: rows[0], message: 'Доступность обновлена' });
-  } catch {
+  } catch (err) {
+    console.error('[operator/calendar] POST не выполнен, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
     return NextResponse.json({ success: false, error: 'Ошибка при установке доступности' }, { status: 500 });
   }
 }

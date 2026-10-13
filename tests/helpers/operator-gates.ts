@@ -13,10 +13,7 @@ export type Gate =
   | { seat: 'owner' }
   | { seat: 'team'; perms?: Perm[]; ownerOnly?: string; moneyHidden?: true; resolvedIn?: string }
   | { seat: 'user'; why: string }
-  | { seat: 'legacy'; why: string }
   | { seat: 'public'; why: string };
-
-const CALENDAR_DEBT = '2г-2: поиск кабинета без категории — замороженный долг crm-partner-context; перевод после переписи категорий на проде';
 
 export const GATES: Record<string, Gate> = {
   // ── Деньги и настройки: только владелец кабинета ──
@@ -56,6 +53,13 @@ export const GATES: Record<string, Gate> = {
   'app/api/hub/operator/tours/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/[id]/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/[id]/availability/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
+  // Календарь (2г-2б): даты и места — команде, цена на дату — по праву цен,
+  // выручка месяца — владельцу.
+  'app/api/operator/calendar/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
+  'app/api/operator/calendar/block/route.ts': { seat: 'team' },
+  'app/api/operator/calendar/bulk-open/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
+  'app/api/operator/calendar/ical/route.ts': { seat: 'team' },
+  'app/api/hub/operator/bookings-calendar/route.ts': { seat: 'team', moneyHidden: true },
   'app/api/hub/operator/tours/import/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/operator/bookings/route.ts': { seat: 'team' },
   'app/api/operator/bookings/[id]/route.ts': { seat: 'team', perms: ['can_cancel_bookings'], ownerOnly: 'статус оплаты брони' },
@@ -96,13 +100,6 @@ export const GATES: Record<string, Gate> = {
   'app/api/operator/templates/route.ts': {
     seat: 'user', why: 'шаблоны сообщений привязаны к аккаунту (message_templates по users.id): у менеджера свои; общие кабинету — шаг 2г-3',
   },
-
-  // ── Ищут кабинет по user_id владельца: менеджеру закрыто, а не открыто ──
-  'app/api/hub/operator/bookings-calendar/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
-  'app/api/operator/calendar/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
-  'app/api/operator/calendar/block/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
-  'app/api/operator/calendar/bulk-open/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
-  'app/api/operator/calendar/ical/route.ts': { seat: 'legacy', why: CALENDAR_DEBT },
 
   // ── Без входа ──
   'app/api/hub/operator/payments/webhook/route.ts': {

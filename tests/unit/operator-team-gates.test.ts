@@ -12,9 +12,6 @@
  *            действия только владельцу (ownerOnly) и вынутые на сервере
  *            деньги (moneyHidden) объявляются и сверяются в обе стороны;
  *   user   — данные самого аккаунта, кабинет не ищется вовсе;
- *   legacy — ищет кабинет по user_id владельца: менеджеру ЗАКРЫТО, а не
- *            открыто. Причина с шагом плана обязательна; переведённый на
- *            общий резолвер роут краснеет, пока запись не снята;
  *   public — без входа.
  *
  * Роут без объявления — красный: новый экран денег, заведённый «как все»,
@@ -22,6 +19,11 @@
  * бывают team. Связка с экранами: каждый адрес /api/, который зовёт кабинет
  * (app/hub/operator, components/operator), обязан быть в реестре или в
  * HELD_ELSEWHERE с названным сторожем.
+ *
+ * Исхода «старый поиск кабинета, менеджеру пока закрыто» больше нет: с 2г-2б
+ * (13.10, календарь) все роуты кабинета на общем резолвере. Новый роут с
+ * поиском по partners.user_id объявить нечем — его переводят, а не
+ * откладывают.
  */
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
@@ -44,7 +46,7 @@ describe('реестр гейтов кабинета оператора', () => 
 
   it('деньги и настройки по адресу — не командные роуты', () => {
     const open = Object.entries(GATES)
-      .filter(([f, g]) => MONEY_RE.test(f.replace(/\/route\.ts$/, '')) && g.seat !== 'owner' && g.seat !== 'legacy' && g.seat !== 'public')
+      .filter(([f, g]) => MONEY_RE.test(f.replace(/\/route\.ts$/, '')) && g.seat !== 'owner' && g.seat !== 'public')
       .map(([f, g]) => `${f}: ${g.seat}`);
     expect(open).toEqual([]);
   });
@@ -109,15 +111,6 @@ describe('реестр гейтов кабинета оператора', () => 
           expect(TEAM_RESOLVER.test(src)).toBe(false);
           expect(OWNER_GATE.test(src)).toBe(false);
           expect(/FROM\s+partners\b/i.test(src)).toBe(false);
-        });
-      }
-
-      if (gate.seat === 'legacy') {
-        it('ищет кабинет по user_id владельца — менеджеру закрыт; переведённый требует снять запись', () => {
-          expect(gate.why).toMatch(/2г-\d/);
-          const src = c();
-          expect(INLINE_OWNER_LOOKUP.test(src), 'старого поиска нет — объявите роут командным или владельческим').toBe(true);
-          expect(TEAM_RESOLVER.test(src), 'роут переведён на общий резолвер — снимите запись legacy').toBe(false);
         });
       }
 

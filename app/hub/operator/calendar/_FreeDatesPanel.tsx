@@ -17,6 +17,7 @@ import {
   CalendarDays, ChevronDown, ChevronUp, CheckCircle,
   AlertTriangle, RefreshCw, Zap, X, Plus,
 } from 'lucide-react';
+import { isManagerSeat, useOperatorSeat } from '@/components/operator/use-operator-seat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,10 @@ export default function FreeDatesPanel() {
   const [submitting,    setSubmitting]    = useState(false);
   const [result,        setResult]        = useState<BulkResult | null>(null);
   const [error,         setError]         = useState('');
+  // Цену на даты ставит владелец или менеджер с правом цен (CRM 2г); без
+  // права поля нет, а сервер такую цену и не примет.
+  const seat = useOperatorSeat();
+  const mayPrice = !(isManagerSeat(seat) && !seat.perms.can_edit_prices);
 
   // ── Загрузка покрытия дат ──────────────────────────────────────────────────
   const loadCoverage = useCallback(async () => {
@@ -172,7 +177,7 @@ export default function FreeDatesPanel() {
           endDate:       formEnd,
           slots:         formSlots,
           weekdays:      formWeekdays.length > 0 ? formWeekdays : undefined,
-          priceOverride: formPrice ? Number(formPrice) : undefined,
+          priceOverride: mayPrice && formPrice ? Number(formPrice) : undefined,
           skipExisting,
         }),
       });
@@ -419,7 +424,7 @@ export default function FreeDatesPanel() {
               </div>
 
               {/* Слоты */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className={mayPrice ? 'grid grid-cols-2 gap-3' : ''}>
                 <div>
                   <label className="ds-label">Мест на дату</label>
                   <input type="number" min={1} max={500}
@@ -427,13 +432,19 @@ export default function FreeDatesPanel() {
                     onChange={e => setFormSlots(Number(e.target.value))}
                     className="ds-input w-full mt-1" required />
                 </div>
-                <div>
-                  <label className="ds-label">Цена (если отличается)</label>
-                  <input type="number" min={0} placeholder="оставьте пустым"
-                    value={formPrice}
-                    onChange={e => setFormPrice(e.target.value)}
-                    className="ds-input w-full mt-1" />
-                </div>
+                {mayPrice ? (
+                  <div>
+                    <label className="ds-label">Цена (если отличается)</label>
+                    <input type="number" min={0} placeholder="оставьте пустым"
+                      value={formPrice}
+                      onChange={e => setFormPrice(e.target.value)}
+                      className="ds-input w-full mt-1" />
+                  </div>
+                ) : (
+                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
+                    Даты откроются по цене тура; цену на отдельные даты ставит владелец кабинета.
+                  </p>
+                )}
               </div>
 
               {/* Пропускать существующие */}

@@ -2,31 +2,24 @@
  * GET /api/hub/operator/bookings-calendar?month=YYYY-MM
  * Бронирования сгруппированные по датам + доступность слотов для оператора.
  * Используется в календарном виде рабочего места.
+ *
+ * Кабинет — свой у владельца или командный у менеджера (CRM 2г). Брони с
+ * суммами менеджер видит, как в списке броней; выручку месяца — нет:
+ * деньги кабинета — владельцу (money_hidden, экран прячет выручку).
  */
 
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorTeam } from '@/lib/operators/team-access';
 import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
-
 export async function GET(req: NextRequest) {
-  const authOrResponse = await requireOperator(req);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ error: 'Оператор не найден' }, { status: 403 });
-  }
+  const ctx = await requireOperatorTeam(req);
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
+  const owner = ctx.access.kind === 'owner';
 
   // Определяем диапазон месяца
   const monthParam = new URL(req.url).searchParams.get('month'); // YYYY-MM
@@ -113,9 +106,11 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
   const confirmed = bookingsResult.rows.filter(r => r.booking_status === 'confirmed').length;
   const completed = bookingsResult.rows.filter(r => r.booking_status === 'completed').length;
   const cancelled = bookingsResult.rows.filter(r => r.booking_status === 'cancelled').length;
-  const revenue   = bookingsResult.rows
-    .filter(r => r.booking_status !== 'cancelled')
-    .reduce((s, r) => s + Number(r.final_price ?? 0), 0);
+  const revenue   = owner
+    ? bookingsResult.rows
+      .filter(r => r.booking_status !== 'cancelled')
+      .reduce((s, r) => s + Number(r.final_price ?? 0), 0)
+    : null;
 
   return NextResponse.json({
     success: true,
@@ -123,5 +118,6 @@ ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id
     bookings_by_date: byDate,
     availability_by_date: availByDate,
     summary: { total, new: newCount, confirmed, completed, cancelled, revenue },
+    money_hidden: !owner,
   });
 }

@@ -254,7 +254,10 @@ Rate-limit SOS: 1 сигнал в 10 минут на пользователя и
   `requireTeamPermission` / `managerMay`. Новый роут кабинета объявляется в
   реестре `tests/helpers/operator-gates.ts` — иначе краснеет
   `operator-team-gates`; пункт меню — в `components/operator/operator-menu.ts`
-  с пометкой, кому он виден.
+  с пометкой, кому он виден. Цена на дату (`tour_availability.base_price_override`)
+  — тоже цена: без права upsert даты её не трогает
+  (`CASE WHEN $n::boolean THEN … ELSE tour_availability.base_price_override END`),
+  иначе «сохранить места» сбросило бы цену владельца на базовую.
 
 ### 4.4 База данных
 

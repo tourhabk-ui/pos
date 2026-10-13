@@ -20,12 +20,9 @@ import { isManagerSeat, type OperatorSeat } from '@/components/operator/use-oper
 /**
  * team — владелец и менеджер;
  * owner — деньги и настройки, только владелец кабинета;
- * can_edit_prices — менеджер с правом цен, которое дал владелец;
- * later — пока закрыто и менеджеру: экран зовёт роут, который ищет кабинет
- *         по user_id владельца (шаг 2г-2). Переведут роут — сторож
- *         operator-team-menu потребует открыть пункт.
+ * can_edit_prices — менеджер с правом цен, которое дал владелец.
  */
-export type MenuAccess = 'team' | 'owner' | 'can_edit_prices' | 'later';
+export type MenuAccess = 'team' | 'owner' | 'can_edit_prices';
 
 export interface OperatorMenuItem {
   href: string;
@@ -53,7 +50,9 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/tasks', label: 'Задачи', icon: ListChecks, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/reviews', label: 'Отзывы', icon: Star, section: 'Продажи', access: 'team' },
-  { href: '/hub/operator/calendar', label: 'Календарь', icon: CalendarDays, section: 'Продажи', access: 'later' },
+  // Календарь — команде с 2г-2б: выручку менеджеру сервер не отдаёт, цену на
+  // даты ставит право цен.
+  { href: '/hub/operator/calendar', label: 'Календарь', icon: CalendarDays, section: 'Продажи', access: 'team' },
   // Скидки оператора на свои туры (27.09). До этого правила цены заводил
   // только администратор, и скидку на последние места назначить было нельзя
   // тому, кто продаёт.
@@ -84,8 +83,8 @@ export function managerSees(item: OperatorMenuItem, perms: { can_edit_prices: bo
 }
 
 /**
- * Меню для вошедшего. Менеджеру — без денег, настроек и того, что ему пока
- * закрыто. Владелец, загрузка и «не узнали» — полное меню, как до команды:
+ * Меню для вошедшего. Менеджеру — без денег и настроек, скидки — с правом
+ * цен. Владелец, загрузка и «не узнали» — полное меню, как до команды:
  * прятать разделы владельцу из-за сбоя сети нельзя, а менеджеру сервер
  * откажет и сам.
  */

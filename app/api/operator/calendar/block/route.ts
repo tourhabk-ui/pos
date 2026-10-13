@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorTeam } from '@/lib/operators/team-access';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -18,13 +18,8 @@ const UnblockDatesSchema = z.object({
   endDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
+// Кабинет — свой у владельца или командный у менеджера (CRM 2г). Закрыть
+// дату для продажи — работа команды: брони на эту дату это не отменяет.
 
 function datesInRange(start: string, end: string): string[] {
   const result: string[] = [];
@@ -42,13 +37,9 @@ function datesInRange(start: string, end: string): string[] {
 // Блокирует диапазон дат для тура.
 
 export async function POST(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
-  }
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -101,7 +92,8 @@ export async function POST(request: NextRequest) {
       data:    { blockedDates: dates.length, dates },
       message: `Заблокировано ${dates.length} дат`,
     });
-  } catch {
+  } catch (err) {
+    console.error('[operator/calendar/block] POST не выполнен, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
     return NextResponse.json({ success: false, error: 'Ошибка при блокировке дат' }, { status: 500 });
   }
 }
@@ -110,13 +102,9 @@ export async function POST(request: NextRequest) {
 // Снимает блокировку с диапазона дат.
 
 export async function DELETE(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const operatorId = await getOperatorId(authOrResponse.userId);
-  if (!operatorId) {
-    return NextResponse.json({ success: false, error: 'Профиль оператора не найден' }, { status: 404 });
-  }
+  const ctx = await requireOperatorTeam(request, { noProfileStatus: 404 });
+  if (ctx instanceof NextResponse) return ctx;
+  const operatorId = ctx.partnerId;
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -155,7 +143,8 @@ export async function DELETE(request: NextRequest) {
       data:    { unblocked: rowCount ?? 0 },
       message: `Разблокировано ${rowCount ?? 0} дат`,
     });
-  } catch {
+  } catch (err) {
+    console.error('[operator/calendar/block] DELETE не выполнен, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
     return NextResponse.json({ success: false, error: 'Ошибка при разблокировке дат' }, { status: 500 });
   }
 }
