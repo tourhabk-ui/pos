@@ -76,6 +76,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // человека. D1 судит по имени поля и иначе не может; объявляем, чтобы это
   // было видно, а не спрятано переименованием колонки в запросе.
   'mcp-census': ['db_read', 'pd_direct'],
+  // Ловушка ошибок браузера (13.10): группы по client_errors, prune старше
+  // 30 дней (db_write), дайджест в Telegram; visitor_hash — суточный hash, как у mcp-census.
+  'client-errors-census': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // 12.10: проба «знает ли модель о нас». net_out и ai — НАСТОЯЩИЕ: четыре
   // провайдера спрашиваются без поиска; db_read и db_write — ТРАНЗИТИВНЫЕ из
   // графа импортов providers.ts (журнал расхода), сам роут в базу не ходит.

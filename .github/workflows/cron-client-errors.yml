@@ -1,0 +1,66 @@
+name: Ошибки в браузере — суточная перепись и дайджест
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Решение владельца 13.10 («ловушку»): страницы докладывают об ошибках в
+# браузере на /api/client-errors, а этот крон раз в сутки собирает их в
+# группы, чистит строки старше 30 дней и шлёт дайджест в Telegram.
+#
+# Красный — только когда сама перепись не ответила или не сосчиталась:
+# наличие ошибок у людей красит не прогон, а дайджест. Вечно красный крон
+# начинают обходить (урок линтера, 09.09).
+#
+# Секреты: CRON_SECRET. 19:17 UTC — 07:17 по Камчатке, к утру владельца.
+
+on:
+  schedule:
+    - cron: '17 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Перепись за сутки, чистка старше 30 дней, дайджест в Telegram
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — прод не ответит."
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/census.json -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/client-errors-census?days=1&prune=1&notify=1")
+          echo "HTTP $CODE"
+          jq '.' /tmp/census.json || cat /tmp/census.json
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Перепись не ответила (HTTP $CODE) — это «не спросили», а не «ошибок нет»."
+            exit 1
+          fi
+
+          {
+            echo "## Ошибки в браузере за сутки"
+            echo ""
+            jq -r '"внешних \(.totals.external // "?") (человеко-дней \(.totals.visitor_days // "?")), своих \(.totals.self // "?"), ботов \(.totals.bot // "?"); удалено старше \(.retention_days) дн.: \(.pruned // "—"); дайджест: \(.notify.reason // "—")"' /tmp/census.json
+            echo ""
+            echo '```json'
+            jq '{totals, groups: [.groups[]? | {message, kind, n, visitor_days, paths, phone, offline_n, builds, last_seen}], self_groups: [.self_groups[]? | {message, n, paths}], by_path, failed_measures}' /tmp/census.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          OK=$(jq -r '.ok // false' /tmp/census.json)
+          if [ "$OK" != "true" ]; then
+            echo "::error::Часть замеров не удалась: $(jq -c '.failed_measures' /tmp/census.json)"
+            exit 1
+          fi
+          SENT=$(jq -r '.notify.sent // false' /tmp/census.json)
+          REASON=$(jq -r '.notify.reason // ""' /tmp/census.json)
+          if [ "$SENT" != "true" ] && [ "$REASON" != "ошибок нет" ]; then
+            echo "::warning::Дайджест не ушёл: $REASON"
+          fi
