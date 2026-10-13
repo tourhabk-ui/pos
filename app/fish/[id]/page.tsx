@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import {
   Fish, Calendar, Trophy, MapPin, Target, Sparkles, ArrowLeft, ChevronRight,
 } from 'lucide-react';
@@ -62,7 +63,9 @@ interface FishingTour {
   title: string;
   base_price: number;
   operator_name: string;
-  operator_slug: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug: string | null;
+  operator_public: boolean | null;
   duration_hours: number;
 }
 
@@ -71,7 +74,7 @@ async function getFishingTours(): Promise<FishingTour[]> {
     const result = await query<FishingTour>(`
       SELECT ot.id::int, ot.slug, ot.title, ot.base_price::float,
              ot.duration_hours::float,
-             p.name AS operator_name, p.slug AS operator_slug
+             p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ot.activity_type = 'fishing'
@@ -280,17 +283,18 @@ export default async function FishDetailPage({ params }: Props) {
               </h2>
               <div className="space-y-3">
                 {tours.map(tour => (
-                  <Link
+                  <div
                     key={tour.id}
-                    href={tourPath(tour)}
-                    className="ds-card flex items-center justify-between gap-4 hover:shadow-md transition-all duration-200 group"
+                    className="ds-card relative flex items-center justify-between gap-4 hover:shadow-md transition-all duration-200 group"
                   >
-                    <div className="flex-1 min-w-0">
+                    {/* Ссылка на тур — слоем, имя оператора — своей ссылкой поверх (13.10). */}
+                    <Link href={tourPath(tour)} className="absolute inset-0 z-[1] rounded-lg" aria-label={tour.title} />
+                    <div className="relative z-[2] pointer-events-none flex-1 min-w-0">
                       <p className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors truncate">
                         {tour.title}
                       </p>
                       <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                        {tour.operator_name}
+                        <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
                         {tour.duration_hours > 0 && (
                           <> · {tour.duration_hours >= 24
                             ? `${Math.round(tour.duration_hours / 24)} дн`
@@ -299,13 +303,13 @@ export default async function FishDetailPage({ params }: Props) {
                         )}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="relative z-[2] pointer-events-none flex items-center gap-3 flex-shrink-0">
                       <span className="font-bold text-[var(--text-primary)]">
                         {tour.base_price.toLocaleString('ru-RU')} ₽
                       </span>
                       <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
               <Link

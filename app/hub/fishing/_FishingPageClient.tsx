@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Fish, Clock, Users, Mountain, ChevronRight, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 
 interface FishingTour {
   id: number;
@@ -22,7 +23,9 @@ interface FishingTour {
   season_start: string | null;
   season_end: string | null;
   operator_name: string;
-  operator_slug: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug: string | null;
+  operator_public: boolean | null;
 }
 
 const DURATION_FILTERS = [
@@ -142,7 +145,8 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
   const maxDays   = hasTours ? Math.max(1, ...tours.map(t => Math.round(t.duration_hours / 24))) : null;
   const minGroup  = hasTours ? Math.min(...tours.map(t => t.min_participants)) : null;
   const maxGroup  = hasTours ? Math.max(...tours.map(t => t.max_participants)) : null;
-  const operators = [...new Set(tours.map(t => t.operator_name))];
+  // Операторы без дублей, с адресом страницы (13.10): имя — ссылка, если карточка открыта.
+  const operators = [...new Map(tours.map(t => [t.operator_name, t])).values()];
 
   return (
     <div className="ds-page min-h-screen">
@@ -265,7 +269,9 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
             что есть в строках туров. */}
         {hasTours && (
           <p className="mt-3">
-            Туры проводят: {operators.join(', ')}. Продолжительность — от {minDays} до {maxDays} дн.,
+            Туры проводят: {operators.map((o, i) => (
+              <Fragment key={o.operator_name}>{i > 0 ? ', ' : ''}<OperatorNameLink name={o.operator_name} slug={o.operator_slug} isPublic={o.operator_public} /></Fragment>
+            ))}. Продолжительность — от {minDays} до {maxDays} дн.,
             группы от {minGroup} до {maxGroup} человек. Зимой рыбачат со льда.
           </p>
         )}

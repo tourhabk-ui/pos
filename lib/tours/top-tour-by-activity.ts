@@ -17,6 +17,9 @@ export interface TopTour {
   title: string;
   base_price: string;
   operator_name: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug: string | null;
+  operator_public: boolean | null;
   /** Зависимость от погоды — триггер «плана Б» на публичном плане (B-5). */
   weather_dependent: boolean;
 }
@@ -31,7 +34,8 @@ export async function topToursByActivity(activities: string[]): Promise<Record<s
         SELECT
           ot.id, ot.slug, ot.title, ot.base_price::text,
           COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
-          p.name AS operator_name
+          p.name AS operator_name,
+          p.slug AS operator_slug, p.is_public AS operator_public
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         WHERE ot.activity_type = $1
@@ -66,7 +70,8 @@ export async function toursByIds(ids: string[]): Promise<Record<string, TopTour>
       SELECT
         ot.id::text AS id, ot.slug, ot.title, ot.base_price::text,
         COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
-        p.name AS operator_name
+        p.name AS operator_name,
+        p.slug AS operator_slug, p.is_public AS operator_public
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ot.id::text = ANY($1::text[])

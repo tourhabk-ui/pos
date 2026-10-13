@@ -4,6 +4,7 @@ import { FishingPageClient } from './_FishingPageClient';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
 import { tourPath } from '@/lib/tours/tour-url';
+import { operatorPagePath } from '@/lib/operators/page-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,9 @@ interface FishingTour {
   season_start: string | null;
   season_end: string | null;
   operator_name: string;
-  operator_slug: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug: string | null;
+  operator_public: boolean | null;
 }
 
 async function getFishingTours(): Promise<FishingTour[]> {
@@ -59,7 +62,7 @@ async function getFishingTours(): Promise<FishingTour[]> {
       ot.max_participants, ot.min_participants,
       ot.difficulty, ot.photos, ot.included,
       ot.season_start::text, ot.season_end::text,
-      p.name AS operator_name, p.slug AS operator_slug
+      p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
     FROM operator_tours ot
     JOIN partners p ON p.id = ot.operator_id
     WHERE ot.activity_type = 'fishing'
@@ -72,6 +75,12 @@ async function getFishingTours(): Promise<FishingTour[]> {
 }
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
+/** Адрес страницы оператора для разметки — только у открытой карточки (13.10): ссылка на 404 хуже её отсутствия. */
+function operatorUrl(t: Pick<FishingTour, 'operator_slug' | 'operator_public'>): string | undefined {
+  const path = operatorPagePath({ slug: t.operator_slug, is_public: t.operator_public });
+  return path ? `${SITE}${path}` : undefined;
+}
 
 export default async function FishingPage() {
   const tours = await getFishingTours();
@@ -101,7 +110,7 @@ export default async function FishingPage() {
         provider: {
           '@type': 'TouristInformationCenter',
           name: t.operator_name,
-          url: `${SITE}/operators/${t.operator_slug}`,
+          url: operatorUrl(t),
         },
         offers: {
           '@type': 'Offer',

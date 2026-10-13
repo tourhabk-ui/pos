@@ -4,6 +4,7 @@ import ChatText from '@/components/kuzmich/ChatText';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import Image from 'next/image';
 import {
   Sparkles, Send, Loader2, ArrowLeft, Bot, ArrowRight,
@@ -27,6 +28,9 @@ interface TourCard {
   base_price: number;
   tour_image: string | null;
   operator_name: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug?: string | null;
+  operator_public?: boolean | null;
   activity_type: string | null;
   location: string | null;
 }
@@ -246,28 +250,29 @@ function BookingFormCard({
 
 function TourMiniCard({ tour }: { tour: TourCard }) {
   return (
-    <Link href={tourPath(tour)} target="_blank"
-      className="flex gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)] transition-all group">
+    <div className="relative flex gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)] transition-all group">
+      {/* Ссылка на тур — слоем, имя оператора — своей ссылкой поверх (13.10). */}
+      <Link href={tourPath(tour)} target="_blank" className="absolute inset-0 z-[1] rounded-xl" aria-label={tour.title} />
       {tour.tour_image ? (
-        <div className="relative w-16 h-14 rounded-lg overflow-hidden shrink-0">
+        <div className="relative z-[2] pointer-events-none w-16 h-14 rounded-lg overflow-hidden shrink-0">
           <Image src={tour.tour_image} alt={tour.title} fill className="object-contain" />
         </div>
       ) : (
-        <div className="w-16 h-14 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
+        <div className="relative z-[2] pointer-events-none w-16 h-14 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
           <MapPin className="w-5 h-5 text-[var(--accent)]" />
         </div>
       )}
-      <div className="flex-1 min-w-0">
+      <div className="relative z-[2] pointer-events-none flex-1 min-w-0">
         <p className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-tight group-hover:text-[var(--accent)] transition-colors">
           {tour.title}
         </p>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5">{tour.operator_name}</p>
+        <p className="text-xs text-[var(--text-muted)] mt-0.5"><OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" /></p>
         <p className="text-xs font-medium text-[var(--accent)] mt-1">
           от {tour.base_price.toLocaleString('ru-RU')} ₽
         </p>
       </div>
-      <ExternalLink className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0 mt-0.5 group-hover:text-[var(--accent)] transition-colors" />
-    </Link>
+      <ExternalLink className="relative z-[2] pointer-events-none w-3.5 h-3.5 text-[var(--text-muted)] shrink-0 mt-0.5 group-hover:text-[var(--accent)] transition-colors" />
+    </div>
   );
 }
 

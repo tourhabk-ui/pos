@@ -592,7 +592,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             )}
             {intentChips}
             {feed.length > 0 && (
-              <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
+              <div className="arrivals">
+                <span className="k">Журнал</span>
+                {/* Имя оператора — ссылка на его страницу (владелец 13.10); тач-зона 44px отступами без сдвига строки. */}
+                <span className="t">Заявка на «{feed[0].tourTitle}» · <OperatorNameLink name={feed[0].operatorName} slug={feed[0].operatorSlug} isPublic={feed[0].operatorPublic} className="inline-block py-[15px] -my-[15px]" /></span>
+              </div>
             )}
           </section>
         ) : intentChips}

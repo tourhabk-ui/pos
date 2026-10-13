@@ -24,6 +24,9 @@ export interface TourSuggestion {
   location: string | null;
   tour_image: string | null;
   operator_name: string;
+  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
+  operator_slug: string | null;
+  operator_public: boolean | null;
 }
 
 // Keywords that signal the user wants to find / book something concrete
@@ -112,7 +115,8 @@ export async function findRelevantTours(
          ot.location_type,
          ot.location_name AS location,
          ot.tour_image,
-         p.name AS operator_name
+         p.name AS operator_name,
+         p.slug AS operator_slug, p.is_public AS operator_public
        FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
        WHERE ot.deleted_at IS NULL AND ot.is_active = TRUE
@@ -131,7 +135,8 @@ export async function findRelevantTours(
            ot.base_price, ot.activity_type,
            ot.price_unit, ot.multi_day_count, ot.duration_hours::float AS duration_hours,
            ot.location_type, ot.location_name AS location, ot.tour_image,
-           p.name AS operator_name
+           p.name AS operator_name,
+           p.slug AS operator_slug, p.is_public AS operator_public
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
          WHERE ot.deleted_at IS NULL AND ot.is_active = TRUE

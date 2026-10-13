@@ -14,6 +14,7 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { notFound } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import { Header } from '@/components/layout/Header';
@@ -123,7 +124,8 @@ const loadPresetPlan = unstable_cache(
     const tours = await topToursByActivity(rec.days.map((d) => d.activityType));
     return { days: rec.days, tours };
   },
-  ['plan-preset-v1'],
+  // v2 (13.10): в строке тура плана появились slug и is_public оператора.
+  ['plan-preset-v2'],
   { revalidate: 86400 },
 );
 
@@ -242,19 +244,23 @@ export default async function PlanPresetPage({ params }: PageProps) {
                       {ZONE_LABELS[day.zone] ?? day.zone}
                     </div>
                     {tour && (
-                      <Link
-                        // Дата дня — в форму брони (B-3): availableDate движка
-                        // (реальный слот), иначе расчётная дата дня плана.
-                        href={`${tourPath(tour)}?date=${day.availableDate ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
-                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-md"
+                      <div className="relative flex items-center justify-between gap-2 px-3 py-2 rounded-md"
                         style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
-                        <span className="text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>
-                          {tour.title} · {tour.operator_name}
+                        {/* Ссылка на тур — слоем под содержимым, имя оператора — своей
+                            ссылкой поверх (владелец 13.10): <a> в <a> недопустим. */}
+                        <Link
+                          // Дата дня — в форму брони (B-3): availableDate движка
+                          // (реальный слот), иначе расчётная дата дня плана.
+                          href={`${tourPath(tour)}?date=${day.availableDate ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
+                          className="absolute inset-0 z-[1] rounded-md"
+                          aria-label={`${tour.title}: оставить заявку`} />
+                        <span className="relative z-[2] pointer-events-none text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>
+                          {tour.title} · <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
                         </span>
-                        <span className="text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
+                        <span className="relative z-[2] pointer-events-none text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
                           от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
                         </span>
-                      </Link>
+                      </div>
                     )}
                   </article>
                 );
