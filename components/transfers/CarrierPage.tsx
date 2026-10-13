@@ -18,6 +18,7 @@
  * герой (просмотрщик фото), лента фото и форма заявки.
  */
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { ChevronRight, ShieldCheck, Phone, Send, MessageCircle, CalendarDays, Users, Bus, AlertTriangle, MessageSquare } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
@@ -29,7 +30,8 @@ import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
-import { formatRub, vehicleKindWord } from '@/lib/transfers/charter-format';
+import { charterRequisitesLine, describeFleet, formatRub, vehicleKindWord } from '@/lib/transfers/charter-format';
+import { photoSrc } from '@/lib/images/variant';
 import { carrierInstrument, minCharterPrice } from '@/lib/transfers/carrier-view';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
 
@@ -55,6 +57,7 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
   const linked = c.destinations.filter((d) => d.place);
+  const fleet = describeFleet(c.vehicles);
 
   return (
     <div style={{ background: 'var(--bg-primary)' }}>
@@ -214,20 +217,31 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
 
             <section aria-labelledby="carrier-who">
               <H2 id="carrier-who">Перевозчик</H2>
-              <div className="ds-card p-5 space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="font-semibold text-[var(--text-primary)]">{c.name}</p>
-                  {c.verified && (
-                    <span className="inline-flex items-center gap-1 text-sm text-[var(--success)]">
-                      <ShieldCheck className="w-4 h-4" aria-hidden /> Проверенный перевозчик
-                    </span>
-                  )}
+              {/* Как «Кто проводит» на карточке тура (§11): вывеска перевозчика,
+                  под ней — исполнитель по договору из legal_info (владелец 13.10:
+                  «Шатун», а ИП — в карточку компании, как у туров). */}
+              <div className="ds-card p-5 space-y-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="w-14 h-14 rounded-full overflow-hidden shrink-0 relative bg-[var(--bg-hover)] flex items-center justify-center" aria-hidden>
+                    {c.photos[0] ? (
+                      <Image src={photoSrc(c.photos[0].url, 320)} alt="" fill className="object-cover" sizes="56px" />
+                    ) : (
+                      <span className="font-playfair text-xl font-bold text-[var(--text-primary)]">{c.name.charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-[10rem]">
+                    <p className="font-playfair font-semibold text-[var(--text-primary)]">{c.name}</p>
+                    {fleet && <p className="text-xs text-[var(--text-secondary)] mt-0.5">{fleet}</p>}
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      Исполнитель: {charterRequisitesLine(c.legal) ?? 'реквизиты перевозчика не записаны на платформе'}
+                    </p>
+                    {c.verified && (
+                      <p className="text-[13px] text-[var(--success)] flex items-center gap-1.5 mt-1">
+                        <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden /> Проверенный перевозчик
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {c.legal
-                    ? <>Исполнитель: {c.legal.name}{c.legal.inn ? `, ИНН ${c.legal.inn}` : ''}.</>
-                    : 'Реквизиты исполнителя не записаны.'}
-                </p>
                 {c.phone || c.telegramHref || c.whatsappHref ? (
                   <div className="flex flex-wrap gap-2">
                     {c.phone && phoneLabel && (

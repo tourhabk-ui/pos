@@ -37,13 +37,12 @@ interface PartnerRow {
   video_poster_url: string | null;
   gallery_credits: unknown;
   video_clips: unknown;
-  company_name: string | null;
   legal_info: unknown;
   contacts: unknown;
 }
 
 /** Колонки партнёра, которые разбирает toCharterCarrier; один список на оба загрузчика. */
-const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.company_name, p.legal_info, p.contacts`;
+const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, p.hero_image, p.gallery, p.video_url, p.video_poster_url, p.gallery_credits, p.video_clips, p.legal_info, p.contacts`;
 
 interface PriceRow {
   partner_id: string;
@@ -109,18 +108,27 @@ export function parseClips(raw: unknown, fallbackLabel: string): CharterClip[] {
 }
 
 /**
- * Исполнитель по договору. Название — из company_name, запасное — из
- * legal_info.companyName; нет названия — реквизитов для показа нет вовсе (один
- * ИНН без имени человеку ничего не говорит). ИНН — только по форме (10 или 12
- * цифр): мусор в колонке не должен выглядеть реквизитом.
+ * Исполнитель по договору — по правилу карточки тура (lib/tours/tour-detail-query):
+ * наименование ТОЛЬКО из legal_info.companyName. partners.company_name не
+ * подходит: триггер 052 (sync_partner_company_name) держит его равным витринному
+ * name, и «исполнителем» стала бы вывеска. Так 13.10 и вышло наоборот: миграция
+ * 1187 записала «ИП Миронова» в company_name, триггер переименовал «Шатуна» в ИП,
+ * а владелец попросил вывеску «Шатун» и ИП — исполнителем (миграция 1233).
+ *
+ * ИНН и ОГРН — только по форме (10/12 и 13/15 цифр): мусор в записи не должен
+ * выглядеть реквизитом. Нет ни одного поля — null, и экран говорит «не
+ * записаны», как карточка тура.
  */
-export function parseLegal(companyName: string | null, legalInfo: unknown): CharterLegal | null {
+export function parseLegal(legalInfo: unknown): CharterLegal | null {
   const rec = asRecord(legalInfo);
-  const fromInfo = rec && typeof rec.companyName === 'string' ? rec.companyName.trim() : '';
-  const name = (companyName ?? '').trim() || fromInfo;
-  if (!name) return null;
-  const rawInn = rec && typeof rec.inn === 'string' ? rec.inn.replace(/\s/g, '') : '';
-  return { name, inn: /^(\d{10}|\d{12})$/.test(rawInn) ? rawInn : null };
+  if (!rec) return null;
+  const text = (v: unknown): string => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
+  const name = text(rec.companyName).trim() || null;
+  const rawInn = text(rec.inn).replace(/\s/g, '');
+  const rawOgrn = text(rec.ogrn).replace(/\s/g, '');
+  const inn = /^(\d{10}|\d{12})$/.test(rawInn) ? rawInn : null;
+  const ogrn = /^(\d{13}|\d{15})$/.test(rawOgrn) ? rawOgrn : null;
+  return name || inn || ogrn ? { name, inn, ogrn } : null;
 }
 
 /**
@@ -203,7 +211,7 @@ function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRo
     // переадресацию /video/[...path].
     clips: parseClips(p.video_clips, `Видео: ${p.name}`)
       .map((c) => ({ ...c, url: videoSrc(c.url), poster: videoSrc(c.poster) })),
-    legal: parseLegal(p.company_name, p.legal_info),
+    legal: parseLegal(p.legal_info),
     // Ролик без обложки не показывается: база такого не допускает (CHECK
     // partners_video_shape), но экран не должен верить только базе.
     video: p.video_url && p.video_poster_url
