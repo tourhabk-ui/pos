@@ -16,12 +16,25 @@ Lighthouse запускает сам workflow следующим шагом — 
 Вывод: markdown в stdout (его workflow кладёт в сводку и в check-run) и
 JSON в файл --json для разбора машиной. Страницы для Lighthouse — в файл
 --lh-pages (главная и две самые ссылаемые внутренние).
+
+Перепись sitemap (--sitemap-census N, 13.10): обход по ссылкам видит 60
+страниц, а у vedarai.ru их в sitemap около девятисот, и дефекты там
+массовые — по шаблону на сотни карточек (аудит 29.09, Н1–Н14). Перепись
+проходит каждый адрес sitemap без перехода по редиректу и считает по
+разделам: код, title, description, H1, canonical и ГДЕ он стоит (Google
+читает canonical только из <head>, а Next 15 стримит метаданные в <body>
+всем ботам не из htmlLimitedBots), сколько meta robots (два разных —
+Яндекс выбирает разрешающий), soft-404, og:image.
+
+--ua googlebot|yandex — смотреть страницы глазами бота. Только для
+vedarai.ru: представляться чужим краулером на чужом сайте нельзя.
 """
 from __future__ import annotations
 
 import argparse
 import html
 import json
+import os
 import re
 import socket
 import ssl
@@ -36,7 +49,19 @@ from html.parser import HTMLParser
 
 UA = 'Mozilla/5.0 (compatible; VedarSiteAudit/1.0; +https://vedarai.ru)'
 TIMEOUT = 20
-PAUSE = 0.4
+# Пауза между запросами; переменная окружения — только для теста скрипта на локальном сервере.
+PAUSE = float(os.environ.get('SITE_AUDIT_PAUSE', '0.4'))
+
+# Заголовки ботов — ТОЛЬКО для нашего домена (см. шапку). Строки — те, что
+# боты присылают сами; по ним Next решает, отдавать ли метаданные в <head>.
+BOT_UA = {
+    'googlebot': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) '
+                 'Chrome/120.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'yandex': 'Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)',
+}
+OWN_HOSTS = {'vedarai.ru'}
+LOOPBACK = {'127.0.0.1', 'localhost'}
+CURRENT_UA = UA
 
 
 # ─── сеть ───────────────────────────────────────────────────────────────────
@@ -56,7 +81,7 @@ def fetch(url: str, method: str = 'GET', follow: bool = True, max_hops: int = 6)
     t0 = time.monotonic()
     for _ in range(max_hops):
         req = urllib.request.Request(cur, method=method, headers={
-            'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+            'User-Agent': CURRENT_UA, 'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
             'Accept-Encoding': 'gzip, deflate', 'Accept-Language': 'ru,en;q=0.5',
         })
         try:
@@ -135,13 +160,25 @@ class Page(HTMLParser):
         self.words = 0
         self.forms = 0
         self.iframes = 0
+        # Где стоит метаданное: Google берёт canonical только из <head>.
+        self._in_head = False
+        self._svg = 0                                   # <title> внутри <svg> — подпись картинки, не страницы
+        self.titles: list[list] = []                    # [текст, в <head>]
+        self.descs: list[tuple[str, bool]] = []         # (content, в <head>)
+        self.canonicals: list[tuple[str, bool]] = []   # (адрес, в <head>)
+        self.robots_metas: list[tuple[str, bool]] = []  # (content, в <head>)
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if tag == 'head':
+            self._in_head = True
+        elif tag == 'body':
+            self._in_head = False
         if tag == 'html' and a.get('lang'):
             self.lang = a['lang']
-        elif tag == 'title':
+        elif tag == 'title' and not self._svg:
             self._in_title = True
+            self.titles.append(['', self._in_head])
         elif tag == 'meta':
             name = (a.get('name') or '').lower()
             prop = (a.get('property') or '').lower()
@@ -150,12 +187,17 @@ class Page(HTMLParser):
                 self.meta[name] = content
                 if name == 'viewport':
                     self.viewport = True
+            if name == 'robots':
+                self.robots_metas.append((content, self._in_head))
+            if name == 'description':
+                self.descs.append((content, self._in_head))
             if prop.startswith('og:'):
                 self.og[prop[3:]] = content
         elif tag == 'link':
             rel = (a.get('rel') or '').lower()
             if 'canonical' in rel:
                 self.canonical = urllib.parse.urljoin(self.base, a.get('href') or '')
+                self.canonicals.append((self.canonical, self._in_head))
             if 'alternate' in rel and a.get('hreflang'):
                 self.hreflang += 1
             if 'icon' in rel:
@@ -185,12 +227,16 @@ class Page(HTMLParser):
                 self.http_assets += 1
         elif tag in ('style', 'noscript', 'svg'):
             self._skip += 1
+            if tag == 'svg':
+                self._svg += 1
         elif tag == 'form':
             self.forms += 1
         elif tag == 'iframe':
             self.iframes += 1
 
     def handle_endtag(self, tag):
+        if tag == 'head':
+            self._in_head = False
         if tag == 'title':
             self._in_title = False
         elif tag in ('h1', 'h2'):
@@ -199,10 +245,14 @@ class Page(HTMLParser):
             self._skip = max(0, self._skip - 1)
             if tag == 'script':
                 self._in_jsonld = False
+            if tag == 'svg':
+                self._svg = max(0, self._svg - 1)
 
     def handle_data(self, data):
         if self._in_title:
-            self.title += data
+            if len(self.titles) == 1:
+                self.title += data
+            self.titles[-1][0] += data
         elif self._in_jsonld:
             for m in re.finditer(r'"@type"\s*:\s*"([^"]+)"', data):
                 self.jsonld.append(m.group(1))
@@ -268,7 +318,7 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
     for sm in (sitemaps or [f'{base}/sitemap.xml'])[:5]:
         r = fetch(sm)
         txt = r['body'].decode('utf-8', 'replace') if r['code'] == 200 else ''
-        locs = re.findall(r'<loc>\s*([^<\s]+)\s*</loc>', txt)
+        locs = [html.unescape(x) for x in re.findall(r'<loc>\s*([^<\s]+)\s*</loc>', txt)]
         is_index = '<sitemapindex' in txt
         sm_report.append({'url': sm, 'code': r['code'], 'urls': len(locs), 'index': is_index,
                           'lastmod': len(re.findall(r'<lastmod>', txt))})
@@ -276,7 +326,7 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
             for child in locs[:5]:
                 rc = fetch(child)
                 ctxt = rc['body'].decode('utf-8', 'replace') if rc['code'] == 200 else ''
-                clocs = re.findall(r'<loc>\s*([^<\s]+)\s*</loc>', ctxt)
+                clocs = [html.unescape(x) for x in re.findall(r'<loc>\s*([^<\s]+)\s*</loc>', ctxt)]
                 sm_report.append({'url': child, 'code': rc['code'], 'urls': len(clocs), 'index': False,
                                   'lastmod': len(re.findall(r'<lastmod>', ctxt))})
                 sm_urls += clocs
@@ -286,6 +336,7 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
         time.sleep(PAUSE)
     out['sitemaps'] = sm_report
     out['sitemap_urls_total'] = len(sm_urls)
+    out['sitemap_urls'] = sm_urls
 
     # 4. Обход.
     start = norm(home['final'] if home['code'] == 200 and same_host(home['final'], hosts) else f'{base}/')
@@ -429,6 +480,207 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
     return out
 
 
+# ─── перепись sitemap ───────────────────────────────────────────────────────
+
+UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+SOFT404_RE = re.compile(r'не найден|не найдена|страница не существует|not found|\b404\b', re.I)
+
+
+def section_of(url: str) -> str:
+    """Раздел по первому сегменту пути; uuid-адрес — отдельный раздел (двойники slug-адресов)."""
+    parts = [p for p in urllib.parse.urlsplit(url).path.split('/') if p]
+    if not parts:
+        return '/'
+    sec = f'/{parts[0]}'
+    if len(parts) > 1:
+        sec += '/{uuid}' if UUID_RE.match(parts[1]) else '/*'
+    return sec
+
+
+def cut_mid_word(desc: str) -> bool:
+    """Описание оборвано посреди слова: кончается буквой или цифрой без точки/многоточия."""
+    d = desc.strip()
+    return len(d) >= 100 and bool(re.search(r'[A-Za-zА-Яа-яЁё0-9]$', d))
+
+
+def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
+    """Каждый адрес sitemap — без перехода по редиректу: адрес в sitemap обязан отвечать сам."""
+    rows: list[dict] = []
+    # Темп ниже лимита сайта (100 запросов в минуту с адреса, middleware.ts):
+    # перепись меряет страницы, а не ограничитель. 429 — ждать и повторить раз,
+    # но число таких ответов называть: бот поисковика упрётся в тот же лимит.
+    interval = PAUSE * 2
+    limited = 0
+    for u in urls[:limit]:
+        t_start = time.monotonic()
+        r = fetch(u, follow=False)
+        if r['code'] == 429:
+            limited += 1
+            ra = r['headers'].get('retry-after', '')
+            time.sleep(min(60.0, float(ra)) if ra.isdigit() else 30.0 if PAUSE else 0)
+            r = fetch(u, follow=False)
+        row: dict = {'url': u, 'section': section_of(u), 'code': r['code'], 'ms': r['ms'], 'error': r['error']}
+        if r['code'] in (301, 302, 303, 307, 308):
+            row['location'] = r['headers'].get('location', '')
+        ct = r['headers'].get('content-type', '')
+        if r['code'] == 200 and 'html' in ct and r['body']:
+            p = Page(u)
+            try:
+                p.feed(r['body'].decode('utf-8', 'replace'))
+            except Exception as e:
+                row['parse_error'] = str(e)[:120]
+            title = html.unescape(p.title.strip())
+            # Описание — первое в <head>, иначе первое вообще: словарь meta помнит последнее.
+            d_head = [c for c, hd in p.descs if hd]
+            desc = html.unescape(((d_head or [c for c, _ in p.descs]) or [''])[0].strip())
+            h1 = [html.unescape(x.strip()) for x in p.h1]
+            row.update({
+                'title': title[:200], 'desc': desc[:400], 'h1': [x[:120] for x in h1], 'words': p.words,
+                'titles': [{'text': html.unescape(t.strip())[:120], 'head': hd} for t, hd in p.titles],
+                'descs': [{'head': hd} for _, hd in p.descs],
+                'canonicals': [{'href': c, 'head': hd} for c, hd in p.canonicals],
+                'robots': [{'content': c, 'head': hd} for c, hd in p.robots_metas],
+                'og_image': urllib.parse.urljoin(u, p.og['image']) if p.og.get('image') else '', 'jsonld': p.jsonld[:8],
+                'imgs': p.imgs, 'imgs_no_alt': p.imgs_no_alt,
+                'x_robots': r['headers'].get('x-robots-tag', ''),
+                'soft404': bool(SOFT404_RE.search(title) or any(SOFT404_RE.search(x) for x in h1)),
+            })
+        rows.append(row)
+        time.sleep(max(PAUSE, interval - (time.monotonic() - t_start)))
+
+    ok = [r for r in rows if r['code'] == 200 and 'title' in r]
+    titles = Counter(r['title'] for r in ok if r['title'])
+    descs = Counter(r['desc'] for r in ok if r['desc'])
+
+    def canon_self(r: dict) -> bool:
+        return any(norm(c['href']) == norm(r['url']) for c in r['canonicals'])
+
+    # (что, короткий код для списка адресов, проверка)
+    checks = [
+        ('не 200 в sitemap', 'n200', lambda r: r['code'] != 200),
+        ('soft-404 (200 с «не найден»)', 'soft', lambda r: r.get('soft404')),
+        ('нет title', 't0', lambda r: 'title' in r and not r['title']),
+        ('title повторяется', 'tdup', lambda r: 'title' in r and r['title'] and titles[r['title']] > 1),
+        ('title вне <head>', 'thead', lambda r: r.get('titles') and not any(t['head'] for t in r['titles'])),
+        ('title больше одного', 't2', lambda r: len(r.get('titles') or []) > 1),
+        ('нет description', 'd0', lambda r: 'title' in r and not r['desc']),
+        ('description <70 или >160', 'dlen', lambda r: r.get('desc') and not (70 <= len(r['desc']) <= 160)),
+        ('description оборван посреди слова', 'dcut', lambda r: r.get('desc') and cut_mid_word(r['desc'])),
+        ('description повторяется', 'ddup', lambda r: r.get('desc') and descs[r['desc']] > 1),
+        ('description вне <head>', 'dhead', lambda r: r.get('descs') and not any(d['head'] for d in r['descs'])),
+        ('нет H1', 'h0', lambda r: 'title' in r and not r['h1']),
+        ('больше одного H1', 'h2', lambda r: 'title' in r and len(r['h1']) > 1),
+        ('нет canonical', 'c0', lambda r: 'title' in r and not r['canonicals']),
+        ('canonical только вне <head>', 'chead', lambda r: r.get('canonicals') and not any(c['head'] for c in r['canonicals'])),
+        ('canonical на другой адрес', 'cother', lambda r: r.get('canonicals') and not canon_self(r)),
+        ('canonical больше одного', 'c2', lambda r: len(r.get('canonicals') or []) > 1),
+        ('meta robots больше одного', 'r2', lambda r: len(r.get('robots') or []) > 1),
+        ('meta robots вне <head>', 'rhead', lambda r: any(not x['head'] for x in r.get('robots') or [])),
+        ('noindex на адресе из sitemap', 'noidx', lambda r: any('noindex' in x['content'].lower() for x in r.get('robots') or [])
+                                                    or 'noindex' in (r.get('x_robots') or '').lower()),
+        ('тонкая (<150 слов в серверном HTML)', 'thin', lambda r: 'title' in r and r['words'] < 150),
+        ('нет og:image', 'og0', lambda r: 'title' in r and not r['og_image']),
+        ('нет JSON-LD', 'ld0', lambda r: 'title' in r and not r['jsonld']),
+        ('картинки без alt', 'alt', lambda r: (r.get('imgs_no_alt') or 0) > 0),
+        ('медленно (>2 с)', 'slow', lambda r: r['ms'] > 2000),
+    ]
+    for r in rows:
+        r['codes'] = [code for _, code, fn in checks if fn(r)]
+    sections = sorted({r['section'] for r in rows})
+    by_section: dict[str, dict] = {}
+    for s in sections:
+        srows = [r for r in rows if r['section'] == s]
+        by_section[s] = {'urls': len(srows), 'ok': sum(1 for r in srows if r['code'] == 200)}
+        for name, _, fn in checks:
+            by_section[s][name] = sum(1 for r in srows if fn(r))
+    issues = []
+    for name, code, fn in checks:
+        hit = [r for r in rows if fn(r)]
+        if hit:
+            ex = []
+            for r in hit[:8]:
+                extra = ''
+                if name == 'не 200 в sitemap':
+                    extra = f" → {r['code'] or r['error']}{(' ' + r['location']) if r.get('location') else ''}"
+                elif name == 'canonical на другой адрес':
+                    extra = f" → {r['canonicals'][0]['href']}"
+                elif name.startswith('description') and r.get('desc'):
+                    extra = f" ({len(r['desc'])} зн.: «…{r['desc'][-40:]}»)"
+                elif name == 'title повторяется':
+                    extra = f" «{r['title'][:60]}» ×{titles[r['title']]}"
+                elif name.startswith('meta robots'):
+                    extra = ' [' + ' | '.join(x['content'] + ('' if x['head'] else ' (в body)') for x in r['robots']) + ']'
+                elif name == 'медленно (>2 с)':
+                    extra = f" ({r['ms']} мс)"
+                ex.append(r['url'] + extra)
+            issues.append({'what': name, 'code': code, 'count': len(hit), 'examples': ex})
+
+    # og:image — открывается ли сама картинка (превью в мессенджерах и выдаче).
+    og_bad: list[str] = []
+    og_urls = sorted({r['og_image'] for r in ok if r.get('og_image')})
+    for img in og_urls[:og_checks]:
+        rr = fetch(img, method='HEAD')
+        if rr['code'] in (405, 403, 0) and not rr['error']:
+            rr = fetch(img)
+        if rr['code'] != 200:
+            og_bad.append(f"{img} → {rr['code'] or rr['error']}")
+        time.sleep(PAUSE / 2)
+    return {
+        'checked': len(rows), 'of': len(urls), 'ok': len(ok), 'rate_limited': limited,
+        'by_section': by_section, 'issues': issues, 'checks': [n for n, _, _ in checks],
+        'codes': {code: name for name, code, _ in checks},
+        'og_images': {'unique': len(og_urls), 'checked': min(len(og_urls), og_checks), 'bad': og_bad},
+        'median_ms': sorted(r['ms'] for r in rows)[len(rows) // 2] if rows else None,
+        'rows': rows,
+    }
+
+
+def report_census(c: dict, ua: str, budget: int = 58000) -> str:
+    """Отчёт переписи: находки с примерами, таблица по разделам, затем КАЖДЫЙ адрес с находками
+    кодами — сколько влезет в бюджет check-run (обрезка называется вслух)."""
+    L: list[str] = [f"## Перепись sitemap: {c['checked']} из {c['of']} адресов, 200 — {c['ok']}; UA: {ua}; "
+                    f"медиана ответа {c['median_ms']} мс; ответов 429 — {c.get('rate_limited', 0)}", '']
+    if c['checked'] < c['of']:
+        L.append(f"Пройдены первые {c['checked']} адресов sitemap из {c['of']} — остальные не проверены.")
+        L.append('')
+    if not c['issues']:
+        L.append('- находок нет')
+    for i in c['issues']:
+        L.append(f"- **{i['what']}** (`{i['code']}`) — {i['count']}")
+        for e in i['examples']:
+            L.append(f"  - {e}")
+    og = c['og_images']
+    L.append(f"- og:image: уникальных {og['unique']}, проверено {og['checked']}, не открываются {len(og['bad'])}")
+    for b in og['bad'][:10]:
+        L.append(f"  - {b}")
+    L.append('')
+    L.append('### По разделам')
+    cols = ['urls', 'ok'] + [k for k in c['checks'] if any(v[k] for v in c['by_section'].values())]
+    code_of = {name: code for code, name in c['codes'].items()}
+    L.append('| раздел | ' + ' | '.join(code_of.get(k, k) for k in cols) + ' |')
+    L.append('|' + '---|' * (len(cols) + 1))
+    for s, v in sorted(c['by_section'].items(), key=lambda kv: -kv[1]['urls']):
+        L.append(f"| {s} | " + ' | '.join(str(v[k]) for k in cols) + ' |')
+    L.append('')
+    L.append('Коды: ' + '; '.join(f"`{code}` — {name}" for code, name in c['codes'].items()))
+    L.append('')
+    L.append('### Адреса с находками')
+    flagged = sorted((r for r in c['rows'] if r.get('codes')), key=lambda r: (r['section'], r['url']))
+    used = sum(len(x) + 1 for x in L)
+    shown = 0
+    for r in flagged:
+        path = urllib.parse.urlsplit(r['url']).path or '/'
+        line = f"- {path} {' '.join(r['codes'])}" + (f" → {r['code'] or r['error']}" if r['code'] != 200 else '')
+        if used + len(line) + 1 > budget:
+            break
+        L.append(line)
+        used += len(line) + 1
+        shown += 1
+    if shown < len(flagged):
+        L.append(f"…показано {shown} из {len(flagged)} адресов с находками (бюджет check-run); полный список — в JSON прогона.")
+    return '\n'.join(L)
+
+
 # ─── отчёт ──────────────────────────────────────────────────────────────────
 
 def report(a: dict) -> str:
@@ -497,12 +749,26 @@ def main() -> int:
     ap.add_argument('--json', default='')
     ap.add_argument('--lh-pages', default='')
     ap.add_argument('--scheme', default='https', choices=['https', 'http'])
+    ap.add_argument('--sitemap-census', type=int, default=0, help='пройти до N адресов sitemap (0 — не проходить)')
+    ap.add_argument('--ua', default='default', choices=['default', *BOT_UA.keys()])
+    ap.add_argument('--census-md', default='', help='отчёт переписи — в этот файл (свой check-run), в stdout — только счёт')
     args = ap.parse_args()
     host = args.host.strip().lower().removeprefix('https://').removeprefix('http://').removeprefix('www.').strip('/')
     if args.scheme == 'https' and not re.fullmatch(r'[a-z0-9.-]+\.[a-z]{2,}', host):
         print(f'::error::хост «{args.host}» не похож на домен')
         return 2
+    if args.ua != 'default':
+        # Чужим краулером представляемся только у себя (и на локальной проверке скрипта).
+        # Схема не в счёт: http к чужому домену — тот же чужой сайт.
+        bare = host.rsplit(':', 1)[0] if host.count(':') == 1 else host
+        if bare not in OWN_HOSTS and bare not in LOOPBACK:
+            print(f'::error::заголовок бота ({args.ua}) — только для {", ".join(sorted(OWN_HOSTS))}, не для «{host}»')
+            return 2
+        global CURRENT_UA
+        CURRENT_UA = BOT_UA[args.ua]
     a = audit(host, args.max_pages, args.link_checks, args.scheme)
+    if args.sitemap_census > 0:
+        a['census'] = census(a['sitemap_urls'], args.sitemap_census)
     if args.json:
         with open(args.json, 'w', encoding='utf-8') as f:
             json.dump(a, f, ensure_ascii=False, indent=1, default=str)
@@ -510,6 +776,21 @@ def main() -> int:
         with open(args.lh_pages, 'w', encoding='utf-8') as f:
             f.write('\n'.join(a['lighthouse_pages']) + '\n')
     print(report(a))
+    if 'census' in a:
+        rc = report_census(a['census'], args.ua)
+        if args.census_md:
+            with open(args.census_md, 'w', encoding='utf-8') as f:
+                f.write(rc + '\n')
+            c = a['census']
+            print(f"\n## Перепись sitemap: {c['checked']} из {c['of']}, 200 — {c['ok']} (подробно — check-run site-audit-census)")
+            for i in c['issues']:
+                print(f"- {i['what']} — {i['count']}")
+        else:
+            print(rc)
+        # Перепись, не прошедшая ни одного адреса при непустом sitemap, — отказ, а не «чисто» (§4.0).
+        if a['sitemap_urls'] and a['census']['checked'] == 0:
+            print('\nПЕРЕПИСЬ НЕ УДАЛАСЬ: sitemap не пуст, а не пройдено ни одного адреса.')
+            return 1
     # Отказ входа — красный прогон: «сайт не ответил» не равно «нарушений нет» (§4.0).
     if all(e['code'] == 0 for e in a['entry']):
         print('\nАУДИТ НЕ УДАЛСЯ: ни одно написание адреса не ответило.')
