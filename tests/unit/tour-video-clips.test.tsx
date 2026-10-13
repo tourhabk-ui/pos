@@ -8,13 +8,27 @@
  *   ничего не залито;
  * - зимним турам клипы с открытой водой не ставятся;
  * - CSP пускает видео из хранилища, иначе клип не заиграет;
- * - клиент не тянет S3-клиент в бандл: из модуля клипов — только тип.
+ * - клиент не тянет S3-клиент в бандл: из модуля клипов — только тип;
+ * - лента на карточке проверяется РЕНДЕРОМ (13.10, карт-бланш владельца на
+ *   сторожей по регулярке): каждый клип получает адрес, обложку и подпись из
+ *   серверной строки, автор подписан оператором, и имя ведёт на его страницу.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, cleanup, screen, within } from '@testing-library/react';
+import React from 'react';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTourClips, MAX_TOUR_CLIPS } from '@/lib/tours/tour-clips';
 import { checkItem, MARKER } from '../../scripts/media-to-s3';
+
+// Сам LazyClip проверяет tests/unit/lazy-clip; здесь важно, ЧТО ему передали.
+vi.mock('@/components/media/LazyClip', () => ({
+  LazyClip: (p: { url: string; poster: string; label: string }) =>
+    React.createElement('div', { 'data-testid': 'clip', 'data-url': p.url, 'data-poster': p.poster, 'aria-label': p.label }),
+}));
+import { TourClips } from '@/components/tours/TourClips';
+
+afterEach(cleanup);
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -114,15 +128,43 @@ describe('карточка тура и CSP', () => {
     expect(q).toMatch(/clips: tourClips\(video_clips\)/);
   });
 
-  it('клиент рисует LazyClip и берёт из модуля клипов только тип', () => {
+  it('клиент берёт из модуля клипов только тип и не тянет S3-клиент; ленту рисует TourClips', () => {
     const c = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
     expect(c).toContain("import type { TourClip } from '@/lib/tours/tour-clips';");
     expect(c).not.toMatch(/import \{[^}]*\} from '@\/lib\/tours\/tour-clips'/);
     expect(c).not.toMatch(/from '@\/lib\/storage\/s3'/);
-    expect(c).toMatch(/<LazyClip url=\{c\.url\} poster=\{c\.poster\} label=\{c\.label\}/);
-    // Автор — оператор тура (слово владельца 09.10); с 13.10 имя — ссылка на
-    // его страницу (OperatorNameLink), текст подписи тот же.
-    expect(c).toMatch(/Видео: <OperatorNameLink name=\{tour\.operator_name\} slug=\{tour\.operator_slug\} isPublic=\{tour\.operator_public\} \/>/);
+    expect(c).toContain("from '@/components/tours/TourClips'");
+    // Своей ленты у клиента нет: правило одно, и живёт оно в TourClips.
+    expect(c).not.toMatch(/from '@\/components\/media\/LazyClip'/);
+  });
+
+  it('лента: каждому клипу — адрес, обложка и подпись из серверной строки; автор — оператор со ссылкой', () => {
+    const clips = [
+      { url: `${BASE}/videos/fishingkam/a.mp4`, poster: `${BASE}/videos/fishingkam/a.poster.jpg`, label: 'Улов' },
+      { url: `${BASE}/videos/fishingkam/b.mp4`, poster: `${BASE}/videos/fishingkam/b.poster.jpg`, label: 'Подход к реке' },
+    ];
+    render(<TourClips clips={clips} operatorName="Камчатская рыбалка" operatorSlug="fishingkam" operatorPublic />);
+    const items = within(screen.getByRole('list', { name: 'Клипы тура' })).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    const second = within(items[1]).getByTestId('clip');
+    expect(second.getAttribute('data-url')).toBe(clips[1].url);
+    expect(second.getAttribute('data-poster')).toBe(clips[1].poster);
+    expect(second.getAttribute('aria-label')).toBe('Подход к реке');
+    expect(items[1]).toHaveTextContent('Подход к реке');
+    // Автор — оператор тура (слово владельца 09.10); с 13.10 имя — ссылка на его страницу.
+    const author = screen.getByText(/^Видео:/);
+    const link = within(author).getByRole('link', { name: 'Камчатская рыбалка' });
+    expect(link.getAttribute('href')).toBe('/operators/fishingkam');
+  });
+
+  it('закрытая карточка оператора — подпись текстом; без клипов — ничего', () => {
+    const clip = { url: `${BASE}/videos/a.mp4`, poster: `${BASE}/videos/a.poster.jpg`, label: 'Улов' };
+    const { container } = render(<TourClips clips={[clip]} operatorName="Камчатская рыбалка" operatorSlug="fishingkam" operatorPublic={false} />);
+    expect(container.querySelector('a')).toBeNull();
+    expect(container).toHaveTextContent('Видео: Камчатская рыбалка');
+    cleanup();
+    const empty = render(<TourClips clips={[]} operatorName="Камчатская рыбалка" />);
+    expect(empty.container.innerHTML).toBe('');
   });
 
   it('CSP пускает видео из хранилища в обеих политиках страниц', () => {

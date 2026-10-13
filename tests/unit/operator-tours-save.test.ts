@@ -125,6 +125,9 @@ describe('прочее', () => {
     expect(parseQuickFillValue('price_unit', 'за всех').ok).toBe(false);
     expect(parseQuickFillValue('base_price', '-5').ok).toBe(false);
     expect(parseQuickFillValue('base_price', '13 000'.replace(' ', ''))).toEqual({ ok: true, value: 13000 });
-    expect(read('app/hub/operator/completeness/_CompletenessClient.tsx')).toMatch(/!isQuickFillField\(field\)/);
+    // Что клиент судит тем же правилом, держит рендером
+    // tests/unit/completeness-screen: поле вне quick-fill ведёт в редактор,
+    // быстрое — открывает диалог. Регулярка на `!isQuickFillField(field)`
+    // снята 13.10: она ловила рефакторинг, а не дефект.
   });
 });

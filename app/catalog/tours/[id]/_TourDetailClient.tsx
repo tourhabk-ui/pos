@@ -23,7 +23,7 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import type { TourClip } from '@/lib/tours/tour-clips';
-import { LazyClip } from '@/components/media/LazyClip';
+import { TourClips } from '@/components/tours/TourClips';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 // SOS здесь не импортируется: её несёт общая шапка (§2, #887). До 24.09
@@ -737,17 +737,14 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             {tour.clips && tour.clips.length > 0 && (
               <section aria-label={`Видео: ${tour.title}`}>
                 <Eyebrow>Как это выглядит</Eyebrow>
-                <ul className="flex gap-3 overflow-x-auto pb-2 snap-x">
-                  {tour.clips.map((c) => (
-                    <li key={c.url} className="snap-start shrink-0 w-40 sm:w-44">
-                      <LazyClip url={c.url} poster={c.poster} label={c.label} className="aspect-[9/16]" />
-                      <p className="mt-1 text-xs leading-snug text-[var(--text-secondary)]">{c.label}</p>
-                    </li>
-                  ))}
-                </ul>
-                {/* Подпись автора — оператором тура (слово владельца 09.10), тем же
-                    правилом, что у клипов перевозчика: «Видео: <кто>». */}
-                <p className="text-xs text-[var(--text-muted)]">Видео: <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} /></p>
+                {/* Лента и подпись автора — components/tours/TourClips (13.10):
+                    «Видео: <оператор>», имя ведёт на страницу оператора. */}
+                <TourClips
+                  clips={tour.clips}
+                  operatorName={tour.operator_name}
+                  operatorSlug={tour.operator_slug}
+                  operatorPublic={tour.operator_public}
+                />
               </section>
             )}
 

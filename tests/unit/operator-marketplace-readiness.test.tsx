@@ -14,10 +14,23 @@
  * Чинится не новым порогом в кабинете, а общим правилом: судит то же
  * missingFields, которым отбирают ленты. Два правила разошлись бы снова.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, cleanup, screen, act } from '@testing-library/react';
+import React from 'react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { missingFields, blockerLabel, BLOCKER_LABELS, MIN_DESCRIPTION_CHARS, type ReadinessRow } from '@/lib/tours/readiness';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/hub/operator/completeness',
+  useParams: () => ({}),
+}));
+vi.mock('react-hot-toast', () => {
+  const t = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), loading: vi.fn(() => 'id'), dismiss: vi.fn() });
+  return { default: t, toast: t };
+});
+import CompletenessClient from '@/app/hub/operator/completeness/_CompletenessClient';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -25,7 +38,8 @@ const API = read('app/api/operator/completeness/route.ts');
 // SQL экрана переехал в общий модуль 11.09 (#1794): его текст обязан
 // исполняться на настоящем PostgreSQL, а роут его только зовёт.
 const SQL = read('lib/operator/screen-queries.ts');
-const UI = read('app/hub/operator/completeness/_CompletenessClient.tsx');
+
+afterEach(cleanup);
 
 describe('кабинет судит тем же правилом, что и витрина', () => {
   it('зовёт общее missingFields, а не свой порог', () => {
@@ -74,14 +88,55 @@ describe('блокеры названы человеческими словам�
   });
 });
 
-describe('экран не говорит «готово» там, где не готово', () => {
-  it('витрины показаны отдельной строкой и до заполненности карточки', () => {
-    expect(UI).toMatch(/marketplace_ready/);
-    expect(UI).toMatch(/Не уйдёт на Авито и Яндекс/);
-    expect(UI).toMatch(/Готов к выкладке на Авито и Яндекс/);
-    // Блок стоит ПЕРЕД обязательными полями: это ответ на вопрос «почему
-    // моего тура нет на площадках», и он важнее процента заполненности.
-    expect(UI.indexOf('marketplace_blockers')).toBeLessThan(UI.indexOf('missing_required.length > 0'));
+/** Ответ API экрана: два тура — один не уходит на витрины, второй готов. */
+const SCREEN = {
+  success: true,
+  data: {
+    stats: { totalTours: 2, avgTotalScore: 0, fullyComplete: 0, criticallyIncomplete: 0, publishedTours: 2 },
+    tours: [
+      {
+        tour_id: '51', tour_title: 'Рыбалка', is_published: true,
+        required_score: 100, recommended_score: 50, total_score: 85,
+        missing_required: ['tour_image'], missing_recommended: [],
+        marketplace_ready: false,
+        marketplace_blockers: [
+          { field: 'description', label: blockerLabel('description') },
+          { field: 'pickup', label: blockerLabel('pickup') },
+        ],
+      },
+      {
+        tour_id: '52', tour_title: 'Вулкан Горелый', is_published: true,
+        required_score: 100, recommended_score: 100, total_score: 100,
+        missing_required: [], missing_recommended: [],
+        marketplace_ready: true, marketplace_blockers: [],
+      },
+    ],
+  },
+};
+
+describe('экран не говорит «готово» там, где не готово (рендер)', () => {
+  it('витрины — отдельной строкой у каждого тура, блокеры словами и до заполненности карточки', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify(SCREEN), { status: 200 }))) as unknown as typeof fetch;
+    render(<CompletenessClient />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    // Тур со стознаковым описанием и без ответа о трансфере — не готов, и
+    // экран говорит это словами лент, а не процентом.
+    expect(screen.getByText('Не уйдёт на Авито и Яндекс — не хватает: 2')).toBeInTheDocument();
+    expect(screen.getByText('Готов к выкладке на Авито и Яндекс')).toBeInTheDocument();
+    expect(screen.queryByText(/100\s?%/)).toBeNull();
+
+    // Блокеры — те же формулировки, что отдаёт правило (BLOCKER_LABELS).
+    const blockers = screen.getByRole('list', { name: 'Чего не хватает: Рыбалка' });
+    expect(blockers).toHaveTextContent(blockerLabel('description'));
+    expect(blockers).toHaveTextContent(blockerLabel('pickup'));
+    // Готовый тур списка блокеров не имеет.
+    expect(screen.queryByRole('list', { name: 'Чего не хватает: Вулкан Горелый' })).toBeNull();
+
+    // Блок витрин стоит ПЕРЕД заполненностью карточки: это ответ на вопрос
+    // «почему моего тура нет на площадках», и он важнее процента.
+    const cardGaps = screen.getByRole('button', { name: /Ещё для карточки на Ведаре/ });
+    expect(blockers.compareDocumentPosition(cardGaps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('тур со стознаковым описанием и без ответа о трансфере — не готов', () => {
