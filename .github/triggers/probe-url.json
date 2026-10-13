@@ -30,6 +30,7 @@
     "noindex",
     "rel=\"canonical\""
   ],
-  "run": 780,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru: как разделы отвечают на НЕСУЩЕСТВУЮЩИЙ адрес обычному браузеру (заголовок по умолчанию) — 404 или 200 со страницей «не найдено» (soft-404). Пара к пробе 781 с заголовком Googlebot. Последний адрес — маршрут из sitemap, ответивший Googlebot 500 в переписи прогона 5."
+  "run": 781,
+  "ua": "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru: те же несуществующие адреса глазами Googlebot (свой домен) — 404, 200 или 500. Пара к пробе 780."
 }
