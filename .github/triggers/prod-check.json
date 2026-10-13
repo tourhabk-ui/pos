@@ -1,10 +1,10 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
-  "run": 123,
-  "why": "13.10, ТОЛЬКО ЧТЕНИЕ. Снимки из миграций в хранилище (#2428 заливка 154 JPEG, #2429 — миграции 1227/1228: галерее ключ, прод переведён по sha256 байтов). Перепись images-in-s3 теперь считает обе таблицы: у героя и галереи — сколько строк с ключом, сколько ещё байтами, сколько с ключом migrations/photos/ (ожидается ~52 у героя за вычетом увезённых уборщиком раньше и ~100 у галереи; байтов у галереи — 0), и проверяет HEAD-ом доступность случайных 12 объектов обеих таблиц, включая строки с одним ключом (адрес из ключа, как у раздачи). Плюс список 40 перевезённых с ключами.",
+  "run": 124,
+  "why": "13.10, ТОЛЬКО ЧТЕНИЕ. Перед заведением карточки оператора «Виртус Тур» (virtustur.tilda.ws, без туров) — есть ли он уже у нас под другим slug (dormant-список переписи: непубличные без туров; публичный список /api/operators) и есть ли ООО «Виртус Тур» в копии официального реестра (registry-список переписи). Только названия и флаги, без телефонов.",
   "urls": [
-    "https://vedarai.ru/api/cron/images-in-s3?part=summary&check=12",
-    "https://vedarai.ru/api/cron/images-in-s3?limit=40&with_keys=1"
+    "https://vedarai.ru/api/cron/partner-candidates-census",
+    "https://vedarai.ru/api/operators"
   ],
   "run113_result": "ОТВЕТ ПОЛУЧЕН (run 38278672621, job 114910303506, 12.10 17:13 UTC): /zh 200 — 37 туров отрисованы, hreflang ru/zh-CN/x-default, canonical /zh, JSON-LD WebPage inLanguage zh-CN, команда Qwen Code и ссылки на MCP/A2A/OpenAPI; /request-status 200 с noindex (отрисовка клиентская, серверный main пуст — тексты страницы этим замером не видны); /api/requests/status?k=short — 400 с текстом «Ключ статуса не похож на выданный…», Edge пускает; /mcp — 20 инструментов, get_request_status 16-й; /.well-known/mcp.json — titleZh, descriptionZh, serverCard, aiCatalog, connect (qwen_code, deepseek_harness), 20 инструментов. Шаг ожидания сборки: «своей сборки не дождались» (прод отдаёт commit unknown, no_git_head, 70/70), образ сменился в 16:45 — по содержимому страниц измерена сборка с #2404.",
   "run114_result": "ОТВЕТ ПОЛУЧЕН (run 38286520699, job 114936098240, 12.10 18:23 UTC, оба адреса HTTP 200): channel-readiness после выравнивания с витриной — tours_active 37, drafts_excluded 5, ready 11 (Камчатская рыбалка 10, Рафтинг 1), not_ready 26, blocking_by_field: cancellation_policy 26 (Край Вулканов 11, Местечко 15), coordinates 1 («Озеро Толмачёва»); operator-reach — те же 37 живых туров, reachable 0 / unreachable 4, verdict gap. Две переписи сошлись (было 42 против 37 в run 112).",
