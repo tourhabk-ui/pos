@@ -3,19 +3,22 @@
   "retries": 0,
   "retryDelay": 5,
   "allowStale": true,
-  "run": 784,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru: два маршрута из sitemap отвечают Googlebot 500, браузеру 200 без canonical — похоже, падает generateMetadata на данных маршрута. Снимаем публичную карточку /api/routes/<slug> (поля photos, title) и для сравнения рабочий маршрут.",
+  "run": 785,
+  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. SEO vedarai.ru: гипотеза — у двух маршрутов, отвечающих Googlebot 500, элементы payload.photos не строки, и разбор og:image в метаданных падает (path.posix.join на объекте). JSON-LD страницы кладёт те же photos в ImageObject.url — смотрим их форму в HTML браузерного ответа; третий адрес — рабочий маршрут для сравнения.",
   "urls": [
     "https://vedarai.ru/robots.txt",
-    "https://vedarai.ru/api/routes/avachinskij-pereval-baza-3-vulkana",
-    "https://vedarai.ru/api/routes/odnodnevnyj-pohod-k-avachinskomu-vulkanu",
-    "https://vedarai.ru/api/routes/goryachie-istochniki-nalychevo"
+    "https://vedarai.ru/routes/avachinskij-pereval-baza-3-vulkana",
+    "https://vedarai.ru/routes/odnodnevnyj-pohod-k-avachinskomu-vulkanu",
+    "https://vedarai.ru/routes/goryachie-istochniki-nalychevo"
   ],
-  "bytes": 9000,
+  "bytes": 300,
   "grep": [
-    "\"photos\"",
-    "\"title\"",
-    "\"slug\"",
-    "\"error\""
+    "\"@type\":\"ImageObject\",\"url\":{",
+    "\"@type\":\"ImageObject\",\"url\":\"",
+    "\"@type\":\"ImageObject\",\"url\":null",
+    "\"@type\":\"ImageObject\",\"url\":[",
+    "\"@type\":\"ImageObject\",\"url\":\"\"",
+    "rel=\"canonical\"",
+    "\"@type\":\"TouristTrip\""
   ]
 }
