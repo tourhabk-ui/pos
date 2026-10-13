@@ -6,13 +6,14 @@
  *   герой (фото, крошки, заголовок, полоса фактов) → фото и видео → о
  *   перевозчике → прайс под заказ (направления ведут на места) → поездки с
  *   датами → что входит в цену → безопасность по направлениям → перевозчик
- *   (исполнитель, отметка проверки, связь) → Кузьмич; справа — закреплённая
- *   заявка на машину.
+ *   (исполнитель, отметка проверки, связь) → отзывы → Кузьмич; справа —
+ *   закреплённая заявка на машину.
  *
  * Единственная реализация: прежде перевозчик открывался в шаблоне
  * туроператора (/operators/[slug]) — с подписью «Проверенный оператор», FAQ
- * про туры и без формы заказа. Отзывов о перевозчике здесь нет: источника у
- * них нет, и заводить его — решение владельца (вопрос 13.10 открыт).
+ * про туры и без формы заказа. Отзывы — только от тех, кто ехал, и каждый
+ * называет доказательство поездки (слово владельца 13.10 «делай блок отзывов
+ * но логично», components/transfers/CarrierReviews).
  *
  * Компонент без хуков: страница рисуется на сервере, интерактивны только
  * герой (просмотрщик фото), лента фото и форма заявки.
@@ -29,6 +30,7 @@ import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
+import { CarrierReviews } from '@/components/transfers/CarrierReviews';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { charterRequisitesLine, describeFleet, formatRub, vehicleKindWord } from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
@@ -52,7 +54,7 @@ function H2({ id, children }: { id?: string; children: React.ReactNode }) {
 }
 
 export function CarrierPage({ data }: { data: CarrierPageData }) {
-  const { carrier: c, trips, safety } = data;
+  const { carrier: c, trips, safety, reviews } = data;
   const instrument = carrierInstrument(c);
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
@@ -265,6 +267,8 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
                 )}
               </div>
             </section>
+
+            <CarrierReviews slug={c.slug} reviews={reviews} />
 
             <section aria-labelledby="carrier-kuzmich">
               <H2 id="carrier-kuzmich">Спросить Кузьмича</H2>

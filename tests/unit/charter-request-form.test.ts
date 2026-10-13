@@ -247,6 +247,8 @@ describe('данные страницы: три исхода у каждой ч�
     expect(d?.carrier.name).toBe('Шатун');
     expect(d?.trips).toEqual({ state: 'failed' });
     expect(d?.safety).toEqual({ state: 'failed' });
+    // Отзывы — та же база: не прочитались — «не смогли», а не «отзывов нет».
+    expect(d?.reviews).toEqual({ state: 'failed' });
     expect(err).toHaveBeenCalledWith(expect.stringContaining('sqlstate=57P01'), expect.any(String));
     expect(err).toHaveBeenCalledWith(expect.stringContaining('sqlstate=42P01'), expect.any(String));
     err.mockRestore();
@@ -254,9 +256,11 @@ describe('данные страницы: три исхода у каждой ч�
 
   it('нет связанных мест — база про опасности не спрашивается; нет перевозчика — null', async () => {
     tripsMock.mockResolvedValue([]);
+    dbQuery.mockResolvedValue({ rows: [] });
     const d = await loadCarrierPage('shatun', '2026-10-13');
     expect(d?.safety).toEqual({ state: 'ok', byPlace: {} });
-    expect(dbQuery).not.toHaveBeenCalled();
+    expect(dbQuery.mock.calls.some(([sql]) => /location_safety_profile/.test(String(sql)))).toBe(false);
+    expect(d?.reviews).toEqual({ state: 'ok', items: [], count: 0, average: null });
     carrierBySlug.mockResolvedValue(null);
     expect(await loadCarrierPage('nobody')).toBeNull();
   });

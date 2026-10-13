@@ -7,7 +7,9 @@
  *     страница падает в ошибку, а не рисует «перевозчика нет»);
  *   · поездки с датами — список / пусто («под заказ», это норма) / не смогли;
  *   · опасности мест по направлениям — по месту / место без профиля
- *     («не записаны» ≠ «безопасно») / не смогли.
+ *     («не записаны» ≠ «безопасно») / не смогли;
+ *   · отзывы — список со сводкой по видимым / пусто / не смогли (миграция
+ *     1235, lib/transfers/carrier-reviews).
  * Отказ второстепенной части не роняет страницу: прайс и заявка важнее.
  */
 
@@ -20,6 +22,7 @@ import { tripsLink } from '@/lib/transfers/trips-link';
 import { addDays } from '@/lib/transfers/charter-request-service';
 import { logText } from '@/lib/log/log-text';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
+import { loadCarrierReviews, type CarrierReviewsBlock } from '@/lib/transfers/carrier-reviews';
 
 /** Окно поездок с датами — то же, что у витрины /transfers и search_transfers. */
 export const CARRIER_TRIPS_WINDOW_DAYS = 60;
@@ -49,6 +52,7 @@ export interface CarrierPageData {
   carrier: CarrierProfile;
   trips: CarrierTrips;
   safety: DestinationSafety;
+  reviews: CarrierReviewsBlock;
 }
 
 function logFailure(what: string, err: unknown): void {
@@ -127,9 +131,10 @@ export async function loadCarrierPage(slug: string, today: string = kamchatkaTod
   const carrier = await loadCarrierBySlug(slug);
   if (!carrier) return null;
   const placeIds = [...new Set(carrier.destinations.flatMap((d) => (d.place ? [d.place.id] : [])))];
-  const [trips, safety] = await Promise.all([
+  const [trips, safety, reviews] = await Promise.all([
     loadTrips(carrier.partnerId, today),
     loadDestinationSafety(placeIds),
+    loadCarrierReviews(carrier.partnerId),
   ]);
-  return { carrier, trips, safety };
+  return { carrier, trips, safety, reviews };
 }

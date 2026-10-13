@@ -53,6 +53,9 @@ interface MyBooking {
   status: 'requested' | 'confirmed' | 'declined' | 'cancelled';
   decline_reason: string | null;
   payment_status: 'unpaid' | 'pending' | 'paid';
+  /** Отзыв о перевозчике: ссылка, когда поездка дала на него право (1235). */
+  review_href?: string | null;
+  reviewed?: boolean;
 }
 
 type Search =
@@ -273,6 +276,13 @@ export default function TransfersClient({ charter, prefill = null }: { charter: 
                     {b.status === 'declined' && b.decline_reason && (
                       <p className="text-xs text-[var(--text-secondary)] mt-2">Причина: {b.decline_reason}</p>
                     )}
+                    {b.review_href ? (
+                      <Link href={b.review_href} className="inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline mt-1">
+                        Оставить отзыв о перевозчике
+                      </Link>
+                    ) : b.reviewed ? (
+                      <p className="text-xs text-[var(--text-muted)] mt-2">Отзыв о поездке оставлен — спасибо.</p>
+                    ) : null}
                     {b.status === 'confirmed' && b.payment_status !== 'paid' && (
                       <div className="mt-3">
                         {!platformAcceptsPayments() ? (

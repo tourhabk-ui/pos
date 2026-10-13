@@ -40,6 +40,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/content/routes', label: 'Модерация маршрутов', icon: Route, section: 'Контент' },
   { href: '/hub/admin/content/reviews', label: 'Отзывы', icon: MessageSquareText, section: 'Контент' },
   { href: '/hub/admin/content/tour-reviews', label: 'Отзывы о турах', icon: MessageSquareText, section: 'Контент' },
+  // Отзывы о перевозчиках (1235): здесь же менеджер подтверждает, что поездка
+  // по заявке на машину состоялась, и выдаёт заказчику ссылку на отзыв.
+  { href: '/hub/admin/content/carrier-reviews', label: 'Отзывы о перевозчиках', icon: MessageSquareText, section: 'Контент' },
   { href: '/hub/admin/moderation', label: 'Модерация отзывов', icon: ShieldCheck, section: 'Контент' },
   // Разбор утверждений Кузьмича о безопасности (#2300): сверка — автоматом,
   // отметка «верно / ошибка» — человеком, после отправки, а не до неё.
