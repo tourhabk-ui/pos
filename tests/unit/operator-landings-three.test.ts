@@ -149,6 +149,13 @@ describe('миграция 1222: только заполняет пустое', 
     }
   });
 
+  it('своих BEGIN/COMMIT в файле нет — транзакцию держит раннер', () => {
+    // kernel-pg 13.10: COMMIT после строки комментария раннер не узнал как
+    // служебный, отправил в базу и закрыл свою транзакцию раньше времени
+    // («RELEASE SAVEPOINT can only be used in transaction blocks»).
+    expect(MIG).not.toMatch(/^\s*(BEGIN|COMMIT|END)\s*;/m);
+  });
+
   it('рафтингу даются описания, которых у партнёра не было; остальным — нет', () => {
     const descr = [...MIG.matchAll(/SET (short_)?description = [\s\S]*?WHERE slug = '([\w-]+)'/g)].map((m) => m[2]);
     expect(descr).toEqual(['kamchatka-rafting', 'kamchatka-rafting']);
