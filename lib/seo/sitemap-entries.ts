@@ -13,6 +13,7 @@ import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
+import { publicGuideWhere } from '@/lib/guides/visibility';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plans/presets';
 import { NOT_MERGED } from '@/lib/places/aliases';
@@ -267,6 +268,20 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('жильё', e);
   }
 
+  // Реестр гидов: пока одобренных платформой гидов нет, /guides — пустая
+  // страница «профили на проверке» (перепись 13.10: 49 слов), и в sitemap
+  // её не предлагаем, как пустой раздел жилья. Не смогли спросить — раздел
+  // остаётся: «не знаю» не равно «пусто» (§4.0).
+  let publicGuides: number | null = null;
+  try {
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM partners p WHERE ${publicGuideWhere('p')}`
+    );
+    publicGuides = rows[0]?.n ?? 0;
+  } catch (e) {
+    fail('гиды', e);
+  }
+
   // Маркетплейс-туры. Раньше фильтр шёл по is_visible — колонке PLACES,
   // которой у operator_tours нет: запрос падал, catch молчал, и в sitemap
   // не было НИ ОДНОЙ карточки тура (аудит «как ИИ видят Ведар», 08.08 —
@@ -380,9 +395,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
 
   // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет
   // ни одного опубликованного объекта, в sitemap её не предлагаем (Н9).
-  const staticLive = accommodationPages.length > 0
-    ? staticPages
-    : staticPages.filter((p) => p.url !== `${BASE}/accommodations`);
+  const staticLive = staticPages
+    .filter((p) => accommodationPages.length > 0 || p.url !== `${BASE}/accommodations`)
+    .filter((p) => publicGuides !== 0 || p.url !== `${BASE}/guides`);
 
   // Страница-список меняется, когда меняется её содержимое. `new Date()` у
   // /places, /routes, /catalog говорил «изменено сейчас» на каждом запросе

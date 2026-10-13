@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { Shield, Award, Star } from 'lucide-react';
@@ -10,7 +11,7 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 // Сторож: tests/unit/no-build-time-db.test.ts.
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
+const BASE_METADATA: Metadata = {
   alternates: { canonical: '/guides' },
   title: 'Сертифицированные гиды Камчатки',
   description: 'Гиды Камчатки, проверенные платформой Ведар: аттестаты, специализации, отзывы туристов. Выбирайте проверенного гида для безопасного путешествия.',
@@ -41,6 +42,19 @@ interface Guide {
 // одно условие на список, профиль и перепись — lib/guides/visibility.ts.
 // null — запрос не выполнился: «гидов нет» и «не смогли спросить» на
 // витрине доверия — разные вещи (§4.0).
+
+/**
+ * Пустой реестр — noindex (перепись 13.10: 49 слов «профили на проверке»),
+ * пока не появится первый одобренный гид; sitemap его тогда же и не
+ * предлагает. Не прочитался — индексируемость не трогаем: «не смогли
+ * спросить» не равно «пусто» (§4.0).
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const guides = await getGuidesOnce();
+  return guides !== null && guides.length === 0
+    ? { ...BASE_METADATA, robots: { index: false, follow: true } }
+    : BASE_METADATA;
+}
 
 async function getGuides(): Promise<Guide[] | null> {
   try {
@@ -73,8 +87,11 @@ async function getGuides(): Promise<Guide[] | null> {
   }
 }
 
+/** Один запрос на рендер: метаданные и страница спрашивают одно и то же. */
+const getGuidesOnce = cache(getGuides);
+
 export default async function GuidesPage() {
-  const loaded = await getGuides();
+  const loaded = await getGuidesOnce();
   const failed = loaded === null;
   const guides = loaded ?? [];
   const verifiedCount = guides.filter(g => g.is_verified).length;
