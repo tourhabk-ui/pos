@@ -1,6 +1,8 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 import { requireOperator } from '@/lib/auth/middleware';
 import { z } from 'zod';
 
@@ -21,13 +23,9 @@ const SetAvailabilitySchema = z.object({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
+// Кабинет — свой или команды (CRM 2г), только category='operator': прежний
+// `partners WHERE user_id LIMIT 1` без категории мог взять профиль гида.
+const getOperatorId = getOperatorPartnerId;
 
 // ─── GET /api/operator/calendar ───────────────────────────────────────────────
 // Возвращает доступность слотов по турам оператора за диапазон дат.
@@ -134,6 +132,13 @@ export async function POST(request: NextRequest) {
   }
   const { tourId, date, availableSlots, isBlocked, blockReason, priceOverride, weatherStatus } = parsed.data;
 
+  // Цена на дату — право, которое даёт владелец кабинета (CRM 2г). Менеджер
+  // без него открывает и закрывает даты, но цену даты не задаёт и не стирает.
+  const priceDenied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
+  // 503 — не смогли проверить; 403 с ценой в запросе — права нет.
+  if (priceDenied && (priceDenied.status !== 403 || priceOverride !== undefined)) return priceDenied;
+  const mayPrice = priceDenied === null;
+
   // Проверяем владение туром
   const { rows: ownerRows } = await pool.query(
     `SELECT 1 FROM operator_tours WHERE id = $1 AND operator_id = $2 LIMIT 1`,
@@ -153,7 +158,8 @@ export async function POST(request: NextRequest) {
          available_slots     = EXCLUDED.available_slots,
          is_cancelled        = EXCLUDED.is_cancelled,
          cancellation_reason = EXCLUDED.cancellation_reason,
-         base_price_override = EXCLUDED.base_price_override,
+         base_price_override = CASE WHEN $8::boolean THEN EXCLUDED.base_price_override
+                                    ELSE tour_availability.base_price_override END,
          weather_status      = EXCLUDED.weather_status,
          updated_at          = NOW()
        RETURNING id::text, operator_tour_id::text AS tour_id, date::text, available_slots, is_cancelled`,
@@ -165,6 +171,7 @@ export async function POST(request: NextRequest) {
         blockReason ?? null,
         priceOverride ?? null,
         weatherStatus ?? 'unknown',
+        mayPrice,
       ]
     );
 

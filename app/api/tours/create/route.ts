@@ -8,6 +8,7 @@ import { query } from '@/lib/database';
 import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 
 // Валидация входных данных
 const tourSchema = z.object({
@@ -89,6 +90,9 @@ export async function POST(request: NextRequest) {
         );
       }
       effectiveOperatorId = resolvedOperatorId;
+      // Новый тур — это и цена: менеджеру команды только с правом владельца (CRM 2г).
+      const denied = await requireTeamPermission(authResult.userId, 'can_edit_prices');
+      if (denied) return denied;
     }
 
     if (!effectiveOperatorId) {

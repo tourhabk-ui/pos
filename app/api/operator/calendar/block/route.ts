@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { requireOperator } from '@/lib/auth/middleware';
 import { z } from 'zod';
 
@@ -18,13 +19,9 @@ const UnblockDatesSchema = z.object({
   endDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
+// Кабинет — свой или команды (CRM 2г), только category='operator': прежний
+// `partners WHERE user_id LIMIT 1` без категории мог взять профиль гида.
+const getOperatorId = getOperatorPartnerId;
 
 function datesInRange(start: string, end: string): string[] {
   const result: string[] = [];

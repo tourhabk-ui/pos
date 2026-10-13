@@ -8,16 +8,13 @@ import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 
 export const dynamic = 'force-dynamic';
 
-async function getOperatorId(userId: string): Promise<string | null> {
-  const { rows } = await pool.query(
-    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0]?.id ?? null;
-}
+// Кабинет — свой или команды (CRM 2г), только category='operator': прежний
+// `partners WHERE user_id LIMIT 1` без категории мог взять профиль гида.
+const getOperatorId = getOperatorPartnerId;
 
 export async function GET(req: NextRequest) {
   const authOrResponse = await requireOperator(req);

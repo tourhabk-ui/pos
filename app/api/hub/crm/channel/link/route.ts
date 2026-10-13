@@ -9,16 +9,19 @@
  * Право назначить адрес проверено входом: id партнёра берётся из гарда, а
  * не из запроса — свою ссылку можно получить только на свою карточку.
  *
+ * Канал карточки — настройка владельца (requirePartnerOwner, CRM 2г): менеджер
+ * команды привязывал бы СВОЙ чат к адресу владельца, и заявки уходили бы ему.
+ *
  * POST, а не GET: ответ — действующий ключ привязки, его не кэшируют.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePartner } from '@/lib/crm/partner-context';
+import { requirePartnerOwner } from '@/lib/crm/partner-context';
 import { buildPartnerChannelLinks } from '@/lib/partners/channel-link';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const ctx = await requirePartner(req);
+  const ctx = await requirePartnerOwner(req);
   if (ctx instanceof NextResponse) return ctx;
   const links = buildPartnerChannelLinks(ctx.partnerId);
   if (!links.ok) {

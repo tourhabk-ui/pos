@@ -4,8 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperator } from '@/lib/auth/middleware';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireOperatorOwner, requireOperatorTeam } from '@/lib/operators/team-access';
 import { query } from '@/lib/database';
 import { reachForPartner } from '@/lib/partners/reach';
 import { isCleared, mergeClearable } from '@/lib/operator/profile-patch';
@@ -40,16 +39,11 @@ async function telegramNotifications(partnerId: string): Promise<{
 }
 
 export async function GET(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const partnerId = await getOperatorPartnerId(authOrResponse.userId);
-  if (!partnerId) {
-    return NextResponse.json(
-      { success: false, error: 'Профиль оператора не найден' },
-      { status: 404 },
-    );
-  }
+  // Профиль читает и менеджер команды (CRM 2г), но без денег: способ и
+  // проверка выплат, ставка комиссии ему не показываются.
+  const ctx = await requireOperatorTeam(request);
+  if (ctx instanceof NextResponse) return ctx;
+  const partnerId = ctx.partnerId;
 
   const r = await query(`
     SELECT
@@ -69,9 +63,12 @@ export async function GET(request: NextRequest) {
   const row = r.rows[0];
   if (!row) return NextResponse.json({ success: true, data: null });
 
+  const visible = ctx.access.kind === 'owner'
+    ? row
+    : { ...row, payout_method: null, payout_verified: null, commission_current: null };
   return NextResponse.json({
     success: true,
-    data: { ...row, telegram_notifications: await telegramNotifications(partnerId) },
+    data: { ...visible, telegram_notifications: await telegramNotifications(partnerId) },
   });
 }
 
@@ -100,16 +97,10 @@ const PatchSchema = z.object({
 });
 
 export async function PATCH(request: NextRequest) {
-  const authOrResponse = await requireOperator(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const partnerId = await getOperatorPartnerId(authOrResponse.userId);
-  if (!partnerId) {
-    return NextResponse.json(
-      { success: false, error: 'Профиль оператора не найден' },
-      { status: 404 },
-    );
-  }
+  // Профиль компании — настройки: правит только владелец кабинета (CRM 2г).
+  const owner = await requireOperatorOwner(request);
+  if (owner instanceof NextResponse) return owner;
+  const partnerId = owner.partnerId;
 
   const body: unknown = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ success: false, error: 'Неверный JSON' }, { status: 400 });

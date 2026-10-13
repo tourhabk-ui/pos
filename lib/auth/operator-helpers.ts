@@ -4,6 +4,7 @@
  */
 
 import { query } from '@/lib/database';
+import { operatorAccess } from '@/lib/operators/team-access';
 
 /**
  * След неудавшейся проверки.
@@ -21,22 +22,23 @@ function logCheckFailure(check: string, error: unknown): void {
 
 
 /**
- * Get partner ID for an operator user
- * Returns partner.id linked to user.id
+ * Партнёр кабинета оператора для вошедшего человека: свой кабинет либо
+ * кабинет, в команде которого он менеджер (CRM 2г, миграция 1223).
+ *
+ * Деньги и настройки этим резолвером НЕ закрываются: роуты денег и настроек
+ * идут через requireOperatorOwner (lib/operators/team-access.ts), и каждый
+ * вызывающий здесь внесён в реестр сторожа operator-team-access.
  */
 export async function getOperatorPartnerId(userId: string): Promise<string | null> {
   try {
-    const result = await query(
-      `SELECT id FROM partners 
-       WHERE user_id = $1 AND category = 'operator'
-       LIMIT 1`,
-      [userId]
-    );
-    
-    if (result.rows.length > 0) {
-      return result.rows[0].id as string;
-    }
-    
+    const access = await operatorAccess(userId);
+    if (access.kind === 'owner' || access.kind === 'manager') return access.partnerId;
+    // «Не смогли проверить» — не повод заводить профиль: причина уже в логе.
+    if (access.kind === 'unavailable') return null;
+    // Менеджеру, которого владелец снял, свой кабинет молча не заводится:
+    // иначе он увидел бы пустой кабинет «оператора» вместо «доступ закрыт».
+    if (access.reason === 'revoked') return null;
+
     // Auto-create partner profile if missing
     const userResult = await query(
       `SELECT name, email, role FROM users WHERE id = $1`,

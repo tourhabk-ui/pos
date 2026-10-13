@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { requireOperator } from '@/lib/auth/middleware';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireOperatorTeam } from '@/lib/operators/team-access';
 import {
   OpStatsToursRow,
   OpStatsBookingsRow,
@@ -19,20 +18,12 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   try {
-    const operatorOrResponse = await requireOperator(request);
-    if (operatorOrResponse instanceof NextResponse) {
-      return operatorOrResponse;
-    }
-    const userId = operatorOrResponse.userId;
-
-      const operatorId = await getOperatorPartnerId(userId);
-      
-      if (!operatorId) {
-        return NextResponse.json({
-          success: false,
-          error: 'Партнёр не найден'
-        } as ApiResponse<null>, { status: 404 });
-      }
+    // Статистика общая для владельца и менеджера команды (CRM 2г); выручку
+    // менеджеру не отдаём — деньги ведёт владелец кабинета.
+    const ctx = await requireOperatorTeam(request);
+    if (ctx instanceof NextResponse) return ctx;
+    const operatorId = ctx.partnerId;
+    const moneyVisible = ctx.access.kind === 'owner';
 
     // Get tours count
     const toursResult = await query<OpStatsToursRow>(
@@ -117,11 +108,12 @@ export async function GET(request: NextRequest) {
         completed: parseInt(bookingsResult.rows[0].completed),
         cancelled: parseInt(bookingsResult.rows[0].cancelled)
       },
-      revenue: {
+      // null — деньги скрыты от менеджера команды, а не «выручки нет».
+      revenue: moneyVisible ? {
         total: parseFloat(revenueResult.rows[0].total_revenue),
         pending: parseFloat(revenueResult.rows[0].pending_revenue),
         monthly: parseFloat(revenueResult.rows[0].monthly_revenue)
-      },
+      } : null,
       recentBookings: recentBookingsResult.rows.map(row => ({
         id: row.id,
         date: row.date,

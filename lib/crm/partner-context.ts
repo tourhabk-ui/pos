@@ -20,6 +20,7 @@ import { requireRole } from '@/lib/auth/middleware';
 import { AGENT_NOT_APPROVED_MESSAGE } from '@/lib/auth/agent-approval';
 import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { pool } from '@/lib/db-pool';
+import { operatorAccess, ownerOnlyDenied } from '@/lib/operators/team-access';
 
 export type PartnerCategory = (typeof PARTNER_ROLES)[number];
 
@@ -46,8 +47,14 @@ export function crmCategoryFor(category: string, profileStatus: string | null): 
   return known;
 }
 
+/**
+ * Кем вошедший приходится кабинету: владелец (partners.user_id) или менеджер
+ * команды оператора (CRM 2г, миграция 1223). У прочих ролей — всегда owner.
+ */
+export type PartnerSeat = 'owner' | 'manager';
+
 export type PartnerContext =
-  | { outcome: 'ok'; partnerId: string; category: PartnerCategory; userId: string }
+  | { outcome: 'ok'; partnerId: string; category: PartnerCategory; userId: string; seat: PartnerSeat }
   | { outcome: 'none'; reason: 'role' | 'profile' | 'not_approved' }
   | { outcome: 'unavailable'; reason: string };
 
@@ -64,6 +71,14 @@ export async function partnerContextFor(
 ): Promise<PartnerContext> {
   const category = role ? ROLE_TO_CATEGORY[role] : undefined;
   if (!category) return { outcome: 'none', reason: 'role' };
+  // Оператор — через кабинет: свой или команды (CRM 2г). Менеджеру CRM
+  // открыта, ключи и привязка канала — нет (requirePartnerOwner ниже).
+  if (category === 'operator') {
+    const access = await operatorAccess(userId, db);
+    if (access.kind === 'unavailable') return { outcome: 'unavailable', reason: access.reason };
+    if (access.kind === 'none') return { outcome: 'none', reason: 'profile' };
+    return { outcome: 'ok', partnerId: access.partnerId, category, userId, seat: access.kind };
+  }
   try {
     // ORDER BY: уникального индекса (user_id, category) миграции не заводят,
     // и при задвоенном профиле LIMIT 1 без порядка отдавал бы разные строки
@@ -83,7 +98,7 @@ export async function partnerContextFor(
     if (category === 'agent' && row.profile_status !== 'approved') {
       return { outcome: 'none', reason: 'not_approved' };
     }
-    return { outcome: 'ok', partnerId: row.id, category, userId };
+    return { outcome: 'ok', partnerId: row.id, category, userId, seat: 'owner' };
   } catch (err) {
     const code = (err as { code?: string })?.code ?? 'нет SQLSTATE';
     console.error('[crm] partnerContextFor: профиль партнёра не прочитан, SQLSTATE', code);
@@ -114,4 +129,15 @@ export async function requirePartner(req: NextRequest): Promise<PartnerContextOk
     );
   }
   return NextResponse.json({ success: false, error: NONE_MESSAGES[ctx.reason] }, { status: 403 });
+}
+
+/**
+ * Гард настроек кабинета партнёра — ключи MCP/API и привязка канала: только
+ * владелец. Менеджер команды оператора получает 403 с причиной (CRM 2г).
+ */
+export async function requirePartnerOwner(req: NextRequest): Promise<PartnerContextOk | NextResponse> {
+  const ctx = await requirePartner(req);
+  if (ctx instanceof NextResponse) return ctx;
+  if (ctx.seat !== 'owner') return ownerOnlyDenied();
+  return ctx;
 }

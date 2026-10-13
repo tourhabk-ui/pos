@@ -92,9 +92,9 @@ function routeDb(leadVisible: boolean, leadStatus = 'ai_qualified') {
     if (/INSERT INTO operator_bookings/.test(sql)) return { rows: [{ id: '501', booking_date: '2026-11-20', participants: 2, final_price: 20000, booking_status: 'new' }] };
     return { rows: [] };
   });
-  // Скоуп лида (leadOwnershipCond) спрашивает партнёра через pool.
+  // Скоуп лида (leadOwnershipCond) спрашивает кабинет через operatorAccess (pool).
   poolQueryMock.mockImplementation(async (sql: string) => {
-    if (/FROM partners WHERE user_id/.test(sql)) return { rows: [{ id: OPERATOR }] };
+    if (/WITH own AS/.test(sql)) return { rows: [{ own_partner_id: OPERATOR, member_partner_id: null, member_id: null, can_edit_prices: null, can_cancel_bookings: null, was_revoked: false }] };
     return { rows: [] };
   });
 }
@@ -102,7 +102,7 @@ function routeDb(leadVisible: boolean, leadStatus = 'ai_qualified') {
 const BASE = { operator_tour_id: 7, booking_date: '2026-11-20', participants: 2, tourist_name: 'Анна' };
 
 describe('POST ручной брони: бронь из лида', () => {
-  beforeEach(() => authMock.mockResolvedValue({ userId: 'u-1', role: 'operator' }));
+  beforeEach(() => authMock.mockResolvedValue({ userId: '00000000-0000-4000-8000-0000000000a1', role: 'operator' }));
 
   it('свой или ничейный лид: бронь с lead_id и «Сделка» лиду — одним запросом, событие в ленте', async () => {
     routeDb(true);

@@ -11,6 +11,7 @@ import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { sendTouristMail, type TouristMailOutcome } from '@/lib/notifications/tourist-mail';
 import { sendPushToUser } from '@/lib/notifications/web-push';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import { recordRefundDue } from '@/lib/payments/record-refund-due';
 import { ALLOWED_TRANSITIONS, type BookingStatus } from '@/types/booking.types';
@@ -80,6 +81,13 @@ export async function PATCH(
 
     const body = await request.json();
     const input = PatchSchema.parse(body);
+
+    // Отмена брони — «решение за партнёром» (владелец 11.10): менеджеру
+    // команды только с правом can_cancel_bookings (CRM 2г).
+    if (input.booking_status === 'cancelled') {
+      const denied = await requireTeamPermission(authOrResponse.userId, 'can_cancel_bookings');
+      if (denied) return denied;
+    }
 
     // Владение, чтение прежнего статуса и запись — в ОДНОЙ транзакции под
     // блокировкой строки (FOR UPDATE). Раньше владение проверялось отдельным

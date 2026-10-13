@@ -15,11 +15,12 @@
  * (checkAuthorizeRequest): страница могла быть открыта давно или подделана.
  *
  * Edge пропускает префикс /api/mcp без JWT (middleware.ts не тронут) —
- * вход проверяет requirePartner здесь, как у всех роутов CRM.
+ * вход проверяет requirePartner здесь, как у всех роутов CRM. Выдача доступа
+ * к CRM — настройка владельца (requirePartnerOwner, CRM 2г).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requirePartner } from '@/lib/crm/partner-context';
+import { requirePartnerOwner } from '@/lib/crm/partner-context';
 import { checkAuthorizeRequest, redirectWith } from '@/lib/crm/partner-oauth-request';
 import { issueAuthorizationCode } from '@/lib/crm/partner-oauth';
 import { OAUTH_ISSUER } from '@/lib/crm/partner-oauth-public';
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     return refuse('Ожидается JSON', 415);
   }
 
-  const ctx = await requirePartner(req);
+  const ctx = await requirePartnerOwner(req);
   if (ctx instanceof NextResponse) return ctx;
 
   const body: unknown = await req.json().catch(() => null);

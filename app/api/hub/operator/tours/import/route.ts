@@ -20,6 +20,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { createTour, CreateTourSchema } from '@/lib/api/operator-tours';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
+import { requireTeamPermission } from '@/lib/operators/team-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -124,6 +125,10 @@ export async function POST(request: NextRequest) {
   if (!operatorId) {
     return NextResponse.json({ error: 'Не зарегистрированы как оператор' }, { status: 403 });
   }
+  // Импорт заводит туры с ценой: менеджеру команды — только с правом
+  // can_edit_prices от владельца кабинета (CRM 2г).
+  const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
+  if (denied) return denied;
 
   // Parse multipart
   let formData: FormData;

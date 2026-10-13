@@ -205,18 +205,23 @@ export default function OperatorDashboardClient() {
           <OperatorMetricsGrid metrics={data.metrics} />
           <MchsRegistrationPanel />
 
-          {/* Доходы и партнёрская монетизация */}
-          <div>
-            <SectionLabel icon={Wallet}>Доходы за 30 дней</SectionLabel>
-            <OperatorEarningsCard />
-          </div>
+          {/* Доходы — только владельцу кабинета: менеджеру команды деньги
+              не отдаются сервером (CRM 2г), блок не рисуется. */}
+          {!data.moneyHidden && (
+            <div>
+              <SectionLabel icon={Wallet}>Доходы за 30 дней</SectionLabel>
+              <OperatorEarningsCard />
+            </div>
+          )}
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-              <SectionLabel icon={TrendingUp}>Выручка</SectionLabel>
-              <SimpleChart data={data.revenueChart} type="bar" color="var(--accent)" />
-            </div>
+            {!data.moneyHidden && (
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+                <SectionLabel icon={TrendingUp}>Выручка</SectionLabel>
+                <SimpleChart data={data.revenueChart} type="bar" color="var(--accent)" />
+              </div>
+            )}
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
               <SectionLabel icon={CalendarDays}>Бронирования</SectionLabel>
               <SimpleChart data={data.bookingsChart} type="line" color="var(--success)" />

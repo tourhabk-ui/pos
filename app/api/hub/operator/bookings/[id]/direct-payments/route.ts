@@ -10,13 +10,15 @@
  * полученные оператором наличными или переводом, через платформу не шли
  * (§7 CLAUDE.md; сторож crm-direct-payments).
  *
- * Только владелец брони: тур → оператор → user_id (operatorOwnsBooking).
- * Чужая бронь неотличима от несуществующей (404); не смогли проверить — 503.
+ * Только владелец кабинета (requireOperatorOwner): это деньги, а менеджеру
+ * команды деньги закрыты (CRM 2г, решение владельца 11.10). Бронь — своего
+ * кабинета: тур → оператор (operatorOwnsBooking). Чужая бронь неотличима от
+ * несуществующей (404); не смогли проверить — 503.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireOperator } from '@/lib/auth/middleware';
+import { requireOperatorOwner } from '@/lib/operators/team-access';
 import { pool } from '@/lib/db-pool';
 import { operatorOwnsBooking } from '@/lib/bookings/operator-owns';
 import {
@@ -74,7 +76,7 @@ async function summary(bookingId: string) {
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireOperator(request);
+  const auth = await requireOperatorOwner(request);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   const gate = await ownershipGate(id, auth.userId);
@@ -87,7 +89,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireOperator(request);
+  const auth = await requireOperatorOwner(request);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
 
@@ -125,7 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireOperator(request);
+  const auth = await requireOperatorOwner(request);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
 
