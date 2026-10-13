@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readMarker } from '../../scripts/migration-photos-to-s3';
 import { photoAttributionOf, photoCreditsOf } from '@/lib/places/place-detail';
 import { toWaypointPhotos } from '@/lib/routes/waypoint-photos';
 
@@ -97,7 +98,8 @@ describe('второй кадр Алины Гусаковой на смотро�
     // Герой (ai_route_images) принадлежит 1140 и ручным снимкам: здесь только галерея.
     expect(sql).not.toMatch(/INSERT INTO ai_route_images/);
     // Колонок лицензии в списке нет вовсе: разрешение на публикацию — не лицензия.
-    expect(sql).toMatch(/INSERT INTO place_gallery_photos \(ark_id, position, image_data, mime_type, width, height, caption, author\)/);
+    // 13.10: снимок пишется ключом хранилища (s3_key), байты в миграции не лежат.
+    expect(sql).toMatch(/INSERT INTO place_gallery_photos \(ark_id, position, image_data, mime_type, width, height, caption, author, s3_key\)/);
   });
 
   it('повторный прогон кадр не дублирует: ключ — подпись на этом месте; позиция — следующая свободная', () => {
@@ -107,26 +109,15 @@ describe('второй кадр Алины Гусаковой на смотро�
     expect(sql).toContain("RAISE WARNING '[1211] живой записи");
   });
 
-  it('байты — настоящий JPEG 720x960 без EXIF, не больше 200 КБ (по образцу галереи 1129-1140)', () => {
-    const hex = [...sql.matchAll(/^\s*'([0-9a-f]{40,})'/gm)].map((m) => m[1]).join('');
-    const buf = Buffer.from(hex, 'hex');
-    expect(buf.subarray(0, 2).toString('hex')).toBe('ffd8');
-    expect(buf.subarray(-2).toString('hex')).toBe('ffd9');
-    expect(buf.length).toBeLessThan(200 * 1024);
-    // Размер из заголовка кадра (SOF), а не из слов в комментарии.
-    let i = 2;
-    let dims: [number, number] | null = null;
-    let exif = false;
-    while (i + 4 < buf.length) {
-      if (buf[i] !== 0xff) { i += 1; continue; }
-      const marker = buf[i + 1]!;
-      const len = buf.readUInt16BE(i + 2);
-      if (marker === 0xe1) exif = true;
-      if ((marker >= 0xc0 && marker <= 0xc3) && !dims) dims = [buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5)];
-      if (marker === 0xda) break;
-      i += 2 + len;
-    }
-    expect(dims).toEqual([720, 960]);
-    expect(exif).toBe(false);
+  it('снимок — ключом из маркера заливки, кадр 720x960 записан в строке, не больше 200 КБ', () => {
+    // 13.10: байты вынесены в хранилище (решение владельца «перенеси в S3»).
+    // Отсутствие EXIF и размер кадра были проверены, пока байты лежали в
+    // репозитории; залитый объект сверен с теми же байтами по sha256.
+    const photo = readMarker(process.cwd()).items.find((i) => i.migration.startsWith('1211_'));
+    expect(photo, 'в маркере заливки нет снимка 1211').toBeDefined();
+    expect(photo!.bytes).toBeLessThan(200 * 1024);
+    expect(sql).toContain(`'${photo!.key}'`);
+    expect(sql).toMatch(/720,\s*\n\s*960,/);
+    expect(sql).not.toMatch(/decode\(\s*'[0-9a-f]/);
   });
 });

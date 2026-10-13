@@ -139,3 +139,25 @@ describe('перевозчик объявлен', () => {
     expect(caps).toMatch(/'images-to-s3': \['db_read', 'db_write', 'net_out'\]/);
   });
 });
+
+describe('галерея мест и адрес из ключа (13.10)', () => {
+  const route = readFileSync(join(process.cwd(), 'app/api/cron/images-to-s3/route.ts'), 'utf-8');
+
+  it('уборщик увозит и кадры галереи — тем же порядком: заливка, чтение обратно, сверка, потом байты', () => {
+    expect(route).toMatch(/FROM place_gallery_photos\s+WHERE s3_key IS NULL AND s3_url IS NULL AND image_data IS NOT NULL/);
+    expect(route).toMatch(/key: `places\/\$\{r\.ark_id\}\/gallery-\$\{r\.id\}\./);
+    expect(route).toMatch(/UPDATE place_gallery_photos\s+SET s3_key = \$1, s3_url = \$2, image_data = NULL\s+WHERE id = \$3::uuid AND s3_key IS NULL/);
+    // Две петли — две проверки до удаления.
+    expect((route.match(/await fetch\(uploaded\.url, \{ method: 'GET', cache: 'no-store' \}\)/g) ?? []).length).toBe(2);
+    expect((route.match(/readBack\.length !== r\.image_data\.length/g) ?? []).length).toBe(2);
+  });
+
+  it('строкам с одним ключом дописывается адрес из S3_BUCKET; без хранилища — null, не ноль', () => {
+    expect(route).toMatch(/UPDATE ai_route_images SET s3_url = \$1 \|\| s3_key WHERE s3_url IS NULL AND s3_key IS NOT NULL/);
+    expect(route).toMatch(/UPDATE place_gallery_photos SET s3_url = \$1 \|\| s3_key WHERE s3_url IS NULL AND s3_key IS NOT NULL/);
+    expect(route).toMatch(/if \(!isS3Configured\) return null;/);
+    expect(route).toMatch(/url_backfill: urlBackfill/);
+    // Сухой прогон адресов не пишет: заполнение идёт после петель, в боевой ветке.
+    expect(route.indexOf('const urlBackfill = await backfillUrls()')).toBeGreaterThan(route.indexOf('if (dry_run) {'));
+  });
+});

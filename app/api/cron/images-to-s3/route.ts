@@ -43,7 +43,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { uploadToS3, extFor } from '@/lib/storage/s3';
+import { uploadToS3, extFor, s3PublicBase, isS3Configured } from '@/lib/storage/s3';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 120;
@@ -142,6 +142,68 @@ async function collectPlan(limit: number) {
   };
 }
 
+interface GalleryRow {
+  id: string;
+  ark_id: string;
+  mime_type: string | null;
+  image_data: Buffer | null;
+  size_bytes: string;
+}
+
+/**
+ * Галерея места (place_gallery_photos, 968) — тем же порядком, что герой.
+ * До 13.10 мувера у неё не было: админская загрузка клала байты, шапки
+ * миграций обещали «увезёт уборщик», а уборщик галереи не знал — правило §4.1
+ * «увозит всё» держалось только на герое. Ключ — places/<ark_id>/gallery-<id>.<ext>:
+ * под префиксом мест, которым распоряжается уборка сирот, и ссылочная
+ * колонка (place_gallery_photos.s3_key, 1227) у неё в списке.
+ */
+async function collectGalleryPlan(limit: number) {
+  const { rows } = await pool.query<GalleryRow>(
+    `SELECT id::text, ark_id::text, mime_type, image_data,
+            OCTET_LENGTH(image_data)::text AS size_bytes
+       FROM place_gallery_photos
+      WHERE s3_key IS NULL AND s3_url IS NULL AND image_data IS NOT NULL
+      ORDER BY OCTET_LENGTH(image_data) DESC
+      LIMIT $1`,
+    [limit],
+  );
+  const { rows: leftRows } = await pool.query<{ pending: string }>(
+    `SELECT COUNT(*)::text AS pending
+       FROM place_gallery_photos
+      WHERE s3_key IS NULL AND s3_url IS NULL AND image_data IS NOT NULL`,
+  );
+  const plan = rows.map((r) => ({
+    id: r.id,
+    ark_id: r.ark_id,
+    size_kb: Math.round(Number(r.size_bytes) / 1024),
+    key: `places/${r.ark_id}/gallery-${r.id}.${extFor(r.mime_type ?? 'image/jpeg')}`,
+  }));
+  return { rows, plan, pending: Number(leftRows[0]?.pending ?? '0') };
+}
+
+/**
+ * Адрес из ключа — строкам, у которых есть только s3_key (снимки из миграций,
+ * 1228: в миграции имени бакета нет, его знает сервер). Переписи, варианты
+ * карточек и проверка доступности узнают снимок по s3_url, а раздача — по
+ * любому из двух; после этого шага все читатели видят одно и то же.
+ * Без настроенного хранилища адрес собрать не из чего — тогда шаг не делается
+ * и это названо в ответе, а не выдано за «нечего заполнять».
+ */
+async function backfillUrls(): Promise<{ hero: number; gallery: number } | null> {
+  if (!isS3Configured) return null;
+  const prefix = `${s3PublicBase()}/`;
+  const hero = await pool.query(
+    `UPDATE ai_route_images SET s3_url = $1 || s3_key WHERE s3_url IS NULL AND s3_key IS NOT NULL`,
+    [prefix],
+  );
+  const gallery = await pool.query(
+    `UPDATE place_gallery_photos SET s3_url = $1 || s3_key WHERE s3_url IS NULL AND s3_key IS NOT NULL`,
+    [prefix],
+  );
+  return { hero: hero.rowCount ?? 0, gallery: gallery.rowCount ?? 0 };
+}
+
 export async function POST(req: NextRequest) {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
@@ -165,6 +227,7 @@ export async function POST(req: NextRequest) {
   try {
     // Тот же сбор, что у GET: план и перенос обязаны смотреть на одно.
     const { rows, plan, pending, pendingMb } = await collectPlan(limit);
+    const gal = await collectGalleryPlan(limit);
 
     if (dry_run) {
       return NextResponse.json({
@@ -175,10 +238,12 @@ export async function POST(req: NextRequest) {
         pending,
         pending_mb: pendingMb,
         would_move: plan,
+        pending_gallery: gal.pending,
+        would_move_gallery: gal.plan,
       });
     }
 
-    const moved: Array<{ id: string; key: string; size_kb: number }> = [];
+    const moved: Array<{ id: string; key: string; size_kb: number; table?: 'place_gallery_photos' }> = [];
     // «Не смог» — отдельным списком, а не молчанием: строка осталась в базе,
     // и по отчёту должно быть видно, какая именно и почему.
     const failed: Array<{ id: string; reason: string }> = [];
@@ -221,6 +286,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Галерея — тем же порядком, что герой выше: заливка, чтение обратно,
+    // сверка размера, и только потом байты стираются.
+    for (const r of gal.rows) {
+      const item = gal.plan.find(p => p.id === r.id)!;
+      if (!r.image_data) { failed.push({ id: r.id, reason: 'байтов нет' }); continue; }
+
+      try {
+        const uploaded = await uploadToS3(item.key, r.image_data, r.mime_type ?? 'image/jpeg');
+        const check = await fetch(uploaded.url, { method: 'GET', cache: 'no-store' });
+        if (!check.ok) {
+          failed.push({ id: r.id, reason: `объект не читается: HTTP ${check.status}` });
+          continue;
+        }
+        const readBack = Buffer.from(await check.arrayBuffer());
+        if (readBack.length !== r.image_data.length) {
+          failed.push({
+            id: r.id,
+            reason: `размер не сошёлся: залито ${r.image_data.length}, прочитано ${readBack.length}`,
+          });
+          continue;
+        }
+
+        await pool.query(
+          `UPDATE place_gallery_photos
+              SET s3_key = $1, s3_url = $2, image_data = NULL
+            WHERE id = $3::uuid AND s3_key IS NULL`,
+          [uploaded.key, uploaded.url, r.id],
+        );
+        moved.push({ id: r.id, key: uploaded.key, size_kb: item.size_kb, table: 'place_gallery_photos' });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[images-to-s3] кадр галереи ${r.id} не переехал:`, msg);
+        failed.push({ id: r.id, reason: msg.slice(0, 200) });
+      }
+    }
+
+    const urlBackfill = await backfillUrls();
+
     // Телеметрия прогона: реестр (cron-registry, agentId 'images-to-s3') ждёт
     // её, а писателя не было — панель живости вечно показывала «не
     // запускался» при зелёном workflow (03.10). Сухой прогон не пишется: он
@@ -230,7 +333,7 @@ export async function POST(req: NextRequest) {
       status: failed.length === 0 ? 'success' : moved.length > 0 ? 'partial' : 'failed',
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
-      items_processed: rows.length,
+      items_processed: rows.length + gal.rows.length,
       items_created: moved.length,
       errors_count: failed.length,
       error_msg: failed.length > 0 ? failed.slice(0, 3).map(f => f.reason).join('; ') : undefined,
@@ -248,6 +351,9 @@ export async function POST(req: NextRequest) {
       moved,
       failed,
       pending_before: pending,
+      pending_gallery_before: gal.pending,
+      // null — хранилище не настроено, адреса не собрать (не «нечего заполнять»).
+      url_backfill: urlBackfill,
     });
   } catch (err) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
