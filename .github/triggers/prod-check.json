@@ -1,11 +1,12 @@
 {
   "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
   "run": 117,
-  "why": "13.10, после 1222 (страницы трёх операторов, как у Камчатской рыбалки): на /operators/mestechko, /operators/volcanoesland и /operators/kamchatka-rafting должны появиться главное фото, «Галерея» (12/10/10 кадров), «Услуги», «Особенности», «Частые вопросы»; у рафтинга — описание и короткое описание. Миграция гейтится пустотой полей: если на проде поле уже заполнено из кабинета, оно остаётся — это тоже видно по телу.",
+  "why": "13.10, после 1222 (страницы трёх операторов, как у Камчатской рыбалки): на /operators/mestechko, /operators/volcanoesland и /operators/kamchatka-rafting должны появиться главное фото, «Галерея» (12/10/10 кадров), «Услуги», «Особенности», «Частые вопросы»; у рафтинга — описание и короткое описание. Миграция гейтится пустотой полей: если на проде поле уже заполнено из кабинета, оно остаётся — это тоже видно по телу. Плюс форма «Написать оператору» (кнопка в герое href=\"#lead-form\", секция id=\"lead-form\" с полями имя/телефон/что интересует и согласием) и короткий адрес: https://vedarai.ru/mestechko обязан отдать ту же страницу с canonical /operators/mestechko.",
   "urls": [
     "https://vedarai.ru/operators/mestechko",
     "https://vedarai.ru/operators/volcanoesland",
-    "https://vedarai.ru/operators/kamchatka-rafting"
+    "https://vedarai.ru/operators/kamchatka-rafting",
+    "https://vedarai.ru/mestechko"
   ],
   "run113_result": "ОТВЕТ ПОЛУЧЕН (run 38278672621, job 114910303506, 12.10 17:13 UTC): /zh 200 — 37 туров отрисованы, hreflang ru/zh-CN/x-default, canonical /zh, JSON-LD WebPage inLanguage zh-CN, команда Qwen Code и ссылки на MCP/A2A/OpenAPI; /request-status 200 с noindex (отрисовка клиентская, серверный main пуст — тексты страницы этим замером не видны); /api/requests/status?k=short — 400 с текстом «Ключ статуса не похож на выданный…», Edge пускает; /mcp — 20 инструментов, get_request_status 16-й; /.well-known/mcp.json — titleZh, descriptionZh, serverCard, aiCatalog, connect (qwen_code, deepseek_harness), 20 инструментов. Шаг ожидания сборки: «своей сборки не дождались» (прод отдаёт commit unknown, no_git_head, 70/70), образ сменился в 16:45 — по содержимому страниц измерена сборка с #2404.",
   "run114_result": "ОТВЕТ ПОЛУЧЕН (run 38286520699, job 114936098240, 12.10 18:23 UTC, оба адреса HTTP 200): channel-readiness после выравнивания с витриной — tours_active 37, drafts_excluded 5, ready 11 (Камчатская рыбалка 10, Рафтинг 1), not_ready 26, blocking_by_field: cancellation_policy 26 (Край Вулканов 11, Местечко 15), coordinates 1 («Озеро Толмачёва»); operator-reach — те же 37 живых туров, reachable 0 / unreachable 4, verdict gap. Две переписи сошлись (было 42 против 37 в run 112).",
