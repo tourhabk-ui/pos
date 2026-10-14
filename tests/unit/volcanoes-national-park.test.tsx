@@ -95,7 +95,7 @@ describe('места внутри контуров', () => {
     expect(items).toHaveLength(2);
     expect(items[0]).toMatch(/^С октября 2026 года — национальный парк в ведении Минприроды России/);
     expect(items[1]).toMatch(/ещё не объявлено/);
-    expect(document.body.textContent).not.toMatch(/Кроноцк|Оформить пропуск онлайн/);
+    expect(document.body.textContent).not.toMatch(/Кроноцк|Как получить разрешение/);
     expect(descriptionVoice(RULES).voice).toBe('plain');
   });
 

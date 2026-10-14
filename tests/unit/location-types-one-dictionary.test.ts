@@ -69,11 +69,13 @@ describe('список типов мест один', () => {
     // природный парк и не лесной массив.
     // `national_park` — 14.10, Командорские острова (миграция 1243): с 2022
     // года национальный парк, а не заповедник и не региональный природный парк.
+    // `zakaznik` — 14.10, Южно-Камчатский федеральный заказник (миграция 1252):
+    // ни заповедник, ни парк — другой режим, и заявку принимает Кроноцкий.
     const FROM_CENSUS = [
       'bay', 'beach', 'cape', 'cave', 'ethnic', 'forest', 'geyser', 'glacier', 'historical',
       'hot_spring', 'island', 'lake', 'mountain', 'museum', 'national_park', 'other', 'park',
       'pass', 'plateau', 'reserve', 'river', 'rock', 'settlement', 'thermal', 'valley',
-      'viewpoint', 'volcano', 'waterfall',
+      'viewpoint', 'volcano', 'waterfall', 'zakaznik',
     ];
     expect(FROM_CENSUS.filter(k => !(k in LOCATION_TYPES))).toEqual([]);
     expect(Object.keys(LOCATION_TYPES).length).toBe(FROM_CENSUS.length);

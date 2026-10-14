@@ -13,7 +13,7 @@
  */
 
 export const PLACE_FILTER_KINDS: Readonly<Record<string, readonly string[]>> = {
-  forest: ['forest', 'park', 'reserve', 'national_park'],
+  forest: ['forest', 'park', 'reserve', 'national_park', 'zakaznik'],
 };
 
 /** Роды мест чипа: свой состав, если он назван, иначе один род по имени чипа. */

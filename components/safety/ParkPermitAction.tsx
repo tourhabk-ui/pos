@@ -43,6 +43,8 @@ import {
   isFreeVisitArea,
   noPermitTerritory,
   federalizedPark,
+  kronokiTerritory,
+  KRONOKI_REQUESTS,
 } from '@/lib/safety/park-permit';
 
 interface Props {
@@ -93,6 +95,71 @@ export default function ParkPermitAction({
           ).
         </span>
       </p>
+    );
+  }
+
+  // Кроноцкий и Корякский заповедники, Южно-Камчатский заказник — заявка в
+  // Кроноцкий заповедник, а не «Зелёная кнопка» краевого КГБУ (14.10).
+  const kronoki = kronokiTerritory(parkName, title);
+  if (kronoki) {
+    if (variant === 'compact') {
+      return (
+        <a
+          href={KRONOKI_REQUESTS.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-[44px] items-center gap-1.5 py-1 text-sm font-semibold text-[var(--success)] hover:underline"
+        >
+          <Ticket className="h-3.5 w-3.5" aria-hidden />
+          Заявка в Кроноцкий заповедник
+        </a>
+      );
+    }
+    return (
+      <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+        <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
+          <Ticket className="h-5 w-5 shrink-0 text-[var(--success)]" aria-hidden />
+          <div>
+            <p className="font-semibold text-[var(--text-primary)]">Разрешение на посещение</p>
+            <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{kronoki.name}</p>
+          </div>
+        </div>
+        <div className="space-y-4 px-5 py-4">
+          <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
+            Посещение — по заявке и разрешению {KRONOKI_REQUESTS.authority}: форму заявки скачивают на
+            сайте заповедника и отправляют на {KRONOKI_REQUESTS.email}. Заявка включает группу в план
+            посещений — многодневные группы и однодневные пешие группы у Курильского озера, — а
+            разрешение оформляется отдельно ({KRONOKI_REQUESTS.asOf}).
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <a
+              href={KRONOKI_REQUESTS.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${BTN} border border-[var(--success)] text-[var(--success)]`}
+              style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)' }}
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              Страница заявок
+            </a>
+            <a
+              href={`mailto:${KRONOKI_REQUESTS.email}`}
+              className={`${BTN} border border-[var(--border)] text-[var(--text-primary)]`}
+            >
+              {KRONOKI_REQUESTS.email}
+            </a>
+          </div>
+          {/* Ссылки «Согласование маршрута» здесь нет намеренно: адреса в
+              `park_approval_url` писались для сети краевых парков, а у этих
+              территорий другое ведомство — заявку принимает заповедник. */}
+          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+            <span className="font-semibold text-[var(--text-primary)]">
+              Это не то же, что регистрация в МЧС:
+            </span>{' '}
+            заповеднику — право находиться на территории, спасателям — сведения о группе. Нужны оба.
+          </p>
+        </div>
+      </div>
     );
   }
 

@@ -9,6 +9,9 @@
  * „заказник“ — маршрут заказника» живёт в SQL, мок ответил бы на него чем
  * угодно, поэтому здесь исполняются сами запросы из lib/parks на таблицах в
  * своей схеме.
+ *
+ * С миграцией 1252 у заказника своя страница с тем же корнем — правило
+ * симметрично: заказник не берёт маршруты парка, парк — маршруты заказника.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
@@ -36,6 +39,8 @@ const ROUTES: Array<[string, string | null]> = [
 ];
 
 const NATIONAL = 'Национальный парк «Вулканы Камчатки» — «Южно-Камчатский»';
+/** Имя и корень — как в миграции 1252. */
+const ZAKAZNIK = 'Южно-Камчатский федеральный заказник';
 
 withPg('маршруты парка и заказник-тёзка', () => {
   let pool: Pool;
@@ -64,7 +69,8 @@ withPg('маршруты парка и заказник-тёзка', () => {
     }
     await pool.query(`INSERT INTO parks (slug, display_name, search_term) VALUES
       ('yuzhno-kamchatsky', $1, 'Южно-Камчат'),
-      ('klyuchevskoy', 'Национальный парк «Вулканы Камчатки» — «Ключевской»', 'Ключевск')`, [NATIONAL]);
+      ('yuzhno-kamchatsky-zakaznik', $2, 'Южно-Камчатск'),
+      ('klyuchevskoy', 'Национальный парк «Вулканы Камчатки» — «Ключевской»', 'Ключевск')`, [NATIONAL, ZAKAZNIK]);
   });
 
   afterAll(async () => {
@@ -94,9 +100,10 @@ withPg('маршруты парка и заказник-тёзка', () => {
     expect(await parkRoutes('Южно-Камчат', NATIONAL)).toEqual(['Каньон Опасный', 'К подножию вулкана Мутновский'].sort());
   });
 
-  it('страница заказника — если она появится — свои маршруты берёт', async () => {
-    const titles = await parkRoutes('Южно-Камчат', 'Южно-Камчатский федеральный заказник');
-    for (const t of ['Курильское озеро', 'Кутхины Баты', 'Озеро у кордона']) expect(titles).toContain(t);
+  it('страница заказника берёт свои маршруты — и только их, не парка-тёзки', async () => {
+    expect(await parkRoutes('Южно-Камчатск', ZAKAZNIK)).toEqual(['Курильское озеро', 'Кутхины Баты', 'Озеро у кордона'].sort());
+    // Корень парка короче — и всё равно не тянет маршруты парка на страницу заказника.
+    expect(await parkRoutes('Южно-Камчат', ZAKAZNIK)).toEqual(['Курильское озеро', 'Кутхины Баты', 'Озеро у кордона'].sort());
   });
 
   it('прочие парки — как прежде', async () => {
@@ -104,10 +111,10 @@ withPg('маршруты парка и заказник-тёзка', () => {
       .toEqual(['Восхождение на Плоский Толбачик']);
   });
 
-  it('карточка маршрута: у парка — ссылка на страницу парка, у заказника — нет', async () => {
+  it('карточка маршрута: у парка — страница парка, у заказника — страница заказника', async () => {
     expect(await parkPageOf('Южно-Камчатский')).toBe('yuzhno-kamchatsky');
-    expect(await parkPageOf('Южно-Камчатский заказник федерального значения')).toBeNull();
-    expect(await parkPageOf('Южно-Камчатский заказник имени Т.И. Шпиленка')).toBeNull();
+    expect(await parkPageOf('Южно-Камчатский заказник федерального значения')).toBe('yuzhno-kamchatsky-zakaznik');
+    expect(await parkPageOf('Южно-Камчатский заказник имени Т.И. Шпиленка')).toBe('yuzhno-kamchatsky-zakaznik');
     expect(await parkPageOf('Природный парк «Ключевской»')).toBe('klyuchevskoy');
     expect(await parkPageOf(null)).toBeNull();
   });

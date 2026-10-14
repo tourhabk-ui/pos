@@ -17,6 +17,7 @@ const TYPE_COLOR: Record<string, string> = {
   museum: '#5B2D8E',
   reserve: '#1A7A34',
   national_park: '#1A7A34',
+  zakaznik: '#1A7A34',
   park: '#1A7A34',
 };
 
@@ -25,7 +26,7 @@ const TYPE_LABEL: Record<string, string> = {
   lake: 'ОЗЕРО', mountain: 'ГОРА', bay: 'БУХТА', river: 'РЕКА',
   waterfall: 'ВОДОПАД', historical: 'ИСТОРИЯ', ethnic: 'ЭТНОКУЛЬТУРА', museum: 'МУЗЕЙ',
   viewpoint: 'СМОТРОВАЯ', cape: 'МЫС', island: 'ОСТРОВ', reserve: 'ЗАПОВЕДНИК',
-  national_park: 'НАЦИОНАЛЬНЫЙ ПАРК', park: 'ПРИРОДНЫЙ ПАРК',
+  national_park: 'НАЦИОНАЛЬНЫЙ ПАРК', park: 'ПРИРОДНЫЙ ПАРК', zakaznik: 'ЗАКАЗНИК',
 };
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {

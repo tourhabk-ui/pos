@@ -148,7 +148,7 @@ describe('режим мест внутри контура', () => {
     expect(items[0]).toContain('(улица Ленина, 8)');
     expect(items[0]).toContain('(улица Завойко, 33)');
     expect(items[1]).toMatch(/не в заказнике «Ичинский»/);
-    expect(screen.getByRole('link', { name: /Оформить пропуск/ }).getAttribute('href')).toBe(PARK_PERMIT_SOURCE.url);
+    expect(screen.getByRole('link', { name: 'Как получить разрешение' }).getAttribute('href')).toBe(PARK_PERMIT_SOURCE.url);
   });
 
   it('«Быстринский» не национальный парк: оговорки о переходе у его маршрутов нет', () => {

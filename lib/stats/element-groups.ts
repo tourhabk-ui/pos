@@ -88,7 +88,8 @@ export function getElementForType(
  *
  *   park,
  *   reserve,
- *   national_park — природный парк, заповедник и национальный парк (14.10)
+ *   national_park,
+ *   zakaznik — природный парк, заповедник, национальный парк и заказник (14.10)
  *             это ТЕРРИТОРИИ, внутри которых есть и вулканы, и реки, и термы.
  *             Не одна стихия по построению;
  *   pass,
@@ -104,7 +105,7 @@ export function getElementForType(
  */
 export const EXCLUDED_TYPES: readonly string[] = [
   'viewpoint', 'settlement', 'museum', 'historical', 'rock', 'other',
-  'park', 'reserve', 'national_park', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
+  'park', 'reserve', 'national_park', 'zakaznik', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
 ];
 
 export interface ElementCount { key: string; label: string; count: number; href: string; }

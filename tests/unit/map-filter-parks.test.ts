@@ -21,8 +21,8 @@ function layerShows(filter: string, kind: string): boolean {
 }
 
 describe('«Леса и парки»', () => {
-  it('слой карты показывает лес, природный парк, заповедник и национальный парк — и не показывает озеро', () => {
-    for (const kind of ['forest', 'park', 'reserve', 'national_park']) {
+  it('слой карты показывает лес, природный парк, заповедник, национальный парк и заказник — и не показывает озеро', () => {
+    for (const kind of ['forest', 'park', 'reserve', 'national_park', 'zakaznik']) {
       expect(layerShows('forest', kind), kind).toBe(true);
     }
     expect(layerShows('forest', 'lake')).toBe(false);
@@ -30,7 +30,7 @@ describe('«Леса и парки»', () => {
   });
 
   it('список мест над картой отбирает тот же состав', () => {
-    expect(placeFilterKinds('forest')).toEqual(['forest', 'park', 'reserve', 'national_park']);
+    expect(placeFilterKinds('forest')).toEqual(['forest', 'park', 'reserve', 'national_park', 'zakaznik']);
     expect(placeMatchesFilter('park', 'forest')).toBe(true);
     expect(placeMatchesFilter('reserve', 'forest')).toBe(true);
     expect(placeMatchesFilter('lake', 'forest')).toBe(false);

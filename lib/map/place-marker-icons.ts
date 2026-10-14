@@ -31,7 +31,7 @@
  * умолчанию, вызов не меняется).
  */
 
-/** Щит с деревом — общий значок охраняемых территорий (park, reserve, national_park). */
+/** Щит с деревом — общий значок охраняемых территорий (park, reserve, national_park, zakaznik). */
 const SHIELD = (hex: string, halo: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 3l8 3v7c0 5.5-3.5 9.5-8 11.5C7.5 22.5 4 18.5 4 13V6l8-3z" fill="${hex}" stroke="${halo}" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 8.5l-3.5 6.5h7L12 8.5z" fill="#fff" opacity="0.65"/><rect x="11.25" y="15" width="1.5" height="3.5" rx="0.75" fill="#fff" opacity="0.65"/></svg>`;
 
 const ICONS_BY_KIND: Record<string, (hex: string, halo: string) => string> = {
@@ -74,6 +74,8 @@ const ICONS_BY_KIND: Record<string, (hex: string, halo: string) => string> = {
   // переведённые из `forest`, потеряли бы свой значок.
   reserve: (hex, halo) => SHIELD(hex, halo),
   national_park: (hex, halo) => SHIELD(hex, halo),
+  // Заказник (14.10, миграция 1252) — тоже охраняемая территория.
+  zakaznik: (hex, halo) => SHIELD(hex, halo),
   // Природный парк — та же охраняемая территория (14.10, миграция 1246):
   // «Быстринский», переведённый из `forest`, без этой строки упал бы на
   // общий кружок.
@@ -153,6 +155,7 @@ export const PLACE_KIND_COLOR: Record<string, string> = {
   // 14.10 были `forest`, и цвет на карте у них не меняется — меняется форма.
   reserve:       '#15803D',
   national_park: '#15803D',
+  zakaznik:      '#15803D',
   park:          '#15803D',
   other:      '#6B7280',
 };

@@ -209,14 +209,14 @@ describe('режим мест внутри контура', () => {
     expect(items[0]).toMatch(/без разрешения — только территория Авачинского перевала/);
     expect(items[1]).toMatch(/вертол[её]та нужно разрешение дирекции парка/);
     expect(items[4]).toMatch(/^У термальных источников нельзя мыть посуду/);
-    expect(screen.getByRole('link', { name: /Оформить пропуск/ }).getAttribute('href')).toBe(PARK_PERMIT_SOURCE.url);
+    expect(screen.getByRole('link', { name: 'Как получить разрешение' }).getAttribute('href')).toBe(PARK_PERMIT_SOURCE.url);
   });
 
   it('перевал: тот же парк, но без пропуска и без ссылки на оформление', () => {
     render(<PlaceEco eco={{ zone: 'natural_park', permitRequired: false, rules: FREE_RULES, permitUrl: null }} placeName="Авачинский перевал" />);
     expect(screen.getByText('Природный парк')).toBeTruthy();
     expect(screen.queryByText('Нужен пропуск')).toBeNull();
-    expect(screen.queryByRole('link', { name: /Оформить пропуск/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Как получить разрешение' })).toBeNull();
     const items = screen.getAllByRole('listitem').map((li) => li.textContent ?? '');
     expect(items[0]).toMatch(/^Территория Авачинского перевала — зона свободного посещения/);
     expect(items[0]).toMatch(/разрешение на посещение не требуется/);

@@ -25,6 +25,7 @@ const read = (f: string) => readFileSync(join(ROOT, 'migrations', f), 'utf-8');
 const M1251 = strip(read('1251_nalychevo_diaries_whitespace_guard.sql'));
 const M1249 = strip(read('1249_nalychevo_diaries_by_park_sources.sql'));
 const M1247 = strip(read('1247_place_diary_descriptions_withdrawn.sql'));
+const M1253 = strip(read('1253_nalychevo_diaries_unique_source.sql'));
 
 const IDS = [
   '3dd2ceaf-1351-4625-9171-711eb8b1a455', // Авачинский перевал
@@ -68,6 +69,30 @@ describe('миграция 1251 — повтор 1249 с условием 1247',
     expect(later).toContain('1251_nalychevo_diaries_whitespace_guard.sql');
     for (const f of later) {
       expect(strip(read(f)), f).not.toMatch(/description_withdrawn\s+(I?LIKE|=)\s*'/);
+    }
+  });
+});
+
+describe('миграция 1253 — 1251 упала на уникальном индексе источника', () => {
+  // 1251 выехала и не легла: справки Авачинского вулкана и фумаролы Дзензура
+  // ставили обоим местам одну пару (source_name, source_url), и вторая строка
+  // нарушила idx_places_source_url_unique — файл откатился целиком (проба 892,
+  // воспроизведено локально). Сторож самих пар — migration-source-pair-unique.
+  const DZENZUR = '05112df7-54f9-4280-bcd2-1bfe4929dfc0';
+  const withoutSourceName = (set: string) => set.replace(/\n\s*source_name = [^\n]*\n/, '\n');
+
+  it('справки и условие — те же, что в 1251; у Дзензура своё имя источника', () => {
+    for (const id of IDS) {
+      const a = statementOf(M1253, id);
+      const b = statementOf(M1251, id);
+      expect(a, id).toBeTruthy();
+      expect(a.split(/\n\s*WHERE\b/)[1], id).toBe(b.split(/\n\s*WHERE\b/)[1]);
+      if (id === DZENZUR) {
+        expect(withoutSourceName(setPart(a))).toBe(withoutSourceName(setPart(b)));
+        expect(setPart(a)).toContain("source_name = COALESCE(source_name, 'сайт парка «Вулканы Камчатки»: Дзензур')");
+      } else {
+        expect(setPart(a), id).toBe(setPart(b));
+      }
     }
   });
 });
