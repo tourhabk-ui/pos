@@ -1,25 +1,25 @@
 {
   "timeout": 60,
-  "run": 830,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Вачкажец для статьи летописи: страница расследования МАК (Ми-8Т RA-25656, 31.08.2024) и её архив, постановление губернатора об охранной зоне памятника (kamgov, архив 2022 — сам сайт отвечает 403 зарубежному раннеру), полный текст справки kamchatsky-krai.ru (Комаров, режим). allowStale. Конфиг записан целиком.",
+  "run": 831,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Вачкажец: что карточка места и страница парка отдают сейчас (профиль безопасности, режим, отзыв), пересказ окончательного отчёта МАК в архиве 59.ru, публикация постановления № 93 на pravo.gov.ru. allowStale. Конфиг записан целиком.",
   "urls": [
-    "https://mak-iac.org/rassledovaniya/mi-8t-ra-25656-31-08-2024/",
-    "https://web.archive.org/web/20250504053558/https://mak-iac.org/rassledovaniya/mi-8t-ra-25656-31-08-2024/",
-    "https://web.archive.org/web/20220201014102/https://kamgov.ru/document/frontend-document/view-npa?id=19177",
-    "https://www.kamchatsky-krai.ru/geography/oopt/monuments/vachkazhec.htm"
+    "https://vedarai.ru/api/places/vachkazhets",
+    "https://vedarai.ru/api/parks/vachkazhets",
+    "https://web.archive.org/web/20250504053558/https://59.ru/text/incidents/2025/03/26/75265517/",
+    "http://publication.pravo.gov.ru/Document/View/4100201811120003"
   ],
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 24000,
+  "bytes": 14000,
   "text": true,
   "around": [
-    "Комаров",
-    "окончательн",
-    "Окончательн",
-    "разрешени"
+    "МАК",
+    "причин",
+    "safety",
+    "registration"
   ],
-  "aroundLines": 3,
+  "aroundLines": 2,
   "aroundBefore": 1,
-  "aroundHits": 4
+  "aroundHits": 5
 }
