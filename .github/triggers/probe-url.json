@@ -1,11 +1,36 @@
 {
   "timeout": 60,
-  "run": 834,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Масштаб выдумок (владелец: «кузьмич навыдумывал много»): перепись голоса описаний мест — блок voice эндпоинта place-description-geo (дневник / впечатление / справка). Конфиг записан целиком.",
+  "run": 835,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат Вачкажца (46906ed, миграция 1244), вторая попытка: датчик свежести — описание памятника из базы («Разрешение на посещение не нужно»); подпись рода в сыром HTML разбита комментарием React, поэтому прогон 833 ждал её зря. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-description-geo?limit=5"
+    "https://vedarai.ru/park/vachkazhets",
+    "https://vedarai.ru/letopis/vachkazhets",
+    "https://vedarai.ru/places/vachkazhets",
+    "https://vedarai.ru/routes/visitkamchatka-vachkazhets-mountain-range-ski",
+    "https://vedarai.ru/api/images/s3/photos/vachkazhets/gora-vachkazhets-zimoj.jpg",
+    "https://publication.pravo.gov.ru/Document/View/4100201811120003"
   ],
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 30000
+  "until": "Разрешение на посещение не нужно",
+  "retries": 30,
+  "retryDelay": 60,
+  "bytes": 400,
+  "grep": [
+    "Памятник природы<!-- --> · ",
+    "Разрешение на посещение не нужно",
+    "Разрешение на посещение не требуется",
+    "/letopis/vachkazhets",
+    "Вацкажац",
+    "Спор закончился",
+    "Michael Haing",
+    "Экология и охрана природы",
+    "базальтовый",
+    "Медведи",
+    "Гора Вачкажец",
+    "Охраняемая территория",
+    "Природный парк:",
+    "Зелёная кнопка",
+    "требует отдельного разрешения",
+    "4100201811120003",
+    "Место на территории памятника природы"
+  ]
 }
