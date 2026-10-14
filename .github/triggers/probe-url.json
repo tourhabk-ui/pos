@@ -1,26 +1,39 @@
 {
   "timeout": 90,
-  "run": 892,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Миграция 1251 на проде не видна полчаса: проверяем, не столкнулись ли справки Авачинского вулкана и фумаролы Дзензура на уникальном индексе (source_name, source_url) — источник у пяти мест Налычево до правки. Конфиг записан целиком.",
+  "run": 893,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1252 (Южно-Камчатский заказник) и 1253 (повтор справок Налычево): ждёт карточку заказника, затем читает Курильское озеро, Хакыцын, Орлиное крыло, Авачинский вулкан, Дзензур, страницу заказника, статью летописи и снимок в хранилище. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+    "https://vedarai.ru/api/places/a79c9a19-e5c6-4d99-9134-cae496430dca",
+    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
+    "https://vedarai.ru/api/places/18c516d2-cfda-43a0-adda-768a125b366b",
+    "https://vedarai.ru/api/places/0fa4286f-d7e6-4083-814c-9121b3ef3a87",
     "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
-    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
-    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0"
+    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0",
+    "https://vedarai.ru/park/yuzhno-kamchatsky-zakaznik",
+    "https://vedarai.ru/letopis/yuzhno-kamchatskij-zakaznik",
+    "https://vedarai.ru/places/yuzhno-kamchatskij-zakaznik",
+    "https://vedarai.ru/api/images/s3/photos/yuzhno-kamchatskij-zakaznik/kraj-vulkanov-tablichka-kurilskoe-ozero.jpg"
   ],
+  "until": "Южно-Камчатский государственный природный заказник федерального значения",
+  "retries": 45,
+  "retryDelay": 60,
   "allowStale": true,
-  "retries": 1,
-  "retryDelay": 15,
-  "around": [
-    "\"sourceUrl\""
-  ],
-  "aroundLines": 2,
-  "aroundBefore": 1,
-  "aroundHits": 1,
   "grep": [
-    "\"descriptionWithdrawn\":true",
-    "\"description\":null"
+    "Южно-Камчатский государственный природный заказник федерального значения",
+    "Курильское озеро лежит на крайнем юге Камчатки",
+    "\"zone\":\"zakaznik\"",
+    "\"source\":\"manual\"",
+    "Хакыцын — одна из двух крупнейших рек",
+    "\"name\":\"Река Хакыцын\"",
+    "\"description\":null",
+    "Авачинский вулкан — Авачинская сопка",
+    "Фумарольный котёл вулкана Дзензур",
+    "Тайны Курильского озера",
+    "Лодки Кутха",
+    "Как получить разрешение",
+    "Заявка в Кроноцкий заповедник",
+    "Страница заявок",
+    "Зелёная кнопка"
   ],
-  "bytes": 200
+  "bytes": 300
 }
