@@ -45,8 +45,18 @@
  *
  * Повторять раз в месяц: единственный честный способ увидеть, изменилось ли
  * что-то после китайского слоя и регистраций. Запускает
- * model-knowledge-probe.yml по маркеру .github/triggers/model-knowledge-probe.json.
- * Сторож: tests/unit/agents-china-layer.test.ts.
+ * model-knowledge-probe.yml — по маркеру .github/triggers/model-knowledge-probe.json
+ * и, с 14.10 (владелец: «включай»), по расписанию раз в месяц.
+ *
+ * ?notify=1 — итог в админский чат Telegram, туда же, куда тревоги Watchdog
+ * (tgSend, TELEGRAM_CHAT_ID). Без него ежемесячный замер лежал бы
+ * в сводке прогона GitHub Actions, куда никто не заходит, и момент «модель
+ * нас узнала», ради которого проба повторяется, прошёл бы мимо (§10.09: у
+ * результата должен быть потребитель). Доставку tgSend возвращает исходом,
+ * «не ушло» видно в ответе. Пульс — agent_run_history под 'model-knowledge-probe':
+ * прогон, где спросить не удалось никого, пишется 'failed', а не тишиной.
+ * Сторожа: tests/unit/agents-china-layer.test.ts,
+ * tests/unit/model-knowledge-probe-notify.test.ts.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -56,6 +66,9 @@ import { callDeepSeek, callQwen, callKimi, callGLM, callYandexGPT, resolveChatMo
 import { recentAiFailures } from '@/lib/ai/failure-trace';
 import { runPlace } from '@/lib/ai/key-identity';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { tgSend } from '@/lib/notifications/tg-send';
+import { escapeHtml } from '@/lib/text/escape-html';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -256,6 +269,48 @@ export function summarize(legs: readonly LegResult[]): Summary {
   return s;
 }
 
+/** Имя агента в agent_run_history и метка в логе — то же, что в реестре кронов. */
+const SCOPE = 'model-knowledge-probe';
+const DIGEST_EXCERPT = 200;
+const DIGEST_REASON = 160;
+
+/**
+ * Итог пробы владельцу (Telegram, HTML). Всё, что пришло от моделей и
+ * провайдеров, — ответ, имя модели, причина отказа — через escapeHtml: чужой
+ * текст с `<` иначе сломал бы разметку, и Telegram отверг бы сообщение целиком.
+ * «Знают» идёт первым и с цитатой: ради этой строки проба и повторяется.
+ */
+export function digestText(legs: readonly LegResult[], summary: Summary): string {
+  const named = (l: LegResult) => escapeHtml(l.model ? `${l.provider} (${l.model})` : l.provider);
+  const of = (outcome: KnowledgeOutcome) => legs.filter((l) => l.outcome === outcome);
+  const lines = ['<b>Знают ли модели о Ведаре</b> — проба с прода', ''];
+
+  const knows = of('knows');
+  if (knows.length) {
+    lines.push(`<b>Знают: ${knows.map(named).join(', ')}</b>`);
+    for (const l of knows) {
+      const quote = l.answer_excerpt ? ` — «${escapeHtml(l.answer_excerpt.slice(0, DIGEST_EXCERPT))}»` : '';
+      lines.push(`${escapeHtml(l.provider)}: ${escapeHtml(l.signal)}${quote}`);
+    }
+  } else {
+    lines.push('Знают: никто');
+  }
+  const unknown = of('does_not_know');
+  lines.push(`Не знают: ${unknown.length ? unknown.map(named).join(', ') : '—'}`);
+  const notAsked = of('could_not_ask');
+  if (notAsked.length) {
+    lines.push('Спросить не удалось:');
+    for (const l of notAsked) {
+      lines.push(`${escapeHtml(l.provider)}: ${escapeHtml((l.reason ?? 'причина не записана').slice(0, DIGEST_REASON))}`);
+    }
+  }
+  if (summary.old_brand.length) {
+    lines.push(`Под прежним именем платформы: ${escapeHtml(summary.old_brand.join(', '))}`);
+  }
+  lines.push('', 'В вопросе нет слова «Камчатка»: «знает» — модель назвала край сама.');
+  return lines.join('\n');
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -265,12 +320,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const askedAt = new Date().toISOString();
+  const started = Date.now();
+  const notify = request.nextUrl.searchParams.get('notify') === '1';
+  const askedAt = new Date(started).toISOString();
   const legs = await Promise.all(LEGS.map(askLeg));
   const summary = summarize(legs);
   // Проба не состоялась только когда спросить не удалось НИКОГО: «не знает»
   // — законный результат замера, а не поломка.
   const asked = legs.length - summary.could_not_ask.length;
+  if (asked > 0) {
+    recordCronRun(SCOPE, started, 'success', { items: asked });
+  } else {
+    recordCronRun(SCOPE, started, 'failed', { items: 0, error: 'ни одну модель спросить не удалось' });
+  }
+
+  // Итог уходит и при неудаче: «замера нет» владелец тоже должен узнать.
+  let notifyOutcome: { sent: boolean; reason: string } | null = null;
+  if (notify) {
+    const out = await tgSend(SCOPE, digestText(legs, summary));
+    notifyOutcome = out.ok ? { sent: true, reason: 'доставлен' } : { sent: false, reason: out.reason };
+  }
 
   return NextResponse.json({
     ok: asked > 0,
@@ -282,6 +351,7 @@ export async function GET(request: NextRequest) {
     question_ru: KNOWLEDGE_QUESTION_RU,
     legs,
     summary,
+    notify: notifyOutcome,
     verdict: `знают: ${summary.knows.join(', ') || '—'}; не знают: ${summary.does_not_know.join(', ') || '—'}; `
       + `спросить не удалось: ${summary.could_not_ask.join(', ') || '—'}`
       + (summary.old_brand.length ? `; под прежним именем платформы: ${summary.old_brand.join(', ')}` : ''),

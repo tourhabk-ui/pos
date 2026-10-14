@@ -81,8 +81,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'client-errors-census': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // 12.10: проба «знает ли модель о нас». net_out и ai — НАСТОЯЩИЕ: четыре
   // провайдера спрашиваются без поиска; db_read и db_write — ТРАНЗИТИВНЫЕ из
-  // графа импортов providers.ts (журнал расхода), сам роут в базу не ходит.
-  'model-knowledge-probe': ['db_read', 'db_write', 'net_out', 'ai'],
+  // графа импортов providers.ts (журнал расхода). С 14.10 db_write и свой —
+  // пульс в agent_run_history, а telegram — итог ежемесячного прогона в
+  // админский чат (?notify=1, владелец: «включай»): без него момент «модель
+  // нас узнала» остался бы в сводке GitHub Actions, которую никто не читает.
+  'model-knowledge-probe': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   // Агент Яндекса с нашим MCP (13.10, «остались российские ИИ»): модель —
   // через providers.ts (транзитивно журнал расхода), свой db_read — журнал
   // mcp_tool_calls/mcp_clients за окно пробы, чтобы увидеть имя шлюза
