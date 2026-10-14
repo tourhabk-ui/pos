@@ -110,7 +110,13 @@ describe('страница /plans/[slug]', () => {
   });
 
   it('перелинковка: страница ссылается на другие пресеты и планировщик', () => {
-    expect(PAGE).toMatch(/Другие готовые планы/);
+    // «Другие готовые планы» — components/plans/OtherPlans; соседей по кругу и
+    // «каждому ровно шесть входящих» держит рендер (circular-links.test.tsx).
+    // Импорт без употребления уронил бы линтер — значит, блок на странице есть.
+    expect(PAGE).toMatch(/from '@\/components\/plans\/OtherPlans'/);
+    // Запрет прежней формы: первые шесть получали ссылку с каждой страницы,
+    // на остальные не вёл ни один план (перепись 14.10, прогон 10).
+    expect(PAGE).not.toMatch(/PLAN_PRESETS\.filter\([^)]*\)\.slice\(0,/);
     expect(PAGE).toMatch(/href="\/planner"/);
     expect(HUB).toMatch(/\/plans\/\$\{p\.slug\}/);
   });

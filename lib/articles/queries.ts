@@ -64,6 +64,26 @@ export async function listArticles(): Promise<Article[]> {
   return rows.map(toArticle);
 }
 
+export interface ArticleLink {
+  slug: string;
+  title: string;
+  topic: string | null;
+}
+
+/**
+ * Адреса видимых статей в порядке оглавления — для блока «Читайте дальше».
+ * Без текста: двадцать семь тел статей ради двадцати семи заголовков не нужны.
+ */
+export async function listArticleLinks(): Promise<ArticleLink[]> {
+  const { rows } = await pool.query<ArticleLink>(
+    `SELECT slug, title, topic
+       FROM articles
+      WHERE is_visible = TRUE
+      ORDER BY topic NULLS LAST, title`,
+  );
+  return rows;
+}
+
 /** Статья по адресу. null — статьи нет (страница отдаст 404). */
 export async function getArticle(slug: string): Promise<Article | null> {
   const { rows } = await pool.query<Row>(

@@ -10,11 +10,30 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { getArticle } from '@/lib/articles/queries';
+import { getArticle, listArticleLinks, type ArticleLink } from '@/lib/articles/queries';
+import { circularNext } from '@/lib/seo/circular-links';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Сколько статей предлагать дальше. Перепись 14.10 (прогон 10): на каждую из
+ * 27 статей вела одна ссылка — с оглавления. Следующие по кругу дают каждой
+ * ровно READ_NEXT входящих (lib/seo/circular-links).
+ */
+const READ_NEXT = 4;
+
+/** Соседи по оглавлению. Не прочитались — блока нет, причина в логе (§4.0). */
+async function readNext(slug: string): Promise<ArticleLink[]> {
+  try {
+    return circularNext(await listArticleLinks(), (a) => a.slug === slug, READ_NEXT);
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    console.error('[articles/page] соседние статьи не прочитаны:', slug, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
+    return [];
+  }
+}
 
 interface Props { params: Promise<{ slug: string }> }
 
@@ -45,6 +64,7 @@ export default async function ArticlePage({ params }: Props) {
   const { slug } = await params;
   const article = await getArticle(slug);
   if (!article) notFound();
+  const next = await readNext(article.slug);
 
   // Абзацы — по пустым строкам. Текст пришёл из скрейпа, разметки в нём нет.
   const paragraphs = (article.body ?? '')
@@ -102,6 +122,29 @@ export default async function ArticlePage({ params }: Props) {
             </p>
           )}
         </article>
+
+        {next.length > 0 && (
+          <nav aria-labelledby="read-next" className="max-w-2xl mt-12">
+            <h2 id="read-next" className="ds-h2 mb-4">Читайте дальше</h2>
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {next.map((a) => (
+                <li key={a.slug}>
+                  <Link
+                    href={`/articles/${a.slug}`}
+                    className="ds-card block h-full p-4 transition-all duration-200 hover:bg-[var(--bg-hover)]"
+                  >
+                    {a.topic && (
+                      <span className="block text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-1">
+                        {a.topic}
+                      </span>
+                    )}
+                    <span className="font-medium text-[var(--text-primary)]">{a.title}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
       </main>
     </>
   );
