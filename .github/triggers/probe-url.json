@@ -1,29 +1,28 @@
 {
   "timeout": 120,
-  "run": 909,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1254 (природный парк «Вилючинский»): карточка парка, озеро Зеленое на новой точке, страница парка с маршрутами, статья летописи, снимок партнёра в хранилище, карточка маршрута с разрешением парка. Ждёт выката по маркеру. Конфиг записан целиком.",
+  "run": 910,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1255 (лососевый заказник «Река Коль»): карточка, страница заказника, статья летописи, место в экспорте клетки cell-53n156e; и выкат слоя 39 — парк «Вилючинский» и озеро Зеленое в экспорте клетки cell-52n158e. Ждёт выката по маркеру. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/7626267c-d41f-4c88-8c87-c3313bb8b539",
-    "https://vedarai.ru/api/places/ed134429-febe-45d4-9c55-00b12809de24",
-    "https://vedarai.ru/park/vilyuchinsky",
-    "https://vedarai.ru/letopis/vilyuchinskij-park",
-    "https://vedarai.ru/api/images/s3/photos/vilyuchinsky/mestechko-vilyuchinskij-osenyu.jpg",
-    "https://vedarai.ru/routes/9518537b-f1f9-4291-83a9-b04c13e6f515"
+    "https://vedarai.ru/api/places/8e450222-08d2-4521-a9ac-9c287b3503d4",
+    "https://vedarai.ru/park/reka-kol",
+    "https://vedarai.ru/letopis/reka-kol",
+    "https://vedarai.ru/api/cron/places-export?region=cell-53n156e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e"
   ],
-  "until": "Природный парк регионального значения",
+  "until": "Лососевый заказник",
   "retries": 40,
   "retryDelay": 45,
   "grep": [
-    "Природный парк регионального значения",
-    "52.7550908",
-    "158.2611049",
-    "Восхождение на Вилючинский вулкан",
-    "Озеро Зеленое",
-    "Местечко Камчатка",
-    "Зелёная кнопка",
+    "Лососевый заказник «Река Коль»",
+    "220 605,64",
+    "Медвежий угол",
+    "lososevyj-zakaznik-reka-kol",
+    "zakaznik",
     "Природный парк «Вилючинский»",
-    "prirodnyj-park-vilyuchinskij",
-    "Вилючинская Сопка"
+    "158.2611049",
+    "158.2092619",
+    "Как получить разрешение",
+    "Река Коль"
   ],
-  "bytes": 1500
+  "bytes": 1200
 }
