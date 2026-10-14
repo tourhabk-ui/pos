@@ -1,43 +1,39 @@
 {
-  "slug": "vachkazhets-commons",
-  "note": "14.10. Кандидаты в главный кадр статьи летописи «Вачкажец» (владелец: «Памятник природы «Вачкажец» тоже делаем по примерам»): Wikimedia Commons, CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova. Выбор — глазами, потом пережатие и media-to-s3.",
-  "run": 5,
+  "slug": "bystrinsky-commons",
+  "note": "14.10. Кандидаты для природного парка «Быстринский» (владелец: «Природный парк «Быстринский» так же»): Wikimedia Commons, CC BY-SA 4.0 (NadezhdaKhaustova) и CC BY-SA 3.0 (Johannes Rohr). Выбор — глазами, потом пережатие и media-to-s3.",
+  "run": 6,
   "items": [
     {
-      "file": "v-gora-haing.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%93%D0%BE%D1%80%D0%B0%20%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86.jpg?width=1920"
+      "file": "b-ichinskij-zakat.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%98%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%20%D0%BD%D0%B0%20%D0%B7%D0%B0%D0%BA%D0%B0%D1%82%D0%B5.jpg?width=1920"
     },
     {
-      "file": "v-panorama-khaustova.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9F%D0%B0%D0%BD%D0%BE%D1%80%D0%B0%D0%BC%D0%B0%20%D0%B3%D0%BE%D1%80%D0%BD%D0%BE%D0%B3%D0%BE%20%D0%BC%D0%B0%D1%81%D1%81%D0%B8%D0%B2%D0%B0%20%D0%B3.%20%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D1%86%D1%8B.jpg?width=2400"
+      "file": "b-dordon.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%94%D0%BE%D1%80%D0%B4%D0%BE%D0%BD%20%D0%94%D0%B0%D0%BB%D1%8C%D0%BD%D0%B8%D0%B9%20%D0%B2%20%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%BC%20%D0%BF%D0%B0%D1%80%D0%BA%D0%B5.jpg?width=1920"
     },
     {
-      "file": "v-stlanik-haing.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%B5%D0%B4%D1%80%D0%BE%D0%B2%D1%8B%D0%B9%20%D1%81%D1%82%D0%BB%D0%B0%D0%BD%D0%B8%D0%BA%20%D0%BD%D0%B0%20%D1%84%D0%BE%D0%BD%D0%B5%20%D0%B3%D0%BE%D1%80%D1%8B%20%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86.jpg?width=1920"
+      "file": "b-ichinskaya-sopka.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%20%D0%98%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B0%D1%8F%20%D1%81%D0%BE%D0%BF%D0%BA%D0%B0.jpg?width=1920"
     },
     {
-      "file": "v-senatorova-04.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2004.jpg?width=1600"
+      "file": "b-oleni.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9E%D0%BB%D0%B5%D0%BD%D0%B8%20%D0%B2%20%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%BC%20%D0%BF%D0%B0%D1%80%D0%BA%D0%B5.jpg?width=1920"
     },
     {
-      "file": "v-senatorova-29.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2029.jpg?width=1600"
+      "file": "b-dolina.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0%20%D0%B2%20%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%BC%20%D0%BF%D0%B0%D1%80%D0%BA%D0%B5.jpg?width=1920"
     },
     {
-      "file": "v-senatorova-30.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2030.jpg?width=1600"
+      "file": "b-skalistaya.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%93%D0%BE%D1%80%D0%B0%20%D0%A1%D0%BA%D0%B0%D0%BB%D0%B8%D1%81%D1%82%D0%B0%D1%8F%20%D0%B2%20%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%BC%20%D0%BF%D0%B0%D1%80%D0%BA%D0%B5.jpg?width=1920"
     },
     {
-      "file": "v-senatorova-32.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2032.jpg?width=1600"
+      "file": "b-abunat.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9E%D0%B7%D0%B5%D1%80%D0%BE%20%D0%90%D0%B1%D1%83%D0%BD%D0%B0%D1%82.jpg?width=1920"
     },
     {
-      "file": "v-senatorova-66.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2066.jpg?width=1600"
-    },
-    {
-      "file": "v-senatorova-67.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2067.jpg?width=1600"
+      "file": "b-esso-doma.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Wooden%20houses%20in%20Esso%2C%20Kamchatka%2C%20Russia.jpg?width=1920"
     }
   ]
 }
