@@ -313,10 +313,13 @@ function TourCard({
   tour,
   isLiked,
   onToggleLike,
+  priority = false,
 }: {
   tour: Tour;
   isLiked: boolean;
   onToggleLike: (tourId: number) => void;
+  /** Первая карточка — элемент LCP витрины на телефоне: грузится сразу. */
+  priority?: boolean;
 }) {
   const activity = activityLabel(tour.activity_type, true);
   const location = locationLabel(tour.location_type);
@@ -359,6 +362,8 @@ function TourCard({
           src={imageSrc}
           alt={tour.title}
           fill
+          priority={priority}
+          fetchPriority={priority ? 'high' : undefined}
           sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
           className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
           style={{ objectPosition: TOUR_PHOTO_POSITION, filter: 'saturate(1.12) contrast(1.04)' }}
@@ -965,10 +970,14 @@ export default function MarketplaceClient({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
               {tours.map((tour, i) => (
                 <FragmentWithBanner key={tour.id} showBanner={i === Math.min(2, tours.length - 1)}>
+                  {/* Фото первой карточки — элемент LCP витрины на телефоне
+                      (прогон 9, 14.10: LCP 3,6 с, из них 2,1 с — задержка
+                      ленивой загрузки). Остальные карточки — лениво. */}
                   <TourCard
                     tour={tour}
                     isLiked={likedMap.has(tour.id)}
                     onToggleLike={handleToggleLike}
+                    priority={i === 0}
                   />
                 </FragmentWithBanner>
               ))}
