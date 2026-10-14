@@ -100,7 +100,8 @@ describe('сниппет маршрута — факты впереди', () => 
 describe('связка со страницами', () => {
   it('карточка места собирает title/description из place-meta и читает факты теми же таблицами, что карточка', () => {
     const src = read('app/places/[id]/page.tsx');
-    expect(src).toContain('title: placeTitle(facts)');
+    // Что заголовок карточки — это placeTitle (и без « | Ведар», когда тот не
+    // помещается), проверяет вызов generateMetadata: tests/unit/seo-title-brand.
     expect(src).toContain('placeDescription(facts)');
     expect(src).toContain('LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id');
     expect(src).toContain('LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id');

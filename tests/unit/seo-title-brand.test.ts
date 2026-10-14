@@ -114,10 +114,10 @@ describe('карточка места', { timeout: 30_000 }, () => {
     expect(shown(m.title).length).toBeLessThanOrEqual(TITLE_LIMIT);
   });
 
-  it('короткое имя — с хвостом и брендом', async () => {
+  it('короткое имя — заголовок из placeTitle, с хвостом и брендом', async () => {
     const m = await meta('Вулкан Ксудач');
-    expect(typeof m.title).toBe('string');
-    expect(shown(m.title)).toMatch(/^Вулкан Ксудач: .+ \| Ведар$/);
-    expect(shown(m.title).length).toBeLessThanOrEqual(TITLE_LIMIT);
+    // Сезона и опасностей в данных нет — хвост только «как добраться» (lib/seo/place-meta).
+    expect(m.title).toBe('Вулкан Ксудач: как добраться');
+    expect(shown(m.title)).toBe('Вулкан Ксудач: как добраться | Ведар');
   });
 });

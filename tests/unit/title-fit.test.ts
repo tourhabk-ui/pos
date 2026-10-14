@@ -2,11 +2,11 @@
  * Заголовок плана помещается в выдачу (аудит vedarai.ru 01.10: 86–91 знак
  * при видимых ~60 — хвост и название сайта обрезались многоточием).
  */
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fitTitle, PLAN_TITLE_TAILS, TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
+import { describe, it, expect, vi } from 'vitest';
+import { brandedTitle, fitTitle, PLAN_TITLE_TAILS, TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
+
+vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 
 describe('fitTitle', () => {
   it('у каждого плана заголовок с « | Ведар» не длиннее предела', () => {
@@ -31,22 +31,24 @@ describe('fitTitle', () => {
 
   // Маршрут с 01.10 — обязательным хвостом (fitTitleRequired, ниже): без него
   // маршрут к источнику выходил в выдачу под именем самого места.
-  it('карточка места: длинное имя остаётся без хвоста; маршрут — с обязательным', () => {
-    const place = readFileSync(join(process.cwd(), 'app/places/[id]/page.tsx'), 'utf-8');
-    const route = readFileSync(join(process.cwd(), 'app/routes/[id]/page.tsx'), 'utf-8');
-    // 02.10: заголовок места собирает lib/seo/place-meta (хвост из ответов
-    // карточки, по приоритету); fitTitle остался у планов, парков, маршрутов.
-    expect(place).toMatch(/title: placeTitle\(facts\)/);
-    expect(route).toMatch(/const title = fitTitleRequired\(route\.title, ROUTE_TITLE_TAILS\)/);
+  it('длинное имя остаётся без хвоста, короткое — с ним', () => {
+    // 02.10: заголовок места собирает lib/seo/place-meta, маршрута —
+    // fitTitleRequired. Что карточки берут заголовок оттуда, проверяет вызов
+    // их generateMetadata (tests/unit/seo-title-brand), а не текст исходника.
     const longName = 'Командорский государственный природный биосферный заповедник';
     expect(fitTitle(longName, [' — место на Камчатке'])).toBe(longName);
     expect(fitTitle('Вулкан Горелый', [' — место на Камчатке'])).toBe('Вулкан Горелый — место на Камчатке');
   });
 
-  it('страница плана берёт заголовок отсюда', () => {
-    const page = readFileSync(join(process.cwd(), 'app/plans/[slug]/page.tsx'), 'utf-8');
-    expect(page).toMatch(/title: fitTitle\(preset\.title, PLAN_TITLE_TAILS\)/);
-    expect(page).not.toMatch(/— готовый план с турами и ценами`/);
+  it('страница плана берёт заголовок отсюда — вызовом generateMetadata на каждом плане', { timeout: 30_000 }, async () => {
+    const { generateMetadata } = await import('@/app/plans/[slug]/page');
+    for (const p of PLAN_PRESETS) {
+      const { title } = await generateMetadata({ params: Promise.resolve({ slug: p.slug }) });
+      expect(title, p.slug).toEqual(brandedTitle(fitTitle(p.title, PLAN_TITLE_TAILS)));
+      // Помещается с брендом — значит шаблон layout допишет « | Ведар».
+      expect(typeof title, p.slug).toBe('string');
+      expect(`${String(title)}${BRAND_SUFFIX}`.length, p.slug).toBeLessThanOrEqual(TITLE_LIMIT);
+    }
   });
 });
 
@@ -73,7 +75,7 @@ describe('обязательный хвост маршрута (аудит 01.10
       .toBe('Большие Тюшевские термальные источники — маршрут');
   });
 
-  it('страница маршрута зовёт обязательный хвост', () => {
-    expect(readFileSync('app/routes/[id]/page.tsx', 'utf-8')).toMatch(/fitTitleRequired\(route\.title, ROUTE_TITLE_TAILS\)/);
-  });
+  // Что карточка маршрута берёт заголовок отсюда — короткое имя с полным
+  // хвостом, длинное с обязательным « — маршрут», — проверяет вызов её
+  // generateMetadata (tests/unit/seo-title-brand), а не текст исходника.
 });
