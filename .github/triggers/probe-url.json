@@ -1,42 +1,27 @@
 {
   "timeout": 90,
-  "run": 879,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1250 (национальный парк «Вулканы Камчатки»): ждёт новое имя карточки «Южно-Камчатского», затем читает новую карточку «Ключевского», Мутновский, обе страницы парков, статью летописи, адрес карточки по slug и снимок партнёра из хранилища. Конфиг записан целиком.",
+  "run": 881,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1251 (повтор 1249 с условием 1247): ждёт справку на Авачинском перевале, затем читает Верблюд, Авачинский вулкан, Краеведческие источники и фумаролу Дзензура. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
-    "https://vedarai.ru/api/places/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0",
-    "https://vedarai.ru/api/places/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9",
-    "https://vedarai.ru/api/parks/yuzhno-kamchatsky",
-    "https://vedarai.ru/api/parks/klyuchevskoy",
-    "https://vedarai.ru/letopis/vulkany-kamchatki",
-    "https://vedarai.ru/places/park-klyuchevskoj",
-    "https://vedarai.ru/api/images/s3/photos/vulkany-kamchatki/mestechko-shlakovye-konusy-tolbachika.jpg"
+    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
+    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+    "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
+    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
+    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0"
   ],
-  "until": "Парк «Южно-Камчатский»",
+  "until": "Авачинский перевал — седловина между вулканами",
   "retries": 55,
   "retryDelay": 60,
   "allowStale": true,
   "grep": [
-    "Парк «Южно-Камчатский» — южный из двух кластеров",
-    "Парк «Ключевской» — северный из двух кластеров",
-    "\"locationType\":\"national_park\"",
-    "Спускаться в кратер Мутновского запрещено и опасно",
-    "Национальный парк «Вулканы Камчатки» в ведении Минприроды России",
-    "С октября 2026 года — национальный парк в ведении Минприроды России",
+    "Авачинский перевал — седловина между вулканами",
+    "Экструзия Верблюд, или скала Двугорбая",
+    "Авачинский вулкан — Авачинская сопка",
+    "Краеведческие источники — термальные источники",
+    "Фумарольный котёл вулкана Дзензур",
+    "\"descriptionWithdrawn\":false",
     "\"descriptionWithdrawn\":true",
-    "\"kuzmichReview\":\"\"",
-    "Национальный парк «Вулканы Камчатки» — «Южно-Камчатский»",
-    "Национальный парк «Вулканы Камчатки» — «Ключевской»",
-    "Тайны Курильского озера",
-    "Местечко Камчатка",
-    "Край Вулканов",
-    "владелец платформы",
-    "vulkany-kamchatki",
-    "887 690,1226 гектара",
-    "\"zone\":\"southern\"",
-    "\"slug\":\"park-klyuchevskoj\"",
-    "volcanic_gas",
-    "unstable_ground"
+    "сайт парка «Вулканы Камчатки»"
   ],
-  "bytes": 400
+  "bytes": 300
 }
