@@ -1,16 +1,17 @@
 {
   "timeout": 90,
-  "run": 873,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Национальный парк: есть ли запись «Природный парк «Ключевской»» (ef2f45c4 отвечает 404 — скрыта, слита или её нет), карточка «Южно-Камчатского» (d9059e8a) целиком и записи справочника парков — перед миграцией 1250. Конфиг записан целиком.",
+  "run": 874,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Национальный парк «Вулканы Камчатки»: сообщения о постановлении от 9 октября (имя, площадь, округа, ведомство, номер) и пояснительная записка к проекту 2023 года — перед карточками парков (миграция 1250). Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%B9",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82",
-    "https://vedarai.ru/api/places/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
-    "https://vedarai.ru/api/parks/klyuchevskoy",
-    "https://vedarai.ru/api/parks/yuzhno-kamchatsky"
+    "https://www.interfax.ru/russia/1121613",
+    "https://kamtoday.ru/news/society/prirodnyy-park-vulkany-kamchatki-poluchil-federalnyy-status/",
+    "https://news.mail.ru/society/72676652/",
+    "https://kamchatkamedia.ru/news/2650854/",
+    "https://base.garant.ru/56969521/"
   ],
   "allowStale": true,
+  "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 9000
+  "bytes": 6500
 }
