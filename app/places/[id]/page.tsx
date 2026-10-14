@@ -90,7 +90,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         images: imgUrl ? [{ url: imgUrl }] : defaultOgImages(),
       },
     };
-  } catch {
+  } catch (e) {
+    // Без метаданных страница уходит в выдачу без canonical и описания, с
+    // общим заголовком. Отказ виден в логе, а не только в выдаче (§4.0).
+    const err = e as { code?: string; message?: string };
+    console.error('[places/page] метаданные места не прочитаны:', id, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     return { title: 'Место на Камчатке' };
   }
 }
@@ -240,7 +244,12 @@ export default async function PlaceDetailPage({ params }: Props) {
         { name: r.name as string, url: `${BASE}/places/${canonicalId}` },
       ];
     }
-  } catch { /* JSON-LD не критичен */ }
+  } catch (e) {
+    // Страница рисуется и без разметки, но её пропажа — отказ, а не «данных
+    // нет»: поисковик молча теряет TouristAttraction и крошки (§4.0).
+    const err = e as { code?: string; message?: string };
+    console.error('[places/page] JSON-LD места не собран:', id, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
+  }
 
   return (
     <>
