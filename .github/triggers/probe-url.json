@@ -1,16 +1,14 @@
 {
-  "timeout": 90,
-  "run": 804,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Командорский и Корякский заповедники (слово владельца 14.10 «перенеси в Заповедники и сделай также как с Кроноцким»): прод-записи по имени (place-audit, любая видимость), точки OSM (Nominatim, Overpass — отношения охраняемых территорий). Конфиг записан целиком.",
+  "timeout": 60,
+  "run": 805,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Командорский и Корякский заповедники: статьи Википедии (текст для описания и летописи) и категории Commons из Викиданных (P373). Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D1%81%D0%BA",
-    "https://nominatim.openstreetmap.org/search?q=%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=jsonv2&extratags=1&limit=5",
-    "https://nominatim.openstreetmap.org/search?q=%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=jsonv2&extratags=1&limit=5",
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28rel%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%7C%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D1%81%D0%BA%22%5D%3Brel%5B%22leisure%22%3D%22nature_reserve%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%7C%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D1%81%D0%BA%22%5D%3B%29%3Bout%20center%20tags%3B"
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=json&formatversion=2&utf8=1&redirects=1",
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=json&formatversion=2&utf8=1&redirects=1",
+    "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=Q4229211&property=P373&format=json",
+    "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=Q4234716&property=P373&format=json"
   ],
   "retries": 2,
   "retryDelay": 30,
-  "bytes": 9000,
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
+  "bytes": 30000
 }
