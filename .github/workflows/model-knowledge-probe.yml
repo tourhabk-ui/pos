@@ -8,6 +8,13 @@ name: Знают ли модели о нас — проба с прода
 # три исхода (знает / не знает / не смог спросить). Повторять раз в месяц —
 # иначе не увидеть, изменилось ли что-то после китайского слоя и регистраций.
 #
+# С 14.10 (владелец: «включай») — само, по расписанию: 3-го числа в 19:43 UTC,
+# это 07:43 по Камчатке 4-го, к утру владельца; вне пика DeepSeek
+# (lib/ai/deepseek-peak.ts). Итог уходит в админский чат Telegram, куда и
+# тревоги Watchdog (?notify=1):
+# сводку прогона здесь никто не читает, а ради момента «модель нас узнала»
+# проба и повторяется. Маркер остаётся для внеочередного прогона после правки.
+#
 # С ПРОДА, а не с раннера: ключи DeepSeek, DashScope, Moonshot и GLM лежат в
 # переменных Timeweb, и путь из РФ к этим провайдерам — наш путь. Здесь
 # workflow только зовёт прод-эндпоинт и печатает вердикт.
@@ -15,6 +22,8 @@ name: Знают ли модели о нас — проба с прода
 # Секреты: CRON_SECRET. Ключи провайдеров сюда не приезжают.
 
 on:
+  schedule:
+    - cron: '43 19 3 * *'
   workflow_dispatch:
   push:
     branches: [main]
@@ -34,7 +43,8 @@ jobs:
 
       # Проба по ЧУЖОМУ контейнеру стоила неверных выводов соседним пробам.
       # Ждём СВОЮ сборку по маркеру /version.json. Только при запуске маркером:
-      # при workflow_dispatch head_commit пуст, и шаг отсиживал бы зря.
+      # при workflow_dispatch и по расписанию head_commit пуст, и шаг отсиживал
+      # бы зря — спрашивается та сборка, что стоит на проде.
       - name: Wait for fresh deploy
         if: github.event_name == 'push'
         env:
@@ -55,7 +65,7 @@ jobs:
 
           CODE=$(curl -s -o /tmp/probe.json -w '%{http_code}' --max-time 170 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/model-knowledge-probe")
+            "https://vedarai.ru/api/cron/model-knowledge-probe?notify=1")
           echo "HTTP $CODE"
           jq '.' /tmp/probe.json || cat /tmp/probe.json
 
@@ -67,6 +77,8 @@ jobs:
           echo "## Знают ли модели о нас" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "$(jq -r '.verdict // "вердикта нет"' /tmp/probe.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Итог владельцу в Telegram: $(jq -r '.notify.reason // "не запрашивался"' /tmp/probe.json)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           jq '{place, asked_at, summary, legs: [.legs[] | {provider, model, outcome, signal, reason, latency_ms, answer_excerpt}]}' /tmp/probe.json >> "$GITHUB_STEP_SUMMARY"
@@ -82,3 +94,10 @@ jobs:
 
           # Не спрошенные модели — предупреждение с причиной: ключ или путь.
           jq -r '.legs[] | select(.outcome == "could_not_ask") | "::warning::\(.provider): спросить не удалось — \(.reason)"' /tmp/probe.json
+
+          # Итог, не дошедший до владельца, — предупреждение, а не красный
+          # прогон: замер состоялся, недоставку видно здесь и в логе прода.
+          SENT=$(jq -r '.notify.sent // false' /tmp/probe.json)
+          if [ "$SENT" != "true" ]; then
+            echo "::warning::Итог владельцу не ушёл: $(jq -r '.notify.reason // "причина не названа"' /tmp/probe.json)"
+          fi

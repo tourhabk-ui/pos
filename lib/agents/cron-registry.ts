@@ -405,6 +405,15 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-osm-traces.yml', cron: '30 5 * * *', schedule: 'ежедневно · 05:30 UTC',
     everyMin: DAY, tier: 'growth', agentId: 'osm-traces-scout', triggerable: false,
   },
+  {
+    // Владелец 14.10 «включай»: проба знания раз в месяц, чтобы увидеть
+    // момент, когда модели узнают о нас. Итог — в админский чат Telegram
+    // (?notify=1); прогон, где спросить не удалось никого, пишется 'failed'.
+    key: 'model-knowledge-probe', label: 'Знают ли модели о нас',
+    description: 'DeepSeek, Qwen с поиском и без, Kimi, GLM, YandexGPT: знает / не знает / спросить не удалось → Telegram.',
+    workflow: 'model-knowledge-probe.yml', cron: '43 19 3 * *', schedule: '3-е число · 19:43 UTC (07:43 по Камчатке 4-го)',
+    everyMin: MONTH, tier: 'growth', agentId: 'model-knowledge-probe', triggerable: false,
+  },
 
   // ── Контент ──────────────────────────────────────────────────────────────
   {
@@ -613,6 +622,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // OSM с Timeweb недоступен — ноль здесь известен и объяснён внешней
   // причиной; тревога была бы шумом поверх уже понятого.
   'osm-traces-scout': 'unknown',
+  // items = сколько моделей удалось спросить. Ноль — замера нет: такой прогон
+  // пишется 'failed' и краснеет сам, а ноль в успешном был бы поломкой.
+  'model-knowledge-probe': 'broken',
 
   // ── Контент ─────────────────────────────────────────────────────────────
   // items = туры с коротким описанием: ноль означает, что переписывать нечего.
