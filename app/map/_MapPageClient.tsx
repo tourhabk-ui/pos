@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
+import { IdleMount } from '@/components/map/IdleMount';
 import Logo from '@/components/shared/Logo';
 import BottomNav from '@/components/shared/BottomNav';
 import EmergencyAction from '@/components/shared/EmergencyAction';
@@ -70,6 +71,9 @@ const VedarMap = dynamic(() => import('@/components/shared/VedarMap'), {
   ssr: false,
   loading: () => <div style={{ height: 'calc(100vh - 180px)' }} className="bg-[var(--bg-hover)] animate-pulse rounded-lg" />,
 });
+// Та же подложка, что у загрузки кода карты: пока карта ждёт простоя
+// браузера (IdleMount), экран выглядит так же, как во время загрузки.
+const MAP_PLACEHOLDER = <div style={{ height: 'calc(100vh - 180px)' }} className="bg-[var(--bg-hover)] animate-pulse rounded-lg" />;
 const PlaceMapSheet = dynamic(() => import('@/components/map/PlaceMapSheet').then(m => ({ default: m.PlaceMapSheet })), { ssr: false });
 const MapThreatChip = dynamic(() => import('@/components/map/MapThreatChip').then(m => ({ default: m.MapThreatChip })), { ssr: false });
 const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').then(m => ({ default: m.MapWeatherChip })), { ssr: false });
@@ -230,6 +234,16 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
     [mapPackBaseUrl],
   );
   const vedarReady = overviewSource.state === 'ready';
+  // Код своей карты качается сразу, как и до 14.10; откладывается только её
+  // запуск (IdleMount ниже), поэтому на медленной сети карта не приходит
+  // позже. Отказ здесь не последний: смонтированная карта попросит код ещё
+  // раз и при неудаче покажет MapErrorBoundary — но назвать его надо (§4.0).
+  useEffect(() => {
+    if (!vedarReady) return;
+    import('@/components/shared/VedarMap').catch((e: unknown) => {
+      console.error('[map] код своей карты не загрузился заранее:', e instanceof Error ? e.message : String(e));
+    });
+  }, [vedarReady]);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMyLocation, setShowMyLocation] = useState(false);
   // Толчки за сутки — слой поверх мест (владелец 02.10).
@@ -759,6 +773,9 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
           <MapErrorBoundary>
           {vedarReady ? (
+            // Карта стартует, когда браузер освободился (≤ 2 с): шапка, чипы и
+            // окно согласия рисуются раньше сборки шейдеров (components/map/IdleMount).
+            <IdleMount placeholder={MAP_PLACEHOLDER}>
             <VedarMap
               theme={isDark ? 'dark' : 'light'}
               sources={overviewSource.state === 'ready' ? {
@@ -795,6 +812,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               placesVisible={!quakesMode}
               onDiagnostic={setMapDiag}
             />
+            </IdleMount>
           ) : (
             <LeafletMap
               center={OVERVIEW_CENTER}
