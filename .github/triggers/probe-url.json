@@ -1,25 +1,31 @@
 {
   "timeout": 60,
-  "run": 831,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Вачкажец: что карточка места и страница парка отдают сейчас (профиль безопасности, режим, отзыв), пересказ окончательного отчёта МАК в архиве 59.ru, публикация постановления № 93 на pravo.gov.ru. allowStale. Конфиг записан целиком.",
+  "run": 832,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Вачкажец: что карточка места показывает сейчас — регистрация МЧС, строка «Разрешение парка», блок режима, отзыв Кузьмича, источник в подвале. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/vachkazhets",
-    "https://vedarai.ru/api/parks/vachkazhets",
-    "https://web.archive.org/web/20250504053558/https://59.ru/text/incidents/2025/03/26/75265517/",
-    "http://publication.pravo.gov.ru/Document/View/4100201811120003"
+    "https://vedarai.ru/places/vachkazhets"
   ],
-  "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 14000,
-  "text": true,
-  "around": [
-    "МАК",
-    "причин",
-    "safety",
-    "registration"
+  "bytes": 2000,
+  "grep": [
+    "МЧС обязательна",
+    "Разрешение парка",
+    "registrationRequired",
+    "Экология и охрана природы",
+    "Нужен пропуск",
+    "базальтовый",
+    "Источник:",
+    "sourceName",
+    "eco_zone",
+    "\"eco\":"
   ],
-  "aroundLines": 2,
-  "aroundBefore": 1,
-  "aroundHits": 5
+  "around": [
+    "registrationRequired",
+    "sourceName",
+    "\"eco\""
+  ],
+  "aroundLines": 1,
+  "aroundBefore": 0,
+  "aroundHits": 3
 }
