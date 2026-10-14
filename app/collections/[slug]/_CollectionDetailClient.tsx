@@ -94,7 +94,14 @@ function RouteCard({ route }: { route: RouteItem }) {
   );
 }
 
-export function CollectionDetailClient({ collection }: { collection: Collection }) {
+/**
+ * others — соседние подборки по кругу (page.tsx, lib/seo/circular-links):
+ * без них на подборку вела одна ссылка — с хаба (перепись 14.10, прогон 10).
+ */
+export function CollectionDetailClient({ collection, others = [] }: {
+  collection: Collection;
+  others?: Array<{ slug: string; title: string }>;
+}) {
   const [copied, setCopied] = useState(false);
 
   const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -181,6 +188,24 @@ export function CollectionDetailClient({ collection }: { collection: Collection 
           <div className="text-center py-20 text-[var(--text-muted)]">
             <p>Объекты этой подборки скоро появятся</p>
           </div>
+        )}
+
+        {others.length > 0 && (
+          <nav aria-labelledby="other-collections" className="mt-12">
+            <h2 id="other-collections" className="ds-h2 mb-4">Другие подборки</h2>
+            <ul className="flex flex-wrap gap-2">
+              {others.map((c) => (
+                <li key={c.slug}>
+                  <Link
+                    href={`/collections/${c.slug}`}
+                    className="ds-badge inline-block hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    {c.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
         )}
 
         <div className="mt-12 p-6 ds-card text-center">

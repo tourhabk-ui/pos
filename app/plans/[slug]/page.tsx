@@ -22,7 +22,8 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { recommendTrip, ACTIVITY_CONSTRAINTS, type DayPlan } from '@/lib/planner';
 import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activity';
 import { tourPath } from '@/lib/tours/tour-url';
-import { PLAN_PRESETS, findPlanPreset, planLastModified } from '@/lib/plans/presets';
+import { findPlanPreset, planLastModified } from '@/lib/plans/presets';
+import { OtherPlans } from '@/components/plans/OtherPlans';
 import { brandedTitle, fitTitle, PLAN_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
@@ -286,18 +287,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
             </Link>
           </section>
 
-          <section className="space-y-2">
-            <h2 className="ds-h2">Другие готовые планы</h2>
-            <div className="flex flex-wrap gap-2">
-              {PLAN_PRESETS.filter((p) => p.slug !== preset.slug).slice(0, 6).map((p) => (
-                <Link key={p.slug} href={`/plans/${p.slug}`}
-                  className="text-sm px-3 py-1.5 rounded-full"
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--ocean)' }}>
-                  {p.title}
-                </Link>
-              ))}
-            </div>
-          </section>
+          <OtherPlans current={preset.slug} />
         </div>
       </main>
     </>
