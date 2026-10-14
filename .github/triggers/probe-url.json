@@ -1,14 +1,18 @@
 {
   "timeout": 120,
-  "run": 898,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Положение о природном парке «Вилючинский» (постановление Правительства Камчатского края от 28.12.2022 № 743-П, документ сайта сети парков): текст с 7000-го байта — цели, режим, зоны, порядок посещения. Первый прогон со сдвигом textFrom. Конфиг записан целиком.",
+  "run": 899,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Природный парк «Вилючинский» (постановление края 28.12.2022 № 743-П): места платформы в клетке 52n158e — чтобы режим лёг по контуру OSM 1445902160, а не по имени; карточки вулкана, перевала и Нижне-Вилючинских источников; места по именам озёр Тополовое и Зелёное и сопки Бархатная. Конфиг записан целиком.",
   "urls": [
-    "https://vulcanikamchatki.ru/files/2023/doc/63acb3f957b957_22593119.pdf"
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e",
+    "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933",
+    "https://vedarai.ru/api/places/8bad8fe6-c7ec-4403-b956-948706649ca8",
+    "https://vedarai.ru/api/places/b12debd1-c997-47d1-b791-e6bbad2cdb4c",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%A2%D0%BE%D0%BF%D0%BE%D0%BB%D0%BE%D0%B2",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%91%D0%B0%D1%80%D1%85%D0%B0%D1%82%D0%BD"
   ],
   "allowStale": true,
   "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 60000,
-  "textFrom": 7000
+  "bytes": 9000
 }
