@@ -1,7 +1,7 @@
 {
   "upload": true,
-  "run": 3,
-  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом.",
+  "run": 4,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/.",
   "items": [
     {
       "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
@@ -82,6 +82,54 @@
     {
       "file": "media/s3/photos/kronotsky/kronotsky-volcano.jpg",
       "key": "photos/kronotsky/kronotsky-volcano.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/beringijskij-pesochnik.jpg",
+      "key": "photos/komandorskie-ostrova/beringijskij-pesochnik.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/buhta-buyana.jpg",
+      "key": "photos/komandorskie-ostrova/buhta-buyana.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/morskie-kotiki-na-severnom-lezhbishche.jpg",
+      "key": "photos/komandorskie-ostrova/morskie-kotiki-na-severnom-lezhbishche.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/mys-starogavanskij.jpg",
+      "key": "photos/komandorskie-ostrova/mys-starogavanskij.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/ostrov-beringa-letom.jpg",
+      "key": "photos/komandorskie-ostrova/ostrov-beringa-letom.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/ostrov-mednyj.jpg",
+      "key": "photos/komandorskie-ostrova/ostrov-mednyj.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/pesec.jpg",
+      "key": "photos/komandorskie-ostrova/pesec.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/poberezhe-beringova-morya.jpg",
+      "key": "photos/komandorskie-ostrova/poberezhe-beringova-morya.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/severnoe-lezhbishche.jpg",
+      "key": "photos/komandorskie-ostrova/severnoe-lezhbishche.jpg"
+    },
+    {
+      "file": "media/s3/photos/komandorskie-ostrova/sivuch.jpg",
+      "key": "photos/komandorskie-ostrova/sivuch.jpg"
+    },
+    {
+      "file": "media/s3/photos/koryaksky/poluostrov-govena-iz-kosmosa.jpg",
+      "key": "photos/koryaksky/poluostrov-govena-iz-kosmosa.jpg"
+    },
+    {
+      "file": "media/s3/photos/koryaksky/poluostrov-govena.jpg",
+      "key": "photos/koryaksky/poluostrov-govena.jpg"
     }
   ]
 }
