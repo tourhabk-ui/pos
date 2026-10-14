@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * tests/unit/booking-link-recovery.test.ts
  *

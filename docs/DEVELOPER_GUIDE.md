@@ -86,6 +86,11 @@ npx vitest run             # весь набор; один файл: npx vitest 
 npm run lint               # 0 ошибок; предупреждения не блокируют (CLAUDE.md §6)
 ```
 
+Среда теста — по роду файла (`vitest.config.ts`): `.test.tsx` идут в jsdom,
+`.test.ts` — в `node`. Файл `.ts`, которому нужен DOM (`window`, `localStorage`),
+объявляет это первой строкой: `// @vitest-environment jsdom`; без неё он упадёт на
+`window is not defined`.
+
 Тесты на настоящем PostgreSQL (`tests/integration/*.pg.test.ts`) без переменной
 пропускаются — это «не прогнано», а не «прошло»:
 

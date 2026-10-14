@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Проба Cache Storage — одна на весь офлайн-контур, и судит она строго.
  *

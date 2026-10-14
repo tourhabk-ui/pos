@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * VolcanoMesh: буфер ранних ICE-кандидатов и мягкий disconnect (#1993).
  *

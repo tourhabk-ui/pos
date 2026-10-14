@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * lib/map/place-icon-raster.ts — имя иконки в спрайте карты и растеризация
  * по запросу (styleimagemissing).

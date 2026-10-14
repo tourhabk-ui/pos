@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { selectReviewTargets, riskScore, type LedgerEntry } from '@/lib/agents/evo/coverage-ledger';
 import { detectMockPatterns, buttonActionText } from '@/lib/agents/evo/mock-detector';
