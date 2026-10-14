@@ -123,6 +123,24 @@ export async function sendWithoutDisk<T extends OutboxRecord>(spec: OutboxSpec<T
   return store.items()[0] ?? null;
 }
 
+/**
+ * Что сказать человеку, когда проверка шла без диска (sendWithoutDisk).
+ * null — ушла целиком. Вердикт ушёл, а снимки нет — повторять нельзя,
+ * проверка задвоится; поэтому «ушла, а снимки — нет», а не «повторите».
+ */
+export function fieldCheckWithoutDiskMessage(
+  left: FieldCheckQueueItem | null,
+  kind: 'check' | 'finding',
+): string | null {
+  if (left === null) return null;
+  const acc = kind === 'check' ? 'проверку' : 'находку';
+  const nom = kind === 'check' ? 'Проверка' : 'Находка';
+  if (left.rejected?.part === 'record') return `Сервер не принял ${acc}: ${left.rejected.reason}`;
+  if (left.rejected?.part === 'photo') return `${nom} ушла, снимок сервер не принял: ${left.rejected.reason}`;
+  if (left.sentCheckId) return `${nom} ушла, а снимки — нет: связь оборвалась, а сохранить их на телефоне не вышло.`;
+  return `Сохранить ${acc} на телефоне не вышло, и отправить её сейчас тоже: она не сохранена. Повторите, когда появится связь.`;
+}
+
 /** Человек решил отправить отложенную проверку снова: снимаем отметку и шлём. */
 export async function resendFieldCheck(id: string): Promise<void> {
   const item = (await listFieldChecks()).find(i => i.id === id);

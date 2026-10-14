@@ -39,7 +39,7 @@ import {
 // на одну проверку не держит остальные, снимки не теряются, досыл идёт со
 // старта приложения на любой странице.
 import {
-  flushFieldChecks, installFieldQueuesFlush, sendWithoutDisk,
+  flushFieldChecks, installFieldQueuesFlush, sendWithoutDisk, fieldCheckWithoutDiskMessage,
   resendFieldCheck, discardFieldCheck,
   FIELD_CHECKS, FIELD_CHECK_QUEUE_EVENT,
 } from '@/lib/offline/field-queues';
@@ -322,7 +322,14 @@ export function FieldCheckClient() {
       actions: isPhoto
         ? [{ label: 'Удалить', onPress: () => discardRefused(c) }]
         : [
-          { label: 'Отправить снова', onPress: () => { void resendFieldCheck(c.id); } },
+          {
+            label: 'Отправить снова',
+            onPress: () => {
+              void resendFieldCheck(c.id).catch((err: unknown) => {
+                setBarError(`Отправить снова не вышло: ${err instanceof Error ? err.message : String(err)}`);
+              });
+            },
+          },
           { label: 'Удалить', onPress: () => discardRefused(c) },
         ],
     };
@@ -735,20 +742,20 @@ export function FieldCheckClient() {
     } catch {
       onDisk = false;
     }
-    rememberDone(item.id, verdict);
     resetForm();
     try { if (tripTag.trim()) localStorage.setItem(TAG_KEY, tripTag.trim()); } catch { /* ignore */ }
     if (onDisk) {
+      rememberDone(item.id, verdict);
       void flushQueue();
       return;
     }
     // Хранилище закрыто (приватный режим): шлём сразу тем же правилом и
-    // говорим, чем кончилось — молчать об этом нельзя.
+    // говорим, чем кончилось — молчать об этом нельзя. «Проверено» — только
+    // если вердикт дошёл: иначе человек решит, что дело сделано.
     const left = await sendWithoutDisk(FIELD_CHECKS, check);
-    if (left === null) return;
-    setError(left.rejected
-      ? `Сервер не принял проверку: ${left.rejected.reason}`
-      : 'Сохранить проверку на телефоне не вышло, и отправить её сейчас тоже: она не сохранена. Повторите, когда появится связь.');
+    if (left === null || left.sentCheckId) rememberDone(item.id, verdict);
+    const message = fieldCheckWithoutDiskMessage(left, 'check');
+    if (message) setError(message);
   }, [fix, note, tripTag, photos, objCoord, rememberDone, resetForm, flushQueue]);
 
   /**
@@ -799,11 +806,7 @@ export function FieldCheckClient() {
     }
     // Хранилище закрыто: шлём сразу и говорим, чем кончилось.
     const left = await sendWithoutDisk(FIELD_CHECKS, check);
-    setBarError(left === null
-      ? 'Находка отправлена.'
-      : left.rejected
-        ? `Сервер не принял находку: ${left.rejected.reason}`
-        : 'Сохранить находку на телефоне не вышло, и отправить её сейчас тоже: она не сохранена. Повторите, когда появится связь.');
+    setBarError(fieldCheckWithoutDiskMessage(left, 'finding') ?? 'Находка отправлена.');
   }, [findingName, fix, note, tripTag, objCoord, photos, resetForm, flushQueue]);
 
   const visible = useMemo(() => {

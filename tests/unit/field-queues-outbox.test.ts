@@ -16,7 +16,9 @@ import {
   flushOutbox, isRecordRefusal, memoryStore, postJson, serialized, queueCounts,
   type OutboxRecord, type OutboxSpec,
 } from '@/lib/offline/outbox';
-import { TRAIL_OBSERVATIONS, FIELD_CHECKS } from '@/lib/offline/field-queues';
+import {
+  TRAIL_OBSERVATIONS, FIELD_CHECKS, sendWithoutDisk, fieldCheckWithoutDiskMessage,
+} from '@/lib/offline/field-queues';
 import type { TrailObservationDraft, FieldCheckQueueItem } from '@/lib/offline/db';
 
 type Reply = Response | 'network';
@@ -253,6 +255,43 @@ describe('проходы не наслаиваются', () => {
 
     expect(net.calls).toHaveLength(1);
     expect(store.items()).toHaveLength(0);
+  });
+});
+
+describe('без диска (приватный режим): форма говорит, чем кончилось', () => {
+  function stubNet(reply: (url: string, body: Record<string, unknown>) => Reply) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const r = reply(url, JSON.parse(String(init?.body ?? 'null')) as Record<string, unknown>);
+      if (r === 'network') throw new TypeError('Failed to fetch');
+      return r;
+    }));
+  }
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('вердикт ушёл, снимки — нет: «ушла, а снимки — нет», а не «повторите» — повтор задвоил бы проверку', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubNet(url => url === '/api/field-check/report' ? json(200, { success: true, id: 'chk-1' }) : 'network');
+
+    const left = await sendWithoutDisk(FIELD_CHECKS, check('c1', { photos: ['a'] }));
+
+    expect(left).toMatchObject({ sentCheckId: 'chk-1', photos: ['a'] });
+    const message = fieldCheckWithoutDiskMessage(left, 'check');
+    expect(message).toBe('Проверка ушла, а снимки — нет: связь оборвалась, а сохранить их на телефоне не вышло.');
+    expect(message).not.toMatch(/Повторите/);
+  });
+
+  it('ничего не ушло — честно «не сохранена, повторите»; не принята — причина сервера; ушла — молчим', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubNet(() => 'network');
+    expect(fieldCheckWithoutDiskMessage(await sendWithoutDisk(FIELD_CHECKS, check('c1')), 'finding'))
+      .toBe('Сохранить находку на телефоне не вышло, и отправить её сейчас тоже: она не сохранена. Повторите, когда появится связь.');
+
+    stubNet(() => json(400, { success: false, error: 'Назовите находку — хотя бы «стоянка» или «брод»' }));
+    expect(fieldCheckWithoutDiskMessage(await sendWithoutDisk(FIELD_CHECKS, check('c2')), 'finding'))
+      .toBe('Сервер не принял находку: Назовите находку — хотя бы «стоянка» или «брод»');
+
+    stubNet(() => json(200, { success: true, id: 'chk-3' }));
+    expect(fieldCheckWithoutDiskMessage(await sendWithoutDisk(FIELD_CHECKS, check('c3')), 'check')).toBeNull();
   });
 });
 
