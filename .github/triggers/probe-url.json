@@ -1,17 +1,13 @@
 {
   "timeout": 60,
-  "run": 798,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса после #2464: кто держит zelenovskie-ozerki-marshrut (поле marshrut_holder). Маркер свежести — само поле: до выката его в ответе нет.",
+  "run": 799,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Фото для карточки и статьи летописи о Кроноцком заповеднике: компактный список файлов категории Commons «Kronotsky Nature Reserve» (в пробе 804 начало обрезано из-за длинных адресов) и её подкатегории — найти снимки озера, вулкана и долины со свободной лицензией.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-slug-census"
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AKronotsky+Nature+Reserve&gcmtype=file&gcmlimit=60&prop=imageinfo&iiprop=size&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category%3AKronotsky+Nature+Reserve&cmtype=subcat&cmlimit=60&format=json&formatversion=2&utf8=1"
   ],
-  "until": "marshrut_holder",
-  "retries": 20,
-  "retryDelay": 60,
-  "bytes": 12000,
+  "bytes": 30000,
   "grep": [
-    "\"ok\":true",
-    "would_assign_total\":0",
-    "\"marshrut_holder\":{"
+    "\"title\""
   ]
 }
