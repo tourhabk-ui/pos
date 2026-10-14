@@ -1,17 +1,16 @@
 {
   "timeout": 60,
-  "run": 796,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса по имени ПОСЛЕ выката #2461 (миграция 1239: <имя>-marshrut и адрес скрытого тёзки — видимому). Датчик свежести — /routes/nalychevskoe-koltso: до выката адрес держит скрытый маршрут (404), после — видимый тёзка (200).",
+  "run": 797,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Остаток переписи маршрутов после 1239 — «Зеленовские озерки» (cf257914, без линии с 1192): кто держит адрес zelenovskie-ozerki-marshrut и чем он отличается от маршрута по UUID.",
   "urls": [
-    "https://vedarai.ru/routes/nalychevskoe-koltso",
-    "https://vedarai.ru/api/cron/route-slug-census"
+    "https://vedarai.ru/routes/zelenovskie-ozerki-marshrut",
+    "https://vedarai.ru/routes/cf257914-fff2-4a72-baba-4a4381d7a83d"
   ],
-  "retries": 20,
-  "retryDelay": 60,
-  "bytes": 12000,
+  "bytes": 9000,
   "grep": [
-    "\"ok\":true",
-    "would_assign_total\":0",
-    "\"missing_total\":1,"
+    "<title>",
+    "canonical",
+    "\"distance\"",
+    "Зеленовские"
   ]
 }
