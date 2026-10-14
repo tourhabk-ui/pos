@@ -14,6 +14,7 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 import { loadPlaceDetail } from '@/lib/places/place-detail';
 import type { PlaceData } from '@/components/places/types';
 import { placeTitle, placeDescription } from '@/lib/seo/place-meta';
+import { brandedTitle } from '@/lib/seo/title-fit';
 import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 
@@ -77,7 +78,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       // Хвост — из ответов карточки, и только если помещается в выдачу
       // (lib/seo/place-meta поверх lib/seo/title-fit).
-      title: placeTitle(facts),
+      title: brandedTitle(placeTitle(facts)),
       description: desc,
       alternates: { canonical },
       openGraph: {

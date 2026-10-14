@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { fitTitle, PARK_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { brandedTitle, fitTitle, PARK_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
@@ -37,7 +37,7 @@ export async function generateMetadata(
   const title = fitTitle(name, PARK_TITLE_TAILS);
   const description = `Маршруты, офлайн-карты и регистрация в МЧС для ${name}. Скачайте карту до выхода в поле.`;
   return {
-    title,
+    title: brandedTitle(title),
     description,
     alternates: { canonical: `/park/${slug}` },
     openGraph: {

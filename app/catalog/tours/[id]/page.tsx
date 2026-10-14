@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
-import { fitTitleRequired, TOUR_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { brandedTitle, fitTitleRequired, TOUR_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { loadTourCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import { tourPath } from '@/lib/tours/tour-url';
 import { reachForTour } from '@/lib/partners/reach';
@@ -54,7 +54,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const images = hero ? [{ url: hero }] : [];
 
   return {
-    title: fitTitleRequired(tour.title, TOUR_TITLE_TAILS),
+    title: brandedTitle(fitTitleRequired(tour.title, TOUR_TITLE_TAILS)),
     description: desc,
     alternates: { canonical: `${SITE}${tourPath(tour)}` },
     openGraph: {
