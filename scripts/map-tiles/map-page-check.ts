@@ -21,10 +21,13 @@
  *   npx tsx scripts/map-tiles/map-page-check.ts [--path /map] [--shot .cache/map-page.jpg]
  *   --layout-shifts — только сдвиги вёрстки и раскладка блоков за 12 с, без кадров (14.10)
  *   --lighthouse — условия Lighthouse: экран, плотность, светлая тема, строка PSI, UTC (14.10)
+ *   --main-thread [--window 20000] — главный поток: время внутри вызовов WebGL,
+ *     длинные задачи и кадры за окно, без нажатий и кадров экрана (14.10)
  */
 import { chromium } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { LIGHTHOUSE_PROFILE, SHIFT_OBSERVER, describeShift, layoutChanges, totalShift, type LayoutSnap, type ShiftEntry } from './layout-shifts';
+import { MAIN_THREAD_PROBE, WEBGL_RENDERER, describeMainThread, type GlStats, type LongTask } from './main-thread';
 
 const SITE = process.env.SITE_URL ?? 'https://vedarai.ru';
 
@@ -122,12 +125,36 @@ async function main(): Promise<number> {
     await page.addInitScript(SHIFT_OBSERVER);
   }
 
+  // Главный поток (14.10): Lighthouse мерит на /map TBT 12,9 с, а самовремя JS
+  // по профилю ЦП — 0,75 с на всю страницу. Проба считает время внутри вызовов
+  // WebGL, длинные задачи и кадры за окно — без нажатий, как Lighthouse
+  // (scripts/map-tiles/main-thread).
+  const mainThread = process.argv.includes('--main-thread');
+  if (mainThread) {
+    await page.addInitScript(MAIN_THREAD_PROBE);
+  }
+
   try {
     await page.goto(`${SITE}${path}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   } catch (err) {
     console.log(`страница не открылась: ${err instanceof Error ? err.message : String(err)}`);
     await browser.close();
     return 2;
+  }
+
+  if (mainThread) {
+    const windowMs = Number(arg('--window', '20000')) || 20_000;
+    await page.waitForTimeout(Math.max(0, windowMs - (Date.now() - t0)));
+    const got = await page.evaluate(() => {
+      const w = window as unknown as { __gl?: GlStats; __longtasks?: LongTask[] | null; __longtasksError?: string };
+      return { gl: w.__gl ?? null, longtasks: w.__longtasks ?? null, longtasksError: w.__longtasksError ?? null };
+    });
+    // Имя рендерера — после снятия счёта: свой контекст пробы в счёт не попадает.
+    const renderer = String(await page.evaluate(WEBGL_RENDERER));
+    console.log(`ГЛАВНЫЙ ПОТОК за ${(windowMs / 1000).toFixed(0)} с без нажатий`);
+    for (const line of describeMainThread({ renderer, windowMs, ...got })) console.log(line);
+    await browser.close();
+    return 0;
   }
 
   if (layoutShifts) {
