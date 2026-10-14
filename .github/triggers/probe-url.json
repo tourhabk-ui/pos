@@ -1,46 +1,22 @@
 {
   "timeout": 90,
-  "run": 865,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1248 «Природный парк „Налычево“»: ждёт, пока карточка парка станет «park» (миграция легла), затем читает долину, источники, перевал, страницу парка, статью летописи и снимок партнёра из хранилища. Конфиг записан целиком.",
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Источники для карточек национального парка («Ключевской», «Южно-Камчатский»): справки kamchatsky-krai.ru, Википедия, страницы кластеров на сайте парка. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e",
-    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
-    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
-    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/park/nalychevo",
-    "https://vedarai.ru/letopis/nalychevo",
-    "https://vedarai.ru/api/images/s3/photos/nalychevo/mestechko-kupalnya-tretya-luzha.jpg"
+    "https://www.kamchatsky-krai.ru/geography/oopt/parks/",
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%B9+%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9+%D0%BF%D0%B0%D1%80%D0%BA&format=json&formatversion=2&utf8=1&redirects=1",
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9+%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9+%D0%BF%D0%B0%D1%80%D0%BA&format=json&formatversion=2&utf8=1&redirects=1",
+    "https://vulcanikamchatki.ru/territoriya/klaster_klyuchevskoj/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_yuzhnokamchatskij/"
   ],
-  "until": "\"locationType\":\"park\"",
-  "retries": 55,
-  "retryDelay": 60,
-  "grep": [
-    "\"locationType\":\"park\"",
-    "\"lat\":53.4571927",
-    "Природный парк «Налычево» лежит в 25 километрах",
-    "Налычевская долина — долина реки Налычевой",
-    "Налычевские источники — группа термальных источников",
-    "\"kuzmichReview\":\"\"",
-    "\"zone\":\"natural_park\"",
-    "\"permitRequired\":false",
-    "\"permitRequired\":true",
-    "без разрешения — только территория Авачинского перевала",
-    "Территория Авачинского перевала — зона свободного посещения",
-    "владелец платформы",
-    "Местечко Камчатка",
-    "\"source\":\"manual\"",
-    "Завойко, 33",
-    "v_pomow_gostyu/usloviya_poseweniya",
-    "Природный парк «Налычево»",
-    "Купальня «Третья лужа» на кордоне «Центральный»",
-    "Летопись",
-    "commons.wikimedia.org"
-  ],
+  "text": true,
   "around": [
-    "\"photoAttribution\"",
-    "\"photoCount\""
+    "href=\"/geography/oopt/parks/",
+    "href=\"/territoriya/klaster_"
   ],
-  "aroundLines": 4,
-  "aroundHits": 1,
-  "bytes": 400
+  "aroundLines": 0,
+  "aroundHits": 25,
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 11000,
+  "run": 866
 }
