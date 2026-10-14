@@ -667,7 +667,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {/* ── Location type pills (места) ───────────────────── */}
         {kind === 'place' && !searching && (
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-hide">
             {PLACE_TYPES.map(({ value, label, Icon }) => (
               <button
                 key={value}
@@ -687,7 +687,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {/* ── Activity pills (маршруты) ─────────────────────── */}
         {kind === 'route' && !searching && (
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-hide">
             {ACTIVITIES.map(act => (
               <button
                 key={act.value}

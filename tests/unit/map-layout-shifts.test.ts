@@ -115,4 +115,12 @@ describe('условия Lighthouse (--lighthouse)', () => {
     }
     expect(script).toMatch(/arg\('--tz', lh \? LIGHTHOUSE_PROFILE\.timezoneId : 'Asia\/Kamchatka'\)/);
   });
+
+  it('полосы прокрутки не спрятаны: замер видит то же, что люди и Lighthouse', () => {
+    // Замер 22 (14.10): Playwright по умолчанию запускает Chromium с
+    // --hide-scrollbars, и сдвиг /map от полосы строки чипов (8 px) не попал
+    // в замер ни разу.
+    const script = read('scripts/map-tiles/map-page-check.ts');
+    expect(script).toMatch(/ignoreDefaultArgs:\s*\['--hide-scrollbars'\]/);
+  });
 });
