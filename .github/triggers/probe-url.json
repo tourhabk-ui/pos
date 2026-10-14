@@ -1,11 +1,12 @@
 {
   "timeout": 120,
-  "run": 800,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Кроноцкий заповедник, продолжение 799: точка Nominatim R2800189 (54.6245727/160.8792322) — в каких областях OSM лежит (is_in) и где береговая линия рядом (natural=coastline, геометрия в рамке): суша или трёхмильная акватория. User-Agent — как у сверки мест с OSM (overpass-api.de режет безымянных: 406 в пробе 798).",
+  "run": 801,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Повтор 800 (overpass-api.de ответил 504 «too busy»): зеркало Kumi первым, основной сервер вторым. Точка Nominatim R2800189 — суша или акватория.",
   "urls": [
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.6245727%2C160.8792322%29-%3E.a%3Barea.a%3Bout%20tags%3Bway%28around%3A9000%2C54.6245727%2C160.8792322%29%5Bnatural%3Dcoastline%5D%3Bout%20geom%2854.50%2C160.70%2C54.72%2C161.10%29%3B",
     "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.6245727%2C160.8792322%29-%3E.a%3Barea.a%3Bout%20tags%3Bway%28around%3A9000%2C54.6245727%2C160.8792322%29%5Bnatural%3Dcoastline%5D%3Bout%20geom%2854.50%2C160.70%2C54.72%2C161.10%29%3B"
   ],
-  "bytes": 60000,
+  "bytes": 30000,
   "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "grep": [
     "\"Кроноцкий заповедник\"",
