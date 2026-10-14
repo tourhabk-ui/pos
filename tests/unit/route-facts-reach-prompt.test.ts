@@ -82,9 +82,13 @@ describe('незнание не выдаётся за «нет»', () => {
     expect(lines[0]).toContain('+7 415 000');
   });
 
-  it('регистрация не нужна — сказано прямо, но только когда это записано', async () => {
-    expect((await facts({ mchs_registration_required: false }))[0])
-      .toBe('Регистрация в МЧС: не требуется');
+  it('регистрация false — тоже незнание: у колонки DEFAULT false (миграция 933), «не требуется» не печатается', async () => {
+    // До 14.10 здесь стояло «не требуется» по любому false. Сказанное false
+    // от дефолтного по базе не отличить — а false несёт и «Вулкан Корякский».
+    const lines = await facts({ mchs_registration_required: false, mchs_phone: '+7 415 000', distance_km: '8.4' });
+    expect(lines.join('\n')).not.toMatch(/МЧС/);
+    expect(lines.join('\n')).not.toMatch(/не требуется/);
+    expect(lines).toEqual(['дистанция 8.4 км']);
   });
 
   it('пустые массивы опасностей и снаряжения строк не рождают', async () => {
