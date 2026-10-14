@@ -104,7 +104,13 @@ export interface PlaceTour {
 
 export interface PlaceEco {
   zone: 'UNESCO' | 'federal_reserve' | 'national_park' | 'regional_reserve' | 'natural_park' | 'zakaznik' | 'nature_monument' | 'none' | null;
-  permitRequired: boolean;
+  /**
+   * null — не записано (14.10, миграция 1256): у памятника природы известен
+   * режим, а положения о нём нет, и нужно ли разрешение — неизвестно. Прежде
+   * загрузчик делал из NULL `false`, и строка «Разрешение» отвечала «не
+   * требуется» (`permitNotRequired`) там, где этого никто не записывал.
+   */
+  permitRequired: boolean | null;
   rules: string | null;
   permitUrl: string | null;
 }

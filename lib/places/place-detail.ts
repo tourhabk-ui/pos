@@ -368,7 +368,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 
         eco: r.eco_zone ? {
           zone: r.eco_zone as string,
-          permitRequired: Boolean(r.eco_permit_required),
+          // NULL — «не записано», не «не нужно» (§4.0, миграция 1256).
+          permitRequired: typeof r.eco_permit_required === 'boolean' ? r.eco_permit_required : null,
           rules: (r.eco_rules as string | null) ?? null,
           permitUrl: (r.eco_permit_url as string | null) ?? null,
         } : null,

@@ -51,7 +51,7 @@ export interface AccessFacts {
   accessInfo: string | null;
   routes: AccessRoute[];
   registrationRequired: boolean;
-  eco: { zone: string | null; permitRequired: boolean } | null;
+  eco: { zone: string | null; permitRequired: boolean | null } | null;
   toursCount: number;
 }
 
