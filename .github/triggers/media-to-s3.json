@@ -1,7 +1,7 @@
 {
   "upload": true,
-  "run": 4,
-  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/.",
+  "run": 5,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/.",
   "items": [
     {
       "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
@@ -130,6 +130,22 @@
     {
       "file": "media/s3/photos/koryaksky/poluostrov-govena.jpg",
       "key": "photos/koryaksky/poluostrov-govena.jpg"
+    },
+    {
+      "file": "media/s3/photos/vachkazhets/gora-vachkazhets-zimoj.jpg",
+      "key": "photos/vachkazhets/gora-vachkazhets-zimoj.jpg"
+    },
+    {
+      "file": "media/s3/photos/vachkazhets/panorama-massiva.jpg",
+      "key": "photos/vachkazhets/panorama-massiva.jpg"
+    },
+    {
+      "file": "media/s3/photos/vachkazhets/kedrovyj-stlanik.jpg",
+      "key": "photos/vachkazhets/kedrovyj-stlanik.jpg"
+    },
+    {
+      "file": "media/s3/photos/vachkazhets/rododendron.jpg",
+      "key": "photos/vachkazhets/rododendron.jpg"
     }
   ]
 }
