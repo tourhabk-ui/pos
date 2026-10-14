@@ -1,17 +1,22 @@
 {
-  "timeout": 90,
-  "run": 818,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Координаты заповедников по OSM: в каких охраняемых территориях лежат заглушка Корякского 60.0/165.5, точка Nominatim отношения 5576455 (59.8865406, 166.2616559), прод-точка Командорского (54.9309363, 166.9248504) и точка Nominatim отношения 5576397; береговая линия около точки Корякского — суша или море. Конфиг записан целиком.",
+  "timeout": 60,
+  "run": 819,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. После выката 7b37c663b (в нём #2467 с миграцией 1242; проверка выката зелёная в 06:41): перепись маршрутов без адреса (missing_total), карточка «Зеленовских озерок» по адресу zelenovskie-ozerki-marshrut; главная в мобильном профиле — размер HTML и число кусков RSC (self.__next_f.push) для разбора TBT. Конфиг записан целиком.",
   "urls": [
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2860.0%2C165.5%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2859.8865406%2C166.2616559%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9309363%2C166.9248504%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9029083%2C166.8997863%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
-    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bway%28around%3A12000%2C59.8865406%2C166.2616559%29%5Bnatural%3Dcoastline%5D%3Bout%20geom%2859.80%2C166.10%2C59.97%2C166.42%29%3B"
+    "https://vedarai.ru/api/cron/route-slug-census",
+    "https://vedarai.ru/routes/zelenovskie-ozerki-marshrut",
+    "https://vedarai.ru/"
   ],
   "allowStale": true,
-  "retries": 2,
-  "retryDelay": 30,
-  "bytes": 12000,
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
+  "bytes": 2500,
+  "grep": [
+    "\"missing_total\":0",
+    "Зеленовские озерки"
+  ],
+  "count": [
+    "self.__next_f.push",
+    "<script",
+    "<img"
+  ],
+  "ua": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 }
