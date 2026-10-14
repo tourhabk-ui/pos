@@ -1,23 +1,16 @@
 {
   "timeout": 120,
-  "run": 905,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Природный парк «Вилючинский»: упоминает ли его страница КГБУ о разрешениях и где «Положение о выдаче разрешений»; справка Википедии о Вилючинской сопке; поиск статьи о самом парке. Конфиг записан целиком.",
+  "run": 906,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Заказник «Река Коль» (следующий по схеме после парка «Вилючинский»): страница кластера на сайте КГБУ, река и контур заказника в OSM (зеркало Overpass mail.ru), статьи Википедии, где он упомянут. Конфиг записан целиком.",
+  "ua": "VedarProbe/1.0 (+https://vedarai.ru; places coordinate check)",
   "urls": [
-    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/usloviya_poseweniya/",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B0%D1%8F+%D1%81%D0%BE%D0%BF%D0%BA%D0%B0",
-    "https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9+%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9+%D0%BF%D0%B0%D1%80%D0%BA&format=json&utf8=1&srlimit=10"
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28relation%5B%22waterway%22%3D%22river%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BB%D1%8C%22%5D%2853.0%2C155.4%2C54.8%2C158.0%29%3Bway%5B%22waterway%22%3D%22river%22%5D%5B%22name%22~%22%5E%28%D0%9A%D0%BE%D0%BB%D1%8C%7C%D0%9F%D1%80%D0%B0%D0%B2%D0%B0%D1%8F%20%D0%9A%D0%BE%D0%BB%D1%8C%7C%D0%9B%D0%B5%D0%B2%D0%B0%D1%8F%20%D0%9A%D0%BE%D0%BB%D1%8C%29%24%22%5D%2853.0%2C155.4%2C54.8%2C158.0%29%3Brelation%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BB%D1%8C%22%5D%2852.5%2C155.0%2C55.5%2C159.0%29%3Bway%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BB%D1%8C%22%5D%2852.5%2C155.0%2C55.5%2C159.0%29%3Brelation%5B%22leisure%22%3D%22nature_reserve%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BB%D1%8C%22%5D%2852.5%2C155.0%2C55.5%2C159.0%29%3Bway%5B%22leisure%22%3D%22nature_reserve%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BB%D1%8C%22%5D%2852.5%2C155.0%2C55.5%2C159.0%29%3Bnode%5B%22place%22%5D%5B%22name%22~%22%D0%9A%D0%BE%D0%BB%D1%8C%22%5D%2853.0%2C155.4%2C54.8%2C158.0%29%3B%29%3Bout%20center%20tags%3B",
+    "https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA+%C2%AB%D0%A0%D0%B5%D0%BA%D0%B0+%D0%9A%D0%BE%D0%BB%D1%8C%C2%BB&format=json&utf8=1&srlimit=10"
   ],
-  "around": [
-    "Вилюч",
-    "Положение о выдаче",
-    "Нормативно-правовые"
-  ],
-  "aroundLines": 3,
-  "aroundBefore": 3,
-  "aroundHits": 4,
   "text": true,
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 16000
+  "bytes": 18000
 }
