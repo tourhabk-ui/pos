@@ -347,7 +347,7 @@ INSERT в транзакции с откатом в `finally` — строка �
 - `import pool from` — только `import { pool } from '@/lib/db-pool'`
 - `FROM bookings` — только `FROM operator_bookings` (колонка `booking_status`, не `status`)
 - `FROM tours` — только `FROM operator_tours` (или `v_kamchatka_routes_api` для публичных маршрутов)
-- `await callDeepSeek()` / `await callMiMo()` / `await callOpenrouter()` напрямую — только через `callAIWaterfall()` или `callAIFast()`; прямые вызовы — только в `lib/ai/providers.ts` и health-probe файлах
+- `callDeepSeek()` / `callOpenrouter()` напрямую, с `await` и без — только через `callAIWaterfall()` или `callAIFast()`; прямые вызовы — только в `lib/ai/providers.ts` и пробах провайдеров. Список проб с причинами (`PROBES`) и сторож в CI — `tests/unit/ai-direct-calls.test.ts` (#2451); хук `pre-commit` лишь предупреждает раньше. `callMiMo` удалена переписью блока D
 
 **Структура файлов:**
 ```

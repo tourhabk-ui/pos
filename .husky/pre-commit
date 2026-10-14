@@ -3,8 +3,20 @@
 
 ERRORS=0
 
-red()  { echo -e "\033[31m$*\033[0m"; }
-warn() { echo -e "\033[33m$*\033[0m"; }
+# printf, а не echo -e: husky зовёт хук через `sh -e`, а в dash `echo -e`
+# печатает «-e» и раскрывает \n внутри найденных строк.
+red()  { printf '\033[31m%s\033[0m\n' "$*"; }
+warn() { printf '\033[33m%s\033[0m\n' "$*"; }
+
+finish() {
+  if [ "$ERRORS" -gt 0 ]; then
+    red ""
+    red "Коммит заблокирован: $ERRORS нарушений стандартов."
+    red "Исправь ошибки. Чтобы обойти (с обоснованием): git commit --no-verify"
+    exit 1
+  fi
+  exit 0
+}
 
 # ── СЕКРЕТЫ: проверяем ВСЕ staged-файлы (не только .ts) ─────────
 ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
@@ -17,22 +29,32 @@ if [ -n "$ALL_STAGED" ]; then
     || true)
   if [ -n "$secret_hits" ]; then
     red "СЕКРЕТ В КОДЕ: обнаружен ключ API или токен в staged-файлах!"
-    echo "$secret_hits" | sed 's/\(.\{0,6\}\)\(.\{20,\}\)\(.\{6\}\)/\1***REDACTED***\3/' | head -5
+    printf '%s\n' "$secret_hits" | sed 's/\(.\{0,6\}\)\(.\{20,\}\)\(.\{6\}\)/\1***REDACTED***\3/' | head -5
     red "Удали секрет из файла. Если уже скомпрометирован — отзови через провайдера."
     red "Храни секреты только в .env.local (он в .gitignore)."
     ERRORS=$((ERRORS + 1))
   fi
 fi
 
-# Только изменённые .ts / .tsx файлы
-CHANGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' || true)
-[ -z "$CHANGED" ] && exit 0
+# Только изменённые .ts / .tsx файлы кода. Тесты не проверяются: сторож
+# запрета держит запрещённое как данные, иначе ему нечего проверять (#2451).
+# Секреты выше проверены во ВСЕХ файлах, включая тесты.
+CHANGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' \
+  | grep -vE '(^|/)(tests?|__tests__)/|\.(test|spec)\.tsx?$' || true)
+# Без кода — сразу к итогу, а не к выходу с успехом: до 14.10 здесь стоял
+# `exit 0`, и найденный секрет в коммите без .ts печатался, но не
+# останавливал коммит (#2451).
+[ -z "$CHANGED" ] && finish
 
+# Строка-комментарий нарушением не считается: комментарий, объясняющий
+# правило, называет запрещённое словами — и останавливал коммит в файл,
+# где правило записано (#2451).
 check() {
   local pattern="$1"
   local message="$2"
   local matches
-  matches=$(echo "$CHANGED" | xargs grep -n --include="*.ts" --include="*.tsx" -E "$pattern" 2>/dev/null \
+  matches=$(echo "$CHANGED" | xargs grep -Hn --include="*.ts" --include="*.tsx" -E "$pattern" 2>/dev/null \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|/\*|\*)' \
     | grep -v "node_modules" \
     | grep -v "// allow:" \
     | grep -v "providers\.ts" \
@@ -40,7 +62,7 @@ check() {
     | grep -v "domainKnowledge" || true)
   if [ -n "$matches" ]; then
     red "ЗАПРЕЩЕНО: $message"
-    echo "$matches" | head -5
+    printf '%s\n' "$matches" | head -5
     ERRORS=$((ERRORS + 1))
   fi
 }
@@ -63,39 +85,33 @@ check \
   "query\s*\(\s*\`[^']*\\\$\{" \
   "Подозрение на SQL-инъекцию: используй параметры \$1,\$2 вместо \${} в query()"
 
-# ── AI: прямой вызов мёртвых провайдеров ─────────────────────
+# ── AI: прямой вызов провайдера мимо водопада ─────────────────
+# Ранний сигнал по самой частой форме. Запрет целиком — любой вызов, импорт
+# или передача значением вне lib/ai/providers.ts и проб с причиной — держит
+# CI: tests/unit/ai-direct-calls.test.ts. Хук обходится --no-verify и в
+# облачных сессиях не установлен, поэтому судья — CI, а хук лишь
+# предупреждает раньше (#2451). callMiMo удалена переписью блока D.
 check \
-  "await callDeepSeek\b" \
-  "callDeepSeek() → ключ просрочен, используй callAIWaterfall() или callAIFast()"
-
-check \
-  "await callMiMo\b" \
-  "callMiMo() → ключ просрочен, используй callAIWaterfall() или callAIFast()"
-
-check \
-  "await callOpenrouter\b" \
-  "callOpenrouter() → ключ просрочен, используй callAIWaterfall() или callAIFast()"
+  "await (callDeepSeek|callOpenrouter)\b" \
+  "прямой вызов провайдера → callAIWaterfall() или callAIFast(). Проба провайдера — запись в PROBES (tests/unit/ai-direct-calls.test.ts) и // allow: в строке"
 
 # ── Импорты ───────────────────────────────────────────────────
 check \
   "import pool from" \
   "import pool from → используй: import { pool } from '@/lib/db-pool'"
 
-# ── Запрещённый стиль ─────────────────────────────────────────
+# ── Устаревшие токены ─────────────────────────────────────────
+# Стекло (backdrop-blur-*, bg-white/10) хук не запрещает: решение владельца
+# 26.09 — поверх фото и карт стекло законно, а сплошной ли под ним фон, по
+# тексту файла не видно. Прежний запрет останавливал коммит в любой файл со
+# стеклом, включая карточку тура и страницу перевозчика (#2451).
 check \
-  "bg-white/10|backdrop-blur-|text-cyber-cyan|text-premium-gold|bg-premium-" \
-  "Запрещённые CSS классы (glassmorphism/legacy tokens)"
+  "text-cyber-cyan|text-premium-gold|bg-premium-" \
+  "Устаревшие токены (cyber-cyan, premium-*) → токены дизайн-системы, CLAUDE.md §2"
 
 check \
   "console\.log\b" \
   "console.log в продакшн-коде — удали или замени на структурированный лог"
 
 # ── Итог ──────────────────────────────────────────────────────
-if [ "$ERRORS" -gt 0 ]; then
-  red ""
-  red "Коммит заблокирован: $ERRORS нарушений стандартов."
-  red "Исправь ошибки. Чтобы обойти (с обоснованием): git commit --no-verify"
-  exit 1
-fi
-
-exit 0
+finish
