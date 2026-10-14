@@ -1,6 +1,6 @@
 /**
- * Адрес по имени маршруту при записи (миграции 1237, 1239) — на настоящем
- * PostgreSQL.
+ * Адрес по имени маршруту при записи (миграции 1237, 1239, 1242) — на
+ * настоящем PostgreSQL.
  *
  * Перепись sitemap 14.10: 133 маршрута из 370 открываются по UUID. Адреса
  * раздавали миграции разом, а пишущие пути их не выдавали — маршрут,
@@ -8,7 +8,9 @@
  * правило `route_slug_candidate` и триггер на вставку и на «стал видимым».
  * Перепись на проде после 1237 показала, что у всех 133 адрес держит место
  * или скрытый маршрут-тёзка; 1239 по решению владельца 14.10 даёт маршруту к
- * месту `<имя>-marshrut` и переносит адрес скрытого тёзки видимому.
+ * месту `<имя>-marshrut` и переносит адрес скрытого тёзки видимому. Перепись
+ * после 1239 оставила одного — «Зеленовские озерки»: суффикс держал скрытый
+ * тёзка (его выдала 1112); 1242 переносит видимому и суффиксный адрес.
  *
  * Правило держит сервер — уникальный индекс, видимость строк одной команды,
  * блокировку между транзакциями, — и статикой это не судится (прецедент 42P08
@@ -19,8 +21,10 @@
  *  - добор: свободный адрес выдан, тёзки — оба без адреса (и без суффикса),
  *    адрес, занятый местом (видимым, скрытым, слитым), — с суффиксом
  *    `-marshrut`, если тот свободен; адрес чужого видимого маршрута не
- *    отдан; адрес скрытого тёзки перешёл видимому; скрытый и слитый маршрут
- *    не тронуты; повторный прогон миграций не меняет ничего;
+ *    отдан; адрес скрытого тёзки перешёл видимому — и по имени, и с
+ *    суффиксом; суффикс скрытого НЕ тёзки, слитого держателя и при двух
+ *    видимых претендентах не тронут; скрытый и слитый маршрут не тронуты;
+ *    повторный прогон миграций не меняет ничего;
  *  - триггер: новый маршрут, ставший видимым, разлитый — с адресом; адрес
  *    писателя и смена названия адрес не трогают;
  *  - адреса разделов /routes/<раздел> (ROUTE_RESERVED_SLUGS) маршрут не
@@ -52,7 +56,11 @@ if (!PG_URL) {
 const SCHEMA = 'route_slug_on_write_test';
 const MIGRATIONS = join(process.cwd(), 'migrations');
 /** Миграции правила адреса — в порядке наката, как на деплое. */
-const RULE_MIGRATIONS = ['1237_route_slug_on_write.sql', '1239_route_marshrut_and_hidden_twin.sql'];
+const RULE_MIGRATIONS = [
+  '1237_route_slug_on_write.sql',
+  '1239_route_marshrut_and_hidden_twin.sql',
+  '1242_route_suffix_from_hidden_twin.sql',
+];
 
 /** Номер миграции из имени файла: порядок числовой, не посимвольный (§7). */
 const numberOf = (f: string) => Number(f.split('_')[0]);
@@ -106,13 +114,23 @@ const TABLES = `
   CREATE UNIQUE INDEX kamchatka_routes_slug_u ON kamchatka_routes (slug) WHERE slug IS NOT NULL;
 `;
 
-withPg('адрес по имени маршруту при записи (1237, 1239) на настоящем PostgreSQL', () => {
+withPg('адрес по имени маршруту при записи (1237, 1239, 1242) на настоящем PostgreSQL', () => {
   let pool: Pool;
 
   async function routeId(title: string): Promise<string> {
     const r = await pool.query<{ id: string }>(`SELECT id::text AS id FROM kamchatka_routes WHERE title = $1`, [title]);
     if (r.rows.length !== 1) throw new Error(`маршрут «${title}»: строк ${r.rows.length}`);
     return r.rows[0].id;
+  }
+
+  /** Адреса тёзок по видимости: [видимые…, скрытые…]. */
+  async function slugsByVisibility(title: string): Promise<{ visible: (string | null)[]; hidden: (string | null)[] }> {
+    const r = await pool.query<{ slug: string | null; is_visible: boolean }>(
+      `SELECT slug, is_visible FROM kamchatka_routes WHERE title = $1 ORDER BY slug NULLS LAST`, [title]);
+    return {
+      visible: r.rows.filter((x) => x.is_visible).map((x) => x.slug),
+      hidden: r.rows.filter((x) => !x.is_visible).map((x) => x.slug),
+    };
   }
 
   async function slugsOf(title: string): Promise<(string | null)[]> {
@@ -178,7 +196,14 @@ withPg('адрес по имени маршруту при записи (1237, 1
       ('p-dalnee', 'Озеро Дальнее', 'ozero-dalnee', true, NULL),
       ('p-lopatka', 'Мыс Лопатка', 'mys-lopatka', true, NULL),
       ('p-russkaya', 'Бухта Русская', 'buhta-russkaya', true, NULL),
-      ('p-shlyupochnaya', 'Бухта Шлюпочная', 'buhta-shlyupochnaya', true, NULL)`);
+      ('p-shlyupochnaya', 'Бухта Шлюпочная', 'buhta-shlyupochnaya', true, NULL),
+      ('p-zelenovskie', 'Зеленовские озерки', 'zelenovskie-ozerki', true, NULL),
+      ('p-tihaya', 'Бухта Тихая', 'buhta-tihaya', true, NULL),
+      ('p-kruglenkoe', 'Озеро Кругленькое', 'ozero-kruglenkoe', true, NULL),
+      ('p-bakening', 'Вулкан Бакенинг', 'vulkan-bakening', true, NULL),
+      ('p-medvezhe', 'Озеро Медвежье', 'ozero-medvezhe', true, NULL),
+      ('p-mishennaya', 'Сопка Мишенная', 'sopka-mishennaya', true, NULL),
+      ('p-mishennaya-m', 'Сопка Мишенная маршрут', 'sopka-mishennaya-marshrut', true, NULL)`);
     await insertRoute('Вулкан Горелый');
     await insertRoute('Озеро Голубое');
     await insertRoute('Озеро Голубое');
@@ -202,6 +227,32 @@ withPg('адрес по имени маршруту при записи (1237, 1
     // Суффиксный адрес у места уже занят — как у «Зеленовских озерков» на проде.
     await insertRoute('Мыс Лопатка (старый путь)', { slug: 'mys-lopatka-marshrut' });
     await insertRoute('Мыс Лопатка');
+    // Как «Зеленовские озерки» на проде: адрес по имени у места, суффикс —
+    // у СКРЫТОГО тёзки (его выдала 1112, когда тёзка держал имя).
+    await insertRoute('Зеленовские озерки', { slug: 'zelenovskie-ozerki-marshrut', visible: false });
+    await insertRoute('Зеленовские озерки');
+    // Суффикс у скрытого, но НЕ тёзки — чужой маршрут, его адрес не отдаётся.
+    await insertRoute('Бухта Тихая (старый подход)', { slug: 'buhta-tihaya-marshrut', visible: false });
+    await insertRoute('Бухта Тихая');
+    // Суффикс у слитого тёзки — о слитых решения нет, не трогается.
+    await insertRoute('Озеро Кругленькое', { slug: 'ozero-kruglenkoe-marshrut', visible: false, mergedInto: await routeId('Вулкан Горелый') });
+    await insertRoute('Озеро Кругленькое');
+    // Суффикс у скрытого тёзки, но видимых претендентов двое — не «кто первый».
+    await insertRoute('Вулкан Бакенинг', { slug: 'vulkan-bakening-marshrut', visible: false });
+    await insertRoute('Вулкан Бакенинг');
+    await insertRoute('Вулкан Бакенинг');
+    // Суффикс у ВИДИМОГО тёзки — дубль, о нём решения нет: адрес не отнимается.
+    await insertRoute('Озеро Медвежье', { slug: 'ozero-medvezhe-marshrut' });
+    await insertRoute('Озеро Медвежье');
+    // Адрес по имени держит видимый МАРШРУТ, а не место — суффикс скрытого
+    // тёзки не переходит: такой маршрут — дубль, а не путь к месту.
+    await insertRoute('Жупановский (старый)', { slug: 'vulkan-zhupanovskij' });
+    await insertRoute('Вулкан Жупановский', { slug: 'vulkan-zhupanovskij-marshrut', visible: false });
+    await insertRoute('Вулкан Жупановский');
+    // Суффикс держат и место, и скрытый тёзка (уникальности между таблицами
+    // нет): маршрут с адресом места ушёл бы редиректом двойника к месту.
+    await insertRoute('Сопка Мишенная', { slug: 'sopka-mishennaya-marshrut', visible: false });
+    await insertRoute('Сопка Мишенная');
 
     await runMigrations();
   });
@@ -239,6 +290,33 @@ withPg('адрес по имени маршруту при записи (1237, 1
       expect(await slugsOf('Карымский (скрытый)')).toEqual([null]);
     });
 
+    it('суффикс скрытого тёзки перешёл видимому (1242), скрытый остался без адреса', async () => {
+      expect(await slugsByVisibility('Зеленовские озерки')).toEqual({
+        visible: ['zelenovskie-ozerki-marshrut'], hidden: [null],
+      });
+    });
+
+    it('суффикс не тёзки, слитого держателя и при двух претендентах — не тронут', async () => {
+      expect(await slugsOf('Бухта Тихая')).toEqual([null]);
+      expect(await slugsOf('Бухта Тихая (старый подход)')).toEqual(['buhta-tihaya-marshrut']);
+      expect(await slugsByVisibility('Озеро Кругленькое')).toEqual({
+        visible: [null], hidden: ['ozero-kruglenkoe-marshrut'],
+      });
+      expect(await slugsByVisibility('Вулкан Бакенинг')).toEqual({
+        visible: [null, null], hidden: ['vulkan-bakening-marshrut'],
+      });
+    });
+
+    it('суффикс видимого тёзки не отнят; адрес по имени у видимого маршрута — суффикс не переходит', async () => {
+      expect(await slugsOf('Озеро Медвежье')).toEqual(['ozero-medvezhe-marshrut', null]);
+      expect(await slugsByVisibility('Вулкан Жупановский')).toEqual({
+        visible: [null], hidden: ['vulkan-zhupanovskij-marshrut'],
+      });
+      expect(await slugsByVisibility('Сопка Мишенная')).toEqual({
+        visible: [null], hidden: ['sopka-mishennaya-marshrut'],
+      });
+    });
+
     it('скрытый и слитый не тронуты, адрес писателя не переписан', async () => {
       expect(await slugsOf('Тайная тропа')).toEqual([null]);
       expect(await slugsOf('Слитый дубль')).toEqual([null]);
@@ -260,12 +338,19 @@ withPg('адрес по имени маршруту при записи (1237, 1
       expect(holders).toEqual([
         ['!!!', 'empty_base'],
         ['Авача', 'visible_route'],
+        ['Бухта Тихая', 'visible_place'],
+        ['Вулкан Бакенинг', 'visible_place'],
+        ['Вулкан Бакенинг', 'visible_place'],
+        ['Вулкан Жупановский', 'visible_route'],
         ['Медведи', 'section'],
         ['Мыс Лопатка', 'visible_place'],
         ['Озеро Голубое', 'namesake'],
         ['Озеро Голубое', 'namesake'],
         ['Озеро Дальнее', 'visible_place'],
         ['Озеро Дальнее', 'visible_place'],
+        ['Озеро Кругленькое', 'visible_place'],
+        ['Озеро Медвежье', 'visible_place'],
+        ['Сопка Мишенная', 'visible_place'],
         ['Толбачик', 'merged_into_this'],
       ]);
       // У «Мыса Лопатки» суффиксный адрес занят — перепись это и показывает,
