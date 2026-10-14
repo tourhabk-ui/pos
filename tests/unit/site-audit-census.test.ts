@@ -39,7 +39,7 @@ const NAV = ['/places/good', '/places/body-canonical', '/routes/double-robots', 
   '/field?mode=trail'];
 const nav = () => `<nav>${NAV.map((p) => `<a href="${p}#top">${p}</a>`).join('')}</nav>`;
 
-function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string; ld?: string; links?: string[] }): string {
+function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string; ld?: string; links?: string[]; words?: number }): string {
   const base = `http://127.0.0.1:${port}`;
   const canon = `<link rel="canonical" href="${base}${o.path}">`;
   const robots = (o.robots ?? ['index, follow']).map((r) => `<meta name="robots" content="${r}">`).join('');
@@ -57,7 +57,7 @@ function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' |
     // alt="" — декоративная картинка рядом с подписью (так и надо, WCAG); alt со словами — снимок.
     + `<img src="/og.jpg" alt=""><span>Кузьмич</span><img src="/og.jpg" alt="Кратер вулкана">`
     + (o.img ?? '') + nav() + (o.links ?? []).map((l) => `<a href="${l}">${l}</a>`).join('')
-    + `<h1>${o.h1 ?? o.title}</h1><p>${words(220)}</p></body></html>`;
+    + `<h1>${o.h1 ?? o.title}</h1><p>${words(o.words ?? 220)}</p></body></html>`;
 }
 
 beforeAll(async () => {
@@ -71,7 +71,7 @@ beforeAll(async () => {
     if (url === '/sitemap.xml') {
       const locs = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone', '/places/cut', '/places/bad-og',
         '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/orphan', '/places/long-title', '/list', '/places/deep',
-        '/field', '/places/twin', '/places/twin-body']
+        '/field', '/places/twin', '/places/twin-body', '/places/single', '/places/thin']
         .map((p) => `<url><loc>${base}${p}</loc></url>`).join('');
       res.writeHead(200, { 'content-type': 'application/xml' });
       res.end(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs}</urlset>`);
@@ -83,7 +83,10 @@ beforeAll(async () => {
       if (req.method === 'HEAD') { res.writeHead(401); res.end(); return; }
       res.writeHead(200, { 'content-type': 'image/jpeg' }); res.end('jpg'); return;
     }
-    if (url === '/places/good' || url === '/') return html(page({ path: url, title: 'Вулкан Горелый — место на Камчатке', desc: DESC_OK, links: ['/places/twin?ref=x', '/places/twin-body?ref=x'] }));
+    if (url === '/places/good' || url === '/') return html(page({ path: url, title: 'Вулкан Горелый — место на Камчатке', desc: DESC_OK, links: ['/places/twin?ref=x', '/places/twin-body?ref=x', '/places/single', '/places/thin'] }));
+    // На эти две ведёт одна ссылка — с /places/good; /places/thin ещё и тонкая.
+    if (url === '/places/single') return html(page({ path: url, title: 'Озеро Дальнее — одна ссылка', desc: DESC_OK + ' Одна.' }));
+    if (url === '/places/thin') return html(page({ path: url, title: 'Мыс Тонкий', desc: DESC_OK + ' Тонкий.', words: 40 }));
     if (url === '/places/body-canonical') return html(page({ path: url, title: 'Озеро Толмачёва', desc: DESC_OK + ' Озеро.', canonicalIn: 'body' }));
     if (url === '/routes/double-robots') return html(page({ path: url, title: 'Мутновский', desc: DESC_OK + ' Маршрут.', robots: ['index, follow', 'noindex'] }));
     if (url === '/routes/soft') return html(page({ path: url, title: 'Маршрут не найден', desc: DESC_OK + ' Нет.' }));
@@ -146,7 +149,8 @@ async function audit(extra: string[] = []) {
   const json = JSON.parse(readFileSync(out, 'utf-8')) as {
     census: { checked: number; ok: number; rate_limited: number; issues: { what: string; count: number; examples: string[] }[];
       by_section: Record<string, Record<string, number>>; og_images: { bad: string[]; head_only: string[] };
-      paged: { fetched: number; errors: string[] }; variants: { fetched: number; canonical_here: number; errors: string[] } };
+      paged: { fetched: number; errors: string[] }; variants: { fetched: number; canonical_here: number; errors: string[] };
+      single_inbound: { url: string; from: string | null; section: string }[] };
     issues: CrawlIssue[];
   };
   return { stdout, census: json.census, crawl: json.issues };
@@ -160,7 +164,7 @@ const hits = (c: { issues: { what: string; examples: string[] }[] }, what: strin
 describe('перепись sitemap: каждый дефект назван, здоровое не тронуто', () => {
   it('проходит все адреса sitemap без перехода по редиректу', async () => {
     const { census } = await audit();
-    expect(census.checked).toBe(20);
+    expect(census.checked).toBe(22);
     expect(hits(census, 'не 200 в sitemap').sort()).toEqual(['/operators/gone', '/routes/moved']);
     // 429 — ждёт и повторяет, но счёт таких ответов называет.
     expect(census.rate_limited).toBe(1);
@@ -245,13 +249,38 @@ describe('перепись sitemap: каждый дефект назван, зд
     for (const i of census.issues) {
       expect({ what: i.what, hit: hits(census, i.what).includes('/places/good') }).toEqual({ what: i.what, hit: false });
     }
-    expect(census.ok).toBe(18);
+    expect(census.ok).toBe(20);
   }, 60_000);
 
   it('разделы считаются по первому сегменту пути', async () => {
     const { census } = await audit();
-    expect(census.by_section['/places/*'].urls).toBe(14);
+    expect(census.by_section['/places/*'].urls).toBe(16);
     expect(census.by_section['/routes/*']['soft-404 (200 с «не найден»)']).toBe(1);
+  }, 60_000);
+});
+
+describe('одна входящая ссылка и число слов у тонкой — названы (14.10)', () => {
+  const strip = (u: string | null) => (u ?? '').replace(/^http:\/\/127\.0\.0\.1:\d+/, '');
+
+  it('страница, на которую ведёт одна ссылка, названа вместе с единственным источником', async () => {
+    const { census } = await audit();
+    const single = census.single_inbound.map((x) => [strip(x.url), strip(x.from), x.section]);
+    expect(single).toContainEqual(['/places/single', '/places/good', '/places/*']);
+    expect(single).toContainEqual(['/places/thin', '/places/good', '/places/*']);
+    // На здоровую страницу ссылаются все — её в списке нет.
+    expect(single.map((x) => x[0])).not.toContain('/places/good');
+  }, 60_000);
+
+  it('в отчёте — раздел и «адрес ← источник»; у тонкой — число слов', async () => {
+    const md = join(dir, `r-${Date.now()}.md`);
+    await run('python3', [SCRIPT, '--host', `127.0.0.1:${port}`, '--scheme', 'http', '--max-pages', '2',
+      '--link-checks', '0', '--sitemap-census', '50', '--census-md', md],
+    { env: { ...process.env, SITE_AUDIT_PAUSE: '0' }, timeout: 60_000 });
+    const text = readFileSync(md, 'utf-8');
+    expect(text).toMatch(/- одна входящая ссылка — \d+ \(\/places\/\* \d+/);
+    expect(text).toContain('  - /places/single ← /places/good');
+    const thin = text.split('\n').find((l) => l.includes('/places/thin (')) ?? '';
+    expect(thin).toMatch(/\/places\/thin \(\d+ слов\)/);
   }, 60_000);
 });
 

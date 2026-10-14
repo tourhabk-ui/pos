@@ -707,6 +707,7 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         time.sleep(max(PAUSE, interval - (time.monotonic() - t_start)))
     inbound: Counter = Counter()
     inbound_paged: Counter = Counter()
+    inbound_from: dict[str, str] = {}     # первый источник ссылки — у страницы с одной ссылкой он и единственный
     sources: list[tuple[str, set]] = []   # (откуда, куда) — ещё нужны для адресов с параметрами
     for r in rows:
         own = norm(r['url'])
@@ -715,6 +716,7 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         for link in links:
             if link != own and link in sm_norm:
                 inbound[link] += 1
+                inbound_from.setdefault(link, own)
     for u, links in paged.items():
         sources.append((u, links))
         for link in links:
@@ -723,6 +725,8 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
     for r in rows:
         r['inbound'] = inbound.get(norm(r['url']), 0)
         r['inbound_paged'] = inbound_paged.get(norm(r['url']), 0)
+        if r['inbound'] == 1:
+            r['inbound_from'] = inbound_from.get(norm(r['url']))
 
     # Ссылки ведут не на адрес sitemap, а на него же с параметрами (прогон 7,
     # 14.10: все ссылки на /planning — /planning?mode=trail, сирот по счёту
@@ -839,6 +843,8 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
                     extra = ' [' + ' | '.join(x['content'] + ('' if x['head'] else ' (в body)') for x in r['robots']) + ']'
                 elif name == 'медленно (>2 с)':
                     extra = f" ({r['ms']} мс)"
+                elif code == 'thin':
+                    extra = f" ({r['words']} слов)"
                 elif name == 'JSON-LD с ошибкой':
                     extra = ' [' + '; '.join(r['jsonld_problems']) + ']'
                 ex.append(r['url'] + extra)
@@ -870,6 +876,11 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
             '2-5': sum(1 for r in ok if 2 <= r.get('inbound', 0) <= 5),
             '6+': sum(1 for r in ok if r.get('inbound', 0) >= 6),
         },
+        # Одна входящая ссылка: страница держится на единственном источнике —
+        # уберут его из «Рядом» или списка, и она станет сиротой. Источник
+        # назван, чтобы было видно, на чём она держится (14.10).
+        'single_inbound': [{'url': r['url'], 'from': r.get('inbound_from'), 'section': r['section']}
+                           for r in sorted(ok, key=lambda r: (r['section'], r['url'])) if r.get('inbound') == 1],
         'paged': {'fetched': len(paged), 'errors': paged_errors},
         'variants': {'fetched': len(variants), 'canonical_here': sum(variants.values()), 'errors': variant_errors},
         'by_section': by_section, 'issues': issues, 'checks': [n for n, _, _ in checks],
@@ -897,6 +908,14 @@ def report_census(c: dict, ua: str, budget: int = 58000) -> str:
     ih = c.get('inbound_hist')
     if ih:
         L.append(f"- входящих ссылок с других страниц sitemap (серверный HTML): 0 — {ih['0']}, 1 — {ih['1']}, 2–5 — {ih['2-5']}, 6 и больше — {ih['6+']}")
+    si = c.get('single_inbound') or []
+    if si:
+        by = Counter(x['section'] for x in si)
+        L.append(f"- одна входящая ссылка — {len(si)} (" + ', '.join(f"{s} {n}" for s, n in by.most_common()) + '); первые:')
+        def short(u):
+            return (urllib.parse.urlsplit(u).path or '/') if u else '—'
+        for x in si[:12]:
+            L.append(f"  - {short(x['url'])} ← {short(x['from'])}")
     pg = c.get('paged')
     if pg is not None:
         L.append(f"- страниц-продолжений списков (?page=N) учтено источниками ссылок: {pg['fetched']}; не открылись: {len(pg['errors'])}")
