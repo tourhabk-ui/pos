@@ -1,17 +1,23 @@
 {
   "timeout": 60,
-  "run": 800,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов после #2464 — кто держит zelenovskie-ozerki-marshrut (поле marshrut_holder). Конфиг записан целиком: проба 819 по ошибке повторила чужую пробу (letopis), потому что брала файл как есть.",
+  "run": 799,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 815: перепись маршрутов после #2464 — кто держит zelenovskie-ozerki-marshrut (поле marshrut_holder). Проба 815 за 20 минут выката не дождалась: в очереди Timeweb стояли и чужие пуши.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-slug-census"
+    "https://vedarai.ru/version.json",
+    "https://vedarai.ru/places/kronotskij-zapovednik",
+    "https://vedarai.ru/letopis/kronotskij-zapovednik",
+    "https://vedarai.ru/park/kronotsky"
   ],
-  "until": "marshrut_holder",
-  "retries": 20,
-  "retryDelay": 60,
-  "bytes": 12000,
+  "bytes": 400,
   "grep": [
-    "\"ok\":true",
-    "would_assign_total\":0",
-    "\"marshrut_holder\":{"
+    "\"commit\"",
+    "Заповедник",
+    "Разрешение заповедника",
+    "заявка на ",
+    "Зелёная кнопка",
+    "Главные даты",
+    "1 ноября 1934",
+    "Заповедник · Камчатка",
+    "Природный парк · Камчатка"
   ]
 }
