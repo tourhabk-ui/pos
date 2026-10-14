@@ -1,83 +1,43 @@
 {
-  "slug": "reserves-commons",
-  "note": "14.10. Кандидаты в фото национального парка «Командорские острова» и Корякского заповедника (слово владельца 14.10 «сделай также как с Кроноцким все заповедники»): превью Wikimedia Commons со свободной лицензией и названным автором, плюс два снимка Штейнегера 1895 года (общественное достояние) для летописи. Выбор — глазами, потом пережатие и media-to-s3.",
-  "run": 4,
+  "slug": "vachkazhets-commons",
+  "note": "14.10. Кандидаты в главный кадр статьи летописи «Вачкажец» (владелец: «Памятник природы «Вачкажец» тоже делаем по примерам»): Wikimedia Commons, CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova. Выбор — глазами, потом пережатие и media-to-s3.",
+  "run": 5,
   "items": [
     {
-      "file": "k-starogavanskij.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%9F%D0%BE%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D1%8C%D0%B5%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%BE%D0%B2%D0%B0%20%D0%BC%D0%BE%D1%80%D1%8F%2C%20%D0%BC%D1%8B%D1%81%20%D0%A1%D1%82%D0%B0%D1%80%D0%BE%D0%B3%D0%B0%D0%B2%D0%B0%D0%BD%D1%81%D0%BA%D0%B8%D0%B9.jpg?width=1920"
+      "file": "v-gora-haing.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%93%D0%BE%D1%80%D0%B0%20%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86.jpg?width=1920"
     },
     {
-      "file": "k-severnoe-lezhbishche.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%A1%D0%B5%D0%B2%D0%B5%D1%80%D0%BD%D0%BE%D0%B5%20%D0%BB%D0%B5%D0%B6%D0%B1%D0%B8%D1%89%D0%B5.jpg?width=1920"
+      "file": "v-panorama-khaustova.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9F%D0%B0%D0%BD%D0%BE%D1%80%D0%B0%D0%BC%D0%B0%20%D0%B3%D0%BE%D1%80%D0%BD%D0%BE%D0%B3%D0%BE%20%D0%BC%D0%B0%D1%81%D1%81%D0%B8%D0%B2%D0%B0%20%D0%B3.%20%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D1%86%D1%8B.jpg?width=2400"
     },
     {
-      "file": "k-kotiki.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%9C%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B5%20%D0%BA%D0%BE%D1%82%D0%B8%D0%BA%D0%B8%20%D0%BD%D0%B0%20%D0%A1%D0%B5%D0%B2%D0%B5%D1%80%D0%BD%D0%BE%D0%BC%20%D0%BB%D0%B5%D0%B6%D0%B1%D0%B8%D1%89%D0%B5.jpg?width=1600"
+      "file": "v-stlanik-haing.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%B5%D0%B4%D1%80%D0%BE%D0%B2%D1%8B%D0%B9%20%D1%81%D1%82%D0%BB%D0%B0%D0%BD%D0%B8%D0%BA%20%D0%BD%D0%B0%20%D1%84%D0%BE%D0%BD%D0%B5%20%D0%B3%D0%BE%D1%80%D1%8B%20%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86.jpg?width=1920"
     },
     {
-      "file": "k-sivuch.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%A1%D0%B8%D0%B2%D1%83%D1%87.jpg?width=1600"
+      "file": "v-senatorova-04.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2004.jpg?width=1600"
     },
     {
-      "file": "k-poberezhe.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%9F%D0%BE%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D1%8C%D0%B5%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%BE%D0%B2%D0%B0%20%D0%BC%D0%BE%D1%80%D1%8F.jpg?width=1600"
+      "file": "v-senatorova-29.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2029.jpg?width=1600"
     },
     {
-      "file": "k-pesochnik.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%B8%D0%B9%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D0%B5%D1%81%D0%BE%D1%87%D0%BD%D0%B8%D0%BA.jpg?width=1600"
+      "file": "v-senatorova-30.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2030.jpg?width=1600"
     },
     {
-      "file": "k-pesec-fevral.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9F%D0%B5%D1%81%D0%B5%D1%86%20%D1%84%D0%B5%D0%B2%D1%80%D0%B0%D0%BB%D1%8C.jpg?width=1600"
+      "file": "v-senatorova-32.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2032.jpg?width=1600"
     },
     {
-      "file": "k-mednyj.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9E.%20%D0%9C%D0%B5%D0%B4%D0%BD%D1%8B%D0%B9%2057586.jpg?width=1600"
+      "file": "v-senatorova-66.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2066.jpg?width=1600"
     },
     {
-      "file": "k-buyan-1.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%91%D1%83%D1%85%D1%82%D0%B0%20%D0%91%D1%83%D1%8F%D0%BD%D0%B0%201.JPG?width=1600"
-    },
-    {
-      "file": "k-buyan-2.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%91%D1%83%D1%85%D1%82%D0%B0%20%D0%91%D1%83%D1%8F%D0%BD%D0%B0%202.JPG?width=1600"
-    },
-    {
-      "file": "k-bering-14547.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9E.%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%B0%2014547.JPG?width=1600"
-    },
-    {
-      "file": "k-bering-14548.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9E.%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%B0%2014548.JPG?width=1600"
-    },
-    {
-      "file": "k-isola-estate.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Isola%20di%20Bering%20-%20estate.jpg?width=1920"
-    },
-    {
-      "file": "k-fox-cc0.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Bering%20Island%20Fox%20306035940.jpg?width=1600"
-    },
-    {
-      "file": "k-glinka-1895.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/FMIB%2039863%20Glinka%20Village%2C%20Copper%20Island%2C%20from%20the%20Beach.jpeg?width=1290"
-    },
-    {
-      "file": "k-palata-1895.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/FMIB%2039905%20Palata%20Rookery%2C%20Copper%20Island%2C%20from%20Hill%2C%20August%207%2C%201895.jpeg?width=1238"
-    },
-    {
-      "file": "r-korjaksky.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Korjaksky%20nature%20reserve.jpg?width=900"
-    },
-    {
-      "file": "r-govena-nasa.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9F%D0%BE%D0%BB%D1%83%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B2%20%D0%93%D0%BE%D0%B2%D0%B5%D0%BD%D0%B0.jpg?width=700"
-    },
-    {
-      "file": "r-istok-talovki.jpg",
-      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%98%D1%81%D1%82%D0%BE%D0%BA%20%D0%A2%D0%B0%D0%BB%D0%BE%D0%B2%D0%BA%D0%B8.jpg?width=1600"
+      "file": "v-senatorova-67.jpg",
+      "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Vachkazhets%202021%2067.jpg?width=1600"
     }
   ]
 }
