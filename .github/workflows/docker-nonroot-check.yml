@@ -72,8 +72,10 @@ jobs:
           done
 
           # Надзор (14.10): Next убит — /api/health говорит 503, прокси поднимает
-          # Next сам, и тот снова отвечает на :3001.
-          npid=$(docker exec pos pgrep -f 'node server.js' | head -1 || true)
+          # Next сам, и тот снова отвечает на :3001. Ищем ребёнка процесса №1 по
+          # имени: Next переименовывает себя в «next-server (vX)» (start-server.js),
+          # по «node server.js» его не найти — первый прогон так и сказал.
+          npid=$(docker exec pos pgrep -P 1 -f next-server | head -1 || true)
           echo "Next pid: ${npid:-не найден}"
           if [ -n "$npid" ]; then
             docker exec pos kill -9 "$npid"

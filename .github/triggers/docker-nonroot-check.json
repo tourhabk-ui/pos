@@ -1,1 +1,1 @@
-{"reason":"14.10: надзор за Next в start.js — kill -9 Next внутри контейнера (503, перезапуск) и docker stop по SIGTERM","run":2}
+{"reason":"14.10: надзор за Next в start.js — kill -9 Next внутри контейнера (503, перезапуск) и docker stop по SIGTERM; повтор: Next ищется по имени next-server","run":3}
