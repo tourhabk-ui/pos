@@ -32,7 +32,9 @@ jobs:
           PROCESSED=$(jq -r '.processed // 0' /tmp/out.json)
           IMPROVED=$(jq -r '.improved // 0' /tmp/out.json)
           ERRORS=$(jq -r '.errors // 0' /tmp/out.json)
-          echo "processed=$PROCESSED improved=$IMPROVED errors=$ERRORS remaining=$(jq -r '.remaining // "?"' /tmp/out.json)"
+          # rejected (14.10) — описания, которые проверка после модели не пустила:
+          # имя, число или опасность сверх данных. Это не поломка, а работа проверки.
+          echo "processed=$PROCESSED improved=$IMPROVED errors=$ERRORS rejected=$(jq -r '.rejected // 0' /tmp/out.json) remaining=$(jq -r '.remaining // "?"' /tmp/out.json)"
           if [ "$PROCESSED" -gt 0 ] && [ "$IMPROVED" -eq 0 ] && [ "$ERRORS" -gt 0 ]; then
             echo "FAIL: партия целиком в ошибках — обогащение сломано, не молчим"
             exit 1

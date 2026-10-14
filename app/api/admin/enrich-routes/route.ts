@@ -18,6 +18,8 @@ import { callAIFast, callAIQualityOrNull } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { z } from 'zod';
 import { stripTags } from '@/lib/html/text';
+import { descriptionVoice } from '@/lib/places/description-voice';
+import { descriptionClaims } from '@/lib/routes/description-claims';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -161,13 +163,17 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
   // lat/lng::float8 — NUMERIC приходит из pg строкой, и .toFixed() на ней
   // ронял КАЖДЫЙ объект партии (ночной крон месяц отчитывался success при
   // errors=20/20). float8 драйвер парсит в number.
+  // Порядок внутри — random(), а не title (14.10): описание, отклонённое
+  // проверкой после модели, остаётся коротким и вернулось бы в ту же партию
+  // следующей ночью; при порядке по имени двадцать отказов навсегда заняли
+  // бы очередь.
   const { rows } = await pool.query<RouteRow>(`
     SELECT id, title, description, category, location_type, activity_type,
            lat::float8 as lat, lng::float8 as lng,
            COALESCE(payload, '{}'::jsonb) as payload
     FROM agent_route_knowledge
     WHERE is_visible = true AND LENGTH(title) >= 4 AND ${condition}
-    ORDER BY CASE WHEN description IS NULL THEN 0 ELSE 1 END, title
+    ORDER BY CASE WHEN description IS NULL THEN 0 ELSE 1 END, random()
     LIMIT $1
   `, [batchSize]);
 
@@ -177,14 +183,37 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
 
   let improved = 0;
   let errors = 0;
+  let rejected = 0;
+  let skipped = 0;
   const results: Array<{ id: string; title: string; ok: boolean; len?: number; error?: string }> = [];
 
   for (const route of rows) {
     try {
+      // Прежнее описание — путевая заметка: «дополнить» его значит
+      // пересказать выдумку (тот же принцип, что у заметок Кузьмича).
+      if (descriptionVoice(route.description).voice === 'diary') {
+        skipped++;
+        results.push({ id: route.id, title: route.title, ok: false, error: 'прежнее описание — путевая заметка, дополнять нечего' });
+        continue;
+      }
       const description = await generateDescription(route);
       if (!description) {
         results.push({ id: route.id, title: route.title, ok: false, error: 'AI empty response' });
         errors++;
+        continue;
+      }
+      // Проверка после модели (14.10, слово владельца «3 да»): писатель знает
+      // о месте только название, тип и прежний текст — всё сверх них
+      // (число, опасность, другое имя места) — догадка, и она не пишется.
+      const verdict = descriptionClaims(description, {
+        texts: [route.title, route.description, typeLabelOf(route)],
+      });
+      if (verdict.flags.length > 0) {
+        rejected++;
+        console.warn('[enrich-routes] описание не сохранено — сказано сверх данных', {
+          title: route.title, flags: verdict.flags, numbers: verdict.numbers, hazards: verdict.hazards, names: verdict.names,
+        });
+        results.push({ id: route.id, title: route.title, ok: false, error: `сказано сверх данных: ${verdict.flags.join(', ')}` });
         continue;
       }
       if (!dryRun) {
@@ -213,16 +242,20 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
 
   return NextResponse.json({
     success: true, mode: 'description', dryRun,
-    processed: rows.length, improved, errors,
+    processed: rows.length, improved, errors, rejected, skipped,
     remaining: Number(rem[0]?.cnt ?? 0),
     results,
   });
 }
 
-async function generateDescription(route: RouteRow): Promise<string | null> {
-  const typeLabel = (route.location_type && LOCATION_LABELS[route.location_type])
+function typeLabelOf(route: RouteRow): string {
+  return (route.location_type && LOCATION_LABELS[route.location_type])
     ?? (route.category && CATEGORY_LABELS[route.category])
     ?? 'природный объект';
+}
+
+async function generateDescription(route: RouteRow): Promise<string | null> {
+  const typeLabel = typeLabelOf(route);
 
   // Number(...) — страховка от NUMERIC-строки, даже если SQL-каст потеряют
   const lat = route.lat == null ? null : Number(route.lat);

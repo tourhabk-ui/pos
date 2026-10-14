@@ -25,7 +25,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { honestSafetyFields, asProfileSource } from '@/lib/safety/profile-source';
-import { reviewClaims, type ReviewFlag } from '@/lib/kuzmich/review-claims';
+import { reviewClaims, reviewRewriteReason, type ReviewFlag, type RewriteReason } from '@/lib/kuzmich/review-claims';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -70,6 +70,9 @@ export async function GET(req: NextRequest) {
   let empty = 0;
   let missing = 0;
   let noEvidence = 0;
+  // Сколько снимет перепроверка агента (kuzmich-place-enricher, 14.10):
+  // улика или описание-дневник, по которому заметку писали.
+  const rewriteQueue: Record<RewriteReason, number> = { evidence: 0, diary_description: 0 };
   const items: Array<{
     place: string; slug: string | null; place_id: string;
     flags: ReviewFlag[]; numbers: string[]; hazards: string[]; review: string;
@@ -84,8 +87,11 @@ export async function GET(req: NextRequest) {
       { hazardTypes: r.hazard_types ?? [], capacityPerDay: null, optimalGroupSize: null, difficultyLevel: null, terrainType: null },
       asProfileSource(r.profile_source),
     );
-    const v = reviewClaims(review, { description: r.description, hazardCodes: honest.hazardTypes, altitudeM: r.altitude_m });
+    const facts = { description: r.description, hazardCodes: honest.hazardTypes, altitudeM: r.altitude_m };
+    const v = reviewClaims(review, facts);
     voice[v.voice]++;
+    const reason = reviewRewriteReason(review, facts);
+    if (reason !== null) rewriteQueue[reason]++;
     if (v.flags.length === 0) { noEvidence++; continue; }
     for (const f of v.flags) byFlag[f]++;
     items.push({ place: r.name, slug: r.slug, place_id: r.id, flags: v.flags, numbers: v.numbers, hazards: v.hazards, review });
@@ -105,6 +111,7 @@ export async function GET(req: NextRequest) {
     },
     by_flag: byFlag,
     voice,
+    rewrite_queue: rewriteQueue,
     items: items.slice(0, MAX_ITEMS),
     items_total: items.length,
     note: 'Улики, не приговор: число без опоры бывает и верным. Сверяется с описанием места и произносимым профилем безопасности (шаблон 070 не в счёт). Только чтение.',

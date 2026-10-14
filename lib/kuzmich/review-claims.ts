@@ -144,3 +144,21 @@ export function reviewClaims(review: string, facts: ReviewFacts): ReviewVerdict 
 
   return { flags, numbers, hazards, voice };
 }
+
+/**
+ * Почему уже стоящую заметку нужно переписать — или null, если не нужно
+ * (14.10, слово владельца «1 да»: заметки с уликами — на перезапись агенту
+ * с новой проверкой).
+ *
+ *   evidence          — у заметки улика (reviewClaims): сказано сверх данных;
+ *   diary_description — описание места, по которому заметку писали, — путевая
+ *                       заметка. Число и опасность из него проверку проходят,
+ *                       потому что «есть в данных», а данные сами сочинены:
+ *                       пересказ выдумки — та же выдумка.
+ */
+export type RewriteReason = 'evidence' | 'diary_description';
+
+export function reviewRewriteReason(review: string, facts: ReviewFacts): RewriteReason | null {
+  if (descriptionVoice(facts.description).voice === 'diary') return 'diary_description';
+  return reviewClaims(review, facts).flags.length > 0 ? 'evidence' : null;
+}

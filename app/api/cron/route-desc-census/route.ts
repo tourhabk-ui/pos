@@ -27,6 +27,7 @@ import {
   type PlaceRef,
 } from '@/lib/routes/desc-facts';
 import { advisesLeavingTrail } from '@/lib/notifications/post-validation';
+import { descriptionClaims } from '@/lib/routes/description-claims';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -49,13 +50,17 @@ export async function GET(request: NextRequest) {
       lat: string | null; lng: string | null;
       distance_km: string | null; duration_hours: string | null;
       elevation_gain_m: number | null; has_line: boolean;
+      enriched_by: string | null; park_name: string | null; hazards: string | null;
     }>(
       `SELECT r.id::text AS id, r.title, r.description,
               r.lat::text AS lat, r.lng::text AS lng,
               r.distance_km::text AS distance_km,
               r.duration_hours::text AS duration_hours,
               r.elevation_gain_m,
-              (r.geometry IS NOT NULL) AS has_line
+              (r.geometry IS NOT NULL) AS has_line,
+              r.metadata->>'enriched_by' AS enriched_by,
+              r.park_name,
+              array_to_string(r.hazards, '; ') AS hazards
        FROM kamchatka_routes r
        WHERE r.is_visible = true AND r.merged_into_id IS NULL
        ORDER BY r.title`,
@@ -72,6 +77,9 @@ export async function GET(request: NextRequest) {
     }));
 
     let withDescription = 0;
+    // Написанные агентом enrich-routes по одному названию (14.10).
+    let writerWritten = 0;
+    let writerBeyondData = 0;
     const offenders: Array<{
       id: string; title: string; findings: DescFinding[];
       description_head: string | null;
@@ -107,6 +115,28 @@ export async function GET(request: NextRequest) {
           detail: 'описание советует сойти с тропы',
         });
       }
+      if (r.enriched_by === 'admin_api') {
+        writerWritten++;
+        const v = descriptionClaims(desc, {
+          texts: [r.title, r.park_name, r.hazards,
+            r.distance_km === null ? null : `${r.distance_km} км`,
+            r.duration_hours === null ? null : `${r.duration_hours} ч`,
+            r.elevation_gain_m === null ? null : `${r.elevation_gain_m} м`],
+        });
+        if (v.flags.length > 0) {
+          writerBeyondData++;
+          const parts = [
+            v.names.length ? `имена: ${v.names.join(', ')}` : '',
+            v.numbers.length ? `числа: ${v.numbers.join(', ')}` : '',
+            v.hazards.length ? `опасности: ${v.hazards.join(', ')}` : '',
+            v.flags.includes('diary') ? 'от первого лица' : '',
+          ].filter(Boolean);
+          findings.push({
+            kind: 'writer_beyond_data',
+            detail: `написано агентом по названию; сверх записи — ${parts.join('; ')}`,
+          });
+        }
+      }
 
       if (findings.length > 0) {
         offenders.push({
@@ -138,9 +168,12 @@ export async function GET(request: NextRequest) {
       // грунтовки») — дорога, не маршрут; «подъём..., спуск...» — плечо, не
       // полное время. Плюс миграции 896-897: битые записи сброшены, тексты
       // с фактическим враньём поправлены точечно.
-      probe: 'route_desc_census_v5',
+      // v6 (14.10) — описания агента enrich-routes (metadata.enriched_by =
+      // 'admin_api') сверяются с записью: имя, число или опасность сверх неё.
+      probe: 'route_desc_census_v6',
       live_total: rows.length,
       with_description: withDescription,
+      writer_written: { total: writerWritten, beyond_data: writerBeyondData },
       offenders_total: offenders.length,
       by_kind: byKind,
       window: { offset, limit },

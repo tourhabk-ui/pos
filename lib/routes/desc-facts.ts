@@ -45,7 +45,11 @@ export interface DescFinding {
     | 'gain_mismatch'
     | 'far_place'
     | 'track_claim_no_line'
-    | 'leaves_trail';
+    | 'leaves_trail'
+    // Описание написал агент enrich-routes по одному названию (metadata.
+    // enriched_by = 'admin_api'), и в нём имя, число или опасность, которых
+    // нет в записи (14.10, lib/routes/description-claims).
+    | 'writer_beyond_data';
   detail: string;
 }
 

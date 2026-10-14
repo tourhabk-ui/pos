@@ -23,8 +23,8 @@ vi.mock('@/lib/ai/providers', () => ({
 }));
 vi.mock('@/lib/scraping/brightdata', () => ({ fetchViaBrightData: async () => null }));
 
-import { reviewClaims } from '@/lib/kuzmich/review-claims';
-import { runKuzmichPlaceEnricher } from '@/lib/agents/kuzmich-place-enricher';
+import { reviewClaims, reviewRewriteReason } from '@/lib/kuzmich/review-claims';
+import { runKuzmichPlaceEnricher, recheckExistingReviews } from '@/lib/agents/kuzmich-place-enricher';
 import { GET as census } from '@/app/api/cron/kuzmich-review-census/route';
 
 /** Описание Вачкажца после 1151 (справка по Википедии) — дословно его начало и конец. */
@@ -88,44 +88,143 @@ describe('агент заметок', () => {
     vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout);
   });
 
-  function updates(): unknown[][] {
-    return queryMock.mock.calls.filter((c) => String(c[0]).includes('UPDATE places'));
+  /**
+   * Ответы базы по смыслу запроса: перепроверка стоящих заметок, выбор
+   * очереди, снятие на перезапись, запись новой.
+   */
+  function db(opts: { reviewed?: unknown[]; candidates?: unknown[]; resetCount?: number; saveError?: Error; recheckError?: Error }) {
+    queryMock.mockImplementation(async (sql: string) => {
+      const s = String(sql);
+      if (s.includes("btrim(p.kuzmich_review) <> ''")) {
+        if (opts.recheckError) throw opts.recheckError;
+        return { rows: opts.reviewed ?? [] };
+      }
+      if (s.includes('kuzmich_review IS NULL')) return { rows: opts.candidates ?? [] };
+      if (s.includes('unnest(')) return { rows: [], rowCount: opts.resetCount ?? 0 };
+      if (s.includes('SET kuzmich_review = $1')) {
+        if (opts.saveError) throw opts.saveError;
+        return { rows: [] };
+      }
+      throw new Error(`неожиданный запрос: ${s}`);
+    });
+  }
+
+  function saves(): unknown[][] {
+    return queryMock.mock.calls.filter((c) => String(c[0]).includes('SET kuzmich_review = $1'));
   }
 
   it('заметку с уликой не сохраняет и называет причину', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [PLACE] });
+    db({ candidates: [PLACE] });
     waterfallMock.mockResolvedValueOnce(VACH_REVIEW);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await runKuzmichPlaceEnricher(1);
     expect(r).toMatchObject({ processed: 1, enriched: 0, rejected: 1 });
-    expect(updates()).toHaveLength(0);
+    expect(saves()).toHaveLength(0);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('сказано сверх данных места'), expect.objectContaining({ hazards: ['bears'] }));
     warn.mockRestore();
   });
 
   it('заметку без улик сохраняет', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [PLACE] }).mockResolvedValue({ rows: [] });
+    db({ candidates: [PLACE] });
     waterfallMock.mockResolvedValueOnce('Массив выточил ледник: кары, цирки и троговые долины видны с тропы, а зимой сюда едут за фрирайдом.');
     const r = await runKuzmichPlaceEnricher(1);
     expect(r).toMatchObject({ enriched: 1, rejected: 0 });
-    expect(updates()).toHaveLength(1);
+    expect(saves()).toHaveLength(1);
   });
 
-  it('по описанию-дневнику заметку не пишет вовсе — модель не зовётся', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [{ ...PLACE, description: 'Вчера я поднялся на гребень и увидел озеро — вода ледяная, вокруг ни души, до вершины мы шли пять часов.' }] });
+  it('место с описанием-дневником в партию не берётся — модель зовётся только для справочного', async () => {
+    const diary = { ...PLACE, id: 'd', description: 'Вчера я поднялся на гребень и увидел озеро — вода ледяная, вокруг ни души, до вершины мы шли пять часов.' };
+    db({ candidates: [diary, diary, diary, PLACE] });
+    waterfallMock.mockResolvedValueOnce('Массив выточил ледник: кары, цирки и троговые долины.');
     const r = await runKuzmichPlaceEnricher(1);
-    expect(waterfallMock).not.toHaveBeenCalled();
-    expect(r).toMatchObject({ skipped: 1, enriched: 0 });
+    expect(waterfallMock).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ processed: 1, enriched: 1 });
+    // Очередь берётся с запасом: дневники не съедают партию.
+    const pick = queryMock.mock.calls.find((c) => String(c[0]).includes('kuzmich_review IS NULL'))!;
+    expect(pick[1]).toEqual([5]);
   });
 
   it('отказ записи — в лог с именем места, а не тишина', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [PLACE] }).mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '57014' }));
+    db({ candidates: [PLACE], saveError: Object.assign(new Error('boom'), { code: '57014' }) });
     waterfallMock.mockResolvedValueOnce('Массив выточил ледник: кары, цирки и троговые долины.');
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await runKuzmichPlaceEnricher(1);
     expect(r.errors).toBe(1);
     expect(err).toHaveBeenCalledWith(expect.stringContaining('заметка о месте «Вачкажец»'), expect.objectContaining({ code: '57014' }));
     err.mockRestore();
+  });
+});
+
+describe('перепроверка стоящих заметок (владелец 14.10: «1 да» — на перезапись)', () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+    waterfallMock.mockReset();
+  });
+
+  const STOOD = {
+    id: 'v', name: 'Вачкажец', description: VACH_DESCRIPTION, kuzmich_review: VACH_REVIEW,
+    hazard_types: ['wildlife', 'weather'], profile_source: 'type_template', altitude_m: null,
+  };
+  const CLEAN = { ...STOOD, id: 'c', name: 'Озеро', description: 'Озеро в кратере.', kuzmich_review: 'Озеро в кратере — тихое место.' };
+  const ON_DIARY = { ...CLEAN, id: 'd', name: 'Сопка', description: 'Вчера я поднялся на сопку, мы шли три часа.', kuzmich_review: 'Сопка у дороги.' };
+
+  it('снимает заметку с уликой и заметку по описанию-дневнику; чистую не трогает', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      const s = String(sql);
+      if (s.includes("btrim(p.kuzmich_review) <> ''")) return { rows: [STOOD, CLEAN, ON_DIARY] };
+      if (s.includes('unnest(')) return { rows: [], rowCount: 2 };
+      throw new Error(`неожиданный запрос: ${s}`);
+    });
+    const r = await recheckExistingReviews();
+    expect(r).toEqual({ checked: 3, reset: 2, reasons: { evidence: 1, diary_description: 1 } });
+    const upd = queryMock.mock.calls.find((c) => String(c[0]).includes('unnest('))!;
+    expect(String(upd[0])).toMatch(/SET kuzmich_review = NULL/);
+    // Снимается ровно проверенный текст: исправленное рукой за это время не трогается.
+    expect(String(upd[0])).toMatch(/AND p\.kuzmich_review = s\.review/);
+    expect(upd[1]).toEqual([['v', 'd'], [VACH_REVIEW, 'Сопка у дороги.']]);
+  });
+
+  it('снимать нечего — записи нет вовсе', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [CLEAN] });
+    const r = await recheckExistingReviews();
+    expect(r.reset).toBe(0);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('прогон агента начинается с перепроверки и называет, сколько снято', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      const s = String(sql);
+      if (s.includes("btrim(p.kuzmich_review) <> ''")) return { rows: [STOOD] };
+      if (s.includes('unnest(')) return { rows: [], rowCount: 1 };
+      if (s.includes('kuzmich_review IS NULL')) return { rows: [] };
+      throw new Error(`неожиданный запрос: ${s}`);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = await runKuzmichPlaceEnricher(20);
+    expect(r).toMatchObject({ reset: 1, recheck_failed: false, processed: 0 });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('сняты на перезапись'), expect.objectContaining({ reset: 1 }));
+    warn.mockRestore();
+  });
+
+  it('перепроверка не выполнилась — «не смог» в ответе и в логе, новые заметки пишутся', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      const s = String(sql);
+      if (s.includes("btrim(p.kuzmich_review) <> ''")) throw Object.assign(new Error('down'), { code: '08006' });
+      if (s.includes('kuzmich_review IS NULL')) return { rows: [] };
+      throw new Error(`неожиданный запрос: ${s}`);
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await runKuzmichPlaceEnricher(20);
+    expect(r).toMatchObject({ reset: 0, recheck_failed: true });
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('перепроверка стоящих заметок'), expect.objectContaining({ code: '08006' }));
+    err.mockRestore();
+  });
+
+  it('правило перезаписи: улика или описание-дневник', () => {
+    const facts = { description: VACH_DESCRIPTION, hazardCodes: [], altitudeM: null };
+    expect(reviewRewriteReason(VACH_REVIEW, facts)).toBe('evidence');
+    expect(reviewRewriteReason('Массив выточил ледник.', facts)).toBeNull();
+    expect(reviewRewriteReason('Сопка у дороги.', { ...facts, description: 'Я поднялся сюда вчера.' })).toBe('diary_description');
   });
 });
 
@@ -156,6 +255,7 @@ describe('перепись заметок', () => {
     const body = await res.json();
     expect(body.reviews).toEqual({ with_evidence: 1, no_evidence: 1, empty: 1, missing: 1 });
     expect(body.by_flag).toEqual({ diary: 0, number_not_in_data: 1, hazard_not_in_data: 1 });
+    expect(body.rewrite_queue).toEqual({ evidence: 1, diary_description: 0 });
     expect(body.items[0]).toMatchObject({ slug: 'vachkazhets', hazards: ['bears'] });
     for (const [sql] of queryMock.mock.calls) expect(String(sql)).not.toMatch(/UPDATE|INSERT|DELETE/i);
   });

@@ -84,6 +84,53 @@ describe('enrichDescriptions', () => {
   });
 });
 
+describe('проверка после модели (владелец 14.10: «3 да»)', () => {
+  const TUPIKIN = 'Тупикин ключ — короткий пеший маршрут к одному из живописных водопадов Камчатки, '
+    + 'расположенному в долине реки Паратунка. Тропа начинается от старой дороги к Паратунским горячим '
+    + 'источникам и проходит через смешанный лес. Длина пути в одну сторону составляет около 2,5 километров, '
+    + 'перепад высот небольшой — до 100 метров.';
+
+  it('описание, достроенное по названию (чужое место, числа), не пишется — и причина названа', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (/SELECT id, title/.test(sql)) return { rows: [{ ...ROW, title: 'Тупикин ключ', location_type: null, category: 'trekking' }] };
+      if (/COUNT\(\*\) as cnt/.test(sql)) return { rows: [{ cnt: '1' }] };
+      return { rows: [] };
+    });
+    qualityMock.mockResolvedValue(TUPIKIN);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const json = await (await enrichDescriptions(20, false, false)).json();
+    expect(json).toMatchObject({ improved: 0, rejected: 1, errors: 0 });
+    expect(queryMock.mock.calls.some(c => /UPDATE agent_route_knowledge/.test(c[0] as string))).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('сказано сверх данных'),
+      expect.objectContaining({ names: expect.arrayContaining(['Паратунка']), numbers: expect.arrayContaining(['2,5', '100']) }));
+    warn.mockRestore();
+  });
+
+  it('пересказ названия и типа без новых имён и чисел — пишется', async () => {
+    qualityMock.mockResolvedValue('Бухта Калыгирь — бухта на побережье Камчатки. Подъезд к берегу зависит от погоды и '
+      + 'состояния грунтовых дорог, поэтому поездку стоит планировать заранее и уточнять обстановку перед выездом.');
+    const json = await (await enrichDescriptions(20, false, false)).json();
+    expect(json).toMatchObject({ improved: 1, rejected: 0 });
+  });
+
+  it('прежнее описание — путевая заметка: модель не зовётся, дополнять нечего', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (/SELECT id, title/.test(sql)) return { rows: [{ ...ROW, description: 'Вчера я поднялся к бухте, мы шли берегом.' }] };
+      if (/COUNT\(\*\) as cnt/.test(sql)) return { rows: [{ cnt: '1' }] };
+      return { rows: [] };
+    });
+    const json = await (await enrichDescriptions(20, false, false)).json();
+    expect(qualityMock).not.toHaveBeenCalled();
+    expect(json).toMatchObject({ improved: 0, skipped: 1 });
+  });
+
+  it('очередь не стоит на месте: отказы не занимают партию навсегда', async () => {
+    await enrichDescriptions(20, false, false);
+    const pick = String(queryMock.mock.calls.find(c => /SELECT id, title/.test(c[0] as string))![0]);
+    expect(pick).not.toMatch(/ELSE 1 END, title/);
+  });
+});
+
 describe('структурно: цены не выдумываются', () => {
   it('в источнике нет генерации price_from и ценовых подсказок модели', async () => {
     const fs = await import('node:fs');

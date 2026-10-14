@@ -32,7 +32,7 @@ import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { descriptionVoice } from '@/lib/places/description-voice';
-import { reviewClaims } from '@/lib/kuzmich/review-claims';
+import { reviewClaims, reviewRewriteReason, type RewriteReason } from '@/lib/kuzmich/review-claims';
 
 export interface KuzmichPlaceEnricherResult {
   processed: number;
@@ -41,7 +41,84 @@ export interface KuzmichPlaceEnricherResult {
   /** Заметки с уликой выдумки — не сохранены (место останется без заметки до следующего прогона). */
   rejected: number;
   errors: number;
+  /** Стоявшие заметки, снятые перепроверкой в очередь на перезапись. */
+  reset: number;
+  /** Перепроверка не выполнилась — «снято 0» тогда не значит «снимать нечего». */
+  recheck_failed: boolean;
   duration_ms: number;
+}
+
+interface ReviewedPlaceRow {
+  id: string;
+  name: string;
+  description: string | null;
+  kuzmich_review: string;
+  hazard_types: string[] | null;
+  profile_source: string | null;
+  altitude_m: number | null;
+}
+
+/**
+ * Перепроверка уже стоящих заметок — тем же правилом, которым агент судит
+ * новую (14.10, слово владельца «1 да»).
+ *
+ * Перепись 14.10 (`/api/cron/kuzmich-review-census`): 169 из 375 заметок
+ * говорили то, чего нет в данных места, — опасности из шаблона 070, числа,
+ * рассказ от первого лица. Проверка после модели остановила НОВЫЕ выдумки, а
+ * стоявшие она не видела. Теперь каждый прогон сначала снимает заметки, не
+ * прошедшие проверку, в NULL — карточка перестаёт их показывать сразу, — и
+ * они встают в очередь этого же агента: где модель скажет верно, заметка
+ * вернётся, а выдумку проверка не пропустит.
+ *
+ * Снимается ровно тот текст, что проверялся (`kuzmich_review = $текст`):
+ * заметку, исправленную за эти секунды рукой, перепроверка не тронет. Пустая
+ * строка — заметка, снятая решением человека, — не перепроверяется вовсе.
+ */
+export async function recheckExistingReviews(): Promise<{ checked: number; reset: number; reasons: Record<RewriteReason, number> }> {
+  const { rows } = await pool.query<ReviewedPlaceRow>(
+    `SELECT p.id::text AS id, p.name, p.description, p.kuzmich_review,
+            lsp.hazard_types, lsp.profile_source, lsp.altitude_m
+       FROM places p
+       LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
+      WHERE p.is_visible = TRUE
+        AND p.merged_into_id IS NULL
+        AND p.kuzmich_review IS NOT NULL
+        AND btrim(p.kuzmich_review) <> ''`,
+  );
+
+  const reasons: Record<RewriteReason, number> = { evidence: 0, diary_description: 0 };
+  const ids: string[] = [];
+  const texts: string[] = [];
+  for (const r of rows) {
+    // Те же данные, что видит агент при записи: описание и произносимый профиль.
+    const honest = honestSafetyFields({
+      hazardTypes: r.hazard_types ?? [],
+      capacityPerDay: null,
+      optimalGroupSize: null,
+      difficultyLevel: null,
+      terrainType: null,
+    }, asProfileSource(r.profile_source));
+    const reason = reviewRewriteReason(r.kuzmich_review, {
+      description: r.description,
+      hazardCodes: honest.hazardTypes,
+      altitudeM: r.altitude_m,
+    });
+    if (reason === null) continue;
+    reasons[reason]++;
+    ids.push(r.id);
+    texts.push(r.kuzmich_review);
+  }
+  if (ids.length === 0) return { checked: rows.length, reset: 0, reasons };
+
+  const { rowCount } = await pool.query(
+    `UPDATE places p
+        SET kuzmich_review = NULL, updated_at = NOW()
+       FROM unnest($1::text[], $2::text[]) AS s(id, review)
+      WHERE p.id::text = s.id
+        AND p.kuzmich_review = s.review`,
+    [ids, texts],
+  );
+  return { checked: rows.length, reset: rowCount ?? 0, reasons };
 }
 
 interface PlaceRow {
@@ -192,16 +269,31 @@ export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPl
   const start = Date.now();
   let enriched = 0, skipped = 0, rejected = 0, errors = 0;
 
-  const places = await loadPlacesNeedingReview(batchSize);
+  // Сначала — стоящие заметки: не прошедшие проверку уходят в очередь ниже.
+  let reset = 0;
+  let recheckFailed = false;
+  try {
+    const recheck = await recheckExistingReviews();
+    reset = recheck.reset;
+    if (reset > 0) {
+      console.warn('[kuzmich-place-enricher] заметки сверх данных места сняты на перезапись', {
+        checked: recheck.checked, reset, reasons: recheck.reasons,
+      });
+    }
+  } catch (err) {
+    recheckFailed = true;
+    logSwallowedFailure('kuzmich-place-enricher', 'перепроверка стоящих заметок', err);
+  }
+
+  // Описание-дневник — не источник фактов: заметка пересказала бы выдумку.
+  // Такие места отсеиваются ДО партии, а не внутри неё: выбор случайный, и
+  // при сотне дневников без заметки они съедали бы большую часть из двадцати.
+  const places = (await loadPlacesNeedingReview(batchSize * 5))
+    .filter((p) => descriptionVoice(p.description).voice !== 'diary')
+    .slice(0, batchSize);
 
   for (const place of places) {
     try {
-      // Описание-дневник — не источник фактов: заметка пересказала бы выдумку.
-      if (descriptionVoice(place.description).voice === 'diary') {
-        skipped++;
-        continue;
-      }
-
       const extraContext = await scrapeAdditionalContext(place);
       const review = await generateKuzmichReview(place, extraContext);
 
@@ -251,6 +343,8 @@ export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPl
     skipped,
     rejected,
     errors,
+    reset,
+    recheck_failed: recheckFailed,
     duration_ms: Date.now() - start,
   };
 }
