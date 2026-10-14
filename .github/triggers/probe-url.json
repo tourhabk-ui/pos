@@ -1,28 +1,46 @@
 {
   "timeout": 90,
-  "run": 864,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Адрес живой карточки парка «Налычево» (slug) и что отвечают две прежние записи парка (c7b5f423 из 102, de03752e — скрыта в 111) — для ссылок статьи летописи. Конфиг записан целиком.",
+  "run": 865,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1248 «Природный парк „Налычево“»: ждёт, пока карточка парка станет «park» (миграция легла), затем читает долину, источники, перевал, страницу парка, статью летописи и снимок партнёра из хранилища. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/places/prirodnyj-park-nalychevo-2",
-    "https://vedarai.ru/places/prirodnyj-park-nalychevo",
-    "https://vedarai.ru/api/places/c7b5f423-7e9a-4c6b-a842-4f3e2d1c8b57",
-    "https://vedarai.ru/api/places/de03752e-d9fd-4e0d-a773-aad729a6f8d7",
-    "https://vedarai.ru/park/nalychevo"
+    "https://vedarai.ru/api/places/ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e",
+    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
+    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
+    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
+    "https://vedarai.ru/park/nalychevo",
+    "https://vedarai.ru/letopis/nalychevo",
+    "https://vedarai.ru/api/images/s3/photos/nalychevo/mestechko-kupalnya-tretya-luzha.jpg"
   ],
+  "until": "\"locationType\":\"park\"",
+  "retries": 55,
+  "retryDelay": 60,
   "grep": [
-    "Природный парк Налычево",
+    "\"locationType\":\"park\"",
+    "\"lat\":53.4571927",
+    "Природный парк «Налычево» лежит в 25 километрах",
+    "Налычевская долина — долина реки Налычевой",
+    "Налычевские источники — группа термальных источников",
+    "\"kuzmichReview\":\"\"",
+    "\"zone\":\"natural_park\"",
+    "\"permitRequired\":false",
+    "\"permitRequired\":true",
+    "без разрешения — только территория Авачинского перевала",
+    "Территория Авачинского перевала — зона свободного посещения",
+    "владелец платформы",
+    "Местечко Камчатка",
+    "\"source\":\"manual\"",
+    "Завойко, 33",
+    "v_pomow_gostyu/usloviya_poseweniya",
     "Природный парк «Налычево»",
-    "ce59fcc5",
-    "c7b5f423",
-    "de03752e",
-    "canonical"
+    "Купальня «Третья лужа» на кордоне «Центральный»",
+    "Летопись",
+    "commons.wikimedia.org"
   ],
   "around": [
-    "rel=\"canonical\""
+    "\"photoAttribution\"",
+    "\"photoCount\""
   ],
-  "aroundLines": 1,
+  "aroundLines": 4,
   "aroundHits": 1,
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 300
+  "bytes": 400
 }
