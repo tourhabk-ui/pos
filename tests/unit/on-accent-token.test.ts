@@ -32,4 +32,10 @@ describe('--on-accent', () => {
     expect(home).not.toMatch(/background:var\(--accent\);color:(?!var\(--on-accent\))/);
     expect(read('components/marketplace/MarketplaceClient.tsx')).toMatch(/CHIP_ON = '[^']*text-\[var\(--on-accent\)\]/);
   });
+
+  it('чипы фильтров /map — тоже (Lighthouse, прогон 14: белый на лаве)', () => {
+    const map = read('app/map/_MapPageClient.tsx');
+    expect(map).not.toMatch(/bg-\[var\(--accent\)\] text-white\b/);
+    expect(map).toMatch(/bg-\[var\(--accent\)\] text-\[var\(--on-accent\)\]/);
+  });
 });

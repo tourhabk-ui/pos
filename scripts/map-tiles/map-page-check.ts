@@ -20,10 +20,11 @@
  *
  *   npx tsx scripts/map-tiles/map-page-check.ts [--path /map] [--shot .cache/map-page.jpg]
  *   --layout-shifts — только сдвиги вёрстки и раскладка блоков за 12 с, без кадров (14.10)
+ *   --lighthouse — условия Lighthouse: экран, плотность, светлая тема, строка PSI, UTC (14.10)
  */
 import { chromium } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { SHIFT_OBSERVER, describeShift, layoutChanges, totalShift, type LayoutSnap, type ShiftEntry } from './layout-shifts';
+import { LIGHTHOUSE_PROFILE, SHIFT_OBSERVER, describeShift, layoutChanges, totalShift, type LayoutSnap, type ShiftEntry } from './layout-shifts';
 
 const SITE = process.env.SITE_URL ?? 'https://vedarai.ru';
 
@@ -41,20 +42,26 @@ async function main(): Promise<number> {
     // @playwright/test; на раннере переменной нет — браузер по умолчанию.
     ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   });
+  // --lighthouse — условия Lighthouse вместо телефона владельца (14.10):
+  // сдвиг 0,171 на /map он мерит, а этот скрипт в своих условиях — нет.
+  const lh = process.argv.includes('--lighthouse');
+  if (lh) console.log('условия Lighthouse: 412×823, плотность 1,75, светлая тема, строка PSI, UTC');
   const ctx = await browser.newContext({
-    viewport: { width: 412, height: 860 },
-    deviceScaleFactor: 1,
+    viewport: lh ? LIGHTHOUSE_PROFILE.viewport : { width: 412, height: 860 },
+    deviceScaleFactor: lh ? LIGHTHOUSE_PROFILE.deviceScaleFactor : 1,
     isMobile: true,
     hasTouch: true,
-    locale: 'ru-RU',
-    colorScheme: 'dark',
+    locale: lh ? LIGHTHOUSE_PROFILE.locale : 'ru-RU',
+    colorScheme: lh ? LIGHTHOUSE_PROFILE.colorScheme : 'dark',
     // Часовой пояс телефона (04.10, React #418 на главной): сервер рендерит в
     // UTC, телефон владельца — на Камчатке. По умолчанию — Камчатка.
-    timezoneId: arg('--tz', 'Asia/Kamchatka'),
+    timezoneId: arg('--tz', lh ? LIGHTHOUSE_PROFILE.timezoneId : 'Asia/Kamchatka'),
     // Телефонный UA: главная выбирает дерево по User-Agent (lib/home/
     // device-tree), и с UA раннера отдавала десктоп — ленты туров там нет
     // (прогон 10, 04.10: «лента туров не найдена» при правильном коде).
-    userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
+    userAgent: lh
+      ? LIGHTHOUSE_PROFILE.userAgent
+      : 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
     // С отрезанным хранилищем service worker отключён: его запросы мимо
     // page.route, и офлайн-кэш сайта отдал бы рельеф, будто связь есть
     // (прогон 7: «отрезанный» вариант нарисовал всё из кэша).

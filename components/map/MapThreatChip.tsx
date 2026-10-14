@@ -12,6 +12,10 @@
  * цвета предупреждения, а не заливкой. Цвета текста — --glass-fg /
  * --glass-fg-muted, а не data-theme="dark": /map проверяет token-gate, и
  * переопределение --accent/--danger на элементе для него — нарушение.
+ *
+ * Стекло плотное (fx-glass-dense): на плашке текст, а под ней светлая карта
+ * или её подложка. На тонком стекле (чёрный 40%) строка «Действующих тревог
+ * нет» давала 3,5:1 — Lighthouse, прогон 14 (14.10), color-contrast на /map.
  */
 
 import { useEffect, useState } from 'react';
@@ -74,7 +78,7 @@ export function MapThreatChip() {
     <Link
       href="/safety#radar"
       aria-label={`${summary.label}${summary.detail ? `. ${summary.detail}` : ''}. Открыть радар угроз`}
-      className="fx-glass flex items-start gap-2 max-w-[260px] px-3 py-2 rounded-2xl transition-all duration-200"
+      className="fx-glass-dense flex items-start gap-2 max-w-[260px] px-3 py-2 rounded-2xl transition-all duration-200"
       style={{ borderColor: edge, color: 'var(--glass-fg)' }}
     >
       <Icon className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: summary.state === 'alert' ? 'var(--warning)' : 'var(--glass-fg-muted)' }} aria-hidden="true" />

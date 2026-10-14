@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { VEDAR_ATTRIBUTION } from '@/lib/map/attribution';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const CLIENT = read('app/planning/_PlanningClient.tsx');
@@ -44,7 +45,10 @@ describe('атрибуция своей карты — там, где её ви�
     // Лист: строка по подложке (своя или запасной Leaflet); «Карта»: своя.
     expect(CLIENT).toMatch(/fieldBaseMap\.kind === 'vedar' \? VEDAR_ATTRIBUTION : LEAFLET_ATTRIBUTION/);
     expect(CLIENT.match(/\{VEDAR_ATTRIBUTION\}/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
-    expect(MAP).toMatch(/VEDAR_ATTRIBUTION = '© OpenStreetMap contributors · © Copernicus DEM \(ESA\)'/);
+    // Строка — в lib/map/attribution (14.10: /map берёт её без кода карты),
+    // VedarMap отдаёт ту же дальше.
+    expect(VEDAR_ATTRIBUTION).toBe('© OpenStreetMap contributors · © Copernicus DEM (ESA)');
+    expect(MAP).toMatch(/export \{ VEDAR_ATTRIBUTION \} from '@\/lib\/map\/attribution'/);
   });
 });
 
