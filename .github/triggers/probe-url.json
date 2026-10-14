@@ -1,13 +1,17 @@
 {
   "timeout": 60,
-  "run": 795,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса по имени — НАЧАЛО ответа (итоги by_holder, would_assign_total, shadowed_by_section и первые маршруты по алфавиту): проба 794 сохранила в check-run только середину тела.",
+  "run": 796,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса по имени ПОСЛЕ выката #2461 (миграция 1239: <имя>-marshrut и адрес скрытого тёзки — видимому). Датчик свежести — /routes/nalychevskoe-koltso: до выката адрес держит скрытый маршрут (404), после — видимый тёзка (200).",
   "urls": [
+    "https://vedarai.ru/routes/nalychevskoe-koltso",
     "https://vedarai.ru/api/cron/route-slug-census"
   ],
+  "retries": 20,
+  "retryDelay": 60,
   "bytes": 12000,
   "grep": [
     "\"ok\":true",
-    "would_assign_total\":0"
+    "would_assign_total\":0",
+    "\"missing_total\":1,"
   ]
 }
