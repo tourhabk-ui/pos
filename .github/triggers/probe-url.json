@@ -1,23 +1,22 @@
 {
   "timeout": 90,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Карточки самих парков «Ключевской» (ef2f45c4) и «Южно-Камчатский» (d9059e8a), записи справочника парков — перед переписью по источникам. Конфиг записан целиком.",
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Четыре места второй партии переписи дневников (Авачинский вулкан, Верблюд, Краеведческие источники, фумарола Дзензура): суть, высота в профиле, источник — прежде чем писать справку. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/ef2f45c4-5aab-41b9-a8a7-966eb7354cab",
-    "https://vedarai.ru/api/places/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
-    "https://vedarai.ru/api/parks/klyuchevskoy",
-    "https://vedarai.ru/api/parks/yuzhno-kamchatsky"
+    "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
+    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
+    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0"
   ],
   "around": [
-    "\"accessInfo\"",
-    "\"kuzmichReview\"",
-    "\"eco\":",
-    "\"safety\":",
-    "\"photoCount\""
+    "\"essence\"",
+    "\"altitudeM\"",
+    "\"sourceName\"",
+    "\"hazardTypes\""
   ],
-  "aroundLines": 6,
+  "aroundLines": 2,
   "aroundHits": 1,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 3500,
-  "run": 867
+  "bytes": 700,
+  "run": 868
 }
