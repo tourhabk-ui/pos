@@ -71,6 +71,11 @@ const LH12 = {
       { url: 'https://mc.yandex.ru/metrika/tag.js', wastedBytes: 40960 },
     ] } },
     'long-tasks': { details: { items: [{ duration: 2100 }, { duration: 640 }, { duration: 95 }] } },
+    'layout-shifts': { details: { items: [
+      { node: { selector: 'div.chips' }, score: 0.021 },
+      { node: { selector: 'div.map-panel > p' }, score: 0.142,
+        subItems: { type: 'subitems', items: [{ cause: 'Web font loaded' }, { cause: 'Injected iframe' }] } },
+    ] } },
     'total-byte-weight': { numericValue: 3145728 },
   },
 };
@@ -104,6 +109,21 @@ describe('lighthouse_summary: строка таблицы и «что тормо
     expect(d).toContain('неиспользуемый JS: 450 КБ (/_next/static/chunks/maplibre-9f8e.js 200 КБ; mc.yandex.ru/metrika/tag.js 40 КБ)');
     expect(d).toContain('длинных задач: 3, самая длинная 2 100 мс');
     expect(d).toContain('вес страницы: 3 072 КБ');
+  });
+
+  it('сдвиги вёрстки: самый сильный первым, с долей и причиной', () => {
+    const { details } = run(LH12, 'lh12-cls');
+    const line = (details ?? '').split('\n').find((l) => l.startsWith('- сдвиги вёрстки')) ?? '';
+    expect(line).toBe('- сдвиги вёрстки (CLS 0.153): `div.map-panel > p` 0.142 (Web font loaded); `div.chips` 0.021');
+  });
+
+  it('сдвиги в формате Lighthouse 10–11 (layout-shift-elements, без причин) — тоже названы', () => {
+    const { ['layout-shifts']: _drop, ...rest } = LH12.audits;
+    void _drop;
+    const old = { ...LH12, audits: { ...rest,
+      'layout-shift-elements': { details: { items: [{ node: { nodeLabel: 'Панель места' }, score: 0.09 }] } } } };
+    const { details } = run(old, 'lh11-cls');
+    expect(details ?? '').toContain('- сдвиги вёрстки (CLS 0.153): `Панель места` 0.090');
   });
 
   it('отчёт Lighthouse 10–11: узел LCP прямо в таблице — тоже найден', () => {
