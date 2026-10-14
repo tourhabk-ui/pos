@@ -1650,9 +1650,20 @@ export async function callYandexGPT(messages: ChatMessage[]): Promise<string | n
       recordAiLegFailure('yandex', httpFailureReason(res.status, await res.text().catch(() => '')));
       return null;
     }
-    const data = await res.json();
-    const text: string | undefined =
-      data?.result?.alternatives?.[0]?.message?.text;
+    const data = await res.json() as {
+      result?: { alternatives?: Array<{ status?: string; message?: { text?: string } }> };
+    };
+    const alternative = data?.result?.alternatives?.[0];
+    // Фильтр Яндекса отвечает не ошибкой, а заготовкой «Я не могу обсуждать
+    // эту тему…» со статусом ALTERNATIVE_STATUS_CONTENT_FILTER. Это отказ, а
+    // не ответ: во втором эшелоне водопада гонку выигрывает любой непустой
+    // текст, а YandexGPT там самый быстрый — заготовка ушла бы туристу как
+    // ответ. Найдено пробой знания, прогон 5 (14.10).
+    if (alternative?.status === 'ALTERNATIVE_STATUS_CONTENT_FILTER') {
+      recordAiLegFailure('yandex', 'content_filter: фильтр Яндекса не пропустил вопрос или ответ');
+      return null;
+    }
+    const text = alternative?.message?.text;
     if (!text?.trim()) { recordAiLegFailure('yandex', 'empty'); return null; }
     return text.trim();
   } catch (e) {
