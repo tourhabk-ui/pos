@@ -1,24 +1,17 @@
 {
   "timeout": 60,
-  "run": 805,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «и в летописи сделай красивую страницу» — статья Летописи Камчатки о Кроноцком заповеднике. Источники для того, чего нет в статье о самом заповеднике: открытие Долины гейзеров (1941), оползень 2007, объект ЮНЕСКО «Вулканы Камчатки», официальная история на kronoki.ru.",
+  "run": 798,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса после #2464: кто держит zelenovskie-ozerki-marshrut (поле marshrut_holder). Маркер свежести — само поле: до выката его в ответе нет.",
   "urls": [
-    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0+%D0%B3%D0%B5%D0%B9%D0%B7%D0%B5%D1%80%D0%BE%D0%B2&format=json&formatversion=2&utf8=1&redirects=1",
-    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%D1%8B+%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B8&format=json&formatversion=2&utf8=1&redirects=1",
-    "https://kronoki.ru/ru/about/history/"
+    "https://vedarai.ru/api/cron/route-slug-census"
   ],
-  "bytes": 24000,
+  "until": "marshrut_holder",
+  "retries": 20,
+  "retryDelay": 60,
+  "bytes": 12000,
   "grep": [
-    "1941",
-    "2007",
-    "1996",
-    "1984",
-    "биосфер"
-  ],
-  "around": [
-    "1984",
-    "биосферн"
-  ],
-  "aroundLines": 2,
-  "aroundHits": 3
+    "\"ok\":true",
+    "would_assign_total\":0",
+    "\"marshrut_holder\":{"
+  ]
 }
