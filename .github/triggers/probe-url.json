@@ -1,12 +1,24 @@
 {
   "timeout": 60,
-  "run": 836,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Масштаб выдумок Кузьмича (владелец: «кузьмич навыдумывал много»): перепись заметок «Кузьмич о месте» — новый эндпоинт kuzmich-review-census (ba06010); 404 до выката — ждём ключ by_flag. Конфиг записан целиком.",
+  "run": 837,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Новость от владельца: природный парк «Вулканы Камчатки» получил статус национального (объединены «Южно-Камчатский» и «Ключевской»). Первоисточник: ленты документов и новостей Правительства, главная KamchatkaMedia (ссылка на новость). allowStale. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/kuzmich-review-census"
+    "https://government.ru/docs/",
+    "https://government.ru/news/",
+    "https://kamchatkamedia.ru/"
   ],
-  "until": "\"by_flag\"",
-  "retries": 40,
-  "retryDelay": 60,
-  "bytes": 60000
+  "allowStale": true,
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 3000,
+  "text": true,
+  "around": [
+    "Вулканы Камчатки",
+    "национальн",
+    "Южно-Камчатск",
+    "Ключевск"
+  ],
+  "aroundLines": 3,
+  "aroundBefore": 2,
+  "aroundHits": 6
 }
