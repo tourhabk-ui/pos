@@ -5,6 +5,7 @@ import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Pho
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 import type { ParkPageData } from '@/lib/parks/park-page';
+import { parkKindLabel } from '@/lib/parks/park-kind';
 
 /**
  * Региональный номер МЧС на карточке экстренного вызова берётся из ЕДИНОГО
@@ -59,7 +60,7 @@ export default function ParkClient({ park }: { park: ParkPageData }) {
 
       {/* Hero */}
       <div style={{ marginBottom: 28 }}>
-        <p className="ds-label" style={{ marginBottom: 6 }}>Природный парк · Камчатка</p>
+        <p className="ds-label" style={{ marginBottom: 6 }}>{parkKindLabel(park.displayName)} · Камчатка</p>
         <h1 className="ds-h1" style={{ marginBottom: 12 }}>{park.displayName}</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.6 }}>{park.description}</p>
       </div>

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, BookOpen } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, MapPin, Route } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG } from '@/lib/chronicle/articles';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -79,6 +79,30 @@ export default async function ChronicleArticlePage({ params }: Props) {
           </h1>
           <p className="text-lg text-[var(--text-secondary)] leading-relaxed mb-10">{a.lead}</p>
 
+          {/* Главные даты — оглавление по годам (14.10). Каждая веха
+              пересказывает раздел ниже, год стоит в тексте статьи. */}
+          {a.timeline && a.timeline.length > 0 && (
+            <section aria-labelledby="chronicle-dates" className="mb-12">
+              <h2 id="chronicle-dates" className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-4">
+                Главные даты
+              </h2>
+              <ol className="ml-1.5 border-l border-[var(--border)]">
+                {a.timeline.map((d, i) => (
+                  <li key={`${d.year}-${i}`} className="relative pl-6 pb-5 last:pb-0">
+                    <span aria-hidden="true" className="absolute -left-[5px] top-2 h-2.5 w-2.5 rounded-full bg-[var(--accent)]" />
+                    <p
+                      className="text-2xl font-bold text-[var(--accent)] leading-none"
+                      style={{ fontFamily: 'var(--font-playfair)' }}
+                    >
+                      {d.year}
+                    </p>
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed mt-1.5">{d.event}</p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+
           {a.sections.map((section) => (
             <section key={section.heading} className="mb-10">
               <h2
@@ -99,6 +123,29 @@ export default async function ChronicleArticlePage({ params }: Props) {
               )}
             </section>
           ))}
+
+          {/* Куда дальше на платформе: карточка места, маршруты. */}
+          {a.links && a.links.length > 0 && (
+            <nav aria-label="На карте и в маршрутах" className="mt-12 grid gap-3 sm:grid-cols-2">
+              {a.links.map((l) => {
+                const Icon = l.href.startsWith('/places/') ? MapPin : Route;
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className="ds-card block transition-all duration-200 hover:bg-[var(--bg-hover)]"
+                  >
+                    <span className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">
+                      <Icon className="w-4 h-4 shrink-0 text-[var(--accent)]" aria-hidden="true" />
+                      {l.label}
+                      <ArrowRight className="w-4 h-4 ml-auto shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                    </span>
+                    <span className="block text-sm text-[var(--text-secondary)] mt-1">{l.hint}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
 
           <section className="ds-card mt-12">
             <h2 className="flex items-center gap-2 font-semibold text-[var(--text-primary)] mb-3">

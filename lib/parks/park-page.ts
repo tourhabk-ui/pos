@@ -15,6 +15,7 @@ import { pool } from '@/lib/db-pool';
 
 export const PARK_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
+
 export interface ParkRoute {
   /** id в пространстве карточки маршрута: COALESCE(ark_id, id). */
   id: string;
