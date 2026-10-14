@@ -34,7 +34,9 @@ const DESC_CUT = 'Озеро Курильское: медведи, нерка, �
 
 // Навигация как на сайте: каждая страница ссылается на все прочие, кроме сироты.
 const NAV = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone',
-  '/places/cut', '/places/bad-og', '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/long-title', '/list'];
+  '/places/cut', '/places/bad-og', '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/long-title', '/list',
+  // Как таб-бар Ведара: ссылка на /planning только с параметром режима, canonical варианта — /planning.
+  '/field?mode=trail'];
 const nav = () => `<nav>${NAV.map((p) => `<a href="${p}#top">${p}</a>`).join('')}</nav>`;
 
 function page(o: { title: string; desc?: string; canonicalIn?: 'head' | 'body' | 'none'; robots?: string[]; h1?: string; og?: string; path: string; streamed?: boolean; img?: string; ld?: string; links?: string[] }): string {
@@ -68,7 +70,8 @@ beforeAll(async () => {
     if (url === '/robots.txt') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`); return; }
     if (url === '/sitemap.xml') {
       const locs = ['/places/good', '/places/body-canonical', '/routes/double-robots', '/routes/soft', '/routes/moved', '/operators/gone', '/places/cut', '/places/bad-og',
-        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/orphan', '/places/long-title', '/list', '/places/deep']
+        '/places/streamed', '/places/limited', '/places/no-alt', '/places/og-head', '/places/bad-ld', '/places/orphan', '/places/long-title', '/list', '/places/deep',
+        '/field', '/places/twin', '/places/twin-body']
         .map((p) => `<url><loc>${base}${p}</loc></url>`).join('');
       res.writeHead(200, { 'content-type': 'application/xml' });
       res.end(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs}</urlset>`);
@@ -80,7 +83,7 @@ beforeAll(async () => {
       if (req.method === 'HEAD') { res.writeHead(401); res.end(); return; }
       res.writeHead(200, { 'content-type': 'image/jpeg' }); res.end('jpg'); return;
     }
-    if (url === '/places/good' || url === '/') return html(page({ path: url, title: 'Вулкан Горелый — место на Камчатке', desc: DESC_OK }));
+    if (url === '/places/good' || url === '/') return html(page({ path: url, title: 'Вулкан Горелый — место на Камчатке', desc: DESC_OK, links: ['/places/twin?ref=x', '/places/twin-body?ref=x'] }));
     if (url === '/places/body-canonical') return html(page({ path: url, title: 'Озеро Толмачёва', desc: DESC_OK + ' Озеро.', canonicalIn: 'body' }));
     if (url === '/routes/double-robots') return html(page({ path: url, title: 'Мутновский', desc: DESC_OK + ' Маршрут.', robots: ['index, follow', 'noindex'] }));
     if (url === '/routes/soft') return html(page({ path: url, title: 'Маршрут не найден', desc: DESC_OK + ' Нет.' }));
@@ -99,11 +102,20 @@ beforeAll(async () => {
       ld: '{"@type":"TouristAttraction","name":"Озеро","aggregateRating":{"@type":"AggregateRating","ratingValue":4.5,"reviewCount":0}}' }));
     // Список: первая страница в sitemap, продолжения — нет (как /routes Ведара).
     if (url === '/list') return html(page({ path: url, title: 'Все места', desc: DESC_OK + ' Список.', links: ['/list?page=2', '/list?kind=x&page=2'] }));
-    if (url === '/list?page=2') return html(page({ path: url, title: 'Все места — страница 2', desc: DESC_OK + ' Два.', links: ['/places/deep', '/list?page=3'] }));
+    // canonical второй страницы — на первую: так делать нельзя (у продолжения своё содержимое), обход это называет.
+    if (url === '/list?page=2') return html(page({ path: '/list', title: 'Все места — страница 2', desc: DESC_OK + ' Два.', links: ['/places/deep', '/list?page=3'] }));
     if (url === '/list?page=3') return html(page({ path: url, title: 'Все места — страница 3', desc: DESC_OK + ' Три.', links: ['/list?page=2'] }));
     // Отфильтрованный список — другой список: по нему перепись не ходит, иначе сирота перестала бы быть сиротой.
     if (url === '/list?kind=x&page=2') return html(page({ path: url, title: 'Фильтр', desc: DESC_OK + ' Фильтр.', links: ['/places/orphan'] }));
     if (url === '/places/deep') return html(page({ path: url, title: 'Озеро Кроноцкое — глубоко', desc: DESC_OK + ' Глубоко.' }));
+    // Полевой экран: ссылки на него — только с параметром режима; вариант склеивается canonical'ом в <head>.
+    if (url === '/field') return html(page({ path: url, title: 'Полевой экран', desc: DESC_OK + ' Поле.' }));
+    if (url === '/field?mode=trail') return html(page({ path: '/field', title: 'Полевой экран', desc: DESC_OK + ' Поле.' }));
+    // Двойники-обманки: ссылка тоже только с параметром, но вариант на адрес без параметров НЕ указывает —
+    // у одного canonical на самого себя, у другого нужный canonical стоит в <body>, где поисковик его не берёт.
+    if (url === '/places/twin' || url === '/places/twin-body') return html(page({ path: url, title: `Двойник ${url}`, desc: DESC_OK + ` ${url}.` }));
+    if (url === '/places/twin?ref=x') return html(page({ path: url, title: 'Двойник с параметром', desc: DESC_OK + ' Реф.' }));
+    if (url === '/places/twin-body?ref=x') return html(page({ path: '/places/twin-body', title: 'Двойник, canonical в body', desc: DESC_OK + ' Тело.', canonicalIn: 'body' }));
     // На сироту не ссылается ни одна страница — она известна только из sitemap.
     if (url === '/places/orphan') return html(page({ path: url, title: 'Вулкан Ключевской', desc: DESC_OK + ' Ключевской.' }));
     if (url === '/places/limited') {
@@ -123,6 +135,8 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+type CrawlIssue = { severity: string; what: string; urls: string[] };
+
 async function audit(extra: string[] = []) {
   limitedOnce = false;
   const out = join(dir, `a-${Date.now()}.json`);
@@ -132,10 +146,13 @@ async function audit(extra: string[] = []) {
   const json = JSON.parse(readFileSync(out, 'utf-8')) as {
     census: { checked: number; ok: number; rate_limited: number; issues: { what: string; count: number; examples: string[] }[];
       by_section: Record<string, Record<string, number>>; og_images: { bad: string[]; head_only: string[] };
-      paged: { fetched: number; errors: string[] } };
+      paged: { fetched: number; errors: string[] }; variants: { fetched: number; canonical_here: number; errors: string[] } };
+    issues: CrawlIssue[];
   };
-  return { stdout, census: json.census };
+  return { stdout, census: json.census, crawl: json.issues };
 }
+
+const ORPHAN = 'сирота (ни одной ссылки ни со страниц sitemap, ни с продолжений списков, ни через адрес с параметрами)';
 
 const hits = (c: { issues: { what: string; examples: string[] }[] }, what: string) =>
   (c.issues.find((i) => i.what === what)?.examples ?? []).map((e) => e.split(' ')[0].replace(/^http:\/\/127\.0\.0\.1:\d+/, ''));
@@ -143,7 +160,7 @@ const hits = (c: { issues: { what: string; examples: string[] }[] }, what: strin
 describe('перепись sitemap: каждый дефект назван, здоровое не тронуто', () => {
   it('проходит все адреса sitemap без перехода по редиректу', async () => {
     const { census } = await audit();
-    expect(census.checked).toBe(17);
+    expect(census.checked).toBe(20);
     expect(hits(census, 'не 200 в sitemap').sort()).toEqual(['/operators/gone', '/routes/moved']);
     // 429 — ждёт и повторяет, но счёт таких ответов называет.
     expect(census.rate_limited).toBe(1);
@@ -197,7 +214,22 @@ describe('перепись sitemap: каждый дефект назван, зд
 
   it('сирота — страница, на которую не ссылается ни одна другая', async () => {
     const { census } = await audit();
-    expect(hits(census, 'сирота (ни одной ссылки ни со страниц sitemap, ни с продолжений списков)')).toEqual(['/places/orphan']);
+    expect(hits(census, ORPHAN).sort()).toEqual(['/places/orphan', '/places/twin', '/places/twin-body']);
+  }, 60_000);
+
+  it('обход: вариант с параметром, склеенный с адресом, — не находка; продолжение списка, склеенное с первой, — находка', async () => {
+    const { crawl } = await audit(['--max-pages', '60']);
+    const strip = (x: string) => x.replace(/http:\/\/127\.0\.0\.1:\d+/g, '');
+    const elsewhere = crawl.find((i) => i.what === 'canonical указывает на другой адрес');
+    expect(elsewhere?.severity).toBe('high');
+    expect((elsewhere?.urls ?? []).map(strip)).toEqual(['/list?page=2 -> /list']);
+  }, 60_000);
+
+  it('ссылки только через адрес с параметрами: не сирота, если canonical варианта в <head> ведёт сюда', async () => {
+    const { census } = await audit();
+    expect(hits(census, 'ссылки только через адрес с параметрами (его canonical ведёт сюда)')).toEqual(['/field']);
+    // canonical прочитан у каждого варианта, а не предположен: склеил один из трёх.
+    expect(census.variants).toEqual({ fetched: 3, canonical_here: 1, errors: [] });
   }, 60_000);
 
   it('страницы-продолжения списков — источники ссылок: место со 2-й страницы не сирота, а «глубоко»', async () => {
@@ -213,12 +245,12 @@ describe('перепись sitemap: каждый дефект назван, зд
     for (const i of census.issues) {
       expect({ what: i.what, hit: hits(census, i.what).includes('/places/good') }).toEqual({ what: i.what, hit: false });
     }
-    expect(census.ok).toBe(15);
+    expect(census.ok).toBe(18);
   }, 60_000);
 
   it('разделы считаются по первому сегменту пути', async () => {
     const { census } = await audit();
-    expect(census.by_section['/places/*'].urls).toBe(12);
+    expect(census.by_section['/places/*'].urls).toBe(14);
     expect(census.by_section['/routes/*']['soft-404 (200 с «не найден»)']).toBe(1);
   }, 60_000);
 });
@@ -279,5 +311,28 @@ describe('jsonld_problems: правила разметки — вызовом н
 
   it('битый JSON — так и сказано, а не «ошибок нет»', () => {
     expect(run(['{"@type": "Place", '])).toEqual(['JSON-LD не разбирается']);
+  });
+});
+
+describe('canonical_elsewhere: canonical на другой адрес — вызовом на граничных адресах', () => {
+  const B = 'https://vedarai.ru';
+  const cases: Array<[string, string, string, boolean]> = [
+    // Прогон 7 (14.10): режим полевого экрана читается в браузере, серверный HTML один — склейка задумана.
+    ['вариант с параметром → тот же путь без них', `${B}/planning?mode=trail`, `${B}/planning`, false],
+    ['несколько параметров → тот же путь', `${B}/planning?mode=trail&obs=1`, `${B}/planning`, false],
+    ['canonical на себя', `${B}/places/x?ref=1`, `${B}/places/x?ref=1`, false],
+    ['canonical нет — это другая находка', `${B}/places/x`, '', false],
+    // Продолжение списка склеивать с первой страницей нельзя: у него своё содержимое.
+    ['?page=2 → первая страница списка', `${B}/places?page=2`, `${B}/places`, true],
+    ['вариант → другой путь', `${B}/planning?mode=trail`, `${B}/planner`, true],
+    ['вариант → тот же путь с другим параметром', `${B}/a?x=1`, `${B}/a?y=2`, true],
+    ['адрес без параметров → другой путь', `${B}/routes/a`, `${B}/places/a`, true],
+  ];
+  const call = (final: string, canonical: string) => execFileSync('python3', ['-c',
+    'import importlib.util,sys; s=importlib.util.spec_from_file_location("sa", sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.canonical_elsewhere(sys.argv[2], sys.argv[3]))',
+    SCRIPT, final, canonical], { encoding: 'utf-8' }).trim();
+
+  it.each(cases)('%s', (_name, final, canonical, want) => {
+    expect(call(final, canonical)).toBe(want ? 'True' : 'False');
   });
 });
