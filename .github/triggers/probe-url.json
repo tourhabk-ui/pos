@@ -1,31 +1,35 @@
 {
   "timeout": 60,
-  "run": 832,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Вачкажец: что карточка места показывает сейчас — регистрация МЧС, строка «Разрешение парка», блок режима, отзыв Кузьмича, источник в подвале. Конфиг записан целиком.",
+  "run": 833,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат Вачкажца (46906ed, миграция 1244): страница памятника (датчик свежести — подпись «Памятник природы»), статья летописи, карточка места (режим, правила, отзыв снят, медведи, галерея), карточка лыжного маршрута (разрешение не требуется), снимок из хранилища, адрес публикации постановления по https. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/places/vachkazhets"
+    "https://vedarai.ru/park/vachkazhets",
+    "https://vedarai.ru/letopis/vachkazhets",
+    "https://vedarai.ru/places/vachkazhets",
+    "https://vedarai.ru/routes/visitkamchatka-vachkazhets-mountain-range-ski",
+    "https://vedarai.ru/api/images/s3/photos/vachkazhets/gora-vachkazhets-zimoj.jpg",
+    "https://publication.pravo.gov.ru/Document/View/4100201811120003"
   ],
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 2000,
+  "until": "Памятник природы · Камчатка",
+  "retries": 45,
+  "retryDelay": 60,
+  "bytes": 600,
   "grep": [
-    "МЧС обязательна",
-    "Разрешение парка",
-    "registrationRequired",
+    "Памятник природы · Камчатка",
+    "Разрешение на посещение не нужно",
+    "Разрешение на посещение не требуется",
+    "/letopis/vachkazhets",
+    "Вацкажац",
+    "Спор закончился",
+    "Michael Haing",
     "Экология и охрана природы",
-    "Нужен пропуск",
     "базальтовый",
-    "Источник:",
-    "sourceName",
-    "eco_zone",
-    "\"eco\":"
-  ],
-  "around": [
-    "registrationRequired",
-    "sourceName",
-    "\"eco\""
-  ],
-  "aroundLines": 1,
-  "aroundBefore": 0,
-  "aroundHits": 3
+    "Медведи",
+    "Гора Вачкажец",
+    "Охраняемая территория",
+    "Природный парк:",
+    "Зелёная кнопка",
+    "требует отдельного разрешения",
+    "4100201811120003"
+  ]
 }
