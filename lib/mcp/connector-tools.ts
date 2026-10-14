@@ -58,6 +58,7 @@ import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
+import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -449,7 +450,9 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     r.duration_days ? `Длительность: ${r.duration_days} дн.` : (r.duration_hours ? `Длительность: ${Number(r.duration_hours)} ч` : null),
     r.elevation_gain_m ? `Набор высоты: ${r.elevation_gain_m} м` : null,
     line('Сезон', r.season),
-    r.description,
+    // Сырая выдача модели (VS-JSON) вместо описания — не текст о маршруте
+    // (14.10: «Восхождение на Корякскую сопку» отдавалось JSON с «probability»).
+    r.description && !garbageSignature(r.description) ? r.description : null,
     line('Опасности', r.hazards),
     line('Снаряжение', r.equipment),
     r.mchs_registration_required ? 'Требуется регистрация в МЧС перед выходом.' : null,
@@ -462,7 +465,10 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     title: r.title,
     text,
     url: docUrl('route', r.key, base),
-    metadata: { kind: 'route', difficulty: r.difficulty, distance_km: r.distance_km ? Number(r.distance_km) : null, season: r.season, mchs_registration_required: r.mchs_registration_required ?? null },
+    metadata: { kind: 'route', difficulty: r.difficulty, distance_km: r.distance_km ? Number(r.distance_km) : null, season: r.season,
+      // Только true — утверждение: false у колонки дефолтный и «не требуется»
+      // не значит (миграция 933); агенту он отдаётся как null — «не записано».
+      mchs_registration_required: r.mchs_registration_required === true ? true : null },
   };
 }
 

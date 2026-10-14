@@ -31,7 +31,10 @@ const STUB = /сервис (?:временно )?недоступ|service (?:tem
  */
 export function garbageSignature(description: string | null): string | null {
   if (!description) return null;
-  const d = description.trim();
+  // Ограда кода впереди (```json) — та же сырая выдача, только обёрнутая
+  // (14.10): «Восхождение на Корякскую сопку» несло её описанием, и проверка
+  // «начинается с [» её пропускала — Кузьмич и карточка маршрута читали JSON.
+  const d = description.trim().replace(/^```[a-z]*\s*/i, '');
   if (!d) return null;
   if (d.startsWith('[') && VS_JSON.probFloor.test(d) && VS_JSON.text.test(d)) return 'verbalized_json';
   if (MODEL_META.test(d)) return 'model_meta';
@@ -57,6 +60,7 @@ async function sanitizeTable(table: DescTable, limit: number): Promise<SanitizeR
      WHERE description IS NOT NULL
        AND (
          description ~ '^\\s*\\['
+         OR description LIKE '%"probability"%'
          OR description ILIKE '%не предоставл%'
          OR description ILIKE '%языковая модель%'
          OR description ILIKE '%искусственный интеллект%'

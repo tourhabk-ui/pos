@@ -11,9 +11,14 @@ describe('garbageSignature — ловит мусор', () => {
     const vs = '[{"probability": 0.4, "text": "Озеро Большой Калыгирь расположено..."},{"probability":0.35,"text":"обрыв';
     expect(garbageSignature(vs)).toBe('verbalized_json');
   });
-  it('обёрнутый ```json тоже, если начинается с [ после trim', () => {
-    const vs = '[{"probability":0.5,"text":"x"}]';
-    expect(garbageSignature(vs)).toBe('verbalized_json');
+  it('обёрнутый ```json тоже (14.10: «Восхождение на Корякскую сопку»)', () => {
+    // До 14.10 этот тест назывался «обёрнутый» и проверял массив БЕЗ ограды —
+    // а ограду проверка «начинается с [» пропускала, и описание маршрута на
+    // проде так и стояло сырым JSON.
+    const fenced = '```json\n[\n  {\n    "probability": 0.4,\n    "text": "Восхождение на Корякскую сопку — это один из классических маршрутов"\n  },\n  {\n    "probability": 0.35,\n    "text": "обрыв';
+    expect(garbageSignature(fenced)).toBe('verbalized_json');
+    expect(garbageSignature('```\n[{"probability":0.5,"text":"x"}]\n```')).toBe('verbalized_json');
+    expect(garbageSignature('[{"probability":0.5,"text":"x"}]')).toBe('verbalized_json');
   });
   it('мета-отговорки модели', () => {
     expect(garbageSignature('Файл не предоставлен для анализа. Пропускаю.')).toBe('model_meta');

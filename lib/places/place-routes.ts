@@ -21,7 +21,11 @@ import { getPublicBaseUrl } from '@/lib/config';
  */
 export const PLACE_ROUTES_SQL = `
   SELECT COALESCE(kr.ark_id, kr.id) AS id, kr.slug, kr.title, kr.activity_type, kr.difficulty,
-         kr.distance_km, kr.duration_hours, rw.link_kind
+         kr.distance_km, kr.duration_hours, rw.link_kind,
+         -- Факты §10 — для Кузьмича (lib/kuzmich/guardian-context, 14.10):
+         -- без них он знал о маршрутах места только название и длину.
+         kr.elevation_gain_m, kr.season, kr.hazards, kr.equipment,
+         kr.mchs_registration_required, kr.mchs_phone, kr.park_name
     FROM route_waypoints rw
     JOIN kamchatka_routes kr ON kr.id = rw.route_id
    WHERE rw.place_id = $1
@@ -44,6 +48,13 @@ export interface PlaceRouteRow {
   duration_hours?: string | number | null;
   /** Род связи (миграция 874): waypoint / nearby / unknown. */
   link_kind?: string | null;
+  elevation_gain_m?: number | null;
+  season?: string | null;
+  hazards?: string[] | null;
+  equipment?: string[] | null;
+  mchs_registration_required?: boolean | null;
+  mchs_phone?: string | null;
+  park_name?: string | null;
 }
 
 /** Адрес карточки маршрута — тот же, что у ссылки на карточке места. */

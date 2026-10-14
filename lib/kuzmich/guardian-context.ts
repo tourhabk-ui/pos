@@ -6,7 +6,7 @@ import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 import { isMarineMammalPlace, marineMammalNote } from '@/lib/safety/marine-mammals';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
-import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
+import { placeNameOrAliasSearchSql, significantWords, nameContainsAllWordsSql } from '@/lib/places/name-match';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
@@ -15,7 +15,9 @@ import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { getPublicBaseUrl } from '@/lib/config';
-import { placeRoutesFor, placeRoutesLines } from '@/lib/places/place-routes';
+import { placeRoutesFor, placeRoutesLines, type PlaceRouteRow } from '@/lib/places/place-routes';
+import { routeFacts } from '@/lib/ai/route-knowledge';
+import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 
 interface GuardianPlaceRow {
   /** id места — для ссылки на его карточку (только в чате, см. pageLinks). */
@@ -254,15 +256,175 @@ export async function resolvePlaceForLink(placeNameRaw: string): Promise<string 
  * 03.10, «Гора Замок»). Отказ базы — словами, не тишиной (§4.0).
  */
 export async function routesLinesForKuzmich(placeId: string): Promise<string[]> {
-  const routes = await placeRoutesFor(placeId);
+  return routesLinesFrom(await placeRoutesFor(placeId));
+}
+
+/** Те же строки по уже прочитанному списку: null — отказ базы, не «нет». */
+function routesLinesFrom(routes: PlaceRouteRow[] | null): string[] {
   if (routes === null) return ['Маршруты этого места проверить не удалось — не говори, что их нет.'];
   if (routes.length === 0) return ['Маршрутов через это место в каталоге нет.'];
   return placeRoutesLines(routes);
 }
 
+/**
+ * Факты маршрутов к месту — в ответ о безопасности места (14.10).
+ *
+ * Владелец 14.10: «Кузьмич деградирует». Недельная оценка показала, где
+ * именно: pass_rate фикстуры 0.80 (21.09) → 0.65 (05.10, 12.10), вопросы о
+ * безопасности 7 из 8 → 3 из 8, и проваливались они одним способом — высоту,
+ * сложность, набор высоты, регистрацию в МЧС Кузьмич называл без опоры в
+ * данных хода (так их и оценил судья). Не потому, что данных нет: у маршрута
+ * «Вулкан Корякский» в базе сложность extreme, 8.4 км, набор 2544 м, в
+ * описании — 10–12 часов, лёд, кошки и ледоруб. До Кузьмича это не доходило:
+ * этот инструмент знал о маршрутах места только название и длину, а поиск
+ * маршрутов по вопросу (lib/ai/route-knowledge) ищет ВЕСЬ вопрос одной
+ * подстрокой названия или описания и на живой фразе не находит ничего.
+ *
+ * Провал совпал по времени с честной правкой 27.09 (миграция 1100):
+ * опасности, выведенные шаблоном из типа места, перестали произноситься как
+ * факты — и у главных вулканов в ответе стало пусто. Возвращать шаблон
+ * нельзя; заполнять пустоту надо тем, что измерено, — маршрутами.
+ *
+ * Регистрация: утверждением считается только true. false — дефолт колонки
+ * (миграция 933), и «не требуется» по нему было бы выдумкой; поэтому, если
+ * ни у одного маршрута true не записан, это сказано словами.
+ */
+export const ROUTE_FACTS_MAX = 4;
+
+/** Строка маршрута для фактов: поля §10 и, у найденных по названию, описание. */
+export interface RouteFactsSource {
+  id: string;
+  title: string;
+  difficulty?: string | null;
+  distance_km?: string | number | null;
+  elevation_gain_m?: number | null;
+  duration_hours?: string | number | null;
+  season?: string | null;
+  hazards?: string[] | null;
+  equipment?: string[] | null;
+  mchs_registration_required?: boolean | null;
+  mchs_phone?: string | null;
+  park_name?: string | null;
+  description?: string | null;
+}
+
+const ROUTE_DESCRIPTION_CHARS = 240;
+
+export function routeFactsLines(routes: RouteFactsSource[]): string[] {
+  const seen = new Set<string>();
+  const shown: RouteFactsSource[] = [];
+  for (const r of routes) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    shown.push(r);
+    if (shown.length >= ROUTE_FACTS_MAX) break;
+  }
+  if (shown.length === 0) return [];
+
+  const asText = (v: string | number | null | undefined): string | null => (v == null ? null : String(v));
+  const lines = ['Маршруты каталога к этому месту — данные из базы Ведара:'];
+  for (const r of shown) {
+    const facts = routeFacts({
+      difficulty: r.difficulty ?? null,
+      distance_km: asText(r.distance_km),
+      elevation_gain_m: r.elevation_gain_m ?? null,
+      duration_hours: asText(r.duration_hours),
+      season: r.season ?? null,
+      hazards: r.hazards ?? null,
+      equipment: r.equipment ?? null,
+      mchs_registration_required: r.mchs_registration_required ?? null,
+      mchs_phone: r.mchs_phone ?? null,
+      park_name: r.park_name ?? null,
+    });
+    // Описание — тем же фильтром голоса, что у мест; сырой JSON модели
+    // (санитар контента его ещё не убрал) не цитируется вовсе.
+    const desc = r.description && !garbageSignature(r.description)
+      ? describeForAgent(r.description, ROUTE_DESCRIPTION_CHARS)
+      : null;
+    const body = [facts.length ? facts.join('. ') : 'параметры маршрута в базе не записаны', desc]
+      .filter(Boolean)
+      .join('. ');
+    lines.push(`«${r.title}»: ${body}`);
+  }
+  if (!shown.some((r) => r.mchs_registration_required === true)) {
+    lines.push('Регистрация в МЧС по этим маршрутам в базе не записана — это не значит, что она не нужна.');
+  }
+  return lines;
+}
+
+/**
+ * Слова, которые сами по себе места не называют: запрос из одних таких
+ * («вулкан», «озеро») подобрал бы маршруты наугад.
+ */
+const GENERIC_PLACE_WORDS: ReadonlySet<string> = new Set([
+  'вулкан', 'вулканы', 'озеро', 'гора', 'сопка', 'река', 'бухта', 'долина', 'перевал',
+  'водопад', 'пляж', 'мыс', 'источники', 'источник', 'маршрут', 'парк', 'камчатка',
+]);
+
+/**
+ * Маршруты каталога, в названии которых есть все слова запроса (то же
+ * правило слов, что у мест, lib/places/name-match). Маршрут, связанный с
+ * местом путевыми точками, находится и без этого — но связи есть не у всех:
+ * перепись 23.08 насчитала 131 место без единого живого маршрута (§4.1).
+ * null — отказ базы: «не смог посмотреть», а не «маршрутов нет» (§4.0).
+ */
+async function routesByName(placeName: string): Promise<RouteFactsSource[] | null> {
+  const words = significantWords(placeName);
+  if (words.length === 0 || words.every((w) => GENERIC_PLACE_WORDS.has(w))) return [];
+  const match = nameContainsAllWordsSql('kr.title', words, 1);
+  try {
+    const { rows } = await pool.query<RouteFactsSource>(
+      `SELECT COALESCE(kr.ark_id, kr.id)::text AS id, kr.title, kr.description,
+              kr.difficulty, kr.distance_km, kr.elevation_gain_m, kr.duration_hours, kr.season,
+              kr.hazards, kr.equipment, kr.mchs_registration_required, kr.mchs_phone, kr.park_name
+         FROM kamchatka_routes kr
+        WHERE kr.is_visible = TRUE AND kr.merged_into_id IS NULL AND (${match.clause})
+        ORDER BY (kr.mchs_registration_required IS TRUE) DESC,
+                 (kr.elevation_gain_m IS NOT NULL OR kr.distance_km IS NOT NULL) DESC,
+                 kr.search_count DESC NULLS LAST, kr.title
+        LIMIT ${ROUTE_FACTS_MAX}`,
+      match.params,
+    );
+    return rows;
+  } catch (err) {
+    console.error('[guardian] маршруты по названию не прочитаны:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /** Адрес карточки места на сайте — один для всех ответов Кузьмича. */
 export function placePageUrl(placeId: string): string {
   return `${getPublicBaseUrl()}/places/${placeId}`;
+}
+
+/**
+ * Типы мест, у которых высота — факт безопасности (горная болезнь, снег,
+ * погода на вершине). У бухты или музея её отсутствие не новость.
+ */
+const ALTITUDE_MATTERS: ReadonlySet<string> = new Set(['volcano', 'mountain', 'pass', 'plateau', 'glacier']);
+
+/**
+ * Какие числа безопасности у места не записаны — строкой для модели (14.10).
+ *
+ * Недельная оценка ловила одно и то же: «далеко ли до медпомощи от
+ * Толбачика» — у места расстояния нет, а Кузьмич называл число, и от недели
+ * к неделе разное. Пустое поле молчало, и модель заполняла его сама — то же
+ * «обязательное число выдумывается», что §4.0. Строка называет пробел и
+ * запрещает закрывать его памятью; число из данных ниже (факты и описание
+ * маршрута) называть можно — это не память.
+ */
+export function unrecordedSafetyLine(
+  p: Pick<GuardianPlaceRow, 'altitude_m' | 'nearest_medical_km' | 'location_type'>,
+): string | null {
+  const missing = [
+    !p.altitude_m && ALTITUDE_MATTERS.has(p.location_type ?? '') ? 'высота' : null,
+    !p.nearest_medical_km ? 'расстояние до медпомощи' : null,
+  ].filter((x): x is string => x !== null);
+  if (missing.length === 0) return null;
+  // «Если спросят» — не повод объявлять пробел в каждом ответе: турист,
+  // спросивший о виде с вершины, отчёта о незаполненных полях не просил.
+  return `В базе не записаны: ${missing.join(', ')}. Если спросят — по памяти числом не называй, ` +
+    'скажи, что у Ведара этих цифр нет (число из данных ниже назвать можно).';
 }
 
 export interface GuardianContextOptions {
@@ -289,7 +451,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
   // содержится в «Вулкан Ключевская сопка» ни в каком порядке слов.
   const placeMatch = placeNameOrAliasSearchSql('p', placeName, 1);
 
-  const [placesRes, alertsRes, knowledgeRes] = await Promise.all([
+  const [placesRes, alertsRes, knowledgeRes, namedRoutes] = await Promise.all([
     pool.query<GuardianPlaceRow>(
       `SELECT
          p.id::text AS id, p.is_visible,
@@ -358,6 +520,8 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
        LIMIT 5`,
       [containsPattern(placeName)],
     ),
+    // Маршруты по названию — факты маршрута (14.10, см. routeFactsLines).
+    routesByName(placeName),
   ]);
 
   // Места нет — спросить сводки вулканов (#2134): вулкан без записи в
@@ -373,7 +537,8 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     }
   }
 
-  if (placesRes.rows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines) {
+  if (placesRes.rows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
+      && !namedRoutes?.length) {
     return '';
   }
 
@@ -409,6 +574,11 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     fresh.forEach((a) => shownAlerts.add(a));
     return fresh;
   };
+
+  // Маршруты через место, о котором ответ (первое видимое с сильным
+  // совпадением): их факты идут в блок маршрутов ниже. undefined — не
+  // читали; null — база отказала.
+  let throughRoutes: PlaceRouteRow[] | null | undefined;
 
   for (const p of placesRes.rows) {
     const rawStatus = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
@@ -559,14 +729,18 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     if (honest.hazardTypes.length) {
       const hazards = honest.hazardTypes.map((h) => hazardLabelLower(h)).join(', ');
       parts.push(`Опасности: ${hazards}.`);
-    } else if (!p.altitude_m && !p.nearest_medical_km && !p.sat_communicator_required) {
+    } else {
       // «Профиль безопасности не оцифрован» модель читала как «место не
       // оцифровано» и отвечала туристу, что горы Замок на платформе нет
       // (скрин владельца 03.10), — при живой карточке с координатами.
       // Отсутствие разметки опасностей называется так, чтобы его нельзя было
       // принять ни за отсутствие места, ни за отсутствие опасностей.
+      // С 14.10 — всегда, когда опасностей нет: известная высота не отвечает
+      // на вопрос об опасностях, а молчание о них читалось как «их нет».
       parts.push('Опасности этого места в базе не размечены — это не значит, что их нет. Само место в справочнике есть.');
     }
+    const unrecorded = unrecordedSafetyLine(p);
+    if (unrecorded) parts.push(unrecorded);
 
     // Координаты и ссылка — у того места, о котором ответ, а не у первого
     // видимого по имени: при скрытом месте общий поиск увёл бы ссылку на
@@ -576,9 +750,13 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
       const lat = p.lat != null ? Number(p.lat) : NaN;
       const lng = p.lng != null ? Number(p.lng) : NaN;
       if (Number.isFinite(lat) && Number.isFinite(lng)) parts.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-      if (opts.pageLinks && p.id) {
-        parts.push(`Страница места на сайте: ${placePageUrl(p.id)}`);
-        parts.push(...await routesLinesForKuzmich(p.id));
+      if (p.id && (opts.pageLinks || throughRoutes === undefined)) {
+        const routes = await placeRoutesFor(p.id);
+        if (opts.pageLinks) {
+          parts.push(`Страница места на сайте: ${placePageUrl(p.id)}`);
+          parts.push(...routesLinesFrom(routes));
+        }
+        if (throughRoutes === undefined) throughRoutes = routes;
       }
     }
 
@@ -597,6 +775,18 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // «КБГС/МЧС» на все шесть лент (проверка MCP 29.09).
     const origin = alertOrigin(a.external_id, a.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT;
     parts.push(`[Предупреждение, источник: ${origin}] ${a.title}${a.description ? ': ' + a.description.slice(0, 150) : ''}`);
+  }
+
+  // Факты маршрутов (14.10): сначала найденные по названию — их назвал сам
+  // человек, — затем маршруты через место. Отказ базы — словами (§4.0); в
+  // чате отказ чтения маршрутов места уже назван строкой у места.
+  const factRoutes: RouteFactsSource[] = [
+    ...(namedRoutes ?? []),
+    ...(throughRoutes ?? []).filter((r) => r.link_kind !== 'nearby'),
+  ];
+  parts.push(...routeFactsLines(factRoutes));
+  if (namedRoutes === null || (throughRoutes === null && !opts.pageLinks)) {
+    parts.push('Маршруты к этому месту проверить не удалось — не говори, что их нет.');
   }
 
   for (const k of knowledgeRes.rows) {
