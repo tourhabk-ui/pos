@@ -31,6 +31,7 @@ import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
 import { CarrierReviews } from '@/components/transfers/CarrierReviews';
+import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import {
   CHARTER_REQUEST_ANCHOR, charterRequisitesLine, describeFleet, formatRub, orderDestinationFromQuery,
@@ -110,16 +111,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                     ))}
                   </ul>
                 )}
-                {c.video && (
-                  <figure>
-                    {/* preload="none": ролик не качается, пока человек не нажал «играть». Звука нет (09.10). */}
-                    <video controls muted playsInline preload="none" poster={c.video.poster}
-                      className="w-full rounded-lg bg-[var(--bg-hover)]" aria-label={`Видео: ${c.name}`}>
-                      <source src={c.video.url} type="video/mp4" />
-                    </video>
-                    <figcaption className="text-xs text-[var(--text-muted)] mt-1">Видео: {c.name}</figcaption>
-                  </figure>
-                )}
+                {c.video && <CarrierVideo video={c.video} name={c.name} />}
               </section>
             )}
 

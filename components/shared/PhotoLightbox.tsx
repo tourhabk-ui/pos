@@ -81,7 +81,12 @@ export function PhotoLightbox({ images, alt, startIdx, onClose, captions }: {
           else if (start - end > SWIPE_PX) next();
         }}
       >
-        <Image src={images[idx]!} alt={`${alt} — фото ${idx + 1}`} fill className="object-contain" sizes="100vw" />
+        {/* Не больше своего размера (владелец 14.10: «на десктопе фото
+            растягиваются»): `fill` вписывал снимок в экран целиком, и кадр
+            1156 px на мониторе 1920 рисовался в 1,66 раза крупнее файла.
+            Теперь снимок меньше экрана — как есть, больше — вписан. */}
+        <Image src={images[idx]!} alt={`${alt} — фото ${idx + 1}`} width={0} height={0} sizes="100vw"
+          className="w-auto h-auto max-w-full max-h-full object-contain" />
       </div>
       {caption && (
         <p className="absolute bottom-14 left-1/2 -translate-x-1/2 max-w-[90vw] text-center text-xs text-white/80">{caption}</p>

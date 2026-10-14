@@ -21,6 +21,7 @@ import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { operatorPagePath } from '@/lib/operators/page-link';
 // Просмотрщик фото — общий для всех галерей (карточка тура, оператор, перевозчик).
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
+import { HeroPhoto } from '@/components/media/HeroPhoto';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import type { TourClip } from '@/lib/tours/tour-clips';
 import { TourClips } from '@/components/tours/TourClips';
@@ -569,7 +570,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 руках в кадре, а на горизонтальных снимках показывают верх, где
                 и находится предмет съёмки. Правило владельца 23.08: «чтоб
                 голову не обрезал». */}
-            <Image src={photoSrc(heroImg, 1280)} alt={tour.title} fill priority sizes="100vw" className="object-cover" style={{ objectPosition: '50% 30%', filter: 'saturate(1.1) contrast(1.03)' }} />
+            {/* Не шире колонки страницы: на мониторе 1920 снимок 900–1280 px
+                растягивался вдвое (владелец 14.10, components/media/HeroPhoto). */}
+            <HeroPhoto src={heroImg} alt={tour.title} objectPosition="50% 30%" filter="saturate(1.1) contrast(1.03)" />
           </button>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center"><MapPin className="w-16 h-16 text-[var(--text-muted)]" /></div>

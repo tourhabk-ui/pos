@@ -158,8 +158,10 @@ describe('ролик перевозчика', () => {
   });
 
   it('ролик без звука (решение владельца 09.10): плеер muted, файл со звуком или следами съёмки заливка не пишет', () => {
-    const card = readFileSync(join(ROOT, 'components/transfers/CharterCard.tsx'), 'utf8');
-    expect(card).toMatch(/<video\s+controls\s+muted\b/);
+    // Плеер с 14.10 один на витрину и страницу перевозчика (CarrierVideo);
+    // muted у отрисованного плеера — tests/unit/media-no-stretch.test.tsx.
+    const player = readFileSync(join(ROOT, 'components/transfers/CarrierVideo.tsx'), 'utf8');
+    expect(player).toMatch(/<video\s+controls\s+muted\b/);
     // Поведение проверки — tests/unit/video-sync.test.ts.
     const hygiene = read('lib/media/video-hygiene.ts');
     expect(hygiene).toMatch(/есть звуковая дорожка/);

@@ -4,6 +4,7 @@ import { LazyClip } from '@/components/media/LazyClip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
+import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { carrierPagePath, charterOrderPath, charterRequisitesLine, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 /**
@@ -121,28 +122,9 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
         </div>
       )}
 
-      {carrier.video && (
-        <figure>
-          {/* preload="none": ролик ~3 МБ, на мобильной сети он не должен
-              качаться, пока человек не нажал «играть»; кадр-обложка — отдельный файл.
-              Звука нет (решение владельца 09.10): дорожка вырезана из самого
-              файла, muted — на случай, если ролик заменят файлом со звуком. */}
-          <video
-            controls
-            muted
-            playsInline
-            preload="none"
-            poster={carrier.video.poster}
-            className="w-full rounded-lg bg-[var(--bg-hover)]"
-            aria-label={`Видео: ${carrier.name}`}
-          >
-            <source src={carrier.video.url} type="video/mp4" />
-          </video>
-          {/* «Видео», а не «Видео целиком»: с 09.10 внизу другой ролик, а не
-              полная версия клипов над ним (владелец: «видео дублируются»). */}
-          <figcaption className="text-xs text-[var(--text-muted)] mt-1">Видео: {carrier.name}</figcaption>
-        </figure>
-      )}
+      {/* Плеер — один на витрину и страницу перевозчика (CarrierVideo): рамка
+          16:9 не шире своего ролика, без звука, без предзагрузки. */}
+      {carrier.video && <CarrierVideo video={carrier.video} name={carrier.name} />}
 
       {carrier.photos.length > 0 && (
         // Подпись — под каждым снимком: автор назван не у всех, и одна общая

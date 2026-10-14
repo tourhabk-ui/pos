@@ -8,11 +8,10 @@
  * всех снимков, и без подписи чужой кадр читался бы снимком перевозчика.
  */
 
-import Image from 'next/image';
 import { useState, type ReactNode } from 'react';
 import { Bus } from 'lucide-react';
+import { HeroPhoto } from '@/components/media/HeroPhoto';
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
-import { photoSrc } from '@/lib/images/variant';
 import type { CharterPhoto } from '@/lib/transfers/charter-format';
 
 export function CarrierHero({ name, photos, children }: {
@@ -30,8 +29,8 @@ export function CarrierHero({ name, photos, children }: {
       {hero ? (
         <button type="button" className="absolute inset-0 w-full h-full" onClick={() => setOpen(0)}
           aria-label={`Открыть фото: ${name}`}>
-          <Image src={photoSrc(hero.url, 1280)} alt={name} fill priority sizes="100vw" className="object-cover"
-            style={{ objectPosition: '50% 40%' }} />
+          {/* Не шире колонки: на мониторе снимок 1156 px растягивался в 1,66 раза (14.10). */}
+          <HeroPhoto src={hero.url} alt={name} objectPosition="50% 40%" />
         </button>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center" aria-hidden>

@@ -60,15 +60,12 @@ describe('правила ручки', () => {
 describe('фото не режутся по центру — голова остаётся в кадре', () => {
   const CARD = readFileSync('app/catalog/tours/[id]/_TourDetailClient.tsx', 'utf8');
 
-  it('у героя задана точка кадрирования', () => {
-    // Фото операторов портретные (960x1280). object-cover без objectPosition
-    // показывает вертикальную середину — то есть туловище без головы.
-    const hero = CARD.slice(CARD.indexOf('photoSrc(heroImg, 1280)') - 400,
-      CARD.indexOf('photoSrc(heroImg, 1280)') + 400);
-    expect(hero).toContain("objectPosition: '50% 30%'");
-  });
+  // У героя точка кадрирования 50% 30% (фото операторов портретные 960x1280:
+  // object-cover без неё показывает туловище без головы). С 14.10 герой —
+  // общий components/media/HeroPhoto, и его кадрирование судится рендером
+  // карточки: tests/unit/media-no-stretch.test.tsx.
 
-  it('у филмстрипа тоже', () => {
+  it('у филмстрипа задана точка кадрирования', () => {
     const film = CARD.slice(CARD.indexOf('photoSrc(src, 320)') - 300,
       CARD.indexOf('photoSrc(src, 320)') + 400);
     expect(film).toContain("objectPosition: '50% 30%'");

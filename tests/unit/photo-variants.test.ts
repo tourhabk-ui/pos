@@ -116,9 +116,10 @@ describe('поверхности с жалобы владельца подклю
     expect(src).not.toMatch(/backgroundImage: `url\('\$\{p\.imageUrl\}'\)`/);
   });
 
-  it('карточка тура: герой и филмстрип идут через photoSrc', () => {
+  it('карточка тура: филмстрип идёт через photoSrc', () => {
+    // Герой с 14.10 — общий components/media/HeroPhoto (нарезка 1280, не шире
+    // колонки): судится рендером в tests/unit/media-no-stretch.test.tsx.
     const src = readFileSync(join(ROOT, 'app/catalog/tours/[id]/_TourDetailClient.tsx'), 'utf-8');
-    expect(src).toMatch(/Image src=\{photoSrc\(heroImg, 1280\)\}/);
     // Филмстрип — плитка 80–100 px: 320 по умолчанию и srcSet (аудит 02.10).
     expect(src).toMatch(/img src=\{photoSrc\(src, 320\)\} srcSet=\{photoSrcSet\(src\)\}/);
   });
