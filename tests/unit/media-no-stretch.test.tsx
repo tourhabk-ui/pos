@@ -68,13 +68,16 @@ describe('герой: резкий кадр не шире колонки, пол
     const sharp = within(frame).getByAltText('Шатун');
     expect(fileOf(sharp)).toBe(photoSrc(SHATUN, 1280));
     expect((sharp as HTMLImageElement).style.objectPosition).toBe('50% 40%');
+    // На широком экране снимок вписан в рамку, а не обрезан ею: узкий и
+    // портретный кадр не растягивается и не теряет голову; на телефоне — обрезка, как было.
+    expect(sharp.className.split(/\s+/)).toEqual(expect.arrayContaining(['object-cover', 'lg:object-contain']));
 
     const backdrop = container.querySelector('[data-hero-backdrop]') as HTMLImageElement;
     expect(backdrop.getAttribute('alt')).toBe('');
     expect(backdrop.getAttribute('aria-hidden')).toBe('true');
     expect(fileOf(backdrop)).toBe(photoSrc(SHATUN, 320));
-    // Уже колонки полей не видно — и снимок не качается.
-    expect(backdrop.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'min-[1152px]:block', 'blur-2xl']));
+    // На телефоне фона не видно — и снимок не качается; появляется там же, где вписывание.
+    expect(backdrop.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'lg:block', 'blur-2xl']));
     expect(backdrop.getAttribute('loading')).toBe('lazy');
   });
 

@@ -1,16 +1,20 @@
 {
   "timeout": 60,
-  "run": 792,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись sitemap, прогон 7: /places/ozero-bolshoj-kalygir единственный не 200 — Connection reset by peer, кода ответа нет. Повтор тем же UA (Googlebot, свой сайт): разовый обрыв или страница падает.",
-  "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+  "retries": 25,
+  "retryDelay": 60,
+  "run": 793,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Добивка 791: на экране от 1024 px снимок героя вписан в колонку целиком, а не обрезан ею (портрет оператора 800×1067 у тура 62 тянулся втрое); вокруг — размытый снимок. На телефоне — обрезка, как было.",
+  "until": "object-cover lg:object-contain",
   "urls": [
-    "https://vedarai.ru/places/ozero-bolshoj-kalygir",
-    "https://vedarai.ru/places/ozero-bolshoj-kalygir"
+    "https://vedarai.ru/catalog/tours/62",
+    "https://vedarai.ru/transfers/shatun"
   ],
-  "bytes": 200,
+  "bytes": 300,
   "grep": [
-    "</html>",
-    "<h1",
-    "rel=\"canonical\""
+    "object-cover lg:object-contain",
+    "hidden lg:block object-cover scale-110 blur-2xl",
+    "w-full max-w-6xl lg:[mask-image",
+    "object-position:50% 30%",
+    "object-position:50% 40%"
   ]
 }
