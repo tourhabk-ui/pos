@@ -46,6 +46,16 @@ const MIN_BYTES = 50 * 1024;
 const WIDTHS = [320, 640, 1280];
 const QUALITY = { 320: 70, 640: 72, 1280: 74 };
 
+/**
+ * Фото-элементы LCP: кроме 320/640 — WebP в родную ширину исходника, когда
+ * он уже 1280 и потому варианта 1280 не получает. Прогон 9 переписи (14.10):
+ * герой главной 1024 px шёл JPEG-ом 165 КБ — телефону с DPR 1,75 (412 × 1,75 ≈
+ * 720 px) варианта 640 мало, а следующего не было, и LCP грузился 2 с. Только
+ * по списку: родная ширина у всех 150 таких исходников — это сотни файлов и
+ * другая цена картинки на десятке поверхностей, отдельное решение.
+ */
+const NATIVE_WIDTH_FOR = new Set(['/images/hero/hero-light.jpeg', '/images/hero/hero-dark.jpeg']);
+
 /** Наши же сгенерированные варианты — не входы. */
 const VARIANT_RE = /\.(320|640|1280)\.webp$/;
 const SOURCE_RE = /\.(jpe?g|png)$/i;
@@ -85,6 +95,17 @@ for await (const file of walk(IMAGES_DIR)) {
       .webp({ quality: QUALITY[w] })
       .toFile(out);
     made++;
+  }
+
+  const native = meta.width ?? 0;
+  if (NATIVE_WIDTH_FOR.has(entry.src) && native > 640 && !entry.widths.includes(1280)) {
+    const out = file.replace(SOURCE_RE, `.${native}.webp`);
+    entry.widths.push(native);
+    if (existsSync(out) && statSync(out).mtimeMs >= st.mtimeMs) kept++;
+    else {
+      await sharp(file).rotate().webp({ quality: QUALITY[1280] }).toFile(out);
+      made++;
+    }
   }
 
   if (entry.widths.length > 0) manifest.push(entry);

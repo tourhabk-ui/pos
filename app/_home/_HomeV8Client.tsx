@@ -49,6 +49,7 @@ import { usePlateDrift } from '@/hooks/use-plate-drift';
 import { withTransferPlate, isTransferPlate } from '@/lib/home/transfer-plate';
 import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
+import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -331,13 +332,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           датами, заголовок — название, «День N из M» — только из tripProgress
           (during) и только при непустых day/total. after/unknown сюда не
           попадают — гейт на fetch выше. */}
-      {/* Фото героя — элемент LCP главной, но фон из CSS браузер находит
-          только после разбора стилей: замер 01.10 (Pixel 7) — заголовок
-          на 2,2 с, фото на 3,8 с. Предзагрузка с высоким приоритетом
-          ставит его в очередь вместе с HTML. React поднимает <link> в
-          <head>; путь тот же, что у фона, — второй загрузки нет. */}
-      <link rel="preload" as="image" href={heroImg} fetchPriority="high" />
-      <header className="hero-photo" style={{ backgroundImage: `url('${heroImg}')` }}>
+      {/* Фото героя — элемент LCP главной. Фоном из CSS оно находилось
+          только после разбора стилей и шло JPEG-ом целиком (замер 01.10 —
+          фото на 3,8 с; прогон 9, 14.10 — LCP 4,5 с). Теперь — картинка из
+          нарезанных WebP с предзагрузкой того же srcset (HeroBackdrop). */}
+      <header className="hero-photo">
+        <HeroBackdrop src={heroImg} />
         <div className="hero-shade" aria-hidden />
         <div className="hero-fade" aria-hidden />
         <div className="hero-in">
@@ -1152,7 +1152,9 @@ const CSS = `
    осталось: видно, что страница продолжается, и шов между фото и подложкой
    не режет глаз (dvh — чтобы панель браузера не дёргала высоту; vh —
    запасной для старых движков). */
-.v7 .hero-photo{position:relative;min-height:46vh;min-height:46dvh;background-size:cover;background-position:center;display:flex;color:#fff}
+.v7 .hero-photo{position:relative;min-height:46vh;min-height:46dvh;display:flex;color:#fff}
+/* Фото героя — картинкой под слоями тени и текста (HeroBackdrop). */
+.v7 .hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
 @media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}
 /* Тени — отдельными слоями, а не в background-image строки: верхняя вуаль под
    вордмарк, нижняя под заголовок, и поверх обеих — растворение в крем.
