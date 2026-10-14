@@ -68,6 +68,20 @@ export async function GET(request: NextRequest) {
         : null,
       claimants: r.claimants,
       marshrut_free: r.marshrut_free,
+      // Кто держит `<имя>-marshrut`, когда он занят: маршрут (видимый, скрытый,
+      // слитый) или место. Решение по такому маршруту принимается по имени
+      // держателя, а не по слову «занят».
+      marshrut_holder: r.marshrut_route_id
+        ? {
+            kind: 'route' as const,
+            id: r.marshrut_route_id,
+            title: r.marshrut_route_title,
+            visible: r.marshrut_route_visible,
+            merged_into: r.marshrut_route_merged_into,
+          }
+        : r.marshrut_place_id
+          ? { kind: 'place' as const, id: r.marshrut_place_id, title: r.marshrut_place_name, visible: null, merged_into: null }
+          : null,
       would_assign: r.would_assign,
     }));
 

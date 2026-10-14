@@ -61,10 +61,20 @@ export const ROUTE_SLUG_CENSUS_SQL = `
          (SELECT count(*)::int FROM missing m2 WHERE m2.base = m.base) AS claimants,
          (NOT EXISTS (SELECT 1 FROM kamchatka_routes x WHERE x.slug = m.base || '-marshrut')
           AND NOT EXISTS (SELECT 1 FROM places y WHERE y.slug = m.base || '-marshrut')) AS marshrut_free,
+         sr.id::text               AS marshrut_route_id,
+         sr.title                  AS marshrut_route_title,
+         sr.is_visible             AS marshrut_route_visible,
+         sr.merged_into_id         AS marshrut_route_merged_into,
+         sp.id::text               AS marshrut_place_id,
+         sp.name                   AS marshrut_place_name,
          route_slug_candidate(m.id, m.title) AS would_assign
     FROM missing m
     LEFT JOIN places hp           ON m.base <> '' AND hp.slug = m.base
     LEFT JOIN kamchatka_routes hr ON m.base <> '' AND hr.slug = m.base
+    -- Кто держит адрес с суффиксом: «занят» без имени держателя решать нечем
+    -- (первый прогон после 1239 оставил ровно такой случай).
+    LEFT JOIN kamchatka_routes sr ON m.base <> '' AND sr.slug = m.base || '-marshrut'
+    LEFT JOIN places sp           ON m.base <> '' AND sp.slug = m.base || '-marshrut'
    ORDER BY m.title, m.id_text`;
 
 /** Маршруты с адресом раздела: их карточку перекрывает страница раздела. */
@@ -95,6 +105,12 @@ export interface RouteSlugCensusRow {
   route_holder_merged_into: string | null;
   claimants: number;
   marshrut_free: boolean;
+  marshrut_route_id: string | null;
+  marshrut_route_title: string | null;
+  marshrut_route_visible: boolean | null;
+  marshrut_route_merged_into: string | null;
+  marshrut_place_id: string | null;
+  marshrut_place_name: string | null;
   would_assign: string | null;
 }
 

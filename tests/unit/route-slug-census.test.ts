@@ -44,7 +44,10 @@ function row(over: Partial<RouteSlugCensusRow> = {}): RouteSlugCensusRow {
     is_section: false,
     place_holder_id: null, place_holder_name: null, place_holder_visible: null, place_holder_merged_into: null,
     route_holder_id: null, route_holder_title: null, route_holder_visible: null, route_holder_merged_into: null,
-    claimants: 1, marshrut_free: true, would_assign: null,
+    claimants: 1, marshrut_free: true,
+    marshrut_route_id: null, marshrut_route_title: null, marshrut_route_visible: null, marshrut_route_merged_into: null,
+    marshrut_place_id: null, marshrut_place_name: null,
+    would_assign: null,
     ...over,
   };
 }
@@ -97,6 +100,13 @@ describe('роут переписи', () => {
           row({ id: 'b', title: 'Озеро Голубое', base: 'ozero-goluboe', claimants: 2 }),
           row({ id: 'c', title: 'Ксудач', base: 'ksudach', place_holder_id: 'p-ks', place_holder_name: 'Вулкан Ксудач', place_holder_visible: true }),
           row({ id: 'd', title: 'Новый', base: 'novyj', would_assign: 'novyj' }),
+          // Суффикс занят скрытым тёзкой — перепись называет держателя, а не только «занят».
+          row({ id: 'e', title: 'Зеленовские озерки', base: 'zelenovskie-ozerki', place_holder_id: 'p-zo',
+            place_holder_name: 'Зеленовские озерки', place_holder_visible: true, marshrut_free: false,
+            marshrut_route_id: 'r-old', marshrut_route_title: 'Зеленовские озерки', marshrut_route_visible: false }),
+          // Суффикс держит место — редкий, но возможный случай.
+          row({ id: 'f', title: 'Ключи', base: 'klyuchi', place_holder_id: 'p-kl', place_holder_visible: true,
+            marshrut_free: false, marshrut_place_id: 'p-klm', marshrut_place_name: 'Ключи маршрут' }),
         ] as unknown as Row[];
       }
       if (sql === ROUTE_SLUG_SHADOWED_SQL) return [{ id: 'z', title: 'Рыбалка на Быстрой', slug: 'rybalka' }];
@@ -107,8 +117,8 @@ describe('роут переписи', () => {
     const body = await res.json();
     expect(body).toMatchObject({
       ok: true,
-      missing_total: 4,
-      by_holder: { namesake: 2, visible_place: 1, free: 1 },
+      missing_total: 6,
+      by_holder: { namesake: 2, visible_place: 3, free: 1 },
       would_assign_total: 1,
       shadowed_by_section: [{ id: 'z', title: 'Рыбалка на Быстрой', slug: 'rybalka' }],
     });
@@ -116,8 +126,14 @@ describe('роут переписи', () => {
       title: 'Ксудач', holder: 'visible_place', marshrut_free: true,
       place_holder: { id: 'p-ks', name: 'Вулкан Ксудач', visible: true, merged_into: null },
       route_holder: null,
+      marshrut_holder: null,
       created_at: '2026-10-05T03:00:00.000Z',
     });
+    expect(body.items[4]).toMatchObject({
+      title: 'Зеленовские озерки', holder: 'visible_place', marshrut_free: false,
+      marshrut_holder: { kind: 'route', id: 'r-old', title: 'Зеленовские озерки', visible: false, merged_into: null },
+    });
+    expect(body.items[5].marshrut_holder).toEqual({ kind: 'place', id: 'p-klm', title: 'Ключи маршрут', visible: null, merged_into: null });
     // Список разделов уходит в запрос параметром — тот же, что в правиле записи.
     expect(queries.map((q) => q.params)).toEqual([[[...ROUTE_RESERVED_SLUGS]], [[...ROUTE_RESERVED_SLUGS]]]);
   });
