@@ -85,21 +85,16 @@ jobs:
                  --only-categories=performance,seo,accessibility,best-practices \
                  --form-factor=mobile --screenEmulation.mobile \
                  --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt; then
-              python3 - "$url" "$out" >> /tmp/site-audit.md <<'PY'
-          import json, sys
-          url, path = sys.argv[1], sys.argv[2]
-          j = json.load(open(path))
-          c = j.get('categories', {}); a = j.get('audits', {})
-          def sc(k):
-              v = (c.get(k) or {}).get('score'); return '—' if v is None else str(round(v * 100))
-          def dv(k):
-              return (a.get(k) or {}).get('displayValue', '—')
-          print(f"| {url} | {sc('performance')} | {sc('seo')} | {sc('accessibility')} | {sc('best-practices')} | {dv('largest-contentful-paint')} | {dv('cumulative-layout-shift')} | {dv('total-blocking-time')} |")
-          PY
+              # Строка таблицы — в отчёт, расшифровка «что тормозит» — отдельным
+              # файлом под таблицей (scripts/site-audit.py: lighthouse_summary).
+              python3 scripts/site-audit.py lighthouse "$url" "$out" /tmp/lh-details.md >> /tmp/site-audit.md
             else
               echo "| $url | не измерено: $(head -c 120 /tmp/lh-err.txt | tr '\n' ' ') | | | | | | |" >> /tmp/site-audit.md
             fi
           done < /tmp/lh-pages.txt
+          if [ -s /tmp/lh-details.md ]; then
+            { echo; echo "### Lighthouse: что тормозит"; echo; cat /tmp/lh-details.md; } >> /tmp/site-audit.md
+          fi
           tail -n 8 /tmp/site-audit.md
 
       - name: Сводка

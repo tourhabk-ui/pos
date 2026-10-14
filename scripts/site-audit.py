@@ -1004,6 +1004,150 @@ def report(a: dict) -> str:
     return '\n'.join(L)
 
 
+# ─── Lighthouse: строка таблицы и «что тормозит» ───────────────────────────
+
+def _lh_ms(v) -> str:
+    try:
+        return f"{round(float(v)):,}".replace(',', ' ') + ' мс'
+    except (TypeError, ValueError):
+        return '—'
+
+
+def _lh_kb(v) -> str:
+    try:
+        return f"{round(float(v) / 1024):,}".replace(',', ' ') + ' КБ'
+    except (TypeError, ValueError):
+        return '—'
+
+
+def _lh_short(url: str, page: str) -> str:
+    """Свой адрес — путём, чужой — с хостом: «/_next/…/page.js» и «mc.yandex.ru/…»."""
+    try:
+        u, p = urllib.parse.urlsplit(url), urllib.parse.urlsplit(page)
+    except ValueError:
+        return url[:90]
+    if not u.netloc:
+        return url[:90]
+    tail = (u.path or '/')[-70:]
+    return tail if u.netloc == p.netloc else f"{u.netloc}{tail}"
+
+
+def _lh_first_node(details) -> dict | None:
+    """Узел LCP: в Lighthouse 12 он внутри списка таблиц, в 10–11 — в таблице сразу."""
+    if not isinstance(details, dict):
+        return None
+    for item in details.get('items') or []:
+        if isinstance(item, dict) and isinstance(item.get('node'), dict):
+            return item['node']
+        if isinstance(item, dict) and item.get('type') == 'table':
+            for sub in item.get('items') or []:
+                if isinstance(sub, dict) and isinstance(sub.get('node'), dict):
+                    return sub['node']
+    return None
+
+
+def _lh_lcp_phases(details) -> list[tuple[str, float]]:
+    out: list[tuple[str, float]] = []
+    if not isinstance(details, dict):
+        return out
+    for item in details.get('items') or []:
+        if isinstance(item, dict) and item.get('type') == 'table':
+            for sub in item.get('items') or []:
+                if isinstance(sub, dict) and 'phase' in sub and isinstance(sub.get('timing'), (int, float)):
+                    out.append((str(sub['phase']), float(sub['timing'])))
+    return out
+
+
+LH_PHASES = {'TTFB': 'ответ сервера', 'Load Delay': 'задержка загрузки', 'Load Time': 'загрузка',
+             'Render Delay': 'задержка отрисовки'}
+
+
+def lighthouse_summary(url: str, lh: dict) -> tuple[str, list[str]]:
+    """Строка таблицы итогов и расшифровка «что тормозит» по отчёту Lighthouse.
+
+    Баллы без расшифровки звать на правку не могут: прогон 8 (14.10) показал
+    TBT 11,7 с на /map и 1,3 с на главной, а чьи это секунды — отчёт молчал.
+    Здесь — что Lighthouse сам называет: элемент LCP и его фазы, работа
+    главного потока, скрипты по времени выполнения, сторонние скрипты,
+    неиспользуемый JS и длинные задачи. Нет аудита в отчёте — нет и строки:
+    молчание не выдаётся за «всё хорошо», оно просто не печатается.
+    """
+    c = lh.get('categories') or {}
+    a = lh.get('audits') or {}
+
+    def sc(k: str) -> str:
+        v = (c.get(k) or {}).get('score')
+        return '—' if v is None else str(round(v * 100))
+
+    def dv(k: str) -> str:
+        return (a.get(k) or {}).get('displayValue', '—')
+
+    def items(k: str) -> list[dict]:
+        d = (a.get(k) or {}).get('details') or {}
+        return [i for i in (d.get('items') or []) if isinstance(i, dict)]
+
+    row = (f"| {url} | {sc('performance')} | {sc('seo')} | {sc('accessibility')} | {sc('best-practices')} | "
+           f"{dv('largest-contentful-paint')} | {dv('cumulative-layout-shift')} | {dv('total-blocking-time')} |")
+
+    det: list[str] = []
+    node = _lh_first_node((a.get('largest-contentful-paint-element') or {}).get('details'))
+    if node:
+        what = node.get('selector') or node.get('nodeLabel') or '—'
+        snippet = html.unescape(str(node.get('snippet') or ''))[:120]
+        det.append(f"- элемент LCP: `{what}`" + (f" — `{snippet}`" if snippet else ''))
+    phases = _lh_lcp_phases((a.get('largest-contentful-paint-element') or {}).get('details'))
+    if phases:
+        det.append('- фазы LCP: ' + ', '.join(f"{LH_PHASES.get(n, n)} {_lh_ms(t)}" for n, t in phases))
+    groups = sorted(items('mainthread-work-breakdown'), key=lambda i: -(i.get('duration') or 0))[:3]
+    if groups:
+        det.append('- главный поток: ' + ', '.join(
+            f"{i.get('groupLabel') or i.get('group')} {_lh_ms(i.get('duration'))}" for i in groups))
+    boot = sorted(items('bootup-time'), key=lambda i: -(i.get('total') or 0))[:5]
+    if boot:
+        det.append('- скрипты по времени выполнения: ' + '; '.join(
+            f"{_lh_short(str(i.get('url', '')), url)} {_lh_ms(i.get('total'))}" for i in boot))
+    third = sorted(items('third-party-summary'), key=lambda i: -(i.get('blockingTime') or 0))[:4]
+    if third:
+        def ent(i: dict) -> str:
+            e = i.get('entity')
+            return str(e.get('text') if isinstance(e, dict) else e or '—')
+        det.append('- сторонние: ' + '; '.join(
+            f"{ent(i)} — блокировка {_lh_ms(i.get('blockingTime'))}, {_lh_kb(i.get('transferSize'))}" for i in third))
+    unused = (a.get('unused-javascript') or {}).get('details') or {}
+    waste = sorted(items('unused-javascript'), key=lambda i: -(i.get('wastedBytes') or 0))[:3]
+    if waste:
+        total = unused.get('overallSavingsBytes') or sum(i.get('wastedBytes') or 0 for i in items('unused-javascript'))
+        det.append(f"- неиспользуемый JS: {_lh_kb(total)} (" + '; '.join(
+            f"{_lh_short(str(i.get('url', '')), url)} {_lh_kb(i.get('wastedBytes'))}" for i in waste) + ')')
+    longs = items('long-tasks')
+    if longs:
+        det.append(f"- длинных задач: {len(longs)}, самая длинная {_lh_ms(max(i.get('duration') or 0 for i in longs))}")
+    weight = (a.get('total-byte-weight') or {}).get('numericValue')
+    if weight is not None:
+        det.append(f"- вес страницы: {_lh_kb(weight)}")
+    if det:
+        det.insert(0, f"**{url}** — TBT {dv('total-blocking-time')}, LCP {dv('largest-contentful-paint')}")
+        det.append('')
+    return row, det
+
+
+def lighthouse_cli(argv: list[str]) -> int:
+    """`site-audit.py lighthouse URL ОТЧЁТ.json РАСШИФРОВКА.md` — строка таблицы в stdout,
+    расшифровка дописывается в файл. Отчёт не читается — строка «не измерено», не тишина."""
+    url, path, details_path = argv
+    try:
+        lh = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        print(f"| {url} | не измерено: отчёт Lighthouse не прочитан ({str(e)[:80]}) | | | | | | |")
+        return 0
+    row, det = lighthouse_summary(url, lh)
+    print(row)
+    if det:
+        with open(details_path, 'a', encoding='utf-8') as f:
+            f.write('\n'.join(det) + '\n')
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--host', required=True)
@@ -1062,4 +1206,6 @@ def main() -> int:
 
 
 if __name__ == '__main__':
+    if len(sys.argv) == 5 and sys.argv[1] == 'lighthouse':
+        sys.exit(lighthouse_cli(sys.argv[2:]))
     sys.exit(main())
