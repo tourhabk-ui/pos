@@ -1,27 +1,18 @@
 {
   "timeout": 90,
-  "run": 881,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1251 (повтор 1249 с условием 1247): ждёт справку на Авачинском перевале, затем читает Верблюд, Авачинский вулкан, Краеведческие источники и фумаролу Дзензура. Конфиг записан целиком.",
+  "run": 882,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский федеральный заказник (Курильское озеро) — следующий по порядку: справка Википедии, страница заявок Кроноцкого заповедника (он ведает заказником), обе карточки Курильского озера, Кутхины Баты и перепись мест со словом «заказник». Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
-    "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
-    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
-    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0"
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D1%84%D0%B5%D0%B4%D0%B5%D1%80%D0%B0%D0%BB%D1%8C%D0%BD%D1%8B%D0%B9%20%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA",
+    "https://kronoki.ru/ru/visit/requests/",
+    "https://vedarai.ru/api/places/d7e11485-5444-4ded-8dd8-c7da01c9d5a9",
+    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
+    "https://vedarai.ru/api/places/663e37f3-5deb-4907-ac25-321dd247d85e",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA"
   ],
-  "until": "Авачинский перевал — седловина между вулканами",
-  "retries": 55,
-  "retryDelay": 60,
   "allowStale": true,
-  "grep": [
-    "Авачинский перевал — седловина между вулканами",
-    "Экструзия Верблюд, или скала Двугорбая",
-    "Авачинский вулкан — Авачинская сопка",
-    "Краеведческие источники — термальные источники",
-    "Фумарольный котёл вулкана Дзензур",
-    "\"descriptionWithdrawn\":false",
-    "\"descriptionWithdrawn\":true",
-    "сайт парка «Вулканы Камчатки»"
-  ],
-  "bytes": 300
+  "text": true,
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 6500
 }
