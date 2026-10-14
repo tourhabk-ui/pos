@@ -101,9 +101,13 @@ export default async function ChronicleArticlePage({ params }: Props) {
                   {a.hero.author}
                 </a>
                 {' · '}
-                <a href={a.hero.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
-                  {a.hero.license}
-                </a>
+                {a.hero.licenseUrl ? (
+                  <a href={a.hero.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                    {a.hero.license}
+                  </a>
+                ) : (
+                  a.hero.license
+                )}
               </figcaption>
             </figure>
           )}

@@ -39,7 +39,9 @@ describe('какие статьи у какого парка', () => {
   it('Кроноцкий — «Кроноцкий заповедник», Командорский — «Командорские острова», чужому — ничего', () => {
     expect(chronicleForPark('kronotsky').map((a) => a.slug)).toEqual(['kronotskij-zapovednik']);
     expect(chronicleForPark('komandorskiy').map((a) => a.slug)).toEqual(['komandorskie-ostrova']);
-    expect(chronicleForPark('nalychevo')).toEqual([]);
+    // У «Налычево» статья появилась 14.10 (1248); «чужой» — парк без статьи.
+    expect(chronicleForPark('nalychevo').map((a) => a.slug)).toEqual(['nalychevo']);
+    expect(chronicleForPark('klyuchevskoy')).toEqual([]);
   });
 });
 
@@ -64,8 +66,8 @@ describe('страница парка', () => {
   });
 
   it('у парка без статьи блока нет', async () => {
-    loadParkPage.mockResolvedValue(park('nalychevo', 'Природный парк «Налычево»'));
-    render(await ParkPage({ params: Promise.resolve({ slug: 'nalychevo' }) }));
+    loadParkPage.mockResolvedValue(park('klyuchevskoy', 'Природный парк «Ключевской»'));
+    render(await ParkPage({ params: Promise.resolve({ slug: 'klyuchevskoy' }) }));
     expect(screen.queryByRole('region', { name: 'Летопись' })).toBeNull();
   });
 });

@@ -17,6 +17,12 @@ interface Props {
    * порядком (Кроноцкий: заявка на kronoki.ru, 14.10) она была бы чужой дверью.
    */
   ownPermit?: OwnPermit | null;
+  /**
+   * Режим места записал «разрешение не нужно» (`permitNotRequired`): зона
+   * свободного посещения парка, памятник без разрешения. Тогда строка
+   * говорит «не требуется», а не зовёт в «Зелёную кнопку» (14.10, 1248).
+   */
+  permitFree?: boolean;
 }
 
 /**
@@ -40,7 +46,7 @@ interface Props {
  * Коробка осталась ровно у двух вещей, и обе — действия: кнопка 112
  * (непрозрачная, `--danger`, §5 языка) и ссылка на офлайн-инструкции.
  */
-export default function PlaceSafety({ safety, placeId: _, ownPermit = null }: Props) {
+export default function PlaceSafety({ safety, placeId: _, ownPermit = null, permitFree = false }: Props) {
   const hasAnyData =
     safety.requiredGear.length > 0 ||
     safety.satCommunicatorRequired ||
@@ -105,10 +111,13 @@ export default function PlaceSafety({ safety, placeId: _, ownPermit = null }: Pr
                   не освобождён от второго, и одной строкой это не сказать. */}
               <div className="flex items-baseline justify-between gap-4 py-2.5">
                 <dt className="flex shrink-0 items-center gap-1.5 text-sm text-[var(--text-secondary)]">
-                  <Ticket className="h-3.5 w-3.5" aria-hidden /> {ownPermit?.label ?? 'Разрешение парка'}
+                  <Ticket className="h-3.5 w-3.5" aria-hidden />{' '}
+                  {permitFree ? 'Разрешение на посещение' : ownPermit?.label ?? 'Разрешение парка'}
                 </dt>
                 <dd className="text-right text-sm font-semibold">
-                  {ownPermit ? (
+                  {permitFree ? (
+                    <span className="text-[var(--success)]">не требуется</span>
+                  ) : ownPermit ? (
                     <a
                       href={ownPermit.href}
                       target="_blank"
