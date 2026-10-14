@@ -502,11 +502,14 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(id)).toEqual([]);
   });
 
-  it('Южно-Камчатский заведён миграцией 1124 и неактивен как страница', async () => {
+  it('Южно-Камчатский заведён миграцией 1124 с корнем для тревог; страницей стал в 1250', async () => {
+    // 1124 завела запись выключенной — только ради тревог о закрытии, а тревоги
+    // `is_active` не смотрят. 1250 (14.10) включила страницу кластера
+    // национального парка «Вулканы Камчатки»; корень поиска остался прежним.
     const { rows } = await pool.query<{ is_active: boolean; search_term: string }>(
       `SELECT is_active, search_term FROM parks WHERE slug = 'yuzhno-kamchatsky'`,
     );
-    expect(rows).toEqual([{ is_active: false, search_term: 'Южно-Камчат' }]);
+    expect(rows).toEqual([{ is_active: true, search_term: 'Южно-Камчат' }]);
   });
 
   it('карточка маршрута парка видит закрытие тем же правилом (collect-signals, #2133)', async () => {
