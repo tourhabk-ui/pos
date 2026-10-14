@@ -1,24 +1,29 @@
 {
   "timeout": 120,
-  "run": 908,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Заказник «Река Коль»: подстраницы кластера на сайте КГБУ — история, география, реки и озёра, фауна, инфраструктура, правила посещения; ссылка на положение о заказнике. Конфиг записан целиком.",
+  "run": 909,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1254 (природный парк «Вилючинский»): карточка парка, озеро Зеленое на новой точке, страница парка с маршрутами, статья летописи, снимок партнёра в хранилище, карточка маршрута с разрешением парка. Ждёт выката по маркеру. Конфиг записан целиком.",
   "urls": [
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/history/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/location/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/rivers_and_lakes/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/fauna/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/infrastructure/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/rules/"
+    "https://vedarai.ru/api/places/7626267c-d41f-4c88-8c87-c3313bb8b539",
+    "https://vedarai.ru/api/places/ed134429-febe-45d4-9c55-00b12809de24",
+    "https://vedarai.ru/park/vilyuchinsky",
+    "https://vedarai.ru/letopis/vilyuchinskij-park",
+    "https://vedarai.ru/api/images/s3/photos/vilyuchinsky/mestechko-vilyuchinskij-osenyu.jpg",
+    "https://vedarai.ru/routes/9518537b-f1f9-4291-83a9-b04c13e6f515"
   ],
-  "around": [
-    "Положение о заказнике"
+  "until": "Природный парк регионального значения",
+  "retries": 40,
+  "retryDelay": 45,
+  "grep": [
+    "Природный парк регионального значения",
+    "52.7550908",
+    "158.2611049",
+    "Восхождение на Вилючинский вулкан",
+    "Озеро Зеленое",
+    "Местечко Камчатка",
+    "Зелёная кнопка",
+    "Природный парк «Вилючинский»",
+    "prirodnyj-park-vilyuchinskij",
+    "Вилючинская Сопка"
   ],
-  "aroundLines": 1,
-  "aroundBefore": 6,
-  "aroundHits": 1,
-  "text": true,
-  "allowStale": true,
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 9000
+  "bytes": 1500
 }
