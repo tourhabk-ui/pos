@@ -11,6 +11,7 @@
 import { query } from '@/lib/database';
 import { chronicleForPlace } from '@/lib/chronicle/articles';
 import { PLACE_ROUTES_SQL } from '@/lib/places/place-routes';
+import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
 import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
@@ -179,41 +180,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 
     const r = result.rows[0];
 
-    // Nearby: haversine, 50km radius, max 6
-    const nearbyResult = await query(
-      `SELECT
-         p.ark_id AS id,
-         p.slug,
-         p.name,
-         p.location_type,
-         p.lat,
-         p.lng,
-         p.photo_url,
-         -- Та же метка версии у миниатюр «рядом»: адрес без неё замерзал бы
-         -- на год так же, как у главного фото.
-         (SELECT '/api/images/route/' || p.ark_id || '?v=' || EXTRACT(EPOCH FROM ai2.created_at)::bigint
-            FROM ai_route_images ai2
-           WHERE ai2.route_id = p.ark_id
-             AND ${shownPhotoSql('ai2.model')}
-           LIMIT 1) AS thumb_url,
-         round(
-           6371 * acos(
-             LEAST(1.0, cos(radians($1::float)) * cos(radians(p.lat::float)) *
-             cos(radians(p.lng::float) - radians($2::float)) +
-             sin(radians($1::float)) * sin(radians(p.lat::float)))
-           )
-         )::int AS distance_km
-       FROM places p
-       WHERE p.ark_id != $3
-         AND p.is_visible = true
-         -- «Рядом» со ссылкой на слитое место — заведомо мёртвая ссылка.
-         AND p.merged_into_id IS NULL
-         AND p.lat BETWEEN ($1::float - 0.5) AND ($1::float + 0.5)
-         AND p.lng BETWEEN ($2::float - 0.8) AND ($2::float + 0.8)
-       ORDER BY (p.lat::float - $1::float)^2 + (p.lng::float - $2::float)^2
-       LIMIT 6`,
-      [r.lat, r.lng, r.ark_id]
-    );
+    // Рядом: ближайшие по настоящему расстоянию (lib/places/nearby).
+    const nearbyResult = await query(NEARBY_PLACES_SQL, [r.lat, r.lng, r.ark_id]);
 
     // Reviews for this place
     const reviewsResult = await query(
