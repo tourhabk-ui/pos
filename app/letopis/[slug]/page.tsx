@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { ArrowLeft, ArrowRight, BookOpen, MapPin, Route } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { CHRONICLE_ARTICLES, CHRONICLE_BY_SLUG } from '@/lib/chronicle/articles';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { photoPath } from '@/lib/images/photo-key';
 
 // Статьи — константа в коде, базы страница не трогает: собрать их на сборке
 // безопасно (ср. tests/unit/no-build-time-db.test.ts).
@@ -28,7 +30,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description,
     alternates: { canonical: url },
     openGraph: {
-      images: defaultOgImages(),
+      // Главный кадр статьи — и превью в мессенджерах; нет его — общий кадр.
+      images: a.hero
+        ? [{ url: `https://vedarai.ru${photoPath(a.hero.key)}`, width: a.hero.width, height: a.hero.height, alt: a.hero.alt }]
+        : defaultOgImages(),
       title: a.title,
       description,
       url,
@@ -53,6 +58,7 @@ export default async function ChronicleArticlePage({ params }: Props) {
     inLanguage: 'ru',
     dateModified: a.checkedAt,
     citation: a.sources.map((s) => s.url),
+    ...(a.hero ? { image: `https://vedarai.ru${photoPath(a.hero.key)}` } : {}),
     publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://vedarai.ru' },
   };
 
@@ -69,6 +75,33 @@ export default async function ChronicleArticlePage({ params }: Props) {
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
             Летопись Камчатки
           </Link>
+
+          {/* Главный кадр — снимок со свободной лицензией, подпись целиком:
+              название у автора, автор со ссылкой на файл, лицензия. */}
+          {a.hero && (
+            <figure className="mb-8">
+              <Image
+                src={photoPath(a.hero.key)}
+                alt={a.hero.alt}
+                width={a.hero.width}
+                height={a.hero.height}
+                priority
+                unoptimized
+                sizes="(min-width: 672px) 672px, 100vw"
+                className="w-full h-auto rounded-lg"
+              />
+              <figcaption className="mt-2 text-xs text-[var(--text-muted)]">
+                {a.hero.caption}. Фото:{' '}
+                <a href={a.hero.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                  {a.hero.author}
+                </a>
+                {' · '}
+                <a href={a.hero.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                  {a.hero.license}
+                </a>
+              </figcaption>
+            </figure>
+          )}
 
           <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">{a.period}</p>
           <h1

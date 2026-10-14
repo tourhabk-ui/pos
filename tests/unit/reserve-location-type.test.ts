@@ -89,3 +89,30 @@ describe('Кроноцкий заповедник: запись по источ�
     expect(body).toContain("'Кроноцкий государственный природный биосферный заповедник'");
   });
 });
+
+describe('снимки заповедника (миграция 1241)', () => {
+  const photos = readFileSync(join(process.cwd(), 'migrations/1241_kronotsky_reserve_photos.sql'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  const marker = JSON.parse(readFileSync(join(process.cwd(), '.github/triggers/media-to-s3.json'), 'utf8')) as {
+    items: Array<{ key: string }>;
+  };
+  // Ключ героя повторяется в проверке исхода в конце миграции — считаем различные.
+  const keys = [...new Set([...photos.matchAll(/'(photos\/kronotsky\/[a-z0-9-]+\.jpg)'/g)].map((m) => m[1]))];
+
+  it('каждый ключ залит в хранилище тем же путём (media-to-s3) — битого снимка не будет', () => {
+    expect(keys.length).toBe(8);
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    for (const k of keys) expect(uploaded.has(k), k).toBe(true);
+  });
+
+  it('у каждого снимка автор, свободная лицензия и страница файла; герой — показываемый род', () => {
+    // Восемь строк — восемь ссылок на страницы файлов Commons и лицензий CC.
+    expect((photos.match(/https:\/\/commons\.wikimedia\.org\/wiki\/File:/g) ?? []).length).toBe(8);
+    expect((photos.match(/'CC BY-SA [34]\.0'/g) ?? []).length).toBe(8);
+    expect(photos).toContain("'wikimedia'");
+    // Чужой показываемый снимок (фото владельца, ручная загрузка) не затирается.
+    expect(photos).toMatch(/WHERE ai_route_images\.model NOT IN \('wikimedia', 'manual-upload'\)\s+OR ai_route_images\.prompt = EXCLUDED\.prompt/);
+    expect(photos).toContain('ON CONFLICT (ark_id, position) DO NOTHING');
+    expect(photos).toContain(`'${PLACE_ID}'`);
+  });
+});

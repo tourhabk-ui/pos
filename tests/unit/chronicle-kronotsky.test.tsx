@@ -10,6 +10,8 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 
@@ -69,6 +71,23 @@ describe('страница статьи', () => {
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });
     const hrefs = within(nav).getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['/places/kronotskij-zapovednik', '/park/kronotsky']);
+  });
+
+  it('над заголовком — главный кадр с подписью: название, автор со ссылкой на файл, лицензия', async () => {
+    render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
+    const img = screen.getByRole('img', { name: article.hero!.alt });
+    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/kronotsky/kronotskaya-v-shlyape.jpg');
+    const figure = img.closest('figure')!;
+    expect(figure.textContent).toContain('Кроноцкая в шляпе');
+    expect(within(figure).getByRole('link', { name: 'Malupasic' }).getAttribute('href')).toMatch(/^https:\/\/commons\.wikimedia\.org\/wiki\/File:/);
+    expect(within(figure).getByRole('link', { name: 'CC BY-SA 4.0' }).getAttribute('href')).toBe('https://creativecommons.org/licenses/by-sa/4.0');
+  });
+
+  it('главный кадр лежит в хранилище: его ключ залит media-to-s3', () => {
+    const marker = JSON.parse(readFileSync(join(process.cwd(), '.github/triggers/media-to-s3.json'), 'utf8')) as {
+      items: Array<{ key: string }>;
+    };
+    expect(marker.items.map((i) => i.key)).toContain(article.hero!.key);
   });
 
   it('у статьи без ленты и переходов этих блоков нет', async () => {

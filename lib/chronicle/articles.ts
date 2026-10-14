@@ -36,6 +36,27 @@ export interface ChronicleDate {
   event: string;
 }
 
+/**
+ * Главный кадр статьи — снимок из хранилища под `photos/` (media-to-s3) со
+ * свободной лицензией. Подпись обязательна целиком: без автора и лицензии
+ * чужой снимок не показывается (тот же закон, что у снимков мест).
+ */
+export interface ChronicleHero {
+  /** Ключ в хранилище: `photos/…jpg`; адрес собирает lib/images/photo-key. */
+  key: string;
+  /** Что видно на снимке — для того, кто его не видит. */
+  alt: string;
+  /** Название снимка у автора. */
+  caption: string;
+  author: string;
+  license: string;
+  licenseUrl: string;
+  /** Страница файла у источника (Wikimedia Commons). */
+  sourceUrl: string;
+  width: number;
+  height: number;
+}
+
 /** Куда дальше на платформе — внутренний адрес по slug (/places/…, /park/…). */
 export interface ChronicleLink {
   href: string;
@@ -61,6 +82,8 @@ export interface ChronicleArticle {
   timeline?: ChronicleDate[];
   /** Карточка места, маршруты — переходы со страницы статьи. */
   links?: ChronicleLink[];
+  /** Главный кадр над заголовком (14.10, «сделай красивую страницу»). */
+  hero?: ChronicleHero;
 }
 
 export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
@@ -388,6 +411,19 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
       'Как соболиные угодья на восточном берегу Камчатки стали одним из старейших заповедников России: два упразднения, возвращение по ходатайству вулканологов, открытие Долины гейзеров и оползень 2007 года.',
     placeIds: ['4f1217e7-31a4-4d21-bc98-3d46aaba122e'], // Кроноцкий заповедник
     checkedAt: '2026-10-14',
+    // Тот же снимок — главный кадр карточки места (миграция 1241); залит
+    // media-to-s3, прогон 3. Автор и лицензия — extmetadata Commons 14.10.
+    hero: {
+      key: 'photos/kronotsky/kronotskaya-v-shlyape.jpg',
+      alt: 'Снежный конус Кроноцкой сопки с облаком на вершине над водной гладью',
+      caption: 'Кроноцкая в шляпе',
+      author: 'Malupasic',
+      license: 'CC BY-SA 4.0',
+      licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0',
+      sourceUrl: 'https://commons.wikimedia.org/wiki/File:%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%D0%B0%D1%8F_%D0%B2_%D1%88%D0%BB%D1%8F%D0%BF%D0%B5.jpg',
+      width: 1920,
+      height: 1280,
+    },
     timeline: [
       { year: '1882', event: 'Угодья Кронок и Асачи объявлены заповедными — ради соболя, снежного барана, северного оленя и выдры' },
       { year: '1934', event: 'Кроноцкий соболиный заповедник признан государственным заповедником общесоюзного значения' },
