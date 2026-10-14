@@ -1,23 +1,16 @@
 {
   "timeout": 60,
-  "run": 803,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Кроноцкий заповедник, герой страницы: есть ли у мест внутри заповедника (Долина гейзеров, Вулкан Кроноцкий 44be8f5a, Озеро Кроноцкое a3ffa47b) показываемые снимки с автором и лицензией — тогда герой заповедника встанет на тот же объект хранилища с той же подписью, без новой заливки.",
+  "run": 804,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Кроноцкий заповедник: снимки категории Commons «Kronotsky Nature Reserve» с автором и лицензией (кандидаты в герой страницы — свободная лицензия обязательна), и есть ли на проде страница /park/kronotsky (справочник parks, миграция 781).",
   "urls": [
-    "https://vedarai.ru/places/dolina-gejzerov",
-    "https://vedarai.ru/places/44be8f5a-809d-47aa-bfa9-858e65cdfe77",
-    "https://vedarai.ru/places/a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041"
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AKronotsky+Nature+Reserve&gcmtype=file&gcmlimit=40&prop=imageinfo&iiprop=url%7Csize%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName%7CLicenseUrl%7CObjectName&format=json&formatversion=2&utf8=1",
+    "https://vedarai.ru/park/kronotsky"
   ],
-  "bytes": 1500,
+  "bytes": 45000,
   "grep": [
-    "photoAttribution",
-    "s3.twcstorage",
+    "LicenseShortName",
     "CC BY",
-    "Wikimedia"
-  ],
-  "around": [
-    "photoAttribution",
-    "galleryAuthors"
-  ],
-  "aroundLines": 3,
-  "aroundHits": 2
+    "Кроноцкий заповедник",
+    "permit"
+  ]
 }
