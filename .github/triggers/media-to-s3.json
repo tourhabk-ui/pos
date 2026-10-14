@@ -1,7 +1,7 @@
 {
   "upload": true,
-  "run": 6,
-  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/. Прогон 6 (14.10): восемь снимков природного парка «Быстринский» с Wikimedia Commons (CC BY-SA 4.0 NadezhdaKhaustova, CC BY-SA 3.0 Johannes Rohr) — главный кадр и галерея карточки, главный кадр статьи летописи (владелец: «Природный парк «Быстринский» так же»). Ключи под photos/bystrinsky/.",
+  "run": 7,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/. Прогон 6 (14.10): восемь снимков природного парка «Быстринский» с Wikimedia Commons (CC BY-SA 4.0 NadezhdaKhaustova, CC BY-SA 3.0 Johannes Rohr) — главный кадр и галерея карточки, главный кадр статьи летописи (владелец: «Природный парк «Быстринский» так же»). Ключи под photos/bystrinsky/. Прогон 7 (14.10): тринадцать снимков природного парка «Налычево» с Wikimedia Commons (CC BY-SA 4.0 — Alphatetia, Кирилл Уютнов, Jeskela, Rost.galis; CC BY 2.0 — Елена Ветрова; общественное достояние — Gistereziz) — главный кадр и галерея карточек парка, Налычевской долины, Налычевских источников и Грифона Иванова, главный кадр статьи летописи (владелец: «Природный парк «Налычево» го»). Ключи под photos/nalychevo/.",
   "items": [
     {
       "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
@@ -178,6 +178,58 @@
     {
       "file": "media/s3/photos/bystrinsky/gora-skalistaya.jpg",
       "key": "photos/bystrinsky/gora-skalistaya.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/koryakskij-i-shumnaya.jpg",
+      "key": "photos/nalychevo/koryakskij-i-shumnaya.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/zhupanovskoe-oblachko.jpg",
+      "key": "photos/nalychevo/zhupanovskoe-oblachko.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/vid-s-dzendzura.jpg",
+      "key": "photos/nalychevo/vid-s-dzendzura.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/kordon-semenovskij.jpg",
+      "key": "photos/nalychevo/kordon-semenovskij.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/grifon-ivanova.jpg",
+      "key": "photos/nalychevo/grifon-ivanova.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/muzej-semenova.jpg",
+      "key": "photos/nalychevo/muzej-semenova.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/lisicy.jpg",
+      "key": "photos/nalychevo/lisicy.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/zhupanovskij-s-kordona.jpg",
+      "key": "photos/nalychevo/zhupanovskij-s-kordona.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/shelomajnik.jpg",
+      "key": "photos/nalychevo/shelomajnik.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/termalnye-istochniki.jpg",
+      "key": "photos/nalychevo/termalnye-istochniki.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/termalnye-istochniki-2.jpg",
+      "key": "photos/nalychevo/termalnye-istochniki-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/tretya-luzha-zimoj.jpg",
+      "key": "photos/nalychevo/tretya-luzha-zimoj.jpg"
+    },
+    {
+      "file": "media/s3/photos/nalychevo/tretya-luzha-2009.jpg",
+      "key": "photos/nalychevo/tretya-luzha-2009.jpg"
     }
   ]
 }
