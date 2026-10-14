@@ -291,7 +291,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'routes-dedup': ['db_read', 'db_write', 'pd_direct'],
   'routes-unmerge': ['db_read', 'db_write'],
   'safety-alert': ['db_read', 'db_write'],
-  'safety-check': ['db_read', 'db_write'],
+  // 14.10: о сломанном ядре безопасности сообщает сама, в Telegram — её зовёт и
+  // супервизор start.js, а красный прогон GitHub в окне супервизора не наступает.
+  'safety-check': ['db_read', 'db_write', 'net_out', 'telegram'],
   'safety-ingest': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'safety-ledger-check': ['db_read', 'db_write'],
   'safety-profile-census': ['db_read'],
