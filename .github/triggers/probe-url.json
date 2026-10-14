@@ -1,17 +1,15 @@
 {
   "timeout": 90,
-  "run": 874,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Национальный парк «Вулканы Камчатки»: сообщения о постановлении от 9 октября (имя, площадь, округа, ведомство, номер) и пояснительная записка к проекту 2023 года — перед карточками парков (миграция 1250). Конфиг записан целиком.",
+  "run": 875,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Пояснительная записка Минприроды к проекту постановления о национальном парке «Вулканы Камчатки» целиком; поиск самого постановления на портале официального опубликования; карточка Мутновского — что она говорит о кратере (на сайте парка: с 2022 года спуск в кратер запрещён). Конфиг записан целиком.",
   "urls": [
-    "https://www.interfax.ru/russia/1121613",
-    "https://kamtoday.ru/news/society/prirodnyy-park-vulkany-kamchatki-poluchil-federalnyy-status/",
-    "https://news.mail.ru/society/72676652/",
-    "https://kamchatkamedia.ru/news/2650854/",
-    "https://base.garant.ru/56969521/"
+    "https://base.garant.ru/56969521/",
+    "http://publication.pravo.gov.ru/api/Documents?Name=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%D1%8B%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B8&PageSize=5",
+    "https://vedarai.ru/api/places/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9"
   ],
   "allowStale": true,
   "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 6500
+  "bytes": 26000
 }
