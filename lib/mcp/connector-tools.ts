@@ -57,6 +57,7 @@ import { logText } from '@/lib/log/log-text';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
+import { describeForAgent } from '@/lib/places/description-voice';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -332,6 +333,9 @@ function honestHazards(p: Pick<PlaceRow, 'hazard_types' | 'profile_source'>): st
   return [...new Set(kept.map((h) => HAZARDS[h]?.label?.toLocaleLowerCase('ru-RU')).filter((h): h is string => Boolean(h)))];
 }
 
+/** fetch обещает полный текст записи: описание не режется, только судится голос. */
+const FETCH_DESCRIPTION_MAX = 20_000;
+
 async function fetchPlace(key: string, base: string): Promise<FetchResult> {
   const id = docId('place', key);
   const { rows: [p] } = await pool.query<PlaceRow>(
@@ -352,7 +356,12 @@ async function fetchPlace(key: string, base: string): Promise<FetchResult> {
     `${p.name}${p.location_type ? ` (${p.location_type})` : ''}${p.district ? `, ${p.district}` : ''}.`,
     p.lat && p.lng ? `Координаты: ${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : null,
     p.essence,
-    p.description,
+    // Голос описания — тем же правилом, что у get_place_info и
+    // get_guardian_context (14.10): fetch отдавал текст как есть, и описание,
+    // написанное путевой заметкой («я стою у подножия», «идёшь не меньше
+    // недели»), уходило внешнему агенту фактом. Длина — без обрезки: fetch
+    // обещает полный текст.
+    describeForAgent(p.description, FETCH_DESCRIPTION_MAX),
     line('Лучший сезон', p.best_season),
     line('Как добраться', p.access_info),
     p.eco_permit_required ? 'Нужно разрешение на посещение (ООПТ).' : null,

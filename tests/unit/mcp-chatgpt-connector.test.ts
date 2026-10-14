@@ -202,6 +202,23 @@ describe('fetch', () => {
     expect(doc.metadata).toMatchObject({ kind: 'place', hazards: [] });
   });
 
+  it('место: описание-дневник агенту фактом не уходит, справка — целиком (правило describeForAgent, 14.10)', async () => {
+    const row = {
+      key: 'burlyashchij', name: 'Бурлящий', essence: null, location_type: 'volcano', category: null,
+      district: null, lat: '52.14', lng: '157.32', best_season: null, access_info: null, eco_permit_required: false,
+      hazard_types: null, profile_source: null, nearest_medical_km: null,
+    };
+    query.mockResolvedValueOnce({ rows: [{ ...row, description: 'Я стою у подножия Бурлящего, и вокруг непрерывное сипение.' }] });
+    const diary = await fetchDocument('place:burlyashchij', BASE);
+    expect(diary.text).not.toContain('Я стою у подножия');
+    expect(diary.text).toMatch(/Описание: не приводится — текст в базе написан как путевая заметка/);
+
+    const reference = 'Вулкан на юге Камчатки. '.repeat(60).trim();
+    query.mockResolvedValueOnce({ rows: [{ ...row, description: reference }] });
+    const plain = await fetchDocument('place:burlyashchij', BASE);
+    expect(plain.text).toContain(`Описание: ${reference}`);
+  });
+
   it('схемы пары живут без базы: их читает реестр, а реестр — страница /mcp, собираемая на сборке', () => {
     const schemas = read('lib/mcp/connector-schemas.ts');
     expect(schemas).not.toMatch(/db-pool|from 'pg'|\bpool\b/);
