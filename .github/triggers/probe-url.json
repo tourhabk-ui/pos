@@ -1,12 +1,12 @@
 {
   "timeout": 90,
-  "run": 847,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места четырёх клеток (55n156–159e) вокруг природного парка «Быстринский» — для проверки точкой в контуре OSM. Конфиг записан целиком.",
+  "run": 848,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места четырёх клеток (56n156–159e) вокруг природного парка «Быстринский» — для проверки точкой в контуре OSM. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/places-export?region=cell-55n156e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-55n157e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-55n158e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-55n159e"
+    "https://vedarai.ru/api/cron/places-export?region=cell-56n156e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-56n157e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-56n158e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-56n159e"
   ],
   "retries": 1,
   "retryDelay": 15,
