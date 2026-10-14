@@ -1,20 +1,42 @@
 {
-  "timeout": 120,
-  "run": 877,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Сообщение о постановлении целиком (рекомендации ЮНЕСКО 2023 года — для статьи летописи) и названия маршрутов с park_name ровно «Южно-Камчатский»: какие из них у Курильского озера, то есть в федеральном заказнике, а не в национальном парке. Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 879,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1250 (национальный парк «Вулканы Камчатки»): ждёт новое имя карточки «Южно-Камчатского», затем читает новую карточку «Ключевского», Мутновский, обе страницы парков, статью летописи, адрес карточки по slug и снимок партнёра из хранилища. Конфиг записан целиком.",
   "urls": [
-    "https://news.mail.ru/society/72676652/",
-    "https://vedarai.ru/api/cron/route-corpus"
+    "https://vedarai.ru/api/places/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
+    "https://vedarai.ru/api/places/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0",
+    "https://vedarai.ru/api/places/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9",
+    "https://vedarai.ru/api/parks/yuzhno-kamchatsky",
+    "https://vedarai.ru/api/parks/klyuchevskoy",
+    "https://vedarai.ru/letopis/vulkany-kamchatki",
+    "https://vedarai.ru/places/park-klyuchevskoj",
+    "https://vedarai.ru/api/images/s3/photos/vulkany-kamchatki/mestechko-shlakovye-konusy-tolbachika.jpg"
   ],
+  "until": "Парк «Южно-Камчатский»",
+  "retries": 55,
+  "retryDelay": 60,
   "allowStale": true,
-  "text": true,
-  "around": [
-    "\"park_name\":\"Южно-Камчатский\","
+  "grep": [
+    "Парк «Южно-Камчатский» — южный из двух кластеров",
+    "Парк «Ключевской» — северный из двух кластеров",
+    "\"locationType\":\"national_park\"",
+    "Спускаться в кратер Мутновского запрещено и опасно",
+    "Национальный парк «Вулканы Камчатки» в ведении Минприроды России",
+    "С октября 2026 года — национальный парк в ведении Минприроды России",
+    "\"descriptionWithdrawn\":true",
+    "\"kuzmichReview\":\"\"",
+    "Национальный парк «Вулканы Камчатки» — «Южно-Камчатский»",
+    "Национальный парк «Вулканы Камчатки» — «Ключевской»",
+    "Тайны Курильского озера",
+    "Местечко Камчатка",
+    "Край Вулканов",
+    "владелец платформы",
+    "vulkany-kamchatki",
+    "887 690,1226 гектара",
+    "\"zone\":\"southern\"",
+    "\"slug\":\"park-klyuchevskoj\"",
+    "volcanic_gas",
+    "unstable_ground"
   ],
-  "aroundBefore": 40,
-  "aroundLines": 2,
-  "aroundHits": 8,
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 9500
+  "bytes": 400
 }
