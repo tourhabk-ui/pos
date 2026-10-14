@@ -1,7 +1,7 @@
 {
   "upload": true,
-  "run": 2,
-  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа».",
+  "run": 3,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом.",
   "items": [
     {
       "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
@@ -50,6 +50,38 @@
     {
       "file": "media/s3/videos/fishingkam/clip-ice-camp.poster.jpg",
       "key": "videos/fishingkam/clip-ice-camp.poster.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/kronotskaya-v-shlyape.jpg",
+      "key": "photos/kronotsky/kronotskaya-v-shlyape.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/kronotskaya-s-zaliva-unana.jpg",
+      "key": "photos/kronotsky/kronotskaya-s-zaliva-unana.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/kaldera-uzona.jpg",
+      "key": "photos/kronotsky/kaldera-uzona.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/chudo-doliny.jpg",
+      "key": "photos/kronotsky/chudo-doliny.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/dolina-gejzerov.jpg",
+      "key": "photos/kronotsky/dolina-gejzerov.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/turisty-u-gejzera-bolshoj.jpg",
+      "key": "photos/kronotsky/turisty-u-gejzera-bolshoj.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/lake-kronotzkoe.jpg",
+      "key": "photos/kronotsky/lake-kronotzkoe.jpg"
+    },
+    {
+      "file": "media/s3/photos/kronotsky/kronotsky-volcano.jpg",
+      "key": "photos/kronotsky/kronotsky-volcano.jpg"
     }
   ]
 }

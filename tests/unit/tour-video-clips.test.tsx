@@ -84,6 +84,14 @@ describe('файлы и заливка', () => {
     expect(checkItem({ file: 'media/s3/videos/fishingkam/clip-fish-catch.mp4', key: 'videos/x.jpg' }, ROOT)).toMatch(/расходятся/);
   });
 
+  it('снимки мест (14.10): под photos/ — только JPEG, видео туда не кладётся', () => {
+    const ok = checkItem({ file: 'media/s3/photos/kronotsky/kaldera-uzona.jpg', key: 'photos/kronotsky/kaldera-uzona.jpg' }, ROOT);
+    expect(typeof ok).toBe('object');
+    expect(checkItem({ file: 'media/s3/videos/fishingkam/clip-fish-catch.mp4', key: 'photos/x.mp4' }, ROOT)).toMatch(/только снимки \.jpg/);
+    // Уборка сирот распоряжается places/<uuid>/ — этим путём туда не пишется.
+    expect(checkItem({ file: 'media/s3/photos/kronotsky/kaldera-uzona.jpg', key: 'places/kronotsky/kaldera-uzona.jpg' }, ROOT)).toMatch(/только под videos\//);
+  });
+
   it('workflow зовёт скрипт по маркеру и читает обратно; media/ не едет в образ', () => {
     const wf = read('.github/workflows/media-to-s3.yml');
     expect(wf).toContain("- '.github/triggers/media-to-s3.json'");

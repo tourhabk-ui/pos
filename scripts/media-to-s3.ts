@@ -9,8 +9,12 @@
  * только git, положить ролик в хранилище было нечем.
  *
  * Правила:
- *   - файл берётся только из `media/s3/`, ключ — только под `videos/`;
- *     другие префиксы бакета (места, пакеты карты) этим путём не пишутся;
+ *   - файл берётся только из `media/s3/`, ключ — только под `videos/` или
+ *     `photos/` (14.10: снимки мест со свободной лицензией, выбранные в
+ *     сессии, — первым Кроноцкий заповедник); под `photos/` — только JPEG.
+ *     Другие префиксы бакета этим путём не пишутся: `places/<uuid>/`
+ *     распоряжается уборка сирот (lib/storage/orphan-delete), `maps/` —
+ *     сборка пакетов карты;
  *   - сначала проверяется ВЕСЬ список, потом заливается: отказ любой строки —
  *     ничего не залито;
  *   - после заливки объект читается обратно по публичному адресу и сверяется
@@ -31,6 +35,8 @@ import { uploadToS3, isS3Configured, s3PublicBase } from '@/lib/storage/s3';
 export const MARKER = '.github/triggers/media-to-s3.json';
 export const MEDIA_ROOT = 'media/s3/';
 export const KEY_PREFIX = 'videos/';
+/** Снимки мест (14.10): JPEG под своим префиксом, вне `places/<uuid>/` уборки сирот. */
+export const PHOTO_KEY_PREFIX = 'photos/';
 /** Что этим путём можно положить: короткие клипы и их обложки. */
 export const ALLOWED_TYPES: Readonly<Record<string, string>> = {
   '.mp4': 'video/mp4',
@@ -57,10 +63,12 @@ export function checkItem(item: unknown, root: string): CheckedItem | string {
   if (normalize(file) !== file || !file.startsWith(MEDIA_ROOT) || file.includes('..')) {
     return `${file}: файл только из ${MEDIA_ROOT}`;
   }
-  if (!key.startsWith(KEY_PREFIX) || key.includes('..') || !/^[a-z0-9/._-]+$/.test(key)) {
-    return `${key}: ключ только под ${KEY_PREFIX}, латиница в нижнем регистре`;
+  const underPhotos = key.startsWith(PHOTO_KEY_PREFIX);
+  if ((!key.startsWith(KEY_PREFIX) && !underPhotos) || key.includes('..') || !/^[a-z0-9/._-]+$/.test(key)) {
+    return `${key}: ключ только под ${KEY_PREFIX} или ${PHOTO_KEY_PREFIX}, латиница в нижнем регистре`;
   }
   const ext = key.slice(key.lastIndexOf('.'));
+  if (underPhotos && ext !== '.jpg') return `${key}: под ${PHOTO_KEY_PREFIX} — только снимки .jpg`;
   const contentType = ALLOWED_TYPES[ext];
   if (!contentType) return `${key}: расширение ${ext} не принимается`;
   if (!file.endsWith(ext)) return `${file}: расширение файла и ключа расходятся`;
