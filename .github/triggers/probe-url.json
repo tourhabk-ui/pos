@@ -1,18 +1,21 @@
 {
   "timeout": 90,
-  "run": 798,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Владелец: «Кроноцкий заповедник нужно завести и сделать страницу». Координата — из OSM с номером объекта (Overpass: отношение заповедника с центром; Nominatim: точка на поверхности), факты описания — из статьи Википедии (год основания, площадь, ЮНЕСКО). Старое описание 153 называло 1884 год.",
+  "run": 799,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Кроноцкий заповедник, продолжение 798: точка Nominatim (R2800189, 54.6245727/160.8792322) — суша или трёхмильная акватория (обратное геокодирование), упрощённый контур отношения для выбора точки внутри суши, и статья Википедии целиком в UTF-8 (в 798 экранирование \\u съело объём).",
   "urls": [
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28rel%5B%22boundary%22%3D%22protected_area%22%5D%5B%22name%22~%22%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%22%5D%3Brel%5B%22leisure%22%3D%22nature_reserve%22%5D%5B%22name%22~%22%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%22%5D%3B%29%3Bout%20center%20tags%3B",
-    "https://nominatim.openstreetmap.org/search?q=%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%D0%B8%D0%B9+%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=jsonv2&extratags=1&limit=5",
-    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%D0%B8%D0%B9+%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=json&redirects=1"
+    "https://nominatim.openstreetmap.org/reverse?lat=54.6245727&lon=160.8792322&format=jsonv2&zoom=14&extratags=1",
+    "https://nominatim.openstreetmap.org/lookup?osm_ids=R2800189&format=geojson&polygon_geojson=1&polygon_threshold=0.02",
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA%D0%B8%D0%B9+%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA&format=json&formatversion=2&utf8=1&redirects=1"
   ],
-  "bytes": 30000,
+  "bytes": 60000,
   "ua": "Mozilla/5.0 (compatible; VedarProbe/1.0; +https://vedarai.ru)",
   "grep": [
-    "\"center\"",
-    "\"osm_id\"",
-    "1934",
-    "ЮНЕСКО"
+    "\"display_name\"",
+    "\"coordinates\"",
+    "Кроноцкое озеро",
+    "крупнейш",
+    "Долина гейзеров",
+    "Узон",
+    "туризм"
   ]
 }
