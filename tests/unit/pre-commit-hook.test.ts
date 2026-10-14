@@ -40,12 +40,14 @@ function runHook(files: Record<string, string>): { code: number | null; out: str
   const dir = mkdtempSync(join(tmpdir(), 'pre-commit-'));
   const env = cleanEnv();
   try {
-    execFileSync('git', ['init', '-q'], { cwd: dir, env });
+    // Цвет глушится явно: тест судит хук, а не настройки машины разработчика
+    // (сторож no-ignored-sources, случай 16.08 с color.ui=always).
+    execFileSync('git', ['-c', 'color.ui=false', 'init', '-q'], { cwd: dir, env });
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, path)), { recursive: true });
       writeFileSync(join(dir, path), text);
     }
-    execFileSync('git', ['add', '-A'], { cwd: dir, env });
+    execFileSync('git', ['-c', 'color.ui=false', 'add', '-A'], { cwd: dir, env });
     try {
       const out = execFileSync('sh', ['-e', HOOK], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' });
       return { code: 0, out };
