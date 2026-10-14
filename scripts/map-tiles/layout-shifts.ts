@@ -67,6 +67,27 @@ export function layoutChanges(snaps: LayoutSnap[]): string[] {
 }
 
 /**
+ * Условия, в которых мерит Lighthouse (site-audit.yml, мобильный профиль):
+ * экран и плотность moto g power из core/config/constants.js Lighthouse 12,
+ * светлая тема, строка браузера PSI (та же, что LH_UA в site-audit.yml), язык
+ * и часовой пояс раннера.
+ *
+ * Прогон 14: Lighthouse мерил на /map сдвиг 0,171, а map-page-check в своих
+ * условиях (тёмная тема, плотность 1, строка другого телефона, Камчатка) —
+ * 0,0093. Сдвиг, которого нет в своих условиях, ищется в чужих — флаг
+ * --lighthouse.
+ */
+export const LIGHTHOUSE_PROFILE = {
+  viewport: { width: 412, height: 823 },
+  deviceScaleFactor: 1.75,
+  colorScheme: 'light' as const,
+  locale: 'en-US',
+  timezoneId: 'UTC',
+  userAgent:
+    'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36 Chrome-Lighthouse',
+};
+
+/**
  * Наблюдатель сдвигов в странице (14.10). Селектор как у Lighthouse: тег и
  * первый класс, три уровня вверх, — чтобы узел совпадал с его расшифровкой.
  * Строкой, а не функцией: tsx (esbuild) оборачивает именованные функции в

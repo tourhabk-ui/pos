@@ -9,8 +9,10 @@
  * прямоугольниками до и после и раскладку верхних блоков по времени.
  */
 import { describe, it, expect, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
-  SHIFT_OBSERVER, describeShift, layoutChanges, totalShift, type ShiftEntry,
+  LIGHTHOUSE_PROFILE, SHIFT_OBSERVER, describeShift, layoutChanges, totalShift, type ShiftEntry,
 } from '@/scripts/map-tiles/layout-shifts';
 
 describe('разбор сдвигов', () => {
@@ -85,5 +87,32 @@ describe('наблюдатель в странице', () => {
       { t: 2340, value: 0.171, sources: [{ node: 'body.min-h-screen > div.min-h-screen > div.px-4', prev: [141, 643], cur: [316, 643] }] },
     ]);
     expect(w.__sel?.(node)).toBe('body.min-h-screen > div.min-h-screen > div.px-4');
+  });
+});
+
+describe('условия Lighthouse (--lighthouse)', () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
+
+  it('строка браузера — та же, что у Lighthouse в site-audit.yml', () => {
+    // Два места объявления одной строки держит этот тест: разойдутся — замер
+    // сдвигов будет смотреть не тем браузером, что Lighthouse.
+    const lhUa = read('.github/workflows/site-audit.yml').match(/^\s*LH_UA: '([^']+)'/m)?.[1];
+    expect(lhUa).toBeTruthy();
+    expect(LIGHTHOUSE_PROFILE.userAgent).toBe(lhUa);
+  });
+
+  it('экран и плотность — мобильный профиль Lighthouse 12 (moto g power)', () => {
+    expect(LIGHTHOUSE_PROFILE.viewport).toEqual({ width: 412, height: 823 });
+    expect(LIGHTHOUSE_PROFILE.deviceScaleFactor).toBe(1.75);
+    expect(LIGHTHOUSE_PROFILE.colorScheme).toBe('light');
+  });
+
+  it('скрипт берёт профиль по флагу, а без флага — прежний телефон', () => {
+    const script = read('scripts/map-tiles/map-page-check.ts');
+    expect(script).toMatch(/const lh = process\.argv\.includes\('--lighthouse'\)/);
+    for (const key of ['viewport', 'deviceScaleFactor', 'locale', 'colorScheme', 'userAgent']) {
+      expect(script, key).toMatch(new RegExp(`lh\\s*\\?\\s*LIGHTHOUSE_PROFILE\\.${key}`));
+    }
+    expect(script).toMatch(/arg\('--tz', lh \? LIGHTHOUSE_PROFILE\.timezoneId : 'Asia\/Kamchatka'\)/);
   });
 });
