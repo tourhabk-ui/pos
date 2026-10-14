@@ -1,16 +1,15 @@
 {
-  "timeout": 45,
-  "run": 808,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Первоисточники: постановление о преобразовании Командорского заповедника в нацпарк (government.ru/docs/45241, Интерфакс), сайт о Командорах beringisland.ru, страница Корякского заповедника на kronoki.ru. allowStale — недоступный сайт не останавливает остальные. Конфиг записан целиком.",
+  "timeout": 60,
+  "run": 809,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Снимки Commons для карточек: файлы категорий «Komandorsky Zapovednik» и «Koryak Nature Reserve» (размер, автор, лицензия) и их подкатегории. Конфиг записан целиком.",
   "urls": [
-    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/",
-    "http://government.ru/docs/45241/",
-    "https://www.interfax.ru/russia/837700",
-    "http://beringisland.ru/"
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AKomandorsky%20Zapovednik&gcmtype=file&gcmlimit=60&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category%3AKomandorsky%20Zapovednik&cmtype=subcat&cmlimit=60&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AKoryak%20Nature%20Reserve&gcmtype=file&gcmlimit=60&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category%3AKoryak%20Nature%20Reserve&cmtype=subcat&cmlimit=60&format=json&formatversion=2&utf8=1"
   ],
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 12000,
-  "text": true
+  "bytes": 30000
 }
