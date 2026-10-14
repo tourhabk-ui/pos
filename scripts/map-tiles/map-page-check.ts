@@ -19,9 +19,11 @@
  * человек); 2 — страница не открылась.
  *
  *   npx tsx scripts/map-tiles/map-page-check.ts [--path /map] [--shot .cache/map-page.jpg]
+ *   --layout-shifts — только сдвиги вёрстки и раскладка блоков за 12 с, без кадров (14.10)
  */
 import { chromium } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { SHIFT_OBSERVER, describeShift, layoutChanges, totalShift, type LayoutSnap, type ShiftEntry } from './layout-shifts';
 
 const SITE = process.env.SITE_URL ?? 'https://vedarai.ru';
 
@@ -33,7 +35,12 @@ function arg(name: string, fallback: string): string {
 async function main(): Promise<number> {
   const path = arg('--path', '/map');
   const shot = arg('--shot', '.cache/map-page.jpg');
-  const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({
+    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
+    // Контейнер разработки держит свой Chromium другой версии, чем ждёт
+    // @playwright/test; на раннере переменной нет — браузер по умолчанию.
+    ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  });
   const ctx = await browser.newContext({
     viewport: { width: 412, height: 860 },
     deviceScaleFactor: 1,
@@ -94,12 +101,44 @@ async function main(): Promise<number> {
     console.log(`хост ${blocked}: все запросы обрываются`);
   }
 
+  // Сдвиги вёрстки (14.10): Lighthouse назвал на /map сдвиг 0,171 контейнера
+  // карты без причины. Записи layout-shift с узлами и прямоугольниками и
+  // раскладка верхних блоков — до первого нажатия, иначе сдвиг от нажатия
+  // браузер справедливо не считает (scripts/map-tiles/layout-shifts).
+  const layoutShifts = process.argv.includes('--layout-shifts');
+  if (layoutShifts) {
+    await page.addInitScript(SHIFT_OBSERVER);
+  }
+
   try {
     await page.goto(`${SITE}${path}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   } catch (err) {
     console.log(`страница не открылась: ${err instanceof Error ? err.message : String(err)}`);
     await browser.close();
     return 2;
+  }
+
+  if (layoutShifts) {
+    const snaps: LayoutSnap[] = [];
+    for (const until of [300, 700, 1_200, 2_000, 3_000, 4_500, 6_500, 9_000, 12_000]) {
+      await page.waitForTimeout(Math.max(0, until - (Date.now() - t0)));
+      const blocks = await page.evaluate(() => {
+        const w = window as unknown as { __sel: (n: Node) => string };
+        // Верхние блоки: дети корневых div страницы — шапка, чипы, карта.
+        return Array.from(document.querySelectorAll('body > div > *'))
+          .map((el) => ({ el, r: el.getBoundingClientRect() }))
+          .filter(({ r }) => r.height > 0)
+          .slice(0, 12)
+          .map(({ el, r }) => ({ node: w.__sel(el), y: Math.round(r.y), h: Math.round(r.height) }));
+      });
+      snaps.push({ t: Date.now() - t0, blocks });
+    }
+    const shifts = await page.evaluate(() => (window as unknown as { __shifts: ShiftEntry[] }).__shifts);
+    console.log(`СДВИГИ: всего ${totalShift(shifts).toFixed(4)}, записей ${shifts.length}`);
+    for (const e of shifts) console.log(describeShift(e));
+    for (const line of layoutChanges(snaps)) console.log(line);
+    await browser.close();
+    return 0;
   }
 
   // Окно согласия закрывает нижнюю половину экрана — юг, где почти все
