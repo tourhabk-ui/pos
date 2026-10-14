@@ -18,6 +18,7 @@ import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
+import { routeInParkSql } from '@/lib/parks/route-in-park';
 import { routeCardNavigability, hasCoords, type WaypointRow } from '@/lib/routes/card-navigability';
 import { explainNavigability, type ExplainedDecision } from '@/lib/explain/navigability-explainer';
 import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
@@ -121,7 +122,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
      LEFT JOIN LATERAL (
        SELECT slug FROM parks
        WHERE kr.park_name IS NOT NULL
-         AND kr.park_name ILIKE '%' || search_term || '%'
+         AND ${routeInParkSql('kr.park_name', 'search_term', 'display_name')}
          AND is_active
        LIMIT 1
      ) pk ON TRUE

@@ -110,11 +110,14 @@ describe('места внутри контуров', () => {
 
 describe('карточка маршрута: оговорка о переходе', () => {
   it('маршрут «Ключевского» — оговорка со ссылкой на источник, прежние способы остаются', () => {
+    // 1250: имя парка и дата постановления стали известны (проба 874) —
+    // оговорка называет их, а порядок разрешений по-прежнему «не объявлен».
     render(<ParkPermitAction title="Вулкан Ключевская сопка" parkName="Ключевской" />);
-    expect(document.body.textContent).toMatch(/С октября 2026 года «Ключевской» — национальный парк в ведении Минприроды России/);
+    expect(document.body.textContent).toMatch(/С октября 2026 года «Ключевской» — часть национального парка «Вулканы Камчатки» в ведении Минприроды России/);
     expect(document.body.textContent).toMatch(/Как теперь выдаются разрешения, ещё не объявлено/);
-    expect(screen.getByRole('link', { name: /сообщение правительства Камчатского края/ }).getAttribute('href'))
-      .toBe('https://kamchatkamedia.ru/news/2650854/');
+    expect(document.body.textContent).toMatch(/положение о парке Минприроды должно утвердить в течение шести месяцев/);
+    expect(screen.getByRole('link', { name: /постановление Правительства России от 9 октября 2026 года/ }).getAttribute('href'))
+      .toBe('https://www.interfax.ru/russia/1121613');
     expect(screen.getAllByRole('link', { name: /Android/ }).length).toBeGreaterThan(0);
   });
 

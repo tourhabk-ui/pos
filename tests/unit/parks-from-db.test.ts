@@ -58,7 +58,9 @@ describe('GET /api/parks/[slug] — из таблицы parks', () => {
     poolQueryMock.mockImplementation((sql: string, params: unknown[]) => {
       if (sql.includes('FROM parks')) return Promise.resolve({ rows: [PARK_ROW] });
       if (sql.includes('FROM kamchatka_routes')) {
-        expect(params).toEqual(['%Налычево%']);
+        // 1250: корень имени и имя парка — заказник-тёзка отсекается в SQL
+        // (lib/parks/route-in-park; поведение — tests/integration/park-routes.pg).
+        expect(params).toEqual(['Налычево', 'Природный парк «Налычево»']);
         return Promise.resolve({ rows: [ROUTE_ROW] });
       }
       throw new Error('unexpected SQL: ' + sql);

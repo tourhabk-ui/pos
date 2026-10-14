@@ -235,7 +235,9 @@ describe('статья «Природный парк „Быстринский�
   it('связана с карточкой места и страницей парка', () => {
     expect(chronicleForPlace(ID).map((a) => a.slug)).toContain(SLUG);
     expect(chronicleForPark('bystrinskiy').map((a) => a.slug)).toEqual([SLUG]);
-    expect((article.links ?? []).map((l) => l.href)).toEqual(['/places/prirodnyj-park-bystrinskij', '/park/bystrinskiy']);
+    // 1250: переход к статье о национальном парке — соседних кластерах сети.
+    expect((article.links ?? []).map((l) => l.href)).toEqual(['/places/prirodnyj-park-bystrinskij', '/park/bystrinskiy', '/letopis/vulkany-kamchatki']);
+    expect(CHRONICLE_BY_SLUG['vulkany-kamchatki']).toBeTruthy();
   });
 
   it('каждая веха — в тексте, годы по порядку; постановления названы с датами', () => {
@@ -265,7 +267,7 @@ describe('статья «Природный парк „Быстринский�
     const dates = screen.getByRole('region', { name: 'Главные даты' });
     expect(within(dates).getAllByRole('listitem')).toHaveLength(article.timeline!.length);
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(2);
+    expect(within(nav).getAllByRole('link')).toHaveLength(3);
   });
 
   it('главный кадр залит в хранилище', () => {

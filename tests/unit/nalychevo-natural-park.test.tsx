@@ -383,8 +383,10 @@ describe('статья «Природный парк „Налычево“»', 
       '/places/prirodnyj-park-nalychevo-2',
       '/park/nalychevo',
       '/letopis/severo-kurilskoe-cunami-1952',
+      '/letopis/vulkany-kamchatki',
     ]);
     expect(CHRONICLE_BY_SLUG['severo-kurilskoe-cunami-1952']).toBeTruthy();
+    expect(CHRONICLE_BY_SLUG['vulkany-kamchatki']).toBeTruthy();
   });
 
   it('каждая веха — в тексте, годы по порядку; постановления названы с датами', () => {
@@ -432,6 +434,6 @@ describe('статья «Природный парк „Налычево“»', 
     const dates = screen.getByRole('region', { name: 'Главные даты' });
     expect(within(dates).getAllByRole('listitem')).toHaveLength(article.timeline!.length);
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(3);
+    expect(within(nav).getAllByRole('link')).toHaveLength(4);
   });
 });

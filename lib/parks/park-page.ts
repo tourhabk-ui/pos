@@ -12,6 +12,7 @@
  * сторож tests/unit/park-emergency-number.test.ts).
  */
 import { pool } from '@/lib/db-pool';
+import { routeInParkSql } from '@/lib/parks/route-in-park';
 
 export const PARK_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
@@ -67,6 +68,28 @@ interface ParkRow {
 }
 
 /**
+ * Маршруты парка: $1 — search_term справочника, $2 — его display_name.
+ *
+ * Связь через ILIKE: park_name в kamchatka_routes заполнен свободным текстом
+ * из visitkamchatka.ru; маршрут заказника-тёзки на страницу парка не
+ * попадает (routeInParkSql). id — в пространстве карточки маршрута
+ * (COALESCE(ark_id, id)): голый kr.id у записи с ark_id карточка не
+ * находит, и ссылка без slug отвечала бы 404.
+ */
+export const PARK_ROUTES_SQL = `
+      SELECT COALESCE(ark_id, id)::text AS id, slug, title, description,
+             distance_km::text, elevation_gain_m,
+             duration_hours::text, difficulty, season,
+             mchs_registration_required,
+             COALESCE(hazards, ARRAY[]::TEXT[]) AS hazards
+      FROM kamchatka_routes
+      WHERE ${routeInParkSql('park_name', '$1::text', '$2::text')}
+        AND is_visible = TRUE
+      ORDER BY view_count DESC NULLS LAST, title
+      LIMIT 12
+    `;
+
+/**
  * null — такого парка нет (или slug не той формы). Бросает, если не ответила
  * сама база: решать, что показать, — вызывающему.
  */
@@ -85,25 +108,11 @@ export async function loadParkPage(slug: string): Promise<ParkPageData | null> {
   const park = parkResult.rows[0];
   if (!park) return null;
 
-  // Связь с маршрутами через ILIKE: park_name в kamchatka_routes заполнен
-  // свободным текстом из visitkamchatka.ru. id — в пространстве карточки
-  // маршрута (COALESCE(ark_id, id)): голый kr.id у записи с ark_id карточка
-  // не находит, и ссылка без slug отвечала бы 404.
   let routes: ParkRoute[] = [];
   let routesFailed = false;
   try {
-    const { rows } = await pool.query<Omit<ParkRoute, 'hazards'> & { hazards: string[] | null }>(`
-      SELECT COALESCE(ark_id, id)::text AS id, slug, title, description,
-             distance_km::text, elevation_gain_m,
-             duration_hours::text, difficulty, season,
-             mchs_registration_required,
-             COALESCE(hazards, ARRAY[]::TEXT[]) AS hazards
-      FROM kamchatka_routes
-      WHERE park_name ILIKE $1
-        AND is_visible = TRUE
-      ORDER BY view_count DESC NULLS LAST, title
-      LIMIT 12
-    `, [`%${park.search_term}%`]);
+    const { rows } = await pool.query<Omit<ParkRoute, 'hazards'> & { hazards: string[] | null }>(
+      PARK_ROUTES_SQL, [park.search_term, park.display_name]);
     routes = rows.map((r) => ({ ...r, slug: r.slug ?? null, hazards: r.hazards ?? [] }));
   } catch (e) {
     // Маршруты не критичны для карточки — парк отдаётся без них, но отказ виден.

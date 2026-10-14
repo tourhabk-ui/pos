@@ -156,14 +156,16 @@ export default function ParkPermitAction({
         {federal && (
           <p className="border-l-2 border-[var(--warning)] pl-3 text-xs leading-relaxed text-[var(--text-secondary)]">
             <span className="font-semibold text-[var(--text-primary)]">
-              С {federal.since} {federal.name} — национальный парк в ведении Минприроды России
+              С {federal.since} {federal.name} — часть национального парка {federal.nationalPark} в
+              ведении Минприроды России
             </span>{' '}
             (
             <a href={federal.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--ocean)]">
               {federal.source}
             </a>
-            ). Как теперь выдаются разрешения, ещё не объявлено: способы ниже действовали до
-            перехода — уточните перед выходом.
+            ). Как теперь выдаются разрешения, ещё не объявлено: положение о парке Минприроды должно
+            утвердить в течение шести месяцев, а способы ниже действовали до перехода — уточните
+            перед выходом.
           </p>
         )}
         <div className="flex flex-col gap-3 sm:flex-row">
