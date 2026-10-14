@@ -1,13 +1,15 @@
 {
   "timeout": 120,
-  "run": 919,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Остров Старичков, камень Караульный и скала Часовой (Палец) по OSM — сверить точку карточки 4dd86a74 (52.7779/158.6185) перед правкой текста (миграция 1256). Конфиг записан целиком.",
+  "run": 920,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Точка острова Старичков: координаты статей Википедии (Старичков, Три Брата, Никольская сопка), Nominatim и острова/скалы OSM в рамке у бухты Саранной — Overpass в пробе 919 ответил 504. Конфиг записан целиком.",
   "urls": [
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28nwr%5B%22name%22~%22%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2%7C%D0%9A%D0%B0%D1%80%D0%B0%D1%83%D0%BB%D1%8C%D0%BD%7C%D0%A7%D0%B0%D1%81%D0%BE%D0%B2%D0%BE%D0%B9%7C%D0%9F%D0%B0%D0%BB%D0%B5%D1%86%22%5D%2852.70%2C158.50%2C52.86%2C158.72%29%3B%29%3Bout%20center%20tags%3B"
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&prop=coordinates&coprop=type%7Cname%7Cdim&titles=%D0%9E%D1%81%D1%82%D1%80%D0%BE%D0%B2+%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2%7C%D0%A2%D1%80%D0%B8+%D0%91%D1%80%D0%B0%D1%82%D0%B0+%28%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0%29%7C%D0%9D%D0%B8%D0%BA%D0%BE%D0%BB%D1%8C%D1%81%D0%BA%D0%B0%D1%8F+%D1%81%D0%BE%D0%BF%D0%BA%D0%B0",
+    "https://nominatim.openstreetmap.org/search?q=%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B2+%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2&format=jsonv2&countrycodes=ru&limit=5",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A50%5D%3B%28node%5B%22place%22~%22island%7Cislet%22%5D%2852.74%2C158.55%2C52.81%2C158.68%29%3Bway%5B%22place%22~%22island%7Cislet%22%5D%2852.74%2C158.55%2C52.81%2C158.68%29%3Bnode%5B%22natural%22~%22peak%7Crock%7Cstone%22%5D%2852.76%2C158.58%2C52.80%2C158.66%29%3B%29%3Bout%20center%20tags%3B"
   ],
   "ua": "VedarProbe/1.0 (+https://vedarai.ru; places coordinate check)",
   "allowStale": true,
   "retries": 2,
-  "retryDelay": 20,
+  "retryDelay": 30,
   "bytes": 20000
 }
