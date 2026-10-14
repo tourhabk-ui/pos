@@ -1,7 +1,7 @@
 {
   "timeout": 60,
-  "run": 801,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Кроноцкий заповедник на проде: какая сборка отвечает (version.json), открывается ли карточка /places/kronotskij-zapovednik (подпись «Заповедник», разрешение через kronoki.ru вместо «Зелёной кнопки») и статья летописи /letopis/kronotskij-zapovednik (лента «Главные даты»).",
+  "run": 799,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 815: перепись маршрутов после #2464 — кто держит zelenovskie-ozerki-marshrut (поле marshrut_holder). Проба 815 за 20 минут выката не дождалась: в очереди Timeweb стояли и чужие пуши.",
   "urls": [
     "https://vedarai.ru/version.json",
     "https://vedarai.ru/places/kronotskij-zapovednik",
