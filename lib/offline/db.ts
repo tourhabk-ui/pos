@@ -5,6 +5,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { RegionId } from '@/lib/geo/regions';
+import type { QueueRejection, PhotoRefusal } from '@/lib/offline/outbox';
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,17 @@ export interface TrailObservationDraft {
   lng: number | null;
   /** Снимки как base64 без префикса, уже сжатые (shrink-photo). */
   photos: string[];
+  /**
+   * Номер наблюдения на сервере, если текст уже принят, а снимки ещё не все
+   * довезены (#2448). Раньше запись удалялась после первой неудачной
+   * попытки снимка — остальные снимки пропадали; теперь она живёт ради них,
+   * а текст второй раз не шлётся.
+   */
+  sentReportId?: string | null;
+  /** Отложена: сервер её не примет (lib/offline/outbox). Решает человек. */
+  rejected?: QueueRejection | null;
+  /** Снимки, которые сервер не принял, пока остальные ещё в пути. */
+  photoRefusal?: PhotoRefusal | null;
   queuedAt: number;
 }
 
@@ -158,7 +170,7 @@ export interface FieldCheckQueueItem {
   objectLat: number | null;
   objectLng: number | null;
   objectSource: 'my_fix' | 'manual' | null;
-  /** Снимки как data-URL уже сжатыми: сервер их не пережимает. */
+  /** Снимки как base64 без префикса, уже сжатые (shrink-photo): сервер их не пережимает. */
   photos: string[];
   /**
    * id проверки на сервере, если ВЕРДИКТ уже принят, а фото ещё не все
@@ -168,6 +180,10 @@ export interface FieldCheckQueueItem {
    * недоставленное, а повторный заход шлёт только фото, не вердикт.
    */
   sentCheckId?: string | null;
+  /** Отложена: сервер её не примет (lib/offline/outbox, #2448). Решает человек. */
+  rejected?: QueueRejection | null;
+  /** Снимки, которые сервер не принял, пока остальные ещё в пути. */
+  photoRefusal?: PhotoRefusal | null;
   queuedAt: number;
 }
 

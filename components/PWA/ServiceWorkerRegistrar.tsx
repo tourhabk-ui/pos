@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { installSOSFlush } from '@/lib/offline/pending-queue';
+import { installFieldQueuesFlush } from '@/lib/offline/field-queues';
 import { reportSwRegistration } from '@/lib/offline/sw-status';
 import { isWidgetPath } from '@/lib/embed/widget-frame';
 
@@ -32,6 +33,10 @@ export function ServiceWorkerRegistrar() {
     // при возврате сети и на старте. На Chromium дублирует SW-путь — сервер
     // отвечает 429 (уже принято), лишний дубль SOS безопаснее потери сигнала.
     installSOSFlush();
+    // Тот же досыл для полевых очередей — наблюдений и полевых проверок
+    // (#2448): до 14.10 они уходили только при открытом экране, и открытое со
+    // связью приложение очередь лишь считало.
+    installFieldQueuesFlush();
   }, []);
 
   return null;

@@ -38,17 +38,11 @@ describe('ObservationSheet: сначала диск, потом сеть', () =>
     expect(queueAt).toBeLessThan(flushAt);
   });
 
-  it('очередь дожимается при появлении сети', () => {
-    expect(SHEET).toContain("addEventListener('online'");
-  });
-
-  it('фото шлётся отдельным запросом после текста — не блокирует наблюдение', () => {
-    const flush = SHEET.slice(SHEET.indexOf('export async function flushTrailObservations'));
-    const textPost = flush.indexOf("'/api/safety/reports'");
-    const photoPost = flush.indexOf("'/api/safety/reports/photo'");
-    expect(textPost).toBeGreaterThan(0);
-    expect(photoPost).toBeGreaterThan(textPost);
-  });
+  // Досыл и порядок «текст, потом снимки к принятому наблюдению» переехали в
+  // общий модуль очередей поля (#2448) и судятся вызовом, а не текстом:
+  // tests/unit/field-queues-outbox.test.ts (порядок, снимки не теряются,
+  // отказ не держит очередь) и tests/unit/field-queues-app-wide.test.tsx
+  // (досыл на старте и при возврате сети на любой странице).
 
   it('кнопка честна о судьбе записи без сети', () => {
     expect(SHEET).toContain('отправится, когда появится сеть');

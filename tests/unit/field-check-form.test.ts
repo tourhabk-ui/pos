@@ -66,12 +66,13 @@ describe('выборка рядом — только живые записи', (
 });
 
 describe('офлайн не теряет улику', () => {
-  it('очередь на диске и отправка при возврате связи', () => {
+  it('очередь на диске', () => {
     // Очередь переехала в IndexedDB, когда к проверке добавились снимки:
     // в пятимегабайтный localStorage помещалось три фотографии, а выход в
-    // поле — это десятки проверок.
+    // поле — это десятки проверок. Отправка при возврате связи идёт теперь
+    // со всего приложения (#2448) — её судит вызов в
+    // tests/unit/field-queues-app-wide.test.tsx, а не текст формы.
     expect(client).toContain('listFieldChecks');
-    expect(client).toMatch(/addEventListener\('online'/);
   });
 
   it('неотправленное видно человеку', () => {
@@ -127,28 +128,10 @@ describe('PWA и фотографии', () => {
     expect(photo).not.toMatch(/UPDATE kamchatka_routes|UPDATE places/);
   });
 
-  it('запись удаляется из очереди только после успеха', () => {
-    // 27.08 инвариант стал строже: между отказом сервера и удалением теперь
-    // стоит блок доставки фото (окно расширено под него). Удаление — только
-    // после того, как довезены ВСЕ снимки.
-    expect(client).toMatch(/if \(!res\.ok\) break;[\s\S]{0,1600}deleteFieldCheck\(item\.id\)/);
-  });
-
-  it('упавшее фото не теряется: элемент живёт в очереди до полной доставки', () => {
-    // До 27.08 элемент удалялся после ПЕРВОЙ попытки загрузки фото — упавший
-    // снимок пропадал навсегда, хотя комментарий обещал «довезём в следующий
-    // заход». Теперь вердикт шлётся один раз (sentCheckId), недовезённые
-    // снимки остаются в очереди, и удаление стоит ПОСЛЕ ветки повтора.
-    expect(client).toMatch(/item\.sentCheckId \?\? null/);
-    expect(client).toMatch(/if \(!pr\.ok\) remaining\.push\(data\)/);
-    expect(client).toMatch(
-      /queueFieldCheck\(\{ \.\.\.item, sentCheckId: checkId, photos: remaining \}\);\s*\n\s*continue;/);
-    // continue (фото не все) идёт РАНЬШЕ deleteFieldCheck — не наоборот.
-    const cont = client.indexOf('continue;');
-    const del = client.indexOf('deleteFieldCheck(item.id)');
-    expect(cont).toBeGreaterThan(-1);
-    expect(del).toBeGreaterThan(cont);
-  });
+  // «Запись удаляется только после успеха» и «упавшее фото не теряется,
+  // вердикт второй раз не шлётся» (27.08) — тот же инвариант, что у
+  // наблюдений. С #2448 досыл общий (lib/offline/outbox) и судится вызовом
+  // с подменённым fetch: tests/unit/field-queues-outbox.test.ts.
 });
 
 describe('геолокация самой точки — не путать с местом проверяющего', () => {
