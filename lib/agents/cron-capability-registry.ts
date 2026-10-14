@@ -280,6 +280,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'route-place-twins': ['db_read'],
   'route-popularity': ['db_read'],
   'route-sanity-census': ['db_read'],
+  'route-slug-census': ['db_read'],
   'route-title-census': ['db_read'],
   'route-translit-census': ['db_read', 'db_write'],
   'route-twins-enrich': ['db_read', 'db_write'],
