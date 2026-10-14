@@ -548,7 +548,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         {/* Фильтры — снизу, поверх карты, крупные для перчаток */}
         <div className="absolute bottom-0 left-0 right-0 z-[500]">
           <div className="bg-black/60  border-t border-white/10 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
               {filters.map(f => {
                 const cnt = countFor(f.id);
                 if (f.id !== 'all' && cnt === 0) return null;
@@ -746,8 +746,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
       {/* Фильтры по типу локации (ГДЕ) — z-[600] чтобы быть поверх Leaflet карты.
           На телефоне — одна прокручиваемая строка: двенадцать чипов в перенос
           занимали 60 % первого экрана, карте оставалась треть (#1780); на
-          планшете и шире — перенос как раньше. Чипы не ниже 44px (DS §10). */}
-      <div className="relative z-[600] px-4 py-2 md:py-3 overflow-x-auto bg-[var(--bg-primary)]">
+          планшете и шире — перенос как раньше. Чипы не ниже 44px (DS §10).
+          scrollbar-hide: полоса прокрутки сайта (8 px, globals.css) появлялась,
+          когда чипы с загрузкой мест переставали помещаться, и сдвигала карту
+          вниз — CLS 0,18 (Lighthouse, прогон 16, сдвиги из трассы). */}
+      <div className="relative z-[600] px-4 py-2 md:py-3 overflow-x-auto scrollbar-hide bg-[var(--bg-primary)]">
         <div className="flex flex-nowrap md:flex-wrap gap-2 pb-1 md:pb-0">
           {LOCATION_FILTERS.map(f => {
             const cnt = countFor(f.id);

@@ -38,6 +38,11 @@ async function main(): Promise<number> {
   const shot = arg('--shot', '.cache/map-page.jpg');
   const browser = await chromium.launch({
     args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
+    // Полосы прокрутки — как у людей и у Lighthouse. Playwright по умолчанию
+    // прячет их флагом --hide-scrollbars, и замер 22 (14.10) не увидел сдвиг
+    // /map: полоса строки чипов (8 px, globals.css) занимает место и на
+    // телефоне, а здесь её не было вовсе.
+    ignoreDefaultArgs: ['--hide-scrollbars'],
     // Контейнер разработки держит свой Chromium другой версии, чем ждёт
     // @playwright/test; на раннере переменной нет — браузер по умолчанию.
     ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),

@@ -821,7 +821,7 @@ export default function MarketplaceClient({
           <h2 className="sr-only">Список туров</h2>
           {/* Направления — одна строка чипов со счётчиком */}
           {chips.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1 mb-3 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0" role="group" aria-label="Направления">
+            <div className="flex gap-2 overflow-x-auto pb-1 mb-3 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0" role="group" aria-label="Направления">
               <button
                 type="button"
                 aria-pressed={activityFilter === ''}
