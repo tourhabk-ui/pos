@@ -1,12 +1,14 @@
 {
   "timeout": 60,
-  "run": 809,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Снимки Commons для карточек: файлы категорий «Komandorsky Zapovednik» и «Koryak Nature Reserve» (размер, автор, лицензия) и их подкатегории. Конфиг записан целиком.",
+  "run": 810,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Ещё снимки Commons: категории «Bering Island», «Medny Island» и поиск по полуострову Говена, бухте Лаврова, Парапольскому долу (Корякский заповедник). Конфиг записан целиком.",
   "urls": [
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AKomandorsky%20Zapovednik&gcmtype=file&gcmlimit=60&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category%3AKomandorsky%20Zapovednik&cmtype=subcat&cmlimit=60&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AKoryak%20Nature%20Reserve&gcmtype=file&gcmlimit=60&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category%3AKoryak%20Nature%20Reserve&cmtype=subcat&cmlimit=60&format=json&formatversion=2&utf8=1"
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3ABering%20Island&gcmtype=file&gcmlimit=50&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category%3AMedny%20Island&gcmtype=file&gcmlimit=50&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=40&gsrsearch=%D0%93%D0%BE%D0%B2%D0%B5%D0%BD%D0%B0&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=40&gsrsearch=Govena&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=40&gsrsearch=%D0%9F%D0%B0%D1%80%D0%B0%D0%BF%D0%BE%D0%BB%D1%8C%D1%81%D0%BA%D0%B8%D0%B9&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1",
+    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=40&gsrsearch=%D0%B1%D1%83%D1%85%D1%82%D0%B0%20%D0%9B%D0%B0%D0%B2%D1%80%D0%BE%D0%B2%D0%B0&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName&format=json&formatversion=2&utf8=1"
   ],
   "allowStale": true,
   "retries": 1,
