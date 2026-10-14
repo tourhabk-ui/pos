@@ -1,28 +1,19 @@
 {
   "timeout": 60,
-  "run": 802,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Кроноцкий заповедник, второй замер: данные своей двери разрешения в пейлоаде карточки (федеральный заповедник, адрес kronoki.ru), главный кадр и первый снимок галереи по адресам раздачи (302 в хранилище, 200 image/jpeg), и вышла ли d2ddeef — у статьи нет предзагрузки снимка. Конфиг записан целиком.",
+  "run": 803,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Статья летописи о Кроноцком заповеднике: какой снимок стоит в <link rel=preload as=image> (проба 822 нашла один такой тег) и с какими атрибутами отдан главный кадр. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/places/kronotskij-zapovednik",
-    "https://vedarai.ru/letopis/kronotskij-zapovednik",
-    "https://vedarai.ru/api/images/route/0c0aa41c-fd40-4f97-ac35-56f10bf94b69",
-    "https://vedarai.ru/api/images/place-gallery/0c0aa41c-fd40-4f97-ac35-56f10bf94b69/7"
+    "https://vedarai.ru/letopis/kronotskij-zapovednik"
   ],
-  "until": "federal_reserve",
-  "retries": 5,
+  "until": "Главные даты",
+  "retries": 3,
   "retryDelay": 60,
-  "bytes": 300,
-  "grep": [
-    "federal_reserve",
-    "kronoki.ru/ru/visit/requests",
-    "rel=\"preload\" as=\"image\"",
-    "fetchpriority=\"high\"",
-    "loading=\"eager\"",
-    "Кроноцкое озеро",
-    "Игорь Шпиленок"
+  "bytes": 200,
+  "around": [
+    "as=\"image\"",
+    "kronotskaya-v-shlyape.jpg"
   ],
-  "count": [
-    "/api/images/place-gallery/",
-    "as=\"image\""
-  ]
+  "aroundLines": 2,
+  "aroundBefore": 2,
+  "aroundHits": 4
 }
