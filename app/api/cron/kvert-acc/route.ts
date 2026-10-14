@@ -2,24 +2,33 @@
  * GET /api/cron/kvert-acc — периодический синк авиационных цветовых кодов (ACC)
  * вулканов из KVERT VONA в volcano_status (migration 728).
  *
- * Запускается GitHub Actions по расписанию (cron-kvert-acc.yml) с Bearer CRON_SECRET.
+ * Зовут: супервизор start.js (раз в 6 ч, с 14.10) и cron-kvert-acc.yml, оба
+ * с Bearer CRON_SECRET. Аренда окна 6 ч: из двух планировщиков в одном окне
+ * работает первый, и KVERT не спрашивают дважды. До 14.10 звал один GitHub:
+ * за 10 суток 30 прогонов из ~41, разрыв до 13,5 ч.
  * Сетевая выборка KVERT идёт с этого прод-сервера (российский IP Timeweb) —
  * поэтому KVERT доступен (не-РФ адресам он отдаёт 403).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCronSecret } from '@/lib/auth/cron';
+import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { syncKvertAcc } from '@/lib/agents/kvert-sync';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 
 export const dynamic = 'force-dynamic';
+
+const WINDOW_MIN = 360;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
+
+  const lease = await claimCronWindow('kvert-acc', WINDOW_MIN, 'external');
+  if (!shouldRun(lease)) return NextResponse.json(leaseSkipBody('kvert-acc', WINDOW_MIN));
 
   const startedAt = Date.now();
 

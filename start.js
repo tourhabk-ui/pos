@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const http = require('http');
 const { spawn } = require('child_process');
+const { pipeline } = require('stream');
 const zlib = require('zlib');
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -26,10 +27,121 @@ function shouldGzip(method, status, headers, acceptEncoding) {
   return true;
 }
 // </shouldGzip>
+// ── Надзор за Next ────────────────────────────────────────────────────────
+// До 14.10 Next запускался голым spawn без обработчика выхода, а /api/health
+// прокси отвечал 200 безусловно. Умри Next (убит по памяти, упёрся в предел
+// кучи) — прокси продолжал отвечать «ok» на проверку здоровья и 503 «starting»
+// на всё остальное, а задачи SAFETY_JOBS ниже звонили в мёртвый порт.
+// Контейнер выглядел здоровым, перезапускать его было некому: сайт и сторожа
+// стояли бы до следующего выката. Случалось ли это на проде, не установлено —
+// /api/health о таком падении молчал по построению.
+//
+// Теперь прокси поднимает Next заново: пауза растёт с каждым быстрым падением
+// (1, 2, 4… до 30 с), и /api/health говорит правду — 503, пока Next лежит или
+// падает по кругу. Пока Next запускается, ответ по-прежнему 200: проверка
+// здоровья Timeweb ждёт выката не дольше трёх минут (Dockerfile).
+// Сторож — tests/unit/next-supervisor.test.ts: функция на граничных данных и
+// настоящий start.js с подставным server.js.
+// <nextSupervisor>
+const RESTART_BASE_MS = 1000;
+const RESTART_MAX_MS = 30000;
+// Прожил меньше минуты — выход «быстрый». Три быстрых подряд — петля падений:
+// следующий запуск, скорее всего, упадёт так же, и 200 был бы неправдой.
+const QUICK_EXIT_MS = 60000;
+const CRASH_LOOP_EXITS = 3;
+
+function createNextSupervisor({ spawnChild, setTimer, clearTimer, now, log, onStopped }) {
+  let child = null;
+  let timer = null;
+  let state = 'starting';
+  let startedAt = 0;
+  let restarts = 0;
+  let quickExits = 0;
+  let lastExit = null;
+
+  function onExit(c, code, signal) {
+    if (c !== child) return; // 'error' и 'exit' одного процесса — один выход
+    child = null;
+    const lived = now() - startedAt;
+    lastExit = { code, signal, lived_s: Math.round(lived / 1000), at: new Date(now()).toISOString() };
+    if (state === 'stopping') { state = 'stopped'; onStopped(); return; }
+    quickExits = lived < QUICK_EXIT_MS ? quickExits + 1 : 0;
+    restarts += 1;
+    state = 'down';
+    const delay = Math.min(RESTART_BASE_MS * 2 ** quickExits, RESTART_MAX_MS);
+    log(`[next] Next завершился (code ${code}, signal ${signal}), прожив ${lastExit.lived_s} с; перезапуск №${restarts} через ${delay} мс`);
+    timer = setTimer(start, delay);
+  }
+
+  function start() {
+    timer = null;
+    if (state === 'stopping' || state === 'stopped') return;
+    const c = spawnChild();
+    child = c;
+    state = 'running';
+    startedAt = now();
+    c.once('exit', (code, signal) => onExit(c, code, signal));
+    c.on('error', (e) => {
+      log(`[next] ошибка процесса Next: ${e.message}`);
+      // Не запустился вовсе — это тоже выход, иначе перезапуска не будет.
+      if (c.pid === undefined) onExit(c, null, null);
+    });
+  }
+
+  function stop(signal) {
+    if (state === 'stopping' || state === 'stopped') return;
+    if (timer !== null) { clearTimer(timer); timer = null; }
+    if (child) { state = 'stopping'; child.kill(signal); return; }
+    state = 'stopped';
+    onStopped();
+  }
+
+  function health() {
+    const t = now();
+    const running = state === 'running';
+    const crashLoop = quickExits >= CRASH_LOOP_EXITS && !(running && t - startedAt >= QUICK_EXIT_MS);
+    const ok = (state === 'starting' || running) && !crashLoop;
+    return {
+      status: ok ? 200 : 503,
+      body: {
+        status: ok ? 'ok' : 'down',
+        next: {
+          state: crashLoop ? 'crash_loop' : state,
+          uptime_s: running ? Math.round((t - startedAt) / 1000) : null,
+          restarts,
+          last_exit: lastExit,
+        },
+      },
+    };
+  }
+
+  return { start, stop, health };
+}
+// </nextSupervisor>
+
+const nextSupervisor = createNextSupervisor({
+  spawnChild: () => spawn('node', ['server.js'], { env: { ...process.env, PORT: '3001', HOSTNAME: '127.0.0.1' }, stdio: 'inherit', cwd: __dirname }),
+  setTimer: setTimeout,
+  clearTimer: clearTimeout,
+  now: Date.now,
+  log: (m) => console.error(m),
+  onStopped: () => process.exit(0),
+});
+
+// pipeline, а не pipe: умри Next посреди ответа, pipe оставлял клиента висеть
+// над недописанным ответом, пока тот не сдавался сам (замер 14.10: curl ждал
+// до своего таймаута). pipeline рвёт соединение клиенту. Обрыв не пишется в
+// лог отдельно: это либо ушедший клиент (норма), либо выход Next — о нём уже
+// пишет надзор строкой [next].
+function streamDone() {}
+
 const proxy = http.createServer((req, res) => {
   if (['/api/health','/api/ready','/health','/ready'].includes(req.url)) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok' }));
+    // Отвечает прокси, а не Next: пока Next запускается, тот молчит. Но ответ
+    // называет состояние Next, а uptime_s — время с запуска контейнера.
+    const h = nextSupervisor.health();
+    res.writeHead(h.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ ...h.body, uptime_s: Math.round(process.uptime()) }));
     return;
   }
   // Next.js 15.5.16 DNS-rebinding check compares incoming Host header against HOSTNAME.
@@ -51,10 +163,11 @@ const proxy = http.createServer((req, res) => {
         res.writeHead(r.statusCode, headers);
         const gz = zlib.createGzip({ level: 6, flush: zlib.constants.Z_SYNC_FLUSH });
         gz.on('error', (e) => { console.error('[proxy] gzip error:', e.message); res.destroy(); });
-        r.pipe(gz).pipe(res);
+        pipeline(r, gz, res, streamDone);
         return;
       }
-      res.writeHead(r.statusCode, r.headers); r.pipe(res);
+      res.writeHead(r.statusCode, r.headers);
+      pipeline(r, res, streamDone);
     });
   p.on('error', () => { res.writeHead(503); res.end('starting'); });
   req.pipe(p);
@@ -86,7 +199,22 @@ try {
   console.error('[migrate] error during startup migration (continuing):', e.message);
 }
 
-spawn('node', ['server.js'], { env: { ...process.env, PORT: '3001', HOSTNAME: '127.0.0.1' }, stdio: 'inherit', cwd: __dirname });
+nextSupervisor.start();
+
+// ── Остановка контейнера ─────────────────────────────────────────────────
+// Docker шлёт SIGTERM главному процессу — этому прокси. Обработчика не было,
+// и Next сигнала не получал: процесс №1 без обработчика сигнал игнорирует, и
+// через 10 с Docker убивал всё SIGKILL посреди начатых ответов. Теперь сигнал
+// уходит Next — он дописывает начатое и выходит сам, а за ним прокси. Ждём не
+// дольше 8 с, чтобы уйти раньше SIGKILL.
+const SHUTDOWN_GRACE_MS = 8000;
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    console.error(`[next] ${sig}: останавливаю Next и выхожу`);
+    nextSupervisor.stop(sig);
+    setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref();
+  });
+}
 
 // ── Safety heartbeat ─────────────────────────────────────────────────────
 // Планировщик GitHub Actions (schedule */5) — best-effort: под нагрузкой он
@@ -188,6 +316,12 @@ const SAFETY_JOBS = [
   // с деньгами (paid_at / payment_status в самом условии роута), сухой прогон
   // 29.09 показал cancelled 0. Аренда окна 60 мин — в роуте, кроме ?dry=1.
   { path: '/api/cron/abandoned-bookings',        everyMin: 60, timeoutMs: 60000,  startAfterMs: 420000 },
+  // Последние два safety-крона, шедшие только расписанием GitHub (14.10).
+  // Замер по Actions API: KVERT за 10 суток — 30 прогонов из ~41, разрыв до
+  // 13,5 ч при объявленных шести. Аренда окна 6 ч — в обоих роутах, таймауты
+  // не меньше --max-time workflow.
+  { path: '/api/cron/kvert-acc',                 everyMin: 360, timeoutMs: 60000, startAfterMs: 450000 },
+  { path: '/api/cron/safety-check',              everyMin: 360, timeoutMs: 60000, startAfterMs: 480000 },
 ];
 
 function triggerCron(job) {

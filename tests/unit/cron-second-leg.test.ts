@@ -44,6 +44,16 @@
  *   5. период второй ноги совпадает с реестром, а таймаут — с тем, что даёт
  *      работе workflow. Разойдись они, и один и тот же крон успевал бы у
  *      GitHub и не успевал здесь.
+ *
+ * ── Расширение 14.10: весь safety-разряд, а не только частые ─────────────
+ *
+ * Требование 2 спрашивало только кроны с периодом до часа. Два safety-крона
+ * с периодом 6 ч — KVERT и самопроверка безопасности — шли одним GitHub.
+ * Замер по Actions API: KVERT за 10 суток получил 30 прогонов из ~41 при
+ * разрыве до 13,5 ч, самопроверка за 4 суток — 12 из ~16. Голодание мягче,
+ * чем у пятиминутных, но авиационный код вулкана, опоздавший на полсуток, —
+ * то же нарушенное обещание, только тише. Теперь требования 2 и 5 касаются и
+ * любого крона safety-разряда, какой бы ни был период.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
@@ -111,11 +121,14 @@ function endpointOf(entry: CronEntry): string | null {
   if (entry.endpoint) return entry.endpoint;
   const wf = join(ROOT, '.github/workflows', entry.workflow);
   if (!existsSync(wf)) return null;
-  const hits = [...readFileSync(wf, 'utf8').matchAll(/\/api\/cron\/([a-z0-9-]+)/g)].map((m) => m[1]);
+  // Различные эндпоинты, а не строки: cron-safety-check.yml зовёт свой дважды —
+  // ожидание выката и сам прогон.
+  const hits = [...new Set([...readFileSync(wf, 'utf8').matchAll(/\/api\/cron\/([a-z0-9-]+)/g)].map((m) => m[1]))];
   return hits.length === 1 ? hits[0] : null;
 }
 
-const FREQUENT = CRON_REGISTRY.filter((e) => e.everyMin <= FREQUENT_MAX_MIN);
+/** Под требованиями 2 и 5: частые — и весь safety-разряд, какой бы ни был период. */
+const WATCHED = CRON_REGISTRY.filter((e) => e.everyMin <= FREQUENT_MAX_MIN || e.tier === 'safety');
 
 describe('список вторых ног читается из кода', () => {
   it('SAFETY_JOBS разобран и не пуст', () => {
@@ -124,13 +137,15 @@ describe('список вторых ног читается из кода', () =
     expect(LEGS.length, 'SAFETY_JOBS в start.js не разобран').toBeGreaterThanOrEqual(11);
   });
 
-  it('частые кроны в реестре вообще найдены', () => {
-    expect(FREQUENT.length).toBeGreaterThanOrEqual(10);
+  it('частые и safety-кроны в реестре вообще найдены', () => {
+    expect(WATCHED.length).toBeGreaterThanOrEqual(10);
+    expect(WATCHED.filter((e) => e.tier === 'safety' && e.everyMin > FREQUENT_MAX_MIN).length,
+      'safety-кроны реже часа не попали под требование').toBeGreaterThanOrEqual(2);
   });
 });
 
-describe('у каждого частого крона есть вторая нога либо названная причина', () => {
-  for (const entry of FREQUENT) {
+describe('у каждого частого и каждого safety-крона есть вторая нога либо названная причина', () => {
+  for (const entry of WATCHED) {
     it(`${entry.key} (каждые ${entry.everyMin} мин)`, () => {
       const ep = endpointOf(entry);
       const hasLeg = ep !== null && LEG_BY_ENDPOINT.has(ep);
@@ -230,7 +245,7 @@ describe('вторая нога берёт аренду окна', () => {
 });
 
 describe('нога не расходится с тем, что обещано в другом месте', () => {
-  for (const entry of FREQUENT) {
+  for (const entry of WATCHED) {
     const ep = endpointOf(entry);
     const leg = ep ? LEG_BY_ENDPOINT.get(ep) : undefined;
     if (!leg) continue;
