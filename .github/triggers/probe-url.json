@@ -1,38 +1,20 @@
 {
   "timeout": 60,
-  "run": 823,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат 9934be5/18faec2: переход «Летопись» на /park/kronotsky (датчик — «Читать статью»), статья «Командорские острова», карточки Командорских островов и Корякского заповедника после миграции 1243, страница нацпарка /park/komandorskiy. Конфиг записан целиком.",
+  "run": 824,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат b9b37a0: поля 16 px у статьи летописи и страницы парка (датчик — класс ds-page px-4 у статьи). Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/park/kronotsky",
     "https://vedarai.ru/letopis/komandorskie-ostrova",
-    "https://vedarai.ru/places/komandorskij-gosudarstvennyj-prirodnyj-biosfernyj-zapovednik",
-    "https://vedarai.ru/places/koryakskij-prirodnyj-zapovednik",
-    "https://vedarai.ru/park/komandorskiy",
-    "https://vedarai.ru/api/images/s3/photos/komandorskie-ostrova/ostrov-mednyj.jpg"
+    "https://vedarai.ru/park/kronotsky",
+    "https://vedarai.ru/letopis"
   ],
-  "until": "Читать статью",
-  "retries": 45,
+  "until": "ds-page px-4",
+  "retries": 40,
   "retryDelay": 60,
-  "bytes": 1800,
-  "text": true,
+  "bytes": 200,
   "grep": [
+    "ds-page px-4",
+    "padding-inline:16px",
     "Читать статью",
-    "/letopis/kronotskij-zapovednik",
-    "/letopis/komandorskie-ostrova",
-    "Главные даты",
-    "№ 720 от 21 апреля 2022 года",
-    "SuricataJ",
-    "Национальный парк",
-    "Командорские острова",
-    "Корякский заповедник",
-    "Заповедник",
-    "Витюгова Женя",
-    "Игорь Шпиленок",
-    "/api/images/place-gallery/",
-    "ostrova.ohrana@gmail.com",
-    "Национальный парк<!-- --> · Камчатка",
-    "komandorsky.ru",
-    "Лесной массив",
-    "тысячи моржовых туш"
+    "Командорские острова"
   ]
 }
