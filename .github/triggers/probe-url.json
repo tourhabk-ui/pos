@@ -1,15 +1,32 @@
 {
   "timeout": 120,
-  "run": 900,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Слой мест клетки 52n158e целиком (в пробе 899 он обрезан на 9000 байтах) — все места внутри контура природного парка «Вилючинский»; карточки озера Тополовое и Бархатной сопки. Конфиг записан целиком.",
+  "run": 901,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Природный парк «Вилючинский»: какой парк и какое разрешение показывают сейчас карточки маршрутов к вулкану, водопаду, перевалу, озеру Тополовое и Бархатной сопке (park_name на них не виден в API места); карточка озера Зелёное. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e",
-    "https://vedarai.ru/api/places/8f31fc1d-103e-4fa2-a720-91adabbd82aa",
-    "https://vedarai.ru/api/places/57918158-2844-435a-a509-c61430a2f5e8"
+    "https://vedarai.ru/api/places/ed134429-febe-45d4-9c55-00b12809de24",
+    "https://vedarai.ru/routes/b9dbf605-715e-4673-96a6-4658bb9de411",
+    "https://vedarai.ru/routes/9c178c73-d974-4c6d-bfb0-ef64cedbdcda",
+    "https://vedarai.ru/routes/b8b50ef5-8e92-4e1d-9ff7-5eb807ea89a6",
+    "https://vedarai.ru/routes/bf6a4577-967c-42e1-9f46-ca38b68346e8",
+    "https://vedarai.ru/routes/fb1fcda9-a349-4fc9-ab75-b5029c3b81e2",
+    "https://vedarai.ru/routes/ab03d767-1336-46d0-b6df-1acdb63e63cf"
   ],
   "allowStale": true,
-  "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 24000
+  "bytes": 5200,
+  "grep": [
+    "Зелёная кнопка",
+    "часть национального парка",
+    "Разрешение на посещение парка",
+    "Южно-Камчат",
+    "Вилючинск",
+    "Страница заявок"
+  ],
+  "around": [
+    "Разрешение на посещение парка"
+  ],
+  "aroundLines": 8,
+  "aroundBefore": 0,
+  "aroundHits": 1
 }
