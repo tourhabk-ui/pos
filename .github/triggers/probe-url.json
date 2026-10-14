@@ -1,26 +1,16 @@
 {
   "timeout": 90,
-  "run": 872,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1249 (вторая партия переписи дневников): ждёт справку на Авачинском перевале, затем читает Верблюд, Авачинский, Краеведческие, фумаролу Дзензура. Конфиг записан целиком.",
+  "run": 873,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Национальный парк: есть ли запись «Природный парк «Ключевской»» (ef2f45c4 отвечает 404 — скрыта, слита или её нет), карточка «Южно-Камчатского» (d9059e8a) целиком и записи справочника парков — перед миграцией 1250. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
-    "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
-    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
-    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0"
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%B9",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82",
+    "https://vedarai.ru/api/places/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
+    "https://vedarai.ru/api/parks/klyuchevskoy",
+    "https://vedarai.ru/api/parks/yuzhno-kamchatsky"
   ],
-  "until": "Авачинский перевал — седловина между вулканами",
-  "retries": 55,
-  "retryDelay": 60,
-  "grep": [
-    "Авачинский перевал — седловина между вулканами",
-    "Экструзия Верблюд, или скала Двугорбая",
-    "Авачинский вулкан — Авачинская сопка",
-    "Краеведческие источники — термальные источники",
-    "Фумарольный котёл вулкана Дзензур",
-    "\"descriptionWithdrawn\":false",
-    "\"descriptionWithdrawn\":true",
-    "сайт парка «Вулканы Камчатки»"
-  ],
-  "bytes": 300
+  "allowStale": true,
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 9000
 }
