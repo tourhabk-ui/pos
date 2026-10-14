@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone } from 'lucide-react';
+import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone, ScrollText, ChevronRight } from 'lucide-react';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 import type { ParkPageData } from '@/lib/parks/park-page';
@@ -53,7 +53,15 @@ const DIFFICULTY_COLORS: Record<string, string> = {
  * а не из запроса в браузере: так их видит и человек до загрузки скриптов, и
  * поисковик (аудит 01.10 — прежде 12–13 слов без заголовка).
  */
-export default function ParkClient({ park }: { park: ParkPageData }) {
+/** Статья летописи о территории парка — то, что нужно карточке для ссылки. */
+export interface ParkChronicleLink {
+  slug: string;
+  title: string;
+  period: string;
+  lead: string;
+}
+
+export default function ParkClient({ park, chronicle = [] }: { park: ParkPageData; chronicle?: ParkChronicleLink[] }) {
   const slug = park.slug;
   return (
     <div className="ds-page" style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -150,6 +158,34 @@ export default function ParkClient({ park }: { park: ParkPageData }) {
             )}
           </div>
         </div>
+      )}
+
+      {/* Летопись — переход к истории территории (14.10, владелец: «на странице
+          парка нужен переход для летописи, очень интересная статья»). Перед
+          маршрутами: длинный список не должен её прятать. */}
+      {chronicle.length > 0 && (
+        <section aria-labelledby="park-chronicle" style={{ marginBottom: 28 }}>
+          <h2 id="park-chronicle" className="ds-h2" style={{ marginBottom: 12 }}>Летопись</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {chronicle.map((a) => (
+              <Link
+                key={a.slug}
+                href={`/letopis/${a.slug}`}
+                className="ds-card"
+                style={{ padding: '16px', textDecoration: 'none', display: 'flex', alignItems: 'flex-start', gap: 12 }}
+              >
+                <ScrollText size={20} color="var(--accent)" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>{a.period}</p>
+                  <p style={{ margin: '2px 0 6px', fontWeight: 700, fontSize: 17, color: 'var(--text-primary)', fontFamily: 'var(--font-playfair)' }}>{a.title}</p>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{a.lead}</p>
+                  <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Читать статью</p>
+                </div>
+                <ChevronRight size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 4 }} aria-hidden="true" />
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Маршруты */}

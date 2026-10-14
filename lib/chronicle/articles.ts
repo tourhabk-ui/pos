@@ -76,6 +76,12 @@ export interface ChronicleArticle {
   sources: ChronicleSource[];
   /** Места каталога, на карточках которых стоит ссылка на статью. */
   placeIds: string[];
+  /**
+   * Страницы справочника парков (/park/<slug>), на которых стоит переход к
+   * статье (14.10, владелец: «на странице парка нужен переход для летописи»).
+   * Связь — по slug справочника `parks`, как у мест — по id.
+   */
+  parkSlugs?: string[];
   /** Когда статья последний раз сверялась с источниками (ISO-дата). */
   checkedAt: string;
   /** Ключевые даты — лентой над текстом (14.10, «сделай красивую страницу»). */
@@ -410,6 +416,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
     lead:
       'Как соболиные угодья на восточном берегу Камчатки стали одним из старейших заповедников России: два упразднения, возвращение по ходатайству вулканологов, открытие Долины гейзеров и оползень 2007 года.',
     placeIds: ['4f1217e7-31a4-4d21-bc98-3d46aaba122e'], // Кроноцкий заповедник
+    parkSlugs: ['kronotsky'],
     checkedAt: '2026-10-14',
     // Тот же снимок — главный кадр карточки места (миграция 1241); залит
     // media-to-s3, прогон 3. Автор и лицензия — extmetadata Commons 14.10.
@@ -507,6 +514,7 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
     lead:
       'Острова, на которых умер Витус Беринг: зимовка экспедиции «Святого Петра», первые поселенцы-алеуты, оборона лежбищ, заповедник 1993 года и национальный парк «Командорские острова».',
     placeIds: ['a8f3d201-5c9e-4b7a-8d63-2f1e0c4b6a35'], // Командорские острова (нацпарк)
+    parkSlugs: ['komandorskiy'],
     checkedAt: '2026-10-14',
     // Снимок из галереи карточки (миграция 1243); залит media-to-s3, прогон 4.
     // Автор и лицензия — extmetadata Commons 14.10.
@@ -600,4 +608,9 @@ export const CHRONICLE_BY_SLUG: Record<string, ChronicleArticle> = Object.fromEn
 /** Статьи летописи, связанные с местом каталога. */
 export function chronicleForPlace(placeId: string): ChronicleArticle[] {
   return CHRONICLE_ARTICLES.filter((a) => a.placeIds.includes(placeId));
+}
+
+/** Статьи для страницы парка /park/<slug> — по `parkSlugs`. */
+export function chronicleForPark(parkSlug: string): ChronicleArticle[] {
+  return CHRONICLE_ARTICLES.filter((a) => a.parkSlugs?.includes(parkSlug));
 }

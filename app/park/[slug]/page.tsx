@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { loadParkPage, type ParkPageData } from '@/lib/parks/park-page';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { chronicleForPark } from '@/lib/chronicle/articles';
 import ParkClient from './_ParkClient';
 
 // Карточка парка собирается на сервере (аудит 01.10): прежде страница была
@@ -65,7 +66,12 @@ export default async function ParkPage({ params }: { params: Promise<{ slug: str
           <p className="text-[var(--text-secondary)]">Не удалось загрузить карточку парка. Обновите страницу.</p>
         </div>
       ) : (
-        <ParkClient park={park} />
+        // В карточку уходят только заголовок, годы и лид: тексты статей
+        // летописи в клиентский бандл не нужны.
+        <ParkClient
+          park={park}
+          chronicle={chronicleForPark(slug).map(({ slug: s, title, period, lead }) => ({ slug: s, title, period, lead }))}
+        />
       )}
     </>
   );
