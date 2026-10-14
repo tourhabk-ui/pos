@@ -1,22 +1,13 @@
 {
   "timeout": 60,
   "run": 819,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. После выката 7b37c663b (в нём #2467 с миграцией 1242; проверка выката зелёная в 06:41): перепись маршрутов без адреса (missing_total), карточка «Зеленовских озерок» по адресу zelenovskie-ozerki-marshrut; главная в мобильном профиле — размер HTML и число кусков RSC (self.__next_f.push) для разбора TBT. Конфиг записан целиком.",
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Публичные карточки двух заповедников на проде (/api/places/<id>): slug, отзыв Кузьмича, режим охраны, фото, сезон, «как добраться» — что меняет миграция 1243. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-slug-census",
-    "https://vedarai.ru/routes/zelenovskie-ozerki-marshrut",
-    "https://vedarai.ru/"
+    "https://vedarai.ru/api/places/a8f3d201-5c9e-4b7a-8d63-2f1e0c4b6a35",
+    "https://vedarai.ru/api/places/b9c4e312-6d8f-4a5b-9c71-3e2f1d0b7a46"
   ],
   "allowStale": true,
-  "bytes": 2500,
-  "grep": [
-    "\"missing_total\":0",
-    "Зеленовские озерки"
-  ],
-  "count": [
-    "self.__next_f.push",
-    "<script",
-    "<img"
-  ],
-  "ua": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 26000
 }
