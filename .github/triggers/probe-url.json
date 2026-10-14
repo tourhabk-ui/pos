@@ -1,10 +1,11 @@
 {
   "timeout": 90,
-  "run": 869,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Источники для карточек национального парка («Ключевской», «Южно-Камчатский»), прогон 869. Конфиг записан целиком.",
+  "run": 870,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Источники для карточек национального парка («Ключевской», «Южно-Камчатский»), прогон 870. Конфиг записан целиком.",
   "urls": [
-    "https://www.kamchatsky-krai.ru/geography/oopt/parks/kluchevskoy.htm",
-    "https://www.kamchatsky-krai.ru/geography/oopt/parks/south-kamchatka.htm"
+    "https://vulcanikamchatki.ru/territoriya/klaster_klyuchevskoj/vulkany/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_klyuchevskoj/pamyatniki_prirody/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_klyuchevskoj/infrastruktura_parka/"
   ],
   "text": true,
   "retries": 1,
