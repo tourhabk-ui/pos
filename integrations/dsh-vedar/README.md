@@ -40,7 +40,7 @@ Platform data is in Russian; tool arguments work best in Russian or English. Eme
 
 ## Status
 
-DeepSeek Harness is in developer preview and config fields may change. The row in this plugin follows the README of `@deepseek-ai/dsh-mcp-client` 0.2.0-rc.2 (checked 2026-10-13). It has not yet been verified end to end inside a live dsh — please report problems at [tourhabk-ui/pos](https://github.com/tourhabk-ui/pos/issues).
+DeepSeek Harness is in developer preview and config fields may change. The row in this plugin follows the README of `@deepseek-ai/dsh-mcp-client` 0.2.0-rc.2 (checked 2026-10-13). Verified end to end on 2026-10-14 with dsh 0.2.0-rc.2 and pnpm 10.28.0 (headless profile, GitHub Actions runner): the plugin installed with the command above, and DeepSeek answered a Chinese question about brown bears in August by calling 17 Vedar tools, all completed. Please report problems at [tourhabk-ui/pos](https://github.com/tourhabk-ui/pos/issues).
 
 Русский: плагин DeepSeek Harness, который одной командой подключает MCP-сервер Ведара. Исходник живёт в `integrations/dsh-vedar/` репозитория платформы.
 

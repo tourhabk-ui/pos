@@ -85,7 +85,7 @@ describe('плагин dsh-vedar — строка официального мо�
     expect(Object.keys(pkg.peerDependencies)).toContain('@deepseek-ai/dsh-mcp-client');
   });
 
-  it('README на двух языках: команда установки, та же строка конфига, и «не проверено end-to-end» сказано вслух', () => {
+  it('README на двух языках: команда установки, та же строка конфига, и проверка end-to-end названа с версией dsh пробы', () => {
     for (const f of ['README.md', 'README.zh.md']) {
       const md = read(`${PLUGIN_DIR}/${f}`);
       expect(md).toContain('dsh plugin --profile web add github:tourhabk-ui/dsh-vedar');
@@ -93,8 +93,14 @@ describe('плагин dsh-vedar — строка официального мо�
       expect(md).toContain("name: '@deepseek-ai/dsh-mcp-client'");
       expect(md).toMatch(/112/);
     }
-    expect(read(`${PLUGIN_DIR}/README.md`)).toMatch(/not yet been verified end to end/);
-    expect(read(`${PLUGIN_DIR}/README.zh.md`)).toMatch(/尚未.*端到端验证/);
+    // 14.10, прогон 2 dsh-vedar-probe: зелёный. Статус называет версию dsh, на
+    // которой проверено, — ту же, что в маркере пробы: сменилась версия в
+    // пробе, а README говорит о старой — «проверено» уже не про эту.
+    const { dsh_version } = JSON.parse(read('.github/triggers/dsh-vedar-probe.json')) as { dsh_version: string };
+    expect(read(`${PLUGIN_DIR}/README.md`)).toContain(`Verified end to end on 2026-10-14 with dsh ${dsh_version}`);
+    expect(read(`${PLUGIN_DIR}/README.zh.md`)).toContain(`用 dsh ${dsh_version}`);
+    expect(read(`${PLUGIN_DIR}/README.zh.md`)).toMatch(/完成端到端验证/);
+    for (const f of ['README.md', 'README.zh.md']) expect(read(`${PLUGIN_DIR}/${f}`)).not.toMatch(/not yet been verified|尚未/);
   });
 });
 

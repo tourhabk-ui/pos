@@ -46,7 +46,7 @@ dsh plugin --profile web add github:tourhabk-ui/dsh-vedar
 
 ## 状态
 
-DeepSeek Harness 处于 developer preview，配置字段可能变化。本插件的配置行按 `@deepseek-ai/dsh-mcp-client` 0.2.0-rc.2 的 README 编写（2026-10-13 核对）；尚未在实时 dsh 中端到端验证——如遇问题请在 [tourhabk-ui/pos](https://github.com/tourhabk-ui/pos/issues) 提交 issue。
+DeepSeek Harness 处于 developer preview，配置字段可能变化。本插件的配置行按 `@deepseek-ai/dsh-mcp-client` 0.2.0-rc.2 的 README 编写（2026-10-13 核对）；已于 2026-10-14 用 dsh 0.2.0-rc.2 与 pnpm 10.28.0 完成端到端验证（headless profile，GitHub Actions 运行器）：用上面的命令安装插件后，DeepSeek 回答"八月去哪里看棕熊"这一中文问题时调用了 17 次 Vedar 工具，全部成功。如遇问题请在 [tourhabk-ui/pos](https://github.com/tourhabk-ui/pos/issues) 提交 issue。
 
 更多：[vedarai.ru/mcp](https://vedarai.ru/mcp) · 中文页面 [vedarai.ru/zh](https://vedarai.ru/zh) · [llms.txt](https://vedarai.ru/llms.txt) · 清单 [/.well-known/mcp.json](https://vedarai.ru/.well-known/mcp.json)
 
