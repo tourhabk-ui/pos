@@ -58,6 +58,12 @@ TITLE_LIMIT = 65
 # Сколько страниц-продолжений списков (?page=N) перепись обходит как источники
 # ссылок, больше — нет: у самого длинного списка Ведара их меньше двадцати.
 PAGED_CAP = 200
+# Адреса с параметрами, на которые ведут ссылки вместо самого адреса sitemap
+# (/planning?mode=trail при /planning, 14.10): сколько вариантов одной страницы
+# перепись открывает, чтобы прочитать их canonical, и сколько всего. Открываются
+# только варианты страниц без единой прямой ссылки, самые частые первыми.
+VARIANTS_PER_URL = 3
+VARIANTS_TOTAL = 60
 
 # Заголовки ботов — ТОЛЬКО для нашего домена (см. шапку). Строки — те, что
 # боты присылают сами; по ним Next решает, отдавать ли метаданные в <head>.
@@ -291,6 +297,27 @@ def norm(url: str) -> str:
     return urllib.parse.urlunsplit((p.scheme, p.netloc.lower(), path, p.query, ''))
 
 
+def bare(url: str) -> str:
+    """Тот же адрес без параметров запроса."""
+    p = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((p.scheme, p.netloc.lower(), p.path or '/', '', ''))
+
+
+def canonical_elsewhere(final: str, canonical: str) -> bool:
+    """canonical обходимой страницы ведёт на ДРУГУЮ страницу — находка.
+
+    Не находка — адрес с параметрами, чей canonical — тот же путь без них: так
+    склеивают варианты одной страницы (/planning?mode=trail → /planning, режим
+    читается в браузере, серверный HTML один). Прогон 7 (14.10) назвал это
+    «серьёзным». Исключение из исключения — продолжения списков: у ?page=N своё
+    содержимое, и склейка с первой страницей прячет его от поиска.
+    """
+    if not canonical or norm(canonical) == norm(final):
+        return False
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(final).query, keep_blank_values=True)
+    return not (query and 'page' not in query and norm(canonical) == bare(final))
+
+
 # ─── аудит ──────────────────────────────────────────────────────────────────
 
 def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') -> dict:
@@ -445,7 +472,7 @@ def audit(host: str, max_pages: int, link_checks: int, scheme: str = 'https') ->
     add('high', 'нет H1', [p['url'] for p in ok_pages if not p['h1']])
     add('medium', 'больше одного H1', [p['url'] for p in ok_pages if len(p['h1']) > 1])
     add('medium', 'нет canonical', [p['url'] for p in ok_pages if not p['canonical']])
-    add('high', 'canonical указывает на другой адрес', [f"{p['url']} -> {p['canonical']}" for p in ok_pages if p['canonical'] and norm(p['canonical']) != norm(p['final'])])
+    add('high', 'canonical указывает на другой адрес', [f"{p['url']} -> {p['canonical']}" for p in ok_pages if canonical_elsewhere(p['final'], p['canonical'])])
     add('high', 'noindex в meta robots', [p['url'] for p in ok_pages if 'noindex' in p['robots_meta'].lower()])
     add('medium', 'тонкая страница (меньше 150 слов)', [f"{p['url']} ({p['words']} слов)" for p in ok_pages if p['words'] < 150])
     add('medium', 'картинки без alt', [f"{p['url']} ({p['imgs_no_alt']} из {p['imgs']})" for p in ok_pages if p['imgs_no_alt'] > 0])
@@ -680,18 +707,58 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         time.sleep(max(PAUSE, interval - (time.monotonic() - t_start)))
     inbound: Counter = Counter()
     inbound_paged: Counter = Counter()
+    sources: list[tuple[str, set]] = []   # (откуда, куда) — ещё нужны для адресов с параметрами
     for r in rows:
         own = norm(r['url'])
-        for link in r.pop('_links', set()):
+        links = r.pop('_links', set())
+        sources.append((own, links))
+        for link in links:
             if link != own and link in sm_norm:
                 inbound[link] += 1
-    for links in paged.values():
+    for u, links in paged.items():
+        sources.append((u, links))
         for link in links:
             if link in sm_norm:
                 inbound_paged[link] += 1
     for r in rows:
         r['inbound'] = inbound.get(norm(r['url']), 0)
         r['inbound_paged'] = inbound_paged.get(norm(r['url']), 0)
+
+    # Ссылки ведут не на адрес sitemap, а на него же с параметрами (прогон 7,
+    # 14.10: все ссылки на /planning — /planning?mode=trail, сирот по счёту
+    # одна). Обходчик идёт по такой ссылке, читает canonical варианта и
+    # склеивает его с адресом без параметров — страница не сирота. Но только
+    # если вариант ДЕЙСТВИТЕЛЬНО указывает сюда: canonical читается из <head>
+    # варианта, а не предполагается. Открываются варианты лишь тех адресов, у
+    # которых нет ни одной прямой ссылки, — самые частые первыми.
+    lonely = {norm(r['url']) for r in rows if r['code'] == 200 and 'title' in r
+              and r['inbound'] == 0 and r['inbound_paged'] == 0}
+    via: dict[str, Counter] = {}
+    for own, links in sources:
+        for link in links:
+            b = bare(link)
+            if urllib.parse.urlsplit(link).query and b in lonely and b != own and not page_of(link, b):
+                via.setdefault(b, Counter())[link] += 1
+    variants: dict[str, bool] = {}        # вариант → его canonical в <head> ведёт на адрес без параметров
+    variant_errors: list[str] = []
+    for b, counter in via.items():
+        for v, _ in counter.most_common(VARIANTS_PER_URL):
+            if len(variants) + len(variant_errors) >= VARIANTS_TOTAL:
+                break
+            t_start = time.monotonic()
+            rv = fetch(v, follow=False)
+            if rv['code'] == 200 and 'html' in rv['headers'].get('content-type', '') and rv['body']:
+                pv = Page(v)
+                try:
+                    pv.feed(rv['body'].decode('utf-8', 'replace'))
+                except Exception:
+                    pass
+                variants[v] = any(head and norm(c) == b for c, head in pv.canonicals)
+            else:
+                variant_errors.append(f"{v} → {rv['code'] or rv['error']}")
+            time.sleep(max(PAUSE, interval - (time.monotonic() - t_start)))
+    for r in rows:
+        r['inbound_variant'] = sum(n for v, n in via.get(norm(r['url']), Counter()).items() if variants.get(v))
     linked_pages = sum(1 for r in rows if r['code'] == 200 and 'title' in r)
 
     ok = [r for r in rows if r['code'] == 200 and 'title' in r]
@@ -730,12 +797,17 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
         ('нет JSON-LD', 'ld0', lambda r: 'title' in r and not r['jsonld']),
         ('JSON-LD с ошибкой', 'ldbad', lambda r: bool(r.get('jsonld_problems'))),
         # Главная — вход сайта, ссылок на неё изнутри может и не быть; сирота — все прочие.
-        ('сирота (ни одной ссылки ни со страниц sitemap, ни с продолжений списков)', 'orph',
+        ('сирота (ни одной ссылки ни со страниц sitemap, ни с продолжений списков, ни через адрес с параметрами)', 'orph',
          lambda r: r['code'] == 200 and linked_pages > 1 and r.get('inbound', 0) == 0 and r.get('inbound_paged', 0) == 0
-         and (urllib.parse.urlsplit(r['url']).path or '/') != '/'),
+         and r.get('inbound_variant', 0) == 0 and (urllib.parse.urlsplit(r['url']).path or '/') != '/'),
         # Достижима, но только через 2-ю и дальше страницу списка: вес до неё доходит слабый.
         ('ссылки только со страниц-продолжений списков (?page=N)', 'deep',
          lambda r: r['code'] == 200 and r.get('inbound', 0) == 0 and r.get('inbound_paged', 0) > 0),
+        # Достижима через адрес с параметрами, чей canonical ведёт сюда: поисковик склеит
+        # вариант с адресом, но прямая ссылка на сам адрес надёжнее склейки.
+        ('ссылки только через адрес с параметрами (его canonical ведёт сюда)', 'pvar',
+         lambda r: r['code'] == 200 and r.get('inbound', 0) == 0 and r.get('inbound_paged', 0) == 0
+         and r.get('inbound_variant', 0) > 0),
         ('картинки без alt', 'alt', lambda r: (r.get('imgs_no_alt') or 0) > 0),
         ('медленно (>2 с)', 'slow', lambda r: r['ms'] > 2000),
     ]
@@ -799,6 +871,7 @@ def census(urls: list[str], limit: int, og_checks: int = 80) -> dict:
             '6+': sum(1 for r in ok if r.get('inbound', 0) >= 6),
         },
         'paged': {'fetched': len(paged), 'errors': paged_errors},
+        'variants': {'fetched': len(variants), 'canonical_here': sum(variants.values()), 'errors': variant_errors},
         'by_section': by_section, 'issues': issues, 'checks': [n for n, _, _ in checks],
         'codes': {code: name for name, code, _ in checks},
         'og_images': {'unique': len(og_urls), 'checked': min(len(og_urls), og_checks), 'bad': og_bad, 'head_only': og_head_only},
@@ -828,6 +901,12 @@ def report_census(c: dict, ua: str, budget: int = 58000) -> str:
     if pg is not None:
         L.append(f"- страниц-продолжений списков (?page=N) учтено источниками ссылок: {pg['fetched']}; не открылись: {len(pg['errors'])}")
         for e in pg['errors'][:5]:
+            L.append(f"  - {e}")
+    va = c.get('variants')
+    if va is not None and (va['fetched'] or va['errors']):
+        L.append(f"- адресов с параметрами открыто ради canonical: {va['fetched']}, из них canonical ведёт на адрес без параметров: "
+                 f"{va['canonical_here']}; не открылись: {len(va['errors'])}")
+        for e in va['errors'][:5]:
             L.append(f"  - {e}")
     og = c['og_images']
     L.append(f"- og:image: уникальных {og['unique']}, проверено {og['checked']}, не открываются {len(og['bad'])}")
