@@ -51,16 +51,22 @@ jobs:
       DSH_HOME: ${{ github.workspace }}/../dsh-home
     steps:
       - uses: actions/checkout@v7
+        with:
+          # История за час — для CODE_PATHS в wait-for-deploy.sh.
+          fetch-depth: 200
 
       # Маркер едет в main пушем, и Timeweb тем же пушем пересобирает и
-      # перезапускает прод. Сервер MCP и перепись журнала уже на проде, свежая
-      # сборка им не нужна — нужно не попасть в перезапуск посреди разговора.
+      # перезапускает прод. Ждать сборку есть смысл, только когда сервер MCP
+      # или перепись журнала менялись за час: прогон 1 отсидел 18 минут ради
+      # кода, который на проде уже был. Сборка длится дольше 10 минут, а
+      # разговор — пару, поэтому без ожидания он кончается до перезапуска.
       - name: Wait for fresh deploy
         if: github.event_name == 'push'
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          CODE_PATHS: 'app/api/mcp lib/mcp app/api/cron/mcp-census'
         run: bash scripts/wait-for-deploy.sh
 
       - uses: actions/setup-node@v7
@@ -81,7 +87,12 @@ jobs:
         run: |
           set -euo pipefail
           VER=$(python3 -c "import json; print(json.load(open('.github/triggers/dsh-vedar-probe.json')).get('dsh_version', 'latest'))")
-          npm i -g "@deepseek-ai/dsh@$VER" --no-audit --no-fund
+          # `dsh plugin` — пересылка в pnpm в каталоге профиля (README dsh), и на
+          # ubuntu-latest pnpm нет: прогон 1 упал здесь с «pnpm was not found».
+          # Та же версия, на которой плагин встал в контейнере 14.10.
+          PNPM=$(python3 -c "import json; print(json.load(open('.github/triggers/dsh-vedar-probe.json')).get('pnpm_version', '10'))")
+          npm i -g "pnpm@$PNPM" "@deepseek-ai/dsh@$VER" --no-audit --no-fund
+          echo "pnpm $(pnpm --version)"
           echo "dsh $(dsh --version)"
           mkdir -p "$DSH_HOME"
 

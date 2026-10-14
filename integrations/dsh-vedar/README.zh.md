@@ -12,6 +12,8 @@
 dsh plugin --profile web add github:tourhabk-ui/dsh-vedar
 ```
 
+`dsh plugin` 会转发给 pnpm，因此 PATH 中需要有 pnpm（`npm i -g pnpm`）；否则命令会以 "pnpm was not found" 中止。
+
 重启 `dsh web`。工具会在第一轮对话前出现。
 
 不想装插件？在 `~/.dsh/profiles/web/cordis.patch.yml` 中手写同一行即可（与本仓库的 `cordis.patch.yml` 相同）：

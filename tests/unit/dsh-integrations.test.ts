@@ -122,6 +122,17 @@ describe('проба dsh-vedar-probe.yml — путь пользователя, 
     expect(wf).toContain(`'mcp__${serverName}__'`);
   });
 
+  it('pnpm ставится раньше `dsh plugin add` (прогон 1: «pnpm was not found»), и README называют его предпосылкой', () => {
+    const install = wf.indexOf('"pnpm@$PNPM"');
+    expect(install).toBeGreaterThan(-1);
+    // Шапка workflow тоже называет команду — сравнивается с её запуском в шаге.
+    expect(install).toBeLessThan(wf.lastIndexOf('dsh plugin --profile headless add'));
+    expect((marker as { pnpm_version?: string }).pnpm_version).toMatch(/^\d+\.\d+\.\d+$/);
+    for (const f of ['README.md', 'README.zh.md']) {
+      expect(read(`${PLUGIN_DIR}/${f}`)).toContain('npm i -g pnpm');
+    }
+  });
+
   it('маркер: версия dsh закреплена, вопрос прямо запрещает заявки', () => {
     expect(marker.dsh_version).toMatch(/^\d+\.\d+\.\d+/);
     expect(wf).toContain('@deepseek-ai/dsh@$VER');

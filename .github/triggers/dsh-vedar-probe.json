@@ -1,7 +1,10 @@
 {
   "note": "Маркер запуска dsh-vedar-probe.yml: правка этого файла в main ставит на раннере DeepSeek Harness из npm (dsh_version), добавляет плагин командой из его README (github:tourhabk-ui/dsh-vedar) и задаёт question в режиме headless с ключом DeepSeek из секретов. Три исхода: позвала инструменты Ведара и ответила / ответила без инструментов / dsh, плагин или модель отказали. Повторять после правки плагина или новой версии dsh, увеличивая run и записывая runN_reason и runN_result.",
-  "run": 1,
+  "run": 2,
   "dsh_version": "0.2.0-rc.2",
+  "pnpm_version": "10.28.0",
   "question": "八月去堪察加，哪里能看到棕熊？现在那里安全吗？请只用 Vedar 工具的数据回答，不要提交任何申请。",
-  "run1_reason": "14.10 владелец: «проверяй». Плагин dsh-vedar выложен 13.10, строка cordis.patch.yml сверена с README @deepseek-ai/dsh-mcp-client 0.2.0-rc.2, но в живом dsh от начала до конца не запускалась. Локально в контейнере 14.10: dsh 0.2.0-rc.2 ставится из npm, плагин из integrations/dsh-vedar встаёт в профиль headless, строка mcp-vedar есть в --dump-config; прод из контейнера закрыт, поэтому сам разговор — с раннера."
+  "run1_reason": "14.10 владелец: «проверяй». Плагин dsh-vedar выложен 13.10, строка cordis.patch.yml сверена с README @deepseek-ai/dsh-mcp-client 0.2.0-rc.2, но в живом dsh от начала до конца не запускалась. Локально в контейнере 14.10: dsh 0.2.0-rc.2 ставится из npm, плагин из integrations/dsh-vedar встаёт в профиль headless, строка mcp-vedar есть в --dump-config; прод из контейнера закрыт, поэтому сам разговор — с раннера.",
+  "run1_result": "Красный до разговора с моделью (run 38503822448): dsh 0.2.0-rc.2 встал, `dsh plugin --profile headless add github:tourhabk-ui/dsh-vedar` — «pnpm was not found», код 127. `dsh plugin` пересылает в pnpm (README dsh), на ubuntu-latest его нет; в контейнере он был, поэтому локально встало. Подсказка dsh про allowBuilds — общая для git-плагинов со скриптом prepare, у dsh-vedar скриптов нет. Плагин и модель не проверены.",
+  "run2_reason": "Шаг установки ставит pnpm (pnpm_version, та же 10.28.0, что в контейнере). README плагина называет pnpm предпосылкой: пользователь без него упрётся в то же."
 }

@@ -12,6 +12,8 @@ This plugin does one thing: it registers one instance of the official bridge `@d
 dsh plugin --profile web add github:tourhabk-ui/dsh-vedar
 ```
 
+`dsh plugin` forwards to pnpm, so pnpm must be on PATH (`npm i -g pnpm`); without it the command stops with "pnpm was not found".
+
 Restart `dsh web`. The tools appear before the first turn.
 
 No plugin? Put the same row into `~/.dsh/profiles/web/cordis.patch.yml` (identical to `cordis.patch.yml` in this repository):
