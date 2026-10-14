@@ -52,6 +52,7 @@ import { QuakeCard } from '@/components/map/QuakeCard';
 import { trackLine } from '@/lib/map/line-standard';
 import { builtRegionPacks } from '@/lib/map/field-base-map';
 import { resolvePackSource, BUILT_PACK_REGIONS, OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
+import { VEDAR_ATTRIBUTION } from '@/lib/map/attribution';
 import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { ON_ROUTE_FILTER } from '@/lib/places/on-route';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
@@ -558,13 +559,15 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                     onClick={() => setActiveFilter(f.id)}
                     className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all min-h-[44px] ${
                       filterNow === f.id
-                        ? 'bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/30'
+                        ? 'bg-[var(--accent)] text-[var(--on-accent)] shadow-lg shadow-[var(--accent)]/30'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-[var(--border)]'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
                     {f.label}
-                    <span className={`text-xs ${filterNow === f.id ? 'opacity-70' : 'text-white/40'}`}>
+                    {/* Число — цветом чипа, отличие начертанием: text-white/40
+                        на светлой подложке чипа не читалось вовсе. */}
+                    <span className="text-xs font-normal tabular-nums">
                       {loading ? '…' : cnt}
                     </span>
                   </button>
@@ -755,12 +758,15 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                 onClick={() => setActiveFilter(f.id)}
                 className={`min-h-[44px] px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap shrink-0 ${
                   filterNow === f.id
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--on-accent)]'
                     : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border)]'
                 }`}
               >
                 {f.label}
-                <span className={`ml-1 text-xs ${filterNow === f.id ? 'opacity-70' : 'text-[var(--text-muted)]'}`}>
+                {/* Число — цветом чипа, отличие начертанием. Белый 70% на
+                    --accent давал 3,3:1 (Lighthouse, прогон 14), а белый
+                    на лаве тёмной темы — 3:1; текст на лаве — --on-accent. */}
+                <span className="ml-1 text-xs font-normal tabular-nums">
                   {loading ? '…' : cnt}
                 </span>
               </button>
@@ -812,6 +818,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               placesFilter={filterNow !== 'all' && !quakesMode && !filterNow.startsWith('activity:') ? filterNow : null}
               placesVisible={!quakesMode}
               onDiagnostic={setMapDiag}
+              // Угол top-right занят кнопкой «моё место» (z-500): компактный
+              // контрол атрибуции лежал под ней целиком — подписи OSM не было
+              // видно, а Lighthouse (прогон 14) считал его недоступной целью.
+              // Строка — под рамкой карты, ниже.
+              attributionOutside
             />
             </IdleMount>
           ) : (
@@ -879,6 +890,12 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             </p>
           </div>
         </div>
+        {/* Подпись источников своей карты — под рамкой, где её видно
+            (ODbL требует видимой подписи OSM). У запасной Leaflet — свой
+            контрол в углу. */}
+        {vedarReady && (
+          <p className="mt-1.5 text-xs leading-tight text-[var(--text-muted)]">{VEDAR_ATTRIBUTION}</p>
+        )}
       </div>
 
       {/* ── PlaceMapSheet — рicher panel for places ─────────────────────── */}

@@ -62,7 +62,9 @@ describe('плашка на карте', () => {
   });
 
   it('стекло по §2: тёмное, тревога — кромкой предупреждения', () => {
-    expect(chip).toMatch(/className="fx-glass /);
+    // Плотное — с 14.10 (текст над светлой картой, Lighthouse прогон 14);
+    // плотность держит рендер в lighthouse-run14-a11y.test.tsx.
+    expect(chip).toMatch(/className="fx-glass(?:-dense)? /);
     // Не data-theme="dark": token-gate на /map считает переопределение
     // --accent/--danger на элементе нарушением (CI 30.09).
     expect(chip).not.toMatch(/^\s+data-theme=/m);

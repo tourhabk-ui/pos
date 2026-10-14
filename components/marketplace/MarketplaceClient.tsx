@@ -449,8 +449,12 @@ function TourCard({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)] mb-3">
           <span className="inline-flex items-center gap-1">
             {/* Имя — ссылка на страницу оператора (владелец 13.10). Текстовый
-                блок под фото pointer-events-none, поэтому ссылке — auto. */}
-            <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
+                блок под фото pointer-events-none, поэтому ссылке — auto.
+                py-1 -my-1: цель 24 px по высоте при строке 16 px, а строка
+                карточки не растёт. Без этого Lighthouse (прогон 14) отмечал
+                target-size у каждой из 37 карточек: ссылка лежит на ссылке
+                всей карточки. */}
+            <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto py-1 -my-1" />
             {tour.operator_verified === true && (
               <span className="inline-flex items-center gap-0.5 font-semibold text-[var(--success)]">
                 <BadgeCheck className="w-3.5 h-3.5" aria-hidden /> проверен
@@ -810,6 +814,11 @@ export default function MarketplaceClient({
       <div className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {/* ─── Tours Section ─── */}
         <div id="tours" className="scroll-mt-20">
+          {/* Заголовок списка для скринридера: названия туров в карточках —
+              h3, и без h2 между ними и h1 героя порядок рвался (Lighthouse,
+              прогон 14: heading-order). Видимого заголовка здесь нет намеренно —
+              герой над списком уже называет страницу. */}
+          <h2 className="sr-only">Список туров</h2>
           {/* Направления — одна строка чипов со счётчиком */}
           {chips.length > 0 && (
             <div className="flex gap-2 overflow-x-auto pb-1 mb-3 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0" role="group" aria-label="Направления">

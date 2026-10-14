@@ -333,11 +333,10 @@ export const USER_FOCUS_ZOOM = 7.5;
 
 /**
  * Атрибуция своей карты словами — для экранов, которые выводят её сами
- * (`attributionOutside`). Те же правообладатели, что в источниках стиля:
- * OSM (векторный пакет, ODbL) и Copernicus DEM (рельеф). По лицензии ODbL
- * она не выбор, а обязанность, — выключить её можно, только показав здесь.
+ * (`attributionOutside`). Строка живёт в lib/map/attribution: /map берёт её
+ * оттуда, не затягивая код карты в первый чанк страницы.
  */
-export const VEDAR_ATTRIBUTION = '© OpenStreetMap contributors · © Copernicus DEM (ESA)';
+export { VEDAR_ATTRIBUTION } from '@/lib/map/attribution';
 
 /**
  * Кнопки масштаба — одна реализация на карту и на приборный ряд снаружи.

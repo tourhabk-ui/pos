@@ -65,6 +65,15 @@ jobs:
         if: always() && steps.crawl.outcome == 'success'
         env:
           MARKER: .github/triggers/site-audit.json
+          # Строка браузера — как у PageSpeed Insights: мобильная строка
+          # Lighthouse 12 (core/config/constants.js) плюс «Chrome-Lighthouse».
+          # Своя строка Lighthouse 12 этого слова не несёт, и Next 15.5 отдаёт
+          # ему метаданные стримингом в <body>, а аудит ищет их только в
+          # <head>. Прогон 14: SEO 92 на /map и /catalog — «нет meta
+          # description», которую Googlebot, Яндекс и PSI получают в <head>
+          # (next.config.js, htmlLimitedBots). Версия Chrome в строке серверу
+          # безразлична: Next ищет в ней только имя бота.
+          LH_UA: 'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36 Chrome-Lighthouse'
         run: |
           set -u
           WANT=$(python3 -c 'import json,os;print("yes" if json.load(open(os.environ["MARKER"])).get("lighthouse", True) else "no")')
@@ -88,7 +97,7 @@ jobs:
             # нет профиля ЦП»); категорию профилировщика просим явно.
             if timeout 180 npx -y lighthouse@12 "$url" --quiet --output=json --output-path="$out" \
                  --only-categories=performance,seo,accessibility,best-practices \
-                 --form-factor=mobile --screenEmulation.mobile --save-assets \
+                 --form-factor=mobile --screenEmulation.mobile --emulatedUserAgent="$LH_UA" --save-assets \
                  --additional-trace-categories=disabled-by-default-v8.cpu_profiler \
                  --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt; then
               # Строка таблицы — в отчёт, расшифровка «что тормозит» — отдельным

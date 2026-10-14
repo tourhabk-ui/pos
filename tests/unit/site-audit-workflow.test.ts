@@ -50,6 +50,20 @@ describe('site-audit: только чтение', () => {
     expect(WF).toMatch(/python3 scripts\/site-audit\.py lighthouse "\$url" "\$out" \/tmp\/lh-details\.md "\$\{trace:-/);
   });
 
+  it('Lighthouse представляется как PageSpeed Insights, и Next отдаёт ему метаданные в <head>', () => {
+    // Прогон 14 (14.10): SEO 92 на /map и /catalog — «нет meta description».
+    // Строка Lighthouse 12 по умолчанию без «Chrome-Lighthouse», и Next 15.5
+    // стримил ему метаданные в <body>, где аудит их не ищет. Googlebot, Яндекс
+    // и PSI получают их в <head> — замер обязан смотреть так же.
+    const ua = WF.match(/^\s*LH_UA: '([^']+)'/m)?.[1] ?? '';
+    expect(ua).toContain('Chrome-Lighthouse');
+    expect(ua).toMatch(/Mobile Safari/);
+    const cfg = require(join(process.cwd(), 'next.config.js')) as { htmlLimitedBots?: RegExp };
+    expect(cfg.htmlLimitedBots?.test(ua), 'с этой строкой Next стримит метаданные в <body>').toBe(true);
+    // Строка доходит до самого Lighthouse, а не только объявлена.
+    expect(WF).toMatch(/lighthouse@12[^\n]*\n(?:[^\n]*\\\n)*[^\n]*--emulatedUserAgent="\$LH_UA"/);
+  });
+
   it('маркер называет домен без схемы', () => {
     expect(MARKER.host).toMatch(/^[a-z0-9.-]+\.[a-z]{2,}$/);
     expect(MARKER.maxPages ?? 60).toBeLessThanOrEqual(200);
