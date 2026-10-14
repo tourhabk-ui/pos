@@ -1,18 +1,26 @@
 {
   "timeout": 90,
-  "run": 891,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места в контуре Южно-Камчатского заказника, часть 2: полные описания, суть, «как добраться», заметки Кузьмича и профили — чтобы миграция 1252 сужала правки до нынешнего текста. Конфиг записан целиком.",
+  "run": 892,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Миграция 1251 на проде не видна полчаса: проверяем, не столкнулись ли справки Авачинского вулкана и фумаролы Дзензура на уникальном индексе (source_name, source_url) — источник у пяти мест Налычево до правки. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/18c516d2-cfda-43a0-adda-768a125b366b",
-    "https://vedarai.ru/api/places/7adea817-0392-4c41-97a8-7693c7141310",
-    "https://vedarai.ru/api/places/0fa4286f-d7e6-4083-814c-9121b3ef3a87",
-    "https://vedarai.ru/api/places/14999081-db57-43d3-8aad-f6c8361b69ac",
-    "https://vedarai.ru/api/places/e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
-    "https://vedarai.ru/api/places/8f56bd0e-3c13-45ae-bfa5-65df09ba5c1e"
+    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
+    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+    "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
+    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
+    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0"
   ],
   "allowStale": true,
-  "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 7000
+  "around": [
+    "\"sourceUrl\""
+  ],
+  "aroundLines": 2,
+  "aroundBefore": 1,
+  "aroundHits": 1,
+  "grep": [
+    "\"descriptionWithdrawn\":true",
+    "\"description\":null"
+  ],
+  "bytes": 200
 }
