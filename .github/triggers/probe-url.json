@@ -1,20 +1,18 @@
 {
   "timeout": 60,
-  "retries": 25,
+  "retries": 60,
   "retryDelay": 60,
-  "run": 793,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Добивка 791: на экране от 1024 px снимок героя вписан в колонку целиком, а не обрезан ею (портрет оператора 800×1067 у тура 62 тянулся втрое); вокруг — размытый снимок. На телефоне — обрезка, как было.",
-  "until": "object-cover lg:object-contain",
+  "run": 794,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса по имени после выката #2457 (миграция 1237: триггер и добор): кто держит адрес у каждого видимого маршрута без slug — место, слитый или скрытый дубль, тёзка, раздел; would_assign_total — маршрут стал видимым мимо триггера. Ждём выката по маркеру would_assign_total; тело целиком — в лог.",
+  "until": "would_assign_total",
   "urls": [
-    "https://vedarai.ru/catalog/tours/62",
-    "https://vedarai.ru/transfers/shatun"
+    "https://vedarai.ru/api/cron/route-slug-census"
   ],
-  "bytes": 300,
+  "bytes": 400000,
   "grep": [
-    "object-cover lg:object-contain",
-    "hidden lg:block object-cover scale-110 blur-2xl",
-    "w-full max-w-6xl lg:[mask-image",
-    "object-position:50% 30%",
-    "object-position:50% 40%"
+    "\"ok\":true",
+    "by_holder",
+    "would_assign_total",
+    "shadowed_by_section"
   ]
 }
