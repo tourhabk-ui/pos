@@ -1,23 +1,21 @@
 {
   "timeout": 90,
-  "run": 857,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Карточки места «Природный парк Налычево», «Налычевская долина», двух записей о Налычевских источниках — прежде чем переписывать по источникам (образец — Быстринский, 1246). Конфиг записан целиком.",
+  "run": 858,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Страница парка о разрешениях — дословно оговорка про Авачинский перевал (какие места в зоне свободного посещения), и ссылки страниц кластера «Налычево». Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e",
-    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
-    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
-    "https://vedarai.ru/api/places/4d46f8c3-c8c6-442e-8f73-02e683fd5f15"
+    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/usloviya_poseweniya/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevo/"
   ],
+  "text": true,
   "around": [
-    "\"accessInfo\"",
-    "\"kuzmichReview\"",
-    "\"eco\":",
-    "\"safety\":",
-    "\"chronicle\""
+    "klaster_nalychevo/",
+    "perevala",
+    "plata",
+    "pravila"
   ],
-  "aroundLines": 8,
-  "aroundHits": 1,
+  "aroundLines": 0,
+  "aroundHits": 30,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 4500
+  "bytes": 16000
 }
