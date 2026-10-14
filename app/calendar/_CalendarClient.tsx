@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import {
@@ -218,6 +218,21 @@ export default function CalendarClient() {
 
   const [bookingTour, setBookingTour] = useState<Tour | null>(null);
 
+  const gridRef  = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // На телефоне панель дня стоит под сеткой, за краем экрана: без прокрутки
+  // нажатие на день выглядело бы как «ничего не произошло». Рядом с сеткой
+  // (десктоп) панель и так видна — прокручивать нечего.
+  useEffect(() => {
+    if (!selectedDate) return;
+    const grid = gridRef.current, panel = panelRef.current;
+    if (!grid || !panel) return;
+    if (panel.getBoundingClientRect().top >= grid.getBoundingClientRect().bottom) {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedDate]);
+
   // ── Загрузка месяца ─────────────────────────────────────────────────────────
   const loadMonth = useCallback(async () => {
     setLoadingMonth(true);
@@ -331,10 +346,12 @@ export default function CalendarClient() {
             )}
           </div>
 
-          <div className="flex gap-5 items-start">
+          {/* На телефоне — колонкой: рядом с панелью в 320 px сетке на экране
+              375 px оставалось 3 px (замер 14.10), дни налезали друг на друга. */}
+          <div className="flex flex-col md:flex-row gap-5 md:items-start">
 
             {/* ── Календарная сетка ──────────────────────────────────────── */}
-            <div className="flex-1 min-w-0">
+            <div ref={gridRef} className="md:flex-1 min-w-0">
               <div className="ds-card p-4">
                 {/* Навигация */}
                 <div className="flex items-center justify-between mb-4">
@@ -440,7 +457,7 @@ export default function CalendarClient() {
             </div>
 
             {/* ── Правая панель ──────────────────────────────────────────── */}
-            <div className="w-80 shrink-0 space-y-3">
+            <div ref={panelRef} className="md:w-80 md:shrink-0 space-y-3 scroll-mt-24">
 
               {selectedDate ? (
                 <>
