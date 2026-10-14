@@ -12,7 +12,7 @@ import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
-import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { guardSafetyClaims, SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
@@ -2192,10 +2192,26 @@ export { executeTool as executeKuzmichTool };
 
 /**
  * Сколько символов вывода инструмента сохраняется в журнале вызовов.
- * Две тысячи покрывают ответ get_guardian_context целиком (статус вулкана,
- * опасности, высота) и не дают каталогу туров вытеснить всё остальное.
+ * Две тысячи не дают каталогу туров вытеснить всё остальное.
+ *
+ * Выводы инструментов места и обстановки хранятся до своего потолка (14.10).
+ * Прежде здесь стояло «две тысячи покрывают ответ get_guardian_context
+ * целиком» — и перестало быть правдой, когда в ответ места пришли факты
+ * маршрутов (#2491): он вырос до 3–7 тысяч знаков, и блок маршрутов лёг за
+ * обрезку. Модель его видела — в диалог вывод идёт целиком, — а журнал нет.
+ * По журналу судят трое: судья эвала (прогон 22 поставил единицы за телефон
+ * МЧС, набор высоты и снаряжение, стоявшие в выводе дословно, — pass_rate
+ * 0.35), сторож километража и сверка утверждений об опасностях в живом
+ * ответе. Обрезок называл заземлённое выдумкой.
  */
 const TOOL_OUTPUT_KEEP = 2000;
+const PLACE_TOOL_OUTPUT_KEEP = 12_000;
+const PLACE_TOOLS: ReadonlySet<string> = new Set([...SAFETY_TOOLS, 'get_place_info']);
+
+/** Вывод инструмента для журнала вызовов — с потолком по роду инструмента. */
+export function journalToolOutput(name: string, content: string): string {
+  return content.slice(0, PLACE_TOOLS.has(name) ? PLACE_TOOL_OUTPUT_KEEP : TOOL_OUTPUT_KEEP);
+}
 
 export async function aiChatAgentLoop(
   userText: string,
@@ -2273,7 +2289,7 @@ export async function aiChatAgentLoop(
         toolRuns?.push({
           name: o.name,
           producedData: toolOutputHasData(o.content),
-          output: o.content.slice(0, TOOL_OUTPUT_KEEP),
+          output: journalToolOutput(o.name, o.content),
         });
       }
       // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
