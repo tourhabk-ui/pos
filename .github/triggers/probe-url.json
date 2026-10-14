@@ -1,23 +1,16 @@
 {
   "timeout": 60,
-  "retries": 25,
-  "retryDelay": 60,
-  "run": 791,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Фото и видео на десктопе не растягиваются (владелец 14.10: «в дисктопе виде и фото расяниваються нужно сделать нормально»): герой перевозчика и тура — резкий кадр не шире колонки (HeroPhoto), поля — размытый снимок; ролик перевозчика — рамка 16:9 не шире 42rem (CarrierVideo).",
-  "until": "data-hero-frame",
+  "run": 792,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись sitemap, прогон 7: /places/ozero-bolshoj-kalygir единственный не 200 — Connection reset by peer, кода ответа нет. Повтор тем же UA (Googlebot, свой сайт): разовый обрыв или страница падает.",
+  "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
   "urls": [
-    "https://vedarai.ru/transfers/shatun",
-    "https://vedarai.ru/catalog/tours/62"
+    "https://vedarai.ru/places/ozero-bolshoj-kalygir",
+    "https://vedarai.ru/places/ozero-bolshoj-kalygir"
   ],
-  "bytes": 300,
+  "bytes": 200,
   "grep": [
-    "data-hero-frame",
-    "data-hero-backdrop",
-    "w-full max-w-6xl min-[1152px]:[mask-image",
-    "hidden min-[1152px]:block object-cover scale-110 blur-2xl",
-    "object-position:50% 40%",
-    "object-position:50% 30%",
-    "<figure class=\"max-w-2xl\">",
-    "block w-full aspect-video rounded-lg"
+    "</html>",
+    "<h1",
+    "rel=\"canonical\""
   ]
 }
