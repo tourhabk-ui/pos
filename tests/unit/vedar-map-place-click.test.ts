@@ -57,7 +57,9 @@ describe('/map — та же подложка, что на полевом экр
 
   it('своя карта включается по готовности обзора, Leaflet — запасной путь', () => {
     expect(CLIENT).toMatch(/vedarReady = overviewSource\.state === 'ready'/);
-    expect(CLIENT).toMatch(/\{vedarReady \? \(\s*<VedarMap/);
+    // С 14.10 своя карта стартует в простое браузера (components/map/IdleMount):
+    // между готовностью обзора и картой — обёртка, сама развилка прежняя.
+    expect(CLIENT).toMatch(/\{vedarReady \? \(\s*(?:\/\/[^\n]*\n\s*)*<IdleMount placeholder=\{MAP_PLACEHOLDER\}>\s*<VedarMap/);
     expect(CLIENT).toContain('<LeafletMap');
   });
 
