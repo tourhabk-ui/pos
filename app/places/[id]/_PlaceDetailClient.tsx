@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ownPermitOf } from '@/lib/places/own-permit';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Navigation, Download, Video, ChevronDown, ScrollText } from 'lucide-react';
@@ -556,7 +557,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
           {hasKnow && (
             <Section title="Что знать">
               <Plate>
-                <PlaceSafety safety={place.safety} placeId={place.id} />
+                <PlaceSafety safety={place.safety} placeId={place.id} ownPermit={ownPermitOf(place.eco)} />
               </Plate>
 
               {hasSeason && (

@@ -65,10 +65,12 @@ describe('список типов мест один', () => {
     //
     // `ethnic` — не из переписи, а решение владельца 04.10 («завести»):
     // стойбище Кайныран не историческое место (lib/places/location-types.ts).
+    // `reserve` — 14.10, Кроноцкий заповедник (миграция 1240): заповедник не
+    // природный парк и не лесной массив.
     const FROM_CENSUS = [
       'bay', 'beach', 'cape', 'cave', 'ethnic', 'forest', 'geyser', 'glacier', 'historical',
       'hot_spring', 'island', 'lake', 'mountain', 'museum', 'other', 'park',
-      'pass', 'plateau', 'river', 'rock', 'settlement', 'thermal', 'valley',
+      'pass', 'plateau', 'reserve', 'river', 'rock', 'settlement', 'thermal', 'valley',
       'viewpoint', 'volcano', 'waterfall',
     ];
     expect(FROM_CENSUS.filter(k => !(k in LOCATION_TYPES))).toEqual([]);

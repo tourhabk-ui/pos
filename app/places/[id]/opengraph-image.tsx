@@ -15,13 +15,14 @@ const TYPE_COLOR: Record<string, string> = {
   historical: '#8B4513',
   ethnic: '#B45309',
   museum: '#5B2D8E',
+  reserve: '#1A7A34',
 };
 
 const TYPE_LABEL: Record<string, string> = {
   volcano: 'ВУЛКАН', geyser: 'ГЕЙЗЕР', hot_spring: 'ТЕРМАЛЬНЫЙ ИСТОЧНИК',
   lake: 'ОЗЕРО', mountain: 'ГОРА', bay: 'БУХТА', river: 'РЕКА',
   waterfall: 'ВОДОПАД', historical: 'ИСТОРИЯ', ethnic: 'ЭТНОКУЛЬТУРА', museum: 'МУЗЕЙ',
-  viewpoint: 'СМОТРОВАЯ', cape: 'МЫС', island: 'ОСТРОВ',
+  viewpoint: 'СМОТРОВАЯ', cape: 'МЫС', island: 'ОСТРОВ', reserve: 'ЗАПОВЕДНИК',
 };
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {

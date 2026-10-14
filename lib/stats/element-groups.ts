@@ -86,8 +86,10 @@ export function getElementForType(
  * Здесь они попадают в исключения, и причина у каждого своя — не
  * «антропогенные», как у музея с посёлком:
  *
- *   park    — природный парк это ТЕРРИТОРИЯ, внутри которой есть и вулканы,
- *             и реки, и термы. Он не одна стихия по построению;
+ *   park,
+ *   reserve — природный парк и заповедник (14.10) это ТЕРРИТОРИИ, внутри
+ *             которых есть и вулканы, и реки, и термы. Не одна стихия по
+ *             построению;
  *   pass,
  *   plateau,
  *   valley,
@@ -101,7 +103,7 @@ export function getElementForType(
  */
 export const EXCLUDED_TYPES: readonly string[] = [
   'viewpoint', 'settlement', 'museum', 'historical', 'rock', 'other',
-  'park', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
+  'park', 'reserve', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
 ];
 
 export interface ElementCount { key: string; label: string; count: number; href: string; }

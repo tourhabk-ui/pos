@@ -5,29 +5,18 @@ import type { PlaceSafety as SafetyData } from './types';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
+import type { OwnPermit } from '@/lib/places/own-permit';
 
 interface Props {
   safety: SafetyData;
   placeId: string;
-}
-
-function HazardIcon({ hazard }: { hazard: string }) {
-  const cls = 'w-3.5 h-3.5 flex-shrink-0';
-  switch (hazard) {
-    case 'bears':
-    case 'wildlife':      return <AlertTriangle className={cls} />;
-    case 'avalanche':     return <Wind className={cls} />;
-    case 'rockfall':      return <Mountain className={cls} />;
-    case 'thermal':       return <Thermometer className={cls} />;
-    case 'volcanic_gas':  return <Flame className={cls} />;
-    case 'altitude':      return <Mountain className={cls} />;
-    case 'river_crossing':return <Waves className={cls} />;
-    case 'fog':           return <Eye className={cls} />;
-    case 'ice':           return <CloudLightning className={cls} />;
-    case 'no_signal':     return <Signal className={cls} />;
-    case 'weather':       return <CloudLightning className={cls} />;
-    default:              return <AlertTriangle className={cls} />;
-  }
+  /**
+   * Своё разрешение места — страница, где его оформляют (`places.eco_permit_url`).
+   * Есть — строка ведёт туда, а не к «Зелёной кнопке»: та — приложение сети
+   * природных парков «Вулканы Камчатки», и у заповедника с собственным
+   * порядком (Кроноцкий: заявка на kronoki.ru, 14.10) она была бы чужой дверью.
+   */
+  ownPermit?: OwnPermit | null;
 }
 
 /**
@@ -51,7 +40,7 @@ function HazardIcon({ hazard }: { hazard: string }) {
  * Коробка осталась ровно у двух вещей, и обе — действия: кнопка 112
  * (непрозрачная, `--danger`, §5 языка) и ссылка на офлайн-инструкции.
  */
-export default function PlaceSafety({ safety, placeId: _ }: Props) {
+export default function PlaceSafety({ safety, placeId: _, ownPermit = null }: Props) {
   const hasAnyData =
     safety.requiredGear.length > 0 ||
     safety.satCommunicatorRequired ||
@@ -116,10 +105,21 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
                   не освобождён от второго, и одной строкой это не сказать. */}
               <div className="flex items-baseline justify-between gap-4 py-2.5">
                 <dt className="flex shrink-0 items-center gap-1.5 text-sm text-[var(--text-secondary)]">
-                  <Ticket className="h-3.5 w-3.5" aria-hidden /> Разрешение парка
+                  <Ticket className="h-3.5 w-3.5" aria-hidden /> {ownPermit?.label ?? 'Разрешение парка'}
                 </dt>
                 <dd className="text-right text-sm font-semibold">
-                  <ParkPermitAction variant="compact" />
+                  {ownPermit ? (
+                    <a
+                      href={ownPermit.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--warning)] hover:underline"
+                    >
+                      заявка на {ownPermit.host}
+                    </a>
+                  ) : (
+                    <ParkPermitAction variant="compact" />
+                  )}
                 </dd>
               </div>
             </>
