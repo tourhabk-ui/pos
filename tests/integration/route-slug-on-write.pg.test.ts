@@ -268,8 +268,16 @@ withPg('адрес по имени маршруту при записи (1237, 1
         ['Озеро Дальнее', 'visible_place'],
         ['Толбачик', 'merged_into_this'],
       ]);
-      // У «Мыса Лопатки» суффиксный адрес занят — перепись это и показывает.
-      expect(rows.find((r) => r.title === 'Мыс Лопатка')?.marshrut_free).toBe(false);
+      // У «Мыса Лопатки» суффиксный адрес занят — перепись это и показывает,
+      // и называет держателя: решать по слову «занят» нечем.
+      const lopatka = rows.find((r) => r.title === 'Мыс Лопатка');
+      expect(lopatka?.marshrut_free).toBe(false);
+      expect(lopatka).toMatchObject({
+        marshrut_route_title: 'Мыс Лопатка (старый путь)', marshrut_route_visible: true,
+        marshrut_route_merged_into: null, marshrut_place_id: null,
+      });
+      // Свободный суффикс — держателя нет.
+      expect(rows.find((r) => r.title === '!!!')?.marshrut_route_id).toBeNull();
       // Правило выдало всё, что могло: выдать сейчас нечего никому.
       expect(rows.every((r) => r.would_assign === null)).toBe(true);
     });
