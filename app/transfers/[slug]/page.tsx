@@ -7,7 +7,7 @@ import { carrierJsonLd, minCharterPrice } from '@/lib/transfers/carrier-view';
 import { carrierPagePath, formatRub } from '@/lib/transfers/charter-format';
 import { loadCarrierBySlug } from '@/lib/transfers/charter';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { fitTitleRequired, CARRIER_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { brandedTitle, fitTitleRequired, CARRIER_TITLE_TAILS } from '@/lib/seo/title-fit';
 
 /**
  * /transfers/[slug] — страница перевозчика по стандарту карточки трансфера
@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const url = `${SITE}${carrierPagePath(carrier.slug)}`;
   const hero = carrier.photos[0]?.url ?? null;
   return {
-    title,
+    title: brandedTitle(title),
     description,
     alternates: { canonical: url },
     openGraph: {

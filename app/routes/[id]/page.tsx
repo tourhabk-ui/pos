@@ -16,7 +16,7 @@ import { stripTags } from '@/lib/html/text';
 import { routeDescription } from '@/lib/seo/place-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
-import { fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { brandedTitle, fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 
 // ISR: реvalidate každый час для свежести контента в Google
@@ -328,7 +328,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       : defaultOgImages();
 
   return {
-    title,
+    title: brandedTitle(title),
     description: desc,
     keywords,
     alternates: { canonical: `https://vedarai.ru/routes/${canonicalId}` },

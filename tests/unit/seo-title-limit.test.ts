@@ -36,8 +36,14 @@ vi.mock('@/lib/transfers/charter', () => ({ loadCarrierBySlug: (...a: unknown[])
 vi.mock('@/lib/transfers/carrier-view', () => ({ minCharterPrice: () => null, carrierJsonLd: () => ({}) }));
 
 const ROOT = process.cwd();
-/** Что увидит поиск: шаблон layout дописывает бренд к строковому title. */
-const shown = (title: unknown) => `${String(title)}${BRAND_SUFFIX}`;
+/**
+ * Что увидит поиск: к строковому title шаблон layout дописывает бренд,
+ * `absolute` (бренд не поместился — lib/seo/title-fit brandedTitle) — без него.
+ */
+const shown = (title: unknown) =>
+  title && typeof title === 'object' && 'absolute' in title
+    ? String((title as { absolute: string }).absolute)
+    : `${String(title)}${BRAND_SUFFIX}`;
 
 beforeEach(() => {
   dbQuery.mockReset();
@@ -113,10 +119,10 @@ function tourRow(title: string) {
   };
 }
 
-async function tourTitle(title: string): Promise<string> {
+async function tourTitle(title: string): Promise<unknown> {
   loadTourCard.mockResolvedValue(tourRow(title));
   const { generateMetadata } = await import('@/app/catalog/tours/[id]/page');
-  return String((await generateMetadata({ params: Promise.resolve({ id: 'test-tour' }) })).title);
+  return (await generateMetadata({ params: Promise.resolve({ id: 'test-tour' }) })).title;
 }
 
 // Первый импорт страницы тура тянет за собой весь её граф модулей — на раннере CI дольше 5 с.
@@ -137,15 +143,16 @@ describe('карточка тура', { timeout: 30_000 }, () => {
 
   it('длинное имя не режется, а « — тур» остаётся: тур не выходит в выдачу под именем места', async () => {
     const t = await tourTitle(LONG_TOUR);
-    expect(t).toBe(`${LONG_TOUR} — тур`);
+    // Сверх предела и без бренда — бренд снят, имя и хвост целы.
+    expect(t).toEqual({ absolute: `${LONG_TOUR} — тур` });
   });
 });
 
 describe('карточка оператора', { timeout: 30_000 }, () => {
-  async function operatorTitle(name: string): Promise<string> {
+  async function operatorTitle(name: string): Promise<unknown> {
     dbQuery.mockResolvedValue({ rows: [{ id: '1', slug: 'op', name, category: 'operator', is_verified: false, short_description: null, description: null }] });
     const { generateMetadata } = await import('@/app/operators/[slug]/page');
-    return String((await generateMetadata({ params: Promise.resolve({ slug: 'op' }) })).title);
+    return (await generateMetadata({ params: Promise.resolve({ slug: 'op' }) })).title;
   }
 
   it('тире, а не дефис; короткое имя — с полным хвостом', async () => {
@@ -158,15 +165,15 @@ describe('карточка оператора', { timeout: 30_000 }, () => {
     expect(tMid).toBe(`${mid} — туроператор`);
     expect(shown(tMid).length).toBeLessThanOrEqual(TITLE_LIMIT);
     const long = 'Камчатская туристическая компания «Вулканы и океан»';
-    expect(await operatorTitle(long)).toBe(`${long} — туроператор`);
+    expect(await operatorTitle(long)).toEqual({ absolute: `${long} — туроператор` });
   });
 });
 
 describe('карточка перевозчика', { timeout: 30_000 }, () => {
-  async function carrierTitle(name: string): Promise<string> {
+  async function carrierTitle(name: string): Promise<unknown> {
     loadCarrierBySlug.mockResolvedValue({ name, slug: 'shatun', shortDescription: null, photos: [] });
     const { generateMetadata } = await import('@/app/transfers/[slug]/page');
-    return String((await generateMetadata({ params: Promise.resolve({ slug: 'shatun' }) })).title);
+    return (await generateMetadata({ params: Promise.resolve({ slug: 'shatun' }) })).title;
   }
 
   it('короткое имя — с полным хвостом в пределе', async () => {
@@ -175,9 +182,10 @@ describe('карточка перевозчика', { timeout: 30_000 }, () => {
     expect(shown(t).length).toBeLessThanOrEqual(TITLE_LIMIT);
   });
 
-  it('длинное имя — короткий хвост: «машина под заказ» не теряется и сверх предела', async () => {
+  it('длинное имя — короткий хвост: «машина под заказ» не теряется, бренд снят — в пределе', async () => {
     const name = 'Транспортная компания «Вахтовки Камчатки»';
     const t = await carrierTitle(name);
-    expect(t).toBe(`${name} — машина под заказ`);
+    expect(t).toEqual({ absolute: `${name} — машина под заказ` });
+    expect(shown(t).length).toBeLessThanOrEqual(TITLE_LIMIT);
   });
 });

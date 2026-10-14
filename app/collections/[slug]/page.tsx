@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { CollectionDetailClient } from './_CollectionDetailClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { fitTitle } from '@/lib/seo/title-fit';
+import { brandedTitle, fitTitle } from '@/lib/seo/title-fit';
 import { metaDescription } from '@/lib/seo/meta-description';
 
 interface Props { params: Promise<{ slug: string }> }
@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = fitTitle(col.title, [' — подборка']);
   const description = metaDescription(col.description) || `Кураторская подборка «${col.title}»`;
   return {
-    title,
+    title: brandedTitle(title),
     description,
     alternates: { canonical: `/collections/${slug}` },
     openGraph: {
