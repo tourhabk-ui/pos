@@ -1,12 +1,20 @@
 {
   "timeout": 90,
-  "run": 859,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Commons: категории «Nalychevo» и вторая страница поиска снимков (с 30-го) — авторы и лицензии для героя и галереи парка. Конфиг записан целиком.",
+  "run": 860,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Что парк называет «территорией Авачинского перевала» (зона свободного посещения), правила посещения природных парков, ссылки подстраниц кластера «Налычево». Конфиг записан целиком.",
   "urls": [
-    "https://commons.wikimedia.org/w/api.php?action=query&list=search&srnamespace=14&srsearch=Nalychevo&srlimit=20&format=json&formatversion=2&utf8=1",
-    "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=40&gsroffset=30&gsrsearch=%D0%9D%D0%B0%D0%BB%D1%8B%D1%87%D0%B5%D0%B2%D0%BE+OR+Nalychevo+OR+%D0%9D%D0%B0%D0%BB%D1%8B%D1%87%D0%B5%D0%B2%D1%81%D0%BA%D0%B0%D1%8F&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName%7CImageDescription&format=json&formatversion=2&utf8=1"
+    "https://www.vulcanikamchatki.ru/index/proekt_obustrojstva_avachinskogo_perevala/",
+    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/pravila_poseweniya_prirodnyh_parkov/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevo/"
   ],
+  "text": true,
+  "around": [
+    "href=\"/territoriya",
+    "territoriya/klaster_nalychevo"
+  ],
+  "aroundLines": 0,
+  "aroundHits": 40,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 30000
+  "bytes": 14000
 }
