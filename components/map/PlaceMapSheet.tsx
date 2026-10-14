@@ -51,6 +51,8 @@ const LOCATION_LABELS: Record<string, string> = {
   // 1243): без этих строк лист карты подписывал Кроноцкий заповедник «Место».
   reserve: 'Заповедник',
   national_park: 'Нацпарк',
+  // Природный парк — 14.10, «Быстринский» (миграция 1246).
+  park: 'Природный парк',
 };
 
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {

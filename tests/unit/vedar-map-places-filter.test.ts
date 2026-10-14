@@ -24,10 +24,12 @@ describe('applyPlacesFilter — VedarMap', () => {
     expect(MAP).toMatch(/l\.id\.includes\('vedar-place'\)/);
   });
 
-  it('строит ==-выражение по kind, снимает фильтр при null', () => {
+  it('строит выражение по kind из состава чипа, снимает фильтр при null', () => {
     // С 29.09 впереди ветка «с маршрутом» (признак on_route, не род места —
-    // сторож map-on-route-first); выражение по kind и снятие при null прежние.
-    expect(MAP).toMatch(/: filter \? \['==', \['get', 'kind'\], filter\] : null/);
+    // сторож map-on-route-first). С 14.10 выражение по kind строит
+    // lib/map/place-filter: чип — набор родов, а не один (его поведение
+    // судит map-filter-parks вычислением выражения MapLibre).
+    expect(MAP).toMatch(/: filter \? placeKindFilterExpr\(filter\) : null/);
     expect(MAP).toMatch(/map\.setFilter\(l\.id, \(isDots && onRoute \? \['boolean', false\] : expr\) as never\)/);
   });
 

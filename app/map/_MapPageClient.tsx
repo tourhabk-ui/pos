@@ -45,6 +45,7 @@ import EmergencyAction from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
+import { placeMatchesFilter } from '@/lib/map/place-filter';
 import type { VedarMapPlaceHit, VedarMapQuake } from '@/components/shared/VedarMap';
 import { useMapQuakes, MAP_QUAKE_HOURS } from '@/hooks/useMapQuakes';
 import { QuakeCard } from '@/components/map/QuakeCard';
@@ -129,7 +130,7 @@ const OFFLINE_FILTERS = [
   { id: 'river',      label: 'Реки',         icon: Droplets },
   { id: 'lake',       label: 'Озёра',        icon: Waves },
   { id: 'mountain',   label: 'Горы',         icon: Mountain },
-  { id: 'forest',     label: 'Лес',          icon: TreePine },
+  { id: 'forest',     label: 'Леса и парки', icon: TreePine },
 ];
 
 // Module-level constants — stable references across renders, never trigger LeafletMap useEffect
@@ -418,7 +419,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         ? allRoutes.filter(r => r.onRoute === true)
         : filterNow.startsWith('activity:')
           ? allRoutes.filter(r => r.activityType === filterNow.slice(9))
-          : allRoutes.filter(r => r.locationType === filterNow),
+          : allRoutes.filter(r => placeMatchesFilter(r.locationType, filterNow)),
   [allRoutes, filterNow]);
 
   const countFor = useCallback((id: string) => {
@@ -426,7 +427,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
     if (id === ON_ROUTE_FILTER) return allRoutes.filter(r => r.onRoute === true).length;
     if (id === QUAKES_FILTER) return quakes.length;
     if (id.startsWith('activity:')) return allRoutes.filter(r => r.activityType === id.slice(9)).length;
-    return allRoutes.filter(r => r.locationType === id).length;
+    return allRoutes.filter(r => placeMatchesFilter(r.locationType, id)).length;
   }, [allRoutes, quakes]);
 
   // Маркеры пиров меш-сети (другие устройства в группе)

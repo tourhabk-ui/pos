@@ -43,6 +43,7 @@ import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { ON_ROUTE_FILTER } from '@/lib/places/on-route';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
 import { placeMarkerSvg, PLACE_MARKER_SIZE, PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
+import { placeKindFilterExpr } from '@/lib/map/place-filter';
 import { parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO } from '@/lib/map/place-icon-raster';
 import { Minus, Plus } from 'lucide-react';
 /**
@@ -235,9 +236,11 @@ function applyPlacesFilter(map: MLMap, filter: string | null | undefined): void 
   // (lib/places/on-route). Таких мест немного, и владелец просил видеть их
   // «с формой места» уже на первом экране — поэтому в этом режиме значки
   // идут с самого нижнего зума, а обзорные точки не рисуются вовсе.
+  // Чип — набор родов (lib/map/place-filter): «Леса и парки» — это и
+  // природные парки, и заповедники, а не только `forest` (14.10).
   const expr = onRoute
     ? ['==', ['get', 'on_route'], true]
-    : filter ? ['==', ['get', 'kind'], filter] : null;
+    : filter ? placeKindFilterExpr(filter) : null;
   for (const l of layers) {
     if (!l.id.includes('vedar-place')) continue;
     const isDots = l.id.startsWith('vedar-places-dots');
