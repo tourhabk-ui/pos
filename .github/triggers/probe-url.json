@@ -1,20 +1,14 @@
 {
   "timeout": 60,
-  "run": 824,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат b9b37a0: поля 16 px у статьи летописи и страницы парка (датчик — класс ds-page px-4 у статьи). Конфиг записан целиком.",
+  "run": 825,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Памятник природы «Вачкажец» (владелец: «тоже делаем по примерам»): прод-записи по имени, публичная карточка места, страница парка, статья Википедии. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/letopis/komandorskie-ostrova",
-    "https://vedarai.ru/park/kronotsky",
-    "https://vedarai.ru/letopis"
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6",
+    "https://vedarai.ru/api/places/c4310d06-2b6c-4b6e-af3a-b0c7cd678ebe",
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86&format=json&formatversion=2&utf8=1&redirects=1"
   ],
-  "until": "ds-page px-4",
-  "retries": 40,
-  "retryDelay": 60,
-  "bytes": 200,
-  "grep": [
-    "ds-page px-4",
-    "padding-inline:16px",
-    "Читать статью",
-    "Командорские острова"
-  ]
+  "allowStale": true,
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 24000
 }
