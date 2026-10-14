@@ -1,15 +1,18 @@
 {
   "timeout": 90,
-  "run": 889,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский заказник: страницы «Вулкан Кошелева и Кошелевские термальные источники», «Вулкан Камбальный» и визит-центра в Озерновском на сайте Кроноцкого заповедника — справка для карточек. Конфиг записан целиком.",
+  "run": 890,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места в контуре Южно-Камчатского заказника, часть 1: полные описания, суть, «как добраться», заметки Кузьмича и профили — чтобы миграция 1252 сужала правки до нынешнего текста. Конфиг записан целиком.",
   "urls": [
-    "https://kronoki.ru/ru/kamchatka/kamchatka-objects/381.html",
-    "https://kronoki.ru/ru/kamchatka/kamchatka-objects/380.html",
-    "https://kronoki.ru/ru/visit/information-for-all/ozernovskiy-visit-center/"
+    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
+    "https://vedarai.ru/api/places/5d5ab623-3faf-41d7-80c0-536130118432",
+    "https://vedarai.ru/api/places/e0b131dc-6dcb-472c-b0a7-90fee55204b6",
+    "https://vedarai.ru/api/places/2b9c567e-1ffc-403e-a69a-6d72c93b88ae",
+    "https://vedarai.ru/api/places/663e37f3-5deb-4907-ac25-321dd247d85e",
+    "https://vedarai.ru/api/places/31448f8a-a720-41a1-8536-854dfc83d816"
   ],
   "allowStale": true,
   "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 16000
+  "bytes": 7000
 }
