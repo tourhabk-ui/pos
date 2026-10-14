@@ -1,18 +1,13 @@
 {
   "timeout": 60,
-  "retries": 60,
-  "retryDelay": 60,
-  "run": 794,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса по имени после выката #2457 (миграция 1237: триггер и добор): кто держит адрес у каждого видимого маршрута без slug — место, слитый или скрытый дубль, тёзка, раздел; would_assign_total — маршрут стал видимым мимо триггера. Ждём выката по маркеру would_assign_total; тело целиком — в лог.",
-  "until": "would_assign_total",
+  "run": 795,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись маршрутов без адреса по имени — НАЧАЛО ответа (итоги by_holder, would_assign_total, shadowed_by_section и первые маршруты по алфавиту): проба 794 сохранила в check-run только середину тела.",
   "urls": [
     "https://vedarai.ru/api/cron/route-slug-census"
   ],
-  "bytes": 400000,
+  "bytes": 12000,
   "grep": [
     "\"ok\":true",
-    "by_holder",
-    "would_assign_total",
-    "shadowed_by_section"
+    "would_assign_total\":0"
   ]
 }
