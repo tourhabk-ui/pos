@@ -1,18 +1,21 @@
 {
   "timeout": 60,
-  "run": 821,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Контуры OSM для локальной проверки точек: остров Беринга (отношение 4176597) и Корякский заповедник (отношение 5576455), упрощённые; обратное геокодирование кандидатов в координаты (суша или море). Overpass is_in отваливался (пробы 818, 820). Конфиг записан целиком.",
+  "run": 822,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Текущие slug Командорского и Корякского (UUID-адрес карточки отвечает 308 на ЧПУ) и есть ли страница /park/komandorskiy. Конфиг записан целиком.",
   "urls": [
-    "https://nominatim.openstreetmap.org/lookup?osm_ids=R4176597&format=geojson&polygon_geojson=1&polygon_threshold=0.005",
-    "https://nominatim.openstreetmap.org/lookup?osm_ids=R5576455&format=geojson&polygon_geojson=1&polygon_threshold=0.01",
-    "https://nominatim.openstreetmap.org/reverse?lat=55.0215754&lon=166.2712426&format=jsonv2&zoom=10",
-    "https://nominatim.openstreetmap.org/reverse?lat=60.0&lon=165.5&format=jsonv2&zoom=10",
-    "https://nominatim.openstreetmap.org/reverse?lat=59.8865406&lon=166.2616559&format=jsonv2&zoom=10",
-    "https://nominatim.openstreetmap.org/reverse?lat=54.9309363&lon=166.9248504&format=jsonv2&zoom=10"
+    "https://vedarai.ru/places/a8f3d201-5c9e-4b7a-8d63-2f1e0c4b6a35",
+    "https://vedarai.ru/places/b9c4e312-6d8f-4a5b-9c71-3e2f1d0b7a46",
+    "https://vedarai.ru/park/komandorskiy"
   ],
   "allowStale": true,
   "retries": 1,
-  "retryDelay": 20,
-  "bytes": 60000,
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
+  "retryDelay": 15,
+  "bytes": 300,
+  "text": true,
+  "around": [
+    "rel=\"canonical\""
+  ],
+  "aroundLines": 0,
+  "aroundBefore": 0,
+  "aroundHits": 1
 }
