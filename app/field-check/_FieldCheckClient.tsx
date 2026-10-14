@@ -31,10 +31,19 @@ import { useTrackRecorder } from '@/hooks/useTrackRecorder';
 // разойдётся с той, по которой считается «км от вас» на сервере.
 import { haversineKm } from '@/lib/field/geo';
 import {
-  queueFieldCheck, listFieldChecks, deleteFieldCheck,
+  queueFieldCheck, listFieldChecks,
   saveFieldCheckArea, getFieldCheckArea,
   type FieldCheckQueueItem,
 } from '@/lib/offline/db';
+// Досыл очереди — общий с наблюдениями экрана маршрута (#2448): отказ сервера
+// на одну проверку не держит остальные, снимки не теряются, досыл идёт со
+// старта приложения на любой странице.
+import {
+  flushFieldChecks, installFieldQueuesFlush, sendWithoutDisk, fieldCheckWithoutDiskMessage,
+  resendFieldCheck, discardFieldCheck,
+  FIELD_CHECKS, FIELD_CHECK_QUEUE_EVENT,
+} from '@/lib/offline/field-queues';
+import { QueueRefusals, type RefusalRow } from '@/components/field/QueueRefusals';
 // Сжатие снимка — общее с наблюдениями с экрана маршрута (lib/images/shrink-photo):
 // два полевых контура шлют фото одним способом, иначе разойдутся с лимитами приёмников.
 import { shrinkPhoto } from '@/lib/images/shrink-photo';
@@ -179,7 +188,10 @@ export function FieldCheckClient() {
   const [manualCoord, setManualCoord] = useState('');
   const [coordError, setCoordError] = useState<string | null>(null);
 
+  /** Ждут связи и уйдут сами. Не принятые сервером сюда не входят. */
   const [queueLen, setQueueLen] = useState(0);
+  /** Не принятые сервером: сами не уйдут, решает человек (#2448). */
+  const [refusedChecks, setRefusedChecks] = useState<FieldCheckQueueItem[]>([]);
   /**
    * Полоса действий (владелец 22.08, по образцу MAPS.ME). Запись трека,
    * отметка места, заготовка района, «поделиться» — одно касание на одно
@@ -229,7 +241,6 @@ export function FieldCheckClient() {
 
   useEffect(() => {
     setDone(readDone());
-    void listFieldChecks().then(q => setQueueLen(q.length)).catch(() => undefined);
     void getFieldCheckArea().then(area => {
       if (area) {
         setSavedArea({
@@ -258,74 +269,71 @@ export function FieldCheckClient() {
     });
   }, []);
 
+  const refreshQueue = useCallback(() => {
+    void listFieldChecks()
+      .then(q => {
+        setQueueLen(q.filter(i => !i.rejected).length);
+        setRefusedChecks(q.filter(i => i.rejected));
+      })
+      // Хранилище закрыто (приватный режим): очереди нет — считать нечего.
+      .catch(() => undefined);
+  }, []);
+
+  /**
+   * Дожать очередь (lib/offline/field-queues): вердикт один раз, снимки по
+   * одному; отказ сервера на одну проверку откладывает её с причиной и не
+   * держит остальные. Счётчики обновит событие очереди.
+   */
   const flushQueue = useCallback(async () => {
-    let queue: FieldCheckQueueItem[];
-    try { queue = await listFieldChecks(); } catch { return; }
-    for (const item of queue) {
-      try {
-        // Вердикт шлём один раз: если он уже принят в прошлый заход
-        // (sentCheckId), элемент живёт только ради недовезённых фото.
-        let checkId: string | null = item.sentCheckId ?? null;
-        if (!checkId) {
-          const res = await fetch('/api/field-check/report', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              target_kind: item.targetKind,
-              target_id: item.targetKind === 'new' ? null : item.targetId,
-              proposed_name: item.proposedName ?? null,
-              verdict: item.verdict,
-              reported_lat: item.reportedLat,
-              reported_lng: item.reportedLng,
-              accuracy_m: item.accuracyM,
-              note: item.note,
-              trip_tag: item.tripTag,
-              object_lat: item.objectLat,
-              object_lng: item.objectLng,
-              object_source: item.objectSource,
-            }),
-          });
-          if (!res.ok) break;
-          const j = await res.json();
-          checkId = j?.id ?? null;
-        }
-        // Снимки идут по одному и НЕ держат проверку: не ушедшая фотография
-        // не повод отправлять вердикт заново. Но и терять её нельзя: раньше
-        // элемент удалялся после ПЕРВОЙ попытки, и упавший снимок пропадал
-        // навсегда — «довезём в следующий заход» было обещанием без механизма.
-        if (checkId && item.photos.length > 0) {
-          const remaining: string[] = [];
-          for (const data of item.photos) {
-            try {
-              const pr = await fetch('/api/field-check/photo', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ check_id: checkId, mime: 'image/jpeg', data }),
-              });
-              if (!pr.ok) remaining.push(data);
-            } catch {
-              remaining.push(data);
-            }
-          }
-          if (remaining.length > 0) {
-            // Вердикт ушёл, фото — не все: запоминаем id проверки и держим
-            // элемент в очереди с одними недовезёнными снимками.
-            await queueFieldCheck({ ...item, sentCheckId: checkId, photos: remaining });
-            continue;
-          }
-        }
-        await deleteFieldCheck(item.id);
-        setQueueLen(n => Math.max(0, n - 1));
-      } catch { break; }
-    }
+    await flushFieldChecks();
   }, []);
 
   useEffect(() => {
+    refreshQueue();
+    window.addEventListener(FIELD_CHECK_QUEUE_EVENT, refreshQueue);
+    // Досыл на старте и при возврате сети ставится на всё приложение;
+    // здесь — на случай, если форму открыли раньше, чем он встал.
+    installFieldQueuesFlush();
     void flushQueue();
-    const onOnline = () => void flushQueue();
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, [flushQueue]);
+    return () => window.removeEventListener(FIELD_CHECK_QUEUE_EVENT, refreshQueue);
+  }, [flushQueue, refreshQueue]);
+
+  const discardRefused = useCallback((item: FieldCheckQueueItem) => {
+    if (!window.confirm('Удалить проверку с телефона? Сервер её не принял, и сама она не уйдёт.')) return;
+    void discardFieldCheck(item.id).catch((err: unknown) => {
+      setBarError(`Удалить не вышло: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, []);
+
+  const refusalRows = useMemo<RefusalRow[]>(() => refusedChecks.map(c => {
+    const when = new Date(c.queuedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const title = c.targetKind === 'new'
+      ? `Находка «${c.proposedName ?? 'без имени'}» · ${when}`
+      : `Проверка ${c.targetKind === 'route' ? 'маршрута' : 'места'} · ${when}`;
+    const isPhoto = c.rejected?.part === 'photo';
+    return {
+      id: c.id,
+      title,
+      excerpt: c.note,
+      reason: isPhoto
+        ? `проверка ушла, снимок не принят: ${c.rejected?.reason ?? 'причина не названа'}`
+        : c.rejected?.reason ?? 'причина не названа',
+      photos: c.photos,
+      actions: isPhoto
+        ? [{ label: 'Удалить', onPress: () => discardRefused(c) }]
+        : [
+          {
+            label: 'Отправить снова',
+            onPress: () => {
+              void resendFieldCheck(c.id).catch((err: unknown) => {
+                setBarError(`Отправить снова не вышло: ${err instanceof Error ? err.message : String(err)}`);
+              });
+            },
+          },
+          { label: 'Удалить', onPress: () => discardRefused(c) },
+        ],
+    };
+  }), [refusedChecks, discardRefused]);
 
   const loadNearby = useCallback(async (lat: number, lng: number, radius: number) => {
     setLoading(true);
@@ -662,19 +670,21 @@ export function FieldCheckClient() {
       });
     }
 
-    if (queueLen > 0) {
+    if (queueLen > 0 || refusedChecks.length > 0) {
       list.push({
         id: 'queue',
         label: 'Не отправлено',
         icon: <WifiOff className="w-6 h-6" />,
-        badge: queueLen,
-        onPress: () => setBarError('Уйдёт само, когда появится связь. Ничего делать не нужно.'),
+        badge: queueLen + refusedChecks.length,
+        onPress: () => setBarError(refusedChecks.length > 0
+          ? `Сервер не принял: ${refusedChecks.length} — причина в списке ниже.${queueLen > 0 ? ' Остальное уйдёт само, когда появится связь.' : ''}`
+          : 'Уйдёт само, когда появится связь. Ничего делать не нужно.'),
       });
     }
 
     return list;
   }, [recorder, sendingTrack, stopAndSend, areaLabel, fix, takeMyFix,
-      items, saving, saveArea, savedArea, shareHere, queueLen]);
+      items, saving, saveArea, savedArea, shareHere, queueLen, refusedChecks.length]);
 
 
   const applyManualCoord = useCallback(() => {
@@ -725,17 +735,27 @@ export function FieldCheckClient() {
       photos,
       queuedAt: Date.now(),
     };
+    let onDisk = true;
     try {
       await queueFieldCheck(check);
       setQueueLen(n => n + 1);
     } catch {
-      // Хранилище закрыто (приватный режим) — молчать об этом нельзя.
-      setError('Не удалось сохранить проверку на телефоне — отправляем сразу');
+      onDisk = false;
     }
-    rememberDone(item.id, verdict);
     resetForm();
     try { if (tripTag.trim()) localStorage.setItem(TAG_KEY, tripTag.trim()); } catch { /* ignore */ }
-    void flushQueue();
+    if (onDisk) {
+      rememberDone(item.id, verdict);
+      void flushQueue();
+      return;
+    }
+    // Хранилище закрыто (приватный режим): шлём сразу тем же правилом и
+    // говорим, чем кончилось — молчать об этом нельзя. «Проверено» — только
+    // если вердикт дошёл: иначе человек решит, что дело сделано.
+    const left = await sendWithoutDisk(FIELD_CHECKS, check);
+    if (left === null || left.sentCheckId) rememberDone(item.id, verdict);
+    const message = fieldCheckWithoutDiskMessage(left, 'check');
+    if (message) setError(message);
   }, [fix, note, tripTag, photos, objCoord, rememberDone, resetForm, flushQueue]);
 
   /**
@@ -769,17 +789,24 @@ export function FieldCheckClient() {
       photos,
       queuedAt: Date.now(),
     };
+    let onDisk = true;
     try {
       await queueFieldCheck(check);
       setQueueLen(n => n + 1);
     } catch {
-      setError('Не удалось сохранить находку на телефоне — отправляем сразу');
+      onDisk = false;
     }
     setFindingOpen(false);
     setFindingName('');
     resetForm();
-    setBarError('Находка записана. Уйдёт, когда появится связь.');
-    void flushQueue();
+    if (onDisk) {
+      setBarError('Находка записана. Уйдёт, когда появится связь.');
+      void flushQueue();
+      return;
+    }
+    // Хранилище закрыто: шлём сразу и говорим, чем кончилось.
+    const left = await sendWithoutDisk(FIELD_CHECKS, check);
+    setBarError(fieldCheckWithoutDiskMessage(left, 'finding') ?? 'Находка отправлена.');
   }, [findingName, fix, note, tripTag, objCoord, photos, resetForm, flushQueue]);
 
   const visible = useMemo(() => {
@@ -981,6 +1008,8 @@ export function FieldCheckClient() {
             </div>
           )}
 
+          <QueueRefusals rows={refusalRows} />
+
           {showMore && (
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Добавьте страницу на домашний экран — она открывается без интернета,
@@ -1018,6 +1047,7 @@ export function FieldCheckClient() {
                 {fix.lat.toFixed(4)}, {fix.lng.toFixed(4)}
                 {fix.accuracy !== null ? ` · ±${fix.accuracy} м` : ' · точность неизвестна'}
                 {queueLen > 0 ? ` · в очереди ${queueLen}` : ''}
+                {refusedChecks.length > 0 ? ` · не принято ${refusedChecks.length}` : ''}
               </div>
             </div>
             {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: 'var(--text-muted)' }} />}
@@ -1055,6 +1085,8 @@ export function FieldCheckClient() {
         {/* Полоса действий: одно касание — одно действие (образец MAPS.ME).
             Заготовка района переехала сюда из отдельной кнопки ниже. */}
         <FieldActionBar actions={barActions} error={barError} />
+
+        <QueueRefusals rows={refusalRows} />
 
         {findingOpen && (
           <div className="rounded-lg p-4 flex flex-col gap-3"

@@ -8,10 +8,15 @@
  * ПРОПАДАЛ. На экране «На маршруте» координаты и офлайн-статус система
  * знает сама; человеку остаются категория, описание и снимок.
  *
- * Дисциплина отправки — та же, что у полевых проверок (/field-check):
- * СНАЧАЛА на диск (IndexedDB), потом попытка отправить; слушатель `online`
- * дожимает очередь. Фото не блокирует наблюдение: сначала уходят текст и
- * координаты, затем снимки по одному (см. /api/safety/reports/photo).
+ * Дисциплина отправки — та же, что у полевых проверок (/field-check), и
+ * правило у них одно (lib/offline/outbox, #2448): СНАЧАЛА на диск
+ * (IndexedDB), потом попытка отправить; досыл идёт на старте приложения и
+ * при возврате сети на любой странице (lib/offline/field-queues). Фото не
+ * блокирует наблюдение: сначала уходят текст и координаты, затем снимки по
+ * одному (см. /api/safety/reports/photo), и запись живёт, пока не довезены
+ * все. Наблюдение, которое сервер не примет никогда (мат, координаты вне
+ * края), очередь не держит: оно откладывается с причиной, и форма
+ * показывает его человеку — исправить или удалить.
  *
  * Категории — полевые (миграция 917): Медведь, Животное, Растение,
  * Опасность, Тропа, Другое. «Медведь» — отдельной кнопкой (#2095): из
@@ -28,6 +33,11 @@ import {
   queueTrailObservation, listTrailObservations, deleteTrailObservation,
   type TrailObservationDraft,
 } from '@/lib/offline/db';
+import {
+  flushTrailObservations, installFieldQueuesFlush, sendWithoutDisk, discardTrailObservation,
+  TRAIL_OBSERVATIONS, TRAIL_OBSERVATION_QUEUE_EVENT,
+} from '@/lib/offline/field-queues';
+import { QueueRefusals, type RefusalRow } from '@/components/field/QueueRefusals';
 
 const PHOTO_LIMIT = 3;
 /** Полевая цель под палец в перчатке — не меньше 44 px, лучше больше. */
@@ -43,45 +53,10 @@ const CATEGORIES = [
 ] as const;
 
 /**
- * Дожать очередь: по одной записи, у каждой — сначала текст, потом снимки.
- * Отказ сети/приёмника останавливает проход (запись остаётся на диске) —
- * тот же порядок, что у flushQueue формы /field-check.
+ * Очередь наблюдений: счётчик для бейджа — всё, что лежит на телефоне, и
+ * ждущее сети, и не принятое сервером (его форма покажет списком).
+ * Досыл ставится на всё приложение: старт и возврат сети.
  */
-export async function flushTrailObservations(): Promise<void> {
-  const queue = await listTrailObservations();
-  for (const item of queue) {
-    try {
-      const res = await fetch('/api/safety/reports', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          report_type: item.reportType,
-          text: item.text,
-          ...(item.lat != null && item.lng != null ? { lat: item.lat, lng: item.lng } : {}),
-        }),
-      });
-      const j = await res.json().catch(() => null) as
-        { success?: boolean; data?: { id?: string } } | null;
-      if (!res.ok || !j?.success) break;
-      const reportId = j.data?.id;
-      if (reportId) {
-        for (const photo of item.photos) {
-          const pr = await fetch('/api/safety/reports/photo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ report_id: reportId, mime: 'image/jpeg', data: photo }),
-          });
-          if (!pr.ok) break;
-        }
-      }
-      await deleteTrailObservation(item.id);
-    } catch {
-      break;
-    }
-  }
-}
-
-/** Очередь наблюдений: счётчик для бейджа + автодожим при появлении сети. */
 export function useTrailObservationQueue(): number {
   const [len, setLen] = useState(0);
 
@@ -91,16 +66,24 @@ export function useTrailObservationQueue(): number {
 
   useEffect(() => {
     refresh();
-    const onOnline = () => { void flushTrailObservations().then(refresh); };
-    window.addEventListener('online', onOnline);
-    window.addEventListener('trail-observation-queued', refresh);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('trail-observation-queued', refresh);
-    };
+    installFieldQueuesFlush();
+    window.addEventListener(TRAIL_OBSERVATION_QUEUE_EVENT, refresh);
+    return () => window.removeEventListener(TRAIL_OBSERVATION_QUEUE_EVENT, refresh);
   }, [refresh]);
 
   return len;
+}
+
+function logDeleteFailure(what: string, err: unknown): void {
+  console.error(`[очередь: наблюдения] ${what} не удалено с телефона:`, err instanceof Error ? err.message : String(err));
+}
+
+function categoryLabel(value: string): string {
+  return CATEGORIES.find(c => c.value === value)?.label ?? 'Наблюдение';
+}
+
+function queuedAtLabel(ms: number): string {
+  return new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 interface ObservationSheetProps {
@@ -113,12 +96,20 @@ interface ObservationSheetProps {
 
 type SendState = 'idle' | 'saving' | 'sent' | 'queued';
 
+const DISCARD_CONFIRM = 'Удалить наблюдение с телефона? Сервер его не принял, и само оно не уйдёт.';
+
 export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetProps) {
   const [category, setCategory] = useState<string>('animal');
   const [text, setText] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [state, setState] = useState<SendState>('idle');
   const [error, setError] = useState<string | null>(null);
+  /** Отложенные сервером наблюдения: сами не уйдут, решает человек. */
+  const [refusals, setRefusals] = useState<TrailObservationDraft[]>([]);
+  /** Какое отложенное наблюдение сейчас исправляется в форме. */
+  const [replacingId, setReplacingId] = useState<string | null>(null);
+  /** Наблюдение ушло, а снимок к нему сервер не принял. */
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
@@ -128,6 +119,37 @@ export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetPr
     setPhotos([]);
     setState('idle');
     setError(null);
+    setReplacingId(null);
+    setPhotoNote(null);
+  }, []);
+
+  const loadRefusals = useCallback(() => {
+    void listTrailObservations()
+      .then(q => setRefusals(q.filter(i => i.rejected)))
+      // Хранилище закрыто (приватный режим): очереди нет — откладывать нечего.
+      .catch(() => setRefusals([]));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    loadRefusals();
+    window.addEventListener(TRAIL_OBSERVATION_QUEUE_EVENT, loadRefusals);
+    return () => window.removeEventListener(TRAIL_OBSERVATION_QUEUE_EVENT, loadRefusals);
+  }, [open, loadRefusals]);
+
+  const editRefused = useCallback((item: TrailObservationDraft) => {
+    setCategory(item.reportType);
+    setText(item.text);
+    setPhotos(item.photos);
+    setReplacingId(item.id);
+    setError(`Сервер не принял: ${item.rejected?.reason ?? 'причина не названа'}. Исправьте и отправьте снова.`);
+  }, []);
+
+  const discardRefused = useCallback((item: TrailObservationDraft) => {
+    if (!window.confirm(DISCARD_CONFIRM)) return;
+    void discardTrailObservation(item.id).catch((err: unknown) => {
+      setError(`Удалить не вышло: ${err instanceof Error ? err.message : String(err)}`);
+    });
   }, []);
 
   const addPhotos = useCallback(async (files: FileList | null) => {
@@ -160,23 +182,73 @@ export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetPr
     };
 
     // Сначала на диск: наблюдение существует независимо от исхода отправки.
+    let onDisk = true;
     try {
       await queueTrailObservation(draft);
     } catch {
-      // Приватный режим/переполненный диск: очереди нет, шлём напрямую —
-      // и честно скажем, если не вышло.
+      onDisk = false;
     }
-    window.dispatchEvent(new Event('trail-observation-queued'));
 
-    await flushTrailObservations();
-    const left = await listTrailObservations().then(q => q.some(i => i.id === draft.id)).catch(() => true);
-    window.dispatchEvent(new Event('trail-observation-queued'));
-    setState(left ? 'queued' : 'sent');
-  }, [text, category, lat, lng, photos]);
+    let left: TrailObservationDraft | null;
+    if (onDisk) {
+      // Исправленное отложенное заменяет прежнее: новое уже на диске, старое убираем.
+      if (replacingId) await deleteTrailObservation(replacingId).catch((err: unknown) => logDeleteFailure('прежнее отложенное', err));
+      window.dispatchEvent(new Event(TRAIL_OBSERVATION_QUEUE_EVENT));
+      await flushTrailObservations();
+      left = await listTrailObservations()
+        .then(q => q.find(i => i.id === draft.id) ?? null)
+        // Не прочитали очередь — наблюдение на диске, считаем, что ждёт.
+        .catch(() => draft);
+    } else {
+      // Приватный режим или переполненный диск: очереди нет, шлём напрямую
+      // тем же правилом — и честно скажем, если не вышло.
+      left = await sendWithoutDisk(TRAIL_OBSERVATIONS, draft);
+    }
+    setReplacingId(null);
+
+    if (left === null) {
+      setState('sent');
+    } else if (left.rejected?.part === 'record') {
+      // Сервер не примет его таким никогда: форма остаётся заполненной.
+      setReplacingId(onDisk ? draft.id : null);
+      setError(`Сервер не принял наблюдение: ${left.rejected.reason}. Исправьте и отправьте снова.`);
+      setState('idle');
+    } else if (left.rejected?.part === 'photo') {
+      // Наблюдение ушло, снимок — нет. Человек видит это сейчас — запись-уведомление не держим.
+      if (onDisk) await deleteTrailObservation(draft.id).catch((err: unknown) => logDeleteFailure('уведомление о снимке', err));
+      setPhotoNote(`Снимок сервер не принял: ${left.rejected.reason}`);
+      setState('sent');
+    } else if (onDisk) {
+      setState('queued');
+    } else if (left.sentReportId) {
+      // Без диска: текст ушёл, снимки — нет. Повторять текст нельзя — задвоится.
+      setPhotoNote('Снимки не ушли: связь оборвалась, а сохранить их на телефоне не вышло.');
+      setState('sent');
+    } else {
+      setError('Сохранить на телефоне не вышло, и отправить сейчас тоже: наблюдение не сохранено. Не закрывайте форму и отправьте, когда появится связь.');
+      setState('idle');
+    }
+    window.dispatchEvent(new Event(TRAIL_OBSERVATION_QUEUE_EVENT));
+  }, [text, category, lat, lng, photos, replacingId]);
 
   if (!open) return null;
 
   const online = typeof navigator === 'undefined' || navigator.onLine;
+  const refusalRows = refusals.filter(r => r.id !== replacingId).map((r): RefusalRow => ({
+    id: r.id,
+    title: `${categoryLabel(r.reportType)} · ${queuedAtLabel(r.queuedAt)}`,
+    excerpt: r.text,
+    reason: r.rejected?.part === 'photo'
+      ? `наблюдение ушло, снимок не принят: ${r.rejected.reason}`
+      : r.rejected?.reason ?? 'причина не названа',
+    photos: r.photos,
+    actions: r.rejected?.part === 'record'
+      ? [
+        { label: 'Исправить', onPress: () => editRefused(r) },
+        { label: 'Удалить', onPress: () => discardRefused(r) },
+      ]
+      : [{ label: 'Удалить', onPress: () => discardRefused(r) }],
+  }));
 
   return (
     <div className="fixed inset-0 z-[1100] flex items-end" role="dialog" aria-label="Новое наблюдение">
@@ -214,12 +286,24 @@ export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetPr
                 ? 'Появится в радаре после проверки модератором.'
                 : 'Отправится само, когда появится сеть. Ничего не потеряется.'}
             </p>
+            {state === 'sent' && photoNote ? (
+              <p className="text-sm text-[var(--text-secondary)] max-w-[36ch]">
+                {photoNote}
+              </p>
+            ) : null}
             <button onClick={() => { reset(); onClose(); }} className="ds-btn ds-btn-secondary mt-2 text-sm">
               Готово
             </button>
           </div>
         ) : (
           <>
+            {/* Отложенные сервером: сами не уйдут — исправить или удалить */}
+            {refusalRows.length > 0 && (
+              <div className="mb-4">
+                <QueueRefusals rows={refusalRows} />
+              </div>
+            )}
+
             {/* Фото: не блокирует наблюдение — можно отправить и без снимка */}
             <div className="flex gap-3 mb-4">
               <div className="flex flex-wrap gap-2 flex-1">
