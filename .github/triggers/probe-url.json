@@ -1,29 +1,24 @@
 {
   "timeout": 60,
-  "retries": 3,
-  "retryDelay": 30,
-  "run": 788,
-  "note": "13.10. ТОЛЬКО ЧТЕНИЕ. Трансфер — машина целиком (владелец 13.10), фазы 2–3 на проде: планер отвечает на «трансфер» перевозчиками под заказ (цена «от» за машину), без мест в поездках и окна дат; визитка A2A зовёт search_transfers параметром place, а не destination.",
+  "retries": 25,
+  "retryDelay": 60,
+  "run": 789,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Заказ вахтовки из прайса (владелец 14.10: «как мне забронировать на Авачинский вахтовку на 30 октября? это сложно получается»): у строк прайса «Заказать» с направлением, на витрине главная кнопка — заявка, ?to= выбирает строку в форме, под кнопкой — чего не хватает; на странице перевозчика нет плавающей «Подобрать тур».",
+  "until": "Заказать машину: Вулкан Авачинский",
   "urls": [
-    "https://vedarai.ru/.well-known/agent-card.json"
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/transfers/shatun?to=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%20%D0%93%D0%BE%D1%80%D0%B5%D0%BB%D1%8B%D0%B9"
   ],
   "bytes": 300,
   "grep": [
-    "\"transfer\":{\"state\":\"ok\"",
-    "\"slug\":\"shatun\"",
-    "priceFromRub",
-    "seatsFree",
-    "pricePerSeat",
-    "\"window\"",
-    "\\\"place\\\":\\\"Горелый\\\"",
-    "destination\\\":\\\"Вулкан Горелый",
-    "whole-vehicle charters",
-    "free seats in dated carrier trips"
-  ],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/planner/trip-extras",
-      "body": { "needs": { "transfer": true }, "adults": 2 }
-    }
+    "Заказать машину: Вулкан Авачинский",
+    "href=\"/transfers/shatun#charter-request\"",
+    "/transfers/shatun?to=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%20%D0%90",
+    "Нажмите «Заказать» у направления",
+    "value=\"Вулкан Горелый\" selected=\"\"",
+    "value=\"Вулкан Авачинский\" selected=\"\"",
+    "если не в тот же день",
+    "Чтобы отправить, осталось: дата выезда",
+    "Оставить заявку на тур"
   ]
 }

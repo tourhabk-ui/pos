@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { Bus, MessageCircle, Phone, Send } from 'lucide-react';
+import { Bus, ClipboardList, MessageCircle, Phone, Send } from 'lucide-react';
 import { LazyClip } from '@/components/media/LazyClip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
-import { carrierPagePath, charterRequisitesLine, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { carrierPagePath, charterOrderPath, charterRequisitesLine, describeFleet, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 /**
  * Перевозчик «под заказ»: парк, прайс на целую машину, связь, фото.
@@ -43,12 +43,23 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
         </Link>
       </div>
 
-      <CharterPriceList carrier={carrier} />
+      <CharterPriceList carrier={carrier} orderSlug={carrier.slug} />
 
       <p className="text-xs text-[var(--text-muted)]">
-        Сколько дней в поездке и что входит в цену — в прайсе не указано, уточняйте у перевозчика при заказе. Заявка
-        на машину — на странице перевозчика; расчёт — напрямую с ним: через платформу вахтовки под заказ не оплачиваются.
+        Сколько дней в поездке и что входит в цену — в прайсе не указано, уточняйте у перевозчика при заказе. Расчёт —
+        напрямую с ним: через платформу вахтовки под заказ не оплачиваются.
       </p>
+
+      {/* Заявка — главное действие карточки (владелец 14.10: «это сложно
+          получается»): до этого здесь была только кнопка звонка, а к форме вела
+          мелкая ссылка «Карточка перевозчика». */}
+      <Link
+        href={charterOrderPath(carrier.slug)}
+        className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2"
+      >
+        <ClipboardList className="w-4 h-4" aria-hidden />
+        Заявка на машину
+      </Link>
 
       {/* Исполнитель — как на карточке тура: из записанного в legal_info; нет —
           так и сказано, не спрятано. */}
@@ -57,41 +68,37 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
       </p>
 
       {hasContacts ? (
-        <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
           {carrier.phone && phoneLabel && (
             <a
               href={`tel:${carrier.phone}`}
-              className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2"
+              className="ds-btn ds-btn-secondary inline-flex items-center justify-center gap-2"
             >
               <Phone className="w-4 h-4" aria-hidden />
               Позвонить {phoneLabel}
             </a>
           )}
-          {(carrier.telegramHref || carrier.whatsappHref) && (
-            <div className="flex flex-wrap gap-2">
-              {carrier.telegramHref && (
-                <a
-                  href={carrier.telegramHref}
-                  target="_blank"
-                  rel="noopener noreferrer nofollow"
-                  className="ds-btn ds-btn-secondary inline-flex items-center justify-center gap-2"
-                >
-                  <Send className="w-4 h-4" aria-hidden />
-                  Написать в Telegram
-                </a>
-              )}
-              {carrier.whatsappHref && (
-                <a
-                  href={carrier.whatsappHref}
-                  target="_blank"
-                  rel="noopener noreferrer nofollow"
-                  className="ds-btn ds-btn-secondary inline-flex items-center justify-center gap-2"
-                >
-                  <MessageCircle className="w-4 h-4" aria-hidden />
-                  Написать в WhatsApp
-                </a>
-              )}
-            </div>
+          {carrier.telegramHref && (
+            <a
+              href={carrier.telegramHref}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="ds-btn ds-btn-secondary inline-flex items-center justify-center gap-2"
+            >
+              <Send className="w-4 h-4" aria-hidden />
+              Написать в Telegram
+            </a>
+          )}
+          {carrier.whatsappHref && (
+            <a
+              href={carrier.whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="ds-btn ds-btn-secondary inline-flex items-center justify-center gap-2"
+            >
+              <MessageCircle className="w-4 h-4" aria-hidden />
+              Написать в WhatsApp
+            </a>
           )}
         </div>
       ) : (

@@ -32,13 +32,15 @@ import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CharterRequestForm } from '@/components/transfers/CharterRequestForm';
 import { CarrierReviews } from '@/components/transfers/CarrierReviews';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
-import { charterRequisitesLine, describeFleet, formatRub } from '@/lib/transfers/charter-format';
+import {
+  CHARTER_REQUEST_ANCHOR, charterRequisitesLine, describeFleet, formatRub, orderDestinationFromQuery,
+} from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
 import { carrierInstrument, minCharterPrice } from '@/lib/transfers/carrier-view';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
 
-/** Якорь формы заявки: на него ведут кнопка героя и ссылки снаружи. */
-export const CHARTER_REQUEST_ANCHOR = 'charter-request';
+/** Якорь формы заявки: на него ведут кнопка героя, «Заказать» у строк прайса и ссылки снаружи. */
+export { CHARTER_REQUEST_ANCHOR };
 
 const CRUMB = 'inline-flex items-center min-h-[44px] px-1 text-white/85 hover:text-white visited:text-white/85 hover:no-underline transition-colors';
 
@@ -46,13 +48,19 @@ function H2({ id, children }: { id?: string; children: React.ReactNode }) {
   return <h2 id={id} className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-4">{children}</h2>;
 }
 
-export function CarrierPage({ data }: { data: CarrierPageData }) {
+/**
+ * `orderTo` — направление из адреса заявки (`?to=`, «Заказать» у строки
+ * прайса): форма открывается с ним выбранным. Не строка прайса — не берётся.
+ */
+export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?: unknown }) {
   const { carrier: c, safety, reviews } = data;
   const instrument = carrierInstrument(c);
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
   const linked = c.destinations.filter((d) => d.place);
   const fleet = describeFleet(c.vehicles);
+  const destinations = c.destinations.map((d) => d.to);
+  const preselected = orderDestinationFromQuery(destinations, orderTo);
 
   return (
     <div style={{ background: 'var(--bg-primary)' }}>
@@ -126,7 +134,7 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
               <section aria-labelledby="carrier-price">
                 <H2 id="carrier-price">Прайс под заказ</H2>
                 <div className="ds-card px-5 py-3">
-                  <CharterPriceList carrier={c} />
+                  <CharterPriceList carrier={c} orderSlug={c.slug} />
                 </div>
               </section>
             )}
@@ -239,7 +247,9 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
 
           <aside className="lg:col-span-4">
             <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
-              <section id={CHARTER_REQUEST_ANCHOR} className="ds-card p-5 scroll-mt-24" aria-labelledby="charter-request-title">
+              {/* scroll-mt на lg равен отступу закреплённой колонки: «Заказать»
+                  в прайсе не дёргает страницу, когда форма и так на экране. */}
+              <section id={CHARTER_REQUEST_ANCHOR} className="ds-card p-5 scroll-mt-24 lg:scroll-mt-20" aria-labelledby="charter-request-title">
                 <h2 id="charter-request-title" className="font-playfair text-xl font-bold text-[var(--text-primary)]">Заявка на машину</h2>
                 {minPrice !== null && (
                   <p className="text-sm text-[var(--text-secondary)] mt-1">
@@ -247,7 +257,14 @@ export function CarrierPage({ data }: { data: CarrierPageData }) {
                   </p>
                 )}
                 <div className="mt-4">
-                  <CharterRequestForm carrierSlug={c.slug} carrierName={c.name} destinations={c.destinations.map((d) => d.to)} />
+                  {/* «Заказать» у другой строки прайса — та же страница, другой
+                      ?to=: форма берёт направление, не теряя введённого. */}
+                  <CharterRequestForm
+                    carrierSlug={c.slug}
+                    carrierName={c.name}
+                    destinations={destinations}
+                    initialDestination={preselected}
+                  />
                 </div>
               </section>
             </div>

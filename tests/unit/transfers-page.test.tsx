@@ -45,7 +45,10 @@ describe('витрина: только машина целиком', () => {
     const steps = screen.getAllByRole('listitem').map((li) => li.textContent ?? '');
     expect(steps).toHaveLength(3);
     expect(steps[0]).toContain('цена за машину целиком');
+    // Владелец 14.10: «это сложно получается» — путь к заказу назван кнопкой у строки прайса.
+    expect(steps[0]).toContain('Нажмите «Заказать» у направления');
     expect(steps[1]).toContain('заявку на машину на странице перевозчика');
+    expect(steps[1]).toContain('направление уже выбрано');
     expect(steps[2]).toContain('Менеджер Ведара подтвердит машину с перевозчиком');
     expect(steps[2]).toContain('через платформу машина не оплачивается');
   });

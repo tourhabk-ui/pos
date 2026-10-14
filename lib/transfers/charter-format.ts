@@ -144,6 +144,33 @@ export function carrierPagePath(slug: string): string {
   return `/transfers/${encodeURIComponent(slug)}`;
 }
 
+/** Якорь формы заявки на машину на странице перевозчика. */
+export const CHARTER_REQUEST_ANCHOR = 'charter-request';
+
+/**
+ * Адрес заявки на машину: форма на странице перевозчика, а с `to` — уже с
+ * выбранной строкой прайса. Владелец 14.10 («как мне забронировать на
+ * Авачинский вахтовку на 30 октября? это сложно получается»): из прайса к
+ * заказу не вело ничего — строка открывала карточку места, а форма стояла
+ * внизу страницы с первым направлением по умолчанию.
+ */
+export function charterOrderPath(slug: string, to?: string): string {
+  const query = to ? `?to=${encodeURIComponent(to)}` : '';
+  return `${carrierPagePath(slug)}${query}#${CHARTER_REQUEST_ANCHOR}`;
+}
+
+/**
+ * Направление из адреса заявки (`?to=`) — только строка прайса этого
+ * перевозчика, слово в слово. Чужой текст из ссылки в поле «своё направление»
+ * не попадает: заявку уносит менеджеру то, что человек выбрал сам.
+ */
+export function orderDestinationFromQuery(destinations: readonly string[], to: unknown): string | null {
+  const want = Array.isArray(to) ? to[0] : to;
+  if (typeof want !== 'string') return null;
+  const t = want.trim();
+  return destinations.includes(t) ? t : null;
+}
+
 const KIND_FORM: Record<CharterVehicleKind, string> = {
   jeep: 'джип',
   vahtovka: 'вахтовка',

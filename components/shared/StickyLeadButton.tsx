@@ -64,7 +64,10 @@ export default function StickyLeadButton() {
   // SOS. Место и маршрут не продают (§9), туры у них — своим блоком ссылок.
   // Списки /routes и /places не задеты: скрыты только подпути со слэшем.
   // /map — карта: кнопка закрывала счётчик точек; в поле не продают.
-  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/watch', '/return', '/checkin-ok', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/booking-success', '/planning', '/field-check', '/kuzmich', '/auth', '/oauth', '/places/', '/routes/', '/map'];
+  // /transfers/ — страница перевозчика (владелец 14.10: заказать вахтовку
+  // «сложно получается»): у неё своя заявка на машину, а кнопка ложилась на
+  // галочку согласия этой заявки. Список /transfers не задет.
+  const HIDDEN_PATHS = ['/hub', '/sos', '/register', '/watch', '/return', '/checkin-ok', '/safety', '/offline', '/marketplace/tours/', '/catalog/tours/', '/booking-success', '/planning', '/field-check', '/kuzmich', '/auth', '/oauth', '/places/', '/routes/', '/map', '/transfers/'];
   // /widget/* — iframe на чужом сайте: там кнопка ложилась поверх отправки
   // в чате и полей формы (примерка на fishingkam.ru 29.09, lib/embed/widget-frame).
   if (!pathname || HIDDEN_PATHS.some(p => pathname.startsWith(p)) || pathname === '/' || isWidgetPath(pathname)) return null;

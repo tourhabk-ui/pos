@@ -55,15 +55,20 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   };
 }
 
-export default async function CarrierPageRoute({ params }: { params: Promise<Params> }) {
+export default async function CarrierPageRoute({ params, searchParams }: {
+  params: Promise<Params>;
+  /** `?to=` — строка прайса, с которой открыть форму заявки (charterOrderPath). */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
   if (!SLUG.test(slug)) notFound();
   const data = await loadCarrierPage(slug);
   if (!data) notFound();
+  const query = (await searchParams) ?? {};
   return (
     <>
       <JsonLd data={carrierJsonLd(data.carrier, SITE)} />
-      <CarrierPage data={data} />
+      <CarrierPage data={data} orderTo={query.to} />
     </>
   );
 }

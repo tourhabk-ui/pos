@@ -27,6 +27,8 @@ interface Props {
   carrierName: string;
   /** Направления прайса — названия строк как у перевозчика. */
   destinations: string[];
+  /** Строка прайса, с которой пришли («Заказать» у строки); null — первая. */
+  initialDestination?: string | null;
 }
 
 interface Sent {
@@ -44,8 +46,28 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function CharterRequestForm({ carrierSlug, carrierName, destinations }: Props) {
-  const [pick, setPick] = useState(destinations[0] ?? OTHER);
+/**
+ * Чего не хватает для отправки — словами, в порядке полей. Кнопка без
+ * согласия неактивна (закон форм платформы), и серая кнопка без причины
+ * читалась как «не работает» (владелец 14.10: «это сложно получается»).
+ */
+export function charterMissing(f: {
+  destination: string; dateFrom: string; passengers: string; name: string; phone: string; pdConsent: boolean;
+}): string[] {
+  const missing: string[] = [];
+  if (f.destination.trim().length < 2) missing.push('куда ехать');
+  if (!f.dateFrom) missing.push('дата выезда');
+  if (!(Number(f.passengers) >= 1)) missing.push('сколько человек');
+  if (f.name.trim().length < 2) missing.push('имя');
+  if (f.phone.trim().length < 7) missing.push('телефон');
+  if (!f.pdConsent) missing.push('согласие на обработку данных');
+  return missing;
+}
+
+export function CharterRequestForm({ carrierSlug, carrierName, destinations, initialDestination }: Props) {
+  const [pick, setPick] = useState(
+    initialDestination && destinations.includes(initialDestination) ? initialDestination : destinations[0] ?? OTHER,
+  );
   const [custom, setCustom] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -56,6 +78,18 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations }: P
   const [pdConsent, setPdConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
+
+  // «Заказать» у другой строки прайса на той же странице: меняется только
+  // направление — введённые дата, имя и телефон остаются. После отправленной
+  // заявки это заказ ещё одной машины: форма снова открыта.
+  const [linked, setLinked] = useState(initialDestination ?? null);
+  if ((initialDestination ?? null) !== linked) {
+    setLinked(initialDestination ?? null);
+    if (initialDestination && destinations.includes(initialDestination)) {
+      setPick(initialDestination);
+      setOutcome({ kind: 'idle' });
+    }
+  }
 
   const destination = pick === OTHER ? custom.trim() : pick;
 
@@ -133,8 +167,8 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations }: P
 
   const invalid = (f: string) => outcome.kind === 'error' && outcome.field === f;
   const today = localToday();
-  const ready = destination.length >= 2 && !!dateFrom && Number(passengers) >= 1
-    && name.trim().length >= 2 && phone.trim().length >= 7 && pdConsent && !submitting;
+  const missing = charterMissing({ destination, dateFrom, passengers, name, phone, pdConsent });
+  const ready = missing.length === 0 && !submitting;
 
   return (
     <form onSubmit={submit} className="space-y-4" noValidate aria-label={`Заявка на машину: ${carrierName}`}>
@@ -176,7 +210,9 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations }: P
         <div>
           <label htmlFor="charter-date-to" className="ds-label">Возвращение</label>
           <input id="charter-date-to" type="date" min={dateFrom || today} className="ds-input w-full" value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)} aria-invalid={invalid('date_to') || undefined} />
+            onChange={(e) => setDateTo(e.target.value)} aria-invalid={invalid('date_to') || undefined}
+            aria-describedby="charter-date-to-hint" />
+          <p id="charter-date-to-hint" className="text-xs text-[var(--text-muted)] mt-1">если не в тот же день</p>
         </div>
       </div>
 
@@ -217,11 +253,20 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations }: P
         </p>
       )}
 
-      <button type="submit" className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2"
-        disabled={!ready || !pdConsent} style={{ minHeight: 44 }}>
+      {/* Неактивная — и выглядит неактивной: прежде она оставалась яркой, и
+          нажатие без ответа читалось как «не работает». */}
+      <button type="submit"
+        className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled={!ready || !pdConsent} style={{ minHeight: 44 }}
+        aria-describedby={missing.length > 0 ? 'charter-missing' : undefined}>
         <Send className="w-4 h-4" aria-hidden />
         {submitting ? 'Отправляем…' : 'Отправить заявку на машину'}
       </button>
+      {missing.length > 0 && (
+        <p id="charter-missing" className="text-sm text-[var(--text-secondary)]">
+          Чтобы отправить, осталось: {missing.join(', ')}.
+        </p>
+      )}
       <p className="text-xs text-[var(--text-muted)]">
         Это заявка, не бронь: машина закрепляется после звонка менеджера и подтверждения перевозчика.
       </p>

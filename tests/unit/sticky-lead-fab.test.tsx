@@ -84,6 +84,16 @@ describe('кнопка «Хочу тур»', () => {
     }
   });
 
+  it('скрыта на странице перевозчика — у неё своя заявка на машину (владелец 14.10)', () => {
+    // Ложилась на галочку согласия заявки на машину; список /transfers не задет.
+    pathname = '/transfers/shatun';
+    const { container, unmount } = render(<StickyLeadButton />);
+    expect(container.innerHTML, 'кнопка снова на странице перевозчика').toBe('');
+    unmount();
+    pathname = '/transfers';
+    expect(render(<StickyLeadButton />).container.innerHTML, 'кнопка пропала на списке трансферов').not.toBe('');
+  });
+
   it('списки маршрутов и мест не задеты', () => {
     for (const p of ['/routes', '/places']) {
       pathname = p;
