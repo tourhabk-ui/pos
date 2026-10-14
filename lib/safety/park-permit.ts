@@ -158,6 +158,60 @@ export const NO_PERMIT_TERRITORIES: readonly NoPermitTerritory[] = [
   },
 ];
 
+/**
+ * Парки, ушедшие из-под КГБУ в федеральное ведение, — порядок разрешений после
+ * перехода не объявлен (14.10, миграция 1245).
+ *
+ * Постановлением Правительства России природные парки «Ключевской» и
+ * «Южно-Камчатский» объединены в национальный парк и переданы Минприроды
+ * России (сообщение правительства Камчатского края, 14.10.2026). Способы
+ * выше — «Зелёная кнопка», Госуслуги41, почта, офис в Елизово — принадлежат
+ * краевому КГБУ, и действуют ли они для этих двух территорий после перехода,
+ * не сказано нигде. Убрать их — значит оставить человека без единого пути,
+ * если КГБУ ещё выдаёт разрешения; оставить молча — выдать прежний порядок за
+ * действующий. Поэтому способы остаются, а рядом сказано, чего мы не знаем.
+ *
+ * Сверка по слову: «Южно-Камчатский заказник» — другая, федеральная
+ * территория со своим порядком, и под эту оговорку не попадает.
+ */
+export interface FederalizedPark {
+  /** Корень имени парка в `park_name` маршрута или в названии. */
+  match: string;
+  name: string;
+  since: string;
+  source: string;
+  url: string;
+}
+
+export const FEDERALIZED_PARKS: readonly FederalizedPark[] = [
+  {
+    match: 'ключевск',
+    name: '«Ключевской»',
+    since: 'октября 2026 года',
+    source: 'сообщение правительства Камчатского края, 14.10.2026',
+    url: 'https://kamchatkamedia.ru/news/2650854/',
+  },
+  {
+    match: 'южно-камчат',
+    name: '«Южно-Камчатский»',
+    since: 'октября 2026 года',
+    source: 'сообщение правительства Камчатского края, 14.10.2026',
+    url: 'https://kamchatkamedia.ru/news/2650854/',
+  },
+];
+
+/** Парк, ушедший в федеральное ведение, — по `park_name` маршрута или названию. */
+export function federalizedPark(...names: Array<string | null | undefined>): FederalizedPark | null {
+  for (const raw of names) {
+    if (!raw) continue;
+    const t = raw.toLowerCase();
+    if (t.includes('заказник')) continue;
+    const hit = FEDERALIZED_PARKS.find((p) => t.includes(p.match));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Территория без разрешения по её режиму — сверка по названию маршрута или места. */
 export function noPermitTerritory(title: string | null | undefined): NoPermitTerritory | null {
   if (!title) return null;

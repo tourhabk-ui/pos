@@ -99,7 +99,9 @@ export function buildPreparationItems(input: PrepEngineInput): PrepItem[] {
         importance: 'check',
         state: 'unknown',
         title: `Согласование: ${passport.access.parkName}`,
-        reason: 'Маршрут проходит по территории природного парка — проверьте правила посещения',
+        // «Охраняемой территории», не «природного парка» (14.10): park_name бывает
+        // памятником природы и, с октября 2026, национальным парком.
+        reason: 'Маршрут проходит по охраняемой территории — проверьте правила посещения',
         source: { type: 'route_passport', reference: passport.access.parkApprovalUrl ?? undefined },
         ...(passport.access.parkApprovalUrl
           ? { action: { kind: 'manual_confirm' as const, label: 'Проверить', href: passport.access.parkApprovalUrl } }

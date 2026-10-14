@@ -42,6 +42,7 @@ import {
   GREEN_BUTTON,
   isFreeVisitArea,
   noPermitTerritory,
+  federalizedPark,
 } from '@/lib/safety/park-permit';
 
 interface Props {
@@ -133,6 +134,10 @@ export default function ParkPermitAction({
     );
   }
 
+  // Парк ушёл в федеральное ведение (14.10, миграция 1245): способы ниже
+  // принадлежат краевому КГБУ, и действуют ли они теперь — не объявлено.
+  const federal = federalizedPark(parkName, title);
+
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
       <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
@@ -148,6 +153,19 @@ export default function ParkPermitAction({
       </div>
 
       <div className="space-y-4 px-5 py-4">
+        {federal && (
+          <p className="border-l-2 border-[var(--warning)] pl-3 text-xs leading-relaxed text-[var(--text-secondary)]">
+            <span className="font-semibold text-[var(--text-primary)]">
+              С {federal.since} {federal.name} — национальный парк в ведении Минприроды России
+            </span>{' '}
+            (
+            <a href={federal.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--ocean)]">
+              {federal.source}
+            </a>
+            ). Как теперь выдаются разрешения, ещё не объявлено: способы ниже действовали до
+            перехода — уточните перед выходом.
+          </p>
+        )}
         <div className="flex flex-col gap-3 sm:flex-row">
           {stores.map((st) => (
             <a

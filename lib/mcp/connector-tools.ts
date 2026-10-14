@@ -453,7 +453,8 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     line('Опасности', r.hazards),
     line('Снаряжение', r.equipment),
     r.mchs_registration_required ? 'Требуется регистрация в МЧС перед выходом.' : null,
-    line('Природный парк', r.park_name),
+    // Род не утверждается (14.10): park_name — и памятник природы, и национальный парк.
+    line('Охраняемая территория', r.park_name),
     'Экстренный вызов на Камчатке — 112.',
   ]);
   return {

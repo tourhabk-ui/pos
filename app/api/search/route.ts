@@ -22,6 +22,7 @@ import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
 import { findToursForQuery, tourPriceFrom } from '@/lib/search/tour-query-match';
 import { activityLabel } from '@/lib/tours/labels';
 import { tourPath } from '@/lib/tours/tour-url';
+import { parkKindLabel } from '@/lib/parks/park-kind';
 
 export const dynamic = 'force-dynamic';
 
@@ -219,7 +220,10 @@ export async function GET(request: NextRequest) {
         id: `park-${r.slug as string}`,
         type: 'park' as const,
         title: r.display_name as string,
-        subtitle: 'Природный парк',
+        // Род — по имени справочника, как на странице парка (14.10): «Природный
+        // парк» стоял подписью и у заповедника, и у памятника природы, и у
+        // национального парка.
+        subtitle: parkKindLabel(r.display_name as string),
         href: `/park/${r.slug as string}`,
       })),
       ...matchingTools.map(t => ({ ...t, type: 'tool' as const })),

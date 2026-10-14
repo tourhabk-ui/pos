@@ -173,6 +173,31 @@ describe('GET /api/search — парки в результатах', () => {
     }]);
   });
 
+  it('подпись парка — его род по имени справочника, а не «Природный парк» у всех (14.10)', async () => {
+    semanticSearchMock.mockResolvedValue([]);
+    mockSql({
+      'FROM kamchatka_routes': [],
+      'FROM places': [],
+      'FROM parks': [
+        { slug: 'klyuchevskoy', display_name: 'Национальный парк — «Ключевской»' },
+        { slug: 'kronotsky', display_name: 'Кроноцкий заповедник' },
+        { slug: 'vachkazhets', display_name: 'Памятник природы «Вачкажец»' },
+      ],
+    });
+
+    const res = await GET(req('парк'));
+    const json = await res.json();
+
+    const subtitles = Object.fromEntries(json.data
+      .filter((r: { type: string }) => r.type === 'park')
+      .map((r: { id: string; subtitle: string }) => [r.id, r.subtitle]));
+    expect(subtitles).toEqual({
+      'park-klyuchevskoy': 'Национальный парк',
+      'park-kronotsky': 'Заповедник',
+      'park-vachkazhets': 'Памятник природы',
+    });
+  });
+
   it('ошибка запроса парков не роняет поиск (fail-soft)', async () => {
     semanticSearchMock.mockResolvedValue([]);
     queryMock.mockImplementation((sql: string) =>
