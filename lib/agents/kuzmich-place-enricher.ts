@@ -11,7 +11,17 @@
  * 1. Выбирает places WHERE kuzmich_review IS NULL AND is_visible = true
  * 2. Для каждого места — опциональный скрейп 2GIS через Bright Data
  * 3. Генерирует review через callAIWaterfall()
- * 4. Сохраняет в places.kuzmich_review
+ * 4. Сверяет заметку с данными, по которым её писали (lib/kuzmich/review-claims)
+ * 5. Сохраняет в places.kuzmich_review — только заметку без улик
+ *
+ * Шаг 4 — 14.10, слово владельца «кузьмич навыдумывал много». Заметка о
+ * Вачкажце утверждала «часа четыре идти по осыпи», «три вершины» и медведей,
+ * которых в данных места не было, — промпт запрещал ровно это, и запрет не
+ * сработал: жанр «личной заметки проводника» зовёт к подробностям из опыта,
+ * которого у модели нет. Проверка после модели не спорит с промптом, а
+ * заменяет надежду на него. По той же причине место с описанием-дневником
+ * («я поднялся», «мы шли») заметку не получает вовсе: пересказ выдумки —
+ * та же выдумка.
  */
 
 import { honestSafetyFields, asProfileSource } from '@/lib/safety/profile-source';
@@ -21,11 +31,15 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { locationTypeLabelLower } from '@/lib/places/location-types';
+import { descriptionVoice } from '@/lib/places/description-voice';
+import { reviewClaims } from '@/lib/kuzmich/review-claims';
 
 export interface KuzmichPlaceEnricherResult {
   processed: number;
   enriched: number;
   skipped: number;
+  /** Заметки с уликой выдумки — не сохранены (место останется без заметки до следующего прогона). */
+  rejected: number;
   errors: number;
   duration_ms: number;
 }
@@ -176,12 +190,18 @@ async function saveKuzmichReview(placeId: string, review: string): Promise<void>
 
 export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPlaceEnricherResult> {
   const start = Date.now();
-  let enriched = 0, skipped = 0, errors = 0;
+  let enriched = 0, skipped = 0, rejected = 0, errors = 0;
 
   const places = await loadPlacesNeedingReview(batchSize);
 
   for (const place of places) {
     try {
+      // Описание-дневник — не источник фактов: заметка пересказала бы выдумку.
+      if (descriptionVoice(place.description).voice === 'diary') {
+        skipped++;
+        continue;
+      }
+
       const extraContext = await scrapeAdditionalContext(place);
       const review = await generateKuzmichReview(place, extraContext);
 
@@ -190,10 +210,35 @@ export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPl
         continue;
       }
 
+      // Те же данные, что получила модель: описание и произносимый профиль.
+      const honest = honestSafetyFields({
+        hazardTypes: place.hazard_types ?? [],
+        capacityPerDay: null,
+        optimalGroupSize: null,
+        difficultyLevel: null,
+        terrainType: null,
+      }, asProfileSource(place.profile_source));
+      const verdict = reviewClaims(review, {
+        description: place.description,
+        hazardCodes: honest.hazardTypes,
+        altitudeM: place.altitude_m,
+      });
+      if (verdict.flags.length > 0) {
+        rejected++;
+        console.warn('[kuzmich-place-enricher] заметка не сохранена — сказано сверх данных места', {
+          place: place.name,
+          flags: verdict.flags,
+          numbers: verdict.numbers,
+          hazards: verdict.hazards,
+        });
+        continue;
+      }
+
       await saveKuzmichReview(place.id, review);
       enriched++;
-    } catch {
+    } catch (err) {
       errors++;
+      logSwallowedFailure('kuzmich-place-enricher', `заметка о месте «${place.name}»`, err);
     }
 
     // Пауза между запросами чтобы не перегружать AI
@@ -204,6 +249,7 @@ export async function runKuzmichPlaceEnricher(batchSize = 20): Promise<KuzmichPl
     processed: places.length,
     enriched,
     skipped,
+    rejected,
     errors,
     duration_ms: Date.now() - start,
   };

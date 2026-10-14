@@ -183,6 +183,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'kuzmich-load-census': ['db_read'],
   'kuzmich-quality-census': ['db_read'],
   'kuzmich-places': ['db_read', 'db_write', 'net_out', 'ai'],
+  // 14.10: что заметки Кузьмича о местах утверждают сверх данных места — только чтение
+  'kuzmich-review-census': ['db_read'],
   'kuzmich-redteam': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kvert-acc': ['db_read', 'db_write', 'net_out'],
   'leads-followup': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
