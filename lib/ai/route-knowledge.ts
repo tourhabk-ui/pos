@@ -154,7 +154,10 @@ export function routeFacts(r: {
   const equipment = (r.equipment ?? []).filter(Boolean);
   if (equipment.length) out.push(`Снаряжение: ${equipment.join('; ')}`);
 
-  if (r.park_name) out.push(`Природный парк: ${r.park_name}`);
+  // Род территории не утверждается (14.10): park_name бывает и памятником
+  // природы («Вачкажец»), и заповедником — «Природный парк: Вачкажец» модель
+  // пересказала бы как факт.
+  if (r.park_name) out.push(`Охраняемая территория: ${r.park_name}`);
 
   return out;
 }

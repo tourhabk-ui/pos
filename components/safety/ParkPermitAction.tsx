@@ -41,6 +41,7 @@ import {
   PARK_PERMIT_SOURCE,
   GREEN_BUTTON,
   isFreeVisitArea,
+  noPermitTerritory,
 } from '@/lib/safety/park-permit';
 
 interface Props {
@@ -73,6 +74,27 @@ export default function ParkPermitAction({
   ];
   // Зона свободного посещения — не «нет данных», а названный факт парка.
   // Молчать о ней нельзя: турист иначе пойдёт оформлять ненужное разрешение.
+  // Территория вне парка со своим режимом без разрешения (Вачкажец, 14.10):
+  // «Зелёная кнопка» звала бы оформлять то, чего ведомство не выдаёт.
+  const noPermit = noPermitTerritory(title);
+  if (noPermit) {
+    return (
+      <p className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
+        <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" aria-hidden />
+        <span>
+          <span className="font-semibold text-[var(--text-primary)]">
+            Разрешение на посещение не требуется
+          </span>{' '}
+          — {noPermit.name}: {noPermit.basis} (
+          <a href={noPermit.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--ocean)]">
+            {noPermit.authority}, {noPermit.asOf}
+          </a>
+          ).
+        </span>
+      </p>
+    );
+  }
+
   if (isFreeVisitArea(title)) {
     return (
       <p className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">

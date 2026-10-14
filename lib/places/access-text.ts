@@ -62,6 +62,7 @@ const ECO_ZONE_GENITIVE: Record<string, string> = {
   regional_reserve: 'регионального заповедника',
   natural_park: 'природного парка',
   zakaznik: 'государственного заказника',
+  nature_monument: 'памятника природы',
 };
 
 /** Азимут от a к b, градусы 0..360 (0 — север). */

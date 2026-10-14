@@ -164,7 +164,9 @@ export function buildFacts(route: RouteRow): string[] {
   put('тип маршрута', route.route_type);
   put('опасности маршрута', route.hazards);
   put('снаряжение', route.equipment);
-  put('природный парк', route.park_name);
+  // Не «природный парк» (14.10): park_name бывает памятником природы
+  // («Вачкажец») и заповедником, а Editor пишет то, что ему назвали.
+  put('охраняемая территория', route.park_name);
   put('источник данных', route.source_name);
   if (route.waypoints && route.waypoints.length > 0) {
     f.push(`точки маршрута по порядку: ${route.waypoints.map((w) => w.name).join(' → ')}`);

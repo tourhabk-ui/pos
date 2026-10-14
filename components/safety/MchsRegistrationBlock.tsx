@@ -105,7 +105,9 @@ export default function MchsRegistrationBlock({
 
         {parkName && (
           <p className="text-xs text-[var(--text-secondary)]">
-            <span className="font-medium text-[var(--text-primary)]">Природный парк:</span>{' '}
+            {/* «Охраняемая территория», не «Природный парк» (14.10): park_name
+                бывает и памятником природы («Вачкажец»), и заповедником. */}
+            <span className="font-medium text-[var(--text-primary)]">Охраняемая территория:</span>{' '}
             {parkSlug ? (
               <Link href={`/park/${parkSlug}`} className="text-[var(--ocean)] hover:underline">
                 {parkName}

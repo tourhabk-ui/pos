@@ -103,7 +103,7 @@ export interface PlaceTour {
 }
 
 export interface PlaceEco {
-  zone: 'UNESCO' | 'federal_reserve' | 'national_park' | 'regional_reserve' | 'natural_park' | 'zakaznik' | 'none' | null;
+  zone: 'UNESCO' | 'federal_reserve' | 'national_park' | 'regional_reserve' | 'natural_park' | 'zakaznik' | 'nature_monument' | 'none' | null;
   permitRequired: boolean;
   rules: string | null;
   permitUrl: string | null;

@@ -119,3 +119,48 @@ export function isFreeVisitArea(title: string | null | undefined): boolean {
   const t = title.toLowerCase();
   return FREE_VISIT_AREAS.some((area) => t.includes(area.toLowerCase()));
 }
+
+/**
+ * Территория ВНЕ природного парка, у которой разрешения нет по её
+ * собственному режиму.
+ *
+ * Отдельно от FREE_VISIT_AREAS намеренно: там — слово парка «Вулканы
+ * Камчатки» о его земле, здесь — слово другого ведомства о чужой. Подписать
+ * Вачкажец источником парка значило бы приписать парку то, чего он не
+ * говорил, а сам Вачкажец в парк не входит.
+ *
+ * Вачкажец (14.10, миграция 1244): до этого дня карточки его маршрутов
+ * звали за разрешением парка в «Зелёную кнопку», а справочник парков писал
+ * «посещение требует отдельного разрешения» (723, по разделу безопасности
+ * visitkamchatka.ru). Ведомство, которое выдаёт такие разрешения, говорит
+ * обратное: положение об охранной зоне памятника (постановление губернатора
+ * № 93 от 07.11.2018) разрешения не предусматривает — Минприроды края в
+ * 2019 году, Служба по охране животного мира в 2023-м.
+ */
+export interface NoPermitTerritory {
+  /** Корень имени, как он стоит в названиях маршрутов и мест. */
+  match: string;
+  name: string;
+  basis: string;
+  authority: string;
+  asOf: string;
+  url: string;
+}
+
+export const NO_PERMIT_TERRITORIES: readonly NoPermitTerritory[] = [
+  {
+    match: 'вачкаж',
+    name: 'памятник природы «Горный массив Вачкажец»',
+    basis: 'положение об охранной зоне памятника разрешения не предусматривает',
+    authority: 'Минприроды Камчатского края и Служба по охране животного мира',
+    asOf: '2019 и 2023',
+    url: 'https://kamchatkamedia.ru/news/1530036/',
+  },
+];
+
+/** Территория без разрешения по её режиму — сверка по названию маршрута или места. */
+export function noPermitTerritory(title: string | null | undefined): NoPermitTerritory | null {
+  if (!title) return null;
+  const t = title.toLowerCase();
+  return NO_PERMIT_TERRITORIES.find((x) => t.includes(x.match)) ?? null;
+}
