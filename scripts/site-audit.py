@@ -1196,7 +1196,11 @@ def lighthouse_summary(url: str, lh: dict) -> tuple[str, list[str]]:
                       if isinstance(x, dict) and x.get('cause')]
             score = i.get('score')
             share = f" {float(score):.3f}" if isinstance(score, (int, float)) else ''
-            return f"`{what}`{share}" + (f" ({causes[0]})" if causes else '')
+            # Где узел стоит в итоге — чтобы узнать его в сдвигах трассы ниже.
+            r = n.get('boundingRect') if isinstance(n.get('boundingRect'), dict) else {}
+            box = (f" [y {round(r['top'])}, h {round(r['height'])}]"
+                   if isinstance(r.get('top'), (int, float)) and isinstance(r.get('height'), (int, float)) else '')
+            return f"`{what}`{share}{box}" + (f" ({causes[0]})" if causes else '')
         det.append(f"- сдвиги вёрстки (CLS {dv('cumulative-layout-shift')}): " + '; '.join(shift(i) for i in shifts))
     groups = sorted(items('mainthread-work-breakdown'), key=lambda i: -(i.get('duration') or 0))[:3]
     if groups:
@@ -1301,6 +1305,67 @@ def hot_functions(trace, top: int = HOT_TOP) -> tuple[list[dict], float]:
     return best, best_busy
 
 
+SHIFT_TOP = 3
+SHIFT_NODES = 4
+
+
+def trace_shifts(trace, top: int = SHIFT_TOP) -> tuple[list[dict], float | None]:
+    """Сдвиги главного кадра из трассы (события LayoutShift): крупные первыми.
+
+    Прогон 14: Lighthouse мерил на /map CLS 0,171 у `div.px-4`, а настоящий
+    браузер в тех же условиях (map-page-check --lighthouse, прогон 22) — 0,0103.
+    Отчёт называет узел, но не говорит, откуда и куда он сдвинулся; в трассе
+    это есть: прямоугольники узла до и после и время. Сдвиг сразу после ввода
+    браузер не считает — и здесь он не считается. Второе — начало навигации
+    страницы (мкс трассы), от него отсчитывается время; не найдено — None.
+    """
+    nav: float | None = None
+    shifts: list[dict] = []
+    for e in _trace_events(trace):
+        if not isinstance(e, dict):
+            continue
+        data = (e.get('args') or {}).get('data') or {}
+        if not isinstance(data, dict):
+            continue
+        if e.get('name') == 'navigationStart':
+            ts = e.get('ts')
+            if (data.get('isLoadingMainFrame') and str(data.get('documentLoaderURL') or '').startswith('http')
+                    and isinstance(ts, (int, float)) and (nav is None or ts < nav)):
+                nav = float(ts)
+        elif e.get('name') == 'LayoutShift':
+            if data.get('had_recent_input') or data.get('is_main_frame') is False:
+                continue
+            score = data.get('weighted_score_delta', data.get('score'))
+            if not isinstance(score, (int, float)) or score <= 0:
+                continue
+            nodes = [n for n in data.get('impacted_nodes') or [] if isinstance(n, dict)]
+            shifts.append({'ts': e.get('ts'), 'score': float(score), 'nodes': nodes})
+    shifts.sort(key=lambda s: -s['score'])
+    return shifts[:top], nav
+
+
+def _rect(r) -> str:
+    """[x, y, ширина, высота] трассы → «y 141, h 643»."""
+    if isinstance(r, list) and len(r) == 4 and all(isinstance(v, (int, float)) for v in r):
+        return f"y {round(r[1])}, h {round(r[3])}"
+    return '?'
+
+
+def trace_shift_lines(trace) -> list[str]:
+    shifts, nav = trace_shifts(trace)
+    if not shifts:
+        return ['- сдвиги в трассе: записей LayoutShift без ввода нет']
+    out = ['- сдвиги в трассе (без ввода, крупные первыми; узел — номер DOM трассы, пиксели — как в трассе):']
+    for s in shifts:
+        when = (f" на {(s['ts'] - nav) / 1_000_000:.1f} с"
+                if nav is not None and isinstance(s['ts'], (int, float)) else '')
+        nodes = '; '.join(f"узел {n.get('node_id', '?')} {_rect(n.get('old_rect'))} → {_rect(n.get('new_rect'))}"
+                          for n in s['nodes'][:SHIFT_NODES]) or 'узлы не названы'
+        more = f" и ещё {len(s['nodes']) - SHIFT_NODES}" if len(s['nodes']) > SHIFT_NODES else ''
+        out.append(f"  - {s['score']:.4f}{when}: {nodes}{more}")
+    return out
+
+
 # Начало модуля в чанке webpack 5: `{123:(e,t,r)=>{`, `,456:function(e,t){`, `,789:e=>{`.
 WEBPACK_MODULE = re.compile(r'[{,](\d+):(?:\(|function\b|[A-Za-z_$][\w$]*=>)')
 
@@ -1372,7 +1437,7 @@ def lighthouse_cli(argv: list[str]) -> int:
     if trace_path:
         try:
             trace = json.load(open(trace_path, encoding='utf-8'))
-            hot = hot_functions_lines(url, trace, _fetch_own_script)
+            hot = hot_functions_lines(url, trace, _fetch_own_script) + trace_shift_lines(trace)
         except (OSError, ValueError) as e:
             hot = [f"- горячие функции: трасса не прочитана ({str(e)[:80]})"]
         if det:
