@@ -822,6 +822,11 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
   Второе исключение — по слову владельца 09.10 («S3 + разрешить видео с S3»):
   `media-src 'self' https://s3.twcstorage.ru` в CSP страниц, чтобы клипы туров
   из хранилища (миграция 1194) играли. Сторож: `tests/unit/tour-video-clips.test.ts`
+  Третье исключение — по слову владельца 14.10 («ТРОГАЙ»): реестр публичных API
+  (`lib/auth/public-api-routes.ts`) пускает анонима к `/api/images` и с `HEAD`, не
+  только с `GET`. Перепись sitemap: 67 og:image отвечали HEAD 401 при GET 200, а
+  HEAD — то, чем обходчики и превью проверяют картинку. Сторож — исполнение
+  middleware: `tests/unit/edge-images-head.test.ts`
 - `lib/auth.ts` — JWT логика
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`

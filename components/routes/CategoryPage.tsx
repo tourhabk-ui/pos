@@ -6,8 +6,17 @@ import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
 import { arkUrlSlugSql, catalogHref } from '@/lib/routes/url-slug';
 import { stripFillerLead } from '@/lib/text/filler-lead';
+import { clipAtWord } from '@/lib/text/clip-at-word';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
+
+/**
+ * Начало описания на карточке категории (14.10). Карточка показывает две
+ * строки, в HTML уходит до 300 знаков по границе слова: целое описание на 24
+ * карточки удвоило бы страницу — оно едет и в разметке, и в данных клиентской
+ * карточки.
+ */
+const CARD_DESCRIPTION_MAX = 300;
 
 /**
  * SEO-страница категории (/routes/[category]) и её зонного среза
@@ -95,7 +104,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
     href: catalogHref({ id: r.id, kind: r.kind, urlSlug: r.url_slug }, '/routes'),
     category: r.category,
     title: r.title,
-    description: stripFillerLead(r.description),
+    description: clipAtWord(stripFillerLead(r.description), CARD_DESCRIPTION_MAX),
     lat: r.lat != null ? Number(r.lat) : null,
     lng: r.lng != null ? Number(r.lng) : null,
     priceFrom: r.price_from != null ? Number(r.price_from) : null,
