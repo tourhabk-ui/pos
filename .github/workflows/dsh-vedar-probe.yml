@@ -1,0 +1,237 @@
+name: DeepSeek Harness ходит в Ведар — плагин dsh-vedar с раннера
+
+# ── Зачем ────────────────────────────────────────────────────────────
+#
+# Плагин dsh-vedar (integrations/dsh-vedar, github.com/tourhabk-ui/dsh-vedar)
+# выложен 13.10, но в живом DeepSeek Harness от начала до конца не
+# проверялся: строка cordis.patch.yml сверена только с README
+# @deepseek-ai/dsh-mcp-client. Владелец 14.10: «проверяй».
+#
+# Единственный честный ответ — сделать то, что сделает пользователь: поставить
+# dsh из npm, добавить плагин командой из его README (с GitHub, не локальную
+# копию) и задать вопрос туриста в режиме headless.
+#
+# По шагам:
+#   1. dsh из npm той версией, что в маркере (dsh_version);
+#   2. `dsh plugin --profile headless add github:tourhabk-ui/dsh-vedar`;
+#      выложенная строка сверяется с integrations/dsh-vedar — расхождение
+#      печатается (выложенный плагин отстал от исходника);
+#   3. --dump-config: строка mcp-vedar в собранном профиле;
+#   4. вопрос по-китайски в `dsh --profile headless --json`: вызовы
+#      mcp__vedar__* в событиях tool_call, ответ в событии final;
+#   5. журнал Ведара (/api/cron/mcp-census, CRON_SECRET): клиент
+#      dsh-mcp-client за сутки.
+#
+# Три исхода (§4.0): позвала инструменты Ведара и ответила — зелёный;
+# ответила, не позвав ни одного, — красный «плагин не довёл»; dsh не встал,
+# плагин не встал, ключа нет, модель отказала — красный с причиной.
+#
+# Свои вызовы в журнале. dsh-mcp-client представляется серверу одним и тем же
+# именем у всех пользователей, поэтому пробу по имени не отличить от спроса.
+# Есть секрет MCP_SELF_TAG — адрес сервера получает метку «свой» (?self=,
+# lib/analytics/self-visit.ts) наложением --patch, сам плагин не меняется.
+# Нет секрета — сводка называет время и число вызовов пробы: их нельзя
+# считать спросом из КНР. Ключ DeepSeek и метка наружу не выходят.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/dsh-vedar-probe.json'
+
+permissions:
+  contents: read
+
+jobs:
+  dsh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      DSH_HOME: ${{ github.workspace }}/../dsh-home
+    steps:
+      - uses: actions/checkout@v7
+
+      # Маркер едет в main пушем, и Timeweb тем же пушем пересобирает и
+      # перезапускает прод. Сервер MCP и перепись журнала уже на проде, свежая
+      # сборка им не нужна — нужно не попасть в перезапуск посреди разговора.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Ключ DeepSeek из секретов
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+            echo "::error::ключа DeepSeek в секретах нет — спросить нечем"
+            exit 1
+          fi
+
+      - name: DeepSeek Harness из npm
+        run: |
+          set -euo pipefail
+          VER=$(python3 -c "import json; print(json.load(open('.github/triggers/dsh-vedar-probe.json')).get('dsh_version', 'latest'))")
+          npm i -g "@deepseek-ai/dsh@$VER" --no-audit --no-fund
+          echo "dsh $(dsh --version)"
+          mkdir -p "$DSH_HOME"
+
+      - name: Плагин dsh-vedar — командой из его README
+        run: |
+          set -euo pipefail
+          dsh plugin --profile headless add github:tourhabk-ui/dsh-vedar
+          PUBLISHED="$DSH_HOME/profiles/headless/node_modules/dsh-vedar/cordis.patch.yml"
+          if [ ! -f "$PUBLISHED" ]; then
+            echo "::error::плагин встал, но cordis.patch.yml в нём нет: $PUBLISHED"
+            exit 1
+          fi
+          if ! diff -u integrations/dsh-vedar/cordis.patch.yml "$PUBLISHED"; then
+            echo "::warning::выложенный плагин расходится с integrations/dsh-vedar — проверяется выложенный"
+          fi
+          dsh --profile headless --dump-config > /tmp/dump.yml
+          if ! grep -A6 '^- id: mcp-vedar' /tmp/dump.yml; then
+            echo "::error::строки mcp-vedar нет в собранном профиле — плагин не применился"
+            exit 1
+          fi
+
+      - name: Вопрос туриста → DeepSeek → инструменты Ведара
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MCP_SELF_TAG: ${{ secrets.MCP_SELF_TAG }}
+        run: |
+          # +e: оболочка шага — bash -e, и отказ dsh оборвал бы шаг до разбора
+          # событий и печати причины (урок china-bridge-probe, прогон 1).
+          set +e -uo pipefail
+          Q=$(python3 -c "import json; print(json.load(open('.github/triggers/dsh-vedar-probe.json'))['question'])")
+          PATCH_ARGS=()
+          if [ -n "${MCP_SELF_TAG:-}" ]; then
+            printf -- "- id: mcp-vedar\n  config:\n    serverName: vedar\n    transport: streamable-http\n    url: https://vedarai.ru/api/mcp?self=%s\n" "$MCP_SELF_TAG" > /tmp/self.yml
+            PATCH_ARGS=(--patch /tmp/self.yml)
+            echo "SELF_MARK=yes" >> "$GITHUB_ENV"
+          else
+            echo "SELF_MARK=no" >> "$GITHUB_ENV"
+          fi
+          START=$(date -u +'%Y-%m-%d %H:%M')
+          echo "PROBE_START=$START" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ws" && cd "$RUNNER_TEMP/ws"
+          timeout 600 dsh --profile headless "${PATCH_ARGS[@]}" --json "$Q" > /tmp/events.ndjson 2> /tmp/stderr.txt
+          CODE=$?
+          echo "PROBE_END=$(date -u +'%Y-%m-%d %H:%M')" >> "$GITHUB_ENV"
+          echo "код выхода dsh: $CODE"
+          echo "--- stderr (хвост) ---"
+          tail -c 4000 /tmp/stderr.txt
+          echo
+          python3 - "$CODE" <<'PY'
+          import json, os, sys
+
+          code = int(sys.argv[1])
+          calls, results, final, turn_end, errors = [], {}, '', None, []
+          for line in open('/tmp/events.ndjson', encoding='utf-8', errors='replace'):
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  e = json.loads(line)
+              except ValueError:
+                  continue
+              t = e.get('type')
+              if t == 'tool_call':
+                  calls.append(e)
+              elif t == 'tool_result':
+                  results[e.get('callId')] = e
+              elif t == 'final':
+                  final = e.get('text') or ''
+              elif t == 'status' and e.get('phase') == 'turn_end':
+                  turn_end = e.get('reason')
+              elif t == 'error':
+                  errors.append(e.get('message') or json.dumps(e, ensure_ascii=False))
+
+          vedar = [c for c in calls if str(c.get('tool', '')).startswith('mcp__vedar__')]
+          failed = [c for c in vedar if results.get(c.get('callId'), {}).get('status') == 'error']
+          other = sorted({str(c.get('tool')) for c in calls if c not in vedar})
+
+          lines = []
+          for c in vedar:
+              r = results.get(c.get('callId'), {})
+              args = json.dumps(c.get('input'), ensure_ascii=False)[:200]
+              lines.append(f"  -> {c.get('tool')} {args} — {r.get('status', 'нет результата')}")
+          print('\n'.join(lines) or '(инструменты Ведара не вызывались)')
+          if other:
+              print('другие инструменты:', ', '.join(other))
+          print('--- ответ ---')
+          print(final[:4000])
+
+          ok = code == 0 and len(vedar) > 0 and len(vedar) > len(failed) and final.strip() != ''
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as s:
+              s.write('### DeepSeek Harness + dsh-vedar\n\n')
+              s.write(f"вызовов инструментов Ведара: {len(vedar)} (с ошибкой: {len(failed)}), код выхода dsh: {code}\n\n")
+              s.write('```\n' + ('\n'.join(lines) or '(инструменты Ведара не вызывались)') + '\n```\n\n')
+              if other:
+                  s.write('другие инструменты: ' + ', '.join(other) + '\n\n')
+              if turn_end:
+                  s.write('конец хода: `' + json.dumps(turn_end, ensure_ascii=False)[:500] + '`\n\n')
+              if errors:
+                  s.write('ошибки: ' + '; '.join(errors)[:1000] + '\n\n')
+              s.write('```\n' + final[:3000] + '\n```\n')
+
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f"VEDAR_CALLS={len(vedar)}\n")
+          if ok:
+              print(f"::notice::DeepSeek в Harness позвала инструменты Ведара {len(vedar)} раз и ответила по данным")
+              sys.exit(0)
+          if code == 0 and not vedar:
+              print('::error::DeepSeek в Harness ответила, не позвав ни одного инструмента Ведара — плагин не довёл')
+          elif vedar and len(failed) == len(vedar):
+              print('::error::все вызовы инструментов Ведара вернули ошибку — причина в результатах выше')
+          else:
+              print(f'::error::dsh не довёл разговор (код {code}) — причина в stderr и событиях выше')
+          sys.exit(1)
+          PY
+
+      - name: Журнал Ведара видит клиента dsh-mcp-client
+        if: always() && env.VEDAR_CALLS != '' && env.VEDAR_CALLS != '0'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set +e -uo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::warning::CRON_SECRET нет — журнал Ведара не прочитать"
+            exit 0
+          fi
+          curl -sS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/mcp-census?days=1" -o /tmp/census.json
+          python3 - <<'PY'
+          import json, os
+          try:
+              c = json.load(open('/tmp/census.json', encoding='utf-8'))
+          except Exception as e:
+              print(f'::warning::перепись журнала не прочиталась: {e}')
+              raise SystemExit(0)
+          rows = [r for r in (c.get('clients') or []) if 'dsh' in str(r.get('client', '')).lower()]
+          self_mark = os.environ.get('SELF_MARK') == 'yes'
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as s:
+              s.write('\n### Журнал Ведара за сутки\n\n')
+              if rows:
+                  for r in rows:
+                      s.write(f"- {r.get('client')} · {r.get('origin')} · вызовов {r.get('calls')}\n")
+              else:
+                  s.write('- клиента dsh в журнале нет\n')
+              s.write(f"\nКНР: {json.dumps(c.get('clients_china'), ensure_ascii=False)}\n\n")
+              if self_mark:
+                  s.write('Вызовы пробы помечены «свой» (?self=), спросом не считаются.\n')
+              else:
+                  s.write(f"Вызовы пробы НЕ помечены своими (секрета MCP_SELF_TAG нет): {os.environ.get('VEDAR_CALLS')} вызовов "
+                          f"клиента dsh-mcp-client с {os.environ.get('PROBE_START')} по {os.environ.get('PROBE_END')} UTC — проба, не спрос из КНР.\n")
+          print(json.dumps(rows, ensure_ascii=False))
+          if not rows:
+              print('::warning::инструменты вызваны, но клиента dsh в журнале нет — журнал или его опознание отстали')
+          PY

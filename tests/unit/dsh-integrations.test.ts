@@ -98,6 +98,37 @@ describe('плагин dsh-vedar — строка официального мо�
   });
 });
 
+/**
+ * Живая проба плагина (владелец 14.10: «проверяй») — .github/workflows/dsh-vedar-probe.yml.
+ * Она стоит ровно столько, сколько похожа на путь пользователя: плагин ставится
+ * тем адресом пакета, что в README, а не локальной копией из integrations/; вызовы
+ * считаются по имени сервера из самой строки плагина; вопрос не просит заявок —
+ * проба не должна будить менеджера настоящим лидом.
+ */
+describe('проба dsh-vedar-probe.yml — путь пользователя, а не обходной', () => {
+  const wf = read('.github/workflows/dsh-vedar-probe.yml');
+  const marker = JSON.parse(read('.github/triggers/dsh-vedar-probe.json')) as { dsh_version: string; question: string; run: number };
+  const serverName = yamlValue(read(`${PLUGIN_DIR}/cordis.patch.yml`), 'serverName');
+
+  it('плагин ставится с GitHub тем же адресом пакета, что в README, а не копией из integrations/', () => {
+    const spec = read(`${PLUGIN_DIR}/README.md`).match(/dsh plugin --profile \w+ add (\S+)/)?.[1];
+    expect(spec).toBe('github:tourhabk-ui/dsh-vedar');
+    expect(wf).toContain(`dsh plugin --profile headless add ${spec}`);
+    expect(wf).not.toMatch(/plugin --profile \w+ add \S*integrations\//);
+  });
+
+  it('вызовы Ведара считаются по имени сервера из строки плагина', () => {
+    expect(serverName).not.toBeNull();
+    expect(wf).toContain(`'mcp__${serverName}__'`);
+  });
+
+  it('маркер: версия dsh закреплена, вопрос прямо запрещает заявки', () => {
+    expect(marker.dsh_version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(wf).toContain('@deepseek-ai/dsh@$VER');
+    expect(marker.question).toContain('不要提交任何申请');
+  });
+});
+
 describe('карточка для каталога коннекторов DeepSeek Harness', () => {
   const card = JSON.parse(read(CARD_PATH)) as Card;
   const pluginServerName = yamlValue(read(`${PLUGIN_DIR}/cordis.patch.yml`), 'serverName');
