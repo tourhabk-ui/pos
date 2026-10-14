@@ -47,7 +47,17 @@ describe('site-audit: только чтение', () => {
     // профилировщика в Lighthouse по умолчанию выключена.
     expect(WF).toMatch(/lighthouse@12[^\n]*\n(?:[^\n]*\\\n)*[^\n]*--save-assets/);
     expect(WF).toMatch(/--additional-trace-categories=[^\s"]*disabled-by-default-v8\.cpu_profiler/);
-    expect(WF).toMatch(/python3 scripts\/site-audit\.py lighthouse "\$url" "\$out" \/tmp\/lh-details\.md "\$\{trace:-/);
+  });
+
+  it('Lighthouse — три прогона на страницу, в таблицу идёт медиана, а не случайный', () => {
+    // Прогоны 13–15 (14.10): главная без правок — производительность 67, 80
+    // и 62, TBT 780, 240 и 1 060 мс. Одиночный прогон сравнивал шум с шумом.
+    const lhStep = WF.slice(WF.indexOf('name: Lighthouse'), WF.indexOf('name: Сводка'));
+    expect(lhStep).toMatch(/for k in 1 2 3; do\s*\n\s*out=\/tmp\/lh-\$n-\$k\.json\s*\n\s*runs\+=\("\$out"\)/);
+    // Все три пути — в разбор, и удавшиеся, и нет: не прочитанный прогон
+    // скрипт назовёт, а не пропустит молча.
+    expect(lhStep).toMatch(/python3 scripts\/site-audit\.py lighthouse-runs "\$url" \/tmp\/lh-details\.md "\$\{runs\[@\]\}"/);
+    expect(lhStep).not.toMatch(/scripts\/site-audit\.py lighthouse "\$url"/);
   });
 
   it('Lighthouse представляется как PageSpeed Insights, и Next отдаёт ему метаданные в <head>', () => {

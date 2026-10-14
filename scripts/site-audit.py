@@ -1422,7 +1422,82 @@ def _fetch_own_script(url: str) -> str | None:
     return r['body'].decode('utf-8', 'replace')
 
 
-def lighthouse_cli(argv: list[str]) -> int:
+def lh_trace_for(report_path: str) -> str:
+    """Трасса, которую `lighthouse --save-assets` кладёт рядом с отчётом X.json: X-0.trace.json."""
+    base = report_path[:-5] if report_path.endswith('.json') else report_path
+    return f"{base}-0.trace.json"
+
+
+def _lh_num(lh: dict, audit: str) -> float | None:
+    v = ((lh.get('audits') or {}).get(audit) or {}).get('numericValue')
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def _runs_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return 'прогон'
+    return 'прогона' if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else 'прогонов'
+
+
+def lighthouse_median(paths: list[str]) -> tuple[str | None, dict | None, str]:
+    """Из нескольких отчётов одной страницы — прогон с медианой производительности
+    и строка разброса.
+
+    Прогоны 13–15 (14.10): главная без единой правки между ними показала
+    производительность 67, 80 и 62 и TBT 780, 240 и 1 060 мс. Разброс раннера
+    оказался больше эффекта правок, и сравнение одиночных прогонов было шумом.
+    Таблица берёт прогон с медианой производительности (из чётного числа —
+    нижний из двух средних: осторожнее), а разброс печатается рядом: «стало
+    лучше» видно, только если оно выходит за разброс. Не прочитанный отчёт
+    счёт не портит, но называется (§4.0); не прочитан ни один — пути нет.
+    """
+    runs: list[tuple[float, str, dict]] = []
+    for p in paths:
+        try:
+            lh = json.load(open(p, encoding='utf-8'))
+            perf = ((lh.get('categories') or {}).get('performance') or {}).get('score')
+        except (OSError, ValueError):
+            continue
+        if isinstance(lh, dict) and isinstance(perf, (int, float)):
+            runs.append((float(perf), p, lh))
+    if not runs:
+        return None, None, f"ни один из {len(paths)} прогонов Lighthouse не прочитан"
+    runs.sort(key=lambda r: r[0])
+    perf, path, lh = runs[(len(runs) - 1) // 2]
+
+    def span(values: list[float], fmt) -> str:
+        return fmt(min(values)) if min(values) == max(values) else f"{fmt(min(values))}–{fmt(max(values))}"
+
+    parts = [f"производительность {span([round(r[0] * 100) for r in runs], str)} (в таблице {round(perf * 100)})"]
+    lcp = [v for v in (_lh_num(r[2], 'largest-contentful-paint') for r in runs) if v is not None]
+    if lcp:
+        parts.append(f"LCP {span(lcp, lambda v: f'{v / 1000:.1f}')} с")
+    tbt = [v for v in (_lh_num(r[2], 'total-blocking-time') for r in runs) if v is not None]
+    if tbt:
+        parts.append(f"TBT {span(tbt, lambda v: f'{round(v):,}'.replace(',', ' '))} мс")
+    cls = [v for v in (_lh_num(r[2], 'cumulative-layout-shift') for r in runs) if v is not None]
+    if cls:
+        parts.append(f"CLS {span(cls, lambda v: f'{v:.3f}')}")
+    line = f"- {len(runs)} {_runs_word(len(runs))}: " + ', '.join(parts)
+    if len(runs) < len(paths):
+        line += f"; не прочитано {len(paths) - len(runs)} из {len(paths)}"
+    return path, lh, line
+
+
+def lighthouse_runs_cli(argv: list[str]) -> int:
+    """`site-audit.py lighthouse-runs URL РАСШИФРОВКА.md ОТЧЁТ1.json [ОТЧЁТ2.json …]` —
+    как `lighthouse`, но по прогону с медианой производительности; трасса — того же
+    прогона, разброс — строкой под заголовком страницы."""
+    url, details_path, *paths = argv
+    path, _, spread = lighthouse_median(paths)
+    if path is None:
+        print(f"| {url} | не измерено: {spread} | | | | | | |")
+        return 0
+    trace = lh_trace_for(path)
+    return lighthouse_cli([url, path, details_path, trace], spread=spread)
+
+
+def lighthouse_cli(argv: list[str], spread: str = '') -> int:
     """`site-audit.py lighthouse URL ОТЧЁТ.json РАСШИФРОВКА.md [ТРАССА.json]` — строка
     таблицы в stdout, расшифровка дописывается в файл. Отчёт не читается — строка
     «не измерено», не тишина; трасса передана, но не читается — так и сказано."""
@@ -1434,6 +1509,12 @@ def lighthouse_cli(argv: list[str]) -> int:
         print(f"| {url} | не измерено: отчёт Lighthouse не прочитан ({str(e)[:80]}) | | | | | | |")
         return 0
     row, det = lighthouse_summary(url, lh)
+    if spread:
+        # Разброс — сразу под заголовком страницы: читается раньше цифр прогона.
+        if det:
+            det[1:1] = [spread]
+        else:
+            det = [f"**{url}**", spread, '']
     if trace_path:
         try:
             trace = json.load(open(trace_path, encoding='utf-8'))
@@ -1511,4 +1592,6 @@ def main() -> int:
 if __name__ == '__main__':
     if len(sys.argv) in (5, 6) and sys.argv[1] == 'lighthouse':
         sys.exit(lighthouse_cli(sys.argv[2:]))
+    if len(sys.argv) >= 5 and sys.argv[1] == 'lighthouse-runs':
+        sys.exit(lighthouse_runs_cli(sys.argv[2:]))
     sys.exit(main())
