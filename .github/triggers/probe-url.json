@@ -1,14 +1,14 @@
 {
   "timeout": 120,
-  "run": 902,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Положение о природном парке «Вилючинский» (743-П), окончание с 67000-го байта: запреты зон и графическое описание границ функциональных зон — чтобы сверить точки озёр Тополовое и Зелёное и водопада с зоной особой охраны. Конфиг записан целиком.",
+  "run": 903,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. «Озеро Зелёное» (ed134429) стоит у Вилючинского перевала, а зона особой охраны «Озеро Зеленое» постановления 743-П — в долине Большой Саранной, в ~4 км: где озеро по OSM и куда ведёт линия маршрута 9518537b. Конфиг записан целиком.",
   "urls": [
-    "https://vulcanikamchatki.ru/files/2023/doc/63acb3f957b957_22593119.pdf"
+    "https://vedarai.ru/api/routes/9518537b-f1f9-4291-83a9-b04c13e6f515",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28way%5B%22natural%22%3D%22water%22%5D%5B%22name%22%5D%2852.70%2C158.15%2C52.82%2C158.32%29%3Brelation%5B%22natural%22%3D%22water%22%5D%5B%22name%22%5D%2852.70%2C158.15%2C52.82%2C158.32%29%3Bnode%5B%22natural%22%5D%5B%22name%22~%22%D0%97%D0%B5%D0%BB%7C%D0%A2%D0%BE%D0%BF%D0%BE%D0%BB%22%5D%2852.70%2C158.15%2C52.82%2C158.32%29%3Bway%5B%22natural%22%3D%22water%22%5D%5B%22water%22%3D%22lake%22%5D%2852.745%2C158.245%2C52.765%2C158.275%29%3B%29%3Bout%20center%20tags%3B",
+    "https://nominatim.openstreetmap.org/search?q=%D0%BE%D0%B7%D0%B5%D1%80%D0%BE+%D0%97%D0%B5%D0%BB%D1%91%D0%BD%D0%BE%D0%B5&viewbox=158.10%2C52.85%2C158.40%2C52.65&bounded=1&format=jsonv2&limit=10"
   ],
   "allowStale": true,
-  "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 53000,
-  "textFrom": 67000
+  "bytes": 26000
 }
