@@ -1,36 +1,12 @@
 {
   "timeout": 60,
-  "run": 835,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат Вачкажца (46906ed, миграция 1244), вторая попытка: датчик свежести — описание памятника из базы («Разрешение на посещение не нужно»); подпись рода в сыром HTML разбита комментарием React, поэтому прогон 833 ждал её зря. Конфиг записан целиком.",
+  "run": 836,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Масштаб выдумок Кузьмича (владелец: «кузьмич навыдумывал много»): перепись заметок «Кузьмич о месте» — новый эндпоинт kuzmich-review-census (ba06010); 404 до выката — ждём ключ by_flag. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/park/vachkazhets",
-    "https://vedarai.ru/letopis/vachkazhets",
-    "https://vedarai.ru/places/vachkazhets",
-    "https://vedarai.ru/routes/visitkamchatka-vachkazhets-mountain-range-ski",
-    "https://vedarai.ru/api/images/s3/photos/vachkazhets/gora-vachkazhets-zimoj.jpg",
-    "https://publication.pravo.gov.ru/Document/View/4100201811120003"
+    "https://vedarai.ru/api/cron/kuzmich-review-census"
   ],
-  "until": "Разрешение на посещение не нужно",
-  "retries": 30,
+  "until": "\"by_flag\"",
+  "retries": 40,
   "retryDelay": 60,
-  "bytes": 400,
-  "grep": [
-    "Памятник природы<!-- --> · ",
-    "Разрешение на посещение не нужно",
-    "Разрешение на посещение не требуется",
-    "/letopis/vachkazhets",
-    "Вацкажац",
-    "Спор закончился",
-    "Michael Haing",
-    "Экология и охрана природы",
-    "базальтовый",
-    "Медведи",
-    "Гора Вачкажец",
-    "Охраняемая территория",
-    "Природный парк:",
-    "Зелёная кнопка",
-    "требует отдельного разрешения",
-    "4100201811120003",
-    "Место на территории памятника природы"
-  ]
+  "bytes": 60000
 }
