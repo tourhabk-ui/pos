@@ -85,7 +85,10 @@ export default async function ChronicleArticlePage({ params }: Props) {
                 alt={a.hero.alt}
                 width={a.hero.width}
                 height={a.hero.height}
-                priority
+                // Без priority: предзагрузка по адресу-редиректу не совпадает
+                // с загрузкой снимка и уходит вхолостую (замер 14.10 в браузере).
+                loading="eager"
+                fetchPriority="high"
                 unoptimized
                 sizes="(min-width: 672px) 672px, 100vw"
                 className="w-full h-auto rounded-lg"
