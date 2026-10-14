@@ -149,6 +149,66 @@ describe('lighthouse_summary: строка таблицы и «что тормо
 });
 
 /**
+ * Не засчитанные пункты SEO, доступности и практик (14.10).
+ *
+ * Прогон 12: SEO 92 у /catalog и /map, доступность 92–95, а какой пункт не
+ * прошёл — отчёт молчал. Теперь под расшифровкой — пункты с весом, которые
+ * Lighthouse не засчитал, с узлами. Пункт без балла (проверить руками, не про
+ * эту страницу) провалом не считается, а «не смог проверить» — отдельно.
+ */
+describe('lighthouse_summary: какие пункты SEO, доступности и практик не пройдены', () => {
+  const REPORT = {
+    categories: {
+      performance: { score: 0.5 },
+      seo: { score: 0.92, auditRefs: [
+        { id: 'crawlable-anchors', weight: 1 }, { id: 'document-title', weight: 1 }, { id: 'meta-description', weight: 0 },
+        { id: 'structured-data', weight: 1 }, { id: 'hreflang', weight: 1 }, { id: 'link-text', weight: 1 },
+      ] },
+      accessibility: { score: 0.92, auditRefs: [{ id: 'color-contrast', weight: 7 }, { id: 'link-name', weight: 7 }] },
+      'best-practices': { score: 1, auditRefs: [{ id: 'errors-in-console', weight: 1 }] },
+    },
+    audits: {
+      'crawlable-anchors': { title: 'Links are not crawlable', score: 0, scoreDisplayMode: 'binary', details: { items: [
+        { node: { selector: 'div.chips > a', snippet: '&lt;a href="javascript:void(0)"&gt;' } },
+        { node: { selector: 'nav > a.more' } },
+        { node: { selector: 'footer a' } },
+      ] } },
+      'document-title': { title: 'Document has a <title> element', score: 1, scoreDisplayMode: 'binary' },
+      // Вес ноль — в балл не входит, даже если не засчитан.
+      'meta-description': { title: 'Document does not have a meta description', score: 0, scoreDisplayMode: 'binary' },
+      // Ручной пункт — не провал, какой бы балл ни стоял.
+      'structured-data': { title: 'Structured data is valid', score: 0, scoreDisplayMode: 'manual' },
+      hreflang: { title: 'Document has a valid hreflang', score: null, scoreDisplayMode: 'notApplicable' },
+      'link-text': { title: 'Links do not have descriptive text', score: 0, scoreDisplayMode: 'binary', displayValue: '1 link found',
+        details: { items: [{ href: 'https://vedarai.ru/catalog?page=2', text: 'Подробнее' }] } },
+      'color-contrast': { title: 'Background and foreground colors do not have a sufficient contrast ratio.', score: 0,
+        scoreDisplayMode: 'binary', details: { items: [{ node: { selector: 'p.text-xs', snippet: '<p class="text-xs">' } }] } },
+      'link-name': { title: 'Links have a discernible name', score: null, scoreDisplayMode: 'error' },
+      'errors-in-console': { title: 'No browser errors logged to the console', score: 1, scoreDisplayMode: 'binary' },
+    },
+  };
+
+  it('пункт с весом и без зачёта — названием и узлами; «и ещё N» — сколько не показано', () => {
+    const lines = (run(REPORT, 'fail').details ?? '').split('\n');
+    expect(lines).toContain('- не пройдено (SEO 92): «Links are not crawlable» (crawlable-anchors) — '
+      + '`div.chips > a` `<a href="javascript:void(0)">`, `nav > a.more` и ещё 1; '
+      + '«Links do not have descriptive text» (link-text, 1 link found) — «Подробнее» → https://vedarai.ru/catalog?page=2');
+    expect(lines).toContain('- не пройдено (доступность 92): «Background and foreground colors do not have a sufficient '
+      + 'contrast ratio.» (color-contrast) — `p.text-xs` `<p class="text-xs">`');
+  });
+
+  it('засчитанное, ручное, неприменимое и без веса — не провал; «не смог проверить» — отдельно', () => {
+    const d = run(REPORT, 'fail-quiet').details ?? '';
+    for (const id of ['document-title', 'meta-description', 'structured-data', 'hreflang', 'errors-in-console']) {
+      expect(d).not.toContain(id);
+    }
+    expect(d).not.toContain('не пройдено (практики');
+    expect(d).not.toContain('(link-name)');
+    expect(d).toContain('- Lighthouse не смог проверить (доступность): link-name');
+  });
+});
+
+/**
  * Горячие функции по трассе Lighthouse (14.10) — вызовом на синтетической
  * трассе и локальном сервере со «своим» чанком.
  *

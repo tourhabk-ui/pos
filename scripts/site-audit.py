@@ -1080,6 +1080,68 @@ def _lh_lcp_phases(details) -> list[tuple[str, float]]:
 LH_PHASES = {'TTFB': 'ответ сервера', 'Load Delay': 'задержка загрузки', 'Load Time': 'загрузка',
              'Render Delay': 'задержка отрисовки'}
 
+# Баллы без названия пункта. Прогон 12 (14.10): SEO 92 у /catalog и /map,
+# доступность 92–95, а какой пункт не прошёл — отчёт молчал, и чинить было не
+# по чему. Здесь — пункты с весом в категории, которые Lighthouse не засчитал,
+# с узлами из отчёта.
+LH_CATEGORIES = (('seo', 'SEO'), ('accessibility', 'доступность'), ('best-practices', 'практики'))
+LH_FAIL_WHERE = 2
+# Пункт без балла — не провал: проверить руками (manual), не про эту страницу
+# (notApplicable), справка (informative).
+LH_NOT_SCORED = {'manual', 'notApplicable', 'informative'}
+
+
+def _lh_where(item: dict) -> str | None:
+    node = item.get('node')
+    if isinstance(node, dict):
+        what = str(node.get('selector') or node.get('nodeLabel') or '')[:80]
+        snippet = html.unescape(str(node.get('snippet') or ''))[:80]
+        if what or snippet:
+            return (f"`{what}`" if what else '') + (f" `{snippet}`" if snippet else '')
+    if item.get('href') or item.get('text'):
+        return f"«{str(item.get('text') or '')[:40]}» → {str(item.get('href') or '—')[:80]}"
+    if item.get('url'):
+        return str(item['url'])[:100]
+    return None
+
+
+def _lh_failed(c: dict, a: dict) -> list[str]:
+    """Не засчитанные пункты SEO, доступности и практик — по названию и узлам.
+
+    Пункт, который Lighthouse не смог выполнить (error), — отдельной строкой:
+    «не смог проверить» не равно «не прошёл» (§4.0).
+    """
+    out: list[str] = []
+    for key, label in LH_CATEGORIES:
+        cat = c.get(key) or {}
+        failed: list[str] = []
+        errored: list[str] = []
+        for ref in cat.get('auditRefs') or []:
+            if not isinstance(ref, dict) or not (ref.get('weight') or 0) > 0:
+                continue
+            aid = str(ref.get('id') or '')
+            audit = a.get(aid) or {}
+            mode = audit.get('scoreDisplayMode')
+            if mode == 'error':
+                errored.append(aid)
+                continue
+            score = audit.get('score')
+            if mode in LH_NOT_SCORED or not isinstance(score, (int, float)) or score >= 1:
+                continue
+            items = [i for i in ((audit.get('details') or {}).get('items') or []) if isinstance(i, dict)]
+            where = [w for w in (_lh_where(i) for i in items[:LH_FAIL_WHERE]) if w]
+            more = f" и ещё {len(items) - LH_FAIL_WHERE}" if len(items) > LH_FAIL_WHERE else ''
+            value = f", {audit['displayValue']}" if audit.get('displayValue') else ''
+            failed.append(f"«{audit.get('title') or aid}» ({aid}{value})"
+                          + (f" — {', '.join(where)}{more}" if where else ''))
+        score = cat.get('score')
+        head = f"{label} {round(score * 100)}" if isinstance(score, (int, float)) else label
+        if failed:
+            out.append(f"- не пройдено ({head}): " + '; '.join(failed))
+        if errored:
+            out.append(f"- Lighthouse не смог проверить ({label}): " + ', '.join(errored))
+    return out
+
 
 def lighthouse_summary(url: str, lh: dict) -> tuple[str, list[str]]:
     """Строка таблицы итогов и расшифровка «что тормозит» по отчёту Lighthouse.
@@ -1163,6 +1225,7 @@ def lighthouse_summary(url: str, lh: dict) -> tuple[str, list[str]]:
     weight = (a.get('total-byte-weight') or {}).get('numericValue')
     if weight is not None:
         det.append(f"- вес страницы: {_lh_kb(weight)}")
+    det.extend(_lh_failed(c, a))
     if det:
         det.insert(0, f"**{url}** — TBT {dv('total-blocking-time')}, LCP {dv('largest-contentful-paint')}")
         det.append('')
