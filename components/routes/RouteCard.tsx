@@ -132,6 +132,15 @@ function LegacyCard({ route }: { route: RouteItem }) {
           {route.title}
         </h3>
 
+        {/* Начало описания — как у карточки маршрута (RoutePathCard). До
+            14.10 здесь было одно имя, и зонный срез из трёх карточек
+            оставался для человека и поисковика списком названий. */}
+        {route.description && (
+          <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-relaxed">
+            {route.description}
+          </p>
+        )}
+
         {displayPrice != null && displayPrice > 0 && (
           <span className="inline-flex text-xs font-semibold text-[var(--text-primary)] bg-[var(--bg-hover)] px-2 py-1 rounded">
             от {displayPrice.toLocaleString('ru-RU')} ₽

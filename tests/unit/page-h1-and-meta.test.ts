@@ -126,10 +126,11 @@ describe('заглушка в начале описания маршрута', (
     expect(stripFillerLead(undefined)).toBe('');
   });
 
-  it('снимается везде, где маршрут показывается: страница, API, каталог, категории', () => {
+  // Страницы категорий судит рендер: tests/unit/category-card-description.test.tsx
+  // (заглушка на карточке среза не видна человеку) — 14.10, правило 13.10.
+  it('снимается везде, где маршрут показывается: страница, API, каталог', () => {
     expect(code('app/routes/[id]/page.tsx')).toMatch(/description: stripFillerLead\(stripSourceAttribution\(/);
     expect(code('lib/routes/route-detail.ts')).toMatch(/description: stripFillerLead\(r\.description as string \| null\)/);
     expect(code('lib/routes/catalog-query.ts')).toMatch(/description: {2}stripFillerLead\(r\.description as string \| null\)/);
-    expect(code('components/routes/CategoryPage.tsx')).toMatch(/description: stripFillerLead\(r\.description\)/);
   });
 });
