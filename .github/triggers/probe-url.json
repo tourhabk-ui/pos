@@ -1,13 +1,14 @@
 {
-  "timeout": 60,
-  "run": 839,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Контуры природных парков «Ключевской» и «Южно-Камчатский» (OSM через Nominatim, упрощённые) — чтобы отнести места платформы к новому национальному парку по точке в контуре, а не по имени. Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 840,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Нацпарк из «Ключевского» и «Южно-Камчатского»: все видимые места края (экспорт обзорного слоя, krai-overview) и контуры двух парков в OSM (relation 21624151, 21624150) точнее, чем в пробе 839, — чтобы отнести места к парку точкой в контуре. Конфиг записан целиком.",
   "urls": [
-    "https://nominatim.openstreetmap.org/search?format=jsonv2&polygon_geojson=1&polygon_threshold=0.02&limit=3&q=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%B9%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9%20%D0%BF%D0%B0%D1%80%D0%BA",
-    "https://nominatim.openstreetmap.org/search?format=jsonv2&polygon_geojson=1&polygon_threshold=0.02&limit=3&q=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9%20%D0%BF%D0%B0%D1%80%D0%BA"
+    "https://vedarai.ru/api/cron/places-export?region=krai-overview",
+    "https://nominatim.openstreetmap.org/lookup?format=json&polygon_geojson=1&polygon_threshold=0.002&osm_ids=R21624151",
+    "https://nominatim.openstreetmap.org/lookup?format=json&polygon_geojson=1&polygon_threshold=0.002&osm_ids=R21624150"
   ],
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 30000,
+  "bytes": 60000,
   "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
 }
