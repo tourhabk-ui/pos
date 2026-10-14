@@ -121,8 +121,13 @@ describe('публичные чтения знают про слияние', () 
     // подсчёт «всего» ломался каждый раз, когда кто-то добавлял ЕЩЁ один
     // законный гард (так и вышло, когда маршруты карточки тоже закрыли от
     // слитых записей — тест покраснел на улучшении).
+    // С 14.10 запрос «рядом» живёт в lib/places/nearby (порядок по настоящему
+    // расстоянию); исключение слитых там же проверяет на настоящем PostgreSQL
+    // tests/integration/place-nearby.pg.test.ts. Здесь — гард в самом запросе
+    // и гард карточки, оставшийся в place-detail.
+    expect(strip(read('lib/places/nearby.ts')).match(/p\.merged_into_id IS NULL/g)?.length).toBe(1);
     const api = strip(read('lib/places/place-detail.ts'));
-    expect(api.match(/p\.merged_into_id IS NULL/g)?.length).toBe(2);
+    expect(api.match(/p\.merged_into_id IS NULL/g)?.length).toBe(1);
   });
 
   it('маршруты на карточке места — тоже без слитых', () => {

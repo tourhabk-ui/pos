@@ -62,7 +62,9 @@ describe('источники ссылок отдают ЧПУ', () => {
   });
 
   it('«Рядом» на карточке места — по ЧПУ', () => {
-    expect(code('lib/places/place-detail.ts')).toMatch(/p\.ark_id AS id,\s*p\.slug,/);
+    // Запрос «рядом» — lib/places/nearby (14.10); slug в ответе на настоящем
+    // PostgreSQL держит tests/integration/place-nearby.pg.test.ts.
+    expect(code('lib/places/nearby.ts')).toMatch(/p\.ark_id AS id,\s*p\.slug,/);
     expect(code('components/places/PlaceNearby.tsx')).toMatch(/href=\{`\/places\/\$\{n\.slug \?\? n\.id\}`\}/);
   });
 
