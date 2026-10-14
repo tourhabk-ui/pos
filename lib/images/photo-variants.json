@@ -467,14 +467,16 @@
     "src": "/images/hero/hero-dark.jpeg",
     "widths": [
       320,
-      640
+      640,
+      1024
     ]
   },
   {
     "src": "/images/hero/hero-light.jpeg",
     "widths": [
       320,
-      640
+      640,
+      1024
     ]
   },
   {
