@@ -1,12 +1,42 @@
 {
-  "timeout": 90,
-  "run": 842,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Две клетки, обрезанные в пробе 841 (лимит байт): места вокруг «Ключевского» (55n160e) и «Южно-Камчатского» (52n158e). Конфиг записан целиком.",
+  "timeout": 60,
+  "run": 843,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат 93961f36 (миграция 1245, нацпарк) и повторная проверка Вачкажца (прогон 835 завис на адресе pravo.gov.ru). Датчик свежести — имя «Национальный парк — «Ключевской»» на странице парка. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/places-export?region=cell-55n160e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e"
+    "https://vedarai.ru/park/klyuchevskoy",
+    "https://vedarai.ru/park/vachkazhets",
+    "https://vedarai.ru/letopis/vachkazhets",
+    "https://vedarai.ru/places/vachkazhets",
+    "https://vedarai.ru/routes/visitkamchatka-vachkazhets-mountain-range-ski",
+    "https://vedarai.ru/api/images/s3/photos/vachkazhets/gora-vachkazhets-zimoj.jpg"
   ],
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 24000
+  "until": "Национальный парк — «Ключевской»",
+  "retries": 40,
+  "retryDelay": 60,
+  "bytes": 300,
+  "grep": [
+    "Национальный парк — «Ключевской»",
+    "ещё не объявлено",
+    "Разрешение на посещение не нужно",
+    "Разрешение на посещение не требуется",
+    "/letopis/vachkazhets",
+    "Вацкажац",
+    "Спор закончился",
+    "Michael Haing",
+    "Экология и охрана природы",
+    "Памятник природы",
+    "базальтовый",
+    "Медведи",
+    "Охраняемая территория",
+    "Природный парк:",
+    "требует отдельного разрешения",
+    "Место на территории памятника природы",
+    "/routes/"
+  ],
+  "around": [
+    "/routes/"
+  ],
+  "aroundLines": 0,
+  "aroundBefore": 0,
+  "aroundHits": 6
 }
