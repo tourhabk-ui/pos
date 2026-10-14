@@ -1,15 +1,17 @@
 {
-  "timeout": 60,
-  "run": 817,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Архив komandorsky.ru: страницы «Туристам», «Турфирмам» и «О переводе заповедника в национальный парк» — порядок посещения, разрешения, пограничная зона. Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 818,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Координаты заповедников по OSM: в каких охраняемых территориях лежат заглушка Корякского 60.0/165.5, точка Nominatim отношения 5576455 (59.8865406, 166.2616559), прод-точка Командорского (54.9309363, 166.9248504) и точка Nominatim отношения 5576397; береговая линия около точки Корякского — суша или море. Конфиг записан целиком.",
   "urls": [
-    "http://web.archive.org/web/2026/http://komandorsky.ru/for-tourists.html",
-    "http://web.archive.org/web/2026/http://komandorsky.ru/travel-agencies.html",
-    "http://web.archive.org/web/2026/http://komandorsky.ru/perevod-v-nacpark/"
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2860.0%2C165.5%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2859.8865406%2C166.2616559%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9309363%2C166.9248504%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9029083%2C166.8997863%29-%3E.a%3Barea.a%5B%22name%22%5D%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bway%28around%3A12000%2C59.8865406%2C166.2616559%29%5Bnatural%3Dcoastline%5D%3Bout%20geom%2859.80%2C166.10%2C59.97%2C166.42%29%3B"
   ],
   "allowStale": true,
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 16000,
-  "text": true
+  "retries": 2,
+  "retryDelay": 30,
+  "bytes": 12000,
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
 }
