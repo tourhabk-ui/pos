@@ -1,16 +1,37 @@
 {
   "timeout": 120,
-  "run": 924,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Партия 2 памятников природы: карточка «Озеро Ажабачье» и точки Тимоновских источников и Голубых озёр в Nominatim — в пробе 922 не поместились в лимит вывода. Конфиг записан целиком.",
+  "run": 925,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1257 (памятники природы, партия 2): Голубые озёра без «тёплой воды», снятая выдумка видовой точки, Тимоновские источники с мышьяком и режимом, Ажабачье, пустая заметка Кузьмича у батареи Максутова. Заодно высоты SRTM/ASTER двух точек Тимоновских источников (карточка 53.8032775/158.1567997 против статьи 53.8089/158.1644; по статье — 700 м). Ждёт выката по справке Голубых озёр. Конфиг записан целиком.",
   "urls": [
+    "https://vedarai.ru/api/places/6227b295-44de-4148-9571-48c185f86735",
+    "https://vedarai.ru/api/places/be84e54c-f63d-4737-a6cc-8494fcd1a0eb",
+    "https://vedarai.ru/api/places/15bf29b0-9b1b-49c5-be1f-4c8d5d185f4e",
     "https://vedarai.ru/api/places/7498601a-86b8-4560-bf58-e6e2e751b7a8",
-    "https://nominatim.openstreetmap.org/search?q=%D0%A2%D0%B8%D0%BC%D0%BE%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B5+%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8&format=jsonv2&countrycodes=ru&limit=5",
-    "https://nominatim.openstreetmap.org/search?q=%D0%A2%D0%B8%D0%BC%D0%BE%D0%BD%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B5+%D0%BA%D0%BB%D1%8E%D1%87%D0%B8&format=jsonv2&countrycodes=ru&limit=5",
-    "https://nominatim.openstreetmap.org/search?q=%D0%93%D0%BE%D0%BB%D1%83%D0%B1%D1%8B%D0%B5+%D0%BE%D0%B7%D1%91%D1%80%D0%B0%2C+%D0%95%D0%BB%D0%B8%D0%B7%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9+%D1%80%D0%B0%D0%B9%D0%BE%D0%BD&format=jsonv2&countrycodes=ru&limit=5"
+    "https://vedarai.ru/api/places/a2b3c4d5-e6f7-4890-bcde-f01234567890",
+    "https://api.opentopodata.org/v1/srtm30m?locations=53.8089,158.1644|53.8032775,158.1567997",
+    "https://api.opentopodata.org/v1/aster30m?locations=53.8089,158.1644|53.8032775,158.1567997"
   ],
-  "ua": "VedarProbe/1.0 (+https://vedarai.ru; places coordinate check)",
-  "allowStale": true,
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 6000
+  "until": "Голубые озёра — система из трёх озёр",
+  "retries": 40,
+  "retryDelay": 45,
+  "grep": [
+    "Голубые озёра — система из трёх озёр",
+    "близка к нулю",
+    "\"descriptionWithdrawn\":true",
+    "Пить из некоторых источников нельзя",
+    "nature_monument",
+    "\"permitRequired\":null",
+    "Вода чистая и прозрачная",
+    "\"kuzmichReview\":\"\"",
+    "\"hazardTypes\":[\"bears\"]",
+    "шестнадцать",
+    "мутновата",
+    "\"elevation\""
+  ],
+  "around": [
+    "\"elevation\""
+  ],
+  "aroundLines": 3,
+  "aroundHits": 4,
+  "bytes": 700
 }

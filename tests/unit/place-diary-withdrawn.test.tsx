@@ -71,13 +71,13 @@ describe('миграция 1247', () => {
 describe('карточка места', () => {
   it('снятое описание — словами, не тишиной', () => {
     render(<PlaceDescription name="Авачинский перевал" essence={null} description={null} descriptionWithdrawn placeId="p" />);
-    expect(document.body.textContent).toMatch(/Описание этого места было написано как путевая заметка, а не по источникам/);
+    expect(document.body.textContent).toMatch(/Описание этого места было написано не по источникам/);
     expect(document.body.textContent).toMatch(/переписываем по справочникам/);
   });
 
   it('переписали — строки о снятии нет, есть текст', () => {
     render(<PlaceDescription name="Авачинский перевал" essence={null} description="Перевал между Авачинским и Корякским вулканами." descriptionWithdrawn placeId="p" />);
-    expect(document.body.textContent).not.toMatch(/путевая заметка/);
+    expect(document.body.textContent).not.toMatch(/написано не по источникам/);
     expect(screen.getByText(/Перевал между Авачинским/)).toBeTruthy();
   });
 
