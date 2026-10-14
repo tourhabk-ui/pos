@@ -66,7 +66,9 @@ export default async function ChronicleArticlePage({ params }: Props) {
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <Header />
-      <main className="ds-page pt-20 pb-16">
+      {/* px-4: ds-page даёт только отступ сверху, без полей текст на телефоне
+          лежал вплотную к краю экрана (снимок 14.10, 390 px). */}
+      <main className="ds-page px-4 pt-20 pb-16">
         <article className="max-w-2xl mx-auto">
           <Link
             href="/letopis"

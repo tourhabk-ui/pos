@@ -34,7 +34,8 @@ beforeEach(() => {
 describe('страница парка не ходит за данными из браузера', () => {
   it('клиентская часть получает данные пропсом и запросов не делает', () => {
     const client = code('app/park/[slug]/_ParkClient.tsx');
-    expect(client).toMatch(/export default function ParkClient\(\{ park \}: \{ park: ParkPageData \}\)/);
+    // 14.10: вторым пропом пришли статьи летописи — тоже с сервера (page.tsx).
+    expect(client).toMatch(/export default function ParkClient\(\{ park\b[^)]*\}: \{ park: ParkPageData\b[^)]*\}\)/);
     expect(client).not.toMatch(/fetch\(/);
     expect(client).not.toMatch(/useEffect/);
   });

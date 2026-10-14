@@ -25,7 +25,9 @@ export default function ChronicleIndexPage() {
   return (
     <>
       <Header />
-      <main className="ds-page pt-20 pb-16">
+      {/* px-4: ds-page даёт только отступ сверху, без полей текст на телефоне
+          лежал вплотную к краю экрана (снимок 14.10, 390 px). */}
+      <main className="ds-page px-4 pt-20 pb-16">
         <div className="mb-10">
           <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">
             История края

@@ -64,7 +64,9 @@ export interface ParkChronicleLink {
 export default function ParkClient({ park, chronicle = [] }: { park: ParkPageData; chronicle?: ParkChronicleLink[] }) {
   const slug = park.slug;
   return (
-    <div className="ds-page" style={{ maxWidth: 720, margin: '0 auto' }}>
+    // Поля 16 px по бокам: ds-page даёт только отступ сверху, и на телефоне
+    // текст карточки лежал вплотную к краю экрана (снимок 14.10, 390 px).
+    <div className="ds-page" style={{ maxWidth: 720, margin: '0 auto', paddingInline: 16 }}>
 
       {/* Hero */}
       <div style={{ marginBottom: 28 }}>
