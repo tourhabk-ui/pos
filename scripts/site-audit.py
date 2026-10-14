@@ -1117,6 +1117,25 @@ def lighthouse_summary(url: str, lh: dict) -> tuple[str, list[str]]:
     phases = _lh_lcp_phases((a.get('largest-contentful-paint-element') or {}).get('details'))
     if phases:
         det.append('- фазы LCP: ' + ', '.join(f"{LH_PHASES.get(n, n)} {_lh_ms(t)}" for n, t in phases))
+    # Сдвиги вёрстки: в Lighthouse 12 — `layout-shifts` (с причиной), в 10–11 —
+    # `layout-shift-elements`. Прогон 9 (14.10): CLS /map 0,171 при пороге 0,1,
+    # а что сдвигается — не сказано, и чинить было не по чему.
+    shifts: list[dict] = []
+    for key in ('layout-shifts', 'layout-shift-elements'):
+        shifts = [i for i in items(key) if isinstance(i.get('node'), dict)]
+        if shifts:
+            break
+    shifts = sorted(shifts, key=lambda i: -(i.get('score') or 0))[:3]
+    if shifts:
+        def shift(i: dict) -> str:
+            n = i['node']
+            what = str(n.get('selector') or n.get('nodeLabel') or '—')[:80]
+            causes = [str(x.get('cause')) for x in ((i.get('subItems') or {}).get('items') or [])
+                      if isinstance(x, dict) and x.get('cause')]
+            score = i.get('score')
+            share = f" {float(score):.3f}" if isinstance(score, (int, float)) else ''
+            return f"`{what}`{share}" + (f" ({causes[0]})" if causes else '')
+        det.append(f"- сдвиги вёрстки (CLS {dv('cumulative-layout-shift')}): " + '; '.join(shift(i) for i in shifts))
     groups = sorted(items('mainthread-work-breakdown'), key=lambda i: -(i.get('duration') or 0))[:3]
     if groups:
         det.append('- главный поток: ' + ', '.join(
