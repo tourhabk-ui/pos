@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Сторож: заливка роликов в хранилище (lib/media/video-sync,
  * lib/media/video-hygiene) — владелец 09.10: «видео тоже в s3».

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Своя карта молчала чёрным полем: воркер MapLibre и чужие хосты в SW.
  *

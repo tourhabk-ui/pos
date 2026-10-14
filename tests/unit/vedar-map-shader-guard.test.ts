@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Сторож: сбой кадра MapLibre не оставляет чёрный экран без слов.
  *

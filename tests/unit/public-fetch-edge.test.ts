@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Публичная страница не зовёт API, которое Edge молча режет.
  *

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * /api/routes/search не путает «рядом» с «по пути» (§4.1 CLAUDE.md,
  * lib/routes/link-kind.ts).

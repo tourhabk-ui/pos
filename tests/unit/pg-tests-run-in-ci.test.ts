@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Тест на настоящем PostgreSQL, которого CI не запускает, — это не тест.
  *
