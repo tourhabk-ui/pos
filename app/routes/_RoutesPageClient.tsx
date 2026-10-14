@@ -234,7 +234,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [mapRoutes, setMapRoutes] = useState<MapRoute[]>([]);
   const [mapLoading, setMapLoading] = useState(false);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
   // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
   const initialKeyRef = useRef<string | null>(initialError ? null : initialKey);

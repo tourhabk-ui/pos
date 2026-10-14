@@ -799,7 +799,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
    * то есть почти всем, — при живом дорожном графе за режимом 'car'.
    */
   const [buildTravelMode, setBuildTravelMode] = useState<RouteBuildMode>('car');
-  const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
+  const modalSearchRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const previewCacheRef = useRef<Map<string, {
     wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
   }>>(new Map());
