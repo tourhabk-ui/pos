@@ -1,18 +1,17 @@
 {
-  "timeout": 90,
-  "run": 882,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский федеральный заказник (Курильское озеро) — следующий по порядку: справка Википедии, страница заявок Кроноцкого заповедника (он ведает заказником), обе карточки Курильского озера, Кутхины Баты и перепись мест со словом «заказник». Конфиг записан целиком.",
+  "timeout": 120,
+  "run": 883,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский федеральный заказник: контур (Nominatim, упрощённый полигон) и места платформы в клетках вокруг него (экспорт слоя мест) — чтобы режим лёг по контуру, а не по имени. Конфиг записан целиком.",
   "urls": [
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D1%84%D0%B5%D0%B4%D0%B5%D1%80%D0%B0%D0%BB%D1%8C%D0%BD%D1%8B%D0%B9%20%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA",
-    "https://kronoki.ru/ru/visit/requests/",
-    "https://vedarai.ru/api/places/d7e11485-5444-4ded-8dd8-c7da01c9d5a9",
-    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
-    "https://vedarai.ru/api/places/663e37f3-5deb-4907-ac25-321dd247d85e",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA"
+    "https://nominatim.openstreetmap.org/search?q=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA&format=geojson&polygon_geojson=1&polygon_threshold=0.005&limit=3",
+    "https://vedarai.ru/api/cron/places-export?region=cell-50n156e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-51n156e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-51n157e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n156e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n157e"
   ],
   "allowStale": true,
-  "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 6500
+  "bytes": 14000
 }
