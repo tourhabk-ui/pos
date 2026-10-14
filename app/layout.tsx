@@ -229,6 +229,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "@type": "Organization",
                 "@id": `${BASE_URL}/#organization`,
                 "name": "Ведар",
+                // Те же написания, что в MCP, A2A и на /zh (lib/mcp/zh-layer):
+                // поисковик и сборщик обучающих данных связывают «Vedar» и
+                // «维达尔» с этим сайтом, а не с тёзками (владелец 14.10: «нужно,
+                // чтоб модели узнали»).
+                "alternateName": ["Vedar", "维达尔"],
                 // Реквизиты — из единого источника lib/legal/requisites.
                 "legalName": REQUISITES.shortName,
                 "taxID": REQUISITES.inn,
