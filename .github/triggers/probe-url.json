@@ -1,25 +1,25 @@
 {
   "timeout": 120,
-  "run": 896,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Природный парк «Вилючинский» и заказник «Река Коль» в сети «Вулканы Камчатки»: статьи Википедии о сети парков и реке Коль, их внешние ссылки (первоисточники), разделы сайта сети парков. Конфиг записан целиком.",
+  "run": 897,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Первоисточники по природному парку «Вилючинский» (2022) и заказнику «Река Коль» (2006): документы kamgov.ru и Минприроды края, найденные поиском, документ сайта сети парков 2022 года, страница Wild Salmon Center о Коли. Первый прогон с текстом PDF (pdfminer). Конфиг записан целиком.",
   "urls": [
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%D1%8B%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B8%20%28%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9%20%D0%BF%D0%B0%D1%80%D0%BA%29",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D0%BE%D0%BB%D1%8C%20%28%D1%80%D0%B5%D0%BA%D0%B0%2C%20%D0%B2%D0%BF%D0%B0%D0%B4%D0%B0%D0%B5%D1%82%20%D0%B2%20%D0%9E%D1%85%D0%BE%D1%82%D1%81%D0%BA%D0%BE%D0%B5%20%D0%BC%D0%BE%D1%80%D0%B5%29",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extlinks&ellimit=200&titles=%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%D1%8B%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B8%20%28%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9%20%D0%BF%D0%B0%D1%80%D0%BA%29",
-    "https://vulcanikamchatki.ru/territoriya/"
+    "https://www.kamgov.ru/files/6272f7fa9f2868.84413334.pdf",
+    "https://minprir.kamgov.ru/document/file/download?id=91475",
+    "https://minprir.kamgov.ru/document/file/download?id=53790",
+    "https://vulcanikamchatki.ru/files/2023/doc/63acb3f957b957_22593119.pdf",
+    "https://kamgov.ru/files/66b19618ada4f8.73698439.pdf",
+    "https://www.kamgov.ru/files/624b9e1471e485.19037124.pdf",
+    "https://wildsalmoncenter.org/?p=2182"
   ],
   "allowStale": true,
   "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 14000,
-  "around": [
-    "vilyuch",
+  "bytes": 7000,
+  "grep": [
     "Вилючинск",
-    "kol",
-    "Коль"
-  ],
-  "aroundLines": 1,
-  "aroundBefore": 2,
-  "aroundHits": 4
+    "Коль",
+    "природный парк",
+    "заказник"
+  ]
 }

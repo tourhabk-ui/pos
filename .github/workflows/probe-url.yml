@@ -41,6 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Текст PDF (14.10): постановления края о природных парках и заказниках
+      # лежат на kamgov.ru только в PDF, а режим "text" печатал их как
+      # бинарную кашу. Не встал пакет — strip.py скажет об этом словами.
+      - name: Install PDF text extractor
+        continue-on-error: true
+        run: python3 -m pip install --quiet --disable-pip-version-check --break-system-packages pdfminer.six==20231228
+
       - name: Fetch and print
         id: fetch
         env:
@@ -174,6 +181,17 @@ jobs:
           # кириллица превращалась в знаки вопроса, и перечень товаров знака
           # прочитать было нельзя. Сперва строгий utf-8, не вышло — cp1251.
           data = sys.stdin.buffer.read()
+          if data[:5] == b'%PDF-':
+              try:
+                  import io
+                  from pdfminer.high_level import extract_text
+                  text = extract_text(io.BytesIO(data))
+              except Exception as e:
+                  print('[PDF: текст не извлечён — ' + type(e).__name__ + ']')
+                  sys.exit(0)
+              lines = [re.sub(r'[ \t\xa0]+', ' ', l).strip() for l in text.splitlines()]
+              print('\n'.join(l for l in lines if l))
+              sys.exit(0)
           try:
               raw = data.decode('utf-8')
           except UnicodeDecodeError:
