@@ -81,7 +81,7 @@ jobs:
           [ -s /tmp/lh-pages.txt ] || { echo "страниц для Lighthouse нет"; exit 0; }
           {
             echo
-            echo "## Lighthouse (мобильный профиль, 1 прогон на страницу)"
+            echo "## Lighthouse (мобильный профиль, медиана 3 прогонов на страницу)"
             echo '| страница | производительность | SEO | доступность | практики | LCP | CLS | TBT |'
             echo '|---|---|---|---|---|---|---|---|'
           } >> /tmp/site-audit.md
@@ -89,26 +89,29 @@ jobs:
           while IFS= read -r url; do
             [ -z "$url" ] && continue
             n=$((n+1)); [ $n -gt 3 ] && break
-            out=/tmp/lh-$n.json
-            # --save-assets кладёт рядом трассу (/tmp/lh-N-0.trace.json): по
-            # профилю ЦП в ней расшифровка называет функции, а не только файлы
-            # (scripts/site-audit.py: hot_functions, 14.10). Профиля в трассе
-            # Lighthouse по умолчанию нет — прогон 11 так и сказал («в трассе
-            # нет профиля ЦП»); категорию профилировщика просим явно.
-            if timeout 180 npx -y lighthouse@12 "$url" --quiet --output=json --output-path="$out" \
+            # Три прогона, в таблицу — медиана по производительности, разброс —
+            # строкой в расшифровке. Прогоны 13–15: главная без правок дала 67,
+            # 80 и 62 и TBT 780, 240 и 1 060 мс — одиночный прогон был шумом
+            # (scripts/site-audit.py: lighthouse_median).
+            runs=()
+            for k in 1 2 3; do
+              out=/tmp/lh-$n-$k.json
+              runs+=("$out")
+              # --save-assets кладёт рядом трассу (/tmp/lh-N-K-0.trace.json): по
+              # профилю ЦП в ней расшифровка называет функции, а не только файлы
+              # (hot_functions, 14.10), и сдвиги вёрстки с местом узла до и после
+              # (trace_shift_lines). Профиля в трассе Lighthouse по умолчанию
+              # нет — категорию профилировщика просим явно.
+              timeout 180 npx -y lighthouse@12 "$url" --quiet --output=json --output-path="$out" \
                  --only-categories=performance,seo,accessibility,best-practices \
                  --form-factor=mobile --screenEmulation.mobile --emulatedUserAgent="$LH_UA" --save-assets \
                  --additional-trace-categories=disabled-by-default-v8.cpu_profiler \
-                 --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt; then
-              # Строка таблицы — в отчёт, расшифровка «что тормозит» — отдельным
-              # файлом под таблицей (scripts/site-audit.py: lighthouse_summary).
-              # Трассы нет — путь-заглушка: расшифровка скажет «трасса не
-              # прочитана», а не промолчит (§4.0).
-              trace=$(ls /tmp/lh-$n-*.trace.json 2>/dev/null | head -n 1)
-              python3 scripts/site-audit.py lighthouse "$url" "$out" /tmp/lh-details.md "${trace:-/tmp/lh-$n-trace-not-saved.json}" >> /tmp/site-audit.md
-            else
-              echo "| $url | не измерено: $(head -c 120 /tmp/lh-err.txt | tr '\n' ' ') | | | | | | |" >> /tmp/site-audit.md
-            fi
+                 --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt \
+                || echo "Lighthouse $url, прогон $k не удался: $(head -c 200 /tmp/lh-err.txt | tr '\n' ' ')"
+            done
+            # Не удавшийся прогон отчёта не оставит: скрипт назовёт «не прочитано
+            # N из 3», а ни одного — строкой «не измерено», не тишиной (§4.0).
+            python3 scripts/site-audit.py lighthouse-runs "$url" /tmp/lh-details.md "${runs[@]}" >> /tmp/site-audit.md
           done < /tmp/lh-pages.txt
           if [ -s /tmp/lh-details.md ]; then
             { echo; echo "### Lighthouse: что тормозит"; echo; cat /tmp/lh-details.md; } >> /tmp/site-audit.md

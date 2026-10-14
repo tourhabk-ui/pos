@@ -445,3 +445,73 @@ describe('trace_shift_lines: откуда и куда сдвинулся узе�
     expect(shiftLines(d)[1]).toBe('  - 0.0500: узел 4 y 1, h 643 → y 2, h 643');
   });
 });
+
+/**
+ * Медиана прогонов (14.10). Прогоны 13–15: главная без единой правки показала
+ * производительность 67, 80 и 62 и TBT 780, 240 и 1 060 мс — разброс раннера
+ * больше эффекта правок. Теперь на страницу три прогона: в таблицу — прогон с
+ * медианой производительности, его трасса — в расшифровку, разброс — строкой.
+ */
+describe('lighthouse-runs: медиана прогонов и разброс', () => {
+  const report = (perf: number, lcp: number, tbt: number, cls: number) => ({
+    ...LH12,
+    categories: { ...LH12.categories, performance: { score: perf } },
+    audits: { ...LH12.audits,
+      'largest-contentful-paint': { displayValue: `${(lcp / 1000).toFixed(1)} s`, numericValue: lcp },
+      'total-blocking-time': { displayValue: `${tbt} ms`, numericValue: tbt },
+      'cumulative-layout-shift': { displayValue: cls.toFixed(3), numericValue: cls },
+    },
+  });
+  /** Трасса прогона: один сдвиг с узлом, по которому видно, чья она. */
+  const traceOf = (nodeId: number) => ({ traceEvents: [
+    { name: 'LayoutShift', ts: 1, args: { data: { score: 0.1, weighted_score_delta: 0.1, had_recent_input: false,
+      is_main_frame: true, impacted_nodes: [{ node_id: nodeId, old_rect: [0, 0, 1, 1], new_rect: [0, 9, 1, 1] }] } } },
+  ] });
+
+  function runRuns(reports: Array<unknown | null>, name: string, traces = false): { row: string; details: string | null } {
+    const md = join(dir, `${name}.md`);
+    const paths = reports.map((r, i) => {
+      const p = join(dir, `${name}-${i + 1}.json`);
+      if (r !== null) writeFileSync(p, typeof r === 'string' ? r : JSON.stringify(r));
+      // Имя трассы — как у lighthouse --save-assets: X.json → X-0.trace.json.
+      if (traces && r !== null) writeFileSync(join(dir, `${name}-${i + 1}-0.trace.json`), JSON.stringify(traceOf(100 + i)));
+      return p;
+    });
+    const row = execFileSync('python3', [SCRIPT, 'lighthouse-runs', PAGE, md, ...paths], { encoding: 'utf-8' }).trim();
+    return { row, details: existsSync(md) ? readFileSync(md, 'utf-8') : null };
+  }
+
+  it('в таблице — прогон с медианой производительности, разброс — сразу под заголовком', () => {
+    const { row, details } = runRuns([report(0.62, 3900, 1060, 0), report(0.31, 7500, 450, 0.162), report(0.43, 6100, 15000, 0.009)], 'med3');
+    expect(row).toBe(`| ${PAGE} | 43 | 92 | 92 | 96 | 6.1 s | 0.009 | 15000 ms |`);
+    const lines = (details ?? '').split('\n');
+    expect(lines[0]).toBe(`**${PAGE}** — TBT 15000 ms, LCP 6.1 s`);
+    expect(lines[1]).toBe('- 3 прогона: производительность 31–62 (в таблице 43), LCP 3.9–7.5 с, TBT 450–15 000 мс, CLS 0.000–0.162');
+  });
+
+  it('трасса — того же прогона, что и таблица', () => {
+    // Медиана — второй файл (0.43); его трасса несёт узел 101.
+    const { details } = runRuns([report(0.62, 3900, 1060, 0), report(0.43, 6100, 900, 0), report(0.31, 7500, 450, 0)], 'medtrace', true);
+    expect(details ?? '').toContain('узел 101 ');
+    expect(details ?? '').not.toContain('узел 100 ');
+    expect(details ?? '').not.toContain('узел 102 ');
+  });
+
+  it('не прочитанный прогон назван; из двух — нижний: осторожнее', () => {
+    const { row, details } = runRuns([report(0.8, 3000, 200, 0), null, report(0.6, 4000, 300, 0)], 'med2');
+    expect(row).toMatch(new RegExp(`^\\| ${PAGE.replace(/[/.]/g, '\\$&')} \\| 60 \\|`));
+    expect(details ?? '').toContain('- 2 прогона: производительность 60–80 (в таблице 60), LCP 3.0–4.0 с, TBT 200–300 мс, CLS 0.000; не прочитано 1 из 3');
+  });
+
+  it('ни один не прочитан — «не измерено», а не тишина и не пустая строка', () => {
+    const { row, details } = runRuns([null, '{"categories": ', { categories: {} }], 'med0');
+    expect(row).toBe(`| ${PAGE} | не измерено: ни один из 3 прогонов Lighthouse не прочитан | | | | | | |`);
+    expect(details).toBeNull();
+  });
+
+  it('одинаковые прогоны — без ложного диапазона', () => {
+    const r = report(0.5, 4000, 300, 0.01);
+    const { details } = runRuns([r, r, r], 'medsame');
+    expect(details ?? '').toContain('- 3 прогона: производительность 50 (в таблице 50), LCP 4.0 с, TBT 300 мс, CLS 0.010');
+  });
+});
