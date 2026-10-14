@@ -1,14 +1,16 @@
 {
   "timeout": 90,
-  "run": 840,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Нацпарк из «Ключевского» и «Южно-Камчатского»: все видимые места края (экспорт обзорного слоя, krai-overview) и контуры двух парков в OSM (relation 21624151, 21624150) точнее, чем в пробе 839, — чтобы отнести места к парку точкой в контуре. Конфиг записан целиком.",
+  "run": 841,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места в шести клетках вокруг парков «Ключевской» и «Южно-Камчатский» (экспорт слоя мест) — для проверки точкой в контуре OSM. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/places-export?region=krai-overview",
-    "https://nominatim.openstreetmap.org/lookup?format=json&polygon_geojson=1&polygon_threshold=0.002&osm_ids=R21624151",
-    "https://nominatim.openstreetmap.org/lookup?format=json&polygon_geojson=1&polygon_threshold=0.002&osm_ids=R21624150"
+    "https://vedarai.ru/api/cron/places-export?region=cell-55n160e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-55n161e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-56n160e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-56n161e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n157e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e"
   ],
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 60000,
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
+  "bytes": 10500
 }
