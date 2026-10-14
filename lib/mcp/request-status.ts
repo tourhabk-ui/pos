@@ -32,6 +32,19 @@
  * (`confirmConsent`). В ответе инструмента это видно полем `consent`:
  * human / agent / none.
  *
+ * ── Заявка на жильё (14.10, миграция 1238) ─────────────────────────────────
+ *
+ * create_stay_request выдаёт ключ тем же путём. Своего жизненного цикла у
+ * такой заявки нет: платформа знает, кому она доставлена (1213), а ответ
+ * владелец даёт гостю звонком. Поэтому статус — `delivered` с тем, кому
+ * передана, а не «ждёт ответа», который никогда не придёт.
+ *
+ * Согласие человек подтверждает тем текстом, кому уходят его данные
+ * (`consent_purpose`): владельцу жилья, перевозчику или туроператору. До
+ * 14.10 страница показывала и писала «туроператору» и для заявки на машину —
+ * версия перевозчика, записанная агентом, затиралась версией, которая о
+ * перевозчике молчит.
+ *
  * Сторожа: tests/unit/mcp-request-status.test.ts (форма, словарь, отсутствие
  * ПД, хеш вместо ключа), tests/integration/mcp-request-status.pg.test.ts
  * (SQL на схеме прода).
@@ -45,7 +58,7 @@ import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
-  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind,
+  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
 } from '@/lib/mcp/request-status-schema';
 
 export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
@@ -78,13 +91,28 @@ export function consentBy(source: string | null | undefined, at: Date | string |
   return source === AGENT_CONSENT_SOURCE ? 'agent' : 'human';
 }
 
+/** Пишущие инструменты, чьи данные уходят не туроператору (lib/mcp/public-tools). */
+const STAY_TOOL_NAME = 'create_stay_request';
+const CHARTER_TOOL_NAME = 'request_charter';
+
+/**
+ * На передачу кому согласие по заявке этого инструмента. Данные заявки на
+ * жильё получает владелец, заявки на машину — перевозчик (§14): галочка
+ * «туроператору» их не покрывает.
+ */
+export function consentPurposeForTool(toolName: string): ConsentPurpose {
+  if (toolName === STAY_TOOL_NAME) return 'stay';
+  if (toolName === CHARTER_TOOL_NAME) return 'carrier';
+  return 'operator';
+}
+
 const KEY_RE = /^[A-Za-z0-9_-]+$/;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-export type RequestKeyTarget = { leadId: string } | { seatRequestId: string };
+export type RequestKeyTarget = { leadId: string } | { seatRequestId: string } | { stayRequestId: string };
 
 /**
  * Выдать ключ на заявку. В базу — только хеш; сырой ключ возвращается ровно
@@ -95,11 +123,12 @@ export async function issueRequestKey(target: RequestKeyTarget, toolName: string
   const key = randomBytes(24).toString('base64url');
   const leadId = 'leadId' in target ? target.leadId : null;
   const seatRequestId = 'seatRequestId' in target ? target.seatRequestId : null;
+  const stayRequestId = 'stayRequestId' in target ? target.stayRequestId : null;
   try {
     await pool.query(
-      `INSERT INTO agent_request_keys (key_hash, lead_id, seat_request_id, tool_name, expires_at)
-       VALUES ($1, $2::uuid, $3::uuid, $4, NOW() + ($5::int * INTERVAL '1 day'))`,
-      [sha256(key), leadId, seatRequestId, toolName, REQUEST_KEY_TTL_DAYS],
+      `INSERT INTO agent_request_keys (key_hash, lead_id, seat_request_id, stay_request_id, tool_name, expires_at)
+       VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5, NOW() + ($6::int * INTERVAL '1 day'))`,
+      [sha256(key), leadId, seatRequestId, stayRequestId, toolName, REQUEST_KEY_TTL_DAYS],
     );
     return key;
   } catch (err) {
@@ -109,8 +138,20 @@ export async function issueRequestKey(target: RequestKeyTarget, toolName: string
   }
 }
 
-/** Хвост ответа пишущего инструмента: ключ есть — как им пользоваться; нет — так и сказано. */
-export function keyLine(key: string | null): string {
+/**
+ * Хвост ответа пишущего инструмента: ключ есть — как им пользоваться; нет —
+ * так и сказано. У заявки на жильё ответа владельца платформа не видит, и
+ * хвост этого не обещает.
+ */
+export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'): string {
+  if (kind === 'stay') {
+    return key
+      ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка (без имени и телефона).`
+        + ' Ответ владелец даёт звонком, и платформа его не видит.'
+        + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья.`
+        + ' Ключ и ссылку не публикуйте.'
+      : ' Ключ статуса заявки не выдан (сбой записи ключа): исход знает только владелец, телефон — на карточке объекта.';
+  }
   return key
     ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, ответил ли оператор (без имени и телефона).`
       + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на обработку данных и видит ответ оператора.`
@@ -122,7 +163,13 @@ export interface RequestStatusView {
   state: RequestState;
   kind: RequestKind;
   tour: string | null;
+  /** Объект и его карточка — у заявки на жильё; на карточке телефон владельца. */
+  accommodation: string | null;
+  accommodation_url: string | null;
+  /** Дата тура или заезда. */
   date: string | null;
+  /** Дата выезда — у заявки на жильё. */
+  check_out: string | null;
   participants: number | null;
   alt_date: string | null;
   deadline: string | null;
@@ -130,6 +177,8 @@ export interface RequestStatusView {
   next: string;
   /** Чьё согласие на обработку ПД записано: человек сам (страница заявки или форма сайта), агент при создании, никто. */
   consent: ConsentBy;
+  /** На передачу кому это согласие: туроператору, владельцу жилья, перевозчику. */
+  consent_purpose: ConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
 }
@@ -156,6 +205,17 @@ interface StatusRow {
   lead_consent_source: string | null;
   seat_consent_at: Date | string | null;
   seat_consent_source: string | null;
+  stay_request_id: string | null;
+  stay_accommodation_id: string | null;
+  stay_name: string | null;
+  stay_check_in: string | null;
+  stay_check_out: string | null;
+  stay_guests: number | null;
+  stay_owner_channel: string | null;
+  stay_platform_channel: string | null;
+  stay_delivery_recorded_at: Date | string | null;
+  stay_consent_at: Date | string | null;
+  stay_consent_source: string | null;
 }
 
 /** Лид: сначала бронь по нему (если оператор уже завёл), иначе статус самого лида. */
@@ -187,8 +247,49 @@ export function seatState(status: SeatRequestStatus): RequestState {
   }
 }
 
+/** Кому дошла заявка на жильё. Доставка — только MAX: заглушка в Telegram идёт без имени и телефона, перезвонить по ней нельзя. */
+export type StayDelivery = 'owner' | 'platform' | 'none' | 'not_recorded';
+
+/** Исход доставки из строки stay_requests (1213). Время записи пусто — «не записано», а не «не дошло». */
+export function stayDelivery(
+  ownerChannel: string | null,
+  platformChannel: string | null,
+  recordedAt: Date | string | null,
+): StayDelivery {
+  if (!recordedAt) return 'not_recorded';
+  if (ownerChannel === 'max') return 'owner';
+  if (platformChannel === 'max') return 'platform';
+  return 'none';
+}
+
+export function stayState(delivery: StayDelivery): RequestState {
+  switch (delivery) {
+    case 'owner':
+    case 'platform': return 'delivered';
+    case 'none': return 'failed';
+    default: return 'unknown';
+  }
+}
+
+const STAY_HUMAN: Record<StayDelivery, string> = {
+  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки, и его ответа платформа не видит.',
+  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком, и его ответа платформа не видит.',
+  none: 'Заявка записана, но не дошла ни владельцу, ни оператору Ведара.',
+  not_recorded: 'Заявка записана, но куда она дошла, не записано.',
+};
+
+const STAY_CALL_SELF = 'телефон на карточке объекта (accommodation_url).';
+
+const STAY_NEXT: Record<StayDelivery, string> = {
+  owner: `Владелец позвонит человеку и подтвердит даты и цену. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF} Спрашивать статус снова незачем: после передачи он не меняется.`,
+  platform: `Владелец позвонит человеку и подтвердит даты и цену. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF} Спрашивать статус снова незачем: после передачи он не меняется.`,
+  none: `Человеку стоит позвонить владельцу самому: ${STAY_CALL_SELF}`,
+  not_recorded: `Если владелец не позвонил, человеку стоит позвонить ему самому: ${STAY_CALL_SELF}`,
+};
+
 const HUMAN: Record<RequestState, string> = {
   awaiting_operator: 'Заявка принята, оператор ещё не ответил.',
+  delivered: 'Заявка передана; ответ дают звонком, и платформа его не видит.',
   operator_contacted: 'Оператор связался с человеком по заявке.',
   in_progress: 'Заявка в работе у оператора: детали уточняются.',
   confirmed: 'Оператор подтвердил заявку.',
@@ -202,6 +303,7 @@ const HUMAN: Record<RequestState, string> = {
 
 const NEXT: Record<RequestState, string> = {
   awaiting_operator: 'Подождите звонка оператора; повторно спрашивать статус раньше чем через час не нужно.',
+  delivered: 'Подождите звонка; спрашивать статус снова незачем: после передачи он не меняется.',
   operator_contacted: 'Дальнейшее человек согласует с оператором по телефону.',
   in_progress: 'Дальнейшее человек согласует с оператором по телефону.',
   confirmed: 'Оплата — оператору напрямую, он скажет как. Через платформу оплаты нет.',
@@ -236,15 +338,20 @@ export const REQUEST_STATUS_SQL = `
     UPDATE agent_request_keys
        SET last_read_at = NOW(), read_count = read_count + 1
      WHERE key_hash = $1 AND expires_at > NOW()
-    RETURNING lead_id, seat_request_id, tool_name
+    RETURNING lead_id, seat_request_id, stay_request_id, tool_name
   )
-  SELECT k.tool_name, k.lead_id::text, k.seat_request_id::text,
+  SELECT k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
          l.status AS lead_status, l.route_title,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
          l.pd_consent_at AS lead_consent_at, l.pd_consent_source AS lead_consent_source,
-         r.pd_consent_at AS seat_consent_at, r.pd_consent_source AS seat_consent_source
+         r.pd_consent_at AS seat_consent_at, r.pd_consent_source AS seat_consent_source,
+         s.accommodation_id::text AS stay_accommodation_id, a.name AS stay_name,
+         s.check_in_date::text AS stay_check_in, s.check_out_date::text AS stay_check_out, s.guests AS stay_guests,
+         s.owner_channel AS stay_owner_channel, s.platform_channel AS stay_platform_channel,
+         s.delivery_recorded_at AS stay_delivery_recorded_at,
+         s.pd_consent_at AS stay_consent_at, s.pd_consent_source AS stay_consent_source
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
     LEFT JOIN LATERAL (
@@ -256,7 +363,9 @@ export const REQUEST_STATUS_SQL = `
     ) ob ON k.lead_id IS NOT NULL
     LEFT JOIN operator_tours ot ON ot.id = ob.operator_tour_id
     LEFT JOIN tour_seat_requests r ON r.id = k.seat_request_id
-    LEFT JOIN operator_tours st ON st.id = r.tour_id`;
+    LEFT JOIN operator_tours st ON st.id = r.tour_id
+    LEFT JOIN stay_requests s ON s.id = k.stay_request_id
+    LEFT JOIN accommodations a ON a.id = s.accommodation_id`;
 
 export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {
   const key = readKey(rawKey);
@@ -272,6 +381,32 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней). Проверьте, что передан ключ из ответа инструмента целиком.`, 'key_not_found');
   }
 
+  const consent_purpose = consentPurposeForTool(row.tool_name);
+
+  if (row.stay_request_id) {
+    // Строки заявки нет (удалена между UPDATE и JOIN) — честное unknown.
+    const exists = row.stay_accommodation_id !== null;
+    const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
+    const state = exists ? stayState(delivery) : 'unknown';
+    return {
+      state,
+      kind: 'stay_request',
+      tour: null,
+      accommodation: row.stay_name,
+      accommodation_url: exists ? `${getPublicBaseUrl()}/accommodations/${row.stay_accommodation_id}` : null,
+      date: row.stay_check_in,
+      check_out: row.stay_check_out,
+      participants: row.stay_guests,
+      alt_date: null,
+      deadline: null,
+      human: exists ? STAY_HUMAN[delivery] : HUMAN.unknown,
+      next: exists ? STAY_NEXT[delivery] : NEXT.unknown,
+      consent: consentBy(row.stay_consent_source, row.stay_consent_at),
+      consent_purpose,
+      page: requestStatusPageUrl(key),
+    };
+  }
+
   if (row.seat_request_id && row.seat_status) {
     const status = effectiveStatus({ status: row.seat_status, deadline_at: row.deadline_at ?? new Date(0), answered_at: row.answered_at });
     const state = seatState(status);
@@ -279,13 +414,17 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
       state,
       kind: 'seat_request',
       tour: row.seat_tour,
+      accommodation: null,
+      accommodation_url: null,
       date: row.seat_date,
+      check_out: null,
       participants: row.seat_participants,
       alt_date: state === 'other_date' ? row.alt_date : null,
       deadline: state === 'awaiting_operator' ? iso(row.deadline_at) : null,
       human: HUMAN[state] + (state === 'failed' && row.failure_kind === 'unfinished' ? ' Ответ оператора был получен, но не записан.' : ''),
       next: NEXT[state],
       consent: consentBy(row.seat_consent_source, row.seat_consent_at),
+      consent_purpose,
       page: requestStatusPageUrl(key),
     };
   }
@@ -297,13 +436,17 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     state,
     kind: 'lead',
     tour: row.booking_tour ?? row.route_title,
+    accommodation: null,
+    accommodation_url: null,
     date: row.booking_date,
+    check_out: null,
     participants: row.booking_participants,
     alt_date: null,
     deadline: null,
     human: HUMAN[state],
     next: NEXT[state],
     consent: consentBy(row.lead_consent_source, row.lead_consent_at),
+    consent_purpose,
     page: requestStatusPageUrl(key),
   };
 }
@@ -311,8 +454,8 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
 export type ConfirmOutcome = 'recorded' | 'already' | 'gone';
 
 /**
- * Один запрос: ключ живой → согласие человека пишется в лид или запрос мест
- * ПОВЕРХ записи агента (основание сильнее — его и храним; факт вызова агента
+ * Один запрос: ключ живой → согласие человека пишется в лид, запрос мест или
+ * заявку на жильё ПОВЕРХ записи агента (основание сильнее — его и храним; факт вызова агента
  * остаётся в журнале mcp_tool_calls). Уже подтверждал сам — запись не
  * трогается: первое подтверждение и есть доказательство. Подзапросы к
  * leads/tour_seat_requests в хвосте видят снимок ДО UPDATE той же команды —
@@ -321,7 +464,7 @@ export type ConfirmOutcome = 'recorded' | 'already' | 'gone';
  */
 export const CONFIRM_CONSENT_SQL = `
   WITH k AS (
-    SELECT lead_id, seat_request_id
+    SELECT lead_id, seat_request_id, stay_request_id
       FROM agent_request_keys
      WHERE key_hash = $1 AND expires_at > NOW()
   ), l AS (
@@ -334,13 +477,19 @@ export const CONFIRM_CONSENT_SQL = `
        SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
      WHERE id = (SELECT seat_request_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
     RETURNING id
+  ), s AS (
+    UPDATE stay_requests
+       SET pd_consent_at = $2::timestamptz, pd_consent_ip = $3::varchar, pd_consent_source = $4::varchar, pd_consent_version = $5::varchar
+     WHERE id = (SELECT stay_request_id FROM k) AND pd_consent_source IS DISTINCT FROM $4::varchar
+    RETURNING id
   )
-  SELECT ((SELECT COUNT(*) FROM l) + (SELECT COUNT(*) FROM r))::int AS updated,
-         COALESCE(lp.pd_consent_source, rp.pd_consent_source) AS prior_source,
-         (lp.id IS NOT NULL OR rp.id IS NOT NULL) AS target_exists
+  SELECT ((SELECT COUNT(*) FROM l) + (SELECT COUNT(*) FROM r) + (SELECT COUNT(*) FROM s))::int AS updated,
+         COALESCE(lp.pd_consent_source, rp.pd_consent_source, sp.pd_consent_source) AS prior_source,
+         (lp.id IS NOT NULL OR rp.id IS NOT NULL OR sp.id IS NOT NULL) AS target_exists
     FROM k
     LEFT JOIN leads lp ON lp.id = k.lead_id
-    LEFT JOIN tour_seat_requests rp ON rp.id = k.seat_request_id`;
+    LEFT JOIN tour_seat_requests rp ON rp.id = k.seat_request_id
+    LEFT JOIN stay_requests sp ON sp.id = k.stay_request_id`;
 
 interface ConfirmRow { updated: number; prior_source: string | null; target_exists: boolean }
 
@@ -364,6 +513,34 @@ export async function confirmConsent(rawKey: unknown, record: PdConsentRecord): 
   }
   if (row.updated > 0) return 'recorded';
   return row.target_exists ? 'already' : 'gone';
+}
+
+/** Род заявки по ключу без отметки прочтения: какой текст согласия человек подтверждает. */
+export const CONSENT_PURPOSE_SQL = `
+  SELECT tool_name
+    FROM agent_request_keys
+   WHERE key_hash = $1 AND expires_at > NOW()`;
+
+/**
+ * На передачу кому согласие по заявке этого ключа — до записи согласия.
+ * Страница показывает тот же текст по `consent_purpose` из статуса: оба
+ * выводятся из имени инструмента, создавшего заявку. Ключа нет — отказ по
+ * входу; база не ответила — исключение с SQLSTATE в логе (§4.0).
+ */
+export async function readConsentPurpose(rawKey: unknown): Promise<ConsentPurpose> {
+  const key = readKey(rawKey);
+  let row: { tool_name: string } | undefined;
+  try {
+    ({ rows: [row] } = await pool.query<{ tool_name: string }>(CONSENT_PURPOSE_SQL, [sha256(key)]));
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[request-status] род заявки не прочитан:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
+    throw new Error('request-status: род заявки не прочитан');
+  }
+  if (!row) {
+    throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней).`, 'key_not_found');
+  }
+  return consentPurposeForTool(row.tool_name);
 }
 
 /** Исполнитель для роута MCP: JSON-строка того же объекта (как у search/fetch). */

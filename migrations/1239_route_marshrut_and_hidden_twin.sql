@@ -1,4 +1,4 @@
--- 1238_route_marshrut_and_hidden_twin.sql
+-- 1239_route_marshrut_and_hidden_twin.sql
 --
 -- Маршрут с именем места — `<имя>-marshrut`; адрес скрытого маршрута-тёзки —
 -- видимому. Решение владельца 14.10 по переписи `route-slug-census`.

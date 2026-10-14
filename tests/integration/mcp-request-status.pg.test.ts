@@ -8,6 +8,11 @@
  * ответ не содержит ни имени, ни телефона, которые в тестовой базе у лида
  * и запроса мест записаны.
  *
+ * Заявка на жильё (14.10, миграция 1238): третья цель ключа — строка
+ * stay_requests; ограничение «ровно одна цель» на трёх колонках; статус
+ * собирается из колонок доставки 1213; согласие человека ложится в саму
+ * заявку версией «владельцу жилья»; удалили заявку — ключ ушёл с ней.
+ *
  * Своя база `mcp_request_status_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -38,6 +43,8 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
   let seatKey = '';
   let leadId = '';
   let tourId = 0;
+  let stayKey = '';
+  let stayRequestId = '';
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
@@ -158,5 +165,71 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
 
     await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 minute' WHERE seat_request_id IS NOT NULL`);
     await expect(readRequestStatus(seatKey)).rejects.toThrow(/не найден или истёк/);
+  });
+
+  it('заявка на жильё: ключ на строку stay_requests, статус «передана владельцу», без имени и телефона', async () => {
+    const { issueRequestKey, readRequestStatus, runRequestStatusTool } = await import('@/lib/mcp/request-status');
+    const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+    const acc = await pool.query<{ id: string }>(
+      `INSERT INTO accommodations (name, type, coordinates, contact_phone)
+       VALUES ('Кутха', 'guesthouse', '{"lat":53.0,"lng":158.6}', '+70000000001') RETURNING id`,
+    );
+    const sr = await pool.query<{ id: string }>(
+      `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone, comment,
+                                  pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door)
+       VALUES ($1, '2027-07-10', '2027-07-12', 9, 'Иван Тестовый', '+79990001122', 'Баня вечером',
+               NOW(), '203.0.113.9', 'mcp', $2, 'mcp') RETURNING id`,
+      [acc.rows[0].id, PD_CONSENT_STAY_VERSION],
+    );
+    stayRequestId = sr.rows[0].id;
+    await pool.query(
+      `UPDATE stay_requests SET owner_channel = 'max', owner_reason = 'доставлено в MAX',
+              platform_channel = 'max', platform_reason = 'доставлено в MAX', delivery_recorded_at = NOW()
+        WHERE id = $1`, [stayRequestId],
+    );
+    stayKey = (await issueRequestKey({ stayRequestId }, 'create_stay_request')) ?? '';
+    expect(stayKey.length).toBeGreaterThanOrEqual(20);
+
+    const v = await readRequestStatus(stayKey);
+    expect(v).toMatchObject({
+      state: 'delivered', kind: 'stay_request', tour: null, accommodation: 'Кутха',
+      date: '2027-07-10', check_out: '2027-07-12', participants: 9,
+      consent: 'agent', consent_purpose: 'stay',
+    });
+    expect(v.accommodation_url).toMatch(new RegExp(`/accommodations/${acc.rows[0].id}$`));
+    const text = await runRequestStatusTool({ key: stayKey });
+    expect(text).not.toMatch(/Иван|7999000|Баня|203\.0\.113/);
+  });
+
+  it('ключ смотрит ровно в одну заявку: две цели сразу база не примет', async () => {
+    await expect(pool.query(
+      `INSERT INTO agent_request_keys (key_hash, lead_id, stay_request_id, tool_name, expires_at)
+       VALUES (repeat('b', 64), $1, $2, 'create_stay_request', NOW() + INTERVAL '1 day')`,
+      [leadId, stayRequestId],
+    )).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('согласие человека по заявке на жильё ложится в саму заявку версией «владельцу жилья»', async () => {
+    const { readRequestStatus, readConsentPurpose, confirmConsent, HUMAN_CONSENT_SOURCE } = await import('@/lib/mcp/request-status');
+    const { buildConsentRecord, PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+    const purpose = await readConsentPurpose(stayKey);
+    expect(purpose).toBe('stay');
+    const record = buildConsentRecord(true, '203.0.113.10', HUMAN_CONSENT_SOURCE, purpose);
+    if (!record) throw new Error('запись согласия не собралась');
+
+    expect(await confirmConsent(stayKey, record)).toBe('recorded');
+    const { rows: [row] } = await pool.query<{ pd_consent_source: string; pd_consent_version: string; pd_consent_ip: string }>(
+      'SELECT pd_consent_source, pd_consent_version, pd_consent_ip FROM stay_requests WHERE id = $1', [stayRequestId]);
+    expect(row).toEqual({ pd_consent_source: HUMAN_CONSENT_SOURCE, pd_consent_version: PD_CONSENT_STAY_VERSION, pd_consent_ip: '203.0.113.10' });
+    expect((await readRequestStatus(stayKey)).consent).toBe('human');
+    expect(await confirmConsent(stayKey, record)).toBe('already');
+  });
+
+  it('удалили заявку на жильё — ключ ушёл с ней', async () => {
+    const { readRequestStatus } = await import('@/lib/mcp/request-status');
+    await pool.query('DELETE FROM stay_requests WHERE id = $1', [stayRequestId]);
+    const { rows } = await pool.query('SELECT 1 FROM agent_request_keys WHERE stay_request_id = $1', [stayRequestId]);
+    expect(rows).toHaveLength(0);
+    await expect(readRequestStatus(stayKey)).rejects.toThrow(/не найден или истёк/);
   });
 });

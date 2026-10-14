@@ -9,8 +9,13 @@
  * состояний закрытый и одинаковый у лида и запроса мест; в ответе нет ни
  * имени, ни телефона, ни номера лида, ни ссылки на бронь; чужой ключ — отказ
  * по входу с объяснением, база не ответила — исключение, не «ждёт оператора»
- * (§4.0); роут выдаёт ключ во всех четырёх ответах пишущих инструментов и
+ * (§4.0); роут выдаёт ключ во всех ответах пишущих инструментов и
  * диспетчеризует инструмент сам.
+ *
+ * Заявка на жильё (14.10, миграция 1238): ключ смотрит в строку
+ * stay_requests; состояние — кому она доставлена (`delivered`), а не «ждёт
+ * ответа», которого платформа не увидит; согласие человек подтверждает
+ * текстом «владельцу жилья», заявки на машину — «перевозчику».
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -21,11 +26,17 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
 import {
   GET_REQUEST_STATUS_TOOL, REQUEST_STATUS_TOOL_NAME, issueRequestKey, keyLine, readRequestStatus, runRequestStatusTool,
-  leadState, seatState, REQUEST_KEY_TTL_DAYS, REQUEST_STATUS_SQL,
+  leadState, seatState, stayDelivery, stayState, REQUEST_KEY_TTL_DAYS, REQUEST_STATUS_SQL,
   consentBy, confirmConsent, CONFIRM_CONSENT_SQL, AGENT_CONSENT_SOURCE, HUMAN_CONSENT_SOURCE, requestStatusPageUrl, REQUEST_STATUS_PAGE_PATH,
+  consentPurposeForTool, readConsentPurpose, CONSENT_PURPOSE_SQL,
 } from '@/lib/mcp/request-status';
-import { REQUEST_STATES, REQUEST_KEY_MIN_CHARS } from '@/lib/mcp/request-status-schema';
-import { PUBLIC_MCP_TOOLS, TOOL_ANNOTATIONS, TOOL_ENGLISH, PARAM_ENGLISH, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES } from '@/lib/mcp/request-status-schema';
+import {
+  PUBLIC_MCP_TOOLS, TOOL_ANNOTATIONS, TOOL_ENGLISH, PARAM_ENGLISH, WRITE_TOOL_NAMES,
+  CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, STAY_REQUEST_TOOL, REQUEST_CHARTER_TOOL,
+} from '@/lib/mcp/public-tools';
+import { consentWording } from '@/lib/legal/pd-consent';
+import { getPublicBaseUrl } from '@/lib/config';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -47,9 +58,14 @@ describe('объявление', () => {
     expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.state.enum).toEqual([...REQUEST_STATES]);
   });
 
-  it('описание называет все три пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
-    for (const w of ['create_lead', 'create_booking_request', 'request_charter']) expect(GET_REQUEST_STATUS_TOOL.description).toContain(w);
+  it('описание называет все четыре пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
+    for (const w of WRITE_TOOL_NAMES) {
+      expect(GET_REQUEST_STATUS_TOOL.description).toContain(w);
+      expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toContain(w);
+    }
+    expect(WRITE_TOOL_NAMES.size).toBe(4);
     expect(GET_REQUEST_STATUS_TOOL.description).toContain(`${REQUEST_KEY_TTL_DAYS} дней`);
+    expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.kind.enum).toEqual([...REQUEST_KINDS]);
   });
 });
 
@@ -65,7 +81,16 @@ describe('выдача ключа', () => {
     expect(sql).not.toMatch(/\|\|/);
     expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
     expect(params[0]).not.toBe(key);
-    expect(params).toEqual([params[0], '11111111-1111-1111-1111-111111111111', null, 'create_lead', REQUEST_KEY_TTL_DAYS]);
+    expect(params).toEqual([params[0], '11111111-1111-1111-1111-111111111111', null, null, 'create_lead', REQUEST_KEY_TTL_DAYS]);
+  });
+
+  it('заявка на жильё — третья цель ключа: в колонку stay_request_id, остальные цели пусты', async () => {
+    query.mockResolvedValue({ rows: [] });
+    const key = await issueRequestKey({ stayRequestId: '33333333-3333-3333-3333-333333333333' }, STAY_REQUEST_TOOL.name);
+    expect(key).not.toBeNull();
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain('stay_request_id');
+    expect(params.slice(1)).toEqual([null, null, '33333333-3333-3333-3333-333333333333', 'create_stay_request', REQUEST_KEY_TTL_DAYS]);
   });
 
   it('база отказала — null и SQLSTATE в логе, заявка не страдает', async () => {
@@ -85,6 +110,17 @@ describe('выдача ключа', () => {
     expect(keyLine(null)).toMatch(/не выдан/);
     expect(keyLine(null)).not.toContain('get_request_status');
     expect(keyLine(null)).not.toContain(REQUEST_STATUS_PAGE_PATH);
+  });
+
+  it('хвост заявки на жильё не обещает ответа, которого платформа не увидит', () => {
+    const line = keyLine(KEY, 'stay');
+    expect(line).toContain(KEY);
+    expect(line).toContain(requestStatusPageUrl(KEY));
+    expect(line).toContain('владельцу жилья');
+    expect(line).toMatch(/платформа его не видит/);
+    expect(line).not.toMatch(/ответил ли оператор|видит ответ оператора/);
+    expect(keyLine(null, 'stay')).toMatch(/не выдан/);
+    expect(keyLine(null, 'stay')).not.toMatch(/звонку оператора/);
   });
 });
 
@@ -151,10 +187,20 @@ describe('чтение состояния', () => {
     }] });
     const text = await runRequestStatusTool({ key: KEY });
     const obj = JSON.parse(text) as Record<string, unknown>;
-    expect(Object.keys(obj).sort()).toEqual(['alt_date', 'consent', 'date', 'deadline', 'human', 'kind', 'next', 'page', 'participants', 'state', 'tour']);
+    expect(Object.keys(obj).sort()).toEqual([
+      'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
+      'human', 'kind', 'next', 'page', 'participants', 'state', 'tour',
+    ]);
+    // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.
+    expect(Object.keys(obj).sort()).toEqual(Object.keys(GET_REQUEST_STATUS_TOOL.outputSchema.properties).sort());
     expect(obj.page).toBe(requestStatusPageUrl(KEY));
     expect(obj.state).toBe('operator_contacted');
     expect(text).not.toMatch(/\+7|@|lead_id|"L"/);
+  });
+
+  it('заявке на жильё SQL не берёт ни имени гостя, ни телефона, ни комментария', () => {
+    expect(REQUEST_STATUS_SQL).not.toMatch(/\bs\.(guest_name|guest_phone|comment|pd_consent_ip)\b/);
+    expect(REQUEST_STATUS_SQL).not.toMatch(/\ba\.(contact_phone|contact_email)\b/);
   });
 
   it('база не ответила — исключение с SQLSTATE в логе, не «ждёт оператора»', async () => {
@@ -162,6 +208,109 @@ describe('чтение состояния', () => {
     query.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
     await expect(readRequestStatus(KEY)).rejects.not.toBeInstanceOf(McpUserError);
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('статус не прочитан'), expect.stringContaining('57P01'), expect.any(String));
+    spy.mockRestore();
+  });
+});
+
+const STAY_ROW = {
+  tool_name: 'create_stay_request', lead_id: null, seat_request_id: null, stay_request_id: 'SR',
+  lead_status: null, route_title: null, booking_status: null, booking_date: null, booking_participants: null, booking_tour: null,
+  seat_status: null, deadline_at: null, answered_at: null, seat_date: null, seat_participants: null, alt_date: null, failure_kind: null, seat_tour: null,
+  stay_accommodation_id: '3b2551c7-ed5c-47c8-bb93-41ca6a278c1e', stay_name: 'Кутха',
+  stay_check_in: '2027-07-10', stay_check_out: '2027-07-12', stay_guests: 9,
+  stay_owner_channel: 'max', stay_platform_channel: 'max', stay_delivery_recorded_at: new Date('2027-07-01T03:00:00Z'),
+  stay_consent_at: new Date('2027-07-01T03:00:00Z'), stay_consent_source: 'mcp',
+};
+
+describe('заявка на жильё (14.10, миграция 1238)', () => {
+  it('доставка — только MAX; пустое время записи — «не записано», а не «не дошло»', () => {
+    expect(stayDelivery('max', 'max', new Date())).toBe('owner');
+    expect(stayDelivery('no_address', 'max', new Date())).toBe('platform');
+    // Заглушка в Telegram идёт без телефона: перезвонить по ней нельзя.
+    expect(stayDelivery('telegram-stub', 'telegram-stub', new Date())).toBe('none');
+    expect(stayDelivery('none', 'none', new Date())).toBe('none');
+    expect(stayDelivery(null, null, null)).toBe('not_recorded');
+    expect(stayState('owner')).toBe('delivered');
+    expect(stayState('platform')).toBe('delivered');
+    expect(stayState('none')).toBe('failed');
+    expect(stayState('not_recorded')).toBe('unknown');
+  });
+
+  it('передана владельцу: объект, даты, гости, карточка; согласие агента и род «владельцу жилья»', async () => {
+    query.mockResolvedValue({ rows: [{ ...STAY_ROW }] });
+    const v = await readRequestStatus(KEY);
+    expect(v).toMatchObject({
+      state: 'delivered', kind: 'stay_request', tour: null, accommodation: 'Кутха',
+      accommodation_url: `${getPublicBaseUrl()}/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e`,
+      date: '2027-07-10', check_out: '2027-07-12', participants: 9, alt_date: null, deadline: null,
+      consent: 'agent', consent_purpose: 'stay', page: requestStatusPageUrl(KEY),
+    });
+    expect(v.human).toMatch(/владельцу жилья/);
+    expect(v.human).toMatch(/платформа не видит/);
+    // Обещания «ждём ответа» нет: статус после передачи не меняется.
+    expect(v.next).toMatch(/незачем/);
+    expect(v.human + v.next).not.toMatch(/оператор ещё не ответил/);
+  });
+
+  it('владелец без мессенджера — заявка у оператора Ведара; не дошла никому — failed; не записано — unknown', async () => {
+    query.mockResolvedValue({ rows: [{ ...STAY_ROW, stay_owner_channel: 'no_address' }] });
+    const platform = await readRequestStatus(KEY);
+    expect(platform.state).toBe('delivered');
+    expect(platform.human).toMatch(/оператора Ведара/);
+
+    query.mockResolvedValue({ rows: [{ ...STAY_ROW, stay_owner_channel: 'none', stay_platform_channel: 'telegram-stub' }] });
+    const failed = await readRequestStatus(KEY);
+    expect(failed.state).toBe('failed');
+    expect(failed.next).toMatch(/позвонить владельцу самому/);
+
+    query.mockResolvedValue({ rows: [{ ...STAY_ROW, stay_owner_channel: null, stay_platform_channel: null, stay_delivery_recorded_at: null }] });
+    expect((await readRequestStatus(KEY)).state).toBe('unknown');
+
+    // Строки заявки нет (удалена между отметкой ключа и чтением) — unknown без карточки.
+    query.mockResolvedValue({ rows: [{ ...STAY_ROW, stay_accommodation_id: null, stay_name: null }] });
+    const gone = await readRequestStatus(KEY);
+    expect(gone).toMatchObject({ state: 'unknown', kind: 'stay_request', accommodation_url: null });
+  });
+
+  it('согласие человека, подтверждённое на странице, видно агенту', async () => {
+    query.mockResolvedValue({ rows: [{ ...STAY_ROW, stay_consent_source: HUMAN_CONSENT_SOURCE }] });
+    expect((await readRequestStatus(KEY)).consent).toBe('human');
+  });
+});
+
+describe('на передачу кому согласие (14.10)', () => {
+  it('жильё — владельцу, машина — перевозчику, остальное — туроператору: по именам из реестра инструментов', () => {
+    expect(consentPurposeForTool(STAY_REQUEST_TOOL.name)).toBe('stay');
+    expect(consentPurposeForTool(REQUEST_CHARTER_TOOL.name)).toBe('carrier');
+    expect(consentPurposeForTool(CREATE_LEAD_TOOL.name)).toBe('operator');
+    expect(consentPurposeForTool(BOOKING_REQUEST_TOOL.name)).toBe('operator');
+    expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.consent_purpose.enum).toEqual([...CONSENT_PURPOSES]);
+    // У каждого рода свой текст и своя версия — иначе по записи не понять, на что согласились.
+    const versions = CONSENT_PURPOSES.map((p) => consentWording(p).version);
+    expect(new Set(versions).size).toBe(CONSENT_PURPOSES.length);
+  });
+
+  it('статус несёт род согласия: заявка на машину — перевозчику', async () => {
+    query.mockResolvedValue({ rows: [{ ...LEAD_ROW, tool_name: REQUEST_CHARTER_TOOL.name }] });
+    expect((await readRequestStatus(KEY)).consent_purpose).toBe('carrier');
+  });
+
+  it('род по ключу читается без отметки прочтения; ключа нет — отказ по входу; база не ответила — исключение', async () => {
+    query.mockResolvedValue({ rows: [{ tool_name: STAY_REQUEST_TOOL.name }] });
+    expect(await readConsentPurpose(KEY)).toBe('stay');
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toBe(CONSENT_PURPOSE_SQL);
+    expect(sql).not.toMatch(/UPDATE|read_count/);
+    expect(params[0]).toMatch(/^[0-9a-f]{64}$/);
+
+    query.mockResolvedValue({ rows: [] });
+    await expect(readConsentPurpose(KEY)).rejects.toThrow(/не найден или истёк/);
+    await expect(readConsentPurpose('short')).rejects.toBeInstanceOf(McpUserError);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    query.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
+    await expect(readConsentPurpose(KEY)).rejects.not.toBeInstanceOf(McpUserError);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('род заявки не прочитан'), expect.stringContaining('57P01'), expect.any(String));
     spy.mockRestore();
   });
 });
@@ -198,9 +347,10 @@ describe('согласие человека (вторая половина ст�
     expect(GET_REQUEST_STATUS_TOOL.outputSchema.required).toEqual(expect.arrayContaining(['consent', 'page']));
   });
 
-  it('запись согласия: поверх записи агента в лид или запрос мест, одним запросом, без INSERT и без ПД', () => {
+  it('запись согласия: поверх записи агента в лид, запрос мест или заявку на жильё, одним запросом, без INSERT и без ПД', () => {
     expect(CONFIRM_CONSENT_SQL).toContain('UPDATE leads');
     expect(CONFIRM_CONSENT_SQL).toContain('UPDATE tour_seat_requests');
+    expect(CONFIRM_CONSENT_SQL).toContain('UPDATE stay_requests');
     expect(CONFIRM_CONSENT_SQL).not.toMatch(/INSERT/);
     expect(CONFIRM_CONSENT_SQL).toContain('pd_consent_source IS DISTINCT FROM $4::varchar');
     expect(CONFIRM_CONSENT_SQL).toContain('expires_at > NOW()');
@@ -241,11 +391,12 @@ describe('роут MCP', () => {
     expect(ROUTE).toMatch(/toolName === REQUEST_STATUS_TOOL_NAME \? parseStructured\(text\)/);
   });
 
-  it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка', () => {
+  it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка, жильё', () => {
     // Бронь и вахтовка: повтор и новая заявка выходят одним return, ключ
     // выдаётся в нём — на существующий лид или только что созданный.
+    // Жильё (14.10) проверено вызовом роута: tests/unit/mcp-stay-request.test.ts.
     const issued = ROUTE.match(/keyLine\(await issueRequestKey\(/g) ?? [];
-    expect(issued.length).toBe(3);
+    expect(issued.length).toBe(4);
     expect(ROUTE).toContain("issueRequestKey({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name)");
     expect(ROUTE).toContain('keyLine(statusKey)');
     expect(ROUTE).toContain("issueRequestKey({ leadId }, BOOKING_REQUEST_TOOL.name)");

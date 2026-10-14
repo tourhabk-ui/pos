@@ -1,5 +1,5 @@
 /**
- * Адрес по имени маршруту при записи (миграции 1237, 1238) — на настоящем
+ * Адрес по имени маршруту при записи (миграции 1237, 1239) — на настоящем
  * PostgreSQL.
  *
  * Перепись sitemap 14.10: 133 маршрута из 370 открываются по UUID. Адреса
@@ -7,7 +7,7 @@
  * заведённый после бэкфилла, снова жил по UUID. 1237 заводит производителя:
  * правило `route_slug_candidate` и триггер на вставку и на «стал видимым».
  * Перепись на проде после 1237 показала, что у всех 133 адрес держит место
- * или скрытый маршрут-тёзка; 1238 по решению владельца 14.10 даёт маршруту к
+ * или скрытый маршрут-тёзка; 1239 по решению владельца 14.10 даёт маршруту к
  * месту `<имя>-marshrut` и переносит адрес скрытого тёзки видимому.
  *
  * Правило держит сервер — уникальный индекс, видимость строк одной команды,
@@ -52,7 +52,7 @@ if (!PG_URL) {
 const SCHEMA = 'route_slug_on_write_test';
 const MIGRATIONS = join(process.cwd(), 'migrations');
 /** Миграции правила адреса — в порядке наката, как на деплое. */
-const RULE_MIGRATIONS = ['1237_route_slug_on_write.sql', '1238_route_marshrut_and_hidden_twin.sql'];
+const RULE_MIGRATIONS = ['1237_route_slug_on_write.sql', '1239_route_marshrut_and_hidden_twin.sql'];
 
 /** Номер миграции из имени файла: порядок числовой, не посимвольный (§7). */
 const numberOf = (f: string) => Number(f.split('_')[0]);
@@ -106,7 +106,7 @@ const TABLES = `
   CREATE UNIQUE INDEX kamchatka_routes_slug_u ON kamchatka_routes (slug) WHERE slug IS NOT NULL;
 `;
 
-withPg('адрес по имени маршруту при записи (1237, 1238) на настоящем PostgreSQL', () => {
+withPg('адрес по имени маршруту при записи (1237, 1239) на настоящем PostgreSQL', () => {
   let pool: Pool;
 
   async function routeId(title: string): Promise<string> {
@@ -211,7 +211,7 @@ withPg('адрес по имени маршруту при записи (1237, 1
     await pool?.end();
   });
 
-  describe('добор по правилу 1237, 1238', () => {
+  describe('добор по правилу 1237, 1239', () => {
     it('свободный адрес выдан по имени', async () => {
       expect(await slugsOf('Вулкан Горелый')).toEqual(['vulkan-gorelyj']);
     });
