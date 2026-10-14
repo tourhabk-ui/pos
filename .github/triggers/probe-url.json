@@ -1,26 +1,24 @@
 {
   "timeout": 120,
-  "run": 907,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Заказник «Река Коль»: адреса подстраниц кластера на сайте КГБУ (история, география, реки, фауна, правила посещения, положение о заказнике) — по ссылкам меню. Конфиг записан целиком.",
+  "run": 908,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Заказник «Река Коль»: подстраницы кластера на сайте КГБУ — история, география, реки и озёра, фауна, инфраструктура, правила посещения; ссылка на положение о заказнике. Конфиг записан целиком.",
   "urls": [
-    "https://vulcanikamchatki.ru/territoriya/klaster_kol/"
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/history/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/location/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/rivers_and_lakes/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/fauna/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/infrastructure/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_kol/rules/"
   ],
   "around": [
-    "История создания",
-    "Географическое положение",
-    "Реки и озера",
-    "Фауна",
-    "Флора",
-    "Инфраструктура",
-    "Правила посещения заказника",
-    "Положение о заказнике",
-    "Климат"
+    "Положение о заказнике"
   ],
   "aroundLines": 1,
-  "aroundBefore": 2,
-  "aroundHits": 2,
+  "aroundBefore": 6,
+  "aroundHits": 1,
+  "text": true,
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 2000
+  "bytes": 9000
 }
