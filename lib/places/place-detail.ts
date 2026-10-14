@@ -42,6 +42,9 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          p.ark_id,
          p.name,
          p.description,
+         -- Описание-дневник, снятое с карточки (миграция 1247): текст лежит в
+         -- архивной колонке, наружу идёт только признак, чтобы сказать словами.
+         (p.description_withdrawn IS NOT NULL) AS description_withdrawn,
          p.essence,
          p.category,
          p.location_type,
@@ -268,6 +271,9 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // Подпись под описанием: есть, только пока живой текст совпадает с
         // одобренным переводом (условие JOIN выше). Разошлись — null.
         descriptionSource: describeDescriptionSource(r.description_source_ref as string | null),
+        // Описание было, но снято как путевая заметка и ждёт переписи по
+        // источникам (14.10, «2 да»). Переписали — признак гаснет сам.
+        descriptionWithdrawn: r.description_withdrawn === true && !stripSourceAttribution(r.description as string | null),
         essence: r.essence as string | null,
         category: r.category as string | null,
         locationType: r.location_type as string | null,

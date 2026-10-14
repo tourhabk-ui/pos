@@ -294,7 +294,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
     || place.safety.registrationRequired
     || Boolean(place.volcanoStatus)
     || (place.locationType === 'volcano' && hasVolcanoCamera(place.name));
-  const hasAbout = Boolean(place.essence || place.description)
+  const hasAbout = Boolean(place.essence || place.description || place.descriptionWithdrawn)
     || Boolean(place.indigenous)
     || place.safety.hazardTypes.length > 0
     || place.safety.altitudeM != null
@@ -519,6 +519,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 essence={place.essence}
                 description={place.description}
                 descriptionSource={place.descriptionSource}
+                descriptionWithdrawn={place.descriptionWithdrawn}
                 placeId={place.id}
               />
 

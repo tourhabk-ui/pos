@@ -201,7 +201,7 @@ export default async function PlaceDetailPage({ params }: Props) {
         ? (imgUrl.startsWith('http') ? imgUrl : `${BASE}${imgUrl}`)
         : (r.has_real_photo ? `${BASE}/api/images/route/${r.ark_id}` : null);
       const typeLabel = PLACE_TYPE_LABEL[r.location_type as string] ?? 'Место';
-      const desc = stripTags(((r.essence ?? r.description) as string | null) ?? '').slice(0, 300) ?? `${typeLabel} на Камчатке`;
+      const desc = stripTags(((r.essence || r.description) as string | null) ?? '').slice(0, 300) || `${typeLabel} на Камчатке`;
 
       jsonLd = {
         '@context': 'https://schema.org',

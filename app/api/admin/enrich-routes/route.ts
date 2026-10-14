@@ -155,6 +155,19 @@ export async function POST(req: NextRequest) {
 
 // ── Mode: description ─────────────────────────────────────────────────────────
 
+/**
+ * Место, чьё описание снято как путевая заметка (миграция 1247, слово
+ * владельца «2 да»), ждёт переписи ПО ИСТОЧНИКАМ. Пустое описание здесь не
+ * дыра, которую заполняет модель по названию: заполненная дыра выглядела бы
+ * сделанной работой и ушла бы из очереди переписи. Строка места в VIEW
+ * несёт id = places.ark_id.
+ */
+const NOT_WITHDRAWN = `NOT EXISTS (
+      SELECT 1 FROM places w
+       WHERE w.ark_id = agent_route_knowledge.id
+         AND w.description_withdrawn IS NOT NULL
+    )`;
+
 export async function enrichDescriptions(batchSize: number, force: boolean, dryRun: boolean) {
   const condition = force
     ? `(description IS NULL OR LENGTH(description) < 300)`
@@ -173,6 +186,7 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
            COALESCE(payload, '{}'::jsonb) as payload
     FROM agent_route_knowledge
     WHERE is_visible = true AND LENGTH(title) >= 4 AND ${condition}
+      AND ${NOT_WITHDRAWN}
     ORDER BY CASE WHEN description IS NULL THEN 0 ELSE 1 END, random()
     LIMIT $1
   `, [batchSize]);
@@ -237,7 +251,8 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
   const { rows: rem } = await pool.query<{ cnt: string }>(
     `SELECT COUNT(*) as cnt FROM agent_route_knowledge
      WHERE is_visible = true AND LENGTH(title) >= 4
-       AND (description IS NULL OR description = '' OR LENGTH(description) < 300)`,
+       AND (description IS NULL OR description = '' OR LENGTH(description) < 300)
+       AND ${NOT_WITHDRAWN}`,
   );
 
   return NextResponse.json({

@@ -51,7 +51,8 @@ export async function GET(req: NextRequest) {
   let rows: Row[];
   try {
     ({ rows } = await pool.query<Row>(
-      `SELECT p.id::text AS id, p.slug, p.name, p.description, p.kuzmich_review,
+      `SELECT p.id::text AS id, p.slug, p.name,
+              COALESCE(p.description, p.description_withdrawn) AS description, p.kuzmich_review,
               lsp.hazard_types, lsp.profile_source, lsp.altitude_m
          FROM places p
          LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id

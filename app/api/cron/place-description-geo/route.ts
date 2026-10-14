@@ -55,6 +55,8 @@ interface Row {
   lat: string | null;
   lng: string | null;
   description: string | null;
+  /** Описание снято как путевая заметка (миграция 1247) и ждёт переписи. */
+  withdrawn: boolean;
 }
 
 export async function GET(req: NextRequest) {
@@ -68,7 +70,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const { rows } = await pool.query<Row>(
-      `SELECT id::text, name, lat::text, lng::text, description
+      `SELECT id::text, name, lat::text, lng::text, description,
+              (description_withdrawn IS NOT NULL) AS withdrawn
          FROM places
         WHERE is_visible IS NOT FALSE
           AND merged_into_id IS NULL
@@ -168,8 +171,12 @@ export async function GET(req: NextRequest) {
     const voiceItems: Array<{ place: string; place_id: string; voice: string; markers: string[]; quote: string }> = [];
     let voicePlain = 0;
     let voiceEmpty = 0;
+    // Снятые дневники (1247) — не «описания нет», а очередь переписи по
+    // источникам: свой счёт и свой список, чтобы брать партии из него.
+    const withdrawnItems: Array<{ place: string; place_id: string }> = [];
     for (const r of rows) {
       const descr = (r.description ?? '').trim();
+      if (descr === '' && r.withdrawn) { withdrawnItems.push({ place: r.name, place_id: r.id }); continue; }
       if (descr === '') { voiceEmpty++; continue; }
       const v = descriptionVoice(descr);
       if (v.voice === 'plain') { voicePlain++; continue; }
@@ -179,7 +186,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      probe: 'place_description_geo_v2',
+      probe: 'place_description_geo_v3',
       far_km: farKm,
       live_places: rows.length,
       gazetteer_size: gazetteer.length,
@@ -202,6 +209,8 @@ export async function GET(req: NextRequest) {
         impression: voiceItems.filter(v => v.voice === 'impression').length,
         plain: voicePlain,
         empty: voiceEmpty,
+        withdrawn: withdrawnItems.length,
+        withdrawn_items: withdrawnItems.slice(0, MAX_ITEMS),
         items: voiceItems.slice(0, MAX_ITEMS),
         note: 'diary — рассказ от первого лица, MCP и Кузьмич его как справку не отдают; impression — ощущения, отдаются подписанными. Приметы, не приговор',
       },
@@ -215,7 +224,7 @@ export async function GET(req: NextRequest) {
     const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
     console.error(`[place-description-geo] перепись не выполнена, SQLSTATE ${code}:`, err);
     return NextResponse.json(
-      { ok: false, probe: 'place_description_geo_v2', error: 'перепись не выполнена', sqlstate: code },
+      { ok: false, probe: 'place_description_geo_v3', error: 'перепись не выполнена', sqlstate: code },
       { status: 503 },
     );
   }

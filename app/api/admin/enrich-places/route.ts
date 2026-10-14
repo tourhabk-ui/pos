@@ -176,11 +176,14 @@ export async function POST(req: NextRequest) {
 
   // Текст по решению владельца не берётся никогда, даже с force: короткий
   // ответ человека — не заготовка для модели (lib/places/owner-decided.ts).
+  // Описание, снятое как путевая заметка (миграция 1247), ждёт переписи по
+  // источникам — из очереди модели оно выведено; `force` — решение человека.
   const ownerKept = notOwnerDecidedSql('p.ark_id');
 
   const condition = force
     ? `is_visible = true AND ${ownerKept}`
-    : `is_visible = true AND ${written} AND ${ownerKept} AND (
+    : `is_visible = true AND ${written} AND ${ownerKept}
+       AND description_withdrawn IS NULL AND (
          description IS NULL
          OR length(description) < 250
          OR description ILIKE '%idilesom%'

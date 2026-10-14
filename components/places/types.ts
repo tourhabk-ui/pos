@@ -133,6 +133,12 @@ export interface PlaceData {
    * текст не из внешнего источника, либо его с тех пор переписали.
    */
   descriptionSource: DescriptionSource | null;
+  /**
+   * Описание снято с карточки как путевая заметка от первого лица и ждёт
+   * переписи по источникам (миграция 1247). Не путать с «описания нет»:
+   * об этом карточка говорит словами.
+   */
+  descriptionWithdrawn?: boolean;
   essence: string | null;
   category: string | null;
   locationType: string | null;

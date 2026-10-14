@@ -76,7 +76,11 @@ interface ReviewedPlaceRow {
  */
 export async function recheckExistingReviews(): Promise<{ checked: number; reset: number; reasons: Record<RewriteReason, number> }> {
   const { rows } = await pool.query<ReviewedPlaceRow>(
-    `SELECT p.id::text AS id, p.name, p.description, p.kuzmich_review,
+    `SELECT p.id::text AS id, p.name,
+            -- Снятое с карточки описание-дневник (1247) — тот текст, по
+            -- которому заметку писали: судим заметку по нему.
+            COALESCE(p.description, p.description_withdrawn) AS description,
+            p.kuzmich_review,
             lsp.hazard_types, lsp.profile_source, lsp.altitude_m
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id

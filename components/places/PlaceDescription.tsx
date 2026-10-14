@@ -9,16 +9,19 @@ interface Props {
   description: string | null;
   /** Подпись источника текста (#1830); null — подписывать нечего. */
   descriptionSource?: DescriptionSource | null;
+  /** Описание снято как путевая заметка и ждёт переписи (миграция 1247). */
+  descriptionWithdrawn?: boolean;
   placeId: string;
 }
 
-export default function PlaceDescription({ essence, description, descriptionSource, placeId }: Props) {
+export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, placeId }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const paragraphs = description?.split('\n').filter(p => p.trim()) ?? [];
   const isLong = paragraphs.length > 3 || (description?.length ?? 0) > 600;
 
-  if (!essence && paragraphs.length === 0) return null;
+  const withdrawn = Boolean(descriptionWithdrawn) && paragraphs.length === 0;
+  if (!essence && paragraphs.length === 0 && !withdrawn) return null;
 
   return (
     <section className="space-y-3">
@@ -38,6 +41,17 @@ export default function PlaceDescription({ essence, description, descriptionSour
           предложения — читалось ровно как то, чем и было: текст, тающий в
           муть. `line-clamp` режет честно и по границе строки; что текст
           продолжается, говорит кнопка под ним, а не спецэффект. */}
+      {/* Описание снято как путевая заметка от первого лица (14.10, слово
+          владельца «2 да»): «вчера поднялся», «идёшь неделю» читались как
+          наблюдение о сегодняшнем месте, а наблюдения не было. Молчание
+          читалось бы как «рассказать нечего» — поэтому сказано словами. */}
+      {withdrawn && (
+        <p className="text-sm leading-relaxed text-[var(--text-muted)]" style={{ maxWidth: '68ch' }}>
+          Описание этого места было написано как путевая заметка, а не по источникам, — мы его
+          убрали и переписываем по справочникам. Факты ниже — из данных платформы.
+        </p>
+      )}
+
       {paragraphs.length > 0 && (
         <div className="space-y-3">
           <div className={isLong && !expanded ? 'line-clamp-6' : undefined}>
