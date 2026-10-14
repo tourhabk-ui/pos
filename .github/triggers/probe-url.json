@@ -1,11 +1,23 @@
 {
   "timeout": 90,
-  "run": 856,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места клетки 53n158e — для проверки точкой в контуре OSM природного парка «Налычево» (отношение 3978019); прогон 854 не запустился — ушёл одним пушем с 855. Конфиг записан целиком.",
+  "run": 857,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Карточки места «Природный парк Налычево», «Налычевская долина», двух записей о Налычевских источниках — прежде чем переписывать по источникам (образец — Быстринский, 1246). Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/places-export?region=cell-53n158e"
+    "https://vedarai.ru/api/places/ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e",
+    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
+    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
+    "https://vedarai.ru/api/places/4d46f8c3-c8c6-442e-8f73-02e683fd5f15"
   ],
+  "around": [
+    "\"accessInfo\"",
+    "\"kuzmichReview\"",
+    "\"eco\":",
+    "\"safety\":",
+    "\"chronicle\""
+  ],
+  "aroundLines": 8,
+  "aroundHits": 1,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 62000
+  "bytes": 4500
 }
