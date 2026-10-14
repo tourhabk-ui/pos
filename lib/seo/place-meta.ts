@@ -35,6 +35,27 @@ export interface PlaceMetaFacts {
   isOpen: boolean | null;
   /** Очерк/описание — добирает описание до предела, не сочиняя. */
   essence: string | null;
+  /**
+   * Ближайшие места — тем же списком и расстоянием, что блок «Рядом» карточки
+   * (lib/places/nearby). Добирают описание, когда очерка нет.
+   */
+  nearby?: ReadonlyArray<{ name: string; km: number }>;
+  /** Координаты места (у места они обязательны) — последний запас фактов. */
+  lat?: number | null;
+  lng?: number | null;
+}
+
+/**
+ * Короче этого сниппет поисковик дописывает сам — кусками страницы (порог
+ * переписи sitemap, `dlen`).
+ */
+export const PLACE_DESCRIPTION_MIN = 70;
+
+/** Сколько ближайших мест называть в описании — не больше, чем помещается. */
+const NEARBY_IN_DESCRIPTION = 3;
+
+function nearbyDistance(km: number): string {
+  return km < 1 ? 'меньше километра' : `${Math.round(km)} км`;
 }
 
 /** Хвост-умолчание, когда ни один фактический не поместился. */
@@ -90,8 +111,33 @@ export function placeDescription(f: PlaceMetaFacts, max: number = META_DESCRIPTI
   const factsText = facts.join(' ');
   const essence = f.essence ? metaDescription(f.essence, Math.max(0, max - factsText.length - 1)) : '';
   // Очерк короче 30 знаков — обрывок, а не фраза; без него честнее.
-  const withEssence = essence.length >= 30 ? `${factsText} ${essence}` : factsText;
-  return metaDescription(withEssence, max);
+  if (essence.length >= 30) return metaDescription(`${factsText} ${essence}`, max);
+  return metaDescription(withCardFacts(factsText, f, max), max);
+}
+
+/**
+ * Очерка нет — описание добирается тем, что есть на карточке, а не сочиняется
+ * (14.10). У 111 мест описание снято как путевая заметка (миграция 1247) и
+ * переписывается по источникам; до этого сниппет был одной фразой «Моржовый —
+ * мыс на Камчатке, Авачинский.» — 43 знака, и поисковик дописывал его сам.
+ * Сначала «Рядом» — местами, которые карточка и так называет, с теми же
+ * километрами; не хватило до порога — координаты.
+ */
+function withCardFacts(factsText: string, f: PlaceMetaFacts, max: number): string {
+  let text = factsText;
+  const near: string[] = [];
+  for (const n of (f.nearby ?? []).slice(0, NEARBY_IN_DESCRIPTION)) {
+    const candidate = [...near, `${n.name.trim()} — ${nearbyDistance(n.km)}`];
+    if (`${factsText} Рядом: ${candidate.join(', ')}.`.length > max) break;
+    near.push(candidate[candidate.length - 1]);
+  }
+  if (near.length > 0) text = `${factsText} Рядом: ${near.join(', ')}.`;
+  if (text.length < PLACE_DESCRIPTION_MIN && f.lat != null && f.lng != null
+      && Number.isFinite(f.lat) && Number.isFinite(f.lng)) {
+    const coords = ` Координаты: ${f.lat.toFixed(4)}, ${f.lng.toFixed(4)}.`;
+    if (text.length + coords.length <= max) text += coords;
+  }
+  return text;
 }
 
 export interface RouteMetaFacts {

@@ -17,6 +17,7 @@ import { placeTitle, placeDescription } from '@/lib/seo/place-meta';
 import { brandedTitle } from '@/lib/seo/title-fit';
 import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
+import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -32,7 +33,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       // мессенджере нарисованной картинкой этого вулкана. Карточка точки по
       // CLAUDE.md §9 — географический факт; фото в превью должно быть фото.
       `SELECT p.name, p.essence, p.description, p.photo_url, p.location_type, p.images,
-              p.slug, p.ark_id::text AS ark_id,
+              p.slug, p.ark_id::text AS ark_id, p.lat, p.lng,
               p.zone, p.best_season,
               -- Факты для заголовка и сниппета (lib/seo/place-meta): те же
               -- таблицы, что кормят блоки «Что знать» и «Сейчас» карточки.
@@ -66,6 +67,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       registrationRequired: r.registration_required === true,
       isOpen: typeof r.is_open === 'boolean' ? r.is_open : null,
       essence: ((r.essence as string | null) || (r.description as string | null)) ?? null,
+      lat: r.lat != null ? Number(r.lat) : null,
+      lng: r.lng != null ? Number(r.lng) : null,
+      // Без очерка описание добирается блоком «Рядом» — тем же запросом.
+      nearby: hasEssenceText(r) ? [] : await nearbyForMeta(r),
     };
     const desc = placeDescription(facts) || 'Место на Камчатке';
     // Canonical — ЧПУ места. До 29.09 его не было у всех 379 карточек (Н4):
@@ -96,6 +101,28 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const err = e as { code?: string; message?: string };
     console.error('[places/page] метаданные места не прочитаны:', id, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     return { title: 'Место на Камчатке' };
+  }
+}
+
+/** Очерк есть — «Рядом» в описание не идёт, и лишний запрос не нужен. */
+function hasEssenceText(r: Record<string, unknown>): boolean {
+  const text = ((r.essence as string | null) || (r.description as string | null)) ?? '';
+  return stripTags(text).trim().length >= 30;
+}
+
+/**
+ * «Рядом» для описания — тем же запросом, что блок карточки (lib/places/nearby).
+ * Не прочиталось — описание без него, а отказ в логе (§4.0).
+ */
+async function nearbyForMeta(r: Record<string, unknown>): Promise<Array<{ name: string; km: number }>> {
+  if (r.lat == null || r.lng == null) return [];
+  try {
+    const { rows } = await query(NEARBY_PLACES_SQL, [r.lat, r.lng, r.ark_id]);
+    return rows.map((n) => ({ name: String(n.name), km: Number(n.distance_km) }));
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    console.error('[places/page] «Рядом» для описания не прочитано:', String(r.ark_id), `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
+    return [];
   }
 }
 

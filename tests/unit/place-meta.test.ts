@@ -10,7 +10,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   placeTitle, placeTitleTopics, placeDescription, routeDescription, routeFactsLine,
-  PLACE_TITLE_FALLBACK, type PlaceMetaFacts,
+  PLACE_TITLE_FALLBACK, PLACE_DESCRIPTION_MIN, type PlaceMetaFacts,
 } from '@/lib/seo/place-meta';
 import { TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { META_DESCRIPTION_MAX } from '@/lib/seo/meta-description';
@@ -74,6 +74,55 @@ describe('сниппет места — факты впереди, очерк с
   it('тип не записан — «место на Камчатке», без выдуманного типа; пустой очерк не падает', () => {
     const d = placeDescription({ ...geysers, typeLabel: 'место', zone: null, altitudeM: null, bestSeason: null, registrationRequired: false, essence: null });
     expect(d).toBe('Долина гейзеров — место на Камчатке.');
+  });
+});
+
+/**
+ * Очерка нет — сниппет добирается фактами карточки (14.10). У 111 мест
+ * описание снято как путевая заметка (миграция 1247), и перепись 14 нашла 85
+ * мест со сниппетом короче 70 знаков: «Моржовый — мыс на Камчатке, Авачинский.»
+ */
+describe('сниппет места без очерка — «Рядом» и координаты, ничего не сочинено', () => {
+  const morzh: PlaceMetaFacts = {
+    name: 'Моржовый', typeLabel: 'мыс', zone: null, bestSeason: null, altitudeM: null,
+    hazardsRecorded: false, registrationRequired: false, isOpen: null, essence: null,
+    lat: 52.95131, lng: 158.71249,
+    nearby: [
+      { name: 'Бухта Моржовая', km: 2.2 },
+      { name: 'Мыс Вертикальный', km: 0.4 },
+      { name: 'Вилючинский', km: 18 },
+      { name: 'Мутновский', km: 31 },
+    ],
+  };
+
+  it('«Рядом» — первыми тремя местами блока, с теми же километрами; сниппет не короче порога', () => {
+    const d = placeDescription(morzh);
+    expect(d).toBe('Моржовый — мыс на Камчатке. Рядом: Бухта Моржовая — 2 км, Мыс Вертикальный — меньше километра, Вилючинский — 18 км.');
+    expect(d.length).toBeGreaterThanOrEqual(PLACE_DESCRIPTION_MIN);
+    expect(d.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+  });
+
+  it('длинные имена — столько мест, сколько помещается целиком; место не режется посередине', () => {
+    const long = { ...morzh, nearby: [
+      { name: 'Тимоновские термальные источники на реке Средняя Авача', km: 9 },
+      { name: 'Верхне-Паратунские горячие источники у подножия Вилючинского', km: 12 },
+    ] };
+    const d = placeDescription(long);
+    expect(d).toContain('Рядом: Тимоновские термальные источники на реке Средняя Авача — 9 км.');
+    expect(d).not.toContain('Верхне-Паратунские');
+    expect(d).not.toContain('…');
+  });
+
+  it('рядом никого и сниппет короче порога — координаты места; есть «Рядом» длиннее порога — без них', () => {
+    expect(placeDescription({ ...morzh, nearby: [] })).toBe('Моржовый — мыс на Камчатке. Координаты: 52.9513, 158.7125.');
+    expect(placeDescription(morzh)).not.toContain('Координаты');
+  });
+
+  it('координат нет — их и не пишем; очерк есть — «Рядом» и координаты не нужны', () => {
+    expect(placeDescription({ ...morzh, nearby: [], lat: null, lng: null })).toBe('Моржовый — мыс на Камчатке.');
+    const withEssence = placeDescription({ ...morzh, essence: 'Мыс на южном берегу Авачинского залива, место лежбищ сивучей.' });
+    expect(withEssence).not.toContain('Рядом');
+    expect(withEssence).not.toContain('Координаты');
   });
 });
 
