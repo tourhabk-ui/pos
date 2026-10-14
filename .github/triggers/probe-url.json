@@ -1,28 +1,15 @@
 {
   "timeout": 120,
-  "run": 910,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1255 (лососевый заказник «Река Коль»): карточка, страница заказника, статья летописи, место в экспорте клетки cell-53n156e; и выкат слоя 39 — парк «Вилючинский» и озеро Зеленое в экспорте клетки cell-52n158e. Ждёт выката по маркеру. Конфиг записан целиком.",
+  "run": 911,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись охраняемых территорий края (владелец: «го» после «остальные заказники и памятники природы края не трогали»): категории Википедии «Памятники природы Камчатского края», «Заказники Камчатского края», «Охраняемые природные территории Камчатского края» и поиск списка ООПТ края. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/8e450222-08d2-4521-a9ac-9c287b3503d4",
-    "https://vedarai.ru/park/reka-kol",
-    "https://vedarai.ru/letopis/reka-kol",
-    "https://vedarai.ru/api/cron/places-export?region=cell-53n156e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e"
+    "https://ru.wikipedia.org/w/api.php?format=json&utf8=1&action=query&list=categorymembers&cmtitle=%D0%9A%D0%B0%D1%82%D0%B5%D0%B3%D0%BE%D1%80%D0%B8%D1%8F%3A%D0%9F%D0%B0%D0%BC%D1%8F%D1%82%D0%BD%D0%B8%D0%BA%D0%B8+%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D1%8B+%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+%D0%BA%D1%80%D0%B0%D1%8F&cmlimit=500",
+    "https://ru.wikipedia.org/w/api.php?format=json&utf8=1&action=query&list=categorymembers&cmtitle=%D0%9A%D0%B0%D1%82%D0%B5%D0%B3%D0%BE%D1%80%D0%B8%D1%8F%3A%D0%97%D0%B0%D0%BA%D0%B0%D0%B7%D0%BD%D0%B8%D0%BA%D0%B8+%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+%D0%BA%D1%80%D0%B0%D1%8F&cmlimit=500",
+    "https://ru.wikipedia.org/w/api.php?format=json&utf8=1&action=query&list=categorymembers&cmtitle=%D0%9A%D0%B0%D1%82%D0%B5%D0%B3%D0%BE%D1%80%D0%B8%D1%8F%3A%D0%9E%D1%85%D1%80%D0%B0%D0%BD%D1%8F%D0%B5%D0%BC%D1%8B%D0%B5+%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B5+%D1%82%D0%B5%D1%80%D1%80%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%B8+%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+%D0%BA%D1%80%D0%B0%D1%8F&cmlimit=500",
+    "https://ru.wikipedia.org/w/api.php?format=json&utf8=1&action=query&list=search&srsearch=%D0%A1%D0%BF%D0%B8%D1%81%D0%BE%D0%BA+%D0%BE%D1%81%D0%BE%D0%B1%D0%BE+%D0%BE%D1%85%D1%80%D0%B0%D0%BD%D1%8F%D0%B5%D0%BC%D1%8B%D1%85+%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D1%85+%D1%82%D0%B5%D1%80%D1%80%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%B9+%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+%D0%BA%D1%80%D0%B0%D1%8F&srlimit=10"
   ],
-  "until": "Лососевый заказник",
-  "retries": 40,
-  "retryDelay": 45,
-  "grep": [
-    "Лососевый заказник «Река Коль»",
-    "220 605,64",
-    "Медвежий угол",
-    "lososevyj-zakaznik-reka-kol",
-    "zakaznik",
-    "Природный парк «Вилючинский»",
-    "158.2611049",
-    "158.2092619",
-    "Как получить разрешение",
-    "Река Коль"
-  ],
-  "bytes": 1200
+  "allowStale": true,
+  "retries": 1,
+  "retryDelay": 15,
+  "bytes": 14000
 }
