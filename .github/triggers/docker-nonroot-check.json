@@ -1,1 +1,1 @@
-{"reason":"14.10: надзор за Next в start.js — kill -9 Next внутри контейнера (503, перезапуск) и docker stop по SIGTERM; повтор: Next ищется по имени next-server","run":3}
+{"reason":"14.10: React 19.2 в тестах и типах (#2471) — размер /app настоящего образа против 474 МБ на React 18, health и надзор за Next в том же образе","run":4}

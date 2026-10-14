@@ -69,7 +69,10 @@ describe('компонент ленив по построению', () => {
   it('без звука, петля, внутри страницы (не на весь экран), с названием для скринридера', () => {
     expect(tag).toContain('muted');
     expect(tag).toContain('loop');
-    expect(tag).toContain('playsinline');
+    // Имя атрибута в HTML нечувствительно к регистру. React 19 (и тот, что
+    // встроен в Next, — на нём прод) пишет playsInline="", React 18 писал
+    // playsinline: браузер читает оба одинаково.
+    expect(tag).toMatch(/\bplaysinline\b/i);
     expect(tag).toContain('aria-label="Подход"');
     expect(tag).not.toContain('controls');
   });
