@@ -1,35 +1,21 @@
 {
   "timeout": 90,
-  "run": 884,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Двенадцать мест внутри контура Южно-Камчатского заказника (OSM 5615010, проба 883): режим, описание (дневник или справка), профиль — перед миграцией режима. Конфиг записан целиком.",
+  "run": 885,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский заказник: разделы сайта Кроноцкого заповедника (ссылки со страницы заявок), справки Википедии о Курильском озере, Кутхиных Батах и Т. И. Шпиленке — для карточек, правил и статьи летописи. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/14999081-db57-43d3-8aad-f6c8361b69ac",
-    "https://vedarai.ru/api/places/e0b131dc-6dcb-472c-b0a7-90fee55204b6",
-    "https://vedarai.ru/api/places/e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
-    "https://vedarai.ru/api/places/8f56bd0e-3c13-45ae-bfa5-65df09ba5c1e",
-    "https://vedarai.ru/api/places/5d5ab623-3faf-41d7-80c0-536130118432",
-    "https://vedarai.ru/api/places/7adea817-0392-4c41-97a8-7693c7141310",
-    "https://vedarai.ru/api/places/2b9c567e-1ffc-403e-a69a-6d72c93b88ae",
-    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
-    "https://vedarai.ru/api/places/663e37f3-5deb-4907-ac25-321dd247d85e",
-    "https://vedarai.ru/api/places/31448f8a-a720-41a1-8536-854dfc83d816",
-    "https://vedarai.ru/api/places/18c516d2-cfda-43a0-adda-768a125b366b",
-    "https://vedarai.ru/api/places/0fa4286f-d7e6-4083-814c-9121b3ef3a87"
+    "https://kronoki.ru/ru/visit/requests/",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D1%83%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA%D0%BE%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BE",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D1%83%D1%82%D1%85%D0%B8%D0%BD%D1%8B%20%D0%91%D0%B0%D1%82%D1%8B",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%A8%D0%BF%D0%B8%D0%BB%D0%B5%D0%BD%D0%BE%D0%BA%2C%20%D0%A2%D0%B8%D1%85%D0%BE%D0%BD%20%D0%98%D0%B3%D0%BE%D1%80%D0%B5%D0%B2%D0%B8%D1%87"
   ],
   "allowStale": true,
+  "text": true,
   "around": [
-    "\"eco\":",
-    "\"descriptionWithdrawn\""
+    "href=\"/ru/"
   ],
-  "aroundLines": 3,
-  "aroundHits": 1,
-  "grep": [
-    "\"eco\":null",
-    "Государственный природный заказник — охраняются места нереста лосося",
-    "\"source\":\"type_template\"",
-    "\"source\":\"manual\""
-  ],
+  "aroundLines": 0,
+  "aroundHits": 90,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 700
+  "bytes": 11000
 }
