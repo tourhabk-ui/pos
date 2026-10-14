@@ -1,12 +1,14 @@
 {
-  "timeout": 60,
-  "run": 846,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Контур природного парка «Быстринский» в OSM (отношение 21624152) — чтобы отнести места к парку точкой в контуре. Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 847,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места четырёх клеток (55n156–159e) вокруг природного парка «Быстринский» — для проверки точкой в контуре OSM. Конфиг записан целиком.",
   "urls": [
-    "https://nominatim.openstreetmap.org/lookup?format=json&polygon_geojson=1&polygon_threshold=0.003&osm_ids=R21624152"
+    "https://vedarai.ru/api/cron/places-export?region=cell-55n156e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-55n157e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-55n158e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-55n159e"
   ],
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 30000,
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
+  "bytes": 15500
 }
