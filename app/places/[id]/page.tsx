@@ -18,6 +18,7 @@ import { brandedTitle } from '@/lib/seo/title-fit';
 import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
+import { ownPlacePhoto } from '@/lib/images/own-image-url';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -76,9 +77,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     // Canonical — ЧПУ места. До 29.09 его не было у всех 379 карточек (Н4):
     // место открывается по ark_id, id и slug, и без canonical это три адреса.
     const canonical = `/places/${(r.slug as string | null) ?? (r.ark_id as string)}`;
-    const imgs = r.images as unknown[] | null;
-    const imagesFirst = Array.isArray(imgs) && imgs.length > 0 && typeof imgs[0] === 'string' ? imgs[0] as string : null;
-    const imgUrl = (r.photo_url ?? imagesFirst ?? r.real_photo) as string | null;
+    // Превью ссылки — только наш снимок и первым свой (14.10, «Только используй
+    // наши фотографии»): до этого чужая ссылка импорта стояла впереди своего.
+    const imgUrl = ownPlacePhoto((r.real_photo as string | null) ?? null, r.photo_url, r.images);
 
     return {
       // Хвост — из ответов карточки, и только если помещается в выдачу
@@ -127,6 +128,12 @@ async function nearbyForMeta(r: Record<string, unknown>): Promise<Array<{ name: 
 }
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
+/** В структурированных данных адрес нужен абсолютный. */
+function absoluteImage(url: string | null): string | null {
+  if (!url) return null;
+  return url.startsWith('http') ? url : `${BASE}${url}`;
+}
 
 
 export default async function PlaceDetailPage({ params }: Props) {
@@ -210,10 +217,9 @@ export default async function PlaceDetailPage({ params }: Props) {
     );
     const r = result.rows[0];
     if (r) {
-      const imgs = r.images as string[] | null;
-      const imgUrl = (r.photo_url ?? (Array.isArray(imgs) && imgs[0]) ?? null) as string | null;
-      // Изображение в структурированных данных — только когда оно реально есть
-      // и оно настоящее.
+      // Изображение в структурированных данных — только когда оно реально есть,
+      // оно настоящее и оно наше (14.10: чужая ссылка импорта стояла здесь
+      // впереди своего снимка — тем же порядком, что превью, теперь его нет).
       //
       // Прежде фолбэк был безусловным: `/api/images/route/{ark_id}` уходил в
       // JSON-LD всегда. Две беды в одной строке. Если у точки лежало только
@@ -224,9 +230,8 @@ export default async function PlaceDetailPage({ params }: Props) {
       //
       // Схема описывает действительность. Нет снимка — нет поля, это честнее
       // ссылки в никуда.
-      const fullImgUrl = imgUrl
-        ? (imgUrl.startsWith('http') ? imgUrl : `${BASE}${imgUrl}`)
-        : (r.has_real_photo ? `${BASE}/api/images/route/${r.ark_id}` : null);
+      const fullImgUrl = absoluteImage(ownPlacePhoto(
+        r.has_real_photo ? `/api/images/route/${r.ark_id}` : null, r.photo_url, r.images));
       const typeLabel = PLACE_TYPE_LABEL[r.location_type as string] ?? 'Место';
       const desc = stripTags(((r.essence || r.description) as string | null) ?? '').slice(0, 300) || `${typeLabel} на Камчатке`;
 

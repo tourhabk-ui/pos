@@ -16,6 +16,7 @@ import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
+import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
 import type { PlacePhotoAttribution } from '@/components/places/types';
 
@@ -301,22 +302,18 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          * записанное дважды, разошлось (тот же урок, что с шириной карточки
          * и стандартом линии).
          *
-         * Чужие ссылки не выброшены: они остаются запасом на случай, когда
-         * своего снимка нет.
+         * С 14.10 чужие ссылки не показываются и запасом (слово владельца:
+         * «Только используй наши фотографии»): из этих полей берётся только
+         * наш адрес (lib/images/own-image-url). Своего нет — герой рисует
+         * заглушку по типу места, как и велит §9.
          */
         photoUrl: (() => {
           if (Number(r.photo_count) > 0) {
             const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
             return `/api/images/route/${r.ark_id}${v}`;
           }
-          if (r.photo_url) return r.photo_url as string;
-          // Use first real URL from places.images if available
-          const imgs = r.images as unknown[] | null;
-          if (Array.isArray(imgs) && imgs.length > 0) {
-            const first = imgs[0];
-            if (typeof first === 'string' && (first.startsWith('http') || first.startsWith('/'))) return first;
-          }
-          return null;
+          if (isOwnImageUrl(r.photo_url)) return r.photo_url;
+          return ownImageUrls(r.images)[0] ?? null;
         })(),
         // Галерея героя. PlaceHero включает свайп при images.length > 1;
         // до 14.09 кормить его было нечем, кроме legacy-списка ССЫЛОК в
@@ -329,14 +326,18 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // и права.
         images: (() => {
           const gallery = (r.gallery_urls as unknown[] | null) ?? [];
+          const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
+          const hero = Number(r.photo_count) > 0
+            ? [`/api/images/route/${r.ark_id}${v}`]
+            : [];
           if (Array.isArray(gallery) && gallery.length > 0) {
-            const v = r.photo_version ? `?v=${String(r.photo_version)}` : '';
-            const hero = Number(r.photo_count) > 0
-              ? [`/api/images/route/${r.ark_id}${v}`]
-              : [];
             return [...hero, ...gallery];
           }
-          return (r.images as unknown[] | null) ?? [];
+          // Своей галереи нет — из прежнего списка только наши адреса, и наш
+          // герой первым. До 14.10 список отдавался сырым: две чужие ссылки в
+          // нём вытесняли наш снимок (PlaceHero при двух кадрах и больше
+          // берёт только этот список).
+          return [...hero, ...ownImageUrls(r.images)];
         })(),
         // Сколько снимков у места ВСЕГО — герой плюс галерея. Раньше число
         // означало «есть ли настоящее фото» и дальше единицы не росло;
@@ -472,7 +473,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           lat: parseFloat(n.lat as string),
           lng: parseFloat(n.lng as string),
           distanceKm: Number(n.distance_km),
-          thumbUrl: (n.thumb_url ?? n.photo_url) as string | null,
+          // Только наш снимок соседа; чужая ссылка импорта — не запас (14.10).
+          thumbUrl: (n.thumb_url as string | null) ?? (isOwnImageUrl(n.photo_url) ? n.photo_url : null),
         })),
       },
     } };
