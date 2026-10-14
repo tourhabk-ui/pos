@@ -476,7 +476,7 @@
     "type": "function",
     "function": {
       "name": "get_request_status",
-      "description": "Status of a Kamchatka request made via create_lead, create_booking_request or request_charter, by its status key: awaiting operator, confirmed, declined, other date, no answer. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request или request_charter, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора.",
+      "description": "Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request or request_charter: operator answer, or who got a stay request. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request или request_charter, по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered): владелец отвечает человеку звонком, и его ответа платформа не видит. Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора.",
       "parameters": {
         "type": "object",
         "properties": {

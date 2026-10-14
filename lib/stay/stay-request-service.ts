@@ -72,7 +72,8 @@ export interface StayRequestInput {
 }
 
 export type StayRequestResult =
-  | { ok: true; delivered: StayRequestDelivery; accommodationName: string }
+  /** requestId — строка stay_requests: к ней привязан ключ статуса агента (1238). */
+  | { ok: true; delivered: StayRequestDelivery; accommodationName: string; requestId: string }
   /** Объект заявку через форму не принимает (снят, с номерами, с сайтом брони). */
   | { ok: false; reason: 'not_accepting' }
   /** Не записалась: база не ответила. Причина — в логе с SQLSTATE. */
@@ -160,7 +161,7 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
   await recordStayDelivery(requestId, i.door, ownerChannel, ownerReason, adminRes.channel, adminRes.reason);
 
   const delivered: StayRequestDelivery = ownerDelivered ? 'owner' : adminRes.delivered ? 'platform' : 'none';
-  return { ok: true, delivered, accommodationName: obj.name };
+  return { ok: true, delivered, accommodationName: obj.name, requestId };
 }
 
 /**

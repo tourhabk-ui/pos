@@ -237,7 +237,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   // зовёт только их); форма ответа — по документации OpenAI.
   search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
   fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
-  get_request_status:    { title: 'Request status',        lead: 'Status of a Kamchatka request made via create_lead, create_booking_request or request_charter, by its status key: awaiting operator, confirmed, declined, other date, no answer. No personal data.' },
+  get_request_status:    { title: 'Request status',        lead: 'Status of a Kamchatka request by the key from create_lead, create_booking_request, create_stay_request or request_charter: operator answer, or who got a stay request. No personal data.' },
 };
 
 /**

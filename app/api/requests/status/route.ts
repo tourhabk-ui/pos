@@ -25,8 +25,13 @@ export async function GET(req: NextRequest) {
   }
   const k = req.nextUrl.searchParams.get('k') ?? '';
   try {
-    const { state, kind, tour, date, participants, alt_date, deadline, human, consent } = await readRequestStatus(k);
-    return NextResponse.json({ success: true, data: { state, kind, tour, date, participants, alt_date, deadline, human, consent } });
+    const {
+      state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
+    } = await readRequestStatus(k);
+    return NextResponse.json({
+      success: true,
+      data: { state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose },
+    });
   } catch (err) {
     if (err instanceof McpUserError) {
       // key_not_found — ключа нет или истёк (404); прочее — ключ не той формы (400).

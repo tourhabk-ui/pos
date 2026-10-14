@@ -8,6 +8,12 @@
  * поверх с источником `request-page` и текущей версией формулировки
  * (lib/legal/pd-consent) — та же галочка, что на формах сайта.
  *
+ * Версия — по роду заявки (14.10): заявка на жильё — согласие на передачу
+ * владельцу, на машину — перевозчику, остальные — туроператору. Тот же
+ * текст показывает страница (`consent_purpose` статуса). До 14.10 здесь
+ * всегда писалась версия «туроператору», и у заявки на машину она затирала
+ * версию перевозчика, записанную агентом.
+ *
  * AUTH: публичный (реестр lib/auth/public-api-routes); доступ — по ключу.
  * Частота — по IP. Третий исход (§4.0): база не ответила — 503, а не
  * «записано».
@@ -17,7 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
-import { confirmConsent, HUMAN_CONSENT_SOURCE } from '@/lib/mcp/request-status';
+import { confirmConsent, readConsentPurpose, HUMAN_CONSENT_SOURCE } from '@/lib/mcp/request-status';
 import { REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS } from '@/lib/mcp/request-status-schema';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 
@@ -45,13 +51,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Неверные данные запроса' }, { status: 400 });
   }
 
-  // null — галочки не было: это «не спрашивали», и записывать нечего.
-  const consent = buildConsentRecord(parsed.data.pd_consent, ip, HUMAN_CONSENT_SOURCE);
-  if (!consent) {
+  // Галочки не было — это «не спрашивали», и записывать нечего; база не нужна.
+  if (parsed.data.pd_consent !== true) {
     return NextResponse.json({ success: false, error: 'Нужно согласие на обработку персональных данных' }, { status: 400 });
   }
 
   try {
+    const purpose = await readConsentPurpose(parsed.data.key);
+    const consent = buildConsentRecord(true, ip, HUMAN_CONSENT_SOURCE, purpose);
+    if (!consent) {
+      return NextResponse.json({ success: false, error: 'Нужно согласие на обработку персональных данных' }, { status: 400 });
+    }
     const outcome = await confirmConsent(parsed.data.key, consent);
     if (outcome === 'gone') {
       return NextResponse.json({ success: false, error: 'Заявка по этому ключу уже удалена' }, { status: 404 });

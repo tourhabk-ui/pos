@@ -11,31 +11,45 @@
  * агента (`consent: true` в вызове инструмента), а не галочка человека (долг
  * в шапке lib/mcp/write-guard.ts). Пока заявка ждёт оператора, страница
  * переспрашивает состояние сама; «ссылка неверна» / «не найдена» окончательны.
+ *
+ * Заявка на жильё (14.10): своего ответа у неё нет — владелец звонит гостю
+ * сам, и страница говорит «передана», не обещая ответа и не переспрашивая.
+ * Галочка — тем текстом, кому уходят данные (`consent_purpose`): владельцу
+ * жилья, перевозчику или туроператору; тот же текст записывает сервер.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
-import { REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState } from '@/lib/mcp/request-status-schema';
+import {
+  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
+} from '@/lib/mcp/request-status-schema';
 
 type ConsentBy = 'human' | 'agent' | 'none';
 
 interface View {
   state: RequestState;
-  kind: 'lead' | 'seat_request';
+  kind: RequestKind;
   tour: string | null;
+  accommodation: string | null;
+  accommodation_url: string | null;
   date: string | null;
+  check_out: string | null;
   participants: number | null;
   alt_date: string | null;
   deadline: string | null;
   human: string;
   consent: ConsentBy;
+  consent_purpose: ConsentPurpose;
 }
 
-const TEXT: Record<RequestState, { title: string; tone: string; next: string }> = {
+interface StateText { title: string; tone: string; next: string }
+
+const TEXT: Record<RequestState, StateText> = {
   awaiting_operator: { title: 'Ждём ответа оператора', tone: 'var(--ocean)', next: 'Оператор свяжется по телефону из заявки. Страница обновится сама, когда ответ появится.' },
+  delivered: { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Ответ дают звонком по телефону из заявки, и платформа его не видит.' },
   operator_contacted: { title: 'Оператор связался с вами', tone: 'var(--ocean)', next: 'Дальнейшее согласуйте с оператором по телефону.' },
   in_progress: { title: 'Заявка в работе у оператора', tone: 'var(--ocean)', next: 'Оператор уточняет детали. Дальнейшее согласуйте с ним по телефону.' },
   confirmed: { title: 'Оператор подтвердил заявку', tone: 'var(--success)', next: '' },
@@ -47,18 +61,34 @@ const TEXT: Record<RequestState, { title: string; tone: string; next: string }> 
   unknown: { title: 'Состояние заявки не распознано', tone: 'var(--danger)', next: 'Свяжитесь с оператором напрямую или оставьте заявку на карточке тура.' },
 };
 
-function nextText(state: RequestState): string {
-  if (state === 'confirmed') {
+/**
+ * Заявка на жильё: у неё бывают только «передана», «не дошла» и «не
+ * записано, куда дошла» — и говорят они о владельце, а не об операторе.
+ */
+const STAY_TEXT: Partial<Record<RequestState, StateText>> = {
+  delivered: { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Владелец позвонит по телефону из заявки и подтвердит даты и цену; его ответа платформа не видит. Если звонка долго нет, позвоните сами: телефон на карточке объекта.' },
+  failed: { title: 'Заявка не дошла до владельца', tone: 'var(--danger)', next: 'Позвоните владельцу сами: телефон на карточке объекта.' },
+  unknown: { title: 'Не записано, куда дошла заявка', tone: 'var(--warning)', next: 'Если владелец не позвонил, позвоните ему сами: телефон на карточке объекта.' },
+};
+
+function textFor(view: Pick<View, 'state' | 'kind'>): StateText {
+  return (view.kind === 'stay_request' ? STAY_TEXT[view.state] : undefined) ?? TEXT[view.state];
+}
+
+function nextText(view: Pick<View, 'state' | 'kind'>): string {
+  if (view.state === 'confirmed') {
     return platformAcceptsPayments()
       ? 'Оператор скажет, как оплатить.'
       : 'Оплата — оператору напрямую, он скажет как. Через платформу оплаты нет.';
   }
-  return TEXT[state].next;
+  return textFor(view).next;
 }
 
-function Icon({ s }: { s: RequestState }) {
+function Icon({ view }: { view: Pick<View, 'state' | 'kind'> }) {
+  const s = view.state;
   const cls = 'w-6 h-6 shrink-0';
-  const style = { color: TEXT[s].tone };
+  const style = { color: textFor(view).tone };
+  if (s === 'delivered') return <PhoneCall className={cls} style={style} />;
   if (s === 'awaiting_operator' || s === 'operator_contacted' || s === 'in_progress') return <Clock className={cls} style={style} />;
   if (s === 'confirmed') return <CheckCircle2 className={cls} style={style} />;
   if (s === 'declined' || s === 'cancelled') return <XCircle className={cls} style={style} />;
@@ -186,7 +216,14 @@ export function RequestStatusClient() {
     return <main className="ds-page min-h-screen" />;
   }
 
-  const details = view ? [view.tour, dateRu(view.date), view.participants ? `${view.participants} чел.` : null].filter(Boolean).join(' · ') : '';
+  const details = !view ? ''
+    : view.kind === 'stay_request'
+      ? [
+        view.accommodation,
+        view.date && view.check_out ? `${dateRu(view.date)} — ${dateRu(view.check_out)}` : dateRu(view.date),
+        view.participants ? `гостей: ${view.participants}` : null,
+      ].filter(Boolean).join(' · ')
+      : [view.tour, dateRu(view.date), view.participants ? `${view.participants} чел.` : null].filter(Boolean).join(' · ');
 
   return (
     <main className="ds-page min-h-screen px-4 py-10">
@@ -220,10 +257,10 @@ export function RequestStatusClient() {
         {view && (
           <div className="ds-card p-6 space-y-4" aria-live="polite">
             <div className="flex items-start gap-3">
-              <Icon s={view.state} />
+              <Icon view={view} />
               <div>
                 <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
-                  {TEXT[view.state].title}
+                  {textFor(view).title}
                 </h1>
                 {details && <p className="text-sm text-[var(--text-secondary)] mt-1">{details}</p>}
               </div>
@@ -238,7 +275,7 @@ export function RequestStatusClient() {
             {view.state === 'other_date' && view.alt_date && (
               <p className="text-sm text-[var(--text-primary)]">Предложенная дата: <b>{dateRu(view.alt_date)}</b>.</p>
             )}
-            <p className="text-sm text-[var(--text-secondary)]">{nextText(view.state)}</p>
+            <p className="text-sm text-[var(--text-secondary)]">{nextText(view)}</p>
 
             {view.consent !== 'human' ? (
               <div className="space-y-2 pt-3 border-t border-[var(--border)]">
@@ -250,7 +287,7 @@ export function RequestStatusClient() {
                       : 'Согласие на обработку данных по этой заявке не записано. Поставьте его сами.'}
                   </span>
                 </p>
-                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="request-pd-consent" />
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="request-pd-consent" purpose={view.consent_purpose} />
                 <button
                   type="button"
                   className="ds-btn ds-btn-primary w-full"
@@ -268,8 +305,17 @@ export function RequestStatusClient() {
               </p>
             )}
 
-            <div className="flex gap-3 text-sm">
-              <Link href="/catalog" className="text-[var(--ocean)] hover:underline">Каталог туров</Link>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {view.kind === 'stay_request' ? (
+                <>
+                  {view.accommodation_url && (
+                    <a href={view.accommodation_url} className="text-[var(--ocean)] hover:underline">Карточка объекта</a>
+                  )}
+                  <Link href="/accommodations" className="text-[var(--ocean)] hover:underline">Жильё</Link>
+                </>
+              ) : (
+                <Link href="/catalog" className="text-[var(--ocean)] hover:underline">Каталог туров</Link>
+              )}
               <Link href="/legal/privacy" className="text-[var(--ocean)] hover:underline">Политика конфиденциальности</Link>
             </div>
           </div>

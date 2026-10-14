@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-14 с настоящего PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1237_route_slug_on_write.sql`.
+> Снято 2026-10-14 с настоящего PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1238_agent_request_keys_stay.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 277 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3690 |
-| Внешних ключей | 325 |
+| Колонок | 3691 |
+| Внешних ключей | 326 |
 | Таблиц без единого FK в обе стороны | 82 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -887,7 +887,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `gear_id uuid!` `customer_name varchar!` `customer_email varchar!` `customer_phone varchar!` `start_date date!` `end_date date!` `quantity integer!=` `days_count integer!` `insurance boolean=` `base_price numeric!` `insurance_cost numeric=` `total_price numeric!` `comments text` `status varchar!=` `created_at timestamptz=` `updated_at timestamptz=`
 
-**stay_requests** · 19 кол. · PK id · accommodation_id → accommodations.id · индексов 2
+**stay_requests** · 19 кол. · PK id · accommodation_id → accommodations.id · на неё ссылаются: agent_request_keys · индексов 2
 
 `id uuid!=` `accommodation_id uuid!` `check_in_date date!` `check_out_date date!` `guests integer!` `guest_name text!` `guest_phone text!` `comment text` `pd_consent_at timestamptz!` `pd_consent_ip varchar!` `pd_consent_source varchar!` `pd_consent_version varchar!` `created_at timestamptz!=` `door text` `owner_channel text` `owner_reason text` `platform_channel text` `platform_reason text` `delivery_recorded_at timestamptz`
 
@@ -1151,9 +1151,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `payout_id uuid!` `agent_user_id uuid!` `booking_id bigint!` `sale_amount numeric!` `rate numeric!` `amount numeric!` `released_at timestamptz` `created_at timestamptz!=`
 
-**agent_request_keys** · 9 кол. · PK id · lead_id → leads.id, seat_request_id → tour_seat_requests.id · индексов 4
+**agent_request_keys** · 10 кол. · PK id · lead_id → leads.id, seat_request_id → tour_seat_requests.id, stay_request_id → stay_requests.id · индексов 5
 
-`id uuid!=` `key_hash character!` `lead_id uuid` `seat_request_id uuid` `tool_name text!` `created_at timestamptz!=` `expires_at timestamptz!` `last_read_at timestamptz` `read_count integer!=`
+`id uuid!=` `key_hash character!` `lead_id uuid` `seat_request_id uuid` `tool_name text!` `created_at timestamptz!=` `expires_at timestamptz!` `last_read_at timestamptz` `read_count integer!=` `stay_request_id uuid`
 
 **agent_run_history** · 16 кол. · PK id · индексов 3
 
