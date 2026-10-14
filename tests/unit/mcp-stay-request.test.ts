@@ -12,10 +12,14 @@
  *   - без согласия ничего не пишется и не отправляется;
  *   - объект с сайтом брони или своими номерами заявку не принимает, и ответ
  *     называет его путь; «не найдено» и «база не ответила» — разные ответы;
- *   - даты проверяются до записи; телефон человека в ответ модели не уходит.
+ *   - даты проверяются до записи; телефон человека в ответ модели не уходит;
+ *   - ключ статуса (14.10, миграция 1238): на строку заявки, в ответе ключ и
+ *     страница заявки, а ответа владельца, которого платформа не видит, хвост
+ *     не обещает; не дошло никому — ключа нет.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { createHash } from 'node:crypto';
 
 const { query, sendPdAlertMock } = vi.hoisted(() => ({
   query: vi.fn(),
@@ -205,5 +209,48 @@ describe('даты проверяются до записи', () => {
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(text);
     expect(inserts()).toHaveLength(0);
+  });
+});
+
+describe('ключ статуса заявки на жильё (14.10, миграция 1238)', () => {
+  const keyInserts = () => query.mock.calls.filter(([sql]) => /INSERT INTO agent_request_keys/.test(String(sql)));
+
+  it('ключ — на строку заявки; в ответе ключ и страница заявки, а в базе только его хеш', async () => {
+    const r = await result(await call(ARGS));
+    expect(r.isError).toBeUndefined();
+    const text = r.content[0].text;
+    expect(keyInserts()).toHaveLength(1);
+    const params = keyInserts()[0][1] as unknown[];
+    // lead_id и seat_request_id пусты, цель — строка stay_requests.
+    expect(params.slice(1, 5)).toEqual([null, null, 'sr-1', 'create_stay_request']);
+    const key = /Ключ статуса заявки: ([A-Za-z0-9_-]{20,})/.exec(text)?.[1];
+    expect(key).toBeDefined();
+    expect(params[0]).toBe(createHash('sha256').update(key!, 'utf8').digest('hex'));
+    expect(text).toContain(`/request-status#${key}`);
+    expect(text).toMatch(/согласие на передачу данных владельцу жилья/);
+    // Ответ владельца платформа не видит — хвост его не обещает.
+    expect(text).not.toMatch(/ответил ли оператор|видит ответ оператора/);
+  });
+
+  it('не дошло никому — отказ, и ключа нет', async () => {
+    sendPdAlertMock.mockResolvedValue({ delivered: false, channel: 'none', reason: 'сбой' });
+    const r = await result(await call(ARGS));
+    expect(r.isError).toBe(true);
+    expect(keyInserts()).toHaveLength(0);
+  });
+
+  it('ключ не записался — заявка всё равно передана, и агент слышит, что ключа нет', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = query.getMockImplementation();
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (/INSERT INTO agent_request_keys/.test(sql)) throw Object.assign(new Error('relation missing'), { code: '42P01' });
+      return base!(sql, params);
+    });
+    const r = await result(await call(ARGS));
+    expect(r.isError).toBeUndefined();
+    expect(r.content[0].text).toMatch(/Заявка передана владельцу/);
+    expect(r.content[0].text).toMatch(/Ключ статуса заявки не выдан/);
+    expect(r.content[0].text).not.toContain('/request-status#');
+    spy.mockRestore();
   });
 });
