@@ -8,6 +8,11 @@ name: Docker — образ собирается и работает не от r
 # Без базы: миграция при старте падает и start.js продолжает (так он устроен),
 # health-прокси на :3000 отвечает сам. Ничего не пишет ни в БД, ни в репозиторий.
 #
+# С 14.10 — и надзор за Next в том же контейнере, где он живёт на проде:
+# процесс №1 (start.js) после kill -9 Next обязан поднять его сам, /api/health —
+# сказать 503, пока Next нет, а `docker stop` — закончиться по SIGTERM, а не
+# по SIGKILL через 10 с.
+#
 # Запуск: push, меняющий .github/triggers/docker-nonroot-check.json, в ЛЮБОЙ
 # ветке — проверка нужна ДО main, потому что push в main и есть выкат.
 
@@ -65,6 +70,44 @@ jobs:
             if docker exec pos sh -c "mkdir -p '$d' && touch '$d/.w' && rm '$d/.w'"; then echo "запись $d: ok"
             else echo "запись $d: НЕТ"; fail=1; fi
           done
+
+          # Надзор (14.10): Next убит — /api/health говорит 503, прокси поднимает
+          # Next сам, и тот снова отвечает на :3001. Ищем ребёнка процесса №1 по
+          # имени: Next переименовывает себя в «next-server (vX)» (start-server.js),
+          # по «node server.js» его не найти — первый прогон так и сказал.
+          npid=$(docker exec pos pgrep -P 1 -f next-server | head -1 || true)
+          echo "Next pid: ${npid:-не найден}"
+          if [ -n "$npid" ]; then
+            docker exec pos kill -9 "$npid"
+            seen=""; back=no
+            for i in $(seq 1 60); do
+              c=$(curl -s -o /tmp/h2.json -w '%{http_code}' http://127.0.0.1:3000/api/health || true)
+              seen="$seen $c"
+              if [ "$c" = "200" ] && grep -q '"restarts":1' /tmp/h2.json; then back=yes; break; fi
+              sleep 0.5
+            done
+            echo "health после kill -9:$seen"; head -c 400 /tmp/h2.json; echo
+            case "$seen" in *503*) echo "503, пока Next лежит: ok" ;; *) echo "503 НЕ УВИДЕН"; fail=1 ;; esac
+            [ "$back" = yes ] && echo "Next запущен заново: ok" || { echo "NEXT НЕ ЗАПУЩЕН ЗАНОВО"; fail=1; }
+            nx2=no
+            for i in $(seq 1 40); do
+              if docker exec pos wget -q -O /dev/null http://127.0.0.1:3001/version.json 2>/dev/null; then nx2=yes; break; fi
+              sleep 3
+            done
+            echo "Next :3001 после перезапуска -> $nx2"
+            [ "$nx2" = yes ] || fail=1
+          else
+            echo "процесс Next не найден"; fail=1
+          fi
+
+          # Остановка (14.10): SIGTERM процессу №1 уходит Next, контейнер выходит
+          # сам с кодом 0. Без обработчика Docker ждал 10 с и убивал SIGKILL (137).
+          t0=$(date +%s)
+          docker stop -t 10 pos >/dev/null
+          dt=$(( $(date +%s) - t0 ))
+          ec=$(docker inspect pos --format '{{.State.ExitCode}}')
+          echo "docker stop: ${dt} с, код выхода ${ec}"
+          if [ "$dt" -lt 9 ] && [ "$ec" = "0" ]; then echo "остановка по SIGTERM: ok"; else echo "ОСТАНОВКА НЕ ПО SIGTERM"; fail=1; fi
 
           echo "--- хвост лога контейнера ---"; docker logs pos 2>&1 | tail -25
           docker rm -f pos >/dev/null

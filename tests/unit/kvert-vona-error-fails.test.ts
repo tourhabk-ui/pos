@@ -17,7 +17,12 @@ const syncKvertAcc = vi.fn();
 const recordCronRun = vi.fn();
 vi.mock('@/lib/agents/kvert-sync', () => ({ syncKvertAcc: () => syncKvertAcc() }));
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun: (...a: unknown[]) => recordCronRun(...a) }));
-vi.mock('@/lib/auth/cron', () => ({ getCronSecret: () => 's' }));
+vi.mock('@/lib/auth/cron', () => ({ getCronSecret: () => 's', diagnoseCronAuth: () => ({}) }));
+// Окно свободно: этот файл судит разбор KVERT, а не аренду (её — safety-crons-own-clock).
+vi.mock('@/lib/agents/cron-lease', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/agents/cron-lease')>()),
+  claimCronWindow: async () => 'claimed' as const,
+}));
 
 process.env.CRON_SECRET = 's';
 const { GET } = await import('@/app/api/cron/kvert-acc/route');
