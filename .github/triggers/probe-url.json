@@ -1,11 +1,11 @@
 {
   "timeout": 90,
-  "run": 888,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский заказник: страницы «Озеро Курильское», «Кутхины Баты» и «Правила пребывания на территории» на сайте Кроноцкого заповедника — справка для карточек и правила для посетителей. Конфиг записан целиком.",
+  "run": 889,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Южно-Камчатский заказник: страницы «Вулкан Кошелева и Кошелевские термальные источники», «Вулкан Камбальный» и визит-центра в Озерновском на сайте Кроноцкого заповедника — справка для карточек. Конфиг записан целиком.",
   "urls": [
-    "https://kronoki.ru/ru/kamchatka/kamchatka-objects/382.html",
-    "https://kronoki.ru/ru/kamchatka/kamchatka-objects/385.html",
-    "https://kronoki.ru/ru/visit/information-for-all/rules/"
+    "https://kronoki.ru/ru/kamchatka/kamchatka-objects/381.html",
+    "https://kronoki.ru/ru/kamchatka/kamchatka-objects/380.html",
+    "https://kronoki.ru/ru/visit/information-for-all/ozernovskiy-visit-center/"
   ],
   "allowStale": true,
   "text": true,
