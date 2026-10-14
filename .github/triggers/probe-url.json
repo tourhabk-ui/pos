@@ -1,15 +1,24 @@
 {
   "timeout": 60,
-  "run": 814,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. komandorsky.ru с раннера не отвечает (пробы 826, 827) — ищем последнюю архивную копию сайта нацпарка и его страницы посещения (Wayback availability API). Конфиг записан целиком.",
+  "run": 815,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Архивная копия komandorsky.ru от 14.08.2026: ссылки на страницы посещения, разрешений, туризма. Конфиг записан целиком.",
   "urls": [
-    "https://archive.org/wayback/available?url=komandorsky.ru",
-    "https://archive.org/wayback/available?url=komandorsky.ru/tourism/",
-    "https://archive.org/wayback/available?url=komandorsky.ru/visit/",
-    "https://web.archive.org/cdx/search/cdx?url=komandorsky.ru*&output=json&limit=60&from=2023&filter=statuscode:200&filter=mimetype:text/html&collapse=urlkey"
+    "http://web.archive.org/web/20260814105021/http://komandorsky.ru/"
   ],
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 12000
+  "bytes": 9000,
+  "text": true,
+  "around": [
+    "осещени",
+    "азрешени",
+    "уризм",
+    "ропуск",
+    "Национальн",
+    "национальн"
+  ],
+  "aroundLines": 0,
+  "aroundBefore": 0,
+  "aroundHits": 8
 }
