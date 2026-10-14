@@ -1,10 +1,14 @@
 /**
- * Адрес по имени маршруту при записи (миграция 1237) — на настоящем PostgreSQL.
+ * Адрес по имени маршруту при записи (миграции 1237, 1239) — на настоящем
+ * PostgreSQL.
  *
  * Перепись sitemap 14.10: 133 маршрута из 370 открываются по UUID. Адреса
  * раздавали миграции разом, а пишущие пути их не выдавали — маршрут,
  * заведённый после бэкфилла, снова жил по UUID. 1237 заводит производителя:
  * правило `route_slug_candidate` и триггер на вставку и на «стал видимым».
+ * Перепись на проде после 1237 показала, что у всех 133 адрес держит место
+ * или скрытый маршрут-тёзка; 1239 по решению владельца 14.10 даёт маршруту к
+ * месту `<имя>-marshrut` и переносит адрес скрытого тёзки видимому.
  *
  * Правило держит сервер — уникальный индекс, видимость строк одной команды,
  * блокировку между транзакциями, — и статикой это не судится (прецедент 42P08
@@ -12,15 +16,18 @@
  * уйдёт на прод, и запрос переписи из lib/routes/slug-census — не копии.
  *
  * Что держит сторож:
- *  - добор по правилу 1136: свободный адрес выдан, тёзки — оба без адреса,
- *    имя места и чужой адрес не отданы, скрытый и слитый не тронуты;
- *    повторный прогон миграции не меняет ничего;
+ *  - добор: свободный адрес выдан, тёзки — оба без адреса (и без суффикса),
+ *    адрес, занятый местом (видимым, скрытым, слитым), — с суффиксом
+ *    `-marshrut`, если тот свободен; адрес чужого видимого маршрута не
+ *    отдан; адрес скрытого тёзки перешёл видимому; скрытый и слитый маршрут
+ *    не тронуты; повторный прогон миграций не меняет ничего;
  *  - триггер: новый маршрут, ставший видимым, разлитый — с адресом; адрес
  *    писателя и смена названия адрес не трогают;
  *  - адреса разделов /routes/<раздел> (ROUTE_RESERVED_SLUGS) маршрут не
  *    получает: связка списка в SQL со списком в коде;
  *  - две вставки одного имени — в одной команде и в двух транзакциях — не
- *    роняют запись на уникальном индексе: адрес получает одна;
+ *    роняют запись на уникальном индексе: адрес получает одна; так же
+ *    маршрут к месту X и маршрут «X маршрут» не делят `x-marshrut`;
  *  - перепись называет держателя каждого адреса.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -44,7 +51,8 @@ if (!PG_URL) {
 
 const SCHEMA = 'route_slug_on_write_test';
 const MIGRATIONS = join(process.cwd(), 'migrations');
-const MIGRATION = join(MIGRATIONS, '1237_route_slug_on_write.sql');
+/** Миграции правила адреса — в порядке наката, как на деплое. */
+const RULE_MIGRATIONS = ['1237_route_slug_on_write.sql', '1239_route_marshrut_and_hidden_twin.sql'];
 
 /** Номер миграции из имени файла: порядок числовой, не посимвольный (§7). */
 const numberOf = (f: string) => Number(f.split('_')[0]);
@@ -98,7 +106,7 @@ const TABLES = `
   CREATE UNIQUE INDEX kamchatka_routes_slug_u ON kamchatka_routes (slug) WHERE slug IS NOT NULL;
 `;
 
-withPg('адрес по имени маршруту при записи (1237) на настоящем PostgreSQL', () => {
+withPg('адрес по имени маршруту при записи (1237, 1239) на настоящем PostgreSQL', () => {
   let pool: Pool;
 
   async function routeId(title: string): Promise<string> {
@@ -120,7 +128,36 @@ withPg('адрес по имени маршруту при записи (1237) �
     );
   }
 
-  const runMigration = () => pool.query(readFileSync(MIGRATION, 'utf-8'));
+  async function runMigrations() {
+    for (const f of RULE_MIGRATIONS) await pool.query(readFileSync(join(MIGRATIONS, f), 'utf-8'));
+  }
+
+  /** Две вставки в двух транзакциях; вторая обязана ждать первую, а не падать. */
+  async function insertConcurrently(first: string, second: string) {
+    const t1 = await pool.connect();
+    const t2 = await pool.connect();
+    try {
+      await t1.query('BEGIN');
+      await t2.query('BEGIN');
+      await t1.query(`INSERT INTO kamchatka_routes (title) VALUES ($1)`, [first]);
+      let secondDone = false;
+      const pending = t2
+        .query(`INSERT INTO kamchatka_routes (title) VALUES ($1)`, [second])
+        .then(() => { secondDone = true; });
+      await new Promise((r) => setTimeout(r, 300));
+      // Вторая вставка стоит на блокировке адреса, пока первая не решится.
+      expect(secondDone).toBe(false);
+      await t1.query('COMMIT');
+      await pending;
+      await t2.query('COMMIT');
+    } finally {
+      // На провале транзакции остаются открытыми — в пул их возвращать нельзя.
+      await t1.query('ROLLBACK').catch(() => undefined);
+      await t2.query('ROLLBACK').catch(() => undefined);
+      t1.release();
+      t2.release();
+    }
+  }
 
   beforeAll(async () => {
     const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
@@ -133,10 +170,15 @@ withPg('адрес по имени маршруту при записи (1237) �
     await pool.query(TABLES);
     await pool.query(latestFunctionDdl('translit_ru_slug'));
 
-    // Состояние ДО миграции: триггера ещё нет, адреса раздавал 1136.
-    await pool.query(`INSERT INTO places (id, name, slug, is_visible) VALUES
-      ('p-ksudach', 'Вулкан Ксудач', 'ksudach', true),
-      ('p-nalychevo', 'Налычево', 'nalychevo', false)`);
+    // Состояние ДО миграций: триггера ещё нет, адреса раздавал 1136.
+    await pool.query(`INSERT INTO places (id, name, slug, is_visible, merged_into_id) VALUES
+      ('p-ksudach', 'Вулкан Ксудач', 'ksudach', true, NULL),
+      ('p-nalychevo', 'Налычево', 'nalychevo', false, NULL),
+      ('p-kamen', 'Вулкан Камень', 'vulkan-kamen', true, 'p-ksudach'),
+      ('p-dalnee', 'Озеро Дальнее', 'ozero-dalnee', true, NULL),
+      ('p-lopatka', 'Мыс Лопатка', 'mys-lopatka', true, NULL),
+      ('p-russkaya', 'Бухта Русская', 'buhta-russkaya', true, NULL),
+      ('p-shlyupochnaya', 'Бухта Шлюпочная', 'buhta-shlyupochnaya', true, NULL)`);
     await insertRoute('Вулкан Горелый');
     await insertRoute('Озеро Голубое');
     await insertRoute('Озеро Голубое');
@@ -154,8 +196,14 @@ withPg('адрес по имени маршруту при записи (1237) �
     await insertRoute('Карымский');
     await insertRoute('Рыбалка на Быстрой', { slug: 'rybalka' });
     await insertRoute('Слитый дубль', { mergedInto: await routeId('Вулкан Горелый') });
+    await insertRoute('Вулкан Камень');
+    await insertRoute('Озеро Дальнее');
+    await insertRoute('Озеро Дальнее');
+    // Суффиксный адрес у места уже занят — как у «Зеленовских озерков» на проде.
+    await insertRoute('Мыс Лопатка (старый путь)', { slug: 'mys-lopatka-marshrut' });
+    await insertRoute('Мыс Лопатка');
 
-    await runMigration();
+    await runMigrations();
   });
 
   afterAll(async () => {
@@ -163,7 +211,7 @@ withPg('адрес по имени маршруту при записи (1237) �
     await pool?.end();
   });
 
-  describe('добор по правилу 1136', () => {
+  describe('добор по правилу 1237, 1239', () => {
     it('свободный адрес выдан по имени', async () => {
       expect(await slugsOf('Вулкан Горелый')).toEqual(['vulkan-gorelyj']);
     });
@@ -172,11 +220,23 @@ withPg('адрес по имени маршруту при записи (1237) �
       expect(await slugsOf('Озеро Голубое')).toEqual([null, null]);
     });
 
-    it('адрес места, чужой адрес, адрес раздела и пустое имя не выдаются', async () => {
-      expect(await slugsOf('Ксудач')).toEqual([null]);
+    it('адрес держит место — маршрут к нему получает <имя>-marshrut: видимое, скрытое, слитое', async () => {
+      expect(await slugsOf('Ксудач')).toEqual(['ksudach-marshrut']);
+      expect(await slugsOf('Налычево')).toEqual(['nalychevo-marshrut']);
+      expect(await slugsOf('Вулкан Камень')).toEqual(['vulkan-kamen-marshrut']);
+    });
+
+    it('суффикс занят или тёзки — без адреса; чужой видимый адрес, раздел и пустое имя не выдаются', async () => {
+      expect(await slugsOf('Мыс Лопатка')).toEqual([null]);
+      expect(await slugsOf('Озеро Дальнее')).toEqual([null, null]);
       expect(await slugsOf('Авача')).toEqual([null]);
       expect(await slugsOf('Медведи')).toEqual([null]);
       expect(await slugsOf('!!!')).toEqual([null]);
+    });
+
+    it('адрес скрытого тёзки перешёл видимому, скрытый остался без адреса', async () => {
+      expect(await slugsOf('Карымский')).toEqual(['karymskij']);
+      expect(await slugsOf('Карымский (скрытый)')).toEqual([null]);
     });
 
     it('скрытый и слитый не тронуты, адрес писателя не переписан', async () => {
@@ -185,9 +245,9 @@ withPg('адрес по имени маршруту при записи (1237) �
       expect(await slugsOf('Мутновский')).toEqual(['mutnovskij-svoj']);
     });
 
-    it('повторный прогон миграции не меняет ничего', async () => {
+    it('повторный прогон миграций не меняет ничего', async () => {
       const before = await pool.query(`SELECT id, slug, updated_at FROM kamchatka_routes ORDER BY id`);
-      await runMigration();
+      await runMigrations();
       const after = await pool.query(`SELECT id, slug, updated_at FROM kamchatka_routes ORDER BY id`);
       expect(after.rows).toEqual(before.rows);
     });
@@ -200,14 +260,16 @@ withPg('адрес по имени маршруту при записи (1237) �
       expect(holders).toEqual([
         ['!!!', 'empty_base'],
         ['Авача', 'visible_route'],
-        ['Карымский', 'hidden_route'],
-        ['Ксудач', 'visible_place'],
         ['Медведи', 'section'],
-        ['Налычево', 'hidden_place'],
+        ['Мыс Лопатка', 'visible_place'],
         ['Озеро Голубое', 'namesake'],
         ['Озеро Голубое', 'namesake'],
+        ['Озеро Дальнее', 'visible_place'],
+        ['Озеро Дальнее', 'visible_place'],
         ['Толбачик', 'merged_into_this'],
       ]);
+      // У «Мыса Лопатки» суффиксный адрес занят — перепись это и показывает.
+      expect(rows.find((r) => r.title === 'Мыс Лопатка')?.marshrut_free).toBe(false);
       // Правило выдало всё, что могло: выдать сейчас нечего никому.
       expect(rows.every((r) => r.would_assign === null)).toBe(true);
     });
@@ -250,6 +312,19 @@ withPg('адрес по имени маршруту при записи (1237) �
       expect(await slugsOf('Вулкан Горелый')).toEqual(['vulkan-gorelyj', null]);
     });
 
+    it('новый маршрут к месту — <имя>-marshrut; второй такой же — без адреса', async () => {
+      await insertRoute('Бухта Русская');
+      expect(await slugsOf('Бухта Русская')).toEqual(['buhta-russkaya-marshrut']);
+      await insertRoute('Бухта Русская');
+      expect(await slugsOf('Бухта Русская')).toEqual(['buhta-russkaya-marshrut', null]);
+    });
+
+    it('маршрут к месту и маршрут «… маршрут» в двух транзакциях не делят адрес с суффиксом', async () => {
+      await insertConcurrently('Бухта Шлюпочная', 'Бухта Шлюпочная маршрут');
+      expect(await slugsOf('Бухта Шлюпочная')).toEqual(['buhta-shlyupochnaya-marshrut']);
+      expect(await slugsOf('Бухта Шлюпочная маршрут')).toEqual([null]);
+    });
+
     it('адреса разделов маршрут не получает — ни один из списка в коде', async () => {
       // Держатель адреса раздела отказал бы и без правила разделов — убираем
       // его, чтобы отказ доказывал именно правило.
@@ -275,29 +350,7 @@ withPg('адрес по имени маршруту при записи (1237) �
     });
 
     it('двое тёзок в двух транзакциях: вторая ждёт первую и не падает на уникальном индексе', async () => {
-      const t1 = await pool.connect();
-      const t2 = await pool.connect();
-      try {
-        await t1.query('BEGIN');
-        await t2.query('BEGIN');
-        await t1.query(`INSERT INTO kamchatka_routes (title) VALUES ('Халактырский пляж')`);
-        let secondDone = false;
-        const second = t2
-          .query(`INSERT INTO kamchatka_routes (title) VALUES ('Халактырский пляж')`)
-          .then(() => { secondDone = true; });
-        await new Promise((r) => setTimeout(r, 300));
-        // Вторая вставка стоит на блокировке адреса, пока первая не решится.
-        expect(secondDone).toBe(false);
-        await t1.query('COMMIT');
-        await second;
-        await t2.query('COMMIT');
-      } finally {
-        // На провале транзакции остаются открытыми — в пул их возвращать нельзя.
-        await t1.query('ROLLBACK').catch(() => undefined);
-        await t2.query('ROLLBACK').catch(() => undefined);
-        t1.release();
-        t2.release();
-      }
+      await insertConcurrently('Халактырский пляж', 'Халактырский пляж');
       expect(await slugsOf('Халактырский пляж')).toEqual(['halaktyrskij-plyazh', null]);
     });
   });
