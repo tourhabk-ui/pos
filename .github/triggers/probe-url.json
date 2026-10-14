@@ -1,20 +1,14 @@
 {
   "timeout": 90,
-  "run": 860,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Что парк называет «территорией Авачинского перевала» (зона свободного посещения), правила посещения природных парков, ссылки подстраниц кластера «Налычево». Конфиг записан целиком.",
+  "run": 861,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Подстраницы кластера «Налычево» на сайте парка (vulkany, termalnye_i_mineralnye_istochniki, pamyatniki_prirody) — источники для карточки парка, долины и источников. Конфиг записан целиком.",
   "urls": [
-    "https://www.vulcanikamchatki.ru/index/proekt_obustrojstva_avachinskogo_perevala/",
-    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/pravila_poseweniya_prirodnyh_parkov/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevo/"
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/vulkany/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/termalnye_i_mineralnye_istochniki/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/pamyatniki_prirody/"
   ],
   "text": true,
-  "around": [
-    "href=\"/territoriya",
-    "territoriya/klaster_nalychevo"
-  ],
-  "aroundLines": 0,
-  "aroundHits": 40,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 14000
+  "bytes": 12000
 }
