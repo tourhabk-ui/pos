@@ -1,20 +1,15 @@
 {
   "timeout": 60,
-  "run": 816,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Архивная главная komandorsky.ru (14.08.2026): адреса пунктов меню «Туристам», «Турфирмам» и страницы «О переводе заповедника в национальный парк». Конфиг записан целиком.",
+  "run": 817,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Архив komandorsky.ru: страницы «Туристам», «Турфирмам» и «О переводе заповедника в национальный парк» — порядок посещения, разрешения, пограничная зона. Конфиг записан целиком.",
   "urls": [
-    "http://web.archive.org/web/20260814105021/http://komandorsky.ru/"
+    "http://web.archive.org/web/2026/http://komandorsky.ru/for-tourists.html",
+    "http://web.archive.org/web/2026/http://komandorsky.ru/travel-agencies.html",
+    "http://web.archive.org/web/2026/http://komandorsky.ru/perevod-v-nacpark/"
   ],
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 200,
-  "around": [
-    "Туристам",
-    "Турфирмам",
-    "О переводе заповедника"
-  ],
-  "aroundLines": 1,
-  "aroundBefore": 2,
-  "aroundHits": 3
+  "bytes": 16000,
+  "text": true
 }
