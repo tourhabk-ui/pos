@@ -1,21 +1,19 @@
 {
   "timeout": 120,
-  "run": 912,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись памятников природы и заказников края (категории Википедии, проба 911) против мест платформы: поиск по имени, включая скрытые и слитые, с описанием и профилем. Конфиг записан целиком.",
+  "run": 913,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Памятники природы у Петропавловска (перепись, проба 912): Википедия о скалах Три Брата и Никольской сопке, поиск статьи об острове Старичков; карточки платформы — Скалы Три Брата, Остров Старичков, Сопка Никольская, мемориал на Никольской сопке. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%A2%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%9D%D0%B8%D0%BA%D0%BE%D0%BB%D1%8C%D1%81%D0%BA",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%93%D0%BE%D0%BB%D1%83%D0%B1",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%90%D0%BA%D0%B2%D0%B0%D1%80%D0%B8%D1%83%D0%BC",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%94%D0%B0%D0%BB%D1%8C%D0%BD%D0%B5%D0%B5",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%A2%D0%B8%D0%BC%D0%BE%D0%BD%D0%BE%D0%B2",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%9D%D0%B8%D0%BA%D0%BE%D0%BB%D0%BA",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%90%D0%B6%D0%B0%D0%B1%D0%B0%D1%87",
-    "https://vedarai.ru/api/cron/place-audit?q=%D0%94%D0%B2%D1%83%D1%85%D1%8E%D1%80%D1%82"
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%A2%D1%80%D0%B8+%D0%91%D1%80%D0%B0%D1%82%D0%B0+%28%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0%29",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9D%D0%B8%D0%BA%D0%BE%D0%BB%D1%8C%D1%81%D0%BA%D0%B0%D1%8F+%D1%81%D0%BE%D0%BF%D0%BA%D0%B0",
+    "https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B2+%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2&format=json&utf8=1&srlimit=5",
+    "https://vedarai.ru/api/places/e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+    "https://vedarai.ru/api/places/4dd86a74-d010-4ff4-81ad-23af3ba966a5",
+    "https://vedarai.ru/api/places/51598b80-6b92-48d9-beb4-019f824524c9",
+    "https://vedarai.ru/api/places/f1a2b3c4-d5e6-4789-abcd-ef0123456789"
   ],
+  "text": true,
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 4500
+  "bytes": 7000
 }
