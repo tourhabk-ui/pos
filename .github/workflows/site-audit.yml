@@ -81,13 +81,19 @@ jobs:
             [ -z "$url" ] && continue
             n=$((n+1)); [ $n -gt 3 ] && break
             out=/tmp/lh-$n.json
+            # --save-assets кладёт рядом трассу (/tmp/lh-N-0.trace.json): по
+            # профилю ЦП в ней расшифровка называет функции, а не только файлы
+            # (scripts/site-audit.py: hot_functions, 14.10).
             if timeout 180 npx -y lighthouse@12 "$url" --quiet --output=json --output-path="$out" \
                  --only-categories=performance,seo,accessibility,best-practices \
-                 --form-factor=mobile --screenEmulation.mobile \
+                 --form-factor=mobile --screenEmulation.mobile --save-assets \
                  --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt; then
               # Строка таблицы — в отчёт, расшифровка «что тормозит» — отдельным
               # файлом под таблицей (scripts/site-audit.py: lighthouse_summary).
-              python3 scripts/site-audit.py lighthouse "$url" "$out" /tmp/lh-details.md >> /tmp/site-audit.md
+              # Трассы нет — путь-заглушка: расшифровка скажет «трасса не
+              # прочитана», а не промолчит (§4.0).
+              trace=$(ls /tmp/lh-$n-*.trace.json 2>/dev/null | head -n 1)
+              python3 scripts/site-audit.py lighthouse "$url" "$out" /tmp/lh-details.md "${trace:-/tmp/lh-$n-trace-not-saved.json}" >> /tmp/site-audit.md
             else
               echo "| $url | не измерено: $(head -c 120 /tmp/lh-err.txt | tr '\n' ' ') | | | | | | |" >> /tmp/site-audit.md
             fi

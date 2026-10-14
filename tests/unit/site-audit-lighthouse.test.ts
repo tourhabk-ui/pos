@@ -10,7 +10,9 @@
  * отчёте, того нет и в расшифровке: молчание не печатается как «хорошо».
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -143,5 +145,151 @@ describe('lighthouse_summary: строка таблицы и «что тормо
     const { row, details } = run('{"categories": ', 'broken');
     expect(row).toMatch(new RegExp(`^\\| ${PAGE.replace(/[.]/g, '\\.')} \\| не измерено: отчёт Lighthouse не прочитан`));
     expect(details).toBeNull();
+  });
+});
+
+/**
+ * Горячие функции по трассе Lighthouse (14.10) — вызовом на синтетической
+ * трассе и локальном сервере со «своим» чанком.
+ *
+ * «Скрипты по времени выполнения» называют файл, а файл чанка — сотни модулей:
+ * прогон 9 показал 1,4 с на главной в общем чанке 31255 и 7,7 с на /map в
+ * ca4dcb09, и править было не по чему. Профиль ЦП называет функцию и место;
+ * по месту в своём чанке видны номер модуля webpack и кусок кода.
+ */
+describe('hot_functions: функции, которые держат главный поток', () => {
+  const CHUNK = '(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[31255],{'
+    + '7676:(e,t,r)=>{function eB(e){return JSON.parse(e)}},'
+    + '8100:function(e,t){function parseModel(){return 1}}}]);';
+  const at = (needle: string) => CHUNK.indexOf(needle);
+  let server: Server;
+  let base = '';
+  const seen: string[] = [];
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      seen.push(req.url ?? '');
+      if (req.url === '/_next/static/chunks/31255-abc.js') {
+        res.writeHead(200, { 'content-type': 'application/javascript' });
+        res.end(CHUNK);
+        return;
+      }
+      res.writeHead(404);
+      res.end('нет');
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => { server.close(); });
+
+  /** Трасса Chrome: профиль ЦП приходит кусками ProfileChunk, время — дельтами в мкс. */
+  function trace(own: string) {
+    const frame = (id: number, functionName: string, url = '', columnNumber = 0, parent?: number) =>
+      ({ id, callFrame: { functionName, url, lineNumber: 0, columnNumber }, ...(parent ? { parent } : {}) });
+    const main = {
+      nodes: [
+        frame(1, '(root)'), frame(2, '(program)', '', 0, 1), frame(3, '(idle)', '', 0, 1),
+        frame(4, 'eB', `${own}/_next/static/chunks/31255-abc.js`, at('eB('), 1),
+        frame(5, 'parseModel', `${own}/_next/static/chunks/31255-abc.js`, at('parseModel('), 1),
+        frame(6, '', 'https://mc.yandex.ru/metrika/tag.js', 10, 1),
+        frame(7, 'render', `${own}/`, 5, 1),
+        frame(8, 'gone', `${own}/_next/static/chunks/missing-1.js`, 3, 1),
+      ],
+    };
+    // Время выборки i — это дельта i+1 (так считают DevTools); длины равны,
+    // как в настоящем профиле. Последняя выборка времени не получает.
+    const samples = [4, 4, 4, 5, 3, 2, 6, 7, 8, 4];
+    const deltas = [0, 100_000, 100_000, 100_000, 100_000, 5_000_000, 50_000, 50_000, 30_000, 10_000];
+    return { traceEvents: [
+      { name: 'Profile', pid: 1, id: '0x1', args: { data: { startTime: 0 } } },
+      { name: 'ProfileChunk', pid: 1, id: '0x1', args: { data: { cpuProfile: { nodes: main.nodes, samples: samples.slice(0, 5) }, timeDeltas: deltas.slice(0, 5) } } },
+      { name: 'ProfileChunk', pid: 1, id: '0x1', args: { data: { cpuProfile: { samples: samples.slice(5) }, timeDeltas: deltas.slice(5) } } },
+      // Воркер занят меньше главного потока — его профиль не берётся.
+      { name: 'ProfileChunk', pid: 2, id: '0x2', args: { data: {
+        cpuProfile: { nodes: [frame(1, '(root)'), frame(2, 'workerFn', `${own}/w.js`, 0, 1)], samples: [2, 2] },
+        timeDeltas: [0, 30_000] } } },
+    ] };
+  }
+
+  function runWithTrace(page: string, traceBody: unknown | null, name: string): Promise<string> {
+    const json = join(dir, `${name}.json`);
+    const md = join(dir, `${name}.md`);
+    const tr = join(dir, `${name}.trace.json`);
+    writeFileSync(json, JSON.stringify(LH12));
+    if (traceBody !== null) writeFileSync(tr, typeof traceBody === 'string' ? traceBody : JSON.stringify(traceBody));
+    return new Promise((ok, fail) => {
+      // Асинхронно: сервер в этом же процессе должен успеть ответить скрипту.
+      execFile('python3', [SCRIPT, 'lighthouse', page, json, md, tr], { encoding: 'utf-8' }, (err) => {
+        if (err) return fail(err);
+        ok(existsSync(md) ? readFileSync(md, 'utf-8') : '');
+      });
+    });
+  }
+
+  const hotLines = (d: string) => {
+    const lines = d.split('\n');
+    const head = lines.findIndex((l) => l.startsWith('- горячие функции'));
+    if (head < 0) return [];
+    const out = [lines[head]];
+    for (const l of lines.slice(head + 1)) { if (!l.startsWith('  - ')) break; out.push(l); }
+    return out;
+  };
+
+  it('самые затратные функции — первыми, с долей; простой и служебные узлы не в счёт', async () => {
+    const d = await runWithTrace(`${base}/`, trace(base), 'hot');
+    const [head, first, second, ...rest] = hotLines(d);
+    // 300 + 100 + 50 + 30 + 10 мс; (idle) 5 с и (program) не считаются, воркер не взят.
+    expect(head).toBe('- горячие функции (самовремя по профилю ЦП, без замедления; занято всего 490 мс):');
+    expect(first).toMatch(/^ {2}- 300 мс \(61%\) `eB` — \/_next\/static\/chunks\/31255-abc\.js:1:\d+, модуль 7676: `.*JSON\.parse.*`$/);
+    expect(second).toMatch(/^ {2}- 100 мс \(20%\) `parseModel` — \/_next\/static\/chunks\/31255-abc\.js:1:\d+, модуль 8100: `.*parseModel.*`$/);
+    expect(rest.join('\n')).toContain('50 мс (10%) `(аноним)` — mc.yandex.ru/metrika/tag.js:1:11');
+    expect(d).not.toContain('workerFn');
+    expect(d).not.toContain('(idle)');
+  });
+
+  it('чужой хост и документ страницы не читаются: место в них не то же между запросами', async () => {
+    seen.length = 0;
+    const d = await runWithTrace(`${base}/`, trace(base), 'hot-fetch');
+    // Свой чанк прочитан один раз на оба места, документ «/» — ни разу.
+    expect(seen.filter((u) => u === '/_next/static/chunks/31255-abc.js')).toHaveLength(1);
+    expect(seen).not.toContain('/');
+    // Чужой скрипт — только место, без чтения и без «не прочитан».
+    const yandex = hotLines(d).find((l) => l.includes('mc.yandex.ru')) ?? '';
+    expect(yandex).toBe('  - 50 мс (10%) `(аноним)` — mc.yandex.ru/metrika/tag.js:1:11');
+    const doc = hotLines(d).find((l) => l.includes('`render`')) ?? '';
+    expect(doc).toBe('  - 30 мс (6%) `render` — /:1:6');
+  });
+
+  it('свой скрипт не прочитался — так и сказано, а не кусок пустоты', async () => {
+    const d = await runWithTrace(`${base}/`, trace(base), 'hot-404');
+    const gone = hotLines(d).find((l) => l.includes('missing-1.js')) ?? '';
+    expect(gone).toBe('  - 10 мс (2%) `gone` — /_next/static/chunks/missing-1.js:1:4, скрипт не прочитан');
+  });
+
+  it('строка встаёт внутрь расшифровки страницы, остальное на месте', async () => {
+    const d = await runWithTrace(`${base}/`, trace(base), 'hot-order');
+    const lines = d.split('\n');
+    const boot = lines.findIndex((l) => l.startsWith('- скрипты по времени выполнения'));
+    const hot = lines.findIndex((l) => l.startsWith('- горячие функции'));
+    expect(boot).toBeGreaterThan(-1);
+    expect(hot).toBeGreaterThan(boot);
+    expect(d).toContain('- вес страницы: 3 072 КБ');
+  });
+
+  it('трассы нет или она битая — «не прочитана», а не тишина', async () => {
+    const missing = await runWithTrace(`${base}/`, null, 'hot-none');
+    expect(missing).toMatch(/- горячие функции: трасса не прочитана \(/);
+    const broken = await runWithTrace(`${base}/`, '{"traceEvents": [', 'hot-broken');
+    expect(broken).toMatch(/- горячие функции: трасса не прочитана \(/);
+  });
+
+  it('в трассе нет профиля ЦП — сказано словами', async () => {
+    const d = await runWithTrace(`${base}/`, { traceEvents: [{ name: 'TracingStartedInBrowser' }] }, 'hot-noprof');
+    expect(d).toContain('- горячие функции: в трассе нет профиля ЦП');
+  });
+
+  it('без трассы в аргументах расшифровка прежняя: строки о функциях нет', () => {
+    const { details } = run(LH12, 'hot-absent');
+    expect(details ?? '').not.toContain('горячие функции');
   });
 });

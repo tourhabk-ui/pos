@@ -1169,16 +1169,153 @@ def lighthouse_summary(url: str, lh: dict) -> tuple[str, list[str]]:
     return row, det
 
 
+# ─── Трасса Lighthouse: какие функции держат главный поток ─────────────────
+#
+# «Скрипты по времени выполнения» называют ФАЙЛ, а файл чанка — это сотни
+# модулей. Прогон 9 (14.10): на главной 1,4 с в общем чанке 31255, на /map
+# 7,7 с в ca4dcb09, и править было не по чему. Профиль ЦП в трассе
+# (--save-assets) называет ФУНКЦИЮ и место в файле; по месту видны номер
+# модуля webpack и кусок кода — этого хватает, чтобы узнать модуль.
+#
+# Время — по трассе как она снята, БЕЗ замедления ЦП: Lighthouse в мобильном
+# профиле досчитывает своё (×4) поверх. Сравнивать строки между собой можно,
+# с цифрами «скриптов по времени выполнения» — нет, и это сказано в строке.
+
+PROFILE_SKIP = {'(idle)', '(root)', '(program)'}
+HOT_TOP = 8
+HOT_SNIPPET_URLS = 6
+
+
+def _trace_events(trace) -> list:
+    if isinstance(trace, dict):
+        ev = trace.get('traceEvents')
+        return ev if isinstance(ev, list) else []
+    return trace if isinstance(trace, list) else []
+
+
+def hot_functions(trace, top: int = HOT_TOP) -> tuple[list[dict], float]:
+    """Самовремя функций по профилю ЦП трассы: (топ, занятое время профиля в мс).
+
+    Профилей в трассе может быть несколько (потоки, воркеры) — берётся самый
+    занятый: это главный поток страницы. Время между соседними выборками
+    отдаётся первой из них, как считают DevTools.
+    """
+    profiles: dict[str, dict] = {}
+    for e in _trace_events(trace):
+        if not isinstance(e, dict) or e.get('name') != 'ProfileChunk':
+            continue
+        data = (e.get('args') or {}).get('data') or {}
+        prof = profiles.setdefault(f"{e.get('pid')}:{e.get('id')}", {'nodes': {}, 'samples': [], 'deltas': []})
+        cp = data.get('cpuProfile') or {}
+        for n in cp.get('nodes') or []:
+            if isinstance(n, dict) and 'id' in n:
+                prof['nodes'][n['id']] = n
+        prof['samples'].extend(cp.get('samples') or [])
+        prof['deltas'].extend(data.get('timeDeltas') or [])
+
+    best: list[dict] = []
+    best_busy = 0.0
+    for prof in profiles.values():
+        self_us: Counter = Counter()
+        samples, deltas = prof['samples'], prof['deltas']
+        for i, node_id in enumerate(samples):
+            dt = deltas[i + 1] if i + 1 < len(deltas) else 0
+            if isinstance(dt, (int, float)) and dt > 0:
+                self_us[node_id] += dt
+        by_place: Counter = Counter()
+        for node_id, us in self_us.items():
+            cf = (prof['nodes'].get(node_id) or {}).get('callFrame') or {}
+            name = str(cf.get('functionName') or '')
+            if name in PROFILE_SKIP:
+                continue
+            by_place[(str(cf.get('url') or ''), name, int(cf.get('lineNumber') or 0),
+                      int(cf.get('columnNumber') or 0))] += us
+        busy = sum(by_place.values()) / 1000
+        if busy > best_busy:
+            best_busy = busy
+            best = [{'url': k[0], 'fn': k[1], 'line': k[2], 'col': k[3], 'ms': v / 1000}
+                    for k, v in by_place.most_common(top)]
+    return best, best_busy
+
+
+# Начало модуля в чанке webpack 5: `{123:(e,t,r)=>{`, `,456:function(e,t){`, `,789:e=>{`.
+WEBPACK_MODULE = re.compile(r'[{,](\d+):(?:\(|function\b|[A-Za-z_$][\w$]*=>)')
+
+
+def js_context(text: str, line: int, col: int) -> tuple[str | None, str]:
+    """Номер модуля webpack, в котором стоит место, и кусок кода вокруг него."""
+    lines = text.split('\n')
+    if not 0 <= line < len(lines):
+        return None, ''
+    src = lines[line]
+    module = None
+    for m in WEBPACK_MODULE.finditer(src, 0, max(0, min(col, len(src)))):
+        module = m.group(1)
+    snippet = src[max(0, col - 40):col + 90].replace('`', "'").strip()
+    return module, snippet
+
+
+def hot_functions_lines(page_url: str, trace, fetch_text=None) -> list[str]:
+    """Строки расшифровки. fetch_text(url) -> str | None — чтение своего скрипта;
+    чужие хосты и документ страницы не читаются (документ динамический, место
+    в нём между запросами не то же)."""
+    top, busy = hot_functions(trace)
+    if not top or busy <= 0:
+        return ['- горячие функции: в трассе нет профиля ЦП']
+    page = urllib.parse.urlsplit(page_url)
+    texts: dict[str, str | None] = {}
+    out = [f"- горячие функции (самовремя по профилю ЦП, без замедления; занято всего {_lh_ms(busy)}):"]
+    for h in top:
+        where = _lh_short(h['url'], page_url) if h['url'] else '(без адреса)'
+        place = f"{where}:{h['line'] + 1}:{h['col'] + 1}" if h['url'] else where
+        line = f"  - {_lh_ms(h['ms'])} ({round(100 * h['ms'] / busy)}%) `{h['fn'] or '(аноним)'}` — {place}"
+        u = urllib.parse.urlsplit(h['url']) if h['url'] else None
+        own_js = bool(u and u.netloc == page.netloc and u.path.endswith('.js'))
+        if own_js and fetch_text is not None:
+            if h['url'] not in texts and len(texts) < HOT_SNIPPET_URLS:
+                texts[h['url']] = fetch_text(h['url'])
+            text = texts.get(h['url'])
+            if text is None and h['url'] in texts:
+                line += ', скрипт не прочитан'
+            elif text:
+                module, snippet = js_context(text, h['line'], h['col'])
+                if module:
+                    line += f", модуль {module}"
+                if snippet:
+                    line += f": `{snippet}`"
+        out.append(line)
+    return out
+
+
+def _fetch_own_script(url: str) -> str | None:
+    r = fetch(url)
+    if r['code'] != 200 or not r['body']:
+        return None
+    return r['body'].decode('utf-8', 'replace')
+
+
 def lighthouse_cli(argv: list[str]) -> int:
-    """`site-audit.py lighthouse URL ОТЧЁТ.json РАСШИФРОВКА.md` — строка таблицы в stdout,
-    расшифровка дописывается в файл. Отчёт не читается — строка «не измерено», не тишина."""
-    url, path, details_path = argv
+    """`site-audit.py lighthouse URL ОТЧЁТ.json РАСШИФРОВКА.md [ТРАССА.json]` — строка
+    таблицы в stdout, расшифровка дописывается в файл. Отчёт не читается — строка
+    «не измерено», не тишина; трасса передана, но не читается — так и сказано."""
+    url, path, details_path = argv[:3]
+    trace_path = argv[3] if len(argv) > 3 else ''
     try:
         lh = json.load(open(path, encoding='utf-8'))
     except (OSError, ValueError) as e:
         print(f"| {url} | не измерено: отчёт Lighthouse не прочитан ({str(e)[:80]}) | | | | | | |")
         return 0
     row, det = lighthouse_summary(url, lh)
+    if trace_path:
+        try:
+            trace = json.load(open(trace_path, encoding='utf-8'))
+            hot = hot_functions_lines(url, trace, _fetch_own_script)
+        except (OSError, ValueError) as e:
+            hot = [f"- горячие функции: трасса не прочитана ({str(e)[:80]})"]
+        if det:
+            det[-1:-1] = hot  # перед пустой строкой-разделителем
+        else:
+            det = [f"**{url}**", *hot, '']
     print(row)
     if det:
         with open(details_path, 'a', encoding='utf-8') as f:
@@ -1244,6 +1381,6 @@ def main() -> int:
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 5 and sys.argv[1] == 'lighthouse':
+    if len(sys.argv) in (5, 6) and sys.argv[1] == 'lighthouse':
         sys.exit(lighthouse_cli(sys.argv[2:]))
     sys.exit(main())
