@@ -1,47 +1,11 @@
 {
-  "timeout": 60,
-  "run": 849,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат миграции 1246 (природный парк «Быстринский»): карточка парка, место внутри контура (Ичинский вулкан), страница справочника, статья летописи, главный кадр; заодно место национального парка после 1245 (Ключевская сопка) — режим в данных карточки. Датчик свежести — новая справка на карточке парка. Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 850,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись голоса описаний мест (place-description-geo, блок voice): полный список мест с описанием-дневником — id и начало текста — для миграции, которая уберёт дневники с карточек (слово владельца «2 да»). Гео-часть урезана до одного пункта. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/places/prirodnyj-park-bystrinskij",
-    "https://vedarai.ru/park/bystrinskiy",
-    "https://vedarai.ru/letopis/bystrinskij-park",
-    "https://vedarai.ru/places/625fac2b-1790-441c-b57e-1a70ddf74dd8",
-    "https://vedarai.ru/places/54b106de-d81a-42af-9a41-32ee49604309",
-    "https://vedarai.ru/api/images/s3/photos/bystrinsky/ichinskaya-sopka.jpg"
+    "https://vedarai.ru/api/cron/place-description-geo?limit=1"
   ],
-  "until": "1 325 тысяч гектаров в центре полуострова",
-  "retries": 40,
-  "retryDelay": 60,
-  "bytes": 300,
-  "grep": [
-    "1 325 тысяч гектаров в центре полуострова",
-    "Алхалалала",
-    "ледоруб",
-    "Лесной массив",
-    "Природный парк",
-    "район: Центральная",
-    "Эссо — районный центр Быстринского района",
-    "/letopis/bystrinskij-park",
-    "NadezhdaKhaustova",
-    "Медведи",
-    "natural_park",
-    "national_park",
-    "по разрешению КГБУ",
-    "С октября 2026 года — национальный парк",
-    "visit@park-vulcany.ru",
-    "Ленина, 8",
-    "gosuslugi41",
-    "usloviya_poseweniya",
-    "Мэнедек",
-    "Главные даты",
-    "«Быстринский» в него не вошёл"
-  ],
-  "around": [
-    "natural_park",
-    "national_park"
-  ],
-  "aroundLines": 0,
-  "aroundBefore": 0,
-  "aroundHits": 2
+  "retries": 1,
+  "retryDelay": 20,
+  "bytes": 64000
 }
