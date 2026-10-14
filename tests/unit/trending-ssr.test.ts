@@ -24,13 +24,15 @@ beforeEach(() => {
   poolQueryMock.mockResolvedValue({ rows: [] });
 });
 
+// Что видит человек — ссылки, подписи, оба списка — держит рендер страницы
+// (tests/unit/trending-page.test.tsx, 14.10). Здесь — запреты и общий загрузчик.
 describe('страница трендов собирается на сервере', () => {
-  it('клиент получает списки пропсами и сам не ходит за ними', () => {
-    const client = code('app/trending/_TrendingClient.tsx');
-    expect(client).not.toMatch(/fetch\(/);
-    expect(client).not.toMatch(/useEffect/);
-    expect(code('app/trending/page.tsx')).toMatch(/loadTrending\('all', 12\)/);
-    expect(code('app/trending/page.tsx')).toMatch(/export const dynamic = 'force-dynamic'/);
+  it('списки не тянет браузер и вкладок, прячущих один из них, нет', () => {
+    const lists = code('components/trending/TrendingLists.tsx');
+    expect(lists).not.toMatch(/fetch\(/);
+    expect(lists).not.toMatch(/useEffect/);
+    expect(lists).not.toMatch(/useState/);
+    expect(lists).not.toMatch(/^'use client'/m);
   });
 
   it('страница и API читают один загрузчик', () => {
@@ -38,12 +40,8 @@ describe('страница трендов собирается на сервер
     expect(code('app/api/trending/route.ts')).not.toMatch(/FROM places/);
   });
 
-  it('ссылки — по ЧПУ, тип места — из общего словаря', () => {
-    const client = code('app/trending/_TrendingClient.tsx');
-    expect(client).toMatch(/href=\{`\/places\/\$\{p\.slug \?\? p\.id\}`\}/);
-    expect(client).toMatch(/href=\{`\/routes\/\$\{r\.slug \?\? r\.id\}`\}/);
-    expect(client).toMatch(/locationTypeLabel\(p\.location_type\)/);
-    expect(client).not.toMatch(/TYPE_LABELS\[/);
+  it('тип места — из общего словаря, своего нет', () => {
+    expect(code('components/trending/TrendingLists.tsx')).not.toMatch(/TYPE_LABELS\[/);
   });
 });
 
