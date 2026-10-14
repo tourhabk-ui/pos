@@ -1,14 +1,36 @@
 {
   "timeout": 90,
-  "run": 862,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Подстраницы кластера «Налычево» на сайте парка (zhivotnyj_mir, klimat, infrastruktura_parka) — источники для карточки парка, долины и источников. Конфиг записан целиком.",
+  "run": 863,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Режим (eco) 21 места внутри контура парка «Налычево» — прежде чем записывать режим парка (миграция 1248): что из шаблонов 169/170 у них стоит сейчас. Конфиг записан целиком.",
   "urls": [
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/zhivotnyj_mir/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/klimat/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/infrastruktura_parka/"
+    "https://vedarai.ru/api/places/3031409e-4a99-4f07-80dc-0a92e0a06d02",
+    "https://vedarai.ru/api/places/13b38bca-5663-43e9-8719-f7a822831100",
+    "https://vedarai.ru/api/places/6e7c9f6a-7d52-4a3c-b1e7-31915291da0f",
+    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
+    "https://vedarai.ru/api/places/d0ea1f87-c7b5-45a7-b6d7-999d4e5462e3",
+    "https://vedarai.ru/api/places/3413da89-0259-4628-a3ca-99afb8c29b35",
+    "https://vedarai.ru/api/places/3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
+    "https://vedarai.ru/api/places/97cfb6c3-703b-4d29-acf5-2eed3901a078",
+    "https://vedarai.ru/api/places/7f5284b0-8862-4b11-8a68-2241d359832c",
+    "https://vedarai.ru/api/places/a72b9bdd-f035-4273-a4dc-8d53f8b279cb",
+    "https://vedarai.ru/api/places/a8bef8cd-f162-48f4-9814-bf7cc0f35629",
+    "https://vedarai.ru/api/places/7190e0a4-52f1-47fb-ba17-0fcb493d99df",
+    "https://vedarai.ru/api/places/c5b351d0-7989-ea6b-5d79-baedd9a1a996",
+    "https://vedarai.ru/api/places/dea99549-5ecb-41fe-af19-15f216eeac68",
+    "https://vedarai.ru/api/places/f78d115e-73ef-4de4-aef3-2f6a9f742bc5",
+    "https://vedarai.ru/api/places/4baebe00-d71b-4f53-b0bb-0f20b16f1747",
+    "https://vedarai.ru/api/places/29e415fa-2b63-4a8b-ae1b-a110fa432aa9",
+    "https://vedarai.ru/api/places/1d50cbce-c87f-4733-82a2-779ad1ce5718",
+    "https://vedarai.ru/api/places/155bb824-a3db-47cc-af46-dc4351cd0aff",
+    "https://vedarai.ru/api/places/05112df7-54f9-4280-bcd2-1bfe4929dfc0",
+    "https://vedarai.ru/api/places/32aa0d20-10d9-4fbb-a1f7-b90f327b7687"
   ],
-  "text": true,
+  "around": [
+    "\"eco\":"
+  ],
+  "aroundLines": 3,
+  "aroundHits": 1,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 12000
+  "bytes": 150
 }
