@@ -1,25 +1,14 @@
 {
   "timeout": 120,
-  "run": 897,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Первоисточники по природному парку «Вилючинский» (2022) и заказнику «Река Коль» (2006): документы kamgov.ru и Минприроды края, найденные поиском, документ сайта сети парков 2022 года, страница Wild Salmon Center о Коли. Первый прогон с текстом PDF (pdfminer). Конфиг записан целиком.",
+  "run": 898,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Положение о природном парке «Вилючинский» (постановление Правительства Камчатского края от 28.12.2022 № 743-П, документ сайта сети парков): текст с 7000-го байта — цели, режим, зоны, порядок посещения. Первый прогон со сдвигом textFrom. Конфиг записан целиком.",
   "urls": [
-    "https://www.kamgov.ru/files/6272f7fa9f2868.84413334.pdf",
-    "https://minprir.kamgov.ru/document/file/download?id=91475",
-    "https://minprir.kamgov.ru/document/file/download?id=53790",
-    "https://vulcanikamchatki.ru/files/2023/doc/63acb3f957b957_22593119.pdf",
-    "https://kamgov.ru/files/66b19618ada4f8.73698439.pdf",
-    "https://www.kamgov.ru/files/624b9e1471e485.19037124.pdf",
-    "https://wildsalmoncenter.org/?p=2182"
+    "https://vulcanikamchatki.ru/files/2023/doc/63acb3f957b957_22593119.pdf"
   ],
   "allowStale": true,
   "text": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 7000,
-  "grep": [
-    "Вилючинск",
-    "Коль",
-    "природный парк",
-    "заказник"
-  ]
+  "bytes": 60000,
+  "textFrom": 7000
 }

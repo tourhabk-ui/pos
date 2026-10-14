@@ -64,6 +64,10 @@ jobs:
           # .get: проба может быть только-POST (проба 96 упала на KeyError без 'urls')
           URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json')).get('urls', [])))")
           BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
+          # Необязательный сдвиг текста (байты) для режима "text": длинный
+          # документ (положение о парке в PDF — 117 КБ текста) читается
+          # частями, а лимит check-run — 65 535 символов на всю пробу.
+          TEXT_FROM=$(python3 -c "import json; print(int(json.load(open('.github/triggers/probe-url.json')).get('textFrom', 0)))")
           # Необязательный список строк-маркеров: для каждой печатаем НАЙДЕНО/НЕТ
           # (удобно проверять деплой большого HTML, где нужный текст не в первых
           # байтах — грепаем всё тело, а не только head).
@@ -354,8 +358,12 @@ jobs:
               # 10 КБ текста, и лимит check-run в 65 535 символов съедала
               # разметка (проба 712, разбор витрины под #2245).
               python3 /tmp/strip.py < /tmp/body > /tmp/text || cp /tmp/body /tmp/text
-              echo "── текст без разметки, первые ${BYTES} байт (всего $(wc -c < /tmp/text)) ──"
-              head -c "${BYTES}" /tmp/text | tr -d '\r' | fold -b -w 3000
+              if [ "${TEXT_FROM}" -gt 0 ]; then
+                echo "── текст без разметки, ${BYTES} байт с ${TEXT_FROM}-го (всего $(wc -c < /tmp/text)) ──"
+              else
+                echo "── текст без разметки, первые ${BYTES} байт (всего $(wc -c < /tmp/text)) ──"
+              fi
+              tail -c "+$((TEXT_FROM + 1))" /tmp/text | head -c "${BYTES}" | tr -d '\r' | fold -b -w 3000
               echo ""
               return
             fi
