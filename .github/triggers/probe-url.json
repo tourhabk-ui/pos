@@ -1,19 +1,18 @@
 {
-  "timeout": 60,
-  "run": 811,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Описания авторов, даты, лицензии кандидатов в фото Командорских островов и Корякского заповедника; ссылки подстраниц «Корякский заповедник» на kronoki.ru. Конфиг записан целиком.",
+  "timeout": 45,
+  "run": 812,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Корякский заповедник на kronoki.ru (управляет им с 2015): подстраницы 339–344 — география, климат, рельеф, гидрология, флора, фауна. Текст для справочного описания карточки. Конфиг записан целиком.",
   "urls": [
-    "https://commons.wikimedia.org/w/api.php?action=query&titles=File%3A%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%9F%D0%BE%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D1%8C%D0%B5%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%BE%D0%B2%D0%B0%20%D0%BC%D0%BE%D1%80%D1%8F%2C%20%D0%BC%D1%8B%D1%81%20%D0%A1%D1%82%D0%B0%D1%80%D0%BE%D0%B3%D0%B0%D0%B2%D0%B0%D0%BD%D1%81%D0%BA%D0%B8%D0%B9.jpg%7CFile%3A%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%A1%D0%B5%D0%B2%D0%B5%D1%80%D0%BD%D0%BE%D0%B5%20%D0%BB%D0%B5%D0%B6%D0%B1%D0%B8%D1%89%D0%B5.jpg%7CFile%3A%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%9C%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B5%20%D0%BA%D0%BE%D1%82%D0%B8%D0%BA%D0%B8%20%D0%BD%D0%B0%20%D0%A1%D0%B5%D0%B2%D0%B5%D1%80%D0%BD%D0%BE%D0%BC%20%D0%BB%D0%B5%D0%B6%D0%B1%D0%B8%D1%89%D0%B5.jpg%7CFile%3A%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%A1%D0%B8%D0%B2%D1%83%D1%87.jpg%7CFile%3A%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%9F%D0%BE%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D1%8C%D0%B5%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%BE%D0%B2%D0%B0%20%D0%BC%D0%BE%D1%80%D1%8F.jpg%7CFile%3A%D0%9A%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BE%D1%80%D1%81%D0%BA%D0%B8%D0%B9%20%D0%B7%D0%B0%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D0%BD%D0%B8%D0%BA.%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%B8%D0%B9%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D0%B5%D1%81%D0%BE%D1%87%D0%BD%D0%B8%D0%BA.jpg%7CFile%3A%D0%9F%D0%B5%D1%81%D0%B5%D1%86%20%D1%84%D0%B5%D0%B2%D1%80%D0%B0%D0%BB%D1%8C.jpg%7CFile%3A%D0%9E.%20%D0%9C%D0%B5%D0%B4%D0%BD%D1%8B%D0%B9%2057586.jpg%7CFile%3A%D0%91%D1%83%D1%85%D1%82%D0%B0%20%D0%91%D1%83%D1%8F%D0%BD%D0%B0%201.JPG%7CFile%3A%D0%91%D1%83%D1%85%D1%82%D0%B0%20%D0%91%D1%83%D1%8F%D0%BD%D0%B0%202.JPG%7CFile%3A%D0%9E.%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%B0%2014547.JPG%7CFile%3A%D0%9E.%20%D0%91%D0%B5%D1%80%D0%B8%D0%BD%D0%B3%D0%B0%2014548.JPG%7CFile%3AIsola%20di%20Bering%20-%20estate.jpg%7CFile%3ABering%20Island%20Fox%20306035940.jpg%7CFile%3AFMIB%2039863%20Glinka%20Village%2C%20Copper%20Island%2C%20from%20the%20Beach.jpeg%7CFile%3AFMIB%2039905%20Palata%20Rookery%2C%20Copper%20Island%2C%20from%20Hill%2C%20August%207%2C%201895.jpeg%7CFile%3AKorjaksky%20nature%20reserve.jpg%7CFile%3A%D0%9F%D0%BE%D0%BB%D1%83%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B2%20%D0%93%D0%BE%D0%B2%D0%B5%D0%BD%D0%B0.jpg%7CFile%3A%D0%98%D1%81%D1%82%D0%BE%D0%BA%20%D0%A2%D0%B0%D0%BB%D0%BE%D0%B2%D0%BA%D0%B8.jpg&prop=imageinfo&iiprop=size%7Cextmetadata&iiextmetadatafilter=ImageDescription%7CDateTimeOriginal%7CArtist%7CLicenseShortName%7CLicenseUrl&format=json&formatversion=2&utf8=1",
-    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/"
+    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/339.html",
+    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/340.html",
+    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/341.html",
+    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/342.html",
+    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/343.html",
+    "https://kronoki.ru/ru/kamchatka/koryakskiy-zapovednik/344.html"
   ],
   "allowStale": true,
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 26000,
-  "around": [
-    "koryakskiy-zapovednik/"
-  ],
-  "aroundLines": 0,
-  "aroundBefore": 0,
-  "aroundHits": 20
+  "bytes": 10000,
+  "text": true
 }
