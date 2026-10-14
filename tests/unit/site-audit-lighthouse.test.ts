@@ -119,6 +119,14 @@ describe('lighthouse_summary: строка таблицы и «что тормо
     expect(line).toBe('- сдвиги вёрстки (CLS 0.153): `div.map-panel > p` 0.142 (Web font loaded); `div.chips` 0.021');
   });
 
+  it('у сдвинутого узла — где он стоит в итоге: по этому его узнают в сдвигах трассы', () => {
+    const withBox = { ...LH12, audits: { ...LH12.audits, 'layout-shifts': { details: { items: [
+      { node: { selector: 'div.min-h-screen > div.px-4', boundingRect: { top: 316.4, height: 682.2 } }, score: 0.171 },
+    ] } } } };
+    const { details } = run(withBox, 'lh12-box');
+    expect(details ?? '').toContain('- сдвиги вёрстки (CLS 0.153): `div.min-h-screen > div.px-4` 0.171 [y 316, h 682]');
+  });
+
   it('сдвиги в формате Lighthouse 10–11 (layout-shift-elements, без причин) — тоже названы', () => {
     const { ['layout-shifts']: _drop, ...rest } = LH12.audits;
     void _drop;
@@ -351,5 +359,89 @@ describe('hot_functions: функции, которые держат главн�
   it('без трассы в аргументах расшифровка прежняя: строки о функциях нет', () => {
     const { details } = run(LH12, 'hot-absent');
     expect(details ?? '').not.toContain('горячие функции');
+    expect(details ?? '').not.toContain('сдвиги в трассе');
+  });
+});
+
+/**
+ * Сдвиги из трассы (14.10). Lighthouse мерил на /map CLS 0,171 у `div.px-4`,
+ * а настоящий браузер в его же условиях (map-page-check --lighthouse) —
+ * 0,0103. Отчёт называет узел, но не говорит, откуда и куда тот сдвинулся;
+ * трасса говорит: события LayoutShift несут прямоугольники узлов до и после.
+ */
+describe('trace_shift_lines: откуда и куда сдвинулся узел', () => {
+  const nav = (url: string, ts: number) =>
+    ({ name: 'navigationStart', ts, args: { data: { isLoadingMainFrame: true, documentLoaderURL: url } } });
+  const shift = (ts: number, score: number, nodes: unknown[], extra: Record<string, unknown> = {}) =>
+    ({ name: 'LayoutShift', ts, args: { data: { score, weighted_score_delta: score, had_recent_input: false,
+      is_main_frame: true, impacted_nodes: nodes, ...extra } } });
+  const node = (id: number, oldY: number, newY: number, h = 643) =>
+    ({ node_id: id, old_rect: [0, oldY, 412, h], new_rect: [0, newY, 412, h] });
+
+  function runTrace(traceBody: unknown, name: string): string {
+    const json = join(dir, `${name}.json`);
+    const md = join(dir, `${name}.md`);
+    const tr = join(dir, `${name}.trace.json`);
+    writeFileSync(json, JSON.stringify(LH12));
+    writeFileSync(tr, JSON.stringify(traceBody));
+    execFileSync('python3', [SCRIPT, 'lighthouse', PAGE, json, md, tr], { encoding: 'utf-8' });
+    return existsSync(md) ? readFileSync(md, 'utf-8') : '';
+  }
+  const shiftLines = (d: string) => {
+    const lines = d.split('\n');
+    const head = lines.findIndex((l) => l.startsWith('- сдвиги в трассе'));
+    if (head < 0) return [];
+    const out = [lines[head]];
+    for (const l of lines.slice(head + 1)) { if (!l.startsWith('  - ')) break; out.push(l); }
+    return out;
+  };
+
+  it('крупный первым, время — от начала навигации страницы, а не about:blank', () => {
+    const d = runTrace({ traceEvents: [
+      nav('about:blank', 100_000),
+      nav(PAGE, 1_000_000),
+      shift(1_400_000, 0.0103, [node(7, 77, 77, 44)]),
+      shift(3_300_000, 0.171, [node(41, 141, 316), node(52, 0, 0, 69)]),
+    ] }, 'shift-order');
+    expect(shiftLines(d)).toEqual([
+      '- сдвиги в трассе (без ввода, крупные первыми; узел — номер DOM трассы, пиксели — как в трассе):',
+      '  - 0.1710 на 2.3 с: узел 41 y 141, h 643 → y 316, h 643; узел 52 y 0, h 69 → y 0, h 69',
+      '  - 0.0103 на 0.4 с: узел 7 y 77, h 44 → y 77, h 44',
+    ]);
+  });
+
+  it('сдвиг сразу после ввода и сдвиг во вложенном кадре не в счёт — как у браузера', () => {
+    const d = runTrace({ traceEvents: [
+      nav(PAGE, 0),
+      shift(500_000, 0.5, [node(1, 0, 300)], { had_recent_input: true }),
+      shift(600_000, 0.4, [node(2, 0, 300)], { is_main_frame: false }),
+      shift(700_000, 0.02, [node(3, 10, 20)]),
+    ] }, 'shift-input');
+    const lines = shiftLines(d);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe('  - 0.0200 на 0.7 с: узел 3 y 10, h 643 → y 20, h 643');
+  });
+
+  it('больше трёх записей — три крупных; больше четырёх узлов — «и ещё N»', () => {
+    const many = [1, 2, 3, 4, 5, 6].map((i) => node(i, 0, i));
+    const d = runTrace({ traceEvents: [
+      nav(PAGE, 0),
+      shift(100_000, 0.01, [node(9, 0, 1)]),
+      shift(200_000, 0.03, many),
+      shift(300_000, 0.02, [node(8, 0, 1)]),
+      shift(400_000, 0.04, [node(7, 0, 1)]),
+    ] }, 'shift-top');
+    const lines = shiftLines(d);
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toMatch(/^ {2}- 0\.0400/);
+    expect(lines[2]).toMatch(/^ {2}- 0\.0300 на 0\.2 с: (узел \d .*; ){3}узел 4 y 0, h 643 → y 4, h 643 и ещё 2$/);
+    expect(lines[3]).toMatch(/^ {2}- 0\.0200/);
+  });
+
+  it('сдвигов нет — сказано словами; начала навигации нет — без времени, но с узлами', () => {
+    expect(shiftLines(runTrace({ traceEvents: [nav(PAGE, 0)] }, 'shift-none')))
+      .toEqual(['- сдвиги в трассе: записей LayoutShift без ввода нет']);
+    const d = runTrace({ traceEvents: [shift(5_000_000, 0.05, [node(4, 1, 2)])] }, 'shift-nonav');
+    expect(shiftLines(d)[1]).toBe('  - 0.0500: узел 4 y 1, h 643 → y 2, h 643');
   });
 });
