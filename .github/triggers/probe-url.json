@@ -1,11 +1,11 @@
 {
   "timeout": 90,
-  "run": 861,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Подстраницы кластера «Налычево» на сайте парка (vulkany, termalnye_i_mineralnye_istochniki, pamyatniki_prirody) — источники для карточки парка, долины и источников. Конфиг записан целиком.",
+  "run": 862,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Подстраницы кластера «Налычево» на сайте парка (zhivotnyj_mir, klimat, infrastruktura_parka) — источники для карточки парка, долины и источников. Конфиг записан целиком.",
   "urls": [
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/vulkany/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/termalnye_i_mineralnye_istochniki/",
-    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/pamyatniki_prirody/"
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/zhivotnyj_mir/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/klimat/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_nalychevskij/infrastruktura_parka/"
   ],
   "text": true,
   "retries": 1,
