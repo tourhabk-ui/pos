@@ -1,14 +1,47 @@
 {
-  "timeout": 90,
-  "run": 848,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места четырёх клеток (56n156–159e) вокруг природного парка «Быстринский» — для проверки точкой в контуре OSM. Конфиг записан целиком.",
+  "timeout": 60,
+  "run": 849,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат миграции 1246 (природный парк «Быстринский»): карточка парка, место внутри контура (Ичинский вулкан), страница справочника, статья летописи, главный кадр; заодно место национального парка после 1245 (Ключевская сопка) — режим в данных карточки. Датчик свежести — новая справка на карточке парка. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/places-export?region=cell-56n156e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-56n157e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-56n158e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-56n159e"
+    "https://vedarai.ru/places/prirodnyj-park-bystrinskij",
+    "https://vedarai.ru/park/bystrinskiy",
+    "https://vedarai.ru/letopis/bystrinskij-park",
+    "https://vedarai.ru/places/625fac2b-1790-441c-b57e-1a70ddf74dd8",
+    "https://vedarai.ru/places/54b106de-d81a-42af-9a41-32ee49604309",
+    "https://vedarai.ru/api/images/s3/photos/bystrinsky/ichinskaya-sopka.jpg"
   ],
-  "retries": 1,
-  "retryDelay": 15,
-  "bytes": 15500
+  "until": "1 325 тысяч гектаров в центре полуострова",
+  "retries": 40,
+  "retryDelay": 60,
+  "bytes": 300,
+  "grep": [
+    "1 325 тысяч гектаров в центре полуострова",
+    "Алхалалала",
+    "ледоруб",
+    "Лесной массив",
+    "Природный парк",
+    "район: Центральная",
+    "Эссо — районный центр Быстринского района",
+    "/letopis/bystrinskij-park",
+    "NadezhdaKhaustova",
+    "Медведи",
+    "natural_park",
+    "national_park",
+    "по разрешению КГБУ",
+    "С октября 2026 года — национальный парк",
+    "visit@park-vulcany.ru",
+    "Ленина, 8",
+    "gosuslugi41",
+    "usloviya_poseweniya",
+    "Мэнедек",
+    "Главные даты",
+    "«Быстринский» в него не вошёл"
+  ],
+  "around": [
+    "natural_park",
+    "national_park"
+  ],
+  "aroundLines": 0,
+  "aroundBefore": 0,
+  "aroundHits": 2
 }
