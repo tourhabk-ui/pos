@@ -20,6 +20,7 @@ export interface OwnPermit {
 const PERMIT_LABEL_BY_ZONE: Record<string, string> = {
   federal_reserve: 'Разрешение заповедника',
   regional_reserve: 'Разрешение заповедника',
+  national_park: 'Разрешение национального парка',
   zakaznik: 'Разрешение заказника',
 };
 

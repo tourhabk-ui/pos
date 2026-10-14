@@ -31,8 +31,11 @@
  * умолчанию, вызов не меняется).
  */
 
+/** Щит с деревом — общий значок охраняемых территорий (reserve, national_park). */
+const SHIELD = (hex: string, halo: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 3l8 3v7c0 5.5-3.5 9.5-8 11.5C7.5 22.5 4 18.5 4 13V6l8-3z" fill="${hex}" stroke="${halo}" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 8.5l-3.5 6.5h7L12 8.5z" fill="#fff" opacity="0.65"/><rect x="11.25" y="15" width="1.5" height="3.5" rx="0.75" fill="#fff" opacity="0.65"/></svg>`;
+
 const ICONS_BY_KIND: Record<string, (hex: string, halo: string) => string> = {
-  volcano: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 2L2 22h20L12 2z" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><circle cx="12" cy="14" r="2" fill="#fff" opacity="0.8"/></svg>`,
+  volcano:(hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M12 2L2 22h20L12 2z" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><circle cx="12" cy="14" r="2" fill="#fff" opacity="0.8"/></svg>`,
   hot_spring: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M9 14c0-2 1.5-3 3-3s3 1 3 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
   geyser: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M12 8v6M9 11l3 3 3-3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   lake: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><path d="M7 14c1.5-1 3-1 5 0s3.5 1 5 0" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
@@ -65,6 +68,12 @@ const ICONS_BY_KIND: Record<string, (hex: string, halo: string) => string> = {
   // Сноубордистов» оказался перевалом над Эссо, и до этой строки он падал бы
   // на общий кружок «other».
   pass: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><path d="M2 23L8 9l4 7 4-7 6 14H2z" fill="${hex}" stroke="${halo}" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 20h6" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/></svg>`,
+  // Заповедник и национальный парк — охраняемая ТЕРРИТОРИЯ: щит с деревом.
+  // Заведены 14.10 (миграции 1240, 1243): до этой строки Кроноцкий
+  // заповедник падал на общий кружок «other», а Командоры с Корякским,
+  // переведённые из `forest`, потеряли бы свой значок.
+  reserve: (hex, halo) => SHIELD(hex, halo),
+  national_park: (hex, halo) => SHIELD(hex, halo),
   other: (hex, halo) => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="28" viewBox="0 0 24 28" fill="none"><circle cx="12" cy="14" r="10" fill="${hex}" stroke="${halo}" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#fff" opacity="0.5"/></svg>`,
 };
 
@@ -136,5 +145,9 @@ export const PLACE_KIND_COLOR: Record<string, string> = {
   // категория фильтра — в одном списке с горами он не показывается, и
   // различает их форма (см. комментарий выше про второстепенные виды).
   pass:       '#1E40AF',
+  // Охраняемые территории делят зелёный с лесом: Командоры и Корякский до
+  // 14.10 были `forest`, и цвет на карте у них не меняется — меняется форма.
+  reserve:       '#15803D',
+  national_park: '#15803D',
   other:      '#6B7280',
 };

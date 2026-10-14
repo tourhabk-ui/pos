@@ -67,9 +67,11 @@ describe('список типов мест один', () => {
     // стойбище Кайныран не историческое место (lib/places/location-types.ts).
     // `reserve` — 14.10, Кроноцкий заповедник (миграция 1240): заповедник не
     // природный парк и не лесной массив.
+    // `national_park` — 14.10, Командорские острова (миграция 1243): с 2022
+    // года национальный парк, а не заповедник и не региональный природный парк.
     const FROM_CENSUS = [
       'bay', 'beach', 'cape', 'cave', 'ethnic', 'forest', 'geyser', 'glacier', 'historical',
-      'hot_spring', 'island', 'lake', 'mountain', 'museum', 'other', 'park',
+      'hot_spring', 'island', 'lake', 'mountain', 'museum', 'national_park', 'other', 'park',
       'pass', 'plateau', 'reserve', 'river', 'rock', 'settlement', 'thermal', 'valley',
       'viewpoint', 'volcano', 'waterfall',
     ];

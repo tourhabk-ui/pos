@@ -58,6 +58,7 @@ export interface AccessFacts {
 const ECO_ZONE_GENITIVE: Record<string, string> = {
   UNESCO: 'объекта Всемирного наследия ЮНЕСКО',
   federal_reserve: 'государственного заповедника',
+  national_park: 'национального парка',
   regional_reserve: 'регионального заповедника',
   natural_park: 'природного парка',
   zakaznik: 'государственного заказника',

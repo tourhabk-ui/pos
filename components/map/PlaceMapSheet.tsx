@@ -47,6 +47,10 @@ const LOCATION_LABELS: Record<string, string> = {
   // НАМЕРЕННО (решение владельца, см. place-type-label) — потому это не
   // копия справочника, а свой словарь, и пополняется он по одному слову.
   pass: 'Перевал',
+  // Заповедник и национальный парк — 14.10, вместе с типами (миграции 1240,
+  // 1243): без этих строк лист карты подписывал Кроноцкий заповедник «Место».
+  reserve: 'Заповедник',
+  national_park: 'Нацпарк',
 };
 
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {

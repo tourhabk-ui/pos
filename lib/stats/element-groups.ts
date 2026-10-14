@@ -87,9 +87,10 @@ export function getElementForType(
  * «антропогенные», как у музея с посёлком:
  *
  *   park,
- *   reserve — природный парк и заповедник (14.10) это ТЕРРИТОРИИ, внутри
- *             которых есть и вулканы, и реки, и термы. Не одна стихия по
- *             построению;
+ *   reserve,
+ *   national_park — природный парк, заповедник и национальный парк (14.10)
+ *             это ТЕРРИТОРИИ, внутри которых есть и вулканы, и реки, и термы.
+ *             Не одна стихия по построению;
  *   pass,
  *   plateau,
  *   valley,
@@ -103,7 +104,7 @@ export function getElementForType(
  */
 export const EXCLUDED_TYPES: readonly string[] = [
   'viewpoint', 'settlement', 'museum', 'historical', 'rock', 'other',
-  'park', 'reserve', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
+  'park', 'reserve', 'national_park', 'pass', 'plateau', 'valley', 'cave', 'ethnic',
 ];
 
 export interface ElementCount { key: string; label: string; count: number; href: string; }

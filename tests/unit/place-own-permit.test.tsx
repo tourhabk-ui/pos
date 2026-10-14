@@ -40,6 +40,8 @@ describe('ownPermitOf — своя страница разрешения из э
     });
     expect(ownPermitOf({ zone: 'natural_park', permitUrl: 'https://www.example.org/p' })?.label).toBe('Разрешение парка');
     expect(ownPermitOf({ zone: 'zakaznik', permitUrl: 'https://example.org/z' })?.label).toBe('Разрешение заказника');
+    // Национальный парк (миграция 1243) — не «парк» региональной сети.
+    expect(ownPermitOf({ zone: 'national_park', permitUrl: 'https://example.org/n' })?.label).toBe('Разрешение национального парка');
   });
 
   it('адреса нет, он не https или битый — своей двери нет', () => {
