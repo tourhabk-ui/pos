@@ -124,11 +124,12 @@ describe('карточка маршрута берёт слова из слов�
  * ровно затем, чтобы работа не потерялась, а не чтобы разрешать новые копии.
  *
  * Эти три экрана не входили в задачу (владелец просил карточку маршрута), и
- * трогать их заодно значило бы править вслепую то, чего я не мерил.
+ * трогать их заодно значило бы править вслепую то, чего я не мерил. Тренды
+ * сведены 14.10 (components/trending/TrendingLists зовёт difficultyLabel):
+ * их «Экстрим» расходился с «Экстремальный» на остальных экранах.
  */
 const KNOWN_COPIES = [
   'app/planning/_PlanningClient.tsx',
-  'app/trending/_TrendingClient.tsx',
   'app/ai-assistant/_AIAssistantClient.tsx',
 ];
 
@@ -139,6 +140,6 @@ describe('перепись оставшихся копий', () => {
   });
 
   it('список не растёт', () => {
-    expect(KNOWN_COPIES.length).toBeLessThanOrEqual(3);
+    expect(KNOWN_COPIES.length).toBeLessThanOrEqual(2);
   });
 });

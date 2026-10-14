@@ -1,8 +1,9 @@
 /**
  * GET /api/trending — регрессия id-пространства.
  *
- * _TrendingClient.tsx строит href на /routes/[id] из поля id, вернувшегося
- * этим запросом. /routes/[id] ищет по VIEW agent_route_knowledge, где
+ * Списки трендов (components/trending/TrendingLists) строят href на
+ * /routes/[id] из поля id, вернувшегося этим запросом. /routes/[id] ищет
+ * по VIEW agent_route_knowledge, где
  * id = COALESCE(ark_id, id). Голый kamchatka_routes.id у записи с
  * заполненным ark_id там не находится — «популярное» на /trending вело
  * на 404. Тот же разбор и та же формула уже стоят в

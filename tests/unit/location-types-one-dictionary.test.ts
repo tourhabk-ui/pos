@@ -130,8 +130,9 @@ describe('потребители берут слова из источника',
     ['lib/agents/kuzmich-place-enricher.ts', 'locationTypeLabelLower'],
     ['app/hub/admin/content/tours/page.tsx', 'locationTypeLabel'],
     // Седьмая копия — словарь из девяти типов в трендах: «waterfall» уходил
-    // на экран капсом латиницей (аудит 01.10).
-    ['app/trending/_TrendingClient.tsx', 'locationTypeLabel'],
+    // на экран капсом латиницей (аудит 01.10). С 14.10 списки трендов — в
+    // components/trending/TrendingLists.
+    ['components/trending/TrendingLists.tsx', 'locationTypeLabel'],
     // Восьмая — в карточке подборки (аудит 01.10, вместе со ссылками по ЧПУ).
     ['app/collections/[slug]/_CollectionDetailClient.tsx', 'locationTypeLabel'],
   ];
