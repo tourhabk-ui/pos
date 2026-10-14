@@ -1,16 +1,12 @@
 {
   "timeout": 90,
-  "run": 841,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Места в шести клетках вокруг парков «Ключевской» и «Южно-Камчатский» (экспорт слоя мест) — для проверки точкой в контуре OSM. Конфиг записан целиком.",
+  "run": 842,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Две клетки, обрезанные в пробе 841 (лимит байт): места вокруг «Ключевского» (55n160e) и «Южно-Камчатского» (52n158e). Конфиг записан целиком.",
   "urls": [
     "https://vedarai.ru/api/cron/places-export?region=cell-55n160e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-55n161e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-56n160e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-56n161e",
-    "https://vedarai.ru/api/cron/places-export?region=cell-52n157e",
     "https://vedarai.ru/api/cron/places-export?region=cell-52n158e"
   ],
   "retries": 1,
   "retryDelay": 15,
-  "bytes": 10500
+  "bytes": 24000
 }
