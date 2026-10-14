@@ -1,54 +1,13 @@
 {
-  "timeout": 60,
-  "run": 851,
-  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Выкат 06b2650b (миграция 1247, описания-дневники сняты с карточек) и повторная проверка «Быстринского» (1246) после выката. Датчик свежести — строка о снятом описании на карточке Авачинского перевала. Заодно переписи: заметки Кузьмича (очередь перезаписи после прогона агента) и голос описаний (снятые). Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 852,
+  "note": "14.10. ТОЛЬКО ЧТЕНИЕ. Перепись описаний маршрутов v6 (route-desc-census): сколько описаний написал агент enrich-routes по одному названию и сколько из них говорят сверх записи (имена, числа, опасности) — для отчёта владельцу по пункту «3 да». Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/places/prirodnyj-park-bystrinskij",
-    "https://vedarai.ru/park/bystrinskiy",
-    "https://vedarai.ru/letopis/bystrinskij-park",
-    "https://vedarai.ru/places/625fac2b-1790-441c-b57e-1a70ddf74dd8",
-    "https://vedarai.ru/places/54b106de-d81a-42af-9a41-32ee49604309",
-    "https://vedarai.ru/api/images/s3/photos/bystrinsky/ichinskaya-sopka.jpg",
-    "https://vedarai.ru/api/cron/kuzmich-review-census",
-    "https://vedarai.ru/api/cron/place-description-geo?limit=1"
+    "https://vedarai.ru/api/cron/route-desc-census?limit=100",
+    "https://vedarai.ru/api/cron/route-desc-census?limit=100&offset=100"
   ],
-  "until": "переписываем по справочникам",
-  "retries": 40,
+  "until": "route_desc_census_v6",
+  "retries": 20,
   "retryDelay": 60,
-  "bytes": 700,
-  "grep": [
-    "переписываем по справочникам",
-    "1 325 тысяч гектаров в центре полуострова",
-    "Алхалалала",
-    "ледоруб",
-    "Лесной массив",
-    "район: Центральная",
-    "Эссо — районный центр Быстринского района",
-    "/letopis/bystrinskij-park",
-    "NadezhdaKhaustova",
-    "Медведи",
-    "natural_park",
-    "national_park",
-    "по разрешению КГБУ",
-    "С октября 2026 года — национальный парк",
-    "visit@park-vulcany.ru",
-    "Ленина, 8",
-    "gosuslugi41",
-    "usloviya_poseweniya",
-    "Мэнедек",
-    "Главные даты",
-    "«Быстринский» в него не вошёл",
-    "\"rewrite_queue\"",
-    "\"with_evidence\"",
-    "\"withdrawn\""
-  ],
-  "around": [
-    "\"rewrite_queue\"",
-    "\"reviews\"",
-    "\"withdrawn\""
-  ],
-  "aroundLines": 0,
-  "aroundBefore": 0,
-  "aroundHits": 1
+  "bytes": 30000
 }
