@@ -83,10 +83,13 @@ jobs:
             out=/tmp/lh-$n.json
             # --save-assets кладёт рядом трассу (/tmp/lh-N-0.trace.json): по
             # профилю ЦП в ней расшифровка называет функции, а не только файлы
-            # (scripts/site-audit.py: hot_functions, 14.10).
+            # (scripts/site-audit.py: hot_functions, 14.10). Профиля в трассе
+            # Lighthouse по умолчанию нет — прогон 11 так и сказал («в трассе
+            # нет профиля ЦП»); категорию профилировщика просим явно.
             if timeout 180 npx -y lighthouse@12 "$url" --quiet --output=json --output-path="$out" \
                  --only-categories=performance,seo,accessibility,best-practices \
                  --form-factor=mobile --screenEmulation.mobile --save-assets \
+                 --additional-trace-categories=disabled-by-default-v8.cpu_profiler \
                  --chrome-flags="--headless=new --no-sandbox --disable-gpu" >/dev/null 2>/tmp/lh-err.txt; then
               # Строка таблицы — в отчёт, расшифровка «что тормозит» — отдельным
               # файлом под таблицей (scripts/site-audit.py: lighthouse_summary).

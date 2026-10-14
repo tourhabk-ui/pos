@@ -42,6 +42,14 @@ describe('site-audit: только чтение', () => {
     expect(WF).not.toMatch(/\bcron:/);
   });
 
+  it('Lighthouse сохраняет трассу с профилем ЦП — без него горячих функций не назвать', () => {
+    // Прогон 11 (14.10): трасса была, профиля в ней нет — категория
+    // профилировщика в Lighthouse по умолчанию выключена.
+    expect(WF).toMatch(/lighthouse@12[^\n]*\n(?:[^\n]*\\\n)*[^\n]*--save-assets/);
+    expect(WF).toMatch(/--additional-trace-categories=[^\s"]*disabled-by-default-v8\.cpu_profiler/);
+    expect(WF).toMatch(/python3 scripts\/site-audit\.py lighthouse "\$url" "\$out" \/tmp\/lh-details\.md "\$\{trace:-/);
+  });
+
   it('маркер называет домен без схемы', () => {
     expect(MARKER.host).toMatch(/^[a-z0-9.-]+\.[a-z]{2,}$/);
     expect(MARKER.maxPages ?? 60).toBeLessThanOrEqual(200);
