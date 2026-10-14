@@ -42,9 +42,9 @@ import { OVERVIEW_ID } from '@/lib/geo/regions';
 import { OVERVIEW_MIN_ZOOM } from '@/lib/map/pack-source';
 import { ON_ROUTE_FILTER } from '@/lib/places/on-route';
 import { maplibreWorkerUrl } from '@/lib/map/maplibre-worker';
-import { placeMarkerSvg, PLACE_MARKER_SIZE, PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
+import { placeMarkerSvg, PLACE_MARKER_SIZE } from '@/lib/map/place-marker-icons';
 import { placeKindFilterExpr } from '@/lib/map/place-filter';
-import { parsePlaceIconImageId, rasterizePlaceIcon, PLACE_ICON_PIXEL_RATIO } from '@/lib/map/place-icon-raster';
+import { placeIconColors, placeIconResolver, rasterizePlaceIcon } from '@/lib/map/place-icon-raster';
 import { Minus, Plus } from 'lucide-react';
 /**
  * Стили MapLibre обязательны, а не «для красоты»: именно они ставят
@@ -803,36 +803,24 @@ export default function VedarMap({
         // Формы маркеров мест рисуются ПО ЗАПРОСУ, не впрок. Стиль называет
         // иконку строкой (`place-icon-<hazard|normal>-<kind>`), сам растр не
         // может собрать — он строится без DOM/canvas. Когда MapLibre впервые
-        // просит эту строку, styleimagemissing даёт нам шанс её нарисовать;
-        // растеризуется РОВНО столько форм×цветов, сколько реально видно на
-        // экране, а не все формы на 2 цвета сразу, даже если на карте одни
-        // вулканы (владелец 07.09, «геоточки были все со своими маркерами»).
-        const missingIconRequests = new Set<string>();
-        map.on('styleimagemissing', (e) => {
-          const id = (e as { id: string }).id;
-          if (missingIconRequests.has(id) || map.hasImage(id)) return;
-          const parsed = parsePlaceIconImageId(id);
-          if (!parsed) return;
-          missingIconRequests.add(id);
-          // Заливка — по КАТЕГОРИИ места (владелец 10.09: «разделять
-          // цветами по фильтрам»), один источник на обе карты
-          // (lib/map/place-marker-icons.ts, PLACE_KIND_COLOR). Опасность
-          // (`hazard_types` не пуст) теперь красит не заливку, а КРОМКУ —
-          // иначе вулкан с записанным профилем терял бы свой
-          // «вулканический» цвет и становился неотличим от источника.
-          const hex = PLACE_KIND_COLOR[parsed.kind] ?? PLACE_KIND_COLOR.other;
-          // Некритичная кромка — фон карты (контраст с любой ступенью
-          // гипсометрии, владелец 07.09: «цвета геоточек не отличаются от
-          // цветов высот»); опасная — цвет тревоги, тот же, что у обрыва.
-          const halo = parsed.hazardous ? palette.cliff : palette.background;
-          const svg = placeMarkerSvg(hex, parsed.kind, halo);
-          rasterizePlaceIcon(svg, PLACE_MARKER_SIZE.width, PLACE_MARKER_SIZE.height)
-            .then((img) => {
-              if (cancelled || map.hasImage(id)) return;
-              map.addImage(id, img, { pixelRatio: PLACE_ICON_PIXEL_RATIO });
-            })
-            .catch((err) => console.error('[VedarMap] иконка места не собралась', id, err));
-        });
+        // просит эту строку, резолвер её рисует; растеризуется РОВНО столько
+        // форм×цветов, сколько реально видно на экране, а не все формы на 2
+        // цвета сразу (владелец 07.09, «геоточки были все со своими маркерами»).
+        // Резолвер, а не событие styleimagemissing (14.10): под MapLibre 6
+        // событие приходит, когда тайл уже разложен без значка, — 40
+        // предупреждений и вторая раскладка мест на каждом открытии /map
+        // (разбор — lib/map/place-icon-raster, placeIconResolver).
+        map.setMissingStyleImageResolver(placeIconResolver(
+          map,
+          (icon) => {
+            const { fill, halo } = placeIconColors(icon, palette);
+            return rasterizePlaceIcon(placeMarkerSvg(fill, icon.kind, halo), PLACE_MARKER_SIZE.width, PLACE_MARKER_SIZE.height);
+          },
+          {
+            isCancelled: () => cancelled,
+            onError: (id, err) => console.error('[VedarMap] иконка места не собралась', id, err),
+          },
+        ));
 
         map.on('load', () => { loaded = true; if (!cancelled) setReady(true); });
 
