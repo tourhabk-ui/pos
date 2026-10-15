@@ -142,7 +142,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/hub/admin/email/_EmailAdminClient.tsx': 1,
   'app/hub/admin/health/_HealthTabs.tsx': 1,
   'app/hub/admin/leads/_LeadsClient.tsx': 2,
-  'app/hub/admin/operators/_OperatorsClient.tsx': 5,
+  'app/hub/admin/operators/_OperatorsClient.tsx': 4,
   'app/hub/admin/places/_PlacesCleanupClient.tsx': 1,
   'app/hub/admin/pricing/_PricingClient.tsx': 1,
   'app/hub/admin/promo-codes/page.tsx': 2,

@@ -38,12 +38,27 @@ const B = '(?<![а-яёa-z0-9])';
 const E = '(?![а-яёa-z0-9])';
 const re = (pattern: string) => new RegExp(`${B}(?:${pattern})${E}`, 'i');
 
+// Китайский и английский (аудит 15.10, ревью WID-lang): окно виджета говорит с
+// посетителем на его языке, и «我们迷路了» без серверного блока 112 — та же дыра,
+// что «заблудился» до этого детектора. Те же правила точности: опасное слово —
+// только с признаком угрозы в той же фразе (на «熊会靠近营地吗?» — вопросе о
+// медведях — блока нет). Иероглифов нет в классе B/E, поэтому re() годится и
+// для них: граница слова там — любой соседний знак. ZP — «внутри фразы» для
+// китайского, где предложение кончается своими знаками 。！？
+const ZP = '[^。！？.!?\\n]';
+
 const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
   lost: [
     re('потерял(ся|ась|ись)'),
     re('заблудил(ся|ась|ись)'),
     re('сбил(ся|ась|ись) с (тропы|маршрута|пути)'),
     re('не (знаю|понимаю),? где (я|мы|нахожусь|находимся)'),
+    // en / zh
+    re("(we('re| are)|i('m| am)|we got|i got|got|getting) lost"),
+    re('lost (our|my) way'),
+    re("(don'?t|do not) know where (we are|i am)"),
+    re('迷路|走丢了|找不到路'),
+    re(`不知道${ZP}{0,4}(我们|我)${ZP}{0,2}在哪`),
   ],
   injury: [
     re('(травм|травмирован|перелом|вывих|кровотеч|обморожен|обморозил)[а-яё]*'),
@@ -57,22 +72,43 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('задыхается'),
     re('ошпари(л|ла|ло|ли|лся|лась)[а-яё]*'),
     re('(получил[аи]?|сильный) ожог'),
+    // en / zh
+    re('injured|unconscious|not breathing'),
+    re('broken (leg|arm|ankle|rib)'),
+    re("(can'?t|cannot) breathe"),
+    re('bleeding (badly|heavily|a lot)'),
+    re(`fell${PHRASE}(can'?t|cannot) (get up|move)`),
+    re('受伤|骨折|流血不止|大出血|昏迷|失去意识|呼吸困难|不能呼吸|烫伤|烧伤'),
+    re(`摔${ZP}{0,6}(起不来|动不了)`),
   ],
   bear: [
     re(`медвед[^.!?\\n]*?(рядом|близко|напал|атаку|преследу|вышел (на|к)|идёт (к|на|за)|окружил|не уходит)`),
     re(`(рядом|близко|напал|атаковал|преследует)${PHRASE}медвед[а-яё]*`),
+    // en / zh — только нападение и преследование: «熊会靠近营地吗?» — вопрос
+    re(`bear${PHRASE}(attack(ed|ing|s)?|chas(ed|ing)|charg(ed|ing)|won'?t leave)`),
+    re(`(attacked|chased|charged) by a bear`),
+    re(`熊${ZP}{0,8}(袭击|攻击|追|扑)`),
+    re(`(被|遭)${ZP}{0,3}熊`),
   ],
   ice: [
     // «провалился» без контекста воды/льда — частая метафора (план, экзамен)
     re(`провалил(ся|ась|ись)${PHRASE}(л(ё|е)д|льду|полынь[а-яё]*|воду|наледь|трещину|болото|снег)`),
     re('под л(ё|е)д'),
     re(`л(ё|е)д${PHRASE}(трещит|треснул|проваливается|тонк[а-яё]*)`),
+    // en / zh
+    re('fell through (the )?ice'),
+    re(`(掉进|掉入|落入)${ZP}{0,4}冰`),
   ],
   avalanche: [
     re(`лавин[^.!?\\n]*?(сошла|сходит|накрыло|попал|унесло|засыпало)`),
     re(`(попал[аи]?|накрыло|засыпало|унесло)${PHRASE}лавин[а-яё]*`),
     re(`камнепад${PHRASE}(попал|накрыло|ранил|идёт)`),
     re(`(попал[аи]?|накрыло|ранило)${PHRASE}камнепад[а-яё]*`),
+    // en / zh
+    re(`(caught|buried|swept)${PHRASE}avalanche`),
+    re(`avalanche${PHRASE}(buried|hit|caught|swept)`),
+    re(`(被|遇到|遭遇)${ZP}{0,4}雪崩`),
+    re(`雪崩${ZP}{0,6}(埋|冲走|卷走)`),
   ],
   group_missing: [
     re(`(группа|муж|жена|сын|дочь|друг|подруга|товарищ|напарник)${PHRASE}не вернул(ся|ась|ись)`),
@@ -82,12 +118,20 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     // (сценарий sos-implicit из redteam) — детектор молчал до 24.09.
     re(`(группа|муж|жена|сын|дочь|реб(ё|е)нок|друг|подруга|товарищ|напарник|отец|мама|папа|брат|сестра)${PHRASE}(уш(ё|е)л|ушла|ушли|отстал[аи]?|пош(ё|е)л|пошла)${PHRASE}не (отвечает|отвечают|бер(ё|е)т трубку)`),
     re(`(группа|муж|жена|сын|дочь|реб(ё|е)нок|друг|подруга|товарищ|напарник|отец|мама|папа|брат|сестра)${PHRASE}не выход(ит|ят) на связь`),
+    // en / zh
+    re(`(friend|wife|husband|son|daughter|child|group|partner)${PHRASE}(hasn'?t|has not|didn'?t|did not) (come back|returned|return)`),
+    re(`(friend|wife|husband|son|daughter|child|group|partner)${PHRASE}(is missing|went missing|not answering)`),
+    re(`(同伴|朋友|队友|孩子|丈夫|妻子|儿子|女儿)${ZP}{0,10}(没回来|没有回来|失联|联系不上|不见了)`),
   ],
   freezing: [
     re('замерза(ю|ем|ет)'),
     re('переохлаждение'),
     re(`застигла${PHRASE}(пурга|метель|буря|непогода)`),
     re(`(пурга|метель|буря)${PHRASE}(застигла|накрыла|не можем идти)`),
+    // en / zh
+    re('hypotherm(ia|ic)'),
+    re("(we('re| are)|i('m| am)) freezing"),
+    re('失温|冻伤|冻僵|快冻死'),
   ],
   distress: [
     re('спасите'),
@@ -98,8 +142,27 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('вызовите (спасателей|мчс|скорую)'),
     // Голый крик о помощи — всё сообщение, а не «помогите выбрать тур».
     /^\s*(?:помогите|help)(?:[\s,!.]+(?:пожалуйста|срочно|нам|мне))?[\s!.]*$/i,
+    // en / zh
+    re('help us|need (urgent|emergency) help'),
+    re('call (rescue|rescuers|an ambulance|112)'),
+    re('救命|求救|紧急求助|需要(紧急)?救援'),
+    re(`(请|快)${ZP}{0,2}(叫|呼叫)(救援|救护车)`),
   ],
 };
+
+/**
+ * Язык блока 112. Русский — по умолчанию, у всех прежних вызывающих (веб-Кузьмич,
+ * A2A, планер, мессенджеры) он не меняется. Английский и китайский — для окна
+ * виджета партнёра, где язык интерфейса задан браузером посетителя (аудит
+ * 15.10, WID-lang): человеку, который не читает по-русски, блок «звоните 112»
+ * по-русски в беде не поможет.
+ *
+ * Переводы — смысл в смысл с русскими строками; новой рекомендации ни в одном
+ * языке нет. Детектор признаков ЧП (`detectEmergency`) ищет признаки на
+ * русском, английском и китайском (ревью WID-lang, 15.10); язык блока
+ * выбирает вызывающий.
+ */
+export type SosLang = 'ru' | 'en' | 'zh';
 
 const CATEGORY_ADVICE: Record<EmergencyCategory, string> = {
   lost: 'Оставайтесь на месте, экономьте заряд телефона, по возможности выйдите на открытое место — так вас быстрее найдут.',
@@ -110,6 +173,53 @@ const CATEGORY_ADVICE: Record<EmergencyCategory, string> = {
   group_missing: 'Сообщите МЧС маршрут, контрольное время и число людей в группе. Не начинайте самостоятельный поиск в темноте.',
   freezing: 'Ищите укрытие от ветра, утеплитесь всем что есть, двигайте конечностями. Не садитесь на снег и камни без изоляции.',
   distress: 'Сообщите спасателям ваши координаты или заметные ориентиры и число людей рядом с вами.',
+};
+
+const CATEGORY_ADVICE_EN: Record<EmergencyCategory, string> = {
+  lost: 'Stay where you are, save your phone battery and, if you can, move to open ground — that way you will be found faster.',
+  injury: 'Stop the bleeding by pressing on the wound, keep the injured person warm, and do not move them if a spinal injury is possible.',
+  bear: 'Do not run and do not turn your back. Speak loudly in a low voice and back away slowly, increasing the distance.',
+  ice: 'Spread your arms on the edge of the ice, climb out towards where you came from, then roll away from the hole without standing up.',
+  avalanche: 'Do not go back onto the avalanche-prone slope. If someone is buried, remember the point where they disappeared and start searching from there.',
+  group_missing: 'Tell the rescue service (EMERCOM) the route, the agreed return time and the number of people in the group. Do not start searching on your own in the dark.',
+  freezing: 'Find shelter from the wind, put on everything warm you have, keep moving your arms and legs. Do not sit on snow or stones without insulation.',
+  distress: 'Tell the rescuers your coordinates or visible landmarks and the number of people with you.',
+};
+
+const CATEGORY_ADVICE_ZH: Record<EmergencyCategory, string> = {
+  lost: '请留在原地，节省手机电量；如有可能，走到开阔地带——这样能更快被找到。',
+  injury: '按压伤口止血，为伤者保暖；如怀疑脊柱受伤，不要移动伤者。',
+  bear: '不要跑，不要背对熊。用低沉的声音大声说话，慢慢后退，拉开距离。',
+  ice: '双臂张开撑在冰缘上，朝来时的方向爬出，然后不要站起来，滚离冰窟窿。',
+  avalanche: '不要再次进入有雪崩危险的山坡。如有人被埋，记住其消失的位置，从那里开始搜寻。',
+  group_missing: '向救援部门（俄罗斯紧急情况部）报告路线、约定的返回时间和队伍人数。不要在黑暗中自行搜寻。',
+  freezing: '寻找避风处，穿上所有能保暖的衣物，活动四肢。不要在没有隔垫的情况下坐在雪地或石头上。',
+  distress: '告诉救援人员您的坐标或明显的地标，以及您身边的人数。',
+};
+
+/** Шапка блока на каждом языке: заголовок, 112, кнопка SOS — те же три строки. */
+const SOS_HEAD: Record<SosLang, readonly [string, string, string]> = {
+  ru: [
+    'ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ:',
+    'Звоните 112 — работает без SIM-карты и без баланса при наличии любой сети, переключит на МЧС/полицию/скорую.',
+    'Кнопка SOS с координатами: vedarai.ru/sos',
+  ],
+  en: [
+    'IF THIS IS AN EMERGENCY:',
+    'Call 112 — it works without a SIM card and without credit wherever there is any network, and connects you to rescue services (EMERCOM), police and ambulance.',
+    'SOS button with your coordinates: vedarai.ru/sos',
+  ],
+  zh: [
+    '如遇紧急情况：',
+    '请拨打 112——只要有任何网络信号，无需 SIM 卡、无需话费即可拨通，可转接救援部门（俄罗斯紧急情况部）、警察和急救。',
+    '带坐标的 SOS 按钮：vedarai.ru/sos',
+  ],
+};
+
+const ADVICE_BY_LANG: Record<SosLang, Record<EmergencyCategory, string>> = {
+  ru: CATEGORY_ADVICE,
+  en: CATEGORY_ADVICE_EN,
+  zh: CATEGORY_ADVICE_ZH,
 };
 
 /** Ищет признаки чрезвычайной ситуации в тексте пользователя. */
@@ -126,17 +236,15 @@ export function detectEmergency(text: string): EmergencyDetection {
 /**
  * Готовый SOS-блок для префикса к ответу ассистента. Обычный текст —
  * рендерится и в веб-чате (whitespace-pre-wrap), и в Telegram/MAX.
+ * `lang` — язык блока; без него русский, как было у всех вызывающих.
  */
-export function buildSosBlock(categories: EmergencyCategory[]): string {
-  const lines = [
-    'ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ:',
-    'Звоните 112 — работает без SIM-карты и без баланса при наличии любой сети, переключит на МЧС/полицию/скорую.',
-    // Только 112: региональные номера МЧС не верифицированы — неверный номер в
-    // ЧП опаснее его отсутствия (см. lib/safety/emergency-numbers.ts).
-    'Кнопка SOS с координатами: vedarai.ru/sos',
-  ];
+export function buildSosBlock(categories: EmergencyCategory[], lang: SosLang = 'ru'): string {
+  // Только 112: региональные номера МЧС не верифицированы — неверный номер в
+  // ЧП опаснее его отсутствия (см. lib/safety/emergency-numbers.ts).
+  const lines: string[] = [...SOS_HEAD[lang]];
+  const advice = ADVICE_BY_LANG[lang];
   for (const category of categories.slice(0, 3)) {
-    lines.push(CATEGORY_ADVICE[category]);
+    lines.push(advice[category]);
   }
   return lines.join('\n');
 }
@@ -149,10 +257,18 @@ const HAS_EMERGENCY_PHONES = [/(?<!\d)112(?!\d)/, /мчс/i];
 /**
  * Добавляет SOS-блок к ответу, если в вопросе есть признаки ЧП, а ответ
  * ещё не содержит экстренных телефонов (модель могла дать их сама).
+ * `lang` — язык блока (по умолчанию русский; окно виджета передаёт язык
+ * посетителя). Правило «телефоны уже есть» одно на все языки: в ответе на
+ * английском или китайском «МЧС» встречается редко, и блок тогда добавится —
+ * лишние телефоны безвредны, пропавшие — нет.
  */
-export function withSosBlock(answer: string, userText: string): { text: string; emergency: boolean } {
+export function withSosBlock(
+  answer: string,
+  userText: string,
+  lang: SosLang = 'ru',
+): { text: string; emergency: boolean } {
   const detection = detectEmergency(userText);
   if (!detection.detected) return { text: answer, emergency: false };
   if (HAS_EMERGENCY_PHONES.every((re) => re.test(answer))) return { text: answer, emergency: true };
-  return { text: `${buildSosBlock(detection.categories)}\n\n${answer}`, emergency: true };
+  return { text: `${buildSosBlock(detection.categories, lang)}\n\n${answer}`, emergency: true };
 }

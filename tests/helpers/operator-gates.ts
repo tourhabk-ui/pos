@@ -41,6 +41,8 @@ export const GATES: Record<string, Gate> = {
   'app/api/operator/stats/route.ts': { seat: 'team', moneyHidden: true },
   'app/api/hub/operator/notifications/route.ts': { seat: 'team' },
   'app/api/hub/operator/leads/report/route.ts': { seat: 'team' },
+  // Виджет на сайте партнёра: коды, домены, отчёт за 30 дней — только чтение (WID-screens).
+  'app/api/hub/operator/widget/route.ts': { seat: 'team' },
   'app/api/hub/selections/route.ts': { seat: 'team' },
   // AI-помощник: роут отдаёт команду агентству, кабинет и права ищет оно.
   'app/api/agents/operator/route.ts': {

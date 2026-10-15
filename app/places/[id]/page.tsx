@@ -19,6 +19,7 @@ import { locationTypeLabelLower } from '@/lib/places/location-types';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
 import { ownPlacePhoto } from '@/lib/images/own-image-url';
+import { zhPlaceAlternatePath } from '@/lib/zh/content';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -34,7 +35,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       // мессенджере нарисованной картинкой этого вулкана. Карточка точки по
       // CLAUDE.md §9 — географический факт; фото в превью должно быть фото.
       `SELECT p.name, p.essence, p.description, p.photo_url, p.location_type, p.images,
-              p.slug, p.ark_id::text AS ark_id, p.lat, p.lng,
+              p.id AS place_pk, p.slug, p.ark_id::text AS ark_id, p.lat, p.lng,
               p.zone, p.best_season,
               -- Факты для заголовка и сниппета (lib/seo/place-meta): те же
               -- таблицы, что кормят блоки «Что знать» и «Сейчас» карточки.
@@ -80,13 +81,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     // Превью ссылки — только наш снимок и первым свой (14.10, «Только используй
     // наши фотографии»): до этого чужая ссылка импорта стояла впереди своего.
     const imgUrl = ownPlacePhoto((r.real_photo as string | null) ?? null, r.photo_url, r.images);
+    // Пара ru ↔ zh-CN — только у места с китайским конспектом и переводом
+    // описания с нынешнего текста (аудит 15.10, CN-pages). Отказ чтения — без
+    // пары, причина в логе (lib/zh/content).
+    const zh = await zhPlaceAlternatePath({
+      id: String(r.place_pk),
+      slug: (r.slug as string | null) ?? null,
+      description: (r.description as string | null) ?? null,
+    });
 
     return {
       // Хвост — из ответов карточки, и только если помещается в выдачу
       // (lib/seo/place-meta поверх lib/seo/title-fit).
       title: brandedTitle(placeTitle(facts)),
       description: desc,
-      alternates: { canonical },
+      alternates: {
+        canonical,
+        ...(zh ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}` } } : {}),
+      },
       openGraph: {
         url: canonical,
         title: r.name as string,

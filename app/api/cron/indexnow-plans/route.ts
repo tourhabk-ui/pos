@@ -17,6 +17,12 @@
  * только в его вебмастере; итог отправки — в ai_actions_log (indexnow_ping /
  * indexnow_failed с адресами и source).
  *
+ * С CN-pages (аудит 15.10) — и китайские конспекты туров и мест (/zh/tours/*,
+ * /zh/places/*), только с переводом: список читает lib/zh/content, собирает
+ * тот же zhPageUrls, что у sitemap. Не прочитался — статичные страницы всё
+ * равно уходят, а ответ краснеет (502) и называет причину: «/zh/* не
+ * пингованы» не выдаётся за «пинговать нечего».
+ *
  * Списки адресов — из PLAN_PRESETS и lib/zh/pages, тех же источников, что у
  * роутов и sitemap. Три исхода: принято (ok), отвергнуто (статус и текст
  * IndexNow), не смог (сетевой отказ) — все три в ответе, а не «пусто =
@@ -29,6 +35,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pingIndexNow } from '@/lib/seo/indexnow';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
 import { zhPageUrls } from '@/lib/zh/pages';
+import { loadZhDetailEntries, logZhFailure } from '@/lib/zh/content';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
@@ -40,10 +47,10 @@ export function planUrls(base: string): string[] {
   return [`${root}/plans`, ...PLAN_PRESETS.map((p) => `${root}/plans/${p.slug}`)];
 }
 
-/** Всё, что пингует роут: планы и китайские страницы, без повторов. */
-export function deployPageUrls(base: string): { plans: string[]; zh: string[]; all: string[] } {
+/** Всё, что пингует роут: планы и китайские страницы (статичные и из базы), без повторов. */
+export function deployPageUrls(base: string, zhDetailPaths: readonly string[] = []): { plans: string[]; zh: string[]; all: string[] } {
   const plans = planUrls(base);
-  const zh = zhPageUrls(base);
+  const zh = zhPageUrls(base, zhDetailPaths);
   return { plans, zh, all: [...new Set([...plans, ...zh])] };
 }
 
@@ -56,21 +63,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { plans, zh, all } = deployPageUrls(getPublicBaseUrl());
+  let zhDetail: string[] | null = null;
+  let zhDetailError: string | null = null;
+  try {
+    zhDetail = (await loadZhDetailEntries()).map((d) => d.path);
+  } catch (err) {
+    logZhFailure('indexnow-plans: китайские страницы из базы', err);
+    const code = (err as { code?: unknown } | null)?.code;
+    zhDetailError = `список /zh/tours и /zh/places не прочитан${typeof code === 'string' ? ` (SQLSTATE ${code})` : ''}`;
+  }
+
+  const { plans, zh, all } = deployPageUrls(getPublicBaseUrl(), zhDetail ?? []);
   const result = await pingIndexNow(all, { source: 'indexnow-plans' });
+  const ok = result.ok && zhDetailError === null;
   return NextResponse.json(
     {
-      ok: result.ok,
+      ok,
       probe: 'indexnow_plans_v2',
       measured_at: new Date().toISOString(),
       submitted: result.submitted,
       urls: all,
       // Сколько адресов из какого списка — чтобы «пинговался ли /zh» читалось из ответа.
       groups: { plans: plans.length, zh: zh.length },
+      // Китайские конспекты из базы: сколько ушло; null — список не прочитан.
+      zh_detail: zhDetail === null ? null : zhDetail.length,
+      zh_detail_error: zhDetailError,
       // Отказ IndexNow — словами протокола, не догадкой.
       status: result.status ?? null,
       error: result.error ?? null,
     },
-    { status: result.ok ? 200 : 502 },
+    { status: ok ? 200 : 502 },
   );
 }

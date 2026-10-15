@@ -23,7 +23,7 @@ import { createTestDatabase } from '../helpers/pg-schema';
 import {
   recordWidgetServed, recordWidgetOpened, WIDGET_CHAT_SESSION_SQL,
 } from '@/lib/embed/widget-telemetry';
-import { censusWidgets } from '@/lib/analytics/widget-census';
+import { censusWidgets, widgetReportForPartner } from '@/lib/analytics/widget-census';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -181,5 +181,36 @@ withPg('виджеты на настоящем PostgreSQL', () => {
     const after = (await pool.query(`SELECT (SELECT COUNT(*) FROM widget_daily) + (SELECT COUNT(*) FROM chat_sessions) + (SELECT COUNT(*) FROM leads) AS n`)).rows[0].n;
     expect(after).toBe(before);
     expect(fishX).not.toBe('');
+  });
+
+  // Аудит 15.10, WID-screens: экран кабинета и карточка админки читают отчёт
+  // ОДНОГО партнёра теми же запросами — числа обязаны совпасть с переписью.
+  it('отчёт одного партнёра: те же числа, что у переписи; выключенный тоже виден; чужого id нет — not_found; ничего не меняет', async () => {
+    const count = async () => (await pool.query(`SELECT (SELECT COUNT(*) FROM widget_daily) + (SELECT COUNT(*) FROM chat_sessions) + (SELECT COUNT(*) FROM leads) AS n`)).rows[0].n;
+    const before = await count();
+    const census = await censusWidgets(pool);
+    const fromCensus = census.partners!.find((p) => p.slug === 'wmt-mest')!;
+
+    const r = await widgetReportForPartner(pool, mest);
+    if (r.kind !== 'ok') throw new Error(`ожидался отчёт, получено ${r.kind}`);
+    expect(r.report.failed_measures).toEqual([]);
+    expect(r.report.partner).toEqual({ slug: 'wmt-mest', name: 'wmt-mest', widget_enabled: true, widget_domains: ['mestechkokam.ru'] });
+    expect(r.report.telemetry_30d).toEqual(fromCensus.telemetry_30d);
+    expect(r.report.chat_sessions).toEqual(fromCensus.chat_sessions);
+    expect(r.report.form_leads).toEqual(fromCensus.form_leads);
+    expect(r.report.chat_pseudo_leads).toEqual(fromCensus.chat_pseudo_leads);
+    expect(r.report.site_probe).toBeNull();
+
+    // Выключенный виджет в перепись не входит, но своя история ему видна:
+    // счёт ему не заводился — честный ноль прочитанной части, а не null.
+    const offId = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM partners WHERE slug = 'wmt-off'`)).rows[0]!.id;
+    const off = await widgetReportForPartner(pool, offId);
+    if (off.kind !== 'ok') throw new Error(`ожидался отчёт, получено ${off.kind}`);
+    expect(off.report.partner).toEqual({ slug: 'wmt-off', name: 'wmt-off', widget_enabled: false, widget_domains: ['volcanoesland.ru'] });
+    expect(off.report.telemetry_30d).toEqual({ form: { served: 0, opened: 0 }, chat: { served: null, opened: 0 }, by_host: [] });
+    expect(off.report.form_leads).toMatchObject({ leads_30d: 0, leads_90d: 0 });
+
+    expect(await widgetReportForPartner(pool, '11111111-1111-1111-1111-111111111111')).toEqual({ kind: 'not_found' });
+    expect(await count()).toBe(before);
   });
 });

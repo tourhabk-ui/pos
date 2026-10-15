@@ -376,4 +376,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // только с ?probe_sites=1, запрос главной каждого домена партнёра — есть ли
   // там наш скрипт. Записи нет.
   'widget-census': ['db_read', 'net_out'],
+  // Китайские конспекты (аудит 15.10, CN-pages): читает живые туры и места,
+  // зовёт модель через обёртки водопада (ai, net_out) и пишет перевод в
+  // content_translations (db_write). Тексты — публичные, после redactPII;
+  // ПД туристов роут не трогает.
+  'zh-translate': ['db_read', 'db_write', 'net_out', 'ai'],
 };

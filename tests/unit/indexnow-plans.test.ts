@@ -25,6 +25,16 @@ import { ZH_PAGE_PATHS } from '@/lib/zh/pages';
 vi.mock('@/lib/seo/indexnow', () => ({
   pingIndexNow: vi.fn(async (urls: string[]) => ({ ok: true, submitted: urls.length, status: 200 })),
 }));
+// Китайские конспекты из базы (аудит 15.10, CN-pages) — список подменён:
+// здесь судится сборка адресов и исходы, а не SQL (его держит pg-тест).
+const zhDetail = vi.hoisted(() => ({ paths: [] as string[], fail: false }));
+vi.mock('@/lib/zh/content', () => ({
+  loadZhDetailEntries: vi.fn(async () => {
+    if (zhDetail.fail) throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    return zhDetail.paths.map((path) => ({ path, lastModified: null }));
+  }),
+  logZhFailure: vi.fn(),
+}));
 
 import { GET, planUrls } from '@/app/api/cron/indexnow-plans/route';
 import { pingIndexNow } from '@/lib/seo/indexnow';
@@ -67,6 +77,35 @@ describe('роут', () => {
     expect(body).toHaveProperty('status');
     expect(body).toHaveProperty('error');
     expect(vi.mocked(pingIndexNow).mock.calls[0][0].length).toBe(total);
+  });
+
+  it('китайские конспекты с переводом уходят тем же пингом; список не прочитан — 502 с причиной, статичные всё равно ушли', async () => {
+    process.env.CRON_SECRET = 'test-secret';
+    const req = () => new NextRequest('http://localhost/api/cron/indexnow-plans', { headers: { authorization: 'Bearer test-secret' } });
+    zhDetail.paths = ['/zh/tours/dolina-geyzerov', '/zh/places/kronotskij-zapovednik'];
+    vi.mocked(pingIndexNow).mockClear();
+    const ok = await GET(req());
+    expect(ok.status).toBe(200);
+    const body = await ok.json();
+    expect(body.zh_detail).toBe(2);
+    expect(body.urls.filter((u: string) => u.includes('/zh/'))).toEqual([
+      expect.stringMatching(/\/zh\/tours\/dolina-geyzerov$/),
+      expect.stringMatching(/\/zh\/places\/kronotskij-zapovednik$/),
+    ]);
+
+    zhDetail.fail = true;
+    vi.mocked(pingIndexNow).mockClear();
+    const failed = await GET(req());
+    expect(failed.status).toBe(502);
+    const fb = await failed.json();
+    expect(fb.ok).toBe(false);
+    expect(fb.zh_detail).toBeNull();
+    expect(fb.zh_detail_error).toMatch(/не прочитан.*ECONNREFUSED/);
+    const sent = vi.mocked(pingIndexNow).mock.calls[0][0];
+    expect(sent.some((u: string) => u.endsWith('/zh'))).toBe(true);
+    expect(sent.some((u: string) => u.includes('/zh/tours/'))).toBe(false);
+    zhDetail.fail = false;
+    zhDetail.paths = [];
   });
 });
 

@@ -11,6 +11,7 @@ import { tourHeroImage } from '@/lib/tours/hero-image';
 import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
 import { requestWindow, seasonWindowView } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { zhTourAlternatePath } from '@/lib/zh/content';
 
 export const revalidate = 3600;
 
@@ -53,10 +54,19 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const hero = tourHeroImage(tour.photos, tour.tour_image);
   const images = hero ? [{ url: hero }] : [];
 
+  // Пара ru ↔ zh-CN — только когда у тура есть китайский конспект с
+  // переводом, сделанным с нынешнего текста (аудит 15.10, CN-pages): ссылка на
+  // китайскую страницу без перевода отдала бы поиску русский текст дважды.
+  // Отказ чтения — без пары, причина в логе (lib/zh/content).
+  const zh = await zhTourAlternatePath(tour);
+
   return {
     title: brandedTitle(fitTitleRequired(tour.title, TOUR_TITLE_TAILS)),
     description: desc,
-    alternates: { canonical: `${SITE}${tourPath(tour)}` },
+    alternates: {
+      canonical: `${SITE}${tourPath(tour)}`,
+      ...(zh ? { languages: { ru: `${SITE}${tourPath(tour)}`, 'zh-CN': `${SITE}${zh}` } } : {}),
+    },
     openGraph: {
       title: tour.title,
       description: desc,

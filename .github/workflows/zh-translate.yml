@@ -1,0 +1,122 @@
+name: Китайские конспекты — машинный перевод туров и мест
+
+# Зовёт /api/cron/zh-translate партиями (аудит 15.10, CN-pages; Китай, шаг 7,
+# вариант «в»): тексты живых туров и мест на их маршрутах переводятся на
+# китайский с пометкой машинного перевода; устаревшее по хэшу исходника
+# переводится заново. Что переводится и с какими сверками — lib/zh/translate.
+#
+# Запуск — маркером .github/triggers/zh-translate.json (интеграция Claude не
+# имеет права на workflow_dispatch: 403, проверено 02.09) или кнопкой.
+# Параметры маркера:
+#   mode    — "dry" (по умолчанию: только счёт, модель не зовётся) или "apply";
+#   batches — сколько партий по 5 полей за прогон (1–12, по умолчанию 1).
+#
+# Перевод пишет прод (БД с раннера закрыта файрволом), поэтому шаг сначала
+# ждёт СВОЮ сборку (scripts/wait-for-deploy.sh): иначе старый билд ответил бы
+# 404 или перевёл бы по старым правилам.
+#
+# Очередь роута упорядочена по seed (сегодняшняя дата по Камчатке, одна на
+# весь прогон), а skip копится на число непереведённых: поле, которое модель
+# стабильно не переводит, не держит за собой следующие партии.
+#
+# Исходы: секрета нет — красный до запроса; сухой прогон — зелёный со счётом;
+# партия, где не переведено ничего, — красный (502 роута) с причинами по
+# полям; отказ базы — красный (500) с SQLSTATE.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/zh-translate.json'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+concurrency:
+  group: zh-translate
+  cancel-in-progress: false
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    # Ожидание сборки — до 70 минут (140 x 30 с) плюс до 12 партий по 10 минут
+    # (у поля два вызова модели: прямой перевод и обратный); таймаут обязан быть
+    # больше суммы (tests/unit/workflow-timeout-fits-wait.test.ts).
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Секрет на месте
+        run: |
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::секрет CRON_SECRET не задан — позвать роут нечем"
+            exit 1
+          fi
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Перевод партиями
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          MARKER=.github/triggers/zh-translate.json
+          MODE=dry
+          BATCHES=1
+          if [ -f "$MARKER" ]; then
+            MODE=$(jq -r '.mode // "dry"' "$MARKER")
+            BATCHES=$(jq -r '.batches // 1' "$MARKER")
+          fi
+          case "$MODE" in apply|dry) ;; *) echo "::error::mode в маркере — dry или apply, получено: $MODE"; exit 1 ;; esac
+          if ! [[ "$BATCHES" =~ ^[0-9]+$ ]] || [ "$BATCHES" -lt 1 ] || [ "$BATCHES" -gt 12 ]; then
+            echo "::error::batches в маркере — число 1–12, получено: $BATCHES"; exit 1
+          fi
+          APPLY=0
+          if [ "$MODE" = "apply" ]; then APPLY=1; else BATCHES=1; fi
+          # Один порядок очереди на весь прогон, даже если он перейдёт полночь.
+          SEED=$(TZ=Asia/Kamchatka date +%F)
+          SKIP=0
+          echo "mode=$MODE batches=$BATCHES seed=$SEED"
+          {
+            echo "## Китайские конспекты — $MODE"
+            echo ''
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for i in $(seq 1 "$BATCHES"); do
+            HTTP=$(curl -sS -o /tmp/zh.json -w "%{http_code}" --max-time 600 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://vedarai.ru/api/cron/zh-translate?apply=$APPLY&limit=5&seed=$SEED&skip=$SKIP") || HTTP="000"
+            echo "партия $i: HTTP $HTTP"
+            python3 -m json.tool /tmp/zh.json || cat /tmp/zh.json || true
+            {
+              echo "### Партия $i — HTTP $HTTP"
+              echo ''
+              echo '```json'
+              python3 -m json.tool /tmp/zh.json || cat /tmp/zh.json || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$HTTP" != "200" ]; then
+              echo "::error::перевод не прошёл (HTTP $HTTP) — причины по полям в теле ответа выше"
+              exit 1
+            fi
+            LEFT=$(jq -r '.pending_left // .pending // 0' /tmp/zh.json)
+            if [ "$LEFT" = "0" ]; then echo "переводить больше нечего"; break; fi
+            [ "$MODE" = "apply" ] || break
+            ATTEMPTED=$(jq -r '.attempted // 0' /tmp/zh.json)
+            if [ "$ATTEMPTED" = "0" ]; then
+              echo "::warning::в очереди остались только поля, которые в этом прогоне не перевелись ($LEFT) — причины в партиях выше"
+              break
+            fi
+            # Непереведённые остаются в очереди — следующая партия берёт поля за ними.
+            FAILED=$(jq -r '.not_translated | length' /tmp/zh.json)
+            SKIP=$((SKIP + FAILED))
+          done

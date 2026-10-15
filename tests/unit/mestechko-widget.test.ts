@@ -104,6 +104,13 @@ describe('кнопка lead.js на сайте «Местечка»', () => {
 });
 
 describe('форма заявки /widget/lead-form/mestechko', () => {
+  // Форма говорит на языке браузера посетителя (аудит 15.10, WID-lang), а у
+  // jsdom он английский. Здесь проверяется русская форма — браузер русский;
+  // три языка держит widget-lang.test.tsx.
+  let language: { mockRestore: () => void };
+  beforeEach(() => { language = vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ru-RU'); });
+  afterEach(() => { language.mockRestore(); });
+
   /** Форма грузит конфиг из настоящего роута /api/widget/partner. */
   function serveFormConfig(widgetConfig: Record<string, unknown> | null) {
     m.query.mockResolvedValue({ rows: [partnerRow(widgetConfig)] });

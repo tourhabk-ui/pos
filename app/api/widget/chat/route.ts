@@ -23,6 +23,11 @@
  *    гео-блокируется (§8), и человек ждал её отказа ни за что.
  * 5. Пределы входа — lib/embed/widget-chat-limits; прежние реплики из браузера
  *    идут в промпт цитатой, а не ролью помощника.
+ * 6. Язык (аудит 15.10, WID-lang): окно шлёт `lang` ('ru' | 'en' | 'zh') — язык
+ *    браузера посетителя. На нём сервер отдаёт свои фиксированные тексты:
+ *    отказ модели, ошибки 400/404/500 и блок 112 при признаках ЧП — из словаря
+ *    lib/embed/widget-i18n и `withSosBlock(…, lang)`. Нет поля — русский, как
+ *    было. Ответ модели и без того идёт на языке вопроса (промпт).
  *
  * Сторож: tests/unit/widget-chat-route.test.ts (вызов роута с моками пула и
  * модели).
@@ -50,7 +55,6 @@ import {
   partnerToursBlock,
   safetyBlock,
   widgetUserContent,
-  WIDGET_CHAT_FAILED_TEXT,
   type WidgetPartner,
 } from '@/lib/embed/widget-chat';
 import {
@@ -60,34 +64,56 @@ import {
 } from '@/lib/embed/widget-chat-limits';
 import { widgetOrigin } from '@/lib/embed/widget-origin';
 import { WIDGET_CHAT_SESSION_SQL } from '@/lib/embed/widget-telemetry';
+import { isWidgetLang, WIDGET_LANGS, widgetTexts, type WidgetLang, type WidgetTexts } from '@/lib/embed/widget-i18n';
 
 export const dynamic = 'force-dynamic';
 
 const widgetRateLimiter = createRateLimiter({ windowMs: 60_000, max: 15 });
 
-const WidgetChatSchema = z.object({
-  partnerId: z.string().min(1, 'Не указан партнёр').max(100, 'Некорректный партнёр'),
-  sessionId: z.string().min(1, 'Не указан разговор').max(100, 'Некорректный разговор'),
-  message: z.string().trim()
-    .min(1, 'Сообщение пустое')
-    .max(WIDGET_MESSAGE_MAX_CHARS, `Сообщение длиннее ${WIDGET_MESSAGE_MAX_CHARS} знаков`),
-  history: z.array(z.object({
-    role: z.enum(['user', 'assistant']),
-    content: z.string().max(WIDGET_MESSAGE_MAX_CHARS, `Реплика в истории длиннее ${WIDGET_MESSAGE_MAX_CHARS} знаков`),
-  }))
-    .max(WIDGET_HISTORY_MAX_ITEMS, `В истории больше ${WIDGET_HISTORY_MAX_ITEMS} реплик`)
-    .refine(
-      (h) => h.reduce((sum, t) => sum + t.content.length, 0) <= WIDGET_HISTORY_TOTAL_MAX_CHARS,
-      `История разговора длиннее ${WIDGET_HISTORY_TOTAL_MAX_CHARS} знаков`,
-    )
-    .optional(),
+/**
+ * Схема запроса с сообщениями об ошибках на языке окна. Сообщения — из словаря
+ * виджета: посетитель китайского окна увидит отказ по-китайски, русского — те
+ * же русские строки, что и до 15.10 (аудит 15.10, WID-lang).
+ */
+function widgetChatSchema(t: WidgetTexts) {
+  return z.object({
+    partnerId: z.string().min(1, t.errPartnerMissing).max(100, t.errPartnerInvalid),
+    sessionId: z.string().min(1, t.errSessionMissing).max(100, t.errSessionInvalid),
+    message: z.string().trim()
+      .min(1, t.errMessageEmpty)
+      .max(WIDGET_MESSAGE_MAX_CHARS, t.errMessageTooLong(WIDGET_MESSAGE_MAX_CHARS)),
+    history: z.array(z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string().max(WIDGET_MESSAGE_MAX_CHARS, t.errHistoryItemTooLong(WIDGET_MESSAGE_MAX_CHARS)),
+    }))
+      .max(WIDGET_HISTORY_MAX_ITEMS, t.errHistoryTooMany(WIDGET_HISTORY_MAX_ITEMS))
+      .refine(
+        (h) => h.reduce((sum, turn) => sum + turn.content.length, 0) <= WIDGET_HISTORY_TOTAL_MAX_CHARS,
+        t.errHistoryTooLong(WIDGET_HISTORY_TOTAL_MAX_CHARS),
+      )
+      .optional(),
     // Хост и путь страницы партнёра (embed.js кладёт их в адрес окна чата).
     // Подделывается — сигнал для счёта, а не замок (аудит 15.10, WID-measure).
     origin: z.object({
       host: z.string().max(300).nullish(),
       path: z.string().max(1000).nullish(),
     }).optional(),
-});
+    // Язык окна (браузера посетителя). Необязателен: прежнее окно его не шлёт.
+    // Незнакомый язык — русский, а не 400: отказ из-за подписи языка оставил
+    // бы сообщение о беде без блока 112 (ревью WID-lang).
+    lang: z.enum(WIDGET_LANGS).optional().catch(undefined),
+  });
+}
+
+/**
+ * Язык ответа об ошибке ещё до разбора схемы: ошибка в самом сообщении не
+ * должна лишать посетителя его языка. Неизвестный или чужой `lang` — русский
+ * (схема ниже тоже читает его как русский, а не отвергает запрос).
+ */
+function requestLang(body: unknown): WidgetLang {
+  const raw = body && typeof body === 'object' ? (body as { lang?: unknown }).lang : undefined;
+  return isWidgetLang(raw) ? raw : 'ru';
+}
 
 interface PartnerRow extends WidgetPartner {
   widget_domains: string[] | null;
@@ -135,17 +161,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Язык ответа об отказе 500 — известен, как только прочитано тело.
+  let t = widgetTexts('ru');
   try {
     const body: unknown = await request.json().catch(() => null);
-    const parsed = WidgetChatSchema.safeParse(body);
+    t = widgetTexts(requestLang(body));
+    // Сообщения схемы — на языке окна; для отказов без своего сообщения (не
+    // тот тип, не то значение) — общее «некорректные данные» на том же языке,
+    // а не английская заготовка Zod.
+    const parsed = widgetChatSchema(t).safeParse(body, { error: () => t.errInvalid });
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' },
+        { success: false, error: parsed.error.issues[0]?.message || t.errInvalid },
         { status: 400 }
       );
     }
 
-    const { partnerId, sessionId, message, history = [], origin: page } = parsed.data;
+    const { partnerId, sessionId, message, history = [], origin: page, lang = 'ru' } = parsed.data;
 
     const partnerResult = await query<PartnerRow>(
       `SELECT id::text AS id, name, category, description, widget_domains
@@ -158,7 +190,7 @@ export async function POST(request: NextRequest) {
     const partner = partnerResult.rows[0];
     if (!partner) {
       return NextResponse.json(
-        { success: false, error: 'Чат этого партнёра не найден или выключен' },
+        { success: false, error: t.notFound },
         { status: 404 }
       );
     }
@@ -186,7 +218,7 @@ export async function POST(request: NextRequest) {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: buildWidgetSystemPrompt(partner)
+        content: buildWidgetSystemPrompt(partner, lang)
           + partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
           + safetyBlock(safetyText)
           + routesCtx,
@@ -199,7 +231,7 @@ export async function POST(request: NextRequest) {
     let answer: string;
     if (modelFailed) {
       console.error('[widget-chat] ни одна модель не ответила', { partner: partnerId });
-      answer = WIDGET_CHAT_FAILED_TEXT;
+      answer = t.chatFailed;
     } else {
       const guard = guardSafetyClaims(modelAnswer, toolRuns);
       if (guard.flagged.length > 0) {
@@ -217,8 +249,9 @@ export async function POST(request: NextRequest) {
       answer = delivery.text;
     }
     // Блок 112 — и к ответу, и к отказу модели: человеку в беде он нужнее
-    // всего именно тогда, когда помощник не ответил.
-    const sos = withSosBlock(answer, message);
+    // всего именно тогда, когда помощник не ответил. На языке окна: русский
+    // блок китайскому туристу в беде не поможет (WID-lang).
+    const sos = withSosBlock(answer, message, lang);
 
     // Разговор — в chat_sessions (без ожидания ответа базы, но не молча).
     const widgetSessionId = `widget_${partnerId}_${sessionId}`;
@@ -255,7 +288,7 @@ export async function POST(request: NextRequest) {
     const msg = safeMsg(error);
     console.error('[widget-chat] запрос не обработан:', logText(msg, 300));
     return NextResponse.json(
-      { success: false, error: 'Ошибка обработки запроса' },
+      { success: false, error: t.errServer },
       { status: 500 }
     );
   }

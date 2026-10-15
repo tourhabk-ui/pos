@@ -11,8 +11,35 @@
 # режет любое поле, в имени которого есть password/secret/token/key.
 #
 # Запуск: правка .github/triggers/timeweb-resources-audit.json в main или
-# кнопка. Итог — в сводке задачи и в аннотации (логи Actions из контейнера
-# агента закрыты прокси; аннотация доходит).
+# кнопка. Итог целиком — в сводке задачи (Summary) и в логе шага; аннотация
+# общего итога режется на 3500 знаках и говорит об этом сама, а раздел
+# резервных копий базы идёт ОТДЕЛЬНОЙ аннотацией (timeweb-db-backups), чтобы
+# обрезка его не съедала. Аудит 15.10 (A01, Д3-1): итог прогона 3 считали
+# потерянным, потому что аннотация кончалась раньше раздела копий, а полный
+# текст лежал в логе.
+#
+# Резервные копии базы (аудит 15.10, A01 / Д3-1, Д3-4). Пути и поля — по
+# OpenAPI Timeweb Cloud https://timeweb.cloud/api-docs-data/bundle.json
+# (страница timeweb.cloud/api-docs), прочитано 15.10.2026:
+#   GET /api/v1/databases                 — список кластеров (ключ dbs), у
+#       кластера is_autobackups_enabled и is_backup_schedule_enabled;
+#       прежний /api/v1/dbs в спецификации 15.10 уже не значится, но прогон 3
+#       ответ от него получил — спрашиваются оба, id берутся из обоих;
+#   GET /api/v1/dbs/{db_id}/auto-backups  — auto_backups_settings: is_enabled,
+#       interval (day|week|month), day_of_week, copy_count (1–99),
+#       creation_start_at («время не учитывается» — часа копии API не отдаёт);
+#   GET /api/v1/dbs/{db_id}/backups       — «Список бэкапов базы данных»:
+#       backups[] с type manual|auto, status (…|done|fail), size в МБ,
+#       created_at; meta.total; limit по умолчанию 100;
+#   GET /api/v2/databases/{db_id}/backups — «Список S3-бэкапов»: по словам
+#       документации «отдельный от /api/v1/dbs/{db_id}/backups механизм»,
+#       size в байтах.
+# Прогон 3 (02.10) спрашивал список копий только по v2 и напечатал «пусто» —
+# это про S3-копии; список v1, где по схеме лежат и автокопии, не
+# спрашивался вовсе. Записи (PATCH настроек, POST копии) здесь нет и не будет:
+# перепись только читает, запись — задачей timeweb-configure по маркеру.
+# Сторож: tests/unit/timeweb-resources-audit.test.ts (шаг исполняется с
+# подложенным curl).
 name: Перепись ресурсов Timeweb (вручную)
 
 on:
@@ -38,23 +65,63 @@ jobs:
             echo "::error::TIMEWEB_TOKEN не задан в секретах репозитория — спросить нечего."
             exit 1
           fi
-          mkdir -p /tmp/tw
+          # Каталог ответов. TW_DIR задаёт только сторож; на раннере — /tmp/tw.
+          TW="${TW_DIR:-/tmp/tw}"
+          export TW
+          mkdir -p "$TW"
           # Каждый адрес — отдельный файл; код ответа — рядом. 404 значит
-          # «такого раздела у аккаунта нет» и так и печатается.
+          # «такого раздела у аккаунта нет» и так и печатается. Сеть не
+          # дошла — код 000 (прежнее `|| echo 000` дописывало его к 000 от
+          # -w, и в итоге стояло «HTTP 000000»).
           ask() {
             local name="$1" url="$2"
             local code
-            code=$(curl -sS -o "/tmp/tw/$name.json" -w '%{http_code}' --max-time 60 \
-              -H "Authorization: Bearer $TIMEWEB_TOKEN" "$url" || echo 000)
-            echo "$code" > "/tmp/tw/$name.code"
+            code=$(curl -sS -o "$TW/$name.json" -w '%{http_code}' --max-time 60 \
+              -H "Authorization: Bearer $TIMEWEB_TOKEN" "$url") || code=000
+            echo "$code" > "$TW/$name.code"
+          }
+          # Идентификаторы из ответа-списка: ids <имя ответа> <ключ списка>
+          # <поле> <допустимый вид>. Отказ разбора не глушится (аудит 15.10,
+          # Д3-4): прежний `except Exception: pass` превращал битый ответ в
+          # «баз нет», и раздел копий пропадал из итога молча. Причина
+          # ложится в <имя>.parse и печатается в итоге и аннотацией.
+          ids() {
+            python3 - "$TW" "$@" <<'PY'
+          import json, re, sys
+          tw, name, list_key, field, shape = sys.argv[1:6]
+          why, out = '', []
+          try:
+              code = open(f'{tw}/{name}.code').read().strip()
+              if code != '200':
+                  why = f'HTTP {code}'
+              else:
+                  data = json.load(open(f'{tw}/{name}.json'))
+                  items = data.get(list_key) if isinstance(data, dict) else None
+                  if not isinstance(items, list):
+                      why = f'в ответе нет списка «{list_key}»'
+                  else:
+                      vals = [str(x.get(field)) for x in items if isinstance(x, dict) and x.get(field) is not None]
+                      bad = [v for v in vals if not re.fullmatch(shape, v)]
+                      out = [v for v in vals if re.fullmatch(shape, v)]
+                      if bad:
+                          why = f'пропущено {len(bad)} значений «{field}» не того вида'
+          except Exception as e:
+              why = f'ответ не разобран: {type(e).__name__}: {e}'
+          if why:
+              with open(f'{tw}/{name}.parse', 'w') as f:
+                  f.write(why)
+          print(' '.join(out))
+          PY
           }
           B=https://api.timeweb.cloud/api/v1
+          B2=https://api.timeweb.cloud/api/v2
           ask finances        "$B/account/finances"
           ask status          "$B/account/status"
           ask projects        "$B/projects"
           ask apps            "$B/apps"
           ask servers         "$B/servers"
           ask dbs             "$B/dbs"
+          ask databases       "$B/databases"
           ask balancers       "$B/balancers"
           ask buckets         "$B/storages/buckets"
           ask domains         "$B/domains"
@@ -74,36 +141,34 @@ jobs:
           ask notifications   "$B/account/notification-settings"
           ask cdn             "$B/cdn/http-resources"
           ask app_198048      "$B/apps/198048"
-          # Статистика приложения за 7 дней и бэкапы базы — по id из ответов выше.
+          # Статистика приложения за 7 дней и копии базы — по id из ответов выше.
           ask app_stats       "$B/apps/198048/statistics?date_from=$(date -u -d '7 days ago' +%Y-%m-%d)&date_to=$(date -u +%Y-%m-%d)"
-          for db in $(python3 -c 'import json
-          try:
-              d = json.load(open("/tmp/tw/dbs.json")); print(" ".join(str(x.get("id")) for x in (d.get("dbs") or []) if isinstance(x, dict) and x.get("id")))
-          except Exception: pass'); do
+          # id баз — из обоих списков (см. шапку): какой-то из двух ответит.
+          DB_IDS=$( { ids dbs dbs id '[0-9]+'; ids databases dbs id '[0-9]+'; } | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
+          echo "$DB_IDS" > "$TW/db_ids"
+          for db in $DB_IDS; do
             ask "db_${db}_autobackups" "$B/dbs/$db/auto-backups"
-            ask "db_${db}_backups"     "$B/../v2/databases/$db/backups"
+            ask "db_${db}_v1backups"   "$B/dbs/$db/backups?limit=100"
+            ask "db_${db}_s3backups"   "$B2/databases/$db/backups"
           done
           # DNS — у каждого домена аккаунта из ответа выше, а не у одного
           # вписанного руками: аудит должен видеть и www, и забытые домены.
-          for fqdn in $(python3 -c 'import json,sys
-          try:
-              d = json.load(open("/tmp/tw/domains.json"))
-              print(" ".join(str(x.get("fqdn")) for x in (d.get("domains") or []) if isinstance(x, dict) and x.get("fqdn")))
-          except Exception:
-              pass'); do
+          for fqdn in $(ids domains domains fqdn '[A-Za-z0-9.-]+'); do
             ask "dns_$fqdn" "$B/domains/$fqdn/dns-records"
           done
-          python3 - <<'PY' | tee /tmp/tw/summary.md
+          python3 - <<'PY' | tee "$TW/summary.md"
           import json, os, re, datetime
+          TW = os.environ['TW']
+          NOW = datetime.datetime.now(datetime.timezone.utc)
 
           # Поле «key» в списке переменных окружения — это ИМЯ переменной (его
           # показываем), а «value» — значение (его не показываем никогда).
           SECRET = re.compile(r'(password|secret|token|api_key|apikey|private|credential|_key$|^value$|^envs?$)', re.I)
 
           def load(name):
-              code = open(f'/tmp/tw/{name}.code').read().strip()
+              code = open(f'{TW}/{name}.code').read().strip()
               try:
-                  data = json.load(open(f'/tmp/tw/{name}.json'))
+                  data = json.load(open(f'{TW}/{name}.json'))
               except Exception:
                   data = None
               return code, data
@@ -170,7 +235,7 @@ jobs:
               return items
 
           print('# Перепись ресурсов Timeweb Cloud')
-          print(f'снято {datetime.datetime.utcnow():%Y-%m-%d %H:%M} UTC, только чтение')
+          print(f'снято {NOW:%Y-%m-%d %H:%M} UTC, только чтение')
 
           def fin(obj):
               # Баланс и расход — ключ к вопросу «за что платим».
@@ -223,7 +288,7 @@ jobs:
           section('Хранилище S3 (бакеты)', 'buckets', 'buckets', ['id', 'name', 'status', 'type', 'location', 'preset_id', 'created_at'],
                   lambda b: print(f"    занято: {b.get('disk_stats')!r}" if 'disk_stats' in b else ''))
           section('Домены', 'domains', 'domains', ['id', 'fqdn', 'is_premium', 'expiration', 'is_autoprolong_enabled', 'provider', 'linked_ip'])
-          for f in sorted(os.listdir('/tmp/tw')):
+          for f in sorted(os.listdir(TW)):
               if f.startswith('dns_') and f.endswith('.json'):
                   section(f'DNS {f[4:-5]}', f[:-5], 'dns_records', ['id', 'type', 'data', 'ttl'])
           section('Приватные сети (VPC)', 'vpcs', 'vpcs', ['id', 'name', 'location', 'subnet_v4'])
@@ -256,11 +321,150 @@ jobs:
           section('Уведомления аккаунта', 'notifications', 'notification_settings', ['group', 'type', 'channels'])
           section('CDN-ресурсы', 'cdn', 'http_resources', ['id', 'name', 'source', 'status', 'traffic_usage'])
 
-          for f in sorted(os.listdir('/tmp/tw')):
-              if f.startswith('db_') and f.endswith('_autobackups.json'):
-                  section(f'Автобэкапы базы {f[3:-17]}', f[:-5], 'auto_backups_settings', ['is_enabled', 'interval', 'day_of_week', 'copy_count', 'creation_start_at'])
-              if f.startswith('db_') and f.endswith('_backups.json'):
-                  section(f'Бэкапы базы {f[3:-13]}', f[:-5], 'backups', ['id', 'name', 'status', 'type', 'size', 'created_at'])
+          # ── Резервные копии базы (аудит 15.10, A01 / Д3-1, Д3-4) ──────────
+          # Пути и поля — в шапке файла. У итога по базе три исхода, и третий
+          # не равен первому (CLAUDE.md §4.0):
+          #  ПОДТВЕРЖДЕНЫ    — список v1 прочитан, в нём есть готовая копия;
+          #  НЕ ПОДТВЕРЖДЕНЫ — список прочитан, готовой копии в нём нет;
+          #                    документация не говорит, что пустой ответ значит
+          #                    «копий нет», поэтому и мы этого не говорим;
+          #  НЕ ПРОВЕРЕНЫ    — настройки или список не прочитаны (401, 500,
+          #                    сеть, битый ответ): это «не смог», а не «копий
+          #                    нет», и прогон краснеет.
+          def read(name):
+              """(данные, причина отказа). Отказ разбора называется, не глушится."""
+              try:
+                  code = open(f'{TW}/{name}.code').read().strip()
+              except OSError:
+                  return None, 'не спрошено'
+              if code != '200':
+                  return None, f'HTTP {code}'
+              try:
+                  return json.load(open(f'{TW}/{name}.json')), ''
+              except Exception as e:
+                  return None, f'ответ HTTP 200 не разобран: {type(e).__name__}'
+
+          def parse_note(name):
+              try:
+                  return open(f'{TW}/{name}.parse').read().strip()
+              except OSError:
+                  return ''
+
+          def when(s):
+              try:
+                  t = datetime.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+                  return t if t.tzinfo else t.replace(tzinfo=datetime.timezone.utc)
+              except Exception:
+                  return None
+
+          def backups_report():
+              out, warn, fail = [], [], []
+              out.append('\n## Резервные копии базы')
+              out.append('настройки — GET /api/v1/dbs/{id}/auto-backups; копии — GET /api/v1/dbs/{id}/backups;'
+                         ' S3-копии — GET /api/v2/databases/{id}/backups (по документации отдельный механизм)')
+              try:
+                  ids = open(f'{TW}/db_ids').read().split()
+              except OSError:
+                  ids = []
+              if not ids:
+                  why = '; '.join(f'{n}: {parse_note(n)}' for n in ('dbs', 'databases') if parse_note(n)) or 'оба списка пусты'
+                  line = f'НЕ ПРОВЕРЕНЫ: ни одной базы не прочитано ({why}) — копии спросить не у кого'
+                  out.append(line)
+                  fail.append(line)
+                  return out, warn, fail
+              clusters = {}
+              data, _ = read('databases')
+              for c in (data.get('dbs') or []) if isinstance(data, dict) else []:
+                  if isinstance(c, dict) and c.get('id') is not None:
+                      clusters[str(c['id'])] = c
+              for db in ids:
+                  out.append(f'\n### База {db}')
+                  c = clusters.get(db)
+                  if c:
+                      out.append(f"- кластер: is_autobackups_enabled={c.get('is_autobackups_enabled')!r}"
+                                 f" · is_backup_schedule_enabled={c.get('is_backup_schedule_enabled')!r}")
+                  unknown = []
+                  # Настройки автокопий.
+                  data, why = read(f'db_{db}_autobackups')
+                  s = data.get('auto_backups_settings') if isinstance(data, dict) else None
+                  auto = 'НЕ ПРОВЕРЕНЫ'
+                  if why or not isinstance(s, dict) or not isinstance(s.get('is_enabled'), bool):
+                      why = why or 'в ответе нет auto_backups_settings.is_enabled'
+                      out.append(f'- автокопии: НЕ ПРОВЕРЕНЫ ({why})')
+                      unknown.append(f'настройки автокопий: {why}')
+                  elif s['is_enabled']:
+                      auto = (f"включены, интервал {s.get('interval')!r}"
+                              + (f", день недели {s.get('day_of_week')!r}" if s.get('interval') == 'week' else '')
+                              + f", хранится копий {s.get('copy_count')!r}")
+                      out.append(f"- автокопии: {auto}; первая не раньше {s.get('creation_start_at')!r} (час копии API не отдаёт)")
+                  else:
+                      auto = 'ВЫКЛЮЧЕНЫ'
+                      out.append('- автокопии: ВЫКЛЮЧЕНЫ (is_enabled=False)')
+                      warn.append(f'база {db}: автокопии выключены')
+                  # Список копий v1 — по схеме здесь лежат и ручные, и автокопии.
+                  data, why = read(f'db_{db}_v1backups')
+                  items = data.get('backups') if isinstance(data, dict) else None
+                  latest, total = None, None
+                  if why or not isinstance(items, list):
+                      why = why or 'в ответе нет списка backups'
+                      out.append(f'- копии (v1): НЕ ПРОВЕРЕНЫ ({why})')
+                      unknown.append(f'список копий: {why}')
+                      items = []
+                  else:
+                      items = [b for b in items if isinstance(b, dict)]
+                      meta = data.get('meta')
+                      total = meta.get('total') if isinstance(meta, dict) else None
+                      items.sort(key=lambda b: str(b.get('created_at') or ''), reverse=True)
+                      out.append(f'- копии (v1): в ответе {len(items)}' + (f', meta.total={total!r}' if total is not None else ''))
+                      for b in items[:20]:
+                          out.append(f"  - id={b.get('id')!r} · type={b.get('type')!r} · status={b.get('status')!r}"
+                                     f" · size={b.get('size')!r} МБ · created_at={b.get('created_at')!r}")
+                      if len(items) > 20:
+                          out.append(f'  - и ещё {len(items) - 20}')
+                      done = [b for b in items if b.get('status') == 'done' and when(b.get('created_at'))]
+                      if done:
+                          latest = max(done, key=lambda b: when(b.get('created_at')))
+                  # S3-копии — отдельный механизм; их пустота об автокопиях не говорит.
+                  data, why = read(f'db_{db}_s3backups')
+                  s3 = data.get('backups') if isinstance(data, dict) else None
+                  if why or not isinstance(s3, list):
+                      why = why or 'в ответе нет списка backups'
+                      s3n = f'не прочитаны ({why})'
+                      out.append(f'- S3-копии (v2): {s3n}')
+                      warn.append(f'база {db}: S3-копии {s3n}')
+                  else:
+                      s3 = [b for b in s3 if isinstance(b, dict)]
+                      s3n = str(len(s3))
+                      out.append(f'- S3-копии (v2): {len(s3)}'
+                                 + ('' if s3 else ' — это копии в объектном хранилище; об автокопиях пустота здесь не говорит'))
+                      for b in s3[:5]:
+                          out.append(f"  - type={b.get('type')!r} · status={b.get('status')!r}"
+                                     f" · size={b.get('size')!r} байт · created_at={b.get('created_at')!r}")
+                  # Итог по базе.
+                  if unknown:
+                      line = (f"ИТОГ базы {db}: НЕ ПРОВЕРЕНЫ — {'; '.join(unknown)}."
+                              ' Это «не смог прочитать», а не «копий нет»')
+                      fail.append(line)
+                  elif latest:
+                      hours = (NOW - when(latest.get('created_at'))).total_seconds() / 3600
+                      line = (f"ИТОГ базы {db}: ПОДТВЕРЖДЕНЫ — автокопии {auto};"
+                              f" последняя готовая {latest.get('created_at')} (type={latest.get('type')!r},"
+                              f" {latest.get('size')!r} МБ), возраст {hours:.1f} ч, моложе суток: {'да' if hours < 24 else 'нет'};"
+                              f" копий в списке v1: {total if total is not None else len(items)}; S3-копий: {s3n}")
+                      if hours >= 24:
+                          warn.append(f'база {db}: последняя готовая копия старше суток ({hours:.1f} ч)')
+                  else:
+                      line = (f'ИТОГ базы {db}: НЕ ПОДТВЕРЖДЕНЫ — автокопии {auto}; список копий v1 прочитан (HTTP 200),'
+                              f' готовой копии в нём нет (в ответе {len(items)}). Пустой список ещё не доказывает отсутствия'
+                              ' копий: по схеме здесь лежат и ручные, и автокопии, но что пустой ответ значит «копий нет»,'
+                              f' документация не говорит — сверить глазами в панели (база → Бэкапы); S3-копий: {s3n}')
+                      warn.append(line)
+                  out.append(line)
+              return out, warn, fail
+
+          BACKUP_LINES, BACKUP_WARN, BACKUP_FAIL = backups_report()
+          for l in BACKUP_LINES:
+              print(l)
 
           code, data = load('app_stats')
           print('\n## Нагрузка приложения за 7 дней')
@@ -277,15 +481,70 @@ jobs:
               print(f'не ответил: HTTP {code}')
 
           print('\n## Коды ответов по разделам')
-          for f in sorted(os.listdir('/tmp/tw')):
+          for f in sorted(os.listdir(TW)):
               if f.endswith('.code'):
-                  print(f'- {f[:-5]}: HTTP {open("/tmp/tw/" + f).read().strip()}')
+                  print(f'- {f[:-5]}: HTTP {open(os.path.join(TW, f)).read().strip()}')
+
+          # Отказы разбора списков (аудит 15.10, Д3-4): раньше — `except: pass`.
+          notes = sorted(f for f in os.listdir(TW) if f.endswith('.parse'))
+          print('\n## Отказы разбора списков')
+          for f in notes:
+              print(f'- {f[:-6]}: {open(os.path.join(TW, f)).read().strip()}')
+          if not notes:
+              print('нет')
+
+          # Аннотации — в файл: вывод этого скрипта уходит в итог. Раздел копий
+          # идёт своей аннотацией, чтобы обрезка общего итога его не съедала.
+          def esc(s):
+              return str(s).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          with open(f'{TW}/annotations.txt', 'w') as a:
+              for line in BACKUP_FAIL:
+                  a.write(f'::error title=timeweb-db-backups::{esc(line)}\n')
+              for line in BACKUP_WARN:
+                  a.write(f'::warning title=timeweb-db-backups::{esc(line)}\n')
+              for f in notes:
+                  a.write(f'::warning title=timeweb-resources-audit::{esc(f[:-6] + ": " + open(os.path.join(TW, f)).read().strip())}\n')
+              # Раздел копий тоже бывает длиннее 3500 знаков (двадцать копий в
+              # списке v1): обрезка называет себя и не съедает итоги по базам —
+              # ради них раздел и вынесен своей аннотацией.
+              body = chr(10).join(BACKUP_LINES).strip()
+              if len(body) > 3500:
+                  verdicts = chr(10).join(l for l in BACKUP_LINES if l.startswith('ИТОГ базы'))
+                  note = (f'{chr(10)}… обрезано: раздел {len(body)} знаков, полный — сводка задачи (Summary)'
+                          f' и лог шага. Итоги по базам:{chr(10)}')
+                  head = body[:max(0, 3500 - len(note) - len(verdicts))]
+                  body = (head + note + verdicts)[:3500]
+              a.write(f"::notice title=timeweb-db-backups::{esc(body)}\n")
+          with open(f'{TW}/backups.verdict', 'w') as v:
+              v.write('unverified' if BACKUP_FAIL else 'checked')
           PY
           {
             echo '## Перепись ресурсов Timeweb'
             echo '```'
-            cat /tmp/tw/summary.md
+            cat "$TW/summary.md"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          BODY=$(head -c 3500 /tmp/tw/summary.md | python3 -c 'import sys;print(sys.stdin.read().replace(chr(10), "%0A"))')
-          echo "::notice title=timeweb-resources-audit::$BODY"
+          # Общий итог аннотацией — первые 3500 знаков, и если обрезан, это
+          # сказано в нём самом (прогон 3 молча кончался раньше раздела копий).
+          python3 - "$TW/summary.md" >> "$TW/annotations.txt" <<'PY'
+          import sys
+          LIMIT = 3500
+          text = open(sys.argv[1], encoding='utf-8').read()
+          body = text[:LIMIT]
+          if len(text) > LIMIT:
+              body += (f'\n… обрезано: показано {LIMIT} из {len(text)} знаков.'
+                       ' Полный итог — сводка задачи (Summary) и лог шага; раздел копий базы — аннотация timeweb-db-backups.')
+          print('::notice title=timeweb-resources-audit::' + body.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PY
+          cat "$TW/annotations.txt"
+          # Итог копий не собран или «не смог проверить» — прогон красный:
+          # молчащая перепись читалась бы как «копии есть» (§4.0).
+          verdict=$(cat "$TW/backups.verdict" 2>/dev/null || echo missing)
+          case "$verdict" in
+            checked) ;;
+            unverified) exit 1 ;;
+            *)
+              echo "::error title=timeweb-db-backups::Итог резервных копий не собран — разбор упал раньше, см. лог шага"
+              exit 1
+              ;;
+          esac
