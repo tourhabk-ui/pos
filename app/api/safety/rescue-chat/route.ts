@@ -7,7 +7,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
-import { sanitizePromptInput } from '@/lib/kuzmich/guardian-context';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
@@ -25,8 +24,14 @@ const BodySchema = z.object({
     role:    z.enum(['user', 'assistant']),
     content: z.string().max(2000),
   })).max(20).optional().default([]),
-  tourist_name:  z.string().max(120).optional(),
-  tourist_phone: z.string().max(30).optional(),
+  // Имени и телефона в теле больше нет (15.10): они уходили в системный
+  // промпт зарубежных моделей (OpenRouter и все ноги водопада) — трансграничная
+  // передача ПД человека, возможно, в беде (152-ФЗ, CLAUDE.md §8), при том что
+  // модели они не нужны ни для чего: совет спасателя от номера не зависит, а
+  // передача данных настоящим спасателям идёт через /api/safety/sos. Свои
+  // клиенты (components/safety/RescueChat, /hub/safety) их не слали никогда;
+  // лишние ключи в теле zod отбрасывает. Координаты остаются — без них совет
+  // «где ближайшая помощь» невозможен.
   lat:           z.number().optional(),
   lng:           z.number().optional(),
   stream:        z.boolean().optional().default(false),
@@ -116,18 +121,13 @@ const SYSTEM_PROMPT = `Ты — AI Спасатель Камчатки. Подг
 function buildMessages(
   message: string,
   history: { role: 'user' | 'assistant'; content: string }[],
-  tourist_name?: string,
-  tourist_phone?: string,
   lat?: number,
   lng?: number,
 ): ChatMessage[] {
   let systemContent = SYSTEM_PROMPT;
   const ctx: string[] = [];
-  // Имя/телефон — пользовательский ввод, уходящий в SYSTEM-промпт: маркеры
-  // ролей и «забудь инструкции» обезвреживаются до подстановки (issue #328,
-  // паттерн CodeQL js/system-prompt-injection)
-  if (tourist_name)  ctx.push(`Имя: ${sanitizePromptInput(tourist_name).text}`);
-  if (tourist_phone) ctx.push(`Тел: ${sanitizePromptInput(tourist_phone).text}`);
+  // В системный промпт из тела запроса попадают только координаты — числа,
+  // которые формируются здесь, а не текст человека (issue #328, js/system-prompt-injection).
   if (lat && lng)    ctx.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   if (ctx.length)    systemContent += `\n\nСОБЕСЕДНИК:\n${ctx.join('\n')}`;
 
@@ -156,8 +156,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Ошибка' }, { status: 400 });
   }
 
-  const { message, history, tourist_name, tourist_phone, lat, lng, stream: wantStream } = parsed.data;
-  const messages = buildMessages(message, history, tourist_name, tourist_phone, lat, lng);
+  const { message, history, lat, lng, stream: wantStream } = parsed.data;
+  const messages = buildMessages(message, history, lat, lng);
 
   // ── STREAMING PATH ──────────────────────────────────────────────────────────
   if (wantStream) {
