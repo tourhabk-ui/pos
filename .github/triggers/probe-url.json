@@ -1,22 +1,38 @@
 {
   "timeout": 60,
-  "run": 967,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Почему проба 965 не видит режим заповедника у Узона после выката 1288–1290: итог наката миграций при старте (/api/health → migrations), какие файлы образа не применились (schema-audit), карточка Узона сейчас. Без ожидания. Конфиг записан целиком.",
+  "run": 968,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Карточки после выката 1288 (памятники, партия 3) и 1289 (режим по контурам OSM) — миграции на проде легли (проба 967: накат ok, у Узона режим заповедника). Проба 965 застряла на скрытом кордоне: 404 она повторяет 70 раз как «ещё не выкатилось», поэтому кордон здесь последним и с одним повтором. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/health",
-    "https://vedarai.ru/api/cron/schema-audit",
-    "https://vedarai.ru/api/places/5694d055-9713-44af-8bcb-670ff63bb3e9"
+    "https://vedarai.ru/api/places/22066f59-ff7f-4061-b408-3d876147ce05",
+    "https://vedarai.ru/api/places/8ed1e7c5-df06-4bae-9c48-3be6c2890aa0",
+    "https://vedarai.ru/api/places/d64e3e6a-72a5-4c14-adc0-588c3824f6ae",
+    "https://vedarai.ru/api/places/24ee4667-c6e0-4aa0-b3f8-27073e00822f",
+    "https://vedarai.ru/api/places/6e3a46a9-104d-4181-958a-2a47698f2982",
+    "https://vedarai.ru/api/places/1d427c44-9f54-47da-99ff-12231705746b",
+    "https://vedarai.ru/api/places/fe3e16a9-bf51-4df9-aed1-27e6b15bf4cf",
+    "https://vedarai.ru/api/places/073a9803-9a0f-4dee-b448-713cc759b637",
+    "https://vedarai.ru/api/places/1d50cbce-c87f-4733-82a2-779ad1ce5718",
+    "https://vedarai.ru/api/places/ac0321fc-eae0-4919-9c7c-256bbc927a1a",
+    "https://vedarai.ru/api/cron/place-eco-census",
+    "https://vedarai.ru/api/places/c23dd150-e8ec-4721-a82f-2c81c0c82d32"
   ],
-  "retries": 2,
-  "retryDelay": 20,
+  "retries": 1,
+  "retryDelay": 15,
   "allowStale": true,
   "grep": [
-    "1288",
-    "1289",
-    "1290",
-    "\"federal_reserve\"",
-    "failed",
-    "unapplied"
+    "69-П",
+    "58.8295541",
+    "\"name\":\"Арка Стеллера\"",
+    "\"zone\":\"commander\"",
+    "\"thermal\"",
+    "88 °C",
+    "ландшафтно-геологического",
+    "Костакан (озеро)",
+    "по табличке",
+    "Тимоновского",
+    "не размечено",
+    "\"national_park\"",
+    "\"none\""
   ],
-  "bytes": 9000
+  "bytes": 5000
 }
