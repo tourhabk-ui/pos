@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { containsProfanity } from '@/lib/services/profanity-filter';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,11 +39,13 @@ export async function GET(
     }
     const placeId = place.rows[0].ark_id as string;
 
+    // Имя — только то, что автор сам вписал в форму отзыва, и сокращённо
+    // («Имя Ф.», publicReviewerName). Имя аккаунта (users.name) роут не
+    // выбирает вовсе: до аудита 15.10 (Д4-3) COALESCE(rv.author_name, u.name)
+    // отдавал анониму полное имя пользователя, если автор не вписал своё.
     const result = await query(
-      `SELECT rv.id, rv.rating, rv.comment, rv.created_at,
-         COALESCE(rv.author_name, u.name, 'Турист') AS author_name
+      `SELECT rv.id, rv.rating, rv.comment, rv.created_at, rv.author_name
        FROM reviews rv
-       LEFT JOIN users u ON u.id = rv.user_id
        WHERE rv.place_id = $1
        ORDER BY rv.created_at DESC
        LIMIT 50`,
@@ -55,7 +58,7 @@ export async function GET(
         id:         r.id as string,
         rating:     Number(r.rating),
         comment:    r.comment as string | null,
-        authorName: r.author_name as string,
+        authorName: publicReviewerName(r.author_name as string | null),
         createdAt:  r.created_at as string,
       })),
     });

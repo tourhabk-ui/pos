@@ -25,6 +25,7 @@
 import { emailService } from '@/lib/notifications/email-service';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { redactPII } from '@/lib/security/pii-redact';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export const RETRY_DELAY_MS = 5 * 60_000;
@@ -40,14 +41,19 @@ export interface TouristMail {
 /**
  * Одна попытка. Не бросает ни при каком ответе: вызывающие зовут отправку
  * через `void`, и брошенное здесь стало бы необработанным отказом процесса.
+ *
+ * Текст отказа SMTP часто называет получателя («550 <ivan@mail.ru>: user
+ * unknown»), а дальше он идёт в лог и в Telegram владельцу. Адрес туриста
+ * для разбора не нужен — бронь называет номер, — поэтому причина чистится
+ * redactPII здесь, в единственном месте, где она рождается (аудит 15.10, Д4-5).
  */
 async function attempt(mail: TouristMail): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const r = await emailService.sendEmail(mail);
     if (r && r.success) return { ok: true };
-    return { ok: false, error: r?.error ?? 'почтовый сервис не ответил' };
+    return { ok: false, error: redactPII(r?.error ?? 'почтовый сервис не ответил') };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: redactPII(err instanceof Error ? err.message : String(err)) };
   }
 }
 

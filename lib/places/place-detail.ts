@@ -18,6 +18,7 @@ import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
 export interface PlaceDetailResult {
@@ -200,13 +201,14 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
 
     // Reviews for this place
     const reviewsResult = await query(
-      // rv.author_name первым: форма отзыва места пишет имя в эту колонку
+      // rv.author_name: форма отзыва места пишет имя в эту колонку
       // (миграция 165) БЕЗ user_id — прежний COALESCE только по users.name
       // показывал «Турист» у каждого отзыва, живое имя не выводилось никогда.
-      `SELECT rv.id, rv.rating, rv.comment, rv.created_at,
-         COALESCE(NULLIF(rv.author_name, ''), u.name, 'Турист') AS author_name
+      // Имя аккаунта (users.name) не выбирается вовсе: карточка публичная, и
+      // запасной u.name отдавал полное имя пользователя (аудит 15.10, Д4-3).
+      // На экран имя идёт сокращённым — publicReviewerName ниже.
+      `SELECT rv.id, rv.rating, rv.comment, rv.created_at, rv.author_name
        FROM reviews rv
-       LEFT JOIN users u ON u.id = rv.user_id
        WHERE rv.place_id = $1
        ORDER BY rv.created_at DESC
        LIMIT 10`,
@@ -481,7 +483,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           id: rv.id as string,
           rating: Number(rv.rating),
           comment: rv.comment as string | null,
-          authorName: rv.author_name as string,
+          authorName: publicReviewerName(rv.author_name as string | null),
           createdAt: rv.created_at as string,
         })),
 

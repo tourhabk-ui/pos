@@ -51,6 +51,25 @@ describe('sendTouristMail', () => {
     expect(tgMock).toHaveBeenCalledTimes(1);
     expect(String(tgMock.mock.calls[0]?.[1])).toMatch(/#7/);
   });
+
+  // Аудит 15.10, Д4-5: отказ SMTP называет получателя, и адрес туриста уходил
+  // сырым в Telegram владельца и в лог. Для разбора хватает номера брони.
+  it('адрес туриста из текста отказа SMTP не уходит ни в Telegram, ни в лог', async () => {
+    sendMock
+      .mockResolvedValueOnce({ success: false, error: '550 <a@b.ru>: Recipient address rejected' })
+      .mockRejectedValueOnce(new Error('550 5.1.1 <ivan.sidorov@mail.ru> user unknown, тел. +7 914 123-45-67'));
+    await sendTouristMail('t', 7, mail, 1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(tgMock).toHaveBeenCalledTimes(1);
+    const alert = String(tgMock.mock.calls[0]?.[1]);
+    expect(alert).not.toContain('@');
+    expect(alert).not.toContain('914 123');
+    expect(alert).toMatch(/550 5\.1\.1/);
+    expect(alert).toContain('[email]');
+    const logged = vi.mocked(console.error).mock.calls.flat().map(String).join('\n');
+    expect(logged).not.toContain('@');
+    expect(logged).toContain('booking=7');
+  });
 });
 
 describe('двери брони не глушат письмо', () => {
