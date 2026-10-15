@@ -32,6 +32,7 @@ import { publicReviewerName } from '@/lib/reviews/public-name';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -308,7 +309,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        AND p.is_visible = TRUE
        AND p.merged_into_id IS NULL
        AND (
-         (rs.alert_message IS NOT NULL AND (rs.alert_expires_at IS NULL OR rs.alert_expires_at > NOW()))
+         (rs.alert_message IS NOT NULL AND (rs.alert_expires_at IS NULL OR rs.alert_expires_at > ${UTC_WALL_NOW_SQL}))
          OR rs.is_open = FALSE
          OR COALESCE(array_length(rs.active_alerts, 1), 0) > 0
        )

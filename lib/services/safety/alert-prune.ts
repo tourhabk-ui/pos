@@ -37,6 +37,7 @@
 
 import { isDailyBulletin, isRescueOperationReport, isServiceStatistics, isServiceDuties, isRetrospectivePost } from '@/lib/services/safety/seismic-parser';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export type RejectedGenre =
   | 'daily_bulletin' | 'rescue_report' | 'service_statistics'
@@ -153,7 +154,7 @@ export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> 
   const res = await query<AlertRow>(
     `SELECT id::text, title, description, created_at
        FROM external_alerts
-      WHERE (expires_at IS NULL OR expires_at > NOW())`,
+      WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})`,
     [],
   );
 

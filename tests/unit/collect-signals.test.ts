@@ -298,7 +298,8 @@ describe('код сборщика не имеет права молча верн
     // записей: у алерта без срока NULL не больше NOW().
     // Псевдоним таблицы (`ea.`) появился 19.09 вместе с отбором по
     // расстоянию — смысл условия не изменился, поэтому он необязателен.
-    expect(SRC).toMatch(/(?:ea\.)?expires_at IS NULL OR (?:ea\.)?expires_at > NOW\(\)/);
+    // «Сейчас» — стенное UTC, как и сам срок (15.10, #2495).
+    expect(SRC).toMatch(/(?:ea\.)?expires_at IS NULL OR (?:ea\.)?expires_at > \$\{UTC_WALL_NOW_SQL\}/);
   });
 
   it('вулканы отбираются по расстоянию, а не по совпадению имён', () => {
@@ -318,9 +319,9 @@ describe('код сборщика не имеет права молча верн
 
   it('SQL параметризован — конкатенации значений нет', () => {
     // В текст запроса подставляются ТОЛЬКО предикаты платформы — константы
-    // кода, объявленные один раз для мест и маршрутов (03.10). Значения —
-    // параметрами, как прежде.
-    const PREDICATES = /\$\{(ALERT_MATCH_SQL|ALERT_ZONAL_ONLY_SQL|TOURIST_BAN_SQL)\}/g;
+    // кода, объявленные один раз для мест и маршрутов (03.10), и «сейчас»
+    // по соглашению времени тревог (15.10). Значения — параметрами, как прежде.
+    const PREDICATES = /\$\{(ALERT_MATCH_SQL|ALERT_ZONAL_ONLY_SQL|TOURIST_BAN_SQL|UTC_WALL_NOW_SQL)\}/g;
     expect(SRC).toMatch(/\$1/);
     expect(SRC.replace(PREDICATES, '')).not.toMatch(/`[^`]*SELECT[^`]*\$\{/);
   });
@@ -404,6 +405,6 @@ describe('закрытые точки пути (#2079)', () => {
     const q = src.slice(src.indexOf('async function loadClosures'), src.indexOf('export async function collectRouteSignals'));
     expect(q).toMatch(/COALESCE\(to_jsonb\(rw\)->>'link_kind', 'unknown'\) <> 'nearby'/);
     expect(q).toMatch(/rs\.is_open = FALSE/);
-    expect(q).toMatch(/rs\.alert_expires_at IS NULL OR rs\.alert_expires_at > NOW\(\)/);
+    expect(q).toMatch(/rs\.alert_expires_at IS NULL OR rs\.alert_expires_at > \$\{UTC_WALL_NOW_SQL\}/);
   });
 });

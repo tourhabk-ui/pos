@@ -38,6 +38,7 @@ import {
   type FirmsRow,
   type NearFeature,
 } from '@/lib/services/safety/firms-persistence';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -111,7 +112,7 @@ export async function GET(request: NextRequest) {
     const { rows: al } = await pool.query<AlertRow>(
       `SELECT id::text, external_id, severity::int AS severity, created_at::text, expires_at::text, title
          FROM external_alerts
-        WHERE external_id LIKE 'firms/%' AND created_at > NOW() - INTERVAL '30 days'
+        WHERE external_id LIKE 'firms/%' AND created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '30 days'
         ORDER BY created_at`,
     );
     alerts = al;

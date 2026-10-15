@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export async function PATCH(
           SET basis_title = $2::text,
               basis_url = $3::text,
               basis_origin = CASE WHEN $2::text IS NULL THEN NULL ELSE 'manual' END,
-              updated_at = NOW()
+              updated_at = ${UTC_WALL_NOW_SQL}
         WHERE id = $1
         RETURNING id`,
       [parsedParams.data.id, basisTitle, basisUrl]
@@ -90,8 +91,8 @@ export async function DELETE(
 
     const result = await query(
       `UPDATE external_alerts
-       SET expires_at = NOW()
-       WHERE id = $1 AND expires_at > NOW()
+       SET expires_at = ${UTC_WALL_NOW_SQL}
+       WHERE id = $1 AND expires_at > ${UTC_WALL_NOW_SQL}
        RETURNING id`,
       [parsedParams.data.id]
     );

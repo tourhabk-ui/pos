@@ -11,6 +11,7 @@
  * и повтор через час (§4.0: «не смогли проверить» не равно «документа нет»).
  */
 import { query } from '@/lib/database';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export type BasisReading =
   | { outcome: 'found'; title: string; validUntil: Date | null }
@@ -35,7 +36,7 @@ export async function pendingBasisChecks(externalIds: string[], db: Queryable = 
   const { rows } = await db.query<{ external_id: string }>(
     `SELECT external_id FROM external_alerts
       WHERE external_id = ANY($1::text[])
-        AND expires_at > NOW()
+        AND expires_at > ${UTC_WALL_NOW_SQL}
         AND basis_title IS NULL
         AND (basis_check_outcome IS NULL
              OR (basis_check_outcome = 'unavailable' AND basis_checked_at < NOW() - ${BASIS_RETRY_SQL}))`,
@@ -64,8 +65,8 @@ export async function applyBasisReading(
               basis_checked_at = NOW(),
               basis_check_outcome = 'found',
               expires_at = CASE WHEN $4::timestamptz IS NULL THEN expires_at
-                                ELSE GREATEST(expires_at, $4::timestamptz) END,
-              updated_at = NOW()
+                                ELSE GREATEST(expires_at, $4::timestamptz AT TIME ZONE 'UTC') END,
+              updated_at = ${UTC_WALL_NOW_SQL}
         WHERE external_id = $1
           AND basis_title IS NULL`,
       [externalId, reading.title, basisUrl, reading.validUntil ? reading.validUntil.toISOString() : null],

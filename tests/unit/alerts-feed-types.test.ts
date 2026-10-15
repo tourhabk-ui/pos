@@ -64,6 +64,6 @@ describe('перепись отдаёт текст, а не только счё�
   });
 
   it('живой набор берётся тем же предикатом, что и чистка', () => {
-    expect(CENSUS).toContain('expires_at IS NULL OR expires_at > NOW()');
+    expect(CENSUS).toContain('expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL}');
   });
 });

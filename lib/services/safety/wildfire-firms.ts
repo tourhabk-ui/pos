@@ -29,6 +29,7 @@ import {
   type NearFeature,
   type StaticReason,
 } from '@/lib/services/safety/firms-persistence';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // Камчатка с запасом: юг Курил не берём, Чукотку не берём. Определение живёт
 // в чистом модуле firms-persistence, чтобы перепись (только чтение) не
@@ -207,10 +208,10 @@ async function loadHeatFeatures(): Promise<Array<{ name: string; type: string | 
 async function retractStaticAlerts(lat: number, lng: number): Promise<number> {
   const r = await query<{ id: string }>(
     `UPDATE external_alerts
-        SET expires_at = NOW()
+        SET expires_at = ${UTC_WALL_NOW_SQL}
       WHERE alert_type = 'fire_danger'
         AND external_id LIKE 'firms/%'
-        AND expires_at > NOW()
+        AND expires_at > ${UTC_WALL_NOW_SQL}
         AND lat IS NOT NULL AND lng IS NOT NULL
         AND 6371 * 2 * asin(sqrt(
               power(sin(radians(lat::float8 - $1::float8) / 2), 2) +

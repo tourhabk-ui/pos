@@ -21,6 +21,7 @@ import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
 import { SAFETY_SOURCE_EXPECTATIONS } from '@/lib/services/safety/source-health';
 import { WEATHER_PLACES, weatherPlaceBySlug, type WeatherPlace } from '@/lib/weather/places';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 /** Дней прогноза у каждого места: семь — неделя вперёд, и кэш один на все блоки страницы. */
 export const WEATHER_PAGE_DAYS = 7;
@@ -112,7 +113,7 @@ export async function loadMeteoWarnings(now: Date = new Date()): Promise<Warning
         `SELECT title, description, severity, expires_at
            FROM external_alerts
           WHERE external_id LIKE $1
-            AND expires_at > NOW()
+            AND expires_at > ${UTC_WALL_NOW_SQL}
           ORDER BY severity DESC NULLS LAST, created_at DESC
           LIMIT 10`,
         [`${METEOALERT_PREFIX}/%`],

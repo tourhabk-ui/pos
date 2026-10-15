@@ -8,12 +8,13 @@
  * - зоны: Вачкажец/Сокоч -> western+avachinsky;
  * - POST /api/admin/external-alerts — ручной алерт с manual-external_id,
  *   дубль -> 409, не-админ не проходит;
- * - DELETE — гашение (expires_at=NOW()), не физическое удаление;
+ * - DELETE — гашение (срок = «сейчас» в стенном UTC), не физическое удаление;
  * - PATCH /api/admin/places/[id]/status — первый писатель
  *   is_open/alert_message (UPSERT в location_real_time_status).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { NextRequest, NextResponse } from 'next/server';
 
 const queryMock = vi.fn();
@@ -129,7 +130,7 @@ describe('POST /api/admin/external-alerts', () => {
 });
 
 describe('DELETE /api/admin/external-alerts/[id]', () => {
-  it('гасит алерт (expires_at=NOW()), не удаляет строку', async () => {
+  it('гасит алерт (срок = «сейчас»), не удаляет строку', async () => {
     queryMock.mockResolvedValue({ rows: [{ id: 42 }] });
 
     const res = await deleteAlert(
@@ -139,7 +140,7 @@ describe('DELETE /api/admin/external-alerts/[id]', () => {
     expect(res.status).toBe(200);
 
     const [sql] = queryMock.mock.calls[0];
-    expect(String(sql)).toContain('SET expires_at = NOW()');
+    expect(String(sql)).toContain(`SET expires_at = ${UTC_WALL_NOW_SQL}`);
     expect(String(sql)).not.toContain('DELETE FROM');
   });
 

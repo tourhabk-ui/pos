@@ -12,6 +12,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { callAIWaterfall } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
       : '';
     const { rows } = await pool.query<AlertRow>(
       `SELECT title, severity, description FROM external_alerts
-       WHERE (expires_at IS NULL OR expires_at > NOW()) ${filter}
+       WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL}) ${filter}
        ORDER BY severity DESC NULLS LAST, created_at DESC
        LIMIT 15`,
     );

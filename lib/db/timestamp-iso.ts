@@ -36,8 +36,10 @@ export function isoUtcSql(expr: string): string {
  * проде сдвигает момент на три часа назад — поймано pg-тестом `safety_status`
  * (`tests/integration/safety-status-feed.pg.test.ts`).
  *
- * Какое из двух правил брать, решает ПИСАТЕЛЬ строки, а не колонка: ручные
- * записи той же таблицы ставят `created_at` через NOW() — им `isoUtcSql`.
+ * Правило решает писатель колонки: у `external_alerts` с миграции 1265 писатель
+ * один — стенное UTC у всех строк (ручные записи, ставившие NOW(), переведены,
+ * умолчания колонок — `UTC_WALL_NOW_SQL`). `location_real_time_status.updated_at`
+ * пишется NOW() в поясе сессии — ей `isoUtcSql`.
  */
 export function utcWallIsoSql(expr: string): string {
   return `to_char((${expr}), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;

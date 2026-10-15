@@ -12,7 +12,7 @@
  * Каждая выборка в своём try/catch: сбой одного блока не роняет страницу.
  */
 
-import { isoUtcSql, utcWallIsoSql } from '@/lib/db/timestamp-iso';
+import { isoUtcSql, utcWallIsoSql, UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { query } from '@/lib/database';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import {
@@ -264,7 +264,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
                     title, description, alert_type, severity::int AS severity, created_at, expires_at,
                     external_id, source_url, basis_title, basis_url, basis_origin
                FROM external_alerts
-              WHERE expires_at > NOW()
+              WHERE expires_at > ${UTC_WALL_NOW_SQL}
                 AND alert_type = ANY($1::text[])
               ORDER BY lower(title), severity DESC, created_at DESC
            ) t
@@ -639,7 +639,7 @@ async function fetchRadarBase(): Promise<{ hazards: Hazard[]; degraded: boolean 
       `SELECT title, description, alert_type, severity::int AS severity,
               lat::text, lng::text, magnitude::text
          FROM external_alerts
-        WHERE expires_at > NOW()
+        WHERE expires_at > ${UTC_WALL_NOW_SQL}
           AND lat IS NOT NULL AND lng IS NOT NULL
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT 60`,

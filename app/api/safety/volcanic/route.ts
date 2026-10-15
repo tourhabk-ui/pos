@@ -26,6 +26,7 @@ import { pool } from '@/lib/db-pool';
 import { lastIngestAt } from '@/lib/safety/ingest-run';
 // Коды KVERT — «что сейчас», новости — «что случилось». Экран показывает оба.
 import { getVolcanoStatuses } from '@/lib/services/safety/volcano-status';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,10 +61,10 @@ export async function GET() {
           created_at,
           expires_at,
           source_url,
-          (expires_at IS NULL OR expires_at > NOW()) AS active
+          (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL}) AS active
         FROM external_alerts
         WHERE alert_type = 'volcanic_eruption'
-          AND (expires_at IS NULL OR expires_at > NOW() - INTERVAL '7 days')
+          AND (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL} - INTERVAL '7 days')
         ORDER BY lower(title), lower(COALESCE(description, '')), created_at DESC
       ) u
       ORDER BY active DESC, created_at DESC

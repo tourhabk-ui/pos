@@ -1,5 +1,5 @@
 import { pool } from '@/lib/db-pool';
-import { isoUtcSql } from '@/lib/db/timestamp-iso';
+import { isoUtcSql, UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsPhrase, kfegsIsFresh, levelForColor, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { placeTypeLabel } from '@/lib/places/type-label';
@@ -499,7 +499,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     pool.query<AlertRow>(
       `SELECT title, severity, description, source_url, external_id
        FROM external_alerts
-       WHERE (expires_at IS NULL OR expires_at > NOW())
+       WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})
          AND (title ILIKE $1 OR description ILIKE $1)
        ORDER BY severity DESC
        LIMIT 3`,
