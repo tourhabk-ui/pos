@@ -35,6 +35,7 @@
  */
 
 import { createHmac, timingSafeEqual } from 'crypto';
+import { cachedBotUsername, envBotUsername, DEFAULT_BOT_USERNAME } from '@/lib/telegram/bot-username';
 
 export const PARTNER_LINK_PREFIX = 'op_';
 export const PARTNER_LINK_TTL_MS = 72 * 60 * 60 * 1000;
@@ -96,10 +97,14 @@ export function verifyPartnerLinkToken(token: string, now: number = Date.now()):
   return { ok: true, partnerId };
 }
 
-/** Ссылка на бота строго на своих хостах — env с посторонним игнорируется. */
+/**
+ * Имя бота для ссылки: по getMe, если его уже спрашивали (резолвер
+ * lib/telegram/bot-username — выдающие ссылку роуты зовут его первым), иначе
+ * переменная, похожая на username, иначе kuzmichai_bot. 15.10 переменная на
+ * проде стояла с опечаткой, и ссылка вела в несуществующего пользователя.
+ */
 export function telegramBot(): string {
-  const name = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmichai_bot';
-  return /^[A-Za-z0-9_]{5,32}$/.test(name) ? name : 'kuzmichai_bot';
+  return cachedBotUsername() ?? envBotUsername() ?? DEFAULT_BOT_USERNAME;
 }
 
 export function maxBot(): string {

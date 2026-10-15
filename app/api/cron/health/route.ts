@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveTelegramBotUsername, botUsernameIssue } from '@/lib/telegram/bot-username';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
 import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeAnthropicKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainAnthropicFailure, isAcceptedAnthropicFromProd, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
@@ -616,6 +617,12 @@ export async function GET(request: NextRequest) {
   // Сейсмо-heartbeat (монитор-над-монитором)
   const seismic = await checkSafetyIngest();
   if (seismic.issue) issues.push(seismic.issue);
+
+  // Имя бота в переменной против getMe (15.10): опечатка в
+  // NEXT_PUBLIC_TELEGRAM_BOT_USERNAME вела ссылки подключения операторов в
+  // несуществующего пользователя, и узнать об этом было неоткуда.
+  const botIssue = botUsernameIssue(await resolveTelegramBotUsername());
+  if (botIssue) issues.push(botIssue);
 
   // Инвариант реестра эко: сумма по всем счетам обязана быть нулём. Не сошлась —
   // значит эко родились из воздуха или исчезли, и обещание «не врать цифрами»

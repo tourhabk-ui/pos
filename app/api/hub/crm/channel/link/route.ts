@@ -17,12 +17,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePartnerOwner } from '@/lib/crm/partner-context';
 import { buildPartnerChannelLinks } from '@/lib/partners/channel-link';
+import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   const ctx = await requirePartnerOwner(req);
   if (ctx instanceof NextResponse) return ctx;
+  await resolveTelegramBotUsername(); // имя бота по getMe, не из переменной (15.10)
   const links = buildPartnerChannelLinks(ctx.partnerId);
   if (!links.ok) {
     console.error('[crm/channel/link] ссылка не выдана:', links.reason);

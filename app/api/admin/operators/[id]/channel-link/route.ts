@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { buildPartnerChannelLinks } from '@/lib/partners/channel-link';
+import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,9 @@ export async function POST(
   }
   if (!row) return NextResponse.json({ success: false, error: 'Оператор не найден' }, { status: 404 });
 
+  // Имя бота — у самого бота (getMe), не из переменной: 15.10 переменная на
+  // проде стояла с опечаткой, и оператор получил «такого пользователя не существует».
+  const bot = await resolveTelegramBotUsername();
   const links = buildPartnerChannelLinks(id);
   if (!links.ok) {
     console.error(`[channel-link] ссылка не выдана: ${links.reason}`);
@@ -74,6 +78,8 @@ export async function POST(
       bound: { telegram: row.has_telegram, max: row.has_max },
       links: { telegram: links.telegram, max: links.max },
       expires_at: links.expiresAt.toISOString(),
+      // Откуда имя бота в ссылке: getMe (проверено у Telegram) или запас.
+      bot: { username: bot.name, source: bot.source, env_mismatch: bot.env_mismatch },
       // Готовый текст для пересылки оператору — без ПД, только ссылки.
       message: [
         `Здравствуйте! Чтобы заявки туристов с Ведара приходили вам в мессенджер, откройте ссылку и нажмите «Старт»:`,
