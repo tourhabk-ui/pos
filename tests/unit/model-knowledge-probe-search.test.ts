@@ -232,10 +232,25 @@ describe('исход поисковой ноги', () => {
     expect(classifySearchAnswer(ans('不知道。', [], 0), 'region').outcome).toBe('did_not_search');
   });
 
-  it('счётчик без источников — искала: «не знает», не «не искала»', () => {
-    const c = classifySearchAnswer(ans('不知道。', [], 1), 'region');
-    expect(c.outcome).toBe('does_not_know');
-    expect(c.signal).toMatch(/источников шлюз не вернул/);
+  // Аудит 15.10, находка R-probe: счётчик plugins.search.count — отметка
+  // этапа распознавания намерения (документация Model Studio), а при
+  // forced_search он почти всегда больше нуля. Ответ без источников при
+  // count = 1 прежде уходил «не знает» — «нас нет» без выдачи.
+  it('счётчик без источников — «намерение было, выдачи нет», а не «не знает»', () => {
+    for (const mention of ['region', 'brand'] as const) {
+      const c = classifySearchAnswer(ans('不知道。', [], 1), mention);
+      expect(c.outcome, mention).toBe('did_not_search');
+      expect(c.signal, mention).toMatch(/намерение поиска было, выдачи шлюз не вернул/);
+      expect(c.signal, mention).not.toMatch(/искала, нас нет/);
+      expect(c.search, mention).toEqual({ searched: false, count: 1, sources: 0, domains: [] });
+    }
+  });
+
+  it('назвала нас при одном счётчике без источников — «знает», но откуда, не утверждается', () => {
+    const c = classifySearchAnswer(ans('vedarai.ru 是堪察加的旅游平台', [], 1), 'region');
+    expect(c.outcome).toBe('knows');
+    expect(c.signal).toMatch(/не различить/);
+    expect(c.signal).not.toMatch(/из весов, а не из выдачи/);
   });
 
   it('назвала нас без следа поиска — «знает», и сказано, что это веса, а не выдача', () => {
@@ -284,8 +299,10 @@ describe('проба целиком: две поисковые ноги рядо
 
     const text = digestText(body.legs, summarize(body.legs));
     expect(text).toContain('Источники поиска:');
-    expect(text).toContain('qwen-search: vedarai.ru; поисков: 1');
-    expect(text).toContain('qwen-search-topic: ctrip.com, mafengwo.cn; поисков: 1');
+    // Счётчик назван тем, что он есть, — отметкой намерения, а не числом поисков (R-probe).
+    expect(text).toContain('qwen-search: vedarai.ru; отметка намерения поиска: 1');
+    expect(text).toContain('qwen-search-topic: ctrip.com, mafengwo.cn; отметка намерения поиска: 1');
+    expect(text).not.toContain('поисков:');
   });
 
   it('шлюз не искал — «не искали» в сводке, итоге и вердикте, а не «не знают»', async () => {
@@ -294,10 +311,69 @@ describe('проба целиком: две поисковые ноги рядо
     const body = await (await probe()).json() as ProbeBody;
     expect(body.summary.did_not_search.sort()).toEqual(['qwen-search', 'qwen-search-topic']);
     expect(body.summary.does_not_know).toEqual(['qwen']);
-    expect(body.verdict).toMatch(/не искали: qwen-search, qwen-search-topic/);
+    expect(body.verdict).toMatch(/не искали или выдачи нет: qwen-search, qwen-search-topic/);
     const text = digestText(body.legs, summarize(body.legs));
-    expect(text).toMatch(/Не искали \(следа поиска в ответе нет/);
+    expect(text).toMatch(/Не искали или выдачи нет \(«нас нет» не измерено\)/);
+    expect(text).toContain('qwen-search: не искала: в ответе нет ни источников, ни счётчика поиска');
     expect(text).toContain('qwen-search: шлюз источников не вернул');
+  });
+
+  // Аудит 15.10, находка R-probe: сторож вызовом пробы целиком, шлюз подменён
+  // на уровне fetch. Три ответа шлюза — три исхода у ОБЕИХ поисковых ног, и
+  // итог владельцу (Telegram) не ставит «намерение без выдачи» в «Не знают».
+  describe('исход поисковых ног решают источники, а не счётчик (R-probe)', () => {
+    const SEARCH_LEGS = ['qwen-search', 'qwen-search-topic'];
+    const run = async (reply: SearchReply) => {
+      const { fetchMock } = gateway(() => reply);
+      vi.stubGlobal('fetch', fetchMock);
+      const body = await (await probe()).json() as ProbeBody;
+      const byProvider = Object.fromEntries(body.legs.map((l) => [l.provider, l]));
+      return { body, byProvider, text: digestText(body.legs, summarize(body.legs)) };
+    };
+    const lineOf = (text: string, head: string) => text.split('\n').find((l) => l.startsWith(head)) ?? '';
+
+    it('счётчик 1, источников нет — «намерение было, выдачи нет»: не в «Не знают» ни в сводке, ни в итоге', async () => {
+      const { body, byProvider, text } = await run({ content: '不知道。', sources: [], count: 1 });
+      for (const p of SEARCH_LEGS) {
+        expect(byProvider[p].outcome, p).toBe('did_not_search');
+        expect(byProvider[p].signal, p).toMatch(/намерение поиска было, выдачи шлюз не вернул/);
+        expect(byProvider[p].search, p).toEqual({ searched: false, count: 1, sources: 0, domains: [] });
+      }
+      expect(body.summary.did_not_search.sort()).toEqual(SEARCH_LEGS);
+      expect(body.summary.does_not_know).toEqual(['qwen']);
+      expect(body.verdict).toMatch(/не знают: qwen; не искали или выдачи нет: qwen-search, qwen-search-topic;/);
+      // Что читает владелец: «Не знают» — только нога без поиска, причина у каждой поисковой ноги своя.
+      expect(lineOf(text, 'Не знают:')).toBe('Не знают: qwen (qwen-probe-test)');
+      expect(lineOf(text, 'Не искали или выдачи нет')).toMatch(/qwen-search \(qwen-probe-test\), qwen-search-topic \(qwen-probe-test\)$/);
+      for (const p of SEARCH_LEGS) {
+        expect(text).toContain(`${p}: намерение поиска было, выдачи шлюз не вернул: счётчик 1, источников нет`);
+        expect(text).toContain(`${p}: шлюз источников не вернул; отметка намерения поиска: 1`);
+      }
+      expect(text).not.toMatch(/искала, нас нет/);
+    });
+
+    it('vedarai.ru среди источников — «знает» у обеих ног', async () => {
+      const { body, byProvider } = await run({ content: '不知道。', sources: [{ url: 'https://vedarai.ru/zh' }], count: 1 });
+      for (const p of SEARCH_LEGS) {
+        expect(byProvider[p].outcome, p).toBe('knows');
+        expect(byProvider[p].signal, p).toMatch(/поиск нашёл vedarai\.ru/);
+      }
+      expect(body.summary.knows.sort()).toEqual(SEARCH_LEGS);
+    });
+
+    it('чужой источник и ответ без нас — «искала, нас нет» у обеих ног', async () => {
+      const { body, byProvider, text } = await run({
+        content: '推荐携程和马蜂窝。', sources: [{ url: 'https://www.ctrip.com/a' }], count: 1,
+      });
+      for (const p of SEARCH_LEGS) {
+        expect(byProvider[p].outcome, p).toBe('does_not_know');
+        expect(byProvider[p].signal, p).toBe('искала, нас нет: источников 1, vedarai.ru среди них нет');
+      }
+      expect(body.summary.does_not_know.sort()).toEqual(['qwen', ...SEARCH_LEGS]);
+      expect(body.summary.did_not_search).toEqual([]);
+      expect(lineOf(text, 'Не знают:')).toContain('qwen-search (qwen-probe-test), qwen-search-topic (qwen-probe-test)');
+      expect(text).not.toMatch(/Не искали/);
+    });
   });
 
   it('403 FreeTierOnly у поиска — «спросить не удалось» с причиной у обеих ног, веса отвечают', async () => {
