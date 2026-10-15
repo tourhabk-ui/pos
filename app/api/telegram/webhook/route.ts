@@ -11,7 +11,8 @@
  *   /weather   — погода в Петропавловске-Камчатском
  *   /tip       — случайный совет путешественнику
  *   /operators — список партнёров
- *   <текст>    — AI-диалог с историей
+ *   <текст>    — Кузьмич: общий мозг lib/kuzmich/core (aiChat) с историей,
+ *                инструментами, блоком 112 и чисткой телефонов и почт
  *
  * Admin (только TELEGRAM_CHAT_ID):
  *   /stats              — статистика платформы
@@ -36,10 +37,12 @@ import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
-import { KUZMICH_SYSTEM, buildTourContext, searchPlaceKnowledge } from '@/lib/kuzmich/core';
-import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
-import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
-import { parseInterestsFromText, findRoutesByInterests, formatRoutesForTelegram } from '@/lib/planner/interests';
+import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
+import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
+import { sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
+import { stripTags } from '@/lib/html/text';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { parseInterestsFromText, findRoutesByInterests } from '@/lib/planner/interests';
 import {
   postRouteToChannel,
   postOperatorToChannel,
@@ -139,7 +142,6 @@ interface StatsRow {
   views_today: string;    views_30d: string;
 }
 interface TopPageRow { path: string; cnt: string; }
-interface HistoryMessage { role: 'user' | 'assistant'; content: string }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────────
 
@@ -190,75 +192,86 @@ function isSupportRequest(text: string): boolean {
   return SUPPORT_TRIGGERS.some(trigger => lower.includes(trigger));
 }
 
-// ── История диалога (chat_sessions) ──────────────────────────────────────────
+// ── Кузьмич: общий мозг (аудит 15.10, TG-BRAIN) ──────────────────────────────
+//
+// До 15.10 этот вебхук — живой вход Telegram — отвечал туристу своей копией
+// Кузьмича: одиночный вызов модели с сырым текстом и историей из
+// chat_sessions. Без инструментов (обстановка и безопасность места — только
+// из них), без серверного блока 112 на «мы заблудились», без чистки
+// телефонов и почт перед зарубежной моделью и без сторожей утверждений о
+// безопасности и доставке. У веба, MAX и второго входа /api/telegram/kuzmich
+// всё это было через lib/kuzmich/core — и политика конфиденциальности
+// обещала чистку для Telegram тоже. Теперь все три места, где вебхук давал
+// слово Кузьмичу (личка, упоминание в группе, /sezon), идут в aiChat.
+//
+// aiChat, а не processMessage: processMessage добавляет к нему бронь в чате —
+// спрашивает имя и телефон и повторяет их в подтверждении. Политика
+// конфиденциальности (разд. 5) обещает, что Telegram несёт только служебные
+// сообщения без ПД, и по той же причине контроль выхода здесь не ставится
+// (lib/kuzmich/watch-flow). Включить бронь в чате Telegram — решение
+// владельца, а не побочный эффект этой правки. Контроль выхода и
+// slash-команды вебхук и так разбирает раньше.
 
-async function getHistory(tgChatId: string): Promise<HistoryMessage[]> {
-  try {
-    const res = await query<{ messages: HistoryMessage[] }>(
-      `SELECT messages FROM chat_sessions WHERE session_id = $1 LIMIT 1`,
-      [`tg_${tgChatId}`]
-    );
-    return res.rows[0]?.messages ?? [];
-  } catch { return []; }
-}
+/**
+ * История Кузьмича в Telegram — tg_conversations под режимом 'tourist', как у
+ * второго входа: chat_id тот же (бот один). Прежняя история вебхука
+ * (chat_sessions, 'tg_<chatId>') перенесена туда миграцией, разговор не
+ * обрывается на выкате.
+ */
+const KUZMICH_TG_MODE = 'tourist';
 
-function saveHistory(tgChatId: string, messages: HistoryMessage[]): void {
-  query(
-    `INSERT INTO chat_sessions (session_id, role, messages, updated_at)
-     VALUES ($1, 'tourist', $2::jsonb, NOW())
-     ON CONFLICT (session_id) DO UPDATE SET messages = $2::jsonb, updated_at = NOW()`,
-    [`tg_${tgChatId}`, JSON.stringify(messages.slice(-20))]
-  ).catch(() => {});
-}
-
-// ── AI Кузьмич с историей ─────────────────────────────────────────────────────
-
-async function kuzmichReply(userText: string, chatId: string): Promise<string> {
-  const [history, tourCtx, placeCtx, zoneWeather] = await Promise.all([
-    getHistory(chatId),
-    buildTourContext(),
-    searchPlaceKnowledge(userText),
-    getZoneWeatherForText(userText),
-  ]);
-
-  // Supplementary interest-based route lookup (legacy path, kept for coverage)
-  let routesText = '';
-  const parsed = parseInterestsFromText(userText);
-  if (parsed.interests.length > 0) {
-    const routes = await findRoutesByInterests(parsed.interests, 3);
-    if (routes.length > 0) {
-      routesText = formatRoutesForTelegram(routes);
-    }
-  }
-
-  const dynamic = [placeCtx, zoneWeather, routesText ? `МАРШРУТЫ ПО ЗАПРОСУ:\n${routesText}` : '']
-    .filter(Boolean).join('\n\n');
-  const systemContent = [KUZMICH_SYSTEM + KUZMICH_TG_SUFFIX, tourCtx, dynamic]
-    .filter(Boolean).join('\n\n');
-
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemContent },
-    ...history,
-    { role: 'user', content: userText },
-  ];
-
-  // Замер ответа (аудит 15.10, A19). Это живой вход Telegram (канонический
-  // вебхук — lib/telegram/operator-availability): цикла инструментов здесь
-  // нет, ход один — вызов модели. Часы — от вызова до готового ответа.
-  const answerStartedAt = Date.now();
-  const reply = await callAIWithModelDirect(messages, getModelForAgent('kuzmich'));
-  void recordKuzmichAnswer({
-    surface: 'telegram',
-    elapsedMs: Date.now() - answerStartedAt,
-    turns: 1,
-    toolRounds: 0,
-    path: 'single',
-    // Одиночный вызов имени ответившего провайдера наружу не отдаёт.
-    provider: null,
-    ceilingHit: false,
+/**
+ * Ответ Кузьмича в чат. Тот же разбор разметки, что у второго входа
+ * (lib/telegram/kuzmich-format): модель пишет то звёздочками, то эмодзи.
+ * Голый `<` и длина сверх 4096 — repairTelegramHtml: прежний sendHTML слал
+ * ответ модели как есть, и Bot API на такой ответ отвечал 400 — турист не
+ * получал ничего, а отказ не попадал никуда. Не принят HTML — второй раз
+ * простым текстом; не принят и он — отказ в лог (§4.0).
+ */
+async function sendKuzmichReply(chatId: number, text: string): Promise<void> {
+  const clean = sanitizeForTelegram(text);
+  const html = await telegramService.sendMessage({
+    chatId: String(chatId), text: repairTelegramHtml(clean), parseMode: 'HTML',
   });
-  saveHistory(chatId, [...history, { role: 'user', content: userText }, { role: 'assistant', content: reply }]);
-  return reply;
+  if (html.success) return;
+  const plain = await telegramService.sendMessage({
+    chatId: String(chatId), text: repairTelegramHtml(esc(stripTags(clean))), parseMode: 'HTML',
+  });
+  if (!plain.success) {
+    console.error('[telegram/webhook] ответ Кузьмича не доставлен', { html: html.error, plain: plain.error });
+  }
+}
+
+/** Мозг не ответил вовсе (исключение) — человек узнаёт об этом, а не ждёт. */
+const KUZMICH_FAILED_TEXT = 'Не получилось ответить — сбой на нашей стороне. Повторите через минуту. В беде — 112.';
+
+/**
+ * Свободный текст → aiChat (lib/kuzmich/core): инструменты, граница ПД
+ * (redactUserTurns в цикле и на запасном пути), сторожа утверждений, блок 112
+ * и замер ответа (surface telegram — его пишет aiChat, второго здесь нет).
+ *
+ * Блок 112 ставится и здесь, поверх core: aiChat ставит его только тому
+ * ответу, который собрал сам. Если мозг упал исключением, человек получает
+ * KUZMICH_FAILED_TEXT — и на «мы заблудились» он обязан нести блок тоже.
+ * Второй раз блок не встаёт: withSosBlock видит в ответе 112 и МЧС.
+ */
+async function answerByKuzmich(opts: {
+  chatId: number;
+  text: string;
+  userId: number | null;
+}): Promise<void> {
+  const reply: ReplyFn = (id, answer) => sendKuzmichReply(id, withSosBlock(answer, opts.text).text);
+  try {
+    await aiChat({
+      chatId: opts.chatId, text: opts.text, mode: KUZMICH_TG_MODE, reply,
+      // Имя не пишется: историю читают по роли и тексту, имя в ней не
+      // читает никто — хранить его незачем (минимизация ПД, 152-ФЗ).
+      userId: opts.userId, userName: null, platform: 'tg',
+    });
+  } catch (err) {
+    logSwallowedFailure('telegram/webhook', 'ответ Кузьмича', err);
+    await reply(opts.chatId, KUZMICH_FAILED_TEXT);
+  }
 }
 
 // ── Случайный маршрут ─────────────────────────────────────────────────────────
@@ -418,7 +431,7 @@ interface ExtractedInterests {
   dateTo?: string;
 }
 
-function extractLastInterestsFromHistory(history: HistoryMessage[]): ExtractedInterests {
+function extractLastInterestsFromHistory(history: ChatMessage[]): ExtractedInterests {
   for (let i = history.length - 1; i >= Math.max(0, history.length - 10); i--) {
     if (history[i]?.role === 'user') {
       const parsed = parseInterestsFromText(history[i].content);
@@ -655,8 +668,14 @@ export async function POST(request: NextRequest) {
       const mentioned = text.toLowerCase().includes(`@${botUser.toLowerCase()}`);
       if (mentioned) {
         const cleanQ = text.replace(new RegExp(`@${botUser}`, 'gi'), '').trim();
-        const reply  = await kuzmichReply(cleanQ || 'Привет! Чем помочь?', chatId);
-        await sendHTML(chatId, reply);
+        // Тот же мозг, что в личке (TG-BRAIN): «@бот мы заблудились» в
+        // группе — такое же сообщение о беде. aiChat, а не processMessage:
+        // бронь в чате спросила бы имя и телефон на виду у всей группы.
+        await answerByKuzmich({
+          chatId: update.message.chat.id,
+          text: cleanQ || 'Привет! Чем помочь?',
+          userId: update.message.from?.id ?? null,
+        });
       }
 
       return NextResponse.json({ ok: true });
@@ -920,11 +939,13 @@ export async function POST(request: NextRequest) {
     // /sezon
     if (text.startsWith('/sezon')) {
       const month = new Date().toLocaleString('ru-RU', { month: 'long' });
-      const answer = await kuzmichReply(
-        `Сейчас ${month}. Один конкретный совет: что стоит делать туристу на Камчатке прямо сейчас?`,
-        chatId
-      );
-      await sendHTML(chatId, answer);
+      // Вопрос свой, но история разговора — туриста, и в ней бывают его
+      // телефон и почта: тот же мозг и та же граница ПД (TG-BRAIN).
+      await answerByKuzmich({
+        chatId: update.message.chat.id,
+        text: `Сейчас ${month}. Один конкретный совет: что стоит делать туристу на Камчатке прямо сейчас?`,
+        userId: update.message.from?.id ?? null,
+      });
       return NextResponse.json({ ok: true });
     }
 
@@ -1203,16 +1224,24 @@ export async function POST(request: NextRequest) {
 
     // Любой обычный текст → проверяю телефон или AI Кузьмич
     if (!text.startsWith('/')) {
+      // Блок 112 — на каждом ответе туристу в этой ветке (аудит 15.10,
+      // TG-BRAIN), а не только на ответе модели: «помогите, мы заблудились»
+      // уходило в тикет поддержки со «сроком ответа до 2 часов» без единого
+      // слова о 112. Шаблоны ниже не меняются — блок встаёт впереди и только
+      // при признаках беды (lib/safety/sos-detector).
+      const emergency = detectEmergency(text).detected;
+      const withSos = (reply: string): string => withSosBlock(reply, text).text;
+
       // Пользователь в процессе оформления заявки через /start lead
       const pendingLead = pendingLeadFlow.get(chatId);
       if (pendingLead) {
         pendingLeadFlow.delete(chatId);
-        await sendHTML(chatId, [
+        await sendHTML(chatId, withSos([
           '✅ <b>Заявка принята!</b>',
           '',
           'Анализирую запрос, подбираю туры.',
           'Пришлю предложение прямо сюда через 1–2 минуты.',
-        ].join('\n'));
+        ].join('\n')));
         void createLeadFromTelegramFlow(
           chatId, pendingLead.firstName, fromId,
           update.message?.from?.username ?? null, text
@@ -1222,10 +1251,14 @@ export async function POST(request: NextRequest) {
 
       // Check if text looks like phone number
       const phoneMatch = text.match(/[\d+\-() ]{7,}/);
-      if (phoneMatch) {
+      // Сообщение о беде с номером — не ответ на подборку туров (TG-BRAIN):
+      // «мы заблудились, телефон …» после разговора о рыбалке становилось
+      // «горячим лидом» операторам, а турист получал «оператор свяжется в
+      // течение 1–2 часов» вместо 112. Такое сообщение идёт Кузьмичу.
+      if (phoneMatch && !emergency) {
         const phoneText = phoneMatch[0].trim();
-        // Try to extract last known interests from chat history
-        const history = await getHistory(chatId);
+        // Интересы — из той же истории, что ведёт Кузьмич (tg_conversations)
+        const history = await getHistory(update.message.chat.id, KUZMICH_TG_MODE);
         const lastIntests = extractLastInterestsFromHistory(history);
 
         if (lastIntests.interests && lastIntests.interests.length > 0) {
@@ -1248,14 +1281,14 @@ export async function POST(request: NextRequest) {
             // Добавляем сообщение к существующему тикету
             const ticket = openTickets[0];
             await addTicketMessage(ticket.id, { role: 'user', text });
-            await sendHTML(chatId, [
+            await sendHTML(chatId, withSos([
               `<b>Тикет #${ticket.id.slice(0, 8)} обновлён</b>`,
               '',
               `Категория: ${CATEGORY_LABELS[ticket.category]}`,
               `Статус: рассматривается Резидентом ${ticket.assignedAgent ?? 'Admin'}`,
               '',
               'Ответим в ближайшее время.',
-            ].join('\n'));
+            ].join('\n')));
           } else {
             // Создаём новый тикет
             const { category, resident } = categorizeSupport(text);
@@ -1265,7 +1298,7 @@ export async function POST(request: NextRequest) {
               subject:      text.slice(0, 100),
               firstMessage: text,
             });
-            await sendHTML(chatId, [
+            await sendHTML(chatId, withSos([
               '<b>Обращение принято!</b>',
               '',
               `Тикет: <code>#${ticket.id.slice(0, 8)}</code>`,
@@ -1275,11 +1308,14 @@ export async function POST(request: NextRequest) {
               '',
               'Срок ответа: до 2 часов в рабочее время.',
               'Продолжай писать здесь — я передам ответ.',
-            ].join('\n'));
+            ].join('\n')));
           }
           return NextResponse.json({ ok: true });
-        } else {
-          // Незарегистрированный пользователь — направляем к регистрации
+        } else if (!emergency) {
+          // Незарегистрированный пользователь — направляем к регистрации.
+          // В беде — не направляем: «зарегистрируйтесь» первым сообщением
+          // человеку, который заблудился, только отодвигает ответ Кузьмича с
+          // блоком 112 ниже (TG-BRAIN).
           await sendHTML(chatId, [
             'Для обращения в поддержку нужен аккаунт на TourHab.',
             '',
@@ -1296,17 +1332,21 @@ export async function POST(request: NextRequest) {
         if (keywordIntent !== 'unknown') {
           try {
             const agentResult = await PlatformAgent.dispatch({ message: text, role: 'admin' });
-            await sendHTML(chatId, agentResult.response);
+            await sendHTML(chatId, withSos(agentResult.response));
             return NextResponse.json({ ok: true });
-          } catch {
-            // на ошибке агента — уходим в kuzmichReply
+          } catch (err) {
+            // На ошибке агента отвечает Кузьмич; отказ агента — в лог.
+            logSwallowedFailure('telegram/webhook', 'PlatformAgent по свободному тексту админа', err);
           }
         }
       }
 
-      // Regular AI chat
-      const answer = await kuzmichReply(text, chatId);
-      await sendHTML(chatId, answer);
+      // Regular AI chat — общий мозг Кузьмича (TG-BRAIN)
+      await answerByKuzmich({
+        chatId: update.message.chat.id,
+        text,
+        userId: update.message.from?.id ?? null,
+      });
       return NextResponse.json({ ok: true });
     }
   }
