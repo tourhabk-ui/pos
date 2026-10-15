@@ -47,6 +47,7 @@ import { clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { RU_REGION_LABEL } from '@/lib/mcp/ru-clients';
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
+import { externalBinary } from '../helpers/external-binary';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -118,6 +119,34 @@ describe('1. счётчик краулеров видит китайский в�
     expect(body.counted_paths).toEqual(expect.arrayContaining(['/zh', '/zh/*', '/sitemap.xml']));
     expect(body.not_counted).not.toContain('/sitemap.xml');
     expect(NOT_COUNTED.join(' ')).toMatch(/люди на \/zh/);
+  });
+
+  it('карта сайта разрешает общий кэш — перепись называет, что видит только промахи, со сроком из заголовка', async () => {
+    // Аудит 15.10, W3-china: счётчик стоит в роуте, и повтор, отданный кэшем
+    // перед продом, до него не доходит. Малое число по /sitemap.xml нельзя
+    // читать как «не ходят», пока перепись этого не говорит.
+    const sm = await sitemapGET(new Request('https://vedarai.ru/sitemap.xml', { headers: { 'user-agent': BAIDU } }));
+    const cc = (sm.headers.get('cache-control') ?? '').toLowerCase();
+    const sMaxAge = /(?:^|,)\s*s-maxage=(\d+)/.exec(cc)?.[1] ?? null;
+    const shared = /\bpublic\b/.test(cc) && !/no-store|private/.test(cc) && Number(sMaxAge) > 0;
+
+    const res = await entryCensusGET(new NextRequest('http://localhost/api/cron/agent-entry-census', {
+      headers: { authorization: 'Bearer test-secret' },
+    }));
+    const { not_counted } = await res.json() as { not_counted: string[] };
+    const caveat = not_counted.find((c) => c.includes('/sitemap.xml') && /кэш/.test(c));
+
+    if (shared) {
+      expect(caveat, 'карта сайта кэшируема, а перепись молчит о промахах кэша').toBeDefined();
+      expect(caveat).toContain(`s-maxage=${sMaxAge}`);
+      expect(caveat).toMatch(/промахи кэша/);
+      expect(caveat).toMatch(/не значит «не ходят»/);
+    } else {
+      // Карта больше не кэшируется общим кэшем — оговорка о ней стала бы неправдой.
+      expect(caveat).toBeUndefined();
+    }
+    // Сегодня карта сайта кэшируема: ветка «молчит» не должна проходить незаметно.
+    expect(shared).toBe(true);
   });
 });
 
@@ -214,12 +243,7 @@ describe('3. IndexNow для /zh', () => {
 
 describe('4. пробы моста — проверки, а не спрос КНР', () => {
   /** Имя клиента, которое мост соберёт для провайдера при заданном окружении. */
-  function bridgeClientName(provider: string, env: Record<string, string>): string | null {
-    try {
-      execFileSync('python3', ['--version'], { stdio: 'ignore' });
-    } catch {
-      return null;
-    }
+  function bridgeClientName(provider: string, env: Record<string, string>): string {
     const code = [
       'import importlib.util, sys',
       `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, 'integrations/vedar-mcp-bridge/vedar_mcp_bridge.py'))})`,
@@ -231,17 +255,19 @@ describe('4. пробы моста — проверки, а не спрос КН
     return execFileSync('python3', ['-I', '-B', '-c', code], { env: { ...clean, ...env }, encoding: 'utf-8' });
   }
 
-  it('workflow задаёт мосту имя пробы, и журнал относит клиента к проверкам; без него — спрос', () => {
+  // Без python3 тест прежде писал в лог и делал return — зелёный без
+  // проверки (аудит 15.10, W3-china, §4.0). Теперь вне CI — пропуск с
+  // причиной в имени, в CI — отказ (tests/helpers/external-binary).
+  const PY = externalBinary('python3');
+
+  it.skipIf(PY.skip)(PY.title('workflow задаёт мосту имя пробы, и журнал относит клиента к проверкам; без него — спрос'), () => {
+    PY.require('имя клиента моста');
     const wf = read('.github/workflows/china-bridge-probe.yml');
     const base = /^\s*MCP_CLIENT_NAME:\s*(\S+)\s*$/m.exec(wf)?.[1];
     expect(base).toBe('vedar-mcp-bridge-probe');
 
     const probe = bridgeClientName('deepseek', { MCP_CLIENT_NAME: base as string });
     const people = bridgeClientName('deepseek', {});
-    if (probe === null || people === null) {
-      console.error('[china-quick] python3 не найден — имя клиента моста не проверить вызовом');
-      return;
-    }
     expect(probe).toBe('vedar-mcp-bridge-probe/deepseek');
     expect(isProbeClient(probe, null)).toBe(true);
     // Регион остаётся КНР: проба видна в группе КНР, но родом «проверка».

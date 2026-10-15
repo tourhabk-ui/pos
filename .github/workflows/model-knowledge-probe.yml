@@ -87,7 +87,11 @@ jobs:
           echo "Итог владельцу в Telegram: $(jq -r '.notify.reason // "не запрашивался"' /tmp/probe.json)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          jq '{place, asked_at, summary, legs: [.legs[] | {provider, model, outcome, signal, reason, latency_ms, answer_excerpt}]}' /tmp/probe.json >> "$GITHUB_STEP_SUMMARY"
+          # search — след поиска поисковых ног: счётчик, число источников и
+          # домены этой ноги; summary.sources даёт только домены, и без поля по
+          # ноге не видно, на чём стоит её исход (аудит 15.10, W3-china). Сторож —
+          # та же проекция на ответе роута: tests/unit/model-knowledge-probe-search.test.ts.
+          jq '{place, asked_at, summary, legs: [.legs[] | {provider, model, outcome, signal, reason, latency_ms, answer_excerpt, search}]}' /tmp/probe.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
           # Прогон КРАСНЫЙ только когда спросить не удалось никого: «не знает»
