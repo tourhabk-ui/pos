@@ -26,12 +26,12 @@
  * пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NextRequest } from 'next/server';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 vi.mock('next/image', () => ({
   default: (p: { src: string; alt: string }) => React.createElement('img', { src: p.src, alt: p.alt }),
@@ -49,8 +49,6 @@ if (!PG_URL) {
 }
 
 const TEST_DB = 'operators_list_test';
-/** Первая миграция после baseline (снимок прода 2026-08-15, последняя в нём — 862). */
-const FIRST_AFTER_BASELINE = 863;
 
 const MIG_1270 = readFileSync(join(process.cwd(), 'migrations/1270_mestechko_hero_helicopter.sql'), 'utf-8');
 const OLD_HERO = '/images/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg';
@@ -77,32 +75,15 @@ const TOURS: Tour[] = [
   ['hidden', 'helicopter', 'live'], ['hidden', 'bears', 'live'],
 ];
 
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
-
 withPg('витрина /operators: факты о живых турах, кнопки видов, без перевозчиков (PAVEL-operators)', () => {
   let pool: import('pg').Pool;
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    const dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    await pool.query(
-      `DELETE FROM _migrations
-        WHERE (regexp_match(name, '^(\\d+)_'))[1]::int >= $1`,
-      [FIRST_AFTER_BASELINE],
-    );
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     process.env.DATABASE_URL = dbUrl;
     process.env.DATABASE_SSL = 'false';
