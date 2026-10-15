@@ -14,8 +14,6 @@ export interface PlaceSafety {
   altitudeDiffM: number | null;
   distanceKm: number | null;
   terrainType: string | null;
-  roadType: string | null;
-  roadAccessibility: number | null;
   nearestMedicalKm: number | null;
   emergencyAccess: string | null;
   phoneRangerMches: string | null;

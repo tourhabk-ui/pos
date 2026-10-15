@@ -50,7 +50,7 @@ const BARE_PLACE = {
   eco: null, indigenous: null,
   safety: {
     source: 'manual', difficultyLevel: null, altitudeM: null, altitudeDiffM: null, distanceKm: null,
-    terrainType: null, roadType: null, roadAccessibility: null, nearestMedicalKm: null, emergencyAccess: null,
+    terrainType: null, nearestMedicalKm: null, emergencyAccess: null,
     phoneRangerMches: null, satCommunicatorRequired: false, rulesRequired: null, weatherThreshold: null,
     hazardTypes: [], capacityPerDay: null, capacityPerDaySource: null, optimalGroupSize: null,
     openFromDate: null, openToDate: null, requiredGear: [], connectivity: null, registrationRequired: false,

@@ -22,7 +22,7 @@ afterEach(cleanup);
 
 const safety = (over: Partial<PlaceSafety> = {}): PlaceSafety => ({
   difficultyLevel: null, altitudeM: null, altitudeDiffM: null, distanceKm: null, terrainType: null,
-  roadType: null, roadAccessibility: null, nearestMedicalKm: null, emergencyAccess: null,
+  nearestMedicalKm: null, emergencyAccess: null,
   phoneRangerMches: null, satCommunicatorRequired: null, rulesRequired: null, weatherThreshold: null,
   hazardTypes: [], capacityPerDay: null, optimalGroupSize: null, openFromDate: null, openToDate: null,
   requiredGear: [], connectivity: null, registrationRequired: false, medicalInfo: null,
