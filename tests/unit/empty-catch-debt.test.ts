@@ -23,8 +23,9 @@
  *
  * Как снимать запись: в catch — `logSwallowedFailure(scope, источник, err)`
  * (`lib/observability/swallowed.ts`), либо честная пометка сбоя в ответе,
- * либо проброс. Пустые catch в `app/api/payments/**` записаны и НЕ
- * трогаются этим заходом: зона §7 «НЕ ТРОГАТЬ», правка — по слову владельца.
+ * либо проброс. Пустые catch приёмников оплаты (`app/api/payments/**`, зона
+ * §7) сняты отдельно, решением W2-3 того же аудита: только лог, ответ и порядок
+ * записи прежние — сторож `payment-receivers-name-failures`.
  *
  * Вторая половина файла — вызов: при падении квалификатора лида отказ назван
  * в логе со своей областью. Регулярка по исходнику здесь только запрещает
@@ -103,9 +104,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/octo/bookings/[uuid]/status/route.ts': 1,
   'app/api/p/[code]/event/route.ts': 1,
   'app/api/partners/register/route.ts': 2,
-  // Приёмники оплаты — зона §7 «НЕ ТРОГАТЬ»: записаны, правка — по слову владельца.
-  'app/api/payments/tochka/webhook/route.ts': 5,
-  'app/api/payments/webhook/route.ts': 2,
   'app/api/planner/chat/route.ts': 1,
   'app/api/planner/recommend/route.ts': 3,
   'app/api/preparation/share/route.ts': 1,

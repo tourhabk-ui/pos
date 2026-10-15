@@ -29,6 +29,7 @@ import { getSBPPaymentStatus } from '@/lib/payments/tochka';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { settleSeatPaymentByQr } from '@/lib/transfers/seat-payment';
 import { getPublicBaseUrl } from '@/lib/config';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,13 @@ interface TochkaWebhookPayload {
   transactionDate: string;
   order?:   string;           // booking_id который мы передавали при создании QR
 }
+
+/**
+ * Область в логе для отказов побочной работы. Её гасят намеренно — повтор
+ * вебхука до неё не дойдёт, — но молча не гасят (аудит 15.10, W2-3): в лог
+ * уходят область, шаг и код отказа, без тела вебхука и без ПД туриста.
+ */
+const LOG_SCOPE = 'tochka/webhook';
 
 /** Повторить позже: мы не смогли довести оплату до записи. */
 function retryLater(reason: string) {
@@ -112,7 +120,8 @@ export async function POST(req: NextRequest) {
     if (Math.abs(paidAmount - expected) > 1) {
       // Расхождение суммы не чинится повтором, но и молчать о нём нельзя:
       // это единственное место, где видно, что банк принял не ту сумму.
-      notifyOwnerAmountMismatch(booking.id, expected, paidAmount).catch(() => {});
+      notifyOwnerAmountMismatch(booking.id, expected, paidAmount)
+        .catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'уведомление владельцу о расхождении суммы', err));
       return NextResponse.json({ ok: true, confirmed: false });
     }
     const paidAt = status.paidAt ?? new Date();
@@ -225,7 +234,8 @@ async function handleLostRace(bookingId: number, paidAt: Date, paidAmount: numbe
     '[tochka/webhook] оплата пришла на бронь вне pending_payment:',
     `booking=${bookingId}`, `status=${state.booking_status}`, `qr=${qrId}`,
   );
-  notifyOwnerPaidAfterExit(bookingId, state.booking_status, paidAmount).catch(() => {});
+  notifyOwnerPaidAfterExit(bookingId, state.booking_status, paidAmount)
+    .catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'уведомление владельцу об оплате ушедшей брони', err));
 
   return NextResponse.json({
     ok: true,
@@ -257,17 +267,18 @@ async function afterConfirmed(bookingId: number, touristName: string, paidAmount
        AND ta.operator_tour_id = b.operator_tour_id
        AND ta.date = b.booking_date`,
     [bookingId],
-  ).catch(() => {});
+  ).catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'счётчик занятости tour_availability', err));
 
   // Пишем в лог AI-действий для аналитики
   await pool.query(
     `INSERT INTO ai_actions_log (action_type, provider, metadata, created_at)
      VALUES ('payment_confirmed', 'tochka_sbp', $1, NOW())`,
     [JSON.stringify({ bookingId, amount: paidAmount, qrId })],
-  ).catch(() => {});
+  ).catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'запись ai_actions_log', err));
 
   // Уведомление оператору через Telegram (fire-and-forget)
-  notifyOperator(bookingId, touristName, paidAmount).catch(() => {});
+  notifyOperator(bookingId, touristName, paidAmount)
+    .catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'уведомление оператору об оплате', err));
 }
 
 async function sendTelegram(text: string) {
