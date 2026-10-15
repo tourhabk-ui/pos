@@ -16,6 +16,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { execFileSync } from 'node:child_process';
+import { loadWorkflow, stepByName } from '../helpers/workflow-semantics';
+import { externalBinary } from '../helpers/external-binary';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) } }));
 
@@ -207,6 +210,12 @@ describe('исход поисковой ноги', () => {
   it('тематическая нога: имя в ответе — «знает»; искала без нас — «не знает» с причиной', () => {
     expect(classifySearchAnswer(ans('可以看 维达尔（Vedar）平台。', ['https://ctrip.com/a'], 1), 'brand').outcome).toBe('knows');
     expect(classifySearchAnswer(ans('Ведар показывает места в группах', [], 1), 'brand').outcome).toBe('knows');
+    // Только китайское имя, без латиницы и адреса — основное написание для
+    // туриста из КНР. В случае выше рядом стоит «Vedar», и потерю 维达尔 из
+    // детектора он не ловил (аудит 15.10, W3-china, ревью CN-probe).
+    const zhOnly = classifySearchAnswer(ans('维达尔平台可以查到堪察加团队游的余位和火山安全信息。', ['https://ctrip.com/a'], 1), 'brand');
+    expect(zhOnly.outcome).toBe('knows');
+    expect(zhOnly.signal).toMatch(/упомянула нас/);
     const miss = classifySearchAnswer(ans('推荐携程和马蜂窝。堪察加火山信息可看 KVERT。', ['https://ctrip.com/a', 'https://mafengwo.cn/b'], 1), 'brand');
     expect(miss.outcome).toBe('does_not_know');
     expect(miss.signal).toMatch(/искала, нас нет/);
@@ -305,5 +314,41 @@ describe('проба целиком: две поисковые ноги рядо
     }
     expect(byProvider['qwen'].outcome).toBe('does_not_know');
     expect(body.ok).toBe(true);
+  });
+});
+
+describe('сводка прогона workflow несёт след поиска по ноге', () => {
+  // Аудит 15.10, W3-china (ревью CN-probe): проекция legs в GITHUB_STEP_SUMMARY
+  // перечисляла поля вручную и нового поля search не знала. Судится та же
+  // проекция jq, взятая из шага workflow, на настоящем ответе роута.
+  const JQ = externalBinary('jq');
+
+  it.skipIf(JQ.skip)(JQ.title('проекция legs оставляет search каждой ноги таким, каким его вернул роут'), async () => {
+    JQ.require('проекцию сводки workflow пробы знания');
+    const step = stepByName(
+      loadWorkflow('.github/workflows/model-knowledge-probe.yml').jobs.probe,
+      'С ПРОДА — спросить модели, знают ли они vedarai.ru',
+    );
+    const line = (step.run ?? '').split('\n').find((l) => l.includes('GITHUB_STEP_SUMMARY') && l.includes('legs:'));
+    const filter = line ? /jq '([^']+)' \/tmp\/probe\.json/.exec(line)?.[1] : undefined;
+    expect(filter, 'в шаге нет проекции legs в сводку').toBeTruthy();
+
+    const { fetchMock } = gateway((q) => (q === KNOWLEDGE_QUESTION_SEARCH
+      ? { content: '这个网站介绍火山旅游。', sources: [{ url: 'https://vedarai.ru/zh' }], count: 1 }
+      : { content: '推荐携程、马蜂窝。', sources: [{ url: 'https://www.ctrip.com/a' }, { url: 'https://mafengwo.cn/b' }], count: 2 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const raw = await (await probe()).text();
+    const body = JSON.parse(raw) as ProbeBody;
+    const projected = JSON.parse(execFileSync('jq', [filter as string], { input: raw, encoding: 'utf-8' })) as {
+      legs: Array<{ provider: string; search?: unknown }>;
+    };
+
+    expect(projected.legs.map((l) => l.provider)).toEqual(body.legs.map((l) => l.provider));
+    for (const leg of body.legs) {
+      expect(projected.legs.find((l) => l.provider === leg.provider)?.search, leg.provider).toEqual(leg.search);
+    }
+    // Поисковые ноги несут непустой след — проекция его не обнулила.
+    expect(projected.legs.find((l) => l.provider === 'qwen-search-topic')?.search)
+      .toEqual({ searched: true, count: 2, sources: 2, domains: ['ctrip.com', 'mafengwo.cn'] });
   });
 });

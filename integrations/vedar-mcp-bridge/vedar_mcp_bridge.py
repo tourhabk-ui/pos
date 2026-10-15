@@ -53,6 +53,11 @@ def client_name(provider=None):
     base = (os.environ.get("MCP_CLIENT_NAME") or "").strip() or DEFAULT_CLIENT_NAME
     return f"{base}/{provider}" if provider else base
 
+
+# Внутри VedarMCP.__init__ имя client_name занято прежним параметром
+# конструктора, поэтому функция зовётся там через этот псевдоним.
+_default_client_name = client_name
+
 PROVIDERS = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
@@ -157,11 +162,21 @@ def _post(url, payload, headers, timeout=TIMEOUT):
 # ---------------------------------------------------------------- MCP
 
 class VedarMCP:
-    def __init__(self, url=MCP_URL, name=None):
+    def __init__(self, url=MCP_URL, name=None, *, client_name=None):
+        # client_name — прежнее имя параметра (до 15.10 он назывался так).
+        # Мост скачивают люди, и их VedarMCP(client_name="...") должен работать
+        # как раньше, а не падать с TypeError (аудит 15.10, W3-china). Основной
+        # параметр — name; оба сразу — ошибка с понятной причиной, а не
+        # молчаливый выбор одного из двух.
+        if name is not None and client_name is not None:
+            raise TypeError(
+                "VedarMCP: имя клиента задаётся одним параметром — name "
+                "(client_name — его прежнее имя, оставлено для совместимости)"
+            )
         self.url = url
         # Имя клиента видит журнал Ведара (/hub/admin/mcp): с провайдером в
         # имени видно, какая модель стоит за мостом, иначе все мосты — одно.
-        self.client_name = name or client_name()
+        self.client_name = name or client_name or _default_client_name()
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
