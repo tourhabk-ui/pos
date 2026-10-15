@@ -396,8 +396,21 @@ describe('сверка не признаёт выкат со схемой, от�
     expect(w.gh).toEqual([]);
   });
 
-  it('гейт в режиме warn (так он заведён): failed — ::error словами, но запись пишется', () => {
-    expect(verify.env?.MIGRATIONS_GATE).toBe('warn');
+  // Гейт заведён в два шага: warn до первого замера migrations.state на
+  // проде, block после него (prod-check 138, 15.10: state ok). Оба режима
+  // исполняются здесь: warn остаётся откатом на время разбора.
+  it('гейт заведён в режиме block: шаг сверки без подмены env не признаёт выкат с failed', () => {
+    expect(verify.env?.MIGRATIONS_GATE).toBe('block');
+    const r = runStep(verify, { ...stepEnv(verify, ctx({ ask: { ordered_at: String(NEED + 900) } })) }, {
+      ...confirmed(),
+      'health.json': health({ state: 'failed', reason: 'file_failed', file: '1300_tour_access.sql', sqlstate: '42703', failed_count: 1 }),
+    });
+    expect(r.code).toBe(1);
+    expect(r.outputs.deployed_sha).toBe('');
+    expect(r.outputs.confirmed_by).toBe('migrations_failed');
+  });
+
+  it('гейт в режиме warn (откат): failed — ::error словами, но запись пишется', () => {
     const r = runStep(verify, env('warn'), {
       ...confirmed(),
       'health.json': health({ state: 'failed', reason: 'file_failed', file: '1300_tour_access.sql', sqlstate: '42703', failed_count: 1 }),
