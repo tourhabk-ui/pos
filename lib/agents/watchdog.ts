@@ -33,6 +33,7 @@ import {
 import { reachFrom, partnerReachCensus, type PartnerReachRow } from '@/lib/partners/reach';
 import { SOS_ACTIVE_SQL } from '@/lib/safety/sos-status';
 import { UNATTENDED_LEAD_STATUSES } from '@/lib/types/statuses';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY, type CronEntry } from '@/lib/agents/cron-registry';
@@ -937,11 +938,15 @@ async function checkUnprocessedLeads(): Promise<CheckResult> {
     // «Человек не отреагировал» — не только `new`: конвейер ИИ переводит лид
     // в `ai_qualified` почти сразу, и прежний фильтр по одному `new` не видел
     // таких лидов вовсе. Набор — UNATTENDED_LEAD_STATUSES.
+    // Псевдолиды чата виджета (первое сообщение без телефона и согласия,
+    // записанные до 15.10) заявками не были: ответить на них нечем, и тревога
+    // о них — шум (lib/leads/widget-chat-pseudo, аудит 15.10, WID-safety).
     const { rows } = await pool.query<{ count: string }>(`
       SELECT COUNT(*)::text AS count
       FROM leads
       WHERE status = ANY($1::text[])
         AND created_at < NOW() - INTERVAL '2 hours'
+        AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}
     `, [[...UNATTENDED_LEAD_STATUSES]]);
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;
