@@ -1,10 +1,15 @@
 /**
  * Воронка аренды снаряжения — структурные инварианты по аудиту 27.07:
  *
- * 1. POST /api/gear/rentals ПУБЛИЧНЫЙ: витрина открыта всем, форма собирает
- *    контакты — требование логина на последнем шаге молча рвало воронку 401-м.
+ * 1. POST /api/gear/rentals — ПОД ВХОДОМ с 15.10 (аудит, находка A13,
+ *    вариант «а»): Edge пускает анонима к /api/gear только с GET, и прежняя
+ *    шапка «публичный» была неправдой. Гостю форма показывает вход, согласие
+ *    называет прокат, счёт и вставка — в одной транзакции под блокировкой.
+ *    Всё это судит ВЫЗОВОМ tests/unit/gear-rental-door.test.ts (и рендер
+ *    формы — gear-rental-form.test.tsx), здесь не повторяется.
  * 2. Доступность считается по ДАТАМ (пик пересекающихся аренд), а не по
  *    мгновенному стоку — раньше две брони на одни даты проходили обе.
+ *    Кто держит единицу — одна формула lib/gear/availability.
  * 3. О заявке уведомляется партнёр (Telegram) — раньше заявка падала в тишину.
  * 4. Watchdog сторожит pending-аренды >24ч — симметрия с турами и жильём.
  * 5. Мёртвый календарь gear_availability из кода ушёл (никем не заполнялся,
@@ -20,22 +25,9 @@ const HELPERS = read('lib/auth/gear-helpers.ts');
 const WATCHDOG = read('lib/agents/watchdog.ts');
 
 describe('POST /api/gear/rentals', () => {
-  it('публичный: в POST нет requireAuth (GET остаётся закрытым)', () => {
-    const postBody = ROUTE.match(/export async function POST[\s\S]*?\n\}\n/)?.[0] ?? '';
-    expect(postBody).not.toBe('');
-    expect(postBody).not.toContain('requireAuth');
-  });
-
   it('проверяет даты сервером (calcRentalDays + отказ)', () => {
     expect(ROUTE).toContain('calcRentalDays(');
     expect(ROUTE).toContain('Дата окончания должна быть позже даты начала');
-  });
-
-  it('доступность — по пересечению живых аренд, а не по мгновенному стоку', () => {
-    expect(ROUTE).toContain('generate_series');
-    expect(ROUTE).toMatch(/status IN \('pending', 'confirmed', 'active', 'overdue'\)/);
-    // Отказ при занятых датах — 409, с честным остатком.
-    expect(ROUTE).toContain('409');
   });
 
   it('страховка без тарифа — явный отказ, а не молчаливый ноль', () => {

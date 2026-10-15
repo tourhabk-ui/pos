@@ -2,9 +2,13 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Backpack } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { calcRentalDays, calcGearPrice } from '@/lib/gear/pricing';
+import { GEAR_PENDING_HOLD_HOURS } from '@/lib/gear/availability';
+import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 interface GearItem {
   id: string;
@@ -49,13 +53,23 @@ interface BookingForm {
   comments?: string;
 }
 
+/**
+ * Заявка на аренду — ПОД ВХОДОМ (аудит 15.10, находка A13, вариант «а»):
+ * гость, отправивший форму, видит ссылку на вход, как в форме брони жилья, а
+ * не немой отказ. Имя, телефон и почта уходят прокату, поэтому галочка
+ * согласия называет его (вариант 'gear') и без неё заявка не уходит.
+ *
+ * «Сегодня» — по Камчатке, как судит сервер: по UTC с полуночи до полудня
+ * местного времени форма предлагала бы вчерашний день.
+ */
 export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBookingFormProps) {
+  const today = kamchatkaDate(new Date());
   const [form, setForm] = useState<BookingForm>({
     name: '',
     email: '',
     phone: '',
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    startDate: today,
+    endDate: shiftDate(today, 1),
     quantity: 1,
     insurance: false,
     comments: ''
@@ -63,6 +77,8 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [pdConsent, setPdConsent] = useState(false);
+  const [loginNeeded, setLoginNeeded] = useState(false);
 
   // Цена — тем же модулем, что и сервер (lib/gear/pricing): показанное на
   // кнопке и записанное в заявку обязаны совпадать до копейки. Прежний
@@ -98,6 +114,8 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
       newErrors.quantity = `Доступно только ${gear.availableQuantity} шт.`;
     }
 
+    if (!pdConsent) newErrors.pdConsent = 'Нужно согласие на обработку и передачу данных прокату';
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -125,7 +143,9 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
           quantity: form.quantity,
           insurance: form.insurance
         },
-        comments: form.comments
+        comments: form.comments,
+        // Состояние галочки, а не литерал: сервер требует ровно true.
+        pd_consent: pdConsent
       };
 
       const response = await fetch('/api/gear/rentals', {
@@ -136,10 +156,19 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
         body: JSON.stringify(bookingData)
       });
 
+      // Заявку отправляет вошедший: гостю Edge отвечает 401 до роута, и
+      // разбирать тело незачем — нужна дорога ко входу, а не «ошибка».
+      if (response.status === 401) {
+        setLoginNeeded(true);
+        return;
+      }
+
       const result = await response.json();
 
       if (result.success) {
-        toast.success('Заявка на аренду создана! Прокат свяжется с вами для подтверждения.');
+        toast.success(
+          `Заявка отправлена прокату — он свяжется с вами для подтверждения. Без ответа заявка держит снаряжение за вами ${GEAR_PENDING_HOLD_HOURS} часов.`
+        );
         onBookingComplete();
       } else {
         // Серверные отказы содержательны (занято на даты, страховка недоступна) —
@@ -272,7 +301,7 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
                   id="gear-booking-start-date"
                   value={form.startDate}
                   onChange={(e) => updateForm('startDate', e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={today}
                   className={`w-full px-4 py-3 bg-[var(--bg-card)] border rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] ${
                     errors.startDate ? 'border-red-500' : 'border-[var(--border)]'
                   }`}
@@ -388,9 +417,29 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
               </div>
             </div>
 
+            <div>
+              <PdConsentCheckbox
+                id="gear-pd-consent"
+                purpose="gear"
+                checked={pdConsent}
+                onChange={(v) => {
+                  setPdConsent(v);
+                  if (errors.pdConsent) setErrors(prev => ({ ...prev, pdConsent: '' }));
+                }}
+              />
+              {errors.pdConsent && <p className="text-[var(--danger)] text-sm mt-1">{errors.pdConsent}</p>}
+            </div>
+
+            {loginNeeded && (
+              <p role="alert" className="text-sm text-[var(--danger)]">
+                Чтобы отправить заявку на аренду, войдите в аккаунт.{' '}
+                <Link href="/auth/login" className="underline text-[var(--ocean)]">Войти</Link>
+              </p>
+            )}
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !pdConsent}
               className="w-full px-8 py-4 bg-[var(--accent)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-[var(--bg-primary)] font-bold rounded-lg transition-colors text-lg"
             >
               {loading ? 'Создание заявки...' : `Забронировать за ${totalPrice.toLocaleString('ru-RU')} ₽`}
