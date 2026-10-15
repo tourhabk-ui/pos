@@ -66,10 +66,15 @@ export async function GET(req: Request) {
     recordCronRun('llm-budget', startedAt, 'success');
 
     if (spentUsd >= limitUsd) {
-      notifyBudgetAlert(spentUsd, limitUsd);
+      // Находка аудита 15.10 (P4-01): алерт уходил fire-and-forget, а ответ
+      // говорил `alert_sent` при любом исходе — превышение бюджета
+      // «срабатывало» только в JSON. «Отправлен» теперь пишется лишь по
+      // ответу Telegram; недоставка — свой статус и причина.
+      const alert = await notifyBudgetAlert(spentUsd, limitUsd);
       return Response.json({
         ok: true,
-        status: 'alert_sent',
+        status: alert.ok ? 'alert_sent' : 'alert_not_delivered',
+        alert,
         spent_usd: spentUsd,
         limit_usd: limitUsd,
         unknown_cost_calls: unknownCalls,

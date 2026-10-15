@@ -20,12 +20,11 @@
  * данные пишутся и читаются в одном поясе, и результат обязан совпасть.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
 import { Pool } from 'pg';
 import {
   resolveFunnelWindow, buildFunnelReport, funnelByDay,
 } from '@/lib/analytics/funnel-window';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -36,15 +35,8 @@ const withPg = PG_URL ? describe : describe.skip;
  * катит деплой. Общая `kernel_test` делится с соседями, и таблицы в ней не мои.
  */
 const TEST_DB = 'funnel_window_test';
-const FIRST_AFTER_BASELINE = 863;
 
 const NOW = new Date('2026-09-29T05:50:00Z');
-
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
 
 if (!PG_URL) {
   console.warn(
@@ -57,23 +49,9 @@ withPg('воронка за окно на настоящем PostgreSQL', () => 
   let tourId = 0;
 
   beforeAll(async () => {
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
-    const admin = new Pool({ connectionString: dbUrl, max: 1 });
-    await admin.query(
-      `DELETE FROM _migrations
-        WHERE (substring(name from '^[0-9]+'))::bigint >= $1
-           OR substring(name from '^[0-9]+') IS NULL`,
-      [FIRST_AFTER_BASELINE],
-    );
-    await admin.end();
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    dbUrl = await createTestDatabase(PG_URL, TEST_DB);
 
     // Бронь ссылается на тур, тур — на оператора: без них вставка брони не
     // проходит, и сцена осталась бы без броней. Вставка НЕ глушится: молчаливый

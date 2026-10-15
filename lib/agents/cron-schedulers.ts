@@ -249,7 +249,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'places-no-track-census':    { kind: 'manual', writes: false, note: 'места без трека' },
   'places-routes-census':      { kind: 'manual', writes: false, note: 'связи мест и маршрутов' },
   'link-kind-name-census':     { kind: 'manual', writes: false, note: 'места «рядом», которых маршрут называет по имени' },
-  'prod-errors':               { kind: 'manual', writes: false, note: 'серверные ошибки прода списком, только чтение' },
+  // 'prod-errors' снят 15.10 (аудит, P4-17): суточный дайджест серверных
+  // ошибок зовёт cron-client-errors.yml вторым шагом — запускающий теперь
+  // workflow, и объявление рядом с ним было бы вторым ответом на один вопрос.
   'prospect-scan':             { kind: 'manual', writes: false, note: 'скан проспектов' },
   'relief-sanity':             { kind: 'manual', writes: false, note: 'проверка рельефа' },
   'route-desc-census':         { kind: 'manual', writes: false, note: 'перепись описаний маршрутов' },

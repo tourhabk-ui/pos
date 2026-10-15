@@ -179,9 +179,7 @@ export async function fetchRealToursForZone(
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         WHERE (ark.zone = $1 OR $1 = 'avachinsky')
           AND ot.activity_type = ANY($2)
-          AND ot.is_active = TRUE
-          AND ot.is_published = TRUE
-          AND ot.deleted_at IS NULL
+          AND ${publicTourSql('ot')}
           AND p.is_public = TRUE
         ORDER BY
           COALESCE(ot.rating, 0) DESC,
@@ -333,9 +331,7 @@ export async function fetchZoneCapacity(
         -- занятости. Два запроса об одном и том же обязаны отбирать одно и то
         -- же (CLAUDE.md §12).
         WHERE (ark.zone = $1 OR $1 = 'avachinsky')
-          AND ot.is_active = TRUE
-          AND ot.is_published = TRUE
-          AND ot.deleted_at IS NULL`,
+          AND ${publicTourSql('ot')}`,
         [zone, dateFrom, dateTo]
       );
 
@@ -382,8 +378,11 @@ export async function fetchContingencyAlternatives(
         JOIN operator_tours ot ON ot.id = cr.alternative_tour_id
         WHERE cr.primary_tour_id = $1
           AND cr.is_active = TRUE
-          AND ot.is_active = TRUE
-          AND ot.deleted_at IS NULL
+          -- Запасной тур предлагается туристу в плане — значит, это тур
+          -- витрины (находка аудита 15.10 P1-04): копия флагов здесь не
+          -- смотрела is_published, и снятый с витрины тур вставал в план
+          -- запасным вариантом со ссылкой на карточку, отвечающую 404.
+          AND ${publicTourSql('ot')}
         ORDER BY cr.priority ASC
         LIMIT 3`,
         [tourId]
@@ -486,9 +485,7 @@ export async function fetchActivitiesBookableInMonth(
            FROM operator_tours ot
            JOIN partners p ON p.id = ot.operator_id
            JOIN tour_availability ta ON ta.operator_tour_id = ot.id
-          WHERE ot.is_active = TRUE
-            AND ot.is_published = TRUE
-            AND ot.deleted_at IS NULL
+          WHERE ${publicTourSql('ot')}
             AND p.is_public = TRUE
             AND ta.available_slots > COALESCE(ta.booked_slots, 0)
             AND ta.date >= CURRENT_DATE

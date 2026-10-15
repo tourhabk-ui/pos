@@ -21,12 +21,11 @@
  * 12 950 ₽ показывался за 13 000 там, где не сработало ни одно правило.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
 import { Pool } from 'pg';
 import {
   composeHonestPrice, loadPricingContext, priceLabel,
 } from '@/lib/tours/honest-price';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -40,13 +39,6 @@ const withPg = PG_URL ? describe : describe.skip;
  * сидит: соседи по общей базе делят в ней таблицы.
  */
 const TEST_DB = 'honest_price_test';
-const FIRST_AFTER_BASELINE = 863;
-
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
 
 if (!PG_URL) {
   console.warn(
@@ -62,22 +54,10 @@ withPg('честная цена на настоящем PostgreSQL', () => {
   let soon = '';
 
   beforeAll(async () => {
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    const dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    await pool.query(
-      `DELETE FROM _migrations
-        WHERE (substring(name from '^[0-9]+'))::bigint >= $1
-           OR substring(name from '^[0-9]+') IS NULL`,
-      [FIRST_AFTER_BASELINE],
-    );
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     const d = new Date(Date.now() + 3 * 86_400_000);
     soon = d.toISOString().slice(0, 10);

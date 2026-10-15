@@ -15,6 +15,8 @@ import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP
 
@@ -297,8 +299,15 @@ async function autoProcessLead(leadId: string, leadName: string): Promise<void> 
     // Планируем follow-up напоминания (fire-and-forget)
     void scheduleFollowups(leadId, leadName, proposal.ai_score);
 
-  } catch {
-    // Тихая ошибка — не влияет на туриста
+  } catch (err) {
+    // Туриста отказ не касается — ответ ему уже ушёл. Но разбор лида —
+    // единственный путь коммерции до сезона, и пустой catch выдавал отказ
+    // всего конвейера (квалификация, подбор, уведомление) за «лид создан»
+    // (аудит 15.10, P4-03, п. 1.12): ловить можно, молчать нельзя (§4.0).
+    // Заявка на машину — не отказ, а решение не подбирать тур: процессор
+    // записал его в журнал заявки (skipped_vehicle_order), будить лог нечем.
+    if (err instanceof LeadIsVehicleOrderError) return;
+    logSwallowedFailure('leads', `AI-разбор заявки ${leadId}`, err);
   }
 }
 

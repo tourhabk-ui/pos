@@ -1920,7 +1920,16 @@ function looksUnknowing(text: string): boolean {
 }
 
 async function searchWeb(query: string): Promise<string> {
-  const q = query.length > 200 ? query.slice(0, 200) : query;
+  // Запрос сюда — часто сообщение туриста как есть (userContent в обоих
+  // запасных путях ниже), а Tavily и Brave — внешние получатели в США
+  // (реестр SEARCH_ENDPOINTS, lib/agents/compliance/provider-registry.ts).
+  // Телефон и почта туриста в чужой поиск не уходят: чистка — здесь, в
+  // единственной двери, а не у каждого из трёх вызывающих (аудит 15.10, Д4-2;
+  // крон kb-gap чистит тот же текст перед тем же поиском). Режем ДО обрезки
+  // до 200 знаков: обрезка посреди номера оставила бы цифры, которые
+  // redactPII уже не узнает как телефон.
+  const clean = redactPII(query);
+  const q = clean.length > 200 ? clean.slice(0, 200) : clean;
   const searchQ = /камчатк/i.test(q) ? q : `${q} Камчатка`;
 
   const tavilyKey = process.env.TAVILY_API_KEY;

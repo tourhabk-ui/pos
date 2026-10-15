@@ -78,13 +78,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     description: 'Единственный сторож: SOS-таймаут, брони без подтверждения, лиды, мёртвый сейсмо-крон.',
     workflow: 'cron-watchdog.yml', cron: '*/30 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'safety', agentId: 'watchdog', triggerable: true,
-    // Свой эндпоинт назван явно, хотя файл у записи собственный: вывести его
-    // из workflow нельзя — `cron-watchdog.yml` зовёт ТРИ адреса
-    // (/api/cron/watchdog, /api/cron/telegram-webhook-watchdog и
-    // /api/cron/llm-budget-check), и «чей это /api/cron/*» из файла
-    // неоднозначно ровно так же, как в общем cron-safety-heartbeat.yml.
-    // Найдено 21.09 сторожем `cron-second-leg`, который на неоднозначности
-    // отказался гадать.
+    // Свой эндпоинт назван явно. Заведено 21.09, когда `cron-watchdog.yml`
+    // звал ТРИ адреса (ещё проверку вебхука Telegram и бюджета AI) и «чей это
+    // /api/cron/*» из файла было неоднозначно — сторож `cron-second-leg` на
+    // неоднозначности отказался гадать. С 15.10 (аудит, P2-18) те два шага
+    // убраны как дубли своих расписаний, и адрес в файле один; поле оставлено
+    // явным, чтобы новый шаг в файле не сделал вывод снова неоднозначным.
     endpoint: 'watchdog',
   },
   {
@@ -150,25 +149,31 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 30, tier: 'ops', agentId: 'kernel_worker', triggerable: false,
     endpoint: 'kernel-worker',
   },
+  // Три записи ниже до 15.10 стояли с agentId: null — «нет телеметрии», и
+  // вопрос «запускался ли вообще» им не задавал никто (находка аудита P4-07:
+  // 21 запись реестра из 55 без отметки прогона). leads и max-webhook теперь
+  // пишут recordCronRun под своим ключом; tg-watchdog писал строку и раньше —
+  // по ней следующая проверка узнаёт повтор ошибки доставки, — но реестр её
+  // не читал. Имя агента у него прежнее, второй строки на прогон нет.
   {
     key: 'leads', label: 'Lead Processing',
     description: 'AI-обработка лидов + follow-up напоминания.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
-    everyMin: 30, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: 30, tier: 'ops', agentId: 'leads', triggerable: false,
     endpoint: 'leads-process',
   },
   {
     key: 'tg-watchdog', label: 'Telegram Webhook Watchdog',
     description: 'Проверка и починка вебхука бота.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
-    everyMin: 30, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: 30, tier: 'ops', agentId: 'telegram-webhook-watchdog', triggerable: false,
     endpoint: 'telegram-webhook-watchdog',
   },
   {
     key: 'max-webhook', label: 'MAX Webhook Keepalive',
     description: 'Держит webhook-подписку Кузьмича в MAX, регистрирует заново при потере.',
     workflow: 'cron-max-webhook.yml', cron: '17 */6 * * *', schedule: 'каждые 6 часов',
-    everyMin: 360, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: 360, tier: 'ops', agentId: 'max-webhook', triggerable: false,
   },
   {
     key: 'health', label: 'System Health Check',
@@ -184,7 +189,10 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     key: 'client-errors-census', label: 'Ошибки в браузере',
-    description: 'Суточная перепись ловушки ошибок браузера: группы по отпечатку, чистка старше 30 дней, дайджест в Telegram.',
+    description: 'Суточная перепись ловушки ошибок браузера: группы по отпечатку, чистка старше 30 дней, дайджест в Telegram. Вторым шагом — дайджест серверных ошибок (prod-errors).',
+    // Адрес явно (15.10, аудит P4-17): тот же workflow вторым шагом зовёт
+    // /api/cron/prod-errors — дайджест серверных ошибок владельцу.
+    endpoint: 'client-errors-census',
     workflow: 'cron-client-errors.yml', cron: '17 19 * * *', schedule: 'раз в сутки, 19:17 UTC (07:17 по Камчатке)',
     everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
   },
@@ -231,7 +239,8 @@ export const CRON_REGISTRY: CronEntry[] = [
     key: 'tour-reminder', label: 'Tour Reminder',
     description: 'Напоминание о туре за 24ч.',
     workflow: 'cron-tour-reminder.yml', cron: '0 6 * * *', schedule: 'ежедневно · 06:00 UTC',
-    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+    // agentId с 15.10 (аудит P4-07): роут пишет recordCronRun под этим ключом.
+    everyMin: DAY, tier: 'ops', agentId: 'tour-reminder', triggerable: false,
   },
   {
     key: 'booking-auto-complete', label: 'Booking Auto-Complete',
@@ -564,8 +573,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // поломка: прогон, нашедший кого предупредить и не предупредивший, отдаёт
   // 500 и краснеет сам.
   'document-expiry': 'normal',
+  // Ноль необработанных лидов — норма: заявку обычно разбирает уже приём
+  // формы, а крон подбирает упавшие. Счётчик пишется с 15.10.
+  'leads': 'normal',
   // Ниже — кроны, которые счётчик работы не пишут вовсе: судить не по чему.
-  'leads': 'unknown',
   'tg-watchdog': 'unknown',
   'max-webhook': 'unknown',
   'llm-budget': 'unknown',
@@ -578,7 +589,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // иначе — отказ базы отдаёт 500, ни одной доставки при должниках — 502.
   'crm-reminders': 'normal',
   'support-escalate': 'unknown',
-  'tour-reminder': 'unknown',
+  // Ноль напоминаний — норма: туров на завтра нет или у туристов нет канала.
+  // Отказ при непустой выборке пишется 'failed', а не нулём.
+  'tour-reminder': 'normal',
   'tour-review-request': 'unknown',
   // Ноль подходящих броней — норма: туров с прошедшей датой может не быть.
   'booking-auto-complete': 'unknown',

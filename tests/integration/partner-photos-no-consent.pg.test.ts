@@ -28,10 +28,10 @@
  * пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -40,8 +40,6 @@ if (!PG_URL) {
 }
 
 const TEST_DB = 'partner_photos_test';
-/** Первая миграция после baseline (снимок прода 2026-08-15, последняя в нём — 862). */
-const FIRST_AFTER_BASELINE = 863;
 const OWNER = 'владелец платформы';
 
 /** Место с героем партнёра и двумя кадрами галереи: партнёра и владельца. */
@@ -67,12 +65,6 @@ const [MESTECHKO, VOLCANOESLAND] = CASES;
 const S3 = 'https://s3.example.test/bucket';
 const heroUrl = (ark: string) => `${S3}/places/${ark}/hero.jpg`;
 const galleryUrl = (ark: string, pos: number) => `${S3}/places/${ark}/g${pos}.jpg`;
-
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
 
 /** Обратная правка — строки хвоста после «Вернуть», без «-- », как есть. */
 function restoreSql(migration: string): string {
@@ -136,21 +128,10 @@ withPg('снимки партнёров без согласия: спрятан�
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    const dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    await pool.query(
-      `DELETE FROM _migrations
-        WHERE (regexp_match(name, '^(\\d+)_'))[1]::int >= $1`,
-      [FIRST_AFTER_BASELINE],
-    );
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     // Карточка и раздача читают пул приложения — ему нужен тот же адрес.
     process.env.DATABASE_URL = dbUrl;

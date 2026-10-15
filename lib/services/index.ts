@@ -8,14 +8,17 @@ export {
   TourNotFoundError,
   TourValidationError,
   TourAlreadyPublishedError,
-  ReviewNotFoundError,
-  ReviewValidationError,
-  DuplicateReviewError,
 } from './_errors';
 
-// Tour / Review / Search
+// Tour / Search
+// reviewService снят аудитом 15.10 (P2-02, п. 1.12): правил, одобрял и
+// удалял отзыв в `reviews` по колонке-ссылке `tour_id` на запрещённую `tours`
+// (CLAUDE.md §4). Звали его только `/api/discovery/reviews/[id]` и ветка
+// `/reviews` в `/api/discovery/tours/[id]/stats` — оба без единого
+// вызывающего и сняты с ним. Отзыв о туре живёт в `operator_tour_reviews`
+// (`/api/reviews/tour/[tourId]`), модерация отзывов о месте — в
+// `/api/admin/content/reviews`.
 export { tourService } from './tours/tour.service';
-export { reviewService } from './operators/review.service';
 export { searchService } from './search.service';
 
 // Booking / Availability

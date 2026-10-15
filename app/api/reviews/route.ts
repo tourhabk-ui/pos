@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse } from '@/types';
 import { query } from '@/lib/database';
 import { z } from 'zod';
+import { publicReviewerName } from '@/lib/reviews/public-name';
 
 /**
  * GET /api/reviews — публичный список отзывов о турах (фильтры: тур, оператор).
@@ -18,6 +19,11 @@ import { z } from 'zod';
  * тура в UUID-колонку падает всегда) — отзыв не создался ни разу. Запись
  * отзыва — только канонический POST /api/reviews/tour/[tourId] с гейтом
  * завершённой брони; кабинет туриста переведён на него.
+ *
+ * Роут публичный (lib/auth/public-api-routes.ts), поэтому имя автора — только
+ * «Имя Ф.» (publicReviewerName), как у канонического GET тура и карточки.
+ * До аудита 15.10 (Д4-3) здесь уходило полное имя автора каждого отзыва
+ * любому анониму.
  */
 
 const reviewListQuerySchema = z.object({
@@ -100,7 +106,7 @@ export async function GET(request: NextRequest) {
       id: row.id,
       tourId: row.tour_id,
       tourName: row.tour_name,
-      authorName: row.author_name,
+      authorName: publicReviewerName(row.author_name),
       rating: row.rating,
       comment: row.comment,
       images: Array.isArray(row.photos) ? row.photos : [],

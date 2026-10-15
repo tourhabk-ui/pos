@@ -15,11 +15,14 @@
  * прода не попадали в петлю вовсе: мёртвый /time-slots и вечный degraded
  * /api/tours жили годами и вскрылись только ручной пробой 08.08.
  *
- * Троттлинг per-route (60 с): штормовая ошибка не заливает журнал — для
- * находки важен факт и последнее сообщение, а не каждый повтор.
+ * Троттлинг per-route (ERROR_LOG_THROTTLE_MS): штормовая ошибка не заливает
+ * журнал — для находки важен факт и последнее сообщение, а не каждый повтор.
+ * Число живёт в lib/server-errors/log-throttle: его читает и суточный дайджест
+ * владельцу, чтобы назвать свои счётчики нижней границей (аудит 15.10, P4-17).
  */
+import { ERROR_LOG_THROTTLE_MS } from '@/lib/server-errors/log-throttle';
+
 const errorLoggedAt = new Map<string, number>();
-const ERROR_LOG_THROTTLE_MS = 60_000;
 
 export async function onRequestError(
   err: unknown,
@@ -33,12 +36,22 @@ export async function onRequestError(
   // падал «Can't resolve 'stream'» (первый прогон CI этого PR).
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     try {
-      const route = context?.routePath || request?.path || 'unknown';
+      // Текст ошибки, кадры стека, адрес и маршрут чистятся ДО записи (Д4-4,
+      // аудит 15.10): журнал читают объектив эволюции (текст уходит в GitHub
+      // Issue и в промпт) и суточный дайджест владельцу в Telegram, а в тексте
+      // ошибки бывает почта из формы, телефон из ключа уникальности, адрес с
+      // ключом в query. Та же чистка, что у ловушки ошибок браузера. Импорт
+      // динамический по той же причине, что и у базы ниже: модуль тянет
+      // node:crypto, которому не место в edge-бандле.
+      const { scrubErrorText } = await import('@/lib/client-errors/scrub');
+      // Без шаблона маршрута (routePath) маршрутом становится сырой адрес —
+      // с query и сегментами, где бывает что угодно, включая ПД.
+      const route = scrubErrorText(context?.routePath || (request?.path ?? '').split('?')[0], 200) || 'unknown';
       const now = Date.now();
       if (now - (errorLoggedAt.get(route) ?? 0) < ERROR_LOG_THROTTLE_MS) return;
       errorLoggedAt.set(route, now);
 
-      const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+      const message = scrubErrorText(err instanceof Error ? err.message : String(err), 300);
       // Ошибка рендера в боевой сборке приходит с замазанным текстом («The
       // specific message is omitted in production builds»): 4 ошибки
       // /routes/[id] за неделю (prod-check run 85, 03.10) нельзя было ни
@@ -46,11 +59,14 @@ export async function onRequestError(
       // КОНКРЕТНЫЙ адрес (без query — там может быть что угодно), digest —
       // ключ, по которому Next печатает настоящую ошибку в лог контейнера, —
       // и первые кадры стека, если они есть.
-      const path = (request?.path ?? '').split('?')[0].slice(0, 200) || null;
+      // Путь чистится той же функцией: ключ заявки или почта в сегменте
+      // адреса — не реже, чем в query.
+      const path = scrubErrorText((request?.path ?? '').split('?')[0], 200) || null;
       const digest = typeof (err as { digest?: unknown })?.digest === 'string'
         ? ((err as { digest: string }).digest).slice(0, 64) : null;
-      const stack = err instanceof Error && typeof err.stack === 'string'
-        ? err.stack.split('\n').slice(1, 4).map(l => l.trim()).join(' | ').slice(0, 400) : null;
+      const frames = err instanceof Error && typeof err.stack === 'string'
+        ? err.stack.split('\n').slice(1, 4).map(l => l.trim()).join(' | ') : '';
+      const stack = scrubErrorText(frames, 400) || null;
       const { query } = await import('@/lib/database');
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,

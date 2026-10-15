@@ -32,27 +32,6 @@ export class TourAlreadyPublishedError extends Error {
   }
 }
 
-export class ReviewNotFoundError extends Error {
-  constructor(id?: string) {
-    super(id ? `Review not found: ${id}` : 'Review not found');
-    this.name = 'ReviewNotFoundError';
-  }
-}
-
-export class ReviewValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ReviewValidationError';
-  }
-}
-
-export class DuplicateReviewError extends Error {
-  constructor(message = 'Review already exists') {
-    super(message);
-    this.name = 'DuplicateReviewError';
-  }
-}
-
 // ========================================
 // Type Conversion Helpers
 // ========================================
