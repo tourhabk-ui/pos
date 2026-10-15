@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-15 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1284_gear_rental_door.sql`.
+> Снято 2026-10-15 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1287_tg_history_to_core.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 279 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3727 |
-| Внешних ключей | 329 |
+| Колонок | 3731 |
+| Внешних ключей | 330 |
 | Таблиц без единого FK в обе стороны | 82 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -103,6 +103,7 @@ erDiagram
     uuid operator_id FK
     uuid created_by FK
     uuid route_id FK
+    text main_place_id FK
     varchar title
     text description
     varchar slug
@@ -267,6 +268,7 @@ erDiagram
   operator_bookings ||--o{ operator_commissions : "booking_id"
   partners ||--o{ operator_commissions : "operator_id"
   users ||--o{ operator_tours : "created_by"
+  places ||--o{ operator_tours : "main_place_id"
   partners ||--o{ operator_tours : "operator_id"
   kamchatka_routes ||--o{ operator_tours : "route_id"
   users ||--o{ partners : "agent_rate_set_by"
@@ -471,7 +473,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `place_id text!` `volcano_place_id text!` `reason text!` `created_at timestamptz!=`
 
-**places** · 51 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, place_description_drafts, reviews, route_waypoints, transfer_charter_prices, volcano_status · индексов 8
+**places** · 51 кол. · PK id · на неё ссылаются: location_real_time_status, location_safety_profile, operator_tours, place_description_drafts, reviews, route_waypoints, transfer_charter_prices, volcano_status · индексов 8
 
 `id text!` `name text!` `description text` `category text` `category_slug text` `lat numeric!` `lng numeric!` `district text` `length_km numeric` `duration varchar` `difficulty varchar` `images jsonb=` `created_at timestamptz=` `ark_id uuid` `location_type varchar` `activity_type varchar` `zone varchar` `source_url text` `source_name varchar` `updated_at timestamptz=` `search_count integer!=` `is_visible boolean!=` `essence text` `photo_url text` `best_season text` `seasonal_notes jsonb` `access_info text` `eco_zone varchar` `eco_permit_required boolean=` `eco_rules text` `eco_permit_url text` `indigenous_info jsonb` `view_count integer!=` `dedupe_key text` `kuzmich_review text` `embedding jsonb` `merged_into_id uuid` `merged_at timestamptz` `geocode_failed_at timestamptz` `slug varchar` `coord_source varchar!=` `coord_source_at timestamptz` `visitor_limit_per_day integer` `visitor_limit_source text` `visitor_limit_set_at timestamptz` `description_withdrawn text` `description_withdrawn_reason text` `description_withdrawn_at timestamptz` `eco_rules_withdrawn text` `eco_rules_withdrawn_reason text` `eco_rules_withdrawn_at timestamptz`
 
@@ -619,9 +621,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `tour_id bigint!` `tag varchar!`
 
-**operator_tours** · 70 кол. · PK id · created_by → users.id, operator_id → partners.id, route_id → kamchatka_routes.id · на неё ссылаются: agent_bookings, agent_referral_links, booking_change_requests, cancellation_policies, channel_orders, contingency_rules, kuzmich_engagement_signals, operator_bookings, operator_tour_reviews, operator_tour_tags, route_description_cache, _route_description_cache_legacy, tour_availability, tour_availability_alternatives, tour_options, tour_price_tiers, tour_pricing_rules, tour_seat_requests, tour_selection_items, weather_alerts · индексов 15 · триггеры: operator_tours_assign_slug, trigger_operator_tours_timestamp
+**operator_tours** · 72 кол. · PK id · created_by → users.id, main_place_id → places.id, operator_id → partners.id, route_id → kamchatka_routes.id · на неё ссылаются: agent_bookings, agent_referral_links, booking_change_requests, cancellation_policies, channel_orders, contingency_rules, kuzmich_engagement_signals, operator_bookings, operator_tour_reviews, operator_tour_tags, route_description_cache, _route_description_cache_legacy, tour_availability, tour_availability_alternatives, tour_options, tour_price_tiers, tour_pricing_rules, tour_seat_requests, tour_selection_items, weather_alerts · индексов 16 · триггеры: operator_tours_assign_slug, trigger_operator_tours_timestamp
 
-`id bigint!=` `operator_id uuid!` `title varchar!` `description text` `slug varchar` `location_type varchar` `activity_type varchar` `location_name varchar` `latitude numeric` `longitude numeric` `base_price numeric=` `currency varchar=` `max_participants integer!=` `min_participants integer=` `duration_hours numeric` `duration_type varchar` `multi_day_count integer` `season_start date` `season_end date` `seasonal_only boolean=` `weather_dependent boolean=` `min_visibility_m integer=` `max_wind_kmh integer=` `max_precipitation_mm integer=` `is_active boolean=` `is_published boolean=` `notes text` `created_at timestamp=` `updated_at timestamp=` `created_by uuid` `deleted_at timestamp` `price_old numeric` `price_unit varchar=` `short_description text` `difficulty varchar` `included text[]` `not_included text[]` `what_to_bring text[]` `photos text[]=` `tour_image text` `agent_route_id uuid` `rating numeric=` `review_count integer=` `tripster_experience_id varchar` `avito_listing_id varchar` `sputnik8_product_id varchar` `channel_sync_at timestamp` `available_slots integer` `next_available_date date` `route_id uuid` `group_size_max integer` `price_note text` `includes text` `source_url text` `parsed_at timestamptz` `is_stale boolean=` `ai_tags jsonb=` `meeting_point text` `program jsonb` `safety_notes text[]` `excludes text[]=` `itinerary jsonb=` `cancellation_policy text` `pickup_type varchar` `pickup_details text` `cancellation_free_days integer` `cancellation_late_refund_percent integer` `hazards_hidden text[]!=` `video_clips jsonb!=` `pinned_at timestamptz`
+`id bigint!=` `operator_id uuid!` `title varchar!` `description text` `slug varchar` `location_type varchar` `activity_type varchar` `location_name varchar` `latitude numeric` `longitude numeric` `base_price numeric=` `currency varchar=` `max_participants integer!=` `min_participants integer=` `duration_hours numeric` `duration_type varchar` `multi_day_count integer` `season_start date` `season_end date` `seasonal_only boolean=` `weather_dependent boolean=` `min_visibility_m integer=` `max_wind_kmh integer=` `max_precipitation_mm integer=` `is_active boolean=` `is_published boolean=` `notes text` `created_at timestamp=` `updated_at timestamp=` `created_by uuid` `deleted_at timestamp` `price_old numeric` `price_unit varchar=` `short_description text` `difficulty varchar` `included text[]` `not_included text[]` `what_to_bring text[]` `photos text[]=` `tour_image text` `agent_route_id uuid` `rating numeric=` `review_count integer=` `tripster_experience_id varchar` `avito_listing_id varchar` `sputnik8_product_id varchar` `channel_sync_at timestamp` `available_slots integer` `next_available_date date` `route_id uuid` `group_size_max integer` `price_note text` `includes text` `source_url text` `parsed_at timestamptz` `is_stale boolean=` `ai_tags jsonb=` `meeting_point text` `program jsonb` `safety_notes text[]` `excludes text[]=` `itinerary jsonb=` `cancellation_policy text` `pickup_type varchar` `pickup_details text` `cancellation_free_days integer` `cancellation_late_refund_percent integer` `hazards_hidden text[]!=` `video_clips jsonb!=` `pinned_at timestamptz` `main_place_id text` `main_place_source text`
 
 **promo_codes** · 10 кол. · PK id · created_by → users.id · индексов 4
 
@@ -1043,9 +1045,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `created_at timestamptz!=` `surface varchar!` `verdict varchar!` `claims jsonb!=` `flagged jsonb!=` `tools text[]!=` `reply_excerpt text!` `review_mark varchar` `review_note text` `reviewed_by text` `reviewed_at timestamptz`
 
-**llm_usage_log** · 10 кол. · PK id · индексов 4
+**llm_usage_log** · 12 кол. · PK id · индексов 4
 
-`id uuid!=` `route text!` `prompt_tokens integer!=` `completion_tokens integer!=` `total_tokens integer!=` `estimated_cost_usd numeric` `user_id uuid` `created_at timestamptz!=` `agent_id text` `cost_basis text`
+`id uuid!=` `route text!` `prompt_tokens integer!=` `completion_tokens integer!=` `total_tokens integer!=` `estimated_cost_usd numeric` `user_id uuid` `created_at timestamptz!=` `agent_id text` `cost_basis text` `cache_creation_tokens integer` `cache_read_tokens integer`
 
 **mcp_clients** · 7 кол. · PK caller_hash, day · индексов 2
 
