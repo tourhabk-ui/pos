@@ -35,7 +35,11 @@ export interface ChinaClientFamily {
 }
 
 export const CHINA_CLIENT_FAMILIES: readonly ChinaClientFamily[] = [
-  { family: 'qwen-code',     vendor: 'Alibaba (Qwen, Tongyi, Lingma), КНР',   markers: ['qwen', 'qwencode', 'qwen-code', 'tongyi', 'lingma'] },
+  // Аудит 15.10, CN-detect: 通义灵码 (Lingma) с 20.05.2026 называется Qoder CN
+  // (help.aliyun.com, «什么是 Qoder CN»). Какое имя Qoder пишет в clientInfo.name,
+  // не проверено; «qoder» по границе слова ловит «Qoder», «Qoder CN», «qoder-cli».
+  // «lingma» остаётся: старые сборки плагина представляются прежним именем.
+  { family: 'qwen-code',     vendor: 'Alibaba (Qwen, Tongyi, Qoder CN — бывший 通义灵码), КНР', markers: ['qwen', 'qwencode', 'qwen-code', 'tongyi', 'lingma', 'qoder'] },
   { family: 'modelscope',    vendor: 'ModelScope (魔搭), КНР',                 markers: ['modelscope'] },
   // dsh — DeepSeek Harness, официальный агентный клиент DeepSeek: мост к MCP
   // `@deepseek-ai/dsh-mcp-client` и панели `dsh-mcp-center`, `dsh-mcp-panel`,

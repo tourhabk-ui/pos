@@ -16,7 +16,7 @@
  * репозитории нет, и сторож (`tests/unit/mcp-connect.test.ts`) требует,
  * чтобы каждая ссылка, команда и JSON содержали именно его. Форматы
  * ссылок — документированные схемы клиентов (Cursor deeplink, VS Code
- * `vscode:mcp/install`), не выдуманные.
+ * `vscode:mcp/install`, Trae `trae-cn://` и `trae://`), не выдуманные.
  */
 
 import { CANONICAL_BASE_URL } from '@/lib/config';
@@ -26,7 +26,7 @@ export const MCP_SERVER_KEY = 'vedar';
 
 export interface McpConnectOption {
   /** Устойчивый ключ для разметки и сторожей. */
-  id: 'cursor' | 'vscode' | 'claude_code' | 'qwen_code' | 'deepseek_harness' | 'claude_ai' | 'json';
+  id: 'cursor' | 'vscode' | 'trae_cn' | 'trae' | 'claude_code' | 'qwen_code' | 'deepseek_harness' | 'claude_ai' | 'json';
   /** Клиент, как его называет человек. */
   client: string;
   /** Что это: ссылка-установка, команда терминала, JSON конфига или шаги в интерфейсе. */
@@ -51,6 +51,18 @@ function base64(s: string): string {
   return Buffer.from(s, 'utf-8').toString('base64');
 }
 
+/**
+ * Ссылка-установка Trae: `<схема>://trae.ai-ide/mcp-import?type=…&name=…&config=…`,
+ * config — JSON одного сервера в base64 и затем URL-кодировании (аудит 15.10,
+ * CN-zh: китайские клиенты). Форма — по документации Trae, снятой 15.10:
+ * docs.trae.cn/ide_mcp-server-install-links.md для `trae-cn://` и
+ * docs.trae.ai/ide/mcp-server-install-links для `trae://`; type — `stdio` или
+ * `http`. Живым кликом в Trae ссылка не проверялась.
+ */
+function traeInstallLink(scheme: 'trae-cn' | 'trae'): string {
+  return `${scheme}://trae.ai-ide/mcp-import?type=http&name=${MCP_SERVER_KEY}&config=${encodeURIComponent(base64(JSON.stringify(REMOTE_CONFIG)))}`;
+}
+
 export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
   {
     id: 'cursor',
@@ -67,6 +79,23 @@ export const MCP_CONNECT_OPTIONS: readonly McpConnectOption[] = [
     label: 'Добавить в VS Code',
     // Схема `vscode:mcp/install?<json>` из документации VS Code по MCP.
     value: `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name: MCP_SERVER_KEY, type: 'http', url: MCP_ENDPOINT }))}`,
+  },
+  {
+    // Trae — IDE ByteDance; у китайской сборки (trae.cn) своя схема ссылок.
+    // Кнопка нужна тем, кто уже пришёл на /mcp, /zh или в README: находить
+    // нас она не помогает, но снимает ручной набор адреса (аудит 15.10, CN-zh).
+    id: 'trae_cn',
+    client: 'Trae CN (trae.cn)',
+    kind: 'link',
+    label: 'Добавить в Trae CN',
+    value: traeInstallLink('trae-cn'),
+  },
+  {
+    id: 'trae',
+    client: 'Trae (trae.ai)',
+    kind: 'link',
+    label: 'Добавить в Trae',
+    value: traeInstallLink('trae'),
   },
   {
     id: 'claude_code',

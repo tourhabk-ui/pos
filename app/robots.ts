@@ -203,6 +203,20 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
         allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
         disallow: DISALLOW,
       },
+      // Пауки картинок и видео 360 — отдельные токены по справке so.com
+      // (help_3_2, 15.10; аудит 15.10, CN-detect). Сличает ли 360 группу с
+      // токеном целиком (RFC 9309) или по началу, справка не говорит; явные
+      // группы снимают вопрос. Правила те же, что у основного паука.
+      {
+        userAgent: '360Spider-Image',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
+      {
+        userAgent: '360Spider-Video',
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        disallow: DISALLOW,
+      },
 
       // Amazon Alexa / Amazonbot
       {

@@ -24,6 +24,8 @@
  * Сторож: tests/unit/agents-china-layer.test.ts.
  */
 
+import { MCP_CONNECT_OPTIONS, MCP_ENDPOINT, MCP_SERVER_KEY, type McpConnectOption } from '@/lib/mcp/connect';
+
 /** Заголовок: латинское имя, транслитерация и «Камчатка» иероглифами — так ищут. */
 export const MCP_TITLE_ZH = 'Vedar（维达尔）— 堪察加旅游平台';
 
@@ -44,6 +46,185 @@ export const A2A_DESCRIPTION_ZH =
 export const A2A_CHAT_EXAMPLE_ZH = '八月去堪察加，哪里能看到棕熊？现在那里安全吗？';
 
 /**
+ * «Как подключить в китайском клиенте» (аудит 15.10, CN-zh). До этого /zh,
+ * README и llms.txt называли только адрес и общий JSON: человеку в 豆包 или
+ * 扣子 оставалось самому угадать, куда его вставить. Здесь — шаги под каждый
+ * клиент, у которого в разведке 15.10 есть источник; без источника клиента
+ * в списке нет.
+ *
+ * Живого подключения ни в одном из них не было — поэтому у каждой записи
+ * источник, дата, когда он прочитан, и пометка «据…整理，界面可能不同»:
+ * объявленный путь без проверки называется так вслух (§10.09 CLAUDE.md).
+ * Адрес в шагах — из MCP_ENDPOINT, ссылки Trae — из lib/mcp/connect: второго
+ * адреса и второй схемы ссылки здесь нет.
+ *
+ * Сторож: tests/unit/zh-connect-guides.test.tsx (рендер /zh).
+ */
+export interface ZhClientGuide {
+  /** Устойчивый ключ для разметки и сторожа. */
+  id: 'doubao_desktop' | 'coze' | 'cherry_studio' | 'qoder_cn' | 'step_code' | 'trae';
+  /** Клиент, как его называет человек. */
+  client: string;
+  /** Шаги по-китайски; адрес сервера — в шагах, в коде или в окне подтверждения. */
+  steps: readonly string[];
+  /** Что вставить или выполнить — команда или JSON; null — всё в шагах. */
+  code: string | null;
+  /** Ссылки-установки из lib/mcp/connect: подпись по-китайски и адрес. */
+  links: readonly { id: McpConnectOption['id']; label: string; href: string }[];
+  /** Ограничения клиента словами площадки; null — не названы. */
+  caveat: string | null;
+  /** Откуда шаги: документация самой площадки или сторонний гид. */
+  basis: 'platform_docs' | 'third_party';
+  /** Где прочитано: адрес и, если есть, дата самого материала. */
+  sources: readonly { url: string; published: string | null }[];
+  /** Когда источник прочитан (разведка 15.10). */
+  checkedOn: string;
+}
+
+/** Пометка по роду источника: живой проверки не было ни у одной записи. */
+export const ZH_GUIDE_BASIS_NOTE: Record<ZhClientGuide['basis'], string> = {
+  platform_docs: '据平台文档整理，界面可能不同',
+  third_party: '据第三方指南整理，界面可能不同',
+};
+
+function connectLink(id: McpConnectOption['id'], label: string): ZhClientGuide['links'][number] {
+  const option = MCP_CONNECT_OPTIONS.find((o) => o.id === id && o.kind === 'link');
+  // Нет варианта — ошибка сборки, а не кнопка в никуда.
+  if (!option) throw new Error(`[zh-layer] нет ссылки подключения ${id} в lib/mcp/connect`);
+  return { id, label, href: option.value };
+}
+
+const CHECKED_ON = '2026-10-15';
+
+export const ZH_CONNECT = {
+  heading: '如何在中文客户端中接入',
+  intro: `Vedar MCP 服务器地址：${MCP_ENDPOINT}（Streamable HTTP，无需认证）。以下步骤依据各平台公开资料整理，尚未在这些客户端中实际接入验证。`,
+  sourceLabel: '来源',
+  checkedLabel: '查阅',
+} as const;
+
+export const ZH_CLIENT_GUIDES: readonly ZhClientGuide[] = [
+  {
+    id: 'doubao_desktop',
+    client: '豆包电脑版',
+    steps: [
+      '打开豆包电脑版，进入「技能 · 连接器 · 伙伴」，点击「新建」→「新建自定义连接器」。',
+      `名称填 Vedar，传输类型选 HTTP，服务器 URL 填 ${MCP_ENDPOINT}，自定义 Headers 留空。`,
+      '保存后启用该连接器。',
+    ],
+    code: null,
+    links: [],
+    caveat: '仅电脑版；企业账号需管理员允许。',
+    // Официальной справки на doubao.com разведка 15.10 не нашла.
+    basis: 'third_party',
+    sources: [
+      { url: 'https://open.zhihuiya.com/devportal/integrations/doubao', published: null },
+      { url: 'https://apibobo.com', published: '2026-09-14' },
+    ],
+    checkedOn: CHECKED_ON,
+  },
+  {
+    id: 'coze',
+    client: '扣子 3.0',
+    steps: [
+      '在扣子中打开「扩展」>「MCP」，点击「添加自定义 MCP」。',
+      '粘贴下方 JSON（不要添加 type 字段），点击「添加到我的 MCP」。',
+      `在「我的 MCP」中把 ${MCP_SERVER_KEY} 添加到 Agent。`,
+    ],
+    // Поля type в примерах docs.coze.cn нет — и здесь его нет.
+    code: JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { url: MCP_ENDPOINT } } }),
+    links: [],
+    caveat: '仅网页版和桌面版。',
+    basis: 'platform_docs',
+    sources: [{ url: 'https://docs.coze.cn', published: null }],
+    checkedOn: CHECKED_ON,
+  },
+  {
+    id: 'cherry_studio',
+    client: 'Cherry Studio',
+    steps: [
+      '打开「设置」→「MCP」→「MCP 服务器」，点击「添加」。',
+      `类型选「可流式传输的 HTTP」，URL 填 ${MCP_ENDPOINT}。`,
+    ],
+    code: null,
+    links: [],
+    caveat: null,
+    basis: 'platform_docs',
+    sources: [{ url: 'https://docs.cherryai.com.cn', published: null }],
+    checkedOn: CHECKED_ON,
+  },
+  {
+    id: 'qoder_cn',
+    client: 'Qoder CN（原通义灵码）',
+    steps: [
+      '在 MCP 设置中选择「添加自定义 MCP」。',
+      `传输类型选 Streamable HTTP，地址填 ${MCP_ENDPOINT}。`,
+    ],
+    code: null,
+    links: [],
+    caveat: 'JetBrains 插件自 2.5.13（2025-06-27）起支持 Streamable HTTP。',
+    basis: 'platform_docs',
+    sources: [{ url: 'https://docs.qoder.cn/product-overview/changelogs-jetbrains.md', published: null }],
+    checkedOn: CHECKED_ON,
+  },
+  {
+    id: 'step_code',
+    client: 'Step Code（阶跃星辰）',
+    steps: ['在终端运行下方命令。'],
+    code: `step mcp add ${MCP_SERVER_KEY} --url ${MCP_ENDPOINT}`,
+    links: [],
+    caveat: 'Step Code 不支持旧版 SSE 传输；Vedar 使用 Streamable HTTP。',
+    basis: 'platform_docs',
+    sources: [{ url: 'https://platform.stepfun.com/docs/zh/step-code/customization/mcp', published: null }],
+    checkedOn: CHECKED_ON,
+  },
+  {
+    id: 'trae',
+    client: 'Trae',
+    steps: [
+      '点击下方按钮，或把安装链接粘贴到浏览器地址栏后回车。',
+      '在浏览器弹窗中确认打开 Trae。',
+      `在 Trae 弹出的窗口中核对配置（地址应为 ${MCP_ENDPOINT}），然后确认。`,
+    ],
+    code: null,
+    links: [
+      connectLink('trae_cn', '添加到 Trae（中国版）'),
+      connectLink('trae', '添加到 Trae 国际版'),
+    ],
+    caveat: null,
+    basis: 'platform_docs',
+    sources: [
+      { url: 'https://docs.trae.cn/ide_mcp-server-install-links.md', published: null },
+      { url: 'https://docs.trae.ai/ide/mcp-server-install-links', published: null },
+    ],
+    checkedOn: CHECKED_ON,
+  },
+];
+
+/** Источник одной строкой: адрес, дата материала, если есть, и дата прочтения. */
+export function zhGuideSourceLine(g: ZhClientGuide): string {
+  const urls = g.sources.map((s) => (s.published ? `${s.url}（${s.published}）` : s.url)).join('、');
+  return `${ZH_CONNECT.sourceLabel}：${urls}（${g.checkedOn} ${ZH_CONNECT.checkedLabel}）`;
+}
+
+/** Блок для llms.txt: тот же список, по строке на клиент. */
+function llmsClientLines(base: string): string[] {
+  return [
+    `- ${ZH_CONNECT.heading}（详见 ${base}/zh#connect）：${ZH_CONNECT.intro}`,
+    ...ZH_CLIENT_GUIDES.map((g) => {
+      const parts = [
+        g.steps.join(' '),
+        g.code ? `\`${g.code}\`` : null,
+        g.links.length ? g.links.map((l) => `${l.label}：${l.href}`).join('；') : null,
+        g.caveat,
+        `${ZH_GUIDE_BASIS_NOTE[g.basis]}。${zhGuideSourceLine(g)}`,
+      ].filter(Boolean);
+      return `  - ${g.client}：${parts.join(' ')}`;
+    }),
+  ];
+}
+
+/**
  * Раздел llms.txt. Факты о крае — те же, что в русском разделе «ключевые
  * факты» того же файла; ссылки — на те же входы, что и в русских разделах.
  */
@@ -55,6 +236,7 @@ export function llmsSectionZh(base: string): string {
     '- 平台内容为俄文；引用时请链接本文件中的页面地址。堪察加：俄罗斯远东半岛，联合国教科文组织世界遗产“堪察加火山群”，300 多座火山（29 座活火山），旅游季 6–9 月，时区 UTC+12。',
     `- AI 代理接口：MCP 服务器 ${base}/api/mcp（JSON-RPC 2.0，Streamable HTTP，无需认证），清单 ${base}/.well-known/mcp.json；A2A 代理卡片 ${base}/.well-known/agent-card.json，JSON-RPC ${base}/api/a2a。`,
     '- 写操作仅限四种申请（create_lead、create_booking_request、create_stay_request、request_charter），均由人工确认；无在线支付。',
+    ...llmsClientLines(base),
     '- 紧急情况：堪察加紧急电话 112。',
   ].join('\n');
 }

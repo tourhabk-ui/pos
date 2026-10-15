@@ -40,6 +40,11 @@ afterEach(() => {
 describe('род клиента по заголовку знает продукты КНР', () => {
   it.each([
     ['QwenCode/0.3.1 (node)', 'qwen-code'],
+    // 通义灵码 (Lingma) с 20.05.2026 — Qoder CN (аудит 15.10, CN-detect);
+    // прежнее имя у старых сборок плагина по-прежнему опознаётся.
+    ['Qoder/0.9.2 (darwin; arm64)', 'qwen-code'],
+    ['qoder-cn-cli/1.0 node', 'qwen-code'],
+    ['Lingma/2.5.0 (vscode)', 'qwen-code'],
     ['Mozilla/5.0 (Macintosh) CherryStudio/1.4.0 Chrome/124', 'cherry-studio'],
     ['python-requests/2.32 dify/1.3', 'dify'],
     ['Trae/1.0 (darwin)', 'trae'],
@@ -77,6 +82,7 @@ describe('род клиента по заголовку знает продук�
 describe('метка региона — по самоназванию, не по стране', () => {
   it('имя клиента, род заголовка или самоназвание агента из реестра → «КНР»', () => {
     expect(clientRegion('Qwen Code')).toBe(CHINA_REGION_LABEL);
+    expect(clientRegion('Qoder CN')).toBe(CHINA_REGION_LABEL);
     expect(clientRegion(null, 'kimi')).toBe(CHINA_REGION_LABEL);
     expect(clientRegion('CherryStudio', 'неизвестен')).toBe(CHINA_REGION_LABEL);
     expect(clientRegion('deepseek-harness', 'python')).toBe(CHINA_REGION_LABEL);

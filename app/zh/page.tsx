@@ -11,7 +11,9 @@
  * A2A и эту страницу (три копии разошлись бы). Список туров — живой, из той
  * же витрины и под тем же гейтом, что каталог и sitemap (lib/zh/entry); отказ
  * базы назван вслух, а не показан пустым списком (§4.0). Команда подключения
- * Qwen Code — из lib/mcp/connect, не вторая копия.
+ * Qwen Code — из lib/mcp/connect, не вторая копия. Блок «如何在中文客户端中接入»
+ * (аудит 15.10, CN-zh) — шаги, источник и дата из zh-layer, ссылки Trae из
+ * connect; своего текста о клиентах страница не держит.
  *
  * Сторож: tests/unit/zh-entry.test.ts.
  */
@@ -22,7 +24,9 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { tourPath } from '@/lib/tours/tour-url';
 import { loadZhTours, priceZh, durationZh } from '@/lib/zh/entry';
-import { MCP_DESCRIPTION_ZH, ZH_PAGE } from '@/lib/mcp/zh-layer';
+import {
+  MCP_DESCRIPTION_ZH, ZH_PAGE, ZH_CONNECT, ZH_CLIENT_GUIDES, ZH_GUIDE_BASIS_NOTE,
+} from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS } from '@/lib/mcp/connect';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
@@ -130,6 +134,50 @@ export default async function ZhEntryPage() {
               </p>
               {qwen && <p>Qwen Code：<code>{qwen}</code></p>}
             </div>
+          </section>
+
+          {/* Шаги под китайские клиенты (аудит 15.10, CN-zh): живого подключения
+              не было, поэтому у каждого — источник, дата и пометка «界面可能不同». */}
+          <section className="space-y-3" id="connect">
+            <h2 className="ds-h2">{ZH_CONNECT.heading}</h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{ZH_CONNECT.intro}</p>
+            <ul className="space-y-3">
+              {ZH_CLIENT_GUIDES.map((g) => (
+                <li key={g.id} className="ds-card p-4 space-y-2 text-sm" style={{ color: 'var(--text-primary)' }} data-zh-client={g.id}>
+                  <h3 className="font-semibold">{g.client}</h3>
+                  <ol className="list-decimal list-inside space-y-1">
+                    {g.steps.map((step) => <li key={step}>{step}</li>)}
+                  </ol>
+                  {g.code && (
+                    <pre
+                      className="text-xs overflow-x-auto rounded-lg p-3"
+                      style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                    >
+                      {g.code}
+                    </pre>
+                  )}
+                  {g.links.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {g.links.map((l) => (
+                        <a key={l.id} className="ds-btn ds-btn-primary" href={l.href} data-connect={l.id}>{l.label}</a>
+                      ))}
+                    </div>
+                  )}
+                  {g.caveat && <p style={{ color: 'var(--text-secondary)' }}>{g.caveat}</p>}
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {ZH_GUIDE_BASIS_NOTE[g.basis]}。{ZH_CONNECT.sourceLabel}：
+                    {g.sources.map((src, i) => (
+                      <span key={src.url}>
+                        {i > 0 && '、'}
+                        <a className="underline break-all" style={{ color: 'var(--ocean)' }} href={src.url} rel="nofollow noopener noreferrer">{src.url}</a>
+                        {src.published && `（${src.published}）`}
+                      </span>
+                    ))}
+                    （{g.checkedOn} {ZH_CONNECT.checkedLabel}）
+                  </p>
+                </li>
+              ))}
+            </ul>
           </section>
 
           <footer className="text-sm" style={{ color: 'var(--text-secondary)' }}>
