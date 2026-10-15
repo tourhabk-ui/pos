@@ -1,18 +1,15 @@
 {
-  "timeout": 90,
-  "run": 962,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Партия 3 памятников, Паланский куст: есть ли в OSM горячие источники у Паланы (карточка «Паланские термальные источники» стоит в ~85 км от посёлка, а текст говорит «в 10 км»), что OSM знает под именем «Паланск…» и где кордоны; Nominatim по двум именам; Википедия — «Ходутка (вулкан)» и «Палана (река)». Конфиг записан целиком.",
+  "timeout": 120,
+  "run": 963,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Паланские пороги — памятник природы «на выходе из Паланского озера» (Википедия — «Палана (река)»), а точка карточки — в посёлке Палана: общие узлы реки Палана и контура озера (relation 2795154) — точка истока из озера; геометрия реки у озера; пороги и водопады в OSM; рамка озера. Конфиг записан целиком.",
   "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28node%5B%22natural%22%3D%22hot_spring%22%5D%2858.4%2C159.3%2C59.4%2C162.0%29%3Bway%5B%22natural%22%3D%22hot_spring%22%5D%2858.4%2C159.3%2C59.4%2C162.0%29%3Bnode%5B%22amenity%22%3D%22public_bath%22%5D%2858.4%2C159.3%2C59.4%2C162.0%29%3B%29%3Bout%20center%20tags%3B",
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28way%5B%22name%22~%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%22%5D%2858.0%2C158.5%2C59.6%2C162.5%29%3Brelation%5B%22name%22~%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%22%5D%2858.0%2C158.5%2C59.6%2C162.5%29%3Bnode%5B%22name%22~%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%22%5D%2858.0%2C158.5%2C59.6%2C162.5%29%3B%29%3Bout%20center%20tags%3B",
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28node%5B%22name%22~%22%5B%D0%9A%D0%BA%5D%D0%BE%D1%80%D0%B4%D0%BE%D0%BD%22%5D%2858.0%2C158.5%2C59.6%2C162.5%29%3Bway%5B%22name%22~%22%5B%D0%9A%D0%BA%5D%D0%BE%D1%80%D0%B4%D0%BE%D0%BD%22%5D%2858.0%2C158.5%2C59.6%2C162.5%29%3B%29%3Bout%20center%20tags%3B",
-    "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=ru&q=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%B8%D0%B5%20%D1%82%D0%B5%D1%80%D0%BC%D0%B0%D0%BB%D1%8C%D0%BD%D1%8B%D0%B5%20%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8",
-    "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=ru&q=%D0%B3%D0%BE%D1%80%D1%8F%D1%87%D0%B8%D0%B5%20%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8%20%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D0%B0",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts|coordinates&explaintext=1&exsectionformat=plain&titles=%D0%A5%D0%BE%D0%B4%D1%83%D1%82%D0%BA%D0%B0%20%28%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%29",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts|coordinates&explaintext=1&exsectionformat=plain&titles=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D0%B0%20%28%D1%80%D0%B5%D0%BA%D0%B0%29"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A90%5D%3Brel%282795154%29%3Bway%28r%29%3Bnode%28w%29-%3E.lake%3Bway%5B%22waterway%22%3D%22river%22%5D%5B%22name%22%3D%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D0%B0%22%5D%2858.55%2C160.0%2C59.0%2C161.0%29-%3E.riv%3Bnode%28w.riv%29-%3E.rn%3Bnode.lake.rn%3Bout%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A90%5D%3Bway%5B%22waterway%22%3D%22river%22%5D%5B%22name%22%3D%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D0%B0%22%5D%2858.7%2C160.3%2C58.95%2C160.95%29%3Bout%20geom%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A90%5D%3B%28node%5B%22waterway%22~%22rapids%7Cwaterfall%22%5D%2858.6%2C159.8%2C59.2%2C161.0%29%3Bway%5B%22waterway%22~%22rapids%7Cwaterfall%22%5D%2858.6%2C159.8%2C59.2%2C161.0%29%3Bnode%5B%22whitewater%22%5D%2858.6%2C159.8%2C59.2%2C161.0%29%3B%29%3Bout%20center%20tags%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Brel%282795154%29%3Bout%20bb%20tags%3B"
   ],
   "retries": 3,
   "retryDelay": 30,
-  "bytes": 12000
+  "bytes": 60000
 }
