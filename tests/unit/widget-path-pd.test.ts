@@ -159,6 +159,14 @@ describe('правило на сервере — normalizeWidgetPath и запи
     });
   });
 
+  it('одиночный суррогат в присланном теле — метка, а не падение роута (URIError)', () => {
+    for (const raw of ['/a\ud800b', '/x/\udfff', '/ok/\ud83d']) {
+      expect(() => normalizeWidgetPath(raw)).not.toThrow();
+      expect(normalizeWidgetPath(raw)).toContain('{undecodable}');
+      expect(widgetOrigin('mestechkokam.ru', raw, ['mestechkokam.ru']).host_check).toBe('listed');
+    }
+  });
+
   it('длина режется после чистки: номер на краю не рассекается на куски', () => {
     const pathname = '/' + 'a'.repeat(190) + '/8-914-123-45-67';
     const p = normalizeWidgetPath(pathname)!;

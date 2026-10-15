@@ -287,6 +287,17 @@ export function classifySearchAnswer(
       search,
     };
   }
+  // Источники пришли, но адрес у части не разобрать: среди неразобранных
+  // мог быть и наш — «нас нет» не проверено (§4.0, ревью PR #2518).
+  const unparsed = answer.sources.filter((src) => !URL.canParse(src.url)).length;
+  if (unparsed > 0) {
+    return {
+      outcome: 'did_not_search',
+      signal: `искала, но адрес не разобран у ${unparsed} из ${search.sources} источников — «нас нет» не измерено`,
+      old_brand: false,
+      search,
+    };
+  }
   return {
     outcome: 'does_not_know',
     signal: `искала, нас нет: источников ${search.sources}, ${OUR_DOMAIN} среди них нет`,

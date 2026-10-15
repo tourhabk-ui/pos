@@ -120,13 +120,21 @@ export function scrubWidgetPathSegment(seg: string): string {
   if (plain.includes('@')) return WIDGET_PATH_LABELS.email;
   const parts = plain.split(DIGIT_RUN);
   let changed = false;
-  for (let j = 0; j < parts.length; j++) {
-    if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= MIN_DIGITS) {
-      parts[j] = WIDGET_PATH_LABELS.digits;
-      changed = true;
-    } else {
-      parts[j] = encodeURIComponent(parts[j]);
+  try {
+    for (let j = 0; j < parts.length; j++) {
+      if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= MIN_DIGITS) {
+        parts[j] = WIDGET_PATH_LABELS.digits;
+        changed = true;
+      } else {
+        parts[j] = encodeURIComponent(parts[j]);
+      }
     }
+  } catch {
+    // Одиночный суррогат (только в присланном руками теле: браузер кодирует
+    // путь) — encodeURIComponent бросает URIError. Чистильщик не падает:
+    // проверить такой сегмент нельзя, он заменяется меткой (доводка ревью
+    // PR #2518, R-path).
+    return WIDGET_PATH_LABELS.undecodable;
   }
   return changed ? parts.join('') : seg;
 }
@@ -158,10 +166,12 @@ export const WIDGET_PATH_SCRUB_JS = String.raw`function scrubPath(path) {
       if (plain.indexOf('@') !== -1) return '{email}';
       var parts = plain.split(/([+(]{0,3}\d(?:[\s().+_\u2010-\u2015-]{0,3}\d)*)/);
       var changed = false;
-      for (var j = 0; j < parts.length; j++) {
-        if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
-        else parts[j] = encodeURIComponent(parts[j]);
-      }
+      try {
+        for (var j = 0; j < parts.length; j++) {
+          if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
+          else parts[j] = encodeURIComponent(parts[j]);
+        }
+      } catch (e) { return '{undecodable}'; }
       return changed ? parts.join('') : seg;
     }).join('/');
   }`;

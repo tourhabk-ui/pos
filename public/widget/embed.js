@@ -67,10 +67,12 @@
       if (plain.indexOf('@') !== -1) return '{email}';
       var parts = plain.split(/([+(]{0,3}\d(?:[\s().+_\u2010-\u2015-]{0,3}\d)*)/);
       var changed = false;
-      for (var j = 0; j < parts.length; j++) {
-        if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
-        else parts[j] = encodeURIComponent(parts[j]);
-      }
+      try {
+        for (var j = 0; j < parts.length; j++) {
+          if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
+          else parts[j] = encodeURIComponent(parts[j]);
+        }
+      } catch (e) { return '{undecodable}'; }
       return changed ? parts.join('') : seg;
     }).join('/');
   }

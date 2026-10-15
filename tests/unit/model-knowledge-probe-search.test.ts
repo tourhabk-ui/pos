@@ -264,7 +264,20 @@ describe('исход поисковой ноги', () => {
       .toEqual(['vedarai.ru', 'm.ctrip.com']);
     const c = classifySearchAnswer(ans('不知道。', ['не адрес'], null), 'region');
     expect(c.search).toEqual({ searched: true, count: null, sources: 1, domains: [] });
-    expect(c.outcome).toBe('does_not_know');
+    // Адрес не разобран — наш он или нет, неизвестно: «нас нет» не измерено,
+    // а не «не знает» (ревью PR #2518).
+    expect(c.outcome).toBe('did_not_search');
+    expect(c.signal).toMatch(/адрес не разобран у 1 из 1 источников/);
+  });
+
+  it('часть источников не разобрана, среди разобранных нас нет — не «не знает»', () => {
+    const c = classifySearchAnswer(ans('推荐携程。', ['https://ctrip.com/a', 'не адрес'], 1), 'brand');
+    expect(c.outcome).toBe('did_not_search');
+    expect(c.signal).toMatch(/адрес не разобран у 1 из 2 источников/);
+    // Все разобраны и нас нет — по-прежнему «не знает».
+    expect(classifySearchAnswer(ans('推荐携程。', ['https://ctrip.com/a'], 1), 'brand').outcome).toBe('does_not_know');
+    // Разобранный наш — «знает», даже если рядом неразобранный.
+    expect(classifySearchAnswer(ans('不知道。', ['https://vedarai.ru/zh', 'не адрес'], 1), 'region').outcome).toBe('knows');
   });
 });
 

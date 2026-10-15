@@ -65,7 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_widget_daily_day ON widget_daily (day DESC);
 COMMENT ON TABLE widget_daily IS
   'Виджеты партнёров по дням (Камчатка): выдачи lead.js и открытия окон по хосту страницы. Хост подделываем — сигнал, не замок (аудит 15.10, WID-measure).';
 COMMENT ON COLUMN widget_daily.served IS
-  'Выдачи скрипта формы сервером (нижняя граница просмотров); у чата NULL — embed.js статика, выдача не видна.';
+  'Выдачи скрипта формы сервером без кэша браузера (no-store): верхняя граница просмотров страниц с кнопкой, назвавшиеся боты не считаются; у чата NULL — embed.js статика, выдача не видна.';
 COMMENT ON COLUMN widget_daily.opened IS
   'Открытия окна виджета (маяк /api/widget/event по первому клику на странице).';
 

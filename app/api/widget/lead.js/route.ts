@@ -34,7 +34,11 @@ function jsStr(s: string): string {
 function corsHeaders(origin: string | null, domains: string[]): Record<string, string> {
   const h: Record<string, string> = {
     'Content-Type': 'application/javascript; charset=utf-8',
-    'Cache-Control': 'public, max-age=300',
+    // Правда о кэше: общее правило next.config.js отдаёт этот путь с
+    // no-store и перебивает заголовок роута, так что прежние «5 минут» до
+    // браузера не доходили (§10.09, ревью PR #2518). Каждый просмотр — выдача,
+    // на этом стоит счёт served в widget_daily.
+    'Cache-Control': 'no-store',
   };
   if (!origin) return h;
   try {
