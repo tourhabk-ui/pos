@@ -1,4 +1,4 @@
--- Migration 1267: external_alerts — одно соглашение о времени: стенное UTC
+-- Migration 1269: external_alerts — одно соглашение о времени: стенное UTC
 -- Created: 2026-10-15
 --
 -- #2495, решение владельца 15.10 («го»). Колонки created_at / expires_at /
@@ -36,11 +36,11 @@ DECLARE
   v_basis  INT;
   v_held   INT;
 BEGIN
-  INSERT INTO _migrations (name) VALUES ('1267_external_alerts_utc_wall.sql')
+  INSERT INTO _migrations (name) VALUES ('1269_external_alerts_utc_wall.sql')
   ON CONFLICT (name) DO NOTHING;
   GET DIAGNOSTICS v_first = ROW_COUNT;
   IF v_first = 0 THEN
-    RAISE NOTICE '[1267] уже применена — время второй раз не переводится';
+    RAISE NOTICE '[1269] уже применена — время второй раз не переводится';
     RETURN;
   END IF;
 
@@ -65,7 +65,7 @@ BEGIN
      AND expires_at > (NOW() AT TIME ZONE 'UTC');
   GET DIAGNOSTICS v_held = ROW_COUNT;
 
-  RAISE NOTICE '[1267] ручных created_at — %, сроков по основанию — %, удержано погашенных — %',
+  RAISE NOTICE '[1269] ручных created_at — %, сроков по основанию — %, удержано погашенных — %',
     v_manual, v_basis, v_held;
 END $$;
 

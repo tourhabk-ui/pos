@@ -12,7 +12,7 @@
  * `created_at`/`expires_at` — `timestamp` без пояса. Ингест пишет их датой JS
  * с сервера в UTC; сравнение `expires_at > NOW()` толковало их поясом сессии,
  * и тревога уходила из ленты на три часа раньше (15.10, владелец «го»).
- * Теперь код сравнивает и пишет стенным UTC, а миграция 1267 приводит лежащие
+ * Теперь код сравнивает и пишет стенным UTC, а миграция 1269 приводит лежащие
  * строки: ручные created_at (писались NOW() в поясе сессии), срок по
  * основанию (писался в поясе сессии) и погашенное, которое по новому правилу
  * ожило бы. Сценарий здесь — переход целиком: строки «как до», миграция,
@@ -69,7 +69,7 @@ const LRTS_DDL = 'CREATE TABLE IF NOT EXISTS location_real_time_status (id BIGSE
 /** _migrations — как её заводит раннер (scripts/migrate-standalone.js). */
 const MIGRATIONS_DDL = 'CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())';
 
-const UTC_WALL = '1267_external_alerts_utc_wall.sql';
+const UTC_WALL = '1269_external_alerts_utc_wall.sql';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -165,7 +165,7 @@ withPg('safety_status на настоящем PostgreSQL: даты, остато
       [WITHDRAWN.title, WITHDRAWN.external_id, utcWall(WITHDRAWN.created)],
     );
 
-    // ── Выкат: миграция 1267, затем новая тревога ингеста ──────────────────
+    // ── Выкат: миграция 1269, затем новая тревога ингеста ──────────────────
     await pool.query(migration(UTC_WALL));
     await pool.query(
       `INSERT INTO external_alerts (alert_type, severity, title, external_id, created_at, expires_at)
