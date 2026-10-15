@@ -37,8 +37,9 @@ permissions:
 jobs:
   scout-digest:
     runs-on: ubuntu-latest
-    # 90, а не 8: ожидание деплоя (до 70 мин) плюс разведчик (curl до 15 мин) и посты X.
-    timeout-minutes: 90
+    # 100, а не 8: ожидание деплоя (до 70 мин и одной попытки сверх) плюс
+    # npm ci, разведчик (curl до 15 мин) и посты X. При 90 это было впритык.
+    timeout-minutes: 100
     steps:
       # checkout ради scripts/wait-for-deploy.sh: сам замер идёт на проде.
       - uses: actions/checkout@v7

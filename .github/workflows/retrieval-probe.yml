@@ -28,8 +28,8 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # 15.10: ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с: CI, сборка и запись выката); потолок строго больше.
-    timeout-minutes: 75
+    # 15.10: ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с: CI, сборка и запись выката) и одной попытки сверх; потолок строго больше — с запасом на саму пробу (curl до 180 с).
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@v7
 

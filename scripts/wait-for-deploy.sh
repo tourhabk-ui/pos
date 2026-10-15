@@ -19,12 +19,16 @@
 #     (.github/ и tests/ — ни сборка, ни рантайм их не читают: tsconfig
 #     исключает tests, импортов из .github и tests в app/, lib/, components/,
 #     start.js и scripts/migrate-standalone.js нет — сверено grep'ом 15.10),
-#     прод уже несёт тот же код: в проде. Иначе — ждём следующую запись.
+#     прод уже несёт тот же код: в проде. Workflow, назвавший CODE_PATHS
+#     (файлы, от которых зависит ответ прода ЕМУ), в проде и тогда, когда ни
+#     один файл между D и нашим коммитом не лежит под ними, — это то же «вне
+#     образа», только для одного эндпоинта. Иначе — ждём следующую запись.
 #     Переименование проверяется по обоим именам: файл, уехавший из app/
 #     в .github/, образ меняет;
 #   diverged — наш коммит не в линии выкаченного: ждём и говорим.
-# Список файлов сравнения GitHub режет на 300; усечённый список «всё вне
-# образа» не доказывает — это ожидание, а не успех.
+# «Всё вне образа» доказывает только полный список. GitHub режет его на 300
+# файлов; ответ без списка, с пустым списком при ahead или с файлом без имени
+# снаружи не отличить от «GitHub не посчитал дифф» — это ожидание, а не успех.
 #
 # Почему не время сборки. Без автодеплоя путь коммита до прода — очередь CI
 # и сам CI (медиана 15 мин, худший 36) плюс сборка Timeweb (12–26). Образ
@@ -34,10 +38,18 @@
 #
 # Запросы к GitHub — с токеном (GH_TOKEN или GITHUB_TOKEN; шагу его даёт
 # workflow, `deployments: read` в его permissions) и не чаще раза в GH_EVERY
-# (60 с); сравнение — только когда сменился D или прошлое не удалось. Без
+# (120 с); сравнение — только когда сменился D или прошлое не удалось. Без
 # токена GitHub не опрашивается вовсе: анонимно лимит 60 запросов в час на
 # IP, а IP у раннеров общий — опрос раз в 30 с съел бы его за полчаса.
 # Отказ HTTP или битый JSON — «не смог прочитать», а не «доехало» (§4.0).
+#
+# Почему раз в две минуты, а не чаще. Лимит GITHUB_TOKEN — 1000 запросов в
+# час на РЕПОЗИТОРИЙ (документация GitHub; нами не мерился), общий для всех
+# джобов. Одно ожидание тратит около 30 в час; одновременных ожиданий обычно
+# 1–5, но три десятка разом выбрали бы бюджет, и отказал бы не только опрос:
+# `gh api` записи выката в deploy.yml (запись не пишется — ожидания ждут
+# дальше) и заведение issue тревоги в ci-red-alert. Цена паузы — до двух
+# минут задержки «доехало» при выкате, который сам идёт 30–60.
 #
 # ── Запасной путь: маркер /version.json (с 23.08) ──────────────────────────
 #
@@ -45,6 +57,9 @@
 # так бывает до первого выката по новой схеме), это сказано в логе словами
 # «…запись выката… — ждём по built_at», и судит маркер деплоя, который
 # scripts/write-version.js пишет в момент сборки образа (commit + built_at).
+# Опрос, отказавший ПОСЛЕ прочитанной записи, тоже отдаёт эту попытку
+# запасному пути: запись минутной давности не отменяет правила «не смог
+# прочитать — судит built_at», а сам запасной путь не мягче прежнего (ниже).
 #
 # Почему не /api/health build_time. 04.09 (#1582) штамп поставили через
 # `env: { BUILD_TIME }` в next.config.js. Замер 05.09 (prod-check run 8):
@@ -82,6 +97,14 @@
 # «едущий» вместе с эндпоинтом коммит не укладывали по построению — 14
 # workflow с REQUIRE_FRESH=1 краснели бы, не дождавшись.
 #
+# Окно — срок на часах, а не только число попыток. У каждой попытки свои
+# накладные расходы (curl к сайту до 20 с, опрос GitHub до 40, запуски
+# python), и 140 попыток растягивали бы 70 минут ещё на 2–5. Таймаут джоба
+# сторож workflow-timeout-fits-wait сравнивает с ATTEMPTS×SLEEP — и отмена
+# по таймауту стёрла бы исход ровно так, как 14.09. Поэтому пауза не берётся,
+# если на неё уже не хватает срока: ожидание кончается не позже ATTEMPTS×SLEEP
+# плюс одна попытка.
+#
 # «Не дождались» говорится вслух и НЕ роняет прогон: замер на текущем коде
 # тоже информативен, но обязан знать, что он на чужом коде. Исход называет
 # последнюю запись выката, которую видел.
@@ -89,9 +112,9 @@
 # Переменные: BASE (https://vedarai.ru), WANT_SHA (sha коммита прогона),
 # NEED_AFTER (ISO-время коммита; пусто при workflow_dispatch — тогда в
 # запасном пути только исход 1), MIN_BUILD_SECONDS (3900), ATTEMPTS (140),
-# SLEEP (30), GH_EVERY (60), DEPLOY_ENVIRONMENT (vedarai.ru — то же имя пишет
+# SLEEP (30), GH_EVERY (120), DEPLOY_ENVIRONMENT (vedarai.ru — то же имя пишет
 # deploy.yml), GH_TOKEN/GITHUB_TOKEN, GITHUB_REPOSITORY, CODE_PATHS и
-# CODE_STABLE_MINUTES (60) — см. ниже «код эндпоинта давно не менялся».
+# CODE_STABLE_MINUTES (65) — см. ниже «код эндпоинта давно не менялся».
 set -u
 BASE="${BASE:-https://vedarai.ru}"
 WANT_SHA="${WANT_SHA:-${GITHUB_SHA:-}}"
@@ -103,12 +126,19 @@ SLEEP="${SLEEP:-30}"
 # выключенном автодеплое) образ предыдущего коммита сходит за свежий.
 MIN_BUILD_SECONDS="${MIN_BUILD_SECONDS:-3900}"
 DEPLOY_ENVIRONMENT="${DEPLOY_ENVIRONMENT:-vedarai.ru}"
-GH_EVERY="${GH_EVERY:-60}"
+# Раз в две минуты — см. шапку: лимит токена общий на репозиторий.
+GH_EVERY="${GH_EVERY:-120}"
 GH_API="${GITHUB_API_URL:-https://api.github.com}"
 GH_REPO="${GITHUB_REPOSITORY:-}"
 GH_AUTH="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+CODE_PATHS="${CODE_PATHS:-}"
+# Окно запасного пути CODE_PATHS — не короче запаса built_at (см. ниже).
+CODE_STABLE_MINUTES="${CODE_STABLE_MINUTES:-65}"
 # Пути вне образа: ни сборка, ни рантайм их не читают (см. шапку).
 OUTSIDE_IMAGE=".github/ tests/"
+# Срок ожидания на часах — см. шапку «Окно».
+START_EPOCH=$(date +%s)
+WAIT_BUDGET=$((ATTEMPTS * SLEEP))
 
 iso2epoch() {
   python3 -c 'import sys,datetime
@@ -117,35 +147,14 @@ try: print(int(datetime.datetime.fromisoformat(v.replace("Z","+00:00")).timestam
 except Exception: print(0)' "$1"
 }
 
-# ── Код эндпоинта давно не менялся — ждать нечего (03.10) ─────────────────
-# Маркер сборки сейчас не отличает свою сборку от чужой: commit «unknown»,
-# built_at то на 25 с позже пуша, то на 20 минут раньше. Ожидание по нему
-# 03.10 трижды отсидело весь срок (place-coords run 20, сверка с OSM run 8),
-# хотя пушился только маркер, а код эндпоинта на проде был тот же.
-#
-# CODE_PATHS — файлы, от которых зависит ответ прода этому прогону. Если ни
-# один коммит за CODE_STABLE_MINUTES (60, заметно дольше самой долгой
-# сборки — 26 мин) их не трогал, прод уже несёт этот код. Смотрится окно, а
-# не один коммит: правка роута за две минуты до маркера окном ловится, а
-# одним последним коммитом — нет. Истории не хватает, чтобы покрыть окно, —
-# ждём по-старому.
-if [ -n "${CODE_PATHS:-}" ]; then
-  WINDOW_MIN="${CODE_STABLE_MINUTES:-60}"
-  OLDEST=$(git log --format=%ct --reverse 2>/dev/null | head -1)
-  SINCE=$(( $(date +%s) - WINDOW_MIN * 60 ))
-  if [ -n "$OLDEST" ] && [ "$OLDEST" -lt "$SINCE" ]; then
-    # shellcheck disable=SC2086
-    TOUCHED=$(git log --since="@$SINCE" --format='%h %s' -- $CODE_PATHS 2>/dev/null)
-    if [ -z "$TOUCHED" ]; then
-      echo "код эндпоинта ($CODE_PATHS) не менялся ${WINDOW_MIN} мин — прод уже несёт его, ждать нечего"
-      exit 0
-    fi
-    echo "код эндпоинта менялся за ${WINDOW_MIN} мин — ждём сборку:"
-    echo "$TOUCHED"
-  else
-    echo "история короче окна ${WINDOW_MIN} мин — не могу сказать, менялся ли код; ждём по-старому"
+# Пауза между попытками — только если на неё ещё хватает срока. SLEEP=0
+# (сторожа) срока не задаёт: там судит число попыток.
+nap() {
+  if [ "$SLEEP" -gt 0 ] && [ $(( $(date +%s) - START_EPOCH + SLEEP )) -gt "$WAIT_BUDGET" ]; then
+    return 1
   fi
-fi
+  sleep "$SLEEP"
+}
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -189,8 +198,9 @@ compare_record() {
     CMP_D=""; return
   fi
   line=$(python3 -c '
-import json, sys
+import fnmatch, json, sys
 outside = tuple(sys.argv[2].split())
+code_paths = sys.argv[3].split()
 try:
     c = json.load(open(sys.argv[1]))
     st = str(c["status"])
@@ -203,21 +213,32 @@ if st != "ahead":
 files = c.get("files")
 if not isinstance(files, list):
     print("ahead\tnofiles\t-"); sys.exit()
+if not files:
+    print("ahead\tempty\t-"); sys.exit()
 if len(files) >= 300:
     print("ahead\ttruncated\t%d" % len(files)); sys.exit()
 paths = []
 for f in files:
-    names = [f.get(k) for k in ("filename", "previous_filename")] if isinstance(f, dict) else []
-    names = [str(n) for n in names if n]
-    paths.extend(names if names else ["(файл без имени)"])
-inside = [p for p in paths if not p.startswith(outside)]
+    name = f.get("filename") if isinstance(f, dict) else None
+    if not name:
+        print("ahead\tunnamed\t-"); sys.exit()
+    paths.append(str(name))
+    if f.get("previous_filename"):
+        paths.append(str(f["previous_filename"]))
+paths = list(dict.fromkeys(paths))
+def under(p, spec):
+    s = spec.rstrip("/")
+    return p == s or p.startswith(s + "/") or fnmatch.fnmatchcase(p, spec)
 show = lambda xs: ", ".join(xs[:5]) + (" и ещё %d" % (len(xs) - 5) if len(xs) > 5 else "")
-if inside:
-    print("ahead\timage\t" + show(inside))
+inside = [p for p in paths if not p.startswith(outside)]
+if not inside:
+    print("ahead\toutside\t" + show(sorted(paths)))
+elif code_paths:
+    code = [p for p in paths if any(under(p, s) for s in code_paths)]
+    print(("ahead\tcode\t" + show(code)) if code else ("ahead\tnocode\t" + show(sorted(paths))))
 else:
-    uniq = sorted(set(paths))
-    print("ahead\toutside\t" + (show(uniq) if uniq else "изменённых файлов нет"))
-' "$TMPD/cmp.json" "$OUTSIDE_IMAGE" 2>/dev/null || echo bad)
+    print("ahead\timage\t" + show(inside))
+' "$TMPD/cmp.json" "$OUTSIDE_IMAGE" "$CODE_PATHS" 2>/dev/null || echo bad)
   st=$(printf '%s' "$line" | cut -f1)
   kind=$(printf '%s' "$line" | cut -f2)
   list=$(printf '%s' "$line" | cut -f3-)
@@ -234,12 +255,24 @@ else:
         outside)
           VERDICT=in
           VERDICT_TXT="между выкаченным ${D_SHA:0:7} (#$D_ID) и нашим коммитом только файлы вне образа: $list — прод уже несёт тот же код" ;;
+        nocode)
+          VERDICT=in
+          VERDICT_TXT="между выкаченным ${D_SHA:0:7} (#$D_ID) и нашим коммитом код эндпоинта не менялся (CODE_PATHS: $CODE_PATHS; изменены только: $list) — прод уже несёт его" ;;
+        code)
+          VERDICT=wait
+          VERDICT_TXT="выкачен ${D_SHA:0:7} (#$D_ID); между ним и нашим коммитом менялся код эндпоинта: $list" ;;
         image)
           VERDICT=wait
           VERDICT_TXT="выкачен ${D_SHA:0:7} (#$D_ID); между ним и нашим коммитом есть файлы образа: $list" ;;
         truncated)
           VERDICT=wait
           VERDICT_TXT="выкачен ${D_SHA:0:7} (#$D_ID); сравнение с нашим коммитом усечено ($list файлов) — «всё вне образа» не доказать" ;;
+        empty)
+          VERDICT=wait
+          VERDICT_TXT="выкачен ${D_SHA:0:7} (#$D_ID); сравнение назвало ноль файлов при ahead — «изменений нет» и «GitHub не посчитал дифф» снаружи не различить" ;;
+        unnamed)
+          VERDICT=wait
+          VERDICT_TXT="выкачен ${D_SHA:0:7} (#$D_ID); в сравнении файл без имени — «всё вне образа» не доказать" ;;
         *)
           VERDICT=wait
           VERDICT_TXT="выкачен ${D_SHA:0:7} (#$D_ID); сравнение с нашим коммитом не назвало файлов — «всё вне образа» не доказать" ;;
@@ -292,22 +325,80 @@ print("ok", top["sha"], top["id"])
   esac
 }
 
+# Опрос и, если запись не прочитана, — слова об этом.
+poll_and_say() {
+  poll_record
+  case "$REC" in
+    fail) echo "не смог прочитать запись выката ($REC_WHY) — ждём по built_at" ;;
+    none) echo "$REC_WHY — ждём по built_at" ;;
+  esac
+}
+
 NEED=$(iso2epoch "$NEED_AFTER")
 if [ "$REC" = off ]; then
   echo "запись выката читать нечем ($REC_WHY) — ждём по built_at"
+else
+  # Первый опрос — ДО окна CODE_PATHS ниже: запись главнее окна.
+  poll_and_say
 fi
+
+# ── Код эндпоинта давно не менялся — ждать нечего (03.10, 15.10) ──────────
+#
+# CODE_PATHS — файлы, от которых зависит ответ прода этому прогону. 03.10
+# ожидание по сломанному маркеру сборки трижды отсидело весь срок
+# (place-coords run 20, сверка с OSM run 8), хотя пушился только маркер, а
+# код эндпоинта на проде был тот же.
+#
+# Прочитана запись выката — CODE_PATHS судит ОНА (compare_record выше): ни
+# один файл между выкаченным D и нашим коммитом не лежит под CODE_PATHS —
+# прод несёт этот код. Окно по времени — только запасной путь, когда запись
+# не прочиталась.
+#
+# Почему окно больше не первое (15.10). Его посылка «коммит старше часа уже на
+# проде» держалась на вебхуке, выкатывавшем каждый пуш. Без автодеплоя она
+# ложна: CI на main красный или выкат упал — код не выкатывается вовсе, а путь
+# «CI худший 36 + сборка 26» длиннее прежних 60 минут. Стоя до записи, окно
+# отвечало «прод уже несёт» на коммит в lib/places, которого в записи нет, —
+# и place-coords (REQUIRE_FRESH, apply пишет координаты в базу прода) шёл бы
+# по чужому коду. Окно поднято до 65 мин — того же запаса, что у built_at.
+# Оговорка остаётся и названа: при красном CI на main окно лжёт всё равно —
+# коммит, который не выкатывался, через 65 минут сходит за выкаченный. Потому
+# оно и запасное.
+#
+# Смотрится окно, а не один коммит: правка роута за две минуты до маркера
+# окном ловится, а одним последним коммитом — нет. Истории не хватает, чтобы
+# покрыть окно, — ждём по-старому.
+if [ -n "$CODE_PATHS" ]; then
+  if [ "$REC" = ok ]; then
+    echo "код эндпоинта ($CODE_PATHS) судит запись выката, а не окно по времени"
+  else
+    WINDOW_MIN="$CODE_STABLE_MINUTES"
+    OLDEST=$(git log --format=%ct --reverse 2>/dev/null | head -1)
+    SINCE=$(( $(date +%s) - WINDOW_MIN * 60 ))
+    if [ -n "$OLDEST" ] && [ "$OLDEST" -lt "$SINCE" ]; then
+      # shellcheck disable=SC2086
+      TOUCHED=$(git log --since="@$SINCE" --format='%h %s' -- $CODE_PATHS 2>/dev/null)
+      if [ -z "$TOUCHED" ]; then
+        echo "запись выката не прочитана — запасной путь по окну: код эндпоинта ($CODE_PATHS) не менялся ${WINDOW_MIN} мин — прод уже несёт его, если CI на main зелёный; ждать нечего"
+        exit 0
+      fi
+      echo "код эндпоинта менялся за ${WINDOW_MIN} мин — ждём сборку:"
+      echo "$TOUCHED"
+    else
+      echo "история короче окна ${WINDOW_MIN} мин — не могу сказать, менялся ли код; ждём по-старому"
+    fi
+  fi
+fi
+
 echo "ждём прод на ${WANT_SHA:0:7}: по записи выката $DEPLOY_ENVIRONMENT, запасной путь — сборка не раньше чем через ${MIN_BUILD_SECONDS}с после $NEED_AFTER (epoch $NEED)"
 
 SERVED="-"
 for i in $(seq 1 "$ATTEMPTS"); do
-  if [ "$REC" != off ]; then
+  # Первая попытка уже опрошена выше.
+  if [ "$REC" != off ] && [ "$i" -gt 1 ]; then
     NOW=$(date +%s)
-    if [ "$LAST_GH" -eq 0 ] || [ $((NOW - LAST_GH)) -ge "$GH_EVERY" ]; then
-      poll_record
-      case "$REC" in
-        fail) echo "не смог прочитать запись выката ($REC_WHY) — ждём по built_at" ;;
-        none) echo "$REC_WHY — ждём по built_at" ;;
-      esac
+    if [ $((NOW - LAST_GH)) -ge "$GH_EVERY" ]; then
+      poll_and_say
     fi
   fi
   if [ "$REC" = ok ] && [ "$VERDICT" = in ]; then
@@ -342,14 +433,14 @@ except Exception: print("no-marker", -1, "-")' 2>/dev/null || echo "no-marker -1
   # и есть то, что запись заменила (см. шапку).
   if [ "$REC" = ok ]; then
     echo "ещё не доехало по записи выката: $VERDICT_TXT; жду ${SLEEP}с ($i/$ATTEMPTS)"
-    sleep "$SLEEP"
+    nap || break
     continue
   fi
   if [ -n "$AHEAD" ] && [ "$AHEAD" -ge "$MIN_BUILD_SECONDS" ]; then
     echo "прод на сборке новее нашего коммита: ${SERVED:0:7}, $AHEAD_TXT >= запаса ${MIN_BUILD_SECONDS}с — содержит наш код (запасной путь, попытка $i)"; exit 0
   fi
   echo "ещё не доехало: прод отдаёт ${SERVED:0:7} ($AHEAD_TXT, reason $REASON), жду ${SLEEP}с ($i/$ATTEMPTS)"
-  sleep "$SLEEP"
+  nap || break
 done
 
 case "$REC" in

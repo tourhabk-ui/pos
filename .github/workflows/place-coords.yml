@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # История за час — для CODE_PATHS в wait-for-deploy.sh.
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh, когда запись выката не прочитана.
           fetch-depth: 200
 
       # ── Почему ожидание появилось только 20.09 ──────────────────────────────

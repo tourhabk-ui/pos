@@ -36,12 +36,14 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # 75, а не 8: ожидание своей сборки (до 70 мин) плюс сам замер.
-    timeout-minutes: 75
+    # 90, а не 8: ожидание своей сборки (до 70 мин и одной попытки сверх —
+    # срок на часах, scripts/wait-for-deploy.sh) плюс сам замер — серия
+    # curl, по их --max-time в сумме до 11 минут в худшем случае.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
-          # История за час — для CODE_PATHS в wait-for-deploy.sh (как у place-coords).
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh, когда запись выката не прочитана (как у place-coords).
           fetch-depth: 200
 
       # Замер шёл по ЧУЖОМУ контейнеру — и это уже стоило неверного вывода.

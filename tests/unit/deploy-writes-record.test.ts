@@ -16,7 +16,10 @@
  *  - шаг сверки ИСПОЛНЯЕТСЯ целиком (заглушки curl и sleep, настоящий git):
  *    в выход уходит sha, который сверка доказала, а не эхо заказа из панели;
  *    образ предыдущего коммита, начатый до нашего заказа сборки, за наш не
- *    сходит — прежний запас 600 с от времени коммита его принимал;
+ *    сходит — прежний запас 600 с от времени коммита его принимал; образ,
+ *    начатый после нашего заказа, сходит за наш, только если последний заказ
+ *    в панели содержит наш коммит (замечание ревью 15.10: старший коммит,
+ *    заказанный следом, иначе записался бы как наш);
  *  - шаг записи ИСПОЛНЯЕТСЯ с заглушкой gh: тело запроса, статус success,
  *    отказ записи не роняет джоб, пустой sha — записи нет, но вслух.
  */
@@ -66,6 +69,15 @@ case "$url" in
   */apps/198048) key=app;;
   *) key=other;;
 esac
+# Последовательность ответов: <key>.seq — имя ответа на каждый вызов по
+# порядку, последний повторяется.
+if [ -f "$FAKE_DIR/$key.seq" ]; then
+  n=$(cat "$FAKE_DIR/$key.n" 2>/dev/null || echo 0)
+  total=$(wc -l < "$FAKE_DIR/$key.seq")
+  idx=$(( n < total ? n + 1 : total ))
+  echo $((n + 1)) > "$FAKE_DIR/$key.n"
+  key=$(sed -n "\${idx}p" "$FAKE_DIR/$key.seq")
+fi
 code=$(cat "$FAKE_DIR/$key.code" 2>/dev/null || echo 200)
 body=$(cat "$FAKE_DIR/$key.json" 2>/dev/null || echo '{}')
 if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
@@ -288,6 +300,37 @@ describe('сверка отдаёт в выход то, что доказала,
     expect(r.out).toMatch(/Деплой подтверждён заказом сборки/);
     expect(r.outputs.deployed_sha).toBe(C1);
     expect(r.outputs.confirmed_by).toBe('ordered');
+  });
+
+  it('после нас заказан СТАРШИЙ коммит — образ «после заказа» не наш, записи нет', () => {
+    // Замечание ревью 15.10: прогон старшего коммита (C0), запущенный повторно
+    // или задержанный очередью, заказал сборку после нашего заказа и
+    // остановил нашу. Образ C0 начат после нашего заказа; без сверки панели
+    // запись назвала бы на проде C1, когда там C0. Фаза 1 видит в панели наш
+    // заказ, к моменту принятия последний заказ — уже C0.
+    const r = runStep(verify, env(NEED + 900), {
+      'app.seq': 'app-ours\napp-older\n',
+      'app-ours.json': app(C1),
+      'app-older.json': app(C0),
+      'served.json': served('unknown', NEED + 930),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(new RegExp(`последний заказ в панели — ${C0.slice(0, 7)}, он не содержит ${C1.slice(0, 7)}`));
+    expect(r.out).not.toMatch(/Деплой подтверждён заказом сборки/);
+    expect(r.outputs.deployed_sha).toBe('');
+    expect(r.outputs.confirmed_by).toBe('none');
+  });
+
+  it('панель не ответила в момент принятия — «по заказу» не подтверждаем', () => {
+    const r = runStep(verify, env(NEED + 900), {
+      'app.seq': 'app-ours\napp-down\n',
+      'app-ours.json': app(C1),
+      'app-down.code': '503',
+      'served.json': served('unknown', NEED + 930),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/панель не ответила \(HTTP 503\) — чей заказ последний, не сверить/);
+    expect(r.outputs.deployed_sha).toBe('');
   });
 
   it('образ предыдущего коммита, законченный после пуша, но начатый до заказа, — не подтверждение', () => {

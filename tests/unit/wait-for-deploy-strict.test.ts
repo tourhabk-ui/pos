@@ -123,7 +123,18 @@ describe('код эндпоинта давно не менялся — ждат�
 
   it('пропуск — только по окну без правок кода, а не по одному последнему коммиту', () => {
     expect(SH).toMatch(/git log --since="@\$SINCE"[^\n]*-- \$CODE_PATHS/);
-    expect(SH).toContain('CODE_STABLE_MINUTES:-60');
+  });
+
+  it('окно запасного пути не короче запаса built_at (15.10)', () => {
+    // Без автодеплоя коммит старше прежнего часа ещё может ехать: CI худший
+    // 36 мин + сборка 26. Окно короче запаса built_at мягче запасного пути,
+    // которому оно служит. Что окно стоит ПОСЛЕ записи выката, держит
+    // исполнением wait-for-deploy-record.
+    const win = Number(/CODE_STABLE_MINUTES="\$\{CODE_STABLE_MINUTES:-(\d+)\}"/.exec(SH)?.[1]);
+    const margin = Number(/MIN_BUILD_SECONDS="\$\{MIN_BUILD_SECONDS:-(\d+)\}"/.exec(SH)?.[1]);
+    expect(win, 'умолчание CODE_STABLE_MINUTES не прочитано').toBeGreaterThan(0);
+    expect(margin).toBeGreaterThan(0);
+    expect(win * 60).toBeGreaterThanOrEqual(margin);
   });
 
   it('истории короче окна — ждём по-старому, а не пропускаем', () => {

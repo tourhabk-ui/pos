@@ -24,13 +24,22 @@
  *  - отказ API / битый JSON → «не смог прочитать запись выката — ждём по
  *    built_at», и запасной путь не мягче прежнего;
  *  - без токена GitHub не опрашивается вовсе;
- *  - усечённый список файлов и переименование из образа — не «вне образа».
+ *  - усечённый, пустой список файлов и переименование из образа — не «вне
+ *    образа»; файлы, которые в образе есть (migrations/, public/, start.js…),
+ *    — тоже не «вне»;
+ *  - CODE_PATHS судит запись выката; окно по времени — только запасной путь,
+ *    когда запись не прочитана (замечание ревью 15.10: стоя ДО записи, окно
+ *    отвечало «прод уже несёт» на коммит в lib/places, которого в записи нет);
+ *  - срок ожидания — на часах: накладные расходы попыток окно не растягивают;
+ *  - каждый workflow, который ждёт, может прочитать запись: токен у шага и
+ *    права `deployments`/`contents` у джоба.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { load } from 'js-yaml';
 import { loadWorkflow } from '../helpers/workflow-semantics';
 
 const SCRIPT = join(process.cwd(), 'scripts/wait-for-deploy.sh');
@@ -61,6 +70,10 @@ case "$url" in
   */compare/*) b="\${url##*/compare/}"; key="compare-\${b:0:7}";;
   *) key=other;;
 esac
+# Подложенные часы: каждый вопрос сайту стоит FAKE_CURL_COST секунд.
+if [ -n "\${FAKE_CLOCK:-}" ] && [ "$key" = version ]; then
+  echo $(( $(cat "$FAKE_CLOCK") + \${FAKE_CURL_COST:-0} )) > "$FAKE_CLOCK"
+fi
 # Последовательность ответов: <key>.seq — имя ответа на каждый вызов по
 # порядку, последний повторяется.
 if [ -f "$FAKE_DIR/$key.seq" ]; then
@@ -78,6 +91,17 @@ if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; f
 exit 0
 `;
 
+// Часы и пауза: без FAKE_CLOCK — настоящие (первый элемент PATH — заглушки,
+// он и снимается); с ним `date +%s` читает файл, а `sleep N` двигает его.
+const DATE_STUB = `#!/usr/bin/env bash
+if [ -n "\${FAKE_CLOCK:-}" ] && [ "$*" = "+%s" ]; then cat "$FAKE_CLOCK"; exit 0; fi
+PATH="\${PATH#*:}" exec date "$@"
+`;
+const SLEEP_STUB = `#!/usr/bin/env bash
+if [ -n "\${FAKE_CLOCK:-}" ]; then echo $(( $(cat "$FAKE_CLOCK") + $1 )) > "$FAKE_CLOCK"; exit 0; fi
+PATH="\${PATH#*:}" exec sleep "$@"
+`;
+
 let work: string;
 let bin: string;
 
@@ -85,8 +109,10 @@ beforeAll(() => {
   work = mkdtempSync(join(tmpdir(), 'wait-record-'));
   bin = join(work, 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'curl'), CURL_STUB);
-  chmodSync(join(bin, 'curl'), 0o755);
+  for (const [name, body] of [['curl', CURL_STUB], ['date', DATE_STUB], ['sleep', SLEEP_STUB]] as const) {
+    writeFileSync(join(bin, name), body);
+    chmodSync(join(bin, name), 0o755);
+  }
 });
 
 afterAll(() => {
@@ -94,13 +120,23 @@ afterAll(() => {
 });
 
 interface Call { url: string; auth: boolean }
-interface Run { code: number; out: string; calls: Call[] }
+interface Run { code: number; out: string; calls: Call[]; clock: number | null }
 
 type Fake = Record<string, string>;
 
-function runWait(env: Record<string, string>, fake: Fake, opts: { token?: boolean } = {}): Run {
+interface WaitOpts {
+  token?: boolean;
+  /** Каталог запуска — git-репозиторий для окна CODE_PATHS. */
+  cwd?: string;
+  /** Подложенные часы: начальное время, epoch. */
+  clock?: number;
+}
+
+function runWait(env: Record<string, string>, fake: Fake, opts: WaitOpts = {}): Run {
   const fakeDir = mkdtempSync(join(work, 'fake-'));
   for (const [f, body] of Object.entries(fake)) writeFileSync(join(fakeDir, f), body);
+  const clockFile = join(fakeDir, 'clock');
+  if (opts.clock !== undefined) writeFileSync(clockFile, String(opts.clock));
   const fullEnv: Record<string, string> = {
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     HOME: process.env.HOME ?? work,
@@ -113,12 +149,13 @@ function runWait(env: Record<string, string>, fake: Fake, opts: { token?: boolea
     SLEEP: '0',
     GH_EVERY: '0',
     ...(opts.token === false ? {} : { GH_TOKEN: 'ghs_test' }),
+    ...(opts.clock !== undefined ? { FAKE_CLOCK: clockFile } : {}),
     ...env,
   };
   let code = 0;
   let out = '';
   try {
-    out = execFileSync('bash', [SCRIPT], { cwd: fakeDir, env: fullEnv, encoding: 'utf-8', stdio: 'pipe' });
+    out = execFileSync('bash', [SCRIPT], { cwd: opts.cwd ?? fakeDir, env: fullEnv, encoding: 'utf-8', stdio: 'pipe' });
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string };
     code = e.status ?? 1;
@@ -129,7 +166,8 @@ function runWait(env: Record<string, string>, fake: Fake, opts: { token?: boolea
     const [url, auth] = l.split('\t');
     return { url, auth: auth === '1' };
   });
-  return { code, out, calls };
+  const clock = opts.clock !== undefined ? Number(readFileSync(clockFile, 'utf-8')) : null;
+  return { code, out, calls, clock };
 }
 
 const github = (r: Run) => r.calls.filter((c) => c.url.includes('api.github.com'));
@@ -281,6 +319,178 @@ describe('список файлов сравнения, который «вне 
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/есть файлы образа: testsuite\/a\.ts, \.githubx\/b\.ts/);
   });
+
+  it('пустой список файлов при ahead — не «изменений нет», а «не доказать»', () => {
+    // Пустой коммит и «GitHub не посчитал дифф» снаружи неразличимы.
+    const r = runWait({ REQUIRE_FRESH: '1' }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', []),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/сравнение назвало ноль файлов при ahead/);
+    expect(r.out).not.toMatch(/прод уже несёт/);
+  });
+
+  it('файл без имени — не «вне образа» и не «вне CODE_PATHS»', () => {
+    const r = runWait({ REQUIRE_FRESH: '1', CODE_PATHS: 'lib/places' }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': JSON.stringify({ status: 'ahead', files: [{ filename: '.github/x.json' }, { status: 'modified' }] }),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/в сравнении файл без имени/);
+  });
+
+  // Список «вне образа» закреплён исполнением (замечание ревью 15.10: его
+  // расширение до migrations/ и public/ проходило сторожей зелёным). Эти
+  // файлы в образе ЕСТЬ: runner-стадия Dockerfile копирует public/,
+  // migrations/, start.js и scripts/migrate-standalone.js, а package.json,
+  // next.config.js и Dockerfile задают саму сборку.
+  it.each([
+    'migrations/1300_x.sql',
+    'public/x.png',
+    'start.js',
+    'scripts/migrate-standalone.js',
+    'package.json',
+    'next.config.js',
+    'Dockerfile',
+  ])('%s рядом с маркером — файл образа, ждём', (file) => {
+    const r = runWait({ REQUIRE_FRESH: '1' }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', [{ filename: '.github/triggers/prod-check.json' }, { filename: file }]),
+      'version.json': FAR_FUTURE,
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`есть файлы образа: ${file}`);
+  });
+});
+
+// ── CODE_PATHS: запись главнее окна (замечание ревью 15.10, блокирующее) ──
+//
+// Окно «код эндпоинта не менялся 60 мин» стояло ДО записи и решало по
+// времени. Без автодеплоя его посылка ложна: CI на main красный или выкат
+// упал — код не выкатывается вовсе, а путь CI 36 + сборка 26 длиннее часа.
+// Ревьюер воспроизвёл: коммит в lib/places 90 минут назад, которого в записи
+// нет, — и place-coords (REQUIRE_FRESH, apply пишет координаты в базу прода)
+// получал «прод уже несёт его», exit 0, не спросив GitHub ни разу.
+describe('CODE_PATHS судит запись выката; окно по времени — только запасной путь', () => {
+  const NOW = Math.floor(Date.now() / 1000);
+  const CP = 'app/api/cron/place-coords lib/places';
+
+  /** git-репозиторий с коммитами «N минут назад» — для окна CODE_PATHS. */
+  function repoWith(commits: Array<{ file: string; minutesAgo: number }>): string {
+    const dir = mkdtempSync(join(work, 'repo-'));
+    const git = (args: string[], env: Record<string, string> = {}) =>
+      execFileSync('git', ['-c', 'color.ui=false', ...args], {
+        cwd: dir, encoding: 'utf-8', env: { ...process.env, ...env },
+      });
+    git(['init', '-q', '-b', 'main']);
+    git(['config', 'user.email', 'test@example.invalid']);
+    git(['config', 'user.name', 'test']);
+    for (const c of commits) {
+      mkdirSync(join(dir, c.file, '..'), { recursive: true });
+      writeFileSync(join(dir, c.file), `${c.minutesAgo}\n`);
+      git(['add', c.file]);
+      const when = `@${NOW - c.minutesAgo * 60} +0000`;
+      git(['commit', '-q', '-m', `правка ${c.file}`], { GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when });
+    }
+    return dir;
+  }
+
+  // Код эндпоинта не трогали 90 минут — окно сказало бы «прод уже несёт».
+  const QUIET = [
+    { file: 'lib/places/a.ts', minutesAgo: 180 },
+    { file: 'lib/places/b.ts', minutesAgo: 90 },
+    { file: '.github/triggers/place-coords.json', minutesAgo: 2 },
+  ];
+
+  it('случай ревью: в записи нет правки lib/places — ждём и краснеем, окно не спрашивается', () => {
+    const r = runWait({ REQUIRE_FRESH: '1', CODE_PATHS: CP }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', [
+        { filename: 'lib/places/b.ts' },
+        { filename: '.github/triggers/place-coords.json' },
+      ]),
+      'version.json': FAR_FUTURE,
+    }, { cwd: repoWith(QUIET) });
+    expect(r.code).toBe(1);
+    expect(r.out).not.toMatch(/не менялся 6\d мин/);
+    expect(r.out).toMatch(/код эндпоинта \(app\/api\/cron\/place-coords lib\/places\) судит запись выката/);
+    expect(r.out).toMatch(/последняя запись выката: выкачен 1111111 \(#7\); между ним и нашим коммитом менялся код эндпоинта: lib\/places\/b\.ts/);
+    expect(github(r).length).toBeGreaterThan(0);
+  });
+
+  it('переименование из CODE_PATHS наружу — код эндпоинта менялся', () => {
+    const r = runWait({ REQUIRE_FRESH: '1', CODE_PATHS: CP }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', [{ filename: 'lib/geo/b.ts', previous_filename: 'lib/places/b.ts' }]),
+    }, { cwd: repoWith(QUIET) });
+    expect(r.code).toBe(1);
+    // lib/geo в CODE_PATHS этого прогона нет — код эндпоинта назван по старому имени.
+    expect(r.out).toMatch(/менялся код эндпоинта: lib\/places\/b\.ts[;)]/);
+  });
+
+  it('между записью и нашим коммитом код эндпоинта не менялся — в проде, по записи', () => {
+    const r = runWait({ REQUIRE_FRESH: '1', CODE_PATHS: CP }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', [
+        { filename: 'lib/other.ts' },
+        { filename: '.github/triggers/place-coords.json' },
+      ]),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/между выкаченным 1111111 \(#7\) и нашим коммитом код эндпоинта не менялся \(CODE_PATHS: app\/api\/cron\/place-coords lib\/places; изменены только: \.github\/triggers\/place-coords\.json, lib\/other\.ts\)/);
+  });
+
+  it('путь, лишь начинающийся как CODE_PATHS (lib/places-x/), — не код эндпоинта', () => {
+    const r = runWait({ CODE_PATHS: CP }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', [{ filename: 'lib/places-x/a.ts' }]),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/код эндпоинта не менялся/);
+  });
+
+  it('без CODE_PATHS тот же дифф — файлы образа, ждём', () => {
+    const r = runWait({ REQUIRE_FRESH: '1' }, {
+      'deployments.json': deployments({ id: 7, sha: D1 }),
+      'compare-1111111.json': compare('ahead', [{ filename: 'lib/other.ts' }]),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/есть файлы образа: lib\/other\.ts/);
+  });
+
+  it('запись не прочитана — окно запасным путём и словами; код не трогали дольше окна → 0', () => {
+    const r = runWait({ REQUIRE_FRESH: '1', CODE_PATHS: CP }, {
+      'deployments.code': '500',
+    }, { cwd: repoWith(QUIET) });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/не смог прочитать запись выката \(список записей: HTTP 500/);
+    expect(r.out).toMatch(/запись выката не прочитана — запасной путь по окну: код эндпоинта \(app\/api\/cron\/place-coords lib\/places\) не менялся 65 мин/);
+  });
+
+  it('запись не прочитана, код трогали 62 минуты назад — окно его ловит (прежние 60 — нет)', () => {
+    // Без автодеплоя коммит 62-минутной давности ещё может ехать: CI 36 +
+    // сборка 26. Окно запасного пути — не короче запаса built_at (65 мин).
+    const r = runWait({ REQUIRE_FRESH: '1', CODE_PATHS: CP }, {
+      'deployments.code': '500',
+      'version.json': version(PUSH - 60),
+    }, {
+      cwd: repoWith([
+        { file: 'lib/places/a.ts', minutesAgo: 180 },
+        { file: 'lib/places/b.ts', minutesAgo: 62 },
+        { file: '.github/triggers/place-coords.json', minutesAgo: 2 },
+      ]),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/код эндпоинта менялся за 65 мин — ждём сборку/);
+  });
+
+  it('без токена — окно запасным путём, к GitHub ни одного запроса', () => {
+    const r = runWait({ CODE_PATHS: CP }, {}, { cwd: repoWith(QUIET), token: false });
+    expect(github(r)).toEqual([]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/запасной путь по окну/);
+  });
 });
 
 describe('запись не прочитать — запасной путь, сказанный словами и не мягче прежнего', () => {
@@ -371,7 +581,12 @@ describe('к GitHub — с токеном и редко', () => {
       'compare-1111111.json': compare('behind', []),
     }, { token: false });
     expect(r.code).toBe(0);
+    // Без запросов `every` истинно на пустом массиве (мутация ревью 15.10
+    // «GH_AUTH только из GH_TOKEN» проходила зелёной): запросы были, и исход
+    // — по записи, а не по запасному пути.
+    expect(github(r).length).toBeGreaterThan(0);
     expect(github(r).every((c) => c.auth)).toBe(true);
+    expect(r.out).toMatch(/в проде: последняя запись выката — 1111111 \(#7\), сравнение: behind/);
   });
 
   it('каждый запрос к GitHub — с токеном', () => {
@@ -383,18 +598,45 @@ describe('к GitHub — с токеном и редко', () => {
     expect(github(r).every((c) => c.auth)).toBe(true);
   });
 
-  it('по умолчанию не чаще раза в минуту: четыре попытки подряд — один опрос записи и одно сравнение', () => {
-    const env: Record<string, string> = { ATTEMPTS: '4' };
-    const fake = {
+  it('по умолчанию не чаще раза в две минуты: девять попыток по 30 с — три опроса записи и одно сравнение', () => {
+    // Часы подложены: 30 с пауза двигает их на 30. Опросы — до цикла (t=0),
+    // на t=120 и t=240; при прежней минуте их было бы пять. Лимит токена —
+    // общий на репозиторий (шапка скрипта).
+    const r = runWait({ ATTEMPTS: '9', SLEEP: '30', GH_EVERY: '' }, {
       'deployments.json': deployments({ id: 7, sha: D1 }),
       'compare-1111111.json': compare('ahead', [{ filename: 'app/page.tsx' }]),
       'version.json': version(PUSH - 60),
-    };
-    const r = runWait({ ...env, GH_EVERY: '' }, fake);
-    // GH_EVERY пустой — умолчание скрипта (60 с); попытки идут без паузы.
-    expect(deploymentCalls(r)).toHaveLength(1);
+    }, { clock: 1_000_000 });
+    expect(r.calls.filter((c) => c.url.endsWith('/version.json'))).toHaveLength(9);
+    expect(deploymentCalls(r)).toHaveLength(3);
     expect(compareCalls(r)).toHaveLength(1);
-    expect(r.calls.filter((c) => c.url.endsWith('/version.json'))).toHaveLength(4);
+  });
+});
+
+// ── Срок ожидания — на часах (замечание ревью 15.10) ──────────────────────
+//
+// Сторож workflow-timeout-fits-wait сравнивает таймаут джоба с ATTEMPTS×SLEEP.
+// У попыток свои накладные расходы (curl к сайту до 20 с, опрос GitHub), и
+// 140 попыток растягивали 70 минут ещё на 2–5: джоб с потолком 75 снимала бы
+// отмена — исход стёрт, как 14.09.
+describe('ожидание не длиннее ATTEMPTS×SLEEP плюс одна попытка', () => {
+  it('попытка стоит 10 с, бюджет 10 × 30 с — ожидание кончается в срок, а не через 400 с', () => {
+    const T0 = 1_000_000;
+    const r = runWait({ ATTEMPTS: '10', SLEEP: '30', FAKE_CURL_COST: '10' }, {
+      'version.json': version(PUSH - 60),
+    }, { token: false, clock: T0 });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/своей сборки не дождались за 5 мин/);
+    const tries = r.calls.filter((c) => c.url.endsWith('/version.json')).length;
+    expect(tries).toBeLessThan(10);
+    expect(r.clock! - T0).toBeLessThanOrEqual(10 * 30 + 10);
+  });
+
+  it('без накладных расходов — все попытки', () => {
+    const r = runWait({ ATTEMPTS: '10', SLEEP: '30' }, {
+      'version.json': version(PUSH - 60),
+    }, { token: false, clock: 1_000_000 });
+    expect(r.calls.filter((c) => c.url.endsWith('/version.json'))).toHaveLength(10);
   });
 });
 
@@ -410,5 +652,65 @@ describe('ожидание читает то окружение, куда пиш
     const q = deploymentCalls(r)[0]?.url ?? '';
     expect(new URL(q).searchParams.get('environment')).toBe(env);
     expect(new URL(q).pathname).toBe('/repos/tourhabk-ui/pos/deployments');
+  });
+});
+
+// ── Связка на стороне ожидающих (замечание ревью 15.10) ───────────────────
+//
+// Запись читается токеном шага, и токену нужно право. Мутации ревью — убрать
+// GH_TOKEN у шага ожидания prod-check, убрать `deployments: read` у
+// emsd-vmon-probe — проходили все сторожа workflow зелёными: такой workflow
+// тихо уходит в запасной путь с запасом 3900 с, то есть почти всегда «не
+// дождались», а с REQUIRE_FRESH — красный. Сторож держит связку: каждый шаг,
+// который ЗОВЁТ скрипт, несёт токен, а права его джоба названы явно и
+// включают `deployments` и `contents` (compare). Блок прав обязателен:
+// права токена без него — настройка репозитория, из файлов её не видно, а в
+// режиме restricted `deployments` нет вовсе.
+describe('каждый, кто ждёт сборку, может прочитать запись выката', () => {
+  const WF_DIR = join(process.cwd(), '.github/workflows');
+  type Perms = string | Record<string, string> | undefined;
+  interface Job { permissions?: Perms; env?: Record<string, string>; steps?: Array<{ name?: string; run?: string; env?: Record<string, string> }> }
+  interface Doc { permissions?: Perms; env?: Record<string, string>; jobs?: Record<string, Job> }
+
+  /** Шаг зовёт скрипт строкой кода, а не упоминает в комментарии. */
+  const calls = (run: string | undefined) =>
+    (run ?? '').split('\n').some((l) => !/^\s*#/.test(l) && l.includes('scripts/wait-for-deploy.sh'));
+  const TOKEN = /^\$\{\{\s*(github\.token|secrets\.GITHUB_TOKEN)\s*\}\}$/;
+  const canRead = (perms: Perms, scope: string) =>
+    perms === 'read-all' || perms === 'write-all'
+      || (typeof perms === 'object' && perms !== null && ['read', 'write'].includes(perms[scope]));
+
+  const waiters: Array<{ where: string; doc: Doc; job: Job; step: NonNullable<Job['steps']>[number] }> = [];
+  for (const f of readdirSync(WF_DIR).filter((x) => /\.ya?ml$/.test(x)).sort()) {
+    const doc = load(readFileSync(join(WF_DIR, f), 'utf-8')) as Doc;
+    for (const [jn, job] of Object.entries(doc.jobs ?? {})) {
+      for (const step of job.steps ?? []) {
+        if (calls(step.run)) waiters.push({ where: `${f} / ${jn} / ${step.name ?? '(шаг без имени)'}`, doc, job, step });
+      }
+    }
+  }
+
+  it('ожидающие найдены — сторож не зеленеет впустую', () => {
+    expect(waiters.length).toBeGreaterThan(20);
+  });
+
+  it('у шага ожидания есть токен', () => {
+    const bad = waiters
+      .filter(({ doc, job, step }) => {
+        const env = { ...(doc.env ?? {}), ...(job.env ?? {}), ...(step.env ?? {}) };
+        return ![env.GH_TOKEN, env.GITHUB_TOKEN].some((v) => typeof v === 'string' && TOKEN.test(v.trim()));
+      })
+      .map((w) => w.where);
+    expect(bad, 'без токена запись не читается — ожидание тихо уходит в запасной путь').toEqual([]);
+  });
+
+  it('права джоба названы и включают deployments и contents', () => {
+    const bad = waiters
+      .filter(({ doc, job }) => {
+        const perms = job.permissions ?? doc.permissions;
+        return !canRead(perms, 'deployments') || !canRead(perms, 'contents');
+      })
+      .map((w) => `${w.where}: ${JSON.stringify(w.job.permissions ?? w.doc.permissions ?? null)}`);
+    expect(bad, 'токен без deployments:read получает 403 на списке записей, без contents:read — на compare').toEqual([]);
   });
 });

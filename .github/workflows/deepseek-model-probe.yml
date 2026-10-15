@@ -41,8 +41,10 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # 75, а не 5: ожидание своей сборки (до 70 мин) плюс сам замер.
-    timeout-minutes: 75
+    # 85, а не 5: ожидание своей сборки (до 70 мин и одной попытки сверх —
+    # срок на часах, scripts/wait-for-deploy.sh) плюс сам замер (curl до
+    # 180 с) и checkout.
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@v7
 
