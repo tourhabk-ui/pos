@@ -34,6 +34,7 @@ interface ZoneRow {
   rules_withdrawn: string;
 }
 interface PermitUrlRow { eco_zone: string | null; eco_permit_url: string | null; places: string }
+interface TemplateZoneRow { id: string; name: string; eco_zone: string | null; eco_permit_required: boolean | null; eco_permit_url: string | null }
 
 export async function GET(req: NextRequest) {
   const secret = getCronSecret(req);
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const visible = `p.is_visible = TRUE AND p.merged_into_id IS NULL`;
-    const [byZone, byPermitUrl] = await Promise.all([
+    const [byZone, byPermitUrl, templateZone] = await Promise.all([
       pool.query<ZoneRow>(
         `SELECT p.eco_zone,
                 COUNT(*)::text AS places,
@@ -65,6 +66,16 @@ export async function GET(req: NextRequest) {
           ORDER BY COUNT(*) DESC
           LIMIT 30`,
       ),
+      // Места, чей режим пришёл вместе с шаблоном 169/170: их правила 1273
+      // сняла как шаблон, значит и род территории, и пропуск им ставил тот же
+      // ILIKE. Поимённо — для сверки с положением каждой территории.
+      pool.query<TemplateZoneRow>(
+        `SELECT p.id::text AS id, p.name, p.eco_zone, p.eco_permit_required, p.eco_permit_url
+           FROM places p
+          WHERE ${visible} AND p.eco_rules_withdrawn IS NOT NULL
+          ORDER BY p.eco_zone, p.name
+          LIMIT 50`,
+      ),
     ]);
 
     return NextResponse.json({
@@ -78,6 +89,9 @@ export async function GET(req: NextRequest) {
         rules_withdrawn: Number(r.rules_withdrawn),
       })),
       permit_urls: byPermitUrl.rows.map((r) => ({ eco_zone: r.eco_zone, url: r.eco_permit_url, places: Number(r.places) })),
+      template_zone_places: templateZone.rows.map((r) => ({
+        id: r.id, name: r.name, eco_zone: r.eco_zone, permit_required: r.eco_permit_required, permit_url: r.eco_permit_url,
+      })),
     });
   } catch (err) {
     // Отказ называется вслух: «переписи нет» не равно «режимов нет» (§4.0).

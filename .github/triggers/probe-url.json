@@ -1,19 +1,25 @@
 {
-  "timeout": 90,
-  "run": 946,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката третьей партии §0: описание, написанное моделью, подписано на карточке места (журнал происхождения 911, lib/places/description-by-model), enrich-routes ведёт журнал; перепись description-writers-census — сколько описаний на видимых карточках написала модель, сколько правлено после, у скольких журнала нет. Ждёт выката по ответу переписи. Конфиг записан целиком.",
+  "timeout": 60,
+  "run": 947,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Режим мест по ILIKE (169/170): поимённо места, чьи правила 1273 сняла как шаблон, — род, пропуск, адрес пропуска (place-eco-census, template_zone_places); жив ли адрес пропуска kamchatkaparks.ru из 169; сводка отзывов места на проде (reviewsSummary, выкат 8f9110e5). Ждёт выката по ключу template_zone_places. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/description-writers-census",
+    "https://vedarai.ru/api/cron/place-eco-census",
+    "https://kamchatkaparks.ru/",
     "https://vedarai.ru/api/places/fa3653ac-3cd5-4d24-a611-ff7a75859be1"
   ],
-  "until": "\"by_model\"",
+  "until": "\"template_zone_places\"",
   "retries": 60,
   "retryDelay": 45,
   "grep": [
-    "\"ok\":true",
-    "\"by_model\"",
-    "\"descriptionByModel\":true",
-    "\"descriptionByModel\":false"
+    "\"template_zone_places\"",
+    "\"reviewsSummary\"",
+    "<title"
   ],
-  "bytes": 1500
+  "around": [
+    "\"template_zone_places\"",
+    "<title"
+  ],
+  "aroundLines": 40,
+  "aroundHits": 1,
+  "bytes": 600
 }
