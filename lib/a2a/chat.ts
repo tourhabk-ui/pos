@@ -10,7 +10,10 @@
  * После ответа — те же две страховки, что в веб-чате (одно правило на все
  * каналы): сверка утверждений о безопасности с данными хода
  * (guardSafetyClaims, #2300) и серверный блок 112 при признаках ЧП в вопросе
- * (withSosBlock) — агент может пересказывать слова человека в поле.
+ * (withSosBlock) — агент может пересказывать слова человека в поле. Третья —
+ * сверка слов о доставке («дошло», «передал оператору») с инструментами хода
+ * (guardDeliveryClaims, 15.10): отправлять Кузьмичу нечем, и отчёт о доставке
+ * без инструмента заявки — выдумка.
  *
  * Сбой модели — честный отказ («не смог»), не пустой ответ (§4.0).
  */
@@ -18,6 +21,7 @@
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { buildRAGContext } from '@/lib/ai/rag-context';
 import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { logText } from '@/lib/log/log-text';
@@ -76,5 +80,12 @@ export async function answerAgentMessage(text: string, history: ChatTurn[]): Pro
   }
   void recordSafetyReview('other', guard, toolRuns);
 
-  return { ok: true, text: withSosBlock(guard.text, text).text };
+  const delivery = guardDeliveryClaims(guard.text, toolRuns);
+  if (delivery.verdict === 'unbacked') {
+    console.error('[kuzmich-delivery-claim-guard] a2a: отчёт о доставке без инструмента заявки', {
+      phrases: delivery.phrases,
+    });
+  }
+
+  return { ok: true, text: withSosBlock(delivery.text, text).text };
 }

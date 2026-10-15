@@ -13,6 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { guardSafetyClaims, SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
+import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
@@ -2457,7 +2458,18 @@ export async function aiChat(opts: {
   }
   void recordSafetyReview(platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other', claimGuard, claimRuns);
 
-  const finalAnswer = withSosBlock(claimGuard.text, userContent).text;
+  // Слова о доставке («заявка передана оператору», «дошло») — только после
+  // инструмента заявки с данными в этом же ходе (15.10). В цикле Кузьмича
+  // такого инструмента нет: отчёт о доставке без него — выдумка, и турист
+  // ждал бы ответа оператора, который ничего не получал.
+  const deliveryGuard = guardDeliveryClaims(claimGuard.text, claimRuns);
+  if (deliveryGuard.verdict === 'unbacked') {
+    console.error('[kuzmich-delivery-claim-guard] отчёт о доставке без инструмента заявки', {
+      chatId, phrases: deliveryGuard.phrases,
+    });
+  }
+
+  const finalAnswer = withSosBlock(deliveryGuard.text, userContent).text;
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
   if (!isAIErrorResponse(answer)) {

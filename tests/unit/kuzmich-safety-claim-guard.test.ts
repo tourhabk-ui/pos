@@ -127,7 +127,11 @@ describe('сверка стоит на всех поверхностях до о
   it('мессенджеры: до SOS-блока, по журналу только ответа из цикла инструментов', () => {
     const src = read('lib/kuzmich/core.ts');
     expect(src).toMatch(/const claimRuns = usedAgentLoopAnswer \? toolRuns : null;/);
-    expect(src.indexOf('guardSafetyClaims(answer, claimRuns)')).toBeLessThan(src.indexOf('withSosBlock(claimGuard.text, userContent)'));
+    // После сверки безопасности текст может пройти ещё сторожа (доставка, 15.10):
+    // важен порядок «сверка — потом SOS-блок», а не имя переменной между ними.
+    const sosAt = src.search(/withSosBlock\(\w+\.text, userContent\)/);
+    expect(sosAt).toBeGreaterThan(-1);
+    expect(src.indexOf('guardSafetyClaims(answer, claimRuns)')).toBeLessThan(sosAt);
   });
 
   it('веб-чат: до SOS-блока; веб-стрим: до отдачи по словам', () => {

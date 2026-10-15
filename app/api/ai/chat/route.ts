@@ -6,6 +6,7 @@
  */
 
 import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { safeMsg } from '@/lib/errors/sanitize';
@@ -399,6 +400,17 @@ export async function POST(request: NextRequest) {
     }
     void recordSafetyReview('web', claimGuard, loopAnswered ? webToolRuns : null);
     answer = claimGuard.text;
+
+    // Слова о доставке («заявка отправлена оператору», «дошло») — только после
+    // инструмента заявки с данными в этом же ходе (15.10). В цикле Кузьмича
+    // такого инструмента нет, и отчёт о доставке без него — выдумка.
+    const deliveryGuard = guardDeliveryClaims(answer, loopAnswered ? webToolRuns : null);
+    if (deliveryGuard.verdict === 'unbacked') {
+      console.error('[kuzmich-delivery-claim-guard] веб: отчёт о доставке без инструмента заявки', {
+        phrases: deliveryGuard.phrases,
+      });
+    }
+    answer = deliveryGuard.text;
 
     // Серверная SOS-страховка: при признаках ЧП в вопросе телефоны 112/МЧС
     // добавляются к ответу независимо от модели — в том числе когда весь

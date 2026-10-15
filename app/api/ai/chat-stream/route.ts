@@ -41,6 +41,7 @@ import {
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
 import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { guardDeliveryClaims, DELIVERY_HONEST_LINE } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
@@ -305,6 +306,14 @@ export async function POST(request: NextRequest) {
             }
             void recordSafetyReview('web-stream', claimGuard, streamToolRuns);
             fullAnswer = claimGuard.text;
+            // Слова о доставке — только после инструмента заявки с данными (15.10).
+            const deliveryGuard = guardDeliveryClaims(fullAnswer, streamToolRuns);
+            if (deliveryGuard.verdict === 'unbacked') {
+              console.error('[kuzmich-delivery-claim-guard] веб-стрим: отчёт о доставке без инструмента заявки', {
+                phrases: deliveryGuard.phrases,
+              });
+            }
+            fullAnswer = deliveryGuard.text;
             flushWords(fullAnswer);
           } else {
             // OpenRouter-стрим открываем ЛЕНИВО — только когда мозг не ответил,
@@ -360,6 +369,17 @@ export async function POST(request: NextRequest) {
               const tail = fallbackGuard.text.slice(fullAnswer.length);
               flushWords(tail);
               fullAnswer = fallbackGuard.text;
+            }
+            // Запасной путь шёл без инструментов — отправить было нечем. Предложение
+            // с «дошло» уже у человека, вырезать его нечем: поправка уходит хвостом.
+            const fallbackDelivery = guardDeliveryClaims(fullAnswer, null);
+            if (fallbackDelivery.verdict === 'unbacked') {
+              console.error('[kuzmich-delivery-claim-guard] веб-стрим (запасной путь): отчёт о доставке без инструмента заявки', {
+                phrases: fallbackDelivery.phrases,
+              });
+              const deliveryTail = `\n\n${DELIVERY_HONEST_LINE}`;
+              flushWords(deliveryTail);
+              fullAnswer += deliveryTail;
             }
           }
 
