@@ -13,6 +13,8 @@ import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { LeadDeliveryLine, type LeadDeliveryView } from '@/components/admin/LeadDeliveryLine';
+import { WidgetEmbedCodes } from '@/components/widget/WidgetEmbedCodes';
+import { AdminWidgetReport } from '@/components/admin/AdminWidgetReport';
 
 /** 'none' — карточка без заявки (заведена миграцией или импортом); с LEFT JOIN users они видны. */
 type ProfileStatus = 'none' | 'pending' | 'approved' | 'rejected';
@@ -415,7 +417,6 @@ export function OperatorCard({
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));
   const [widgetEditing, setWidgetEditing] = useState(false);
   const [widgetSaving, setWidgetSaving] = useState(false);
-  const [widgetCopied, setWidgetCopied] = useState(false);
   const [widgetToggling, setWidgetToggling] = useState(false);
   const [widgetError, setWidgetError] = useState<string | null>(null);
 
@@ -447,14 +448,6 @@ export function OperatorCard({
     } finally {
       setWidgetSaving(false);
     }
-  }
-
-  function copyEmbed() {
-    if (!op.slug) return;
-    const code = `<script src="https://vedarai.ru/api/widget/lead.js?partner=${op.slug}" defer></script>`;
-    navigator.clipboard.writeText(code).catch(() => {});
-    setWidgetCopied(true);
-    setTimeout(() => setWidgetCopied(false), 2000);
   }
 
   return (
@@ -556,18 +549,12 @@ export function OperatorCard({
 
               {widgetEnabled && (
                 <>
-                  {/* Embed code */}
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <code className="flex-1 text-[10px] bg-[var(--bg-primary)] border border-[var(--border)] rounded px-2 py-1 text-[var(--text-secondary)] truncate select-all">
-                      {`<script src="https://vedarai.ru/api/widget/lead.js?partner=${op.slug}" defer></script>`}
-                    </code>
-                    <button
-                      onClick={copyEmbed}
-                      className="p-1.5 text-[var(--text-muted)] hover:text-[var(--accent)] rounded transition-colors shrink-0"
-                      title="Скопировать код"
-                    >
-                      {widgetCopied ? <Check className="w-3.5 h-3.5 text-[var(--success)]" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
+                  {/* Оба кода вставки — чат и кнопка заявки (аудит 15.10,
+                      WID-screens). До этого здесь был только код формы, а
+                      кода чата не было нигде; коды строит один модуль на
+                      админку и кабинет оператора. */}
+                  <div className="mb-2">
+                    <WidgetEmbedCodes slug={op.slug} compact />
                   </div>
 
                   {/* Домены сайта партнёра. Список ничего не запирает: виджет
@@ -624,6 +611,11 @@ export function OperatorCard({
                   )}
                 </>
               )}
+
+              {/* Отчёт за 30 дней — тот же, что видит оператор в кабинете, и
+                  свежая проба главных (аудит 15.10, WID-screens). Выключенный
+                  виджет тоже вправе показать свою историю. */}
+              <AdminWidgetReport operatorId={op.id} />
             </div>
           )}
 

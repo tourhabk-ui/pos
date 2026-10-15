@@ -13,7 +13,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3, Map, Calendar, CalendarDays, Users, CreditCard,
   Settings, Bell, HelpCircle, CheckCircle, Inbox, User,
-  Download, BookMarked, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star, UsersRound,
+  Download, BookMarked, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star, UsersRound, Code2,
 } from 'lucide-react';
 import { isManagerSeat, type OperatorSeat } from '@/components/operator/use-operator-seat';
 
@@ -52,6 +52,9 @@ export const OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/tasks', label: 'Задачи', icon: ListChecks, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/reviews', label: 'Отзывы', icon: Star, section: 'Продажи', access: 'team' },
+  // Виджет на сайте партнёра (аудит 15.10, WID-screens): коды вставки, домены
+  // и отчёт за 30 дней. Только чтение, денег нет — команде.
+  { href: '/hub/operator/widget', label: 'Виджет на сайт', icon: Code2, section: 'Продажи', access: 'team' },
   // Календарь — команде с 2г-2б: выручку менеджеру сервер не отдаёт, цену на
   // даты ставит право цен.
   { href: '/hub/operator/calendar', label: 'Календарь', icon: CalendarDays, section: 'Продажи', access: 'team' },
