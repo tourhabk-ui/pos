@@ -82,7 +82,12 @@ describe('кнопка lead.js на сайте «Местечка»', () => {
     expect(overlay.style.display).toBe('none');
     btn.click();
     expect(overlay.style.display).toBe('flex');
-    expect(overlay.querySelector('iframe')?.getAttribute('src')).toBe('https://vedarai.ru/widget/lead-form/mestechko');
+    // Адрес формы партнёра; хост и путь страницы, где стоит кнопка, скрипт
+    // кладёт в параметры (WID-measure) — здесь это адрес документа jsdom.
+    const src = new URL(overlay.querySelector('iframe')?.getAttribute('src') ?? '');
+    expect(`${src.origin}${src.pathname}`).toBe('https://vedarai.ru/widget/lead-form/mestechko');
+    expect(src.searchParams.get('host')).toBe(window.location.hostname);
+    expect(src.searchParams.get('path')).toBe(window.location.pathname);
   });
 
   it('свою подпись партнёра скрипт не подменяет', async () => {

@@ -13,12 +13,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const m = vi.hoisted(() => ({ query: vi.fn(), ai: vi.fn() }));
+const m = vi.hoisted(() => ({ query: vi.fn(), ai: vi.fn(), safety: vi.fn() }));
 vi.mock('@/lib/database', () => ({ query: m.query }));
-vi.mock('@/lib/ai/providers', () => ({ callAIWithModelDirect: m.ai }));
-vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => 'тестовая' }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: m.query } }));
+// Модель — водопадом (WID-safety); пул, сводка обстановки и журнал проверок
+// безопасности — моки: здесь судится только запись происхождения разговора.
+vi.mock('@/lib/ai/providers', () => ({ callAIWaterfallOrNull: m.ai }));
 vi.mock('@/lib/ai/rag-context', () => ({ buildRAGContext: vi.fn(async () => '') }));
-vi.mock('@/lib/leads/create', () => ({ createLead: vi.fn(async () => 'lead-x') }));
+vi.mock('@/lib/kuzmich/safety-review-log', () => ({ recordSafetyReview: vi.fn() }));
+vi.mock('@/lib/safety/current-status', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/safety/current-status')>()),
+  getCurrentSafetyStatus: m.safety,
+}));
 
 import { POST } from '@/app/api/widget/chat/route';
 import { WIDGET_CHAT_SESSION_SQL } from '@/lib/embed/widget-telemetry';
@@ -52,6 +58,11 @@ beforeEach(() => {
   m.query.mockReset();
   m.ai.mockReset();
   m.ai.mockResolvedValue('Лучше в ясную погоду.');
+  m.safety.mockReset();
+  m.safety.mockResolvedValue({
+    hasAlert: false, maxSeverity: 0, activeCount: 0, topTitle: null, topType: null,
+    dataUpdatedAt: null, source: 'ленты МЧС', feedCount: 0, feedTitles: [], feedBasis: [], feedWhen: [], outsideFeed: null,
+  });
   m.query.mockImplementation(async (sql: string) =>
     /FROM partners/.test(sql) ? { rows: [PARTNER] } : { rows: [], rowCount: 1 });
 });
