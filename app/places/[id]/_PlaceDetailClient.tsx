@@ -507,6 +507,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 descriptionSource={place.descriptionSource}
                 descriptionWithdrawn={place.descriptionWithdrawn}
                 byModel={place.descriptionByModel}
+                impression={place.descriptionImpression}
                 placeId={place.id}
               />
 

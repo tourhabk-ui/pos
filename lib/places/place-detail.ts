@@ -23,6 +23,7 @@ import { asCoordSource } from '@/lib/places/coord-source';
 import { descriptionWrittenByModel, type LastDescriptionWrite } from '@/lib/places/description-by-model';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { descriptionVoice } from '@/lib/places/description-voice';
 import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
 export interface PlaceDetailResult {
@@ -341,6 +342,13 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // Описание было, но снято как путевая заметка и ждёт переписи по
         // источникам (14.10, «2 да»). Переписали — признак гаснет сам.
         descriptionWithdrawn: r.description_withdrawn === true && !stripSourceAttribution(r.description as string | null),
+        // Голос впечатления без источника (15.10, §0): Кузьмич и MCP отдают
+        // такой текст с пометкой «впечатление, не наблюдение» с 26.09, а
+        // карточка печатала его справкой. Источник записан — подробности из
+        // него, пометка не нужна.
+        descriptionImpression:
+          !describeDescriptionSource(r.description_source_ref as string | null)
+          && descriptionVoice(stripSourceAttribution(r.description as string | null)).voice === 'impression',
         essence: r.essence as string | null,
         category: r.category as string | null,
         locationType: r.location_type as string | null,
