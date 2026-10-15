@@ -24,6 +24,7 @@ import { maxBot } from '@/lib/max/max-fetch';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { TOURIST_TG_CHAT_SQL } from '@/lib/notifications/tourist-telegram';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -125,11 +126,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Отметка прогона в agent_run_history под ключом реестра 'tour-reminder'
+  // (аудит 15.10, P4-07): до этого крон был немым, и «перестал запускаться»
+  // не видел никто — туристы просто не получали напоминаний.
+  const t0 = Date.now();
+
   // Туры на завтра с chat_id — из бота (metadata) либо из привязанного
   // аккаунта (TOURIST_TG_CHAT_SQL, если брони с сайта; до 13.10 здесь стояла
   // users.telegram_chat_id, которую не пишет никто). Бот в приоритете:
   // если бронь пришла из бота, там тот же чат, что и в metadata.
-  const { rows: bookings } = await pool.query<BookingRow>(`
+  let bookings: BookingRow[];
+  try {
+    ({ rows: bookings } = await pool.query<BookingRow>(`
     SELECT ob.id, ob.tourist_name, ob.booking_date::text, ob.participants,
            ot.title AS tour_title, ot.activity_type, ot.location_name,
            ot.difficulty,
@@ -143,9 +151,17 @@ export async function GET(request: NextRequest) {
       AND ob.reminder_sent_24h = false
       AND ob.deleted_at IS NULL
       AND (ob.metadata->>'tg_chat_id' IS NOT NULL OR ${TOURIST_TG_CHAT_SQL} IS NOT NULL)
-  `);
+  `));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string })?.code ?? 'нет';
+    console.error(`[tour-reminder] выборка броней не выполнилась (SQLSTATE ${code}):`, message);
+    recordCronRun('tour-reminder', t0, 'failed', { error: `выборка броней: ${code} ${message}`.slice(0, 300) });
+    return NextResponse.json({ success: false, error: 'Выборка броней на завтра не выполнилась' }, { status: 500 });
+  }
 
   if (bookings.length === 0) {
+    recordCronRun('tour-reminder', t0, 'success', { items: 0 });
     return NextResponse.json({ success: true, sent: 0, message: 'Нет туров на завтра' });
   }
 
@@ -204,6 +220,12 @@ ${mchs ? `- Предупреждение МЧС: ${mchs}` : ''}
       failed.push(b.id);
     }
   }
+
+  // Ни одного напоминания при непустой выборке — отказ, а не успех (§4.0).
+  recordCronRun('tour-reminder', t0, sent.length === 0 ? 'failed' : 'success', {
+    items: sent.length,
+    error: failed.length > 0 ? `не отправлено ${failed.length} из ${bookings.length}` : undefined,
+  });
 
   return NextResponse.json({
     success: true,

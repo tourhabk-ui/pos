@@ -19,6 +19,7 @@ import { NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,9 +85,33 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Отметка прогона в agent_run_history под ключом реестра 'max-webhook'
+  // (аудит 15.10, P4-07). Крон был немым: бот в MAX однажды уже молчал месяц
+  // без сигнала, а «перестал запускаться» сам сторож подписки не видел никто.
+  // Каждый ответ после проверки секрета проходит через finish: 200 — успех,
+  // всё прочее — отказ с причиной. Адрес вебхука в причину не попадает — в
+  // нём секрет.
+  const t0 = Date.now();
+  const finish = (body: Record<string, unknown>, status = 200): NextResponse => {
+    if (status === 200) {
+      recordCronRun('max-webhook', t0, 'success');
+    } else {
+      const staleFailed = Array.isArray(body.stale_failed) ? body.stale_failed.length : 0;
+      const why = [
+        body.step, body.action, body.error, body.cause, body.status,
+        staleFailed > 0 ? `не сняты старые подписки: ${staleFailed}` : undefined,
+      ]
+        .filter((x) => x !== undefined && x !== null && x !== '')
+        .map(String)
+        .join(': ');
+      recordCronRun('max-webhook', t0, 'failed', { error: (why || `HTTP ${status}`).slice(0, 300) });
+    }
+    return NextResponse.json(body, { status });
+  };
+
   const token = process.env.MAX_BOT_TOKEN;
   if (!token) {
-    return NextResponse.json({ error: 'MAX_BOT_TOKEN not set' }, { status: 500 });
+    return finish({ error: 'MAX_BOT_TOKEN not set' }, 500);
   }
 
   const headers = { 'Content-Type': 'application/json', Authorization: token };
@@ -103,9 +128,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     const raw = Array.isArray(data) ? data : (data?.subscriptions ?? []);
     if (Array.isArray(raw)) current = raw as MaxSubscription[];
   } catch (err) {
-    return NextResponse.json(
+    return finish(
       { ok: false, step: 'list', error: err instanceof Error ? err.message : 'fetch failed', cause: causeOf(err) },
-      { status: 502 },
+      502,
     );
   }
 
@@ -114,14 +139,14 @@ export async function GET(req: Request): Promise<NextResponse> {
   // 2. Уже на месте — ничего не трогаем
   if (alreadyRegistered) {
     const stale = await removeStale(current, webhookUrl, headers);
-    return NextResponse.json({
+    return finish({
       ok: stale.failed.length === 0,
       action: stale.removed.length > 0 ? 'removed_stale' : 'noop',
       webhook_url: redactWebhookUrl(webhookUrl),
       subscriptions: current.length,
       stale_removed: stale.removed,
       stale_failed: stale.failed,
-    }, { status: stale.failed.length === 0 ? 200 : 502 });
+    }, stale.failed.length === 0 ? 200 : 502);
   }
 
   // 3. Подписки нет — регистрируем заново (самолечение)
@@ -136,20 +161,20 @@ export async function GET(req: Request): Promise<NextResponse> {
     registerStatus = res.status;
     registerResponse = await res.json().catch(() => ({}));
     if (!res.ok) {
-      return NextResponse.json(
+      return finish(
         { ok: false, action: 'register_failed', status: registerStatus, webhook_url: redactWebhookUrl(webhookUrl), response: registerResponse },
-        { status: 502 },
+        502,
       );
     }
   } catch (err) {
-    return NextResponse.json(
+    return finish(
       { ok: false, step: 'register', error: err instanceof Error ? err.message : 'fetch failed', cause: causeOf(err) },
-      { status: 502 },
+      502,
     );
   }
 
   const stale = await removeStale(current, webhookUrl, headers);
-  return NextResponse.json({
+  return finish({
     ok: stale.failed.length === 0,
     stale_removed: stale.removed,
     stale_failed: stale.failed,
@@ -159,5 +184,5 @@ export async function GET(req: Request): Promise<NextResponse> {
     update_types: UPDATE_TYPES,
     register_status: registerStatus,
     response: registerResponse,
-  }, { status: stale.failed.length === 0 ? 200 : 502 });
+  }, stale.failed.length === 0 ? 200 : 502);
 }

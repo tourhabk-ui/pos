@@ -11,6 +11,12 @@ name: Ошибки в браузере — суточная перепись и 
 # начинают обходить (урок линтера, 09.09).
 #
 # Секреты: CRON_SECRET. 19:17 UTC — 07:17 по Камчатке, к утру владельца.
+#
+# Вторым шагом — дайджест СЕРВЕРНЫХ ошибок (/api/cron/prod-errors, находка
+# аудита 15.10 P4-17). Тем же файлом, а не новым расписанием: планировщик
+# GitHub душит очередь числом scheduled-файлов (CLAUDE.md §8, 20.09). До
+# этого серверные ошибки доходили до владельца только через суточный объектив
+# эволюции и GitHub Issue — сутки спустя и не ему.
 
 on:
   schedule:
@@ -63,4 +69,46 @@ jobs:
           REASON=$(jq -r '.notify.reason // ""' /tmp/census.json)
           if [ "$SENT" != "true" ] && [ "$REASON" != "ошибок нет" ]; then
             echo "::warning::Дайджест не ушёл: $REASON"
+          fi
+
+      # Серверные ошибки за 25 ч (сутки с запасом на дрейф расписания, как у
+      # объектива эволюции). Перепись сама шлёт дайджест через tgSend и
+      # возвращает исход доставки: 200 — доставлен или ошибок нет; 502 —
+      # дайджест не ушёл; 500 — перепись не выполнилась. Шаг идёт и после
+      # отказа первого: браузер и сервер — независимые вопросы.
+      #
+      # В лог и сводку — только маршруты и счётчики, без текста ошибок и
+      # стеков: ПД в тексте ошибки вычищаются, но лог прогона читают не только
+      # владелец. Текст (очищенный) — в Telegram и в самой переписи.
+      - name: Ошибки сервера за 25 ч — дайджест в Telegram
+        if: ${{ !cancelled() }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — прод не ответит."
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/prod-errors.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/prod-errors?hours=25&notify=1")
+          echo "HTTP $CODE"
+          SHORT='{ok, hours, routes, total, total_is_lower_bound, truncated, note, notify, error, top: [.errors[]? | {route, kind, method, n}]}'
+          jq "$SHORT" /tmp/prod-errors.json || echo "ответ не JSON"
+
+          {
+            echo "## Ошибки сервера за 25 ч"
+            echo ""
+            jq -r '"не меньше \(.total // "?") на \(.routes // "?") маршрутах (нижняя граница: \(.note // "—")); дайджест: \(.notify.reason // "—")"' /tmp/prod-errors.json || echo "ответ не JSON"
+            echo ""
+            echo '```json'
+            jq "$SHORT" /tmp/prod-errors.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$CODE" != "200" ]; then
+            REASON=$(jq -r '.notify.reason // .error // "причина не названа"' /tmp/prod-errors.json 2>/dev/null || echo "ответ не JSON")
+            echo "::error::Дайджест серверных ошибок: HTTP $CODE — $REASON. Это «не сказали владельцу», а не «ошибок нет»."
+            exit 1
           fi

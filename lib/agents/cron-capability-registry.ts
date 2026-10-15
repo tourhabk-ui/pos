@@ -259,7 +259,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'places-routes-census': ['db_read'],
   'places-unmerge': ['db_read', 'db_write'],
   'planner-material-census': ['db_read'],
-  'prod-errors': ['db_read'],
+  // 15.10, аудит P4-17: ?notify=1 — суточный дайджест серверных ошибок
+  // владельцу через tgSend. База по-прежнему только читается.
+  'prod-errors': ['db_read', 'net_out', 'telegram'],
   'prospect-scan': ['net_out', 'pd_direct'],
   'pwa-installs-census': ['db_read'],
   'relief-coverage': ['db_read'],
