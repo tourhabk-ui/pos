@@ -11,7 +11,7 @@
  * которое шлёт форма, через POST /api/leads и настоящий createLead до
  * параметра source_channel в INSERT. Подменены только база и уведомления.
  * Уже записанные строки переводит миграция 1281 — на настоящем PostgreSQL:
- * tests/integration/widget-config.pg.test.ts.
+ * tests/integration/operators-list.pg.test.ts, блок «виджет партнёра».
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';

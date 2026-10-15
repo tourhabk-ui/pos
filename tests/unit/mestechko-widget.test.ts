@@ -17,7 +17,8 @@
  *   - форма, отрисованная по ответу настоящего /api/widget/partner, показывает
  *     вступление формы, а не приветствие чата.
  * Что миграция 1280 пишет в базу и чего не перетирает — на настоящем
- * PostgreSQL: tests/integration/widget-config.pg.test.ts.
+ * PostgreSQL: tests/integration/operators-list.pg.test.ts, блок «виджет
+ * партнёра».
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
