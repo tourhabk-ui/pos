@@ -247,6 +247,15 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
        LIMIT 10`,
       [r.ark_id]
     );
+    // Сводка — по ВСЕМ отзывам места, а не по показанным десяти: средняя и
+    // число считались по последним десяти, и место с тридцатью отзывами
+    // писало «4.3 · 10» (15.10, §0).
+    const reviewsSummaryResult = await query(
+      `SELECT count(*)::int AS total, round(avg(rv.rating)::numeric, 1)::float8 AS avg
+         FROM reviews rv
+        WHERE rv.place_id = $1`,
+      [r.ark_id]
+    );
 
     // Маршруты через это место. К одному месту их может быть несколько —
     // вершина стоит на нескольких тропах (Авачинский: восхождение дневное,
@@ -525,6 +534,10 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           operatorPublic: (t.operator_public as boolean | null) ?? null,
         })),
 
+        reviewsSummary: {
+          total: Number(reviewsSummaryResult.rows[0]?.total ?? reviewsResult.rows.length),
+          avg: reviewsSummaryResult.rows[0]?.avg != null ? Number(reviewsSummaryResult.rows[0].avg) : null,
+        },
         reviews: reviewsResult.rows.map(rv => ({
           id: rv.id as string,
           rating: Number(rv.rating),

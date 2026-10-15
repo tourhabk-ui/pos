@@ -199,6 +199,8 @@ export interface PlaceData {
   routes: PlaceRoute[];
   tours: PlaceTour[];
   reviews: PlaceReview[];
+  /** Сводка по всем отзывам места (а не по показанным десяти). */
+  reviewsSummary?: { total: number; avg: number | null };
   nearby: NearbyPlace[];
 }
 

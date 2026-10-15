@@ -657,7 +657,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
               <ChevronDown className="h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-open:rotate-180" aria-hidden />
             </summary>
             <div className="space-y-6 border-t border-[var(--border)] px-4 py-5">
-              <PlaceReviews placeId={place.id} reviews={place.reviews} />
+              <PlaceReviews placeId={place.id} reviews={place.reviews} summary={place.reviewsSummary} />
 
               {/* Одобренные фото ПЕРЕД формой загрузки: человек сначала видит,
                   куда попадёт его снимок, и только потом загружает. */}

@@ -5,7 +5,10 @@ import type { PlaceReview } from './types';
 
 interface Props {
   placeId: string;
+  /** Последние отзывы для показа (до десяти). */
   reviews: PlaceReview[];
+  /** Сводка по всем отзывам места; нет — считается по показанным. */
+  summary?: { total: number; avg: number | null };
 }
 
 function StarRating({ rating }: { rating: number }) {
@@ -21,10 +24,13 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-export default function PlaceReviews({ placeId, reviews }: Props) {
-  const avgRating = reviews.length
-    ? Math.round(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length * 10) / 10
-    : null;
+export default function PlaceReviews({ placeId, reviews, summary }: Props) {
+  const total = summary?.total ?? reviews.length;
+  const avgRating = summary
+    ? summary.avg
+    : reviews.length
+      ? Math.round(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length * 10) / 10
+      : null;
 
   return (
     <section className="space-y-4">
@@ -35,9 +41,9 @@ export default function PlaceReviews({ placeId, reviews }: Props) {
         >
           <Star className="w-5 h-5 text-[var(--warning)]" />
           Отзывы о месте
-          {avgRating != null && (
+          {avgRating != null && total > 0 && (
             <span className="text-base font-normal text-[var(--text-secondary)] ml-1">
-              {avgRating} · {reviews.length}
+              {avgRating} · {total}
             </span>
           )}
         </h2>
@@ -53,6 +59,15 @@ export default function PlaceReviews({ placeId, reviews }: Props) {
       {/* Ссылки «Все отзывы» нет намеренно: страницы /places/[id]/reviews не
           существует, а прежняя ссылка появлялась ровно при 10 отзывах (лимит
           выдачи API) и вела в 404. Появится страница — вернётся и ссылка. */}
+      {/* Кто пишет отзывы — сказано (15.10, §0): отзыв о месте оставляют без
+          входа и без проверки поездки, и публикуется он сразу. Звёзды без
+          этой строки читались бы как проверенная оценка. */}
+      {reviews.length > 0 && (
+        <p className="text-xs text-[var(--text-muted)]">
+          Отзывы о месте оставляют без входа и без проверки поездки — это мнения посетителей, а не проверенные факты.
+        </p>
+      )}
+
       {reviews.length === 0 ? (
         <div className="ds-card p-6 text-center space-y-2">
           <p className="text-[var(--text-muted)] text-sm">Отзывов пока нет.</p>

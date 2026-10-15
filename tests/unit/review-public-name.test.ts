@@ -113,7 +113,9 @@ describe('карточка места (loadPlaceDetail) — те же отзыв
     expect(data.reviews.map((r) => r.authorName)).toEqual(['Иван П.', 'Гость']);
     expect(JSON.stringify(res.body)).not.toContain('Сидоров');
     const reviewSql = sqlSent().filter((s) => /FROM reviews rv/.test(s));
-    expect(reviewSql).toHaveLength(1);
-    expect(reviewSql[0]).not.toMatch(/\busers\b|\bu\.name\b/);
+    // Запросов к отзывам два: показанные десять и сводка по всем (15.10) —
+    // имя аккаунта не выбирает ни один.
+    expect(reviewSql.length).toBeGreaterThanOrEqual(1);
+    for (const sql of reviewSql) expect(sql).not.toMatch(/\busers\b|\bu\.name\b/);
   });
 });
