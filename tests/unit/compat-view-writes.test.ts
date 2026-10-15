@@ -115,7 +115,9 @@ describe('запись в совместимые view', () => {
   });
 
   it('бронирование тура пишет в мастер-таблицу', () => {
-    const src = readFileSync(join(ROOT, 'app/api/tours/[id]/book/route.ts'), 'utf-8');
+    // С 15.10 (аудит, P2-01) строку брони тура пишет одна общая вставка;
+    // прежний /api/tours/[id]/book удалён. Её перепись — booking-single-writer.
+    const src = readFileSync(join(ROOT, 'lib/bookings/reserve.ts'), 'utf-8');
     expect(src).toContain('INSERT INTO operator_bookings');
     expect(code(src)).not.toContain('INSERT INTO bookings');
   });
@@ -232,8 +234,9 @@ describe('занятость тура считается по людям', () =>
     // COUNT(*) считал заявки: одна бронь на десятерых занимала одно место из
     // max_group_size. На выходе в поле перебор группы — это гид на четверых
     // с толпой, а не строчка в отчёте.
-    const src = readFileSync(join(ROOT, 'app/api/tours/[id]/book/route.ts'), 'utf-8');
-    expect(src).toContain('COALESCE(SUM(participants), 0)');
+    // Гейт брони тура — общий (lib/bookings/reserve.ts: readTourDays) с 15.10.
+    const src = readFileSync(join(ROOT, 'lib/bookings/reserve.ts'), 'utf-8');
+    expect(src).toContain('COALESCE(SUM(b.participants), 0)');
     expect(code(src)).not.toContain('COUNT(*) as bookings');
   });
 });

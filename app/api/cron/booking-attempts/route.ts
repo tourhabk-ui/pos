@@ -40,7 +40,8 @@ export const BOOKING_ROUTES = [
   // /api/bookings/tour удалён 26.09: модалка (TourPaymentModal) бронирует
   // через форму карточки тура, а деньги берутся после подтверждения.
   '/api/agent/bookings',       // бронь агента за клиента (reserveBooking)
-  '/api/tours/[id]/book',
+  // /api/tours/[id]/book удалён 15.10 (аудит, P2-01): его не звал никто, а
+  // писал он бронь мимо общего гейта, однодневной при любой длине тура.
   '/api/hub/operator/bookings',
 ] as const;
 

@@ -44,9 +44,11 @@ describe.runIf(!PLATFORM_ACCEPTS_PAYMENTS)('оплата выключена вл
     expect(read('app/api/payments/tochka/qr/route.ts')).toMatch(/if \(!isTochkaConfigured\(\)\)/);
   });
 
-  it('старая дверь брони не выставляет счёт CloudPayments', () => {
-    const src = strip(read('app/api/tours/[id]/book/route.ts'));
-    expect(src).toMatch(/if \(platformAcceptsPayments\(\)\) \{\s*try \{[\s\S]*?\/api\/payments\/create/);
+  it('старой двери брони со счётом CloudPayments больше нет', () => {
+    // /api/tours/[id]/book удалён 15.10 (аудит, P2-01): его не звал никто, а
+    // бронь он писал мимо общего гейта. Счёт за выключателем выставлять
+    // стало некому.
+    expect(existsSync(join(process.cwd(), 'app/api/tours/[id]/book/route.ts'))).toBe(false);
   });
 
   it('страница брони отличает «выключено» от «не настроено» и не грузит виджет банка зря', () => {

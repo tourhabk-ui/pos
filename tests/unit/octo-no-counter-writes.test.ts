@@ -8,6 +8,11 @@
  * каналах. Контракт: createBooking/cancelBooking не выполняют UPDATE
  * счётчика; гейт createBooking и availability считают занятость из
  * operator_bookings (NOT IN cancelled/rejected).
+ *
+ * С 15.10 (аудит, P2-01) гейт createBooking — общий с reserveBooking
+ * (`readTourDays`: календарь и занятость по каждому дню диапазона одним
+ * запросом). Многодневность и прочее поведение гейта —
+ * tests/unit/booking-doors-one-writer.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -53,8 +58,9 @@ describe('OCTO createBooking — счётчик не пишется', () => {
       if (sql.includes('octo_uuid FROM operator_bookings')) return Promise.resolve({ rows: [] });
       if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [{ id: '7', base_price: 5000, title: 'Тур' }] });
       if (sql.includes('FROM tour_options')) return Promise.resolve({ rows: [{ id: 'opt-1', price_adult: 5000, price_child: 3500 }] });
-      if (sql.includes('FOR UPDATE SKIP LOCKED')) return Promise.resolve({ rows: [{ id: 'ta-1', available_slots: 10 }] });
-      if (sql.includes('SUM(participants)')) return Promise.resolve({ rows: [{ taken: String(taken) }] });
+      if (sql.includes('generate_series')) {
+        return Promise.resolve({ rows: [{ date: '2026-08-01', occupied: String(taken), available_slots: 10, is_cancelled: false }] });
+      }
       if (sql.includes('INSERT INTO operator_bookings')) {
         return Promise.resolve({ rows: [{ id: 'b-1', octo_uuid: 'uuid-1', booking_status: 'new', created_at: '2026-07-07' }] });
       }
@@ -82,8 +88,11 @@ describe('OCTO createBooking — счётчик не пишется', () => {
     expect(result).toEqual({ error: 'AVAILABILITY_SOLD_OUT' });
 
     const occCall = clientQueryMock.mock.calls.find(([sql]) =>
-      String(sql).includes('SUM(participants)')) as [string];
+      String(sql).includes('generate_series')) as [string];
+    expect(occCall[0]).toContain('FROM operator_bookings');
     expect(occCall[0]).toContain("NOT IN ('cancelled', 'rejected')");
+    expect(clientQueryMock.mock.calls.some(([sql]) =>
+      String(sql).includes('INSERT INTO operator_bookings'))).toBe(false);
   });
 });
 
