@@ -246,10 +246,13 @@ export async function POST(request: NextRequest) {
       { headers: corsHeaders }
     );
   } catch (error: unknown) {
+    // Причина — только в лог. Публичному чату на чужом сайте детали отказа
+    // (имена таблиц, тексты базы) не нужны: посетителю хватает «не получилось»,
+    // а разбору — строки лога (аудит 15.10, W3-widget, ревью WID-safety).
     const msg = safeMsg(error);
     console.error('[widget-chat] запрос не обработан:', logText(msg, 300));
     return NextResponse.json(
-      { success: false, error: 'Ошибка обработки запроса', details: msg },
+      { success: false, error: 'Ошибка обработки запроса' },
       { status: 500 }
     );
   }

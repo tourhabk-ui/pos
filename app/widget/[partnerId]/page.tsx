@@ -11,6 +11,7 @@
  *    форму `/widget/lead-form/<slug>` — с телефоном, согласием на ПД и
  *    адресатом-партнёром. Разговор при этом не теряется: форма живёт во
  *    вложенном окне вместо ленты, «Закрыть» и Esc формы возвращают в чат.
+ *    Хост и путь страницы партнёра окно передаёт в адрес формы (W3-widget).
  *  - Постоянная строка «Экстренно — 112» — текстом, не ссылкой tel:112.
  *    Своей SOS-кнопки и своего набора 112 здесь нет и быть не должно (§11,
  *    #887: SOS — только EmergencyAction, и в /widget он не монтируется);
@@ -25,7 +26,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Send } from 'lucide-react';
 import { trimWidgetHistory, type WidgetTurn } from '@/lib/embed/widget-chat-limits';
-import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
+import { readWidgetOriginParams, type WidgetOriginInput } from '@/lib/embed/widget-origin';
 
 interface PartnerConfig {
   name: string;
@@ -48,9 +49,22 @@ const NOT_FOUND_TEXT = 'Чат этого партнёра не найден и�
 const LOAD_FAILED_TEXT = 'Чат не загрузился — проверьте связь и обновите страницу. Экстренно — 112.';
 const SEND_FAILED_TEXT = 'Не получилось получить ответ — попробуйте ещё раз. Экстренно — 112.';
 
-/** Адрес формы заявки партнёра — та же форма, что у кнопки lead.js. */
-function leadFormPath(slug: string): string {
-  return `/widget/lead-form/${encodeURIComponent(slug)}`;
+/**
+ * Адрес формы заявки партнёра — та же форма, что у кнопки lead.js.
+ *
+ * Хост и путь страницы партнёра (их положил в адрес этого окна embed.js)
+ * передаются в адрес формы явно, как это делает lead.js: заявка из чата несёт
+ * «откуда пришёл» своими параметрами, а не только через document.referrer,
+ * который политика реферера может урезать. Без хоста — без обоих: путь без
+ * хоста ни о чём не говорит (аудит 15.10, W3-widget, стык WID-safety и
+ * WID-measure).
+ */
+function leadFormPath(slug: string, origin: WidgetOriginInput): string {
+  const base = `/widget/lead-form/${encodeURIComponent(slug)}`;
+  if (!origin.host) return base;
+  const q = new URLSearchParams({ host: origin.host });
+  if (origin.path) q.set('path', origin.path);
+  return `${base}?${q.toString()}`;
 }
 
 export default function WidgetPage() {
@@ -245,7 +259,7 @@ export default function WidgetPage() {
           </button>
           <iframe
             ref={leadFrame}
-            src={leadFormPath(partnerId)}
+            src={leadFormPath(partnerId, readWidgetOriginParams(window.location.search))}
             title={`Заявка партнёру ${config.name}`}
             style={{ flex: 1, width: '100%', border: 'none', background: 'var(--bg-primary)' }}
           />

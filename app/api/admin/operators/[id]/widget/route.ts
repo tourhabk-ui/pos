@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { isUuid } from '@/lib/text/slugify';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -64,6 +65,13 @@ export async function PATCH(
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const { id } = await params;
+  // id — uuid партнёра. Не-uuid база отвергает 22P02, и админ видел «ошибка
+  // базы» (500) вместо «неверный адрес». Формат проверяется до запроса
+  // (аудит 15.10, W3-widget, ревью WID-config). isUuid — любой hex-uuid, как
+  // его принимает PostgreSQL, без требования версии RFC.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Неверный идентификатор оператора' }, { status: 400 });
+  }
 
   const body: unknown = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Неверный JSON' }, { status: 400 });

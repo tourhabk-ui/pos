@@ -22,7 +22,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import { NextRequest } from 'next/server';
 
 const m = vi.hoisted(() => ({ query: vi.fn() }));
@@ -132,5 +132,35 @@ describe('форма заявки /widget/lead-form/mestechko', () => {
     expect(screen.getByText(LEAD_FORM_INTRO_DEFAULT)).toBeTruthy();
     expect(LEAD_FORM_INTRO_DEFAULT).not.toMatch(/сегодня|в течение|минут|час/);
     expect(screen.queryByText(GREETING_1260)).toBeNull();
+  });
+
+  it('настройки не загрузились — форма работает с нейтральным текстом, отказ назван в консоли (W3-widget)', async () => {
+    // До 15.10 здесь стоял пустой .catch(() => {}): форма без оформления
+    // выглядела «как задумано», и отказ /api/widget/partner не видел никто.
+    const leads: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/widget/partner/')) throw new TypeError('Failed to fetch');
+      leads.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ success: true, id: 'lead-1' }), { status: 201 });
+    }));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(React.createElement(LeadFormPage));
+    await waitFor(() => expect(log).toHaveBeenCalled());
+    const line = log.mock.calls.map((c) => c.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')).join('\n');
+    expect(line).toContain('[widget-lead-form]');
+    expect(line).toContain('mestechko');
+    expect(line).toContain('Failed to fetch');
+    // Форма на месте: нейтральная шапка и вступление, отправка уходит на slug.
+    expect(screen.getByText('Заявка на тур')).toBeTruthy();
+    expect(screen.getByText(LEAD_FORM_INTRO_DEFAULT)).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Иван Иванов'), { target: { value: 'Иван' } });
+    fireEvent.change(screen.getByPlaceholderText('+7 900 000-00-00'), { target: { value: '+79000000001' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Отправить заявку/ }));
+    await waitFor(() => expect(leads).toHaveLength(1));
+    expect(leads[0].partner_slug).toBe('mestechko');
+    // В строке отказа ПД нет: она пишется до ввода и не берёт полей формы.
+    expect(line).not.toMatch(/Иван|79000000001/);
+    log.mockRestore();
   });
 });
