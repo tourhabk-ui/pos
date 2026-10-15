@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Navigation, Bookmark, Share2, CloudSun } from 'lucide-react';
+import { useState } from 'react';
+import { Navigation, Bookmark, Share2 } from 'lucide-react';
+import WeatherNowChip from '@/components/shared/WeatherNowChip';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import { OWN_ROUTE_EVENT, OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
@@ -20,23 +21,6 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
   // витрины, с локальным зеркалом на случай офлайна.
   const fav = useWishlist('place', placeId);
   const [tempText, setTempText] = useState<string | null>(null);
-  const [weather, setWeather] = useState<{ temp: number; icon: string } | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/weather?lat=${lat}&lng=${lng}`)
-      .then(r => r.json())
-      .then((d: unknown) => {
-        if (typeof d !== 'object' || d === null) return;
-        const rec = d as Record<string, unknown>;
-        if (typeof rec.temperature === 'number') {
-          setWeather({
-            temp: Math.round(rec.temperature as number),
-            icon: typeof rec.iconUrl === 'string' ? rec.iconUrl : '',
-          });
-        }
-      })
-      .catch(() => {});
-  }, [lat, lng]);
 
   // Единственная из четырёх копий, где фолбэк и подтверждение были сделаны
   // верно. Поведение сохранено, реализация — общая.
@@ -106,15 +90,9 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
           </span>
         )}
 
-        {weather && (
-          <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-hover)]">
-            {weather.icon
-              ? <img src={weather.icon} alt="" className="w-5 h-5" />
-              : <CloudSun className="w-4 h-4 text-[var(--ocean)]" />
-            }
-            <span className="text-sm font-semibold text-[var(--text-primary)]">{weather.temp}°</span>
-          </div>
-        )}
+        {/* Прогноз для координат места, названный прогнозом (15.10): прежний
+            значок читал не то поле ответа и не появлялся никогда. */}
+        <WeatherNowChip lat={lat} lng={lng} whose="места" />
       </div>
     </div>
   );

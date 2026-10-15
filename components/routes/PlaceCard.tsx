@@ -13,7 +13,7 @@ import { LOCATION_TYPE_LABELS } from '@/components/places/types';
 import { getElementForType, NEUTRAL_ELEMENT_COLOR } from '@/lib/stats/element-groups';
 import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman } from './place-horizons';
 import { useAnchor } from './useAnchor';
-import { nearestZoneKey } from '@/lib/services/safety/zone-weather';
+import { nearestZoneKey, ZONES, type ZoneKey } from '@/lib/services/safety/zone-weather';
 
 // Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
 // без цен и офферов. Кромка фото — силуэт горизонта по типу места, под
@@ -211,12 +211,14 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             </div>
           )}
 
-          {/* Живая погода зоны — glass-чип поверх фото */}
+          {/* Погода ЗОНЫ — glass-чип поверх фото. Чья она — сказано в
+              подписи (15.10, §0): одна из шести точек прогноза до 100 км от
+              места, а не погода у самого места. */}
           {wx && (
             <span
               className="absolute left-2 z-10 px-1.5 py-0.5 rounded-full backdrop-blur-md bg-black/40 border border-white/15 text-white"
               style={{ bottom: 50, fontFamily: MONO, fontSize: 9 }}
-              title={wx.descRu}
+              title={`Прогноз для района «${ZONES[wx.key as ZoneKey]?.name ?? 'ближайшая зона'}», а не у самого места: ${wx.descRu}`}
             >
               {wx.tempC > 0 ? `+${wx.tempC}` : wx.tempC}° · {wx.gustKmh != null && wx.gustKmh > wx.windKmh ? `${wx.windKmh}–${wx.gustKmh}` : wx.windKmh} км/ч
             </span>

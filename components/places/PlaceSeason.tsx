@@ -16,8 +16,16 @@ const SEASON_LABELS: Record<string, string> = {
   winter: 'Зима',
 };
 
-function getHighlightedMonths(from: string | null, to: string | null): boolean[] {
-  if (!from && !to) return new Array(12).fill(true);
+/**
+ * Окно «открыто» по месяцам — только из записанных дат (15.10, §0).
+ *
+ * Без дат прежняя сетка заливалась всеми двенадцатью месяцами и под заголовком
+ * «Когда лучше посещать» читалась «круглый год». Дат открытия не пишет никто,
+ * и залитая сетка стояла у каждого места с текстом о сезоне. Нет дат — нет и
+ * сетки: незнание не рисуется ответом.
+ */
+function getHighlightedMonths(from: string | null, to: string | null): boolean[] | null {
+  if (!from && !to) return null;
   const fromM = from ? new Date(from).getMonth() : 0;
   const toM = to ? new Date(to).getMonth() : 11;
   return Array.from({ length: 12 }, (_, i) => {
@@ -38,8 +46,9 @@ export default function PlaceSeason({ openFromDate, openToDate, bestSeason, seas
         <Calendar className="w-5 h-5 text-[var(--accent)]" /> Когда лучше посещать
       </h2>
 
-      {/* Month calendar */}
-      <div className="grid grid-cols-12 gap-1">
+      {/* Окно по месяцам — только когда даты записаны. */}
+      {highlighted && (
+      <div className="grid grid-cols-12 gap-1" aria-label="Открыто для посещения по месяцам">
         {MONTHS.map((m, i) => (
           <div key={m} className="flex flex-col items-center gap-1">
             <div
@@ -55,6 +64,7 @@ export default function PlaceSeason({ openFromDate, openToDate, bestSeason, seas
           </div>
         ))}
       </div>
+      )}
 
       {bestSeason && (
         <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{bestSeason}</p>

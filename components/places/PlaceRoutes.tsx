@@ -23,12 +23,23 @@ const DIFFICULTY_COLORS: Record<string, string> = {
  */
 export default function PlaceRoutes({ routes, placeId: _ }: Props) {
   if (!routes.length) return null;
-  const through = routes.filter(r => r.linkKind !== 'nearby');
+  const linked = routes.filter(r => r.linkKind !== 'nearby');
+  // «Через это место» — только размеченная точка пути (15.10, §0): связь
+  // рода unknown («не установлено», §4.1) этого не утверждает.
+  const through = linked.filter(r => r.linkKind === 'waypoint');
+  const unmarked = linked.filter(r => r.linkKind !== 'waypoint');
   const nearby = routes.filter(r => r.linkKind === 'nearby');
 
   return (
     <>
       {through.length > 0 && <RouteList title="Маршруты через это место" routes={through} />}
+      {unmarked.length > 0 && (
+        <RouteList
+          title={through.length > 0 ? 'Ещё маршруты, связанные с местом' : 'Маршруты, связанные с местом'}
+          note="Проходит ли маршрут через само место, у нас не размечено."
+          routes={unmarked}
+        />
+      )}
       {nearby.length > 0 && (
         <RouteList
           title="Маршруты в окрестностях"

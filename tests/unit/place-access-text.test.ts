@@ -19,8 +19,8 @@ const geysers: AccessFacts = {
   zone: 'Кроноцкий заповедник',
   accessInfo: 'Только вертолётом в составе экскурсии',
   routes: [
-    { title: 'Долина гейзеров (вертолёт)', distanceKm: null, durationHours: 6, difficulty: 'easy' },
-    { title: 'Тропа по долине', distanceKm: 2.5, durationHours: 1.5, difficulty: 'easy' },
+    { title: 'Долина гейзеров (вертолёт)', distanceKm: null, durationHours: 6, difficulty: 'easy', linkKind: 'waypoint' },
+    { title: 'Тропа по долине', distanceKm: 2.5, durationHours: 1.5, difficulty: 'easy', linkKind: 'waypoint' },
   ],
   registrationRequired: true,
   eco: { zone: 'federal_reserve', permitRequired: true },
@@ -58,7 +58,7 @@ describe('текст из фактов', () => {
 
   it('один маршрут без километров — назван без цифр; рядом с городом — «в черте или рядом»', () => {
     const t = composeAccessText({ ...geysers, zone: null, accessInfo: null, registrationRequired: false, eco: null, toursCount: 0,
-      routes: [{ title: 'Подъём', distanceKm: null, durationHours: null, difficulty: null }] });
+      routes: [{ title: 'Подъём', distanceKm: null, durationHours: null, difficulty: null, linkKind: 'waypoint' }] });
     expect(t[1]).toBe('Через место проходит маршрут каталога «Подъём».');
     const near = composeAccessText({ ...geysers, lat: 53.05, lng: 158.60, zone: null, accessInfo: null, routes: [], registrationRequired: false, eco: null, toursCount: 0 });
     expect(near[0]).toBe('Долина гейзеров — в черте Петропавловска-Камчатского или рядом с ним.');

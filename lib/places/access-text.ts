@@ -29,9 +29,14 @@
  */
 import { distanceKm } from '@/lib/geo/kamchatka';
 import { PLACE_ZONE_LABELS, placeZoneLabel, ROUTE_DIFFICULTY_RU as DIFFICULTY_RU } from '@/lib/places/zone-labels';
+import { PKC, cityKmRounded } from '@/lib/places/distance-to-city';
 
-/** Петропавловск-Камчатский — точка отсчёта «от города». */
-export const PK = { lat: 53.0195, lng: 158.6483 } as const;
+/**
+ * Петропавловск-Камчатский — точка отсчёта «от города». Та же, что у шапки
+ * карточки и планера (lib/places/distance-to-city): до 15.10 здесь стояла
+ * своя, в километре от той, и одно место получало два расстояния (15.10, §0).
+ */
+export const PK = PKC;
 
 export interface AccessRoute {
   title: string;
@@ -116,7 +121,7 @@ export function composeAccessText(f: AccessFacts): string[] {
   const out: string[] = [];
 
   // 1. Где — считается всегда: координаты обязательны.
-  const km = Math.round(distanceKm(PK, { lat: f.lat, lng: f.lng }));
+  const km = cityKmRounded(distanceKm(PK, { lat: f.lat, lng: f.lng }));
   // Код зоны — только подписью (04.10, Кайныран: «…, avachinsky.»).
   const zoneLabel = placeZoneLabel(f.zone);
   const where = f.district?.trim() || (zoneLabel && PLACE_ZONE_LABELS[f.zone!.trim()] ? `район: ${zoneLabel}` : zoneLabel ?? '');
@@ -135,7 +140,14 @@ export function composeAccessText(f: AccessFacts): string[] {
   // «это всё далеко, а не 1.6 км»): «через место проходят 3 маршрута; самый
   // короткий — „Скалы Три Брата“, 1,6 км» складывало чужие маршруты и их
   // ДЛИНУ в ответ на вопрос, как сюда добраться.
-  const routes = f.routes.filter(r => r.title?.trim() && r.linkKind !== 'nearby');
+  //
+  // «Через место» — только размеченная точка пути (15.10, §0). Связь рода
+  // unknown («не установлено», §4.1) называлась так же, и маршрут, про
+  // который известно лишь, что он как-то связан с местом, читался как путь
+  // через него. Такие названы отдельно и словами, что связь не размечена.
+  const linked = f.routes.filter(r => r.title?.trim() && r.linkKind !== 'nearby');
+  const routes = linked.filter(r => r.linkKind === 'waypoint');
+  const unmarked = linked.filter(r => r.linkKind !== 'waypoint');
   if (routes.length > 0) {
     const n = routes.length;
     const withKm = routes.filter(r => r.distanceKm != null && r.distanceKm > 0)
@@ -153,6 +165,12 @@ export function composeAccessText(f: AccessFacts): string[] {
         : `; самый короткий — «${shortest.title}», ${parts.join(', ')}`;
     }
     out.push(`${s}.`);
+  }
+  if (unmarked.length > 0) {
+    const n = unmarked.length;
+    out.push(n === 1
+      ? `С местом связан маршрут каталога «${unmarked[0].title}» — проходит ли он через само место, у нас не размечено.`
+      : `С местом ${plural(n, 'связан', 'связаны', 'связано')} ещё ${n} ${plural(n, 'маршрут', 'маршрута', 'маршрутов')} каталога — проходят ли они через само место, у нас не размечено.`);
   }
 
   // 4. Допуск: МЧС и режим территории.

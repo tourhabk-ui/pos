@@ -83,3 +83,16 @@ describe('оценка риска места (/tools/safety)', () => {
     expect(placeRiskScore([], null, 2)).toBe(1);
   });
 });
+
+describe('погода на плитке — района, и сказано, что района', () => {
+  it('подпись называет район прогноза, а не место', async () => {
+    vi.resetModules();
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      zones: [{ key: 'avachinsky', tempC: 3, windKmh: 12, gustKmh: null, descRu: 'облачно' }],
+    }), { status: 200 })) as typeof fetch;
+    const { default: FreshPlaceCard } = await import('@/components/routes/PlaceCard');
+    const { findByTitle } = render(<FreshPlaceCard route={{ ...place(null), lat: 53.26, lng: 158.83 }} />);
+    const chip = await findByTitle(/Прогноз для района «Авачинский вулкан», а не у самого места/);
+    expect(chip.textContent).toContain('+3°');
+  });
+});
