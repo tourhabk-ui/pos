@@ -51,7 +51,7 @@ const pushFilter = ci.on['push'] as PathFilter | null | undefined;
 const prFilter = ci.on['pull_request'] as PathFilter | null | undefined;
 
 const IGNORE = dockerignorePatterns(readFileSync(join(ROOT, '.dockerignore'), 'utf-8'));
-const TRACKED = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+const TRACKED = execFileSync('git', ['-c', 'color.ui=false', 'ls-files', '-z'], { cwd: ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
   .split('\0')
   .filter(Boolean);
 const IN_IMAGE = TRACKED.filter((f) => !dockerIgnored(f, IGNORE));
