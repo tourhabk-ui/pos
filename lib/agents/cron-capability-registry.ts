@@ -318,6 +318,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'safety-ledger-check': ['db_read', 'db_write'],
   'safety-profile-census': ['db_read'],
   'place-eco-census': ['db_read'],
+  // 15.10: перепись охвата тревогами — только чтение; списки зон берёт из
+  // чистого lib/safety/alert-zones.ts, а не из приёмников с их сетью и записью.
+  'place-zone-census': ['db_read'],
   'description-writers-census': ['db_read'],
   'schema-audit': ['db_read'],
   'schema-drift': ['db_read', 'db_write'],

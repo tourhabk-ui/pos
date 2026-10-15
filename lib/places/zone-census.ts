@@ -15,14 +15,14 @@
  *
  * Предикат не переписан: пробная тревога предъявляется ТОМУ ЖЕ ALERT_MATCH_SQL,
  * которым красит крон, — строкой типа external_alerts из jsonb_populate_record,
- * без вставки; место и маршрут — строкой agent_route_knowledge, как в кроне.
+ * без вставки; место и маршрут — строкой с колонками того же представления,
+ * которое читает крон, но собранной из places и kamchatka_routes.
  * Зоны пробы — из настоящих разборов приёма (zoneProbes), а не из списка
  * здесь: иначе перепись мерила бы своё. Только чтение.
  */
 import { ALERT_MATCH_SQL } from '@/lib/services/safety/alert-place-scope';
 import { COMMANDER_BOX, KRAI_KORYAK_MIN_LAT } from '@/lib/safety/krai-far';
-import { mchs_zones } from '@/lib/services/safety/seismic-parser';
-import { METEOALERT_REGIONS } from '@/lib/services/safety/meteoalert';
+import { KRAI_WIDE_ZONES, METEOALERT_REGIONS } from '@/lib/safety/alert-zones';
 
 export interface ZoneProbe {
   /** Имя пробы в ответе: krai_wide, meteo_south… */
@@ -31,10 +31,15 @@ export interface ZoneProbe {
   zones: readonly string[];
 }
 
-/** Пробные тревоги: вид, заголовок и зоны — из настоящих разборов приёма. */
+/**
+ * Пробные тревоги: вид, заголовок и зоны — те же списки, по которым зоны
+ * ставит приём (lib/safety/alert-zones.ts: «по краю» у mchs_zones, регионы
+ * Росгидромета у meteoalert). Совпадение с разбором держит сторож
+ * place-zone-census.
+ */
 export function zoneProbes(): ZoneProbe[] {
   return [
-    { kind: 'krai_wide', title: 'Перепись охвата: ветер по всему краю', zones: mchs_zones('Штормовое предупреждение по всему краю') },
+    { kind: 'krai_wide', title: 'Перепись охвата: ветер по всему краю', zones: KRAI_WIDE_ZONES },
     { kind: 'meteo_south', title: 'Перепись охвата: Росгидромет, юг края', zones: METEOALERT_REGIONS['96'].zones },
     { kind: 'meteo_north', title: 'Перепись охвата: Росгидромет, север края', zones: METEOALERT_REGIONS['95'].zones },
   ];
@@ -52,26 +57,30 @@ export const ZONE_CENSUS_SQL = `
               'alert_type', 'weather', 'title', k.title, 'affected_zones', k.zones))).*
       FROM jsonb_to_recordset($1::jsonb) AS k(kind text, title text, zones jsonb)
   ),
-  targets AS (
-    SELECT 'place'::text AS target, p.id::text AS id, p.name::text AS name, p.ark_id AS ark_id
+  -- Строка «ark» — с теми же колонками, что у представления, которое читает
+  -- крон (id — UUID в пространстве VIEW, title, lat, lng, zone,
+  -- location_type), но из самих таблиц: новому коду VIEW не читать (§4.1).
+  ark AS (
+    SELECT 'place'::text AS target, p.id::text AS rid, p.ark_id AS id, p.name::text AS title,
+           p.lat, p.lng, p.zone, p.location_type
       FROM places p
      WHERE p.is_visible = TRUE AND p.merged_into_id IS NULL
     UNION ALL
-    SELECT 'route'::text, r.id::text, r.title::text, COALESCE(r.ark_id, r.id)
+    SELECT 'route'::text, r.id::text, COALESCE(r.ark_id, r.id), r.title::text,
+           r.lat, r.lng, r.zone, NULL::character varying
       FROM kamchatka_routes r
      WHERE r.is_visible = TRUE AND r.merged_into_id IS NULL
   )
-  SELECT t.target, t.id, t.name, ark.lat::float8 AS lat, ark.lng::float8 AS lng,
+  SELECT ark.target, ark.rid AS id, ark.title AS name, ark.lat::float8 AS lat, ark.lng::float8 AS lng,
          ark.zone, ark.location_type,
-         CASE WHEN t.target = 'place'
-              THEN EXISTS (SELECT 1 FROM location_real_time_status s WHERE s.agent_route_id = t.ark_id)
+         CASE WHEN ark.target = 'place'
+              THEN EXISTS (SELECT 1 FROM location_real_time_status s WHERE s.agent_route_id = ark.id)
          END AS has_status,
          COALESCE(array_agg(ea.kind ORDER BY ea.kind) FILTER (WHERE ea.kind IS NOT NULL), '{}') AS reached_by
-    FROM targets t
-    LEFT JOIN agent_route_knowledge ark ON ark.id = t.ark_id AND ark.kind = t.target
+    FROM ark
     LEFT JOIN probe ea ON (${ALERT_MATCH_SQL})
-   GROUP BY t.target, t.id, t.name, t.ark_id, ark.lat, ark.lng, ark.zone, ark.location_type
-   ORDER BY t.target, ark.zone NULLS FIRST, t.name`;
+   GROUP BY ark.target, ark.rid, ark.id, ark.title, ark.lat, ark.lng, ark.zone, ark.location_type
+   ORDER BY ark.target, ark.zone NULLS FIRST, ark.title`;
 
 export interface ZoneCensusRow {
   target: 'place' | 'route';
