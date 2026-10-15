@@ -96,3 +96,29 @@ describe('страница оператора и миграция — SQL по �
     expect(sql).not.toMatch(/^\s*(UPDATE|DELETE|INSERT)\b/im);
   });
 });
+
+describe('1268: «Местечку» закреплены пять вертолётных туров (владелец 15.10)', () => {
+  const sql = read('migrations/1268_mestechko_pin_helicopter_tours.sql');
+
+  it('ровно пять вертолётных slug-ов, в задуманном порядке; черновик не закрепляется', () => {
+    const slugs = [...sql.matchAll(/\('(mestechko-[a-z0-9-]+)',\s*TIMESTAMPTZ '([^']+)'\)/g)].map((m) => [m[1], m[2]]);
+    expect(slugs.map(([s]) => s)).toEqual([
+      'mestechko-dolina-geyzerov',
+      'mestechko-kurilskoe-ozero',
+      'mestechko-vertolet-tolbachik',
+      'mestechko-oblet-vilyuchinskiy-mutnovskiy-gorelyy',
+      'mestechko-oblet-koryakskiy-avachinskiy',
+    ]);
+    const times = slugs.map(([, t]) => Date.parse(t.replace(' ', 'T').replace('+00', 'Z')));
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(new Set(times).size).toBe(5);
+    expect(sql).not.toMatch(/\('mestechko-dolina-geyzerov-tolbachik'/);
+  });
+
+  it('гейт по партнёру и только поверх незакреплённых: выбор оператора не перетирается', () => {
+    expect(sql).toMatch(/p\.slug = 'mestechko'/);
+    expect(sql).toMatch(/ot\.operator_id = p\.id/);
+    expect(sql).toMatch(/ot\.pinned_at IS NULL/);
+    expect(sql).toMatch(/ot\.deleted_at IS NULL/);
+  });
+});
