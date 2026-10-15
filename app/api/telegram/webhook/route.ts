@@ -52,7 +52,7 @@ import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
-import { statusTokenFromStart } from '@/lib/seat-requests/core';
+import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { bindTouristChat } from '@/lib/seat-requests/service';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
 import { createTicket, getUserOpenTickets, addTicketMessage } from '@/lib/support/ticket.service';
@@ -675,11 +675,7 @@ export async function POST(request: NextRequest) {
       const seatToken = statusTokenFromStart(arg);
       if (seatToken !== null) {
         const bound = await bindTouristChat(seatToken, 'telegram', update.message.chat.id);
-        await sendHTML(chatId, !bound.ok
-          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
-            : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
-            : 'Не удалось подключить — попробуйте ещё раз через минуту.')
-          : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
+        await sendHTML(chatId, touristBindReplyText(bound));
         return NextResponse.json({ ok: true });
       }
 

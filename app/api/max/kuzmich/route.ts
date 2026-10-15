@@ -21,7 +21,7 @@ import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 import { applyLeadStatus, parseLeadStatusPayload } from '@/lib/leads/status-action';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
-import { parseAnswerPayload, operatorReplyText, statusTokenFromStart } from '@/lib/seat-requests/core';
+import { parseAnswerPayload, operatorReplyText, statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { answerSeatRequest, requestBelongsToMaxChat, bindTouristChat } from '@/lib/seat-requests/service';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -319,11 +319,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       if (seatToken !== null) {
         // Турист хочет получить ответ оператора на запрос мест сюда.
         const bound = await bindTouristChat(seatToken, 'max', update.chat_id);
-        await maxReply(update.chat_id, !bound.ok
-          ? (bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
-              : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
-              : 'Не удалось подключить — попробуйте ещё раз через минуту.')
-          : (bound.notified ? 'Готово — ответ оператора выше.' : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).'));
+        await maxReply(update.chat_id, touristBindReplyText(bound));
         return;
       }
 
