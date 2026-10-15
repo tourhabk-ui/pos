@@ -1,15 +1,13 @@
 /**
  * GET /api/admin/telegram/diagnose
- * Диагностика + авто-фикс: getWebhookInfo → если url пустой → setWebhook.
+ * Диагностика + авто-фикс: getWebhookInfo → если адрес не главный → setCanonicalWebhook
+ * (главный адрес с секретом, аудит 15.10; прежде ставился /api/telegram/kuzmich без секрета).
  * Возвращает полный JSON для копирования.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getSetting } from '@/lib/platform-settings';
-import { getPublicBaseUrl } from '@/lib/config';
-
-const APP_URL      = getPublicBaseUrl();
-const WEBHOOK_PATH = '/api/telegram/kuzmich';
+import { canonicalWebhookUrl, setCanonicalWebhook } from '@/lib/telegram/operator-availability';
 
 async function resolveToken(): Promise<string> {
   return (
@@ -44,18 +42,11 @@ export async function GET(request: NextRequest) {
   // 2. Текущий webhook
   const info = await tg('getWebhookInfo').catch((e: unknown) => ({ ok: false, error: String(e) }));
 
-  const webhookUrl = `${APP_URL}${WEBHOOK_PATH}`;
+  const webhookUrl = canonicalWebhookUrl();
   const currentUrl = (info as { result?: { url?: string } })?.result?.url ?? '';
-  const needsFix   = !currentUrl || !currentUrl.includes('vedarai.ru');
+  const needsFix   = currentUrl !== webhookUrl;
 
-  let setResult = null;
-  if (needsFix) {
-    setResult = await tg('setWebhook', {
-      url: webhookUrl,
-      allowed_updates: ['message', 'callback_query'],
-      drop_pending_updates: true,
-    }).catch((e: unknown) => ({ ok: false, error: String(e) }));
-  }
+  const setResult = needsFix ? await setCanonicalWebhook(token) : null;
 
   // 3. Повторный getWebhookInfo после фикса
   const infoAfter = needsFix
@@ -66,6 +57,7 @@ export async function GET(request: NextRequest) {
     token_tail:      token.slice(-6),
     token_source:    process.env.TELEGRAM_BOT_TOKEN ? 'env:TELEGRAM_BOT_TOKEN' : 'db:platform_settings',
     me,
+    expected_url:    webhookUrl,
     webhook_before:  info,
     webhook_fixed:   needsFix,
     set_webhook:     setResult,

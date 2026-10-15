@@ -47,7 +47,8 @@ describe('граница API: DATE отдаётся строкой', () => {
   it('список и карточка броней, RETURNING брони, расписание тура — ::text', () => {
     const list = read('app/api/hub/operator/bookings/route.ts');
     expect(list).toMatch(/b\.booking_date::text AS booking_date/);
-    expect(list).toMatch(/RETURNING id, booking_date::text AS booking_date/);
+    // RETURNING ручной брони переехал в общую вставку (аудит 15.10, P2-01).
+    expect(read('lib/bookings/reserve.ts')).toMatch(/RETURNING [\s\S]{0,200}booking_date::text AS booking_date/);
     expect(read('app/api/hub/operator/bookings/[id]/route.ts')).toMatch(/b\.booking_date::text AS booking_date/);
     expect(read('lib/api/operator-tours.ts')).toMatch(/a\.date::text AS date/);
   });

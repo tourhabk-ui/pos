@@ -53,6 +53,39 @@
  * же причине вынесено в `lib/bookings/duration.ts`: оно нужно обеим дверям, и
  * записанное дважды было бы двумя правилами.
  *
+ * ── Четвёртое расхождение: правка 14.09 легла в одну дверь из трёх (15.10) ──
+ *
+ * Аудит 15.10 (находка P2-01) нашёл, что «единственная» здесь значило
+ * «единственная для туриста и агента». Строку `operator_bookings` писали ещё
+ * три живых места, и правило многодневности 14.09 до них не дошло:
+ *
+ *   ручная бронь оператора (`/api/hub/operator/bookings`) — без `end_date`
+ *     и `duration_days`: пятидневная группа, заведённая по звонку, занимала
+ *     для всех поверхностей занятости только день выезда;
+ *   OCTO-холд реселлера (`lib/octo/service.ts`) — то же, плюс свой счёт мест
+ *     равенством `booking_date = $2` и только при строке календаря на день
+ *     выезда, под `SKIP LOCKED`, который при гонке пропускал проверку вовсе;
+ *   `/api/tours/[id]/book` — `end_date = booking_date`, `duration_days = 1`
+ *     константами для тура любой длины, детская скидка 50% из головы. Роут
+ *     не звал никто — удалён.
+ *
+ * Теперь слоёв два, и у каждого одно место:
+ *
+ *   ВСТАВКА — `insertBookingRow`: единственный `INSERT INTO operator_bookings`
+ *     в приложении. `end_date` и `duration_days` дверь не передаёт вовсе —
+ *     вставка выводит их сама из длительности тура, забыть их нельзя;
+ *   ГЕЙТ — `readTourDays` + `assertDaysOpen`: календарь оператора и
+ *     занятость по КАЖДОМУ дню диапазона интервалом.
+ *
+ * Двери: `reserveBooking` (форма, Кузьмич, агент, запрос мест) — гейт и
+ * вставка; OCTO — гейт и вставка, но цена и холд свои: это внешний контракт;
+ * ручная бронь оператора — только вставка. Гейта у неё нет намеренно: это
+ * запись того, о чём оператор уже договорился сам, и отказать ему в записи
+ * значило бы потерять бронь, которая всё равно состоится.
+ *
+ * Перепись писателей — по коду, не по списку имён:
+ * `tests/unit/booking-single-writer.test.ts`.
+ *
  * ── Чего функция НЕ делает ────────────────────────────────────────────────
  *
  * Не шлёт уведомлений и не выдаёт ссылок. У вызывающих эти шаги разные
@@ -68,7 +101,8 @@ import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { transaction } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { linkContactQuietly } from '@/lib/crm/contacts';
-import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
+import { tourDurationDays, tourEndDate, type TourDurationSource } from '@/lib/bookings/duration';
+import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 
@@ -172,6 +206,259 @@ function describeRejectedCode(code: string): string {
  */
 export const NEW_BOOKING_STATUS = 'new';
 
+/** То, у чего есть `query`: клиент транзакции брони. */
+type BookingExecutor = Pick<PoolClient, 'query'>;
+
+/**
+ * Длительность тура из строки базы. `integer` приходит числом, `numeric` —
+ * строкой, и сравнение строки с числом в правиле длительности было бы
+ * случайностью приведения, а не правилом.
+ */
+export function tourDurationOf(row: { multi_day_count: unknown; duration_hours: unknown }): TourDurationSource {
+  const num = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
+  return { multi_day_count: num(row.multi_day_count), duration_hours: num(row.duration_hours) };
+}
+
+/** День диапазона брони: календарь оператора и занятость на этот день. */
+export interface TourDay {
+  date: string;
+  occupied: string;
+  available_slots: number | null;
+  is_cancelled: boolean | null;
+}
+
+/**
+ * Календарь и занятость — ПО КАЖДОМУ дню диапазона, одним запросом.
+ *
+ * Календарь оператора опционален: нет строки на дату — дата свободна
+ * (большинство операторов календарём не пользуются). Но явная блокировка
+ * и лимит слотов обязаны уважаться на каждом дне, а не только на первом.
+ *
+ * Занятость берётся ИНТЕРВАЛОМ (`день BETWEEN booking_date И
+ * COALESCE(end_date, booking_date)`), а не равенством дат. Прежнее
+ * `booking_date = $2` не видело чужую многодневную бронь, накрывающую
+ * запрошенную дату серединой, — слепота была двусторонней.
+ *
+ * Предикат статусов НЕ взят у `v_tour_daily_occupancy` намеренно. Вид
+ * считает только `('new','confirmed')`, а здесь исключаются лишь
+ * `('cancelled','rejected')` — то есть `pending_payment` (оплата уже
+ * начата) место занимает. Перейти на предикат вида значило бы ОСЛАБИТЬ
+ * проверку и продать место, за которое человек в эту минуту платит.
+ * `deleted_at IS NULL` добавлен: снятая бронь места не держит.
+ *
+ * Вызывать — клиентом транзакции, взявшей `FOR UPDATE` на строке тура:
+ * иначе два одновременных запроса прочитают одну и ту же занятость.
+ */
+export async function readTourDays(
+  exec: BookingExecutor,
+  tourId: number | string,
+  startDate: string,
+  endDate: string,
+): Promise<TourDay[]> {
+  const days = await exec.query<TourDay>(
+    `SELECT d.day::date AS date,
+            COALESCE(occ.occupied, 0) AS occupied,
+            ta.available_slots,
+            ta.is_cancelled
+       FROM generate_series($2::date, $3::date, '1 day') AS d(day)
+       LEFT JOIN tour_availability ta
+              ON ta.operator_tour_id = $1 AND ta.date = d.day::date
+             AND ta.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(b.participants), 0) AS occupied
+           FROM operator_bookings b
+          WHERE b.operator_tour_id = $1
+            AND b.booking_status NOT IN ('cancelled', 'rejected')
+            AND b.deleted_at IS NULL
+            AND d.day::date BETWEEN b.booking_date
+                                AND COALESCE(b.end_date, b.booking_date)
+       ) occ ON true
+      ORDER BY d.day`,
+    [tourId, startDate, endDate],
+  );
+  return days.rows;
+}
+
+/**
+ * Каждый день диапазона открыт и вмещает группу — иначе ReserveError с
+ * кодом причины. Чистая функция над ответом `readTourDays`: решение одно на
+ * все двери, слова отказа каждая дверь выбирает свои.
+ */
+export function assertDaysOpen(
+  days: TourDay[],
+  opts: { participants: number; maxParticipants: number | null; durationDays: number },
+): void {
+  for (const day of days) {
+    if (day.is_cancelled) {
+      throw new ReserveError(
+        'DATE_BLOCKED',
+        opts.durationDays > 1
+          ? `Оператор закрыл приём заявок на ${day.date} — эта дата входит в тур.`
+          : 'Оператор закрыл приём заявок на эту дату.',
+      );
+    }
+
+    const slots = day.available_slots;
+    const capacityCap: number | null = slots != null
+      ? Math.min(opts.maxParticipants ?? slots, slots)
+      : opts.maxParticipants;
+    if (capacityCap == null) continue;   // потолка нет ни в туре, ни в календаре
+
+    if (opts.participants > capacityCap) {
+      throw new ReserveError(
+        'MAX_EXCEEDED',
+        `Превышено максимальное число участников (максимум: ${capacityCap}).`,
+      );
+    }
+
+    const alreadyBooked = parseInt(day.occupied, 10);
+    if (alreadyBooked + opts.participants > capacityCap) {
+      const remaining = capacityCap - alreadyBooked;
+      const where = opts.durationDays > 1 ? ` на ${day.date}` : ' на эту дату';
+      throw new ReserveError(
+        'NO_SLOTS',
+        remaining <= 0
+          ? `Нет свободных мест${where}.`
+          : `Недостаточно мест${where}. Доступно: ${remaining}, запрашивается: ${opts.participants}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Колонки строки брони, которые дверь передаёт в `insertBookingRow`. Имена —
+ * как в базе.
+ *
+ * `end_date` и `duration_days` здесь НЕТ намеренно (аудит 15.10, P2-01): их
+ * выводит сама вставка из длительности тура. Пока их передавала дверь, две
+ * двери из трёх их не передавали.
+ *
+ * Поле, которого дверь не передала (`undefined`), в INSERT не упоминается
+ * вовсе — работает умолчание базы. `null` — записанное «нет».
+ */
+export interface BookingRowValues {
+  operator_tour_id: number | string;
+  /** YYYY-MM-DD — день выезда. */
+  booking_date: string;
+  participants: number;
+  /**
+   * С каким словом бронь РОЖДАЕТСЯ. Других у новой брони нет: остальные
+   * статусы ставит смена состояния, а не вставка, — и слово, которого не
+   * знают читатели занятости и кабинета, через эту дверь не войдёт.
+   */
+  booking_status: 'new' | 'confirmed';
+  base_total_price: number;
+  final_price: number;
+  created_via: string;
+  tourist_name?: string | null;
+  tourist_email?: string | null;
+  tourist_phone?: string | null;
+  adult_count?: number | null;
+  child_count?: number | null;
+  special_requests?: string | null;
+  payment_status?: 'pending' | 'paid';
+  payment_method?: string | null;
+  discount_percent?: number | null;
+  discount_reason?: string | null;
+  user_id?: string | null;
+  /** JSON-строка, пишется в jsonb. */
+  metadata?: string;
+  pd_consent_at?: PdConsentRecord['at'] | null;
+  pd_consent_ip?: PdConsentRecord['ip'] | null;
+  pd_consent_source?: PdConsentRecord['source'] | null;
+  pd_consent_version?: PdConsentRecord['version'] | null;
+  referral_link_id?: string | null;
+  agent_user_id?: string | null;
+  lead_id?: string;
+  octo_api_key_id?: string;
+  option_id?: string;
+  hold_expires_at?: string;
+  availability_id?: string;
+  reseller_reference?: string | null;
+}
+
+/** Порядок колонок во вставке. Сверяется со схемой сторожем booking-single-writer. */
+export const BOOKING_ROW_COLUMNS = [
+  'operator_tour_id', 'tourist_name', 'tourist_email', 'tourist_phone',
+  'participants', 'adult_count', 'child_count',
+  'booking_date', 'end_date', 'duration_days',
+  'special_requests', 'booking_status', 'payment_status', 'payment_method',
+  'base_total_price', 'final_price', 'discount_percent', 'discount_reason',
+  'created_via', 'user_id', 'metadata',
+  'pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version',
+  'referral_link_id', 'agent_user_id', 'lead_id',
+  'octo_api_key_id', 'option_id', 'hold_expires_at', 'availability_id', 'reseller_reference',
+] as const satisfies ReadonlyArray<keyof BookingRowValues | 'end_date' | 'duration_days'>;
+
+const COLUMN_CAST: Readonly<Partial<Record<(typeof BOOKING_ROW_COLUMNS)[number], string>>> = {
+  metadata: '::jsonb',
+  lead_id: '::uuid',
+};
+
+/** Что возвращает вставка. Каждая дверь берёт своё. */
+export interface InsertedBooking {
+  id: number;
+  /** Ключ доступа к брони (миграция 943). */
+  access_token: string;
+  /** Идентификатор брони для OCTO; умолчание базы есть у любой строки. */
+  octo_uuid: string;
+  booking_status: string;
+  booking_date: string;
+  end_date: string;
+  duration_days: number;
+  participants: number;
+  final_price: string | null;
+  created_at: Date | string;
+}
+
+/**
+ * ЕДИНСТВЕННАЯ вставка строки брони тура в приложении.
+ *
+ * `end_date` и `duration_days` выводятся здесь из длительности тура
+ * (lib/bookings/duration.ts) — тем же правилом, каким гейт выше считает
+ * диапазон дней. Вставка не проверяет ни календарь, ни места: это делает
+ * вызывающий гейтом (`readTourDays` + `assertDaysOpen`) ТЕМ ЖЕ клиентом
+ * транзакции до вставки — либо сознательно не делает (ручная бронь
+ * оператора, см. шапку файла).
+ */
+export async function insertBookingRow(
+  exec: BookingExecutor,
+  row: BookingRowValues,
+  duration: TourDurationSource,
+): Promise<InsertedBooking> {
+  const known: ReadonlyArray<string> = BOOKING_ROW_COLUMNS;
+  for (const key of Object.keys(row)) {
+    // Колонка вне списка молча не записалась бы — это ошибка кода, а не данных.
+    if (!known.includes(key) || key === 'end_date' || key === 'duration_days') {
+      throw new Error(`insertBookingRow: колонка ${key} не входит в строку брони`);
+    }
+  }
+
+  const durationDays = tourDurationDays(duration);
+  const values: Record<string, unknown> = {
+    ...row,
+    // `end_date IS NULL` все читатели занятости понимают как «ровно один
+    // день», а не «неизвестно», — оставить его пустым у многодневного тура
+    // значит отдать дни 2..N на повторную продажу.
+    end_date: tourEndDate(row.booking_date, durationDays),
+    duration_days: durationDays,
+  };
+  const columns = BOOKING_ROW_COLUMNS.filter((c) => values[c] !== undefined);
+
+  const inserted = await exec.query<InsertedBooking>(
+    `INSERT INTO operator_bookings (${columns.join(', ')})
+     VALUES (${columns.map((c, i) => `$${i + 1}${COLUMN_CAST[c] ?? ''}`).join(', ')})
+     RETURNING id, access_token::text AS access_token, octo_uuid::text AS octo_uuid,
+               booking_status, booking_date::text AS booking_date,
+               end_date::text AS end_date, duration_days, participants,
+               final_price, created_at`,
+    columns.map((c) => values[c]),
+  );
+  const created = inserted.rows[0];
+  if (!created) throw new Error('insertBookingRow: вставка брони не вернула строку');
+  return created;
+}
+
 /**
  * Завести бронь: лок тура, календарь оператора, счёт занятости, вставка.
  *
@@ -214,56 +501,15 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
     const durationDays = tourDurationDays(tour);
     const endDate = tourEndDate(input.date, durationDays);
 
-    /**
-     * Календарь и занятость — ПО КАЖДОМУ дню диапазона, одним запросом.
-     *
-     * Календарь оператора опционален: нет строки на дату — дата свободна
-     * (большинство операторов календарём не пользуются). Но явная блокировка
-     * и лимит слотов обязаны уважаться на каждом дне, а не только на первом.
-     *
-     * Занятость берётся ИНТЕРВАЛОМ (`день BETWEEN booking_date И
-     * COALESCE(end_date, booking_date)`), а не равенством дат. Прежнее
-     * `booking_date = $2` не видело чужую многодневную бронь, накрывающую
-     * запрошенную дату серединой, — слепота была двусторонней.
-     *
-     * Предикат статусов НЕ взят у `v_tour_daily_occupancy` намеренно. Вид
-     * считает только `('new','confirmed')`, а здесь исключаются лишь
-     * `('cancelled','rejected')` — то есть `pending_payment` (оплата уже
-     * начата) место занимает. Перейти на предикат вида значило бы ОСЛАБИТЬ
-     * проверку и продать место, за которое человек в эту минуту платит.
-     * `deleted_at IS NULL` добавлен: снятая бронь места не держит.
-     */
-    const days = await client.query<{
-      date: string;
-      occupied: string;
-      available_slots: number | null;
-      is_cancelled: boolean | null;
-    }>(
-      `SELECT d.day::date AS date,
-              COALESCE(occ.occupied, 0) AS occupied,
-              ta.available_slots,
-              ta.is_cancelled
-         FROM generate_series($2::date, $3::date, '1 day') AS d(day)
-         LEFT JOIN tour_availability ta
-                ON ta.operator_tour_id = $1 AND ta.date = d.day::date
-               AND ta.deleted_at IS NULL
-         LEFT JOIN LATERAL (
-           SELECT COALESCE(SUM(b.participants), 0) AS occupied
-             FROM operator_bookings b
-            WHERE b.operator_tour_id = $1
-              AND b.booking_status NOT IN ('cancelled', 'rejected')
-              AND b.deleted_at IS NULL
-              AND d.day::date BETWEEN b.booking_date
-                                  AND COALESCE(b.end_date, b.booking_date)
-         ) occ ON true
-        ORDER BY d.day`,
-      [input.tourId, input.date, endDate],
-    );
+    // Календарь и занятость по каждому дню диапазона — общим гейтом, тем же,
+    // что у OCTO-двери (readTourDays: почему интервал и почему такой предикат
+    // статусов).
+    const days = await readTourDays(client, input.tourId, input.date, endDate);
 
     // Дата выезда без строки календаря — только по сезону тура (#2244,
     // #2245, lib/tours/request-window). Строка календаря — слово оператора и
     // сильнее сезона: открытую им дату правило не трогает.
-    const startDay = days.rows[0];
+    const startDay = days[0];
     if (!startDay || (startDay.available_slots == null && startDay.is_cancelled == null)) {
       const window = requestWindow(tour, kamchatkaToday());
       if (window.kind === 'season' && !dateInWindow(window, input.date)) {
@@ -271,41 +517,11 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       }
     }
 
-    for (const day of days.rows) {
-      if (day.is_cancelled) {
-        throw new ReserveError(
-          'DATE_BLOCKED',
-          durationDays > 1
-            ? `Оператор закрыл приём заявок на ${day.date} — эта дата входит в тур.`
-            : 'Оператор закрыл приём заявок на эту дату.',
-        );
-      }
-
-      const slots = day.available_slots;
-      const capacityCap: number | null = slots != null
-        ? Math.min(tour.max_participants ?? slots, slots)
-        : tour.max_participants;
-      if (capacityCap == null) continue;   // потолка нет ни в туре, ни в календаре
-
-      if (input.participants > capacityCap) {
-        throw new ReserveError(
-          'MAX_EXCEEDED',
-          `Превышено максимальное число участников (максимум: ${capacityCap}).`,
-        );
-      }
-
-      const alreadyBooked = parseInt(day.occupied, 10);
-      if (alreadyBooked + input.participants > capacityCap) {
-        const remaining = capacityCap - alreadyBooked;
-        const where = durationDays > 1 ? ` на ${day.date}` : ' на эту дату';
-        throw new ReserveError(
-          'NO_SLOTS',
-          remaining <= 0
-            ? `Нет свободных мест${where}.`
-            : `Недостаточно мест${where}. Доступно: ${remaining}, запрашивается: ${input.participants}.`,
-        );
-      }
-    }
+    assertDaysOpen(days, {
+      participants: input.participants,
+      maxParticipants: tour.max_participants,
+      durationDays,
+    });
 
     /**
      * Цена брони — та же, что показана туристу (lib/tours/honest-price.ts).
@@ -371,92 +587,77 @@ export async function reserveBooking(input: ReserveInput): Promise<Reserved> {
       }
     }
 
-    const inserted = await client.query<{ id: number; access_token: string }>(
-      `INSERT INTO operator_bookings (
-         operator_tour_id, tourist_name, tourist_email, tourist_phone,
-         participants, booking_date, end_date, duration_days,
-         special_requests, booking_status,
-         base_total_price, final_price, discount_percent, discount_reason,
-         created_via, user_id, metadata,
-         pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version,
-         referral_link_id, agent_user_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21,$22,$23)
-       RETURNING id, access_token::text AS access_token`,
-      [
-        input.tourId,
-        input.touristName,
-        input.touristEmail ?? null,
-        input.touristPhone,
-        input.participants,
-        input.date,
-        // Записывается ровно тот интервал, который только что проверен выше.
-        // `end_date IS NULL` для всех читателей занятости означает «один
-        // день», а не «неизвестно», — оставить его пустым у многодневного
-        // тура значит отдать дни 2..N на повторную продажу.
-        endDate,
-        durationDays,
-        input.specialRequests ?? '',
-        NEW_BOOKING_STATUS,
-        // Итог по цене оператора и итог после правил — РАЗНЫЕ колонки. До
-        // 27.09 в обе шло одно значение ($11 дважды), и разбор брони не мог
-        // ответить, была ли скидка.
-        price.baseTotal,
-        totalPrice,
-        /**
-         * Скидка записывается только когда она скидка. Надбавка (`> 0`) в
-         * колонку с именем `discount_percent` не пишется — иначе «скидка
-         * −10%» означала бы подорожание, и следующий читатель это перепутает.
-         * Причина при этом пишется всегда: она называет и надбавку.
-         */
-        price.changePercent !== null && price.changePercent < 0 ? Math.abs(price.changePercent) : null,
-        price.label,
-        input.createdVia,
-        input.userId ?? null,
-        /**
-         * user_id пишется ДВАЖДЫ: в колонку и в metadata, — и это не
-         * небрежность, а вынужденная симметрия.
-         *
-         * Слово владельца 14.09: «бронь в любом случае должна сохраняться в
-         * личном кабинете». Проверка показала дефект: ЛК туриста
-         * (`/api/bookings`), отмена брони и вся админка ищут человека по
-         * `metadata->>'user_id'`, а экспорт ПД и вся операторская сторона — по
-         * колонке `user_id`. `app/api/bookings/tour` (удалён 26.09) писал обе (там это было сделано
-         * явно, с комментарием и ссылкой на PR #321), а сюда, при переезде
-         * создания броней в общий модуль, переехала только колонка.
-         *
-         * Итог был такой: бронь, оставленная вошедшим человеком через форму
-         * заявки или через Кузьмича, у оператора видна, а в личном кабинете
-         * самого туриста — нет, и отменить её оттуда нельзя.
-         *
-         * Свести читателей к одному источнику — отдельная работа: у части
-         * старых броней заполнено только одно поле, и переход на любое из них
-         * в одиночку потерял бы чужую половину. Пока читатели разные, писать
-         * надо обоим; реестр читателей заморожен сторожем
-         * tests/unit/booking-owner-link.test.ts и может только сокращаться.
-         *
-         * Метка канала при этом не теряется: metadata вызывающего сливается с
-         * привязкой, а не подменяется ею.
-         */
-        JSON.stringify({
-          ...(input.metadata ?? {}),
-          ...(input.userId ? { user_id: input.userId } : {}),
-        }),
-        // Согласие идёт В ТОЙ ЖЕ вставке, что бронь. Отдельный UPDATE после
-        // дал бы окно, в котором бронь есть, а доказательства права её
-        // хранить — нет; и окно это не теоретическое, а ровно такое же, как
-        // у дедупа алертов 13.09.
-        input.pdConsent?.at ?? null,
-        input.pdConsent?.ip ?? null,
-        input.pdConsent?.source ?? null,
-        input.pdConsent?.version ?? null,
-        referralLinkId,
-        agentUserId,
-      ],
-    );
+    // Строка брони — общей вставкой (insertBookingRow): `end_date` и
+    // `duration_days` она выводит из того же тура тем же правилом, каким
+    // выше посчитан проверенный диапазон, — записывается ровно он.
+    const inserted = await insertBookingRow(client, {
+      operator_tour_id: input.tourId,
+      tourist_name: input.touristName,
+      tourist_email: input.touristEmail ?? null,
+      tourist_phone: input.touristPhone,
+      participants: input.participants,
+      booking_date: input.date,
+      special_requests: input.specialRequests ?? '',
+      booking_status: NEW_BOOKING_STATUS,
+      // Итог по цене оператора и итог после правил — РАЗНЫЕ колонки. До
+      // 27.09 в обе шло одно значение ($11 дважды), и разбор брони не мог
+      // ответить, была ли скидка.
+      base_total_price: price.baseTotal,
+      final_price: totalPrice,
+      /**
+       * Скидка записывается только когда она скидка. Надбавка (`> 0`) в
+       * колонку с именем `discount_percent` не пишется — иначе «скидка
+       * −10%» означала бы подорожание, и следующий читатель это перепутает.
+       * Причина при этом пишется всегда: она называет и надбавку.
+       */
+      discount_percent: price.changePercent !== null && price.changePercent < 0 ? Math.abs(price.changePercent) : null,
+      discount_reason: price.label,
+      created_via: input.createdVia,
+      user_id: input.userId ?? null,
+      /**
+       * user_id пишется ДВАЖДЫ: в колонку и в metadata, — и это не
+       * небрежность, а вынужденная симметрия.
+       *
+       * Слово владельца 14.09: «бронь в любом случае должна сохраняться в
+       * личном кабинете». Проверка показала дефект: ЛК туриста
+       * (`/api/bookings`), отмена брони и вся админка ищут человека по
+       * `metadata->>'user_id'`, а экспорт ПД и вся операторская сторона — по
+       * колонке `user_id`. `app/api/bookings/tour` (удалён 26.09) писал обе (там это было сделано
+       * явно, с комментарием и ссылкой на PR #321), а сюда, при переезде
+       * создания броней в общий модуль, переехала только колонка.
+       *
+       * Итог был такой: бронь, оставленная вошедшим человеком через форму
+       * заявки или через Кузьмича, у оператора видна, а в личном кабинете
+       * самого туриста — нет, и отменить её оттуда нельзя.
+       *
+       * Свести читателей к одному источнику — отдельная работа: у части
+       * старых броней заполнено только одно поле, и переход на любое из них
+       * в одиночку потерял бы чужую половину. Пока читатели разные, писать
+       * надо обоим; реестр читателей заморожен сторожем
+       * tests/unit/booking-owner-link.test.ts и может только сокращаться.
+       *
+       * Метка канала при этом не теряется: metadata вызывающего сливается с
+       * привязкой, а не подменяется ею.
+       */
+      metadata: JSON.stringify({
+        ...(input.metadata ?? {}),
+        ...(input.userId ? { user_id: input.userId } : {}),
+      }),
+      // Согласие идёт В ТОЙ ЖЕ вставке, что бронь. Отдельный UPDATE после
+      // дал бы окно, в котором бронь есть, а доказательства права её
+      // хранить — нет; и окно это не теоретическое, а ровно такое же, как
+      // у дедупа алертов 13.09.
+      pd_consent_at: input.pdConsent?.at ?? null,
+      pd_consent_ip: input.pdConsent?.ip ?? null,
+      pd_consent_source: input.pdConsent?.source ?? null,
+      pd_consent_version: input.pdConsent?.version ?? null,
+      referral_link_id: referralLinkId,
+      agent_user_id: agentUserId,
+    }, tour);
 
     return {
-      bookingId: inserted.rows[0]!.id,
-      accessToken: inserted.rows[0]!.access_token,
+      bookingId: inserted.id,
+      accessToken: inserted.access_token,
       totalPrice,
       operatorId: tour.operator_id,
       tourTitle: tour.title,

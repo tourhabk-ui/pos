@@ -5,7 +5,9 @@
  * бронь, converted ставят руками; канбан есть только у админа». Теперь:
  *   - у оператора есть доска, и лиды конвейера на ней не пропадают;
  *   - кнопка «Завести бронь» на карточке лида заводит бронь с lead_id и
- *     ставит лиду «Сделку» одним запросом (миграция 1214);
+ *     ставит лиду «Сделку» одной транзакцией (миграция 1214; до 15.10 —
+ *     одним запросом-CTE, теперь строку брони пишет общая insertBookingRow,
+ *     аудит P2-01);
  *   - карточка лида показывает его брони, отказ чтения — «не прочитались».
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,7 +16,13 @@ import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 
 const queryMock = vi.fn();
-vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
+/** Запросы, выполненные клиентом транзакции брони. */
+const txCalls: unknown[][] = [];
+vi.mock('@/lib/database', () => ({
+  query: (...a: unknown[]) => queryMock(...a),
+  transaction: (cb: (c: { query: (...a: unknown[]) => unknown }) => unknown) =>
+    cb({ query: (...a: unknown[]) => { txCalls.push(a); return queryMock(...a); } }),
+}));
 const poolQueryMock = vi.fn();
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => poolQueryMock(...a) } }));
 const authMock = vi.fn();
@@ -43,6 +51,7 @@ const OPERATOR = '22222222-2222-4222-8222-222222222222';
 
 beforeEach(() => {
   queryMock.mockReset();
+  txCalls.length = 0;
   poolQueryMock.mockReset();
   authMock.mockReset();
   eventMock.mockClear();
@@ -104,15 +113,19 @@ const BASE = { operator_tour_id: 7, booking_date: '2026-11-20', participants: 2,
 describe('POST ручной брони: бронь из лида', () => {
   beforeEach(() => authMock.mockResolvedValue({ userId: '00000000-0000-4000-8000-0000000000a1', role: 'operator' }));
 
-  it('свой или ничейный лид: бронь с lead_id и «Сделка» лиду — одним запросом, событие в ленте', async () => {
+  it('свой или ничейный лид: бронь с lead_id и «Сделка» лиду — одной транзакцией, событие в ленте', async () => {
     routeDb(true);
     const res = await POST(postReq({ ...BASE, lead_id: LEAD_ID }));
     expect(res.status).toBe(201);
-    const insert = queryMock.mock.calls.find((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
-    const sql = String(insert?.[0]);
-    expect(sql).toMatch(/lead_id\)/);
-    expect(sql).toMatch(/UPDATE leads[\s\S]*SET status = 'converted', operator_id = COALESCE\(operator_id, \$17::uuid\)/);
-    expect(insert?.[1]).toEqual(expect.arrayContaining([LEAD_ID, OPERATOR]));
+    // И вставка, и «Сделка» — клиентом ТОЙ ЖЕ транзакции: без брони лид
+    // «Сделкой» не становится.
+    const insert = txCalls.find((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
+    const update = txCalls.find((c) => /UPDATE leads/.test(String(c[0])));
+    expect(String(insert?.[0])).toMatch(/lead_id\)/);
+    expect(insert?.[1]).toEqual(expect.arrayContaining([LEAD_ID]));
+    expect(String(update?.[0])).toMatch(/SET status = 'converted', operator_id = COALESCE\(operator_id, \$2::uuid\)/);
+    expect(update?.[1]).toEqual([LEAD_ID, OPERATOR]);
+    expect(txCalls.indexOf(insert!)).toBeLessThan(txCalls.indexOf(update!));
     expect(eventMock).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'status_change', sourceKind: 'lead', sourceId: LEAD_ID,
       payload: expect.objectContaining({ from: 'ai_qualified', to: 'converted', booking_id: '501' }),
@@ -130,8 +143,9 @@ describe('POST ручной брони: бронь из лида', () => {
     routeDb(true);
     const res = await POST(postReq(BASE));
     expect(res.status).toBe(201);
-    const insert = queryMock.mock.calls.find((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
+    const insert = txCalls.find((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
     expect(String(insert?.[0])).not.toMatch(/lead_id|UPDATE leads/);
+    expect(queryMock.mock.calls.some((c) => /UPDATE leads/.test(String(c[0])))).toBe(false);
     expect(eventMock).not.toHaveBeenCalled();
   });
 

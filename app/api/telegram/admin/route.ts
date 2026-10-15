@@ -19,8 +19,8 @@
  *   TELEGRAM_BOT_TOKEN — токен @kuzmichai_bot
  *   TELEGRAM_OWNER_ID  — Telegram user ID владельца (171286547)
  *   TELEGRAM_ADMIN_WEBHOOK_SECRET — секрет подлинности webhook (см. POST ниже).
- *     Пока не задан, роут работает и пишет об этом в лог: ответы всё равно
- *     уходят только владельцу. Чтобы включить второй слой:
+ *     Пока не задан, POST отвечает 503 и пишет об этом в лог (аудит 15.10,
+ *     P3-03). Чтобы включить роут:
  *       1) завести переменную в панели Timeweb;
  *       2) перерегистрировать webhook с тем же значением в secret_token.
  *     Порядок важен: наоборот — бот замолчит между шагами.
@@ -33,7 +33,7 @@ import { postKuzmichRoute, postKuzmichTip } from '@/lib/notifications/telegram-c
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { PlatformAgent } from '@/lib/agents';
-import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
+import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 const adminGetLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
@@ -654,19 +654,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   //    идёт в TELEGRAM_OWNER_ID. Даже при подделанном `from.id` данные уходят
   //    владельцу, а не тому, кто их запросил. Это работает без единой новой
   //    переменной окружения — потому и сделано первым.
-  // 2. СЕКРЕТ ЗАГОЛОВКА — когда он заведён. Закрывает остаток: запуск действий
-  //    (/testpush и прочими) чужими руками. Пока TELEGRAM_ADMIN_WEBHOOK_SECRET
-  //    не выставлен, слой честно молчит в лог, а не делает вид, что проверил.
-  //
-  // Fail-closed при незаданном секрете здесь НЕЛЬЗЯ: бот владельца замолчал бы
-  // до правки окружения, и защита данных превратилась бы в отказ сервиса.
+  // 2. СЕКРЕТ ЗАГОЛОВКА. Закрывает остаток: запуск действий (/testpush и
+  //    прочими) чужими руками. Не задан TELEGRAM_ADMIN_WEBHOOK_SECRET — отказ 503
+  //    (аудит 15.10, P3-03). Прежнее «работаем без секрета, иначе бот замолчит»
+  //    (#1168) снято замером: этот роут вебхуком не зарегистрирован, адрес
+  //    единственного бота держит telegram-webhook-watchdog на /api/telegram/webhook.
   const verdict = verifyWebhookSecret(
     request.headers.get('x-telegram-bot-api-secret-token'),
     process.env.TELEGRAM_ADMIN_WEBHOOK_SECRET,
   );
   if (verdict === 'forbidden') return new NextResponse(null, { status: 401 });
   if (verdict === 'not_configured') {
-    console.error('[telegram/admin] TELEGRAM_ADMIN_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
+    return refuseUnconfiguredWebhook('telegram/admin', 'TELEGRAM_ADMIN_WEBHOOK_SECRET');
   }
 
   try {

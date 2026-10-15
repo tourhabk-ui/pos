@@ -60,6 +60,13 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // DeepSeek/Qwen, поэтому domestic:false — ПД в промпт по-прежнему только
   // через redactPII.
   { host: 'api.moonshot.ai', jurisdiction: 'China', domestic: false, provider: 'Moonshot (Kimi)' },
+  // Китайский контур Moonshot (15.10): ключ, выписанный на platform.kimi.com,
+  // международный api.moonshot.ai отвергает (проба знания 8: 401 «Invalid
+  // Authentication»), и владелец поставил на Timeweb
+  // MOONSHOT_BASE_URL=https://api.moonshot.cn/v1. Адрес приходит из env, в
+  // исходнике его нет — сканер D2 его не увидел бы, поэтому запись ставится
+  // руками. Тот же получатель ПД, та же юрисдикция.
+  { host: 'api.moonshot.cn', jurisdiction: 'China', domestic: false, provider: 'Moonshot (Kimi), китайский контур (MOONSHOT_BASE_URL)' },
   // Шлюз Timeweb к флагманам (CLAUDE.md §8, замер 23.08) — хост российский,
   // но трафик уходит ДАЛЬШЕ, в Anthropic/OpenAI/etc за границей: юрисдикция
   // хоста и юрисдикция получателя ПД — РАЗНЫЕ вопросы, и второй не решается

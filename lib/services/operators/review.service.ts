@@ -10,7 +10,6 @@ import {
   toBooleanOrNull,
   ReviewNotFoundError,
   ReviewValidationError,
-  DuplicateReviewError,
 } from '../_helpers';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 
@@ -42,35 +41,13 @@ export const reviewService = {
       tourName: toStringOrNull(row.tour_name),
     };
   },
-  async create(data: Record<string, unknown>) {
-    const tourId = toStringOrNull(data.tourId) ?? toStringOrNull(data.tour_id);
-    const userId = toStringOrNull(data.userId) ?? toStringOrNull(data.user_id);
-    const rating = toNumberOrNull(data.rating);
-    const comment = toStringOrNull(data.comment) ?? '';
-
-    if (!tourId || !userId || rating === null) {
-      throw new ReviewValidationError('Required fields: tourId, userId, rating');
-    }
-    if (rating < 1 || rating > 5) {
-      throw new ReviewValidationError('Rating must be between 1 and 5');
-    }
-
-    const duplicateCheck = await pool.query(
-      `SELECT id FROM reviews WHERE tour_id = $1 AND user_id = $2 LIMIT 1`,
-      [tourId, userId]
-    );
-    if (duplicateCheck.rows.length > 0) {
-      throw new DuplicateReviewError('Review for this tour already exists');
-    }
-
-    const result = await pool.query(
-      `INSERT INTO reviews (tour_id, user_id, rating, comment, is_verified, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, FALSE, NOW(), NOW())
-       RETURNING *`,
-      [tourId, userId, rating, comment]
-    );
-    return this.normalize(result.rows[0] ?? null);
-  },
+  // `create()` снят вместе с `POST /api/discovery/reviews` (аудит 15.10,
+  // P2-02): он писал отзыв о туре в `reviews.tour_id` — uuid с внешним ключом
+  // на запрещённую `tours` (CLAUDE.md §4). С id из `operator_tours` (bigint)
+  // запись падала 22P02, с uuid старого тура — ложилась туда, где отзывы о
+  // туре не читает никто: карточка тура и `GET /api/reviews` читают
+  // `operator_tour_reviews`. Отзыв о туре пишет только
+  // `POST /api/reviews/tour/[tourId]` — с гейтом завершённой брони.
   async getById(id: string) {
     const result = await pool.query(
       // Почта автора отсюда УБРАНА: `GET /api/discovery/reviews/[id]`

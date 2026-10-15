@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/operators/chat.service';
 import { pool } from '@/lib/db-pool';
@@ -37,26 +38,46 @@ export async function GET(request: NextRequest) {
 }
 
 /**
+ * Тело POST. `tourId` и `bookingId` схема не читает намеренно (аудит 15.10,
+ * P2-02): кнопка «Написать оператору» шлёт id тура, но беседа его не хранит —
+ * колонки `conversations.tour_id`/`booking_id` на проде ссылаются на
+ * запрещённые `tours`/`bookings` (uuid), и запись числового id тура роняла
+ * создание беседы. Тур доходит до оператора темой (`subject`). Лишние ключи
+ * z.object отбрасывает — кнопку менять не нужно.
+ */
+const CreateConversationSchema = z.object({
+  participantId: z.string().trim().optional(),
+  participantRole: z.string().optional(),
+  subject: z.string().trim().optional(),
+  message: z.string().trim().optional(),
+  operatorPartnerId: z.string().trim().optional(),
+});
+
+/**
  * POST /api/chat/conversations
  * Create or find a direct conversation with another user.
- * Body: { participantId, participantRole?, subject?, bookingId?, tourId?, message? }
+ * Body: { participantId?, operatorPartnerId?, participantRole?, subject?, message? }
  */
 export async function POST(request: NextRequest) {
   try {
     const userOrResponse = await requireAuth(request);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
-    const body = await request.json();
-    let participantId = typeof body.participantId === 'string' ? body.participantId.trim() : '';
-    let participantRole = typeof body.participantRole === 'string' ? body.participantRole : 'tourist';
-    const subject = typeof body.subject === 'string' ? body.subject.trim() : undefined;
-    const bookingId = typeof body.bookingId === 'string' ? body.bookingId.trim() : undefined;
-    const tourId = typeof body.tourId === 'number' ? body.tourId : undefined;
-    const message = typeof body.message === 'string' ? body.message.trim() : undefined;
+    const parsed = CreateConversationSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: 'Некорректные данные беседы' },
+        { status: 400 }
+      );
+    }
+    let participantId = parsed.data.participantId ?? '';
+    let participantRole = parsed.data.participantRole ?? 'tourist';
+    const subject = parsed.data.subject;
+    const message = parsed.data.message;
 
     // Кнопка «Написать оператору» на карточке тура знает только id партнёра —
     // user_id оператора резолвим на сервере, чтобы не светить его в публичном API
-    const operatorPartnerId = typeof body.operatorPartnerId === 'string' ? body.operatorPartnerId.trim() : '';
+    const operatorPartnerId = parsed.data.operatorPartnerId ?? '';
     if (!participantId && operatorPartnerId) {
       const { rows } = await pool.query<{ user_id: string | null }>(
         `SELECT user_id FROM partners WHERE id = $1 LIMIT 1`,
@@ -92,7 +113,7 @@ export async function POST(request: NextRequest) {
       userOrResponse.role,
       participantId,
       participantRole,
-      { bookingId, tourId, subject }
+      { subject }
     );
 
     // Send initial message if provided and conversation was just created

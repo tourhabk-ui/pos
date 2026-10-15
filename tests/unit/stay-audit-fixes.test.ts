@@ -28,7 +28,9 @@ import { join } from 'path';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const BOOK = read('app/api/accommodations/[id]/book/route.ts');
-const TOURS_BOOK = read('app/api/tours/[id]/book/route.ts');
+// app/api/tours/[id]/book удалён 15.10 (аудит, P2-01): его не звал никто,
+// а бронь он писал мимо общего гейта. Сторожа «туры: тот же класс» сняты с
+// ним; бронь тура — lib/bookings/reserve.ts (booking-single-writer).
 const LIST = read('app/api/accommodations/route.ts');
 const FORM = read('components/booking/StayBookingForm.tsx');
 const CLIENT = read('app/accommodations/_AccommodationsClient.tsx');
@@ -51,22 +53,12 @@ describe('честное письмо гостю', () => {
     expect(BOOK).toContain('Заявка на бронирование принята');
     expect(BOOK).toContain('Владелец объекта подтвердит');
   });
-
-  it('туры: тот же класс лжи убран', () => {
-    expect(TOURS_BOOK).not.toContain('подтверждено!');
-    expect(TOURS_BOOK).toContain('Заявка отправлена оператору');
-  });
 });
 
 describe('платёжный URL — от текущего запроса', () => {
   it('жильё: платёж не создаётся вовсе — оплата на месте (26.09)', () => {
     expect(BOOK).not.toContain('http://127.0.0.1');
     expect(BOOK).not.toContain('/api/payments/create');
-  });
-
-  it('туры: тот же фикс', () => {
-    expect(TOURS_BOOK).not.toContain('http://127.0.0.1');
-    expect(TOURS_BOOK).toContain("new URL('/api/payments/create', request.url)");
   });
 });
 

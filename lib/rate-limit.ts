@@ -97,10 +97,21 @@ export function createRateLimiter({ windowMs, max }: RateLimiterOptions): RateLi
  * X-Forwarded-For как последнее средство.
  */
 export function getTrustedClientIp(headers: Headers): string {
+  return getTrustedClientIpOrNull(headers) ?? '127.0.0.1';
+}
+
+/**
+ * Тот же доверенный порядок, но без выдуманного запаса: null — ни один
+ * заголовок адреса не пришёл. Для ЗАПИСИ адреса (согласие, журнал событий,
+ * клики), где '127.0.0.1' был бы ложью о том, откуда пришёл человек, а не
+ * безобидным ключом лимита (§4.0). Находка P3-02 аудита 15.10: три роута
+ * читали XFF руками раньше x-real-ip, один писал всю цепочку целиком.
+ */
+export function getTrustedClientIpOrNull(headers: Headers): string | null {
   return headers.get('x-real-ip')?.trim()
     || headers.get('cf-connecting-ip')?.trim()
     || headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || '127.0.0.1';
+    || null;
 }
 
 /** Extract client IP from NextRequest headers */

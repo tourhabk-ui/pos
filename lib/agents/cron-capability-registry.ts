@@ -57,6 +57,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'user-photo-hero': ['db_read', 'db_write', 'pd_direct'],
   'user-photo-moderate': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'build-sha-probe': [],
+  // 15.10, P3-02: проба заголовков адреса клиента — без БД и без сети.
+  'client-ip-headers-probe': [],
   'catalog-census': ['db_read'],
   'pricing-rules-census': ['db_read'],
   'catalog-diag': ['db_read'],

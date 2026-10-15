@@ -9,7 +9,8 @@ import { bookingTotal } from '@/lib/tours/booking-total';
 import { requireOperator } from '@/lib/auth/middleware';
 import { PaginationSchema } from '@/lib/api/operator-tours';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
+import { insertBookingRow, type BookingRowValues } from '@/lib/bookings/reserve';
 import { z } from 'zod';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
@@ -38,13 +39,6 @@ const CreateBookingSchema = z.object({
   /** Лид, из которого оператор заводит бронь (CRM фаза 2, миграция 1214). */
   lead_id: z.string().uuid().optional(),
 });
-
-/** Колонки ручной брони — одни для брони из лида и без него. */
-const BOOKING_INSERT_COLUMNS = `operator_tour_id, tourist_name, tourist_phone, tourist_email,
-        booking_date, participants, adult_count, child_count,
-        base_total_price, final_price,
-        payment_status, payment_method, booking_status,
-        special_requests, created_via`;
 
 /**
  * Кабинет вошедшего — свой или команды (CRM 2г): менеджер ведёт брони своего
@@ -194,14 +188,15 @@ export async function POST(request: NextRequest) {
     const tour = tourResult.rows[0];
     const tourTitle = tour.title as string;
     const basePrice = Number(tour.base_price);
+    const duration = {
+      multi_day_count: tour.multi_day_count == null ? null : Number(tour.multi_day_count),
+      duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
+    };
     const computedTotal = bookingTotal({
       basePrice,
       priceUnit: tour.price_unit as string | null,
       participants: input.participants,
-      duration: {
-        multi_day_count: tour.multi_day_count == null ? null : Number(tour.multi_day_count),
-        duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
-      },
+      duration,
     });
     const finalPrice = input.final_price ?? computedTotal;
 
@@ -232,50 +227,60 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const values = [
-        tourId,
-        input.tourist_name || null,
-        input.tourist_phone || null,
-        input.tourist_email || null,
-        input.booking_date,
-        input.participants,
-        input.adult_count || null,
-        input.child_count || null,
-        computedTotal,
-        finalPrice,
-        input.payment_status,
-        input.payment_method || null,
-        input.booking_status,
-        input.special_requests || null,
-        input.created_via,
-      ];
-    // Без лида колонка lead_id не упоминается вовсе: ручная бронь не зависит
-    // от миграции 1214. С лидом — одним запросом бронь с lead_id и «Сделка»
-    // лиду; ничейный лид становится лидом этого оператора, как при первом
-    // действии над ним (app/api/leads/[id]).
-    const result = lead
-      ? await query(
-        `WITH b AS (
-           INSERT INTO operator_bookings (${BOOKING_INSERT_COLUMNS}, lead_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::uuid)
-           RETURNING id, booking_date::text AS booking_date, participants, final_price, booking_status
-         ), l AS (
-           UPDATE leads
-              SET status = 'converted', operator_id = COALESCE(operator_id, $17::uuid), updated_at = NOW()
-            WHERE id = $16::uuid
-           RETURNING id
-         )
-         SELECT b.* FROM b`,
-        [...values, lead.id, operator_id],
-      )
-      : await query(
-        `INSERT INTO operator_bookings (${BOOKING_INSERT_COLUMNS})
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-         RETURNING id, booking_date::text AS booking_date, participants, final_price, booking_status`,
-        values,
-      );
+    const row: BookingRowValues = {
+      operator_tour_id: input.operator_tour_id,
+      tourist_name: input.tourist_name || null,
+      tourist_phone: input.tourist_phone || null,
+      tourist_email: input.tourist_email || null,
+      booking_date: input.booking_date,
+      participants: input.participants,
+      adult_count: input.adult_count || null,
+      child_count: input.child_count || null,
+      base_total_price: computedTotal,
+      final_price: finalPrice,
+      payment_status: input.payment_status,
+      payment_method: input.payment_method || null,
+      booking_status: input.booking_status,
+      special_requests: input.special_requests || null,
+      created_via: input.created_via,
+      // Без лида колонка lead_id не упоминается вовсе: ручная бронь не
+      // зависит от миграции 1214.
+      ...(lead ? { lead_id: lead.id } : {}),
+    };
 
-    const booking = result.rows[0];
+    /**
+     * Строка брони — общей вставкой (lib/bookings/reserve.ts, аудит 15.10,
+     * P2-01). Своя вставка не писала `end_date` и `duration_days`: группа на
+     * пятидневном туре, заведённая по звонку, занимала для календарей, витрины
+     * дат и гейта брони только день выезда, и дни 2..N продавались снова.
+     *
+     * Гейта календаря и мест здесь НЕТ намеренно: оператор записывает то, о
+     * чём уже договорился сам, и отказ в записи потерял бы бронь, которая всё
+     * равно состоится.
+     *
+     * Бронь из лида и «Сделка» лиду — одной транзакцией: ничейный лид
+     * становится лидом этого оператора, как при первом действии над ним
+     * (app/api/leads/[id]). Без брони лид «Сделкой» не становится.
+     */
+    const booking = await transaction(async (client) => {
+      const created = await insertBookingRow(client, row, duration);
+      if (lead) {
+        await client.query(
+          `UPDATE leads
+              SET status = 'converted', operator_id = COALESCE(operator_id, $2::uuid), updated_at = NOW()
+            WHERE id = $1::uuid`,
+          [lead.id, operator_id],
+        );
+      }
+      // Ответ кабинету — прежние пять полей.
+      return {
+        id: created.id,
+        booking_date: created.booking_date,
+        participants: created.participants,
+        final_price: created.final_price,
+        booking_status: created.booking_status,
+      };
+    });
 
     if (lead && lead.status !== 'converted') {
       await recordSourceEventQuietly({
@@ -291,7 +296,7 @@ export async function POST(request: NextRequest) {
 
     // Fire-and-forget Telegram notification
     notifyNewBooking({
-      booking_id: booking.id as bigint,
+      booking_id: String(booking.id),
       tour_title: tourTitle,
       tourist_name: input.tourist_name,
       tourist_phone: input.tourist_phone,

@@ -9,6 +9,11 @@
  * обязан звать хук своего вида после вставки — либо стоять в
  * `KNOWN_WITHOUT_HOOK` с причиной. Список самоустаревающий: дверь пропала —
  * запись требует убрать.
+ *
+ * С 15.10 (аудит, P2-01) строку `operator_bookings` пишет одна общая
+ * `insertBookingRow` (lib/bookings/reserve.ts), и дверь брони видна по её
+ * вызову, а не по тексту INSERT. Без этого перенос вставки в общую функцию
+ * молча вывел бы OCTO и ручную бронь оператора из-под этого сторожа.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -27,8 +32,6 @@ const TABLE_KIND: Readonly<Record<string, SourceKind>> = {
 };
 
 const KNOWN_WITHOUT_HOOK: Readonly<Record<string, string>> = {
-  'lib/services/tours/booking.service.ts':
-    'мёртвая дверь: bookingService.create не зовёт никто — экспорт есть, потребителя нет (проверяется ниже)',
   'app/api/cron/payment-test-setup/route.ts':
     'проба оплаты: тестовая бронь не клиент оператора',
   'app/api/cron/sql-shape-check/route.ts':
@@ -39,6 +42,9 @@ const INSERT_RE = new RegExp(
   String.raw`INSERT\s+INTO\s+(?:public\.)?(${Object.keys(TABLE_KIND).join('|')})\b`,
   'g',
 );
+
+/** Вызов общей вставки строки брони — та же дверь в operator_bookings. */
+const BOOKING_ROW_CALL_RE = /\binsertBookingRow\(/g;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -54,12 +60,15 @@ function inserters(): Map<string, { src: string; tables: Set<string>; firstInser
   const found = new Map<string, { src: string; tables: Set<string>; firstInsert: number }>();
   for (const abs of [...walk(join(ROOT, 'app')), ...walk(join(ROOT, 'lib'))]) {
     const src = readFileSync(abs, 'utf8');
-    const matches = [...src.matchAll(INSERT_RE)];
+    const matches = [
+      ...[...src.matchAll(INSERT_RE)].map((m) => ({ table: m[1], index: m.index ?? 0 })),
+      ...[...src.matchAll(BOOKING_ROW_CALL_RE)].map((m) => ({ table: 'operator_bookings', index: m.index ?? 0 })),
+    ];
     if (matches.length === 0) continue;
     found.set(relative(ROOT, abs), {
       src,
-      tables: new Set(matches.map((m) => m[1])),
-      firstInsert: Math.min(...matches.map((m) => m.index ?? 0)),
+      tables: new Set(matches.map((m) => m.table)),
+      firstInsert: Math.min(...matches.map((m) => m.index)),
     });
   }
   return found;
@@ -113,12 +122,12 @@ describe('у каждой двери источника есть хук клие
     expect(readFileSync(join(ROOT, 'app/api/cron/payment-test-setup/route.ts'), 'utf8')).toMatch(/'service-payment-test'/);
   });
 
-  it('мёртвая дверь bookingService.create по-прежнему без потребителей', () => {
+  it('bookingService по-прежнему без потребителей (create снят 15.10, остальное — тоже мёртвое)', () => {
     const users = [...walk(join(ROOT, 'app')), ...walk(join(ROOT, 'lib')), ...walk(join(ROOT, 'components'))]
       .map((abs) => relative(ROOT, abs))
       .filter((rel) => rel !== 'lib/services/tours/booking.service.ts' && rel !== 'lib/services/index.ts')
       .filter((rel) => /\bbookingService\b/.test(readFileSync(join(ROOT, rel), 'utf8')));
-    expect(users, 'bookingService начали звать — дверь ожила, ей нужен хук linkContactQuietly').toEqual([]);
+    expect(users, 'bookingService начали звать — мёртвый код ожил, ему нужны хук клиента и событие ленты').toEqual([]);
   });
 });
 

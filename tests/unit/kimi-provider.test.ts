@@ -25,6 +25,16 @@ describe('Kimi зарегистрирован в реестре D2', () => {
     expect(kimi!.jurisdiction).toBe('China');
     expect(kimi!.domestic, 'domestic:true разрешил бы слать сырые ПД в Китай').toBe(false);
   });
+
+  // Адрес китайского контура приходит из MOONSHOT_BASE_URL, а не из исходника:
+  // сканер D2 его не найдёт, и без этой записи трансграничный приёмник ПД
+  // работал бы мимо реестра (15.10, владелец поставил api.moonshot.cn).
+  it('api.moonshot.cn — тоже в реестре: Китай, не domestic', () => {
+    const cn = LLM_ENDPOINTS.find((e) => e.host === 'api.moonshot.cn');
+    expect(cn, 'китайский контур Moonshot не в реестре').toBeDefined();
+    expect(cn!.jurisdiction).toBe('China');
+    expect(cn!.domestic).toBe(false);
+  });
 });
 
 describe('Kimi проведён в оба пути', () => {

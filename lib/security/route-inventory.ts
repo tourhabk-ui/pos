@@ -73,6 +73,9 @@ export interface RouteRecord {
 const AUTH_SIGNALS = [
   'requireAdmin', 'requireAuth', 'requireOperator', 'requireRole', 'requireAgent',
   'requireAccommodationAccess', 'verifyAuth', 'getUserFromRequest', 'verifyToken',
+  // Подпись И строка сессии для тех, у кого на руках сам токен (аудит 15.10,
+  // P3-01: /api/auth/me и /api/auth/state перешли на неё с голого verifyToken).
+  'verifySessionToken',
   'getCronSecret', 'verifyCronSecret', 'diagnoseCronAuth',
   'getOperatorPartnerId', 'getGuidePartnerId', 'getStayPartnerId',
   'verifyTourOwnership', 'getTouristProfile', 'ensurePartnerForRole',

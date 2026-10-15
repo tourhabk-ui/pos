@@ -24,7 +24,8 @@
  * Запуск ТРЕБУЕТ базы: KERNEL_PG_TEST_URL=postgresql://user:pass@host/db.
  * Без неё файл честно пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import type { NextRequest } from 'next/server';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -34,6 +35,14 @@ const withPg = PG_URL ? describe : describe.skip;
 if (!PG_URL) {
   console.warn('[tourist-cabinet.pg] KERNEL_PG_TEST_URL не задан — интеграционные тесты пропущены (не прогнаны, а не зелёные)');
 }
+
+// Вход в роут беседы (P2-02) — от имени туриста посева. Остальное из
+// middleware настоящее: подменяется только проверка JWT.
+const authAs = vi.hoisted(() => ({ userId: '', role: 'tourist' }));
+vi.mock('@/lib/auth/middleware', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/middleware')>()),
+  requireAuth: async () => ({ ...authAs }),
+}));
 
 const TEST_DB = 'tourist_cabinet_test';
 /** Первая миграция после baseline (снимок прода 2026-08-15, последняя в нём — 862). */
@@ -294,6 +303,48 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const bySource = new Map(got.rows.map((r) => [r.agent_route_id, r.profile_source]));
     expect(bySource.get(templ)).toBe('type_template');
     expect(bySource.get(hand)).toBe('unknown');
+  });
+
+  it('«Написать оператору» с карточки тура открывает беседу: id тура не пишется в ссылку на tours (P2-02)', async () => {
+    // Аудит 15.10, P2-02. На проде conversations.tour_id — uuid с внешним
+    // ключом на запрещённую `tours` (baseline; 714 через IF NOT EXISTS её не
+    // тронула), а кнопка шлёт operator_tours.id (bigint). Прежний INSERT
+    // писал его туда и падал 22P02 «invalid input syntax for type uuid» —
+    // беседа с карточки тура не открывалась ни разу. Мок пула ответил бы на
+    // любую форму; тип колонки знает только сервер.
+    const opUser = await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('cab-chat-op@example.com', 'Оператор чата', 'x', 'operator') RETURNING id`,
+    );
+    const chatPartner = await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Оператор чата', 'operator', '{"phone":"+70000000001"}', TRUE, TRUE, 'cab-chat-op', $1) RETURNING id`,
+      [opUser.rows[0].id],
+    );
+    authAs.userId = userId;
+    authAs.role = 'tourist';
+
+    const { POST } = await import('@/app/api/chat/conversations/route');
+    const res = await POST(
+      new Request('http://localhost/api/chat/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Ровно тело components/marketplace/MessageOperatorButton.tsx.
+        body: JSON.stringify({ operatorPartnerId: chatPartner.rows[0].id, tourId, subject: 'Тур кабинета' }),
+      }) as unknown as NextRequest,
+    );
+    const json = (await res.json()) as { data?: { conversationId: string; created: boolean }; details?: string };
+    expect(res.status, json.details ?? '').toBe(201);
+
+    const conv = await pool.query<{ subject: string | null; tour_id: string | null; booking_id: string | null }>(
+      `SELECT subject, tour_id::text AS tour_id, booking_id::text AS booking_id FROM conversations WHERE id = $1`,
+      [json.data?.conversationId],
+    );
+    expect(conv.rows).toEqual([{ subject: 'Тур кабинета', tour_id: null, booking_id: null }]);
+    const members = await pool.query<{ user_id: string }>(
+      `SELECT user_id::text AS user_id FROM conversation_participants WHERE conversation_id = $1 ORDER BY role`,
+      [json.data?.conversationId],
+    );
+    expect(members.rows.map((r) => r.user_id).sort()).toEqual([opUser.rows[0].id, userId].sort());
   });
 
   it('каталог инструментов: запрос категорий выполняется (#1773)', async () => {

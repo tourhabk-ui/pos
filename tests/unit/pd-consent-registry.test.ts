@@ -233,9 +233,12 @@ describe('сервер записывает согласие, а не тольк
   it('согласие пишется В ТОЙ ЖЕ вставке, что бронь', () => {
     // Отдельный UPDATE после INSERT — окно, в котором бронь есть, а записи
     // согласия нет. Ровно тот класс, что вчера чинили в дедупе алертов.
+    // С 15.10 (аудит, P2-01) колонки вставки собирает общая insertBookingRow,
+    // и близость текста INSERT к имени колонки больше ничего не доказывает.
+    // Само свойство проверяется вызовом reserveBooking в
+    // tests/unit/booking-single-writer.test.ts («согласие — в той же вставке»).
     const src = read('lib/bookings/reserve.ts');
     expect(src).toContain('pd_consent_at');
-    expect(src).toMatch(/INSERT INTO operator_bookings[\s\S]{0,600}pd_consent_at/);
     expect(src, 'согласие дописывается вторым запросом — так нельзя')
       .not.toMatch(/UPDATE operator_bookings[\s\S]{0,200}pd_consent/);
   });

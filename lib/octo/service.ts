@@ -5,6 +5,10 @@
  */
 
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
+import {
+  assertDaysOpen, insertBookingRow, readTourDays, ReserveError, tourDurationOf,
+} from '@/lib/bookings/reserve';
 import { pool } from '@/lib/db-pool';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
 import { linkContactQuietly } from '@/lib/crm/contacts';
@@ -224,10 +228,15 @@ export async function createBooking(data: {
       return { booking: full, idempotent: true };
     }
 
-    // Check tour exists
+    // Тур есть — и строка тура под замком на всю транзакцию. Тот же лок
+    // берёт reserveBooking: холд реселлера и бронь туриста с сайта на ту же
+    // дату идут друг за другом, а не читают одну и ту же занятость (аудит
+    // 15.10, P2-01).
     const { rows: tourRows } = await client.query(
-      `SELECT id, base_price, title FROM operator_tours
-       WHERE id = $1 AND is_published = true AND deleted_at IS NULL`,
+      `SELECT id, base_price, title, max_participants, multi_day_count, duration_hours
+         FROM operator_tours
+        WHERE id = $1 AND is_published = true AND deleted_at IS NULL
+        FOR UPDATE`,
       [data.tourId]
     );
     if (tourRows.length === 0) {
@@ -252,59 +261,69 @@ export async function createBooking(data: {
     const participants = data.adultCount + data.childCount;
     const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
 
-    // Проверка слотов с блокировкой строки (FOR UPDATE SKIP LOCKED сериализует
-    // конкурентные OCTO-холды на дату). Занятость — из реальных броней:
-    // раньше здесь читался и ИНКРЕМЕНТИЛСЯ счётчик booked_slots — но его
-    // единственный писатель payment-webhook («оплаченные участники», #336),
-    // и OCTO-инкремент на неоплаченном холде смешивал семантики с риском
-    // переполнения CHECK (booked_slots <= available_slots) на смешанных
-    // каналах. OCTO-бронь — обычная строка operator_bookings, честная
-    // занятость считает её сама.
-    const slotCheck = await client.query<{ id: string; available_slots: number }>(
-      `SELECT id, available_slots
-       FROM tour_availability
-       WHERE operator_tour_id = $1 AND date = $2
-       FOR UPDATE SKIP LOCKED`,
-      [data.tourId, data.bookingDate]
+    /**
+     * Гейт — ОБЩИЙ с reserveBooking (аудит 15.10, P2-01): календарь и
+     * занятость по каждому дню диапазона тура, интервалом.
+     *
+     * Здесь стоял свой счёт: `booking_date = $2` по одному дню и только если
+     * у дня выезда есть строка календаря, взятая `FOR UPDATE SKIP LOCKED`.
+     * Многодневный тур реселлер продавал поверх чужой группы на днях 2..N;
+     * без строки календаря `max_participants` тура не проверялся вовсе; а
+     * при гонке занятая строка ПРОПУСКАЛАСЬ, и проверки не было совсем.
+     *
+     * Занятость по-прежнему из реальных броней, а не из счётчика
+     * `booked_slots`: его единственный писатель — payment-webhook
+     * («оплаченные участники», #336), и холд его не трогает.
+     *
+     * Ответ реселлеру прежний: любой отказ гейта — AVAILABILITY_SOLD_OUT.
+     */
+    const duration = tourDurationOf(tourRows[0]);
+    const durationDays = tourDurationDays(duration);
+    const days = await readTourDays(
+      client, data.tourId, data.bookingDate, tourEndDate(data.bookingDate, durationDays),
     );
-    if (slotCheck.rows.length > 0) {
-      const slot = slotCheck.rows[0];
-      const { rows: occRows } = await client.query<{ taken: string }>(
-        `SELECT COALESCE(SUM(participants), 0) AS taken
-         FROM operator_bookings
-         WHERE operator_tour_id = $1
-           AND booking_date = $2
-           AND booking_status NOT IN ('cancelled', 'rejected')`,
-        [data.tourId, data.bookingDate]
-      );
-      const remaining = slot.available_slots - parseInt(occRows[0]?.taken ?? '0', 10);
-      if (remaining < participants) {
-        await client.query('ROLLBACK');
-        return { error: 'AVAILABILITY_SOLD_OUT' };
-      }
+    try {
+      assertDaysOpen(days, {
+        participants,
+        maxParticipants: tourRows[0].max_participants == null ? null : Number(tourRows[0].max_participants),
+        durationDays,
+      });
+    } catch (err) {
+      if (!(err instanceof ReserveError)) throw err;
+      await client.query('ROLLBACK');
+      return { error: 'AVAILABILITY_SOLD_OUT' };
     }
 
-    // Create booking
-    const { rows: bookingRows } = await client.query(
-      `INSERT INTO operator_bookings (
-         operator_tour_id, booking_date, participants, adult_count, child_count,
-         base_total_price, final_price, booking_status,
-         tourist_name, tourist_email, tourist_phone, special_requests,
-         octo_api_key_id, option_id, hold_expires_at, availability_id, reseller_reference, created_via
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', $8, $9, $10, $11, $12, $13, $14, $15, $16, 'api')
-       RETURNING id, octo_uuid, booking_status, created_at`,
-      [
-        data.tourId, data.bookingDate, participants,
-        data.adultCount, data.childCount,
-        totalPrice, totalPrice,
-        data.contactName ?? null, data.contactEmail ?? null,
-        data.contactPhone ?? null, data.notes ?? null,
-        data.apiKeyId, data.optionId, holdExpiresAt, data.availabilityId,
-        data.resellerReference ?? null,
-      ]
-    );
-
-    const booking = bookingRows[0];
+    // Строка брони — общей вставкой: `end_date` и `duration_days` она выводит
+    // сама. Своя вставка писала многодневный холд однодневным, и для всех
+    // поверхностей занятости дни 2..N оставались свободными.
+    const inserted = await insertBookingRow(client, {
+      operator_tour_id: data.tourId,
+      booking_date: data.bookingDate,
+      participants,
+      adult_count: data.adultCount,
+      child_count: data.childCount,
+      base_total_price: totalPrice,
+      final_price: totalPrice,
+      booking_status: 'new',
+      tourist_name: data.contactName ?? null,
+      tourist_email: data.contactEmail ?? null,
+      tourist_phone: data.contactPhone ?? null,
+      special_requests: data.notes ?? null,
+      octo_api_key_id: data.apiKeyId,
+      option_id: data.optionId,
+      hold_expires_at: holdExpiresAt,
+      availability_id: data.availabilityId,
+      reseller_reference: data.resellerReference ?? null,
+      created_via: 'api',
+    }, duration);
+    // Форма прежняя — те же четыре поля, что отдавал RETURNING своей вставки.
+    const booking = {
+      id: inserted.id,
+      octo_uuid: inserted.octo_uuid,
+      booking_status: inserted.booking_status,
+      created_at: inserted.created_at,
+    };
 
     // Audit log
     await client.query(
