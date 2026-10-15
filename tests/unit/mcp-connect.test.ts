@@ -34,10 +34,28 @@ describe('варианты подключения — все на один ад�
     expect(MCP_ENDPOINT).toBe(`${CANONICAL_BASE_URL}/api/mcp`);
   });
 
-  it('семь вариантов: два deeplink, две команды, YAML, шаги, JSON', () => {
-    expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual(['claude_ai', 'claude_code', 'cursor', 'deepseek_harness', 'json', 'qwen_code', 'vscode']);
+  it('девять вариантов: четыре deeplink, две команды, YAML, шаги, JSON', () => {
+    expect(MCP_CONNECT_OPTIONS.map((o) => o.id).sort()).toEqual(['claude_ai', 'claude_code', 'cursor', 'deepseek_harness', 'json', 'qwen_code', 'trae', 'trae_cn', 'vscode']);
     expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'command').length).toBe(2);
-    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').length).toBe(2);
+    expect(MCP_CONNECT_OPTIONS.filter((o) => o.kind === 'link').map((o) => o.id).sort()).toEqual(['cursor', 'trae', 'trae_cn', 'vscode']);
+  });
+
+  // Аудит 15.10, CN-zh: схема из документации Trae (docs.trae.cn и docs.trae.ai,
+  // снято 15.10) — `<схема>://trae.ai-ide/mcp-import?type=&name=&config=<base64>`.
+  it.each([
+    ['trae_cn', 'trae-cn:'],
+    ['trae', 'trae:'],
+  ])('Trae (%s): схема %s, host trae.ai-ide, путь /mcp-import, type=http, config раскодируется в наш адрес', (id, protocol) => {
+    const trae = MCP_CONNECT_OPTIONS.find((o) => o.id === id)!;
+    expect(trae.kind).toBe('link');
+    const url = new URL(trae.value);
+    expect(url.protocol).toBe(protocol);
+    expect(url.host).toBe('trae.ai-ide');
+    expect(url.pathname).toBe('/mcp-import');
+    expect(url.searchParams.get('type')).toBe('http');
+    expect(url.searchParams.get('name')).toBe(MCP_SERVER_KEY);
+    const cfg = JSON.parse(Buffer.from(url.searchParams.get('config')!, 'base64').toString('utf-8'));
+    expect(cfg).toEqual({ url: MCP_ENDPOINT });
   });
 
   it('Cursor: схема deeplink, имя и конфиг раскодируются в наш адрес', () => {
@@ -93,9 +111,12 @@ describe('варианты подключения — все на один ад�
 
   it('ни один вариант не содержит другого адреса', () => {
     for (const o of MCP_CONNECT_OPTIONS) {
-      const decoded = o.id === 'cursor'
-        ? Buffer.from(new URL(o.value).searchParams.get('config')!, 'base64').toString('utf-8')
+      // Ссылки с config в base64 (Cursor, Trae) судятся по раскодированному конфигу.
+      const b64 = o.kind === 'link' ? new URL(o.value).searchParams.get('config') : null;
+      const decoded = b64
+        ? Buffer.from(b64, 'base64').toString('utf-8')
         : decodeURIComponent(o.value);
+      expect(decoded, `${o.id}: адреса нет`).toContain(MCP_ENDPOINT);
       const hosts = decoded.match(/https?:\/\/[^/"\s)]+/g) ?? [];
       for (const h of hosts) expect(h, `${o.id}: чужой адрес`).toBe(CANONICAL_BASE_URL);
     }
