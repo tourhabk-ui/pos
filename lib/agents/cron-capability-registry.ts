@@ -368,4 +368,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'voice-probe': ['net_out', 'ai', 'db_read', 'db_write'],
   'weathernext-probe': ['net_out'],
   'web-routes-census': ['db_read'],
+  // Перепись виджетов партнёров (аудит 15.10, WID-measure): чтение базы и,
+  // только с ?probe_sites=1, запрос главной каждого домена партнёра — есть ли
+  // там наш скрипт. Записи нет.
+  'widget-census': ['db_read', 'net_out'],
 };

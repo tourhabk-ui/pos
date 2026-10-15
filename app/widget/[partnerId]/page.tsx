@@ -25,6 +25,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Send } from 'lucide-react';
 import { trimWidgetHistory, type WidgetTurn } from '@/lib/embed/widget-chat-limits';
+import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
 
 interface PartnerConfig {
   name: string;
@@ -112,7 +113,16 @@ export default function WidgetPage() {
       const res = await fetch(`${API_BASE}/api/widget/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partnerId, sessionId, message: text, history }),
+        body: JSON.stringify({
+          partnerId,
+          sessionId,
+          message: text,
+          history,
+          // Хост и путь страницы партнёра из адреса окна (их кладёт embed.js).
+          // Исход сверки со списком доменов ставит сервер; хост подделывается —
+          // сигнал, а не замок (аудит 15.10, WID-measure).
+          origin: readWidgetOriginParams(window.location.search),
+        }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string; data?: { answer?: string } };
       const answer = data.success ? data.data?.answer : undefined;

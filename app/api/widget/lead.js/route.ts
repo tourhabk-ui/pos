@@ -12,10 +12,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { widgetStyle } from '@/lib/embed/widget-style';
+import { hostFromReferer } from '@/lib/embed/widget-origin';
+import { recordWidgetServed } from '@/lib/embed/widget-telemetry';
 
 export const dynamic = 'force-dynamic';
 
 interface PartnerRow {
+  id: string;
   name: string;
   slug: string;
   widget_config: Record<string, unknown> | null;
@@ -55,7 +58,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { rows } = await pool.query<PartnerRow>(
-    `SELECT name, slug, widget_config, widget_domains
+    `SELECT id::text AS id, name, slug, widget_config, widget_domains
      FROM partners
      WHERE slug = $1 AND widget_enabled = true
      LIMIT 1`,
@@ -164,8 +167,15 @@ export async function GET(request: NextRequest) {
      440 px со scrolling="no" при форме в 537 px, и «Отправить заявку»
      оказывалась за краем. Пока сообщения нет — стартовая высота с запасом,
      и прокрутка разрешена: форма обязана быть досягаема при любой высоте. */
+  /* Откуда пришёл человек (аудит 15.10, WID-measure): хост и путь страницы
+     партнёра — без query и hash, там бывают телефон и ключи. Сервер сверит
+     хост со списком доменов партнёра; хост подделывается — это сигнал для
+     счёта, а не замок. */
+  var FROM_HOST = String(location.hostname || '');
+  var FROM_PATH = String(location.pathname || '').slice(0, 200);
   var iframe = document.createElement('iframe');
-  iframe.src = BASE + '/widget/lead-form/' + encodeURIComponent(SLUG);
+  iframe.src = BASE + '/widget/lead-form/' + encodeURIComponent(SLUG)
+    + '?host=' + encodeURIComponent(FROM_HOST) + '&path=' + encodeURIComponent(FROM_PATH);
   Object.assign(iframe.style, {
     display: 'block',
     width: '100%',
@@ -180,7 +190,18 @@ export async function GET(request: NextRequest) {
   overlay.appendChild(wrap);
 
   /* ── Open / close logic ── */
-  function open() { overlay.style.display = 'flex'; }
+  /* Маяк открытия: один на просмотр страницы, только партнёр, род и хост —
+     без пути и без ПД. Шлёт страница партнёра, а не iframe: в окне формы нет
+     ни Метрики, ни service worker. Нет sendBeacon — счёта нет, форма работает. */
+  var beaconSent = false;
+  function beacon() {
+    if (beaconSent) return;
+    beaconSent = true;
+    if (typeof navigator.sendBeacon !== 'function') return;
+    navigator.sendBeacon(BASE + '/api/widget/event',
+      JSON.stringify({ partner: SLUG, kind: 'open', widget: 'form', host: FROM_HOST }));
+  }
+  function open() { overlay.style.display = 'flex'; beacon(); }
   function close() { overlay.style.display = 'none'; }
 
   btn.addEventListener('click', open);
@@ -220,6 +241,12 @@ export async function GET(request: NextRequest) {
   else document.addEventListener('DOMContentLoaded', mount);
 })();
 `.trim();
+
+  // Счёт выдачи (аудит 15.10, WID-measure): хост — из Referer, который
+  // браузер шлёт сам (обычно только источник страницы партнёра). Не ждётся:
+  // скрипт уходит партнёру при любом исходе записи, отказ — в лог с SQLSTATE.
+  // Хост подделывается — сигнал для счёта, а не замок.
+  void recordWidgetServed(pool, p.id, hostFromReferer(request.headers.get('referer')), request.headers.get('user-agent'));
 
   const origin = request.headers.get('origin');
   return new NextResponse(js, { headers: corsHeaders(origin, p.widget_domains) });

@@ -58,6 +58,8 @@ import {
   WIDGET_HISTORY_TOTAL_MAX_CHARS,
   WIDGET_MESSAGE_MAX_CHARS,
 } from '@/lib/embed/widget-chat-limits';
+import { widgetOrigin } from '@/lib/embed/widget-origin';
+import { WIDGET_CHAT_SESSION_SQL } from '@/lib/embed/widget-telemetry';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,6 +81,12 @@ const WidgetChatSchema = z.object({
       `История разговора длиннее ${WIDGET_HISTORY_TOTAL_MAX_CHARS} знаков`,
     )
     .optional(),
+    // Хост и путь страницы партнёра (embed.js кладёт их в адрес окна чата).
+    // Подделывается — сигнал для счёта, а не замок (аудит 15.10, WID-measure).
+    origin: z.object({
+      host: z.string().max(300).nullish(),
+      path: z.string().max(1000).nullish(),
+    }).optional(),
 });
 
 interface PartnerRow extends WidgetPartner {
@@ -137,7 +145,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { partnerId, sessionId, message, history = [] } = parsed.data;
+    const { partnerId, sessionId, message, history = [], origin: page } = parsed.data;
 
     const partnerResult = await query<PartnerRow>(
       `SELECT id::text AS id, name, category, description, widget_domains
@@ -219,17 +227,18 @@ export async function POST(request: NextRequest) {
       { role: 'user', content: message },
       { role: 'assistant', content: sos.text },
     ];
+
+    // Откуда пришёл человек: хост сверен со списком доменов партнёра —
+    // listed / unlisted / not_sent. Пишется первым сообщением и дальше не
+    // переписывается (аудит 15.10, WID-measure). Подделываемо — только счёт.
+    const pageOrigin = widgetOrigin(page?.host, page?.path, partner.widget_domains);
+
     void query(
-      `INSERT INTO chat_sessions (session_id, role, messages, user_message_count, is_authenticated, updated_at)
-       VALUES ($1, 'tourist', $2::jsonb, $3, false, NOW())
-       ON CONFLICT (session_id) DO UPDATE
-         SET messages = $2::jsonb,
-             user_message_count = $3,
-             updated_at = NOW()`,
-      [widgetSessionId, JSON.stringify(allMessages.slice(-20)), allMessages.filter(m => m.role === 'user').length]
+      WIDGET_CHAT_SESSION_SQL,
+      [widgetSessionId, JSON.stringify(allMessages.slice(-20)), allMessages.filter(m => m.role === 'user').length, JSON.stringify(pageOrigin)]
     ).catch((err: unknown) => {
-      const e = err as { code?: string; message?: string };
-      console.error('[widget-chat] разговор не сохранён:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+      const e = err as { code?: string; message?: string } | null;
+      console.error('[widget-chat] разговор не сохранён:', `SQLSTATE=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     });
 
     return NextResponse.json(
