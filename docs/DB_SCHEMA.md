@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-15 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1282_widget_daily.sql`.
+> Снято 2026-10-15 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1283_content_translations.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 278 |
+| Таблиц | 279 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3710 |
-| Внешних ключей | 327 |
+| Колонок | 3722 |
+| Внешних ключей | 328 |
 | Таблиц без единого FK в обе стороны | 82 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 21 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `carrier_review_invites` `carrier_reviews` `client_errors` `model_catalog` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `widget_daily` |
+| [Прочее](#прочее) | 22 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `model_catalog` `operator_client_notes` `operator_members` `operator_notification_reads` `password_reset_tokens` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_watch_flow` `volcano_bulletin_kfegs` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -795,7 +795,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `user_id uuid` `token varchar!` `expires_at timestamptz!` `created_at timestamptz=`
 
-**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, accommodations, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_payout_items, agent_referral_links, audit_logs, board_meeting_sessions, booking_direct_payments, booking_logs, bookings, booking_waivers, carrier_review_invites, carrier_reviews, chat_sessions, client_communications, collections, commission_payouts, conversation_messages, conversation_participants, conversations, crm_contacts, crm_events, crm_tasks, gear_items, guide_certifications, guide_operator_invites, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_client_notes, operator_members, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partner_api_keys, partner_oauth_codes, partners, password_reset_tokens, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tourist_profiles, tour_payments, tour_selections, tracker_links, transfer_reviews, transfers, transfer_seat_bookings, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
+**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, accommodations, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_payout_items, agent_referral_links, audit_logs, board_meeting_sessions, booking_direct_payments, booking_logs, bookings, booking_waivers, carrier_review_invites, carrier_reviews, chat_sessions, client_communications, collections, commission_payouts, content_translations, conversation_messages, conversation_participants, conversations, crm_contacts, crm_events, crm_tasks, gear_items, guide_certifications, guide_operator_invites, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_client_notes, operator_members, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partner_api_keys, partner_oauth_codes, partners, password_reset_tokens, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tourist_profiles, tour_payments, tour_selections, tracker_links, transfer_reviews, transfers, transfer_seat_bookings, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
 
 `id uuid!=` `email varchar!` `name varchar!` `password_hash varchar!` `role varchar!` `preferences jsonb=` `created_at timestamptz=` `updated_at timestamptz=` `recommendations jsonb` `recommended_at timestamptz` `phone varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `referral_code varchar` `referred_by uuid` `total_spent numeric=` `pending_role text` `role_applied_at timestamp` `telegram_id bigint` `telegram_username varchar` `pd_consent_given boolean=` `marketing_consent boolean=` `telegram_chat_id bigint` `is_active boolean=` `mfa_secret text` `mfa_enabled boolean=` `metadata jsonb=` `active_trip_id uuid` `active_trip_since timestamptz` `max_user_id bigint` `max_username text` `is_blocked boolean!=` `blocked_reason text`
 
@@ -1398,6 +1398,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **client_errors** · 15 кол. · PK id · индексов 3
 
 `id bigint!=` `created_at timestamptz!=` `occurred_at timestamptz` `kind varchar!` `message varchar!` `stack varchar` `fingerprint varchar!` `path varchar!` `device varchar!` `browser varchar!` `online boolean` `build varchar` `visitor_hash varchar` `is_bot boolean!=` `is_self boolean!=`
+
+**content_translations** · 12 кол. · PK id · reviewed_by → users.id · индексов 3
+
+`id bigint!=` `entity_type varchar!` `entity_id text!` `field varchar!` `lang varchar!` `source_hash character!` `text text!` `back_translation text` `model varchar!` `translated_at timestamptz!=` `reviewed_by uuid` `reviewed_at timestamptz`
 
 **model_catalog** · 9 кол. · PK model_id · индексов 3
 
