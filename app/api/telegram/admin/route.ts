@@ -35,6 +35,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { PlatformAgent } from '@/lib/agents';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 const adminGetLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
@@ -188,8 +189,11 @@ async function checkHealth(): Promise<string> {
   } catch { issues.push('Ошибка проверки платежей'); }
 
   try {
+    // Без псевдолидов чата виджета: не заявки, обработать нечем — тот же
+    // счёт, что у крона health (аудит 15.10, W3-pseudo).
     const stuck = await pool.query<{ cnt: string }>(
-      `SELECT COUNT(*) as cnt FROM leads WHERE status='new' AND created_at < NOW() - INTERVAL '6 hours'`
+      `SELECT COUNT(*) as cnt FROM leads WHERE status='new' AND created_at < NOW() - INTERVAL '6 hours'
+         AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}`
     );
     const n = parseInt(stuck.rows[0]?.cnt ?? '0', 10);
     if (n > 3) issues.push(`${n} лидов без обработки > 6ч`);

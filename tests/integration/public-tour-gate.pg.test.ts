@@ -157,4 +157,33 @@ withPg('витрина туров: снятый тур не в плане и н�
     const ours = s.byActivity.filter((b) => b.activity_type.startsWith('w2pt_')).map((b) => b.activity_type).sort();
     expect(ours).toEqual([activity('live'), activity('live2')]);
   });
+
+  it('чат виджета партнёра (loadPartnerTours): только живые туры этого оператора, закреплённый первым, соседа нет', async () => {
+    // Аудит 15.10, WID-safety: чат на сайте партнёра подбирал туры по всей
+    // платформе и советовал туры конкурентов. Сосед с живым туром и
+    // закрепление заводятся здесь, последним тестом файла, — прочим читателям
+    // сцена остаётся прежней.
+    const RIVAL = 'b1100000-0000-4000-8000-000000000002';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Тест Сосед', 'operator', '{}'::jsonb, 'test-w2pt-rival', TRUE, TRUE, 'active')`,
+      [RIVAL],
+    );
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, pinned_at)
+       VALUES ($1, 'W2PT тур соседа', 'w2pt-tour-rival', 'w2pt_rival', 1000, 'per_person', 1, 10, 8, 'easy',
+               TRUE, TRUE, NOW())`,
+      [RIVAL],
+    );
+    // Партнёр закрепил второй тур — на своей витрине он вправе ставить его вперёд (§0, 1267).
+    await pool.query(`UPDATE operator_tours SET pinned_at = NOW() WHERE id::text = $1`, [id.live2]);
+
+    const { loadPartnerTours } = await import('@/lib/embed/widget-chat');
+    const ours = await loadPartnerTours(OPERATOR.id);
+    expect(ours?.map((t) => t.id)).toEqual([id.live2, id.live]);
+    const theirs = await loadPartnerTours(RIVAL);
+    expect(theirs?.map((t) => t.title)).toEqual(['W2PT тур соседа']);
+  });
 });

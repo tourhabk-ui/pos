@@ -14,7 +14,7 @@
  * появления <body> и падает на appendChild (примерка на fishingkam.ru 29.09).
  * На случай вставки без defer монтирование всё равно ждёт DOMContentLoaded.
  *
- * data-color  — цвет кнопки под сайт партнёра (#RGB / #RRGGBB), иначе акцент Ведара.
+ * data-color  — цвет кнопки под сайт партнёра (#RGB / #RRGGBB), иначе акцент Ведара #C2410A.
  * data-bottom — отступ снизу в px (0–400): у партнёра в углу бывают свои
  *               плашки (cookie, «Связаться с нами»), и кнопка не должна их
  *               закрывать. По умолчанию 20.
@@ -39,8 +39,43 @@
   var baseUrl = script.src.replace(/\/widget\/embed\.js.*$/, '');
 
   // Цвет — только hex: значение уходит в CSS, и произвольная строка из
-  // атрибута не должна дописывать туда свои правила.
-  var accent = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(colorAttr) ? colorAttr : '#D44A0C';
+  // атрибута не должна дописывать туда свои правила. Без своего цвета —
+  // светлый --accent платформы #C2410A (CLAUDE.md §2): белый значок на
+  // прежнем #D44A0C давал 4,39:1, ниже AA (аудит 15.10, WID-config).
+  var accent = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(colorAttr) ? colorAttr : '#C2410A';
+
+  // Чистка пути страницы от ПД (аудит 15.10, R-path): сегменты с почтой —
+  // {email}, ряды цифр с разделителями номера, где цифр 7 и больше, —
+  // {digits}, сегмент, который не раскрывается из %-кодирования, —
+  // {undecodable}. КОПИЯ правила scrubWidgetPath из
+  // lib/embed/widget-path-scrub.ts: файл статический, без сборки, и взять
+  // правило ему неоткуда. Та же копия — в выдаче /api/widget/lead.js
+  // (WIDGET_PATH_SCRUB_JS). Правишь одну — правь все три; расхождение ловит
+  // tests/unit/widget-path-pd.test.ts, гоняя один набор путей через все три.
+  // Ведущих `+` и `(` в ряду не больше трёх: `[+(]*` давал квадратичный разбор,
+  // и ссылка на страницу партнёра с путём из одних `+` вешала вкладку
+  // посетителя (ревью R-path, 15.10).
+  function scrubPath(path) {
+    return String(path).split('/').map(function (seg) {
+      var plain = seg;
+      for (var i = 0; i < 3 && plain.indexOf('%') !== -1; i++) {
+        var next;
+        try { next = decodeURIComponent(plain); } catch (e) { if (i === 0) return '{undecodable}'; break; }
+        if (next === plain) break;
+        plain = next;
+      }
+      if (plain.indexOf('@') !== -1) return '{email}';
+      var parts = plain.split(/([+(]{0,3}\d(?:[\s().+_\u2010-\u2015-]{0,3}\d)*)/);
+      var changed = false;
+      try {
+        for (var j = 0; j < parts.length; j++) {
+          if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
+          else parts[j] = encodeURIComponent(parts[j]);
+        }
+      } catch (e) { return '{undecodable}'; }
+      return changed ? parts.join('') : seg;
+    }).join('/');
+  }
 
   function mount() {
   // Prevent double-init
@@ -85,8 +120,40 @@
   // Адрес ставится при первом открытии, а не сразу: iframe на fixed-позиции
   // loading=lazy не откладывает, и чат грузился (с нашей аналитикой и
   // service worker) на каждый просмотр страницы партнёра без единого клика.
-  var frameSrc = baseUrl + '/widget/' + encodeURIComponent(partnerId) + '?theme=' + encodeURIComponent(theme);
+  // Откуда пришёл человек (аудит 15.10, WID-measure): хост и путь страницы
+  // партнёра — location.pathname без query и hash (там бывают телефон и
+  // ключи). Берутся в момент открытия: на сайте-приложении путь к этому
+  // времени мог смениться. Хост подделывается — это сигнал для счёта, а не
+  // замок.
+  // Путь чистится ЗДЕСЬ, до адреса окна (аудит 15.10, R-path): сайты кладут
+  // номер в путь («/spasibo/8-914-123-45-67»), и сырой путь оседал в
+  // access-логах vedarai.ru и в Referer запросов окна. Обрезка — после
+  // чистки: раньше она могла рассечь номер на куски короче семи цифр.
+  // Путь длиннее 2000 знаков не разбирается и не отправляется — пустая
+  // строка, сервер прочтёт её как «пути нет» (WIDGET_PATH_SCRUB_MAX,
+  // ревью R-path): такой адрес — не страница, а портянка из ссылки.
+  function pagePath() {
+    var raw = String(location.pathname || '');
+    return raw.length > 2000 ? '' : scrubPath(raw).slice(0, 200);
+  }
+  function frameSrc() {
+    return baseUrl + '/widget/' + encodeURIComponent(partnerId) + '?theme=' + encodeURIComponent(theme)
+      + '&host=' + encodeURIComponent(String(location.hostname || ''))
+      + '&path=' + encodeURIComponent(pagePath());
+  }
   iframe.title = 'Чат с помощником';
+
+  // Маяк открытия: один на просмотр страницы, только партнёр, род и хост —
+  // без пути и без ПД. Шлёт страница партнёра, а не iframe: в окне чата нет
+  // ни Метрики, ни service worker. Нет sendBeacon — счёта нет, чат работает.
+  var beaconSent = false;
+  function beacon() {
+    if (beaconSent) return;
+    beaconSent = true;
+    if (typeof navigator.sendBeacon !== 'function') return;
+    navigator.sendBeacon(baseUrl + '/api/widget/event',
+      JSON.stringify({ partner: partnerId, kind: 'open', widget: 'chat', host: String(location.hostname || '') }));
+  }
 
   // Button
   var btn = document.createElement('button');
@@ -98,8 +165,9 @@
 
   btn.addEventListener('click', function () {
     isOpen = !isOpen;
-    if (isOpen && !iframe.getAttribute('src')) iframe.setAttribute('src', frameSrc);
+    if (isOpen && !iframe.getAttribute('src')) iframe.setAttribute('src', frameSrc());
     if (isOpen) {
+      beacon();
       iframe.classList.add('open');
       btn.innerHTML = closeIcon;
       btn.setAttribute('aria-label', 'Закрыть чат');

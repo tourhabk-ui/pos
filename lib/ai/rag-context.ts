@@ -249,16 +249,31 @@ export async function buildGeoContext(
 // ── Главная функция: строит RAG-блок для инжекта в промпт ────────
 export type RAGResult = { routes: RankedRoute[]; tours: Awaited<ReturnType<typeof findRelevantTours>> };
 
+export interface RAGOptions {
+  /**
+   * false — туры платформы в контекст не идут, только маршруты и места.
+   * Чат виджета на сайте партнёра подставляет туры ЭТОГО партнёра сам
+   * (lib/embed/widget-chat, loadPartnerTours): подбор по всей платформе ставил
+   * туры конкурентов на его витрину (аудит 15.10, WID-safety).
+   */
+  tours?: boolean;
+}
+
 export async function buildRAGContext(
   message: string,
   role: string,
   userLocation?: UserLocation,
+  opts: RAGOptions = {},
 ): Promise<string> {
   // RAG для туристов и агентов — нужны конкретные туры и маршруты
   if (role !== 'tourist' && role !== 'agent') return '';
+  const withTours = opts.tours !== false;
 
-  // Check cache (cache key includes geo awareness)
-  const cacheKey = getCacheKey(message) + (userLocation ? `|${userLocation.lat.toFixed(1)},${userLocation.lng.toFixed(1)}` : '');
+  // Check cache (cache key includes geo awareness and the tours switch:
+  // ответ без туров не должен достаться тому, кто их ждёт, и наоборот)
+  const cacheKey = getCacheKey(message)
+    + (userLocation ? `|${userLocation.lat.toFixed(1)},${userLocation.lng.toFixed(1)}` : '')
+    + (withTours ? '' : '|no-tours');
   const cached = RAG_CACHE.get(cacheKey);
   if (cached && Date.now() - cached.ts < RAG_TTL) return cached.data;
 
@@ -270,7 +285,7 @@ export async function buildRAGContext(
     semanticSearch(message, 8).catch(() => []),
     // При признаках ЧП туры в контекст модели не идут: иначе модель
     // предложит тур тому, кто пишет «заблудился» (разбор 24.09).
-    intent.detected && !detectEmergency(message).detected
+    withTours && intent.detected && !detectEmergency(message).detected
       ? findRelevantTours(intent.activityType, intent.rawWords, 3)
       : Promise.resolve([]),
   ]);

@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { chinaClientFamily, clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
+import { externalBinary } from '../helpers/external-binary';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -28,6 +29,11 @@ const MARKER = '.github/triggers/china-bridge-probe.json';
 
 const manifest = JSON.parse(read('server.json')) as { remotes: Array<{ url: string }> };
 const MCP_URL = manifest.remotes[0].url;
+
+// Без python3 тесты моста прежде писали в лог и делали return — зелёные без
+// проверки (аудит 15.10, W3-china, §4.0). Теперь вне CI — пропуск с причиной
+// в имени теста, в CI — отказ.
+const PY = externalBinary('python3');
 
 /** Множество из `WRITE_TOOLS = { "a", "b" }` в исходнике моста. */
 function pythonSet(src: string, name: string): string[] {
@@ -74,7 +80,8 @@ describe('мост обещает о платформе только то, чт�
   });
 
   it('имя клиента несёт провайдера, и журнал относит его к семейству модели', () => {
-    expect(src).toContain('f"vedar-mcp-bridge/{cfg[\'provider\']}"');
+    // Сборку имени мостом (client_name, база из MCP_CLIENT_NAME) с 15.10
+    // проверяет вызов в china-quick.test.ts; здесь — как журнал его читает.
     expect(chinaClientFamily('vedar-mcp-bridge/deepseek')).toBe('deepseek');
     expect(chinaClientFamily('vedar-mcp-bridge/qwen')).toBe('qwen-code');
     expect(clientRegion('vedar-mcp-bridge/moonshot')).toBe(CHINA_REGION_LABEL);
@@ -87,11 +94,44 @@ describe('мост обещает о платформе только то, чт�
     expect(src).not.toMatch(/"model": "deepseek-chat"/);
   });
 
-  it('скрипт компилируется (python3 на раннере есть)', () => {
-    let python: string | null = 'python3';
-    try { execFileSync(python, ['--version'], { stdio: 'ignore' }); } catch { python = null; }
-    if (!python) { console.error('[vedar-mcp-bridge] python3 не найден — компиляцию не проверить'); return; }
-    expect(() => execFileSync(python as string, ['-I', '-m', 'py_compile', join(ROOT, SCRIPT)], { stdio: 'pipe' })).not.toThrow();
+  it.skipIf(PY.skip)(PY.title('скрипт компилируется (python3 на раннере есть)'), () => {
+    PY.require('компиляцию моста');
+    expect(() => execFileSync('python3', ['-I', '-m', 'py_compile', join(ROOT, SCRIPT)], { stdio: 'pipe' })).not.toThrow();
+  });
+
+  it.skipIf(PY.skip)(PY.title('конструктор VedarMCP принимает и прежнее client_name: скачанный людьми код не падает'), () => {
+    // 15.10 (CN-quick) параметр переименован в name, и внешний
+    // VedarMCP(client_name=...) упал бы с TypeError (аудит 15.10, W3-china).
+    // Конструктор в сеть не ходит — проверяется вызовом без MCP.
+    PY.require('совместимость конструктора моста');
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'out = {',
+      '  "old_kw": m.VedarMCP(client_name="my-agent").client_name,',
+      '  "new_kw": m.VedarMCP(name="my-agent/qwen").client_name,',
+      '  "positional": m.VedarMCP(m.MCP_URL, "pos-agent").client_name,',
+      '  "default": m.VedarMCP().client_name,',
+      '}',
+      'try:',
+      '    m.VedarMCP(name="a", client_name="b")',
+      '    out["both"] = None',
+      'except TypeError as e:',
+      '    out["both"] = str(e)',
+      'sys.stdout.write(json.dumps(out, ensure_ascii=False))',
+    ].join('\n');
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'MCP_CLIENT_NAME'));
+    const out = JSON.parse(execFileSync('python3', ['-I', '-B', '-c', code], { env, encoding: 'utf-8' })) as Record<string, string | null>;
+    expect(out.old_kw).toBe('my-agent');
+    expect(out.new_kw).toBe('my-agent/qwen');
+    // Второй позиционный — как и до переименования: имя клиента.
+    expect(out.positional).toBe('pos-agent');
+    expect(out.default).toBe('vedar-mcp-bridge');
+    // Оба сразу — понятная ошибка, а не тихий выбор одного.
+    expect(out.both).toMatch(/одним параметром — name/);
+    expect(out.both).toMatch(/client_name/);
   });
 });
 

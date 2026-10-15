@@ -32,7 +32,7 @@ import {
 import { PUBLIC_MCP_TOOLS } from '@/lib/mcp/public-tools';
 import { buildAgentCard, buildLegacyAgentCard, CHAT_SKILL_ID } from '@/lib/a2a/agent-card';
 import { BOT_FAMILIES, botFamily, isBotUserAgent } from '@/lib/analytics/bot-detect';
-import { AGENT_ENTRY_PATHS, recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
+import { AGENT_ENTRY_PATHS, recordAgentEntryHit, zhEntryPath } from '@/lib/analytics/agent-entry-hits';
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
 import { classifyAnswer, summarize, KNOWLEDGE_QUESTION } from '@/app/api/cron/model-knowledge-probe/route';
@@ -285,12 +285,14 @@ describe('Kimi и пауки 360 — по первоисточникам (ауд
 });
 
 describe('перепись входов для агентов', () => {
-  it('девять входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
+  it('двенадцать входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
     expect([...AGENT_ENTRY_PATHS]).toEqual([
       '/robots.txt', '/llms.txt', '/.well-known/mcp.json', '/.well-known/agent-card.json', '/.well-known/agent.json',
       '/api/mcp/server-card', '/.well-known/ai-catalog.json',
       // Ступень 3 (12.10): OpenAPI для агентов без MCP и A2A и каталог API RFC 9727.
       '/openapi.json', '/.well-known/api-catalog',
+      // Аудит 15.10 (CN-quick): карта сайта, китайский вход и метка его раздела.
+      '/sitemap.xml', '/zh', '/zh/*',
     ]);
     recordAgentEntryHit('/robots.txt', 'Mozilla/5.0 (compatible; Baiduspider/2.0)');
     expect(query).toHaveBeenCalledTimes(1);
@@ -317,7 +319,7 @@ describe('перепись входов для агентов', () => {
     expect(ddl).not.toMatch(/user_agent|\bip\b/i);
   });
 
-  it('каждый из девяти входов зовёт счётчик своим путём', () => {
+  it('каждый вход зовёт счётчик своим путём', () => {
     const sources: Record<string, [string, string]> = {
       '/robots.txt': ['app/robots.ts', "recordAgentEntryHit('/robots.txt'"],
       '/llms.txt': ['app/llms.txt/route.ts', "recordAgentEntryHit('/llms.txt'"],
@@ -330,8 +332,15 @@ describe('перепись входов для агентов', () => {
       // OpenAPI и каталог API зовут счётчик константами из lib/api/openapi.
       '/openapi.json': ['app/openapi.json/route.ts', 'recordAgentEntryHit(OPENAPI_PATH'],
       '/.well-known/api-catalog': ['app/.well-known/api-catalog/route.ts', 'recordAgentEntryHit(API_CATALOG_PATH'],
+      // Аудит 15.10 (CN-quick): поведение этих двух — вызовом и рендером в
+      // china-quick.test.ts и zh-quick.test.tsx; здесь — что вход назван.
+      '/sitemap.xml': ['app/sitemap.xml/route.ts', "recordAgentEntryHit('/sitemap.xml'"],
+      '/zh': ['app/zh/page.tsx', "recordZhEntryHit('/zh'"],
     };
-    expect(Object.keys(sources).sort()).toEqual([...AGENT_ENTRY_PATHS].sort());
+    // /zh/* — метка раздела без своей страницы: её ставит zhEntryPath внутри
+    // recordZhEntryHit, той же функции, что зовёт /zh. Проверяется вызовом.
+    expect(zhEntryPath('/zh/tours/x')).toBe('/zh/*');
+    expect([...Object.keys(sources), '/zh/*'].sort()).toEqual([...AGENT_ENTRY_PATHS].sort());
     for (const [path, [file, call]] of Object.entries(sources)) {
       expect(read(file), `${path} (${file})`).toContain(call);
     }
@@ -347,7 +356,9 @@ describe('перепись входов для агентов', () => {
     expect(MANUAL_ENDPOINTS['agent-entry-census']).toMatchObject({ kind: 'manual', writes: false });
     expect(CRON_CAPABILITIES['agent-entry-census']).toEqual(['db_read']);
     expect(NOT_COUNTED.length).toBeGreaterThanOrEqual(3);
-    expect(NOT_COUNTED.join(' ')).toMatch(/sitemap/);
+    // С 15.10 sitemap и /zh считаются; люди на /zh — нет, и это названо.
+    expect(NOT_COUNTED.join(' ')).toMatch(/HTML-страницы, кроме \/zh/);
+    expect(NOT_COUNTED.join(' ')).toMatch(/люди на \/zh/);
     expect([...CHINESE_FAMILIES]).toEqual(['baidu', 'bytedance', 'huawei', 'alibaba', 'tencent', '360', 'deepseek', 'kimi']);
     for (const f of CHINESE_FAMILIES) expect(BOT_FAMILIES.map((b) => b.family), f).toContain(f);
     expect(readDays(null)).toBe(30);
@@ -381,10 +392,10 @@ describe('проба «знает ли модель о нас»', () => {
     expect(classifyAnswer(null).outcome).toBe('could_not_ask');
     expect(classifyAnswer('   ').outcome).toBe('could_not_ask');
     const s = summarize([
-      { provider: 'deepseek', model: null, outcome: 'knows', signal: '', old_brand: true, reason: null, latency_ms: 1, answer_excerpt: null },
-      { provider: 'qwen', model: null, outcome: 'could_not_ask', signal: '', old_brand: false, reason: 'x', latency_ms: 1, answer_excerpt: null },
+      { provider: 'deepseek', model: null, outcome: 'knows', signal: '', old_brand: true, reason: null, latency_ms: 1, answer_excerpt: null, search: null },
+      { provider: 'qwen', model: null, outcome: 'could_not_ask', signal: '', old_brand: false, reason: 'x', latency_ms: 1, answer_excerpt: null, search: null },
     ]);
-    expect(s).toEqual({ knows: ['deepseek'], does_not_know: [], could_not_ask: ['qwen'], old_brand: ['deepseek'] });
+    expect(s).toEqual({ knows: ['deepseek'], does_not_know: [], did_not_search: [], could_not_ask: ['qwen'], old_brand: ['deepseek'], sources: {} });
   });
 
   it('обёртки провайдеров передаются функциями, без прямого await; запуск — маркером, workflow ждёт свою сборку', () => {

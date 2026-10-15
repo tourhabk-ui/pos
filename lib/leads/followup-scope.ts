@@ -22,15 +22,21 @@
  * и заявка удалённого перевозчика без этого замка стала бы «без адресата».
  * Машину туроператор не даст, а согласие человека его не покрывает.
  *
+ * Псевдолиды чата виджета (первое сообщение посетителя без телефона и
+ * согласия, записанные до 15.10) — не заявки вовсе: отбор их не берёт
+ * (`lib/leads/widget-chat-pseudo`, аудит 15.10, WID-safety).
+ *
  * Сторожа: tests/integration/leads-followup.pg.test.ts (отбор и крон целиком
  * на настоящем PostgreSQL), tests/unit/leads-followup-charter.test.ts (цикл
  * крона пропускает заявку на машину, даже если отбор её отдал).
  */
 import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 /**
  * Лиды для добивки: `new` старше 2 часов, без адресата, без свежей добивки, не
- * отданные админу — и не заявки на машину. $1 — версия согласия «перевозчику».
+ * отданные админу — и не заявки на машину, и не псевдолиды чата виджета.
+ * $1 — версия согласия «перевозчику».
  */
 export const FOLLOWUP_LEADS_SQL = `
   SELECT id::text, name, phone, source_data, pd_consent_version
@@ -45,6 +51,7 @@ export const FOLLOWUP_LEADS_SQL = `
      AND COALESCE((source_data->>'escalated_to_admin')::boolean, false) = false
      AND COALESCE(source_data->>'kind', '') <> 'charter'
      AND COALESCE(pd_consent_version, '') <> $1
+     AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}
    ORDER BY created_at ASC
    LIMIT 20`;
 

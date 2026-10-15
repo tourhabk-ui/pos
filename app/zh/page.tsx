@@ -10,7 +10,9 @@
  * Текст — из lib/mcp/zh-layer: один источник на llms.txt, манифест, визитку
  * A2A и эту страницу (три копии разошлись бы). Список туров — живой, из той
  * же витрины и под тем же гейтом, что каталог и sitemap (lib/zh/entry); отказ
- * базы назван вслух, а не показан пустым списком (§4.0). Команда подключения
+ * базы назван вслух, а не показан пустым списком (§4.0). Порядок туров один и
+ * назван на странице, среза нет (§0, аудит 15.10, CN-quick —
+ * components/zh/ZhTourList). Команда подключения
  * Qwen Code — из lib/mcp/connect, не вторая копия. Блок «如何在中文客户端中接入»
  * (аудит 15.10, CN-zh) — шаги, источник и дата из zh-layer, ссылки Trae из
  * connect; своего текста о клиентах страница не держит.
@@ -20,10 +22,12 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { tourPath } from '@/lib/tours/tour-url';
-import { loadZhTours, priceZh, durationZh } from '@/lib/zh/entry';
+import { ZhTourList } from '@/components/zh/ZhTourList';
+import { loadZhTours } from '@/lib/zh/entry';
+import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import {
   MCP_DESCRIPTION_ZH, ZH_PAGE, ZH_CONNECT, ZH_CLIENT_GUIDES, ZH_GUIDE_BASIS_NOTE,
 } from '@/lib/mcp/zh-layer';
@@ -54,6 +58,11 @@ export const metadata: Metadata = {
 };
 
 export default async function ZhEntryPage() {
+  // Перепись краулеров по семействам (аудит 15.10, CN-quick): читают ли
+  // китайскую страницу Baiduspider, YisouSpider, Bytespider — до этого дня
+  // ответить было нечем. Считается семейство по заголовку, люди не считаются
+  // (lib/analytics/agent-entry-hits); запись не ждётся и ответ не роняет.
+  recordZhEntryHit('/zh', (await headers()).get('user-agent'));
   const tours = await loadZhTours();
   const qwen = MCP_CONNECT_OPTIONS.find((o) => o.id === 'qwen_code')?.value ?? null;
   const jsonLd = {
@@ -90,29 +99,7 @@ export default async function ZhEntryPage() {
             </ul>
           </section>
 
-          <section className="space-y-3">
-            <h2 className="ds-h2">当前团队游{tours ? `（${tours.length}）` : ''}</h2>
-            {tours === null ? (
-              <p className="ds-card p-4 text-sm" style={{ color: 'var(--warning)' }}>
-                {ZH_PAGE.catalogUnavailable} <Link className="underline" href="/catalog">/catalog</Link>
-              </p>
-            ) : tours.length === 0 ? (
-              <p className="ds-card p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>{ZH_PAGE.catalogEmpty}</p>
-            ) : (
-              <ul className="space-y-2">
-                {tours.map((t) => (
-                  <li key={t.id} className="ds-card p-4 text-sm">
-                    <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={tourPath({ id: t.id, slug: t.slug })} lang="ru">
-                      {t.title}
-                    </Link>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                      {[priceZh(t), durationZh(t)].filter(Boolean).join(' · ') || '价格与时长以旅行社确认为准'}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <ZhTourList tours={tours} />
 
           <section className="space-y-3">
             <h2 className="ds-h2">如何预订</h2>

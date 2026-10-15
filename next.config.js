@@ -289,6 +289,18 @@ const nextConfig = {
         source: '/',
         headers: [{ key: 'Link', value: '</.well-known/api-catalog>; rel="api-catalog"' }],
       },
+      // Китайский раздел (аудит 15.10, CN-quick): корневой <html lang="ru">
+      // общий для всех страниц и не трогается (читать язык из запроса в корне
+      // сделало бы динамическими все страницы), поэтому язык /zh объявлен
+      // заголовком и meta http-equiv в app/zh/layout.tsx. Значение — то же, что
+      // ZH_CONTENT_LANGUAGE в lib/zh/pages. Одно правило на /zh и /zh/<…>:
+      // `:path*` — ноль и больше сегментов, сам /zh оно тоже покрывает (второе
+      // правило на /zh поставило бы тот же заголовок дважды), а /zhuk — нет.
+      // Сторож — сопоставлением путей матчером Next: tests/unit/china-quick.test.ts.
+      {
+        source: '/zh/:path*',
+        headers: [{ key: 'Content-Language', value: 'zh-CN' }],
+      },
       {
         source: '/widget/:path*',
         headers: [

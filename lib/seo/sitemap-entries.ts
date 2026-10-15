@@ -20,6 +20,7 @@ import { NOT_MERGED } from '@/lib/places/aliases';
 import { FISH_SPECIES } from '@/lib/fish-species';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
+import { zhPageUrls } from '@/lib/zh/pages';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -97,7 +98,11 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // HTML, а не JSON-манифест (диагноз 15.08 — Алиса галлюцинировала «MCP нет»).
     { url: `${BASE}/mcp`,                  lastModified: new Date('2026-08-15'), changeFrequency: 'monthly', priority: 0.7 },
     // Китайский HTML-вход (12.10): поисковики КНР индексируют HTML, а не llms.txt.
-    { url: `${BASE}/zh`,                   lastModified: new Date('2026-10-12'), changeFrequency: 'monthly', priority: 0.7 },
+    // Список китайских страниц один — lib/zh/pages (аудит 15.10, CN-quick): тот
+    // же читает пинг IndexNow, и новая /zh/<…> не разъедется между ними.
+    ...zhPageUrls(BASE).map((url) => ({
+      url, lastModified: new Date('2026-10-12'), changeFrequency: 'monthly' as const, priority: 0.7,
+    })),
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
     // Дата — ревизия текста плана (кластер или общая PLANS_TEXT_REVISION), а не

@@ -3,10 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { LEAD_FORM_INTRO_DEFAULT } from '@/lib/embed/widget-style';
+import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface PartnerConfig {
   name: string;
-  greeting: string;
+  /** Вступление ФОРМЫ (`widget_config.formIntro` или нейтральное), не приветствие чата. */
+  formIntro?: string;
   accentColor: string;
   logo: string | null;
 }
@@ -53,6 +57,11 @@ export default function LeadFormPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Настройки партнёра — оформление (имя, логотип, цвет, вступление). Не
+  // загрузились — форма работает с нейтральным текстом и отправляет заявку на
+  // slug, но отказ называется в консоли, а не глушится (§4.0; аудит 15.10,
+  // W3-widget: до этого здесь стоял пустой .catch). ПД в строке нет — только
+  // slug партнёра и причина.
   useEffect(() => {
     if (!slug) return;
     fetch(`/api/widget/partner/${slug}`)
@@ -60,7 +69,9 @@ export default function LeadFormPage() {
       .then(d => {
         if (d.success && d.data) setConfig(d.data);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        logSwallowedFailure('widget-lead-form', `запрос настроек партнёра ${slug}`, err);
+      });
   }, [slug]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -84,6 +95,14 @@ export default function LeadFormPage() {
           source_data: {
             source:       'partner_widget',
             partner_slug: slug,
+            // Хост и путь страницы партнёра — из адреса этого окна: их кладёт
+            // lead.js, а у формы, открытой из окна чата, — окно чата
+            // (leadFormPath). Запасом — адрес чата из document.referrer. Исход
+            // сверки со списком доменов ставит сервер; хост подделывается —
+            // сигнал, а не замок (аудит 15.10, WID-measure, W3-widget).
+            widget_origin: readWidgetOriginParams(
+              window.location.search, document.referrer, window.location.origin,
+            ),
           },
           pd_consent: true,
         }),
@@ -194,8 +213,11 @@ export default function LeadFormPage() {
 
       {/* Form */}
       <form onSubmit={handleSubmit} style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Вступление формы, а не приветствие чата: до 15.10 здесь стояло
+            config.greeting, и над полями имени и телефона у «Местечка» было
+            «Я Кузьмич… спрашивайте» (находка аудита 15.10 WID-config). */}
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-          {config?.greeting ?? 'Оставьте заявку — менеджер свяжется с вами сегодня.'}
+          {config?.formIntro || LEAD_FORM_INTRO_DEFAULT}
         </p>
 
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>

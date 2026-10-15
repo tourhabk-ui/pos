@@ -5,6 +5,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { redactPII } from '@/lib/security/pii-redact';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 export interface LeadContext {
   leadId?: string;
@@ -23,9 +24,12 @@ export interface LeadData {
 export class LeadAgency {
   async qualifyLeads(ctx: LeadContext) {
     const limit = ctx.limit ?? 10;
+    // Псевдолиды чата виджета (до 15.10) не заявки: квалифицировать нечего,
+    // а `new` они остаются навсегда и без ORDER BY занимали бы места в
+    // пачке настоящих (аудит 15.10, W3-pseudo).
     const res = await query(
       `SELECT id, name, phone, comment, source_data, status
-       FROM leads WHERE status = 'new' LIMIT $1`,
+       FROM leads WHERE status = 'new' AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL} LIMIT $1`,
       [limit]
     );
 

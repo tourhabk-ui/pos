@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { safeMsg } from '@/lib/errors/sanitize';
+import { leadFormIntro, widgetStyle } from '@/lib/embed/widget-style';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,10 @@ export async function GET(
     }
 
     const config = partner.widget_config as Record<string, string>;
+    // Цвет и вступление формы — тем же правилом, что кнопка lead.js: цвет
+    // проверен как hex, заготовка 142 (#D44A0C ниже AA) читается как «не
+    // задано» (находка аудита 15.10 WID-config).
+    const cfg: Record<string, unknown> = config ?? {};
 
     // CORS headers for widget domains
     const origin = request.headers.get('origin');
@@ -77,7 +82,10 @@ export async function GET(
         logo: partner.logo_image,
         greeting: config?.greeting || `Привет! Я AI-помощник ${partner.name}. Чем могу помочь?`,
         theme: config?.theme || 'auto',
-        accentColor: config?.accentColor || '#D44A0C',
+        accentColor: widgetStyle(cfg).accent,
+        // Вступление ФОРМЫ заявки — отдельно от приветствия чата: над полями
+        // имени и телефона чатовое «спрашивайте» неуместно.
+        formIntro: leadFormIntro(cfg),
       },
     }, { headers });
   } catch (error: unknown) {
