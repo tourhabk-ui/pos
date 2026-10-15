@@ -17,6 +17,8 @@ import { query, transaction } from '@/lib/database';
 import { notifyBookingConfirmed, notifyBookingCancelled } from '@/lib/notifications/booking-notifications';
 import { recordRefundDue } from '@/lib/payments/record-refund-due';
 import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
+import { assertDaysOpen, readTourDays, tourDurationOf } from '@/lib/bookings/reserve';
+import { tourDurationDays, tourEndDate } from '@/lib/bookings/duration';
 import {
   BookingStatus,
   BookingWithDetails,
@@ -350,8 +352,10 @@ export async function rescheduleBooking(
   role: 'operator' | 'admin',
   input: RescheduleBookingInput
 ): Promise<BookingWithDetails> {
+  // Только YYYY-MM-DD: из этой строки ниже выводится последний день тура
+  // (tourEndDate), а дату с временем он не разберёт.
   const targetDate = new Date(input.targetDate);
-  if (Number.isNaN(targetDate.getTime())) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.targetDate) || Number.isNaN(targetDate.getTime())) {
     throw new Error('Некорректная дата для переброса');
   }
 
@@ -400,9 +404,11 @@ export async function rescheduleBooking(
       }
     }
 
-    // Получаем целевой тур
+    // Получаем целевой тур. `FOR UPDATE` — тот же замок, что у новой брони
+    // (reserveBooking, OCTO): иначе перенос и бронь туриста на ту же дату
+    // прочитали бы одну занятость и оба прошли.
     const targetTourResult = await client.query(
-      `SELECT id, operator_id, max_participants, base_price, price_unit, multi_day_count, duration_hours, title, is_active FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT id, operator_id, max_participants, base_price, price_unit, multi_day_count, duration_hours, title, is_active FROM operator_tours WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [input.targetTourId]
     );
 
@@ -428,31 +434,34 @@ export async function rescheduleBooking(
       }
     }
 
-    // Проверяем вместимость
-    const bookedResult = await client.query(
-      `SELECT COALESCE(SUM(participants), 0) AS booked
-       FROM operator_bookings
-       WHERE operator_tour_id = $1
-         AND booking_date = $2
-         AND booking_status IN ('pending','confirmed')
-         AND id <> $3
-         AND deleted_at IS NULL`,
-      [targetTour.id, input.targetDate, bookingId]
-    );
-
-    const bookedCount = Number(bookedResult.rows[0].booked);
-    if (bookedCount + participants > Number(targetTour.max_participants)) {
-      throw new Error('Недостаточно мест на выбранную дату');
-    }
+    // Места — общим гейтом брони (аудит 15.10, RESCHEDULE-GATE). Свой счёт
+    // здесь видел только `('pending','confirmed')` — слова `pending` в
+    // словаре нет, а `new` (с ним рождается каждая бронь туриста) и
+    // `pending_payment` он не считал; сравнивал `booking_date` равенством —
+    // не видел чужую многодневную бронь, накрывающую дату серединой, и не
+    // проверял дни 2..N; календарь оператора (закрытая дата, лимит слотов)
+    // не читал вовсе. Гейт один на все двери (lib/bookings/reserve.ts).
+    // Сезонное окно тура при переносе не применяется: дату назначает сам
+    // оператор, а закрытую им дату и лимит календаря гейт уважает.
+    const duration = tourDurationOf(targetTour);
+    const durationDays = tourDurationDays(duration);
+    const endDate = tourEndDate(input.targetDate, durationDays);
+    const days = await readTourDays(client, targetTour.id, input.targetDate, endDate, {
+      // Сама переносимая бронь не занимает свои же новые дни.
+      excludeBookingId: bookingId,
+    });
+    // Отказ — ReserveError с человеческим текстом; роут отвечает им 409.
+    assertDaysOpen(days, {
+      participants,
+      maxParticipants: targetTour.max_participants == null ? null : Number(targetTour.max_participants),
+      durationDays,
+    });
 
     const newTotalPrice = bookingTotal({
       basePrice: Number(targetTour.base_price),
       priceUnit: targetTour.price_unit,
       participants,
-      duration: {
-        multi_day_count: targetTour.multi_day_count == null ? null : Number(targetTour.multi_day_count),
-        duration_hours: targetTour.duration_hours == null ? null : Number(targetTour.duration_hours),
-      },
+      duration,
     });
     const oldTotalPrice = Number(bookingRow.total_price ?? 0);
     const nextPaymentStatus = newTotalPrice === oldTotalPrice
@@ -464,10 +473,19 @@ export async function rescheduleBooking(
     // Счётчик занятости (tour_availability.booked_slots) здесь намеренно не
     // трогается: перенос — известный отдельный пробел (не входит в #1814/
     // #1813/#1816), а не тихая правка задним числом.
+    //
+    // `end_date` и `duration_days` — тем же правилом, что у вставки
+    // (insertBookingRow). Пока перенос менял только `booking_date`, у
+    // многодневной брони ломался интервал занятости
+    // `BETWEEN booking_date AND COALESCE(end_date, booking_date)`: перенос
+    // позже давал `end_date < booking_date` — бронь не держала ни одного дня,
+    // и её места продавались снова; перенос раньше держал лишние дни.
     await client.query(
       `UPDATE operator_bookings
        SET operator_tour_id = $1,
            booking_date = $2,
+           end_date = $8,
+           duration_days = $9,
            participants = $3,
            base_total_price = $4,
            final_price = $4,
@@ -475,7 +493,7 @@ export async function rescheduleBooking(
            booking_status = $6,
            updated_at = NOW()
        WHERE id = $7`,
-      [targetTour.id, input.targetDate, participants, newTotalPrice, nextPaymentStatus, nextStatus, bookingId]
+      [targetTour.id, input.targetDate, participants, newTotalPrice, nextPaymentStatus, nextStatus, bookingId, endDate, durationDays]
     );
 
     const comment = input.comment ?? `Переброс на тур "${targetTour.title}" (${input.targetDate}), участников: ${participants}`;

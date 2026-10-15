@@ -20,6 +20,12 @@
  * согласие «прокату» в той же строке. Мок судит порядок вызовов, а 48 часов,
  * приведения типов и настоящую гонку двух соединений — только сервер.
  *
+ * Третья — перенос брони оператором (аудит 15.10, RESCHEDULE-GATE): места
+ * судит тот же гейт, что новую бронь (словарные статусы, интервал дней,
+ * календарь), без самой переносимой брони, а строка получает `end_date` и
+ * `duration_days` целевого тура — иначе многодневная бронь после переноса не
+ * держит своих дней.
+ *
  * Своя база `booking_writers_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -36,12 +42,24 @@ vi.mock('@/lib/notifications/gear-rental', () => ({ notifyNewGearRental: vi.fn(a
 vi.mock('@/lib/auth/middleware', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/auth/middleware')>();
   const { NextResponse } = await import('next/server');
+  const requireAuth = async (req: Request) => {
+    const user = req.headers.get('x-test-user');
+    if (!user) return NextResponse.json({ success: false, error: 'Требуется аутентификация' }, { status: 401 });
+    return { userId: user, email: `${user}@test.local`, role: req.headers.get('x-test-role') ?? 'tourist' };
+  };
+  // Кабинет оператора (статистика) входит тем же заголовком теста.
+  return { ...real, requireAuth, requireOperator: requireAuth };
+});
+// Роут переноса брони входит через verifyAuth — тем же заголовком теста.
+vi.mock('@/lib/auth', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/auth')>();
   return {
     ...real,
-    requireAuth: async (req: Request) => {
+    verifyAuth: async (req: Request) => {
       const user = req.headers.get('x-test-user');
-      if (!user) return NextResponse.json({ success: false, error: 'Требуется аутентификация' }, { status: 401 });
-      return { userId: user, email: `${user}@test.local`, role: req.headers.get('x-test-role') ?? 'tourist' };
+      return user
+        ? { userId: user, role: req.headers.get('x-test-role'), email: `${user}@test.local`, isAuthenticated: true }
+        : { userId: null, role: null, email: null, isAuthenticated: false };
     },
   };
 });
@@ -422,6 +440,260 @@ withPg('общая вставка и гейт брони на настоящем
       expect(res.status).toBe(409);
       const st = await pool.query<{ status: string }>(`SELECT status FROM gear_rentals WHERE id = $1`, [old]);
       expect(st.rows[0]!.status).toBe('pending');
+    });
+  });
+
+  describe('перенос брони — общий гейт и дни целевого тура (аудит 15.10, RESCHEDULE-GATE)', () => {
+    let adminId = '';
+    let dayTour = '';    // однодневный, вместимость 4
+    let threeDay = '';   // три дня, вместимость 4
+
+    async function addTour(title: string, multiDay: number | null): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, multi_day_count,
+                                     is_active, is_published, activity_type, difficulty)
+         VALUES ($1, $2, 10000, 4, $3, TRUE, TRUE, 'hiking', 'medium') RETURNING id::text AS id`,
+        [operatorId, title, multiDay],
+      );
+      return r.rows[0]!.id;
+    }
+
+    /** Бронь прямо в базу: чужая занятость — с тем статусом и днями, что нужны сцене. */
+    async function seed(tour: string, start: string, end: string, people: number, status: string): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, duration_days,
+                                        participants, booking_status)
+         VALUES ($1::bigint, $2::date, $3::date, ($3::date - $2::date) + 1, $4, $5)
+         RETURNING id::text AS id`,
+        [tour, start, end, people, status],
+      );
+      return r.rows[0]!.id;
+    }
+
+    async function move(id: string, tour: string, date: string) {
+      const { rescheduleBooking } = await import('@/lib/bookings/booking.service');
+      return rescheduleBooking(id, adminId, 'admin', { targetTourId: tour, targetDate: date });
+    }
+
+    async function rowOf(id: string) {
+      const r = await pool.query<{ tour: string; start: string; end: string; days: number }>(
+        `SELECT operator_tour_id::text AS tour, booking_date::text AS start,
+                end_date::text AS end, duration_days AS days
+           FROM operator_bookings WHERE id = $1::bigint`,
+        [id],
+      );
+      return r.rows[0]!;
+    }
+
+    async function occupied(tour: string, start: string, end: string): Promise<number[]> {
+      const { readTourDays } = await import('@/lib/bookings/reserve');
+      const client = await pool.connect();
+      try {
+        return (await readTourDays(client, tour, start, end)).map((d) => Number(d.occupied));
+      } finally {
+        client.release();
+      }
+    }
+
+    beforeAll(async () => {
+      const u = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role)
+         VALUES ('resched-admin@test.local', 'Админ', 'x', 'admin') RETURNING id::text AS id`,
+      );
+      adminId = u.rows[0]!.id;
+      dayTour = await addTour('Мутновский, день', null);
+      threeDay = await addTour('Ключевская группа, три дня', 3);
+    });
+
+    it('(а) дата занята бронью «new» до потолка — перенос другой брони на неё отклонён', async () => {
+      const { ReserveError } = await import('@/lib/bookings/reserve');
+      // С `new` рождается каждая бронь туриста; прежний счёт переноса видел
+      // только `('pending','confirmed')` и считал эту дату пустой.
+      await seed(dayTour, '2026-11-10', '2026-11-10', 4, 'new');
+      const other = await seed(dayTour, '2026-11-11', '2026-11-11', 2, 'new');
+
+      await expect(move(other, dayTour, '2026-11-10')).rejects.toBeInstanceOf(ReserveError);
+      // Оператор видит отказ гейта словами и кодом 409, а не «ошибку сервера».
+      const { PATCH } = await import('@/app/api/bookings/[id]/reschedule/route');
+      const res = await PATCH(new Request(`http://l/api/bookings/${other}/reschedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-test-user': adminId, 'x-test-role': 'admin' },
+        body: JSON.stringify({ targetTourId: dayTour, targetDate: '2026-11-10' }),
+      }) as unknown as import('next/server').NextRequest, { params: Promise.resolve({ id: other }) });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe('Нет свободных мест на эту дату.');
+      expect(await rowOf(other)).toMatchObject({ start: '2026-11-11', end: '2026-11-11' });
+    });
+
+    it('(б) чужая многодневная бронь накрывает дату серединой или дни 2..N — отклонён', async () => {
+      const { ReserveError } = await import('@/lib/bookings/reserve');
+      await seed(threeDay, '2026-11-20', '2026-11-22', 3, 'confirmed');
+      const other = await seed(threeDay, '2026-12-01', '2026-12-03', 2, 'new');
+
+      // 21.11 — середина чужих 20–22.11: равенство booking_date её не видело.
+      await expect(move(other, threeDay, '2026-11-21')).rejects.toBeInstanceOf(ReserveError);
+      // 19.11 свободно, но дни 2–3 (20–21.11) заняты: их прежний счёт не проверял.
+      await expect(move(other, threeDay, '2026-11-19')).rejects.toBeInstanceOf(ReserveError);
+      expect(await rowOf(other)).toMatchObject({ start: '2026-12-01', end: '2026-12-03' });
+    });
+
+    it('(в) перенос многодневной брони позже: end_date и duration_days переписаны, новые дни заняты, старые свободны', async () => {
+      const id = await seed(threeDay, '2026-12-10', '2026-12-12', 2, 'new');
+      await move(id, threeDay, '2026-12-20');
+
+      expect(await rowOf(id)).toEqual({ tour: threeDay, start: '2026-12-20', end: '2026-12-22', days: 3 });
+      expect(await occupied(threeDay, '2026-12-20', '2026-12-22')).toEqual([2, 2, 2]);
+      expect(await occupied(threeDay, '2026-12-10', '2026-12-12')).toEqual([0, 0, 0]);
+      // Вид занятости (кабинет, планер, цена) видит те же три дня.
+      const occ = await pool.query<{ date: string; occupied: string }>(
+        `SELECT date::text AS date, occupied::text AS occupied FROM v_tour_daily_occupancy
+          WHERE operator_tour_id = $1::bigint AND date BETWEEN '2026-12-10' AND '2026-12-31' ORDER BY date`,
+        [threeDay],
+      );
+      expect(occ.rows).toEqual([
+        { date: '2026-12-20', occupied: '2' },
+        { date: '2026-12-21', occupied: '2' },
+        { date: '2026-12-22', occupied: '2' },
+      ]);
+
+      // На тур другой длительности: однодневная бронь на трёхдневный тур — три дня.
+      const single = await seed(dayTour, '2026-12-05', '2026-12-05', 1, 'confirmed');
+      await move(single, threeDay, '2027-02-01');
+      expect(await rowOf(single)).toEqual({ tour: threeDay, start: '2027-02-01', end: '2027-02-03', days: 3 });
+    });
+
+    it('(г) дата закрыта оператором в календаре — перенос отклонён', async () => {
+      const { ReserveError } = await import('@/lib/bookings/reserve');
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+         VALUES ($1::bigint, '2026-11-15', 4, TRUE)`,
+        [dayTour],
+      );
+      const id = await seed(dayTour, '2026-11-16', '2026-11-16', 1, 'new');
+      const refused = await move(id, dayTour, '2026-11-15').catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(ReserveError);
+      expect((refused as InstanceType<typeof ReserveError>).code).toBe('DATE_BLOCKED');
+      expect(await rowOf(id)).toMatchObject({ start: '2026-11-16' });
+    });
+
+    it('(д) перенос не считает саму переносимую бронь занятостью', async () => {
+      // Полная группа на её же дату и тур — не отказ из-за себя.
+      const full = await seed(dayTour, '2026-11-25', '2026-11-25', 4, 'confirmed');
+      await expect(move(full, dayTour, '2026-11-25')).resolves.toMatchObject({ id: full });
+
+      // Трёхдневная полная группа на день позже: новые дни 2–3 — её же старые.
+      const group = await seed(threeDay, '2027-01-10', '2027-01-12', 4, 'confirmed');
+      await move(group, threeDay, '2027-01-11');
+      expect(await rowOf(group)).toMatchObject({ start: '2027-01-11', end: '2027-01-13', days: 3 });
+      expect(await occupied(threeDay, '2027-01-10', '2027-01-13')).toEqual([0, 4, 4, 4]);
+    });
+
+    it('статистика оператора: «ждут подтверждения» — брони «new», а не несуществующее «pending»', async () => {
+      const owner = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role)
+         VALUES ('stats-owner@test.local', 'Владелец', 'x', 'operator') RETURNING id::text AS id`,
+      );
+      const ownerId = owner.rows[0]!.id;
+      const p = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+         VALUES ('Свой кабинет', 'operator', '{}', TRUE, TRUE, 'op-stats', $1) RETURNING id::text AS id`,
+        [ownerId],
+      );
+      const t = await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published,
+                                     activity_type, difficulty)
+         VALUES ($1, 'Халактырский пляж', 5000, 10, TRUE, TRUE, 'hiking', 'easy') RETURNING id::text AS id`,
+        [p.rows[0]!.id],
+      );
+      const tour = t.rows[0]!.id;
+      await seed(tour, '2026-11-01', '2026-11-01', 1, 'new');
+      await seed(tour, '2026-11-02', '2026-11-02', 1, 'new');
+      await seed(tour, '2026-11-03', '2026-11-03', 1, 'confirmed');
+
+      const { GET } = await import('@/app/api/operator/stats/route');
+      const res = await GET(new Request('http://l/api/operator/stats', {
+        headers: { 'x-test-user': ownerId, 'x-test-role': 'operator' },
+      }) as unknown as import('next/server').NextRequest);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.bookings).toMatchObject({ total: 3, pending: 2, confirmed: 1 });
+    });
+  });
+
+  // Аудит 15.10, BOOKING-CHECK (миграция operator_bookings_status_check): CHECK на booking_status по
+  // единому словарю. Юнит-сторож сверяет множество значений с BOOKING_STATUSES
+  // разбором миграции; здесь — что сервер на самом деле пускает и отклоняет,
+  // и что повтор миграции (раннер на каждом выкате) не падает.
+  describe('словарь статусов брони — CHECK в базе (аудит 15.10, BOOKING-CHECK)', () => {
+    const CONSTRAINT = 'operator_bookings_booking_status_check';
+
+    async function insertWithStatus(status: string): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status)
+         VALUES ($1::bigint, '2099-12-01', 1, $2) RETURNING id::text AS id`,
+        [tourId, status],
+      );
+      return r.rows[0]!.id;
+    }
+
+    async function sqlstateOf(run: () => Promise<unknown>): Promise<{ code?: string; constraint?: string } | null> {
+      try {
+        await run();
+        return null;
+      } catch (e) {
+        return e as { code?: string; constraint?: string };
+      }
+    }
+
+    it('ограничение стоит и проверено (VALIDATE прошёл, а не осталось NOT VALID)', async () => {
+      const r = await pool.query<{ convalidated: boolean }>(
+        `SELECT convalidated FROM pg_constraint
+          WHERE conrelid = 'operator_bookings'::regclass AND conname = $1`,
+        [CONSTRAINT],
+      );
+      expect(r.rows).toEqual([{ convalidated: true }]);
+    });
+
+    it('каждое слово словаря проходит и вставкой, и сменой статуса', async () => {
+      const { BOOKING_STATUSES } = await import('@/lib/types/statuses');
+      const id = await insertWithStatus('new');
+      for (const status of BOOKING_STATUSES) {
+        expect(await sqlstateOf(() => insertWithStatus(status)), `вставка ${status}`).toBeNull();
+        expect(await sqlstateOf(() => pool.query(
+          `UPDATE operator_bookings SET booking_status = $2 WHERE id = $1::bigint`, [id, status],
+        )), `смена на ${status}`).toBeNull();
+      }
+    });
+
+    it.each(['rejected', 'pending', 'paid', 'Confirmed', ''])('слово вне словаря «%s» — 23514 и вставкой, и сменой', async (status) => {
+      const ins = await sqlstateOf(() => insertWithStatus(status));
+      expect(ins).toMatchObject({ code: '23514', constraint: CONSTRAINT });
+      const id = await insertWithStatus('new');
+      const upd = await sqlstateOf(() => pool.query(
+        `UPDATE operator_bookings SET booking_status = $2 WHERE id = $1::bigint`, [id, status],
+      ));
+      expect(upd).toMatchObject({ code: '23514', constraint: CONSTRAINT });
+      const left = await pool.query<{ booking_status: string }>(
+        `SELECT booking_status FROM operator_bookings WHERE id = $1::bigint`, [id],
+      );
+      expect(left.rows[0]!.booking_status).toBe('new');
+    });
+
+    it('повтор миграции (раннер на каждом выкате) — без ошибки, ограничение одно', async () => {
+      const { readFileSync, readdirSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      // По имени, а не по номеру: номер миграции назначается при сведении.
+      const file = readdirSync(join(process.cwd(), 'migrations')).filter((f) => /^\d+_operator_bookings_status_check\.sql$/.test(f));
+      expect(file).toHaveLength(1);
+      const sql = readFileSync(join(process.cwd(), 'migrations', file[0]!), 'utf-8');
+      await pool.query(sql);
+      await pool.query(sql);
+      const r = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM pg_constraint
+          WHERE conrelid = 'operator_bookings'::regclass AND conname = $1 AND convalidated`,
+        [CONSTRAINT],
+      );
+      expect(r.rows[0]!.n).toBe(1);
     });
   });
 });

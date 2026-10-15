@@ -72,8 +72,13 @@ export async function GET() {
     // Память процесса Next и локальная модель поиска по смыслу (аудит 15.10,
     // A21): решать, держать ли модель в веб-процессе на 4 ГБ, — по этим
     // числам. Текста ошибки загрузки здесь нет: роут открыт всем, причина —
-    // в /api/cron/health за CRON_SECRET.
+    // в /api/cron/health за CRON_SECRET. Род отказа (error_code: код Node
+    // или имя класса, без путей и данных) — здесь: 15.10 прод отвечал
+    // load_failed за 1 мс, а тело крона с причиной не печаталось (окно health
+    // занимал внешний планировщик), и узнать, почему, было нечем.
     memory: processMemoryMb(),
-    semantic_search: { enabled: model.enabled, model: model.state, since: model.since, load_ms: model.load_ms },
+    semantic_search: {
+      enabled: model.enabled, model: model.state, since: model.since, load_ms: model.load_ms, error_code: model.error_code,
+    },
   });
 }

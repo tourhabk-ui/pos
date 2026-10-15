@@ -24,7 +24,7 @@ import { Pool } from 'pg';
 import {
   resolveFunnelWindow, buildFunnelReport, funnelByDay,
 } from '@/lib/analytics/funnel-window';
-import { createTestDatabase } from '../helpers/pg-schema';
+import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -71,9 +71,9 @@ withPg('воронка за окно на настоящем PostgreSQL', () => 
   }, 240_000);
 
   afterAll(async () => {
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`).catch(() => {});
-    await bootstrap.end();
+    await dropTestDatabase(PG_URL, TEST_DB).catch((e: unknown) => {
+      console.warn('[funnel-window] тестовая база не удалена:', e instanceof Error ? e.message : e);
+    });
   });
 
   for (const tz of ['Europe/Moscow', 'UTC']) {
