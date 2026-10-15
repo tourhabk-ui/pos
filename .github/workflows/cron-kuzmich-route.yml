@@ -13,11 +13,18 @@ on:
     paths:
       - '.github/triggers/kuzmich-route.json'
 
+# Токену — только чтение: checkout и запись выката, по которой
+# scripts/wait-for-deploy.sh ждёт свою сборку (15.10). Другим шагам
+# этого workflow токен не нужен.
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   trigger:
     runs-on: ubuntu-latest
-    # 40: ожидание своей сборки (до 25 мин) плюс сам пост.
-    timeout-minutes: 40
+    # 75: ожидание своей сборки (до 70 мин) плюс сам пост.
+    timeout-minutes: 75
     steps:
       # checkout ради scripts/wait-for-deploy.sh: сам пост идёт на проде.
       - uses: actions/checkout@v7
@@ -36,6 +43,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 

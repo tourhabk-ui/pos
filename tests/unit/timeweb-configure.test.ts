@@ -39,11 +39,15 @@ describe('timeweb-configure: маркер', () => {
 });
 
 describe('timeweb-configure: воркфлоу', () => {
-  it('удаление — одной дверью remove(), DELETE больше нигде, PATCH нет вовсе', () => {
+  it('удаление — одной дверью remove(), DELETE больше нигде; PATCH — одной дверью patch()', () => {
     expect(CODE).toMatch(/def remove\(label, path\):/);
     expect(CODE).toMatch(/api\('DELETE', path\)/);
     expect((CODE.match(/['"]DELETE['"]/g) ?? []).length).toBe(1);
-    expect(CODE).not.toMatch(/['"]PATCH['"]/);
+    // PATCH заведён 15.10 (аудит, AR-deploy) ровно под настройку автодеплоя;
+    // что он пишет одно поле и сверяется GET, держит исполнением
+    // deploy-promotes-verified-sha.test.ts. Здесь — запрет второй двери.
+    expect((CODE.match(/['"]PATCH['"]/g) ?? []).length).toBe(1);
+    expect(CODE).toMatch(/api\('PATCH', path, body\)/);
     // Привязанное не трогается: удаление только при отсутствии привязки/ресурсов/дубля.
     expect(CODE).toMatch(/if not bound:\s*\n\s*remove\(/);
     expect(CODE).toMatch(/if n == 0:\s*\n\s*remove\(/);
@@ -51,7 +55,8 @@ describe('timeweb-configure: воркфлоу', () => {
   });
   it('запись — одной дверью write(), и в dry она не зовёт API', () => {
     expect(CODE).toMatch(/def write\(label, path, body=None\):/);
-    expect((CODE.match(/if not APPLY:\s*\n\s*planned\.append\(label\)/g) ?? []).length).toBe(2);
+    // Три двери записи — write(), remove(), patch(): у каждой в dry только план.
+    expect((CODE.match(/if not APPLY:\s*\n\s*planned\.append\(label\)/g) ?? []).length).toBe(3);
     expect(CODE).toMatch(/api\('POST', path, body\)/);
     // Прямых POST мимо write() нет.
     expect(CODE).not.toMatch(/api\('POST', f'/);

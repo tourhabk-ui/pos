@@ -23,15 +23,16 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 jobs:
   census:
     runs-on: ubuntu-latest
-    # Бюджет ожидания сборки — 35 минут (ATTEMPTS 70 x SLEEP 30 в
+    # Бюджет ожидания сборки — 70 минут (ATTEMPTS 140 x SLEEP 30 в
     # scripts/wait-for-deploy.sh), таймаут job'а обязан быть строго больше:
     # отменённый на последней секунде job читается как «ничего не сказано».
     # Держит workflow-timeout-fits-wait.
-    timeout-minutes: 45
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +44,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
         run: bash scripts/wait-for-deploy.sh

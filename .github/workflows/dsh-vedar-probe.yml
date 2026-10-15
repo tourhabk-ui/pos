@@ -44,17 +44,19 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 jobs:
   dsh:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # 15.10: ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с: CI, сборка и запись выката) и одной попытки сверх; потолок строго больше — с запасом на установку dsh и сам вопрос (timeout 600 — десять минут). При 75 ожидание и вопрос вместе не помещались.
+    timeout-minutes: 95
     env:
       DSH_HOME: ${{ github.workspace }}/../dsh-home
     steps:
       - uses: actions/checkout@v7
         with:
-          # История за час — для CODE_PATHS в wait-for-deploy.sh.
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh, когда запись выката не прочитана.
           fetch-depth: 200
 
       # Маркер едет в main пушем, и Timeweb тем же пушем пересобирает и
@@ -67,6 +69,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           CODE_PATHS: 'app/api/mcp lib/mcp app/api/cron/mcp-census'
         run: bash scripts/wait-for-deploy.sh

@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 concurrency:
   group: smithery-publish
@@ -41,10 +42,10 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Ожидание сборки — до 35 минут (70 x 30 с) плюс до 10 минут ожидания
+    # Ожидание сборки — до 70 минут (140 x 30 с) плюс до 10 минут ожидания
     # релиза у Smithery; таймаут обязан быть больше суммы
     # (tests/unit/workflow-timeout-fits-wait.test.ts).
-    timeout-minutes: 55
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -74,6 +75,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 

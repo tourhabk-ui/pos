@@ -32,12 +32,13 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 jobs:
   editor:
     runs-on: ubuntu-latest
-    # 45: ожидание своей сборки (до 25 мин) плюс сам прогон.
-    timeout-minutes: 45
+    # 80: ожидание своей сборки (до 70 мин) плюс сам прогон.
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
 
@@ -61,6 +62,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 

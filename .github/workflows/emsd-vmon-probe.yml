@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 # Новый прогон отменяет старый: проба только читает, и две копии лишь дважды
 # дёргают чужой сервер ради одного ответа.
@@ -31,7 +32,8 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    # 15.10: ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с: CI, сборка и запись выката); потолок строго больше.
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
 
@@ -44,9 +46,12 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
-          ATTEMPTS: '110'
+          # Своё окно (было 110 x 30 с) снято 15.10: общее — 70 мин, его хватает
+          # «едущему» коммиту (CI, сборка и запись выката).
         run: bash scripts/wait-for-deploy.sh
 
       - name: Проба

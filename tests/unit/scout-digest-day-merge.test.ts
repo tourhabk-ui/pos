@@ -42,6 +42,13 @@ describe('терпение раннера длиннее работы дайдж
   it('curl ждёт 900 с: прогон 157 упал на 600-й секунде при выполненной работе', () => {
     const wf = read('.github/workflows/cron-scout-digest.yml');
     expect(wf).toMatch(/--max-time 900[\s\S]{0,80}\/api\/cron\/scout-digest/);
-    expect(wf).toMatch(/timeout-minutes:\s*40/);
+    // Потолок — не литерал, а неравенство (15.10): на пуше маркера впереди
+    // ещё ожидание своей сборки (до 70 мин, scripts/wait-for-deploy.sh), и
+    // 900 с дайджеста обязаны поместиться ПОСЛЕ него.
+    const timeout = Number(/timeout-minutes:\s*(\d+)/.exec(wf)?.[1] ?? 0);
+    const sh = read('scripts/wait-for-deploy.sh');
+    const waitMin = (Number(/ATTEMPTS="\$\{ATTEMPTS:-(\d+)\}"/.exec(sh)?.[1]) * Number(/SLEEP="\$\{SLEEP:-(\d+)\}"/.exec(sh)?.[1])) / 60;
+    expect(waitMin).toBeGreaterThan(0);
+    expect(timeout).toBeGreaterThan(waitMin + 900 / 60);
   });
 });

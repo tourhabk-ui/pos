@@ -60,8 +60,12 @@ describe('подтверждение деплоя: прод СОДЕРЖИТ к�
   });
 
   it('обе фазы — и сборка, и отдача сайтом — идут через одну проверку', () => {
-    const calls = DEPLOY.match(/contains_expected "\$(COMMIT|SERVED)"/g) ?? [];
-    expect(calls).toHaveLength(2);
+    // Фаза сборки (панель взяла наш коммит или потомка) и фаза отдачи сайтом
+    // судят одной функцией. Третий вызов на COMMIT (15.10) — та же функция:
+    // в момент принятия «по заказу» последний заказ панели обязан содержать
+    // наш коммит. Сторож держит «через одну проверку», а не число вызовов.
+    expect(DEPLOY).toMatch(/if contains_expected "\$COMMIT"; then PICKED=1/);
+    expect(DEPLOY).toMatch(/if contains_expected "\$SERVED"; then SERVED_OK=commit/);
     // Прежних сравнений строк не осталось: иначе одна из фаз краснела бы.
     expect(DEPLOY).not.toMatch(/\$\{SERVED:0:7\}" != "\$\{EXPECTED_SHA:0:7\}/);
     expect(DEPLOY).not.toMatch(/if \[ "\$\{COMMIT:0:7\}" = "\$\{EXPECTED_SHA:0:7\}" \]; then PICKED/);

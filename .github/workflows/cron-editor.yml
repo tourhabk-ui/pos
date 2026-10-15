@@ -12,10 +12,18 @@ on:
     paths:
       - '.github/triggers/editor.json'
 
+# Токену — только чтение: checkout и запись выката, по которой
+# scripts/wait-for-deploy.sh ждёт свою сборку (15.10). Другим шагам
+# этого workflow токен не нужен.
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   editor:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # 15.10: ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с: CI, сборка и запись выката); потолок строго больше.
+    timeout-minutes: 85
     steps:
       # По маркеру прогон идёт на свежем коде: иначе Editor стартовал бы на
       # проде до выката правки, ради которой маркер и тронули.
@@ -27,6 +35,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
       - name: Editor — AI улучшение описаний туров

@@ -6,7 +6,10 @@ name: CI Sweeper
 #   в ту же ветку с маркером [ci-sweep]. PR остаётся draft — мержит человек.
 # - Упал CI на main (кандидат в сломанный автодеплой Timeweb) → в main НИКТО
 #   не пушит: hotfix-ветка claude/ci-hotfix-<run_id> + draft-PR с заголовком
-#   «ГОРЯЧО» — GitHub-нотификация владельцу и есть алерт.
+#   «ГОРЯЧО» — GitHub-нотификация владельцу и есть алерт. Агент на main не
+#   зовётся, если решать есть кому: следом идёт прогон более свежего пуша
+#   или упавший коммит меняет только маркеры (шаг «Решит ли более свежий
+#   прогон» ниже).
 #
 # Защита от зацикливания: одна попытка на красный ран. Если упавший коммит
 # уже содержит [ci-sweep] — свипер не запускается (иначе фикс, ломающий CI,
@@ -68,10 +71,75 @@ jobs:
       actions: write # read — логи упавшего рана; write — gh run rerun при флаки
       id-token: write
     steps:
+      # ── На main решает последнее красное состояние (аудит 15.10, AR-deploy) ──
+      #
+      # С 15.10 CI идёт на КАЖДЫЙ пуш в main, без фильтра путей (ci.yml), — в
+      # том числе на коммиты, меняющие только маркер .github/triggers/. Маркер
+      # в режиме apply краснит CI нарочно: сторожа images-repack,
+      # timeweb-configure, iamkam-site и s3-object-delete требуют `mode: dry` в
+      # репозитории, и следом идёт коммит с возвратом в dry (замер по истории:
+      # a41e6c7d1, 8d3a279d9, 0c90090f7, d0e5ae85e — dry через 2 с – 2 мин;
+      # 745cab8f2 — через 46 мин). До 15.10 такие коммиты CI на push не
+      # запускали, теперь каждый будил бы агента и открывал «ГОРЯЧО».
+      #
+      # Правило то же, что у тревоги ci-red-alert в deploy.yml: main линеен,
+      # чинить надо последнее красное состояние. Агент не нужен, если
+      #  1) следом идёт (или прошёл) прогон CI более свежего пуша в main — он
+      #     и решит: зелёный — чинить нечего, красный — позовёт свип сам.
+      #     Отменённый (его заменил ещё более свежий) не в счёт;
+      #  2) упавший коммит меняет только .github/triggers/** — красный от
+      #     маркера снимается возвратом маркера в dry тем, кто его поднял, а не
+      #     правкой кода; маркер — рука владельца, агенту его не править.
+      #     Это и случай 46 минут, когда более свежего прогона ещё нет.
+      # Не смогли спросить GitHub — свип идёт, как раньше: «не знаю» не
+      # выдаётся за «решит другой» (§4.0). На PR-ветках шаг ничего не меняет.
+      - name: Решит ли более свежий прогон
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          T="${RUNNER_TEMP:-/tmp}"
+          if [ "$HEAD_BRANCH" != "main" ]; then
+            echo "sweep=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=20" \
+               > "$T/sweep-runs.json" 2> "$T/sweep-runs.err" \
+             && NEWER=$(jq -r --argjson id "$CI_RUN_ID" '[.workflow_runs[] | select(.id > $id) | select(.status != "completed" or .conclusion != "cancelled")] | max_by(.id) // empty | "\(.head_sha[0:7]) \(.status)/\(.conclusion // "-")"' "$T/sweep-runs.json"); then
+            if [ -n "$NEWER" ]; then
+              echo "Свип не нужен: следом прогон CI более свежего пуша в main ($NEWER) — он и решит, а если не пройдёт, позовёт свип сам."
+              echo "sweep=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "::warning::Не смог спросить GitHub о более свежих прогонах CI ($(head -c 200 "$T/sweep-runs.err" 2>/dev/null)) — свип идёт: решать, возможно, некому."
+          fi
+
+          # Список файлов коммита — до 300 на странице; маркеров в репозитории
+          # меньше (121 на 15.10), так что усечённый список не сойдёт за
+          # «только маркеры».
+          if gh api "repos/$REPO/commits/$SHA" > "$T/sweep-commit.json" 2> "$T/sweep-commit.err" \
+             && FILES=$(jq -r '.files[].filename' "$T/sweep-commit.json"); then
+            if [ -n "$FILES" ] && ! printf '%s\n' "$FILES" | grep -qv '^\.github/triggers/'; then
+              echo "Свип не нужен: коммит ${SHA:0:7} меняет только маркеры .github/triggers/ — красный от маркера в apply снимается возвратом маркера в dry, а не правкой кода."
+              echo "sweep=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "::warning::Не смог прочитать файлы коммита ${SHA:0:7} ($(head -c 200 "$T/sweep-commit.err" 2>/dev/null)) — свип идёт."
+          fi
+          echo "sweep=true" >> "$GITHUB_OUTPUT"
+
       # Ветку удаляют вместе с мержем (так закрыт #2234). workflow_run при этом
       # ещё помнит head_branch, и checkout падает с exit 1 — свиперу нечего
       # чинить, красный ран не про код. Нет ref — выходим без ошибки.
       - name: Failing branch still exists
+        if: steps.gate.outputs.sweep == 'true'
         id: branch
         env:
           GH_TOKEN: ${{ github.token }}

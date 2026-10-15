@@ -27,6 +27,25 @@
 #   GET  /api/v1/floating-ips · DELETE /api/v1/floating-ips/{id}
 #   GET  /api/v1/firewall/groups, /firewall/groups/{id}/resources · DELETE /firewall/groups/{id}
 #   GET  /api/v1/ssh-keys · DELETE /api/v1/ssh-keys/{id}
+#   PATCH /api/v1/apps/{app_id} {is_auto_deploy}       — updateAppSettings (15.10)
+#
+# ── Задача auto_deploy (аудит 15.10, находка AR-deploy) ──────────────────────
+#
+# Выкат только проверенного коммита (CLAUDE.md §6): Timeweb не должен сам
+# собирать каждый пуш в main — сборку проверенного sha заказывает deploy.yml.
+# Маркер для выключения:
+#   "mode": "apply", "tasks": ["auto_deploy"], "auto_deploy": false
+# Откат — тот же маркер с "auto_deploy": true. Поля auto_deploy без значения
+# задача не трогает ничего: умолчания нет намеренно — включить или выключить
+# выкат каждого пуша решает строка маркера, а не забытое поле.
+#
+# Запись — одна дверь patch(), и тело у неё ровно {"is_auto_deploy": ...}:
+# PATCH настроек приложения принимает и envs, и посланный по ошибке объект
+# переписал бы переменные окружения прода. После записи — обязательная
+# сверка GET: 17.08 переподключение репозитория по инструкции поддержки
+# молча погасило автодеплой, и узнали об этом только запросом
+# (timeweb-app-info.yml). «Запрос принят» — не доказательство, что
+# настройка стала такой; не совпало после записи — прогон красный.
 name: Настройка Timeweb (вручную, по маркеру)
 
 on:
@@ -106,6 +125,22 @@ jobs:
               failed.append(f'{label} — HTTP {code} {json.dumps(data, ensure_ascii=False)[:200]}')
               print(f'  ОТКАЗ ({code}): {label} — {json.dumps(data, ensure_ascii=False)[:200]}'); return False
 
+          def patch(label, path, body):
+              """Единственная дверь для PATCH — только настройки приложения: в dry печатается план."""
+              if not APPLY:
+                  planned.append(label); print(f'  ПЛАН: {label}'); return False
+              code, data = api('PATCH', path, body)
+              if 200 <= code < 300:
+                  changed.append(label); print(f'  СДЕЛАНО ({code}): {label}'); return True
+              failed.append(f'{label} — HTTP {code} {json.dumps(data, ensure_ascii=False)[:200]}')
+              print(f'  ОТКАЗ ({code}): {label} — {json.dumps(data, ensure_ascii=False)[:200]}'); return False
+
+          def auto_deploy_now():
+              """Текущее is_auto_deploy приложения: True/False, либо None — «не прочитали»."""
+              code, app = api('GET', f'/api/v1/apps/{APP_ID}')
+              val = (app.get('app') or {}).get('is_auto_deploy') if code == 200 else None
+              return (val if isinstance(val, bool) else None), code
+
           print(f'# Настройка Timeweb — режим {MODE}, задачи: {", ".join(TASKS) or "нет"}')
 
           if 'www' in TASKS:
@@ -171,6 +206,24 @@ jobs:
                   print(f'  «{name}»: {len(keys)} шт.' + ('' if len(keys) > 1 else ' — единственный, остаётся'))
                   for k in keys[:-1]:
                       remove(f'удалить дубль ключа «{name}» ({k.get("id")}, {k.get("created_at")}); новейший остаётся', f'/api/v1/ssh-keys/{k.get("id")}')
+
+          if 'auto_deploy' in TASKS:
+              print('\n## Автодеплой приложения (is_auto_deploy)')
+              want = marker.get('auto_deploy')
+              if not isinstance(want, bool):
+                  failed.append(f'auto_deploy: в маркере нет поля auto_deploy со значением true/false (сейчас {want!r}) — умолчания нет')
+              else:
+                  cur, code = auto_deploy_now()
+                  print(f'  сейчас: {cur!r} (HTTP {code}); нужно: {want!r}')
+                  if cur is None:
+                      failed.append(f'auto_deploy: настройка не прочитана (HTTP {code}) — писать вслепую не будем')
+                  elif cur == want:
+                      print('  уже как нужно — делать нечего')
+                  elif patch(f'is_auto_deploy: {cur} -> {want}', f'/api/v1/apps/{APP_ID}', {'is_auto_deploy': want}):
+                      after, code2 = auto_deploy_now()
+                      print(f'  сверка GET после записи: {after!r} (HTTP {code2})')
+                      if after != want:
+                          failed.append(f'auto_deploy: PATCH принят, но GET показывает {after!r} (HTTP {code2}), а не {want!r} — настройка НЕ изменилась')
 
           print('\n## Итог')
           print(f'- режим: {MODE}')

@@ -27,12 +27,16 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # 40, а не 5: ожидание своей сборки (до 35 мин) плюс сама проба (до 2 мин).
-    timeout-minutes: 40
+    # 85, а не 5: ожидание своей сборки (до 70 мин и одной попытки сверх —
+    # срок на часах, scripts/wait-for-deploy.sh) плюс сама проба (curl до
+    # 170 с) и checkout. При 75 на пробу оставалось около трёх минут, и
+    # отмена по таймауту стёрла бы исход (14.09).
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +47,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 

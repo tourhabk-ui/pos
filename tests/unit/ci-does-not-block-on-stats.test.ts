@@ -48,8 +48,10 @@ describe('счётчики обновляются сами после мержа
   });
 
   it('петли нет: коммит помечен skip ci, а .md не в триггерах CI', () => {
+    // С 15.10 (аудит, AR-deploy) push в main идёт без фильтра путей — петлю
+    // README-stats держит именно [skip ci], а не список путей. Для PR
+    // фильтр остался, и markdown в нём по-прежнему нет.
     expect(POST_MERGE).toMatch(/\[skip ci\]/);
-    // Пути-триггеры CI перечисляют исходники; markdown среди них нет.
     const triggers = CI.slice(0, CI.indexOf('jobs:'));
     expect(triggers).not.toMatch(/\*\*\/\*\.md/);
   });

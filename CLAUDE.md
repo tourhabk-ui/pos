@@ -47,7 +47,7 @@
 | Database | PostgreSQL — прямой SQL (`lib/database.ts`, `lib/db-pool.ts`), без Prisma |
 | Auth | JWT — `lib/auth.ts`, middleware — `lib/auth/middleware.ts` |
 | Deploy | Timeweb Cloud — приложение **Tourhab**, id `198048` (репо: `tourhabk-ui/pos`) |
-| CI/CD | push в `tourhabk-ui/pos main` → Timeweb автодеплой |
+| CI/CD | push в `tourhabk-ui/pos main` → CI (все пути) → `deploy.yml` выкатывает проверенный sha (§6) |
 
 **Масштаб** (порядок величины, не замер; точные цифры — командами, не отсюда):
 210 стр / 756 API routes / 173 компонентов / ~460 миграций
@@ -802,7 +802,7 @@ Opus 5 — $56 из $115.
 npx tsc --noEmit      # 0 ошибок
 npx vitest run        # весь набор зелёный (число растёт — сверяться с прогоном, не с этой строкой)
 npm run lint          # 0 ОШИБОК обязательно; предупреждения печатаются и не блокируют
-git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
+git push origin main  # → CI на main → deploy.yml выкатывает проверенный sha (схема ниже)
 ```
 
 **Строка с линтом появилась здесь 09.09 вместе с самим запуском.** До этого дня
@@ -837,9 +837,49 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 а `eslint-plugin-react@7.37.5` его зовёт и десятку в peer-диапазоне не
 допускает). Блокер в апстриме с обеих сторон, не у нас.
 
-**Схема деплоя (июнь 2026):**
-1. Push в `tourhabk-ui/pos main`
-2. Timeweb видит пуш → собирает Docker → `start.js` накатывает миграции → поднимает сервер
+**Схема деплоя — выкат только проверенного коммита (решение владельца 15.10, аудит AR-deploy):**
+1. Push в `tourhabk-ui/pos main` → CI (`ci.yml`) на ВСЕХ путях: у push в main фильтра путей
+   нет, идущий прогон на main не отменяется (ждущий заменяется свежим)
+2. CI зелёный → `deploy.yml` (workflow_run, только push из этого репозитория) заказывает у
+   Timeweb сборку ровно проверенного коммита (`workflow_run.head_sha`, `POST /api/v1/apps/198048/deploy`)
+   и сверяет, что прод его отдаёт; Timeweb собирает Docker → `start.js` накатывает миграции →
+   поднимает сервер
+3. CI красный на main → выката нет, прод стоит на прошлой проверенной сборке; джоб
+   `ci-red-alert` шлёт владельцу тревогу (Telegram — секреты репозитория `TELEGRAM_BOT_TOKEN`
+   и `TELEGRAM_OWNER_ID`; и issue «Выкат остановлен: CI на main красный», которую закрывает
+   следующий успешный выкат). Тревога — только когда решать больше некому: если следом идёт
+   прогон более свежего пуша (например, маркер вернули из apply в dry), выкат решит он
+4. Сверка подтвердила выкат → `deploy.yml` пишет **запись выката**: GitHub Deployment в окружении
+   `vedarai.ru` с sha, который сверка доказала (сайт назвал коммит — он; sha нет — проверенный
+   коммит, если образ начат не раньше нашего заказа сборки и последний заказ в панели его
+   содержит). Не подтвердила — записи нет. По ней `scripts/wait-for-deploy.sh` у трёх десятков
+   workflow отвечает «тот ли код на проде» ТОЧНО: последняя запись D, `compare/D...наш` —
+   behind/identical, между ними только `.github/` и `tests/` или (у workflow со своими `CODE_PATHS`)
+   ни одного файла под ними → в проде, иначе ждём (срок 70 мин на часах). Время — только запасной
+   путь, когда запись не прочитана: built_at с запасом 3900 с (без автодеплоя образ предыдущего
+   коммита кончается позже нашего пуша на 15–60 минут) и окно `CODE_PATHS` в 65 мин, которое при
+   красном CI на main лжёт всё равно — потому оно и не первое
+5. Автодеплой Timeweb (`is_auto_deploy`) выключается маркером `.github/triggers/timeweb-configure.json`
+   (`mode: apply`, задача `auto_deploy`, `auto_deploy: false`; откат — `true`) со сверкой GET после
+   записи. **Условие, без которого маркер не поднимают:** ожидания своей сборки должны знать sha прода
+   не по времени — иначе без вебхука они ждут вслепую (окно было 35 мин против пути CI + сборка до
+   62) и принимают образ предыдущего коммита за свой. Это условие выполняет PR записи выката (15.10).
+   Порядок: PR влит → маркер `apply` с `auto_deploy: false` → вернуть `dry` → сверка
+   `timeweb-app-info.yml` (`is_auto_deploy: false`) → первая запись видна в
+   `gh api repos/tourhabk-ui/pos/deployments?environment=vedarai.ru`. Между влитием и маркером
+   записей нет (сборку собрал вебхук, заказывать нечего), и ожидания идут запасным путём: с
+   `REQUIRE_FRESH` краснеют (если не отпустит окно `CODE_PATHS`), прочие сидят до 70 мин — PR не оставляют влитым без маркера. С какого
+   дня он выключен, говорит прогон маркера и `timeweb-app-info.yml`, а не эта строка. Откат (`true`)
+   возвращает ожидания к запасному пути: вебхуковый выкат записи не пишет
+6. Ручной выкат — `workflow_dispatch` у `deploy.yml`: собирает голову main и гейт CI обходит
+   (рука владельца); запись выката пишет так же
+
+Сторожа: `tests/unit/deploy-promotes-verified-sha.test.ts` (условия джобов, заказ сборки, тревога,
+`auto_deploy` — исполнением), `tests/unit/deploy-writes-record.test.ts` (сверка отдаёт доказанный
+sha, запись и её отказы — исполнением), `tests/unit/wait-for-deploy-record.test.ts` (исходы ожидания
+по записи, `CODE_PATHS`, срок и запасной путь — настоящий bash с подложенным curl; токен и права
+каждого ожидающего workflow), `tests/unit/ci-covers-migrations.test.ts`
+(каждый файл контекста сборки запускает CI на main).
 
 **Timeweb:** приложение **Tourhab**, id `198048`, репо `tourhabk-ui/pos`, ветка `main`
 (имя и id получены из `GET /api/v1/apps` 29.07; прежние «Fair Polydeuces» и
@@ -851,6 +891,12 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 ---
 
 ## 7. НЕ ТРОГАТЬ
+
+**Проверка зон (15.10, владелец: «по статье Anthropic тебе карт-бланш»).** PR, задевший зону ниже,
+краснеет без раздела `## Слово владельца` в теле: по строке на зону — имя зоны или путь, цитата «…»
+и дата ДД.ММ; правка одних комментариев — предупреждение. Реестр зон с причинами (он сам тоже зона) —
+`scripts/protected-zones.mjs`, проверка — `.github/workflows/protected-zones.yml`, сторож —
+`tests/unit/protected-zones-gate.test.ts`.
 
 - `middleware.ts` — Edge JWT + rate-limit. Исключение по слову владельца 01.09
   («PR 2 да»): гейт `/api/admin/*` — admin-JWT либо `CRON_SECRET` в заголовке
@@ -1410,6 +1456,7 @@ only» / «Stop when free quota is exhausted». Ставится на модел
 - Все миграции должны быть идемпотентны (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`)
 - Bootstrap tracking на новом инстансе: `DATABASE_URL=<prod> npx tsx scripts/bootstrap-migrations-tracking.ts`
 - **Авто-миграции при деплое:** `start.js` запускает `scripts/migrate-standalone.js` перед стартом сервера
+- `docs/DB_SCHEMA.md` руками в PR не перегенерировать — его снимает job `db-schema-doc.yml` после влития миграций (аудит 15.10: общий файл, который пишет каждая ветка, ставил PR в конфликт); ветке разрешено отставать на свои миграции, сторож — `tests/unit/db-schema-doc.test.ts`
 
 ---
 

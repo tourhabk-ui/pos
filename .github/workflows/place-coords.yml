@@ -39,18 +39,19 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    # Ожидание сборки — до 35 минут (ATTEMPTS×SLEEP в scripts/wait-for-deploy.sh).
+    # Ожидание сборки — до 70 минут (ATTEMPTS×SLEEP в scripts/wait-for-deploy.sh).
     # Таймаут job'а обязан быть строго больше, иначе прогон умирает в ожидании
     # и причина отказа теряется.
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
         with:
-          # История за час — для CODE_PATHS в wait-for-deploy.sh.
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh, когда запись выката не прочитана.
           fetch-depth: 200
 
       # ── Почему ожидание появилось только 20.09 ──────────────────────────────
@@ -76,6 +77,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
           # 03.10: пушится только маркер — код роута на проде тот же, и
