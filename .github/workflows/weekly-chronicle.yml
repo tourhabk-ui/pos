@@ -27,7 +27,7 @@ concurrency:
 jobs:
   # То же, что у issue-triage: claude-code-action на push отвечает
   # «Unsupported event type: push», поэтому маркер переводится в
-  # workflow_dispatch. Без этого воскресный летописец запускался бы
+  # workflow_dispatch. Без этого летописец запускался бы
   # маркером вхолостую — красный ран за две секунды и ни строки хроники.
   dispatch:
     if: github.event_name == 'push'
