@@ -15,6 +15,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -486,10 +487,13 @@ async function executeBulkNotify(task: ExecutionTask): Promise<ExecutionResult> 
       return { success: false, changes_made: changes, errors, rollback_available: false, verification_passed: false };
     }
 
+    // «Без ответа» — про заявки. Псевдолид чата виджета (до 15.10) ответа
+    // не ждёт: телефона нет, отвечать некому (аудит 15.10, W3-pseudo).
     const leadsRes = await pool.query<{ cnt: string }>(
       `SELECT COUNT(*) as cnt FROM leads
        WHERE status IN ('new','contacted')
-         AND created_at < NOW() - INTERVAL '24 hours'`
+         AND created_at < NOW() - INTERVAL '24 hours'
+         AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}`
     );
     const staleCount = parseInt(leadsRes.rows[0]?.cnt ?? '0', 10);
 

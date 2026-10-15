@@ -13,6 +13,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getLatestIntelligence } from '@/lib/services/intelligence-monitor.service';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -99,8 +100,13 @@ async function collectMetrics(): Promise<PlatformMetrics> {
       return parseInt(r.rows[0]?.cnt ?? '0', 10);
     }, 0),
 
+    // «Новые (не обработаны)» — очередь работы: модель дайджеста называет
+    // из неё приоритеты владельцу. Псевдолиды чата виджета (до 15.10) не
+    // заявки и `new` навсегда — в очереди они шум (аудит 15.10, W3-pseudo).
     safe(async () => {
-      const r = await pool.query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM leads WHERE status = 'new'`);
+      const r = await pool.query<{ cnt: string }>(
+        `SELECT COUNT(*) as cnt FROM leads WHERE status = 'new' AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}`,
+      );
       return parseInt(r.rows[0]?.cnt ?? '0', 10);
     }, 0),
 
@@ -164,11 +170,12 @@ async function collectMetrics(): Promise<PlatformMetrics> {
       return parseInt(r.rows[0]?.cnt ?? '0', 10);
     }, 0),
 
-    // Последние новые лиды с деталями
+    // Последние новые лиды с деталями — без псевдолидов чата, как и счёт выше.
     safe(async () => {
       const r = await pool.query<LeadDetail>(
         `SELECT id::text, route_title, LEFT(comment, 80) as comment, created_at::text
-         FROM leads WHERE status = 'new' ORDER BY created_at DESC LIMIT 8`
+         FROM leads WHERE status = 'new' AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}
+         ORDER BY created_at DESC LIMIT 8`
       );
       return r.rows;
     }, [] as LeadDetail[]),

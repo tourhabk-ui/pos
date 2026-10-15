@@ -23,6 +23,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { hashPayload } from '@/lib/safety/ledger';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -134,7 +135,12 @@ interface HealthIssue {
   text: string;
 }
 
-async function checkDB(): Promise<HealthIssue[]> {
+/**
+ * Проверки по базе. Экспорт — для сторожа на настоящем PostgreSQL
+ * (tests/integration/leads-followup.pg.test.ts): счёт лидов судится вызовом
+ * на строках, а не поиском условия в тексте запроса.
+ */
+export async function checkDB(): Promise<HealthIssue[]> {
   const issues: HealthIssue[] = [];
 
   try {
@@ -150,10 +156,15 @@ async function checkDB(): Promise<HealthIssue[]> {
   } catch { /* DB недоступна — поймаем ниже */ }
 
   try {
-    // Необработанные лиды старше 6 часов
+    // Необработанные лиды старше 6 часов. Псевдолиды чата виджета (первое
+    // сообщение посетителя без телефона и согласия, записанные до 15.10) не
+    // заявки: обработать их нечем, а `new` они остаются навсегда — тревога о
+    // них шум, который учит пролистывать сводку (аудит 15.10, W3-pseudo;
+    // тот же предикат у добивки и сторожа «лиды >2ч»).
     const leads = await pool.query<{ cnt: string }>(
       `SELECT COUNT(*) as cnt FROM leads
-       WHERE status = 'new' AND created_at < NOW() - INTERVAL '6 hours'`
+       WHERE status = 'new' AND created_at < NOW() - INTERVAL '6 hours'
+         AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}`
     );
     const leadsCnt = parseInt(leads.rows[0]?.cnt ?? '0', 10);
     if (leadsCnt > 3) {

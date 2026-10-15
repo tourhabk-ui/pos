@@ -15,6 +15,7 @@ import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -35,7 +36,12 @@ export async function GET(request: NextRequest) {
   // не пишет: окно отрабатывает другой планировщик, и отметит он.
   const t0 = Date.now();
 
-  // Лиды 'new' старше 2 минут, без processed_at, с достаточным качеством
+  // Лиды 'new' старше 2 минут, без processed_at, с достаточным качеством.
+  // Псевдолиды чата виджета (до 15.10) — не подбор тура: телефона и согласия
+  // нет, предложение отправить некому. Скоринг давал им не меньше 30 (имя
+  // «Widget: …» с пробелом — 25, пустой телефон — 5), то есть processed_at
+  // оставался пустым, а отказ модели возвращает лид в `new` — и конвейер
+  // тратил на него вызовы модели каждые полчаса (аудит 15.10, W3-pseudo).
   let rows: Array<{ id: string; name: string }>;
   try {
     ({ rows } = await pool.query<{ id: string; name: string }>(
@@ -44,6 +50,7 @@ export async function GET(request: NextRequest) {
          AND created_at < NOW() - INTERVAL '2 minutes'
          AND processed_at IS NULL
          AND (ai_score IS NULL OR ai_score >= 30)
+         AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}
        ORDER BY created_at ASC
        LIMIT 10`
     ));
