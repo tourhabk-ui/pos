@@ -45,6 +45,8 @@ interface TourData {
   pickup_details: string | null;
   photos: string[] | null;
   tour_image: string | null;
+  /** Закреплён наверху страницы оператора (1267); NULL — нет. */
+  pinned_at?: string | null;
 }
 
 // ─── Константы ──────────────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ export default function EditTourClient() {
     weather_dependent: true,
     is_active: true,
     is_published: false,
+    pinned: false,
     included: '',
     not_included: '',
     what_to_bring: '',
@@ -210,6 +213,7 @@ export default function EditTourClient() {
           weather_dependent: t.weather_dependent,
           is_active: t.is_active,
           is_published: t.is_published,
+          pinned: t.pinned_at != null,
           included: (t.included || []).join('\n'),
           not_included: (t.not_included || []).join('\n'),
           what_to_bring: (t.what_to_bring || []).join('\n'),
@@ -272,6 +276,7 @@ export default function EditTourClient() {
         weather_dependent: form.weather_dependent,
         is_active: form.is_active,
         is_published: form.is_published,
+        pinned: form.pinned,
         included: parseLines(form.included),
         not_included: parseLines(form.not_included),
         what_to_bring: parseLines(form.what_to_bring),
@@ -376,7 +381,7 @@ export default function EditTourClient() {
       {/* Статус и публикация */}
       <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
         <p className={heading}>Статус</p>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.is_active} onChange={e => setF('is_active', e.target.checked)}
               className="w-4 h-4 accent-[var(--accent)]" />
@@ -387,7 +392,15 @@ export default function EditTourClient() {
               className="w-4 h-4 accent-[var(--accent)]" />
             <span className="text-sm text-[var(--text-primary)]">Опубликован</span>
           </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.pinned} onChange={e => setF('pinned', e.target.checked)}
+              className="w-4 h-4 accent-[var(--accent)]" />
+            <span className="text-sm text-[var(--text-primary)]">Закрепить наверху моей страницы</span>
+          </label>
         </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          Закреплённые туры идут первыми на вашей странице на Ведаре, в порядке закрепления. Остальные — по началу сезона.
+        </p>
       </section>
 
       {/* Основное */}

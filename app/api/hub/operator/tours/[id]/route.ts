@@ -168,6 +168,15 @@ export async function PATCH(
       );
     }
 
+    // Закрепление наверху страницы оператора (1267). Повторное «закрепить»
+    // не сдвигает момент закрепления: порядок закреплённых — по тому, кого
+    // закрепили раньше, и сохранение формы целиком его не перемешивает.
+    const pinnedInput = (input as Record<string, unknown>).pinned;
+    if (typeof pinnedInput === 'boolean') {
+      fields.push(`pinned_at = CASE WHEN $${idx++}::boolean THEN COALESCE(pinned_at, NOW()) ELSE NULL END`);
+      values.push(pinnedInput);
+    }
+
     if (fields.length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
