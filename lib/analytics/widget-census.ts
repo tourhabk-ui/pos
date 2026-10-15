@@ -22,7 +22,10 @@
  *     (`source_data ? 'notified_operators'`);
  *   - с `probe_sites` — есть ли наш скрипт на главной каждого домена:
  *     found / not_found / could_not_check. Переадресации проба идёт вручную
- *     и каждую судит тем же правилом, что и домен из списка (probeSite).
+ *     и каждую судит тем же правилом, что и домен из списка (probeSite);
+ *     перед каждым запросом имя разрешается в DNS, и частный адрес — отказ.
+ *     Домен сверх SITE_PROBE_MAX за прогон — could_not_check «не спрошен»,
+ *     а не пропуск.
  *
  * ── Третье состояние (§4.0) ───────────────────────────────────────────────
  *
@@ -37,10 +40,12 @@
  * Хост — сигнал, а не замок: браузер присылает его сам, и подделать его может
  * кто угодно (lib/embed/widget-origin.ts).
  */
+import { lookup } from 'node:dns/promises';
 import {
   classifyWidgetHost, normalizeWidgetHost,
   type WidgetHostCheck, type WidgetKind,
 } from '@/lib/embed/widget-origin';
+import { isPrivateAddress } from '@/lib/security/site-audit';
 
 export const TELEMETRY_DAYS = 30;
 /** Таймаут пробы одного сайта. */
@@ -52,12 +57,31 @@ export const SITE_PROBE_MAX = 20;
  * «главная домена», а цепочка, конец которой выбирает чужой сервер.
  */
 export const SITE_PROBE_MAX_REDIRECTS = 3;
+/**
+ * Больше байт тела главной не читаем (аудит 15.10, R-census): чужой сервер
+ * вправе отдать сотни мегабайт, а проб за прогон до двадцати разом. Предел
+ * взят не по аналогии с lib/security/site-probe (там 200 КБ), а по замеру
+ * 15.10: главная fishingkam.ru — 773 КБ, mestechkokam.ru — 236 КБ, то есть
+ * 200 КБ не дочитали бы ни одну из двух настоящих. Скрипт за пределом не
+ * виден — и это «не смог», а не «не нашёл» (probeSite).
+ */
+export const SITE_PROBE_BODY_LIMIT = 2_000_000;
 
 interface Exec {
   query: <R = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 }
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+/** Разрешатель имён в форме dns.lookup(…, { all: true }). */
+export type ResolveLike = (hostname: string) => Promise<ReadonlyArray<{ address: string }>>;
+
+/** Сеть пробы: внедряется целиком, чтобы сторож подменял и fetch, и DNS. */
+export interface ProbeIo {
+  fetch: FetchLike;
+  resolve: ResolveLike;
+}
+
+const systemResolve: ResolveLike = (hostname) => lookup(hostname, { all: true });
 
 export const PARTNERS_SQL = `
   SELECT id::text AS id, slug, name, COALESCE(widget_domains, '{}') AS widget_domains
@@ -227,7 +251,7 @@ export interface WidgetCensusReport {
 
 export const CENSUS_NOTES: readonly string[] = [
   'Хост присылает браузер посетителя и подделывается: listed — «пришло с хостом из списка», а не доказательство, что с сайта партнёра. Сигнал, не замок.',
-  'served — выдачи скрипта формы lead.js сервером: нижняя граница просмотров (браузер держит скрипт 5 минут, боты не считаются). У чата served = null: embed.js — статический файл, его выдачу сервер не видит.',
+  'served — выдачи скрипта формы lead.js сервером, без кэша браузера: общее правило next.config.js отдаёт его с no-store и перебивает «5 минут» из заголовка самого роута, так что каждый просмотр страницы с кнопкой — выдача. Боты, назвавшие себя ботами, не считаются; неопознанные боты и повторные загрузки — считаются. Это верхняя граница просмотров страниц с кнопкой, а не их число. У чата served = null: embed.js — статический файл, его выдачу сервер не видит.',
   'opened — открытия окна по маяку (первый клик на странице); браузер без sendBeacon и CSP сайта партнёра, запрещающий запросы к vedarai.ru, маяк не пропускают — это тоже нижняя граница.',
   'origin_not_recorded — разговоры и заявки, записанные до миграции 1282 (или старым скриптом из кэша): откуда они пришли, неизвестно.',
   'site_probe ищет скрипт только на ГЛАВНОЙ домена: not_found значит «на главной нет», а не «нет на сайте».',
@@ -286,19 +310,31 @@ function telemetryFor(rows: TelemetryRow[], domains: string[]): PartnerTelemetry
 const PRIVATE_NAME_RE = /(?:^|\.)(?:localhost|local|internal|home\.arpa)$/;
 
 /**
+ * Порты, которые проба вправе спросить: пустой (умолчание схемы — разбор URL
+ * приводит `:443` у https и `:80` у http к пустому), 80 и 443. Главная сайта
+ * живёт там; `:5432` или `:6379` в Location — это уже не главная, а чужая
+ * служба за ней (аудит 15.10, R-census).
+ */
+const PROBE_PORTS = new Set(['', '80', '443']);
+
+/**
  * Адрес, который проба вправе запросить. Одно правило — для домена из списка
- * и для КАЖДОЙ переадресации (аудит 15.10, W3-measure): только http/https и
- * публичное имя — не IP (любой: петля 127.x, частные 10.x и 192.168.x,
- * метаданные облака 169.254.169.254, IPv6), не localhost и не имя частной
- * сети. Судится РАЗОБРАННЫЙ адрес: разбор URL приводит «127.1», «0x7f.0.0.1»
- * и «2130706433» к 127.0.0.1, то есть проверка видит то, куда пойдёт fetch,
- * а не строку, как её написали. `base` — адрес, относительно которого
- * разбирается относительный Location.
+ * и для КАЖДОЙ переадресации (аудит 15.10, W3-measure): только http/https,
+ * порт 80/443 и публичное имя — не IP (любой: петля 127.x, частные 10.x и
+ * 192.168.x, метаданные облака 169.254.169.254, IPv6), не localhost и не имя
+ * частной сети. Судится РАЗОБРАННЫЙ адрес: разбор URL приводит «127.1»,
+ * «0x7f.0.0.1» и «2130706433» к 127.0.0.1, то есть проверка видит то, куда
+ * пойдёт fetch, а не строку, как её написали. `base` — адрес, относительно
+ * которого разбирается относительный Location.
+ *
+ * Это правило ФОРМЫ. Куда имя разрешается, оно не знает — это судит
+ * resolvedRefusal перед каждым запросом.
  */
 export function probeableUrl(raw: string, base?: string): URL | null {
   if (!URL.canParse(raw, base)) return null;
   const url = new URL(raw, base);
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (!PROBE_PORTS.has(url.port)) return null;
   // IPv6 в скобках и имя не в ASCII нормализацию хоста не проходят.
   const host = normalizeWidgetHost(url.hostname);
   if (!host || !host.includes('.')) return null;
@@ -319,13 +355,34 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Наши скрипты в HTML главной: форма — lead.js с этим slug, чат — embed.js с этим data-partner-id. */
+/**
+ * Адрес lead.js в HTML: всё после `?` до конца значения атрибута. `&amp;` —
+ * так амперсанд пишется внутри атрибута, и без замены `partner` после него
+ * читался бы как `amp;partner`.
+ */
+const LEAD_JS_QUERY_RE = /\/api\/widget\/lead\.js\?([^"'\s>]*)/gi;
+
+/**
+ * Наши скрипты в HTML главной: форма — lead.js, у которого параметр `partner`
+ * равен slug ЦЕЛИКОМ; чат — embed.js с этим data-partner-id.
+ *
+ * Форма сверяется разбором параметра, а не подстрокой (аудит 15.10,
+ * R-census): прежнее `includes('lead.js?partner=' + slug)` засчитывало
+ * партнёру «fish» скрипт «fishingkam», а «mestechko» — скрипт «mestechko-2»,
+ * то есть «found» там, где стоит чужая форма.
+ */
 export function detectWidgetScripts(html: string, slug: string): WidgetKind[] {
   const out: WidgetKind[] = [];
-  const lower = html.toLowerCase();
-  if (lower.includes(`/api/widget/lead.js?partner=${slug.toLowerCase()}`)) out.push('form');
+  const want = slug.toLowerCase();
+  for (const m of html.matchAll(LEAD_JS_QUERY_RE)) {
+    const partner = new URLSearchParams(m[1].replace(/&amp;/gi, '&')).get('partner');
+    if (partner !== null && partner.toLowerCase() === want) {
+      out.push('form');
+      break;
+    }
+  }
   const chatAttr = new RegExp(`data-partner-id\\s*=\\s*["']?${escapeRe(slug)}(?:["'\\s>/]|$)`, 'i');
-  if (lower.includes('/widget/embed.js') && chatAttr.test(html)) out.push('chat');
+  if (html.toLowerCase().includes('/widget/embed.js') && chatAttr.test(html)) out.push('chat');
   return out;
 }
 
@@ -343,11 +400,84 @@ export function redirectShown(location: string, base: string): string {
 /** Коды, по которым проба идёт дальше по Location. */
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** Тело переадресации не нужно, но соединение освобождаем; отказ закрытия — в лог, не в исход. */
+function logCancelFailure(what: string, err: unknown): void {
+  console.warn(`[widget-census] ${what} не закрыто: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+/** Тело не нужно, но соединение освобождаем; отказ закрытия — в лог, не в исход. */
 function discardBody(res: Response): void {
-  res.body?.cancel().catch((err: unknown) => {
-    console.warn(`[widget-census] тело переадресации не закрыто: ${err instanceof Error ? err.message : String(err)}`);
+  res.body?.cancel().catch((err: unknown) => logCancelFailure('тело ответа', err));
+}
+
+/**
+ * Тело не больше `limit` байт: читается потоком и обрывается на пределе,
+ * остаток не скачивается (reader.cancel). `truncated` — дочитали ли до конца.
+ */
+async function readCapped(res: Response, limit: number): Promise<{ text: string; truncated: boolean }> {
+  if (!res.body) return { text: '', truncated: false };
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        parts.push(decoder.decode());
+        return { text: parts.join(''), truncated: false };
+      }
+      const room = limit - bytes;
+      if (value.byteLength > room) {
+        parts.push(decoder.decode(value.subarray(0, room)));
+        return { text: parts.join(''), truncated: true };
+      }
+      bytes += value.byteLength;
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    reader.cancel().catch((err: unknown) => logCancelFailure('тело главной', err));
+  }
+}
+
+/** Промис, который проигрывает сроку: dns.lookup сигнала не принимает. */
+function withDeadline<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      (e: unknown) => { signal.removeEventListener('abort', onAbort); reject(e); },
+    );
   });
+}
+
+/**
+ * Куда имя разрешается — судится ПЕРЕД каждым запросом, и исходного домена,
+ * и каждой переадресации (аудит 15.10, R-census). Правило формы
+ * (probeableUrl) пропускает публичное имя, а `127.0.0.1.nip.io` или домен
+ * партнёра с A-записью 10.x / 169.254.169.254 вели бы прод во внутреннюю
+ * сеть. Частный адрес — то же правило isPrivateAddress, что у аудита сайтов
+ * операторов (lib/security/site-audit). Хоть один частный адрес из всех —
+ * отказ: какой из них выберет соединение, заранее не известно. Не
+ * разрешилось — отказ («не знаю» здесь безопаснее «можно»). null — можно.
+ *
+ * Чего это не закрывает: fetch разрешает имя ещё раз сам, и сервер имён с
+ * нулевым TTL может между двумя ответами сменить адрес (DNS rebinding). Это
+ * тот же остаток, что у lib/security/site-probe.
+ */
+async function resolvedRefusal(hostname: string, resolve: ResolveLike, signal: AbortSignal): Promise<string | null> {
+  let addrs: ReadonlyArray<{ address: string }>;
+  try {
+    addrs = await withDeadline(resolve(hostname), signal);
+  } catch (err) {
+    if (signal.aborted) throw err;
+    const code = (err as { code?: string } | null)?.code;
+    return `имя ${hostname} не разрешилось${code ? ` (${code})` : ''}`;
+  }
+  if (addrs.length === 0) return `имя ${hostname} не разрешилось: адресов нет`;
+  const inner = addrs.find((a) => isPrivateAddress(a.address));
+  return inner ? `имя ${hostname} разрешается в частный адрес ${inner.address}` : null;
 }
 
 /**
@@ -360,13 +490,15 @@ function discardBody(res: Response): void {
  * больше SITE_PROBE_MAX_REDIRECTS, а нарушение — could_not_check с причиной;
  * адрес за ним не запрашивается. Срок один на всю цепочку.
  *
- * Правило судит ФОРМУ адреса. Публичное имя, которое DNS разрешает в частный
- * адрес, оно не ловит: сверки DNS, как в lib/security/site-probe.ts, здесь нет.
+ * Перед КАЖДЫМ запросом имя разрешается в DNS (resolvedRefusal): форма адреса
+ * не говорит, куда он ведёт, и до R-census публичное имя с частным адресом
+ * проходило. Тело главной читается не больше SITE_PROBE_BODY_LIMIT; скрипта
+ * в прочитанном нет, а тело длиннее — «не смог», а не «не нашёл».
  */
 export async function probeSite(
   domain: string,
   slug: string,
-  fetchImpl: FetchLike,
+  io: ProbeIo,
   timeoutMs: number = SITE_PROBE_TIMEOUT_MS,
 ): Promise<SiteProbe> {
   const host = probeableDomain(domain);
@@ -378,22 +510,38 @@ export async function probeSite(
     { domain, url, outcome: 'could_not_check', scripts: [], http_status, reason }
   );
   const signal = AbortSignal.timeout(timeoutMs);
+  const limitMb = `${SITE_PROBE_BODY_LIMIT / 1_000_000} МБ`;
   try {
     let target = url;
+    /** Переадресация, которая привела к target: её код и куда вела. */
+    let via: { status: number; shown: string } | null = null;
     for (let hop = 0; ; hop += 1) {
-      const res = await fetchImpl(target, {
+      const refusal = await resolvedRefusal(new URL(target).hostname, io.resolve, signal);
+      if (refusal) {
+        return via
+          ? couldNotCheck(via.status, `переадресация на ${via.shown}: ${refusal} — не запрашивался`)
+          : couldNotCheck(null, `${refusal} — не запрашивался`);
+      }
+      const res = await io.fetch(target, {
         redirect: 'manual',
         signal,
         headers: { 'user-agent': 'VedarWidgetCensus/1 (+https://vedarai.ru)', accept: 'text/html' },
       });
       if (!REDIRECT_STATUSES.has(res.status)) {
-        if (!res.ok) return couldNotCheck(res.status, `главная ответила HTTP ${res.status}`);
-        const html = await res.text();
-        const scripts = detectWidgetScripts(html, slug);
+        if (!res.ok) {
+          discardBody(res);
+          return couldNotCheck(res.status, `главная ответила HTTP ${res.status}`);
+        }
+        const { text, truncated } = await readCapped(res, SITE_PROBE_BODY_LIMIT);
+        const scripts = detectWidgetScripts(text, slug);
+        if (scripts.length === 0 && truncated) {
+          return couldNotCheck(res.status, `главная длиннее ${limitMb}: в первых ${limitMb} скрипта нет, дальше не читали`);
+        }
         return {
           domain, url,
           outcome: scripts.length > 0 ? 'found' : 'not_found',
-          scripts, http_status: res.status, reason: null,
+          scripts, http_status: res.status,
+          reason: truncated ? `главная длиннее ${limitMb}: скрипты искали только в первых ${limitMb}` : null,
         };
       }
       discardBody(res);
@@ -406,9 +554,10 @@ export async function probeSite(
       if (!next) {
         return couldNotCheck(
           res.status,
-          `переадресация на адрес вне правила пробы (не http/https, IP, localhost или частная сеть) — не запрашивался: ${redirectShown(location, target)}`,
+          `переадресация на адрес вне правила пробы (не http/https, порт не 80/443, IP, localhost или частная сеть) — не запрашивался: ${redirectShown(location, target)}`,
         );
       }
+      via = { status: res.status, shown: redirectShown(location, target) };
       target = next.href;
     }
   } catch (err) {
@@ -424,7 +573,7 @@ export async function probeSite(
 
 export async function censusWidgets(
   exec: Exec,
-  opts: { probeSites?: boolean; fetchImpl?: FetchLike } = {},
+  opts: { probeSites?: boolean; fetchImpl?: FetchLike; resolveImpl?: ResolveLike } = {},
 ): Promise<WidgetCensusReport> {
   const failed: FailedMeasure[] = [];
   const run = async <T>(measure: string, fn: () => Promise<T>): Promise<T | null> => {
@@ -480,18 +629,30 @@ export async function censusWidgets(
   });
 
   if (opts.probeSites) {
-    const fetchImpl = opts.fetchImpl ?? ((url: string, init: RequestInit) => fetch(url, init));
+    const io: ProbeIo = {
+      fetch: opts.fetchImpl ?? ((url: string, init: RequestInit) => fetch(url, init)),
+      resolve: opts.resolveImpl ?? systemResolve,
+    };
+    const notAsked = (domain: string, reason: string): SiteProbe => (
+      { domain, url: null, outcome: 'could_not_check', scripts: [], http_status: null, reason }
+    );
+    // Бюджет раздаётся ДО запросов, по порядку партнёров (PARTNERS_SQL), и
+    // тратят его только домены, которые спрашиваются. Домен сверх бюджета
+    // остаётся в ответе с причиной (аудит 15.10, R-census): прежде он
+    // выпадал молча, и `site_probe: []` у партнёра с доменами читалось как
+    // «проверять нечего», а не «не проверяли» (§4.0).
     let budget = SITE_PROBE_MAX;
-    await Promise.all(out.map(async (pc) => {
-      const slug = pc.slug;
-      const domains = pc.widget_domains.slice(0, Math.max(0, budget));
-      budget -= domains.length;
-      pc.site_probe = slug
-        ? await Promise.all(domains.map((d) => probeSite(d, slug, fetchImpl)))
-        : domains.map((d) => ({
-            domain: d, url: null, outcome: 'could_not_check' as const, scripts: [],
-            http_status: null, reason: 'у партнёра нет slug — искать нечего',
-          }));
+    const plans = out.map((pc) => pc.widget_domains.map((domain) => {
+      if (!pc.slug) return { domain, skip: 'у партнёра нет slug — искать нечего' };
+      if (budget <= 0) return { domain, skip: `не спрошен: лимит ${SITE_PROBE_MAX} доменов за прогон исчерпан` };
+      budget -= 1;
+      return { domain, skip: null };
+    }));
+    await Promise.all(out.map(async (pc, i) => {
+      const slug = pc.slug ?? '';
+      pc.site_probe = await Promise.all(plans[i].map(({ domain, skip }) => (
+        skip !== null ? notAsked(domain, skip) : probeSite(domain, slug, io)
+      )));
     }));
   }
 
