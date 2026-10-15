@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperatorTeam } from '@/lib/operators/team-access';
 import { buildMemberChannelLinks, unbindMemberChannel } from '@/lib/operators/member-channel';
+import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
   if (ctx.access.kind !== 'manager') {
     return NextResponse.json({ success: false, error: OWNER_HINT }, { status: 409 });
   }
+  await resolveTelegramBotUsername(); // имя бота по getMe, не из переменной (15.10)
   const links = buildMemberChannelLinks(ctx.access.memberId);
   if (!links.ok) {
     console.error('[operator/me/messenger] ссылка менеджеру не выдана:', links.reason);

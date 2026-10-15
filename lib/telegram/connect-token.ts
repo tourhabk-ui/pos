@@ -14,6 +14,7 @@
  */
 
 import { createHmac, timingSafeEqual } from 'crypto';
+import { telegramBot } from '@/lib/partners/channel-link';
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 минут
 
@@ -65,7 +66,8 @@ export function verifyConnectToken(token: string): string | null {
  * Генерирует полный deep link для привязки Telegram.
  */
 export function buildConnectLink(userId: string): string {
-  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmichai_bot';
+  // Имя бота — тем же путём, что у ссылок оператора (getMe → переменная → по умолчанию).
+  const botUsername = telegramBot();
   const token = generateConnectToken(userId);
   return `https://t.me/${botUsername}?start=link_${token}`;
 }

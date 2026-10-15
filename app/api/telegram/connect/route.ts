@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { buildConnectLink } from '@/lib/telegram/connect-token';
+import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  await resolveTelegramBotUsername(); // имя бота по getMe, не из переменной (15.10)
   const link = buildConnectLink(authOrResponse.userId);
 
   return NextResponse.json({

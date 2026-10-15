@@ -52,6 +52,7 @@ import { PARTNER_ROLES } from '@/lib/auth/role-routes';
 import { partnerTokenFromStart, verifyPartnerLinkToken } from '@/lib/partners/channel-link';
 import { bindPartnerChannel, bindReplyText, badLinkReplyText } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
+import { resolveTelegramBotUsername } from '@/lib/telegram/bot-username';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
 import { bindTouristChat } from '@/lib/seat-requests/service';
 import { sendWelcomeMessage } from '@/lib/telegram/welcome';
@@ -631,7 +632,7 @@ export async function POST(request: NextRequest) {
       groupMonitor.processMessage(chatId, groupTitle, fromName, text);
 
       // Отвечаем только если прямо @упомянули бота
-      const botUser = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmichai_bot';
+      const botUser = (await resolveTelegramBotUsername()).name;
       const mentioned = text.toLowerCase().includes(`@${botUser.toLowerCase()}`);
       if (mentioned) {
         const cleanQ = text.replace(new RegExp(`@${botUser}`, 'gi'), '').trim();
