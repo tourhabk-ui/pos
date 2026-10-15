@@ -8,15 +8,18 @@
  *    (хост сверен со списком при чтении), разговоры, заявки, псевдолиды и
  *    ушедшие другим операторам;
  *  - часть, которая не прочиталась, — null у всех партнёров и запись в
- *    failed_measures с SQLSTATE, а не ноль (§4.0);
+ *    failed_measures с SQLSTATE, а не ноль (§4.0) — для КАЖДОЙ из четырёх
+ *    частей (аудит 15.10, W3-measure: прежде проверялись две, и нули вместо
+ *    null у псевдолидов проходили зелёными);
  *  - проба сайтов: found / not_found / could_not_check, и «не смог» не
- *    выдаётся за «не нашёл»;
+ *    выдаётся за «не нашёл»; переадресация на IP, localhost, частную сеть или
+ *    не http/https не запрашивается, переходов не больше трёх (W3-measure);
  *  - роут закрыт CRON_SECRET и пробует сайты только по probe_sites=1.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
-  censusWidgets, detectWidgetScripts, probeSite,
+  censusWidgets, detectWidgetScripts, probeSite, SITE_PROBE_MAX_REDIRECTS,
   PARTNERS_SQL, TELEMETRY_SQL, CHAT_SESSIONS_SQL, FORM_LEADS_SQL, CHAT_PSEUDO_LEADS_SQL,
 } from '@/lib/analytics/widget-census';
 
@@ -104,8 +107,36 @@ describe('перепись: что считается', () => {
   });
 });
 
+/** Четыре части после списка партнёров: запрос, имя в failed_measures, поле у партнёра. */
+const PARTS = [
+  { measure: 'widget_daily', sql: TELEMETRY_SQL, field: 'telemetry_30d' },
+  { measure: 'chat_sessions', sql: CHAT_SESSIONS_SQL, field: 'chat_sessions' },
+  { measure: 'form_leads', sql: FORM_LEADS_SQL, field: 'form_leads' },
+  { measure: 'chat_pseudo_leads', sql: CHAT_PSEUDO_LEADS_SQL, field: 'chat_pseudo_leads' },
+] as const;
+
 describe('перепись: отказ части', () => {
-  it('часть не прочиталась — null у всех и SQLSTATE в failed_measures, остальное на месте', async () => {
+  // У каждой части есть партнёр со строкой и партнёр без строки: «нет строки
+  // при отказе» и «нет строки при прочитанной части» — разные ответы, и
+  // отказ не имеет права превратиться ни в чужие нули, ни в свои.
+  it.each(PARTS)('$measure не прочиталась — null у обоих партнёров, SQLSTATE названа, прочие части на месте', async ({ measure, sql, field }) => {
+    const answers = fullAnswers();
+    answers.set(sql, () => { throw Object.assign(new Error('отказ'), { code: '57014' }); });
+    const { query } = readOnlyPool(answers);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const r = await censusWidgets({ query } as never);
+    err.mockRestore();
+    expect(r.failed_measures).toEqual([{ measure, sqlstate: '57014' }]);
+    expect(r.partners).toHaveLength(2);
+    for (const p of r.partners!) {
+      expect(p[field]).toBeNull();
+      for (const other of PARTS.filter((x) => x.field !== field)) {
+        expect(p[other.field]).not.toBeNull();
+      }
+    }
+  });
+
+  it('две части не прочитались — обе null у всех и обе названы, остальное на месте', async () => {
     const answers = fullAnswers();
     answers.set(CHAT_SESSIONS_SQL, () => { throw Object.assign(new Error('нет колонки'), { code: '42703' }); });
     answers.set(TELEMETRY_SQL, () => { throw Object.assign(new Error('нет таблицы'), { code: '42P01' }); });
@@ -164,10 +195,94 @@ describe('проба сайтов', () => {
 
   it('IP, localhost и мусор в списке не запрашиваются', async () => {
     const fetchImpl = vi.fn();
-    for (const d of ['127.0.0.1', 'localhost', 'intranet.local', 'не домен']) {
+    // «127.1» и «0x7f.0.0.1» — тот же 127.0.0.1 после разбора адреса.
+    for (const d of ['127.0.0.1', '127.1', '0x7f.0.0.1', 'localhost', 'intranet.local', 'nas.home.arpa', 'не домен']) {
       expect((await probeSite(d, 'x', fetchImpl as never)).outcome).toBe('could_not_check');
     }
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  describe('переадресации (аудит 15.10, W3-measure)', () => {
+    const redirect = (status: number, location?: string) =>
+      new Response(null, { status, headers: location ? { location } : {} });
+
+    /**
+     * Подменный fetch по карте «адрес → ответ». Ведёт себя как настоящий: без
+     * `redirect: 'manual'` сам идёт по Location. Поэтому проба, вернувшаяся к
+     * `follow`, краснеет тем, что ЗАПРОСИЛА запретный адрес, а не случайно.
+     * Неизвестный адрес отвечает 200 со скриптом — «внутренняя машина», куда
+     * проба дойти не должна.
+     */
+    function sites(map: Record<string, () => Response>) {
+      const requested: string[] = [];
+      const modes: Array<RequestRedirect | undefined> = [];
+      const fetchImpl = vi.fn(async (url: string, init: RequestInit): Promise<Response> => {
+        modes.push(init.redirect);
+        let current = url;
+        for (let i = 0; i < 20; i += 1) {
+          requested.push(current);
+          const make = map[current];
+          const res = make ? make() : page('<script src="https://vedarai.ru/api/widget/lead.js?partner=x"></script>');
+          const loc = res.headers.get('location');
+          if (init.redirect === 'manual' || res.status < 300 || res.status > 399 || !loc) return res;
+          current = new URL(loc, current).href;
+        }
+        throw new Error('петля переадресаций в подменном fetch');
+      });
+      return { fetchImpl, requested, modes };
+    }
+
+    it('на IP, localhost, частную сеть и не http/https — не запрашивается, «не смог» с причиной', async () => {
+      const targets: Record<string, string> = {
+        'https://to-loop.ru/': 'http://127.0.0.1/',
+        'https://to-ten.ru/': 'https://10.0.0.5/admin',
+        'https://to-lan.ru/': 'http://192.168.1.1/',
+        'https://to-meta.ru/': 'http://169.254.169.254/latest/meta-data/',
+        'https://to-lh.ru/': 'http://localhost:3000/',
+        'https://to-sub-lh.ru/': 'http://api.localhost/',
+        'https://to-v6.ru/': 'http://[::1]/',
+        'https://to-dec.ru/': 'http://2130706433/',
+        'https://to-hex.ru/': 'http://0x7f.0.0.1/',
+        'https://to-mdns.ru/': 'http://nas.local/',
+        'https://to-ftp.ru/': 'ftp://files.example.ru/',
+      };
+      const { fetchImpl, requested } = sites(Object.fromEntries(
+        Object.entries(targets).map(([from, to]) => [from, () => redirect(302, to)]),
+      ));
+      for (const from of Object.keys(targets)) {
+        const r = await probeSite(new URL(from).hostname, 'x', fetchImpl);
+        expect(r, from).toMatchObject({ outcome: 'could_not_check', http_status: 302, scripts: [] });
+        expect(r.reason, from).toMatch(/не запрашивался/);
+      }
+      // Запрошены только главные доменов из списка — ни одного адреса за переадресацией.
+      expect(requested.sort()).toEqual(Object.keys(targets).sort());
+    });
+
+    it('на публичный адрес — идёт, и абсолютный, и относительный; всегда вручную', async () => {
+      const { fetchImpl, requested, modes } = sites({
+        'https://fishingkam.ru/': () => redirect(301, 'https://www.fishingkam.ru/'),
+        'https://www.fishingkam.ru/': () => page('<script src="https://vedarai.ru/api/widget/lead.js?partner=fishingkam"></script>'),
+        'https://rel.ru/': () => redirect(302, '/ru/'),
+        'https://rel.ru/ru/': () => page('<html>без виджета</html>'),
+      });
+      expect(await probeSite('fishingkam.ru', 'fishingkam', fetchImpl)).toMatchObject({ outcome: 'found', scripts: ['form'], http_status: 200 });
+      expect(await probeSite('rel.ru', 'rel', fetchImpl)).toMatchObject({ outcome: 'not_found', http_status: 200 });
+      expect(requested).toEqual(['https://fishingkam.ru/', 'https://www.fishingkam.ru/', 'https://rel.ru/', 'https://rel.ru/ru/']);
+      expect(new Set(modes)).toEqual(new Set(['manual']));
+    });
+
+    it(`не больше ${SITE_PROBE_MAX_REDIRECTS} переходов; переадресация без адреса — «не смог»`, async () => {
+      const { fetchImpl, requested } = sites({
+        'https://chain.ru/': () => redirect(302, '/1'),
+        'https://chain.ru/1': () => redirect(302, '/2'),
+        'https://chain.ru/2': () => redirect(302, '/3'),
+        'https://chain.ru/3': () => redirect(302, '/4'),
+        'https://noloc.ru/': () => redirect(302),
+      });
+      expect(await probeSite('chain.ru', 'x', fetchImpl)).toMatchObject({ outcome: 'could_not_check', reason: expect.stringMatching(/больше 3 переадресаций/) });
+      expect(requested).toEqual(['https://chain.ru/', 'https://chain.ru/1', 'https://chain.ru/2', 'https://chain.ru/3']);
+      expect(await probeSite('noloc.ru', 'x', fetchImpl)).toMatchObject({ outcome: 'could_not_check', reason: expect.stringMatching(/без адреса/) });
+    });
   });
 
   it('с probeSites перепись спрашивает главную каждого домена и ничего не пишет', async () => {
@@ -226,5 +341,6 @@ describe('роут /api/cron/widget-census', () => {
     err.mockRestore();
     expect(body.ok).toBe(false);
     expect(body.failed_measures).toEqual([{ measure: 'form_leads', sqlstate: '57014' }]);
+    expect(body.partners.map((p: { form_leads: unknown }) => p.form_leads)).toEqual([null, null]);
   });
 });
