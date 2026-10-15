@@ -10,7 +10,8 @@
  * назвавшая Камчатку сама, знает нас, а не угадала по домену. Вопрос
  * по-китайски — как спросил бы турист из КНР.
  *
- * Три исхода (§4.0), и третий не равен второму:
+ * Три исхода (§4.0), и третий не равен второму (у поисковых ног есть
+ * четвёртый — did_not_search, ниже):
  *   knows          — в ответе есть Камчатка (кириллицей, латиницей или 堪察加)
  *                    либо прежнее имя платформы: модель, назвавшая его сама,
  *                    знает нас под старым брендом (владелец 12.10: Qwen
@@ -38,6 +39,20 @@
  * (KNOWLEDGE_QUESTION_SEARCH), тоже без слова «Камчатка». Остальные
  * провайдеры поиск параметром не включают, у них одна нога.
  *
+ * С 15.10 (аудит, находка CN-probe) поиск принудительный и с источниками
+ * (callQwenSearch: forced_search + enable_source нативного протокола
+ * DashScope). До этого модель сама решала, искать ли, источников не было, и
+ * «не знает» не отличало «не искала» от «искала, нас нет». Теперь у поисковых
+ * ног четвёртый исход — did_not_search: ответ пришёл, а следа поиска в нём нет
+ * (ни источников, ни счётчика), то есть выдачу не спросили и «нас нет» из
+ * этого не следует. Домены источников идут в сводку и итог владельцу.
+ *
+ * Седьмая нога — qwen-search-topic (15.10): турист в Китае ищет по теме, а не
+ * по нашему адресу. Вопрос (KNOWLEDGE_QUESTION_TOPIC) — о сайтах с местами в
+ * группах и вулканической обстановкой на Камчатке, без домена и без имени
+ * платформы; «знает» — ответ упомянул vedarai / Ведар / Vedar / 维达尔 (или
+ * прежнее имя) либо vedarai.ru стоит среди источников выдачи.
+ *
  * Шестая нога — YandexGPT (13.10, владелец: «остались российские ИИ»):
  * единственный домашний сток (provider-registry, РФ), спрашивается на своём
  * языке (KNOWLEDGE_QUESTION_RU) по тем же правилам: без слова «Камчатка» и без
@@ -62,7 +77,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { callDeepSeek, callQwen, callKimi, callGLM, callYandexGPT, resolveChatModel } from '@/lib/ai/providers';
+import { callDeepSeek, callQwen, callQwenSearch, callKimi, callGLM, callYandexGPT, resolveChatModel, type QwenSearchResult } from '@/lib/ai/providers';
 import { recentAiFailures } from '@/lib/ai/failure-trace';
 import { runPlace } from '@/lib/ai/key-identity';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -73,7 +88,11 @@ import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-export type KnowledgeOutcome = 'knows' | 'does_not_know' | 'could_not_ask';
+/**
+ * did_not_search — только у поисковых ног: ответ есть, следа поиска нет.
+ * Не равен does_not_know: выдачу не спросили, и «нас там нет» не измерено.
+ */
+export type KnowledgeOutcome = 'knows' | 'does_not_know' | 'did_not_search' | 'could_not_ask';
 
 /** Вопрос без слова «Камчатка» и без прежнего имени: только домен и имя. */
 export const KNOWLEDGE_QUESTION =
@@ -90,6 +109,16 @@ export const KNOWLEDGE_QUESTION =
 export const KNOWLEDGE_QUESTION_SEARCH =
   '可以联网搜索。网站 vedarai.ru（平台名 Ведар / Vedar）是什么？'
   + '它服务于哪个地区，提供什么？如果搜索后仍不了解这个网站，请直接回答“不知道”。';
+
+/**
+ * Тематический вопрос туриста из КНР (15.10, аудит CN-probe): без нашего
+ * адреса и без имени платформы ни в каком написании — так спрашивают, когда
+ * о нас ещё не слышали. Край назван: искать надо по теме. «Знает» здесь —
+ * поиск привёл к нам сам (имя в ответе или vedarai.ru среди источников).
+ */
+export const KNOWLEDGE_QUESTION_TOPIC =
+  '堪察加旅游：哪些网站可以查到当地旅行社团队游的真实余位和火山安全信息？'
+  + '请联网搜索后回答，并列出网站名称和网址。';
 
 /**
  * Вопрос по-русски для российской ноги (13.10): YandexGPT спрашивается на
@@ -115,6 +144,14 @@ const OLD_BRAND_RE = /tour-?hab|тур-?хаб|kamchatour-?hub|камчатур-
 const DONT_KNOW_RE =
   /不知道|不了解|没有(相关)?(信息|资料)|无法(确定|确认|找到)|не знаю|не могу (сказать|подтвердить)|нет (данных|информации)|don't know|do not know|not (aware|familiar)|no information|unfamiliar/i;
 
+/**
+ * Наше имя в ответе на тематический вопрос: адрес, латиница, кириллица,
+ * китайское имя из разметки организации (#2483). `\bvedar\b` — чтобы не
+ * поймать постороннее слово, в которое «vedar» входит частью.
+ */
+const BRAND_RE = /vedarai|\bvedar\b|ведар|维达尔/i;
+const OUR_DOMAIN = 'vedarai.ru';
+
 export interface Classified {
   outcome: KnowledgeOutcome;
   signal: string;
@@ -135,27 +172,138 @@ export function classifyAnswer(text: string | null | undefined): Classified {
   return { outcome: 'does_not_know', signal: 'ответила без Камчатки — смотреть обрезок: возможна выдумка про домен', old_brand: false };
 }
 
-export type ProbeProvider = 'deepseek' | 'qwen' | 'qwen-search' | 'kimi' | 'glm' | 'yandex';
+/** След поиска в ответе: что шлюз сказал о поиске сам, без догадок. */
+export interface SearchTrace {
+  /** Есть источники или счётчик поиска больше нуля. */
+  searched: boolean;
+  /** usage.plugins.search.count; null — шлюз счётчика не прислал. */
+  count: number | null;
+  /** Сколько источников вернул шлюз — вместе с теми, где адрес не разобрать. */
+  sources: number;
+  /** Домены источников по порядку выдачи, без повторов и без www. */
+  domains: string[];
+}
 
-interface ProbeLeg {
+/**
+ * Адреса источников → домены. Не адрес — пропускается: домена у него нет, а
+ * сам источник остаётся в счёте `SearchTrace.sources`, так что пропуск виден.
+ */
+export function sourceDomains(urls: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of urls) {
+    let host: string;
+    try {
+      host = new URL(raw).hostname.toLowerCase();
+    } catch {
+      continue;
+    }
+    host = host.replace(/^www\./, '');
+    if (host && !out.includes(host)) out.push(host);
+  }
+  return out;
+}
+
+const isOurDomain = (d: string): boolean => d === OUR_DOMAIN || d.endsWith(`.${OUR_DOMAIN}`);
+
+/**
+ * Что считать «знает» у поисковой ноги:
+ *   region — вопрос о нашем адресе без названия края: знает, если ответ
+ *            назвал край (или прежнее имя) — как у ног без поиска;
+ *   brand  — тематический вопрос, край назван в нём самом: знает, если ответ
+ *            назвал нас.
+ * Источник vedarai.ru в выдаче — «знает» у обеих: поиск нашёл сайт.
+ */
+export type SearchMention = 'region' | 'brand';
+
+export interface SearchClassified extends Classified {
+  search: SearchTrace;
+}
+
+/**
+ * Ответ поисковой ноги → исход. «Знает» побеждает всегда (назвала нас — значит
+ * знает, откуда бы ни взяла). Иначе решает след поиска: есть — «искала, нас
+ * нет»; нет — «не искала», и это не «нас нет» (§4.0).
+ */
+export function classifySearchAnswer(
+  answer: { text: string; search_count: number | null; sources: ReadonlyArray<{ url: string }> },
+  mention: SearchMention,
+): SearchClassified {
+  const text = answer.text.trim();
+  const domains = sourceDomains(answer.sources.map((s) => s.url));
+  const count = answer.search_count;
+  const search: SearchTrace = {
+    searched: answer.sources.length > 0 || (count ?? 0) > 0,
+    count,
+    sources: answer.sources.length,
+    domains,
+  };
+  if (!text) return { outcome: 'could_not_ask', signal: 'ответа нет', old_brand: false, search };
+  const oldBrand = OLD_BRAND_RE.test(text);
+  const viaSearch = search.searched ? '' : ' (следа поиска в ответе нет — из весов, а не из выдачи)';
+
+  if (domains.some(isOurDomain)) {
+    return { outcome: 'knows', signal: `поиск нашёл ${OUR_DOMAIN} среди источников`, old_brand: oldBrand, search };
+  }
+  if (mention === 'region') {
+    const base = classifyAnswer(text);
+    if (base.outcome === 'knows') return { ...base, signal: `${base.signal}${viaSearch}`, search };
+  } else {
+    if (BRAND_RE.test(text)) {
+      return { outcome: 'knows', signal: `упомянула нас в ответе (vedarai / Ведар / Vedar / 维达尔)${viaSearch}`, old_brand: oldBrand, search };
+    }
+    if (oldBrand) {
+      return { outcome: 'knows', signal: `упомянула прежнее имя платформы${viaSearch}`, old_brand: true, search };
+    }
+  }
+  if (!search.searched) {
+    return {
+      outcome: 'did_not_search',
+      signal: 'не искала: в ответе нет ни источников, ни счётчика поиска — выдачу не спросили, «нас нет» не измерено',
+      old_brand: false,
+      search,
+    };
+  }
+  const found = search.sources
+    ? `источников ${search.sources}, ${OUR_DOMAIN} среди них нет`
+    : 'источников шлюз не вернул, счётчик поиска есть';
+  return { outcome: 'does_not_know', signal: `искала, нас нет: ${found}`, old_brand: false, search };
+}
+
+export type ProbeProvider = 'deepseek' | 'qwen' | 'qwen-search' | 'qwen-search-topic' | 'kimi' | 'glm' | 'yandex';
+
+interface LegBase {
   provider: ProbeProvider;
   keyEnv: string;
-  call: (messages: ChatMessage[]) => Promise<string | null>;
-  /** Метка провайдера в следе отказов; null — обёртка следа не пишет. */
-  traceLabel: string | null;
   model: () => Promise<string | null>;
   /** Вопрос ноги; по умолчанию — без поиска. */
   question?: string;
 }
 
+/** Нога без поиска: обёртка отдаёт текст или null, причина — в следе отказов. */
+interface PlainLeg extends LegBase {
+  kind: 'plain';
+  call: (messages: ChatMessage[]) => Promise<string | null>;
+  /** Метка провайдера в следе отказов; null — обёртка следа не пишет. */
+  traceLabel: string | null;
+}
+
+/** Нога с поиском: ответ несёт след поиска, отказ — причину прямо в результате. */
+interface SearchLeg extends LegBase {
+  kind: 'search';
+  search: (messages: ChatMessage[]) => Promise<QwenSearchResult>;
+  mention: SearchMention;
+}
+
+type ProbeLeg = PlainLeg | SearchLeg;
+
 const LEGS: readonly ProbeLeg[] = [
   {
-    provider: 'deepseek', keyEnv: 'DEEPSEEK_API_KEY', traceLabel: 'deepseek',
+    kind: 'plain', provider: 'deepseek', keyEnv: 'DEEPSEEK_API_KEY', traceLabel: 'deepseek',
     call: (m) => callDeepSeek(m, { maxTokens: 300, timeoutMs: 45_000 }),
     model: () => resolveChatModel('deepseek'),
   },
   {
-    provider: 'qwen', keyEnv: 'DASHSCOPE_API_KEY', traceLabel: 'qwen',
+    kind: 'plain', provider: 'qwen', keyEnv: 'DASHSCOPE_API_KEY', traceLabel: 'qwen',
     call: (m) => callQwen(m, { maxTokens: 300 }),
     model: () => resolveChatModel('qwen'),
   },
@@ -164,26 +312,36 @@ const LEGS: readonly ProbeLeg[] = [
     // поиск включается параметром API. Платная функция без бесплатной
     // квоты — в режиме «только бесплатная квота» (решение владельца 25.09)
     // провайдер может отказать; тогда исход «спросить не удалось» с причиной
-    // из следа `qwen+search`, а не «не нашла» (§4.0).
-    provider: 'qwen-search', keyEnv: 'DASHSCOPE_API_KEY', traceLabel: 'qwen+search',
-    call: (m) => callQwen(m, { maxTokens: 300, enableSearch: true }),
+    // из результата вызова, а не «не нашла» (§4.0). Поиск принудительный,
+    // с источниками (15.10, CN-probe).
+    kind: 'search', provider: 'qwen-search', keyEnv: 'DASHSCOPE_API_KEY', mention: 'region',
+    search: (m) => callQwenSearch(m, { maxTokens: 300 }),
     model: () => resolveChatModel('qwen'),
     question: KNOWLEDGE_QUESTION_SEARCH,
   },
   {
-    provider: 'kimi', keyEnv: 'MOONSHOT_API_KEY', traceLabel: 'kimi',
+    // Тот же поиск, тематический вопрос без домена (15.10, CN-probe): найдёт
+    // ли нас турист, который о нас не слышал. 600 токенов — ответ со списком
+    // сайтов длиннее ответа «что это за домен».
+    kind: 'search', provider: 'qwen-search-topic', keyEnv: 'DASHSCOPE_API_KEY', mention: 'brand',
+    search: (m) => callQwenSearch(m, { maxTokens: 600 }),
+    model: () => resolveChatModel('qwen'),
+    question: KNOWLEDGE_QUESTION_TOPIC,
+  },
+  {
+    kind: 'plain', provider: 'kimi', keyEnv: 'MOONSHOT_API_KEY', traceLabel: 'kimi',
     call: (m) => callKimi(m, { maxTokens: 300, timeoutMs: 45_000 }),
     model: async () => process.env.MOONSHOT_MODEL ?? null,
   },
   {
-    provider: 'glm', keyEnv: 'GLM_API_KEY', traceLabel: null,
+    kind: 'plain', provider: 'glm', keyEnv: 'GLM_API_KEY', traceLabel: null,
     call: (m) => callGLM(m),
     model: async () => null,
   },
   {
     // Российская нога (13.10): YandexGPT, домашний сток. Вопрос по-русски;
     // обёртка не отдаёт имени модели, а в след отказов пишет (label 'yandex').
-    provider: 'yandex', keyEnv: 'YANDEX_API_KEY', traceLabel: 'yandex',
+    kind: 'plain', provider: 'yandex', keyEnv: 'YANDEX_API_KEY', traceLabel: 'yandex',
     call: (m) => callYandexGPT(m),
     model: async () => null,
     question: KNOWLEDGE_QUESTION_RU,
@@ -201,6 +359,8 @@ export interface LegResult {
   reason: string | null;
   latency_ms: number;
   answer_excerpt: string | null;
+  /** След поиска — только у поисковых ног, когда ответ пришёл; иначе null. */
+  search: SearchTrace | null;
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
@@ -227,21 +387,43 @@ async function askLeg(leg: ProbeLeg): Promise<LegResult> {
   if (!process.env[leg.keyEnv]) {
     return {
       provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ключа нет', old_brand: false,
-      reason: `${leg.keyEnv} не задан — спросить нечем`, latency_ms: 0, answer_excerpt: null,
+      reason: `${leg.keyEnv} не задан — спросить нечем`, latency_ms: 0, answer_excerpt: null, search: null,
     };
   }
   const messages: ChatMessage[] = [{ role: 'user', content: leg.question ?? KNOWLEDGE_QUESTION }];
+  const timedOut = (latency: number): LegResult => ({
+    provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ответа нет', old_brand: false,
+    reason: `таймаут ${LEG_TIMEOUT_MS / 1000} с`, latency_ms: latency, answer_excerpt: null, search: null,
+  });
+
+  if (leg.kind === 'search') {
+    const result = await withTimeout(leg.search(messages).catch((err: unknown): QwenSearchResult => {
+      console.error(`[model-knowledge-probe] ${leg.provider}: обёртка бросила:`, err instanceof Error ? err.message : err);
+      return { ok: false, reason: `обёртка бросила: ${err instanceof Error ? err.message : String(err)}`, model: null };
+    }), LEG_TIMEOUT_MS);
+    const latency = Date.now() - started;
+    if (result === 'timeout') return timedOut(latency);
+    const used = result.model ?? model;
+    if (!result.ok) {
+      return {
+        provider: leg.provider, model: used, outcome: 'could_not_ask', signal: 'спросить не удалось', old_brand: false,
+        reason: result.reason, latency_ms: latency, answer_excerpt: null, search: null,
+      };
+    }
+    const { outcome, signal, old_brand, search } = classifySearchAnswer(result, leg.mention);
+    return {
+      provider: leg.provider, model: used, outcome, signal, old_brand,
+      reason: outcome === 'could_not_ask' ? 'ответ пустой' : null,
+      latency_ms: latency, answer_excerpt: result.text.trim().slice(0, ANSWER_EXCERPT), search,
+    };
+  }
+
   const answer = await withTimeout(leg.call(messages).catch((err: unknown) => {
     console.error(`[model-knowledge-probe] ${leg.provider}: обёртка бросила:`, err instanceof Error ? err.message : err);
     return null;
   }), LEG_TIMEOUT_MS);
   const latency = Date.now() - started;
-  if (answer === 'timeout') {
-    return {
-      provider: leg.provider, model, outcome: 'could_not_ask', signal: 'ответа нет', old_brand: false,
-      reason: `таймаут ${LEG_TIMEOUT_MS / 1000} с`, latency_ms: latency, answer_excerpt: null,
-    };
-  }
+  if (answer === 'timeout') return timedOut(latency);
   const { outcome, signal, old_brand } = classifyAnswer(answer);
   let reason: string | null = null;
   if (outcome === 'could_not_ask') {
@@ -251,20 +433,23 @@ async function askLeg(leg: ProbeLeg): Promise<LegResult> {
   }
   return {
     provider: leg.provider, model, outcome, signal, old_brand, reason, latency_ms: latency,
-    answer_excerpt: answer ? answer.trim().slice(0, ANSWER_EXCERPT) : null,
+    answer_excerpt: answer ? answer.trim().slice(0, ANSWER_EXCERPT) : null, search: null,
   };
 }
 
 export interface Summary extends Record<KnowledgeOutcome, string[]> {
   /** Кто назвал прежнее имя платформы — знает нас под старым брендом. */
   old_brand: string[];
+  /** Домены источников у поисковых ног, где ответ пришёл: нога → домены. */
+  sources: Record<string, string[]>;
 }
 
 export function summarize(legs: readonly LegResult[]): Summary {
-  const s: Summary = { knows: [], does_not_know: [], could_not_ask: [], old_brand: [] };
+  const s: Summary = { knows: [], does_not_know: [], did_not_search: [], could_not_ask: [], old_brand: [], sources: {} };
   for (const l of legs) {
     s[l.outcome].push(l.provider);
     if (l.old_brand) s.old_brand.push(l.provider);
+    if (l.search) s.sources[l.provider] = l.search.domains;
   }
   return s;
 }
@@ -273,6 +458,8 @@ export function summarize(legs: readonly LegResult[]): Summary {
 const SCOPE = 'model-knowledge-probe';
 const DIGEST_EXCERPT = 200;
 const DIGEST_REASON = 160;
+/** Сколько доменов источника показать в итоге: дальше — числом. */
+const DIGEST_DOMAINS = 8;
 
 /**
  * Итог пробы владельцу (Telegram, HTML). Всё, что пришло от моделей и
@@ -297,6 +484,10 @@ export function digestText(legs: readonly LegResult[], summary: Summary): string
   }
   const unknown = of('does_not_know');
   lines.push(`Не знают: ${unknown.length ? unknown.map(named).join(', ') : '—'}`);
+  const noSearch = of('did_not_search');
+  if (noSearch.length) {
+    lines.push(`Не искали (следа поиска в ответе нет — «нас нет» не измерено): ${noSearch.map(named).join(', ')}`);
+  }
   const notAsked = of('could_not_ask');
   if (notAsked.length) {
     lines.push('Спросить не удалось:');
@@ -307,7 +498,24 @@ export function digestText(legs: readonly LegResult[], summary: Summary): string
   if (summary.old_brand.length) {
     lines.push(`Под прежним именем платформы: ${escapeHtml(summary.old_brand.join(', '))}`);
   }
-  lines.push('', 'В вопросе нет слова «Камчатка»: «знает» — модель назвала край сама.');
+  const traced = legs.flatMap((l) => (l.search ? [{ provider: l.provider, trace: l.search }] : []));
+  if (traced.length) {
+    lines.push('Источники поиска:');
+    for (const { provider, trace } of traced) {
+      const shown = trace.domains.slice(0, DIGEST_DOMAINS).join(', ');
+      const more = trace.domains.length > DIGEST_DOMAINS ? ` и ещё ${trace.domains.length - DIGEST_DOMAINS}` : '';
+      const what = shown
+        ? `${shown}${more}`
+        : trace.sources ? `источников ${trace.sources}, адреса не разобрать` : 'шлюз источников не вернул';
+      const count = trace.count !== null ? `; поисков: ${trace.count}` : '';
+      lines.push(`${escapeHtml(provider)}: ${escapeHtml(what)}${escapeHtml(count)}`);
+    }
+  }
+  lines.push(
+    '',
+    'В вопросах о сайте нет слова «Камчатка»: «знает» — модель назвала край сама. '
+      + 'В тематическом вопросе (qwen-search-topic) край назван: «знает» там — назвала нас или нашла vedarai.ru среди источников.',
+  );
   return lines.join('\n');
 }
 
@@ -348,11 +556,13 @@ export async function GET(request: NextRequest) {
     asked_at: askedAt,
     question: KNOWLEDGE_QUESTION,
     question_with_search: KNOWLEDGE_QUESTION_SEARCH,
+    question_topic: KNOWLEDGE_QUESTION_TOPIC,
     question_ru: KNOWLEDGE_QUESTION_RU,
     legs,
     summary,
     notify: notifyOutcome,
     verdict: `знают: ${summary.knows.join(', ') || '—'}; не знают: ${summary.does_not_know.join(', ') || '—'}; `
+      + (summary.did_not_search.length ? `не искали: ${summary.did_not_search.join(', ')}; ` : '')
       + `спросить не удалось: ${summary.could_not_ask.join(', ') || '—'}`
       + (summary.old_brand.length ? `; под прежним именем платформы: ${summary.old_brand.join(', ')}` : ''),
   });

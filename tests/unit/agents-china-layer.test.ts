@@ -381,10 +381,10 @@ describe('проба «знает ли модель о нас»', () => {
     expect(classifyAnswer(null).outcome).toBe('could_not_ask');
     expect(classifyAnswer('   ').outcome).toBe('could_not_ask');
     const s = summarize([
-      { provider: 'deepseek', model: null, outcome: 'knows', signal: '', old_brand: true, reason: null, latency_ms: 1, answer_excerpt: null },
-      { provider: 'qwen', model: null, outcome: 'could_not_ask', signal: '', old_brand: false, reason: 'x', latency_ms: 1, answer_excerpt: null },
+      { provider: 'deepseek', model: null, outcome: 'knows', signal: '', old_brand: true, reason: null, latency_ms: 1, answer_excerpt: null, search: null },
+      { provider: 'qwen', model: null, outcome: 'could_not_ask', signal: '', old_brand: false, reason: 'x', latency_ms: 1, answer_excerpt: null, search: null },
     ]);
-    expect(s).toEqual({ knows: ['deepseek'], does_not_know: [], could_not_ask: ['qwen'], old_brand: ['deepseek'] });
+    expect(s).toEqual({ knows: ['deepseek'], does_not_know: [], did_not_search: [], could_not_ask: ['qwen'], old_brand: ['deepseek'], sources: {} });
   });
 
   it('обёртки провайдеров передаются функциями, без прямого await; запуск — маркером, workflow ждёт свою сборку', () => {
