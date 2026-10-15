@@ -124,6 +124,19 @@ describe('слово владельца: что засчитывается', () 
     expect(judgeZones({ files: pay, body }).outcome).toBe('fail');
   });
 
+  it('строка в разделе ПОСЛЕ «Слова владельца» (например, «## Риски») не засчитывается', () => {
+    // Раздел кончается на следующем заголовке того же уровня: цитата под
+    // «Рисками» — описание риска, а не слово владельца.
+    const body = [
+      '## Что изменено', '', 'Правка.', '',
+      '## Слово владельца', '', 'нет', '',
+      '## Риски', '', '- payments — «пока уберём оплату» (05.10)',
+    ].join('\n');
+    const v = judgeZones({ files: pay, body });
+    expect(v.sectionFound).toBe(true);
+    expect(v.outcome).toBe('fail');
+  });
+
   it('зону можно назвать путём задетого файла или названием', () => {
     expect(
       judgeZones({ files: pay, body: bodyWith('- app/api/payments/tochka/webhook/route.ts — «QR после подтверждения» 25.09') }).outcome,
@@ -374,6 +387,18 @@ describe('реестр зон против репозитория и CLAUDE.md �
   it('реестр публичных API — зона (третье исключение §7 по слову владельца 14.10)', () => {
     expect(zonesOfFile('lib/auth/public-api-routes.ts').map((z) => z.id)).toEqual(['public-api-routes']);
     expect(zonesOfFile('lib/auth/middleware.ts')).toEqual([]);
+  });
+
+  it('граница пути зоны — каталог целиком, а не префикс строки', () => {
+    // app/api/payments-x и app/returns начинаются как пути зон, но в них не
+    // лежат: зона «каталог/**» — это «каталог/» и всё под ним.
+    for (const outside of ['app/api/payments-x/route.ts', 'app/returns/x.ts', 'app/api/safety/sos-legacy/route.ts']) {
+      expect(zonesOfFile(outside), outside).toEqual([]);
+      expect(judgeZones({ files: [code(outside)], body: '' }).outcome, outside).toBe('clean');
+    }
+    // Контроль: внутри тех же каталогов — зона.
+    expect(zonesOfFile('app/api/payments/x/route.ts').map((z) => z.id)).toEqual(['payments']);
+    expect(zonesOfFile('app/return/page.tsx').map((z) => z.id)).toEqual(['trip-watch']);
   });
 
   it('третий приёмник оплаты вне app/api/payments — в зоне оплаты', () => {

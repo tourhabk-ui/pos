@@ -184,7 +184,7 @@ async function main() {
     );
   }
 
-  const tables =(await client.query<{ table_name: string }>(
+  const tables = (await client.query<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`,
   )).rows.map((r) => r.table_name);

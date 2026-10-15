@@ -299,6 +299,7 @@ Rate-limit SOS: 1 сигнал в 10 минут на пользователя и
   `tours` — старые базовые таблицы, в новом коде запрещены.
 - Справочник всех 237 таблиц с колонками и FK — `docs/DB_SCHEMA.md`
   (`npm run db:schema-doc`, сторож свежести `tests/unit/db-schema-doc.test.ts`).
+  PR его не перегенерирует: справочник снимает job `db-schema-doc.yml` после влития миграций.
 
 ### 4.5 Кроны: три планировщика и маркеры
 
@@ -505,7 +506,7 @@ grep -l 'vedarai.ru' .github/workflows/*.yml | wc -l              # ходят �
 find tests/unit -name '*.test.ts*' | wc -l; grep -rl 'сторож' tests/unit | wc -l
 grep -cE "kind: 'manual'" lib/agents/cron-schedulers.ts
 for d in lib/agents lib/safety lib/offline app/api/cron app/hub/admin; do printf '%s ' $d; find $d -type f \( -name '*.ts' -o -name '*.tsx' \) | xargs cat | wc -l; done
-npm run db:schema-doc                                             # схема (нужна база, §1.1)
+npm run db:schema-doc                                             # схема (нужна база, §1.1); в PR не коммитить — снимает db-schema-doc.yml после влития
 ```
 
 ---
