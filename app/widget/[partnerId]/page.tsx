@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Send } from 'lucide-react';
+import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -71,6 +72,10 @@ export default function WidgetPage() {
           sessionId,
           message: text,
           history: messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0),
+          // Хост и путь страницы партнёра из адреса окна (их кладёт embed.js).
+          // Исход сверки со списком доменов ставит сервер; хост подделывается —
+          // сигнал, а не замок (аудит 15.10, WID-measure).
+          origin: readWidgetOriginParams(window.location.search),
         }),
       });
 

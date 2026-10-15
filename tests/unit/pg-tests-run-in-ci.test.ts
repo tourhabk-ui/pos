@@ -343,7 +343,14 @@ describe('pg-тесты доходят до CI', () => {
     // переведены при сведении). Замер, не память: scripts/ci/run-pg-tests.sh
     // локально на PostgreSQL 16 — 30 файлов, 275 тестов, 28 с. При таймауте
     // job в 15 минут размен честен.
-    const SEQUENTIAL_BUDGET = 30;
+    // Тридцать первый (15.10, аудит WID-measure) — `widget-measure`: счёт
+    // выдач и открытий виджетов партнёров сходится в одну строку и без хоста
+    // (UNIQUE NULLS NOT DISTINCT), у чата served только NULL (CHECK),
+    // происхождение разговора не переписывается, перепись виджетов читает и
+    // ничего не меняет — решает сервер, мок ответил бы на любую форму. Схема —
+    // копия шаблона. Замер, не память: scripts/ci/run-pg-tests.sh локально на
+    // PostgreSQL 16 — 31 файл, 280 тестов, 29 с. Размен честен.
+    const SEQUENTIAL_BUDGET = 31;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,

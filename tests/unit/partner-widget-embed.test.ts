@@ -219,6 +219,8 @@ describe('embed.js — чат на сайте партнёра', () => {
     const frame = document.getElementById('tourhub-widget-frame') as HTMLIFrameElement;
     expect(frame.getAttribute('src')).toBeNull();
     (document.getElementById('tourhub-widget-btn') as HTMLButtonElement).click();
-    expect(frame.getAttribute('src')).toBe('https://vedarai.ru/widget/fishingkam?theme=light');
+    // Хост и путь страницы партнёра — в адресе окна (аудит 15.10, WID-measure;
+    // сторож — widget-origin.test.ts). jsdom живёт на localhost:3000.
+    expect(frame.getAttribute('src')).toBe(`https://vedarai.ru/widget/fishingkam?theme=light&host=${location.hostname}&path=${encodeURIComponent(location.pathname)}`);
   });
 });

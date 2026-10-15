@@ -17,6 +17,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
+import { widgetOrigin } from '@/lib/embed/widget-origin';
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP
 
@@ -137,15 +138,33 @@ export async function POST(req: NextRequest) {
   // та же граница, что показывает саму страницу. До 13.10 стоял только первый
   // гейт, и заявка со страницы оператора без виджета вставала без оператора —
   // в пул, а не в его кабинет, вопреки тексту над формой.
-  let operator: { id: string; name: string | null } | null = null;
+  let operator: { id: string; name: string | null; widget_domains?: string[] | null } | null = null;
   if (widgetSlug) {
-    const pRes = await pool.query<{ id: string; name: string | null }>(
-      `SELECT id, name FROM partners WHERE slug = $1 AND (widget_enabled = true OR is_public = true) LIMIT 1`,
+    const pRes = await pool.query<{ id: string; name: string | null; widget_domains: string[] | null }>(
+      `SELECT id, name, widget_domains FROM partners WHERE slug = $1 AND (widget_enabled = true OR is_public = true) LIMIT 1`,
       [widgetSlug]
     );
     operator = pRes.rows[0] ?? null;
   }
   const operatorId = operator?.id ?? null;
+
+  // Заявка с формы виджета: откуда пришёл человек (аудит 15.10, WID-measure).
+  // Хост и путь присылает форма из адреса своего окна; сервер чистит их и
+  // САМ ставит исход сверки со списком доменов партнёра — listed / unlisted /
+  // not_sent. Присланный клиентом исход не принимается ни у какой формы.
+  // Хост подделывается: это сигнал для счёта, а не замок — от него не зависит
+  // ни адресат заявки, ни её приём.
+  let leadSourceData = source_data;
+  if (leadSourceData && 'widget_origin' in leadSourceData) {
+    const { widget_origin: sent, ...rest } = leadSourceData;
+    leadSourceData = rest;
+    if (rest.source === 'partner_widget') {
+      const o = (sent && typeof sent === 'object' ? sent : {}) as { host?: unknown; path?: unknown };
+      leadSourceData = { ...rest, widget_origin: widgetOrigin(o.host, o.path, operator?.widget_domains) };
+    }
+  } else if (leadSourceData?.source === 'partner_widget') {
+    leadSourceData = { ...leadSourceData, widget_origin: widgetOrigin(null, null, operator?.widget_domains) };
+  }
 
   // Атрибуция MCP-handoff: подписанная HttpOnly-cookie после перехода по
   // /mcp/h/<token>. В source_data попадает только UUID handoff-а — ни
@@ -159,7 +178,7 @@ export async function POST(req: NextRequest) {
   const leadId = await createLead({
     name, phone, comment, route_id, route_title, source_url,
     pd_consent: buildConsentRecord(true, getTrustedClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
-    source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
+    source_data: mcpHandoffId ? { ...(leadSourceData ?? {}), mcp_handoff_id: mcpHandoffId } : leadSourceData,
     operator_id: operatorId,
     // Свой заход (cookie владельца) — лид с пометкой, вне счёта спроса (1145).
     is_self: isSelfVisit(req.headers.get('cookie')),

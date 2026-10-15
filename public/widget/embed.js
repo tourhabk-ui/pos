@@ -85,8 +85,29 @@
   // Адрес ставится при первом открытии, а не сразу: iframe на fixed-позиции
   // loading=lazy не откладывает, и чат грузился (с нашей аналитикой и
   // service worker) на каждый просмотр страницы партнёра без единого клика.
-  var frameSrc = baseUrl + '/widget/' + encodeURIComponent(partnerId) + '?theme=' + encodeURIComponent(theme);
+  // Откуда пришёл человек (аудит 15.10, WID-measure): хост и путь страницы
+  // партнёра — location.pathname без query и hash (там бывают телефон и
+  // ключи). Берутся в момент открытия: на сайте-приложении путь к этому
+  // времени мог смениться. Хост подделывается — это сигнал для счёта, а не
+  // замок.
+  function frameSrc() {
+    return baseUrl + '/widget/' + encodeURIComponent(partnerId) + '?theme=' + encodeURIComponent(theme)
+      + '&host=' + encodeURIComponent(String(location.hostname || ''))
+      + '&path=' + encodeURIComponent(String(location.pathname || '').slice(0, 200));
+  }
   iframe.title = 'Чат с помощником';
+
+  // Маяк открытия: один на просмотр страницы, только партнёр, род и хост —
+  // без пути и без ПД. Шлёт страница партнёра, а не iframe: в окне чата нет
+  // ни Метрики, ни service worker. Нет sendBeacon — счёта нет, чат работает.
+  var beaconSent = false;
+  function beacon() {
+    if (beaconSent) return;
+    beaconSent = true;
+    if (typeof navigator.sendBeacon !== 'function') return;
+    navigator.sendBeacon(baseUrl + '/api/widget/event',
+      JSON.stringify({ partner: partnerId, kind: 'open', widget: 'chat', host: String(location.hostname || '') }));
+  }
 
   // Button
   var btn = document.createElement('button');
@@ -98,8 +119,9 @@
 
   btn.addEventListener('click', function () {
     isOpen = !isOpen;
-    if (isOpen && !iframe.getAttribute('src')) iframe.setAttribute('src', frameSrc);
+    if (isOpen && !iframe.getAttribute('src')) iframe.setAttribute('src', frameSrc());
     if (isOpen) {
+      beacon();
       iframe.classList.add('open');
       btn.innerHTML = closeIcon;
       btn.setAttribute('aria-label', 'Закрыть чат');

@@ -13,6 +13,8 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { buildRAGContext } from '@/lib/ai/rag-context';
 import { createLead } from '@/lib/leads/create';
+import { widgetOrigin } from '@/lib/embed/widget-origin';
+import { WIDGET_CHAT_SESSION_SQL } from '@/lib/embed/widget-telemetry';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +28,12 @@ const WidgetChatSchema = z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string(),
   })).max(20).optional(),
+  // Хост и путь страницы партнёра (embed.js кладёт их в адрес окна чата).
+  // Подделывается — сигнал для счёта, а не замок (аудит 15.10, WID-measure).
+  origin: z.object({
+    host: z.string().max(300).nullish(),
+    path: z.string().max(1000).nullish(),
+  }).optional(),
 });
 
 interface PartnerRow {
@@ -109,7 +117,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { partnerId, sessionId, message, history = [] } = parsed.data;
+    const { partnerId, sessionId, message, history = [], origin: page } = parsed.data;
 
     // Find partner by slug
     const partnerResult = await query<PartnerRow>(
@@ -152,15 +160,18 @@ export async function POST(request: NextRequest) {
       { role: 'assistant', content: answer },
     ];
 
+    // Откуда пришёл человек: хост сверен со списком доменов партнёра —
+    // listed / unlisted / not_sent. Пишется первым сообщением и дальше не
+    // переписывается (аудит 15.10, WID-measure). Подделываемо — только счёт.
+    const pageOrigin = widgetOrigin(page?.host, page?.path, partner.widget_domains);
+
     void query(
-      `INSERT INTO chat_sessions (session_id, role, messages, user_message_count, is_authenticated, updated_at)
-       VALUES ($1, 'tourist', $2::jsonb, $3, false, NOW())
-       ON CONFLICT (session_id) DO UPDATE
-         SET messages = $2::jsonb,
-             user_message_count = $3,
-             updated_at = NOW()`,
-      [widgetSessionId, JSON.stringify(allMessages.slice(-20)), allMessages.filter(m => m.role === 'user').length]
-    );
+      WIDGET_CHAT_SESSION_SQL,
+      [widgetSessionId, JSON.stringify(allMessages.slice(-20)), allMessages.filter(m => m.role === 'user').length, JSON.stringify(pageOrigin)]
+    ).catch((err: unknown) => {
+      const e = err as { code?: string; message?: string } | null;
+      console.error('[widget-chat] разговор не сохранён:', `SQLSTATE=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    });
 
     // Create lead on first message (fire-and-forget)
     if (history.length === 0) {

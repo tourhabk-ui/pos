@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
 
 interface PartnerConfig {
   name: string;
@@ -84,6 +85,13 @@ export default function LeadFormPage() {
           source_data: {
             source:       'partner_widget',
             partner_slug: slug,
+            // Хост и путь страницы партнёра из адреса окна (их кладёт lead.js,
+            // а у формы, открытой из окна чата, — адрес чата). Исход сверки со
+            // списком доменов ставит сервер; хост подделывается — сигнал, а не
+            // замок (аудит 15.10, WID-measure).
+            widget_origin: readWidgetOriginParams(
+              window.location.search, document.referrer, window.location.origin,
+            ),
           },
           pd_consent: true,
         }),
