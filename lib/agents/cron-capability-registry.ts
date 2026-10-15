@@ -55,6 +55,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'beacon-check': ['db_read', 'db_write'],
   'booking-attempts': ['db_read'],
   'bookings-origin-census': ['db_read'],
+  // 15.10 (аудит, A11): перепись статусов броней перед CHECK — только чтение.
+  'booking-status-census': ['db_read'],
   'booking-stall-alert': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // net_out — удаление в хранилище и проверка HEAD по публичному адресу.
   's3-object-delete': ['db_read', 'net_out'],

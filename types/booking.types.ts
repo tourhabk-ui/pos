@@ -4,34 +4,24 @@
  */
 
 /**
- * Реальные значения `operator_bookings.booking_status` (11.09, #1814).
+ * Значения `operator_bookings.booking_status` — из единого словаря
+ * `lib/types/statuses.ts` (аудит 15.10, A11). Своего перечня здесь нет: до
+ * этой правки их было два, и они расходились (`rejected` там, `no_show`
+ * здесь). Состав и почему без `rejected` — в шапке словаря.
  *
- * До этой правки тип называл статусы, которых ни один писатель не производит
- * (`pending`, `cancelled_by_tourist`, `cancelled_by_operator`, `refunded`) —
- * `lib/bookings/booking.service.ts` строил переходы по ним и писал их в
- * таблицу `bookings` (другую, с несовместимой схемой), поэтому реальный
- * столбец их никогда не видел. Источник правды здесь три независимых места,
- * согласные между собой: Zod-схема ручной правки статуса
- * (`app/api/hub/operator/bookings/[id]/route.ts`), единственный писатель при
- * создании (`lib/bookings/reserve.ts`) и WHERE-фильтры занятости по всей базе
- * (`booking_status NOT IN ('cancelled','rejected')`, `IN ('new','confirmed')`).
- * `rejected` встречается только в защитном WHERE, ни один писатель его не
- * производит — в перечень не включён (правило 10.09: объявлять статус без
- * производителя значит повторить эту же ошибку в другую сторону).
+ * История (11.09, #1814): прежде тип здесь называл статусы, которых ни один
+ * писатель не производит (`pending`, `cancelled_by_tourist`,
+ * `cancelled_by_operator`, `refunded`), — `lib/bookings/booking.service.ts`
+ * писал их в другую таблицу `bookings`, и реальный столбец их не видел.
  *
  * Кто отменил (турист/оператор) и на сколько положен возврат — не отдельные
  * СТАТУСЫ бронирования (колонки под это в `operator_bookings` нет), а
  * `cancellation_reason` (текст) и вычисляемый `RefundResult` соответственно.
  */
-export type BookingStatus =
-  | 'new'
-  | 'confirmed'
-  // Оплата начата (Кузьмич/платёжный путь, lib/types/statuses). До 25.09 тип
-  // её не знал: такая бронь зависала — ни отменить, ни подтвердить.
-  | 'pending_payment'
-  | 'completed'
-  | 'cancelled'
-  | 'no_show';
+import { BOOKING_STATUSES, type BookingStatus } from '@/lib/types/statuses';
+
+export { BOOKING_STATUSES };
+export type { BookingStatus };
 
 /** Статусы, считающиеся терминальными (нельзя менять) */
 export const TERMINAL_STATUSES: ReadonlySet<BookingStatus> = new Set([

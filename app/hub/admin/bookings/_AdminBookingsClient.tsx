@@ -10,17 +10,20 @@ interface Booking {
   date: string; price: number; status: BStatus;
 }
 
+// Подписи — по единому словарю (аудит 15.10, A11). Значение вне словаря
+// (например, `rejected`, если перепись booking-status-census найдёт его на
+// проде) показывается как есть — и в таблице, и в CSV, а не пустотой.
 const ST_CLS: Record<BStatus, string> = {
   new:             'bg-[var(--warning)]/15 text-[var(--warning)]',
   confirmed:       'bg-[var(--accent)]/15 text-[var(--accent)]',
   pending_payment: 'bg-[var(--ocean)]/15 text-[var(--ocean)]',
   completed:       'bg-[var(--success)]/15 text-[var(--success)]',
   cancelled:       'bg-[var(--danger)]/15 text-[var(--danger)]',
-  rejected:        'bg-[var(--danger)]/15 text-[var(--danger)]',
+  no_show:         'bg-[var(--bg-hover)] text-[var(--text-muted)]',
 };
 const ST_LBL: Record<BStatus, string> = {
   new: 'Новая', confirmed: 'Подтверждён', pending_payment: 'Ждёт оплаты',
-  completed: 'Завершён', cancelled: 'Отменён', rejected: 'Отклонён',
+  completed: 'Завершён', cancelled: 'Отменён', no_show: 'Не явился',
 };
 
 export default function AdminBookingsClient() {
@@ -84,7 +87,7 @@ export default function AdminBookingsClient() {
             onClick={() => {
               const csv = ['Тур,Турист,Email,Дата,Цена,Статус',
                 ...filtered.map(b =>
-                  `"${b.tourName}","${b.touristName}","${b.touristEmail}","${new Date(b.date).toLocaleDateString('ru-RU')}","${b.price}","${ST_LBL[b.status]}"`
+                  `"${b.tourName}","${b.touristName}","${b.touristEmail}","${new Date(b.date).toLocaleDateString('ru-RU')}","${b.price}","${ST_LBL[b.status] ?? b.status}"`
                 )].join('\n');
               const a = document.createElement('a');
               a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
