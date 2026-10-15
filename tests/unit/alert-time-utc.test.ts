@@ -11,10 +11,10 @@
  *
  * Поведение держит pg-тест с поясом МСК (`tests/integration/
  * safety-status-feed.pg.test.ts`: тревога со сроком через час жива,
- * погашенное не оживает, миграция 1265 однократна). Этот файл — запрет
+ * погашенное не оживает, миграция 1267 однократна). Этот файл — запрет
  * (правило 13.10: регулярка по исходнику — только «этого быть не должно»):
  * в SQL со временем тревог не возвращается голый NOW() — ни в коде, ни в
- * миграциях новее 1265.
+ * миграциях новее 1267.
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -82,10 +82,10 @@ function findViolations(): string[] {
 /**
  * Миграции тоже пишут тревоги: 718/729 заводили ручные записи с NOW(), 1123
  * гасила тревогу `SET expires_at = NOW()`. По новому правилу такое гашение
- * оставило бы тревогу в ленте ещё на три часа. До 1265 включительно — история
- * (её приводит сама 1265), дальше — то же соглашение, что в коде.
+ * оставило бы тревогу в ленте ещё на три часа. До 1267 включительно — история
+ * (её приводит сама 1267), дальше — то же соглашение, что в коде.
  */
-const UTC_WALL_SINCE = 1265;
+const UTC_WALL_SINCE = 1267;
 
 function migrationStatements(file: string): Array<{ text: string; line: number }> {
   const sql = readFileSync(join(ROOT, 'migrations', file), 'utf8')
@@ -120,7 +120,7 @@ describe('время тревог — стенное UTC', () => {
     expect(findViolations()).toEqual([]);
   });
 
-  it('и в миграциях после 1265 — тоже', () => {
+  it('и в миграциях после 1267 — тоже', () => {
     expect(findMigrationViolations()).toEqual([]);
   });
 
@@ -133,11 +133,11 @@ describe('время тревог — стенное UTC', () => {
     expect(INSERT_NOW.test('`INSERT INTO external_alerts (a, created_at) VALUES ($1, NOW())`')).toBe(true);
   });
 
-  it('на настоящих миграциях до 1265 сторож краснеет: гашение 1123 и ручная запись 718', () => {
+  it('на настоящих миграциях до 1267 сторож краснеет: гашение 1123 и ручная запись 718', () => {
     const hits = (file: string) => migrationStatements(file).flatMap((st) => judge(st.text, file));
     expect(hits('1123_expire_cuks_anniversary_alert.sql').length).toBeGreaterThan(0);
     expect(hits('718_road_alerts_july.sql').length).toBeGreaterThan(0);
-    // Сама 1265 сравнивает и пишет стенным UTC — ей сторож не мешает.
-    expect(hits('1265_external_alerts_utc_wall.sql')).toEqual([]);
+    // Сама 1267 сравнивает и пишет стенным UTC — ей сторож не мешает.
+    expect(hits('1267_external_alerts_utc_wall.sql')).toEqual([]);
   });
 });
