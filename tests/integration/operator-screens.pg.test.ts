@@ -15,7 +15,6 @@
  * Без неё файл честно пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import {
@@ -24,6 +23,7 @@ import {
 import {
   OPERATOR_CLIENTS_LIST_SQL, OPERATOR_CLIENTS_COUNT_SQL, OPERATOR_CLIENTS_SUMMARY_SQL, listOperatorClients,
 } from '@/lib/crm/operator-clients';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -32,14 +32,6 @@ if (!PG_URL) {
 }
 
 const TEST_DB = 'operator_screens_test';
-/** Первая миграция после baseline (снимок прода 2026-08-15, последняя в нём — 862). */
-const FIRST_AFTER_BASELINE = 863;
-
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
 
 withPg('экраны оператора на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
@@ -53,26 +45,10 @@ withPg('экраны оператора на настоящем PostgreSQL', () 
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    const dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    // Порог сравнивается ЧИСЛОМ, а не строкой. `name >= '863'` в Postgres —
-    // сравнение текста, и `'1000_...' >= '863'` ЛОЖНО (`'1' < '8'`): миграция
-    // 1000 и все следующие остались бы помеченными применёнными и не
-    // переигрались бы в тестовой базе — их DDL просто не попал бы в схему.
-    await pool.query(
-      `DELETE FROM _migrations
-        WHERE (substring(name from '^[0-9]+'))::bigint >= $1
-           OR substring(name from '^[0-9]+') IS NULL`,
-      [FIRST_AFTER_BASELINE],
-    );
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     // Посев: оператор, гид с подтверждённой аттестацией, тур, турист с
     // оплаченной бронью и выпущенным платежом.

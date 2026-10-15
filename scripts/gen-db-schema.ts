@@ -16,12 +16,17 @@
  *
  *   createdb schema_doc
  *   DATABASE_URL=postgresql://.../schema_doc node scripts/bootstrap-from-baseline.js
- *   psql schema_doc -c "DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint >= 863"   # всё новее baseline
+ *   LAST=$(sed -n 's/^-- Последняя миграция в снимке: \([0-9][0-9]*\)_.*$/\1/p' lib/database/baseline/schema-baseline.sql)
+ *   psql schema_doc -c "DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint > $LAST"   # всё новее baseline
  *   DATABASE_URL=postgresql://.../schema_doc npm run migrate
  *   DATABASE_URL=postgresql://.../schema_doc npm run db:schema-doc
  *
- * Первая строка «после baseline» — 863: baseline снят с прода 2026-08-15,
- * последней миграцией того дня была 862 (migrations/MIGRATION_ORDER.md).
+ * Граница «после baseline» — не число в этой инструкции, а строка шапки
+ * baseline «Последняя миграция в снимке:»: её пишет сборщик снимка
+ * (scripts/assemble-db-baseline.py), а интеграционные тесты читают её же
+ * (tests/helpers/pg-schema.ts). До 15.10 здесь стояло 863 литералом — верное
+ * ровно до первого пересъёма (аудит 15.10, P2-10). Пустой LAST — граница не
+ * записана: стоп, а не DELETE без условия.
  *
  * Из базы выходят только имена и типы — ни одного значения данных. Файл можно
  * читать кому угодно.

@@ -28,7 +28,6 @@
  * пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
@@ -38,6 +37,7 @@ import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { MARINE_ALERT_SQL, isMarineAlert } from '@/lib/safety/marine-alert';
 import { mchs_zones } from '@/lib/services/safety/seismic-parser';
 import { readFileSync } from 'node:fs';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -46,14 +46,6 @@ if (!PG_URL) {
 }
 
 const TEST_DB = 'alert_scope_test';
-/** Первая миграция после baseline (снимок прода 2026-08-15, последняя в нём — 862). */
-const FIRST_AFTER_BASELINE = 863;
-
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
 
 /** Настоящие координаты: между конусами ~75 км, то есть больше порога 25. */
 const SHIVELUCH = { id: 'place-shiveluch-test', ark: 'b0000000-0000-4000-8000-000000000001', lat: 56.653, lng: 161.360 };
@@ -85,22 +77,10 @@ withPg('кого накрывает предупреждение', () => {
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    const dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    // Порог сравнивается ЧИСЛОМ: `name >= '863'` — сравнение текста, и
-    // '1000_...' >= '863' ложно.
-    await pool.query(
-      `DELETE FROM _migrations WHERE (substring(name from '^[0-9]+'))::bigint >= $1`,
-      [FIRST_AFTER_BASELINE],
-    );
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     for (const [p, type, zone] of [
       [SHIVELUCH, 'volcano', 'northern'],

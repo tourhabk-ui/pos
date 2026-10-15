@@ -18,13 +18,12 @@
  * Без неё файл честно пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
 import {
   AGENT_MONEY_SQL, loadAgentMoney, payableForRequest,
 } from '@/lib/payments/agent-commission';
 import { CANCELLED_STATUS_PARAM } from '@/lib/payments/release-eligibility';
 import { DASHBOARD_SQL, STATS_SQL } from '@/lib/agent-cabinet/queries';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -33,13 +32,6 @@ if (!PG_URL) {
 }
 
 const TEST_DB = 'agent_money_test';
-const FIRST_AFTER_BASELINE = 863;
-
-function withDatabase(url: string, db: string): string {
-  const u = new URL(url);
-  u.pathname = `/${db}`;
-  return u.toString();
-}
 
 withPg('деньги агента на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
@@ -61,22 +53,10 @@ withPg('деньги агента на настоящем PostgreSQL', () => {
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP DATABASE IF EXISTS ${TEST_DB}`);
-    await bootstrap.query(`CREATE DATABASE ${TEST_DB}`);
-    await bootstrap.end();
-
-    const dbUrl = withDatabase(PG_URL, TEST_DB);
-    const env = { ...process.env, DATABASE_URL: dbUrl, DATABASE_SSL: 'false' };
-    execFileSync('node', [join(process.cwd(), 'scripts', 'bootstrap-from-baseline.js')], { env, stdio: 'pipe' });
+    // Схема прода — копия шаблона (baseline + миграции новее границы снимка):
+    // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
-    await pool.query(
-      `DELETE FROM _migrations
-        WHERE (substring(name from '^[0-9]+'))::bigint >= $1
-           OR substring(name from '^[0-9]+') IS NULL`,
-      [FIRST_AFTER_BASELINE],
-    );
-    execFileSync('npx', ['tsx', join(process.cwd(), 'lib', 'database', 'migrate.ts')], { env, stdio: 'pipe' });
 
     const user = async (email: string, role: string) => (await pool.query<{ id: string }>(
       `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $1, 'x', $2) RETURNING id`, [email, role],

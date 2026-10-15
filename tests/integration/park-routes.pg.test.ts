@@ -7,8 +7,12 @@
  * Камчатки» и федеральный заказник у Курильского озера (проба 876: четыре
  * маршрута заказника из одиннадцати с этим корнем). Правило «имя со словом
  * „заказник“ — маршрут заказника» живёт в SQL, мок ответил бы на него чем
- * угодно, поэтому здесь исполняются сами запросы из lib/parks на таблицах в
- * своей схеме.
+ * угодно, поэтому здесь исполняются сами запросы из lib/parks — на схеме
+ * прода, в своей базе из шаблона (tests/helpers/pg-schema.ts).
+ *
+ * До 15.10 таблицы здесь писались руками и без `kamchatka_routes.category`,
+ * которая у прода NOT NULL: фикстура заводила маршруты, каких прод не примет
+ * (аудит 15.10, P2-10).
  *
  * С миграцией 1252 у заказника своя страница с тем же корнем — правило
  * симметрично: заказник не берёт маршруты парка, парк — маршруты заказника.
@@ -17,6 +21,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { PARK_ROUTES_SQL } from '../../lib/parks/park-page';
 import { routeInParkSql } from '../../lib/parks/route-in-park';
+import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -25,7 +30,7 @@ if (!PG_URL) {
   console.warn('[park-routes] KERNEL_PG_TEST_URL не задан — тест ПРОПУЩЕН (не прогнан, а не зелёный)');
 }
 
-const SCHEMA = 'park_routes_test';
+const TEST_DB = 'park_routes_test';
 
 /** [название, park_name] — имена park_name взяты с прода (проба 876). */
 const ROUTES: Array<[string, string | null]> = [
@@ -46,35 +51,27 @@ withPg('маршруты парка и заказник-тёзка', () => {
   let pool: Pool;
 
   beforeAll(async () => {
-    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
-    await bootstrap.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
-    await bootstrap.query(`CREATE SCHEMA ${SCHEMA}`);
-    await bootstrap.end();
-    pool = new Pool({ connectionString: PG_URL, max: 2, options: `-c search_path=${SCHEMA}` });
-    await pool.query(`
-      CREATE TABLE kamchatka_routes (
-        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ark_id uuid, slug text,
-        title text NOT NULL, description text, distance_km numeric, elevation_gain_m integer,
-        duration_hours numeric, difficulty text, season text, mchs_registration_required boolean,
-        hazards text[], park_name varchar(255), is_visible boolean NOT NULL DEFAULT true,
-        view_count integer NOT NULL DEFAULT 0
-      );
-      CREATE TABLE parks (
-        slug varchar(64) PRIMARY KEY, display_name varchar(255) NOT NULL,
-        search_term varchar(128) NOT NULL, is_active boolean NOT NULL DEFAULT true
-      );
-    `);
+    const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
+    pool = new Pool({ connectionString: dbUrl, max: 2 });
+    // Миграции 1250 и 1252 сами заводят парки, и сцена должна быть ровно
+    // той, что описана выше: своя база — заменяем парки целиком.
+    await pool.query('DELETE FROM parks');
     for (const [title, parkName] of ROUTES) {
-      await pool.query(`INSERT INTO kamchatka_routes (title, slug, park_name) VALUES ($1, $1, $2)`, [title, parkName]);
+      // `category` у прода NOT NULL — маршрута без рода прод не примет.
+      // Имя и slug — одним параметром, а типы у прода разные: явное приведение.
+      await pool.query(
+        `INSERT INTO kamchatka_routes (category, title, slug, park_name) VALUES ('hiking', $1::text, $1::text, $2)`,
+        [title, parkName],
+      );
     }
     await pool.query(`INSERT INTO parks (slug, display_name, search_term) VALUES
       ('yuzhno-kamchatsky', $1, 'Южно-Камчат'),
       ('yuzhno-kamchatsky-zakaznik', $2, 'Южно-Камчатск'),
       ('klyuchevskoy', 'Национальный парк «Вулканы Камчатки» — «Ключевской»', 'Ключевск')`, [NATIONAL, ZAKAZNIK]);
-  });
+    // Первый файл прогона строит шаблон схемы — это дольше умолчания в 10 с.
+  }, 300_000);
 
   afterAll(async () => {
-    await pool?.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
     await pool?.end();
   });
 
