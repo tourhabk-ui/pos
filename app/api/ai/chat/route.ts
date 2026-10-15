@@ -40,6 +40,7 @@ import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { withSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -280,7 +281,12 @@ export async function POST(request: NextRequest) {
           role: safeRole,
         });
         if (agentResult.intent !== 'unknown') answer = agentResult.response;
-      } catch { /* fall through to raw AI */ }
+      } catch (err) {
+        // Падение ступени не роняет ответ — идём к следующей, но отказ
+        // назван (аудит 15.10, P4-03, п. 1.12; §4.0): иначе весь веб-чат
+        // молча съезжает на одиночный вызов, и снаружи это не отличить от нормы.
+        logSwallowedFailure('ai-chat', 'PlatformAgent', err);
+      }
     }
 
     // Agentic Operator: authenticated operators → SDK tool calling for tour/booking management
@@ -318,7 +324,9 @@ export async function POST(request: NextRequest) {
           });
           if (sdkResult.response) answer = sdkResult.response;
         }
-      } catch { /* fall through to PlatformAgent / simple AI */ }
+      } catch (err) {
+        logSwallowedFailure('ai-chat', 'агент оператора с инструментами', err);
+      }
     }
 
     // Agentic Booking: authenticated tourists with booking/tour intent → SDK tool calling
@@ -345,7 +353,9 @@ export async function POST(request: NextRequest) {
             maxIterations: 4,
           });
           if (sdkResult.response) answer = sdkResult.response;
-        } catch { /* fall through to simple AI */ }
+        } catch (err) {
+          logSwallowedFailure('ai-chat', 'агент бронирования с инструментами', err);
+        }
       }
     }
 
@@ -363,7 +373,9 @@ export async function POST(request: NextRequest) {
         const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
         answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns);
         loopAnswered = Boolean(answer?.trim());
-      } catch { /* fall through to legacy single-shot */ }
+      } catch (err) {
+        logSwallowedFailure('ai-chat', 'цикл инструментов Кузьмича', err);
+      }
     }
 
     answer ??= await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
