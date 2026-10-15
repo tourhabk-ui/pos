@@ -44,6 +44,12 @@ jobs:
       contents: write
       pull-requests: write
       id-token: write
+    # Учёт расхода руки — отдельной работой usage-books ниже (аудит 15.10,
+    # AC-1): ей нужен исход шага руки и путь файла выполнения, названный
+    # самим экшеном, — чтобы отличить «рука не дошла до модели» от потери.
+    outputs:
+      hand_outcome: ${{ steps.hand.outcome }}
+      execution_file: ${{ steps.hand.outputs.execution_file }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -68,6 +74,7 @@ jobs:
           echo "Смержено за неделю: $COUNT PR"
 
       - name: Run Claude chronicler
+        id: hand
         if: steps.merged.outputs.count != '0'
         uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64 # v1
         env:
@@ -120,3 +127,66 @@ jobs:
                git push и gh pr create --draft --title "Хроника недели в MEMORY.md" --body "<1-2 предложения>"
 
             НИКОГДА не пушь в main. Меняй ТОЛЬКО .claude/MEMORY.md.
+
+      # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
+      # Файл выполнения экшена (JSON сообщений SDK, итог с modelUsage и
+      # total_cost_usd) уезжает к отдельной работе учёта usage-books. Секрета
+      # учёта (CRON_SECRET) в этой работе нет и быть не должно: у агента Bash
+      # на этом раннере. Отказ загрузки не красит руку — потерю назовёт учёт.
+      - name: Файл выполнения руки — для учёта расхода
+        if: always() && steps.hand.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: hand-execution
+          path: ${{ steps.hand.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
+          if-no-files-found: warn
+          retention-days: 1
+          overwrite: true
+
+  # ── Расход руки — в книги llm_usage_log (аудит 15.10, AC-1) ─────────────
+  #
+  # Руки считают ключом Anthropic мимо logLLMUsage, и их расход до книг не
+  # доходил: дневной бюджет (llm-budget-check) по ним не мог сработать. Здесь файл
+  # выполнения разбирается (scripts/hands-usage.mjs) и строки уходят на прод
+  # (POST /api/admin/llm-usage/report) с CRON_SECRET. Цену, включая кэш
+  # подсказок, считает прод; заявление экшена (total_cost_usd) — в сводку
+  # прогона для сверки, в книги не пишется.
+  #
+  # Отдельная работа на чистом раннере, а не шаг рядом с рукой: CRON_SECRET
+  # открывает /api/admin/* на проде (§7), а у агента Bash — шаг после него
+  # исполнял бы файл, который агент мог переписать. Скрипт берётся из main,
+  # а не из рабочей копии руки. Сторож: tests/unit/llm-usage-reaches-books.test.ts.
+  usage-books:
+    needs: chronicle
+    if: always() && needs.chronicle.outputs.hand_outcome != '' && needs.chronicle.outputs.hand_outcome != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Скрипт учёта из main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/hands-usage.mjs
+          sparse-checkout-cone-mode: false
+
+      # Артефакта нет — экшен файла не оставил или загрузка не удалась; что
+      # из двух, решает учёт по HAND_EXECUTION_FILE, а не этот шаг.
+      - name: Файл выполнения руки
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: hand-execution
+          path: ${{ runner.temp }}/hand
+
+      - name: Расход руки — в книги
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          AGENT_ID: weekly-chronicle
+          EXECUTION_FILE: ${{ runner.temp }}/hand/claude-execution-output.json
+          HAND_EXECUTION_FILE: ${{ needs.chronicle.outputs.execution_file }}
+        run: node scripts/hands-usage.mjs --run
