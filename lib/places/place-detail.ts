@@ -20,6 +20,7 @@ import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
 import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { asCoordSource } from '@/lib/places/coord-source';
+import { descriptionWrittenByModel, type LastDescriptionWrite } from '@/lib/places/description-by-model';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
@@ -189,7 +190,15 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          -- Смитсоновского института» под ЧУЖИМ текстом — ложное утверждение
          -- об источнике, и хуже отсутствия подписи. Совпало — подписываем,
          -- разошлось — подписи нет, и это происходит само.
-         gvp.source_ref AS description_source_ref
+         gvp.source_ref AS description_source_ref,
+         -- Кто записал описание последним (журнал 911): писатель-модель с той
+         -- же длиной текста — подпись «написала модель» (description-by-model).
+         (SELECT json_build_object('by', dp.written_by, 'chars', dp.chars)
+            FROM description_provenance dp
+           WHERE dp.entity_id = p.ark_id
+           ORDER BY dp.written_at DESC, dp.id DESC
+           LIMIT 1) AS description_last_write,
+         char_length(p.description) AS description_chars
        FROM places p
        LEFT JOIN place_description_drafts gvp
               ON gvp.place_id = p.id
@@ -309,6 +318,10 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // Подпись под описанием: есть, только пока живой текст совпадает с
         // одобренным переводом (условие JOIN выше). Разошлись — null.
         descriptionSource: describeDescriptionSource(r.description_source_ref as string | null),
+        descriptionByModel: descriptionWrittenByModel(
+          (r.description_last_write as LastDescriptionWrite | null) ?? null,
+          r.description_chars != null ? Number(r.description_chars) : null,
+        ),
         // Описание было, но снято как путевая заметка и ждёт переписи по
         // источникам (14.10, «2 да»). Переписали — признак гаснет сам.
         descriptionWithdrawn: r.description_withdrawn === true && !stripSourceAttribution(r.description as string | null),

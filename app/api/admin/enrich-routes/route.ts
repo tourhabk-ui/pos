@@ -168,6 +168,9 @@ export async function POST(req: NextRequest) {
  * агента, написанный по одному названию, и новый текст по тому же названию
  * был бы той же догадкой. Строка маршрута в VIEW несёт COALESCE(ark_id, id).
  */
+/** Имя писателя в description_provenance (lib/places/description-by-model). */
+const ENRICH_ROUTES_WRITER = 'enrich-routes-ai';
+
 const NOT_WITHDRAWN = `NOT EXISTS (
       SELECT 1 FROM places w
        WHERE w.ark_id = agent_route_knowledge.id
@@ -265,6 +268,22 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
            WHERE id = $3`,
           [description, JSON.stringify({ enriched_at: new Date().toISOString(), enriched_by: 'admin_api' }), route.id],
         );
+        // Происхождение — рядом с текстом (911). У мест payload в VIEW не
+        // хранится, и без журнала текст этого писателя был неотличим от
+        // текста из источника: карточка не могла сказать, что его написала
+        // модель (15.10, §0). Отказ журнала описания не отменяет, но не молчит.
+        try {
+          await pool.query(
+            `INSERT INTO description_provenance
+               (entity_id, entity_kind, entity_title, written_by, facts_given, facts_count, chars, previous_chars)
+             VALUES ($1, 'place', $2, '${ENRICH_ROUTES_WRITER}', $3::jsonb, $4, $5, $6)`,
+            [route.id, route.title, JSON.stringify([route.title, typeLabelOf(route)]), 2,
+             description.length, route.description?.length ?? null],
+          );
+        } catch (err) {
+          console.error('[enrich-routes] происхождение не записано:', route.id,
+            (err as { code?: string }).code ?? (err instanceof Error ? err.message : err));
+        }
       }
       improved++;
       results.push({ id: route.id, title: route.title, ok: true, len: description.length });

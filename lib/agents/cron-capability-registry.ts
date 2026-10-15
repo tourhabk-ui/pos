@@ -312,6 +312,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'safety-ledger-check': ['db_read', 'db_write'],
   'safety-profile-census': ['db_read'],
   'place-eco-census': ['db_read'],
+  'description-writers-census': ['db_read'],
   'schema-audit': ['db_read'],
   'schema-drift': ['db_read', 'db_write'],
   'schema-registry-census': ['db_read'],

@@ -163,6 +163,8 @@ export interface PlaceData {
   lng: number;
   /** Откуда координата: снята, угадана по названию, заглушка, справочник, не записано. */
   coordSource?: CoordSource;
+  /** Описание последним записала модель, и текст с тех пор не менялся (журнал 911). */
+  descriptionByModel?: boolean;
   zone: string | null;
   district: string | null;
   photoUrl: string | null;

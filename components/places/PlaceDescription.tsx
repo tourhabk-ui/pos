@@ -11,10 +11,12 @@ interface Props {
   descriptionSource?: DescriptionSource | null;
   /** Описание снято как путевая заметка и ждёт переписи (миграция 1247). */
   descriptionWithdrawn?: boolean;
+  /** Описание написала модель (журнал происхождения, lib/places/description-by-model). */
+  byModel?: boolean;
   placeId: string;
 }
 
-export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, placeId }: Props) {
+export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, byModel, placeId }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const paragraphs = description?.split('\n').filter(p => p.trim()) ?? [];
@@ -84,6 +86,14 @@ export default function PlaceDescription({ essence, description, descriptionSour
               Адрес подтвердил владелец из браузера 14.09 — с раннера он
               отдавал 403 (см. description-source.ts). Нет адреса — остаётся
               текст: подпись называет источник и без ссылки. */}
+          {/* Кто писал текст — сказано, когда это знает журнал (15.10, §0):
+              машинный текст читался наравне с текстом из справочника. */}
+          {byModel && (
+            <p className="text-xs text-[var(--text-muted)] pt-1" style={{ maxWidth: '68ch' }}>
+              Описание написала модель по данным платформы — на месте сверяйтесь.
+            </p>
+          )}
+
           {descriptionSource && (
             <p className="text-xs text-[var(--text-muted)] pt-1" style={{ maxWidth: '68ch' }}>
               {descriptionSource.url ? (

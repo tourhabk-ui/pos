@@ -1,34 +1,19 @@
 {
   "timeout": 90,
-  "run": 945,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката второй партии §0: лимит посещения только с источником (visitor_limit_per_day, не заглушка 50), «Бережное посещение» без «размера группы», происхождение координаты у GPX (coordSource), Кузьмич назван ИИ-помощником, шаблонные правила режима 169/170 сняты в архив (1273) — перепись place-eco-census; Editor не берёт снятые описания. Ждёт выката по ключу coordSource. Конфиг записан целиком.",
+  "run": 946,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката третьей партии §0: описание, написанное моделью, подписано на карточке места (журнал происхождения 911, lib/places/description-by-model), enrich-routes ведёт журнал; перепись description-writers-census — сколько описаний на видимых карточках написала модель, сколько правлено после, у скольких журнала нет. Ждёт выката по ответу переписи. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/fa3653ac-3cd5-4d24-a611-ff7a75859be1",
-    "https://vedarai.ru/places/fa3653ac-3cd5-4d24-a611-ff7a75859be1",
-    "https://vedarai.ru/api/cron/place-eco-census"
+    "https://vedarai.ru/api/cron/description-writers-census",
+    "https://vedarai.ru/api/places/fa3653ac-3cd5-4d24-a611-ff7a75859be1"
   ],
-  "until": "\"coordSource\"",
+  "until": "\"by_model\"",
   "retries": 60,
   "retryDelay": 45,
   "grep": [
-    "\"coordSource\":\"",
-    "\"capacityPerDay\":null",
-    "\"capacityPerDay\":50",
-    "Лимит посещения",
-    "Рекомендуемый размер группы",
-    "ИИ-помощник Ведара",
-    "знает Камчатку как никто",
-    "угадана по названию",
-    "у нас не записано: снята ли она на месте",
-    "заглушка: по этой точке",
     "\"ok\":true",
-    "\"rules_withdrawn\""
+    "\"by_model\"",
+    "\"descriptionByModel\":true",
+    "\"descriptionByModel\":false"
   ],
-  "around": [
-    "\"coordSource\"",
-    "\"visible_places_by_zone\""
-  ],
-  "aroundLines": 60,
-  "aroundHits": 1,
-  "bytes": 4000
+  "bytes": 1500
 }
