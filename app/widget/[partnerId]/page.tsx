@@ -11,9 +11,10 @@
  *    форму `/widget/lead-form/<slug>` — с телефоном, согласием на ПД и
  *    адресатом-партнёром. Разговор при этом не теряется: форма живёт во
  *    вложенном окне вместо ленты, «Закрыть» и Esc формы возвращают в чат.
- *  - Постоянная строка «Экстренно — 112». Своей SOS-кнопки здесь нет и быть
- *    не должно (§11: SOS — только EmergencyAction, и в /widget он не
- *    монтируется); блок 112 при признаках ЧП ставит сервер в ответ.
+ *  - Постоянная строка «Экстренно — 112» — текстом, не ссылкой tel:112.
+ *    Своей SOS-кнопки и своего набора 112 здесь нет и быть не должно (§11,
+ *    #887: SOS — только EmergencyAction, и в /widget он не монтируется);
+ *    блок 112 при признаках ЧП ставит сервер в ответ.
  *  - Ошибки по-русски и с тремя исходами: чат не найден или выключен (404) —
  *    не то же, что «не загрузился» (сеть, сбой).
  *
@@ -358,7 +359,10 @@ export default function WidgetPage() {
         </>
       )}
 
-      {/* Подвал: 112 — всегда, при любом экране окна. */}
+      {/* Подвал: 112 — всегда, при любом экране окна. Строкой, не ссылкой
+          tel:112: сырая ссылка на 112 вне EmergencyAction — вторая реализация
+          SOS, и сторож sos-always-reachable её запрещает (#887, ревью
+          WID-safety 15.10). Номер короткий — набрать его можно и так. */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -371,9 +375,9 @@ export default function WidgetPage() {
         borderTop: '1px solid var(--border)',
         flexShrink: 0,
       }}>
-        <a href="tel:112" style={{ color: 'var(--danger)', fontWeight: 600, textDecoration: 'none' }}>
+        <strong style={{ color: 'var(--danger)', fontWeight: 600 }}>
           Экстренно — 112
-        </a>
+        </strong>
         <span>
           Работает на <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>Ведар AI</a>
         </span>

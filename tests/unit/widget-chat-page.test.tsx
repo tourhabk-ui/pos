@@ -5,7 +5,8 @@
  *  - «Оставить заявку» есть всегда в шапке и под ответом помощника и
  *    открывает ту же форму `/widget/lead-form/<slug>` (телефон, согласие,
  *    адресат-партнёр) — лида из самого чата больше нет;
- *  - строка «Экстренно — 112» видна на любом экране окна, своей SOS-кнопки нет;
+ *  - строка «Экстренно — 112» видна на любом экране окна — текстом, не ссылкой
+ *    tel:112; своей SOS-кнопки нет;
  *  - отказы по-русски, и «не найден» отличается от «не загрузился».
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -105,11 +106,26 @@ describe('окно чата: 112', () => {
     render(<WidgetPage />);
     await screen.findByText('Местечко Камчатка');
 
-    const link = screen.getByRole('link', { name: 'Экстренно — 112' });
-    expect(link.getAttribute('href')).toBe('tel:112');
+    expect(screen.getByText('Экстренно — 112')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Оставить заявку' }));
-    expect(screen.getByRole('link', { name: 'Экстренно — 112' })).toBeInTheDocument();
+    expect(screen.getByText('Экстренно — 112')).toBeVisible();
+  });
+
+  it('ссылки tel:112 в окне нет: набор 112 — только у EmergencyAction (#887)', async () => {
+    // Ревью 15.10: сырая ссылка на 112 вне EmergencyAction — вторая
+    // реализация SOS, она расходится с ним офлайн-веткой. В окне — строка.
+    stubFetch({ status: 200, body: { success: true, data: CONFIG } });
+    const { container } = render(<WidgetPage />);
+    await screen.findByText('Местечко Камчатка');
+
+    const telLinks = () => container.querySelectorAll('a[href^="tel:"]');
+    expect(telLinks()).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: /112/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Оставить заявку' }));
+    expect(telLinks()).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: /112/ })).toBeNull();
   });
 
   it('своей SOS-кнопки в окне нет (SOS — только EmergencyAction, §11)', async () => {
