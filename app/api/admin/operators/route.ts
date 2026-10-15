@@ -3,6 +3,7 @@
  * Возвращает partners с profile_status + данные из operator_applications
  */
 
+import { lastPartnerDeliveries } from '@/lib/leads/delivery-outcome';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
@@ -98,9 +99,20 @@ export async function GET(request: NextRequest) {
       ${statusClause}
   `, hasStatusFilter ? [cats, status] : [cats]);
 
+  // Последний итог личной доставки заявки (lib/leads/delivery-outcome).
+  // null у оператора — записей нет; карта null — прочитать не удалось, и
+  // тогда поле не отдаётся вовсе: «не знаю» не выдаётся за «записей нет».
+  const ids = rows.rows.map((r) => String((r as { id: unknown }).id));
+  const deliveries = await lastPartnerDeliveries(ids);
+  const data = rows.rows.map((r) => {
+    const id = String((r as { id: unknown }).id);
+    if (deliveries === null) return r;
+    return { ...r, last_delivery: deliveries.get(id) ?? null };
+  });
+
   return NextResponse.json({
     success: true,
-    data: rows.rows,
+    data,
     meta: {
       total:  parseInt((countRow.rows[0]?.total as string) ?? '0', 10),
       limit,

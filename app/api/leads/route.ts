@@ -5,6 +5,7 @@ import { telegramService } from '@/lib/notifications/telegram';
 import { requireRole } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { notifyOperatorNewLead, notifyPartnerNewLeadPersonally } from '@/lib/notifications/lead-notify';
+import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
@@ -207,6 +208,9 @@ export async function POST(req: NextRequest) {
           routeTitle: route_title, origin, sourceUrl: source_url,
         })
       : null;
+    // Итог личной доставки — в журнал заявки: «дошла ли до оператора» должно
+    // отвечаться данными, а не вопросом оператору (владелец 15.10).
+    if (partner && personal) await recordPartnerDelivery(leadId, partner.id, personal);
     await notifyOperatorNewLead({
       leadId,
       name,
