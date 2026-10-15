@@ -1,35 +1,33 @@
 {
   "timeout": 60,
-  "run": 953,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1274 и пометки впечатлений: перепись режима (места заповедника — с заявкой kronoki.ru/ru/visit/requests/, Ново-Бакенинг — заказник, четыре — «не записано»); Кроноцкое озеро — справка по Википедии, заметка Кузьмича пуста; «Авачинская бухта» — descriptionImpression; список туров — для цепочки тур → маршрут → место (проверка «Туры к этому месту» по роду связи, daea90d7). Ждёт выката по адресу заявки у места из списка 169/170. Конфиг записан целиком.",
+  "run": 954,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка КОДА шестой партии (953 попала в окно: миграция 1274 накатилась новым контейнером, отвечала прежняя сборка): пометка впечатлений (descriptionImpression) — у Кроноцкого озера false, у «Авачинской бухты» по переписи голоса — true; разметка карточки места и маршрута без TravelAgency и без точки края в океане; туры 67 и 53 — их маршруты, для цепочки к месту с турами. Ждёт выката по полю descriptionImpression. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-eco-census",
     "https://vedarai.ru/api/places/a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
     "https://vedarai.ru/api/places/a34d8fa0-e25d-402d-80ce-24404bf7511f",
-    "https://vedarai.ru/api/places/9c5b9b5c-c989-4d1c-a8f4-50fbacdc4447",
-    "https://vedarai.ru/api/tours?limit=20"
+    "https://vedarai.ru/api/places/af84b5bb-39eb-4b3e-883d-8aa50641077a",
+    "https://vedarai.ru/places/796c18b3-e199-4ac6-bbd6-de50d560ff40",
+    "https://vedarai.ru/routes/b6b37731-f9f9-4db1-8ae6-847ab9ed5e60",
+    "https://vedarai.ru/api/tours/67",
+    "https://vedarai.ru/api/tours/53"
   ],
-  "until": "\"permit_url\":\"https://kronoki.ru/ru/visit/requests/\"",
-  "retries": 70,
+  "until": "\"descriptionImpression\"",
+  "retries": 40,
   "retryDelay": 45,
   "grep": [
-    "\"permit_url\":\"https://kronoki.ru/ru/visit/requests/\"",
-    "kamchatkaparks.ru",
-    "kronoki.ru/visit/\"",
-    "Кроноцкое — самое большое пресноводное озеро Камчатки",
-    "нерп",
-    "\"kuzmichReview\":\"\"",
     "\"descriptionImpression\":true",
     "\"descriptionImpression\":false",
-    "\"zone\":\"zakaznik\"",
-    "Тимоновского государственного зоологического заказника"
+    "TouristAttraction",
+    "TravelAgency",
+    "160.7837",
+    "TouristTrip",
+    "\"routeId\""
   ],
   "around": [
-    "\"template_zone_places\"",
     "\"routeId\"",
-    "\"id\""
+    "\"descriptionImpression\""
   ],
-  "aroundLines": 60,
+  "aroundLines": 1,
   "aroundHits": 1,
-  "bytes": 300
+  "bytes": 200
 }
