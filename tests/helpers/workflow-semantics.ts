@@ -5,9 +5,10 @@
  *
  * Три вещи, которые иначе пришлось бы сверять регуляркой по исходнику:
  *  - `if:` и `${{ }}` — вычисляются подмножеством языка выражений GitHub
- *    (сравнение, &&, ||, !, скобки, литералы, пути контекста). Чего здесь нет
- *    (функции, индексы), то бросает исключение: сторож обязан краснеть на
- *    непонятом выражении, а не молча считать его ложным;
+ *    (сравнение, &&, ||, !, скобки, литералы, пути контекста, функция
+ *    `contains`). Чего здесь нет (прочие функции, индексы), то бросает
+ *    исключение: сторож обязан краснеть на непонятом выражении, а не молча
+ *    считать его ложным;
  *  - фильтр путей у push / pull_request — по правилам GitHub (`*` не
  *    пересекает `/`, `**` пересекает, `!` в `paths` отменяет совпадение,
  *    решает последнее подходящее правило);
@@ -67,7 +68,15 @@ type Token =
   | { t: 'op'; v: string }
   | { t: 'str'; v: string }
   | { t: 'num'; v: number }
-  | { t: 'path'; v: string };
+  | { t: 'path'; v: string }
+  | { t: 'fn'; v: string };
+
+/**
+ * Функции, которые сторож умеет вычислять. `contains` нужен условию свипера
+ * CI (`!contains(head_commit.message, '[ci-sweep]')`); прочие бросают — так же,
+ * как раньше бросали все.
+ */
+const FUNCTIONS = new Set(['contains']);
 
 function tokenize(src: string): Token[] {
   const out: Token[] = [];
@@ -77,7 +86,7 @@ function tokenize(src: string): Token[] {
     if (/\s/.test(c)) { i++; continue; }
     const two = src.slice(i, i + 2);
     if (['==', '!=', '&&', '||', '<=', '>='].includes(two)) { out.push({ t: 'op', v: two }); i += 2; continue; }
-    if ('()!<>'.includes(c)) { out.push({ t: 'op', v: c }); i++; continue; }
+    if ('()!<>,'.includes(c)) { out.push({ t: 'op', v: c }); i++; continue; }
     if (c === "'") {
       let s = '';
       i++;
@@ -94,6 +103,11 @@ function tokenize(src: string): Token[] {
     if (num) { out.push({ t: 'num', v: Number(num[0]) }); i += num[0].length; continue; }
     const path = /^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*)*/.exec(src.slice(i));
     if (path) {
+      if (src[i + path[0].length] === '(' && FUNCTIONS.has(path[0].toLowerCase())) {
+        out.push({ t: 'fn', v: path[0].toLowerCase() });
+        i += path[0].length;
+        continue;
+      }
       if (src[i + path[0].length] === '(' || src[i + path[0].length] === '[') {
         throw new Error(`функции и индексы в выражении не поддержаны сторожем: ${src}`);
       }
@@ -140,6 +154,27 @@ function lookup(ctx: Record<string, unknown>, path: string): Value {
   return cur === undefined ? null : (cur as Value);
 }
 
+/** Строковое представление значения так, как его сравнивают функции GitHub. */
+function asString(v: Value): string {
+  if (v === null) return '';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+/**
+ * contains(search, item): у массива — есть ли элемент, равный item; у строки —
+ * подстрока без учёта регистра (документация GitHub, «Expressions → contains»).
+ */
+function callFunction(name: string, args: Value[], src: string): Value {
+  if (name === 'contains') {
+    if (args.length !== 2) throw new Error(`contains ждёт два аргумента: ${src}`);
+    const [search, item] = args;
+    if (Array.isArray(search)) return search.some((x) => looseEq(x as Value, item));
+    return asString(search).toLowerCase().includes(asString(item).toLowerCase());
+  }
+  throw new Error(`функция ${name} не поддержана сторожем: ${src}`);
+}
+
 /** Вычисляет выражение без обёртки `${{ }}` (или с ней — тогда снимает). */
 export function evalExpr(expr: string, ctx: Record<string, unknown>): Value {
   const src = expr.trim().replace(/^\$\{\{((?:(?!\}\})[\s\S])*)\}\}$/, '$1');
@@ -160,6 +195,18 @@ export function evalExpr(expr: string, ctx: Record<string, unknown>): Value {
     if (tk.t === 'str') return tk.v;
     if (tk.t === 'num') return tk.v;
     if (tk.t === 'path') return lookup(ctx, tk.v);
+    if (tk.t === 'fn') {
+      if (!isOp('(')) throw new Error(`после ${tk.v} нет скобки: ${src}`);
+      p++;
+      const args: Value[] = [];
+      if (!isOp(')')) {
+        args.push(or());
+        while (isOp(',')) { p++; args.push(or()); }
+      }
+      if (!isOp(')')) throw new Error(`нет закрывающей скобки у ${tk.v}: ${src}`);
+      p++;
+      return callFunction(tk.v, args, src);
+    }
     throw new Error(`неожиданный оператор «${tk.v}»: ${src}`);
   }
   function unary(): Value {
