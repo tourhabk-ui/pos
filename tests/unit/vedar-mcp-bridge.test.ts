@@ -74,7 +74,8 @@ describe('мост обещает о платформе только то, чт�
   });
 
   it('имя клиента несёт провайдера, и журнал относит его к семейству модели', () => {
-    expect(src).toContain('f"vedar-mcp-bridge/{cfg[\'provider\']}"');
+    // Сборку имени мостом (client_name, база из MCP_CLIENT_NAME) с 15.10
+    // проверяет вызов в china-quick.test.ts; здесь — как журнал его читает.
     expect(chinaClientFamily('vedar-mcp-bridge/deepseek')).toBe('deepseek');
     expect(chinaClientFamily('vedar-mcp-bridge/qwen')).toBe('qwen-code');
     expect(clientRegion('vedar-mcp-bridge/moonshot')).toBe(CHINA_REGION_LABEL);

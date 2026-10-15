@@ -10,7 +10,11 @@ name: Китайская модель ходит в Ведар — мост с �
 #
 # С раннера, не с прода: ключи DeepSeek и DashScope лежат в секретах
 # репозитория, а мост ходит на vedarai.ru как любой внешний клиент — журнал
-# /hub/admin/mcp видит его как vedar-mcp-bridge/<провайдер> с меткой «КНР».
+# /hub/admin/mcp видит его с меткой «КНР». Имя клиента —
+# vedar-mcp-bridge-probe/<провайдер> (MCP_CLIENT_NAME ниже, аудит 15.10,
+# CN-quick): слово probe журнал относит к проверкам (lib/mcp/probe-clients),
+# и наши прогоны не читаются как спрос КНР. Люди, скачавшие мост, приходят
+# как vedar-mcp-bridge/<провайдер> — это спрос.
 #
 # Три исхода на провайдера (§4.0): инструменты позваны и ответ есть —
 # зелёный; ответ без единого вызова инструмента — красный «модель не пошла в
@@ -38,6 +42,7 @@ jobs:
     env:
       LLM_PROVIDER: ${{ matrix.provider }}
       HTTP_TIMEOUT: '120'
+      MCP_CLIENT_NAME: vedar-mcp-bridge-probe
     steps:
       - uses: actions/checkout@v7
 

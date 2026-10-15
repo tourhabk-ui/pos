@@ -21,6 +21,8 @@ import { render, cleanup, within, screen } from '@testing-library/react';
 
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
+// /zh зовёт счётчик краулеров с User-Agent запроса (аудит 15.10, CN-quick).
+vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'user-agent': 'vitest' }) }));
 
 import ZhEntryPage from '@/app/zh/page';
 import { ZH_CLIENT_GUIDES, ZH_CONNECT, llmsSectionZh } from '@/lib/mcp/zh-layer';

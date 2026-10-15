@@ -6,7 +6,11 @@
  * за списком путей модуль с INSERT, иначе реестр возможностей
  * (cron-capability-registry) честно припишет ей db_write.
  *
- * HTML-страницы и sitemap сюда не входят — перепись называет это вслух.
+ * С аудита 15.10 (CN-quick) в счёт входят sitemap и китайский вход /zh: до
+ * этого дня ответить, читали ли Baiduspider, YisouSpider (поиск Alibaba, им
+ * отвечает Qwen) или Bytespider китайскую страницу, было нечем — счётчик
+ * видел только машинные файлы. Остальные HTML-страницы перепись по-прежнему
+ * называет несчитаемыми вслух (NOT_COUNTED).
  */
 export const AGENT_ENTRY_PATHS = [
   '/robots.txt',
@@ -21,6 +25,36 @@ export const AGENT_ENTRY_PATHS = [
   // API по RFC 9727 (lib/api/openapi).
   '/openapi.json',
   '/.well-known/api-catalog',
+  // 15.10 (аудит, CN-quick): карта сайта — то, с чего обходчик поисковика
+  // узнаёт о /zh, и сама китайская страница.
+  '/sitemap.xml',
+  '/zh',
+  // Одна метка на весь раздел /zh/<…> (будущие китайские конспекты туров и
+  // мест): строка на раздел, а не путь на каждую карточку. Метку ставит
+  // zhEntryPath() внутри recordZhEntryHit — той же функции, что зовёт /zh;
+  // страниц под ней на 15.10 нет — ноль здесь значит «читать пока нечего»,
+  // а не «не ходят».
+  '/zh/*',
 ] as const;
 
 export type AgentEntryPath = (typeof AGENT_ENTRY_PATHS)[number];
+
+/**
+ * HTML-страницы среди входов: здесь не считаются браузеры людей. Счётчик —
+ * перепись обходчиков, а не посещаемость; людей считает page_views, и второй
+ * счёт тех же людей разошёлся бы с первым. Обходчик, назвавшийся по реестру
+ * семейств, инструмент, пустой и неопознанный заголовок — считаются.
+ */
+export const AGENT_ENTRY_HTML_PATHS: ReadonlySet<AgentEntryPath> = new Set<AgentEntryPath>(['/zh', '/zh/*']);
+
+/**
+ * Метка входа для адреса китайского раздела: сам /zh — своей строкой, всё
+ * под ним — одной меткой /zh/*. Не китайский адрес — null: считать его
+ * здесь нечем, и подставлять чужую метку нельзя.
+ */
+export function zhEntryPath(pathname: string): AgentEntryPath | null {
+  const p = pathname.split(/[?#]/)[0].replace(/\/+$/, '') || '/';
+  if (p === '/zh') return '/zh';
+  if (p.startsWith('/zh/')) return '/zh/*';
+  return null;
+}

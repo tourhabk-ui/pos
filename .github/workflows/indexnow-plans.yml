@@ -1,7 +1,11 @@
-name: IndexNow — страницы планов (после деплоя правок)
+name: IndexNow — страницы планов и /zh (после деплоя правок)
 
 # Зачем workflow, а не curl с телефона: закрытый роут требует CRON_SECRET,
 # а прод не отовсюду достижим. В Actions секрет и сеть уже есть.
+#
+# С аудита 15.10 (CN-quick) роут пингует и китайские страницы (/zh, список —
+# lib/zh/pages): пути IndexNow у /zh до этого не было. Итог каждой отправки —
+# в ai_actions_log с адресами; ручной curl мимо роута туда не попал бы.
 #
 # Пинг имеет смысл только ПОСЛЕ того, как новая версия страниц поднялась на
 # проде: иначе Яндекс переобойдёт старый текст и уснёт на неделю. Поэтому
@@ -56,7 +60,7 @@ jobs:
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 
-      - name: Пинг IndexNow по страницам планов
+      - name: Пинг IndexNow по страницам планов и /zh
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -67,7 +71,7 @@ jobs:
           echo "HTTP $HTTP"
           python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
           {
-            echo '## IndexNow — страницы планов'
+            echo '## IndexNow — страницы планов и /zh'
             echo ''
             echo "HTTP $HTTP"
             echo ''
@@ -76,6 +80,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$HTTP" != "200" ]; then
-            echo "::error::IndexNow не принял страницы планов (HTTP $HTTP) — см. тело ответа выше"
+            echo "::error::IndexNow не принял страницы планов и /zh (HTTP $HTTP) — см. тело ответа выше"
             exit 1
           fi
