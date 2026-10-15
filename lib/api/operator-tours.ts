@@ -95,6 +95,8 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   cancellation_policy: z.string().trim().max(2000).nullable().optional(),
   pickup_type:         z.enum(['hotel_pickup', 'meeting_point', 'self_drive']).nullable().optional(),
   pickup_details:      z.string().trim().max(1000).nullable().optional(),
+  /** Закрепить наверху страницы оператора (1267): true — закрепить, false — снять. */
+  pinned:              z.boolean().optional(),
 });
 
 export const AddAvailabilitySchema = z.object({

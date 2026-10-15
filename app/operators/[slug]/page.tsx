@@ -104,7 +104,7 @@ async function getOperatorTours(operatorId: string): Promise<OperatorPageTourRow
             ot.photos, ot.tour_image
        FROM operator_tours ot
       WHERE ot.operator_id::text = $1::text AND ${publicTourSql('ot')}
-      ORDER BY ot.season_start NULLS LAST, ot.id`,
+      ORDER BY (ot.pinned_at IS NULL), ot.pinned_at, ot.season_start NULLS LAST, ot.id`,
     [operatorId]
   );
   return result.rows;

@@ -12,6 +12,7 @@ import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/cate
 import type { PartnerCategory } from '@/lib/partners/categories';
 import TildaPanel from '@/components/admin/TildaPanel';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
+import { LeadDeliveryLine, type LeadDeliveryView } from '@/components/admin/LeadDeliveryLine';
 
 /** 'none' — карточка без заявки (заведена миграцией или импортом); с LEFT JOIN users они видны. */
 type ProfileStatus = 'none' | 'pending' | 'approved' | 'rejected';
@@ -47,6 +48,11 @@ interface OperatorRow {
   slug: string | null;
   widget_enabled: boolean;
   widget_domains: string[];
+  /**
+   * Последний итог личной доставки заявки; null — записей нет; поля нет —
+   * прочитать не удалось (app/api/admin/operators, lib/leads/delivery-outcome).
+   */
+  last_delivery?: LeadDeliveryView | null;
 }
 
 const TAB_LABELS: Record<string, string> = {
@@ -178,6 +184,7 @@ function ChannelLinkPanel({ op }: { op: OperatorRow }) {
           {state.kind === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Ссылка для подключения'}
         </button>
       </div>
+      <LeadDeliveryLine delivery={op.last_delivery} />
       {!bound.max && !bound.telegram && state.kind === 'idle' && (
         <p className="text-xs text-[var(--warning)]">
           Заявки этому оператору сейчас не доходят: ни MAX, ни Telegram не подключены.
