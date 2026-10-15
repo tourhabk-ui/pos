@@ -33,7 +33,7 @@ UPDATE operator_tours ot
          ('mestechko-oblet-koryakskiy-avachinskiy',        TIMESTAMPTZ '2026-10-15 09:00:05+00')
        ) AS v(slug, pinned_at)
  WHERE p.slug = 'mestechko'
-   AND ot.operator_id = p.id
+   AND ot.operator_id::text = p.id::text
    AND ot.slug = v.slug
    AND ot.pinned_at IS NULL
    AND ot.deleted_at IS NULL;

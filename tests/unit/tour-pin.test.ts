@@ -117,7 +117,7 @@ describe('1268: «Местечку» закреплены пять вертол�
 
   it('гейт по партнёру и только поверх незакреплённых: выбор оператора не перетирается', () => {
     expect(sql).toMatch(/p\.slug = 'mestechko'/);
-    expect(sql).toMatch(/ot\.operator_id = p\.id/);
+    expect(sql).toMatch(/ot\.operator_id(::text)? = p\.id(::text)?/);
     expect(sql).toMatch(/ot\.pinned_at IS NULL/);
     expect(sql).toMatch(/ot\.deleted_at IS NULL/);
   });
