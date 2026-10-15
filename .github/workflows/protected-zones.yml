@@ -1,0 +1,74 @@
+name: Зоны §7 — слово владельца
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Находка аудита 15.10 AR-zones. CLAUDE.md §7 перечисляет зоны «НЕ ТРОГАТЬ»
+# (Edge-гвард, JWT, приём оплаты, SOS, контроль выхода, реестр публичных API),
+# и исключения в них бывали только по слову владельца с датой. Но ни один
+# workflow не смотрел, задевает ли PR зону: правило держалось на памяти того,
+# кто правил. Владелец 15.10: «по статье Anthropic тебе карт-бланш» — из
+# статьи взято согласие по смыслу правки: правка комментария в зоне —
+# предупреждение, правка кода — только со словом владельца в теле PR.
+#
+# Реестр зон и вся логика — scripts/protected-zones.mjs; сторож —
+# tests/unit/protected-zones-gate.test.ts.
+#
+# ── Почему pull_request_target ─────────────────────────────────────────────
+#
+# На обычном pull_request и workflow, и скрипт берутся из ветки PR: PR,
+# задевший зону, мог бы тем же коммитом ослабить проверку. На
+# pull_request_target оба — из main. Чужой код при этом НЕ исполняется:
+# checkout берёт main, файлы PR читаются через API как текст и разбираются
+# парсером, тело PR приходит строкой через env. Второе следствие: проверка
+# идёт и на PR с конфликтом, где pull_request-проверки GitHub не поднимает.
+#
+# Тело PR — внешнее содержимое: только env, ни одной подстановки `${{ }}`
+# тела в run.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, edited, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: protected-zones-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  zones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Скрипт проверки из main
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/protected-zones.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # Парсер нужен только для исхода «меняются одни комментарии». Не
+      # поставился — проверка всё равно идёт, а правка комментариев судится как
+      # правка кода, и скрипт говорит это аннотацией.
+      - name: Парсер TypeScript
+        continue-on-error: true
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/ts" typescript@5.9.3
+
+      - name: Задетые зоны и слово владельца
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: TS_MODULE="$RUNNER_TEMP/ts/node_modules/typescript" node scripts/protected-zones.mjs --run

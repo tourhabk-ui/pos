@@ -852,6 +852,12 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 
 ## 7. НЕ ТРОГАТЬ
 
+**Проверка зон (15.10, владелец: «по статье Anthropic тебе карт-бланш»).** PR, задевший зону ниже,
+краснеет без раздела `## Слово владельца` в теле: по строке на зону — имя зоны или путь, цитата «…»
+и дата ДД.ММ; правка одних комментариев — предупреждение. Реестр зон с причинами (он сам тоже зона) —
+`scripts/protected-zones.mjs`, проверка — `.github/workflows/protected-zones.yml`, сторож —
+`tests/unit/protected-zones-gate.test.ts`.
+
 - `middleware.ts` — Edge JWT + rate-limit. Исключение по слову владельца 01.09
   («PR 2 да»): гейт `/api/admin/*` — admin-JWT либо `CRON_SECRET` в заголовке
   `Authorization: Bearer`; `?secret=` на Edge не читается. До этого префикс
