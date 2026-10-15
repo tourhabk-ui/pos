@@ -184,3 +184,62 @@ describe('detectEmergency — пропуски, найденные разбор�
     }
   });
 });
+
+// Ревью WID-lang (15.10): окно виджета говорит с посетителем на его языке, и
+// серверный блок 112 обязан узнавать беду не только по-русски. Те же правила
+// точности: опасное слово — только с признаком угрозы в той же фразе.
+describe('detectEmergency — английский и китайский', () => {
+  const positive: Array<[string, EmergencyCategory]> = [
+    ['We are lost near the volcano', 'lost'],
+    ["I'm lost, phone at 10%", 'lost'],
+    ["We don't know where we are", 'lost'],
+    ['我们迷路了', 'lost'],
+    ['不知道我们在哪', 'lost'],
+    ['My friend is injured and bleeding badly', 'injury'],
+    ['He fell and cannot get up', 'injury'],
+    ['朋友受伤了，腿骨折', 'injury'],
+    ['他摔倒了起不来', 'injury'],
+    ['A bear is chasing us', 'bear'],
+    ['熊在追我们', 'bear'],
+    ['我们被熊袭击了', 'bear'],
+    ['My son fell through the ice', 'ice'],
+    ['孩子掉进冰窟窿', 'ice'],
+    ['Two people buried by an avalanche', 'avalanche'],
+    ['我们遇到雪崩', 'avalanche'],
+    ["My husband hasn't come back from the trail", 'group_missing'],
+    ['队友没回来，联系不上', 'group_missing'],
+    ['Signs of hypothermia, we are freezing', 'freezing'],
+    ['快冻死了', 'freezing'],
+    ['Help us please', 'distress'],
+    ['救命！', 'distress'],
+    ['请叫救援', 'distress'],
+  ];
+  it.each(positive)('срабатывает: "%s" → %s', (text, category) => {
+    const r = detectEmergency(text);
+    expect(r.detected).toBe(true);
+    expect(r.categories).toContain(category);
+  });
+
+  const informational = [
+    'Are there bears near the Kuril Lake?',
+    'Is the ice thick enough in winter?',
+    'What is the avalanche risk in March?',
+    'Help me choose a volcano tour',
+    'I lost my gloves, where can I buy new ones?',
+    '熊会靠近营地吗？',
+    '堪察加有熊吗？',
+    '雪崩风险大吗？',
+    '帮我选一个火山旅游',
+    '我的行李丢了，去哪里买新的？',
+  ];
+  it.each(informational)('не срабатывает на вопросе: "%s"', (text) => {
+    expect(detectEmergency(text).detected).toBe(false);
+  });
+
+  it('блок 112 на языке посетителя приходит на китайское «迷路»', () => {
+    const r = withSosBlock('好的。', '我们迷路了', 'zh');
+    expect(r.emergency).toBe(true);
+    expect(r.text).toMatch(/112/);
+    expect(r.text).toMatch(/请拨打 112/);
+  });
+});

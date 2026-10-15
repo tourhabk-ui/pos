@@ -58,7 +58,7 @@ import { POST } from '@/app/api/widget/chat/route';
 import { DELIVERY_HONEST_LINE } from '@/lib/kuzmich/delivery-claim-guard';
 import { CONTRADICTED_ALL_CLEAR_NOTE, UNCHECKED_ALL_CLEAR_NOTE } from '@/lib/kuzmich/safety-claim-guard';
 import { WIDGET_TEXTS } from '@/lib/embed/widget-i18n';
-import { buildSosBlock } from '@/lib/safety/sos-detector';
+import { buildSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
 import {
   WIDGET_HISTORY_MAX_ITEMS,
   WIDGET_HISTORY_TOTAL_MAX_CHARS,
@@ -345,7 +345,10 @@ describe('язык окна: серверные тексты на языке п�
     const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: SOS_ZH, lang: 'zh' });
     const body = await res.json() as { data: { answer: string; emergency: boolean } };
     expect(body.data.emergency).toBe(true);
-    expect(body.data.answer.startsWith(buildSosBlock(['distress'], 'zh'))).toBe(true);
+    // Детектор знает и китайские признаки (ревью WID-lang): «迷路» — это ещё и
+    // категория «потерялись», её совет идёт в блок вместе с «SOS».
+    expect(detectEmergency(SOS_ZH).categories).toEqual(expect.arrayContaining(['lost', 'distress']));
+    expect(body.data.answer.startsWith(buildSosBlock(detectEmergency(SOS_ZH).categories, 'zh'))).toBe(true);
     expect(body.data.answer).toContain('如遇紧急情况');
     expect(body.data.answer).toMatch(/(?<!\d)112(?!\d)/);
     expect(body.data.answer).not.toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
