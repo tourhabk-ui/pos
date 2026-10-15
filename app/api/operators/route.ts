@@ -25,9 +25,12 @@ export async function GET(request: NextRequest) {
   try {
     const { items, meta, activities } = await queryOperators(parsed.data);
     return NextResponse.json({ success: true, data: items, meta, activities });
-  } catch {
+  } catch (err) {
     // Исторический контракт: при недоступной БД листинг деградирует в пустой
-    // список (200 + degraded), а не в 5xx — клиент показывает «не найдено».
+    // список (200 + degraded), а не в 5xx. Отказ называется в логе (§4.0), а
+    // клиент по degraded говорит «не загрузился», а не «не найдено».
+    const code = (err as { code?: string } | null)?.code ?? 'нет кода';
+    console.error(`[operators] список не выполнился: sqlstate=${code}`, err instanceof Error ? err.message : String(err));
     return NextResponse.json(
       {
         success: true,

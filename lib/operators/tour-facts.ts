@@ -17,7 +17,7 @@
  * читают и сервер (`lib/operators/list-query`), и клиент витрины.
  */
 
-import { activityLabel } from '@/lib/tours/labels';
+import { activityLabel, canonicalActivity } from '@/lib/tours/labels';
 import { plural } from '@/lib/home/data-freshness';
 
 /** Сколько живых туров у компании и какого вида. */
@@ -54,7 +54,14 @@ export function summarizeOperatorTourRows(
     if (!Number.isFinite(n) || n <= 0) continue;
     const cur = acc.get(r.operator_id) ?? { total: 0, byActivity: [] };
     cur.total += n;
-    if (r.activity_type) cur.byActivity.push({ activity_type: r.activity_type, count: n });
+    if (r.activity_type) {
+      // Синонимы вида сводятся к одному ключу: «Джип-сафари 3 · Джип-сафари 2»
+      // у одной компании — две строки про одно и то же.
+      const key = canonicalActivity(r.activity_type);
+      const same = cur.byActivity.find((a) => a.activity_type === key);
+      if (same) same.count += n;
+      else cur.byActivity.push({ activity_type: key, count: n });
+    }
     acc.set(r.operator_id, cur);
   }
   const out = new Map<string, OperatorTourFacts>();

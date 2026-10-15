@@ -8,6 +8,7 @@ import { Search, ShieldCheck, ChevronRight, MapPin } from 'lucide-react';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 import { activityLabel } from '@/lib/tours/labels';
 import { tourFactsLine, type ActivityCount, type OperatorTourFacts } from '@/lib/operators/tour-facts';
+import { OPERATORS_ORDER_NOTE } from '@/lib/operators/order-note';
 
 export interface Operator {
   id: string;
@@ -64,6 +65,8 @@ export default function OperatorsPageClient({
   const [operators, setOperators] = useState<Operator[]>(initialItems ?? []);
   const [meta, setMeta] = useState<ApiMeta | null>(initialMeta);
   const [loading, setLoading] = useState(initialKey === null);
+  /** Список не загрузился (сеть или база): это не «не найдено» (§4.0). */
+  const [failed, setFailed] = useState(false);
   const [search, setSearch] = useState('');
   const [activity, setActivity] = useState('');
   const [activities, setActivities] = useState<ActivityCount[] | null>(initialActivities);
@@ -95,14 +98,19 @@ export default function OperatorsPageClient({
       if (activity) params.set('activity', activity);
       const res = await fetch(`/api/operators?${params}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.degraded) {
+        // База не ответила: прежний список не стираем и не выдаём за «не найдено».
+        setFailed(true);
+      } else if (data.success) {
+        setFailed(false);
         setOperators(data.data);
         setMeta(data.meta);
         // Сбой подсчёта видов (null) не стирает кнопки, уже полученные раньше.
         if (Array.isArray(data.activities)) setActivities(data.activities);
       }
-    } catch {
-      // silent
+    } catch (err) {
+      setFailed(true);
+      console.error('[operators] список не обновился:', err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -155,6 +163,7 @@ export default function OperatorsPageClient({
           <p className="text-[var(--text-secondary)] text-lg">
             {meta ? `Операторов на платформе: ${meta.total}` : 'Туристические операторы Камчатки'}
           </p>
+          <p className="text-[var(--text-muted)] text-sm mt-1">{OPERATORS_ORDER_NOTE}</p>
         </div>
       </div>
 
@@ -199,6 +208,12 @@ export default function OperatorsPageClient({
           )}
         </div>
 
+        {failed && (
+          <p role="status" className="text-sm text-[var(--warning)] mb-4">
+            Список сейчас не загрузился. Обновите страницу чуть позже.
+          </p>
+        )}
+
         {/* Grid */}
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -206,7 +221,7 @@ export default function OperatorsPageClient({
               <div key={i} className="ds-card ds-skeleton h-64 rounded-xl" />
             ))}
           </div>
-        ) : operators.length === 0 ? (
+        ) : operators.length === 0 && !failed ? (
           <div className="text-center py-20">
             <MapPin className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
             <p className="text-[var(--text-secondary)] text-lg">Операторы не найдены</p>

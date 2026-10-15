@@ -54,7 +54,7 @@ const FIRST_AFTER_BASELINE = 863;
 
 const MIG_1270 = readFileSync(join(process.cwd(), 'migrations/1270_mestechko_hero_helicopter.sql'), 'utf-8');
 const OLD_HERO = '/images/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg';
-const NEW_HERO = '/images/mestechko/oblet-koryakskiy-avachinskiy-01.jpg';
+const NEW_HERO = '/images/mestechko/kurilskoe-ozero-01.jpg';
 const VOLCANOESLAND_HERO = '/images/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-02.jpg';
 
 const P = {
@@ -223,9 +223,9 @@ withPg('витрина /operators: факты о живых турах, кноп
     expect((await pool.query(MIG_1270)).rowCount).toBe(0);
 
     // Обложку сменил человек — миграция её не перетирает.
-    await pool.query(`UPDATE partners SET hero_image = '/images/mestechko/kurilskoe-ozero-01.jpg' WHERE slug = 'mestechko'`);
+    await pool.query(`UPDATE partners SET hero_image = '/images/mestechko/vertolet-tolbachik-02.jpg' WHERE slug = 'mestechko'`);
     expect((await pool.query(MIG_1270)).rowCount).toBe(0);
-    expect(await hero('mestechko')).toBe('/images/mestechko/kurilskoe-ozero-01.jpg');
+    expect(await hero('mestechko')).toBe('/images/mestechko/vertolet-tolbachik-02.jpg');
 
     // Поверх обложки 1222 — меняет.
     await pool.query(`UPDATE partners SET hero_image = $1 WHERE slug = 'mestechko'`, [OLD_HERO]);
@@ -234,7 +234,7 @@ withPg('витрина /operators: факты о живых турах, кноп
     expect(await hero('volcanoesland')).toBe(VOLCANOESLAND_HERO);
 
     // Кадр лежит на диске вместе с нарезкой, которую раздаёт карточка.
-    for (const f of ['oblet-koryakskiy-avachinskiy-01.jpg', 'oblet-koryakskiy-avachinskiy-01.640.webp']) {
+    for (const f of ['kurilskoe-ozero-01.jpg', 'kurilskoe-ozero-01.640.webp']) {
       expect(existsSync(join(process.cwd(), 'public/images/mestechko', f)), f).toBe(true);
     }
   });

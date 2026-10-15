@@ -190,6 +190,42 @@ describe('адрес фильтра читается при входе', () => {
   });
 });
 
+describe('честность витрины (CLAUDE.md §0)', () => {
+  it('правило порядка названо на странице', () => {
+    renderPage();
+    expect(screen.getByText('Компании идут по алфавиту. Место в списке не продаётся.')).toBeTruthy();
+  });
+
+  it('синонимы вида у компании — одна позиция в строке фактов', () => {
+    const facts = summarizeOperatorTourRows([
+      { operator_id: 'x', activity_type: 'jeep', n: 3 },
+      { operator_id: 'x', activity_type: 'jeep_safari', n: 2 },
+    ]).get('x');
+    expect(tourFactsLine(facts)).toBe('5 туров · Джип-сафари 5');
+  });
+
+  it('база не ответила (degraded) — «не загрузился», прежний список на месте, не «не найдены»', async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({ success: true, data: [], meta: { total: 0, page: 1, limit: 12, pages: 0 }, activities: null, degraded: true }),
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('link', { name: 'Вертолёт · 1' }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('не загрузился'));
+    expect(screen.queryByText('Операторы не найдены')).toBeNull();
+    expect(card('Местечко Камчатка')).toBeTruthy();
+  });
+
+  it('сеть упала — то же «не загрузился», а не тишина', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValue(new Error('network'));
+    renderPage();
+    fireEvent.click(screen.getByRole('link', { name: 'Вертолёт · 1' }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('не загрузился'));
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+});
+
 describe('запреты', () => {
   it('захардкоженного списка «категорий»-видов на витрине больше нет', () => {
     const src = code(readFileSync(join(ROOT, 'app/operators/_OperatorsClient.tsx'), 'utf-8'));

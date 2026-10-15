@@ -29,9 +29,9 @@ const NOLIVE = { ...ROW, id: '22222222-2222-4222-8222-222222222222', slug: 'noli
 function db(fail: 'facts' | 'facets' | 'list' | null) {
   query.mockImplementation(async (sql: string) => {
     const err = Object.assign(new Error('relation does not exist'), { code: '42P01' });
-    if (/COUNT\(DISTINCT ot\.operator_id\)/.test(sql)) {
+    if (/SELECT DISTINCT ot\.activity_type/.test(sql)) {
       if (fail === 'facets') throw err;
-      return { rows: [{ activity_type: 'helicopter', n: 1 }, { activity_type: 'jeep_safari', n: 1 }] };
+      return { rows: [{ activity_type: 'helicopter', operator_id: ROW.id }, { activity_type: 'jeep_safari', operator_id: ROW.id }] };
     }
     if (/ot\.operator_id = ANY/.test(sql)) {
       if (fail === 'facts') throw err;
@@ -104,6 +104,33 @@ describe('queryOperators: факты и виды из данных', () => {
   });
 });
 
+describe('синонимы вида и порядок', () => {
+  it('кнопки: «jeep» и «jeep_safari» — одна кнопка, компания считается один раз', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (/SELECT DISTINCT ot\.activity_type/.test(sql)) {
+        return { rows: [
+          { activity_type: 'jeep', operator_id: ROW.id },
+          { activity_type: 'jeep_safari', operator_id: ROW.id },
+          { activity_type: 'jeep_safari', operator_id: NOLIVE.id },
+        ] };
+      }
+      if (/ot\.operator_id = ANY/.test(sql)) return { rows: [] };
+      if (/COUNT\(\*\)::text AS total/.test(sql)) return { rows: [{ total: '2' }] };
+      return { rows: [ROW, NOLIVE] };
+    });
+    const r = await queryOperators(OperatorsQuerySchema.parse({}));
+    expect(r.activities).toEqual([{ activity_type: 'jeep_safari', count: 2 }]);
+  });
+
+  it('порядок — по имени, а не по хранимому рейтингу', async () => {
+    db(null);
+    await queryOperators(OperatorsQuerySchema.parse({}));
+    const list = query.mock.calls.find((c) => /LIMIT/.test(String(c[0])));
+    expect(String(list?.[0])).toMatch(/ORDER BY lower\(p\.name\), p\.id/);
+    expect(String(list?.[0])).not.toMatch(/ORDER BY p\.rating/);
+  });
+});
+
 describe('параметры адреса', () => {
   it('прежний ?category= отбрасывается схемой и не доходит до SQL', async () => {
     db(null);
@@ -117,8 +144,15 @@ describe('параметры адреса', () => {
     db(null);
     await queryOperators(OperatorsQuerySchema.parse({ activity: 'helicopter' }));
     const list = query.mock.calls.find((c) => /LIMIT/.test(String(c[0])));
-    expect(list?.[1]).toContain('helicopter');
+    expect(list?.[1]).toContainEqual(['helicopter']);
     expect(String(list?.[0])).not.toContain('helicopter');
+  });
+
+  it('синоним вида в адресе (?activity=jeep) ищет все написания вида', async () => {
+    db(null);
+    await queryOperators(OperatorsQuerySchema.parse({ activity: 'jeep' }));
+    const list = query.mock.calls.find((c) => /LIMIT/.test(String(c[0])));
+    expect(list?.[1]).toContainEqual(['jeep_safari', 'jeep']);
   });
 
   it('вид не из алфавита ключей — отказ схемы, а не SQL', () => {

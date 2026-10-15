@@ -26,6 +26,7 @@ import { query } from '@/lib/database';
 import { LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
 import { sqlState } from '@/lib/guides/db-failure';
 import type { OperatorListRow } from '@/lib/types/db-rows';
+import { ACTIVITY_ALIASES, canonicalActivity } from '@/lib/tours/labels';
 import {
   sortActivityCounts,
   summarizeOperatorTourRows,
@@ -88,6 +89,23 @@ function listedPartner(alias: string): string[] {
 
 const LIVE = LIVE_TOUR_CONDITIONS.join(' AND ');
 
+/**
+ * Порядок витрины — одно правило для всех, и оно названо туристу на странице
+ * (CLAUDE.md §0, решение владельца 15.10: «мы независимая платформа для
+ * туристов в первую очередь и честность наше главное правило»). По алфавиту:
+ * правило не зависит ни от чьего слова и ни от каких денег. Рейтинг для
+ * порядка не берётся: `partners.rating` пересчитывает триггер по отзывам, но
+ * в базе остались числа посевных миграций, и сортировка по ним опиралась бы
+ * на возможную выдумку (§4.0).
+ */
+export { OPERATORS_ORDER_NOTE } from '@/lib/operators/order-note';
+
+/** Все написания вида в базе: канонический ключ и его синонимы (lib/tours/labels). */
+function activitySpellings(activity: string): string[] {
+  const canon = canonicalActivity(activity);
+  return [canon, ...Object.keys(ACTIVITY_ALIASES).filter((k) => ACTIVITY_ALIASES[k] === canon)];
+}
+
 /** Отказ вспомогательного запроса называется вслух (§4.0): имя и SQLSTATE. */
 function logListFailure(name: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
@@ -113,20 +131,30 @@ async function queryTourFacts(ids: string[]): Promise<Map<string, OperatorTourFa
   }
 }
 
-/** Кнопки фильтра: вид живого тура → сколько компаний списка его водят. */
+/**
+ * Кнопки фильтра: вид живого тура → сколько компаний списка его водят.
+ * Синонимы вида («jeep» и «jeep_safari») сводятся к одному ключу, а компания
+ * считается один раз — иначе две одинаковые кнопки и двойной счёт.
+ */
 async function queryActivityFacets(): Promise<ActivityCount[] | null> {
   try {
-    const { rows } = await query<{ activity_type: string; n: number }>(
-      `SELECT ot.activity_type, COUNT(DISTINCT ot.operator_id)::int AS n
+    const { rows } = await query<{ activity_type: string; operator_id: string }>(
+      `SELECT DISTINCT ot.activity_type, ot.operator_id::text AS operator_id
          FROM operator_tours ot
          JOIN partners p ON p.id = ot.operator_id
         WHERE ${LIVE}
           AND ot.activity_type IS NOT NULL
-          AND ${listedPartner('p').join(' AND ')}
-        GROUP BY ot.activity_type`,
+          AND ${listedPartner('p').join(' AND ')}`,
     );
+    const byKind = new Map<string, Set<string>>();
+    for (const r of rows) {
+      const key = canonicalActivity(r.activity_type);
+      const set = byKind.get(key) ?? new Set<string>();
+      set.add(r.operator_id);
+      byKind.set(key, set);
+    }
     return sortActivityCounts(
-      rows.map((r) => ({ activity_type: r.activity_type, count: Number(r.n) })).filter((r) => r.count > 0),
+      [...byKind].map(([activity_type, ops]) => ({ activity_type, count: ops.size })).filter((r) => r.count > 0),
     );
   } catch (err) {
     logListFailure('operators-activity-facets', err);
@@ -147,9 +175,9 @@ export async function queryOperators(filters: OperatorsFilters): Promise<Operato
         SELECT 1 FROM operator_tours ot
          WHERE ot.operator_id = p.id
            AND ${LIVE}
-           AND ot.activity_type = $${idx}
+           AND ot.activity_type = ANY($${idx}::text[])
       )`);
-    params.push(activity);
+    params.push(activitySpellings(activity));
     idx++;
   }
   if (search) {
@@ -166,7 +194,7 @@ export async function queryOperators(filters: OperatorsFilters): Promise<Operato
               p.rating::text, p.review_count::text, p.is_verified
        FROM partners p
        ${where}
-       ORDER BY p.rating DESC, p.review_count DESC
+       ORDER BY lower(p.name), p.id
        LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, limit, offset]
     ),

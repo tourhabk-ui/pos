@@ -18,28 +18,31 @@
 --
 -- Как выбирали — глазами, по всем вертолётным кадрам Местечка в
 -- public/images/mestechko/ (15.10):
---   oblet-koryakskiy-avachinskiy-01  Ми-8 с надписью «КАМЧАТКА» во весь кадр,
---                                    группа у борта, синее небо; оценка
---                                    яркости 56.3 по замеру 1221 — ВЫБРАН;
---   vertolet-tolbachik-02            вертолёт сверху, мелкий, на тёмной лаве,
---                                    11.2 — в карточке 176 px высотой
---                                    читается как пятно;
---   vertolet-tolbachik-03, -04       вертолёта в кадре нет (каменная спираль,
---                                    конусы Толбачика).
--- Кадр свой: снимок с сайта оператора mestechkokam.ru, уже стоит в галерее
--- его тура «Облёт Корякского и Авачинского» (1217), нарезка .320/.640/.1280
--- лежит рядом. Согласие на снимки для карточки компании и туров — «ДА»
--- оператора на размещение целиком (1216, раздел «Публична»).
+--   kurilskoe-ozero-01               Ми-8 крупно на цветущем берегу, озеро и
+--                                    горы за ним, ясный день, людей в кадре
+--                                    нет — ВЫБРАН;
+--   oblet-koryakskiy-avachinskiy-01  Ми-8 с надписью «КАМЧАТКА» и группа
+--                                    туристов у борта: лица узнаваемы. В
+--                                    галерее тура кадр уместен, но лицом
+--                                    компании ставить чужих людей без их
+--                                    согласия не стали (152-ФЗ, осторожность);
+--   vertolet-tolbachik-02            вертолёт сверху, мелкий, на тёмной лаве —
+--                                    в карточке 176 px высотой читается пятном;
+--   vertolet-tolbachik-03, -04       вертолёта в кадре нет.
+-- Кадр свой: снимок с сайта оператора mestechkokam.ru, уже стоит первым в
+-- галерее его тура «Курильское озеро» (1217), нарезка .320/.640/.1280 лежит
+-- рядом. Согласие на снимки для карточки компании и туров — «ДА» оператора
+-- на размещение целиком (1216, раздел «Публична»).
 --
 -- Гейт. Меняем, только если обложка всё ещё та, что поставила 1222: если её
 -- уже сменил оператор в кабинете или администратор, это решение человека, и
 -- миграция его не перетирает. Повторный прогон ничего не меняет.
 --
 -- Вернуть прежнюю (если понадобится):
--- UPDATE partners SET hero_image = '/images/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg', updated_at = NOW() WHERE slug = 'mestechko' AND hero_image = '/images/mestechko/oblet-koryakskiy-avachinskiy-01.jpg';
+-- UPDATE partners SET hero_image = '/images/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg', updated_at = NOW() WHERE slug = 'mestechko' AND hero_image = '/images/mestechko/kurilskoe-ozero-01.jpg';
 
 UPDATE partners
-   SET hero_image = '/images/mestechko/oblet-koryakskiy-avachinskiy-01.jpg',
+   SET hero_image = '/images/mestechko/kurilskoe-ozero-01.jpg',
        updated_at = NOW()
  WHERE slug = 'mestechko'
    AND hero_image = '/images/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg';
