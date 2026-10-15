@@ -495,14 +495,14 @@ describe('статья «Природный парк «Вилючинский»�
     expect(all).toMatch(/№ 743-П/);
   });
 
-  it('страница: главный кадр партнёра с подписью, переходы', async () => {
+  it('страница: главный кадр владельца с подписью, переходы (кадр партнёра снят до согласия, 15.10)', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Природный парк «Вилючинский»');
     const img = screen.getByRole('img', { name: article.hero!.alt });
-    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/vilyuchinsky/mestechko-vilyuchinskij-osenyu.jpg');
+    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/vilyuchinsky/vladelec-oblachnyj-poyas.jpg');
     const figure = img.closest('figure')!;
-    expect(within(figure).getByRole('link', { name: 'Местечко Камчатка' }).getAttribute('href')).toBe('https://vedarai.ru/operators/mestechko');
-    expect(figure.textContent).toMatch(/Местечко Камчатка · с разрешения туроператора/);
+    expect(figure.textContent?.trim()).toBe('Вилючинский вулкан с облачным поясом у подножия. Фото: владелец платформы');
+    expect(figure.querySelectorAll('a')).toHaveLength(0);
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });
     expect(within(nav).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(
       (article.links ?? []).map((l) => l.href),

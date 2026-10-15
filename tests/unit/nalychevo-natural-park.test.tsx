@@ -404,13 +404,15 @@ describe('статья «Природный парк „Налычево“»', 
     expect(text).toMatch(/Аагские нарзаны в истоках реки Чистой справочник называет холодными, а сайт парка даёт им до 39 °С/);
   });
 
-  it('главный кадр — снимок партнёра, залит в хранилище', () => {
+  it('главный кадр — снимок владельца, залит в хранилище (кадр партнёра снят до согласия, 15.10)', () => {
     const marker = JSON.parse(readFileSync(join(ROOT, '.github/triggers/media-to-s3.json'), 'utf-8')) as {
       items: Array<{ key: string }>;
     };
-    expect(article.hero!.key).toBe('photos/nalychevo/mestechko-kupalnya-tretya-luzha.jpg');
+    expect(article.hero!.key).toBe('photos/nalychevo/vladelec-koryakskaya-sopka-vecherom.jpg');
     expect(marker.items.map((i) => i.key)).toContain(article.hero!.key);
+    expect(article.hero!.author).toBe('владелец платформы');
     expect(article.hero!.licenseUrl).toBeUndefined();
+    expect(article.hero!.sourceUrl).toBeUndefined();
   });
 
   it('«Налычево» остался краевым; зона свободного посещения названа', () => {
@@ -423,14 +425,13 @@ describe('статья «Природный парк „Налычево“»', 
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Природный парк «Налычево»');
     const img = screen.getByRole('img', { name: article.hero!.alt });
-    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/nalychevo/mestechko-kupalnya-tretya-luzha.jpg');
+    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/nalychevo/vladelec-koryakskaya-sopka-vecherom.jpg');
     const figure = img.closest('figure')!;
-    expect(within(figure).getByRole('link', { name: 'Местечко Камчатка' }).getAttribute('href')).toBe('https://vedarai.ru/operators/mestechko');
-    // Разрешение партнёра — словами, без ссылки на лицензию, которой нет.
-    expect(figure.textContent).toMatch(/Местечко Камчатка · с разрешения туроператора/);
-    expect(within(figure).getAllByRole('link')).toHaveLength(1);
+    // Снимок владельца — подпись словами: ни ссылки, ни лицензии, которых у
+    // него нет, и ни висящего « · » после имени.
+    expect(figure.textContent?.trim()).toBe('Корякская сопка вечером. Фото: владелец платформы');
     // И не пустой <a> без адреса: роли «ссылка» у него нет, а тег — есть.
-    expect(figure.querySelectorAll('a')).toHaveLength(1);
+    expect(figure.querySelectorAll('a')).toHaveLength(0);
     const dates = screen.getByRole('region', { name: 'Главные даты' });
     expect(within(dates).getAllByRole('listitem')).toHaveLength(article.timeline!.length);
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });

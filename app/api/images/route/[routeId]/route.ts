@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { shownPhotoSql } from '@/lib/images/origin';
+import { shownPhotoSql, PARTNER_NO_CONSENT } from '@/lib/images/origin';
 import { s3PublicUrl } from '@/lib/storage/s3';
 
 export const dynamic = 'force-dynamic';
@@ -54,12 +54,13 @@ export async function GET(req: NextRequest, { params }: Props) {
     // попадалась первой — та и уходила, включая случаи, когда постер канала
     // выбирал этот URL ради wikimedia-фото, а эндпоинт отдавал другой блоб.
     const { rows } = await pool.query(
+      // Снимок партнёра без согласия (1260) не отдаётся и по прямому адресу.
       `SELECT image_data, mime_type, s3_url, s3_key, thumb_url FROM ai_route_images
-       WHERE route_id = $1
+       WHERE route_id = $1 AND model IS DISTINCT FROM $2
        ORDER BY CASE WHEN ${shownPhotoSql('model')} THEN 0 ELSE 1 END,
                 created_at DESC
        LIMIT 1`,
-      [routeId],
+      [routeId, PARTNER_NO_CONSENT],
     );
 
     const row = rows[0];

@@ -1,17 +1,49 @@
 {
   "timeout": 120,
-  "run": 936,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1259 (главный кадр вулкана Вилючинский подписан владельцем по его ответу «Мой — подписать») и перепись показываемых ручных загрузок: у каких мест автор ещё пуст (полей автора в форме до 14.09 не было). Ждёт выката по подписи кадра. Конфиг записан целиком.",
+  "run": 937,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1260 (снимки «Местечка Камчатка» сняты с карточек мест до согласия партнёра, владелец: «пока нет получим согласе востановим»): статьи летописи «Налычево» и «Вилючинский» — снимки владельца (байты сличаются по sha256 с его исходниками 804cf57c… и 853153…), у «Вулканов Камчатки» главного кадра нет; двенадцать карточек мест без имени партнёра; перепись — род partner-no-consent со своей причиной. Прямые адреса спрятанных кадров (ожидается 404) — следующей пробой: повтор при 404 общий на все адреса, и ожидаемый отказ ждал бы выката 30 минут. Ждёт выката по главному кадру статьи «Налычево». Конфиг записан целиком.",
   "urls": [
+    "https://vedarai.ru/letopis/nalychevo",
+    "https://vedarai.ru/letopis/vilyuchinskij-park",
+    "https://vedarai.ru/letopis/vulkany-kamchatki",
+    "https://vedarai.ru/api/images/s3/photos/nalychevo/vladelec-koryakskaya-sopka-vecherom.jpg",
+    "https://vedarai.ru/api/images/s3/photos/vilyuchinsky/vladelec-oblachnyj-poyas.jpg",
+    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
+    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
+    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
+    "https://vedarai.ru/api/places/ce59fcc5-0e85-487c-9acf-5cbbb46d2e1e",
+    "https://vedarai.ru/api/places/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0",
+    "https://vedarai.ru/api/places/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
+    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
+    "https://vedarai.ru/api/places/663e37f3-5deb-4907-ac25-321dd247d85e",
+    "https://vedarai.ru/api/places/a79c9a19-e5c6-4d99-9134-cae496430dca",
+    "https://vedarai.ru/api/places/7626267c-d41f-4c88-8c87-c3313bb8b539",
     "https://vedarai.ru/api/places/164f612c-32da-4f0f-b261-c45c09dc2933",
-    "https://vedarai.ru/api/cron/place-photo-coverage?list=shown&model=manual-upload&limit=200"
+    "https://vedarai.ru/api/places/4dd86a74-d010-4ff4-81ad-23af3ba966a5",
+    "https://vedarai.ru/api/cron/place-photo-coverage?limit=300"
   ],
-  "until": "\"/api/images/route/164f612c-32da-4f0f-b261-c45c09dc2933?v=1782842306\":\"владелец платформы\"",
+  "until": "vladelec-koryakskaya-sopka-vecherom",
   "retries": 40,
   "retryDelay": 45,
   "grep": [
-    "\"/api/images/route/164f612c-32da-4f0f-b261-c45c09dc2933?v=1782842306\":\"владелец платформы\"",
-    "\"author\":null"
+    "Местечко Камчатка",
+    "mestechko",
+    "vladelec-koryakskaya-sopka-vecherom",
+    "vladelec-oblachnyj-poyas",
+    "<figure",
+    "partner-no-consent"
   ],
-  "bytes": 30000
+  "count": [
+    "/api/images/route/",
+    "/api/images/place-gallery/"
+  ],
+  "around": [
+    "\"photoCredits\"",
+    "скрыт (partner-no-consent)",
+    "\"model\":\"partner-no-consent\""
+  ],
+  "aroundLines": 4,
+  "aroundHits": 7,
+  "bytes": 120,
+  "hash": true
 }

@@ -39,9 +39,16 @@ describe('место: автор у каждого кадра свой', () => {
   });
 
   it('героя подписывает только его автор, без перечня галереи', () => {
-    expect(photoAttributionOf({ photo_author: 'владелец платформы', gallery_authors: ['Илья Оноприйчук'] }))
+    expect(photoAttributionOf({ photo_count: 1, photo_author: 'владелец платформы', gallery_authors: ['Илья Оноприйчук'] }))
       .toEqual({ author: 'владелец платформы', license: null, licenseUrl: null, sourceUrl: null });
+    expect(photoAttributionOf({ photo_count: 1 })).toBeNull();
     expect(photoAttributionOf({})).toBeNull();
+  });
+
+  it('спрятанный герой не подписывается: автора снимка, которого нет на экране, не называем (15.10)', () => {
+    // Снимок партнёра без согласия (1260) спрятан родом, а автор в строке остался.
+    expect(photoAttributionOf({ photo_count: 0, photo_author: 'Местечко Камчатка', photo_model: 'partner-no-consent' })).toBeNull();
+    expect(photoCreditsOf({ ark_id: ARK, photo_count: 0, photo_author: 'Местечко Камчатка' })).toEqual({});
   });
 
   it('карточка берёт подпись по кадру на экране, а не списком', () => {

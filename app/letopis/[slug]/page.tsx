@@ -78,8 +78,10 @@ export default async function ChronicleArticlePage({ params }: Props) {
             Летопись Камчатки
           </Link>
 
-          {/* Главный кадр — снимок со свободной лицензией, подпись целиком:
-              название у автора, автор со ссылкой на файл, лицензия. */}
+          {/* Главный кадр, подпись целиком: название у автора, автор со
+              ссылкой на файл, лицензия. Чего у снимка нет, того нет и в
+              подписи: у снимка владельца (15.10) ни страницы-источника, ни
+              лицензии — только имя, без ссылки и без « · ». */}
           {a.hero && (
             <figure className="mb-8">
               <Image
@@ -97,16 +99,24 @@ export default async function ChronicleArticlePage({ params }: Props) {
               />
               <figcaption className="mt-2 text-xs text-[var(--text-muted)]">
                 {a.hero.caption}. Фото:{' '}
-                <a href={a.hero.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
-                  {a.hero.author}
-                </a>
-                {' · '}
-                {a.hero.licenseUrl ? (
-                  <a href={a.hero.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
-                    {a.hero.license}
+                {a.hero.sourceUrl ? (
+                  <a href={a.hero.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                    {a.hero.author}
                   </a>
                 ) : (
-                  a.hero.license
+                  a.hero.author
+                )}
+                {a.hero.license && (
+                  <>
+                    {' · '}
+                    {a.hero.licenseUrl ? (
+                      <a href={a.hero.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                        {a.hero.license}
+                      </a>
+                    ) : (
+                      a.hero.license
+                    )}
+                  </>
                 )}
               </figcaption>
             </figure>
