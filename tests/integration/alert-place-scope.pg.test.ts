@@ -645,12 +645,28 @@ withPg('кого накрывает предупреждение', () => {
       );
     }
     await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [MUTNOVSKY.ark]);
+    // Маршрут без своей зоны, но с точкой пути у города: collect-signals берёт
+    // зону у места на пути — значит и перепись обязана.
+    const BARE_ROUTE = 'd0000000-0000-4000-8000-0000000000bb';
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible)
+       VALUES ($1, 'trekking', 'Маршрут без зоны (тест)', NULL, TRUE)`,
+      [BARE_ROUTE],
+    );
+    await pool.query(
+      `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1, $2, 0, 'waypoint')`,
+      [BARE_ROUTE, CITY.id],
+    );
     try {
       const probes = zoneProbes();
       const { rows } = await pool.query<ZoneCensusRow>(ZONE_CENSUS_SQL, [JSON.stringify(probes)]);
       const by = new Map(rows.filter((r) => r.target === 'place').map((r) => [r.id, r]));
       // Маршрут судится тем же правилом, что место (collect-signals): зона «avachinsky».
       expect(rows.find((r) => r.target === 'route' && r.id === PARK_ROUTE_ID)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
+      // Своей зоны нет — зона у места на пути, как в collect-signals.
+      const bare = rows.find((r) => r.target === 'route' && r.id === BARE_ROUTE);
+      expect(bare?.zone).toBe('avachinsky');
+      expect(bare?.reached_by).toEqual(['krai_wide', 'meteo_south']);
       expect(by.get(COMMANDER.id)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
       expect(by.get(FAR_NORTH.id)?.reached_by).toEqual(['krai_wide', 'meteo_north', 'meteo_south']);
       expect(by.get(CITY.id)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
@@ -672,6 +688,8 @@ withPg('кого накрывает предупреждение', () => {
       expect(places.by_zone.find((z) => z.zone === 'mutnovsky')).toMatchObject({ alert_zone: false, count: 1 });
       expect(places.by_zone.find((z) => z.zone === 'northern')).toMatchObject({ alert_zone: true });
     } finally {
+      await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1`, [BARE_ROUTE]);
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1`, [BARE_ROUTE]);
       await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [[MUTNOVSKY.ark, NO_STATUS.ark]]);
       await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [[MUTNOVSKY.id, NO_STATUS.id]]);
     }

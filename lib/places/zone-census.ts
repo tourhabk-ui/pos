@@ -60,27 +60,78 @@ export const ZONE_CENSUS_SQL = `
   -- Строка «ark» — с теми же колонками, что у представления, которое читает
   -- крон (id — UUID в пространстве VIEW, title, lat, lng, zone,
   -- location_type), но из самих таблиц: новому коду VIEW не читать (§4.1).
-  ark AS (
+  place_ark AS (
     SELECT 'place'::text AS target, p.id::text AS rid, p.ark_id AS id, p.name::text AS title,
-           p.lat, p.lng, p.zone, p.location_type
+           p.lat::float8 AS lat, p.lng::float8 AS lng, p.zone::text AS zone, p.location_type::text AS location_type
       FROM places p
      WHERE p.is_visible = TRUE AND p.merged_into_id IS NULL
-    UNION ALL
-    SELECT 'route'::text, r.id::text, COALESCE(r.ark_id, r.id), r.title::text,
-           r.lat, r.lng, r.zone, NULL::character varying
+  ),
+  -- Маршрут — так же, как его судит collect-signals: зоны — своя и районы
+  -- мест на пути (связь не «рядом», §4.1), опоры — своя точка и точки этих
+  -- мест; псевдо-место — каждая зона на каждую опору. Нет опор — одна строка
+  -- без координаты, нет зон — зона NULL.
+  route_base AS (
+    SELECT r.id, COALESCE(r.ark_id, r.id) AS view_id, r.title::text AS title,
+           r.zone::text AS zone, r.lat::float8 AS lat, r.lng::float8 AS lng
       FROM kamchatka_routes r
      WHERE r.is_visible = TRUE AND r.merged_into_id IS NULL
+  ),
+  route_pts AS (
+    SELECT DISTINCT rw.route_id, p.zone::text AS zone, p.lat::float8 AS lat, p.lng::float8 AS lng
+      FROM route_waypoints rw
+      JOIN places p ON p.id = rw.place_id
+     WHERE COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+  ),
+  route_zones AS (
+    SELECT b.id,
+           ARRAY(SELECT DISTINCT z.zone FROM (
+                   SELECT b.zone AS zone
+                   UNION ALL
+                   SELECT rp.zone FROM route_pts rp WHERE rp.route_id = b.id
+                 ) z WHERE z.zone IS NOT NULL ORDER BY z.zone) AS zones
+      FROM route_base b
+  ),
+  route_anchor AS (
+    SELECT b.id, b.lat, b.lng FROM route_base b WHERE b.lat IS NOT NULL AND b.lng IS NOT NULL
+    UNION ALL
+    SELECT rp.route_id, rp.lat, rp.lng FROM route_pts rp
+     WHERE rp.lat IS NOT NULL AND rp.lng IS NOT NULL
+  ),
+  route_ark AS (
+    SELECT 'route'::text AS target, b.id::text AS rid, b.view_id AS id, b.title,
+           a.lat, a.lng, z.zone, NULL::text AS location_type
+      FROM route_base b
+      JOIN route_zones rz ON rz.id = b.id
+     CROSS JOIN LATERAL unnest(
+             CASE WHEN cardinality(rz.zones) > 0 THEN rz.zones ELSE ARRAY[NULL]::text[] END
+           ) AS z(zone)
+     CROSS JOIN LATERAL (
+             SELECT ra.lat, ra.lng FROM route_anchor ra WHERE ra.id = b.id
+             UNION ALL
+             SELECT NULL::float8, NULL::float8 WHERE NOT EXISTS (SELECT 1 FROM route_anchor ra WHERE ra.id = b.id)
+           ) a
+  ),
+  ark AS (SELECT * FROM place_ark UNION ALL SELECT * FROM route_ark),
+  matched AS (
+    SELECT DISTINCT ark.target, ark.rid, ea.kind
+      FROM ark
+      JOIN probe ea ON (${ALERT_MATCH_SQL})
+  ),
+  targets AS (
+    SELECT pa.target, pa.rid, pa.title, pa.lat, pa.lng, pa.zone, pa.location_type,
+           EXISTS (SELECT 1 FROM location_real_time_status s WHERE s.agent_route_id = pa.id) AS has_status
+      FROM place_ark pa
+    UNION ALL
+    SELECT 'route'::text, b.id::text, b.title, b.lat, b.lng,
+           NULLIF(array_to_string(rz.zones, ','), ''), NULL::text, NULL::boolean
+      FROM route_base b
+      JOIN route_zones rz ON rz.id = b.id
   )
-  SELECT ark.target, ark.rid AS id, ark.title AS name, ark.lat::float8 AS lat, ark.lng::float8 AS lng,
-         ark.zone, ark.location_type,
-         CASE WHEN ark.target = 'place'
-              THEN EXISTS (SELECT 1 FROM location_real_time_status s WHERE s.agent_route_id = ark.id)
-         END AS has_status,
-         COALESCE(array_agg(ea.kind ORDER BY ea.kind) FILTER (WHERE ea.kind IS NOT NULL), '{}') AS reached_by
-    FROM ark
-    LEFT JOIN probe ea ON (${ALERT_MATCH_SQL})
-   GROUP BY ark.target, ark.rid, ark.id, ark.title, ark.lat, ark.lng, ark.zone, ark.location_type
-   ORDER BY ark.target, ark.zone NULLS FIRST, ark.title`;
+  SELECT t.target, t.rid AS id, t.title AS name, t.lat, t.lng, t.zone, t.location_type, t.has_status,
+         COALESCE((SELECT array_agg(m.kind ORDER BY m.kind) FROM matched m
+                    WHERE m.target = t.target AND m.rid = t.rid), '{}') AS reached_by
+    FROM targets t
+   ORDER BY t.target, t.zone NULLS FIRST, t.title`;
 
 export interface ZoneCensusRow {
   target: 'place' | 'route';
@@ -88,6 +139,10 @@ export interface ZoneCensusRow {
   name: string;
   lat: number | null;
   lng: number | null;
+  /**
+   * Район места; у маршрута — его зоны через запятую, как их собирает
+   * collect-signals (своя и районы мест на пути), или null.
+   */
   zone: string | null;
   location_type: string | null;
   /** Только у места: есть ли строка реалтайма. У маршрута — null. */
