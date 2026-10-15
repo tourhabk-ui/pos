@@ -1,0 +1,55 @@
+name: ModelScope — внесены ли мы в каталог MCP (с раннера)
+
+# ── Зачем (находка аудита 15.10, CN-modelscope) ─────────────────────────
+#
+# Заявка vedar-kamchatka подана в ModelScope MCP广场 открытой формой 14.10,
+# без аккаунта (docs/agents/CHINA.md, шаг 1). Проверять внесение было нечем,
+# кроме глаз на странице каталога, а HTML-страница записи отвечает 200 с
+# нашим именем в <title> для любого slug — по ней внесение не видно.
+#
+# Открытый API каталога отвечает без аккаунта и с раннера:
+#   1. PUT /openapi/v1/mcp/servers {"search":"vedar"} — ищем себя;
+#   2. ноль — контрольный поиск «amap» обязан найти больше нуля, иначе
+#      исход «не смог проверить», а не «нас нет» (§4.0);
+#   3. нашлись — GET /openapi/v1/mcp/servers/<id> по id ИЗ ОТВЕТА поиска:
+#      is_hosted (хостинг или только показ) и server_config. GET по
+#      угаданному id не делается: формат id неизвестен, 404 по догадке не
+#      доказывает отсутствия.
+# Логика — lib/mcp/modelscope-listing.ts, сторож —
+# tests/unit/modelscope-listing.test.ts.
+#
+# Три исхода: внесены — зелёный (::notice::, или ::warning::, если только
+# показом или режим не прочитан); нас нет при живом поиске — красный
+# (::error::); не смог проверить — красный с ::warning:: и причиной.
+#
+# Без расписания намеренно: планировщик GitHub душит очередь по ЧИСЛУ
+# расписаний в репозитории (CLAUDE.md §8, замер 20.09). Запуск — маркером
+# .github/triggers/modelscope-listing.json или вручную. Прод не зовётся,
+# секретов не нужно, своей сборки ждать незачем.
+#
+# tsx — через npx без npm ci: модуль проверки без импортов, весь прогон —
+# три HTTP-запроса.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/modelscope-listing.json'
+
+permissions:
+  contents: read
+
+jobs:
+  listing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Поиск «vedar» в каталоге ModelScope, контроль «amap», карточка по id из ответа
+        run: npx --yes tsx@4.23.15 scripts/modelscope-listing-check.ts
