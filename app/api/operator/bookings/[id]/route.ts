@@ -9,7 +9,15 @@ import { releaseSlotsForCancelledBooking } from '@/lib/payments/slot-counter';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 const UpdateBookingSchema = z.object({
-  status: z.enum(['pending', 'confirmed', 'completed', 'cancelled'], { message: 'Неверный статус бронирования' }).optional(),
+  // `pending` — слово старой таблицы `bookings` (миграция 019) для «ждёт
+  // подтверждения оператора»; в `operator_bookings` это `new`. Роут писал его
+  // в booking_status как есть — строку вне словаря BOOKING_STATUSES, которой
+  // не видит ни один фильтр кабинета и занятости, а с CHECK по словарю
+  // (миграция operator_bookings_status_check) такая запись отвечала бы 23514.
+  // Слово принимается синонимом и пишется словарным (аудит 15.10, BOOKING-CHECK).
+  status: z.enum(['new', 'pending', 'confirmed', 'completed', 'cancelled'], { message: 'Неверный статус бронирования' })
+    .transform((s) => (s === 'pending' ? 'new' : s))
+    .optional(),
   paymentStatus: z.enum(['pending', 'paid', 'refunded'], { message: 'Неверный статус оплаты' }).optional(),
   notes: z.string().optional(),
 }).refine(

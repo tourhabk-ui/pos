@@ -424,4 +424,81 @@ withPg('общая вставка и гейт брони на настоящем
       expect(st.rows[0]!.status).toBe('pending');
     });
   });
+
+  // Аудит 15.10, BOOKING-CHECK (миграция operator_bookings_status_check): CHECK на booking_status по
+  // единому словарю. Юнит-сторож сверяет множество значений с BOOKING_STATUSES
+  // разбором миграции; здесь — что сервер на самом деле пускает и отклоняет,
+  // и что повтор миграции (раннер на каждом выкате) не падает.
+  describe('словарь статусов брони — CHECK в базе (аудит 15.10, BOOKING-CHECK)', () => {
+    const CONSTRAINT = 'operator_bookings_booking_status_check';
+
+    async function insertWithStatus(status: string): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status)
+         VALUES ($1::bigint, '2099-12-01', 1, $2) RETURNING id::text AS id`,
+        [tourId, status],
+      );
+      return r.rows[0]!.id;
+    }
+
+    async function sqlstateOf(run: () => Promise<unknown>): Promise<{ code?: string; constraint?: string } | null> {
+      try {
+        await run();
+        return null;
+      } catch (e) {
+        return e as { code?: string; constraint?: string };
+      }
+    }
+
+    it('ограничение стоит и проверено (VALIDATE прошёл, а не осталось NOT VALID)', async () => {
+      const r = await pool.query<{ convalidated: boolean }>(
+        `SELECT convalidated FROM pg_constraint
+          WHERE conrelid = 'operator_bookings'::regclass AND conname = $1`,
+        [CONSTRAINT],
+      );
+      expect(r.rows).toEqual([{ convalidated: true }]);
+    });
+
+    it('каждое слово словаря проходит и вставкой, и сменой статуса', async () => {
+      const { BOOKING_STATUSES } = await import('@/lib/types/statuses');
+      const id = await insertWithStatus('new');
+      for (const status of BOOKING_STATUSES) {
+        expect(await sqlstateOf(() => insertWithStatus(status)), `вставка ${status}`).toBeNull();
+        expect(await sqlstateOf(() => pool.query(
+          `UPDATE operator_bookings SET booking_status = $2 WHERE id = $1::bigint`, [id, status],
+        )), `смена на ${status}`).toBeNull();
+      }
+    });
+
+    it.each(['rejected', 'pending', 'paid', 'Confirmed', ''])('слово вне словаря «%s» — 23514 и вставкой, и сменой', async (status) => {
+      const ins = await sqlstateOf(() => insertWithStatus(status));
+      expect(ins).toMatchObject({ code: '23514', constraint: CONSTRAINT });
+      const id = await insertWithStatus('new');
+      const upd = await sqlstateOf(() => pool.query(
+        `UPDATE operator_bookings SET booking_status = $2 WHERE id = $1::bigint`, [id, status],
+      ));
+      expect(upd).toMatchObject({ code: '23514', constraint: CONSTRAINT });
+      const left = await pool.query<{ booking_status: string }>(
+        `SELECT booking_status FROM operator_bookings WHERE id = $1::bigint`, [id],
+      );
+      expect(left.rows[0]!.booking_status).toBe('new');
+    });
+
+    it('повтор миграции (раннер на каждом выкате) — без ошибки, ограничение одно', async () => {
+      const { readFileSync, readdirSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      // По имени, а не по номеру: номер миграции назначается при сведении.
+      const file = readdirSync(join(process.cwd(), 'migrations')).filter((f) => /^\d+_operator_bookings_status_check\.sql$/.test(f));
+      expect(file).toHaveLength(1);
+      const sql = readFileSync(join(process.cwd(), 'migrations', file[0]!), 'utf-8');
+      await pool.query(sql);
+      await pool.query(sql);
+      const r = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM pg_constraint
+          WHERE conrelid = 'operator_bookings'::regclass AND conname = $1 AND convalidated`,
+        [CONSTRAINT],
+      );
+      expect(r.rows[0]!.n).toBe(1);
+    });
+  });
 });
