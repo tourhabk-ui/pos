@@ -72,6 +72,27 @@ export function parseAnswerPayload(payload: string): { requestId: string; kind: 
  * только хэш (как ключ брони, миграция 943). 24 байта = 32 символа base64url
  * — влезает в параметр start Telegram вместе с префиксом `sr_`.
  */
+/** Исход привязки чата туриста к запросу мест (bindTouristChat). */
+export type TouristBindResult =
+  | { ok: true; notified: boolean }
+  | { ok: false; reason: 'not_found' | 'already_bound' | 'db_error' };
+
+/**
+ * Ответ человеку, нажавшему «Старт» по ссылке sr_: один текст на три бота
+ * (Telegram-вебхук, Telegram-Кузьмич, MAX) — до 15.10 он жил двумя копиями,
+ * а третий обработчик ссылку не знал вовсе.
+ */
+export function touristBindReplyText(bound: TouristBindResult): string {
+  if (!bound.ok) {
+    return bound.reason === 'not_found' ? 'Запрос мест по этой ссылке не найден.'
+      : bound.reason === 'already_bound' ? 'К этому запросу уже подключён другой чат.'
+      : 'Не удалось подключить — попробуйте ещё раз через минуту.';
+  }
+  return bound.notified
+    ? 'Готово — ответ оператора выше.'
+    : 'Готово: ответ оператора придёт сюда, как только он ответит (до 2 часов).';
+}
+
 export function newStatusToken(): { token: string; hash: string } {
   const token = randomBytes(24).toString('base64url');
   return { token, hash: hashStatusToken(token) };

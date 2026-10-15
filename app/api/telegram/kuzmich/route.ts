@@ -22,6 +22,10 @@ import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 import { getSetting } from '@/lib/platform-settings';
 import { stripTags } from '@/lib/html/text';
+import { handlePartnerStart } from '@/lib/partners/bind-channel';
+import { handleMemberStart } from '@/lib/operators/member-channel';
+import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
+import { bindTouristChat } from '@/lib/seat-requests/service';
 
 export const dynamic = 'force-dynamic';
 
@@ -576,6 +580,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Lead detection: отвечаем только при явном туристическом интересе
       if (text) await processGroupMessage({ chatId, fromId, fromName, text });
       return NextResponse.json({ ok: true });
+    }
+
+    // ── ЛИЧКА: /start с аргументом — ссылки подключения ──────────────────
+    // Та же цепочка, что в /api/telegram/webhook и в MAX-боте: оператор по
+    // ссылке администратора (op_, lib/partners/bind-channel), менеджер команды
+    // кабинета (om_, lib/operators/member-channel), турист за ответом на
+    // запрос мест (sr_, lib/seat-requests). До 15.10 этот обработчик знал
+    // только голый /start: ссылка «подключить Telegram» открывала бота, а
+    // «Старт» уходил в туристский поток — человек видел ответ Кузьмича вместо
+    // привязки (оператор «Местечко», 15.10: «ссылка на телегу не рабочая»).
+    // У одного бота два обработчика, и ссылка обязана работать при любом.
+    // Стоит ДО ветки партнёра: ссылка меняет адрес, а уже привязанный чат
+    // ответил бы приветствием. Прочие аргументы (lead, route_…) — ниже, как
+    // и раньше.
+    if (isPrivate && msg.text && /^\/start\s+\S/.test(msg.text.trim())) {
+      const arg = msg.text.trim().slice('/start'.length).trim();
+      const reply = (t: string) => tgReply(chatId, t);
+      if (await handlePartnerStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });
+      if (await handleMemberStart(arg, 'telegram', chatId, reply)) return NextResponse.json({ ok: true });
+      const seatToken = statusTokenFromStart(arg);
+      if (seatToken !== null) {
+        await reply(touristBindReplyText(await bindTouristChat(seatToken, 'telegram', chatId)));
+        return NextResponse.json({ ok: true });
+      }
     }
 
     // ── ЛИЧКА: /partner EMAIL — привязка по почте закрыта (09.10) ─────────
