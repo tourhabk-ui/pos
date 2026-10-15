@@ -118,8 +118,9 @@ function Skeleton() {
  * их когда-то дописывали. Владелец: «это не UX».
  *
  * Заголовок объявляется ТОЛЬКО под содержимое: условия `hasNow`/`hasAbout`/
- * `hasKnow`/`hasNext` считаются на данных выше. Заголовок над пустотой — то
- * же обещание без источника (правило 10.09), только на экране.
+ * `hasNext` считаются на данных выше. Заголовок над пустотой — то же обещание
+ * без источника (правило 10.09), только на экране. «Что знать» условия не
+ * имеет: кнопка 112 в нём есть у любого места (15.10).
  */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -304,10 +305,12 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
     || place.safety.altitudeM != null
     || place.safety.difficultyLevel != null
     || Boolean(place.zone);
-  const hasKnow = Boolean(place.eco) || hasSeason
-    || place.safety.hazardTypes.length > 0
-    || place.safety.nearestMedicalKm != null
-    || place.safety.capacityPerDay != null;
+  // «Что знать» — без условия (15.10): в разделе всегда есть кнопка 112 и
+  // инструкции выживания (PlaceSafety), то есть заголовок никогда не стоит
+  // над пустотой. Прежнее условие — режим, сезон, опасности, медпомощь или
+  // лимит — держало раздел у мест без записанного режима только случайной
+  // связью с eco_zone = 'none' 170-й, а у 98 мест с пустым режимом кнопки 112
+  // в теле карточки не было вовсе (перепись place-eco-census).
   const hasNext = place.routes.length > 0 || place.tours.length > 0 || place.nearby.length > 0;
 
   return (
@@ -542,36 +545,35 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
           )}
 
           {/* ЧТО ЗНАТЬ — безопасность как свойство места (§9, блок 6), сезон,
-              эко-режим и след. Это подготовка, а не сводка «сейчас». */}
-          {hasKnow && (
-            <Section title="Что знать">
-              <Plate>
-                <PlaceSafety
-                  safety={place.safety}
-                  placeId={place.id}
-                  ownPermit={ownPermitOf(place.eco)}
-                  permitFree={permitNotRequired(place.eco)}
-                />
-              </Plate>
-
-              {hasSeason && (
-                <PlaceSeason
-                  openFromDate={place.safety.openFromDate}
-                  openToDate={place.safety.openToDate}
-                  bestSeason={place.bestSeason}
-                  seasonalNotes={place.seasonalNotes}
-                />
-              )}
-
-              {place.eco && <PlaceEco eco={place.eco} placeName={place.name} />}
-
-              <PlaceLNT
-                capacityPerDay={place.safety.capacityPerDay}
-                capacitySource={place.safety.capacityPerDaySource ?? null}
-                ecoZone={place.eco?.zone ?? null}
+              эко-режим и след. Это подготовка, а не сводка «сейчас». Раздел
+              есть всегда: в нём кнопка 112 (см. выше, у `hasNext`). */}
+          <Section title="Что знать">
+            <Plate>
+              <PlaceSafety
+                safety={place.safety}
+                placeId={place.id}
+                ownPermit={ownPermitOf(place.eco)}
+                permitFree={permitNotRequired(place.eco)}
               />
-            </Section>
-          )}
+            </Plate>
+
+            {hasSeason && (
+              <PlaceSeason
+                openFromDate={place.safety.openFromDate}
+                openToDate={place.safety.openToDate}
+                bestSeason={place.bestSeason}
+                seasonalNotes={place.seasonalNotes}
+              />
+            )}
+
+            {place.eco && <PlaceEco eco={place.eco} placeName={place.name} />}
+
+            <PlaceLNT
+              capacityPerDay={place.safety.capacityPerDay}
+              capacitySource={place.safety.capacityPerDaySource ?? null}
+              ecoZone={place.eco?.zone ?? null}
+            />
+          </Section>
 
           {/* КАК ДОБРАТЬСЯ — карта и подъезд. Расчёт дороги и пеший путь
               стоят выше, в правом столбце: до 14.09 они были разнесены по
