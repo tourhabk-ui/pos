@@ -47,7 +47,7 @@
 | Database | PostgreSQL — прямой SQL (`lib/database.ts`, `lib/db-pool.ts`), без Prisma |
 | Auth | JWT — `lib/auth.ts`, middleware — `lib/auth/middleware.ts` |
 | Deploy | Timeweb Cloud — приложение **Tourhab**, id `198048` (репо: `tourhabk-ui/pos`) |
-| CI/CD | push в `tourhabk-ui/pos main` → Timeweb автодеплой |
+| CI/CD | push в `tourhabk-ui/pos main` → CI (все пути) → `deploy.yml` выкатывает проверенный sha (§6) |
 
 **Масштаб** (порядок величины, не замер; точные цифры — командами, не отсюда):
 210 стр / 756 API routes / 173 компонентов / ~460 миграций
@@ -802,7 +802,7 @@ Opus 5 — $56 из $115.
 npx tsc --noEmit      # 0 ошибок
 npx vitest run        # весь набор зелёный (число растёт — сверяться с прогоном, не с этой строкой)
 npm run lint          # 0 ОШИБОК обязательно; предупреждения печатаются и не блокируют
-git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
+git push origin main  # → CI на main → deploy.yml выкатывает проверенный sha (схема ниже)
 ```
 
 **Строка с линтом появилась здесь 09.09 вместе с самим запуском.** До этого дня
@@ -837,9 +837,27 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 а `eslint-plugin-react@7.37.5` его зовёт и десятку в peer-диапазоне не
 допускает). Блокер в апстриме с обеих сторон, не у нас.
 
-**Схема деплоя (июнь 2026):**
-1. Push в `tourhabk-ui/pos main`
-2. Timeweb видит пуш → собирает Docker → `start.js` накатывает миграции → поднимает сервер
+**Схема деплоя — выкат только проверенного коммита (решение владельца 15.10, аудит AR-deploy):**
+1. Push в `tourhabk-ui/pos main` → CI (`ci.yml`) на ВСЕХ путях: у push в main фильтра путей
+   нет, идущий прогон на main не отменяется (ждущий заменяется свежим)
+2. CI зелёный → `deploy.yml` (workflow_run, только push из этого репозитория) заказывает у
+   Timeweb сборку ровно проверенного коммита (`workflow_run.head_sha`, `POST /api/v1/apps/198048/deploy`)
+   и сверяет, что прод его отдаёт; Timeweb собирает Docker → `start.js` накатывает миграции →
+   поднимает сервер
+3. CI красный на main → выката нет, прод стоит на прошлой проверенной сборке; джоб
+   `ci-red-alert` шлёт владельцу тревогу (Telegram — секреты репозитория `TELEGRAM_BOT_TOKEN`
+   и `TELEGRAM_OWNER_ID`; и issue «Выкат остановлен: CI на main красный», которую закрывает
+   следующий успешный выкат)
+4. Автодеплой Timeweb (`is_auto_deploy`) выключается маркером `.github/triggers/timeweb-configure.json`
+   (`mode: apply`, задача `auto_deploy`, `auto_deploy: false`; откат — `true`) со сверкой GET после
+   записи. С какого дня он выключен, говорит прогон этого маркера и `timeweb-app-info.yml`, а не эта
+   строка: до того прод по-прежнему получает вебхуком и непроверенные пуши
+5. Ручной выкат — `workflow_dispatch` у `deploy.yml`: собирает голову main и гейт CI обходит
+   (рука владельца)
+
+Сторожа: `tests/unit/deploy-promotes-verified-sha.test.ts` (условия джобов, заказ сборки, тревога,
+`auto_deploy` — исполнением), `tests/unit/ci-covers-migrations.test.ts` (каждый файл контекста
+сборки запускает CI на main).
 
 **Timeweb:** приложение **Tourhab**, id `198048`, репо `tourhabk-ui/pos`, ветка `main`
 (имя и id получены из `GET /api/v1/apps` 29.07; прежние «Fair Polydeuces» и

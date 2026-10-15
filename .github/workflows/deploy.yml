@@ -1,12 +1,26 @@
 name: Deploy to Timeweb Cloud
 
-# Timeweb Cloud auto-deploy включён (is_auto_deploy: true)
-# Деплой запускается автоматически через webhook при push в main
+# ── Схема выката: только проверенный коммит (аудит 15.10, находка AR-deploy) ──
+#
+# Push в main → CI (на все пути, без фильтра — ci.yml) → по ЗЕЛЁНОМУ прогону
+# этот workflow просит Timeweb собрать ровно тот коммит, который CI проверил
+# (EXPECTED_SHA = workflow_run.head_sha, POST /api/v1/apps/198048/deploy
+# {commit_sha}), и сверяет, что прод его отдаёт. Красный CI на main — выката
+# нет, и джоб ci-red-alert ниже говорит об этом владельцу (Telegram + issue):
+# иначе прод молча застыл бы на прошлой сборке.
+#
+# Автодеплой Timeweb (is_auto_deploy) по этой схеме ВЫКЛЮЧЕН: вебхук выкатывал
+# каждый пуш, включая непроверенные и авто-коммиты README-stats (замер 15.10:
+# 805 коммитов в main за 7 дней, 183 из них [skip ci]). Выключается маркером
+# .github/triggers/timeweb-configure.json, задача auto_deploy (там же откат —
+# `auto_deploy: true`). Включён он или нет, шаг «Ask Timeweb» ниже СПРАШИВАЕТ
+# у API на каждом прогоне, а не читает этот комментарий (урок 17.08 ниже).
+#
+# Ручной выкат — workflow_dispatch: собирает голову main и гейт CI обходит.
+# Это рука владельца, а не путь по умолчанию.
+#
 # Env vars управляются через Timeweb UI. (Скрипта scripts/sync-timeweb-envs.js,
 # на который ссылалась эта строка, в репозитории нет — снято 04.09.)
-#
-# Quality gate: runs only after CI workflow succeeds on main.
-# Manual dispatch (workflow_dispatch) bypasses the CI gate.
 #
 # 04.08 — почему здесь появилось ожидание вместо одного curl.
 # Прежний шаг спрашивал статус приложения ЧЕРЕЗ СЕКУНДУ после старта сборки,
@@ -45,9 +59,19 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Заголовок тревоги «выкат остановлен» — один на оба джоба: ci-red-alert её
+# открывает, успешный выкат закрывает. Два литерала разошлись бы, и закрытие
+# молча перестало бы находить открытое.
+env:
+  STOP_ISSUE_TITLE: 'Выкат остановлен: CI на main красный'
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # issues: write — только чтобы закрыть тревогу о красном CI после выката.
+    permissions:
+      contents: read
+      issues: write
     # Потолок задачи должен быть БОЛЬШЕ суммы всех окон ожидания внутри неё,
     # иначе он и есть настоящее окно, а цифры ниже — украшение. Считаем
     # худший случай: фаза 1 — 20 минут, фаза 2 — 45 (измерено 07.09: сборка
@@ -60,7 +84,13 @@ jobs:
     # секунды. Весь настоящий выкат — те самые 7-9 минут — пришёлся на третью
     # проверку, у которой бюджета было пять.
     timeout-minutes: 95
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Выкатывается только прогон CI по ПУШУ в main из этого же репозитория
+    # (аудит 15.10, AR-deploy). Фильтр `branches: [main]` у workflow_run
+    # сверяет лишь ИМЯ ветки: PR из форка, чья ветка названа main, проходит
+    # его так же, и без этих двух условий его зелёный CI заказал бы у
+    # Timeweb сборку чужого коммита — GitHub отдаёт коммиты форков и по
+    # адресу основного репозитория.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
     steps:
       # История нужна ДО проверки: подтверждение «прод содержит наш коммит»
       # считается по предкам, а не по совпадению строк (см. ниже).
@@ -104,7 +134,7 @@ jobs:
           APP_ID="198048"
 
           if [ -z "$TIMEWEB_TOKEN" ]; then
-            echo "TIMEWEB_TOKEN не задан — попросить сборку нечем; ждём вебхук."
+            echo "::warning::TIMEWEB_TOKEN не задан — заказать сборку проверенного коммита нечем. При выключенном автодеплое прод так не обновится; сверка ниже это покажет."
             exit 0
           fi
 
@@ -133,12 +163,40 @@ jobs:
           #     (вебхук или прогон этого workflow про новую голову);
           #  2) Timeweb уже собирает или собрал коммит, содержащий наш.
           # Отказ проверки — не повод молчать: тогда просим, как раньше.
-          git fetch --quiet origin main || true
-          HEAD_MAIN=$(git rev-parse origin/main 2>/dev/null || echo "")
-          if [ -n "$HEAD_MAIN" ] && [ "${HEAD_MAIN:0:7}" != "${EXPECTED_SHA:0:7}" ] \
-             && git merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_MAIN" 2>/dev/null; then
-            echo "main ушёл вперёд (${HEAD_MAIN:0:7}) — сборку не просим, её повезёт более новый коммит. Судит проверка ниже."
-            exit 0
+          #
+          # ── Правило 1 — только пока автодеплой ВКЛЮЧЁН (аудит 15.10) ────
+          #
+          # «Повезёт более новая сборка» держалось на вебхуке: он собирал
+          # голову main, какой бы она ни была. С выключенным автодеплоем
+          # голову не соберёт никто, пока её не проверит CI, а авто-коммит
+          # README-stats [skip ci] — почти всегда голова main через минуту
+          # после мержа — CI не проходит НИКОГДА. Прогон 38716588819 (15.10)
+          # так и написал: «main ушёл вперёд (e8bef39) — сборку не просим».
+          # Без автодеплоя такой пропуск оставил бы прод на прошлой сборке
+          # навсегда. Поэтому настройку спрашиваем у API на каждом прогоне
+          # (урок 17.08: переподключение репозитория молча её меняло), и при
+          # `false` или «не прочитали» просим сборку проверенного коммита.
+          # Правило 2 остаётся в силе всегда: более новый коммит, который
+          # Timeweb уже собирает, этой просьбой не гасится.
+          #
+          # Из ответа берётся одно поле: в объекте приложения лежат
+          # переменные окружения прода, и печатать его нельзя.
+          AUTO=$(curl -sS --max-time 30 -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID" 2>/dev/null \
+            | jq -r 'if (.app.is_auto_deploy | type) == "boolean" then (.app.is_auto_deploy | tostring) else "unknown" end' 2>/dev/null || true)
+          [ -n "$AUTO" ] || AUTO="unknown"
+          echo "Автодеплой Timeweb (is_auto_deploy): $AUTO"
+          if [ "$AUTO" = "true" ]; then
+            echo "::warning::Автодеплой Timeweb ВКЛЮЧЁН: вебхук выкатывает каждый пуш в main, в том числе не прошедший CI. Выключение — маркер timeweb-configure.json, задача auto_deploy (CLAUDE.md §6)."
+            git fetch --quiet origin main || true
+            HEAD_MAIN=$(git rev-parse origin/main 2>/dev/null || echo "")
+            if [ -n "$HEAD_MAIN" ] && [ "${HEAD_MAIN:0:7}" != "${EXPECTED_SHA:0:7}" ] \
+               && git merge-base --is-ancestor "$EXPECTED_SHA" "$HEAD_MAIN" 2>/dev/null; then
+              echo "main ушёл вперёд (${HEAD_MAIN:0:7}) — сборку не просим, её повезёт вебхук по новой голове. Судит проверка ниже."
+              exit 0
+            fi
+          else
+            echo "Сборку проверенного коммита ${EXPECTED_SHA:0:7} заказываем сами: голова main, ушедшая вперёд, ещё не проверена CI (или это README-stats [skip ci], который его не проходит)."
           fi
           LIST=$(curl -sS --max-time 30 -H "Authorization: Bearer $TIMEWEB_TOKEN" \
             "https://api.timeweb.cloud/api/v1/apps/$APP_ID/deploys?limit=5&offset=0" 2>/dev/null || echo "")
@@ -163,7 +221,7 @@ jobs:
 
           case "$CODE" in
             2*) echo "Сборка запрошена." ;;
-            *)  echo "::warning::Timeweb не принял просьбу о сборке ($CODE). Ждём вебхук; судит проверка ниже." ;;
+            *)  echo "::warning::Timeweb не принял просьбу о сборке ($CODE). При выключенном автодеплое другой сборки не будет; судит проверка ниже." ;;
           esac
 
       - name: Verify deploy reached production
@@ -263,7 +321,7 @@ jobs:
           done
 
           if [ -z "$PICKED" ]; then
-            echo "::error::Timeweb за 20 минут не взял в работу ни ${EXPECTED_SHA:0:7}, ни его потомка (сейчас ${COMMIT:0:7}). Автодеплой не сработал — проверь webhook приложения."
+            echo "::error::Timeweb за 20 минут не взял в работу ни ${EXPECTED_SHA:0:7}, ни его потомка (сейчас ${COMMIT:0:7}). Сборку никто не заказал или заказ не принят: смотри код POST в шаге «Ask Timeweb» выше; при включённом автодеплое — ещё и webhook приложения."
             exit 1
           fi
 
@@ -466,3 +524,133 @@ jobs:
           # строгость. Пусть работает там, куда его положили.
           SMOKE_ROUTE_ID: ${{ vars.SMOKE_ROUTE_ID || secrets.SMOKE_ROUTE_ID }}
         run: node scripts/deploy-smoke.mjs
+
+      # ── Выкат возобновлён — закрыть тревогу о красном CI (аудит 15.10) ──
+      #
+      # ci-red-alert ниже открывает issue, когда CI на main красный. Здесь —
+      # обратная сторона: выкат проверенного коммита подтверждён и смоук
+      # прошёл, значит прод больше не стоит. Открытая тревога после этого
+      # стала бы ложной, и следующую настоящую дописали бы в старую.
+      # Отказ чтения или закрытия — предупреждение, не провал: выкат уже
+      # состоялся, ронять его из-за issue было бы неправдой о проде.
+      - name: Выкат возобновлён — закрыть тревогу о красном CI
+        if: ${{ github.event_name == 'workflow_run' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if ! gh issue list --repo "$REPO" --state open --search "in:title \"$STOP_ISSUE_TITLE\"" \
+               --json number,title > /tmp/stop-issues.json 2>/tmp/stop-issues.err; then
+            echo "::warning::Не смог прочитать открытые issues ($(head -c 200 /tmp/stop-issues.err)) — тревогу о красном CI, если она открыта, закрыть рукой."
+            exit 0
+          fi
+          N=$(jq -r --arg t "$STOP_ISSUE_TITLE" '[.[] | select(.title == $t)][0].number // empty' /tmp/stop-issues.json) || {
+            echo "::warning::Ответ gh об открытых issues не разобран — тревогу о красном CI, если она открыта, закрыть рукой."
+            exit 0
+          }
+          if [ -z "$N" ]; then
+            echo "Открытой тревоги о красном CI нет — закрывать нечего."
+            exit 0
+          fi
+          if gh issue close "$N" --repo "$REPO" --comment "Выкат возобновлён: проверенный коммит ${SHA:0:7} на проде. Прогон: $RUN_URL"; then
+            echo "Тревога #$N закрыта: выкат ${SHA:0:7} подтверждён."
+          else
+            echo "::warning::Не смог закрыть тревогу #$N — закрыть рукой."
+          fi
+
+  # ── Красный CI на main: выкат стоит, владелец узнаёт (аудит 15.10, AR-deploy) ──
+  #
+  # Автодеплой выключен: прод получает только то, что позеленело в CI. Значит
+  # красный CI на main — не «один прогон упал», а «прод застыл на прошлой
+  # сборке», и без этого джоба он застыл бы молча: deploy выше по такому
+  # прогону пропускается (skipped), а пропуск никого не будит. Замер за 30
+  # дней до 15.10: 31 красный прогон main из 726, самый длинный перерыв между
+  # зелёными — 64 часа (05–07.10). Пока выкатывал вебхук, это не держало прод;
+  # теперь держит.
+  #
+  # Два канала, потому что каждый может молчать по своей причине:
+  #  - Telegram владельцу — секреты TELEGRAM_BOT_TOKEN и TELEGRAM_OWNER_ID в
+  #    секретах РЕПОЗИТОРИЯ (те же значения, что в переменных приложения
+  #    Timeweb). На 15.10 ни один workflow их не читает и в репозитории их,
+  #    вероятно, нет — об этом скажет первое же предупреждение ниже;
+  #  - issue с постоянным заголовком: новый красный прогон дописывается в
+  #    открытую, успешный выкат её закрывает (последний шаг deploy).
+  # В тексте — только sha, исход и ссылка на прогон: сообщение коммита может
+  # нести имена и телефоны из правок, в Telegram оно не уходит (152-ФЗ).
+  #
+  # Отменённый прогон тревогой не считается: на main идущий прогон не
+  # отменяется (ci.yml), отменяется только ждущий, которого заменил свежий.
+  #
+  # Джоб красный ВСЕГДА: выкат не состоялся, а зелёный «Deploy» по красному
+  # CI читался бы как выкат. Куда ушла тревога — в строке ошибки.
+  ci-red-alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.conclusion != 'skipped' }}
+    steps:
+      - name: Тревога владельцу — выкат остановлен
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          SHORT="${SHA:0:7}"
+          TEXT="Выкат остановлен: CI на main не прошёл ($CONCLUSION) на коммите $SHORT. Прод остаётся на последней проверенной сборке; следующий зелёный прогон main выкатится сам. Прогон: $RUN_URL"
+          TG=""; ISSUE=""; TG_OK=0; ISSUE_OK=0
+
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_OWNER_ID" ]; then
+            TG_CODE=$(curl -sS -o /tmp/tg-alert.json -w "%{http_code}" --max-time 20 \
+              --data-urlencode "chat_id=$TELEGRAM_OWNER_ID" \
+              --data-urlencode "text=$TEXT" \
+              --data-urlencode "disable_web_page_preview=true" \
+              "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage") || TG_CODE="000"
+            if [ "$TG_CODE" = "200" ] && jq -e '.ok == true' /tmp/tg-alert.json >/dev/null 2>&1; then
+              TG_OK=1; TG="доставлено"
+            else
+              TG="отказ HTTP $TG_CODE $(jq -r '.description // empty' /tmp/tg-alert.json 2>/dev/null | head -c 200)"
+              echo "::warning::Telegram не принял тревогу: $TG"
+            fi
+          else
+            TG="не настроено"
+            echo "::warning::В секретах репозитория нет TELEGRAM_BOT_TOKEN и/или TELEGRAM_OWNER_ID — тревога в Telegram не ушла. Добавить: Settings → Secrets and variables → Actions (те же значения, что в переменных приложения Timeweb)."
+          fi
+
+          BODY=$(printf '%s\n\nКоммит: %s\nИсход CI: %s\n\nПока CI на main не зелёный, deploy.yml не заказывает сборку у Timeweb (автодеплой выключен, CLAUDE.md §6). Тревога закроется сама, когда выкат проверенного коммита подтвердится.\n' "$TEXT" "$SHA" "$CONCLUSION")
+          if gh issue list --repo "$REPO" --state open --search "in:title \"$STOP_ISSUE_TITLE\"" \
+               --json number,title > /tmp/stop-issues.json 2>/tmp/stop-issues.err \
+             && N=$(jq -r --arg t "$STOP_ISSUE_TITLE" '[.[] | select(.title == $t)][0].number // empty' /tmp/stop-issues.json); then
+            if [ -n "$N" ]; then
+              gh issue comment "$N" --repo "$REPO" --body "$BODY" >/dev/null && ISSUE_OK=1 && ISSUE="дописано в #$N"
+            else
+              URL=$(gh issue create --repo "$REPO" --title "$STOP_ISSUE_TITLE" --body "$BODY") && ISSUE_OK=1 && ISSUE="открыто: $URL"
+            fi
+          else
+            ISSUE="не прочитаны открытые issues: $(head -c 200 /tmp/stop-issues.err 2>/dev/null)"
+          fi
+          if [ "$ISSUE_OK" != 1 ]; then
+            ISSUE="${ISSUE:-gh отказал}"
+            echo "::warning::Issue о тревоге не записан: $ISSUE"
+          fi
+
+          {
+            echo "## Выкат остановлен: CI на main — $CONCLUSION"
+            echo "- коммит: $SHORT"
+            echo "- прогон: $RUN_URL"
+            echo "- Telegram: $TG"
+            echo "- issue: $ISSUE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$TG_OK" != 1 ] && [ "$ISSUE_OK" != 1 ]; then
+            echo "::error::Тревога НЕ ДОСТАВЛЕНА никуда (Telegram: $TG; issue: $ISSUE). Выкат остановлен на $SHORT, и знает об этом только этот лог."
+            exit 1
+          fi
+          echo "::error::Выкат остановлен: CI на main — $CONCLUSION на $SHORT. Тревога: Telegram — $TG; issue — $ISSUE."
+          exit 1

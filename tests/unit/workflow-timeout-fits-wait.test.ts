@@ -94,7 +94,11 @@ describe('ни один workflow не обрезает своё же ожида�
   const def = waiterDefaults();
   const files = readdirSync(WF)
     .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
-    .filter((f) => readFileSync(join(WF, f), 'utf-8').includes(WAITER));
+    // Вызов, а не упоминание (15.10, аудит AR-deploy): deploy.yml и ci.yml
+    // называют скрипт в комментариях, но не ждут им — короткий джоб тревоги
+    // в deploy.yml ожидания не несёт, и судить его по чужому бюджету неверно.
+    .filter((f) => readFileSync(join(WF, f), 'utf-8').split('\n')
+      .some((l) => !/^\s*#/.test(l) && l.includes(WAITER)));
 
   it('workflow с ожиданием сборки найдены', () => {
     // Пустой список означал бы, что сторож зеленеет впустую: путь к скрипту
