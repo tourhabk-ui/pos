@@ -185,7 +185,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/trip/[token]/_OfflineSave.tsx': 1,
   'app/trip/[token]/_TripShareClient.tsx': 1,
   'app/watch/WatchClient.tsx': 3,
-  'app/widget/lead-form/[slug]/page.tsx': 1,
   'lib/agents/agencies/rescue-agency.ts': 2,
   'lib/agents/editor.ts': 2,
   'lib/agents/eval/editor-judge.ts': 3,

@@ -9,7 +9,8 @@
  * блок «виджет партнёра»).
  *
  * Судится рендером карточки оператора (что видит администратор после отказа)
- * и вызовом роута (что он отвечает на ноль строк и отказ базы).
+ * и вызовом роута (что он отвечает на ноль строк, отказ базы и не-uuid в
+ * адресе — последнее по ревью WID-config, аудит 15.10 W3-widget).
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -138,6 +139,39 @@ describe('PATCH /api/admin/operators/[id]/widget называет исход', (
     const res = await patch({ widget_enabled: true });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toBe('Оператор не найден');
+  });
+
+  it('id не uuid — 400 по-русски до базы, а не 22P02 → «ошибка базы» (W3-widget)', async () => {
+    // На настоящей базе не-uuid в `WHERE id = $n` — 22P02; мок повторяет это,
+    // чтобы без проверки формата роут дошёл до 500, как на проде.
+    poolQuery.mockRejectedValue(Object.assign(new Error('invalid input syntax for type uuid'), { code: '22P02' }));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const bad of ['mestechko', '123', `${OP.id}x`, "' OR 1=1 --"]) {
+      const res = await PATCH(
+        new NextRequest(`https://vedarai.ru/api/admin/operators/${encodeURIComponent(bad)}/widget`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ widget_enabled: true }),
+        }),
+        { params: Promise.resolve({ id: bad }) },
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('Неверный идентификатор оператора');
+    }
+    expect(poolQuery).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it('id — uuid в любом регистре и без требования версии RFC: доходит до базы', async () => {
+    poolQuery.mockResolvedValue({ rowCount: 1, rows: [] });
+    for (const ok of [OP.id, OP.id.toUpperCase(), '11111111-1111-1111-1111-111111111111']) {
+      const res = await PATCH(
+        new NextRequest(`https://vedarai.ru/api/admin/operators/${ok}/widget`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ widget_enabled: true }),
+        }),
+        { params: Promise.resolve({ id: ok }) },
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(poolQuery).toHaveBeenCalledTimes(3);
   });
 
   it('отказ базы — 500 с причиной по-русски, отказ в логе', async () => {

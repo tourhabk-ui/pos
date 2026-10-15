@@ -7,14 +7,21 @@
  *    адресат-партнёр) — лида из самого чата больше нет;
  *  - строка «Экстренно — 112» видна на любом экране окна — текстом, не ссылкой
  *    tel:112; своей SOS-кнопки нет;
- *  - отказы по-русски, и «не найден» отличается от «не загрузился».
+ *  - отказы по-русски, и «не найден» отличается от «не загрузился»;
+ *  - форма, открытая из окна чата, получает хост и путь страницы партнёра
+ *    своими параметрами адреса — как от lead.js, а не только через
+ *    document.referrer (аудит 15.10, W3-widget: у обещания в шапках
+ *    readWidgetOriginParams и формы не было производителя).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-vi.mock('next/navigation', () => ({ useParams: () => ({ partnerId: 'mestechko' }) }));
+// Оба параметра: окно чата читает partnerId, форма заявки — slug (сквозной
+// тест ниже рендерит обе страницы).
+vi.mock('next/navigation', () => ({ useParams: () => ({ partnerId: 'mestechko', slug: 'mestechko' }) }));
 
 import WidgetPage from '@/app/widget/[partnerId]/page';
+import LeadFormPage from '@/app/widget/lead-form/[slug]/page';
 
 const CONFIG = {
   name: 'Местечко Камчатка',
@@ -41,6 +48,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.history.replaceState({}, '', '/');
 });
 
 describe('окно чата: заявка — формой', () => {
@@ -97,6 +105,58 @@ describe('окно чата: заявка — формой', () => {
       window.dispatchEvent(new MessageEvent('message', { data: 'th:close', source: frame.contentWindow }));
     });
     await waitFor(() => expect(screen.queryByTitle('Заявка партнёру Местечко Камчатка')).toBeNull());
+  });
+});
+
+describe('окно чата: форма заявки несёт хост и путь страницы партнёра', () => {
+  /** Окно чата, как его открыл embed.js на странице партнёра. */
+  async function openLeadFormFrom(chatAddress: string): Promise<string> {
+    window.history.replaceState({}, '', chatAddress);
+    stubFetch({ status: 200, body: { success: true, data: CONFIG } });
+    render(<WidgetPage />);
+    await screen.findByText('Местечко Камчатка');
+    fireEvent.click(screen.getByRole('button', { name: 'Оставить заявку' }));
+    return screen.getByTitle('Заявка партнёру Местечко Камчатка').getAttribute('src') ?? '';
+  }
+
+  it('хост и путь из адреса окна чата — в адресе формы', async () => {
+    const src = await openLeadFormFrom('/widget/mestechko?theme=light&host=mestechkokam.ru&path=/tours');
+    expect(src).toBe('/widget/lead-form/mestechko?host=mestechkokam.ru&path=%2Ftours');
+  });
+
+  it('хоста в адресе окна нет — форма без host и path (путь без хоста ни о чём не говорит)', async () => {
+    const src = await openLeadFormFrom('/widget/mestechko?theme=light&path=/tours');
+    expect(src).toBe('/widget/lead-form/mestechko');
+  });
+
+  it('хост без пути — только хост', async () => {
+    const src = await openLeadFormFrom('/widget/mestechko?host=mestechkokam.ru');
+    expect(src).toBe('/widget/lead-form/mestechko?host=mestechkokam.ru');
+  });
+
+  it('сквозь стык: заявка формы, открытой из чата, несёт хост и путь без реферера', async () => {
+    const src = await openLeadFormFrom('/widget/mestechko?host=mestechkokam.ru&path=/tours');
+    cleanup();
+    // Форма — в своём окне по адресу, который дал ей чат. Реферера нет:
+    // происхождение доходит параметрами, а не через document.referrer.
+    window.history.replaceState({}, '', src);
+    expect(document.referrer).toBe('');
+    const leads: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/widget/partner/')) {
+        return new Response(JSON.stringify({ success: true, data: { name: 'Местечко Камчатка', accentColor: '#C2410A', logo: null } }));
+      }
+      leads.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ success: true, id: 'lead-1' }), { status: 201 });
+    }));
+    render(<LeadFormPage />);
+    await screen.findByText('Местечко Камчатка');
+    fireEvent.change(screen.getByPlaceholderText('Иван Иванов'), { target: { value: 'Иван' } });
+    fireEvent.change(screen.getByPlaceholderText('+7 900 000-00-00'), { target: { value: '+79000000001' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Отправить заявку/ }));
+    await waitFor(() => expect(leads).toHaveLength(1));
+    expect((leads[0].source_data as Record<string, unknown>).widget_origin).toEqual({ host: 'mestechkokam.ru', path: '/tours' });
   });
 });
 

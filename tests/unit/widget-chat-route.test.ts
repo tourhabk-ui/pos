@@ -73,10 +73,12 @@ const ALERTING = {
 };
 
 let toursFail = false;
+let partnersFail = false;
 
 function routeDb() {
   dbQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
     if (/FROM partners/.test(sql)) {
+      if (partnersFail) throw Object.assign(new Error('relation "partners" does not exist'), { code: '42P01' });
       return params[0] === 'mestechko'
         ? { rows: [{ id: PARTNER_ID, name: 'Местечко Камчатка', category: 'operator', description: null, widget_domains: ['mestechkokam.ru'] }] }
         : { rows: [] };
@@ -110,6 +112,7 @@ let errSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   vi.clearAllMocks();
   toursFail = false;
+  partnersFail = false;
   routeDb();
   ragContext.mockResolvedValue('');
   safetyStatus.mockResolvedValue(QUIET);
@@ -217,6 +220,22 @@ describe('туры — только этого партнёра', () => {
     expect(res.status).toBe(404);
     const body = await res.json() as { error: string };
     expect(body.error).toMatch(/[а-яё]/i);
+    expect(waterfall).not.toHaveBeenCalled();
+  });
+});
+
+describe('отказ роута — причина в лог, наружу не уходит', () => {
+  it('база упала — 500 по-русски без details: текст базы только в логе', async () => {
+    // Ревью WID-safety 15.10 (W3-widget): 500 отдавал `details` — текст
+    // ошибки базы публичному окну на чужом сайте.
+    partnersFail = true;
+    const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'Привет' });
+    expect(res.status).toBe(500);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toEqual({ success: false, error: 'Ошибка обработки запроса' });
+    expect(JSON.stringify(body)).not.toMatch(/partners|relation|42P01/);
+    expect(errSpy.mock.calls.some((c) => String(c[0]).includes('[widget-chat] запрос не обработан')
+      && c.map(String).join(' ').includes('partners'))).toBe(true);
     expect(waterfall).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { LEAD_FORM_INTRO_DEFAULT } from '@/lib/embed/widget-style';
 import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface PartnerConfig {
   name: string;
@@ -56,6 +57,11 @@ export default function LeadFormPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Настройки партнёра — оформление (имя, логотип, цвет, вступление). Не
+  // загрузились — форма работает с нейтральным текстом и отправляет заявку на
+  // slug, но отказ называется в консоли, а не глушится (§4.0; аудит 15.10,
+  // W3-widget: до этого здесь стоял пустой .catch). ПД в строке нет — только
+  // slug партнёра и причина.
   useEffect(() => {
     if (!slug) return;
     fetch(`/api/widget/partner/${slug}`)
@@ -63,7 +69,9 @@ export default function LeadFormPage() {
       .then(d => {
         if (d.success && d.data) setConfig(d.data);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        logSwallowedFailure('widget-lead-form', `запрос настроек партнёра ${slug}`, err);
+      });
   }, [slug]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -87,10 +95,11 @@ export default function LeadFormPage() {
           source_data: {
             source:       'partner_widget',
             partner_slug: slug,
-            // Хост и путь страницы партнёра из адреса окна (их кладёт lead.js,
-            // а у формы, открытой из окна чата, — адрес чата). Исход сверки со
-            // списком доменов ставит сервер; хост подделывается — сигнал, а не
-            // замок (аудит 15.10, WID-measure).
+            // Хост и путь страницы партнёра — из адреса этого окна: их кладёт
+            // lead.js, а у формы, открытой из окна чата, — окно чата
+            // (leadFormPath). Запасом — адрес чата из document.referrer. Исход
+            // сверки со списком доменов ставит сервер; хост подделывается —
+            // сигнал, а не замок (аудит 15.10, WID-measure, W3-widget).
             widget_origin: readWidgetOriginParams(
               window.location.search, document.referrer, window.location.origin,
             ),

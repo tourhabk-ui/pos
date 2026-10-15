@@ -15,10 +15,11 @@ import { NextRequest } from 'next/server';
 
 const m = vi.hoisted(() => ({ query: vi.fn(), ai: vi.fn() }));
 vi.mock('@/lib/database', () => ({ query: m.query }));
-vi.mock('@/lib/ai/providers', () => ({ callAIWithModelDirect: m.ai }));
-vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => 'тестовая' }));
+// Модель — водопадом (WID-safety): мок на ту дверь, которой роут зовёт модель
+// после сведения волны 3, а не на прежний прямой вызов (стык WID-safety и
+// WID-measure, аудит 15.10, W3-widget).
+vi.mock('@/lib/ai/providers', () => ({ callAIWaterfallOrNull: m.ai }));
 vi.mock('@/lib/ai/rag-context', () => ({ buildRAGContext: vi.fn(async () => '') }));
-vi.mock('@/lib/leads/create', () => ({ createLead: vi.fn(async () => 'lead-x') }));
 
 import { POST } from '@/app/api/widget/chat/route';
 import { WIDGET_CHAT_SESSION_SQL } from '@/lib/embed/widget-telemetry';
