@@ -1,27 +1,34 @@
 {
   "timeout": 90,
-  "run": 942,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката подписи кадров галереи: карточка места отдаёт photoRights — лицензию, ссылку на неё и страницу файла у кадров Commons (Налычевские источники и долина, 1266; галерея «Быстринского», 1246), у снимка владельца на Авачинском перевале записи прав нет. Ждёт выката по полю photoRights. Конфиг записан целиком.",
+  "run": 943,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1271: карточки «Остров Старичков» и «Парк «Ключевской»», оставшиеся без снимков после 1263 и 1265, получили по три кадра Commons — у каждого автор, лицензия и страница файла (photoRights). Ждёт выката по автору первого кадра Старичкова. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
-    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
-    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/api/places/c35c5024-238f-44ec-85f6-c31127fdfffb"
+    "https://vedarai.ru/api/places/4dd86a74-d010-4ff4-81ad-23af3ba966a5",
+    "https://vedarai.ru/api/places/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0"
   ],
-  "until": "\"photoRights\"",
+  "until": "Кулик Мария Владимировна",
   "retries": 40,
   "retryDelay": 45,
   "grep": [
-    "\"photoRights\":{}",
-    "CC BY-SA 4.0",
-    "creativecommons.org/licenses/by-sa/4.0",
+    "Кулик Мария Владимировна",
+    "Aysa t",
+    "DoctisDM",
+    "Tamten",
+    "Giorgio Galeotti",
+    "Zhuravell",
+    "CC BY-SA 3.0",
     "Общественное достояние",
-    "commons.wikimedia.org/wiki/File:"
+    "Местечко Камчатка",
+    "Край Вулканов"
+  ],
+  "count": [
+    "/api/images/place-gallery/"
   ],
   "around": [
-    "\"photoRights\""
+    "\"photoUrl\"",
+    "\"photoCount\""
   ],
-  "aroundLines": 6,
+  "aroundLines": 2,
   "aroundHits": 1,
   "bytes": 120
 }
