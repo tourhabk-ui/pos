@@ -260,12 +260,11 @@ export default async function PlaceDetailPage({ params }: Props) {
           hasMap: `https://maps.yandex.ru/?ll=${r.lng},${r.lat}&z=13`,
         } : {}),
         ...(r.altitude_m != null ? { elevation: `${r.altitude_m} м` } : {}),
-        touristType: typeLabel,
-        provider: {
-          '@type': 'TravelAgency',
-          name: 'Ведар',
-          url: BASE,
-        },
+        // Ни provider, ни touristType (15.10, §0). provider: TravelAgency
+        // «Ведар» объявлял платформу поставщиком самого места — Долины
+        // гейзеров, Кроноцкого озера, — а место никто не «предоставляет»,
+        // и Ведар не его оператор. touristType — это аудитория («семьи»,
+        // «рыбаки»), а сюда ставился тип места («Вулкан»).
       };
       // Хлебные крошки — отдельным узлом, а не свойством TouristAttraction:
       // у этого типа такого свойства нет, и поисковик их не читал (аудит 02.10:

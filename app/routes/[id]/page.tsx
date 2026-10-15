@@ -497,14 +497,11 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         address: `${route.title}, Камчатский край, Россия`,
       },
       hasMap: `https://maps.yandex.ru/?ll=${route.lng},${route.lat}&z=12`,
+      // Без geo (15.10, §0): точка «Камчатского края» 52.93 / 160.78 лежала
+      // в Тихом океане, в 140 км от берега. У края нет одной точки — есть адрес.
       contentLocation: {
         '@type': 'Place',
         name: 'Камчатский край',
-        geo: {
-          '@type': 'GeoCoordinates',
-          latitude: 52.9306,
-          longitude: 160.7837,
-        },
         address: {
           '@type': 'PostalAddress',
           addressRegion: 'Камчатский край',
@@ -521,11 +518,8 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         // availability не объявляется: цена «от» маршрута — не предложение с
         // датами; честный ответ по датам — на карточке тура (аудит 01.10).
         url: `https://vedarai.ru/routes/${id}`,
-        seller: {
-          '@type': 'TravelAgency',
-          name: 'Ведар',
-          url: 'https://vedarai.ru',
-        },
+        // Продавца нет (15.10, §0): Ведар маршрут не продаёт, туры по нему
+        // продают операторы — их имена на карточках туров.
       },
     } : {}),
     // Difficulty level
@@ -544,12 +538,8 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         return months[Math.max(0, Math.min(11, idx))];
       }).join(', '),
     } : {}),
-    provider: {
-      '@type': 'TravelAgency',
-      name: 'Ведар',
-      url: 'https://vedarai.ru',
-      sameAs: ['https://vedarai.ru', 'https://t.me/kamchatourhub'],
-    },
+    // provider не объявляется (15.10, §0): Ведар маршрут не проводит и не
+    // обслуживает — его проводят операторы туров или человек сам.
   };
 
   const breadcrumbLd = {
