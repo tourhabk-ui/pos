@@ -40,17 +40,19 @@
  *
  * claude-code-action зовёт модель сам, мимо `logLLMUsage`, и обход импортов
  * его не видит. Руки находятся ПО ШАГУ ЭКШЕНА в workflow — новая рука
- * попадает под правило сама. Для каждой: файл выполнения уезжает артефактом
- * при любом исходе шага, учёт идёт ОТДЕЛЬНОЙ работой с `CRON_SECRET` и
- * скриптом из main, а в работе с агентом секрета нет (у агента Bash на её
- * раннере). Разбор файла выполнения и отправка — исполнением на образце
- * (tests/fixtures/hands), приёмник — вызовом с полями кэша: цена с
- * множителями, а не вход без кэша.
+ * попадает под правило сама. Для каждой: при любом исходе шага артефактом
+ * уезжает ВЫЖИМКА файла выполнения — одни счётчики, а не транскрипт агента
+ * (ревью AC-1: репозиторий публичный, маски секретов в артефакте нет);
+ * учёт идёт ОТДЕЛЬНОЙ работой с `CRON_SECRET` и скриптом из main, а в
+ * работе с агентом секрета нет (у агента Bash на её раннере). Выжимка —
+ * исполнением шага workflow на транскрипте с подложенным секретом; разбор и
+ * отправка — исполнением на образце (tests/fixtures/hands), приёмник —
+ * вызовом с полями кэша: цена с множителями, а не вход без кэша.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, existsSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { load } from 'js-yaml';
@@ -287,6 +289,21 @@ function booksJob(h: Hand): { jobId: string; job: WfJob; step: WfStep } | null {
   return null;
 }
 
+interface Reduction { step: WfStep; upload: WfStep }
+
+/**
+ * Выжимка расхода в работе руки: первая загрузка артефакта после руки и
+ * последний шаг с `run` перед ней. Что шаг пишет именно загружаемый файл,
+ * проверяется исполнением (`runReduction`), а не по тексту.
+ */
+function reductionOf(h: Hand): Reduction | null {
+  const after = (h.job.steps ?? []).slice(h.stepIndex + 1);
+  const uploadAt = after.findIndex((s) => (s.uses ?? '').startsWith('actions/upload-artifact@'));
+  if (uploadAt < 0) return null;
+  const step = after.slice(0, uploadAt).reverse().find((s) => typeof s.run === 'string');
+  return step ? { step, upload: after[uploadAt] } : null;
+}
+
 describe('руки находятся по шагу экшена', () => {
   it('все четыре известные руки видны разбору', () => {
     // Провал разбора (сменился формат uses, переименовали экшен) обязан
@@ -308,18 +325,25 @@ describe('расход рук доходит до книг', () => {
       expect(h.job.outputs?.execution_file).toBe(`\${{ steps.${id}.outputs.execution_file }}`);
     });
 
-    it(`${h.file}: файл выполнения уезжает при ЛЮБОМ исходе руки`, () => {
-      const upload = (h.job.steps ?? [])
-        .slice(h.stepIndex + 1)
-        .find((s) => (s.uses ?? '').startsWith('actions/upload-artifact@'));
-      expect(upload, 'после руки нет загрузки файла выполнения').toBeDefined();
+    it(`${h.file}: к учёту уезжает выжимка, а не файл выполнения, — при ЛЮБОМ исходе руки`, () => {
+      const r = reductionOf(h);
+      expect(r, 'после руки нет пары «выжимка — загрузка»').not.toBeNull();
+      const { step: reduce, upload } = r as Reduction;
       // Упавший или оборванный прогон тоже тратил — без always() его расход
       // не доехал бы до книг ровно тогда, когда он самый непредсказуемый.
-      expect(upload?.if ?? '').toMatch(/always\(\)/);
-      expect(String(upload?.with?.path ?? '')).toContain(`steps.${id}.outputs.execution_file`);
+      expect(reduce.if ?? '').toMatch(/always\(\)/);
+      expect(upload.if ?? '').toMatch(/always\(\)/);
+      // Выжимка берёт файл, названный самим экшеном.
+      expect(String(reduce.env?.HAND_EXECUTION_FILE)).toBe(`\${{ steps.${id}.outputs.execution_file }}`);
+      // Запрет: сырой файл выполнения — транскрипт агента со всеми выводами
+      // инструментов — в артефакт публичного репозитория не идёт (ревью
+      // AC-1). Что в артефакте именно выжимка — ниже, исполнением шага.
+      expect(String(upload.with?.path ?? '')).not.toMatch(/execution_file|claude-execution-output/);
       const books = booksJob(h);
       const download = (books?.job.steps ?? []).find((s) => (s.uses ?? '').startsWith('actions/download-artifact@'));
-      expect(download?.with?.name, 'учёт скачивает не тот артефакт').toBe(upload?.with?.name);
+      expect(download?.with?.name, 'учёт скачивает не тот артефакт').toBe(upload.with?.name);
+      // Учёт читает то, что скачал: файл с именем выжимки.
+      expect(basename(String(books?.step.env?.EXECUTION_FILE ?? ''))).toBe(basename(String(upload.with?.path ?? '')));
     });
 
     it(`${h.file}: учёт — своя работа, при любом исходе руки, с CRON_SECRET`, () => {
@@ -413,6 +437,189 @@ describe('разбор файла выполнения руки', () => {
     const parsed = parseExecution([{ type: 'result', modelUsage: { m: { inputTokens: 5, outputTokens: 1 } } }]);
     expect(parsed.rows[0]).toMatchObject({ cache_creation_tokens: null, cache_read_tokens: null });
   });
+});
+
+// ── Выжимка в работе руки — исполнением шага workflow ───────────────────
+//
+// Ревью AC-1: файл выполнения — полный транскрипт агента (выводы Bash и Read,
+// тексты чужих issues, логи CI), а артефакт публичного репозитория скачивает
+// любой пользователь GitHub без маски секретов. Шаг выжимки исполняется
+// настоящим bash и jq на транскрипте с подложенным секретом.
+
+const PLANTED = 'ghs_PLANTEDsecretFROMtoolOUTPUT0123456789';
+const IDENT = /^[A-Za-z0-9][A-Za-z0-9._:@/[\]-]{0,127}$/;
+const ALLOWED_KEYS = new Set([
+  'type', 'total_cost_usd', 'modelUsage',
+  'inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens',
+  'message', 'id', 'model', 'usage',
+  'input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens',
+]);
+
+/** Транскрипт образца, в который секрет попал везде, куда его может занести агент. */
+function leakyTranscript(): Array<Record<string, unknown>> {
+  const msgs = (fixtureMessages() as Array<Record<string, unknown>>).map((m) => structuredClone(m));
+  for (const m of msgs) {
+    m.leak = PLANTED;
+    const msg = m.message as Record<string, unknown> | undefined;
+    if (msg && typeof msg === 'object') {
+      msg.content = [
+        { type: 'text', text: `env: CRON_SECRET=${PLANTED}` },
+        { type: 'tool_use', id: 'toolu_leak', name: 'Bash', input: { command: `echo ${PLANTED}` } },
+      ];
+      msg.stop_sequence = PLANTED;
+      const usage = msg.usage as Record<string, unknown> | undefined;
+      if (usage && typeof usage === 'object') usage.service_tier = PLANTED;
+    }
+    if (m.type === 'result') {
+      m.result = `Готово. Токен: ${PLANTED}`;
+      m.permission_denials = [{ tool_name: 'Bash', tool_input: { command: PLANTED } }];
+      for (const u of Object.values(m.modelUsage as Record<string, Record<string, unknown>>)) u.note = PLANTED;
+    }
+  }
+  msgs.splice(1, 0, {
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_leak', content: `${PLANTED}\n` }] },
+  });
+  return msgs;
+}
+
+/** Что в выжимке не из белого списка: ключи, строки, логические. */
+function violations(v: unknown, path = '$', parentKey = ''): string[] {
+  if (v === null || typeof v === 'number') return [];
+  if (typeof v === 'string') {
+    if (parentKey === 'type' && (v === 'result' || v === 'assistant')) return [];
+    if ((parentKey === 'id' || parentKey === 'model') && IDENT.test(v)) return [];
+    return [`${path}: строка «${v.slice(0, 60)}»`];
+  }
+  if (Array.isArray(v)) return v.flatMap((x, i) => violations(x, `${path}[${i}]`));
+  if (typeof v !== 'object') return [`${path}: ${typeof v}`];
+  const out: string[] = [];
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+    // Ключи modelUsage — имена моделей; пустое — метка «имя не прошло».
+    const modelKey = parentKey === 'modelUsage';
+    if (modelKey ? !(k === '' || IDENT.test(k)) : !ALLOWED_KEYS.has(k)) out.push(`${path}: ключ «${k.slice(0, 60)}»`);
+    out.push(...violations(x, `${path}.${k}`, modelKey ? '#model' : k));
+  }
+  return out;
+}
+
+/** Исполняет шаг выжимки так, как его исполнит раннер: bash -e, только env. */
+function runReduction(r: Reduction, runnerTemp: string, handExecutionFile: string) {
+  const res = spawnSync('bash', ['-e', '-c', r.step.run ?? ''], {
+    env: { PATH: process.env.PATH ?? '', RUNNER_TEMP: runnerTemp, HAND_EXECUTION_FILE: handExecutionFile },
+    encoding: 'utf-8',
+  });
+  // Путь загрузки — со стороны workflow; шаг обязан писать именно его.
+  const uploaded = String(r.upload.with?.path ?? '').replace('${{ runner.temp }}', runnerTemp);
+  return {
+    status: res.status,
+    log: `${res.stdout ?? ''}${res.stderr ?? ''}`,
+    uploaded,
+    reduced: existsSync(uploaded) ? (JSON.parse(readFileSync(uploaded, 'utf-8')) as unknown) : undefined,
+  };
+}
+
+describe('выжимка в работе руки — одни счётчики', () => {
+  let dir = '';
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'hands-reduce-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  for (const h of hands()) {
+    const reduction = (): Reduction => {
+      const r = reductionOf(h);
+      if (!r) throw new Error(`${h.file}: после руки нет пары «выжимка — загрузка»`);
+      // Шаг исполняется как написан: выражения workflow в тексте скрипта
+      // подставились бы до bash — данные ему идут только через env.
+      expect(r.step.run ?? '').not.toContain('${{');
+      return r;
+    };
+    const write = (name: string, body: unknown): string => {
+      const p = join(dir, name);
+      writeFileSync(p, typeof body === 'string' ? body : JSON.stringify(body));
+      return p;
+    };
+
+    it(`${h.file}: в артефакт не попадает ни текст, ни tool_use, ни секрет — а разбор тот же`, async () => {
+      const leaky = leakyTranscript();
+      const src = write('claude-execution-output.json', leaky);
+      const res = runReduction(reduction(), dir, src);
+      expect(res.status, res.log).toBe(0);
+      expect(res.reduced, `${res.uploaded} не создан`).toBeDefined();
+      const text = JSON.stringify(res.reduced);
+      expect(text).not.toContain(PLANTED);
+      expect(text).not.toMatch(/"(content|text|tool_use|tool_result|result|leak|permission_denials|session_id)"\s*:/);
+      expect(violations(res.reduced)).toEqual([]);
+      // Выжимка — без потерь для учёта: разбор и отправка те же, что по сырому.
+      const parsed = parseExecution(res.reduced);
+      expect(parsed.form).toBe('result');
+      expect(parsed).toEqual(parseExecution(leaky));
+      const bodies: string[] = [];
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        bodies.push(String(init.body));
+        return new Response(JSON.stringify({ written: 2, unknown_cost: 0, cost_usd_known: 0.4 }), { status: 200 });
+      }) as unknown as typeof fetch;
+      const env = { AGENT_ID: 'claude', CRON_SECRET: 's', HAND_EXECUTION_FILE: src };
+      await runHandsUsage({ env: { ...env, EXECUTION_FILE: res.uploaded }, fetchImpl });
+      await runHandsUsage({ env: { ...env, EXECUTION_FILE: src }, fetchImpl });
+      expect(bodies).toHaveLength(2);
+      expect(bodies[0]).toBe(bodies[1]);
+    });
+
+    it(`${h.file}: обрыв без итога — ответы модели с id, по-прежнему без текста`, () => {
+      const cut = leakyTranscript().filter((m) => m.type !== 'result');
+      const res = runReduction(reduction(), dir, write('cut.json', cut));
+      expect(res.status, res.log).toBe(0);
+      expect(JSON.stringify(res.reduced)).not.toContain(PLANTED);
+      expect(violations(res.reduced)).toEqual([]);
+      const parsed = parseExecution(res.reduced);
+      expect(parsed.form).toBe('assistant');
+      expect(parsed).toEqual(parseExecution(cut));
+    });
+
+    it(`${h.file}: текст на месте имени или числа — null, и расход «не разобран», а не утёк`, () => {
+      const odd = [
+        {
+          type: 'result',
+          total_cost_usd: `${PLANTED}`,
+          modelUsage: { [`Bearer ${PLANTED} leaked`]: { inputTokens: 1, outputTokens: PLANTED } },
+        },
+        { type: 'assistant', message: { id: `id ${PLANTED}`, model: `m ${PLANTED}`, usage: { input_tokens: PLANTED } } },
+      ];
+      const res = runReduction(reduction(), dir, write('odd.json', odd));
+      expect(res.status, res.log).toBe(0);
+      expect(JSON.stringify(res.reduced)).not.toContain(PLANTED);
+      expect(violations(res.reduced)).toEqual([]);
+      const parsed = parseExecution(res.reduced);
+      expect(parsed.form).toBe('unknown');
+      expect(parsed.rows).toEqual([]);
+    });
+
+    it(`${h.file}: файл не JSON — метка «не прочёл», учёт называет расход неразобранным`, async () => {
+      const res = runReduction(reduction(), dir, write('broken.json', `{"result": "${PLANTED}"`));
+      expect(res.status, res.log).toBe(0);
+      expect(res.reduced).toEqual({ hands_usage: 'unreadable' });
+      const fetchImpl = vi.fn() as unknown as typeof fetch;
+      const run = await runHandsUsage({
+        env: { AGENT_ID: 'claude', CRON_SECRET: 's', EXECUTION_FILE: res.uploaded, HAND_EXECUTION_FILE: '/x.json' },
+        fetchImpl,
+      });
+      expect(run.exitCode).toBe(0);
+      expect(run.out.join('\n')).toMatch(/::warning::.*не разобран.*jq/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it(`${h.file}: экшен не назвал файл — берётся путь по умолчанию; нет и его — выжимки нет`, () => {
+      const none = runReduction(reduction(), dir, '');
+      expect(none.status, none.log).toBe(0);
+      // Выжимки нет — решать, потеря это или «рука не дошла до модели», будет
+      // учёт по HAND_EXECUTION_FILE, а не этот шаг.
+      expect(none.reduced).toBeUndefined();
+      write('claude-execution-output.json', fixtureMessages());
+      const fallback = runReduction(reduction(), dir, '');
+      expect(fallback.status, fallback.log).toBe(0);
+      expect(parseExecution(fallback.reduced)).toEqual(parseExecution(fixtureMessages()));
+    });
+  }
 });
 
 describe('учёт прогона руки: отправка и исходы', () => {

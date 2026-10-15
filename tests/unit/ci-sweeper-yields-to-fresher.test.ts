@@ -27,7 +27,8 @@ import { loadWorkflow, evalIf, evalTemplate, type WorkflowStep } from '../helper
 const sweeper = loadWorkflow('.github/workflows/ci-sweeper.yml');
 const job = sweeper.jobs['sweep'];
 const AGENT_STEP = 'Run Claude sweeper';
-const UPLOAD_STEP = 'Файл выполнения руки — для учёта расхода';
+const REDUCE_STEP = 'Выжимка расхода руки — одни счётчики';
+const UPLOAD_STEP = 'Счётчики расхода руки — к учёту';
 
 const REPO = 'tourhabk-ui/pos';
 const RUN_ID = 1000;
@@ -200,6 +201,7 @@ describe('красный main, следом прогон более свежег
       expect(s.ran, 'агент свипера на красном прогоне, который решит более свежий').not.toContain(AGENT_STEP);
       expect(s.ran, 'и checkout не нужен').not.toContain('Checkout failing branch');
       // Агент не звался — и файла выполнения ждать неоткуда.
+      expect(s.ran).not.toContain(REDUCE_STEP);
       expect(s.ran).not.toContain(UPLOAD_STEP);
       expect(s.out).toMatch(/он и решит/);
     });
@@ -218,8 +220,11 @@ describe('красный main, более свежего прогона нет',
   it('коммит с кодом — агент зовётся, как раньше', () => {
     const s = simulate({ runs: [ourRun] });
     expect(s.ran).toContain(AGENT_STEP);
-    // Агент звался — файл выполнения уезжает к учёту расхода (аудит 15.10, AC-1).
-    expect(s.ran.indexOf(UPLOAD_STEP)).toBeGreaterThan(s.ran.indexOf(AGENT_STEP));
+    // Агент звался — выжимка его расхода (одни счётчики, не транскрипт)
+    // собирается и уезжает к учёту (аудит 15.10, AC-1). Шаг выжимки исполнен
+    // настоящим bash: файла выполнения в проигрыше нет, и он выходит чисто.
+    expect(s.ran.indexOf(REDUCE_STEP)).toBeGreaterThan(s.ran.indexOf(AGENT_STEP));
+    expect(s.ran.indexOf(UPLOAD_STEP)).toBeGreaterThan(s.ran.indexOf(REDUCE_STEP));
   });
 
   it('прогоны старше нашего не решают за нас', () => {

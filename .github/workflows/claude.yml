@@ -150,17 +150,58 @@ jobs:
             - PR создаётся как draft: gh pr create --draft
 
       # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
-      # Файл выполнения экшена (JSON сообщений SDK, итог с modelUsage и
-      # total_cost_usd) уезжает к отдельной работе учёта usage-books. Секрета
-      # учёта (CRON_SECRET) в этой работе нет и быть не должно: у агента Bash
-      # на этом раннере. Отказ загрузки не красит руку — потерю назовёт учёт.
-      - name: Файл выполнения руки — для учёта расхода
+      # К работе учёта usage-books уезжают ОДНИ СЧЁТЧИКИ, а не файл выполнения.
+      # Файл выполнения — полный транскрипт агента: выводы Bash и Read, тексты
+      # чужих issues, логи CI. Репозиторий публичный, артефакт скачивает любой
+      # пользователь GitHub, а маски секретов в файлах артефакта нет — она есть
+      # только в логе. Поэтому выжимка собирается здесь, белым списком полей:
+      # тип сообщения, total_cost_usd, modelUsage (четыре счётчика на модель),
+      # у ответа модели — id, модель и четыре счётчика usage. Текста, content и
+      # tool_use в ней нет; не число на месте числа и не имя на месте имени —
+      # null, и учёт назовёт расход неразобранным. Агент может переписать
+      # числа — сервер проверит их схемой. Секрета учёта (CRON_SECRET) в этой
+      # работе нет и быть не должно: у агента Bash на этом раннере. Отказ
+      # выжимки или загрузки не красит руку — потерю назовёт учёт.
+      - name: Выжимка расхода руки — одни счётчики
+        if: always() && steps.hand.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          HAND_EXECUTION_FILE: ${{ steps.hand.outputs.execution_file }}
+        run: |
+          src="${HAND_EXECUTION_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+          dst="$RUNNER_TEMP/hand-usage/hand-usage.json"
+          mkdir -p "$RUNNER_TEMP/hand-usage"
+          rm -f "$dst" "$dst.tmp"
+          if [ ! -f "$src" ]; then
+            echo "Файла выполнения нет — выжимать нечего; что это значит, скажет учёт"
+            exit 0
+          fi
+          if ! jq -c '
+            def n: if type == "number" then . else null end;
+            def ident: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:@/\\[\\]-]{0,127}$") then . else null end;
+            def model_usage: if type == "object" then {inputTokens: (.inputTokens | n), outputTokens: (.outputTokens | n), cacheCreationInputTokens: (.cacheCreationInputTokens | n), cacheReadInputTokens: (.cacheReadInputTokens | n)} else null end;
+            def msg_usage: if type == "object" then {input_tokens: (.input_tokens | n), output_tokens: (.output_tokens | n), cache_creation_input_tokens: (.cache_creation_input_tokens | n), cache_read_input_tokens: (.cache_read_input_tokens | n)} else null end;
+            if type == "array" then [ .[] | objects |
+              if .type == "result" then
+                {type: "result", total_cost_usd: (.total_cost_usd | n),
+                 modelUsage: (if (.modelUsage | type) == "object" then (.modelUsage | with_entries({key: (.key | ident // ""), value: (.value | model_usage)})) else null end)}
+              elif .type == "assistant" and (.message | type) == "object" then
+                {type: "assistant", message: {id: (.message.id | ident), model: (.message.model | ident), usage: (.message.usage | msg_usage)}}
+              else empty end
+            ] else null end
+          ' "$src" > "$dst.tmp"; then
+            echo "::warning::Файл выполнения руки не выжат: jq его не прочёл — учёт назовёт расход неразобранным"
+            echo '{"hands_usage":"unreadable"}' > "$dst.tmp"
+          fi
+          mv "$dst.tmp" "$dst"
+
+      - name: Счётчики расхода руки — к учёту
         if: always() && steps.hand.outcome != 'skipped'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: hand-execution
-          path: ${{ steps.hand.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
+          name: hand-usage
+          path: ${{ runner.temp }}/hand-usage/hand-usage.json
           if-no-files-found: warn
           retention-days: 1
           overwrite: true
@@ -168,8 +209,9 @@ jobs:
   # ── Расход руки — в книги llm_usage_log (аудит 15.10, AC-1) ─────────────
   #
   # Руки считают ключом Anthropic мимо logLLMUsage, и их расход до книг не
-  # доходил: дневной бюджет (llm-budget-check) по ним не мог сработать. Здесь файл
-  # выполнения разбирается (scripts/hands-usage.mjs) и строки уходят на прод
+  # доходил: дневной бюджет (llm-budget-check) по ним не мог сработать. Здесь
+  # выжимка файла выполнения (одни счётчики, собрана в работе руки) разбирается
+  # (scripts/hands-usage.mjs), и строки уходят на прод
   # (POST /api/admin/llm-usage/report) с CRON_SECRET. Цену, включая кэш
   # подсказок, считает прод; заявление экшена (total_cost_usd) — в сводку
   # прогона для сверки, в книги не пишется.
@@ -194,13 +236,14 @@ jobs:
           sparse-checkout: scripts/hands-usage.mjs
           sparse-checkout-cone-mode: false
 
-      # Артефакта нет — экшен файла не оставил или загрузка не удалась; что
-      # из двух, решает учёт по HAND_EXECUTION_FILE, а не этот шаг.
-      - name: Файл выполнения руки
+      # Артефакта нет — экшен файла не оставил, или выжимка либо загрузка не
+      # удались; потеря это или «рука не дошла до модели», решает учёт по
+      # HAND_EXECUTION_FILE, а не этот шаг.
+      - name: Счётчики расхода руки — из работы руки
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: hand-execution
+          name: hand-usage
           path: ${{ runner.temp }}/hand
 
       - name: Расход руки — в книги
@@ -208,6 +251,6 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           AGENT_ID: claude
-          EXECUTION_FILE: ${{ runner.temp }}/hand/claude-execution-output.json
+          EXECUTION_FILE: ${{ runner.temp }}/hand/hand-usage.json
           HAND_EXECUTION_FILE: ${{ needs.claude.outputs.execution_file }}
         run: node scripts/hands-usage.mjs --run
