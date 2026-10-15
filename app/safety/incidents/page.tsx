@@ -7,6 +7,7 @@ import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -62,7 +63,7 @@ async function getActiveAlerts(): Promise<ActiveAlert[]> {
       FROM location_real_time_status r
       JOIN places p ON r.agent_route_id::text = p.ark_id::text
       WHERE r.alert_severity > 0
-        AND (r.alert_expires_at IS NULL OR r.alert_expires_at > NOW())
+        AND (r.alert_expires_at IS NULL OR r.alert_expires_at > ${UTC_WALL_NOW_SQL})
       ORDER BY r.alert_severity DESC
       LIMIT 20
     `);

@@ -25,6 +25,7 @@ import { lastIngestAt, INGEST_AGENT_ID } from '@/lib/safety/ingest-run';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { kmToNearestTouristArea } from '@/lib/services/safety/seismic-zones';
 import { shakingIntensity } from '@/lib/services/safety/shaking';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // ── Константы ─────────────────────────────────────────────────────────────
 
@@ -112,8 +113,8 @@ async function loadZoneData(zone: Zone): Promise<ZoneRawData> {
               magnitude::float8 AS magnitude, lat::float8 AS lat, lng::float8 AS lng
        FROM external_alerts
        WHERE $1 = ANY(affected_zones)
-         AND expires_at > NOW()
-         AND created_at > NOW() - INTERVAL '48 hours'
+         AND expires_at > ${UTC_WALL_NOW_SQL}
+         AND created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '48 hours'
        ORDER BY severity DESC, created_at DESC
        LIMIT 20`,
       [zone]

@@ -13,6 +13,7 @@
  * 5. входы: главная (обе версии), сводка, меню и футер, sitemap.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen } from '@testing-library/react';
@@ -172,7 +173,7 @@ describe('2. загрузчик: предупреждения Росгидром
       ],
     });
     const [sql, params] = query.mock.calls.find(([s]) => /FROM external_alerts/.test(String(s)))!;
-    expect(String(sql)).toMatch(/expires_at > NOW\(\)/);
+    expect(String(sql)).toContain(`expires_at > ${UTC_WALL_NOW_SQL}`);
     expect(params).toEqual(['meteoalert/%']);
   });
 

@@ -54,6 +54,7 @@ import { logText } from '@/lib/log/log-text';
 import { redactPII } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -978,7 +979,7 @@ async function loadExternalAlerts(): Promise<string> {
     }>(
       `SELECT title, description, alert_type, severity, affected_zones
        FROM external_alerts
-       WHERE (expires_at IS NULL OR expires_at > NOW())
+       WHERE (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})
          AND severity >= 1
        ORDER BY severity DESC, created_at DESC
        LIMIT 5`,

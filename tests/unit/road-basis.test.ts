@@ -20,6 +20,7 @@
  *  - раннер приносит снимок только по запросу сервера и только с CDN Telegram.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { readFileSync } from 'node:fs';
 
 vi.mock('@/lib/database', () => ({ query: vi.fn() }));
@@ -191,7 +192,7 @@ describe('очередь и запись: ручное не трогается, 
   it('непроверенные — живые, без основания, не смотренные (или зрение молчало час назад)', async () => {
     await queue.pendingBasisChecks(['t.me/pravonarul/18785'], db);
     const sql = String(q.mock.calls[0][0]);
-    expect(sql).toMatch(/expires_at > NOW\(\)/);
+    expect(sql).toContain(`expires_at > ${UTC_WALL_NOW_SQL}`);
     expect(sql).toMatch(/basis_title IS NULL/);
     expect(sql).toMatch(/basis_check_outcome IS NULL\s+OR \(basis_check_outcome = 'unavailable' AND basis_checked_at < NOW\(\) - INTERVAL '1 hour'\)/);
     q.mockClear();
@@ -203,7 +204,8 @@ describe('очередь и запись: ручное не трогается, 
     await queue.applyBasisReading('t.me/pravonarul/18785', { outcome: 'found', title: 'Приказ X от 08.10.2026 № 1', validUntil: new Date('2026-10-09T22:00:00Z') }, 'https://t.me/pravonarul/18785', db);
     const sql = String(q.mock.calls[0][0]);
     expect(sql).toMatch(/basis_origin = 'image_ocr'/);
-    expect(sql).toMatch(/GREATEST\(expires_at, \$4::timestamptz\)/);
+    // Срок основания (timestamptz) — в стенное UTC, как сам expires_at (15.10, #2495).
+    expect(sql).toMatch(/GREATEST\(expires_at, \$4::timestamptz AT TIME ZONE 'UTC'\)/);
     expect(sql).toMatch(/AND basis_title IS NULL/);
     expect(sql).not.toMatch(/'manual'/);
     q.mockClear();

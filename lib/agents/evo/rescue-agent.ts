@@ -42,6 +42,7 @@ import {
   judgeForecastDay, matchOfficialAlerts, isWaterTour,
   type UpcomingBooking, type OfficialAlert,
 } from '@/lib/agents/evo/rescue-judge';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export interface RescueAlert {
   type: 'weather_threat' | 'official_warning' | 'operator_no_response' | 'zone_danger' | 'check_failed';
@@ -295,7 +296,7 @@ async function checkOfficialAlerts(): Promise<CheckResult> {
       SELECT id, alert_type, severity, title, description, affected_zones,
              expires_at, source_url
       FROM external_alerts
-      WHERE expires_at > NOW()
+      WHERE expires_at > ${UTC_WALL_NOW_SQL}
         AND (severity >= 2 OR alert_type = 'flood')
       ORDER BY severity DESC, created_at DESC
       LIMIT 200

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,7 @@ export async function GET() {
          JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
          WHERE ark.zone = ANY(ea.affected_zones)) as affected_route_count
       FROM external_alerts ea
-      WHERE ea.expires_at > NOW()
+      WHERE ea.expires_at > ${UTC_WALL_NOW_SQL}
       ORDER BY ea.severity DESC, ea.created_at DESC
       LIMIT 100
     `);

@@ -79,7 +79,7 @@ describe('окно ретрая = срок действия алерта, не �
 
   it('диспетчер ретраит недоставленное, пока алерт действителен', () => {
     expect(dispatchFn(), 'вернулось 2-часовое окно — застрявшие алерты снова не доставятся')
-      .toContain('expires_at > NOW()');
+      .toContain('expires_at > ${UTC_WALL_NOW_SQL}');
     expect(dispatchFn()).not.toContain("INTERVAL '2 hours'");
   });
 
@@ -95,7 +95,7 @@ describe('окно ретрая = срок действия алерта, не �
       WATCHDOG.indexOf('async function checkUndeliveredSafetyPush'),
       WATCHDOG.indexOf('async function checkPendingTransferBookings'),
     );
-    expect(fn).toContain('expires_at > NOW()');
+    expect(fn).toContain('expires_at > ${UTC_WALL_NOW_SQL}');
   });
 });
 

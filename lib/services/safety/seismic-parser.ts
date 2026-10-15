@@ -22,6 +22,7 @@ import { warningSystemTest, warningTestHours } from '@/lib/safety/warning-system
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
 import { KRAI_COMMANDER_ZONE, KRAI_FAR_ZONES, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -709,7 +710,7 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
             AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
-            AND expires_at > NOW()
+            AND expires_at > ${UTC_WALL_NOW_SQL}
        ) prev
        WHERE external_alerts.id = prev.id
        RETURNING external_alerts.id,

@@ -1,6 +1,7 @@
 import { query } from '@/lib/database';
 import { lonToTile, latToTile, TILE_HOST } from '@/lib/offline/tiles';
 import { planCorridor, estimateTilesMb, CORRIDOR_ZOOMS, type TrackPoint } from '@/lib/offline/route-corridor';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // AUTH: Public — данные маршрута публичные, тайлы публичные
 export const dynamic = 'force-dynamic';
@@ -64,7 +65,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
          JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
          JOIN external_alerts ea  ON ea.title = ANY(lrs.active_alerts)
         WHERE rw.route_id = $1
-          AND ea.expires_at > NOW()
+          AND ea.expires_at > ${UTC_WALL_NOW_SQL}
         ORDER BY ea.severity DESC
         LIMIT 20`,
       [id],

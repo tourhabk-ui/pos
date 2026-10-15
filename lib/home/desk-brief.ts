@@ -16,6 +16,8 @@ import { unstable_cache } from 'next/cache';
 import { query } from '@/lib/database';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
+import { alertDayLabel, alertTerm } from '@/lib/safety/alert-dates';
+import { UTC_WALL_NOW_SQL, utcWallIsoSql } from '@/lib/db/timestamp-iso';
 import { loadSvodka, type Svodka } from '@/lib/svodka/svodka';
 
 /** Сколько строк «Что меняет план» на главной; остальные — по ссылке. */
@@ -31,8 +33,13 @@ export interface PlanChange {
   kind: ChangeKind;
   /** Род тревоги словом: «дороги», «паводок». */
   kindLabel: string;
-  /** До какого дня в силе, «до 5 октября»; null — срок не записан. */
-  until: string | null;
+  /**
+   * Подпись срока по правилу ленты (lib/safety/alert-dates, #2495):
+   * «до 5 октября» — срок из источника; «в ленте до 1 января 2027 г.» — ручная
+   * запись, её срок ставит человек; «сообщение от 8 октября» — срок жизни
+   * записи задали мы; null — срока нет.
+   */
+  term: string | null;
   /** Откуда строка. Не узнали — так и сказано, не ближайшая правдоподобная лента. */
   origin: string;
 }
@@ -64,13 +71,32 @@ export function splitAlertTitle(title: string, description: string | null): { pl
     : { place: null, what: t };
 }
 
-function untilLabel(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return null;
-  // Бессрочные записи ingest кладёт с expires_at на годы вперёд — это не срок.
-  if (d.getTime() - Date.now() > 180 * 86_400_000) return null;
-  return `до ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Asia/Kamchatka' })}`;
+/**
+ * Подпись срока строки «Что меняет план». Правило — общее с лентой сайта и MCP
+ * (`alertTerm`): прежняя подпись «до 1 января» у пропусков на Вилючинский
+ * перевал выдавала заглушку ручной записи за окончание ограничения, а неделю
+ * жизни записи ингеста — за срок дорожного закрытия.
+ */
+export function planChangeTerm(at: string | null, until: string | null, manual: boolean, nowMs: number = Date.now()): string | null {
+  switch (alertTerm({ at, until, manual })) {
+    case 'feed_window': {
+      const day = alertDayLabel(until, nowMs);
+      return day ? `в ленте до ${day}` : null;
+    }
+    case 'technical': {
+      const day = alertDayLabel(at, nowMs);
+      return day ? `сообщение от ${day}` : null;
+    }
+    case 'source': {
+      const t = Date.parse(until ?? '');
+      // Бессрочные записи ingest кладёт с expires_at на годы вперёд — это не срок.
+      if (!Number.isFinite(t) || t - nowMs > 180 * 86_400_000) return null;
+      const day = alertDayLabel(until, nowMs);
+      return day ? `до ${day}` : null;
+    }
+    default:
+      return null;
+  }
 }
 
 /** Строки «Что меняет план»; null — ленту прочитать не смогли (это не «ничего»). */
@@ -78,14 +104,15 @@ export async function loadPlanChanges(limit = DESK_CHANGES_LIMIT): Promise<PlanC
   try {
     const r = await query<{
       title: string; description: string | null; alert_type: string | null;
-      expires_at: string | null; external_id: string | null; source_url: string | null;
+      created_iso: string | null; expires_iso: string | null; external_id: string | null; source_url: string | null;
     }>(`
-      SELECT title, description, alert_type, expires_at::text, external_id, source_url FROM (
+      SELECT title, description, alert_type, external_id, source_url,
+             ${utcWallIsoSql('created_at')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
         SELECT DISTINCT ON (lower(title))
                title, description, alert_type, severity::int AS severity, created_at,
                expires_at, external_id, source_url
           FROM external_alerts
-         WHERE expires_at > NOW()
+         WHERE expires_at > ${UTC_WALL_NOW_SQL}
            AND alert_type = ANY($1::text[])
          ORDER BY lower(title), severity DESC, created_at DESC
       ) t
@@ -94,11 +121,12 @@ export async function loadPlanChanges(limit = DESK_CHANGES_LIMIT): Promise<PlanC
     `, [[...FEED_ALERT_TYPES], limit]);
     return r.rows.map((row) => {
       const k = KIND[row.alert_type ?? ''] ?? { kind: 'other' as const, label: 'предупреждение' };
+      const manual = alertOrigin(row.external_id, row.source_url)?.key === 'manual';
       return {
         ...splitAlertTitle(row.title, row.description),
         kind: k.kind,
         kindLabel: k.label,
-        until: untilLabel(row.expires_at),
+        term: planChangeTerm(row.created_iso, row.expires_iso, manual),
         origin: alertOrigin(row.external_id, row.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT,
       };
     });

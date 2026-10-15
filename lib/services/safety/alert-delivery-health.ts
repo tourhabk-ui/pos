@@ -25,6 +25,7 @@
  *                   условия, что у Watchdog, чтобы два монитора не спорили.
  */
 import { pool } from '@/lib/db-pool';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const SAFETY_INGEST_AGENT_ID = 'safety-ingest';
 /** Сейсмо-приём по расписанию — каждые 5 минут; больше 30 — уже отставание. */
@@ -118,8 +119,8 @@ export async function computeAlertDeliveryHealth(now: Date = new Date()): Promis
           -- (миграция 957) не недоставлен, а решён.
           AND push_suppressed_at IS NULL
           AND severity >= 2
-          AND created_at < NOW() - INTERVAL '30 minutes'
-          AND expires_at > NOW()`,
+          AND created_at < ${UTC_WALL_NOW_SQL} - INTERVAL '30 minutes'
+          AND expires_at > ${UTC_WALL_NOW_SQL}`,
     );
     out.undelivered.count = toInt(r.rows[0]?.n);
   } catch (err) {

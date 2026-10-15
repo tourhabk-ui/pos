@@ -19,7 +19,7 @@
  * перечислены как есть; происхождение не узнано — так и сказано.
  */
 
-import { isoUtcSql, utcWallIsoSql } from '@/lib/db/timestamp-iso';
+import { isoUtcSql, utcWallIsoSql, UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { query } from '@/lib/database';
 import { alertOrigin, SAFETY_FEEDS, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { basisLine, basisOf, type AlertBasis } from '@/lib/safety/alert-basis';
@@ -118,7 +118,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
           COALESCE(MAX(severity), 0)::text AS max_severity,
           COUNT(*)::text                   AS active_count
         FROM external_alerts
-        WHERE expires_at > NOW()
+        WHERE expires_at > ${UTC_WALL_NOW_SQL}
       `),
       // Верхняя тревога целиком, одной строкой: заголовок, тип и то, по чему
       // узнаётся её происхождение.
@@ -133,7 +133,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       query<{ title: string | null; alert_type: string | null; external_id: string | null; source_url: string | null }>(`
         SELECT title, alert_type, external_id, source_url
         FROM external_alerts
-        WHERE expires_at > NOW()
+        WHERE expires_at > ${UTC_WALL_NOW_SQL}
         ORDER BY (title ~* $1) ASC, severity DESC, created_at DESC
         LIMIT 1
       `, [RESOLUTION_SQL_PATTERN]),
@@ -153,17 +153,16 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
     try {
       const feed = await query<{
         title: string; basis_title: string | null; basis_url: string | null; basis_origin: string | null;
-        created_utc_iso: string | null; created_session_iso: string | null; expires_iso: string | null;
+        created_iso: string | null; expires_iso: string | null;
         external_id: string | null; source_url: string | null;
       }>(`
         SELECT title, basis_title, basis_url, basis_origin, external_id, source_url,
-               ${utcWallIsoSql('created_at')} AS created_utc_iso, ${isoUtcSql('created_at')} AS created_session_iso,
-               ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
+               ${utcWallIsoSql('created_at')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
           SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at, expires_at,
                  external_id, source_url,
                  basis_title, basis_url, basis_origin
             FROM external_alerts
-           WHERE expires_at > NOW()
+           WHERE expires_at > ${UTC_WALL_NOW_SQL}
              AND alert_type = ANY($1::text[])
            ORDER BY lower(title), severity DESC, created_at DESC
         ) t
@@ -172,20 +171,14 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       feedCount = feed.rows.length;
       feedTitles = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => r.title);
       feedBasis = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => basisOf(r));
-      feedWhen = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => {
-        const manual = alertOrigin(r.external_id, r.source_url)?.key === 'manual';
-        // Стенное время в колонке пишут по-разному: ингест — датой JS с
-        // сервера в UTC, ручные записи (миграции 718/729, админка) — через
-        // NOW(), то есть в поясе сессии (+03 на проде). Прочесть их одним
-        // правилом — сдвинуть одну из двух групп на три часа: Вилючинский
-        // перевал (13:23 МСК 7 июля) стал бы «внесено 8 июля». Срок у обеих
-        // групп — стенное время UTC (дата JS или литерал без пояса).
-        return {
-          createdAt: manual ? r.created_session_iso : r.created_utc_iso,
-          expiresAt: r.expires_iso,
-          manual,
-        };
-      });
+      // Время в external_alerts — стенное UTC у всех писателей (миграция
+      // external_alerts_utc_wall перевела ручные записи, писавшие NOW() в
+      // поясе сессии; UTC_WALL_NOW_SQL держит это дальше).
+      feedWhen = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => ({
+        createdAt: r.created_iso,
+        expiresAt: r.expires_iso,
+        manual: alertOrigin(r.external_id, r.source_url)?.key === 'manual',
+      }));
     } catch (err) {
       console.error('[current-status] лента предупреждений не прочитана:', err instanceof Error ? err.message : err);
     }
@@ -197,7 +190,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       const byType = await query<{ alert_type: string | null; n: number }>(`
         SELECT alert_type, COUNT(*)::int AS n
           FROM external_alerts
-         WHERE expires_at > NOW()
+         WHERE expires_at > ${UTC_WALL_NOW_SQL}
          GROUP BY alert_type
          ORDER BY n DESC, alert_type
       `);

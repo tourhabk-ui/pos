@@ -58,6 +58,7 @@ import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { rejectedGenre } from '@/lib/services/safety/alert-prune';
 import { isFeedAlertType } from '@/lib/services/safety/feed-types';
 import { isResolutionNotice } from '@/lib/safety/resolution-notice';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,19 +101,19 @@ export async function GET(request: NextRequest) {
     const { rows: byType } = await pool.query<TypeRow>(
       `SELECT alert_type,
               COUNT(*)::int                                                        AS n,
-              MIN(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int              AS newest_age_min
+              MIN(EXTRACT(EPOCH FROM (${UTC_WALL_NOW_SQL} - created_at)) / 60)::int              AS newest_age_min
          FROM external_alerts
-        WHERE created_at > NOW() - INTERVAL '7 days'
+        WHERE created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '7 days'
         GROUP BY alert_type
         ORDER BY COUNT(*) DESC`,
     );
 
     const { rows: window } = await pool.query<{ last_25h: number; last_7d: number; newest_age_min: number | null }>(
-      `SELECT COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '25 hours')::int AS last_25h,
+      `SELECT COUNT(*) FILTER (WHERE created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '25 hours')::int AS last_25h,
               COUNT(*)::int                                                          AS last_7d,
-              MIN(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int                AS newest_age_min
+              MIN(EXTRACT(EPOCH FROM (${UTC_WALL_NOW_SQL} - created_at)) / 60)::int                AS newest_age_min
          FROM external_alerts
-        WHERE created_at > NOW() - INTERVAL '7 days'`,
+        WHERE created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '7 days'`,
     );
     const w = window[0] ?? { last_25h: 0, last_7d: 0, newest_age_min: null };
 
@@ -137,7 +138,7 @@ export async function GET(request: NextRequest) {
               push_suppressed_at::text AS push_suppressed_at,
               push_suppressed_reason
          FROM external_alerts
-        WHERE expires_at IS NULL OR expires_at > NOW()
+        WHERE expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL}
         ORDER BY created_at DESC
         LIMIT 60`,
     );
