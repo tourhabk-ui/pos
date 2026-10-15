@@ -38,6 +38,8 @@ import {
   type SourceStatus,
 } from '@/lib/services/safety/source-health';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { tgSend } from '@/lib/notifications/tg-send';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 /**
  * Статус источника по его результату: канал жив, если прислал хоть один
@@ -102,7 +104,7 @@ export type KnownDormantSource = { key: string; label: string; since: string; re
  * Telegram. Возвращает принятых-молчащих (knownDormant): они в Telegram не
  * уходят, но обязаны быть видны в теле ответа — «не шумим» ≠ «не знаем».
  */
-async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<KnownDormantSource[]> {
+export async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<KnownDormantSource[]> {
   try {
     await recordSourceHealth(pool, entries);
     const rows = await loadSourceHealth(pool);
@@ -115,16 +117,16 @@ async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<KnownDor
     const due = dueForAlert(alertable, rows, now);
     if (!due.length) return knownOut;
 
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (token && chatId) {
-      await fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: formatDeadSourceAlert(due) }),
-      }).catch(() => {});
-    }
-    await markAlerted(pool, due.map((d) => d.key));
+    // Находка аудита 15.10 (P4-01): здесь был свой fetch с `.catch(() => {})`,
+    // ответ Telegram не читался, а `markAlerted` звался безусловно — даже при
+    // ненастроенном канале. Недоставленная тревога о мёртвом источнике
+    // обстановки глушилась на ALERT_COOLDOWN_HOURS (12 ч), как доставленная.
+    // Теперь `last_alerted_at` двигается только по доставке; иначе следующий
+    // прогон попробует снова. Текст — простой, поэтому экранируется: общий
+    // отправитель шлёт в режиме HTML, и `<` или `&` в подсказке источника
+    // превратили бы тревогу в 400 от Telegram.
+    const delivery = await tgSend('safety-ingest', escapeHtml(formatDeadSourceAlert(due)));
+    if (delivery.ok) await markAlerted(pool, due.map((d) => d.key));
     return knownOut;
   } catch (err) {
     // Мониторинг не должен ронять ingest — но и молчать нельзя (§4.0): пустой
@@ -621,20 +623,17 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: n
       // Если все подписки недостижимы — не фиксируем push_sent_at: следующий cron повторит.
       // ГРУБЫЙ ПОРОГ: severity>=2 (M6+) не гарантирует цунами-риск; tsunami_warning важнее.
       if (result.total > 0 && result.sent === 0) {
-        // Молчаливый провал — оповестить администратора через Telegram
-        const token  = process.env.TELEGRAM_BOT_TOKEN;
-        const chatId = process.env.TELEGRAM_CHAT_ID;
-        if (token && chatId) {
-          await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id:    chatId,
-              text:       `КРИТИЧНО: Push-алерт не доставлен\n${alert.title}\nПодписок: ${result.total}, доставлено: 0, ошибок: ${result.failed}\nTуристы без предупреждения. Проверь VAPID и push_subscriptions.`,
-              parse_mode: 'HTML',
-            }),
-          }).catch(() => {});
-        }
+        // Молчаливый провал — оповестить администратора через Telegram.
+        // Общим отправителем (аудит 15.10, P4-01): прежний fetch с
+        // `.catch(() => {})` терял и эту тревогу без следа. Заголовок алерта
+        // пришёл из внешнего источника — экранируем: в режиме HTML `<` или
+        // `&` в нём давали 400, и о непрошедшем пуше владелец не узнавал.
+        // Исход в логе пишет сам tgSend; push_sent_at не ставится в любом
+        // случае, и следующий прогон повторит и пуш, и тревогу.
+        await tgSend(
+          'safety-ingest',
+          `КРИТИЧНО: Push-алерт не доставлен\n${escapeHtml(alert.title)}\nПодписок: ${result.total}, доставлено: 0, ошибок: ${result.failed}\nТуристы без предупреждения. Проверь VAPID и push_subscriptions.`,
+        );
         continue;
       }
 

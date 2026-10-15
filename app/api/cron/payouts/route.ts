@@ -41,6 +41,7 @@ import {
   cancelledBookingSql,
   CANCELLED_STATUS_PARAM,
 } from '@/lib/payments/release-eligibility';
+import { tgSend } from '@/lib/notifications/tg-send';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,30 +117,28 @@ export async function GET(request: NextRequest) {
     await client.query('COMMIT');
     inTransaction = false;
 
-    // 3. Уведомляем Telegram о сумме, если есть TELEGRAM_CHAT_ID
+    // 3. Уведомляем Telegram о сумме.
     const totalNet = readyRes.rows.reduce(
       (sum: number, r: { net_amount: string }) => sum + parseFloat(r.net_amount),
       0
     );
 
-    const adminChatId = process.env.TELEGRAM_CHAT_ID;
-    const botToken    = process.env.TELEGRAM_BOT_TOKEN;
-    if (adminChatId && botToken && readyRes.rows.length > 0) {
-      const formatted = new Intl.NumberFormat('ru-RU', {
-        style: 'currency', currency: 'RUB', minimumFractionDigits: 0,
-      }).format(totalNet);
-      fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: adminChatId,
-          text: `Cron payouts: освобождено ${ids.length} платежей на ${formatted}.\nhttps://vedarai.ru/hub/admin/finance`,
-          parse_mode: 'HTML',
-        }),
-      }).catch(() => {});
-    }
+    // Только транспорт (аудит 15.10, P4-01): прежний fetch без await с
+    // `.catch(() => {})` и молчаливым пропуском при ненастроенном канале
+    // терял уведомление о выплате без следа: деньги оператору уходили, а
+    // администратор об этом не узнавал — и не знал, что не узнал.
+    // Релиз уже зафиксирован COMMIT выше и от исхода уведомления не зависит;
+    // исход — в лог (это делает tgSend) и в ответ, чтобы недоставка была
+    // видна в логе прогона, а не только на сервере.
+    const formatted = new Intl.NumberFormat('ru-RU', {
+      style: 'currency', currency: 'RUB', minimumFractionDigits: 0,
+    }).format(totalNet);
+    const notice = await tgSend(
+      'cron/payouts',
+      `Cron payouts: освобождено ${ids.length} платежей на ${formatted}.\nhttps://vedarai.ru/hub/admin/finance`,
+    );
 
-    return NextResponse.json({ ok: true, released: ids.length, totalNet, withheld_cancelled: withheld });
+    return NextResponse.json({ ok: true, released: ids.length, totalNet, withheld_cancelled: withheld, notice });
 
   } catch (err) {
     if (inTransaction) await client.query('ROLLBACK').catch(() => {});

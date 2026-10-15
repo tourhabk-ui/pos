@@ -1,12 +1,17 @@
 /**
  * Уведомления о событиях поддержки в личку владельцу.
  * Использует TELEGRAM_BOT_TOKEN + TELEGRAM_OWNER_ID.
- * Fire-and-forget, ошибки подавляются.
+ *
+ * Отправка идёт общим отправителем `tgSend` с названным получателем: отказ
+ * Telegram пишется в лог, а алерт о бюджете LLM возвращает исход вызывающему
+ * (аудит 15.10, P4-01). Тикетные уведомления по-прежнему fire-and-forget —
+ * но без глушения: недоставка видна в логе.
  */
 
 import type { SupportTicket } from '@/lib/support/ticket.service';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
+import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 
 const CATEGORY_LABELS: Record<string, string> = {
   billing:  'Оплата',
@@ -19,21 +24,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   other:    'Другое',
 };
 
-async function sendAdminMessage(text: string): Promise<void> {
-  const token   = process.env.TELEGRAM_BOT_TOKEN;
+/**
+ * Сообщение в личку владельцу. До аудита 15.10 (P4-01) здесь был свой fetch с
+ * `.catch(() => {})`: ответ Telegram не читался, и `/api/cron/llm-budget-check`
+ * отвечал `status: 'alert_sent'` при любом исходе — бюджет «срабатывал» только
+ * в JSON. Теперь исход доставки возвращается.
+ */
+function sendAdminMessage(scope: string, text: string): Promise<TgSendOutcome> {
   const ownerId = process.env.TELEGRAM_OWNER_ID ?? '171286547';
-  if (!token) return;
-
-  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id:                  ownerId,
-      text,
-      parse_mode:               'HTML',
-      disable_web_page_preview: true,
-    }),
-  }).catch(() => {});
+  return tgSend(scope, text, { chatId: ownerId });
 }
 
 /**
@@ -82,22 +81,19 @@ export function notifyAdminNewTicket(ticket: SupportTicket): void {
 }
 
 /**
- * Бюджет LLM превышен — алерт владельцу.
+ * Бюджет LLM превышен — алерт владельцу. Возвращает исход доставки: «алерт
+ * отправлен» вызывающий вправе сказать только при `ok: true`.
  */
-export function notifyBudgetAlert(spentUsd: number, limitUsd: number): void {
-  void (async () => {
-    try {
-      await sendAdminMessage([
-        '<b>Превышен дневной бюджет LLM</b>',
-        '',
-        `<b>Потрачено:</b> $${spentUsd.toFixed(4)}`,
-        `<b>Лимит:</b> $${limitUsd.toFixed(2)}`,
-        `<b>Превышение:</b> $${(spentUsd - limitUsd).toFixed(4)}`,
-        '',
-        'Проверь <a href="https://vedarai.ru/hub/admin">панель</a> → Статистика LLM.',
-      ].join('\n'));
-    } catch { /* silent */ }
-  })();
+export function notifyBudgetAlert(spentUsd: number, limitUsd: number): Promise<TgSendOutcome> {
+  return sendAdminMessage('llm-budget-check', [
+    '<b>Превышен дневной бюджет LLM</b>',
+    '',
+    `<b>Потрачено:</b> $${spentUsd.toFixed(4)}`,
+    `<b>Лимит:</b> $${limitUsd.toFixed(2)}`,
+    `<b>Превышение:</b> $${(spentUsd - limitUsd).toFixed(4)}`,
+    '',
+    'Проверь <a href="https://vedarai.ru/hub/admin">панель</a> → Статистика LLM.',
+  ].join('\n'));
 }
 
 /**
@@ -107,7 +103,7 @@ export function notifyAdminEscalated(ticket: SupportTicket, reason: string): voi
   void (async () => {
     try {
       const site = 'https://vedarai.ru';
-      await sendAdminMessage([
+      await sendAdminMessage('admin-notify', [
         '<b>ЭСКАЛАЦИЯ тикета</b>',
         '',
         `<b>Тема:</b> ${ticket.subject}`,
