@@ -2,6 +2,7 @@ import { Metadata, Viewport } from 'next';
 import { Inter, Playfair_Display, JetBrains_Mono } from 'next/font/google';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
+import { siteVerification } from '@/lib/seo/site-verification';
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin', 'cyrillic'],
@@ -140,12 +141,9 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'Ведар',
   },
-  verification: {
-    google: process.env.GOOGLE_SITE_VERIFICATION,
-    yandex: process.env.YANDEX_VERIFICATION,
-    other: {
-    },
-  },
+  // Google, Яндекс и Bing (тег владельца 15.10) — одним блоком из
+  // lib/seo/site-verification: убранный тег стоит подтверждения в вебмастере.
+  verification: siteVerification(),
 }
 
 import './globals.css'
