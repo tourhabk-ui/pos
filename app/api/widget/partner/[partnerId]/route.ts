@@ -1,12 +1,19 @@
 /**
  * GET /api/widget/partner/[partnerId]
- * Public endpoint — returns partner config for widget embedding.
+ * Публичный: оформление виджета партнёра (имя, логотип, цвет, приветствие,
+ * вступление формы).
+ *
+ * Аудит 15.10, WID-lang: ошибки — по-русски (были 'Partner not found' и
+ * 'Invalid partnerId'); заготовка приветствия — из словаря виджета
+ * (lib/embed/widget-i18n), чтобы окно узнало её и показало посетителю на его
+ * языке, а приветствие, заданное партнёром, оставило как есть.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { leadFormIntro, widgetStyle } from '@/lib/embed/widget-style';
+import { WIDGET_TEXTS } from '@/lib/embed/widget-i18n';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +35,7 @@ export async function GET(
 
     if (!partnerId || partnerId.length > 100) {
       return NextResponse.json(
-        { success: false, error: 'Invalid partnerId' },
+        { success: false, error: 'Некорректный партнёр' },
         { status: 400 }
       );
     }
@@ -44,7 +51,7 @@ export async function GET(
     const partner = result.rows[0];
     if (!partner) {
       return NextResponse.json(
-        { success: false, error: 'Partner not found' },
+        { success: false, error: 'Виджет партнёра не найден или выключен' },
         { status: 404 }
       );
     }
@@ -80,7 +87,7 @@ export async function GET(
         category: partner.category,
         description: partner.short_description,
         logo: partner.logo_image,
-        greeting: config?.greeting || `Привет! Я AI-помощник ${partner.name}. Чем могу помочь?`,
+        greeting: config?.greeting || WIDGET_TEXTS.ru.defaultGreeting(partner.name),
         theme: config?.theme || 'auto',
         accentColor: widgetStyle(cfg).accent,
         // Вступление ФОРМЫ заявки — отдельно от приветствия чата: над полями

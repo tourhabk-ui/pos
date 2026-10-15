@@ -14,7 +14,8 @@
  *  - история любой длины уходила в платную модель → 400 на пределах;
  *  - «Отвечай на русском» → на языке вопроса;
  *  - «безопасно» без опоры и «передал оператору» без отправки → поправки
- *    тех же сторожей, что у веб-Кузьмича и A2A.
+ *    тех же сторожей, что у веб-Кузьмича и A2A;
+ *  - отказы и блок 112 только по-русски → на языке окна (`lang`, WID-lang).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -56,6 +57,8 @@ vi.mock('@/lib/safety/current-status', async (importOriginal) => ({
 import { POST } from '@/app/api/widget/chat/route';
 import { DELIVERY_HONEST_LINE } from '@/lib/kuzmich/delivery-claim-guard';
 import { CONTRADICTED_ALL_CLEAR_NOTE, UNCHECKED_ALL_CLEAR_NOTE } from '@/lib/kuzmich/safety-claim-guard';
+import { WIDGET_TEXTS } from '@/lib/embed/widget-i18n';
+import { buildSosBlock } from '@/lib/safety/sos-detector';
 import {
   WIDGET_HISTORY_MAX_ITEMS,
   WIDGET_HISTORY_TOTAL_MAX_CHARS,
@@ -329,5 +332,107 @@ describe('слова о безопасности и доставке сверя�
     const body = await res.json() as { data: { answer: string } };
     expect(body.data.answer).toContain(DELIVERY_HONEST_LINE);
     expect(body.data.answer).not.toContain('Я передал заявку оператору');
+  });
+});
+
+describe('язык окна: серверные тексты на языке посетителя (аудит 15.10, WID-lang)', () => {
+  // Китайский турист пишет «SOS» и по-китайски: детектор узнаёт «SOS», блок
+  // 112 приходит на языке окна.
+  const SOS_ZH = 'SOS! 我们在火山上迷路了';
+
+  it('lang:zh и признаки ЧП — блок 112 по-китайски, русского блока нет', async () => {
+    waterfall.mockResolvedValue('请留在原地。');
+    const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: SOS_ZH, lang: 'zh' });
+    const body = await res.json() as { data: { answer: string; emergency: boolean } };
+    expect(body.data.emergency).toBe(true);
+    expect(body.data.answer.startsWith(buildSosBlock(['distress'], 'zh'))).toBe(true);
+    expect(body.data.answer).toContain('如遇紧急情况');
+    expect(body.data.answer).toMatch(/(?<!\d)112(?!\d)/);
+    expect(body.data.answer).not.toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+  });
+
+  it('lang:en и признаки ЧП — блок 112 по-английски', async () => {
+    waterfall.mockResolvedValue('Stay where you are.');
+    const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: 'SOS, we are lost', lang: 'en' });
+    const body = await res.json() as { data: { answer: string } };
+    expect(body.data.answer).toContain('IF THIS IS AN EMERGENCY');
+    expect(body.data.answer).not.toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+  });
+
+  it('без lang — русский блок, как было (прежнее окно поля не шлёт)', async () => {
+    waterfall.mockResolvedValue('Оставайтесь на месте.');
+    const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: SOS_ZH });
+    const body = await res.json() as { data: { answer: string } };
+    expect(body.data.answer).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+  });
+
+  it('lang:zh, ЧП и отказ всех моделей — блок 112 и «не смог» по-китайски', async () => {
+    waterfall.mockResolvedValue(null);
+    const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: SOS_ZH, lang: 'zh' });
+    const body = await res.json() as { data: { answer: string; modelFailed: boolean } };
+    expect(body.data.modelFailed).toBe(true);
+    expect(body.data.answer).toContain('如遇紧急情况');
+    expect(body.data.answer).toContain(WIDGET_TEXTS.zh.chatFailed);
+    expect(body.data.answer).not.toMatch(/[а-яё]/i);
+  });
+
+  it('отказ всех моделей без ЧП — «не смог» на языке окна', async () => {
+    waterfall.mockResolvedValue(null);
+    for (const lang of ['ru', 'en', 'zh'] as const) {
+      const res = await call({ partnerId: 'mestechko', sessionId: 'l2', message: 'Hello', lang });
+      const body = await res.json() as { data: { answer: string } };
+      expect(body.data.answer).toBe(WIDGET_TEXTS[lang].chatFailed);
+    }
+  });
+
+  it('ошибки 400 — на языке окна; модель не зовётся', async () => {
+    const empty = await call({ partnerId: 'mestechko', sessionId: 'l3', message: '   ', lang: 'zh' });
+    expect(empty.status).toBe(400);
+    expect((await empty.json() as { error: string }).error).toBe('消息为空');
+
+    const history = Array.from({ length: WIDGET_HISTORY_MAX_ITEMS + 1 }, () => ({ role: 'user', content: 'yes' }));
+    const many = await call({ partnerId: 'mestechko', sessionId: 'l3', message: 'Hi', history, lang: 'en' });
+    expect(many.status).toBe(400);
+    expect((await many.json() as { error: string }).error).toBe(WIDGET_TEXTS.en.errHistoryTooMany(WIDGET_HISTORY_MAX_ITEMS));
+
+    // Не тот тип — общее «некорректные данные» на языке окна, а не английская заготовка Zod.
+    const wrongType = await call({ partnerId: 'mestechko', sessionId: 'l3', message: 42, lang: 'zh' });
+    expect(wrongType.status).toBe(400);
+    expect((await wrongType.json() as { error: string }).error).toBe(WIDGET_TEXTS.zh.errInvalid);
+    const wrongTypeRu = await call({ partnerId: 'mestechko', sessionId: 'l3', message: 42 });
+    expect((await wrongTypeRu.json() as { error: string }).error).toBe('Некорректные данные');
+
+    // Чужой язык — отказ по-русски: окно шлёт только ru, en, zh.
+    const alien = await call({ partnerId: 'mestechko', sessionId: 'l3', message: 'Hallo', lang: 'de' });
+    expect(alien.status).toBe(400);
+    expect((await alien.json() as { error: string }).error).toBe('Некорректные данные');
+
+    expect(waterfall).not.toHaveBeenCalled();
+  });
+
+  it('русское окно: прежние русские сообщения 400 слово в слово', async () => {
+    const res = await call({ partnerId: 'mestechko', sessionId: 'l3', message: '', lang: 'ru' });
+    expect((await res.json() as { error: string }).error).toBe('Сообщение пустое');
+  });
+
+  it('404 и 500 — на языке окна', async () => {
+    const nf = await call({ partnerId: 'nobody', sessionId: 'l4', message: 'Hi', lang: 'en' });
+    expect(nf.status).toBe(404);
+    expect((await nf.json() as { error: string }).error).toBe(WIDGET_TEXTS.en.notFound);
+
+    partnersFail = true;
+    const fail = await call({ partnerId: 'mestechko', sessionId: 'l4', message: 'Hi', lang: 'zh' });
+    expect(fail.status).toBe(500);
+    expect(await fail.json()).toEqual({ success: false, error: WIDGET_TEXTS.zh.errServer });
+  });
+
+  it('модель знает, как кнопка заявки подписана у посетителя', async () => {
+    await call({ partnerId: 'mestechko', sessionId: 'l5', message: '有直升机吗？', lang: 'zh' });
+    expect(sentToModel()[0].content).toContain(`«${WIDGET_TEXTS.zh.leadButton}»`);
+
+    waterfall.mockClear();
+    await call({ partnerId: 'mestechko', sessionId: 'l5', message: 'Есть вертолёт?', lang: 'ru' });
+    // Русский промпт — прежний: строки про язык интерфейса в нём нет.
+    expect(sentToModel()[0].content).not.toContain('Интерфейс окна у посетителя');
   });
 });

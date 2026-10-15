@@ -49,11 +49,18 @@ function stubFetch(partner: Reply, chat: Reply = { status: 200, body: { success:
   return fetchMock;
 }
 
+// Окно говорит на языке браузера посетителя (аудит 15.10, WID-lang), а у
+// jsdom он английский. Здесь проверяется русское окно — браузер русский; три
+// языка держит widget-lang.test.tsx.
+let language: { mockRestore: () => void };
+
 beforeEach(() => {
   vi.unstubAllGlobals();
+  language = vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ru-RU');
 });
 
 afterEach(() => {
+  language.mockRestore();
   vi.unstubAllGlobals();
   window.history.replaceState({}, '', '/');
 });
