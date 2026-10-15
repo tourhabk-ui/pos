@@ -10,6 +10,7 @@ import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment, RELEASE_AFTER_SQL } from '@/lib/payments/hold-tour-payment';
 import { canOfferPayment } from '@/lib/bookings/success-view';
 import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -265,8 +266,10 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
           });
         }
       }
-    } catch {
-      // Не прерываем выполнение при ошибке email
+    } catch (err) {
+      // Не прерываем выполнение при ошибке email: оплата уже записана. Но и не
+      // молчим (аудит 15.10, W2-3) — область и SQLSTATE, без адреса и тела.
+      logSwallowedFailure('payments/webhook', 'письмо об оплате (путь payments)', err);
     }
 }
 
@@ -520,8 +523,10 @@ async function handleFailedPayment(webhook: CloudPaymentsWebhook) {
           });
         }
       }
-    } catch {
-      // Не прерываем выполнение при ошибке email
+    } catch (err) {
+      // Не прерываем выполнение при ошибке email: отказ уже записан. Но и не
+      // молчим (аудит 15.10, W2-3) — область и SQLSTATE, без адреса и тела.
+      logSwallowedFailure('payments/webhook', 'письмо о неудачной оплате', err);
     }
 }
 
