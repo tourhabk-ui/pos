@@ -101,7 +101,7 @@ describe('widgetStyle — конфиг партнёра в скрипт толь
   });
   it('мусор в конфиге заменяется умолчаниями, а не уходит в чужой сайт', () => {
     const s = widgetStyle({ accentColor: 'red;background:url(x)', position: 'top', bottom: 'abc', buttonText: '   ' });
-    expect(s).toEqual({ accent: '#D44A0C', position: 'right', bottom: 24, buttonText: 'Заявка на тур' });
+    expect(s).toEqual({ accent: '#C2410A', position: 'right', bottom: 24, buttonText: 'Заявка на тур' });
   });
   it('отступ ограничен 0–400 и принимает строку-число', () => {
     expect(widgetStyle({ bottom: 9999 }).bottom).toBe(400);
@@ -204,7 +204,7 @@ describe('embed.js — чат на сайте партнёра', () => {
   it('произвольная строка в data-color в CSS не попадает', () => {
     run({ 'data-partner-id': 'x', 'data-color': 'red}body{display:none' });
     expect(css()).not.toMatch(/display:none/);
-    expect(css()).toMatch(/background:#D44A0C/);
+    expect(css()).toMatch(/background:#C2410A/);
   });
 
   it('на телефоне окно чата привязано к краям экрана, а не к кнопке', () => {

@@ -364,7 +364,29 @@ function AccountPanel({ op, onAccountCreated }: { op: OperatorRow; onAccountCrea
   );
 }
 
-function OperatorCard({
+/**
+ * PATCH настроек виджета. null — сохранено; строка — почему нет (ответ
+ * сервера, код ответа или обрыв связи). Отказ не глушится (§4.0).
+ */
+async function patchWidget(operatorId: string, body: Record<string, unknown>): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/admin/operators/${operatorId}/widget`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return null;
+    const json: unknown = await res.json().catch(() => null);
+    const error = json && typeof json === 'object' && typeof (json as { error?: unknown }).error === 'string'
+      ? (json as { error: string }).error
+      : null;
+    return error ?? `сервер ответил ${res.status}`;
+  } catch {
+    return 'нет связи с сервером';
+  }
+}
+
+export function OperatorCard({
   op,
   onApprove,
   onReject,
@@ -384,27 +406,34 @@ function OperatorCard({
   const [widgetEditing, setWidgetEditing] = useState(false);
   const [widgetSaving, setWidgetSaving] = useState(false);
   const [widgetCopied, setWidgetCopied] = useState(false);
+  const [widgetToggling, setWidgetToggling] = useState(false);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
 
+  // Тумблер верит ответу сервера, а не своему клику: до 15.10 он
+  // переключался сразу и ответ PATCH не читал — отказ выглядел как «Включён»
+  // (находка аудита 15.10 WID-config). Не сохранилось — вернуть и сказать.
   async function toggleWidget() {
+    if (widgetToggling) return;
     const next = !widgetEnabled;
     setWidgetEnabled(next);
-    await fetch(`/api/admin/operators/${op.id}/widget`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ widget_enabled: next }),
-    });
+    setWidgetError(null);
+    setWidgetToggling(true);
+    const err = await patchWidget(op.id, { widget_enabled: next });
+    setWidgetToggling(false);
+    if (err) {
+      setWidgetEnabled(!next);
+      setWidgetError(`Виджет не ${next ? 'включён' : 'выключен'}: ${err}`);
+    }
   }
 
   async function saveWidgetDomains() {
     setWidgetSaving(true);
+    setWidgetError(null);
     try {
       const domains = widgetDomains.split('\n').map(d => d.trim()).filter(Boolean);
-      await fetch(`/api/admin/operators/${op.id}/widget`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ widget_domains: domains }),
-      });
-      setWidgetEditing(false);
+      const err = await patchWidget(op.id, { widget_domains: domains });
+      if (err) setWidgetError(`Домены не сохранены: ${err}`);
+      else setWidgetEditing(false);
     } finally {
       setWidgetSaving(false);
     }
@@ -501,7 +530,8 @@ function OperatorCard({
                 </div>
                 <button
                   onClick={toggleWidget}
-                  className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
+                  disabled={widgetToggling}
+                  className={`px-3 py-1 text-xs rounded-full font-medium transition-colors disabled:opacity-60 ${
                     widgetEnabled
                       ? 'bg-[var(--success)]/15 text-[var(--success)]'
                       : 'bg-[var(--bg-primary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
@@ -510,6 +540,9 @@ function OperatorCard({
                   {widgetEnabled ? 'Включён' : 'Выключен'}
                 </button>
               </div>
+              {widgetError && (
+                <p className="text-xs text-[var(--danger)] mb-2" role="alert">{widgetError}</p>
+              )}
 
               {widgetEnabled && (
                 <>
