@@ -1,4 +1,5 @@
 {
-  "run": 1,
-  "note": "Маркер запуска indexnow-plans.yml: пинг IndexNow по /plans и /plans/[slug] после деплоя правок текстов планов. run 1 — хаб переписан под запрос «Камчатка туры план» (#1942, 18.09)."
+  "run": 2,
+  "note": "Маркер запуска indexnow-plans.yml: пинг IndexNow по /plans и /plans/[slug] после деплоя правок текстов планов. run 1 — хаб переписан под запрос «Камчатка туры план» (#1942, 18.09).",
+  "run2_reason": "15.10, после выката #2518 (CN-quick): роут indexnow-plans пингует и китайский раздел /zh (адреса из lib/zh/pages). Прогон 2 — первая подача /zh в IndexNow; итог в ai_actions_log (indexnow_ping / indexnow_failed, source indexnow-plans)."
 }
