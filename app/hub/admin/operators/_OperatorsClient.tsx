@@ -386,6 +386,16 @@ async function patchWidget(operatorId: string, body: Record<string, unknown>): P
   }
 }
 
+
+/**
+ * Подпись при пустом списке доменов виджета. Список не запирает виджет — он
+ * работает на любом сайте; по списку только видно, пришёл ли посетитель с
+ * сайта партнёра (аудит 15.10, WID-measure). Сторож:
+ * tests/unit/admin-widget-domains-label.test.tsx.
+ */
+export const WIDGET_DOMAINS_EMPTY_TEXT =
+  'Не указаны. Виджет работает на любом сайте: список ничего не запирает, по нему видно, пришёл ли посетитель с сайта партнёра.';
+
 export function OperatorCard({
   op,
   onApprove,
@@ -560,9 +570,13 @@ export function OperatorCard({
                     </button>
                   </div>
 
-                  {/* Allowed domains */}
+                  {/* Домены сайта партнёра. Список ничего не запирает: виджет
+                      работает на любом сайте, а по списку видно, пришёл ли
+                      посетитель с сайта партнёра (listed / unlisted, аудит
+                      15.10 WID-measure). Прежняя подпись «не будет работать»
+                      была неправдой — так код не делал никогда. */}
                   <div className="text-xs text-[var(--text-muted)] mb-1 flex items-center justify-between">
-                    <span>Разрешённые домены:</span>
+                    <span>Домены сайта партнёра:</span>
                     {!widgetEditing && (
                       <button
                         onClick={() => setWidgetEditing(true)}
@@ -604,7 +618,7 @@ export function OperatorCard({
                         ? widgetDomains.split('\n').filter(Boolean).map((d, i) => (
                             <span key={i} className="inline-block bg-[var(--bg-primary)] border border-[var(--border)] rounded px-1.5 py-0.5 mr-1 mb-1">{d.trim()}</span>
                           ))
-                        : <span className="text-[var(--text-muted)] italic">Домены не указаны — виджет не будет работать</span>
+                        : <span className="text-[var(--text-muted)] italic">{WIDGET_DOMAINS_EMPTY_TEXT}</span>
                       }
                     </div>
                   )}
