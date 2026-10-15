@@ -43,9 +43,14 @@
  * (callQwenSearch: forced_search + enable_source нативного протокола
  * DashScope). До этого модель сама решала, искать ли, источников не было, и
  * «не знает» не отличало «не искала» от «искала, нас нет». Теперь у поисковых
- * ног четвёртый исход — did_not_search: ответ пришёл, а следа поиска в нём нет
- * (ни источников, ни счётчика), то есть выдачу не спросили и «нас нет» из
- * этого не следует. Домены источников идут в сводку и итог владельцу.
+ * ног четвёртый исход — did_not_search: ответ пришёл, а выдачи в нём нет
+ * (шлюз не вернул ни одного источника), то есть «нас нет» из этого не
+ * следует. Счётчик usage.plugins.search.count доказательством поиска не
+ * считается (аудит 15.10, находка R-probe): документация называет его
+ * отметкой этапа распознавания намерения, а при forced_search он почти
+ * всегда больше нуля. «Счётчик есть, источников нет» — тоже did_not_search,
+ * со своим сигналом «намерение поиска было, выдачи шлюз не вернул», а не
+ * «искала, нас нет». Домены источников идут в сводку и итог владельцу.
  *
  * Седьмая нога — qwen-search-topic (15.10): турист в Китае ищет по теме, а не
  * по нашему адресу. Вопрос (KNOWLEDGE_QUESTION_TOPIC) — о сайтах с местами в
@@ -89,8 +94,9 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 /**
- * did_not_search — только у поисковых ног: ответ есть, следа поиска нет.
- * Не равен does_not_know: выдачу не спросили, и «нас там нет» не измерено.
+ * did_not_search — только у поисковых ног: ответ есть, выдачи нет — шлюз не
+ * вернул ни одного источника (счётчика либо нет, либо он лишь отметка
+ * намерения). Не равен does_not_know: «нас там нет» не измерено.
  */
 export type KnowledgeOutcome = 'knows' | 'does_not_know' | 'did_not_search' | 'could_not_ask';
 
@@ -174,9 +180,15 @@ export function classifyAnswer(text: string | null | undefined): Classified {
 
 /** След поиска в ответе: что шлюз сказал о поиске сам, без догадок. */
 export interface SearchTrace {
-  /** Есть источники или счётчик поиска больше нуля. */
+  /**
+   * Шлюз вернул источники — единственное доказательство, что выдачу спросили.
+   * Счётчик сюда не входит (аудит 15.10, R-probe): он отметка намерения.
+   */
   searched: boolean;
-  /** usage.plugins.search.count; null — шлюз счётчика не прислал. */
+  /**
+   * usage.plugins.search.count — отметка этапа распознавания намерения, а не
+   * число выполненных поисков; null — шлюз счётчика не прислал.
+   */
   count: number | null;
   /** Сколько источников вернул шлюз — вместе с теми, где адрес не разобрать. */
   sources: number;
@@ -221,8 +233,9 @@ export interface SearchClassified extends Classified {
 
 /**
  * Ответ поисковой ноги → исход. «Знает» побеждает всегда (назвала нас — значит
- * знает, откуда бы ни взяла). Иначе решает след поиска: есть — «искала, нас
- * нет»; нет — «не искала», и это не «нас нет» (§4.0).
+ * знает, откуда бы ни взяла). Иначе решают источники: есть — «искала, нас
+ * нет»; нет — «не искала» (или «намерение было, выдачи нет», если шлюз
+ * прислал только счётчик), и это не «нас нет» (§4.0).
  */
 export function classifySearchAnswer(
   answer: { text: string; search_count: number | null; sources: ReadonlyArray<{ url: string }> },
@@ -232,14 +245,23 @@ export function classifySearchAnswer(
   const domains = sourceDomains(answer.sources.map((s) => s.url));
   const count = answer.search_count;
   const search: SearchTrace = {
-    searched: answer.sources.length > 0 || (count ?? 0) > 0,
+    // Аудит 15.10, находка R-probe: «искала» — только по источникам. Прежде
+    // хватало счётчика, и ответ без единого источника при count = 1 уходил
+    // владельцу строкой «Не знают», хотя выдачи никто не видел.
+    searched: answer.sources.length > 0,
     count,
     sources: answer.sources.length,
     domains,
   };
   if (!text) return { outcome: 'could_not_ask', signal: 'ответа нет', old_brand: false, search };
   const oldBrand = OLD_BRAND_RE.test(text);
-  const viaSearch = search.searched ? '' : ' (следа поиска в ответе нет — из весов, а не из выдачи)';
+  // Счётчик без источников: намерение поиска было, выдачи шлюз не вернул.
+  const intentOnly = !search.searched && (count ?? 0) > 0;
+  const viaSearch = search.searched
+    ? ''
+    : intentOnly
+      ? ' (источников в ответе нет, есть только отметка намерения поиска — из весов или из выдачи, не различить)'
+      : ' (следа поиска в ответе нет — из весов, а не из выдачи)';
 
   if (domains.some(isOurDomain)) {
     return { outcome: 'knows', signal: `поиск нашёл ${OUR_DOMAIN} среди источников`, old_brand: oldBrand, search };
@@ -258,15 +280,19 @@ export function classifySearchAnswer(
   if (!search.searched) {
     return {
       outcome: 'did_not_search',
-      signal: 'не искала: в ответе нет ни источников, ни счётчика поиска — выдачу не спросили, «нас нет» не измерено',
+      signal: intentOnly
+        ? `намерение поиска было, выдачи шлюз не вернул: счётчик ${count}, источников нет — «нас нет» не измерено`
+        : 'не искала: в ответе нет ни источников, ни счётчика поиска — выдачу не спросили, «нас нет» не измерено',
       old_brand: false,
       search,
     };
   }
-  const found = search.sources
-    ? `источников ${search.sources}, ${OUR_DOMAIN} среди них нет`
-    : 'источников шлюз не вернул, счётчик поиска есть';
-  return { outcome: 'does_not_know', signal: `искала, нас нет: ${found}`, old_brand: false, search };
+  return {
+    outcome: 'does_not_know',
+    signal: `искала, нас нет: источников ${search.sources}, ${OUR_DOMAIN} среди них нет`,
+    old_brand: false,
+    search,
+  };
 }
 
 export type ProbeProvider = 'deepseek' | 'qwen' | 'qwen-search' | 'qwen-search-topic' | 'kimi' | 'glm' | 'yandex';
@@ -484,9 +510,15 @@ export function digestText(legs: readonly LegResult[], summary: Summary): string
   }
   const unknown = of('does_not_know');
   lines.push(`Не знают: ${unknown.length ? unknown.map(named).join(', ') : '—'}`);
+  // Аудит 15.10, R-probe: у каждой ноги своя причина — «не искала» и
+  // «намерение было, выдачи нет» владелец должен различать, и ни то ни другое
+  // не читается как «не знают».
   const noSearch = of('did_not_search');
   if (noSearch.length) {
-    lines.push(`Не искали (следа поиска в ответе нет — «нас нет» не измерено): ${noSearch.map(named).join(', ')}`);
+    lines.push(`Не искали или выдачи нет («нас нет» не измерено): ${noSearch.map(named).join(', ')}`);
+    for (const l of noSearch) {
+      lines.push(`${escapeHtml(l.provider)}: ${escapeHtml(l.signal.slice(0, DIGEST_REASON))}`);
+    }
   }
   const notAsked = of('could_not_ask');
   if (notAsked.length) {
@@ -507,7 +539,9 @@ export function digestText(legs: readonly LegResult[], summary: Summary): string
       const what = shown
         ? `${shown}${more}`
         : trace.sources ? `источников ${trace.sources}, адреса не разобрать` : 'шлюз источников не вернул';
-      const count = trace.count !== null ? `; поисков: ${trace.count}` : '';
+      // Счётчик — отметка намерения, а не число выполненных поисков (R-probe):
+      // «поисков: 1» рядом с «шлюз источников не вернул» читалось как поиск.
+      const count = trace.count !== null ? `; отметка намерения поиска: ${trace.count}` : '';
       lines.push(`${escapeHtml(provider)}: ${escapeHtml(what)}${escapeHtml(count)}`);
     }
   }
@@ -562,7 +596,7 @@ export async function GET(request: NextRequest) {
     summary,
     notify: notifyOutcome,
     verdict: `знают: ${summary.knows.join(', ') || '—'}; не знают: ${summary.does_not_know.join(', ') || '—'}; `
-      + (summary.did_not_search.length ? `не искали: ${summary.did_not_search.join(', ')}; ` : '')
+      + (summary.did_not_search.length ? `не искали или выдачи нет: ${summary.did_not_search.join(', ')}; ` : '')
       + `спросить не удалось: ${summary.could_not_ask.join(', ') || '—'}`
       + (summary.old_brand.length ? `; под прежним именем платформы: ${summary.old_brand.join(', ')}` : ''),
   });
