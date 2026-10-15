@@ -1,16 +1,14 @@
 {
   "timeout": 60,
-  "run": 971,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись охвата мест тревогами (place-zone-census, 0d415508, #83): какие места не получат тревогу без своей координаты — «по всему краю» МЧС, «юг» и «север» Росгидромета — тем же предикатом, что красит крон; места без строки реалтайма; места Командор и Корякского округа с их районами. Датчик — поле ответа переписи: до выката адрес отвечает 404. Конфиг записан целиком.",
+  "run": 972,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись ООПТ (#60): что за два контура Командор в OpenStreetMap — r5576397 и r1962840 (оба с тегом национального парка); постройки Никольского и лежбища лежат только во втором. Теги отношений, два зеркала Overpass. Конфиг записан целиком.",
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://vedarai.ru/api/cron/place-zone-census"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28rel%281962840%29%3Brel%285576397%29%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28rel%281962840%29%3Brel%285576397%29%3B%29%3Bout%20tags%3B"
   ],
-  "until": "\"unreached\"",
-  "retries": 60,
-  "retryDelay": 60,
-  "grep": [
-    "\"ok\":true",
-    "\"krai_commander\""
-  ],
-  "bytes": 60000
+  "retries": 2,
+  "retryDelay": 20,
+  "allowStale": true,
+  "bytes": 6000
 }
