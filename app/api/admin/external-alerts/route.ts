@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
               created_at, expires_at, source_url, external_id,
               basis_title, basis_url, basis_origin, basis_check_outcome
        FROM external_alerts
-       WHERE expires_at > NOW()
+       WHERE expires_at > ${UTC_WALL_NOW_SQL}
        ORDER BY severity DESC, created_at DESC
        LIMIT 100`
     );
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at, source_url, external_id,
         basis_title, basis_url, basis_origin
-      ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9::text, $10::text,
+      ) VALUES ($1, $2, $3, $4, $5, ${UTC_WALL_NOW_SQL}, $6, $7, $8, $9::text, $10::text,
                 CASE WHEN $9::text IS NULL THEN NULL ELSE 'manual' END)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,

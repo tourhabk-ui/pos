@@ -24,7 +24,7 @@ const CODE = SRC.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('
 describe('офлайн-пакет маршрута', () => {
   it('спрашивает действующие предупреждения', () => {
     expect(CODE).toMatch(/FROM external_alerts|JOIN external_alerts/);
-    expect(CODE, 'просроченные предупреждения в пакет не идут').toMatch(/expires_at > NOW\(\)/);
+    expect(CODE, 'просроченные предупреждения в пакет не идут').toMatch(/expires_at > \$\{UTC_WALL_NOW_SQL\}/);
   });
 
   it('отдаёт их в ответе полем alerts', () => {

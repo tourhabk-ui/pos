@@ -37,6 +37,7 @@ import {
   type SourceHealthEntry,
   type SourceStatus,
 } from '@/lib/services/safety/source-health';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 /**
  * Статус источника по его результату: канал жив, если прислал хоть один
@@ -229,7 +230,7 @@ async function anchorRoadAlerts(): Promise<RoadAnchorResult> {
     const pending = await query<{ id: string; title: string }>(
       `SELECT id::text AS id, title FROM external_alerts
         WHERE alert_type = 'road_closure'
-          AND expires_at > NOW()
+          AND expires_at > ${UTC_WALL_NOW_SQL}
           AND (lat IS NULL OR lng IS NULL)`,
     );
 
@@ -303,7 +304,7 @@ async function anchorVolcanoAlerts(): Promise<VolcanoAnchorResult> {
         WHERE alert_type = 'volcanic_eruption'
           AND volcano_name IS NOT NULL
           AND volcano_ark_id IS NULL
-          AND (expires_at IS NULL OR expires_at > NOW())`,
+          AND (expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL})`,
     );
 
     let anchored = 0, ambiguous = 0, unresolved = 0;
@@ -357,7 +358,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         FROM location_real_time_status lrs
         LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
         LEFT JOIN external_alerts ea
-          ON ea.expires_at > NOW()
+          ON ea.expires_at > ${UTC_WALL_NOW_SQL}
           AND (${ALERT_MATCH_SQL})
       ),
       dedup AS (
@@ -531,7 +532,7 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: n
         -- (цунами 12ч, опасное сейсмо 48ч, пожарная опасность/дороги до 7
         -- суток) — это то же определение «алерт ещё действует», по которому
         -- живёт вся система (idx_alerts_active).
-        AND expires_at > NOW()
+        AND expires_at > ${UTC_WALL_NOW_SQL}
       ORDER BY severity DESC, created_at DESC
     `);
 
@@ -565,7 +566,7 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; suppressed: n
             WHERE alert_type = $1
               AND id <> $2
               AND push_sent_at IS NOT NULL
-              AND expires_at > NOW()
+              AND expires_at > ${UTC_WALL_NOW_SQL}
               AND COALESCE(severity, 0) >= COALESCE($3::int, 0)
             LIMIT 1`,
           [alert.alert_type, alert.id, alert.severity]

@@ -30,6 +30,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { ALERT_MATCH_SQL, PLACE_SCOPED_TYPES } from '@/lib/services/safety/alert-place-scope';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest) {
            JOIN location_real_time_status lrs ON TRUE
            JOIN places p ON p.ark_id = lrs.agent_route_id AND p.is_visible = TRUE
            LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-          WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
+          WHERE (ea.expires_at IS NULL OR ea.expires_at > ${UTC_WALL_NOW_SQL})
             AND (${ALERT_MATCH_SQL})
        ),
        agg AS (
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest) {
               agg.farthest_place
          FROM external_alerts ea
          LEFT JOIN agg ON agg.alert_id = ea.id
-        WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
+        WHERE (ea.expires_at IS NULL OR ea.expires_at > ${UTC_WALL_NOW_SQL})
         ORDER BY COALESCE(agg.places_covered, '0')::int DESC, ea.severity DESC NULLS LAST
         LIMIT 60`,
     );

@@ -20,6 +20,7 @@
 
 import { datedWarningEnd, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
 import type { QueryFn } from '@/lib/services/safety/alert-prune';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 interface Row { id: string; title: string | null; created_at: Date | string | null; expires_at: Date | string | null }
 
@@ -29,7 +30,7 @@ export async function capDatedWarnings(query: QueryFn): Promise<DatedCapResult> 
   const res = await query<Row>(
     `SELECT id::text, title, created_at, expires_at
        FROM external_alerts
-      WHERE expires_at > NOW()
+      WHERE expires_at > ${UTC_WALL_NOW_SQL}
         AND alert_type = ANY($1::text[])`,
     [[...DATED_WARNING_TYPES]],
   );

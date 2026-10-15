@@ -27,7 +27,7 @@ describe('saveEvent не плодит строки с одинаковым со�
 
   it('перед INSERT стоит проверка идентичного активного алерта', () => {
     expect(body, 'контент-дедуп исчез — суточные сводки МЧС снова размножатся')
-      .toMatch(/UPDATE external_alerts[\s\S]*?alert_type = \$1[\s\S]*?lower\(trim\(title\)\)[\s\S]*?lower\(trim\(COALESCE\(description, ''\)\)\)[\s\S]*?expires_at > NOW\(\)/);
+      .toMatch(/UPDATE external_alerts[\s\S]*?alert_type = \$1[\s\S]*?lower\(trim\(title\)\)[\s\S]*?lower\(trim\(COALESCE\(description, ''\)\)\)[\s\S]*?expires_at > \$\{UTC_WALL_NOW_SQL\}/);
   });
 
   it('сравнение нормализованное — регистр и пробелы не заводят дубль (06.09)', () => {
@@ -118,7 +118,7 @@ describe('вулканы: одна угроза — одна строка, ис�
   });
 
   it('ответ говорит, действует предупреждение или это история недели', () => {
-    expect(ROUTE).toMatch(/expires_at > NOW\(\)\)\s*AS active/);
+    expect(ROUTE).toMatch(/expires_at > \$\{UTC_WALL_NOW_SQL\}\)\s*AS active/);
   });
 
   it('страница отличает истёкшее и считает только действующие', () => {

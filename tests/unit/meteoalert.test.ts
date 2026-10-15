@@ -13,6 +13,7 @@
  * 5. heartbeat зовёт приём, здоровье пишется и ждётся, происхождение узнаётся.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { readFileSync } from 'node:fs';
 
 const dbQuery = vi.fn(async (..._a: unknown[]) => ({ rows: [], rowCount: 0 }));
@@ -141,7 +142,7 @@ describe('приём', () => {
     // Полный свежий ответ — снятие отменённого зовётся с действующими.
     expect(r.retracted).toBe(1);
     const [sql, params] = dbQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/SET expires_at = NOW\(\)/);
+    expect(sql).toContain(`SET expires_at = ${UTC_WALL_NOW_SQL}`);
     expect(sql).not.toMatch(/DELETE/i);
     expect(params[0]).toBe('meteoalert/%');
     expect(params[1]).toEqual(['Росгидромет: ветер — жёлтый уровень (север и юг края)']);

@@ -26,6 +26,7 @@ import type { RouteSignals, Acc } from '@/lib/routes/go-verdict';
 import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 /** Минимальный контракт запроса — ровно то, что нужно сборщику. */
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -220,7 +221,7 @@ async function loadAlerts(
               bool_and(COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false)) AS zonal
          FROM external_alerts ea
          JOIN ark ON (${ALERT_MATCH_SQL})
-        WHERE (ea.expires_at IS NULL OR ea.expires_at > NOW())
+        WHERE (ea.expires_at IS NULL OR ea.expires_at > ${UTC_WALL_NOW_SQL})
         GROUP BY ea.id, ea.title, ea.severity, ea.alert_type, ea.created_at
         ORDER BY severity DESC NULLS LAST, ea.created_at DESC
         LIMIT 50`,
@@ -324,7 +325,7 @@ async function loadClosures(
   try {
     const { rows } = await q<ClosureRow>(
       `SELECT p.name,
-              CASE WHEN rs.alert_expires_at IS NULL OR rs.alert_expires_at > NOW()
+              CASE WHEN rs.alert_expires_at IS NULL OR rs.alert_expires_at > ${UTC_WALL_NOW_SQL}
                    THEN NULLIF(btrim(rs.alert_message), '') END AS reason
          FROM route_waypoints rw
          JOIN places p ON p.id = rw.place_id

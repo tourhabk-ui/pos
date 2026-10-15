@@ -30,6 +30,7 @@
  */
 import { query } from '@/lib/database';
 import { saveEvent, titleFingerprint, type ParseResult, type SeismicEvent } from '@/lib/services/safety/seismic-parser';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 /** Прямоугольник, которым спрашивает сам информер kammeteo.ru (весь край с запасом). */
 export const METEOALERT_URL =
@@ -224,9 +225,9 @@ export interface MeteoalertResult extends ParseResult {
 export async function retractWithdrawn(current: SeismicEvent[]): Promise<number> {
   const r = await query(
     `UPDATE external_alerts ea
-        SET expires_at = NOW()
+        SET expires_at = ${UTC_WALL_NOW_SQL}
       WHERE ea.external_id LIKE $1
-        AND ea.expires_at > NOW()
+        AND ea.expires_at > ${UTC_WALL_NOW_SQL}
         AND NOT EXISTS (
           SELECT 1 FROM unnest($2::text[], $3::text[]) AS c(title, description)
            WHERE regexp_replace(lower(trim(c.title)), '\\s+', ' ', 'g')

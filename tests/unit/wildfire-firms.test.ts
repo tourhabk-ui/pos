@@ -7,6 +7,7 @@
  * день+ячейку (дедуп в external_alerts), без FIRMS_MAP_KEY — ни одного fetch.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 vi.mock('@/lib/services/safety/seismic-parser', async (importOriginal) => {
   const orig = await importOriginal<typeof import('@/lib/services/safety/seismic-parser')>();
@@ -248,7 +249,7 @@ describe('ingestFirmsWildfires: стоящая на месте точка у в�
     const res = await ingestFirmsWildfires(NOW);
     expect(res.suppressed[0].retracted).toBe(1);
     const [sql, params] = callsTo(/UPDATE external_alerts/)[0] as [string, number[]];
-    expect(sql).toMatch(/SET expires_at = NOW\(\)/);          // срок сокращается, строка остаётся
+    expect(sql).toContain(`SET expires_at = ${UTC_WALL_NOW_SQL}`); // срок сокращается, строка остаётся
     expect(sql).toMatch(/alert_type = 'fire_danger'/);           // чужие типы не трогаем
     expect(sql).toMatch(/external_id LIKE 'firms\/%'/);          // и чужие источники
     expect(sql).not.toMatch(/DELETE/);

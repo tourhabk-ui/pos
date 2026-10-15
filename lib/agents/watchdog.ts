@@ -54,6 +54,7 @@ import {
 } from '@/lib/mcp/catalogs';
 import { readdirSync } from 'fs';
 import { join } from 'path';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export interface WatchdogAlert {
   type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead' | 'seat_request_failed';
@@ -610,13 +611,13 @@ async function checkUndeliveredSafetyPush(): Promise<CheckResult> {
           -- гасла до истечения алерта — КРИТ «туристы не предупреждены» о том,
           -- о чём турист уже был предупреждён первым звонком (29.09).
           AND push_suppressed_at IS NULL
-          AND created_at < NOW() - INTERVAL '30 minutes'
-          AND created_at > NOW() - INTERVAL '7 days'
+          AND created_at < ${UTC_WALL_NOW_SQL} - INTERVAL '30 minutes'
+          AND created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '7 days'
           -- Истёкший недоставленный алерт уже не починить: диспетчер ретраит
           -- только пока expires_at > NOW() (та же граница, 31.07). Кричать о
           -- неисправимом ещё 7 суток — глушить сторож; пока алерт был жив,
           -- сторож бил каждые 30 минут — этого сигнала достаточно.
-          AND expires_at > NOW()`,
+          AND expires_at > ${UTC_WALL_NOW_SQL}`,
     );
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;

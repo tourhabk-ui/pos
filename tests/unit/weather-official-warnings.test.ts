@@ -13,6 +13,7 @@
  * сказано, что проверить не смогли.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { readFileSync } from 'node:fs';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
@@ -44,7 +45,7 @@ describe('три исхода', () => {
     // Только meteoalert, только действующие, только зоны точки.
     const [sql, params] = q.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/external_id LIKE \$1/);
-    expect(sql).toMatch(/expires_at > NOW\(\)/);
+    expect(sql).toContain(`expires_at > ${UTC_WALL_NOW_SQL}`);
     expect(sql).toMatch(/affected_zones && \$2::text\[\]/);
     expect(params).toEqual(['meteoalert/%', ['avachinsky', 'eastern', 'western']]);
   });

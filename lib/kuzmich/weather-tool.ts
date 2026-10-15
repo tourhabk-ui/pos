@@ -23,6 +23,7 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { dayPartsPhrase, keepDailyDescription } from '@/lib/weather/day-parts';
 import { METEOALERT_PREFIX } from '@/lib/services/safety/meteoalert';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export const DEFAULT_WEATHER_PLACE = { name: 'Петропавловск-Камчатский', lat: 53.02, lng: 158.65 } as const;
 export const WEATHER_DAYS_DEFAULT = 3;
@@ -216,7 +217,7 @@ export async function officialWarningLines(lat: number): Promise<string[]> {
       `SELECT title, description
          FROM external_alerts
         WHERE external_id LIKE $1
-          AND expires_at > NOW()
+          AND expires_at > ${UTC_WALL_NOW_SQL}
           AND affected_zones && $2::text[]
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT 5`,

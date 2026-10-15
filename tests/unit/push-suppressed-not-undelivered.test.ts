@@ -63,6 +63,6 @@ describe('читатели недоставленного push знают о з�
     // Сторож не должен ослепнуть: условие о недоставке на месте.
     const wd = code(read('lib/agents/watchdog.ts'));
     expect(wd).toMatch(/push_sent_at IS NULL/);
-    expect(wd).toMatch(/created_at < NOW\(\) - INTERVAL '30 minutes'/);
+    expect(wd).toMatch(/created_at < \$\{UTC_WALL_NOW_SQL\} - INTERVAL '30 minutes'/);
   });
 });

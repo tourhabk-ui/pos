@@ -44,6 +44,7 @@ import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
 // Правило возраста используется здесь и переэкспортируется ниже: re-export
 // имя в область видимости НЕ вносит, поэтому импорт нужен отдельно.
 import { classifyItemAge, MAX_ITEM_AGE_DAYS } from '@/lib/agents/scout-item-age';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 // Словарь причин пропуска переехал в чистый модуль (клиентский компонент
 // не может импортировать этот файл — он тянет пул БД). Re-export держит
@@ -307,7 +308,7 @@ async function fetchSafetyLayerSource(): Promise<SourceFetch> {
     const { rows } = await pool.query<SafetyAlertRow>(
       `SELECT title, source_url
          FROM external_alerts
-        WHERE created_at > NOW() - INTERVAL '25 hours'
+        WHERE created_at > ${UTC_WALL_NOW_SQL} - INTERVAL '25 hours'
         ORDER BY severity DESC NULLS LAST, created_at DESC
         LIMIT $1`,
       [SAFETY_ALERTS_LIMIT],

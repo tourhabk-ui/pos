@@ -72,7 +72,7 @@ export function DeskPlanChanges({ changes: rows, feedCount, trusted }: {
             </span>
             <span className="flex min-w-[112px] flex-col items-end gap-1 pt-1 text-right text-[13px] text-[var(--text-secondary)]">
               <span>{c.kindLabel}</span>
-              {c.until && <span className="text-[var(--text-secondary)]">{c.until}</span>}
+              {c.term && <span className="text-[var(--text-secondary)]">{c.term}</span>}
             </span>
           </Link>
         );
