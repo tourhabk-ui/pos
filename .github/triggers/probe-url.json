@@ -1,14 +1,15 @@
 {
   "timeout": 120,
-  "run": 933,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Повтор пробы 932 с точными названиями файлов из ответа API: кандидаты Викисклада №43 и №34 на главный кадр вулкана Вилючинский, уменьшенные копии 360 px в base64. Конфиг записан целиком.",
+  "run": 934,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Кандидаты Викисклада №43 и №34 на главный кадр вулкана Вилючинский — миниатюры напрямую с Викисклада (ресайзер получил 429), base64. Конфиг записан целиком.",
   "urls": [
-    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%2592%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD_%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25B8%25D0%25B9._%25D0%2592%25D0%25B8%25D0%25B4_%25D1%2581_%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25BE%25D0%25B3%25D0%25BE_%25D0%25BF%25D0%25B5%25D1%2580%25D0%25B5%25D0%25B2%25D0%25B0%25D0%25BB%25D0%25B0.jpg&w=360&q=70&output=jpg",
-    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25B8%25D0%25B9_%25D0%25B2%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD_%25D0%25BD%25D0%25B0_%25D0%25B7%25D0%25B0%25D0%25BA%25D0%25B0%25D1%2582%25D0%25B5.jpg&w=360&q=70&output=jpg"
+    "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD_%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9._%D0%92%D0%B8%D0%B4_%D1%81_%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B3%D0%BE_%D0%BF%D0%B5%D1%80%D0%B5%D0%B2%D0%B0%D0%BB%D0%B0.jpg?width=330",
+    "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9_%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD_%D0%BD%D0%B0_%D0%B7%D0%B0%D0%BA%D0%B0%D1%82%D0%B5.jpg?width=330"
   ],
   "b64": true,
   "bytes": 1,
+  "ua": "VedarProbe/1.0 (+https://vedarai.ru; photo attribution check)",
   "allowStale": true,
-  "retries": 1,
-  "retryDelay": 10
+  "retries": 2,
+  "retryDelay": 20
 }
