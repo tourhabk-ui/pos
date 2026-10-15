@@ -130,6 +130,9 @@ export interface PlacePhotoAttribution {
   sourceUrl: string | null;
 }
 
+/** Права кадра галереи — то, что к автору добавляет подпись (15.10). */
+export type PlacePhotoRights = Omit<PlacePhotoAttribution, 'author'>;
+
 export interface PlaceData {
   id: string;
   name: string;
@@ -161,6 +164,12 @@ export interface PlaceData {
    * фото называет автора того кадра, что на экране; null — автора не знаем.
    */
   photoCredits: Record<string, string | null>;
+  /**
+   * Лицензия и страница файла кадра галереи по его адресу (15.10) — только у
+   * кадров, где они записаны. Нет записи — подпись называет одного автора.
+   * Необязательное: офлайн-кэш карточки мог лечь до этого поля.
+   */
+  photoRights?: Record<string, PlacePhotoRights>;
   bestSeason: string | null;
   seasonalNotes: Record<string, string> | null;
   accessInfo: string | null;

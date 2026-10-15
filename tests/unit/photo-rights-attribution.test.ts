@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Права на чужое фото доезжают от загрузки до экрана.
  *
@@ -30,9 +31,13 @@
  *  чужое имя и намёк на свободную лицензию, которой нет (§4.0: место, где
  *  нельзя сказать «не знаю», заполняется враньём).
  */
-import { describe, it, expect } from 'vitest';
+import React from 'react';
+import { describe, it, expect, afterEach } from 'vitest';
+import { render, cleanup } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import PhotoCredit from '@/components/places/PhotoCredit';
+import type { PlacePhotoAttribution } from '@/components/places/types';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -116,20 +121,35 @@ describe('подпись следует за данными, а не за име
 });
 
 describe('разметка не выдумывает автора', () => {
+  afterEach(cleanup);
+  // Подпись рисует components/places/PhotoCredit — одна для главного кадра и
+  // галереи (15.10); судится рендером того, что видит человек.
+  const credit = (a: Partial<PlacePhotoAttribution>) =>
+    render(React.createElement(PhotoCredit, { author: null, license: null, licenseUrl: null, sourceUrl: null, ...a })).container;
+
   it('Wikimedia Commons больше не подставляется по умолчанию', () => {
     // В КОДЕ имени быть не должно; в комментарии оно есть и объясняет, что
     // здесь стояло до 14.09 и чем это было плохо.
     expect(VIEW_CODE).not.toContain('Wikimedia Commons');
     expect(VIEW).toContain('Wikimedia Commons');
+    expect(credit({ license: 'CC BY 4.0' }).textContent).not.toMatch(/Wikimedia/);
   });
 
   it('автор рисуется, только если он известен', () => {
-    expect(VIEW_CODE).toMatch(/\{place\.photoAttribution\.author && \(/);
+    // Источник без автора подписью не становится: ссылки на него нет.
+    const c = credit({ license: 'CC BY 4.0', sourceUrl: 'https://example.test/file' });
+    expect(c.textContent).toBe('Фото: CC BY 4.0');
+    expect(c.querySelector('a[href="https://example.test/file"]')).toBeNull();
+    expect(credit({}).textContent).toBe('');
   });
 
   it('разделитель не висит, когда автора нет', () => {
     // «Фото: · CC BY 4.0» — след выдуманного поля; точка ставится только
     // между двумя существующими частями.
-    expect(VIEW_CODE).toMatch(/\{place\.photoAttribution\.author \? ' · ' : ''\}/);
+    expect(credit({ license: 'CC BY 4.0' }).textContent).not.toMatch(/·/);
+    cleanup();
+    expect(credit({ author: 'Ю. Демянчук', license: 'CC BY 4.0' }).textContent).toBe('Фото: Ю. Демянчук · CC BY 4.0');
+    cleanup();
+    expect(credit({ author: 'Ю. Демянчук' }).textContent).toBe('Фото: Ю. Демянчук');
   });
 });

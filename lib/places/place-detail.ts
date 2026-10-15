@@ -18,7 +18,7 @@ import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
-import type { PlacePhotoAttribution } from '@/components/places/types';
+import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
 export interface PlaceDetailResult {
   status: number;
@@ -130,6 +130,15 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          (SELECT COALESCE(json_agg(NULLIF(btrim(g.author), '') ORDER BY g.position), '[]'::json)
             FROM place_gallery_photos g
            WHERE g.ark_id = p.ark_id AND g.hidden_reason IS NULL) AS gallery_authors,
+         -- Лицензия и страница файла каждого кадра галереи, тем же порядком
+         -- (15.10): снимку Commons в галерее одного имени автора мало.
+         (SELECT COALESCE(json_agg(json_build_object(
+                   'license', NULLIF(btrim(g.license), ''),
+                   'license_url', NULLIF(btrim(g.license_url), ''),
+                   'source_url', NULLIF(btrim(g.source_url), '')
+                 ) ORDER BY g.position), '[]'::json)
+            FROM place_gallery_photos g
+           WHERE g.ark_id = p.ark_id AND g.hidden_reason IS NULL) AS gallery_rights,
          ai.model      AS photo_model,
          ai.author     AS photo_author,
          ai.license    AS photo_license,
@@ -361,6 +370,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // лицензия почти всегда требует видимого указания автора.
         photoAttribution: photoAttributionOf(r),
         photoCredits: photoCreditsOf(r),
+        photoRights: photoRightsOf(r),
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
         accessInfo: r.access_info as string | null,
@@ -549,4 +559,28 @@ export function photoCreditsOf(r: Record<string, unknown>): Record<string, strin
     credits[u] = typeof a === 'string' && a.trim() ? a.trim() : null;
   });
   return credits;
+}
+
+/**
+ * Лицензия и страница файла КАЖДОГО кадра галереи — по адресу, которым кадр
+ * отдаётся в images (15.10). Только у кадров, где записано хоть что-то: кадр
+ * владельца или партнёра лицензии не несёт, и выдумывать её нельзя (§4.0).
+ */
+export function photoRightsOf(r: Record<string, unknown>): Record<string, PlacePhotoRights> {
+  const rights: Record<string, PlacePhotoRights> = {};
+  const urls = Array.isArray(r.gallery_urls) ? r.gallery_urls : [];
+  const rows = Array.isArray(r.gallery_rights) ? r.gallery_rights : [];
+  const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  urls.forEach((u, i) => {
+    if (typeof u !== 'string') return;
+    const g = rows[i] as Record<string, unknown> | null | undefined;
+    if (!g || typeof g !== 'object') return;
+    const one: PlacePhotoRights = {
+      license: str(g.license),
+      licenseUrl: str(g.license_url),
+      sourceUrl: str(g.source_url),
+    };
+    if (one.license || one.licenseUrl || one.sourceUrl) rights[u] = one;
+  });
+  return rights;
 }
