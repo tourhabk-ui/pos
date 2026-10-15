@@ -187,10 +187,12 @@ VPN шаг пропускается; из всех шагов у него сам
 
 ### Шаг 6. Ключи Kimi и GLM — чтобы проба знания спрашивала всех четверых
 
-**15.10: `MOONSHOT_API_KEY` на Timeweb стоит** (владелец); внеочередной прогон пробы — 8,
-итог в маркере `model-knowledge-probe.json`. Ключ китайского контура (platform.kimi.com)
-работает только на `api.moonshot.cn` — тогда проба покажет 401, и нужна ещё
-`MOONSHOT_BASE_URL=https://api.moonshot.cn/v1`. GLM — по-прежнему без ключа.
+**15.10: `MOONSHOT_API_KEY` на Timeweb стоит** (владелец). Прогон 8 (08:47 UTC) получил
+от `api.moonshot.ai` 401 «Invalid Authentication»: ключ выписан не в международном контуре.
+После этого владелец поставил `MOONSHOT_BASE_URL=https://api.moonshot.cn/v1`, хост
+`api.moonshot.cn` внесён в реестр D2 (Китай, не domestic), прогон 9 — вопрос через
+китайский контур. Снова 401 — переменную убрать, ключ выпустить на platform.kimi.ai.
+GLM — по-прежнему без ключа.
 
 - Moonshot (Kimi): https://platform.moonshot.ai (с 10.2026 переадресует на platform.kimi.ai; международный контур, вход по почте; код
   платформы ходит на `api.moonshot.ai`) → API key → переменная `MOONSHOT_API_KEY` на Timeweb.
