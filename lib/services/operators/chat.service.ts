@@ -14,11 +14,20 @@ import {
 // Types
 // ──────────────────────────────────────────────────────────
 
+/**
+ * Ни брони, ни тура беседа не хранит — и это не забывчивость (аудит 15.10,
+ * P2-02). На проде `conversations.tour_id` и `booking_id` — uuid с внешними
+ * ключами на `tours` и `bookings` (baseline; миграция 714 объявила BIGINT/TEXT,
+ * но через IF NOT EXISTS прод не тронула). Писать в эти таблицы и ссылаться
+ * на них запрещено (CLAUDE.md §4), а id тура с карточки — это
+ * `operator_tours.id` (bigint): INSERT падал 22P02 «invalid input syntax for
+ * type uuid», и «Написать оператору» с карточки тура не открывал беседу ни
+ * разу. Тур остаётся в беседе словами — темой (`subject`). Ссылка на
+ * `operator_tours` появится вместе с миграцией колонки, не раньше.
+ */
 interface CreateConversationParams {
   type?: 'direct' | 'group' | 'support';
   subject?: string;
-  bookingId?: string;
-  tourId?: number;
   createdBy: string;
   participants: Array<{ userId: string; role: string }>;
   initialMessage?: string;
@@ -72,7 +81,7 @@ class ChatService {
     user1Role: string,
     user2Id: string,
     user2Role: string,
-    options?: { bookingId?: string; tourId?: number; subject?: string }
+    options?: { subject?: string }
   ): Promise<{ conversationId: string; created: boolean }> {
     // Find existing direct conversation between these two users
     const existing = await query<{ id: string }>(
@@ -94,8 +103,6 @@ class ChatService {
       type: 'direct',
       createdBy: user1Id,
       subject: options?.subject,
-      bookingId: options?.bookingId,
-      tourId: options?.tourId,
       participants: [
         { userId: user1Id, role: user1Role },
         { userId: user2Id, role: user2Role },
@@ -112,8 +119,6 @@ class ChatService {
     const {
       type = 'direct',
       subject,
-      bookingId,
-      tourId,
       createdBy,
       participants,
       initialMessage,
@@ -121,10 +126,10 @@ class ChatService {
 
     // Insert conversation
     const convResult = await query<ConversationRow>(
-      `INSERT INTO conversations (type, subject, booking_id, tour_id, created_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO conversations (type, subject, created_by)
+       VALUES ($1, $2, $3)
        RETURNING *`,
-      [type, subject || null, bookingId || null, tourId || null, createdBy]
+      [type, subject || null, createdBy]
     );
     const conversation = convResult.rows[0];
 

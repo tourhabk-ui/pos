@@ -197,96 +197,11 @@ export const tourService = {
     );
     return this.normalize(result.rows[0] ?? null);
   },
-  /**
-   * СИРОТА: `update()` не вызывает никто (проверено грепом по репозиторию,
-   * #1827) — в отличие от `publish`/`unpublish` этого же файла, которые
-   * реально дёргает `app/api/discovery/tours/[id]/publish/route.ts`.
-   * И таблица (`tours`, не `operator_tours`), И имена колонок (`name`,
-   * `category`, `duration`, `price` — реальные `title`, `activity_type`,
-   * `duration_hours`, `base_price`, см. `create()` выше) здесь неверны.
-   * Не чинить вслепую: без живого вызывающего сопоставление колонок
-   * проверить нечем, а угадать — значит выдумать данные (§4.0). Появится
-   * вызывающий — тогда и сверять с ним.
-   */
-  async update(id: string, data: Record<string, unknown>) {
-    const updates: string[] = [];
-    const values: unknown[] = [];
-
-    const name = toStringOrNull(data.name) ?? toStringOrNull(data.title);
-    if (name) {
-      updates.push(`name = $${values.length + 1}`);
-      values.push(name);
-    }
-
-    const description = toStringOrNull(data.description);
-    if (description !== null) {
-      updates.push(`description = $${values.length + 1}`);
-      values.push(description);
-    }
-
-    const category = toStringOrNull(data.category) ?? toStringOrNull(data.activity);
-    if (category) {
-      updates.push(`category = $${values.length + 1}`);
-      values.push(category);
-    }
-
-    const difficulty = toStringOrNull(data.difficulty);
-    if (difficulty) {
-      updates.push(`difficulty = $${values.length + 1}`);
-      values.push(difficulty);
-    }
-
-    const duration = toNumberOrNull(data.duration);
-    if (duration !== null) {
-      updates.push(`duration = $${values.length + 1}`);
-      values.push(duration);
-    }
-
-    const price = toNumberOrNull(data.price) ?? toNumberOrNull(data.priceFrom) ?? toNumberOrNull(data.price_from);
-    if (price !== null) {
-      updates.push(`price = $${values.length + 1}`);
-      values.push(price);
-    }
-
-    const currency = toStringOrNull(data.currency);
-    if (currency) {
-      updates.push(`currency = $${values.length + 1}`);
-      values.push(currency);
-    }
-
-    const maxGroupSize = toNumberOrNull(data.maxGroupSize) ?? toNumberOrNull(data.max_group_size);
-    if (maxGroupSize !== null) {
-      updates.push(`max_group_size = $${values.length + 1}`);
-      values.push(maxGroupSize);
-    }
-
-    const minGroupSize = toNumberOrNull(data.minGroupSize) ?? toNumberOrNull(data.min_group_size);
-    if (minGroupSize !== null) {
-      updates.push(`min_group_size = $${values.length + 1}`);
-      values.push(minGroupSize);
-    }
-
-    const isActive = toBooleanOrNull(data.isActive ?? data.is_active);
-    if (isActive !== null) {
-      updates.push(`is_active = $${values.length + 1}`);
-      values.push(isActive);
-    }
-
-    if (updates.length === 0) {
-      throw new TourValidationError('No fields provided for update');
-    }
-
-    values.push(id);
-    const result = await pool.query(
-      `UPDATE tours
-       SET ${updates.join(', ')}, updated_at = NOW()
-       WHERE id = $${values.length}
-       RETURNING *`,
-      values
-    );
-    if (!result.rows[0]) throw new TourNotFoundError(id);
-    return this.normalize(result.rows[0] ?? null);
-  },
+  // `update()` снят (аудит 15.10, P2-02): сирота без единого вызывающего
+  // (#1827), писал `UPDATE tours` — в запрещённую таблицу (CLAUDE.md §4) и
+  // колонками, которых у мастер-таблицы нет (`name`, `category`, `duration`,
+  // `price`). Правка тура живёт в кабинете оператора — `PATCH
+  // /api/hub/operator/tours/[id]`, запись в `operator_tours`.
   async publish(id: string) {
     const tour = await this.getById(id);
     if (tour?.isActive) throw new TourAlreadyPublishedError(id);

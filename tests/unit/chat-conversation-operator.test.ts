@@ -60,7 +60,9 @@ describe('POST /api/chat/conversations — operatorPartnerId', () => {
     expect(json.data.conversationId).toBe('conv-1');
     expect(getOrCreateDirectMock).toHaveBeenCalledWith(
       'tourist-1', 'tourist', 'operator-user-9', 'operator',
-      { bookingId: undefined, tourId: 7, subject: 'Тур' }
+      // id тура в беседу не идёт (аудит 15.10, P2-02): колонка tour_id на
+      // проде ссылается на запрещённую `tours`; тур остаётся темой.
+      { subject: 'Тур' }
     );
   });
 
