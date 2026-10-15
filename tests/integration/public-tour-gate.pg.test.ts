@@ -229,6 +229,11 @@ withPg('витрина туров: снятый тур не в плане и н�
       ['tp-place-nearby', 57.0, 162.0, true],
       ['tp-place-pick', 58.0, 163.0, true],
       ['tp-place-merged', 58.5, 163.5, true],
+      // Места, главные ТОЛЬКО у непубличных туров: шлюз витрины в ветке
+      // главного места не даёт им ни «Туров сюда», ни китайской страницы.
+      ['tp-place-draft-only', 59.2, 164.2, true],
+      ['tp-place-gone', 59.4, 164.4, true],
+      ['tp-place-off', 59.6, 164.6, true],
     ];
     const tour: Record<string, string> = {};
     let routeBoth = '';
@@ -263,10 +268,12 @@ withPg('витрина туров: снятый тур не в плане и н�
         ['tp-nocoords', null, null, true, null],              // как Толмачёво в 1217
         ['tp-hidden-coords', 55.5, 160.5, true, null],        // совпало только со скрытым
         ['tp-vis', 56.1, 161.1, true, null],                  // скрытый двойник не мешает
-        ['tp-draft', 52.4321, 158.1234, false, null],         // черновик: связь есть, витрины нет
+        ['tp-draft', 59.2, 164.2, false, null],               // черновик: связь есть, витрины нет
         ['tp-preset', 52.4321, 158.1234, true, 'tp-place-pick'], // выбор оператора не перетирается
         ['tp-nearby', null, null, true, null],                // только «рядом» по маршруту
         ['tp-both', 56.1, 161.1, true, null],                 // маршрут и главное место — одно место
+        ['tp-deleted', null, null, true, 'tp-place-gone'],    // удалён оператором (deleted_at)
+        ['tp-off', null, null, true, 'tp-place-off'],         // выключен (is_active = false)
       ];
       for (const [slug, lat, lng, published, preset] of TOURS) {
         const r = await pool.query<{ id: string }>(
@@ -281,6 +288,8 @@ withPg('витрина туров: снятый тур не в плане и н�
         );
         tour[slug] = r.rows[0].id;
       }
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE slug = 'tp-deleted'`);
+      await pool.query(`UPDATE operator_tours SET is_active = FALSE WHERE slug = 'tp-off'`);
       const routes = await pool.query<{ id: string }>(
         `INSERT INTO kamchatka_routes (category, title) VALUES ('hiking', 'TP маршрут рядом'), ('hiking', 'TP маршрут через место') RETURNING id::text`,
       );
@@ -307,10 +316,12 @@ withPg('витрина туров: снятый тур не в плане и н�
         'tp-nocoords': [null, null],
         'tp-hidden-coords': [null, null],
         'tp-vis': ['tp-place-vis', 'coords_equal'],
-        'tp-draft': ['tp-place-exact', 'coords_equal'],
+        'tp-draft': ['tp-place-draft-only', 'coords_equal'],
         'tp-preset': ['tp-place-pick', 'operator'],
         'tp-nearby': [null, null],
         'tp-both': ['tp-place-vis', 'coords_equal'],
+        'tp-deleted': ['tp-place-gone', 'operator'],
+        'tp-off': ['tp-place-off', 'operator'],
       };
       const snapshot = async () => Object.fromEntries(await Promise.all(Object.keys(expected).map(async (slug) => {
         const l = await linkOf(slug);
@@ -324,7 +335,7 @@ withPg('витрина туров: снятый тур не в плане и н�
         .rejects.toMatchObject({ code: '23514' });
     });
 
-    it('«Туры сюда»: тур по главному месту — «к этому месту»; черновик и «рядом» — нет', async () => {
+    it('«Туры сюда»: тур по главному месту — «к этому месту»; черновик, удалённый, выключенный и «рядом» — нет', async () => {
       const { loadPlaceDetail } = await import('@/lib/places/place-detail');
       const card = async (pid: string) => {
         const r = await loadPlaceDetail(pid, { countView: false });
@@ -340,13 +351,20 @@ withPg('витрина туров: снятый тур не в плане и н�
         ['TP тур tp-both', 'main_place'], ['TP тур tp-vis', 'main_place'],
       ]);
       expect(await card('tp-place-pick')).toEqual([expect.objectContaining({ title: 'TP тур tp-preset', linkKind: 'main_place' })]);
+      // Главное место только у черновика, удалённого или выключенного тура — туров нет.
+      for (const pid of ['tp-place-draft-only', 'tp-place-gone', 'tp-place-off']) {
+        expect(await card(pid), pid).toEqual([]);
+      }
     });
 
-    it('китайские конспекты: место по главному месту живого тура — да; «рядом» и без связи — нет', async () => {
+    it('китайские конспекты: место по главному месту живого тура — да; «рядом», без связи и непубличный тур — нет', async () => {
       const { loadZhPlaceSources } = await import('@/lib/zh/content');
       const ids = (await loadZhPlaceSources()).map((p) => p.id);
       expect(ids).toEqual(expect.arrayContaining(['tp-place-exact', 'tp-place-vis', 'tp-place-pick']));
-      for (const no of ['tp-place-nearby', 'tp-place-twin-a', 'tp-place-twin-b', 'tp-place-near', 'tp-place-hidden']) {
+      // Место, главное только у непубличного тура (черновик, удалён, выключен), —
+      // не страница: шлюз витрины держит и ветку главного места.
+      for (const no of ['tp-place-nearby', 'tp-place-twin-a', 'tp-place-twin-b', 'tp-place-near', 'tp-place-hidden',
+        'tp-place-draft-only', 'tp-place-gone', 'tp-place-off']) {
         expect(ids, no).not.toContain(no);
       }
       expect(new Set(ids).size, 'место не множится по турам').toBe(ids.length);
