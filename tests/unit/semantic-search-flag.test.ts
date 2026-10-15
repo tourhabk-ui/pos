@@ -170,7 +170,30 @@ describe('GET /api/health отдаёт память и состояние мод
     const { markModelLoadFailed } = await import('@/lib/ai/semantic-search-state');
     markModelLoadFailed(new Error('ENOENT /app/node_modules/sharp/build'), 1200);
     const body = await health();
-    expect(body.semantic_search).toMatchObject({ model: 'load_failed', load_ms: 1200 });
+    expect(body.semantic_search).toMatchObject({ model: 'load_failed', load_ms: 1200, error_code: 'Error' });
     expect(JSON.stringify(body)).not.toContain('/app/node_modules');
+  });
+
+  // 15.10 прод ответил load_failed за 1 мс, а тело крона с текстом причины не
+  // напечаталось: окно health занял внешний планировщик. Род отказа без
+  // текста — в открытом роуте, чтобы «нативный модуль не загрузился» было
+  // видно без секрета.
+  it('род отказа — код Node; путь из сообщения в ответ не попадает', async () => {
+    delete process.env.SEMANTIC_SEARCH;
+    const { markModelLoadFailed } = await import('@/lib/ai/semantic-search-state');
+    const err = Object.assign(new Error('Error loading shared library /app/node_modules/onnxruntime-node/bin/libonnxruntime.so.1'), { code: 'ERR_DLOPEN_FAILED' });
+    markModelLoadFailed(err, 1);
+    const body = await health();
+    expect(body.semantic_search).toMatchObject({ model: 'load_failed', load_ms: 1, error_code: 'ERR_DLOPEN_FAILED' });
+    expect(JSON.stringify(body)).not.toContain('libonnxruntime');
+  });
+
+  it('код не похож на код, имя класса не из букв — unknown, а не кусок сообщения', async () => {
+    const { loadFailureCode } = await import('@/lib/ai/semantic-search-state');
+    expect(loadFailureCode(Object.assign(new Error('x'), { code: 'MODULE_NOT_FOUND' }))).toBe('MODULE_NOT_FOUND');
+    expect(loadFailureCode(new TypeError('x'))).toBe('TypeError');
+    expect(loadFailureCode(Object.assign(new Error('x'), { code: '/app/секрет path', name: 'Ошибка 1' }))).toBe('unknown');
+    expect(loadFailureCode('строка')).toBe('unknown');
+    expect(loadFailureCode(null)).toBe('unknown');
   });
 });
