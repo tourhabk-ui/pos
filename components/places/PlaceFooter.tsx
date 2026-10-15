@@ -47,8 +47,11 @@ export default function PlaceFooter({ sourceUrl, sourceName, updatedAt }: Props)
             Источник: {sourceName ?? 'ссылка'}
           </a>
         )}
+        {/* Дату двигает любая правка записи любым писателем — фото, заметка,
+            координата, — а не проверка сведений. «Обновлено» читалось как
+            «сведения свежие» (15.10, §0). */}
         {updatedStr && (
-          <p>Обновлено: {updatedStr}</p>
+          <p>Последняя правка записи: {updatedStr}</p>
         )}
         <AddPhotoLink />
       </div>

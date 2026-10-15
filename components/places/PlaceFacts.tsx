@@ -79,7 +79,7 @@ const DIFFICULTY_TONE: Record<number, string> = {
   5: 'text-[var(--danger)]',
 };
 
-interface Fact { label: string; value: string; tone?: string }
+interface Fact { label: string; value: string; tone?: string; note?: string | null }
 
 /**
  * Тон незнания: приглушённый, но НЕ самый тусклый.
@@ -125,8 +125,14 @@ export default function PlaceFacts({ locationType, zone, safety, terrainType }: 
     facts.push({ label: 'Сложность', value: 'у нас не записана', tone: UNKNOWN_TONE });
   }
 
+  // Только природоохранный лимит с источником (1017): число без того, чья
+  // это норма, карточка не печатает (15.10).
   if (safety.capacityPerDay != null) {
-    facts.push({ label: 'Лимит посещения', value: `${safety.capacityPerDay} человек в сутки` });
+    facts.push({
+      label: 'Лимит посещения',
+      value: `${safety.capacityPerDay} человек в сутки`,
+      note: safety.capacityPerDaySource ?? null,
+    });
   }
 
   if (safety.nearestMedicalKm != null) {
@@ -149,6 +155,7 @@ export default function PlaceFacts({ locationType, zone, safety, terrainType }: 
           <dt className="text-sm text-[var(--text-secondary)]">{f.label}</dt>
           <dd className={`text-sm font-semibold text-right ${f.tone ?? 'text-[var(--text-primary)]'}`}>
             {f.value}
+            {f.note && <span className="block text-xs font-normal text-[var(--text-secondary)]">{f.note}</span>}
           </dd>
         </div>
       ))}

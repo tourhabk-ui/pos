@@ -182,6 +182,23 @@ export function buildFacts(route: RouteRow): string[] {
  * раннеру GitHub. Второй копии запроса быть не должно — иначе прод и раннер
  * писали бы описания разным записям.
  */
+/**
+ * Снятое описание — не дыра, которую заполняет модель (15.10).
+ *
+ * Дневники мест (1247) и описания маршрутов, написанные по одному названию
+ * (1261), сняты с карточек в архивную колонку и ждут переписи ПО ИСТОЧНИКАМ.
+ * Отбор Editor брал `description IS NULL` первым приоритетом и архива не
+ * спрашивал: каждую ночь он заполнял бы снятое новым текстом модели, и место
+ * выглядело бы переписанным. Тот же предикат, что у enrich-routes; строка
+ * места в VIEW несёт places.ark_id, маршрута — COALESCE(ark_id, id).
+ */
+export function notWithdrawnSql(idExpr: string): string {
+  return `NOT EXISTS (SELECT 1 FROM places w
+                       WHERE w.ark_id = ${idExpr} AND w.description_withdrawn IS NOT NULL)
+       AND NOT EXISTS (SELECT 1 FROM kamchatka_routes wr
+                       WHERE COALESCE(wr.ark_id, wr.id) = ${idExpr} AND wr.description_withdrawn IS NOT NULL)`;
+}
+
 export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
   // NULL-описания — всегда в приоритете (реальные пробелы важнее полировки).
   // Короткие (<300) берём только если их давно (>7 дней) никто не трогал —
@@ -211,11 +228,12 @@ export async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
     FROM agent_route_knowledge ark
     LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
     LEFT JOIN kamchatka_routes        kr  ON kr.ark_id = ark.id
-    WHERE ark.description IS NULL
+    WHERE (ark.description IS NULL
        OR (LENGTH(ark.description) < $1 AND ark.updated_at < NOW() - make_interval(days => $3)
            -- Короткий текст по решению владельца — ответ, а не недоработка
            -- (lib/places/owner-decided.ts, случай Микижи 27.09).
-           AND ${notOwnerDecidedSql('ark.id')})
+           AND ${notOwnerDecidedSql('ark.id')}))
+      AND ${notWithdrawnSql('ark.id')}
     ORDER BY (ark.description IS NULL) DESC, RANDOM()
     LIMIT $2
   `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE, REATTEMPT_REST_DAYS]);
@@ -540,11 +558,14 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     let totalShort = -1;
     try {
       const { rows } = await pool.query<{ queue: string; total_short: string }>(
+        // Снятое в очередь не входит и в разрыв не считается: его пишут по
+        // источникам люди, а не Editor.
         `SELECT
            COUNT(*) FILTER (WHERE description IS NULL
              OR (LENGTH(description) < $1 AND updated_at < NOW() - make_interval(days => $2)))::text AS queue,
            COUNT(*) FILTER (WHERE description IS NULL OR LENGTH(description) < $1)::text AS total_short
-         FROM agent_route_knowledge`,
+         FROM agent_route_knowledge ark
+        WHERE ${notWithdrawnSql('ark.id')}`,
         [MIN_DESCRIPTION_LENGTH, REATTEMPT_REST_DAYS]
       );
       queue = Number(rows[0]?.queue ?? 0);

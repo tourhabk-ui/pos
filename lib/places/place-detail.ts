@@ -19,6 +19,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
 import { isoUtcSql } from '@/lib/db/timestamp-iso';
+import { asCoordSource } from '@/lib/places/coord-source';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
@@ -68,6 +69,15 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          p.eco_permit_required,
          p.eco_rules,
          p.eco_permit_url,
+         -- Природоохранный лимит с источником (1017) — единственный «лимит
+         -- посещения», который карточка вправе назвать. capacity_per_day
+         -- профиля — заглушка DEFAULT 50 и шаблон 070, а не норма (15.10).
+         -- Откуда координата (lib/places/coord-source): угаданная по названию
+         -- и снятая на месте лежали неотличимо, и карточка вела к обеим одной
+         -- кнопкой (15.10).
+         p.coord_source,
+         p.visitor_limit_per_day,
+         p.visitor_limit_source,
          p.indigenous_info,
          sp.difficulty_level,
          sp.profile_source,
@@ -401,6 +411,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
             .map((a) => [a.slug, { slug: a.slug, title: a.title }]),
         ).values()],
 
+        coordSource: asCoordSource(r.coord_source as string | null),
+
         eco: r.eco_zone ? {
           zone: r.eco_zone as string,
           // NULL — «не записано», не «не нужно» (§4.0, миграция 1256).
@@ -439,7 +451,12 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           rulesRequired: r.rules_required as string | null,
           weatherThreshold: r.weather_threshold as Record<string, unknown> | null,
           hazardTypes,
-          capacityPerDay: templated.capacityPerDay,
+          // Лимит — только природоохранный, с источником (places, 1017). Прежде
+          // здесь стоял capacity_per_day профиля: DEFAULT 50 у всех мест, у
+          // которых никто ничего не выставлял, и шаблон 070 у остальных, — и
+          // карточка печатала его «Лимит посещения: 50 человек в сутки» (15.10).
+          capacityPerDay: r.visitor_limit_per_day != null ? Number(r.visitor_limit_per_day) : null,
+          capacityPerDaySource: r.visitor_limit_per_day != null ? ((r.visitor_limit_source as string | null) ?? null) : null,
           optimalGroupSize: templated.optimalGroupSize,
           openFromDate: r.open_from_date as string | null,
           openToDate: r.open_to_date as string | null,

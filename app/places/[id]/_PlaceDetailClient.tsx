@@ -15,6 +15,8 @@ import { HazardPhraseList } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 import { placeDayStatus } from '@/lib/safety/place-day-status';
+import PlaceCoordSource from '@/components/places/PlaceCoordSource';
+import PlaceHazardsUnknown from '@/components/places/PlaceHazardsUnknown';
 import { distanceToCity } from '@/lib/places/distance-to-city';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { composeAccessText } from '@/lib/places/access-text';
@@ -436,6 +438,10 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
             <Download className="h-4 w-4 text-[var(--accent)]" aria-hidden />
             Скачать точку (GPX)
           </a>
+
+          {/* Чему верит тот, кто идёт по файлу: угаданная по названию точка
+              и снятая на месте выглядели одинаково (15.10). */}
+          <PlaceCoordSource source={place.coordSource} />
         </aside>
 
         {/* Основной столбец */}
@@ -464,13 +470,9 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                   не измерял никто — API их не отдаёт (lib/safety/profile-source).
                   Молчание читалось бы как «опасностей нет», поэтому состояние
                   называется словами: §4.0, третий исход. */}
-              {place.safety.source === 'type_template' && place.safety.hazardTypes.length === 0 && (
-                <p className="text-sm text-[var(--text-muted)]">
-                  Опасности этого места у нас не записаны. Раньше здесь стоял набор,
-                  выведенный из типа места, а не проверенный на месте, — мы его убрали.
-                  Спросите МЧС и оператора перед выходом.
-                </p>
-              )}
+              {/* 15.10: и для любого источника профиля — пустой список у
+                  записи «не установлено» читался бы так же, «опасностей нет». */}
+              <PlaceHazardsUnknown hazards={place.safety.hazardTypes} source={place.safety.source} />
 
               {/* Авиационный цветовой код вулкана (KVERT) */}
               {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}
@@ -563,6 +565,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
 
               <PlaceLNT
                 capacityPerDay={place.safety.capacityPerDay}
+                capacitySource={place.safety.capacityPerDaySource ?? null}
                 ecoZone={place.eco?.zone ?? null}
               />
             </Section>

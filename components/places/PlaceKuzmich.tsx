@@ -50,11 +50,19 @@ export default function PlaceKuzmich({ placeId, placeName, kuzmichReview, adviso
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">Кузьмич о месте</p>
+            {/* Кто это говорит — названо (15.10, §0). Имя и аватар «К» читались
+                как местный гид, а заметку пишет модель по данным платформы;
+                «знает Камчатку как никто» было обещанием сверх этих данных. */}
             {kuzmichReview ? (
-              <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{kuzmichReview}</p>
+              <>
+                <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{kuzmichReview}</p>
+                <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                  Заметку написал ИИ-помощник Ведара по данным платформы. На месте сверяйтесь.
+                </p>
+              </>
             ) : (
-              <p className="text-sm text-[var(--text-muted)] italic">
-                Кузьмич знает Камчатку как никто. Спроси его про безопасность, лучший сезон, как добраться и что взять с собой.
+              <p className="text-sm text-[var(--text-secondary)]">
+                Кузьмич — ИИ-помощник Ведара. Спросите его про сезон, дорогу и что взять с собой: он отвечает по данным платформы.
               </p>
             )}
             <a

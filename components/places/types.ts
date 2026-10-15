@@ -1,3 +1,4 @@
+import type { CoordSource } from '@/lib/places/coord-source';
 import type { DescriptionSource } from '@/lib/text/description-source';
 import type { SafetyProfileSource } from '@/lib/safety/profile-source';
 export interface PlaceSafety {
@@ -22,7 +23,10 @@ export interface PlaceSafety {
   rulesRequired: string | null;
   weatherThreshold: Record<string, unknown> | null;
   hazardTypes: string[];
+  /** Природоохранный лимит места в сутки (places.visitor_limit_per_day, 1017); null — не установлен. */
   capacityPerDay: number | null;
+  /** Чья это норма: приказ парка, квота заповедника, решение владельца. */
+  capacityPerDaySource?: string | null;
   optimalGroupSize: number | null;
   openFromDate: string | null;
   openToDate: string | null;
@@ -157,6 +161,8 @@ export interface PlaceData {
   locationType: string | null;
   lat: number;
   lng: number;
+  /** Откуда координата: снята, угадана по названию, заглушка, справочник, не записано. */
+  coordSource?: CoordSource;
   zone: string | null;
   district: string | null;
   photoUrl: string | null;

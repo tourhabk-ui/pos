@@ -38,11 +38,13 @@ const RULES: LNTRule[] = [
 ];
 
 interface Props {
+  /** Природоохранный лимит места в сутки с источником (1017); не размер группы. */
   capacityPerDay?: number | null;
+  capacitySource?: string | null;
   ecoZone?: string | null;
 }
 
-export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
+export default function PlaceLNT({ capacityPerDay, capacitySource, ecoZone }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   // Don't duplicate with PlaceEco for strict zones — eco block already has rules there
@@ -84,10 +86,13 @@ export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
             {capacityPerDay != null && (
               <div className="mt-4 flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--success)]/6 px-3 py-2 rounded-lg border border-[var(--success)]/18">
                 <Leaf className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />
+                {/* До 15.10: «Рекомендуемый размер группы — не более 50 человек в
+                    сутки» — заглушка профиля, названная размером группы. Теперь
+                    только лимит места с тем, чья это норма. */}
                 <span>
-                  Рекомендуемый размер группы — не более{' '}
+                  Лимит посещения места —{' '}
                   <strong className="text-[var(--text-primary)]">{capacityPerDay} человек в сутки</strong>
-                  {' '}для сохранения природного баланса.
+                  {capacitySource ? <>: {capacitySource}</> : null}
                 </span>
               </div>
             )}

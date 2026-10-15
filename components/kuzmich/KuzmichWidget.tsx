@@ -417,8 +417,10 @@ export default function KuzmichWidget() {
             {messages.length === 0 && (
               <div className="text-center pt-6">
                 <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                  Привет! Я Кузьмич — знаю каждый маршрут Камчатки.
-                  Спросите про туры, цены, сезон.
+                  {/* Не «знаю каждый маршрут»: ИИ-помощник знает то, что есть в
+                      данных платформы, и обещание сверх этого — неправда (15.10, §0). */}
+                  Привет! Я Кузьмич, ИИ-помощник Ведара.
+                  Спросите про туры, цены, сезон — отвечу по данным платформы.
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 mt-4">
                   {([
