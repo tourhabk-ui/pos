@@ -165,6 +165,25 @@ describe('настоящий GET /api/cron/health', () => {
     expect(body.migrations).toMatchObject({ state: 'unknown', reason: 'not_recorded' });
   });
 
+  // Соседняя проводка в том же GET (аудит 15.10, A21): память процесса и
+  // модель поиска по смыслу лежат в теле, которое cron-health.yml печатает
+  // каждый час, — ряд rss_mb для решения о модели в апреле.
+  it('тело несёт память процесса и состояние модели поиска по смыслу, с причиной отказа', async () => {
+    delete process.env.SEMANTIC_SEARCH;
+    const { markModelLoadFailed } = await import('@/lib/ai/semantic-search-state');
+    markModelLoadFailed(new Error('Could not load sharp'), 900);
+    try {
+      const { body } = await runHealth();
+      const mem = body.process_memory as Record<string, unknown>;
+      expect(typeof mem.rss_mb).toBe('number');
+      expect(mem.rss_mb as number).toBeGreaterThan(0);
+      expect(typeof mem.heap_mb).toBe('number');
+      expect(body.semantic_search).toMatchObject({ enabled: true, state: 'load_failed', error: 'Could not load sharp', load_ms: 900 });
+    } finally {
+      delete (globalThis as Record<symbol, unknown>)[Symbol.for('vedar.embeddingModel')];
+    }
+  });
+
   it('накат чистый — о миграциях ни слова', async () => {
     process.env.MIGRATIONS_STARTUP_STATE = JSON.stringify({ state: 'ok', reason: 'applied', file: null, sqlstate: null, failed_count: 0, at: AT });
     const { body, sent } = await runHealth();

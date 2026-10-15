@@ -4,9 +4,23 @@
  * Модель: Xenova/paraphrase-multilingual-MiniLM-L12-v2 (384 dims, русский)
  * Хранение: JSONB массив float в agent_route_knowledge.embedding
  * Поиск: in-memory cosine similarity (~259 записей, <1ms)
+ *
+ * Флаг SEMANTIC_SEARCH (аудит 15.10, A21): выключен — модель не грузится
+ * вовсе, `semanticSearch` отказывает SemanticSearchDisabledError ДО импорта
+ * @huggingface/transformers. Зовущие проверяют флаг сами и идут по совпадению
+ * слов; отказ здесь — страховка от зовущего, который забыл. Состояние модели
+ * (загружается, загружена, не загрузилась) видно в health —
+ * lib/ai/semantic-search-state.ts.
  */
 
 import { query } from '@/lib/database';
+import {
+  SemanticSearchDisabledError,
+  markModelLoadFailed,
+  markModelLoaded,
+  markModelLoading,
+  semanticSearchEnabled,
+} from './semantic-search-state';
 
 // ── Типы ──────────────────────────────────────────────────────
 
@@ -44,18 +58,33 @@ let pipelineInstance: PipelineInstance | null = null;
 let pipelineLoading: Promise<PipelineInstance> | null = null;
 
 async function getEmbeddingPipeline(): Promise<PipelineInstance> {
+  // Флаг выключен — модель не грузится ни при каком вызове (A21).
+  if (!semanticSearchEnabled()) throw new SemanticSearchDisabledError();
   if (pipelineInstance) return pipelineInstance;
 
   if (!pipelineLoading) {
     pipelineLoading = (async () => {
-      const { pipeline } = await import('@huggingface/transformers');
-      const pipe = await pipeline(
-        'feature-extraction',
-        'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-        { device: 'cpu', dtype: 'fp32' }
-      );
-      pipelineInstance = pipe as unknown as PipelineInstance;
-      return pipelineInstance;
+      const t0 = Date.now();
+      markModelLoading();
+      try {
+        const { pipeline } = await import('@huggingface/transformers');
+        const pipe = await pipeline(
+          'feature-extraction',
+          'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
+          { device: 'cpu', dtype: 'fp32' }
+        );
+        pipelineInstance = pipe as unknown as PipelineInstance;
+        markModelLoaded(Date.now() - t0);
+        return pipelineInstance;
+      } catch (err) {
+        // Отказ загрузки отдаётся зовущему, как и прежде (промис остаётся
+        // отвергнутым до перезапуска процесса), но теперь он назван в логе и
+        // в health: до 15.10 о нём не знал никто — зовущие глушили его в
+        // «по смыслу ничего не нашлось» (A21, §4.0).
+        markModelLoadFailed(err, Date.now() - t0);
+        console.error('[embeddings] модель поиска по смыслу не загрузилась:', err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     })();
   }
 
