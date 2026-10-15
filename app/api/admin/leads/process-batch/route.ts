@@ -10,6 +10,7 @@ import { query } from '@/lib/database';
 import { processSingleLead } from '@/lib/services/operators/lead-processor.service';
 import { z } from 'zod';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -50,11 +51,14 @@ export async function POST(req: NextRequest) {
   const { limit, status, dryRun } = parsed.data;
 
   try {
-    // Получить лиды со статусом
+    // Получить лиды со статусом. Псевдолиды чата виджета (до 15.10) — не
+    // подбор тура: ни телефона, ни согласия, предложение отправить некому, а
+    // каждый стоит нескольких вызовов модели (аудит 15.10, W3-pseudo).
     const leads = await query(
       `SELECT id, name, email, phone, comment, route_title, created_at
        FROM leads
        WHERE status = $1
+         AND NOT ${WIDGET_CHAT_PSEUDO_LEAD_SQL}
        ORDER BY created_at DESC
        LIMIT $2`,
       [status, limit]
