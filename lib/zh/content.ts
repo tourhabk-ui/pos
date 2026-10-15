@@ -10,9 +10,11 @@
  *   туры  — живые, под шлюзом витрины (publicTourSql) и со строкой партнёра:
  *           то же условие, что у каталога, sitemap и /zh;
  *   места — видимые и не слитые, через которые проходит маршрут хотя бы
- *           одного живого тура; связь — точка пути (любой род, кроме
- *           «рядом», как isPathPoint в lib/routes/link-kind и «Туры сюда» на
- *           карточке места). Правило названо на странице места (ZH_PLACES_RULE).
+ *           одного живого тура (связь — точка пути любого рода, кроме
+ *           «рядом», как isPathPoint в lib/routes/link-kind), или названные
+ *           главным местом живого тура (operator_tours.main_place_id, 1286) —
+ *           те же две связи, что у «Туры сюда» на карточке места. Правило
+ *           названо на странице места (ZH_PLACES_RULE).
  *
  * Индексируемая страница — только с переводом, сделанным с нынешнего текста:
  * у тура свежи название и описание (если описание есть), у места — описание.
@@ -35,8 +37,12 @@ import {
   type ZhEntityType, type ZhStoredTranslation,
 } from '@/lib/zh/fields';
 
-/** Правило отбора мест — словами для страницы (§0: правило называется на самой витрине). */
-export const ZH_PLACES_RULE = '收录规则：平台在售团队游路线经过的地点。';
+/**
+ * Правило отбора мест — словами для страницы (§0: правило называется на самой
+ * витрине): места, через которые проходит маршрут тура в продаже, и главные
+ * места туров в продаже (аудит 15.10, TOUR-PLACE).
+ */
+export const ZH_PLACES_RULE = '收录规则：平台在售团队游路线经过的地点，以及在售团队游的主要目的地。';
 
 /** Причина отказа — в лог именем шага и SQLSTATE (§4.0). */
 export function logZhFailure(step: string, err: unknown): void {
@@ -59,7 +65,12 @@ export function zhPlaceRuleSql(alias = 'p'): string {
   // «Не слито» — тот же предикат, что NOT_MERGED в lib/places/aliases; здесь
   // строкой, чтобы условие собиралось без импорта модуля псевдонимов (его
   // подменяют сторожа карточки места, а hreflang карточки зовёт этот модуль).
-  return `(${alias}.is_visible = TRUE AND ${alias}.merged_into_id IS NULL AND EXISTS (
+  //
+  // Связей две, как у «Туры сюда» (аудит 15.10, TOUR-PLACE): у туров,
+  // заведённых миграциями, route_id пуст, и одна цепочка через маршрут давала
+  // на проде ноль мест при 37 живых турах. Вторая — главное место тура
+  // (main_place_id, 1286). EXISTS, а не JOIN: место не множится по турам.
+  return `(${alias}.is_visible = TRUE AND ${alias}.merged_into_id IS NULL AND (EXISTS (
     SELECT 1 FROM route_waypoints rw_zh
       JOIN kamchatka_routes kr_zh ON kr_zh.id = rw_zh.route_id AND kr_zh.merged_into_id IS NULL
       JOIN operator_tours ot_zh ON ot_zh.route_id = kr_zh.id
@@ -67,7 +78,12 @@ export function zhPlaceRuleSql(alias = 'p'): string {
      WHERE rw_zh.place_id = ${alias}.id
        AND COALESCE(to_jsonb(rw_zh)->>'link_kind', 'unknown') <> 'nearby'
        AND ${publicTourSql('ot_zh')}
-  ))`;
+  ) OR EXISTS (
+    SELECT 1 FROM operator_tours ot_zm
+      JOIN partners pa_zm ON pa_zm.id = ot_zm.operator_id
+     WHERE ot_zm.main_place_id = ${alias}.id
+       AND ${publicTourSql('ot_zm')}
+  )))`;
 }
 
 // ── Переводы ────────────────────────────────────────────────────────────

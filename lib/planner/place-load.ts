@@ -3,9 +3,17 @@
  *
  * Спрос считается по `operator_bookings`: бронь тура раскладывается по
  * дням (booking_date … end_date, как в v_tour_daily_occupancy) и по местам
- * маршрута тура (operator_tours.route_id → route_waypoints → places). Связи
+ * тура: местам его маршрута (operator_tours.route_id → route_waypoints →
+ * places) и его главному месту (operator_tours.main_place_id, 1286). Связи
  * рода `nearby` не считаются: «рядом, загляните» — не место, куда группа
  * идёт (§4.1, миграция 874).
+ *
+ * Главное место — та же связь, что у «Туры сюда» на карточке места (аудит
+ * 15.10, TOUR-PLACE): у туров, заведённых миграциями, route_id пуст, и по
+ * одному маршруту их брони не доходили ни до одного места — норма посещения
+ * не видела спроса там, куда группа едет. Пара «тур — место» берётся один
+ * раз (UNION): тур, у которого место и на маршруте, и главное, не
+ * удваивает людей.
  *
  * Учитываются брони, кроме отменённых и неявок, — включая неоплаченные:
  * человек, ждущий оплаты, в этот день туда собирается. Многодневный тур
@@ -26,14 +34,29 @@ import type { PlaceLoad } from '@/lib/planner/flow-balance';
 /** Брони, которые в место не едут. */
 export const NOT_TRAVELLING_STATUSES: string[] = [...CANCELLED_BOOKING_STATUSES, 'no_show'];
 
-/** Спрос по местам на окно дат: самые загруженные сутки каждого места. */
-const DEMAND_CTE = `
-  , demand AS (
-    SELECT rw.place_id, d.day::date AS date, SUM(b.participants)::int AS people
-      FROM operator_bookings b
-      JOIN operator_tours t ON t.id = b.operator_tour_id
+/**
+ * Места тура — пары «тур — место» по двум связям, каждая пара один раз.
+ * Только места кандидатов: спрос нужен им, а не всему справочнику.
+ */
+const TOUR_PLACE_CTE = `
+  , tour_place AS (
+    SELECT t.id AS tour_id, rw.place_id
+      FROM operator_tours t
       JOIN route_waypoints rw
         ON rw.route_id = t.route_id AND COALESCE(rw.link_kind, 'unknown') <> 'nearby'
+     WHERE rw.place_id IN (SELECT place_id FROM cand)
+    UNION
+    SELECT t.id, t.main_place_id
+      FROM operator_tours t
+     WHERE t.main_place_id IN (SELECT place_id FROM cand)
+  )`;
+
+/** Спрос по местам на окно дат: самые загруженные сутки каждого места. */
+const DEMAND_CTE = `${TOUR_PLACE_CTE}
+  , demand AS (
+    SELECT tp.place_id, d.day::date AS date, SUM(b.participants)::int AS people
+      FROM operator_bookings b
+      JOIN tour_place tp ON tp.tour_id = b.operator_tour_id
       CROSS JOIN LATERAL generate_series(
         b.booking_date::timestamp,
         COALESCE(b.end_date, b.booking_date)::timestamp,
@@ -42,8 +65,7 @@ const DEMAND_CTE = `
      WHERE b.deleted_at IS NULL
        AND NOT (b.booking_status = ANY($4::text[]))
        AND d.day::date BETWEEN $2::date AND $3::date
-       AND rw.place_id IN (SELECT place_id FROM cand)
-     GROUP BY rw.place_id, d.day::date
+     GROUP BY tp.place_id, d.day::date
   )`;
 
 const SELECT_LOADS = `
@@ -73,7 +95,10 @@ const CANDIDATE_LOADS_SQL = `
   )${DEMAND_CTE}
   ${SELECT_LOADS}`;
 
-/** Туры — места их маршрута. Тур без маршрута мест не имеет, и судить нечего. */
+/**
+ * Туры — места их маршрута и главное место (1286). Тур без маршрута и без
+ * главного места мест не имеет, и судить нечего.
+ */
 const TOUR_LOADS_SQL = `
   WITH cand AS (
     SELECT c.cid, p.id AS place_id, p.name, p.visitor_limit_per_day, p.visitor_limit_source
@@ -82,6 +107,11 @@ const TOUR_LOADS_SQL = `
       JOIN route_waypoints rw
         ON rw.route_id = t.route_id AND COALESCE(rw.link_kind, 'unknown') <> 'nearby'
       JOIN places p ON p.id = rw.place_id
+    UNION
+    SELECT c.cid, p.id, p.name, p.visitor_limit_per_day, p.visitor_limit_source
+      FROM unnest($1::text[]) AS c(cid)
+      JOIN operator_tours t ON t.id::text = c.cid
+      JOIN places p ON p.id = t.main_place_id
   )${DEMAND_CTE}
   ${SELECT_LOADS}`;
 

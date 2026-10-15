@@ -14,6 +14,11 @@
  * Рендер — блок; связка — вызов загрузчика с подставной базой. Сам отбор
  * проверен на PostgreSQL: тур по размеченному пути — «waypoint», по
  * неразмеченному — «unknown», по «рядом» и удалённый — не выбраны.
+ *
+ * Вторая связь (аудит 15.10, TOUR-PLACE, миграция 1286): место названо
+ * главным местом тура (main_place_id). Такой тур — тоже «к этому месту»: у
+ * туров, заведённых миграциями, маршрута нет, и без этой связи блок на проде
+ * был пуст везде. Отбор на PostgreSQL — public-tour-gate.pg.test.ts.
  */
 import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -39,6 +44,16 @@ describe('блок туров на карточке места', () => {
     expect(unmarked.textContent).toContain('Проходит ли маршрут тура через само место, у нас не размечено');
   });
 
+  it('главное место тура — «к этому месту», рядом с туром по пути', () => {
+    render(<PlaceTours tours={[tour('Тур с главным местом', 'main_place'), tour('Тур по пути', 'waypoint'), tour('Тур по связи', 'unknown')]} />);
+    const through = screen.getByText('Туры к этому месту').closest('section')!;
+    expect(through.textContent).toContain('Тур с главным местом');
+    expect(through.textContent).toContain('Тур по пути');
+    expect(through.textContent).not.toContain('Тур по связи');
+    const unmarked = screen.getByText('Ещё туры по маршрутам, связанным с местом').closest('section')!;
+    expect(unmarked.textContent).not.toContain('Тур с главным местом');
+  });
+
   it('только неразмеченные — заголовка «к этому месту» нет вовсе', () => {
     render(<PlaceTours tours={[tour('Тур по связи', 'unknown')]} />);
     expect(screen.queryByText('Туры к этому месту')).toBeNull();
@@ -54,6 +69,7 @@ describe('загрузчик карточки', () => {
   const toursRows = [
     { id: 't1', slug: null, title: 'Тур по пути', base_price: '10000', duration_days: 1, operator_name: 'О', operator_slug: null, operator_public: true, link_kind: 'waypoint' },
     { id: 't2', slug: null, title: 'Тур по связи', base_price: '12000', duration_days: null, operator_name: 'О', operator_slug: null, operator_public: true, link_kind: 'unknown' },
+    { id: 't3', slug: null, title: 'Тур с главным местом', base_price: '9000', duration_days: 1, operator_name: 'О', operator_slug: null, operator_public: true, link_kind: 'main_place' },
   ];
   const load = async () => {
     const sent: string[] = [];
@@ -73,7 +89,9 @@ describe('загрузчик карточки', () => {
 
   it('род связи доходит до экрана', async () => {
     const { tours } = await load();
-    expect(tours.map((t) => [t.title, t.linkKind])).toEqual([['Тур по пути', 'waypoint'], ['Тур по связи', 'unknown']]);
+    expect(tours.map((t) => [t.title, t.linkKind])).toEqual([
+      ['Тур по пути', 'waypoint'], ['Тур по связи', 'unknown'], ['Тур с главным местом', 'main_place'],
+    ]);
   });
 
   it('отбор туров идёт через шлюз витрины — удалённый тур не выбирается', async () => {

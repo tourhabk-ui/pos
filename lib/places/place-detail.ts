@@ -279,29 +279,44 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     // Отбор — общий с Кузьмичом (lib/places/place-routes): одна копия фильтра.
     const routesResult = await query(PLACE_ROUTES_SQL, [r.place_pk]);
 
-    // Tours to this place (via route_waypoints → kamchatka_routes → operator_tours)
+    // Туры сюда — по ЛЮБОЙ из двух явных связей (аудит 15.10, TOUR-PLACE):
+    //   - маршрут тура проходит через место (route_waypoints → kamchatka_routes
+    //     → operator_tours.route_id), род связи не «рядом»;
+    //   - место названо главным местом тура (operator_tours.main_place_id,
+    //     миграция 1286: точное совпадение координат или выбор оператора).
+    // У туров, заведённых миграциями, route_id пуст, и первая цепочка одна
+    // давала на проде ноль туров на всех карточках мест.
     const toursResult = await query(
       `SELECT DISTINCT ON (ot.id)
          ot.id, ot.slug, ot.title, ot.base_price, ot.multi_day_count AS duration_days,
          p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-         COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') AS link_kind
-       FROM route_waypoints rw
-       JOIN kamchatka_routes kr ON kr.id = rw.route_id
-       JOIN operator_tours ot ON ot.route_id = kr.id
+         link.link_kind
+       FROM (
+         SELECT ot_r.id AS tour_id, COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') AS link_kind
+           FROM route_waypoints rw
+           JOIN kamchatka_routes kr ON kr.id = rw.route_id
+           JOIN operator_tours ot_r ON ot_r.route_id = kr.id
+          WHERE rw.place_id = $1
+            AND kr.merged_into_id IS NULL
+            -- «Туры сюда» — только по маршрутам, которые сюда ИДУТ (03.10):
+            -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
+            -- месту в 15 км от центра своего маршрута.
+            AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+         UNION ALL
+         SELECT ot_m.id, 'main_place'
+           FROM operator_tours ot_m
+          WHERE ot_m.main_place_id = $1
+       ) link
+       JOIN operator_tours ot ON ot.id = link.tour_id
        JOIN partners p ON p.id = ot.operator_id
-       WHERE rw.place_id = $1
-         AND kr.merged_into_id IS NULL
-         -- «Туры сюда» — только по маршрутам, которые сюда ИДУТ (03.10):
-         -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
-         -- месту в 15 км от центра своего маршрута.
-         AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-         -- Шлюз витрины, а не копия флагов (15.10): копия не смотрела
-         -- deleted_at, и удалённый тур оставался в списке.
-         AND ${publicTourSql('ot')}
+       -- Шлюз витрины, а не копия флагов (15.10): копия не смотрела
+       -- deleted_at, и удалённый тур оставался в списке.
+       WHERE ${publicTourSql('ot')}
        -- Род связи — до экрана (15.10, §0): «к этому месту» вправе сказать
-       -- только размеченная точка пути; если тур связан с местом двумя
-       -- строками, побеждает она.
-       ORDER BY ot.id, (COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') = 'waypoint') DESC
+       -- главное место тура или размеченная точка пути; если тур связан с
+       -- местом несколькими строками, побеждает самая сильная.
+       ORDER BY ot.id,
+         CASE link.link_kind WHEN 'main_place' THEN 0 WHEN 'waypoint' THEN 1 ELSE 2 END
        LIMIT 5`,
       [r.place_pk]
     );
@@ -547,7 +562,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           operatorName: t.operator_name as string,
           operatorSlug: t.operator_slug as string | null,
           operatorPublic: (t.operator_public as boolean | null) ?? null,
-          linkKind: t.link_kind === 'waypoint' ? 'waypoint' : 'unknown',
+          linkKind: t.link_kind === 'waypoint' || t.link_kind === 'main_place' ? t.link_kind : 'unknown',
         })),
 
         reviewsSummary: {
