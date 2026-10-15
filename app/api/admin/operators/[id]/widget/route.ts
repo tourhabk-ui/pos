@@ -21,6 +21,9 @@ const PatchSchema = z.object({
     accentColor: z.string().max(20).optional(),
     buttonText:  z.string().max(50).optional(),
     position:    z.enum(['left', 'right']).optional(),
+    // Вступление формы заявки — отдельно от приветствия чата (аудит 15.10,
+    // WID-config): читает /api/widget/partner → /widget/lead-form.
+    formIntro:   z.string().max(300).optional(),
   }).optional(),
 });
 
@@ -87,8 +90,17 @@ export async function PATCH(
     sets.push(`widget_domains = $${vals.length}`);
   }
   if (widget_config !== undefined) {
+    // Слияние, а не замена: присланные ключи ложатся поверх записанных,
+    // остальные живут дальше. До 15.10 конфиг заменялся целиком, и смена
+    // одного цвета стирала приветствие, подпись кнопки и отступ, которые
+    // ставили миграции 1104/1105/1260 (находка аудита 15.10 WID-config).
+    // Не-объект в колонке (NULL, массив) — как пустой конфиг: `||` с массивом
+    // дописал бы элемент, а не ключ.
     vals.push(JSON.stringify(widget_config));
-    sets.push(`widget_config = $${vals.length}::jsonb`);
+    sets.push(
+      `widget_config = (CASE WHEN jsonb_typeof(widget_config) = 'object' THEN widget_config ELSE '{}'::jsonb END)`
+      + ` || $${vals.length}::jsonb`,
+    );
   }
 
   if (sets.length === 1) {
@@ -96,10 +108,23 @@ export async function PATCH(
   }
 
   vals.push(id);
-  await pool.query(
-    `UPDATE partners SET ${sets.join(', ')} WHERE id = $${vals.length}`,
-    vals
-  );
+  // Ответ называет исход: тумблер в админке верит ему, а не своему клику.
+  // Ноль строк — оператора нет, отказ базы — «не сохранено», а не «успех».
+  let updated: number;
+  try {
+    const res = await pool.query(
+      `UPDATE partners SET ${sets.join(', ')} WHERE id = $${vals.length}`,
+      vals
+    );
+    updated = res.rowCount ?? 0;
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[admin/widget] настройки виджета не сохранены:', `operator=${id}`, `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    return NextResponse.json({ error: 'Настройки виджета не сохранены — ошибка базы' }, { status: 500 });
+  }
+  if (updated === 0) {
+    return NextResponse.json({ error: 'Оператор не найден' }, { status: 404 });
+  }
 
   return NextResponse.json({ success: true });
 }

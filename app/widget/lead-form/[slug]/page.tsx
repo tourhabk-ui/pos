@@ -3,10 +3,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { LEAD_FORM_INTRO_DEFAULT } from '@/lib/embed/widget-style';
 
 interface PartnerConfig {
   name: string;
-  greeting: string;
+  /** Вступление ФОРМЫ (`widget_config.formIntro` или нейтральное), не приветствие чата. */
+  formIntro?: string;
   accentColor: string;
   logo: string | null;
 }
@@ -194,8 +196,11 @@ export default function LeadFormPage() {
 
       {/* Form */}
       <form onSubmit={handleSubmit} style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Вступление формы, а не приветствие чата: до 15.10 здесь стояло
+            config.greeting, и над полями имени и телефона у «Местечка» было
+            «Я Кузьмич… спрашивайте» (находка аудита 15.10 WID-config). */}
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-          {config?.greeting ?? 'Оставьте заявку — менеджер свяжется с вами сегодня.'}
+          {config?.formIntro || LEAD_FORM_INTRO_DEFAULT}
         </p>
 
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>

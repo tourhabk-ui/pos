@@ -43,7 +43,14 @@ export function normalizeLeadChannel(s: ChannelSignals): LeadChannel {
   if (src === 'mcp' || url.startsWith('mcp://')) return 'mcp';
   if (src === 'max_bot' || url.includes('max.ru')) return 'max';
   if (s.telegram_chat_id || url.includes('t.me/')) return 'telegram';
-  if (data.type === 'widget') return 'widget';
+  // Виджет партнёра — двумя дверями: чат (`/api/widget/chat`, type 'widget')
+  // и форма заявки (`/widget/lead-form`, source 'partner_widget', без
+  // source_url). До 15.10 вторую не узнавали, и настоящие заявки с сайта
+  // партнёра уходили в 'other' — отчёт партнёру и перепись воронки не видели
+  // ценности виджета (находка аудита 15.10 WID-config, W2). Признак — только
+  // source: согласие 'widget' пишет и форма на странице оператора на Ведаре
+  // (source 'operator_page', тот же partner_slug), а она не виджет.
+  if (data.type === 'widget' || src === 'partner_widget') return 'widget';
   if (src === 'booking_intake_bot' || url.includes('/api/ai/booking-intake')) return 'site_chat';
 
   // Форма сайта: source_url — адрес страницы, откуда отправлена заявка.
