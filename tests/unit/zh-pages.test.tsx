@@ -290,7 +290,11 @@ describe('/zh/tours/[slug]: индексируется и получает па�
       ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
       'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
     });
-    expect(String(meta.title)).toContain(ZH_TITLE);
+    // absolute: бренд Vedar в строке, русского « | Ведар» шаблона layout нет (prod-check 137).
+    const title = (meta.title as { absolute: string }).absolute;
+    expect(title).toContain(ZH_TITLE);
+    expect(title).toMatch(/｜Vedar$/);
+    expect(title).not.toContain('Ведар');
 
     const page = await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) });
     const { container } = render(page);
