@@ -16,7 +16,16 @@
  *             тратятся;
  *   limit   — полей за прогон, 1–10 (по умолчанию 10): партия ограничена,
  *             чтобы один вызов не жёг бюджет вслепую и укладывался во время;
- *   kind    — tour | place | all (по умолчанию all).
+ *   kind    — tour | place | all (по умолчанию all);
+ *   seed    — порядок очереди (по умолчанию — сегодняшняя дата по Камчатке);
+ *   skip    — сколько полей очереди пропустить (по умолчанию 0).
+ *
+ * Очередь упорядочена хэшем seed и ключа поля, а не id. При порядке по id
+ * поле, которое не переводится никогда (модель стабильно дописывает число),
+ * стояло бы первым в каждой партии и держало бы за собой всю очередь. Теперь
+ * порядок меняется раз в сутки, а внутри одного прогона workflow передаёт
+ * один seed и копит skip на число непереведённых — следующая партия берёт
+ * поля за ними, а не те же самые.
  *
  * Исходы (§4.0), все в ответе:
  *   translated     — переведено и записано;
@@ -30,14 +39,15 @@
  * SQLSTATE.
  */
 
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import {
-  ZH_LANG, ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, encodeStored, normalizeSource, sourceHash,
-  type ZhEntityType, type ZhFieldKind, type ZhFieldValue,
+  ZH_LANG, ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, encodeStored, readField, sourceHash,
+  type ZhEntityType, type ZhFieldKind, type ZhFieldValue, type ZhStoredTranslation,
 } from '@/lib/zh/fields';
 import { translateFieldValue } from '@/lib/zh/translate';
 import {
@@ -53,7 +63,18 @@ const QuerySchema = z.object({
   apply: z.enum(['0', '1', 'true', 'false']).default('0').transform((v) => v === '1' || v === 'true'),
   limit: z.coerce.number().int().min(1).max(ZH_TRANSLATE_LIMIT_MAX).default(ZH_TRANSLATE_LIMIT_MAX),
   kind: z.enum(['tour', 'place', 'all']).default('all'),
+  seed: z.string().regex(/^[0-9A-Za-z-]{1,32}$/, 'seed — до 32 латинских букв, цифр и дефисов').optional(),
+  skip: z.coerce.number().int().min(0).max(10000).default(0),
 });
+
+/** Сегодняшняя дата по Камчатке — порядок очереди по умолчанию меняется раз в сутки. */
+export function zhQueueDefaultSeed(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+function queueRank(seed: string, item: Pick<ZhWorkItem, 'entity_type' | 'entity_id' | 'field'>): string {
+  return createHash('sha256').update(`${seed}:${item.entity_type}:${item.entity_id}:${item.field}`).digest('hex');
+}
 
 /** Поле, которое ждёт перевода. */
 export interface ZhWorkItem {
@@ -61,7 +82,7 @@ export interface ZhWorkItem {
   entity_id: string;
   field: string;
   kind: ZhFieldKind;
-  /** missing — перевода нет; stale — исходник менялся после перевода. */
+  /** missing — перевода нет; stale — исходник менялся после перевода или строка перевода не читается. */
   state: 'missing' | 'stale';
   source: ZhFieldValue;
   hash: string;
@@ -75,16 +96,18 @@ function planEntity(
   id: string,
   fields: Record<string, ZhFieldKind>,
   row: Record<string, unknown>,
-  stored: Map<string, { source_hash: string }> | undefined,
+  stored: ReadonlyMap<string, ZhStoredTranslation> | undefined,
 ): void {
   for (const [field, kind] of Object.entries(fields)) {
-    const source = normalizeSource(kind, row[field]);
-    if (source === null) continue;
+    // Свежесть судит тот же readField, что и страница: перевод с верным
+    // хэшем, но испорченной формы страница не покажет — значит, и крон не
+    // вправе считать его свежим, иначе поле осталось бы русским навсегда.
+    const view = readField(kind, row[field], stored ?? new Map(), field);
+    if (view.state === 'none') continue;
     census.fields_total++;
-    const hash = sourceHash(kind, source);
-    const prev = stored?.get(field);
-    if (prev && prev.source_hash === hash) { census.fresh++; continue; }
-    census.work.push({ entity_type: entityType, entity_id: id, field, kind, state: prev ? 'stale' : 'missing', source, hash });
+    if (view.state === 'fresh') { census.fresh++; continue; }
+    const hash = sourceHash(kind, view.source);
+    census.work.push({ entity_type: entityType, entity_id: id, field, kind, state: stored?.has(field) ? 'stale' : 'missing', source: view.source, hash });
   }
 }
 
@@ -116,11 +139,14 @@ export async function GET(request: NextRequest) {
     apply: sp.get('apply') ?? undefined,
     limit: sp.get('limit') ?? undefined,
     kind: sp.get('kind') ?? undefined,
+    seed: sp.get('seed') ?? undefined,
+    skip: sp.get('skip') ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: `параметры: ${parsed.error.issues[0]?.message ?? 'неверны'}` }, { status: 400 });
   }
-  const { apply, limit, kind } = parsed.data;
+  const { apply, limit, kind, skip } = parsed.data;
+  const seed = parsed.data.seed ?? zhQueueDefaultSeed();
 
   const census: Census = { fields_total: 0, fresh: 0, work: [] };
   let entities = { tours: 0, places: 0 };
@@ -151,6 +177,12 @@ export async function GET(request: NextRequest) {
     }, { status: 500 });
   }
 
+  const ranked = census.work
+    .map((item) => ({ item, rank: queueRank(seed, item) }))
+    .sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0))
+    .map(({ item }) => item);
+  census.work = ranked;
+
   const pendingList = census.work.map(({ entity_type, entity_id, field, state }) => ({ entity_type, entity_id, field, state }));
   const base = {
     probe: 'zh_translate_v1',
@@ -162,13 +194,15 @@ export async function GET(request: NextRequest) {
     skipped_fresh: census.fresh,
     pending: census.work.length,
     pending_stale: census.work.filter((w) => w.state === 'stale').length,
+    order_seed: seed,
+    skip,
   };
 
   if (!apply) {
     return NextResponse.json({ ok: true, ...base, pending_sample: pendingList.slice(0, 30) });
   }
 
-  const batch = census.work.slice(0, limit);
+  const batch = census.work.slice(skip, skip + limit);
   const translated: Array<{ entity_type: ZhEntityType; entity_id: string; field: string }> = [];
   const notTranslated: Array<{ entity_type: ZhEntityType; entity_id: string; field: string; reason: string }> = [];
 

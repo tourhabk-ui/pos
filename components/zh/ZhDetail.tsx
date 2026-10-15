@@ -30,6 +30,7 @@ import { hazardLabel } from '@/lib/safety/hazard-labels';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
+import { ruPlacePath } from '@/lib/zh/pages';
 import { priceZh, durationZh, seasonZh, groupZh } from '@/lib/zh/entry';
 import {
   ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, readField,
@@ -231,7 +232,7 @@ export function ZhPlaceSummary({ place, zhName, translations, rule }: {
   rule: string;
 }) {
   const description = readField(ZH_PLACE_FIELDS.description, place.description, translations, 'description');
-  const original = `/places/${(place.slug ?? '').trim() || place.id}`;
+  const original = ruPlacePath(place);
   const hazards = mayStateAsFact(asProfileSource(place.profile_source))
     ? (place.hazard_types ?? []).map((h) => String(h).trim()).filter(Boolean)
     : [];

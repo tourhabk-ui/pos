@@ -33,8 +33,8 @@ const TOURS = [
   tour('54', 'polovina', 'Половина', 'Описание без перевода.'),
 ];
 const PLACES = [
-  { id: 'p-1', slug: 'kronotskij-zapovednik', name: 'Кроноцкий заповедник', description: 'Заповедник.', lat: '54.8', lng: '160.6', altitude_m: null, hazard_types: null, profile_source: null },
-  { id: 'p-2', slug: 'bez-opisaniya', name: 'Без описания', description: null, lat: '53', lng: '158', altitude_m: null, hazard_types: null, profile_source: null },
+  { id: 'p-1', slug: 'kronotskij-zapovednik', ark_id: null, name: 'Кроноцкий заповедник', description: 'Заповедник.', lat: '54.8', lng: '160.6', altitude_m: null, hazard_types: null, profile_source: null },
+  { id: 'p-2', slug: 'bez-opisaniya', ark_id: null, name: 'Без описания', description: null, lat: '53', lng: '158', altitude_m: null, hazard_types: null, profile_source: null },
 ];
 
 const row = (entity_id: string, field: string, raw: string, at: string) => ({

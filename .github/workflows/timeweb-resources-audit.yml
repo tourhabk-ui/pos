@@ -504,7 +504,17 @@ jobs:
                   a.write(f'::warning title=timeweb-db-backups::{esc(line)}\n')
               for f in notes:
                   a.write(f'::warning title=timeweb-resources-audit::{esc(f[:-6] + ": " + open(os.path.join(TW, f)).read().strip())}\n')
-              a.write(f"::notice title=timeweb-db-backups::{esc(chr(10).join(BACKUP_LINES).strip()[:3500])}\n")
+              # Раздел копий тоже бывает длиннее 3500 знаков (двадцать копий в
+              # списке v1): обрезка называет себя и не съедает итоги по базам —
+              # ради них раздел и вынесен своей аннотацией.
+              body = chr(10).join(BACKUP_LINES).strip()
+              if len(body) > 3500:
+                  verdicts = chr(10).join(l for l in BACKUP_LINES if l.startswith('ИТОГ базы'))
+                  note = (f'{chr(10)}… обрезано: раздел {len(body)} знаков, полный — сводка задачи (Summary)'
+                          f' и лог шага. Итоги по базам:{chr(10)}')
+                  head = body[:max(0, 3500 - len(note) - len(verdicts))]
+                  body = (head + note + verdicts)[:3500]
+              a.write(f"::notice title=timeweb-db-backups::{esc(body)}\n")
           with open(f'{TW}/backups.verdict', 'w') as v:
               v.write('unverified' if BACKUP_FAIL else 'checked')
           PY

@@ -200,7 +200,12 @@ export function readField(
   if (!row) return { state: 'missing', source };
   if (row.source_hash !== sourceHash(kind, source)) return { state: 'stale', source };
   const zh = decodeStored(kind, row.text, source);
-  if (zh === null) return { state: 'missing', source };
+  if (zh === null) {
+    // Хэш свежий, а форма не сходится с исходником: строка в базе испорчена.
+    // Это дефект записи, а не «перевода нет» — вслух, без текста поля.
+    console.error('[zh] перевод в базе не читается (форма не сходится с исходником), поле:', field);
+    return { state: 'missing', source };
+  }
   return { state: 'fresh', source, zh, translatedAt: asDate(row.translated_at), reviewed: row.reviewed_at != null };
 }
 

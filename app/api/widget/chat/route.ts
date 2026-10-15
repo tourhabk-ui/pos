@@ -99,14 +99,16 @@ function widgetChatSchema(t: WidgetTexts) {
       path: z.string().max(1000).nullish(),
     }).optional(),
     // Язык окна (браузера посетителя). Необязателен: прежнее окно его не шлёт.
-    lang: z.enum(WIDGET_LANGS).optional(),
+    // Незнакомый язык — русский, а не 400: отказ из-за подписи языка оставил
+    // бы сообщение о беде без блока 112 (ревью WID-lang).
+    lang: z.enum(WIDGET_LANGS).optional().catch(undefined),
   });
 }
 
 /**
  * Язык ответа об ошибке ещё до разбора схемы: ошибка в самом сообщении не
  * должна лишать посетителя его языка. Неизвестный или чужой `lang` — русский
- * (и схема ниже отвергнет его как некорректные данные).
+ * (схема ниже тоже читает его как русский, а не отвергает запрос).
  */
 function requestLang(body: unknown): WidgetLang {
   const raw = body && typeof body === 'object' ? (body as { lang?: unknown }).lang : undefined;

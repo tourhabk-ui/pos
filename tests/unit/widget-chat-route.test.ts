@@ -369,6 +369,16 @@ describe('язык окна: серверные тексты на языке п�
     expect(body.data.answer).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
   });
 
+  it('незнакомый lang — не 400: ответ идёт, блок 112 по-русски (сообщение о беде не теряется)', async () => {
+    waterfall.mockResolvedValue('Оставайтесь на месте.');
+    for (const lang of ['de', 'zh-TW', 42]) {
+      const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: 'SOS, we are lost', lang });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { data: { answer: string } };
+      expect(body.data.answer).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+    }
+  });
+
   it('lang:zh, ЧП и отказ всех моделей — блок 112 и «не смог» по-китайски', async () => {
     waterfall.mockResolvedValue(null);
     const res = await call({ partnerId: 'mestechko', sessionId: 'l1', message: SOS_ZH, lang: 'zh' });
@@ -405,10 +415,7 @@ describe('язык окна: серверные тексты на языке п�
     const wrongTypeRu = await call({ partnerId: 'mestechko', sessionId: 'l3', message: 42 });
     expect((await wrongTypeRu.json() as { error: string }).error).toBe('Некорректные данные');
 
-    // Чужой язык — отказ по-русски: окно шлёт только ru, en, zh.
-    const alien = await call({ partnerId: 'mestechko', sessionId: 'l3', message: 'Hallo', lang: 'de' });
-    expect(alien.status).toBe(400);
-    expect((await alien.json() as { error: string }).error).toBe('Некорректные данные');
+    // Чужой язык отказом больше не бывает — см. «незнакомый lang — не 400».
 
     expect(waterfall).not.toHaveBeenCalled();
   });

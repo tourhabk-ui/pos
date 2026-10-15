@@ -38,3 +38,24 @@ export function zhPlacePath(p: { id: string; slug?: string | null }): string {
   const slug = (p.slug ?? '').trim();
   return `/zh/places/${slug || p.id}`;
 }
+
+/**
+ * Канонический адрес русской карточки места — тот же, что она сама ставит в
+ * canonical (app/places/[id]/page.tsx): ЧПУ, иначе ark_id. hreflang обязан
+ * вести на канонический адрес: ссылка на places.id — второй адрес той же
+ * карточки, и пара языков у поисковика не сходится.
+ */
+export function ruPlacePath(p: { id: string; slug?: string | null; ark_id?: string | null }): string {
+  const slug = (p.slug ?? '').trim();
+  return `/places/${slug || (p.ark_id ?? '').trim() || p.id}`;
+}
+
+/** Адрес из URL: битая %-последовательность — «такой страницы нет», а не 500. */
+export function decodePathParam(raw: string | null | undefined): string | null {
+  try {
+    return decodeURIComponent(raw ?? '');
+  } catch {
+    // URIError: адрес не раскодировать — страницы по нему нет (вызывающий отдаёт 404).
+    return null;
+  }
+}

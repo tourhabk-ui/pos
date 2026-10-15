@@ -195,6 +195,7 @@ describe('конспект тура: перевод помечен, оригин
 const PLACE: ZhPlaceSourceRow = {
   id: '4f1217e7-31a4-4d21-bc98-3d46aaba122e',
   slug: 'kronotskij-zapovednik',
+  ark_id: 'b0e1c2d3-0000-4000-8000-00000000a1c0',
   name: 'Кроноцкий заповедник',
   description: 'Заповедник на востоке полуострова.',
   lat: '54.8',
@@ -250,7 +251,7 @@ describe('конспект места: имя только из источник
 
 // ── Страницы и метаданные: вызов с базой под подменой ─────────────────────
 
-const PLACE_ROW = { ...PLACE };
+let PLACE_ROW: ZhPlaceSourceRow = { ...PLACE };
 let tourRows: ZhTourSourceRow[] = [];
 let translationRows: Array<ZhStoredTranslation & { entity_id: string }> = [];
 
@@ -269,6 +270,7 @@ beforeEach(() => {
   loadTourCard.mockReset();
   tourRows = [TOUR];
   translationRows = [];
+  PLACE_ROW = { ...PLACE };
   poolQuery.mockImplementation(async (sql: string) => routeSql(String(sql)));
   dbQuery.mockImplementation(async () => ({ rows: [] }));
 });
@@ -366,6 +368,30 @@ describe('/zh/places/[slug]: та же пара по тому же правил�
       ru: 'https://vedarai.ru/places/kronotskij-zapovednik',
       'zh-CN': 'https://vedarai.ru/zh/places/kronotskij-zapovednik',
     });
+  });
+});
+
+describe('/zh/places/[slug]: адрес русской карточки и битый адрес (ревью волны 6)', () => {
+  it('у места без ЧПУ hreflang и ссылка «оригинал» ведут на канонический /places/<ark_id>, а не на второй адрес', async () => {
+    PLACE_ROW = { ...PLACE, slug: null };
+    translationRows = withEntity(PLACE.id, translated(tr('description', 'text', PLACE.description, '半岛东部的自然保护区。')));
+    const mod = await import('@/app/zh/places/[slug]/page');
+    const meta = await mod.generateMetadata({ params: Promise.resolve({ slug: PLACE.id }) });
+    expect(meta.alternates?.languages).toEqual({
+      ru: `https://vedarai.ru/places/${PLACE.ark_id}`,
+      'zh-CN': `https://vedarai.ru/zh/places/${PLACE.id}`,
+    });
+    const { container } = render(await mod.default({ params: Promise.resolve({ slug: PLACE.id }) }));
+    const note = container.querySelector('[data-zh-mt-note]') as HTMLElement;
+    expect(within(note).getByRole('link', { name: ZH_DETAIL.originalPlace }).getAttribute('href')).toBe(`/places/${PLACE.ark_id}`);
+  });
+
+  it('битая %-последовательность в адресе — 404 и noindex, а не 500; база не спрошена', async () => {
+    const mod = await import('@/app/zh/places/[slug]/page');
+    const meta = await mod.generateMetadata({ params: Promise.resolve({ slug: '%E0%A4%A' }) });
+    expect(meta.robots).toMatchObject({ index: false });
+    await expect(mod.default({ params: Promise.resolve({ slug: '%E0%A4%A' }) })).rejects.toThrow(/NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/);
+    expect(poolQuery.mock.calls.some((c) => String(c[0]).includes('FROM places p'))).toBe(false);
   });
 });
 

@@ -21,7 +21,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { ZhPlaceSummary } from '@/components/zh/ZhDetail';
 import { ZH_PLACES_RULE, loadZhPlacePage, logZhFailure, zhPlaceIndexable } from '@/lib/zh/content';
-import { zhPlacePath } from '@/lib/zh/pages';
+import { decodePathParam, ruPlacePath, zhPlacePath } from '@/lib/zh/pages';
 import { readField, ZH_PLACE_FIELDS } from '@/lib/zh/fields';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
@@ -55,7 +55,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const zhDesc = text ? (text.length > 140 ? `${text.slice(0, 139)}…` : text) : '堪察加地点的中文翻译摘要。安全信息以俄文原页为准。';
   const self = `${SITE}${zhPlacePath(place)}`;
   const indexable = zhPlaceIndexable(place, translations);
-  const ruCard = `${SITE}/places/${(place.slug ?? '').trim() || place.id}`;
+  const ruCard = `${SITE}${ruPlacePath(place)}`;
   return {
     title: `${name}｜堪察加地点（中文摘要）｜Vedar`,
     description: zhDesc,
@@ -82,7 +82,7 @@ export default async function ZhPlacePage({ params }: Props) {
   const data = await load(slug);
   if (!data) notFound();
   // Пришли по id, а у места есть ЧПУ — 308 на него: один адрес на конспект.
-  if (data.place.slug && decodeURIComponent(slug) !== data.place.slug) permanentRedirect(zhPlacePath(data.place));
+  if (data.place.slug && decodePathParam(slug) !== data.place.slug) permanentRedirect(zhPlacePath(data.place));
   return (
     <>
       <Header />

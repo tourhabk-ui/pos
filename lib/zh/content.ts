@@ -29,7 +29,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { parseTourParam } from '@/lib/tours/tour-url';
 import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { logText } from '@/lib/log/log-text';
-import { zhPlacePath, zhTourPath } from '@/lib/zh/pages';
+import { decodePathParam, zhPlacePath, zhTourPath } from '@/lib/zh/pages';
 import {
   ZH_LANG, ZH_PLACE_FIELDS, ZH_TOUR_FIELDS, readField,
   type ZhEntityType, type ZhStoredTranslation,
@@ -189,6 +189,8 @@ export async function zhTourAlternatePath(t: { id: string | number; slug: string
 export interface ZhPlaceSourceRow {
   id: string;
   slug: string | null;
+  /** Канонический адрес русской карточки без ЧПУ (ruPlacePath). */
+  ark_id: string | null;
   name: string;
   description: string | null;
   lat: string | null;
@@ -199,7 +201,7 @@ export interface ZhPlaceSourceRow {
 }
 
 const PLACE_SELECT = `
-  SELECT p.id, p.slug, p.name, p.description, p.lat::text AS lat, p.lng::text AS lng,
+  SELECT p.id, p.slug, p.ark_id::text AS ark_id, p.name, p.description, p.lat::text AS lat, p.lng::text AS lng,
          sp.altitude_m, sp.hazard_types, sp.profile_source
     FROM places p
     LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
@@ -260,7 +262,7 @@ export interface ZhPlacePageData {
 
 /** Место для китайской страницы по ЧПУ или id; null — не по правилу или нет такого. Бросает при отказе базы. */
 export async function loadZhPlacePage(raw: string): Promise<ZhPlacePageData | null> {
-  const key = decodeURIComponent(raw ?? '').trim();
+  const key = (decodePathParam(raw) ?? '').trim();
   if (!key || key.length > 255) return null;
   const { rows } = await pool.query<ZhPlaceSourceRow>(
     `${PLACE_SELECT} AND (p.slug = $1 OR p.id = $1) ORDER BY (p.slug = $1) DESC LIMIT 1`,

@@ -15,6 +15,10 @@ name: Китайские конспекты — машинный перевод 
 # ждёт СВОЮ сборку (scripts/wait-for-deploy.sh): иначе старый билд ответил бы
 # 404 или перевёл бы по старым правилам.
 #
+# Очередь роута упорядочена по seed (сегодняшняя дата по Камчатке, одна на
+# весь прогон), а skip копится на число непереведённых: поле, которое модель
+# стабильно не переводит, не держит за собой следующие партии.
+#
 # Исходы: секрета нет — красный до запроса; сухой прогон — зелёный со счётом;
 # партия, где не переведено ничего, — красный (502 роута) с причинами по
 # полям; отказ базы — красный (500) с SQLSTATE.
@@ -78,7 +82,10 @@ jobs:
           fi
           APPLY=0
           if [ "$MODE" = "apply" ]; then APPLY=1; else BATCHES=1; fi
-          echo "mode=$MODE batches=$BATCHES"
+          # Один порядок очереди на весь прогон, даже если он перейдёт полночь.
+          SEED=$(TZ=Asia/Kamchatka date +%F)
+          SKIP=0
+          echo "mode=$MODE batches=$BATCHES seed=$SEED"
           {
             echo "## Китайские конспекты — $MODE"
             echo ''
@@ -87,7 +94,7 @@ jobs:
           for i in $(seq 1 "$BATCHES"); do
             HTTP=$(curl -sS -o /tmp/zh.json -w "%{http_code}" --max-time 600 \
               -H "Authorization: Bearer $CRON_SECRET" \
-              "https://vedarai.ru/api/cron/zh-translate?apply=$APPLY&limit=5") || HTTP="000"
+              "https://vedarai.ru/api/cron/zh-translate?apply=$APPLY&limit=5&seed=$SEED&skip=$SKIP") || HTTP="000"
             echo "партия $i: HTTP $HTTP"
             python3 -m json.tool /tmp/zh.json || cat /tmp/zh.json || true
             {
@@ -103,4 +110,13 @@ jobs:
             fi
             LEFT=$(jq -r '.pending_left // .pending // 0' /tmp/zh.json)
             if [ "$LEFT" = "0" ]; then echo "переводить больше нечего"; break; fi
+            [ "$MODE" = "apply" ] || break
+            ATTEMPTED=$(jq -r '.attempted // 0' /tmp/zh.json)
+            if [ "$ATTEMPTED" = "0" ]; then
+              echo "::warning::в очереди остались только поля, которые в этом прогоне не перевелись ($LEFT) — причины в партиях выше"
+              break
+            fi
+            # Непереведённые остаются в очереди — следующая партия берёт поля за ними.
+            FAILED=$(jq -r '.not_translated | length' /tmp/zh.json)
+            SKIP=$((SKIP + FAILED))
           done

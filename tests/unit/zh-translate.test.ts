@@ -28,7 +28,7 @@ vi.mock('@/lib/ai/providers', () => ({
   callAIFastOrNull: (...a: unknown[]) => fast(...a),
 }));
 
-import { GET } from '@/app/api/cron/zh-translate/route';
+import { GET, zhQueueDefaultSeed } from '@/app/api/cron/zh-translate/route';
 import {
   checkSegment, decodeStored, encodeStored, normalizeSource, readField, sourceHash,
 } from '@/lib/zh/fields';
@@ -144,6 +144,21 @@ describe('перевод и запись', () => {
     expect(writes[0][4]).toBe(sourceHash('text', 'Долина гейзеров'));
   });
 
+  it('перевод с верным хэшем, но испорченной формы — не свежий: крон переводит заново, причина в логе', async () => {
+    stored = [
+      storedFor('title', 'text', TOUR.title, '间歇泉谷'),
+      storedFor('description', 'text', TOUR.description, '已翻译'),
+      // Список из одного пункта при двух в исходнике — страница его не покажет.
+      storedFor('included', 'list', TOUR.included, JSON.stringify(['午餐'])),
+    ];
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dry = await (await call('?kind=tour')).json();
+    expect(dry.skipped_fresh).toBe(2);
+    expect(dry.pending_sample).toEqual([{ entity_type: 'tour', entity_id: '51', field: 'included', state: 'stale' }]);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('перевод в базе не читается'), 'included');
+    err.mockRestore();
+  });
+
   it('отказ модели — «не переведено» с причиной, записи нет, партия без переводов — 502', async () => {
     quality.mockResolvedValue(null);
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -197,6 +212,53 @@ describe('перевод и запись', () => {
     expect((await res.json()).sqlstate).toBe('42P01');
     expect(quality).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+// Ревью волны 6: очередь по id держала бы поле, которое модель стабильно не
+// переводит, первым в каждой партии — и за ним стояла бы вся очередь.
+describe('очередь: непереводимое поле не держит остальные', () => {
+  const MARKER: Record<string, string> = { title: 'Долина гейзеров', description: 'Вылет', included: 'Обед' };
+
+  it('skip берёт поля за непереведёнными, порядок задан seed', async () => {
+    const order = ((await (await call('?kind=tour&seed=s1')).json()).pending_sample as Array<{ field: string }>).map((p) => p.field);
+    expect(order).toHaveLength(3);
+    const real = quality.getMockImplementation()!;
+    quality.mockImplementation(async (messages: Array<{ content: string }>) => (
+      messages[1].content.includes(MARKER[order[0]]) ? null : real(messages)
+    ));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const first = await call('?kind=tour&apply=1&limit=1&seed=s1');
+    expect(first.status).toBe(502);
+    expect((await first.json()).not_translated.map((n: { field: string }) => n.field)).toEqual([order[0]]);
+    const next = await call('?kind=tour&apply=1&limit=1&seed=s1&skip=1');
+    expect(next.status).toBe(200);
+    const body = await next.json();
+    expect(body.skip).toBe(1);
+    expect(body.translated.map((t: { field: string }) => t.field)).toEqual([order[1]]);
+    err.mockRestore();
+  });
+
+  it('другой seed — другой порядок; без seed — сегодняшняя дата по Камчатке', async () => {
+    const firsts = new Set<string>();
+    for (const seed of ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8']) {
+      const body = await (await call(`?kind=tour&seed=${seed}`)).json();
+      expect(body.order_seed).toBe(seed);
+      firsts.add(body.pending_sample[0].field);
+    }
+    expect(firsts.size).toBeGreaterThan(1);
+    expect((await (await call('?kind=tour')).json()).order_seed).toBe(zhQueueDefaultSeed());
+    // 13:00 UTC 15.10 — уже 16.10 на Камчатке (UTC+12).
+    expect(zhQueueDefaultSeed(new Date('2026-10-15T13:00:00Z'))).toBe('2026-10-16');
+    expect(zhQueueDefaultSeed(new Date('2026-10-15T11:00:00Z'))).toBe('2026-10-15');
+  });
+
+  it('skip за концом очереди — пустая партия без отказа; кривой seed — 400', async () => {
+    const body = await (await call('?kind=tour&apply=1&skip=3')).json();
+    expect(body.attempted).toBe(0);
+    expect(body.ok).toBe(true);
+    expect(quality).not.toHaveBeenCalled();
+    expect((await call('?seed=../../x')).status).toBe(400);
   });
 });
 

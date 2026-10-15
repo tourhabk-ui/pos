@@ -297,6 +297,19 @@ describe('резервные копии базы', () => {
 });
 
 describe('итог доходит целиком', () => {
+  it('раздел копий длиннее 3500 знаков — аннотация называет обрезку и сохраняет итог по базе', () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ id: i, type: `manual-${'x'.repeat(180)}`, status: 'done', size: 10, created_at: hoursAgo(30 + i) }));
+    const r = runAudit([DBS_LIST, CLUSTERS, AUTO_ON, v1('200', json({ meta: { total: 25 }, backups: many, response_id: 'r' })), S3_EMPTY]);
+    expect(r.code).toBe(0);
+    const backups = backupsNotice(r);
+    expect(backups).toHaveLength(1);
+    expect(backups[0].text.length).toBeLessThanOrEqual(3500);
+    expect(backups[0].text).toMatch(/… обрезано: раздел \d+ знаков, полный — сводка задачи \(Summary\) и лог шага/);
+    expect(backups[0].text).toMatch(/ИТОГ базы 4129607: ПОДТВЕРЖДЕНЫ[^\n]*S3-копий: 0$/);
+    expect(r.summary).toMatch(/и ещё 5/);
+  });
+
+
   it('сводка задачи — полный итог; общая аннотация называет обрезку; раздел копий — своей аннотацией', () => {
     const servers = Array.from({ length: 120 }, (_, i) => ({ id: i, name: `server-${i}`, status: 'on', os: { name: 'ubuntu' }, preset_id: 1, location: 'ru-1' }));
     const r = runAudit([DBS_LIST, CLUSTERS, AUTO_ON, V1_EMPTY, S3_EMPTY, [`${API}/api/v1/servers`, '200', json({ servers })]]);
