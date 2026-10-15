@@ -1,4 +1,4 @@
--- 1279: история Кузьмича в Telegram — из chat_sessions в tg_conversations
+-- 1287: история Кузьмича в Telegram — из chat_sessions в tg_conversations
 --
 -- Аудит 15.10, находка TG-BRAIN. Канонический вебхук Telegram
 -- (/api/telegram/webhook) до этого дня отвечал туристу своей копией

@@ -86,12 +86,15 @@ const SOS_HEAD = 'ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ';
 const TOURIST = 4242;
 const ADMIN = 777;
 
-function post(text: string, opts: { chat?: number; type?: string; from?: number } = {}): Promise<Response> {
+// Свой update_id на каждый апдейт: вебхук пропускает повтор того же id.
+let nextUpdateId = 9001;
+
+function post(text: string, opts: { chat?: number; type?: string; from?: number; updateId?: number } = {}): Promise<Response> {
   const chat = opts.chat ?? TOURIST;
   return telegram.POST(new NextRequest('http://localhost/api/telegram/webhook', {
     method: 'POST',
     body: JSON.stringify({
-      update_id: 9001,
+      update_id: opts.updateId ?? nextUpdateId++,
       message: {
         message_id: 1,
         from: { id: opts.from ?? chat, first_name: 'Анна' },
@@ -209,6 +212,14 @@ describe('личка: свободный текст идёт в мозг Куз�
     const timing = m.pool.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO ai_actions_log'));
     expect(timing).toHaveLength(1);
     expect(JSON.parse(String((timing[0]![1] as unknown[])[2]))).toMatchObject({ surface: 'telegram', path: 'tools' });
+  });
+
+  it('повтор того же апдейта (Bot API не дождался ответа) — второго ответа и второй записи нет', async () => {
+    await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
+    await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
+    expect(sent()).toEqual(['Ответ Кузьмича по делу.']);
+    const timing = m.pool.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO ai_actions_log'));
+    expect(timing).toHaveLength(1);
   });
 
   it('история пишется в tg_conversations под режимом tourist, имя туриста не хранится', async () => {

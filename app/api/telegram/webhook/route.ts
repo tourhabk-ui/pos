@@ -32,6 +32,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
+import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -645,6 +646,11 @@ export async function POST(request: NextRequest) {
     update = parsed.data as TelegramUpdate;
   } catch {
     return NextResponse.json({ ok: false }, { status: 400 });
+  }
+
+  // Повтор того же апдейта (Bot API не дождался ответа) — не отвечать дважды.
+  if (isRepeatedTelegramUpdate(update.update_id)) {
+    return NextResponse.json({ ok: true });
   }
 
   // ── Текстовые сообщения ───────────────────────────────────────────────────
