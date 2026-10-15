@@ -31,7 +31,7 @@
  * (CLAUDE.md §4, «Сторож судит поведение»), поведение судится вызовом.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -223,6 +223,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/auth/password-reset.ts': 1,
   'lib/auth/tourist-helpers.ts': 1,
   'lib/client-errors/report.ts': 3,
+  'lib/db-pool.ts': 1,
   'lib/db/schema-facts.ts': 1,
   'lib/eco/ledger.ts': 1,
   'lib/events/emit.ts': 1,
@@ -276,6 +277,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/services/routes/route-description-cache.ts': 1,
   'lib/services/safety/max-channel.ts': 1,
   'lib/services/tours/tours-visitkamchatka.ts': 1,
+  'lib/share.ts': 1,
   'lib/telegram/admin-notify.ts': 4,
   'lib/telegram/booking-notify.ts': 3,
   'lib/telegram/group-monitor.ts': 4,
@@ -283,14 +285,26 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/wishlist/client.ts': 2,
 };
 
-function census(): Map<string, string[]> {
-  const files = execSync(
-    "git ls-files 'app/**/*.ts' 'app/**/*.tsx' 'lib/**/*.ts' 'lib/**/*.tsx'",
-    { cwd: ROOT, encoding: 'utf-8' },
-  ).trim().split('\n').filter(Boolean);
+/**
+ * Файлы переписи: всё отслеживаемое в app/ и lib/ с расширением .ts/.tsx.
+ *
+ * Список берётся каталогами, а фильтр по расширению — здесь, в JS. Первая
+ * редакция брала pathspec с двумя звёздочками и маской имени без магии
+ * `:(glob)`, а git понимает его как «хотя бы один подкаталог»: мимо сторожа
+ * шёл 21 файл прямо в app/ и lib/ — `lib/db-pool.ts`, `lib/auth.ts`,
+ * `lib/config.ts`, `app/layout.tsx`… (ревью волны 2, аудит 15.10, P4-03).
+ * Охват объявлен «по app/ и lib/», значит держать его надо весь (§10.09).
+ * `-z` — чтобы путь с не-ASCII не пришёл в кавычках.
+ */
+function censusFiles(): string[] {
+  return execSync('git ls-files -z -- app lib', { cwd: ROOT, encoding: 'utf-8' })
+    .split('\0')
+    .filter((f) => /\.tsx?$/.test(f));
+}
 
+function census(): Map<string, string[]> {
   const out = new Map<string, string[]>();
-  for (const f of files) {
+  for (const f of censusFiles()) {
     const src = readFileSync(join(ROOT, f), 'utf-8');
     if (!src.includes('catch')) continue;
     const hits = findEmptyCatches(src, f);
@@ -343,6 +357,20 @@ describe('долг пустых catch не растёт', () => {
     // §4.0: прогон, разобравший 0, обязан краснеть. Если распознаватель
     // сломается и перестанет видеть что-либо, этот тест покажет это первым.
     expect(actual.size).toBeGreaterThan(100);
+  });
+
+  it('охват — весь app/ и lib/, включая файлы прямо в корне каталога', () => {
+    // Находка ревью 15.10: pathspec `**` без подкаталога пропускал корень.
+    // Сверка с диском, а не с git: файл, лежащий прямо в app/ или lib/,
+    // обязан попасть в перепись, иначе его новый пустой catch не краснит ничего.
+    const files = new Set(censusFiles());
+    const rootLevel = ['app', 'lib'].flatMap((dir) =>
+      readdirSync(join(ROOT, dir), { withFileTypes: true })
+        .filter((e) => e.isFile() && /\.tsx?$/.test(e.name))
+        .map((e) => `${dir}/${e.name}`));
+    expect(rootLevel.length).toBeGreaterThan(10);
+    expect(rootLevel.filter((f) => !files.has(f))).toEqual([]);
+    expect(files.has('app/api/leads/route.ts')).toBe(true);
   });
 
   it('новый файл с пустым catch не появился', () => {
