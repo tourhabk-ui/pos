@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-10-15 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1283_content_translations.sql`.
+> Снято 2026-10-15 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1284_gear_rental_door.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 279 |
 | Представлений (VIEW) | 10 |
-| Колонок | 3722 |
-| Внешних ключей | 328 |
+| Колонок | 3727 |
+| Внешних ключей | 329 |
 | Таблиц без единого FK в обе стороны | 82 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -795,7 +795,7 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `user_id uuid` `token varchar!` `expires_at timestamptz!` `created_at timestamptz=`
 
-**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, accommodations, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_payout_items, agent_referral_links, audit_logs, board_meeting_sessions, booking_direct_payments, booking_logs, bookings, booking_waivers, carrier_review_invites, carrier_reviews, chat_sessions, client_communications, collections, commission_payouts, content_translations, conversation_messages, conversation_participants, conversations, crm_contacts, crm_events, crm_tasks, gear_items, guide_certifications, guide_operator_invites, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_client_notes, operator_members, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partner_api_keys, partner_oauth_codes, partners, password_reset_tokens, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tourist_profiles, tour_payments, tour_selections, tracker_links, transfer_reviews, transfers, transfer_seat_bookings, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
+**users** · 33 кол. · PK id · active_trip_id → user_trips.id, referred_by → users.id · на неё ссылаются: accommodation_bookings, accommodation_reviews, accommodations, agent_approvals, agent_bookings, agent_clients, agent_commissions, agent_payout_items, agent_referral_links, audit_logs, board_meeting_sessions, booking_direct_payments, booking_logs, bookings, booking_waivers, carrier_review_invites, carrier_reviews, chat_sessions, client_communications, collections, commission_payouts, content_translations, conversation_messages, conversation_participants, conversations, crm_contacts, crm_events, crm_tasks, gear_items, gear_rentals, guide_certifications, guide_operator_invites, guide_reviews, kuzmich_engagement_signals, loyalty_transactions, mchs_group_registrations, message_templates, notification_preferences, notifications, octo_api_keys, operator_applications, operator_bookings, operator_client_notes, operator_members, operator_payouts, operator_settings, operator_signups, operator_staff, operator_tour_reviews, operator_tours, partner_api_keys, partner_oauth_codes, partners, password_reset_tokens, place_description_drafts, promo_codes, push_subscriptions, referrals, reviews, route_registrations, safety_alerts, security_blocks, sos_events, support_tickets, tourist_profiles, tour_payments, tour_selections, tracker_links, transfer_reviews, transfers, transfer_seat_bookings, user_achievements, user_ai_memory, user_eco_activities, user_eco_points, user_role_history, user_sessions, user_trips · индексов 14 · триггеры: update_users_updated_at
 
 `id uuid!=` `email varchar!` `name varchar!` `password_hash varchar!` `role varchar!` `preferences jsonb=` `created_at timestamptz=` `updated_at timestamptz=` `recommendations jsonb` `recommended_at timestamptz` `phone varchar` `pd_consent_at timestamptz` `pd_consent_ip varchar` `referral_code varchar` `referred_by uuid` `total_spent numeric=` `pending_role text` `role_applied_at timestamp` `telegram_id bigint` `telegram_username varchar` `pd_consent_given boolean=` `marketing_consent boolean=` `telegram_chat_id bigint` `is_active boolean=` `mfa_secret text` `mfa_enabled boolean=` `metadata jsonb=` `active_trip_id uuid` `active_trip_since timestamptz` `max_user_id bigint` `max_username text` `is_blocked boolean!=` `blocked_reason text`
 
@@ -883,9 +883,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `id uuid!=` `partner_id uuid` `name varchar!` `description text` `category varchar!` `subcategory varchar` `brand varchar` `model varchar` `price_per_day numeric!` `price_per_week numeric` `price_per_month numeric` `quantity integer!=` `available_quantity integer!=` `deposit_amount numeric` `insurance_cost_per_day numeric` `images jsonb=` `specifications jsonb=` `features jsonb=` `condition varchar=` `tags text[]=` `rating numeric=` `review_count integer=` `rental_count integer=` `total_revenue numeric=` `is_active boolean=` `created_at timestamptz=` `updated_at timestamptz=` `moderation_status varchar!=` `moderation_reason text` `moderated_at timestamptz` `moderated_by uuid`
 
-**gear_rentals** · 17 кол. · PK id · gear_id → gear_items.id · индексов 4 · триггеры: trg_gear_rental_requires_approved
+**gear_rentals** · 22 кол. · PK id · gear_id → gear_items.id, user_id → users.id · индексов 5 · триггеры: trg_gear_rental_requires_approved
 
-`id uuid!=` `gear_id uuid!` `customer_name varchar!` `customer_email varchar!` `customer_phone varchar!` `start_date date!` `end_date date!` `quantity integer!=` `days_count integer!` `insurance boolean=` `base_price numeric!` `insurance_cost numeric=` `total_price numeric!` `comments text` `status varchar!=` `created_at timestamptz=` `updated_at timestamptz=`
+`id uuid!=` `gear_id uuid!` `customer_name varchar!` `customer_email varchar!` `customer_phone varchar!` `start_date date!` `end_date date!` `quantity integer!=` `days_count integer!` `insurance boolean=` `base_price numeric!` `insurance_cost numeric=` `total_price numeric!` `comments text` `status varchar!=` `created_at timestamptz=` `updated_at timestamptz=` `user_id uuid` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar`
 
 **stay_requests** · 19 кол. · PK id · accommodation_id → accommodations.id · на неё ссылаются: agent_request_keys · индексов 2
 

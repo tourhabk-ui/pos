@@ -35,6 +35,10 @@ interface ZoneRow {
 }
 interface PermitUrlRow { eco_zone: string | null; eco_permit_url: string | null; places: string }
 interface TemplateZoneRow { id: string; name: string; eco_zone: string | null; eco_permit_required: boolean | null; eco_permit_url: string | null }
+interface UnrecordedRow { id: string; name: string; lat: string | null; lng: string | null; eco_zone: string | null }
+
+/** Сколько мест без режима отдаётся поимённо: сейчас их около 260. */
+const UNRECORDED_LIMIT = 500;
 
 export async function GET(req: NextRequest) {
   const secret = getCronSecret(req);
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const visible = `p.is_visible = TRUE AND p.merged_into_id IS NULL`;
-    const [byZone, byPermitUrl, templateZone] = await Promise.all([
+    const [byZone, byPermitUrl, templateZone, unrecorded] = await Promise.all([
       pool.query<ZoneRow>(
         `SELECT p.eco_zone,
                 COUNT(*)::text AS places,
@@ -76,6 +80,17 @@ export async function GET(req: NextRequest) {
           ORDER BY p.eco_zone, p.name
           LIMIT 50`,
       ),
+      // Места без записанного режима — с точкой, для сверки с контурами
+      // охраняемых территорий (15.10, перепись по схеме парков). 'none'
+      // проставила миграция 170 всем оставшимся видимым местам одним UPDATE,
+      // без сверки, поэтому оно здесь наравне с «не записано».
+      pool.query<UnrecordedRow>(
+        `SELECT p.id::text AS id, p.name, p.lat::text AS lat, p.lng::text AS lng, p.eco_zone
+           FROM places p
+          WHERE ${visible} AND (p.eco_zone IS NULL OR p.eco_zone = 'none')
+          ORDER BY p.lat DESC, p.lng, p.name
+          LIMIT ${UNRECORDED_LIMIT}`,
+      ),
     ]);
 
     return NextResponse.json({
@@ -92,6 +107,17 @@ export async function GET(req: NextRequest) {
       template_zone_places: templateZone.rows.map((r) => ({
         id: r.id, name: r.name, eco_zone: r.eco_zone, permit_required: r.eco_permit_required, permit_url: r.eco_permit_url,
       })),
+      regime_unrecorded: {
+        // Отрезано по пределу — сказано, а не умолчано (§4.0).
+        truncated: unrecorded.rows.length >= UNRECORDED_LIMIT,
+        places: unrecorded.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          lat: r.lat != null ? Number(r.lat) : null,
+          lng: r.lng != null ? Number(r.lng) : null,
+          zone: r.eco_zone,
+        })),
+      },
     });
   } catch (err) {
     // Отказ называется вслух: «переписи нет» не равно «режимов нет» (§4.0).

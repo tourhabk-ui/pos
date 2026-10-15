@@ -1,30 +1,16 @@
 {
   "timeout": 60,
-  "run": 955,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Остаток проверки шестой партии (954 остановилась на 404 маршрута b6b37731): туры на карточке «Курильского озера» с родом связи (linkKind, daea90d7) — у места есть вертолётный тур 67; разметка маршрута-фикстуры смоука 7412e1c7 без TravelAgency и точки края в океане; маршруты туров 67 и 53. Повторов два — выкат подтверждён. Конфиг записан целиком.",
+  "run": 957,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись режима: поимённый список видимых мест без записанного режима (regime_unrecorded — 161 «нет» из массовой простановки 170 и 98 «не записано») с точками — для сверки с контурами охраняемых территорий OSM следующей пробой. Ждёт выката d486b8f4 по ключу regime_unrecorded. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
-    "https://vedarai.ru/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff",
-    "https://vedarai.ru/api/tours/67",
-    "https://vedarai.ru/api/tours/53"
+    "https://vedarai.ru/api/cron/place-eco-census"
   ],
-  "until": "\"descriptionImpression\"",
-  "retries": 2,
-  "retryDelay": 20,
-  "allowStale": true,
+  "until": "\"regime_unrecorded\"",
+  "retries": 70,
+  "retryDelay": 45,
   "grep": [
-    "\"linkKind\":\"waypoint\"",
-    "\"linkKind\":\"unknown\"",
-    "TouristTrip",
-    "TravelAgency",
-    "160.7837",
-    "\"routeId\""
+    "\"regime_unrecorded\"",
+    "\"truncated\":false"
   ],
-  "around": [
-    "\"tours\":[",
-    "\"routeId\""
-  ],
-  "aroundLines": 12,
-  "aroundHits": 1,
-  "bytes": 200
+  "bytes": 45000
 }
