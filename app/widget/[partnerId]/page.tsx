@@ -10,9 +10,11 @@
  *    шапке всегда и под ответом помощника) открывает в этом же окне ту же
  *    форму `/widget/lead-form/<slug>` — с телефоном, согласием на ПД и
  *    адресатом-партнёром. Разговор при этом не теряется: форма живёт во
- *    вложенном окне вместо ленты, «Закрыть» и Esc формы возвращают в чат.
+ *    вложенном окне вместо ленты, «Закрыть» и Esc формы возвращают в чат —
+ *    к последнему ответу, а не к началу ленты (R-chat).
  *    Хост и путь страницы партнёра окно передаёт в адрес формы (W3-widget).
- *  - Постоянная строка «Экстренно — 112» — текстом, не ссылкой tel:112.
+ *  - Постоянная строка «Экстренно — 112» — текстом, не ссылкой tel:112, в
+ *    каждом состоянии окна: загрузка, не найден, не загрузился, готов (R-chat).
  *    Своей SOS-кнопки и своего набора 112 здесь нет и быть не должно (§11,
  *    #887: SOS — только EmergencyAction, и в /widget он не монтируется);
  *    блок 112 при признаках ЧП ставит сервер в ответ.
@@ -22,7 +24,7 @@
  * Сторож: tests/unit/widget-chat-page.test.tsx (рендер).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Send } from 'lucide-react';
 import { trimWidgetHistory, type WidgetTurn } from '@/lib/embed/widget-chat-limits';
@@ -101,6 +103,15 @@ export default function WidgetPage() {
     messagesEnd.current?.scrollIntoView?.({ behavior: 'smooth' });
   }, [messages]);
 
+  // Возврат из формы заявки: лента на время формы снята и монтируется заново
+  // с начала — посетитель видел бы приветствие партнёра, а последний ответ
+  // оставался бы за краем окна (на телефоне окно в 400 px). Эффект выше от
+  // возврата не срабатывает: реплики не менялись. Поэтому к концу разговора
+  // возвращаем сразу, без анимации (аудит 15.10, R-chat).
+  useEffect(() => {
+    if (!leadOpen) messagesEnd.current?.scrollIntoView?.({ block: 'end' });
+  }, [leadOpen]);
+
   // Форма заявки сообщает о себе родителю: «Закрыть» и Esc — 'th:close'.
   // Родитель здесь — это окно чата, а не сайт партнёра: вернуть в разговор.
   useEffect(() => {
@@ -149,19 +160,23 @@ export default function WidgetPage() {
     }
   }
 
-  if (load.kind === 'not_found' || load.kind === 'failed') {
+  if (load.kind !== 'ready') {
+    // «Загрузка», «не найден» и «не загрузился» — в той же оболочке и с тем
+    // же подвалом «Экстренно — 112», что и готовый чат (аудит 15.10, R-chat):
+    // партнёр выключил виджет, а скрипт на его сайте остался, или сеть на
+    // Камчатке медленная — экран без 112 здесь быть не должен.
+    const text = load.kind === 'loading'
+      ? 'Загрузка...'
+      : load.kind === 'not_found' ? NOT_FOUND_TEXT : LOAD_FAILED_TEXT;
     return (
-      <div role="alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: 16, textAlign: 'center', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
-        {load.kind === 'not_found' ? NOT_FOUND_TEXT : LOAD_FAILED_TEXT}
-      </div>
-    );
-  }
-
-  if (load.kind === 'loading') {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
-        Загрузка...
-      </div>
+      <WindowShell accent="var(--accent)">
+        <div
+          role={load.kind === 'loading' ? undefined : 'alert'}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, textAlign: 'center', color: 'var(--text-secondary)' }}
+        >
+          {text}
+        </div>
+      </WindowShell>
     );
   }
 
@@ -191,20 +206,10 @@ export default function WidgetPage() {
     </button>
   );
 
-  // Цвета — DS-токены (globals.css резолвится внутри iframe с нашего домена).
-  // data-theme="light" пинит светлую тему: виджет живёт на партнёрских сайтах
-  // и не должен темнеть от сохранённой темы посетителя на vedarai.ru.
   // Литеральный #FFFFFF — только текст на партнёрском акценте (accentColor
   // задаёт партнёр произвольным цветом, токены его не покрывают).
   return (
-    <div data-theme="light" style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      fontFamily: "'Outfit', system-ui, sans-serif",
-      background: 'var(--bg-primary)',
-      color: 'var(--text-primary)',
-    }}>
+    <WindowShell accent={accent}>
 
       {/* Header */}
       <div style={{
@@ -382,11 +387,36 @@ export default function WidgetPage() {
           </div>
         </>
       )}
+    </WindowShell>
+  );
+}
 
-      {/* Подвал: 112 — всегда, при любом экране окна. Строкой, не ссылкой
-          tel:112: сырая ссылка на 112 вне EmergencyAction — вторая реализация
-          SOS, и сторож sos-always-reachable её запрещает (#887, ревью
-          WID-safety 15.10). Номер короткий — набрать его можно и так. */}
+/**
+ * Оболочка окна — одна на все состояния (загрузка, не найден, не загрузился,
+ * готов): высота окна, светлая тема и подвал с 112.
+ *
+ * Цвета — DS-токены (globals.css резолвится внутри iframe с нашего домена).
+ * data-theme="light" пинит светлую тему: виджет живёт на партнёрских сайтах
+ * и не должен темнеть от сохранённой темы посетителя на vedarai.ru.
+ */
+function WindowShell({ accent, children }: { accent: string; children: ReactNode }) {
+  return (
+    <div data-theme="light" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      fontFamily: "'Outfit', system-ui, sans-serif",
+      background: 'var(--bg-primary)',
+      color: 'var(--text-primary)',
+    }}>
+      {children}
+
+      {/* Подвал: 112 — всегда, при любом экране окна, и пока чат грузится или
+          не нашёлся тоже (аудит 15.10, R-chat: прежде подвал стоял только у
+          готового чата). Строкой, не ссылкой tel:112: сырая ссылка на 112 вне
+          EmergencyAction — вторая реализация SOS, и сторож
+          sos-always-reachable её запрещает (#887, ревью WID-safety 15.10).
+          Номер короткий — набрать его можно и так. */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',

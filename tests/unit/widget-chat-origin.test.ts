@@ -35,7 +35,7 @@ const PARTNER = {
 };
 
 let ipSeq = 0;
-async function ask(origin?: unknown) {
+async function ask(origin?: unknown, extra: Record<string, unknown> = {}) {
   ipSeq += 1;
   const res = await POST(new NextRequest('https://vedarai.ru/api/widget/chat', {
     method: 'POST',
@@ -43,15 +43,21 @@ async function ask(origin?: unknown) {
     body: JSON.stringify({
       partnerId: 'mestechko', sessionId: `w_${ipSeq}`, message: 'Когда лучше лететь на вертолёте?',
       ...(origin === undefined ? {} : { origin }),
+      ...extra,
     }),
   }));
   return res;
 }
 
-function savedOrigin(): unknown {
+/** Параметры записи разговора в chat_sessions. */
+function savedParams(): unknown[] {
   const call = m.query.mock.calls.find((c) => c[0] === WIDGET_CHAT_SESSION_SQL);
   expect(call, 'разговор не записан в chat_sessions').toBeTruthy();
-  return JSON.parse(String((call![1] as unknown[])[3]));
+  return call![1] as unknown[];
+}
+
+function savedOrigin(): unknown {
+  return JSON.parse(String(savedParams()[2]));
 }
 
 beforeEach(() => {
@@ -106,5 +112,22 @@ describe('chat_sessions.widget_origin — три исхода', () => {
     expect(res.status).toBe(200);
     await vi.waitFor(() => expect(err.mock.calls.flat().join(' ')).toMatch(/SQLSTATE=42703/));
     err.mockRestore();
+  });
+});
+
+describe('chat_sessions.user_message_count — считает сервер, а не присланная история (аудит 15.10, R-chat)', () => {
+  // Окно присылает историю урезанной (20 реплик, 12 000 знаков), и счёт по
+  // ней занижал разговорную активность в переписи widget-census; выдуманная
+  // история его накручивала. Счёт ведёт SQL записи (+1 к записанному) —
+  // его поведение на настоящем PostgreSQL держит widget-measure.pg.test.ts.
+  it('20 выдуманных «реплик человека» в истории — в запись не уходит ни одно число из запроса', async () => {
+    const history = Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `реплика ${i + 1}` }));
+    const res = await ask({ host: 'mestechkokam.ru', path: '/' }, { history });
+    expect(res.status).toBe(200);
+    const params = await vi.waitFor(() => savedParams());
+    expect(params.filter((p) => typeof p === 'number')).toEqual([]);
+    expect(params).not.toContain(21);
+    // Сами реплики разговор по-прежнему хранит — последние 20.
+    expect(JSON.parse(String(params[1]))).toHaveLength(20);
   });
 });

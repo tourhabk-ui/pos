@@ -11,7 +11,14 @@
  *  - форма, открытая из окна чата, получает хост и путь страницы партнёра
  *    своими параметрами адреса — как от lead.js, а не только через
  *    document.referrer (аудит 15.10, W3-widget: у обещания в шапках
- *    readWidgetOriginParams и формы не было производителя).
+ *    readWidgetOriginParams и формы не было производителя);
+ *  - каждое сообщение чата несёт хост и путь страницы партнёра в теле
+ *    POST /api/widget/chat — производитель половины связки, которую
+ *    widget-chat-origin.test.ts держит со стороны роута (аудит 15.10, R-chat:
+ *    мутация «убрать origin из тела» проходила все тесты);
+ *  - возврат из формы заявки ведёт к последнему ответу, а не к началу ленты;
+ *  - «Экстренно — 112» есть и пока чат грузится, и когда он не нашёлся или
+ *    не загрузился (R-chat).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
@@ -160,6 +167,85 @@ describe('окно чата: форма заявки несёт хост и пу
   });
 });
 
+describe('окно чата: каждое сообщение несёт хост и путь страницы партнёра (R-chat)', () => {
+  /** Окно, открытое embed.js по адресу chatAddress, отправляет одно сообщение. */
+  async function sendFrom(chatAddress: string): Promise<Record<string, unknown>> {
+    window.history.replaceState({}, '', chatAddress);
+    const fetchMock = stubFetch({ status: 200, body: { success: true, data: CONFIG } });
+    render(<WidgetPage />);
+    await screen.findByText('Местечко Камчатка');
+    fireEvent.change(screen.getByLabelText('Сообщение помощнику'), { target: { value: 'Есть вертолёт?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+    await screen.findByText('Есть вертолётная экскурсия.');
+    const chatCall = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/widget/chat'));
+    return JSON.parse(String((chatCall?.[1] as RequestInit).body)) as Record<string, unknown>;
+  }
+
+  it('хост и путь из адреса окна — в теле запроса к /api/widget/chat', async () => {
+    const sent = await sendFrom('/widget/mestechko?theme=light&host=mestechkokam.ru&path=/tours');
+    expect(sent.origin).toEqual({ host: 'mestechkokam.ru', path: '/tours' });
+  });
+
+  it('хоста в адресе окна нет — origin пустой, путь без хоста не идёт', async () => {
+    const sent = await sendFrom('/widget/mestechko?theme=light&path=/tours');
+    expect(sent.origin).toEqual({ host: null, path: null });
+  });
+});
+
+describe('окно чата: возврат из формы заявки — к последнему ответу (R-chat)', () => {
+  // jsdom не прокручивает и scrollIntoView не знает: подменяем его и смотрим,
+  // К ЧЕМУ окно прокрутило ленту после возврата.
+  let scrolled: Element[] = [];
+  const hadOwn = Object.prototype.hasOwnProperty.call(Element.prototype, 'scrollIntoView');
+  const original = Element.prototype.scrollIntoView;
+  beforeEach(() => {
+    scrolled = [];
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this); };
+  });
+  afterEach(() => {
+    if (hadOwn) Element.prototype.scrollIntoView = original;
+    else delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+
+  async function talkThenOpenForm(): Promise<HTMLIFrameElement> {
+    stubFetch({ status: 200, body: { success: true, data: CONFIG } });
+    render(<WidgetPage />);
+    await screen.findByText('Местечко Камчатка');
+    fireEvent.change(screen.getByLabelText('Сообщение помощнику'), { target: { value: 'Есть вертолёт?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }));
+    await screen.findByText('Есть вертолётная экскурсия.');
+    // Кнопка под ответом — посетитель внизу ленты.
+    const buttons = screen.getAllByRole('button', { name: 'Оставить заявку' });
+    fireEvent.click(buttons[buttons.length - 1]);
+    return screen.getByTitle('Заявка партнёру Местечко Камчатка') as HTMLIFrameElement;
+  }
+
+  function expectScrolledToLastAnswer() {
+    const lastAnswer = screen.getByText('Есть вертолётная экскурсия.');
+    expect(scrolled.length, 'после возврата лента никуда не прокручена — откроется с приветствия').toBeGreaterThan(0);
+    const target = scrolled[scrolled.length - 1];
+    expect(target.isConnected).toBe(true);
+    // Прокручено к месту ПОСЛЕ последнего ответа — конец разговора в окне.
+    expect(lastAnswer.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
+  it('кнопка «Вернуться в чат»', async () => {
+    await talkThenOpenForm();
+    scrolled = [];
+    fireEvent.click(screen.getByRole('button', { name: /Вернуться в чат/ }));
+    await waitFor(() => expectScrolledToLastAnswer());
+  });
+
+  it('«Закрыть» формы (th:close от вложенного окна)', async () => {
+    const frame = await talkThenOpenForm();
+    scrolled = [];
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent('message', { data: 'th:close', source: frame.contentWindow }));
+    });
+    await waitFor(() => expectScrolledToLastAnswer());
+  });
+});
+
 describe('окно чата: 112', () => {
   it('строка «Экстренно — 112» видна в чате и в форме заявки', async () => {
     stubFetch({ status: 200, body: { success: true, data: CONFIG } });
@@ -220,5 +306,36 @@ describe('окно чата: отказы по-русски, три исхода
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Чат не загрузился/);
     expect(alert).not.toHaveTextContent(/не найден/);
+  });
+});
+
+describe('окно чата: 112 в каждом состоянии окна (R-chat)', () => {
+  // Прежде подвал с 112 стоял только у готового чата: партнёр выключил виджет,
+  // а скрипт на его сайте остался, — и турист видел «не найден» без 112.
+  function expect112AsText(container: HTMLElement) {
+    expect(screen.getByText('Экстренно — 112')).toBeVisible();
+    // Строкой, не ссылкой: набор 112 — только у EmergencyAction (#887).
+    expect(container.querySelectorAll('a[href^="tel:"]')).toHaveLength(0);
+  }
+
+  it('пока чат грузится', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)));
+    const { container } = render(<WidgetPage />);
+    expect(screen.getByText('Загрузка...')).toBeInTheDocument();
+    expect112AsText(container);
+  });
+
+  it('чат не найден или выключен (404)', async () => {
+    stubFetch({ status: 404, body: { success: false, error: 'Partner not found' } });
+    const { container } = render(<WidgetPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Чат этого партнёра не найден или выключен.');
+    expect112AsText(container);
+  });
+
+  it('чат не загрузился (сеть)', async () => {
+    stubFetch('network');
+    const { container } = render(<WidgetPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Чат не загрузился/);
+    expect112AsText(container);
   });
 });

@@ -9,6 +9,8 @@
  *  - у чата served = NULL по построению — CHECK не даёт записать ноль;
  *  - выключенному виджету счёт не заводится;
  *  - происхождение разговора пишется первым сообщением и не переписывается;
+ *  - число реплик человека считает сервер (+1 за сообщение), а не присланная
+ *    браузером урезанная история, и перепись читает именно его (R-chat);
  *  - перепись читает и ничего не меняет, slug «fish» не собирает разговоры
  *    «fish_x» (самый длинный подходящий slug);
  *  - заявка формы достаётся ОДНОМУ партнёру: адресату, а по slug — только
@@ -104,15 +106,27 @@ withPg('виджеты на настоящем PostgreSQL', () => {
   it('разговор чата: происхождение первого сообщения не переписывается', async () => {
     const first = JSON.stringify({ host: 'mestechkokam.ru', path: '/tury/', host_check: 'listed' });
     const later = JSON.stringify({ host: 'evil.example', path: '/', host_check: 'unlisted' });
-    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-mest_w_1', '[]', 1, first]);
-    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-mest_w_1', '[]', 2, later]);
+    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-mest_w_1', '[]', first]);
+    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-mest_w_1', '[]', later]);
     const r = await pool.query(`SELECT widget_origin, user_message_count FROM chat_sessions WHERE session_id = 'widget_wmt-mest_w_1'`);
     expect(r.rows[0]).toEqual({ widget_origin: JSON.parse(first), user_message_count: 2 });
   });
 
+  it('разговор чата: число реплик человека считает сервер — 15 сообщений дают 15, хотя история урезана (аудит 15.10, R-chat)', async () => {
+    // Окно шлёт историю урезанной (не больше 20 реплик): к 15-му сообщению в
+    // ней 10 реплик человека, и прежний счёт по истории записал бы 11.
+    const origin = JSON.stringify({ host: 'fish.ru', path: '/', host_check: 'listed' });
+    for (let n = 1; n <= 15; n += 1) {
+      const turns = Array.from({ length: Math.min(2 * n, 20) }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: `р${i}` }));
+      await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-fish_w_2', JSON.stringify(turns), origin]);
+    }
+    const r = await pool.query(`SELECT user_message_count, jsonb_array_length(messages) AS kept FROM chat_sessions WHERE session_id = 'widget_wmt-fish_w_2'`);
+    expect(r.rows[0]).toEqual({ user_message_count: 15, kept: 20 });
+  });
+
   it('перепись: читает, считает по партнёру и ничего не меняет', async () => {
-    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-fish_x_w_9', '[]', 3, JSON.stringify({ host: null, path: null, host_check: 'not_sent' })]);
-    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-fish_w_2', '[]', 1, JSON.stringify({ host: 'fish.ru', path: '/', host_check: 'listed' })]);
+    // Разговор wmt-fish (15 сообщений) записан тестом выше.
+    await pool.query(WIDGET_CHAT_SESSION_SQL, ['widget_wmt-fish_x_w_9', '[]', JSON.stringify({ host: null, path: null, host_check: 'not_sent' })]);
     await pool.query(
       `INSERT INTO leads (name, phone, status, operator_id, source_data, created_at) VALUES
          ('Иван', '+79000000001', 'new', $1, '{"source":"partner_widget","partner_slug":"wmt-mest","widget_origin":{"host":"mestechkokam.ru","path":"/","host_check":"listed"}}'::jsonb, NOW() - INTERVAL '3 days'),
@@ -143,11 +157,12 @@ withPg('виджеты на настоящем PostgreSQL', () => {
       expect.objectContaining({ host: 'copy.example', host_check: 'unlisted', served: 0, opened: 1 }),
     ]);
 
-    expect(by('wmt-mest').chat_sessions).toMatchObject({ sessions_30d: 1, listed_90d: 1 });
+    expect(by('wmt-mest').chat_sessions).toMatchObject({ sessions_30d: 1, listed_90d: 1, user_messages_30d: 2 });
     // slug «fish» не собирает разговоры «fish_x»: разговор достаётся самому
-    // длинному подходящему slug.
-    expect(by('wmt-fish').chat_sessions).toMatchObject({ sessions_30d: 1, sessions_90d: 1, listed_90d: 1 });
-    expect(by('wmt-fish_x').chat_sessions).toMatchObject({ sessions_30d: 1, not_sent_90d: 1 });
+    // длинному подходящему slug. Реплики — счёт сервера, а не урезанной
+    // истории: 15, а не 11 (R-chat).
+    expect(by('wmt-fish').chat_sessions).toMatchObject({ sessions_30d: 1, sessions_90d: 1, listed_90d: 1, user_messages_30d: 15, user_messages_90d: 15 });
+    expect(by('wmt-fish_x').chat_sessions).toMatchObject({ sessions_30d: 1, not_sent_90d: 1, user_messages_30d: 1 });
 
     // mest: своя (3 дня, listed), своя (60 дней), без адресата по slug (10 дней).
     // Заявка «Анна» с адресатом fish сюда не входит.
