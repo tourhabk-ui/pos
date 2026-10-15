@@ -6,13 +6,35 @@ import { requireAdmin } from '@/lib/auth/middleware';
 export const dynamic = 'force-dynamic';
 const ALLOWED_SORT_FIELDS = new Set(['created_at', 'updated_at', 'name', 'category', 'rating', 'review_count', 'is_verified']);
 
+/**
+ * Публичная карточка партнёра — без контактов.
+ *
+ * До 15.10 этот роут отдавал анониму `partners.contact` целиком (почта,
+ * телефон, Telegram) по всем партнёрам, включая физлиц, зарегистрировавшихся
+ * самостоятельно (гиды, владельцы жилья), — а на первой странице прода было
+ * 6 адресов почты и 6 телефонов (замер 15.10, добор аудита архитектуры, ПД в
+ * публичных ответах). Связь с партнёром — через заявку и страницу оператора,
+ * где контакты оператор публикует сам; здесь их нет вовсе, и в SELECT их нет,
+ * чтобы следующая правка не вернула поле в ответ (pd-guard: «лишнее убирать из
+ * SELECT, а не только из ответа»). Список — только публичные карточки.
+ */
+type PublicPartner = Omit<Partner, 'contact'>;
+
+const MAX_LIMIT = 50;
+
+function clampInt(raw: string | null, fallback: number, min: number, max: number): number {
+  const n = Number.parseInt(raw ?? '', 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+}
+
 // GET /api/partners - Получение списка партнеров (каталог)
 // PUBLIC: endpoint intentionally public for partner catalog browsing
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const page = clampInt(searchParams.get('page'), 1, 1, 10_000);
+    const limit = clampInt(searchParams.get('limit'), 10, 1, MAX_LIMIT);
     const category = searchParams.get('category');
     const verified = searchParams.get('verified');
     const search = searchParams.get('search');
@@ -20,8 +42,8 @@ export async function GET(request: NextRequest) {
     const sortBy = ALLOWED_SORT_FIELDS.has(requestedSortBy) ? requestedSortBy : 'created_at';
     const sortOrder = (searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-    // Строим WHERE условия
-    const whereConditions: string[] = [];
+    // Строим WHERE условия. Аноним видит только публичные карточки.
+    const whereConditions: string[] = ['is_public = true'];
     const queryParams: unknown[] = [];
     let paramIndex = 1;
 
@@ -63,7 +85,6 @@ export async function GET(request: NextRequest) {
         p.name,
         p.category,
         p.description,
-        p.contact,
         p.rating,
         p.review_count,
         p.is_verified,
@@ -84,17 +105,16 @@ export async function GET(request: NextRequest) {
     queryParams.push(limit, offset);
     const partnersResult = await query<{
       id: string; name: string; category: string; description: string | null;
-      contact: Record<string, unknown> | null; rating: string | null; review_count: string;
+      rating: string | null; review_count: string;
       is_verified: boolean; created_at: string; updated_at: string;
       images: (string | null)[] | null; logo_url: string | null;
     }>(partnersQuery, queryParams);
 
-    const partners: Partner[] = partnersResult.rows.map(row => ({
+    const partners: PublicPartner[] = partnersResult.rows.map(row => ({
       id: row.id,
       name: row.name,
       category: row.category as Partner['category'],
       description: row.description ?? '',
-      contact: (row.contact ?? {}) as unknown as import('@/types').ContactInfo,
       rating: parseFloat(row.rating ?? '0'),
       reviewCount: parseInt(row.review_count),
       isVerified: row.is_verified,
@@ -118,7 +138,7 @@ export async function GET(request: NextRequest) {
       updatedAt: new Date(row.updated_at),
     }));
 
-    const response: PaginatedResponse<Partner> = {
+    const response: PaginatedResponse<PublicPartner> = {
       data: partners,
       pagination: {
         page,
@@ -131,7 +151,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: response,
-    } as ApiResponse<PaginatedResponse<Partner>>);
+    } as ApiResponse<PaginatedResponse<PublicPartner>>);
 
   } catch (error) {
     return NextResponse.json({
