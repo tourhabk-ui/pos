@@ -51,7 +51,7 @@ import { programSteps } from '@/lib/tours/describe';
 import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { logText } from '@/lib/log/log-text';
-import { redactPII } from '@/lib/security/pii-redact';
+import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
@@ -417,11 +417,13 @@ async function synthesizeBotNotes(
   messages: Array<{ role: string; content: string }>,
   existing: string | null,
 ): Promise<void> {
-  const userTurns = messages
+  // Реплики туриста уходят в зарубежную модель — телефон и почту вырезаем
+  // (аудит 15.10, W2-5): иначе они осели бы ещё и в заметках памяти бота.
+  const userTurns = redactPII(messages
     .filter(m => m.role === 'user')
     .slice(-12)
     .map(m => m.content)
-    .join('\n');
+    .join('\n'));
   if (userTurns.length < 20) return;
   try {
     const { callAIFast } = await import('@/lib/ai/providers');
@@ -2251,10 +2253,16 @@ export async function aiChatAgentLoop(
   // «сменился провайдер» и «поправили промпт». Опциональна, как и журнал выше.
   provenance?: { provider?: string },
 ): Promise<string | null> {
+  // Граница ПД перед зарубежной моделью (аудит 15.10, W2-5). Через этот цикл
+  // идут веб-чат, Telegram, MAX и A2A, поэтому чистка здесь одна на всех:
+  // телефон и почта, вписанные человеком, до модели не доходят. Шаги брони и
+  // контроля выхода читают сырой текст раньше (processMessage) — их это не
+  // касается. Место в разговоре (`conversation` ниже) ищется по сырому
+  // тексту: это локальная сверка имён вулканов, в модель она не уходит.
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
-    ...history.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
-    ...extraUserMsg.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
+    ...redactUserTurns(history).map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
+    ...redactUserTurns(extraUserMsg).map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
   ];
 
   // Вопрос человека доходит до модели ВСЕГДА (13.10). Текстовый путь A2A
@@ -2265,9 +2273,11 @@ export async function aiChatAgentLoop(
   // Авачинский — про Ключевскую из тура, потом про Мутновский из маршрутов
   // (пробы 764–766). Telegram, MAX, веб-чат и стрим кладут вопрос в историю
   // до вызова — для них ничего не меняется: вопрос уже среди сообщений.
-  const asked = userText.trim();
+  // Сверка с историей — по очищенному тексту: история выше уже очищена.
+  const askedForModel = redactPII(userText);
+  const asked = askedForModel.trim();
   if (asked && !msgs.some(m => m.role === 'user' && m.content.includes(asked))) {
-    msgs.push({ role: 'user', content: userText });
+    msgs.push({ role: 'user', content: askedForModel });
   }
 
   const seenToolSigs = new Set<string>(); // дедуп повторных вызовов между ходами
@@ -2411,11 +2421,13 @@ export async function aiChat(opts: {
       if (preSearch) enrichedSystem += `\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:\n${preSearch}`;
     }
 
-    const fallbackMessages: ChatMessage[] = [
+    // Запасной путь идёт в те же зарубежные модели — та же граница ПД, что у
+    // цикла инструментов (аудит 15.10, W2-5).
+    const fallbackMessages: ChatMessage[] = redactUserTurns([
       { role: 'system', content: enrichedSystem },
       ...history,
       ...extraUserMsg,
-    ];
+    ]);
 
     const fallback = await callAIWaterfallDetailed(fallbackMessages);
     provenance.path = 'waterfall';
@@ -2430,11 +2442,11 @@ export async function aiChat(opts: {
       const searchResults = await searchWeb(userContent);
       if (searchResults) {
         void saveSearchResultToKB(userContent, searchResults);
-        const retryMessages: ChatMessage[] = [
+        const retryMessages: ChatMessage[] = redactUserTurns([
           { role: 'system', content: systemContent + `\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n${searchResults}\n\nОтветь на основе этих данных кратко и точно.` },
           ...history,
           ...extraUserMsg,
-        ];
+        ]);
         const retry = await callAIWaterfallDetailed(retryMessages);
         if (retry.text.trim()) {
           answer = cleanAIResponse(retry.text.trim());
@@ -2505,7 +2517,9 @@ export async function aiChat(opts: {
   // toolsRan — для метрики заземления: конкретика без инструментов = выдумка.
   // Ответ мог прийти запасным путём БЕЗ инструментов — тогда вызовы прошлой,
   // отброшенной попытки его не заземляют: журнал для грейдера пуст.
+  // Ключ разговора грейдер хэширует сам: сырой id чата в оценку не пишется.
   void gradeKuzmichResponse(text, answer, chatId, {
+    surface: platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other',
     toolRuns: usedAgentLoopAnswer ? toolRuns : [],
     // Чем произведён ответ. Без этого оценка «стало хуже» несравнима между
     // днями: промпт правится, водопад меняет провайдера, инструменты то есть,

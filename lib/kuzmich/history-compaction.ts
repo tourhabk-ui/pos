@@ -17,6 +17,7 @@
 
 import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { redactUserTurns } from '@/lib/security/pii-redact';
 
 const COMPACTION_SYSTEM = `Сожми фрагмент диалога туриста с Кузьмичом (Хранителем Камчатки) в 1-2 предложения — только устойчивые факты: что турист уже спрашивал или решил, что ему уже сообщили по безопасности/статусу мест (открыто/закрыто, опасности, алерты), его планы и предпочтения. Не выдумывай ничего сверх сказанного. Если ничего важного для дальнейшего разговора нет — ответь ровно "нет".`;
 
@@ -34,7 +35,9 @@ export function buildCompactionTranscript(dropped: ChatMessage[]): string {
  * при пустом вводе, отказе судьи или сбое AI — не блокирует ответ Кузьмича.
  */
 export async function summarizeDroppedTurns(dropped: ChatMessage[]): Promise<string> {
-  const transcript = buildCompactionTranscript(dropped);
+  // Сжатие идёт той же зарубежной моделью — реплики туриста проходят ту же
+  // границу ПД, что и цикл Кузьмича (аудит 15.10, W2-5).
+  const transcript = buildCompactionTranscript(redactUserTurns(dropped));
   if (!transcript) return '';
   try {
     const raw = await callAIFast([

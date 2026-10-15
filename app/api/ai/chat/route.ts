@@ -41,6 +41,9 @@ import { partnerContextFor } from '@/lib/crm/partner-context';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 import { withSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
+import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -330,6 +333,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Agentic Booking: authenticated tourists with booking/tour intent → SDK tool calling
+    let touristSdkAnswered = false;
     if (!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow) {
       const intentResult = detectTourIntent(message.trim());
       if (intentResult.detected) {
@@ -347,12 +351,17 @@ export async function POST(request: NextRequest) {
               `"маршрут на ... дней", "что посмотреть за ... дней", "составь программу". ` +
               `После compose_trip — опиши итинерарий кратко (тур, даты, цена) и предложи забронировать. ` +
               `Отвечай конкретно: название, цена, даты. Не придумывай данные.`,
-            userMessage: message.trim(),
+            // Та же граница ПД, что у цикла Кузьмича (аудит 15.10, W2-5):
+            // инструментам брони телефон туриста не нужен, модели — тем более.
+            userMessage: redactPII(message.trim()),
             tools,
             model: getModelForAgent('kuzmich') ?? 'openai/gpt-4o-mini',
             maxIterations: 4,
           });
-          if (sdkResult.response) answer = sdkResult.response;
+          if (sdkResult.response) {
+            answer = sdkResult.response;
+            touristSdkAnswered = true;
+          }
         } catch (err) {
           logSwallowedFailure('ai-chat', 'агент бронирования с инструментами', err);
         }
@@ -367,11 +376,12 @@ export async function POST(request: NextRequest) {
     // трафик) получали one-shot LLM без каких-либо safety-инструментов.
     // Журнал инструментов хода — для сверки утверждений о безопасности (#2300).
     const webToolRuns: ToolRun[] = [];
+    const webProvenance: { provider?: string } = {};
     let loopAnswered = false;
     if (!answer && safeRole === 'tourist') {
       try {
         const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
-        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns);
+        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance);
         loopAnswered = Boolean(answer?.trim());
       } catch (err) {
         logSwallowedFailure('ai-chat', 'цикл инструментов Кузьмича', err);
@@ -379,6 +389,9 @@ export async function POST(request: NextRequest) {
     }
 
     answer ??= await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
+    // Ответ модели до поправок сторожей и SOS-блока — его и оценивает грейдер,
+    // как в Telegram и MAX: иначе он судил бы нашу вставку, а не модель.
+    const modelAnswer = answer;
 
     // Tour suggestions — only for tourist role, и никогда при признаках ЧП.
     let tourSuggestions: TourSuggestion[] = [];
@@ -429,6 +442,23 @@ export async function POST(request: NextRequest) {
     // AI-конвейер лежит и answer — фолбэк-ошибка.
     const sos = withSosBlock(answer, rawMessage);
     answer = sos.text;
+
+    // Исход ответа туристу на сайте — грейдеру (аудит 15.10, P4-06, A20 (б)):
+    // до этого веб-ответы не оценивались вовсе, и «Кузьмич на сайте» был
+    // неизмерим. Оцениваются все содержательные вопросы; потолок в сутки,
+    // чистка ПД и хэш сессии — внутри грейдера. Журнал инструментов есть
+    // только у цикла Кузьмича: у одиночного вызова инструментов не было ([]),
+    // агент брони журнала не ведёт (undefined — «не проверено», не «заземлено»).
+    if (safeRole === 'tourist') {
+      void gradeKuzmichResponse(rawMessage, modelAnswer, storableSessionId, {
+        surface: 'web',
+        toolRuns: loopAnswered ? webToolRuns : touristSdkAnswered ? undefined : [],
+        promptFingerprint: loopAnswered ? fingerprintPrompt(KUZMICH_SYSTEM) : undefined,
+        provider: loopAnswered ? (webProvenance.provider ?? null) : null,
+        answerPath: loopAnswered ? 'tools' : null,
+        toolsOffered: loopAnswered ? KUZMICH_TOOLS.map((t) => t.function.name) : undefined,
+      });
+    }
 
     if (!answerIsError) {
       const assistantMsg: ChatMessage = { role: 'assistant', content: answer, timestamp: Date.now() };
