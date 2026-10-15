@@ -1,36 +1,35 @@
 {
-  "timeout": 30,
-  "run": 948,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Режим мест по ILIKE 169/170, продолжение 947: полный список (947 обрезал на восьмом), координаты, район и описание каждого места — для сверки с границами заповедника и парков; живы ли страницы разрешения kronoki.ru (прежняя /visit/ и нынешняя /ru/visit/requests/). 947 упёрся в kamchatkaparks.ru: код 000 все 59 попыток. Повторов два — выкат уже есть. Конфиг записан целиком.",
+  "timeout": 90,
+  "run": 949,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Режим мест по ILIKE 169/170: в какие охраняемые территории OSM попадает точка каждого места (Overpass is_in, фильтр областей) — по порядку: Вид на гейзер Большой; Долина гейзеров; Вулкан Академии Наук; Вулкан Кроноцкий; Кратер Троицкого; Озеро Кроноцкое; Вид на вулкан Шмидта; Голая; Ново-Бакенинг; затем точка Асачи с карточки и живы ли страницы разрешения kronoki.ru/ru/visit/requests/ и vulcanikamchatki.ru. 948: kronoki.ru/visit/ — 404. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-eco-census",
-    "https://vedarai.ru/api/places/5957e702-652f-4c8f-8fbd-96b5625272e0",
-    "https://vedarai.ru/api/places/796c18b3-e199-4ac6-bbd6-de50d560ff40",
-    "https://vedarai.ru/api/places/f4fa9a04-a746-491e-871c-bcef3725f7d0",
-    "https://vedarai.ru/api/places/44be8f5a-809d-47aa-bfa9-858e65cdfe77",
-    "https://vedarai.ru/api/places/0cc4d973-2ffc-4939-9179-3f9980f78dd3",
-    "https://vedarai.ru/api/places/a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
-    "https://vedarai.ru/api/places/4dbbbef6-100b-46fa-8721-41ed9fe377a4",
-    "https://vedarai.ru/api/places/d9cc68bc-6b56-4746-b123-e87d9b7c6c35",
-    "https://vedarai.ru/api/places/9c5b9b5c-c989-4d1c-a8f4-50fbacdc4447",
-    "https://kronoki.ru/visit/",
-    "https://kronoki.ru/ru/visit/requests/"
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.4377884%2C160.1367375%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.437%2C160.14%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9835639%2C159.462645%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.7528%2C160.5361%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.1177569%2C159.6536218%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.813806%2C160.218436%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2854.9086354%2C160.6449015%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2852.2622028%2C157.7914279%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3Bis_in%2853.9441412%2C158.0991725%29-%3E.a%3B%28area.a%5Bboundary%3Dprotected_area%5D%3Barea.a%5Bleisure%3Dnature_reserve%5D%3Barea.a%5Bboundary%3Dnational_park%5D%3B%29%3Bout%20tags%3B",
+    "https://vedarai.ru/api/places/ce3db5c5-69c8-41b9-8a95-8b088ac2230e",
+    "https://kronoki.ru/ru/visit/requests/",
+    "https://www.vulcanikamchatki.ru/v_pomow_gostyu/usloviya_poseweniya/"
   ],
-  "until": "\"template_zone_places\"",
-  "retries": 2,
+  "allowStale": true,
+  "retries": 1,
   "retryDelay": 20,
   "grep": [
-    "\"template_zone_places\"",
+    "\"name\"",
     "\"locationType\"",
     "<title"
   ],
   "around": [
-    "\"template_zone_places\"",
     "\"locationType\"",
-    "\"description\"",
     "<title"
   ],
-  "aroundLines": 60,
+  "aroundLines": 6,
   "aroundHits": 1,
-  "bytes": 300
+  "bytes": 3500,
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)"
 }
