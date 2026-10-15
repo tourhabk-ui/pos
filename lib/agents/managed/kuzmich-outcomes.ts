@@ -1,17 +1,93 @@
 /**
  * Outcomes grader для Kuzmich.
  *
- * После каждого ответа Kuzmich — асинхронная оценка качества через callAIFast.
+ * После ответа Kuzmich — асинхронная оценка качества через callAIFast.
  * Результаты хранятся в agent_knowledge (type='outcome').
  * Evolver подхватывает записи с низким score на следующем cron/evo цикле.
+ *
+ * Аудит 15.10 (W2-5, A20, решение (б)): оцениваются ВСЕ содержательные ответы
+ * со всех поверхностей, включая веб, но не больше GRADER_DAILY_CAP в сутки
+ * по Камчатке. Вопрос и ответ уходят судье без телефонов и почты, ключ
+ * разговора — хэшем. Расход грейдера в llm_usage_log — под своим agent_id.
  */
 
 import { createHash } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
+import { redactPII } from '@/lib/security/pii-redact';
 import { assessGrounding, type ToolRun } from '@/lib/agents/eval/grounding';
 import { classifyResponse } from '@/lib/kuzmich/refusal-detector';
+
+/**
+ * Потолок оценок в сутки по Камчатке (аудит 15.10, A20, решение (б)).
+ *
+ * Каждая оценка — платный вызов модели, а с веба их может прийти сколько
+ * угодно. Цена одного вызова не замерена: потолок держит расход в рамке,
+ * пока неделя llm_usage_log (agent_id 'kuzmich-grader') не скажет, держать ли
+ * долю 100%.
+ */
+export const GRADER_DAILY_CAP = 300;
+
+/** Под этим именем расход грейдера ложится в llm_usage_log. */
+const GRADER_AGENT_ID = 'kuzmich-grader';
+
+/** Где прозвучал ответ — для разреза оценок по поверхности. */
+export type GradeSurface = 'web' | 'telegram' | 'max' | 'other';
+
+/**
+ * Занять место под оценку — вставкой строки журнала ai_actions_log
+ * (action_type 'kuzmich_grade'), если за сутки по
+ * Камчатке их меньше потолка. Счёт и вставка — под одним замком транзакции:
+ * две одновременные оценки на 299-й не пройдут обе. Строка пишется ДО вызова
+ * модели: упавший вызов тоже стоил попытки, и потолок обязан его видеть.
+ */
+export const TAKE_GRADE_SLOT_SQL = `INSERT INTO ai_actions_log (action_type, metadata)
+SELECT 'kuzmich_grade', $1::jsonb
+ WHERE (SELECT COUNT(*) FROM ai_actions_log
+         WHERE action_type = 'kuzmich_grade'
+           AND created_at >= (date_trunc('day', NOW() AT TIME ZONE 'Asia/Kamchatka') AT TIME ZONE 'Asia/Kamchatka')) < $2::int`;
+
+/** Замок счёта: одна транзакция за раз решает, есть ли ещё место. */
+export const GRADE_SLOT_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext('kuzmich_grade'))`;
+
+/**
+ * Три исхода, а не два (§4.0): «потолок не достигнут», «исчерпан» и «не смог
+ * посчитать». Оценка идёт только при первом; два других — пропуск с логом.
+ */
+async function takeGradeSlot(surface: GradeSurface | null): Promise<'granted' | 'exhausted' | 'unknown'> {
+  let client: PoolClient | null = null;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query(GRADE_SLOT_LOCK_SQL);
+    const res = await client.query(TAKE_GRADE_SLOT_SQL, [JSON.stringify({ surface }), GRADER_DAILY_CAP]);
+    await client.query('COMMIT');
+    if (res.rowCount === 1) return 'granted';
+    console.warn(`[kuzmich-outcomes] потолок оценок: ${GRADER_DAILY_CAP} за сутки по Камчатке исчерпан — оценка пропущена`);
+    return 'exhausted';
+  } catch (err) {
+    await client?.query('ROLLBACK').catch((rbErr: unknown) => {
+      logSwallowedFailure('kuzmich-outcomes', 'потолок оценок: откат', rbErr);
+    });
+    logSwallowedFailure('kuzmich-outcomes', 'потолок оценок: подсчёт за сутки', err);
+    return 'unknown';
+  } finally {
+    client?.release();
+  }
+}
+
+/**
+ * Ключ разговора для записи оценки — хэш, а не сырой id (аудит 15.10, A20).
+ * Id чата Telegram или MAX и id веб-сессии — идентификаторы человека; оценке
+ * нужно только «тот же разговор или другой». Нет ключа — так и пишется.
+ */
+export function conversationTag(key: string | number | null | undefined): string {
+  if (key === null || key === undefined || key === '') return 'nokey';
+  return createHash('sha256').update(`kuzmich-grader:${String(key)}`).digest('hex').slice(0, 12);
+}
 
 interface OutcomeResult {
   score: number;       // 0–10
@@ -64,6 +140,8 @@ export interface AnswerProvenance {
   answerPath?: 'tools' | 'waterfall' | null;
   /** Какие инструменты БЫЛИ ПРЕДЛОЖЕНЫ модели (не какие сработали). */
   toolsOffered?: string[];
+  /** Где прозвучал ответ: веб, Telegram, MAX или иное. */
+  surface?: GradeSurface | null;
 }
 
 /**
@@ -81,12 +159,12 @@ export interface AnswerProvenance {
 async function recordRefusal(
   userText: string,
   botResponse: string,
-  chatId: number,
+  tag: string,
   signals: string[],
   opts?: { toolRuns?: ToolRun[] } & AnswerProvenance,
 ): Promise<void> {
   try {
-    const slug = `outcome_kuz_refusal_${chatId}_${Date.now() % 1000000}`;
+    const slug = `outcome_kuz_refusal_${tag}_${Date.now() % 1000000}`;
     const provider = opts?.provider ?? 'провайдер не записан';
     await pool.query(
       `INSERT INTO agent_knowledge(slug, type, title, compiled_truth, metadata, agent_id, edit_count, created_at, updated_at)
@@ -105,6 +183,7 @@ async function recordRefusal(
           answer_path:        opts?.answerPath ?? null,
           tools_offered:      opts?.toolsOffered ?? null,
           tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
+          surface:            opts?.surface ?? null,
         }),
       ],
     );
@@ -115,14 +194,26 @@ async function recordRefusal(
   }
 }
 
+/**
+ * Оценить ответ Кузьмича. `conversationKey` — id чата или веб-сессии: в
+ * запись он попадает только хэшем (`conversationTag`).
+ */
 export async function gradeKuzmichResponse(
   userText: string,
   botResponse: string,
-  chatId: number,
+  conversationKey: string | number | null,
   opts?: { toolRuns?: ToolRun[] } & AnswerProvenance,
 ): Promise<void> {
   // Грейдим только содержательные вопросы о Камчатке
   if (!isGradableQuestion(userText)) return;
+
+  // Телефон и почта туриста — ни судье, ни в запись оценки (аудит 15.10,
+  // W2-5/A20): судья — зарубежная модель, а запись читает эволюция и тоже
+  // отдаёт её модели. Род ответа и заземление судятся по СЫРОМУ ответу: телефон
+  // в нём — сигнал конкретики, без которого «выдуманный номер» не поймать.
+  const question = redactPII(userText);
+  const answerText = redactPII(botResponse);
+  const tag = conversationTag(conversationKey);
 
   // Чем оказался ответ — РАНЬШЕ порога длины (issue #1730).
   //
@@ -141,7 +232,7 @@ export async function gradeKuzmichResponse(
   // Отказ — самостоятельный исход, а не «плохой ответ» и не «нет ответа».
   // Судить его рубрикой нечем: оценивать нечего, и AI-судья тут лишний вызов.
   if (kind.kind === 'refusal') {
-    await recordRefusal(userText, botResponse, chatId, kind.signals, opts);
+    await recordRefusal(question, answerText, tag, kind.signals, opts);
     return;
   }
 
@@ -163,11 +254,16 @@ export async function gradeKuzmichResponse(
   // «заземлено» на вопрос, которого не проверял (находка аудита 08.09).
   const grounding = assessGrounding(botResponse, opts?.toolRuns);
 
+  // Потолок — последним перед вызовом модели: отказы, обрывы и короткие
+  // ответы модели не зовут и места не занимают. Исчерпан или не посчитан —
+  // пропуск, причина уже в логе (takeGradeSlot).
+  if (await takeGradeSlot(opts?.surface ?? null) !== 'granted') return;
+
   try {
-    const raw = await callAIFast([{
+    const { result: raw } = await runWithUsageTracking(GRADER_AGENT_ID, () => callAIFast([{
       role: 'user',
-      content: `${KUZMICH_RUBRIC}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${userText.slice(0, 300)}\n\nОТВЕТ КУЗЬМИЧА: ${botResponse.slice(0, 800)}`,
-    }]);
+      content: `${KUZMICH_RUBRIC}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${question.slice(0, 300)}\n\nОТВЕТ КУЗЬМИЧА: ${answerText.slice(0, 800)}`,
+    }]));
     if (!raw) return;
 
     // Извлекаем JSON из ответа
@@ -189,7 +285,7 @@ export async function gradeKuzmichResponse(
       result.issues.push(`ЗАЗЕМЛЕНИЕ НЕ ПРОВЕРЕНО (${grounding.signals.join(', ')}): ${grounding.reason}`);
     }
 
-    const slug = `outcome_kuz_${chatId}_${Date.now() % 1000000}`;
+    const slug = `outcome_kuz_${tag}_${Date.now() % 1000000}`;
     const summary = result.issues.length > 0
       ? `Оценка ${result.score}/10. Проблемы: ${result.issues.join('; ')}`
       : `Оценка ${result.score}/10. Хороший ответ.`;
@@ -205,6 +301,7 @@ export async function gradeKuzmichResponse(
       answer_path:        opts?.answerPath ?? null,
       tools_offered:      opts?.toolsOffered ?? null,
       tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
+      surface:            opts?.surface ?? null,
       grounding:          grounding.verdict,
     };
 
@@ -215,7 +312,7 @@ export async function gradeKuzmichResponse(
       [
         slug,
         `Оценка ответа: ${result.score}/10`,
-        `Вопрос: ${userText.slice(0, 150)}\nОтвет: ${botResponse.slice(0, 300)}\n\n${summary}`,
+        `Вопрос: ${question.slice(0, 150)}\nОтвет: ${answerText.slice(0, 300)}\n\n${summary}`,
         JSON.stringify(provenance),
       ],
     );
