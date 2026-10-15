@@ -1,126 +1,29 @@
 /**
- * POST /api/admin/migrations/apply
- * Apply pending database migrations (admin only)
+ * POST /api/admin/migrations/apply — снят 15.10 (аудит, находка P4-04).
  *
- * CRITICAL: This modifies production schema
- * Only accessible with admin JWT + explicit migration names
+ * CLAUDE.md: «НИКОГДА не применять миграции через HTTP endpoint». Этот роут
+ * выполнял файл миграции одним `pool.query(sql)` по номеру из тела запроса:
+ * без транзакции, без записи в `_migrations` и без `_migration_failures`.
+ * Применённое отсюда следующий деплой накатывал второй раз, а упавшее не
+ * оставляло следа нигде, кроме ответа браузеру.
  *
- * Auth: admin role required
+ * Применяет миграции только деплой: `start.js` → `scripts/migrate-standalone.js`.
+ * Упавшая миграция повторяется на следующем выкате; что не применено и почему —
+ * `GET /api/admin/migrations/status`.
+ *
+ * 410, а не удаление файла: 404 неотличим от опечатки в пути.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/middleware';
-import { pool } from '@/lib/db-pool';
-import { z } from 'zod';
-import fs from 'fs';
-import path from 'path';
+import { NextResponse } from 'next/server';
+import { MIGRATIONS_DEPLOY_ONLY } from '@/lib/agents/migration-status';
 
-const ApplyMigrationsSchema = z.object({
-  // Три цифры ЖЁСТКО — до 20.09, и это отвергало бы любую миграцию с
-  // номером 1000 и выше: эндпоинт ручного наката отвечал бы 400 на
-  // существующий файл. Нижняя граница в три знака оставлена (исторический
-  // формат имён), верхней нет.
-  migrations: z.array(z.string().regex(/^\d{3,}$/)).min(1),
-  dry_run: z.boolean().default(false),
-});
+export const dynamic = 'force-dynamic';
 
-/**
- * Read migration SQL file safely
- */
-function readMigrationFile(migrationNumber: string): string | null {
-  const migrationsDir = path.join(process.cwd(), 'migrations');
-
-  try {
-    const files = fs.readdirSync(migrationsDir);
-    const migFile = files.find(f => f.startsWith(`${migrationNumber}_`));
-
-    if (!migFile) return null;
-
-    const filepath = path.join(migrationsDir, migFile);
-    return fs.readFileSync(filepath, 'utf-8');
-  } catch (error) {
-    return null;
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const authOrResponse = await requireAdmin(request);
-    if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-    const body = await request.json();
-    const parsed = ApplyMigrationsSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message },
-        { status: 400 }
-      );
-    }
-
-    const { migrations, dry_run } = parsed.data;
-    const results: Array<{ migration: string; status: 'success' | 'error'; message: string }> = [];
-
-
-    for (const mig of migrations) {
-      try {
-        const sql = readMigrationFile(mig);
-        if (!sql) {
-          results.push({
-            migration: mig,
-            status: 'error',
-            message: 'Migration file not found',
-          });
-          continue;
-        }
-
-        if (dry_run) {
-          results.push({
-            migration: mig,
-            status: 'success',
-            message: 'DRY RUN OK (not applied)',
-          });
-          continue;
-        }
-
-        // Execute migration
-        await pool.query(sql);
-
-        results.push({
-          migration: mig,
-          status: 'success',
-          message: 'Applied successfully',
-        });
-
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        results.push({
-          migration: mig,
-          status: 'error',
-          message: errorMsg,
-        });
-
-      }
-    }
-
-    const hasErrors = results.some(r => r.status === 'error');
-
-    return NextResponse.json(
-      {
-        success: !hasErrors,
-        dry_run,
-        results,
-        summary: {
-          total: results.length,
-          applied: results.filter(r => r.status === 'success').length,
-          failed: results.filter(r => r.status === 'error').length,
-        },
-      },
-      { status: hasErrors ? 400 : 200 }
-    );
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Migration application failed' },
-      { status: 500 }
-    );
-  }
+// AUTH: заглушка ничего не читает и не пишет — проверять права не у чего;
+// Edge (middleware.ts) по-прежнему пускает к /api/admin/* только админа.
+export async function POST() {
+  return NextResponse.json(
+    { success: false, error: MIGRATIONS_DEPLOY_ONLY, status_url: '/api/admin/migrations/status' },
+    { status: 410 },
+  );
 }

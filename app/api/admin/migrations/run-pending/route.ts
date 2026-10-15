@@ -1,113 +1,34 @@
 /**
- * POST /api/admin/migrations/run-pending
- * Apply all pending (not yet tracked) SQL migrations — admin only.
+ * POST /api/admin/migrations/run-pending — снят 15.10 (аудит, находка P4-04).
+ *
+ * CLAUDE.md: «НИКОГДА не применять миграции через HTTP endpoint». Этот роут
+ * делал ровно это — и хуже, чем законный раннер, по трём пунктам сразу:
+ *   • применённое НЕ записывалось в `_migrations` (единственное обращение к
+ *     журналу было SELECT), значит следующий деплой накатывал те же файлы
+ *     второй раз — для миграции данных (INSERT без ON CONFLICT, UPDATE с
+ *     арифметикой) это двойная запись;
+ *   • порядок файлов — голый `.sort()`, посимвольный: `1000_` раньше `999_`;
+ *   • конфликт на UPDATE записывался как «Already exists» — «не смог» за
+ *     «сделано» (урок миграции 988 сюда не дошёл).
+ *
+ * Применяет миграции только деплой: `start.js` → `scripts/migrate-standalone.js`.
+ * Упавшая миграция повторяется на следующем выкате; что не применено и почему —
+ * `GET /api/admin/migrations/status`.
+ *
+ * 410, а не удаление файла: 404 неотличим от опечатки в пути, а старая вкладка
+ * админки должна получить объяснение.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/middleware';
-import { pool } from '@/lib/db-pool';
-import fs from 'fs';
-import path from 'path';
+import { NextResponse } from 'next/server';
+import { MIGRATIONS_DEPLOY_ONLY } from '@/lib/agents/migration-status';
 
-function isNonTransactional(sql: string): boolean {
-  return /CREATE\s+INDEX\s+CONCURRENTLY/i.test(sql);
-}
+export const dynamic = 'force-dynamic';
 
-function isAlreadyExistsError(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return m.includes('already exists') || m.includes('duplicate key') || m.includes('duplicate column');
-}
-
-export async function POST(request: NextRequest) {
-  const authOrResponse = await requireAdmin(request);
-  if (authOrResponse instanceof NextResponse) return authOrResponse;
-
-  const body = await request.json().catch(() => ({})) as { dry_run?: boolean };
-  const dryRun = body.dry_run === true;
-
-  try {
-    const migrationsDir = path.join(process.cwd(), 'migrations');
-    const allFiles = fs.readdirSync(migrationsDir)
-      .filter(f => f.endsWith('.sql'))
-      .sort();
-
-    const { rows } = await pool.query<{ name: string }>(
-      'SELECT name FROM _migrations ORDER BY name'
-    );
-    const applied = new Set(rows.map(r => r.name));
-    const pending = allFiles.filter(f => !applied.has(f));
-
-    if (pending.length === 0) {
-      return NextResponse.json({ success: true, message: 'Нет новых миграций', results: [] });
-    }
-
-    const results: { file: string; status: 'ok' | 'skip' | 'error'; message: string }[] = [];
-
-    for (const file of pending) {
-      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8').trim();
-
-      if (!sql) {
-        results.push({ file, status: 'skip', message: 'Empty file' });
-        continue;
-      }
-
-      if (dryRun) {
-        results.push({ file, status: 'ok', message: 'DRY RUN — not applied' });
-        continue;
-      }
-
-      if (isNonTransactional(sql)) {
-        const statements = sql.split(/;\s*\n/).map(s => s.trim()).filter(Boolean);
-        let fileOk = true;
-        for (const stmt of statements) {
-          try { await pool.query(stmt); } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : String(e);
-            if (!isAlreadyExistsError(msg)) {
-              results.push({ file, status: 'error', message: msg.slice(0, 200) });
-              fileOk = false;
-              break;
-            }
-          }
-        }
-        if (fileOk) results.push({ file, status: 'ok', message: 'Applied (non-tx)' });
-      } else {
-        const client = await pool.connect();
-        try {
-          await client.query('BEGIN');
-          await client.query(sql);
-          await client.query('COMMIT');
-          results.push({ file, status: 'ok', message: 'Applied' });
-        } catch (e: unknown) {
-          await client.query('ROLLBACK');
-          const msg = e instanceof Error ? e.message : String(e);
-          if (isAlreadyExistsError(msg)) {
-            results.push({ file, status: 'skip', message: 'Already exists' });
-          } else {
-            results.push({ file, status: 'error', message: msg.slice(0, 200) });
-          }
-        } finally {
-          client.release();
-        }
-      }
-    }
-
-    const errors = results.filter(r => r.status === 'error').length;
-    return NextResponse.json({
-      success: errors === 0,
-      dry_run: dryRun,
-      pending: pending.length,
-      results,
-      summary: {
-        ok: results.filter(r => r.status === 'ok').length,
-        skip: results.filter(r => r.status === 'skip').length,
-        error: errors,
-      },
-    }, { status: errors > 0 ? 400 : 200 });
-
-  } catch (err: unknown) {
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 }
-    );
-  }
+// AUTH: заглушка ничего не читает и не пишет — проверять права не у чего;
+// Edge (middleware.ts) по-прежнему пускает к /api/admin/* только админа.
+export async function POST() {
+  return NextResponse.json(
+    { success: false, error: MIGRATIONS_DEPLOY_ONLY, status_url: '/api/admin/migrations/status' },
+    { status: 410 },
+  );
 }
