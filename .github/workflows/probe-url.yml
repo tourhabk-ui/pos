@@ -97,6 +97,17 @@ jobs:
           # половину — открыты ли заголовки, по которым решается докачка.
           RANGE=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('range', ''))")
           ORIGIN=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('origin', ''))")
+          # Отпечаток тела (15.10): чей снимок стоит у места, по тексту пробы не
+          # узнать — байты картинки в вывод не помещаются. sha256 сличается с
+          # ключом снимка владельца (migrations/photos/<sha256>.jpg), а `file`
+          # называет формат и размер кадра. Дефолт — выключено: прежние пробы
+          # не меняются.
+          HASH=$(python3 -c "import json; print('1' if json.load(open('.github/triggers/probe-url.json')).get('hash') else '')")
+          # Тело целиком в base64 — только для маленьких ответов (уменьшенная
+          # копия снимка): чтобы сличить кадр глазами, когда байты не совпадают
+          # (админская загрузка пережимает снимок). Потолок 40 000 байт держит
+          # вывод в лимите check-run (65 535 символов на всю пробу).
+          B64=$(python3 -c "import json; print('1' if json.load(open('.github/triggers/probe-url.json')).get('b64') else '')")
           # Повтор при 404/502/000: проба сразу после мержа обгоняет сборку
           # Timeweb и снимает СТАРЫЙ прод. Так уже вышло 10.08 с переписью
           # вердиктов — 404 через 17 секунд после пуша. Ждать «на глаз» перед
@@ -289,6 +300,17 @@ jobs:
               echo "  Маркеры и счётчики не считались — их отсутствие ничего не говорит о содержимом."
               echo ""
               return 0
+            fi
+            if [ -n "$HASH" ]; then
+              echo "sha256: $(sha256sum /tmp/body | cut -c1-64)"
+              echo "file: $(file -b /tmp/body | cut -c1-200)"
+            fi
+            if [ -n "$B64" ]; then
+              if [ "$(wc -c < /tmp/body)" -le 40000 ]; then
+                echo "base64: $(base64 -w0 /tmp/body)"
+              else
+                echo "base64: не выводится — тело больше 40 000 байт"
+              fi
             fi
             # Заголовки ответа: часть поведения задаётся не нашим кодом, а
             # прокси перед ним. Например Permissions-Policy может выключить
