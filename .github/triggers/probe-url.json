@@ -1,15 +1,13 @@
 {
   "timeout": 120,
-  "run": 931,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Два кандидата Викисклада, похожих на главный кадр вулкана Вилючинский (лист проб 929–930: №35 panoramio и №43 вид с Вилючинского перевала) и третий для контроля — уменьшенные копии 360 px в base64 и метаданные файлов (автор, лицензия, дата). Конфиг записан целиком.",
+  "run": 932,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Ещё два кандидата Викисклада на главный кадр вулкана Вилючинский (№43 вид с Вилючинского перевала — в пробе 931 обрезан лимитом вывода, №34 на закате), уменьшенные копии 360 px в base64. Конфиг записан целиком.",
   "urls": [
-    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25B8%25D0%25B9_%25D0%25B2%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD_-_panoramio.jpg&w=360&q=70&output=jpg",
     "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%2592%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD_%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25B8%25D0%25B9._%25D0%2592%25D0%25B8%25D0%25B4_%25D1%2581_%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25BE%25D0%25B3%25D0%25BE_%25D0%25BF%25D0%25B5%25D1%2580%25D0%25B5%25D0%25B2%25D0%25B0%25D0%25BB%25D0%25B0.jpg&w=360&q=70&output=jpg",
-    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25B8%25D0%25B9_%25D0%25B2%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD.jpg&w=360&q=70&output=jpg",
-    "https://commons.wikimedia.org/w/api.php?action=query&format=json&titles=File%3A%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9+%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD+-+panoramio.jpg%7CFile%3A%D0%92%D1%83%D0%BB%D0%BA%D0%B0%D0%BD+%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9.+%D0%92%D0%B8%D0%B4+%D1%81+%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+%D0%BF%D0%B5%D1%80%D0%B5%D0%B2%D0%B0%D0%BB%D0%B0.jpg%7CFile%3A%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9+%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD.jpg&prop=imageinfo&iiprop=url%7Csize%7Cuser%7Ctimestamp%7Cextmetadata&iiextmetadatafilter=Artist%7CLicenseShortName%7CDateTimeOriginal%7CImageDescription"
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25B8%25D0%25B9_%25D0%25B2%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD_%25D0%25BD%25D0%25B0_%25D0%25B7%25D0%25B0%25D0%25BA%25D0%25B0%25D1%2582%25D0%25B5.jpg&w=360&q=70&output=jpg"
   ],
   "b64": true,
-  "bytes": 6000,
+  "bytes": 1,
   "allowStale": true,
   "retries": 1,
   "retryDelay": 10
