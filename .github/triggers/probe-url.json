@@ -1,25 +1,36 @@
 {
-  "timeout": 60,
-  "run": 947,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Режим мест по ILIKE (169/170): поимённо места, чьи правила 1273 сняла как шаблон, — род, пропуск, адрес пропуска (place-eco-census, template_zone_places); жив ли адрес пропуска kamchatkaparks.ru из 169; сводка отзывов места на проде (reviewsSummary, выкат 8f9110e5). Ждёт выката по ключу template_zone_places. Конфиг записан целиком.",
+  "timeout": 30,
+  "run": 948,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Режим мест по ILIKE 169/170, продолжение 947: полный список (947 обрезал на восьмом), координаты, район и описание каждого места — для сверки с границами заповедника и парков; живы ли страницы разрешения kronoki.ru (прежняя /visit/ и нынешняя /ru/visit/requests/). 947 упёрся в kamchatkaparks.ru: код 000 все 59 попыток. Повторов два — выкат уже есть. Конфиг записан целиком.",
   "urls": [
     "https://vedarai.ru/api/cron/place-eco-census",
-    "https://kamchatkaparks.ru/",
-    "https://vedarai.ru/api/places/fa3653ac-3cd5-4d24-a611-ff7a75859be1"
+    "https://vedarai.ru/api/places/5957e702-652f-4c8f-8fbd-96b5625272e0",
+    "https://vedarai.ru/api/places/796c18b3-e199-4ac6-bbd6-de50d560ff40",
+    "https://vedarai.ru/api/places/f4fa9a04-a746-491e-871c-bcef3725f7d0",
+    "https://vedarai.ru/api/places/44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+    "https://vedarai.ru/api/places/0cc4d973-2ffc-4939-9179-3f9980f78dd3",
+    "https://vedarai.ru/api/places/a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+    "https://vedarai.ru/api/places/4dbbbef6-100b-46fa-8721-41ed9fe377a4",
+    "https://vedarai.ru/api/places/d9cc68bc-6b56-4746-b123-e87d9b7c6c35",
+    "https://vedarai.ru/api/places/9c5b9b5c-c989-4d1c-a8f4-50fbacdc4447",
+    "https://kronoki.ru/visit/",
+    "https://kronoki.ru/ru/visit/requests/"
   ],
   "until": "\"template_zone_places\"",
-  "retries": 60,
-  "retryDelay": 45,
+  "retries": 2,
+  "retryDelay": 20,
   "grep": [
     "\"template_zone_places\"",
-    "\"reviewsSummary\"",
+    "\"locationType\"",
     "<title"
   ],
   "around": [
     "\"template_zone_places\"",
+    "\"locationType\"",
+    "\"description\"",
     "<title"
   ],
-  "aroundLines": 40,
+  "aroundLines": 60,
   "aroundHits": 1,
-  "bytes": 600
+  "bytes": 300
 }
