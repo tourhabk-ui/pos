@@ -1,16 +1,34 @@
 {
   "timeout": 60,
-  "run": 957,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись режима: поимённый список видимых мест без записанного режима (regime_unrecorded — 161 «нет» из массовой простановки 170 и 98 «не записано») с точками — для сверки с контурами охраняемых территорий OSM следующей пробой. Ждёт выката d486b8f4 по ключу regime_unrecorded. Конфиг записан целиком.",
+  "run": 958,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Партия 3 памятников природы края (перепись по схеме парков): карточки платформы по именам (place-audit) и статьи Википедии с координатами — Паланское, Ксудач, Ходуткинские, Арка Стеллера, Костакан, Двухюрточное, Карымское, Ледяная, Арий Камень, Богослова, Илиргытгын, Потатгытгын, Сейнав. Идёт рядом с пробой 957. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/cron/place-eco-census"
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D1%81%D1%83%D0%B4%D0%B0%D1%87",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%A5%D0%BE%D0%B4%D1%83%D1%82%D0%BA",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%A1%D1%82%D0%B5%D0%BB%D0%BB%D0%B5%D1%80",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D0%BE%D1%81%D1%82%D0%B0%D0%BA%D0%B0%D0%BD",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%9A%D0%B0%D1%80%D1%8B%D0%BC%D1%81%D0%BA",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%9B%D0%B5%D0%B4%D1%8F%D0%BD",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%94%D0%B2%D1%83%D1%85%D1%8E%D1%80%D1%82",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%91%D0%BE%D0%B3%D0%BE%D1%81%D0%BB%D0%BE%D0%B2",
+    "https://vedarai.ru/api/cron/place-audit?q=%D0%90%D1%80%D0%B8%D0%B9",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=coordinates&titles=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5%7C%D0%9A%D1%81%D1%83%D0%B4%D0%B0%D1%87%7C%D0%A5%D0%BE%D0%B4%D1%83%D1%82%D0%BA%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B5%20%D0%B3%D0%BE%D1%80%D1%8F%D1%87%D0%B8%D0%B5%20%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8%7C%D0%90%D1%80%D0%BA%D0%B0%20%D0%A1%D1%82%D0%B5%D0%BB%D0%BB%D0%B5%D1%80%D0%B0%7C%D0%9A%D0%BE%D1%81%D1%82%D0%B0%D0%BA%D0%B0%D0%BD%20%28%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%29%7C%D0%94%D0%B2%D1%83%D1%85%D1%8E%D1%80%D1%82%D0%BE%D1%87%D0%BD%D0%BE%D0%B5%7C%D0%9A%D0%B0%D1%80%D1%8B%D0%BC%D1%81%D0%BA%D0%BE%D0%B5%20%28%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%29%7C%D0%9B%D0%B5%D0%B4%D1%8F%D0%BD%D0%B0%D1%8F%20%28%D0%B3%D0%BE%D1%80%D0%B0%29%7C%D0%90%D1%80%D0%B8%D0%B9%20%D0%9A%D0%B0%D0%BC%D0%B5%D0%BD%D1%8C%7C%D0%9E%D1%81%D1%82%D1%80%D0%BE%D0%B2%20%D0%91%D0%BE%D0%B3%D0%BE%D1%81%D0%BB%D0%BE%D0%B2%D0%B0%20%28%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D1%8F%29%7C%D0%98%D0%BB%D0%B8%D1%80%D0%B3%D1%8B%D1%82%D0%B3%D1%8B%D0%BD%20%28%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%20%D0%B2%20%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D0%B8%D0%B8%29%7C%D0%9F%D0%BE%D1%82%D0%B0%D1%82%D0%B3%D1%8B%D1%82%D0%B3%D1%8B%D0%BD%7C%D0%A1%D0%B5%D0%B9%D0%BD%D0%B0%D0%B2",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D1%81%D1%83%D0%B4%D0%B0%D1%87",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%A5%D0%BE%D0%B4%D1%83%D1%82%D0%BA%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B5%20%D0%B3%D0%BE%D1%80%D1%8F%D1%87%D0%B8%D0%B5%20%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%90%D1%80%D0%BA%D0%B0%20%D0%A1%D1%82%D0%B5%D0%BB%D0%BB%D0%B5%D1%80%D0%B0",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D0%BE%D1%81%D1%82%D0%B0%D0%BA%D0%B0%D0%BD%20%28%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%29",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%94%D0%B2%D1%83%D1%85%D1%8E%D1%80%D1%82%D0%BE%D1%87%D0%BD%D0%BE%D0%B5",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9A%D0%B0%D1%80%D1%8B%D0%BC%D1%81%D0%BA%D0%BE%D0%B5%20%28%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%29",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9B%D0%B5%D0%B4%D1%8F%D0%BD%D0%B0%D1%8F%20%28%D0%B3%D0%BE%D1%80%D0%B0%29",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%90%D1%80%D0%B8%D0%B9%20%D0%9A%D0%B0%D0%BC%D0%B5%D0%BD%D1%8C",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9E%D1%81%D1%82%D1%80%D0%BE%D0%B2%20%D0%91%D0%BE%D0%B3%D0%BE%D1%81%D0%BB%D0%BE%D0%B2%D0%B0%20%28%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D1%8F%29",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%98%D0%BB%D0%B8%D1%80%D0%B3%D1%8B%D1%82%D0%B3%D1%8B%D0%BD%20%28%D0%BE%D0%B7%D0%B5%D1%80%D0%BE%20%D0%B2%20%D0%9A%D0%BE%D1%80%D1%8F%D0%BA%D0%B8%D0%B8%29",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%9F%D0%BE%D1%82%D0%B0%D1%82%D0%B3%D1%8B%D1%82%D0%B3%D1%8B%D0%BD",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=%D0%A1%D0%B5%D0%B9%D0%BD%D0%B0%D0%B2"
   ],
-  "until": "\"regime_unrecorded\"",
-  "retries": 70,
-  "retryDelay": 45,
-  "grep": [
-    "\"regime_unrecorded\"",
-    "\"truncated\":false"
-  ],
-  "bytes": 45000
+  "retries": 2,
+  "retryDelay": 10,
+  "bytes": 9000
 }
