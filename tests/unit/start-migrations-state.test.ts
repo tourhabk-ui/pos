@@ -72,9 +72,9 @@ describe('правило start.js: исход наката', () => {
     expect(o).toEqual({ state: 'failed', reason: 'file_failed', file: '1300_tour_access.sql', sqlstate: '42703', failed_count: 2, at: AT });
   });
 
-  it('отказ базы до файлов — failed fatal с SQLSTATE', () => {
+  it('отказ базы до файлов — unknown fatal с SQLSTATE: отстаёт ли схема, не известно', () => {
     expect(migrationsOutcome(null, { phase: 'fatal', sqlstate: '28P01' }, AT))
-      .toMatchObject({ state: 'failed', reason: 'fatal', sqlstate: '28P01', file: null });
+      .toMatchObject({ state: 'unknown', reason: 'fatal', sqlstate: '28P01', file: null });
   });
 
   it('последнее слово «начинаю файл» при коде 0 — оборвался на нём', () => {

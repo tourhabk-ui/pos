@@ -75,6 +75,13 @@ describe('находка health-крона', () => {
     expect(u?.text).toMatch(/неизвестен \(not_recorded\)/);
     expect(startupMigrationsIssue(parseStartupMigrationsState(JSON.stringify({ state: 'ok', reason: 'applied', at: AT })))).toBeNull();
   });
+
+  it('раннер не достучался до базы — WARN «не знаю», а не CRIT «схема отстаёт» (ревью A08)', () => {
+    const f = startupMigrationsIssue(parseStartupMigrationsState(JSON.stringify({ state: 'unknown', reason: 'fatal', sqlstate: '28P01', at: AT })));
+    expect(f?.level).toBe('warn');
+    expect(f?.text).toMatch(/не достучался до базы \(SQLSTATE 28P01\)/);
+    expect(f?.text).not.toMatch(/отстаёт от кода:/);
+  });
 });
 
 // ── Проводка: настоящий GET крона ────────────────────────────────────────

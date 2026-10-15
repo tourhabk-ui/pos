@@ -81,7 +81,6 @@ function failureDetail(m: StartupMigrationsState): string {
   switch (m.reason) {
     case 'file_failed': return `упала миграция ${file}${code}${more}`;
     case 'timeout': return `накат не уложился в MIGRATE_TIMEOUT_MS и оборван (стоял на ${file})`;
-    case 'fatal': return `раннер не дошёл до файлов${code}`;
     case 'interrupted': return `раннер оборвался на ${file}`;
     default: return `раннер завершился аварийно (${m.reason}), файл: ${file}${code}`;
   }
@@ -103,9 +102,12 @@ export function startupMigrationsIssue(
     };
   }
   if (m.state === 'unknown') {
+    const why = m.reason === 'fatal'
+      ? `раннер миграций не достучался до базы${m.sqlstate ? ` (SQLSTATE ${m.sqlstate})` : ''} и до файлов не дошёл`
+      : 'start.js не получил отчёта раннера';
     return {
       level: 'warn',
-      text: `Исход наката миграций при старте контейнера неизвестен (${m.reason})${when}: start.js не получил отчёта раннера, и отстаёт ли схема от кода, health сказать не может`,
+      text: `Исход наката миграций при старте контейнера неизвестен (${m.reason})${when}: ${why}, и отстаёт ли схема от кода, health сказать не может`,
     };
   }
   return null;

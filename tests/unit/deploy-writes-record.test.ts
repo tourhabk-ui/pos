@@ -374,7 +374,7 @@ describe('сверка отдаёт в выход то, что доказала,
 // признаётся: записи нет, шаг красный. «Не узнали» — не провал.
 describe('сверка не признаёт выкат со схемой, отстающей от кода', { timeout: 60_000 }, () => {
   const verify = stepByName(job, VERIFY);
-  const env = () => stepEnv(verify, ctx({ ask: { ordered_at: String(NEED + 900) } }));
+  const env = (gate = 'block') => ({ ...stepEnv(verify, ctx({ ask: { ordered_at: String(NEED + 900) } })), MIGRATIONS_GATE: gate });
   // Функция, а не объект: C1 и NEED заполняет beforeAll, после сбора describe.
   const confirmed = () => ({ 'app.json': app(C1), 'served.json': served(C1, NEED + 1000) });
   const health = (migrations: unknown) => JSON.stringify({ status: 'ok', next: { state: 'running' }, migrations });
@@ -394,6 +394,17 @@ describe('сверка не признаёт выкат со схемой, от�
     const rec = stepByName(job, RECORD);
     const w = runStep(rec, stepEnv(rec, ctx({ [verify.id!]: r.outputs })), {});
     expect(w.gh).toEqual([]);
+  });
+
+  it('гейт в режиме warn (так он заведён): failed — ::error словами, но запись пишется', () => {
+    expect(verify.env?.MIGRATIONS_GATE).toBe('warn');
+    const r = runStep(verify, env('warn'), {
+      ...confirmed(),
+      'health.json': health({ state: 'failed', reason: 'file_failed', file: '1300_tour_access.sql', sqlstate: '42703', failed_count: 1 }),
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(new RegExp(`::error::Схема отстаёт от кода на выкате ${C1.slice(0, 7)}: .*1300_tour_access\\.sql, SQLSTATE 42703.*Запись выката пишется`));
+    expect(r.outputs.deployed_sha).toBe(C1);
   });
 
   it('failed без файла (раннер упал без отчёта) — тоже красный, файл «неизвестно»', () => {

@@ -259,7 +259,11 @@ function migrationsOutcome(exec, report, at) {
     if (r.errors === 0) return { ...out, state: 'ok', reason: 'applied', failed_count: 0 };
     return { ...out, state: 'failed', reason: 'file_failed', file: first ? cleanFile(first.file) : null, sqlstate: first ? cleanSqlstate(first.sqlstate) : null, failed_count: r.errors };
   }
-  if (phase === 'fatal') return { ...out, state: 'failed', reason: 'fatal', sqlstate: cleanSqlstate(r.sqlstate) };
+  // Раннер не дошёл до базы — до файлов не дошло, и отстаёт ли схема, не
+  // известно: неприменённых миграций могло не быть вовсе. Это «не знаю», а не
+  // «схема отстаёт» (§4.0; ревью A08): иначе выкат без единой новой миграции
+  // назывался бы отстающим, а тревога — ложной.
+  if (phase === 'fatal') return { ...out, state: 'unknown', reason: 'fatal', sqlstate: cleanSqlstate(r.sqlstate) };
   // Вышел кодом 0, а последнее слово — «начинаю файл»: до итога не дошёл.
   if (phase === 'running') return { ...out, state: 'failed', reason: 'interrupted', file: cleanFile(r.file) };
   if (phase === 'skipped') return { ...out, reason: r.reason === 'no_database_url' ? 'no_database_url' : 'skipped' };

@@ -254,6 +254,13 @@ jobs:
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           # Время нашего заказа сборки (epoch); пусто — сборку не заказывали.
           ORDERED_AT: ${{ steps.ask.outputs.ordered_at }}
+          # Гейт схемы (аудит 15.10, A08): warn — отказ наката называется
+          # ::error, но запись выката пишется; block — выкат не признаётся.
+          # Включается двумя шагами: пока прод ни разу не назвал
+          # migrations.state, постоянно падающая старая миграция заперла бы
+          # КАЖДЫЙ выкат и все ожидания по записи разом. block — после того,
+          # как prod-check увидит на проде migrations.state = ok.
+          MIGRATIONS_GATE: warn
         run: |
           # 29.07: 175477 отдавал 404. Настоящий id получен из GET /api/v1/apps
           # (name=Tourhab). Проверка статуса деплоя была мертва из-за константы.
@@ -611,10 +618,13 @@ jobs:
                 echo "Миграции этого образа при старте применены (migrations.state=ok)."
                 ;;
               failed)
-                echo "deployed_sha=" >> "$GITHUB_OUTPUT"
-                echo "confirmed_by=migrations_failed" >> "$GITHUB_OUTPUT"
-                echo "::error::Выкат ${DEPLOYED_SHA:0:7} не признан: при старте контейнера накат миграций не завершён (reason=$MIG_REASON, файл $MIG_FILE, SQLSTATE $MIG_SQLSTATE). Сервер работает на прежней схеме — код этого коммита ждёт колонок, которых нет. Запись выката не пишется. Текст ошибки — в логе сборки Timeweb и в _migration_failures (/hub/admin/migrations); починка — миграцией вперёд и новым выкатом."
-                exit 1
+                if [ "${MIGRATIONS_GATE:-warn}" = "block" ]; then
+                  echo "deployed_sha=" >> "$GITHUB_OUTPUT"
+                  echo "confirmed_by=migrations_failed" >> "$GITHUB_OUTPUT"
+                  echo "::error::Выкат ${DEPLOYED_SHA:0:7} не признан: при старте контейнера накат миграций не завершён (reason=$MIG_REASON, файл $MIG_FILE, SQLSTATE $MIG_SQLSTATE). Сервер работает на прежней схеме — код этого коммита ждёт колонок, которых нет. Запись выката не пишется. Текст ошибки — в логе сборки Timeweb и в _migration_failures (/hub/admin/migrations); починка — миграцией вперёд и новым выкатом."
+                  exit 1
+                fi
+                echo "::error::Схема отстаёт от кода на выкате ${DEPLOYED_SHA:0:7}: при старте контейнера накат миграций не завершён (reason=$MIG_REASON, файл $MIG_FILE, SQLSTATE $MIG_SQLSTATE). Запись выката пишется: гейт в режиме warn до первого замера migrations.state на проде (MIGRATIONS_GATE: block — запрет). Текст ошибки — в логе сборки Timeweb и в _migration_failures (/hub/admin/migrations)."
                 ;;
               unknown)
                 echo "::warning::Исход наката миграций на проде неизвестен (migrations.state=unknown, reason=$MIG_REASON): отстаёт ли схема, start.js не узнал. Запись выката пишется — коммит на проде доказан сверкой; схему проверит health-крон."
