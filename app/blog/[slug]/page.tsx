@@ -5,7 +5,7 @@ import { ArrowLeft, Calendar, Tag } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
-import { STATIC_ARTICLES } from '@/app/blog/page';
+import { SHOWN_STATIC_ARTICLES } from '@/app/blog/page';
 import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -67,7 +67,7 @@ function renderMarkdown(text: string): string {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const article = STATIC_ARTICLES.find(a => a.slug === slug);
+  const article = SHOWN_STATIC_ARTICLES.find(a => a.slug === slug);
   if (article) {
     return {
       title: article.title,
@@ -81,7 +81,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
 
-  const staticArticle = STATIC_ARTICLES.find(a => a.slug === slug);
+  // Снятая с показа статья здесь не находится и падает дальше, к дайджестам,
+  // где её адреса нет, — честный 404, а не текст без источника.
+  const staticArticle = SHOWN_STATIC_ARTICLES.find(a => a.slug === slug);
 
   if (staticArticle) {
     return (

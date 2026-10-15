@@ -446,14 +446,16 @@ describe('статья «Южно-Камчатский заказник»', () =
     expect(all).not.toMatch(/присвоен/);
   });
 
-  it('страница: главный кадр партнёра с подписью, цитата Крашенинникова, переходы', async () => {
+  it('страница: главный кадр владельца с подписью, цитата Крашенинникова, переходы', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Южно-Камчатский заказник');
     const img = screen.getByRole('img', { name: article.hero!.alt });
-    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/yuzhno-kamchatskij-zakaznik/kraj-vulkanov-tablichka-kurilskoe-ozero.jpg');
+    expect(img.getAttribute('src')).toContain('/api/images/s3/photos/yuzhno-kamchatskij-zakaznik/vladelec-kurilskoe-ozero.jpg');
     const figure = img.closest('figure')!;
-    expect(within(figure).getByRole('link', { name: 'Край Вулканов' }).getAttribute('href')).toBe('https://vedarai.ru/operators/volcanoesland');
-    expect(figure.textContent).toMatch(/Край Вулканов · с разрешения туроператора/);
+    // Снимок партнёра «Край Вулканов» снят до его согласия (1265) — ни
+    // подписи им, ни ссылки на него.
+    expect(figure.textContent?.trim()).toBe('Бурый медведь с медвежонком на берегу Курильского озера. Фото: владелец платформы');
+    expect(figure.querySelectorAll('a')).toHaveLength(0);
     expect(text()).toMatch(/С\. П\. Крашенинников, «Описание земли Камчатки»/);
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });
     expect(within(nav).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(

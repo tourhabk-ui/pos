@@ -133,4 +133,21 @@ describe('писатель не заполняет снятое описание
     // Места (1247) — по-прежнему.
     expect(pick).toMatch(/w\.ark_id = agent_route_knowledge\.id\s+AND w\.description_withdrawn IS NOT NULL/);
   });
+
+  it('маршрутам писатель не пишет вовсе: ни в очередь, ни в счёт остатка (15.10)', async () => {
+    // Одна строка в партии: при пустой счёт остатка не спрашивается. Модель
+    // отвечает null (мок выше) — запись не случается, счёт остатка идёт.
+    poolQuery.mockImplementation(async (sql: string) => {
+      if (/COUNT\(\*\) as cnt/.test(sql)) return { rows: [{ cnt: '0' }] };
+      if (/SELECT id, title/.test(sql)) {
+        return { rows: [{ id: 'p1', title: 'Озеро Тестовое', description: null, category: null, location_type: 'lake', activity_type: null, lat: null, lng: null, payload: {} }] };
+      }
+      return { rows: [] };
+    });
+    await enrichDescriptions(20, false, false);
+    const sqls = poolQuery.mock.calls.map((c) => String(c[0]));
+    const pick = sqls.find((s) => /SELECT id, title/.test(s)) ?? '';
+    const remaining = sqls.find((s) => /COUNT\(\*\) as cnt/.test(s)) ?? '';
+    for (const s of [pick, remaining]) expect(s).toMatch(/AND kind = 'place'/);
+  });
 });

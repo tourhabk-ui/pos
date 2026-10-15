@@ -3,7 +3,9 @@
  * POST /api/admin/enrich-routes — пакетное обогащение
  *   body: { mode?: 'description' | 'payload'; batch?: number; force?: boolean; dryRun?: boolean }
  *
- * mode=description — генерирует текстовые описания для маршрутов без/с короткими описаниями
+ * mode=description — текстовые описания МЕСТ без описания или с коротким. Маршрутам
+ *                    не пишет с 15.10: по одному названию у маршрута выходит догадка
+ *                    (см. PLACES_ONLY ниже); их описание — паспорт или источник.
  * mode=payload    — генерирует duration_days, season, difficulty и т.д.
  *
  * Цены НЕ генерируются: цена — критичный факт, а критичные факты только из
@@ -177,6 +179,20 @@ const NOT_WITHDRAWN = `NOT EXISTS (
          AND wr.description_withdrawn IS NOT NULL
     )`;
 
+/**
+ * Маршрутам этот писатель описаний не пишет вовсе (15.10, карт-бланш
+ * владельца после «5 скрой»). О маршруте он знает только название и тип, а
+ * маршрут — инструкция (§10): длина, набор, опасности, точки пути. Текст по
+ * названию для маршрута — догадка ровно того сорта, что 1261 сняла со 155
+ * карточек; и за 14–15.10 он успел написать по названию ещё пять, уже после
+ * проверки «сверх данных», — проверка ловит выдуманные числа и имена, но не
+ * пустоту. Описание маршрута пишется по паспорту или источнику
+ * (import-route-passports, visitkamchatka), а не моделью по названию. Места
+ * остаются: их очередь — enrich-places и этот писатель с проверкой после
+ * модели.
+ */
+const PLACES_ONLY = `kind = 'place'`;
+
 export async function enrichDescriptions(batchSize: number, force: boolean, dryRun: boolean) {
   const condition = force
     ? `(description IS NULL OR LENGTH(description) < 300)`
@@ -195,6 +211,7 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
            COALESCE(payload, '{}'::jsonb) as payload
     FROM agent_route_knowledge
     WHERE is_visible = true AND LENGTH(title) >= 4 AND ${condition}
+      AND ${PLACES_ONLY}
       AND ${NOT_WITHDRAWN}
     ORDER BY CASE WHEN description IS NULL THEN 0 ELSE 1 END, random()
     LIMIT $1
@@ -261,6 +278,7 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
     `SELECT COUNT(*) as cnt FROM agent_route_knowledge
      WHERE is_visible = true AND LENGTH(title) >= 4
        AND (description IS NULL OR description = '' OR LENGTH(description) < 300)
+       AND ${PLACES_ONLY}
        AND ${NOT_WITHDRAWN}`,
   );
 
