@@ -28,6 +28,8 @@ const requireAuthMock = vi.fn();
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: (...args: unknown[]) => requireAuthMock(...args),
 }));
+// Уведомление о заявке уходит админу всегда (аудит 15.10, A13) — наружу не ходим.
+vi.mock('@/lib/notifications/gear-rental', () => ({ notifyNewGearRental: vi.fn(async () => undefined) }));
 
 import { PUT as putItem, DELETE as deleteItem } from '@/app/api/gear/items/[id]/route';
 import { PATCH as patchRental } from '@/app/api/gear/rentals/[id]/route';
@@ -134,6 +136,10 @@ describe('PATCH /api/gear/rentals/[id]', () => {
       }
       if (sql.includes('UPDATE gear_rentals')) return Promise.resolve({ rows: [{ id: RENTAL_ID }] });
       if (sql.includes('UPDATE gear_items')) return Promise.resolve({ rows: [] });
+      // Подтверждение заявки перепроверяет занятость под ключом позиции (A13).
+      if (sql.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
+      if (sql.includes('SELECT quantity FROM gear_items')) return Promise.resolve({ rows: [{ quantity: 3 }] });
+      if (sql.includes('peak_rented')) return Promise.resolve({ rows: [{ peak_rented: '0' }] });
       throw new Error('unexpected SQL: ' + sql);
     });
   }
@@ -252,20 +258,26 @@ describe('GET /api/gear/rentals', () => {
 });
 
 describe('POST /api/gear/rentals', () => {
-  const mockHappyPath = () => {
-    queryMock.mockImplementation((sql: string) => {
-      if (sql.includes('SELECT name, quantity')) {
-        return Promise.resolve({
-          rows: [{
-            name: 'Палатка', quantity: 3, price_per_day: '500', price_per_week: null,
-            price_per_month: null, insurance_cost_per_day: null, partner_id: null,
-          }],
-        });
-      }
-      if (sql.includes('peak_rented')) return Promise.resolve({ rows: [{ peak_rented: '0' }] });
+  const GEAR_ROW = {
+    name: 'Палатка', quantity: 3, price_per_day: '500', price_per_week: null,
+    price_per_month: null, insurance_cost_per_day: null, partner_id: null,
+  };
+  // Пик и вставка — в транзакции под блокировкой (аудит 15.10, A13).
+  const mockTx = (peak: string) => {
+    clientQueryMock.mockImplementation((sql: string) => {
+      if (sql.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
+      if (sql.includes('open_requests')) return Promise.resolve({ rows: [{ open_requests: 0 }] });
+      if (sql.includes('peak_rented')) return Promise.resolve({ rows: [{ peak_rented: peak }] });
       if (sql.includes('INSERT INTO gear_rentals')) return Promise.resolve({ rows: [{ id: RENTAL_ID }] });
       throw new Error('unexpected SQL: ' + sql);
     });
+  };
+  const mockHappyPath = () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('FROM gear_items gi')) return Promise.resolve({ rows: [GEAR_ROW] });
+      throw new Error('unexpected SQL: ' + sql);
+    });
+    mockTx('0');
   };
 
   it('позиция читается из gear_items, доступность — по пересечению дат', async () => {
@@ -275,13 +287,14 @@ describe('POST /api/gear/rentals', () => {
       gearId: ITEM_ID,
       customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
       rental: { startDate: '2099-08-01', endDate: '2099-08-04', quantity: 1 },
+      pd_consent: true,
     }));
     expect(res.status).toBe(200);
 
-    const [gearSql] = queryMock.mock.calls.find(([sql]) => String(sql).includes('SELECT name, quantity'))!;
-    expect(gearSql).toContain('FROM gear_items');
+    const [gearSql] = queryMock.mock.calls.find(([sql]) => String(sql).includes('FROM gear_items gi'))!;
+    expect(gearSql).toContain("gi.moderation_status = 'approved'");
 
-    const [overlapSql] = queryMock.mock.calls.find(([sql]) => String(sql).includes('peak_rented'))!;
+    const [overlapSql] = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('peak_rented'))!;
     expect(overlapSql).toContain('generate_series');
     expect(overlapSql).toContain('gear_rentals');
   });
@@ -292,29 +305,21 @@ describe('POST /api/gear/rentals', () => {
       gearId: ITEM_ID,
       customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
       rental: { startDate: '2099-08-04', endDate: '2099-08-01', quantity: 1 },
+      pd_consent: true,
     }));
     expect(res.status).toBe(400);
     expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('занятые даты — 409 с честным остатком', async () => {
-    queryMock.mockImplementation((sql: string) => {
-      if (sql.includes('SELECT name, quantity')) {
-        return Promise.resolve({
-          rows: [{
-            name: 'Палатка', quantity: 3, price_per_day: '500', price_per_week: null,
-            price_per_month: null, insurance_cost_per_day: null, partner_id: null,
-          }],
-        });
-      }
-      if (sql.includes('peak_rented')) return Promise.resolve({ rows: [{ peak_rented: '3' }] });
-      throw new Error('unexpected SQL: ' + sql);
-    });
+    mockHappyPath();
+    mockTx('3');
 
     const res = await postRental(jsonReq('http://localhost/api/gear/rentals', 'POST', {
       gearId: ITEM_ID,
       customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
       rental: { startDate: '2099-08-01', endDate: '2099-08-04', quantity: 1 },
+      pd_consent: true,
     }));
     expect(res.status).toBe(409);
   });
@@ -325,6 +330,7 @@ describe('POST /api/gear/rentals', () => {
       gearId: ITEM_ID,
       customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
       rental: { startDate: '2099-08-01', endDate: '2099-08-04', quantity: 1, insurance: true },
+      pd_consent: true,
     }));
     expect(res.status).toBe(400);
   });

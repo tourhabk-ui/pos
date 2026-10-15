@@ -5,6 +5,7 @@
 
 import { query } from '@/lib/database';
 import { publicGearSql } from '@/lib/gear/moderation';
+import { holdsGearSql } from '@/lib/gear/availability';
 
 /**
  * Get partner ID for a gear rental user
@@ -296,7 +297,9 @@ export async function findAvailableGear(
     
     // Доступность по датам — честно, из пересечения живых аренд, а не из
     // календаря gear_availability, который никто не заполнял (проверка по нему
-    // была вечным «всё свободно»). Позиция скрывается, если в КАЖДЫЙ из дней
+    // была вечным «всё свободно»). Кто держит единицу — та же формула, что у
+    // заявки (lib/gear/availability, аудит 15.10 A13): заявка без ответа —
+    // только 48 часов. Позиция скрывается, если в КАЖДЫЙ из дней
     // окна пик занятых единиц выбирает весь сток... точнее: если есть хотя бы
     // один день, где занят весь сток, — позицию не предлагаем на эти даты.
     if (startDate && endDate) {
@@ -306,7 +309,7 @@ export async function findAvailableGear(
           FROM generate_series($${paramIndex}::date, $${paramIndex + 1}::date - 1, '1 day') AS d(day)
           JOIN gear_rentals gr
             ON gr.gear_id = gi.id
-           AND gr.status IN ('pending', 'confirmed', 'active', 'overdue')
+           AND ${holdsGearSql('gr')}
            AND gr.start_date <= d.day
            AND gr.end_date > d.day
           GROUP BY d.day

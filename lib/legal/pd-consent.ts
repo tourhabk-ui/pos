@@ -47,13 +47,25 @@ export const PD_CONSENT_CARRIER_TEXT =
   'Согласен на обработку персональных данных и их передачу перевозчику для связи по заявке';
 export const PD_CONSENT_CARRIER_VERSION = '2026-10-13-carrier';
 
-/** Кому передаются данные по заявке: туроператору (по умолчанию), владельцу жилья или перевозчику. */
-export type PdConsentPurpose = 'operator' | 'stay' | 'carrier';
+/**
+ * Вариант для заявки на аренду снаряжения (аудит 15.10, находка A13): имя,
+ * телефон и почта уходят прокату — партнёру платформы, а не туроператору.
+ * До 15.10 форма проката не спрашивала согласия вовсе, и данные вошедшего
+ * уходили прокату без текста, называющего получателя (то же правило, что
+ * 08.10, 10.10 и 13.10).
+ */
+export const PD_CONSENT_GEAR_TEXT =
+  'Согласен на обработку персональных данных и их передачу прокату снаряжения для связи по заявке';
+export const PD_CONSENT_GEAR_VERSION = '2026-10-15-gear';
+
+/** Кому передаются данные по заявке: туроператору (по умолчанию), владельцу жилья, перевозчику или прокату снаряжения. */
+export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear';
 
 /** Текст и версия согласия для цели заявки — единственный выбор между ними. */
 export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
   if (purpose === 'stay') return { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION };
   if (purpose === 'carrier') return { text: PD_CONSENT_CARRIER_TEXT, version: PD_CONSENT_CARRIER_VERSION };
+  if (purpose === 'gear') return { text: PD_CONSENT_GEAR_TEXT, version: PD_CONSENT_GEAR_VERSION };
   return { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
 }
 

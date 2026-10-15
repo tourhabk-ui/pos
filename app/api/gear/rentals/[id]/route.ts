@@ -5,6 +5,8 @@ import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { verifyGearRentalOwnership } from '@/lib/auth/gear-helpers';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { gearPeakSql, GEAR_PENDING_HOLD_HOURS } from '@/lib/gear/availability';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +35,12 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
  * Инвентарные эффекты:
  *   → active: available_quantity уменьшается, rental_count растёт (снаряжение выдано)
  *   → completed: available_quantity возвращается, total_revenue растёт (снаряжение возвращено)
+ *
+ * Подтверждение заявки перепроверяет занятость (аудит 15.10, A13): заявка
+ * держит единицу только 48 часов (lib/gear/availability), и за это время
+ * единицу могла занять чужая заявка. Перепроверка — под тем же ключом
+ * позиции, что и новая заявка (POST /api/gear/rentals), иначе подтверждение
+ * и новая заявка разошлись бы на последней единице.
  */
 export async function PATCH(
   request: NextRequest,
@@ -75,7 +83,8 @@ export async function PATCH(
 
     const outcome = await transaction(async (client) => {
       const rentalResult = await client.query(
-        `SELECT id, gear_id, quantity, total_price, status
+        `SELECT id, gear_id, quantity, total_price, status,
+                start_date::text AS start_date, end_date::text AS end_date
          FROM gear_rentals
          WHERE id = $1
          FOR UPDATE`,
@@ -89,11 +98,29 @@ export async function PATCH(
       const rental = rentalResult.rows[0] as {
         id: string; gear_id: string; quantity: number;
         total_price: string; status: string;
+        start_date: string; end_date: string;
       };
 
       const allowed = ALLOWED_TRANSITIONS[rental.status] ?? [];
       if (!allowed.includes(nextStatus)) {
         return { code: 422 as const, currentStatus: rental.status };
+      }
+
+      if (rental.status === 'pending' && nextStatus === 'confirmed') {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1::text))`, [rental.gear_id]);
+        const stock = await client.query<{ quantity: number }>(
+          `SELECT quantity FROM gear_items WHERE id = $1`,
+          [rental.gear_id]
+        );
+        const peak = await client.query<{ peak_rented: string }>(
+          gearPeakSql({ gear: '$1', start: '$2::date', endExclusive: '$3::date', excludeRental: '$4' }),
+          [rental.gear_id, rental.start_date, rental.end_date, rental.id]
+        );
+        const peakRented = parseInt(peak.rows[0]?.peak_rented ?? '0', 10);
+        const total = Number(stock.rows[0]?.quantity ?? 0);
+        if (peakRented + Number(rental.quantity) > total) {
+          return { code: 409 as const, free: Math.max(0, total - peakRented) };
+        }
       }
 
       const updated = await client.query(
@@ -131,6 +158,19 @@ export async function PATCH(
       );
     }
 
+    if (outcome.code === 409) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: (outcome.free > 0
+            ? `На даты этой заявки свободно только ${outcome.free} шт. — подтвердить её целиком нельзя. `
+            : 'На даты этой заявки снаряжение уже занято — подтвердить её нельзя. ')
+            + `Заявка без ответа держит снаряжение ${GEAR_PENDING_HOLD_HOURS} часов, потом его могут взять другие.`,
+        } as ApiResponse<null>,
+        { status: 409 }
+      );
+    }
+
     if (outcome.code === 422) {
       return NextResponse.json(
         {
@@ -155,6 +195,7 @@ export async function PATCH(
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    logSwallowedFailure('gear-rentals', 'смена статуса аренды', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка при обновлении статуса аренды' } as ApiResponse<null>,
       { status: 500 }
