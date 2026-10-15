@@ -7,14 +7,30 @@
  * отсюда — разъехаться физически не могут.
  */
 
-/** operator_bookings.booking_status — реальные значения в БД. */
+/**
+ * operator_bookings.booking_status — ЕДИНЫЙ словарь (аудит 15.10, A11).
+ *
+ * До этой правки словарей было два, и они расходились: здесь стоял `rejected`
+ * без `no_show`, в `types/booking.types.ts` — `no_show` без `rejected`.
+ * Админка фильтровала по одному, переходы статусов строились по другому.
+ * Теперь `types/booking.types.ts` берёт и тип, и список отсюда.
+ *
+ * Состав — по производителю (правило 10.09): Zod-схема ручной правки статуса
+ * оператором (`app/api/hub/operator/bookings/[id]/route.ts`, она и ставит
+ * `no_show`), создание брони (`lib/bookings/reserve.ts`) и платёжный путь
+ * (`pending_payment`). У `rejected` писателя нет — он остаётся только в
+ * защитных WHERE (`FREEING_BOOKING_STATUSES` в lib/bookings/occupancy.ts), где
+ * лишнее значение безвредно. Есть ли на проде строки вне словаря — отвечает
+ * перепись `GET /api/cron/booking-status-census`; CHECK на колонку —
+ * следующий шаг, после её замера, не раньше.
+ */
 export const BOOKING_STATUSES = [
   'new',
   'confirmed',
   'pending_payment',
   'completed',
   'cancelled',
-  'rejected',
+  'no_show',
 ] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 

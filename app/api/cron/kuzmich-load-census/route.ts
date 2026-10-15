@@ -30,6 +30,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { KUZMICH_ANSWER_ACTION } from '@/lib/kuzmich/answer-ceiling';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
   const days = clampInt(request.nextUrl.searchParams.get('days'), 30, 1, 365);
 
   // Интервал — параметром с приведением, не конкатенацией (sql-interval-not-concatenated).
-  const [telegramMax, telegramMaxDaily, web, llm, llmUntrackedModels] = await Promise.all([
+  const [telegramMax, telegramMaxDaily, web, llm, llmUntrackedModels, answerTime] = await Promise.all([
     // Telegram и MAX через общий мозг lib/kuzmich/core.ts (saveMsg).
     section('tg_conversations', async () => {
       const { rows } = await pool.query<{
@@ -116,7 +117,8 @@ export async function GET(request: NextRequest) {
       return rows;
     }),
 
-    // Веб, виджет и второй вход Telegram (/api/telegram/webhook) пишут сюда.
+    // Веб и виджет пишут сюда. Оба входа Telegram с TG-BRAIN (15.10) пишут
+    // историю в tg_conversations через общий мозг, а не сюда.
     // Канала в таблице нет — различить их по ней нельзя, и это сказано ниже.
     section('chat_sessions', async () => {
       const { rows } = await pool.query<{
@@ -188,9 +190,41 @@ export async function GET(request: NextRequest) {
       );
       return rows;
     }),
+
+    // Сколько человек ждёт ответа (аудит 15.10, A19): замер пишет
+    // lib/kuzmich/answer-timing на четырёх поверхностях. По p95 отсюда
+    // потолок цикла (KUZMICH_ANSWER_CEILING_MS) снижается после недели данных.
+    section('время ответа', async () => {
+      const { rows } = await pool.query<{
+        surface: string | null; path: string | null; answers: number;
+        p50_ms: number | null; p95_ms: number | null; max_ms: number | null;
+        avg_turns: number | null; ceiling_hits: number;
+      }>(
+        `SELECT metadata->>'surface'                                                  AS surface,
+                metadata->>'path'                                                     AS path,
+                COUNT(*)::int                                                         AS answers,
+                percentile_cont(0.5)  WITHIN GROUP (ORDER BY (metadata->>'elapsed_ms')::float8) AS p50_ms,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY (metadata->>'elapsed_ms')::float8) AS p95_ms,
+                MAX((metadata->>'elapsed_ms')::float8)                                AS max_ms,
+                AVG((metadata->>'turns')::float8)                                     AS avg_turns,
+                COUNT(*) FILTER (WHERE (metadata->>'ceiling_hit')::boolean)::int     AS ceiling_hits
+           FROM ai_actions_log
+          WHERE action_type = $2
+            AND created_at > NOW() - ($1::int * INTERVAL '1 day')
+          GROUP BY 1, 2
+          ORDER BY answers DESC`,
+        [days, KUZMICH_ANSWER_ACTION],
+      );
+      // NULL — своим именем: «путь не записан» не равно «цикл».
+      return rows.map((r) => ({
+        ...r,
+        surface: r.surface ?? '(поверхность не записана)',
+        path: r.path ?? '(путь не записан)',
+      }));
+    }),
   ]);
 
-  const sections = { telegram_max: telegramMax, telegram_max_daily: telegramMaxDaily, web, llm, llm_untracked_models: llmUntrackedModels };
+  const sections = { telegram_max: telegramMax, telegram_max_daily: telegramMaxDaily, web, llm, llm_untracked_models: llmUntrackedModels, answer_time: answerTime };
   const refused = Object.entries(sections).filter(([, s]) => s.refused).map(([k]) => k);
 
   return NextResponse.json(
@@ -203,7 +237,8 @@ export async function GET(request: NextRequest) {
       caveats: [
         'Расход без agent_id — ВЕРХНЯЯ граница расхода Кузьмича, а не его расход: живые запросы Кузьмича пишутся без agent_id вместе со всем прочим, что зовёт модель без трекинга (lib/ai/providers.ts, logLLMUsage).',
         'chat_sessions.user_message_count — счётчик за всю жизнь сессии; сессия, обновлённая в окне, несёт и сообщения до окна. Это оценка сверху.',
-        'chat_sessions не различает канал: туда пишут веб-чат, виджет и /api/telegram/webhook. Какой из двух входов Telegram живой — видно по тому, в какой таблице есть строки.',
+        'chat_sessions не различает канал: туда пишут веб-чат и виджет. Оба входа Telegram с 15.10 (TG-BRAIN) пишут в tg_conversations; строки tg_ в chat_sessions — история до перевода (миграция 1287 скопировала её туда).',
+        'Время ответа (answer_time) пишется с 15.10 (аудит A19): строк меньше, чем обращений, за дни до замера. Нет строк — замер ещё не накопился, а не «ответы мгновенные». Агент брони веб-чата ходов не считает: turns у него null и в среднее не входит.',
         `«Короткое» — мера длины (не длиннее ${SHORT_MESSAGE_MAX_CHARS} знаков), а не намерения. Доли простых вопросов перепись не считает: единственная запись об инструментах (agent_knowledge, type=outcome) смещена фильтром по ключевым словам и по баллу.`,
       ],
     },

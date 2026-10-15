@@ -35,6 +35,17 @@ function parseTourId(raw: string): bigint | null {
   }
 }
 
+/**
+ * Главное место тура не принято: такого места нет, оно скрыто или слито в
+ * другое. Отказ клиенту (400), а не сбой: выбрать можно только живое место
+ * справочника (аудит 15.10, TOUR-PLACE).
+ */
+class MainPlaceRejected extends Error {
+  constructor() {
+    super('Главное место не найдено в справочнике мест или скрыто — выберите место из списка');
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -177,6 +188,22 @@ export async function PATCH(
       values.push(pinnedInput);
     }
 
+    // Главное место тура (1286, аудит 15.10 TOUR-PLACE). Форма шлёт поле
+    // целиком при каждом сохранении, поэтому пишем только ПЕРЕМЕНУ: иначе
+    // связь, поставленная миграцией по координатам, при любой правке цены
+    // выдавала бы себя за выбор оператора, а место, скрытое позже, не давало
+    // бы сохранить тур вовсе. Новое место проверяется в транзакции ниже:
+    // только существующее, видимое и не слитое.
+    const mainPlaceInput = (input as Record<string, unknown>).main_place_id as string | null | undefined;
+    const currentMainPlace = ((tour as Record<string, unknown>).main_place_id as string | null | undefined) ?? null;
+    const mainPlaceChange = mainPlaceInput !== undefined && mainPlaceInput !== currentMainPlace;
+    if (mainPlaceChange) {
+      fields.push(`main_place_id = $${idx++}::text`);
+      values.push(mainPlaceInput);
+      fields.push(`main_place_source = $${idx++}::text`);
+      values.push(mainPlaceInput === null ? null : 'operator');
+    }
+
     if (fields.length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
@@ -189,6 +216,16 @@ export async function PATCH(
     // считал, что не сохранилось НИЧЕГО, хотя цена/название уже применились
     // (аудит кабинета оператора).
     const updatedRow = await transaction(async (client) => {
+      if (mainPlaceChange && mainPlaceInput !== null) {
+        const place = await client.query(
+          `SELECT id FROM places
+            WHERE id = $1 AND is_visible = TRUE AND merged_into_id IS NULL
+            FOR SHARE`,
+          [mainPlaceInput],
+        );
+        if (place.rows.length === 0) throw new MainPlaceRejected();
+      }
+
       const result = await client.query(
         `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
          WHERE id = $${idx} AND deleted_at IS NULL
@@ -213,6 +250,9 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, data: updatedRow });
   } catch (error) {
+    if (error instanceof MainPlaceRejected) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Не удалось прочитать запрос: тело не является корректным JSON' }, { status: 400 });
     }

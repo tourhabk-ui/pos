@@ -39,7 +39,8 @@ export const dynamic = 'force-dynamic';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: ZH_PAGE.title,
+  // absolute: «Vedar（维达尔）» уже в строке; шаблон layout дописал бы « | Ведар».
+  title: { absolute: ZH_PAGE.title },
   description: ZH_PAGE.description,
   alternates: {
     canonical: `${SITE}/zh`,

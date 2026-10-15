@@ -74,10 +74,12 @@ type Token =
 
 /**
  * Функции, которые сторож умеет вычислять. `contains` нужен условию свипера
- * CI (`!contains(head_commit.message, '[ci-sweep]')`); прочие бросают — так же,
- * как раньше бросали все.
+ * CI (`!contains(head_commit.message, '[ci-sweep]')`); функции статуса —
+ * шагу учёта расхода руки (`always() && steps.hand.outcome != 'skipped'`,
+ * аудит 15.10, AC-1). Прочие бросают — так же, как раньше бросали все.
  */
-const FUNCTIONS = new Set(['contains']);
+const STATUS_FUNCTIONS = new Set(['always', 'success', 'failure', 'cancelled']);
+const FUNCTIONS = new Set(['contains', ...STATUS_FUNCTIONS]);
 
 function tokenize(src: string): Token[] {
   const out: Token[] = [];
@@ -166,12 +168,23 @@ function asString(v: Value): string {
  * contains(search, item): у массива — есть ли элемент, равный item; у строки —
  * подстрока без учёта регистра (документация GitHub, «Expressions → contains»).
  */
-function callFunction(name: string, args: Value[], src: string): Value {
+function callFunction(name: string, args: Value[], src: string, ctx: Record<string, unknown>): Value {
   if (name === 'contains') {
     if (args.length !== 2) throw new Error(`contains ждёт два аргумента: ${src}`);
     const [search, item] = args;
     if (Array.isArray(search)) return search.some((x) => looseEq(x as Value, item));
     return asString(search).toLowerCase().includes(asString(item).toLowerCase());
+  }
+  if (STATUS_FUNCTIONS.has(name)) {
+    if (args.length !== 0) throw new Error(`${name} аргументов не принимает: ${src}`);
+    if (name === 'always') return true;
+    // Статус работы — контекст `job.status` (success / failure / cancelled).
+    // Не задан — проигрыватель идёт без отказов (бросает на первом упавшем
+    // шаге), то есть работа пока успешна.
+    const status = asString(lookup(ctx, 'job.status')) || 'success';
+    if (name === 'success') return status === 'success';
+    if (name === 'failure') return status === 'failure';
+    return status === 'cancelled';
   }
   throw new Error(`функция ${name} не поддержана сторожем: ${src}`);
 }
@@ -206,7 +219,7 @@ export function evalExpr(expr: string, ctx: Record<string, unknown>): Value {
       }
       if (!isOp(')')) throw new Error(`нет закрывающей скобки у ${tk.v}: ${src}`);
       p++;
-      return callFunction(tk.v, args, src);
+      return callFunction(tk.v, args, src, ctx);
     }
     throw new Error(`неожиданный оператор «${tk.v}»: ${src}`);
   }

@@ -92,10 +92,12 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
+// Свой update_id на каждый апдейт: вебхук пропускает повтор того же id.
+let tgUpdateId = 1;
 const tgUpdate = (text: string, chat: { id: number; type: string } = { id: 4242, type: 'private' }) =>
   new NextRequest('http://localhost/api/telegram/webhook', {
     method: 'POST',
-    body: JSON.stringify({ update_id: 1, message: { message_id: 1, from: { id: chat.id, first_name: 'Анна' }, chat, text } }),
+    body: JSON.stringify({ update_id: tgUpdateId++, message: { message_id: 1, from: { id: chat.id, first_name: 'Анна' }, chat, text } }),
   });
 
 describe('Telegram: /start om_', () => {

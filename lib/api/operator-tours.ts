@@ -97,6 +97,12 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   pickup_details:      z.string().trim().max(1000).nullable().optional(),
   /** Закрепить наверху страницы оператора (1267): true — закрепить, false — снять. */
   pinned:              z.boolean().optional(),
+  /**
+   * Главное место тура (1286, аудит 15.10 TOUR-PLACE): places.id, выбранный
+   * в кабинете из справочника; null — снять связь. Свободного текста нет:
+   * что это живое место, проверяет роут запросом к places.
+   */
+  main_place_id:       z.string().trim().min(1).max(100).nullable().optional(),
 });
 
 export const AddAvailabilitySchema = z.object({
@@ -178,12 +184,15 @@ export async function getToursByOperator(
 }
 
 export async function getTourById(tourId: bigint) {
+  // Имя главного места (1286) — чтобы форма правки показала выбранное
+  // словами, а не голым id; NULL — связи нет или место удалено.
   const result = await query(
     `SELECT t.*,
       COALESCE(
         (SELECT json_agg(tag ORDER BY tag) FROM operator_tour_tags WHERE tour_id = t.id),
         '[]'::json
-      ) as tags
+      ) as tags,
+      (SELECT pl.name FROM places pl WHERE pl.id = t.main_place_id) AS main_place_name
     FROM operator_tours t
     WHERE t.id = $1 AND t.deleted_at IS NULL LIMIT 1`,
     [tourId]

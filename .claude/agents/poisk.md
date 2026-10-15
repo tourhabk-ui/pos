@@ -47,4 +47,4 @@ model: sonnet
 - Пул БД импортируется именованным: `import { pool } from '@/lib/db-pool'`.
 - Сторожа лежат в `tests/unit/`, миграции в `migrations/NNN_name.sql`,
   cron-роуты в `app/api/cron/`.
-- Правила проекта — `CLAUDE.md`, детали — `.claude/MEMORY.md`.
+- Правила проекта — `CLAUDE.md`, вход в устройство — `docs/DEVELOPER_GUIDE.md`, заметки — `.claude/MEMORY.md`.

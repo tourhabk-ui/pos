@@ -6,6 +6,8 @@
 import { NextResponse } from 'next/server';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { processMemoryMb } from '@/lib/observability/process-memory';
+import { embeddingModelStatus } from '@/lib/ai/semantic-search-state';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -47,8 +49,13 @@ function readDeployMarker(): DeployMarker {
 }
 
 // AUTH: Public — infra/utility endpoint for load balancer health checks
+//
+// На проде голый /api/health отвечает прокси start.js (его процесс, не Next);
+// сюда, в Next, доходит адрес с любым запросом после «?» — prod-check читает
+// память и модель как https://vedarai.ru/api/health?process=1.
 export async function GET() {
   const deploy = readDeployMarker();
+  const model = embeddingModelStatus();
   return NextResponse.json({
     status: 'ok',
     service: 'kamchatour-hub',
@@ -62,5 +69,11 @@ export async function GET() {
     build_time: deploy.built_at,
     commit: deploy.commit,
     build_marker: deploy.reason,
+    // Память процесса Next и локальная модель поиска по смыслу (аудит 15.10,
+    // A21): решать, держать ли модель в веб-процессе на 4 ГБ, — по этим
+    // числам. Текста ошибки загрузки здесь нет: роут открыт всем, причина —
+    // в /api/cron/health за CRON_SECRET.
+    memory: processMemoryMb(),
+    semantic_search: { enabled: model.enabled, model: model.state, since: model.since, load_ms: model.load_ms },
   });
 }

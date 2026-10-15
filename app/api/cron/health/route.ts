@@ -26,6 +26,8 @@ import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { parseStartupMigrationsState, startupMigrationsIssue } from '@/lib/agents/migration-startup-state';
+import { processMemoryMb } from '@/lib/observability/process-memory';
+import { embeddingModelStatus } from '@/lib/ai/semantic-search-state';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -779,6 +781,12 @@ export async function GET(request: NextRequest) {
     timeweb_agent_diag: timewebDiag,
     safety_ingest_age_min: seismic.ageMin,
     migrations: startupMigrations,
+    // Память процесса Next и модель поиска по смыслу (аудит 15.10, A21).
+    // Тревоги не заводят — это замер: cron-health.yml печатает тело каждый
+    // час, и ряд rss_mb за сезон ляжет в логи прогонов. Решение по модели —
+    // в апреле, по этим числам (2.11).
+    process_memory: processMemoryMb(),
+    semantic_search: embeddingModelStatus(),
     eco_ledger: eco,
     issues,
   });

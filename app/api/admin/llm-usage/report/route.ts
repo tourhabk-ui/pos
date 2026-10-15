@@ -26,6 +26,15 @@
  * утверждением звонящего о собственных расходах — а книги для того и нужны,
  * чтобы такие утверждения проверять. Клиент присылает только то, что знает
  * провайдер: имя модели и токены.
+ *
+ * Кэш подсказок (аудит 15.10, AC-1). «Руки» — claude-code-action — шлют сюда
+ * ещё и запись в кэш и чтение из него: по разбору счёта (CLAUDE.md §5.1) кэш —
+ * 70% денег Anthropic, и без него книги занизили бы расход рук в разы. Оба
+ * поля необязательны: прежние звонящие их не шлют, и их строки считаются как
+ * раньше, а колонки кэша остаются NULL — «не сообщали», не ноль. Цену кэша
+ * считает тоже сервер: множители вендора — `lib/ai/cache-pricing.ts`.
+ * `total_tokens` по-прежнему вход + выход (смысл колонки с миграции 686), кэш
+ * лежит в своих колонках (миграция 1285).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,6 +43,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { resolveCostUsd } from '@/lib/ai/providers';
+import { inputEquivalentTokens } from '@/lib/ai/cache-pricing';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +52,15 @@ const UsageRow = z.object({
   model: z.string().min(1).max(200),
   prompt_tokens: z.number().int().min(0).max(50_000_000),
   completion_tokens: z.number().int().min(0).max(50_000_000),
-  /** Кто потратил: `evo-judge`, `evo-review`. Не знаем — null, не выдумка. */
+  /**
+   * Кэш подсказок (руки, аудит 15.10 AC-1). Необязательны: нет поля или null —
+   * источник не сообщил, в книгах NULL. Потолок шире, чем у входа: прогон руки
+   * перечитывает свой контекст на каждом ходу, и чтение кэша за прогон — это
+   * миллионы токенов. Верх — в пределах INTEGER колонки.
+   */
+  cache_creation_tokens: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
+  cache_read_tokens: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
+  /** Кто потратил: `evo-judge`, `evo-review`, руки — имя своего workflow. Не знаем — null, не выдумка. */
   agent_id: z.string().min(1).max(100).nullable().optional(),
 });
 
@@ -71,24 +89,43 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   let written = 0;
   let unknownCost = 0;
+  // Сумма ЗНАЕМЫХ цен записанного — для сверки на стороне звонящего (руки
+  // печатают её рядом с заявлением экшена). Строки с неизвестной ценой сюда
+  // не входят и названы отдельно — unknown_cost.
+  let knownCostUsd = 0;
   const failed: string[] = [];
 
   for (const row of body.rows) {
     const total = row.prompt_tokens + row.completion_tokens;
+    const cacheCreation = row.cache_creation_tokens ?? null;
+    const cacheRead = row.cache_read_tokens ?? null;
     // Нулевой расход не пишем: строка без токенов — не трата, а шум в книгах.
-    if (total === 0) continue;
+    // Строка из одного кэша — трата: чтение кэша оплачивается.
+    if (total === 0 && (cacheCreation ?? 0) === 0 && (cacheRead ?? 0) === 0) continue;
 
-    const { cost, basis } = await resolveCostUsd(row.model, row.prompt_tokens, row.completion_tokens);
+    // Кэш — во входо-эквиваленте: его цена — доля цены входа, и считает её тот
+    // же источник цен, что и вход. null — множителей вендора не знаем, и цена
+    // строки честно неизвестна, а не посчитана без кэша.
+    const promptEquivalent = inputEquivalentTokens(row.model, row.prompt_tokens, {
+      creation: cacheCreation,
+      read: cacheRead,
+    });
+    const { cost, basis } = promptEquivalent === null
+      ? { cost: null, basis: 'unknown' as const }
+      : await resolveCostUsd(row.model, promptEquivalent, row.completion_tokens);
     if (cost === null) unknownCost += 1;
 
     try {
       await pool.query(
         `INSERT INTO llm_usage_log
-           (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id, created_at)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())`,
-        [row.model, row.prompt_tokens, row.completion_tokens, total, cost, basis, row.agent_id ?? null],
+           (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id,
+            cache_creation_tokens, cache_read_tokens, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+        [row.model, row.prompt_tokens, row.completion_tokens, total, cost, basis, row.agent_id ?? null,
+          cacheCreation, cacheRead],
       );
       written += 1;
+      if (cost !== null) knownCostUsd += cost;
     } catch (e) {
       // Отказ не глушится (§4.0): «не записали» не равно «не тратили», и
       // звонящий обязан узнать, что его расход в книги НЕ попал.
@@ -108,5 +145,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     failed: failed.length,
     failed_models: failed.slice(0, 20),
     unknown_cost: unknownCost,
+    cost_usd_known: Math.round(knownCostUsd * 1e6) / 1e6,
   }, { status });
 }

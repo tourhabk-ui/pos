@@ -123,6 +123,10 @@ export const HELD_ELSEWHERE: Record<string, string> = {
   'app/api/auth/': 'свой аккаунт: профиль и пароль',
   'app/api/kamchatka-routes/': 'публичный каталог маршрутов',
   'app/api/telegram/connect/': 'свой Telegram аккаунта (users.telegram_id)',
+  // Ровно файл списка, не весь префикс: выбор главного места тура (TOUR-PLACE)
+  // ищет по публичному справочнику мест — только чтение, без ПД; сама запись
+  // связи проверяет место в PATCH /api/hub/operator/tours/[id].
+  'app/api/places/route.ts': 'публичный справочник мест (поиск главного места тура)',
 };
 
 export const ROOT = process.cwd();

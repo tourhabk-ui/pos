@@ -1,0 +1,123 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "sess-fixture",
+    "model": "claude-hand-model",
+    "cwd": "/home/runner/work/pos/pos",
+    "tools": ["Bash", "Read", "Glob", "Grep"],
+    "permissionMode": "default"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "id": "msg_fixture_01",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-hand-model",
+      "content": [{ "type": "text", "text": "Читаю CLAUDE.md." }],
+      "stop_reason": null,
+      "usage": {
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 40000,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3,
+        "service_tier": "standard",
+        "cache_creation": { "ephemeral_5m_input_tokens": 40000, "ephemeral_1h_input_tokens": 0 }
+      }
+    },
+    "parent_tool_use_id": null,
+    "session_id": "sess-fixture"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "id": "msg_fixture_01",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-hand-model",
+      "content": [{ "type": "tool_use", "id": "toolu_fixture_1", "name": "Read", "input": { "file_path": "CLAUDE.md" } }],
+      "stop_reason": "tool_use",
+      "usage": {
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 40000,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 95,
+        "service_tier": "standard",
+        "cache_creation": { "ephemeral_5m_input_tokens": 40000, "ephemeral_1h_input_tokens": 0 }
+      }
+    },
+    "parent_tool_use_id": null,
+    "session_id": "sess-fixture"
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [{ "type": "tool_result", "tool_use_id": "toolu_fixture_1", "content": "# KamchatourHub — Claude Code Rules" }]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "sess-fixture"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "id": "msg_fixture_02",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-hand-model",
+      "content": [{ "type": "text", "text": "Разметил тикет: type-infra, size-S." }],
+      "stop_reason": "end_turn",
+      "usage": {
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 5000,
+        "cache_read_input_tokens": 40000,
+        "output_tokens": 400,
+        "service_tier": "standard",
+        "cache_creation": { "ephemeral_5m_input_tokens": 5000, "ephemeral_1h_input_tokens": 0 }
+      }
+    },
+    "parent_tool_use_id": null,
+    "session_id": "sess-fixture"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "duration_ms": 61234,
+    "duration_api_ms": 58000,
+    "num_turns": 2,
+    "result": "Разметил тикет: type-infra, size-S.",
+    "session_id": "sess-fixture",
+    "total_cost_usd": 0.4,
+    "usage": {
+      "input_tokens": 20,
+      "cache_creation_input_tokens": 45000,
+      "cache_read_input_tokens": 40000,
+      "output_tokens": 495
+    },
+    "modelUsage": {
+      "claude-hand-model": {
+        "inputTokens": 20,
+        "outputTokens": 495,
+        "cacheReadInputTokens": 40000,
+        "cacheCreationInputTokens": 45000,
+        "webSearchRequests": 0,
+        "costUSD": 0.35,
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000
+      },
+      "claude-helper-model": {
+        "inputTokens": 900,
+        "outputTokens": 40,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.05,
+        "contextWindow": 200000,
+        "maxOutputTokens": 8192
+      }
+    },
+    "permission_denials": []
+  }
+]

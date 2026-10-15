@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
+import { noteSemanticSearchOff, semanticSearchEnabled } from '@/lib/ai/semantic-search-state';
 import { getRouteSearchCache, setRouteSearchCache } from '@/lib/ai/route-knowledge';
 import { lineGradeForList, type PassportGrade } from '@/lib/routes/passport';
 
@@ -107,7 +108,12 @@ export async function GET(req: NextRequest) {
   // маршрут не смог найти Вачкажец»). ILIKE теперь считается ВСЕГДА,
   // семантика лишь дополняет его тем, чего нет среди точных совпадений.
   let semanticGraded: Array<RouteRow & { line_grade: PassportGrade; similarity?: number }> = [];
-  if (rawQ.length >= 3) {
+  // Флаг SEMANTIC_SEARCH выключен (аудит 15.10, A21) — модель не трогаем,
+  // ответ идёт по одному ILIKE и говорит это полем semantic_search.
+  const semanticOn = semanticSearchEnabled();
+  const offMark = semanticOn ? {} : { semantic_search: 'disabled' as const };
+  if (rawQ.length >= 3 && !semanticOn) noteSemanticSearchOff('routes/search');
+  if (rawQ.length >= 3 && semanticOn) {
     try {
       const t0 = Date.now();
       const semanticResults = await semanticSearch(rawQ, 15);
@@ -201,7 +207,7 @@ export async function GET(req: NextRequest) {
       // часть, которую кэш и должен избавить от повтора.
       setRouteSearchCache(rawQ, { routes: merged, semantic });
     }
-    return NextResponse.json({ routes: merged, semantic });
+    return NextResponse.json({ routes: merged, semantic, ...offMark });
   } catch (err) {
     // В поле лучше пустой список, чем 500 — UI покажет «ничего не нашлось».
     // Если ILIKE упал, но семантика успела что-то найти — лучше отдать её,
@@ -210,6 +216,6 @@ export async function GET(req: NextRequest) {
     if (semanticGraded.length > 0) {
       return NextResponse.json({ routes: semanticGraded.slice(0, 15), semantic: true });
     }
-    return NextResponse.json({ routes: [], semantic: false });
+    return NextResponse.json({ routes: [], semantic: false, ...offMark });
   }
 }

@@ -22,6 +22,7 @@ import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { getSetting } from '@/lib/platform-settings';
 import { stripTags } from '@/lib/html/text';
+import { sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
 import { handleMemberStart } from '@/lib/operators/member-channel';
 import { statusTokenFromStart, touristBindReplyText } from '@/lib/seat-requests/core';
@@ -45,28 +46,6 @@ async function botToken(): Promise<string> {
   if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
   if (!_cachedToken) _cachedToken = await getSetting('telegram_bot_token');
   return _cachedToken ?? '';
-}
-
-/** Strip emoji codepoints (emoticons, symbols, flags, etc.) */
-function stripEmoji(s: string): string {
-  return s.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/\s{2,}/g, ' ');
-}
-
-/** Convert leftover markdown to Telegram-safe HTML, strip unsupported syntax */
-function sanitizeForTelegram(raw: string): string {
-  let t = raw;
-  // **bold** or __bold__ → <b>bold</b>
-  t = t.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  t = t.replace(/__(.+?)__/g, '<b>$1</b>');
-  // *italic* → <i>italic</i> (but not bullet-list asterisks)
-  t = t.replace(/(?<!\n)\*(?!\s)(.+?)(?<!\s)\*/g, '<i>$1</i>');
-  // Remove leftover markdown artifacts: # headers, * bullet, ``` code blocks
-  t = t.replace(/^#{1,6}\s+/gm, '');
-  t = t.replace(/^[\*\-]\s+/gm, '- ');
-  t = t.replace(/```[\s\S]*?```/g, '');
-  // Strip emojis
-  t = stripEmoji(t);
-  return t.trim();
 }
 
 async function tgReply(chatId: number, text: string, extra?: Record<string, unknown>): Promise<void> {

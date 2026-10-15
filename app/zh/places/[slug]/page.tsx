@@ -47,7 +47,7 @@ const load = cache(async (slug: string) => {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const data = await load(slug);
-  if (!data) return { title: '未找到地点', robots: { index: false, follow: false } };
+  if (!data) return { title: { absolute: '未找到地点｜Vedar' }, robots: { index: false, follow: false } };
   const { place, zhName, translations } = data;
   const desc = readField(ZH_PLACE_FIELDS.description, place.description, translations, 'description');
   const name = zhName?.name ?? `${place.name}${ZH_DETAIL.ruName}`;
@@ -57,7 +57,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const indexable = zhPlaceIndexable(place, translations);
   const ruCard = `${SITE}${ruPlacePath(place)}`;
   return {
-    title: `${name}｜堪察加地点（中文摘要）｜Vedar`,
+    // absolute: бренд Vedar уже в строке, а шаблон корневого layout дописал бы
+    // русское « | Ведар» к китайскому заголовку (prod-check 137).
+    title: { absolute: `${name}｜堪察加地点（中文摘要）｜Vedar` },
     description: zhDesc,
     alternates: {
       canonical: self,

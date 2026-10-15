@@ -27,6 +27,8 @@ import { loadWorkflow, evalIf, evalTemplate, type WorkflowStep } from '../helper
 const sweeper = loadWorkflow('.github/workflows/ci-sweeper.yml');
 const job = sweeper.jobs['sweep'];
 const AGENT_STEP = 'Run Claude sweeper';
+const REDUCE_STEP = 'Выжимка расхода руки — одни счётчики';
+const UPLOAD_STEP = 'Счётчики расхода руки — к учёту';
 
 const REPO = 'tourhabk-ui/pos';
 const RUN_ID = 1000;
@@ -132,16 +134,24 @@ function simulate(o: Opts): Sim {
   if (o.runsFail) writeFileSync(join(fake, 'runs-fail'), '1');
   if (o.commitFail) writeFileSync(join(fake, 'commit-fail'), '1');
 
-  const steps: Record<string, { outputs: Record<string, string> }> = {};
+  const steps: Record<string, { outputs: Record<string, string>; outcome?: string }> = {};
   const ran: string[] = [];
   let out = '';
   const jobRuns = evalIf(job.if, ctx(o, steps));
   if (jobRuns) {
     for (const step of (job.steps ?? []) as Array<WorkflowStep & { id?: string }>) {
       const c = ctx(o, steps);
-      if (!evalIf(step.if, c)) continue;
+      // Исход шага — как у GitHub: пропущенный шаг виден следующим как
+      // `skipped` (по нему решает шаг учёта расхода руки, аудит 15.10 AC-1).
+      if (!evalIf(step.if, c)) {
+        if (step.id) steps[step.id] = { outputs: {}, outcome: 'skipped' };
+        continue;
+      }
       ran.push(step.name ?? step.uses ?? '?');
-      if (!step.run) continue; // checkout и экшен агента не исполняются — важно, что до них дошло
+      if (!step.run) { // checkout и экшен агента не исполняются — важно, что до них дошло
+        if (step.id) steps[step.id] = { outputs: {}, outcome: 'success' };
+        continue;
+      }
       const outFile = join(fake, `out-${ran.length}`);
       writeFileSync(outFile, '');
       const env: Record<string, string> = {
@@ -163,7 +173,7 @@ function simulate(o: Opts): Sim {
         out += `${e.stdout ?? ''}${e.stderr ?? ''}`;
         throw new Error(`шаг «${step.name}» упал: ${out}`);
       }
-      if (step.id) steps[step.id] = { outputs: parseOutput(readFileSync(outFile, 'utf-8')) };
+      if (step.id) steps[step.id] = { outputs: parseOutput(readFileSync(outFile, 'utf-8')), outcome: 'success' };
     }
   }
   const ghLog = join(fake, 'gh.log');
@@ -190,6 +200,9 @@ describe('красный main, следом прогон более свежег
       expect(s.jobRuns).toBe(true);
       expect(s.ran, 'агент свипера на красном прогоне, который решит более свежий').not.toContain(AGENT_STEP);
       expect(s.ran, 'и checkout не нужен').not.toContain('Checkout failing branch');
+      // Агент не звался — и файла выполнения ждать неоткуда.
+      expect(s.ran).not.toContain(REDUCE_STEP);
+      expect(s.ran).not.toContain(UPLOAD_STEP);
       expect(s.out).toMatch(/он и решит/);
     });
   }
@@ -207,6 +220,11 @@ describe('красный main, более свежего прогона нет',
   it('коммит с кодом — агент зовётся, как раньше', () => {
     const s = simulate({ runs: [ourRun] });
     expect(s.ran).toContain(AGENT_STEP);
+    // Агент звался — выжимка его расхода (одни счётчики, не транскрипт)
+    // собирается и уезжает к учёту (аудит 15.10, AC-1). Шаг выжимки исполнен
+    // настоящим bash: файла выполнения в проигрыше нет, и он выходит чисто.
+    expect(s.ran.indexOf(REDUCE_STEP)).toBeGreaterThan(s.ran.indexOf(AGENT_STEP));
+    expect(s.ran.indexOf(UPLOAD_STEP)).toBeGreaterThan(s.ran.indexOf(REDUCE_STEP));
   });
 
   it('прогоны старше нашего не решают за нас', () => {

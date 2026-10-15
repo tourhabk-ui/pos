@@ -48,6 +48,7 @@ import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { getPublicBaseUrl } from '@/lib/config';
 import { logText } from '@/lib/log/log-text';
+import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import {
   buildWidgetSystemPrompt,
@@ -226,6 +227,10 @@ export async function POST(request: NextRequest) {
       { role: 'user', content: widgetUserContent(history, message) },
     ];
 
+    // Замер ответа (аудит 15.10, A19): цикла инструментов у виджета нет —
+    // один вызов модели водопадом, значит и ход один. Часы — от вызова модели
+    // до готового ответа, как у цикла на других поверхностях.
+    const answerStartedAt = Date.now();
     const modelAnswer = await callAIWaterfallOrNull(messages);
     const modelFailed = modelAnswer === null || !modelAnswer.trim();
     let answer: string;
@@ -252,6 +257,17 @@ export async function POST(request: NextRequest) {
     // всего именно тогда, когда помощник не ответил. На языке окна: русский
     // блок китайскому туристу в беде не поможет (WID-lang).
     const sos = withSosBlock(answer, message, lang);
+
+    void recordKuzmichAnswer({
+      surface: 'widget',
+      elapsedMs: Date.now() - answerStartedAt,
+      turns: 1,
+      toolRounds: 0,
+      path: 'single',
+      // Водопад виджета имени ответившего провайдера наружу не отдаёт.
+      provider: null,
+      ceilingHit: false,
+    });
 
     // Разговор — в chat_sessions (без ожидания ответа базы, но не молча).
     const widgetSessionId = `widget_${partnerId}_${sessionId}`;

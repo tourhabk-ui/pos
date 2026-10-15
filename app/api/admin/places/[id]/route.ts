@@ -201,8 +201,10 @@ export async function DELETE(request: NextRequest, { params }: Props) {
 
   try {
     await transaction(async (client) => {
-      // Перевесить waypoints и туры, ссылающиеся на место? У places нет FK от
-      // operator_tours (те на kamchatka_routes). Чистим только зависимые от места.
+      // Перевесить waypoints и туры, ссылающиеся на место? Туры смотрят на
+      // место только главным местом (operator_tours.main_place_id, миграция
+      // 1286): FK с ON DELETE SET NULL снимет связь сам, тур станет «не связан».
+      // Чистим только зависимые от места.
       if (place.ark_id) {
         await client.query(`DELETE FROM ai_route_images WHERE route_id = $1`, [place.ark_id]);
         await client.query(`DELETE FROM location_safety_profile WHERE agent_route_id = $1`, [place.ark_id]);
