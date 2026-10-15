@@ -1,33 +1,30 @@
 {
   "timeout": 60,
-  "run": 954,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка КОДА шестой партии (953 попала в окно: миграция 1274 накатилась новым контейнером, отвечала прежняя сборка): пометка впечатлений (descriptionImpression) — у Кроноцкого озера false, у «Авачинской бухты» по переписи голоса — true; разметка карточки места и маршрута без TravelAgency и без точки края в океане; туры 67 и 53 — их маршруты, для цепочки к месту с турами. Ждёт выката по полю descriptionImpression. Конфиг записан целиком.",
+  "run": 955,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Остаток проверки шестой партии (954 остановилась на 404 маршрута b6b37731): туры на карточке «Курильского озера» с родом связи (linkKind, daea90d7) — у места есть вертолётный тур 67; разметка маршрута-фикстуры смоука 7412e1c7 без TravelAgency и точки края в океане; маршруты туров 67 и 53. Повторов два — выкат подтверждён. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
-    "https://vedarai.ru/api/places/a34d8fa0-e25d-402d-80ce-24404bf7511f",
-    "https://vedarai.ru/api/places/af84b5bb-39eb-4b3e-883d-8aa50641077a",
-    "https://vedarai.ru/places/796c18b3-e199-4ac6-bbd6-de50d560ff40",
-    "https://vedarai.ru/routes/b6b37731-f9f9-4db1-8ae6-847ab9ed5e60",
+    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
+    "https://vedarai.ru/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff",
     "https://vedarai.ru/api/tours/67",
     "https://vedarai.ru/api/tours/53"
   ],
   "until": "\"descriptionImpression\"",
-  "retries": 40,
-  "retryDelay": 45,
+  "retries": 2,
+  "retryDelay": 20,
+  "allowStale": true,
   "grep": [
-    "\"descriptionImpression\":true",
-    "\"descriptionImpression\":false",
-    "TouristAttraction",
+    "\"linkKind\":\"waypoint\"",
+    "\"linkKind\":\"unknown\"",
+    "TouristTrip",
     "TravelAgency",
     "160.7837",
-    "TouristTrip",
     "\"routeId\""
   ],
   "around": [
-    "\"routeId\"",
-    "\"descriptionImpression\""
+    "\"tours\":[",
+    "\"routeId\""
   ],
-  "aroundLines": 1,
+  "aroundLines": 12,
   "aroundHits": 1,
   "bytes": 200
 }
