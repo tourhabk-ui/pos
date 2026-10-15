@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { load } from 'js-yaml';
 
 export interface WorkflowStep {
+  id?: string;
   name?: string;
   uses?: string;
   if?: string;

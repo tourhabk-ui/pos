@@ -30,6 +30,7 @@ concurrency:
 # раньше падение было просто красным джобом, которого никто не видел.
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
   issues: write
 
 jobs:
@@ -48,7 +49,8 @@ jobs:
     # (scripts/wait-for-deploy.sh, до 35 минут), а выкладка Timeweb 07.09
     # заняла 26. Ночной и ручной прогоны этот шаг пропускают, так что их
     # длительность прежняя — минуты.
-    timeout-minutes: 60
+    # 15.10: ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с: CI, сборка и запись выката); потолок строго больше.
+    timeout-minutes: 95
 
     env:
       BASE_URL: https://vedarai.ru
@@ -110,6 +112,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: |
           set -o pipefail

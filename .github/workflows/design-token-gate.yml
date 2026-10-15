@@ -28,11 +28,18 @@ on:
         required: false
         default: 'https://vedarai.ru'
 
+# Токену — только чтение: checkout и запись выката, по которой
+# scripts/wait-for-deploy.sh ждёт свою сборку (15.10). Другим шагам
+# этого workflow токен не нужен.
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   token-gate:
     runs-on: ubuntu-latest
-    # 45, а не 15: ожидание своей сборки по маркеру (до 35 мин) плюс Chromium и гейт.
-    timeout-minutes: 45
+    # 80, а не 15: ожидание своей сборки (до 70 мин) плюс Chromium и гейт.
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
 
@@ -45,6 +52,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 

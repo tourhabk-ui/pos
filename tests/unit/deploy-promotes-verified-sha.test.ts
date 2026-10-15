@@ -188,6 +188,9 @@ function runStep(step: WorkflowStep, env: Record<string, string>, fake: Fake, cw
     HOME: process.env.HOME ?? work,
     FAKE_DIR: fakeDir,
     GITHUB_STEP_SUMMARY: summary,
+    // Как на раннере: шаги пишут выходы в файл (заказ сборки — время заказа,
+    // 15.10). Без него запись в "" роняла бы шаг под bash -e.
+    GITHUB_OUTPUT: join(fakeDir, 'output.txt'),
     ...env,
   };
   let code = 0;

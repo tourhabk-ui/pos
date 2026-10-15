@@ -27,11 +27,18 @@ on:
     paths:
       - '.github/triggers/scout-digest.json'
 
+# Токену — только чтение: checkout и запись выката, по которой
+# scripts/wait-for-deploy.sh ждёт свою сборку (15.10). Другим шагам
+# этого workflow токен не нужен.
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   scout-digest:
     runs-on: ubuntu-latest
-    # 40, а не 8: ожидание деплоя (до 25 мин) плюс прогон разведчика (до 5).
-    timeout-minutes: 40
+    # 90, а не 8: ожидание деплоя (до 70 мин) плюс разведчик (curl до 15 мин) и посты X.
+    timeout-minutes: 90
     steps:
       # checkout ради scripts/wait-for-deploy.sh: сам замер идёт на проде.
       - uses: actions/checkout@v7
@@ -49,6 +56,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
         run: bash scripts/wait-for-deploy.sh
 

@@ -111,20 +111,27 @@ describe('деплой проверяется до конца', () => {
  * Не число, а СВЯЗЬ: окно сверки выводится из времени сборки и больше него.
  * Вписать снова литерал — значит вернуть два независимых числа, которые
  * разойдутся при первой же правке одного из них.
+ *
+ * 15.10 время сборки получило своё имя — BUILD_FLOOR_SECONDS. До этого им
+ * служил MIN_BUILD_SECONDS, но это ЗАПАС built_at над временем коммита, и с
+ * выключенным автодеплоем он вырос до 3900 с (худший CI плюс сборка, см.
+ * scripts/wait-for-deploy.sh). Окно сверки из запаса растянулось бы до
+ * полутора часов и вышло за потолок задачи; связь «окно больше сборки»
+ * держится с настоящим временем сборки.
  */
 describe('проверка не выдаёт «не дождался» за «не доехало»', () => {
   it('окно сверки выведено из времени сборки, а не назначено литералом', () => {
-    expect(code).toMatch(/SERVE_ATTEMPTS=.*MIN_BUILD_SECONDS/);
+    expect(code).toMatch(/SERVE_ATTEMPTS=.*BUILD_FLOOR_SECONDS/);
     expect(code).not.toMatch(/for i in \$\(seq 1 20\)/);
   });
 
   it('ждать сайт дают дольше, чем длится сборка', () => {
-    const attempts = code.match(/SERVE_ATTEMPTS=\$\(\(\s*\(MIN_BUILD_SECONDS \* (\d+) \/ (\d+)\) \/ (\d+)\s*\)\)/);
+    const attempts = code.match(/SERVE_ATTEMPTS=\$\(\(\s*\(BUILD_FLOOR_SECONDS \* (\d+) \/ (\d+)\) \/ (\d+)\s*\)\)/);
     expect(attempts, 'формула окна сверки не найдена').not.toBeNull();
     const [mul, div, sleep] = attempts!.slice(1).map(Number);
     // Окно = попытки × сон. Оно обязано перекрывать саму сборку, иначе отказ
     // предрешён арифметикой, а не состоянием прода.
-    const build = Number(code.match(/MIN_BUILD_SECONDS=(\d+)/)?.[1] ?? 0);
+    const build = Number(code.match(/BUILD_FLOOR_SECONDS=(\d+)/)?.[1] ?? 0);
     expect(build).toBeGreaterThan(0);
     const windowSec = Math.floor((build * mul) / div / sleep) * sleep;
     expect(windowSec).toBeGreaterThan(build);

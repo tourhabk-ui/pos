@@ -30,13 +30,14 @@ on:
 
 permissions:
   contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    # Ожидание сборки — до 35 минут (scripts/wait-for-deploy.sh); таймаут job'а
+    # Ожидание сборки — до 70 минут (scripts/wait-for-deploy.sh); таймаут job'а
     # строго больше, иначе прогон умрёт в ожидании и причина потеряется.
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
 
@@ -48,6 +49,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
           # Run 1 (30.09) упал здесь, дождавшись СВОЕЙ сборки: built_at вышел
@@ -57,6 +60,8 @@ jobs:
           # живёт на проде, его проверки в любой версии одни и те же; старый
           # образ до пуша (built_at минус пуш отрицательный) запас 60 с
           # по-прежнему отсекает.
+          # 15.10: свою сборку теперь называет запись выката, а этот запас
+          # действует только в запасном пути — когда запись не прочитана.
           MIN_BUILD_SECONDS: '60'
         run: bash scripts/wait-for-deploy.sh
 

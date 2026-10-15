@@ -18,11 +18,18 @@ on:
     paths:
       - '.github/triggers/kuzmich-places.json'
 
+# Токену — только чтение: checkout и запись выката, по которой
+# scripts/wait-for-deploy.sh ждёт свою сборку (15.10). Другим шагам
+# этого workflow токен не нужен.
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   enrich:
     runs-on: ubuntu-latest
-    # 45: ожидание своей сборки (до 35 мин) плюс прогон агента (до 10).
-    timeout-minutes: 45
+    # 80: ожидание своей сборки (до 70 мин) плюс прогон агента (до 10).
+    timeout-minutes: 80
     steps:
       # checkout ради scripts/wait-for-deploy.sh: сам прогон идёт на проде.
       - uses: actions/checkout@v7
@@ -40,6 +47,8 @@ jobs:
         env:
           BASE: https://vedarai.ru
           WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
           NEED_AFTER: ${{ github.event.head_commit.timestamp }}
           REQUIRE_FRESH: '1'
           CODE_PATHS: 'app/api/cron/kuzmich-places lib/agents/kuzmich-place-enricher.ts lib/kuzmich/review-claims.ts lib/places/description-voice.ts lib/safety/profile-source.ts'
