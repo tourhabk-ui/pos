@@ -1,44 +1,32 @@
 {
   "timeout": 90,
-  "run": 938,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. (1) Выкат 1263 (до перенумерации — 1260): прямые адреса спрятанных кадров «Местечка Камчатка» — шесть главных и два кадра галереи Вилючинского — ждут 404, кадр владельца в той же галерее — отдаётся. (2) Выкат 1261: карточка маршрута «Авачинский вулкан: путь на вершину» — описание снято, объяснение словами. (3) Разведка точки «Гремучих ключей» (владелец: «поправь»): Кроноцкий заповедник пишет, что Верхнекошелевское термальное поле — это и есть «Гремучие ключи», в кратере вулкана Валентин на 1250–1400 м, а Нижнекошелевское — на склоне кальдеры Западно-Кошелевского на 750–800 м; у платформы две карточки в 6 км друг от друга. Высоты обеих точек (opentopodata), объекты OSM вокруг (Nominatim), справка Википедии. Повторов нет: 404 здесь — ожидаемый ответ, а не «не выкатилось». Конфиг записан целиком.",
+  "run": 939,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1264 (Кошелевские термальные поля, владелец: «поправь»): вторая карточка (e7cc9f9d) — «Нижне-Кошелевское термальное поле» на прежней точке узла OSM 5140732311, у верхней (14999081) — справка заповедника «известное как «Гремучие ключи»», у обеих — источник kronoki.ru со своей подписью; поиск «Гремучие ключи» находит обе карточки. Ждёт выката по новому имени второй карточки. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/images/route/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/api/images/route/4732f58e-63e5-4ec1-902e-f0f531391193",
-    "https://vedarai.ru/api/images/route/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
-    "https://vedarai.ru/api/images/route/4dd86a74-d010-4ff4-81ad-23af3ba966a5",
-    "https://vedarai.ru/api/images/route/d9059e8a-4c59-4baf-9be5-cae2fa33f810",
-    "https://vedarai.ru/api/images/route/344299f8-bf5e-419c-b1b5-28000c7d1858",
-    "https://vedarai.ru/api/images/place-gallery/164f612c-32da-4f0f-b261-c45c09dc2933/3",
-    "https://vedarai.ru/api/images/place-gallery/164f612c-32da-4f0f-b261-c45c09dc2933/4",
-    "https://vedarai.ru/api/images/place-gallery/164f612c-32da-4f0f-b261-c45c09dc2933/2",
-    "https://vedarai.ru/routes/d65c32b1-9767-434e-a5dc-dcc4ef98600b",
-    "https://api.opentopodata.org/v1/srtm30m?locations=51.3624965,156.6336277|51.362141,156.721956|51.3559821,156.7462467",
-    "https://nominatim.openstreetmap.org/search?q=%D0%93%D1%80%D0%B5%D0%BC%D1%83%D1%87%D0%B8%D0%B5+%D0%BA%D0%BB%D1%8E%D1%87%D0%B8&format=jsonv2&countrycodes=ru&limit=5",
-    "https://nominatim.openstreetmap.org/search?q=%D0%9A%D0%BE%D1%88%D0%B5%D0%BB%D0%B5%D0%B2%D1%81%D0%BA&format=jsonv2&countrycodes=ru&limit=10",
-    "https://nominatim.openstreetmap.org/search?q=%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD+%D0%92%D0%B0%D0%BB%D0%B5%D0%BD%D1%82%D0%B8%D0%BD&format=jsonv2&countrycodes=ru&limit=5",
-    "https://nominatim.openstreetmap.org/search?q=%D0%9A%D0%BE%D1%88%D0%B5%D0%BB%D0%B5%D0%B2&format=jsonv2&countrycodes=ru&limit=10&viewbox=156.5%2C51.5%2C156.9%2C51.2&bounded=1",
-    "https://ru.wikipedia.org/w/api.php?action=query&prop=extracts%7Ccoordinates&explaintext=1&titles=%D0%9A%D0%BE%D1%88%D0%B5%D0%BB%D0%B5%D0%B2+%28%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD%29&format=json&redirects=1"
+    "https://vedarai.ru/api/places/e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
+    "https://vedarai.ru/api/places/14999081-db57-43d3-8aad-f6c8361b69ac",
+    "https://vedarai.ru/api/places?q=%D0%93%D1%80%D0%B5%D0%BC%D1%83%D1%87%D0%B8%D0%B5+%D0%BA%D0%BB%D1%8E%D1%87%D0%B8&limit=10"
   ],
+  "until": "\"name\":\"Нижне-Кошелевское термальное поле\"",
+  "retries": 40,
+  "retryDelay": 45,
   "grep": [
-    "Описание этого маршрута было написано не по источникам",
-    "Валентин",
-    "Гремуч",
-    "Верхне",
-    "Нижне",
-    "\"elevation\""
+    "Нижне-Кошелевское термальное поле",
+    "Верхне-Кошелевские парогидротермальные источники",
+    "известное как «Гремучие ключи»",
+    "подписана «Гремучие ключи»",
+    "kronoki.ru — Верхнекошелевское термальное поле",
+    "kronoki.ru — Нижнекошелевское термальное поле",
+    "e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
+    "14999081-db57-43d3-8aad-f6c8361b69ac",
+    "51.3624965",
+    "156.6336277"
   ],
   "around": [
-    "\"elevation\"",
-    "\"display_name\"",
-    "Валентин",
-    "Гремуч",
-    "термальн"
+    "\"lat\"",
+    "\"descriptionSource\""
   ],
-  "aroundLines": 3,
-  "aroundBefore": 1,
-  "aroundHits": 6,
-  "bytes": 200,
-  "ua": "VedarProbe/1.0 (tourhab platform; place coordinates check)",
-  "allowStale": true
+  "aroundLines": 2,
+  "aroundHits": 2,
+  "bytes": 200
 }
