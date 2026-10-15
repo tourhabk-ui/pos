@@ -39,6 +39,10 @@
  *
  * Хост — сигнал, а не замок: браузер присылает его сам, и подделать его может
  * кто угодно (lib/embed/widget-origin.ts).
+ *
+ * Те же части по ОДНОМУ партнёру (widgetReportForPartner) читают экран
+ * «Виджет на ваш сайт» в кабинете оператора и карточка оператора в админке
+ * (аудит 15.10, WID-screens): запросы одни, второго счёта нет.
  */
 import { lookup } from 'node:dns/promises';
 import {
@@ -572,22 +576,97 @@ export async function probeSite(
   }
 }
 
-// ── Перепись ─────────────────────────────────────────────────────────────
+// ── Части отчёта: общие для переписи и экранов ──────────────────────────
 
-export async function censusWidgets(
-  exec: Exec,
-  opts: { probeSites?: boolean; fetchImpl?: FetchLike; resolveImpl?: ResolveLike } = {},
-): Promise<WidgetCensusReport> {
-  const failed: FailedMeasure[] = [];
-  const run = async <T>(measure: string, fn: () => Promise<T>): Promise<T | null> => {
+/** Запуск одной части: отказ — в лог и в failed_measures, а не ноль (§4.0). */
+type MeasureRun = <T>(measure: string, fn: () => Promise<T>) => Promise<T | null>;
+
+function measureRunner(failed: FailedMeasure[], tag: string): MeasureRun {
+  return async <T>(measure: string, fn: () => Promise<T>): Promise<T | null> => {
     try {
       return await fn();
     } catch (err) {
-      console.error(`[widget-census] ${measure} не выполнен, SQLSTATE ${sqlstate(err)}`);
+      console.error(`[${tag}] ${measure} не выполнен, SQLSTATE ${sqlstate(err)}`);
       failed.push({ measure, sqlstate: sqlstate(err) });
       return null;
     }
   };
+}
+
+/**
+ * Четыре части по списку партнёров: выдачи и открытия, разговоры, заявки
+ * формы, псевдолиды. Одна функция на перепись и на экраны кабинета и админки
+ * (аудит 15.10, WID-screens): второй счёт разошёлся бы с переписью первым же
+ * исправлением запроса.
+ */
+async function measureUsage(exec: Exec, partners: PartnerRow[], run: MeasureRun): Promise<PartnerCensus[]> {
+  const ids = partners.map((p) => p.id);
+  const [telemetry, chat, form, pseudo] = await Promise.all([
+    run('widget_daily', async () => (await exec.query<TelemetryRow>(TELEMETRY_SQL, [ids])).rows),
+    run('chat_sessions', async () => (await exec.query<ChatRow>(CHAT_SESSIONS_SQL, [ids])).rows),
+    run('form_leads', async () => (await exec.query<FormRow>(FORM_LEADS_SQL, [ids])).rows),
+    run('chat_pseudo_leads', async () => (await exec.query<PseudoRow>(CHAT_PSEUDO_LEADS_SQL, [ids])).rows),
+  ]);
+  const chatBy = byPartner(chat);
+  const formBy = byPartner(form);
+  const pseudoBy = byPartner(pseudo);
+
+  return partners.map((p) => {
+    const domains = Array.isArray(p.widget_domains) ? p.widget_domains : [];
+    const chatRow = chatBy?.get(p.id);
+    const formRow = formBy?.get(p.id);
+    const pseudoRow = pseudoBy?.get(p.id);
+    return {
+      slug: p.slug,
+      name: p.name,
+      widget_domains: domains,
+      telemetry_30d: telemetry ? telemetryFor(telemetry.filter((t) => t.partner_id === p.id), domains) : null,
+      chat_sessions: chatBy ? (chatRow ? strip(chatRow) : { ...ZERO_CHAT }) : null,
+      form_leads: formBy ? (formRow ? strip(formRow) : { ...ZERO_FORM }) : null,
+      chat_pseudo_leads: pseudoBy ? (pseudoRow ? strip(pseudoRow) : { ...ZERO_PSEUDO }) : null,
+    };
+  });
+}
+
+interface ProbeOpts { fetchImpl?: FetchLike; resolveImpl?: ResolveLike }
+
+/** Проба главных по доменам партнёров; кладёт итог в `site_probe` каждого. */
+async function attachSiteProbes(out: PartnerCensus[], opts: ProbeOpts): Promise<void> {
+  const io: ProbeIo = {
+    fetch: opts.fetchImpl ?? ((url: string, init: RequestInit) => fetch(url, init)),
+    resolve: opts.resolveImpl ?? systemResolve,
+  };
+  const notAsked = (domain: string, reason: string): SiteProbe => (
+    { domain, url: null, outcome: 'could_not_check', scripts: [], http_status: null, reason }
+  );
+  // Бюджет раздаётся ДО запросов, по порядку партнёров (PARTNERS_SQL), и
+  // тратят его только домены, которые спрашиваются. Домен сверх бюджета
+  // остаётся в ответе с причиной (аудит 15.10, R-census): прежде он
+  // выпадал молча, и `site_probe: []` у партнёра с доменами читалось как
+  // «проверять нечего», а не «не проверяли» (§4.0).
+  let budget = SITE_PROBE_MAX;
+  const plans = out.map((pc) => pc.widget_domains.map((domain) => {
+    if (!pc.slug) return { domain, skip: 'у партнёра нет slug — искать нечего' };
+    if (budget <= 0) return { domain, skip: `не спрошен: лимит ${SITE_PROBE_MAX} доменов за прогон исчерпан` };
+    budget -= 1;
+    return { domain, skip: null };
+  }));
+  await Promise.all(out.map(async (pc, i) => {
+    const slug = pc.slug ?? '';
+    pc.site_probe = await Promise.all(plans[i].map(({ domain, skip }) => (
+      skip !== null ? notAsked(domain, skip) : probeSite(domain, slug, io)
+    )));
+  }));
+}
+
+// ── Перепись ─────────────────────────────────────────────────────────────
+
+export async function censusWidgets(
+  exec: Exec,
+  opts: { probeSites?: boolean } & ProbeOpts = {},
+): Promise<WidgetCensusReport> {
+  const failed: FailedMeasure[] = [];
+  const run = measureRunner(failed, 'widget-census');
   const report = (partners: PartnerCensus[] | null): WidgetCensusReport => ({
     window: { telemetry_days: TELEMETRY_DAYS, activity_days: [30, 90] },
     partners,
@@ -603,61 +682,95 @@ export async function censusWidgets(
     }
     return report(null);
   }
-  const ids = partners.map((p) => p.id);
 
-  const [telemetry, chat, form, pseudo] = await Promise.all([
-    run('widget_daily', async () => (await exec.query<TelemetryRow>(TELEMETRY_SQL, [ids])).rows),
-    run('chat_sessions', async () => (await exec.query<ChatRow>(CHAT_SESSIONS_SQL, [ids])).rows),
-    run('form_leads', async () => (await exec.query<FormRow>(FORM_LEADS_SQL, [ids])).rows),
-    run('chat_pseudo_leads', async () => (await exec.query<PseudoRow>(CHAT_PSEUDO_LEADS_SQL, [ids])).rows),
-  ]);
-  const chatBy = byPartner(chat);
-  const formBy = byPartner(form);
-  const pseudoBy = byPartner(pseudo);
-
-  const out: PartnerCensus[] = partners.map((p) => {
-    const domains = Array.isArray(p.widget_domains) ? p.widget_domains : [];
-    const chatRow = chatBy?.get(p.id);
-    const formRow = formBy?.get(p.id);
-    const pseudoRow = pseudoBy?.get(p.id);
-    return {
-      slug: p.slug,
-      name: p.name,
-      widget_domains: domains,
-      telemetry_30d: telemetry ? telemetryFor(telemetry.filter((t) => t.partner_id === p.id), domains) : null,
-      chat_sessions: chatBy ? (chatRow ? strip(chatRow) : { ...ZERO_CHAT }) : null,
-      form_leads: formBy ? (formRow ? strip(formRow) : { ...ZERO_FORM }) : null,
-      chat_pseudo_leads: pseudoBy ? (pseudoRow ? strip(pseudoRow) : { ...ZERO_PSEUDO }) : null,
-    };
-  });
-
-  if (opts.probeSites) {
-    const io: ProbeIo = {
-      fetch: opts.fetchImpl ?? ((url: string, init: RequestInit) => fetch(url, init)),
-      resolve: opts.resolveImpl ?? systemResolve,
-    };
-    const notAsked = (domain: string, reason: string): SiteProbe => (
-      { domain, url: null, outcome: 'could_not_check', scripts: [], http_status: null, reason }
-    );
-    // Бюджет раздаётся ДО запросов, по порядку партнёров (PARTNERS_SQL), и
-    // тратят его только домены, которые спрашиваются. Домен сверх бюджета
-    // остаётся в ответе с причиной (аудит 15.10, R-census): прежде он
-    // выпадал молча, и `site_probe: []` у партнёра с доменами читалось как
-    // «проверять нечего», а не «не проверяли» (§4.0).
-    let budget = SITE_PROBE_MAX;
-    const plans = out.map((pc) => pc.widget_domains.map((domain) => {
-      if (!pc.slug) return { domain, skip: 'у партнёра нет slug — искать нечего' };
-      if (budget <= 0) return { domain, skip: `не спрошен: лимит ${SITE_PROBE_MAX} доменов за прогон исчерпан` };
-      budget -= 1;
-      return { domain, skip: null };
-    }));
-    await Promise.all(out.map(async (pc, i) => {
-      const slug = pc.slug ?? '';
-      pc.site_probe = await Promise.all(plans[i].map(({ domain, skip }) => (
-        skip !== null ? notAsked(domain, skip) : probeSite(domain, slug, io)
-      )));
-    }));
-  }
-
+  const out = await measureUsage(exec, partners, run);
+  if (opts.probeSites) await attachSiteProbes(out, opts);
   return report(out);
+}
+
+// ── Отчёт одного партнёра: кабинет оператора и карточка в админке ──────────
+
+/**
+ * Один партнёр по id — включён виджет или нет: выключенный тоже вправе видеть
+ * свою историю. Владение здесь не проверяется — его решает роут (свой кабинет
+ * по SQL-связке до partners.user_id, или администратор).
+ */
+export const PARTNER_WIDGET_SQL = `
+  SELECT id::text AS id, slug, name, COALESCE(widget_domains, '{}') AS widget_domains,
+         COALESCE(widget_enabled, false) AS widget_enabled
+    FROM partners
+   WHERE id = $1::uuid`;
+
+interface PartnerWidgetRow extends PartnerRow { widget_enabled: boolean }
+
+/**
+ * Отчёт одного партнёра (аудит 15.10, WID-screens, W7): те же четыре части,
+ * что у переписи, теми же запросами. Только агрегаты — ни имён, ни телефонов
+ * посетителей, ни текста разговоров.
+ */
+export interface PartnerWidgetReport {
+  window: { telemetry_days: number; activity_days: [number, number] };
+  partner: { slug: string | null; name: string; widget_enabled: boolean; widget_domains: string[] };
+  telemetry_30d: PartnerTelemetry | null;
+  chat_sessions: Omit<ChatRow, 'partner_id'> | null;
+  form_leads: Omit<FormRow, 'partner_id'> | null;
+  chat_pseudo_leads: Omit<PseudoRow, 'partner_id'> | null;
+  /**
+   * Есть ли скрипт на главных. null — этим запросом сайт не опрашивался:
+   * «не проверено», а не «нет» (§4.0). Итог пробы в базе не хранится, так
+   * что свежий он только у того, кто пробу заказал.
+   */
+  site_probe: SiteProbe[] | null;
+  failed_measures: FailedMeasure[];
+  notes: string[];
+}
+
+export type PartnerWidgetOutcome =
+  | { kind: 'ok'; report: PartnerWidgetReport }
+  | { kind: 'not_found' }
+  | { kind: 'unavailable'; sqlstate: string };
+
+/**
+ * Три исхода (§4.0): отчёт; партнёра нет; не прочитали самого партнёра —
+ * тогда и отчёт привязать не к чему, и роут отвечает 503, а не «данных нет».
+ * Отказ ЧАСТИ отчёта — не исход, а null у этой части и строка в
+ * failed_measures: остальное показывается.
+ */
+export async function widgetReportForPartner(
+  exec: Exec,
+  partnerId: string,
+  opts: { probeSites?: boolean } & ProbeOpts = {},
+): Promise<PartnerWidgetOutcome> {
+  let row: PartnerWidgetRow | undefined;
+  try {
+    row = (await exec.query<PartnerWidgetRow>(PARTNER_WIDGET_SQL, [partnerId])).rows[0];
+  } catch (err) {
+    console.error(`[widget-report] партнёр не прочитан, SQLSTATE ${sqlstate(err)}`);
+    return { kind: 'unavailable', sqlstate: sqlstate(err) };
+  }
+  if (!row) return { kind: 'not_found' };
+
+  const failed: FailedMeasure[] = [];
+  const [usage] = await measureUsage(exec, [row], measureRunner(failed, 'widget-report'));
+  if (opts.probeSites) await attachSiteProbes([usage], opts);
+
+  return {
+    kind: 'ok',
+    report: {
+      window: { telemetry_days: TELEMETRY_DAYS, activity_days: [30, 90] },
+      partner: {
+        slug: row.slug,
+        name: row.name,
+        widget_enabled: row.widget_enabled === true,
+        widget_domains: usage.widget_domains,
+      },
+      telemetry_30d: usage.telemetry_30d,
+      chat_sessions: usage.chat_sessions,
+      form_leads: usage.form_leads,
+      chat_pseudo_leads: usage.chat_pseudo_leads,
+      site_probe: usage.site_probe ?? null,
+      failed_measures: failed,
+      notes: [...CENSUS_NOTES],
+    },
+  };
 }
