@@ -46,6 +46,7 @@ import {
   type WidgetHostCheck, type WidgetKind,
 } from '@/lib/embed/widget-origin';
 import { isPrivateAddress } from '@/lib/security/site-audit';
+import { decodeHtmlEntities } from '@/lib/html/entities';
 
 export const TELEMETRY_DAYS = 30;
 /** Таймаут пробы одного сайта. */
@@ -358,8 +359,9 @@ function escapeRe(s: string): string {
 
 /**
  * Адрес lead.js в HTML: всё после `?` до конца значения атрибута. `&amp;` —
- * так амперсанд пишется внутри атрибута, и без замены `partner` после него
- * читался бы как `amp;partner`.
+ * так амперсанд пишется внутри атрибута, и без разворота `partner` после него
+ * читался бы как `amp;partner`. Разворот — общим decodeHtmlEntities (один
+ * проход, одно место на платформу; сторож tests/unit/html-entities.test.ts).
  */
 const LEAD_JS_QUERY_RE = /\/api\/widget\/lead\.js\?([^"'\s>]*)/gi;
 
@@ -376,7 +378,7 @@ export function detectWidgetScripts(html: string, slug: string): WidgetKind[] {
   const out: WidgetKind[] = [];
   const want = slug.toLowerCase();
   for (const m of html.matchAll(LEAD_JS_QUERY_RE)) {
-    const partner = new URLSearchParams(m[1].replace(/&amp;/gi, '&')).get('partner');
+    const partner = new URLSearchParams(decodeHtmlEntities(m[1])).get('partner');
     if (partner !== null && partner.toLowerCase() === want) {
       out.push('form');
       break;
