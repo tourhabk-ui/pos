@@ -1,30 +1,16 @@
 {
   "timeout": 60,
-  "run": 955,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Остаток проверки шестой партии (954 остановилась на 404 маршрута b6b37731): туры на карточке «Курильского озера» с родом связи (linkKind, daea90d7) — у места есть вертолётный тур 67; разметка маршрута-фикстуры смоука 7412e1c7 без TravelAgency и точки края в океане; маршруты туров 67 и 53. Повторов два — выкат подтверждён. Конфиг записан целиком.",
+  "run": 956,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись режима мест после 1274 целиком — для ответа владельцу, как идёт перепись мест по схеме парков: сколько видимых мест с записанным режимом по каждому роду территории, сколько «нет»/«не записано», остались ли мёртвые адреса разрешения. Повторов два — выкат подтверждён. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/api/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
-    "https://vedarai.ru/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff",
-    "https://vedarai.ru/api/tours/67",
-    "https://vedarai.ru/api/tours/53"
+    "https://vedarai.ru/api/cron/place-eco-census"
   ],
-  "until": "\"descriptionImpression\"",
+  "until": "\"visible_places_by_zone\"",
   "retries": 2,
   "retryDelay": 20,
-  "allowStale": true,
   "grep": [
-    "\"linkKind\":\"waypoint\"",
-    "\"linkKind\":\"unknown\"",
-    "TouristTrip",
-    "TravelAgency",
-    "160.7837",
-    "\"routeId\""
+    "kamchatkaparks.ru",
+    "kronoki.ru/visit/\""
   ],
-  "around": [
-    "\"tours\":[",
-    "\"routeId\""
-  ],
-  "aroundLines": 12,
-  "aroundHits": 1,
-  "bytes": 200
+  "bytes": 5000
 }
