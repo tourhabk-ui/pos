@@ -3,7 +3,7 @@
  * возвращаются: 404 и 308 карточек — настоящие HTTP-ответы, canonical — в
  * <head> и для Google, карточки мест и маршрутов несут текст в HTML.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { metaDescription } from '@/lib/seo/meta-description';
@@ -102,8 +102,31 @@ describe('Н4: canonical', () => {
     for (const alt of nextDefault.split('|')) expect(re!.source.split('|')).toContain(alt);
     expect(re!.test('Mozilla/5.0 Chrome/141 Safari/537.36')).toBe(false);
   });
-  it('карточка места объявляет canonical по ЧПУ', () => {
-    expect(code('app/places/[id]/page.tsx')).toMatch(/alternates: \{ canonical \}/);
+  it('карточка места объявляет canonical по ЧПУ', async () => {
+    // Вызовом, а не регуляркой по исходнику (CLAUDE.md §4): с 15.10 рядом с
+    // canonical может стоять пара языков китайского конспекта (CN-pages), и
+    // литерал «alternates: { canonical }» перестал бы совпадать при верном
+    // поведении. Открыли по ark_id — canonical всё равно по ЧПУ.
+    const ARK = '0c0aa41c-fd40-4f97-ac35-56f10bf94b69';
+    vi.resetModules();
+    vi.doMock('@/lib/database', () => ({
+      query: async (sql: string) => ({
+        rows: String(sql).includes('FROM places p')
+          ? [{ place_pk: 'p-1', name: 'Вулкан Горелый', description: null, slug: 'vulkan-gorelyj', ark_id: ARK, lat: 52.5, lng: 158.0, location_type: 'volcano', hazard_types: [], images: [] }]
+          : [],
+      }),
+    }));
+    vi.doMock('@/lib/db-pool', () => ({ pool: { query: async () => ({ rows: [] }) } }));
+    vi.doMock('@/app/places/[id]/_PlaceDetailClient', () => ({ default: () => null }));
+    vi.doMock('@/components/places/PlaceSOS', () => ({ default: () => null }));
+    try {
+      const { generateMetadata } = await import('@/app/places/[id]/page');
+      const meta = await generateMetadata({ params: Promise.resolve({ id: ARK }) });
+      expect(meta.alternates?.canonical).toBe('/places/vulkan-gorelyj');
+    } finally {
+      for (const m of ['@/lib/database', '@/lib/db-pool', '@/app/places/[id]/_PlaceDetailClient', '@/components/places/PlaceSOS']) vi.doUnmock(m);
+      vi.resetModules();
+    }
   });
 });
 
