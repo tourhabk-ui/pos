@@ -8,9 +8,53 @@
  */
 
 const { readdir, readFile } = require('fs/promises');
+const { writeFileSync } = require('fs');
 const { join, resolve } = require('path');
 
 const MIGRATIONS_DIR = resolve(__dirname, '..', 'migrations');
+
+/**
+ * Отчёт раннера для start.js (аудит 15.10, A08, вопрос 8).
+ *
+ * Отказ наката сервер не роняет (SOS и полевой контур важнее новой фичи), но
+ * и молчать он больше не может. До 15.10 раннер на упавшем файле выходил с
+ * кодом 0, и start.js не отличал «схема догнала код» от «схема отстаёт»:
+ * провал оставался строкой в логе выката. Теперь раннер пишет о себе в файл,
+ * который назвал start.js (MIGRATE_STATE_FILE):
+ *  - `running` + файл — ПЕРЕД каждым неприменённым файлом: оборви накат
+ *    таймаут, start.js узнает, на чём он стоял;
+ *  - `done` — применено, ошибок, и упавшие файлы с SQLSTATE;
+ *  - `fatal` — раннер не дошёл до файлов (база не пустила и т.п.);
+ *  - `skipped` — DATABASE_URL нет, накатывать некуда.
+ * Текста ошибки в отчёте НЕТ: сообщение PostgreSQL умеет цитировать
+ * значения, а значением бывает телефон туриста, — отчёт уходит в открытый
+ * /api/health. Имя файла и SQLSTATE диагноз называют и ПД не несут.
+ *
+ * Код выхода не меняется (0 и на упавшем файле): переменная не задана —
+ * раннер ведёт себя, как прежде. Сторож — tests/unit/start-migrations-state.test.ts.
+ */
+// Классы SQLSTATE: первая буква — цифра, либо F0/HV/P0/XX. Код узла (EPIPE,
+// ECONNREFUSED) сюда не проходит: SQLSTATE-ом он не является.
+const SQLSTATE_RE = /^(?:[0-9][0-9A-Z]|XX|P0|HV|F0)[0-9A-Z]{3}$/;
+
+function sqlstateOf(err) {
+  const code = err && typeof err === 'object' ? err.code : undefined;
+  return typeof code === 'string' && SQLSTATE_RE.test(code) ? code : null;
+}
+
+let reportedPhase = null;
+
+function reportState(state) {
+  reportedPhase = state.phase;
+  const file = process.env.MIGRATE_STATE_FILE;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify(state));
+  } catch (e) {
+    // Не молча (§4.0): без отчёта start.js скажет «неизвестно», и здесь видно почему.
+    console.error(`[migrate] отчёт для start.js не записан (${e && e.code ? e.code : 'ошибка записи'}) — /api/health скажет «неизвестно»`);
+  }
+}
 
 /**
  * Порядок применения — по ЧИСЛУ, а не по строке.
@@ -263,6 +307,7 @@ async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.log('[migrate] DATABASE_URL not set — skipping');
+    reportState({ phase: 'skipped', reason: 'no_database_url' });
     return;
   }
 
@@ -307,6 +352,8 @@ async function main() {
       .sort(compareMigrations);
 
     let ok = 0, skipped = 0, errors = 0;
+    // Упавшие файлы — для отчёта start.js: имя и SQLSTATE, без текста ошибки.
+    const failed = [];
 
     // ВАЖНО: один выделенный клиент на весь цикл. Раньше использовался
     // pool.query() — и если транзакционная миграция (с BEGIN/COMMIT) падала
@@ -322,6 +369,7 @@ async function main() {
       for (const file of files) {
         if (appliedSet.has(file)) { skipped++; continue; }
 
+        reportState({ phase: 'running', file });
         const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8');
 
         try {
@@ -357,6 +405,7 @@ async function main() {
             [file, scrubError(e.message)],
           ).catch(() => {});
           errors++;
+          failed.push({ file, sqlstate: sqlstateOf(e) });
         }
       }
     } finally {
@@ -364,6 +413,8 @@ async function main() {
     }
 
     console.log(`[migrate] done: ${ok} applied, ${skipped} skipped, ${errors} errors`);
+    // Двадцати упавших хватает для диагноза; счёт — полный, в errors.
+    reportState({ phase: 'done', applied: ok, skipped, errors, failed: failed.slice(0, 20) });
   } finally {
     await pool.end();
   }
@@ -375,9 +426,12 @@ async function main() {
 if (require.main === module) {
   main().catch(err => {
     console.error('[migrate] fatal:', err.message);
+    // Отказ после итога (например, закрытие пула) итог не переписывает: файлы
+    // к этому моменту уже применены или названы упавшими.
+    if (reportedPhase !== 'done') reportState({ phase: 'fatal', sqlstate: sqlstateOf(err) });
     // Non-zero exit only on unexpected failure — don't block server start
     process.exitCode = 0;
   });
 }
 
-module.exports = { migrationNumber, compareMigrations, scrubError, isNonTransactional, isAlreadyExistsError, isCreatingStatement, splitSqlStatements, isTxControlStatement, applyTransactionalFile };
+module.exports = { migrationNumber, compareMigrations, scrubError, sqlstateOf, isNonTransactional, isAlreadyExistsError, isCreatingStatement, splitSqlStatements, isTxControlStatement, applyTransactionalFile };
