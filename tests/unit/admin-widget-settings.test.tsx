@@ -24,7 +24,7 @@ vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: vi.fn(async () => ({ use
 vi.mock('@/components/admin/TildaPanel', () => ({ default: () => null }));
 
 import { OperatorCard } from '@/app/hub/admin/operators/_OperatorsClient';
-import { PATCH } from '@/app/api/admin/operators/[id]/widget/route';
+import { GET, PATCH } from '@/app/api/admin/operators/[id]/widget/route';
 
 type Op = Parameters<typeof OperatorCard>[0]['op'];
 
@@ -183,5 +183,29 @@ describe('PATCH /api/admin/operators/[id]/widget называет исход', (
     expect(((await res.json()) as { error: string }).error).toMatch(/не сохранены/);
     expect(log.mock.calls.flat().join(' ')).toContain('sqlstate=22P02');
     log.mockRestore();
+  });
+});
+
+describe('GET /api/admin/operators/[id]/widget — тот же формат id', () => {
+  beforeEach(() => { poolQuery.mockReset(); });
+
+  it('id не uuid — 400 до базы; uuid — доходит до базы', async () => {
+    poolQuery.mockRejectedValue(Object.assign(new Error('invalid input syntax for type uuid'), { code: '22P02' }));
+    const bad = await GET(
+      new NextRequest('https://vedarai.ru/api/admin/operators/mestechko/widget'),
+      { params: Promise.resolve({ id: 'mestechko' }) },
+    );
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toBe('Неверный идентификатор оператора');
+    expect(poolQuery).not.toHaveBeenCalled();
+
+    poolQuery.mockReset();
+    poolQuery.mockResolvedValue({ rows: [] });
+    const ok = await GET(
+      new NextRequest(`https://vedarai.ru/api/admin/operators/${OP.id}/widget`),
+      { params: Promise.resolve({ id: OP.id }) },
+    );
+    expect(ok.status).toBe(404);
+    expect(poolQuery).toHaveBeenCalledTimes(1);
   });
 });

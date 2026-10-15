@@ -78,7 +78,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/cron/evo-findings/route.ts': 1,
   'app/api/cron/evo-report/route.ts': 4,
   'app/api/cron/evo/route.ts': 1,
-  'app/api/cron/health/route.ts': 6,
+  'app/api/cron/health/route.ts': 5,
   'app/api/cron/import-route-passports/route.ts': 2,
   'app/api/cron/kb-gap/route.ts': 3,
   'app/api/cron/legacy-tours-cleanup/route.ts': 2,

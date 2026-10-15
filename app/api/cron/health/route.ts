@@ -24,6 +24,7 @@ import { hashPayload } from '@/lib/safety/ledger';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -170,7 +171,11 @@ export async function checkDB(): Promise<HealthIssue[]> {
     if (leadsCnt > 3) {
       issues.push({ level: 'warn', text: `${leadsCnt} лидов без обработки > 6ч (leads-followup?)` });
     }
-  } catch { /* skip */ }
+  } catch (err) {
+    // Не молча (§4.0): отказ счёта — не «лидов нет». Тревоги отдельной не
+    // поднимаем — недоступность базы называет проверка ниже (аудит 15.10).
+    logSwallowedFailure('health', 'счёт лидов без обработки > 6ч', err);
+  }
 
   try {
     // Последний пост Кузьмича — должен быть не старше 26 часов.

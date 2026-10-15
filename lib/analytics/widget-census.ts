@@ -329,6 +329,17 @@ export function detectWidgetScripts(html: string, slug: string): WidgetKind[] {
   return out;
 }
 
+/**
+ * Адрес переадресации для причины отказа — без query и hash: адрес на чужом
+ * сайте может нести что угодно, а в ответе переписи нужно лишь «куда».
+ * Не разбирается — названо словами, без исходной строки.
+ */
+export function redirectShown(location: string, base: string): string {
+  if (!URL.canParse(location, base)) return 'адрес не разбирается';
+  const u = new URL(location, base);
+  return `${u.protocol}//${u.host}${u.pathname}`.slice(0, 120);
+}
+
 /** Коды, по которым проба идёт дальше по Location. */
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -395,7 +406,7 @@ export async function probeSite(
       if (!next) {
         return couldNotCheck(
           res.status,
-          `переадресация на адрес вне правила пробы (не http/https, IP, localhost или частная сеть) — не запрашивался: ${location.slice(0, 120)}`,
+          `переадресация на адрес вне правила пробы (не http/https, IP, localhost или частная сеть) — не запрашивался: ${redirectShown(location, target)}`,
         );
       }
       target = next.href;

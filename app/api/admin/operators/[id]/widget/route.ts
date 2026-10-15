@@ -36,6 +36,10 @@ export async function GET(
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const { id } = await params;
+  // Тот же формат, что у PATCH ниже: не-uuid база отвергла бы 22P02 → 500.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Неверный идентификатор оператора' }, { status: 400 });
+  }
 
   const { rows } = await pool.query(
     `SELECT slug, widget_enabled, widget_domains, widget_config
@@ -67,8 +71,8 @@ export async function PATCH(
   const { id } = await params;
   // id — uuid партнёра. Не-uuid база отвергает 22P02, и админ видел «ошибка
   // базы» (500) вместо «неверный адрес». Формат проверяется до запроса
-  // (аудит 15.10, W3-widget, ревью WID-config). isUuid — любой hex-uuid, как
-  // его принимает PostgreSQL, без требования версии RFC.
+  // (аудит 15.10, W3-widget, ревью WID-config). isUuid — канонический вид с
+  // дефисами, любой hex, без требования версии RFC: так пишет id база.
   if (!isUuid(id)) {
     return NextResponse.json({ error: 'Неверный идентификатор оператора' }, { status: 400 });
   }

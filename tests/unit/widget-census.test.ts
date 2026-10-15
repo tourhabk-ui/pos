@@ -258,6 +258,15 @@ describe('проба сайтов', () => {
       expect(requested.sort()).toEqual(Object.keys(targets).sort());
     });
 
+    it('в причине отказа — куда вела переадресация, без query и hash', async () => {
+      const { fetchImpl } = sites({
+        'https://to-q.ru/': () => redirect(302, 'http://10.0.0.5/admin?token=secret123&phone=79001234567#x'),
+      });
+      const r = await probeSite('to-q.ru', 'x', fetchImpl);
+      expect(r.reason).toMatch(/не запрашивался: http:\/\/10\.0\.0\.5\/admin$/);
+      expect(r.reason).not.toMatch(/token|secret123|79001234567|#x/);
+    });
+
     it('на публичный адрес — идёт, и абсолютный, и относительный; всегда вручную', async () => {
       const { fetchImpl, requested, modes } = sites({
         'https://fishingkam.ru/': () => redirect(301, 'https://www.fishingkam.ru/'),
