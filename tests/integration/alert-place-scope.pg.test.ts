@@ -37,6 +37,7 @@ import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { MARINE_ALERT_SQL, isMarineAlert } from '@/lib/safety/marine-alert';
 import { mchs_zones } from '@/lib/services/safety/seismic-parser';
 import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
+import { ZONE_CENSUS_SQL, summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/places/zone-census';
 import { readFileSync } from 'node:fs';
 import { createTestDatabase } from '../helpers/pg-schema';
 
@@ -625,5 +626,52 @@ withPg('кого накрывает предупреждение', () => {
     expect(got).toContain('Свежая сводка без срока (тест)');
     expect(got).toContain('Старая сводка со сроком (тест)');
     expect(got).not.toContain('Старая сводка без срока (тест)');
+  });
+
+  /**
+   * Перепись охвата (15.10, #83) — тем же предикатом и теми же пробами, что
+   * роут /api/cron/place-zone-census. Место с районом вне четвёрки и место без
+   * строки реалтайма заводятся здесь, последним случаем файла, и убираются:
+   * чужие счёты охвата выше от них не меняются.
+   */
+  it('перепись охвата: Командоры — по координате, район вне четвёрки и место без реалтайма — названы', async () => {
+    const MUTNOVSKY = { id: 'Мутновское плато (тест)', ark: 'c0000000-0000-4000-8000-000000000011', lat: 52.450, lng: 158.200 };
+    const NO_STATUS = { id: 'Место без реалтайма (тест)', ark: 'c0000000-0000-4000-8000-000000000012', lat: 53.050, lng: 158.600 };
+    for (const [p, zone] of [[MUTNOVSKY, 'mutnovsky'], [NO_STATUS, 'avachinsky']] as const) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $1, $2, $3, $4, 'plateau', $5, TRUE)`,
+        [p.id, p.lat, p.lng, p.ark, zone],
+      );
+    }
+    await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [MUTNOVSKY.ark]);
+    try {
+      const probes = zoneProbes();
+      const { rows } = await pool.query<ZoneCensusRow>(ZONE_CENSUS_SQL, [JSON.stringify(probes)]);
+      const by = new Map(rows.map((r) => [r.id, r]));
+      expect(by.get(COMMANDER.id)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
+      expect(by.get(FAR_NORTH.id)?.reached_by).toEqual(['krai_wide', 'meteo_north', 'meteo_south']);
+      expect(by.get(CITY.id)?.reached_by).toEqual(['krai_wide', 'meteo_south']);
+      expect(by.get(MUTNOVSKY.id)?.reached_by).toEqual([]);
+
+      // Принадлежность, а не точные списки: в базе есть и места других
+      // случаев файла («Гора Замок» — без строки реалтайма).
+      const census = summarizeZoneCensus(rows, probes);
+      const ids = (list: Array<{ id: string }>) => list.map((p) => p.id);
+      expect(ids(census.unreached.krai_wide)).toContain(MUTNOVSKY.id);
+      for (const p of [COMMANDER, CITY, FAR_NORTH, SHIVELUCH]) expect(ids(census.unreached.krai_wide), p.id).not.toContain(p.id);
+      expect(ids(census.unreached.krai_wide), 'место без реалтайма — в своём списке').not.toContain(NO_STATUS.id);
+      expect(ids(census.no_status)).toContain(NO_STATUS.id);
+      expect(ids(census.no_status)).not.toContain(MUTNOVSKY.id);
+      expect(ids(census.commander_box)).toContain(COMMANDER.id);
+      expect(ids(census.commander_box)).not.toContain(CITY.id);
+      expect(ids(census.koryak)).toContain(FAR_NORTH.id);
+      expect(ids(census.koryak)).not.toContain(SHIVELUCH.id);
+      expect(census.by_zone.find((z) => z.zone === 'mutnovsky')).toMatchObject({ alert_zone: false, places: 1 });
+      expect(census.by_zone.find((z) => z.zone === 'northern')).toMatchObject({ alert_zone: true });
+    } finally {
+      await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [[MUTNOVSKY.ark, NO_STATUS.ark]]);
+      await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [[MUTNOVSKY.id, NO_STATUS.id]]);
+    }
   });
 });
