@@ -1,14 +1,34 @@
 {
   "timeout": 120,
-  "run": 928,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Главный кадр вулкана Вилючинский (админская загрузка 30.06, автора нет) не совпал ни с одним снимком владельца (979, 1036–1039; проба 927). Не с Викисклада ли он: категории и файлы Commons о Вилючинском. Конфиг записан целиком.",
+  "run": 929,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Сличение главного кадра вулкана Вилючинский (админская загрузка 30.06) с файлами Викисклада о Вилючинском: уменьшенные копии 48 px в base64, часть 1 из 2. Конфиг записан целиком.",
   "urls": [
-    "https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=14&srsearch=Vilyuchinsky&srlimit=10",
-    "https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srsearch=Vilyuchinsky+volcano&srlimit=50",
-    "https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srsearch=%D0%92%D0%B8%D0%BB%D1%8E%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9+%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD&srlimit=50"
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%259B%25D0%25B8%25D1%2581%25D0%25B0-%25D0%25BE%25D0%25B3%25D0%25BD%25D0%25B5%25D0%25B2%25D0%25BA%25D0%25B0_%25D0%25BD%25D0%25B0_%25D1%2584%25D0%25BE%25D0%25BD%25D0%25B5_%25D0%2592%25D0%25B8%25D0%25BB%25D1%258E%25D1%2587%25D0%25B8%25D0%25BD%25D1%2581%25D0%25BA%25D0%25BE%25D0%25B3%25D0%25BE_%25D0%25B2%25D1%2583%25D0%25BB%25D0%25BA%25D0%25B0%25D0%25BD%25D0%25B0.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Volcano_Vilyuchinsky_%252816299508329%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Volcano_Vilyuchinsky_%252816917607582%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Volcano_Vilyuchinsky_%252815918956483%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Volcano_Vilyuchinsky_%252816353258727%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Clouds_over_Volcano_Vilyuchinsky_%252816908640031%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Clouds_over_Volcano_Vilyuchinsky_%252816908402082%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FVilyuchinsky_volcano_-_Kamchatka%252C_Russian_Federation_-_Summer_1993.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2F%25D0%259A%25D0%25B0%25D0%25BC%25D1%2587%25D0%25B0%25D1%2582%25D1%2581%25D0%25BA%25D0%25B0%25D1%258F_%25D0%25BB%25D1%258B%25D0%25B6%25D0%25BD%25D1%258F.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FPetropavlovsk-Kamchatsky%252C_Mutnovsky_and_Vilyuchinsky_volcano%252C_a_view_from_the_summit_of_Avachinsky_volcano.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Vilyuchinsky_from_Gorely_%252816414488060%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FVilyuchinsky_Volcano_and_Avacha_Bay%252C_April_2026.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FVilyuchinsky_volcano_from_Gorely_volcano_Kamchatka.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FVilyuchinsky_volcano.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FVilyuchinsky_Volcano.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FVilyuchinsky_%2528southeast_side%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FKamchatka_Submarine_in_front_of_Vilyuchik_%252824081187783%2529.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FViluchinskiy.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FSki_club_near_the_Vilyuchinsky_volcano_-_54768573379.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FSki_club_near_the_Vilyuchinsky_volcano_-_54768331771.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FWulkan_Wiluczy%25C5%2584ski.jpg&w=48&q=45&output=jpg",
+    "https://wsrv.nl/?url=commons.wikimedia.org%2Fwiki%2FSpecial%3AFilePath%2FSki_club_near_the_Vilyuchinsky_volcano.jpg&w=48&q=45&output=jpg"
   ],
+  "b64": true,
+  "bytes": 1,
   "allowStale": true,
   "retries": 1,
-  "retryDelay": 15,
-  "bytes": 16000
+  "retryDelay": 10
 }
