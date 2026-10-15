@@ -1,0 +1,79 @@
+name: Места × охраняемые территории OSM — контуры (вручную)
+
+# Перепись режима по схеме парков (15.10): у видимых мест без записанного
+# режима (place-eco-census, regime_unrecorded) — в каких контурах охраняемых
+# территорий OpenStreetMap лежит точка. Ответ — улика для человека, а не
+# правка: режим ставится миграцией, сверенной с положением территории.
+#
+# Контуры — из выгрузки Geofabrik, не из Overpass: 15.10 overpass-api.de не
+# отдал даже пакет из восьми is_in (502 «at capacity», проба 961), а сверка
+# координат ушла с Overpass на выгрузку ещё 03.10 (places-osm-crosscheck.yml).
+#
+# Места приходят в маркере (id, имя, точка, род режима) — прод этот прогон не
+# зовёт, ни базы, ни секретов ему не нужно. Ответ — в лог и в сводку прогона.
+#
+# Запуск: push в main, меняющий .github/triggers/place-oopt-contours.json,
+# или кнопка (workflow_dispatch) — с местами из того же маркера.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/place-oopt-contours.json'
+
+permissions:
+  contents: read
+
+# Новый маркер отменяет прежний прогон: сверка только читает.
+concurrency:
+  group: place-oopt-contours
+  cancel-in-progress: true
+
+jobs:
+  contours:
+    runs-on: ubuntu-latest
+    # Выгрузка округа — сотни мегабайт: скачать, вырезать край и собрать
+    # полигоны — минуты, не десятки минут (places-osm-crosscheck.yml делает
+    # то же над всеми тегами).
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      # Командоры (остров Медный — до 167,9° в. д.) в рамку входят: у сверки
+      # координат восточная граница 167, и Медный остаётся за ней.
+      # --strategy smart держит мультиполигоны целыми на краю рамки.
+      - name: Контуры охраняемых территорий — выгрузка Geofabrik
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+          curl -fsSL --retry 3 -o /tmp/fe.osm.pbf \
+            https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf
+          ls -lh /tmp/fe.osm.pbf
+          osmium extract --strategy smart -b 155,50,168.5,64 /tmp/fe.osm.pbf -o /tmp/kam.osm.pbf --overwrite
+          osmium tags-filter /tmp/kam.osm.pbf \
+            nwr/boundary=protected_area,national_park nwr/leisure=nature_reserve \
+            -o /tmp/oopt.osm.pbf --overwrite
+          osmium export /tmp/oopt.osm.pbf -f geojsonseq -u type_id --geometry-types=polygon \
+            -o /tmp/oopt.geojsonseq --overwrite
+          wc -l /tmp/oopt.geojsonseq
+
+      - name: Места против контуров
+        run: |
+          set -euo pipefail
+          npx tsx scripts/oopt-contours.ts /tmp/oopt.geojsonseq .github/triggers/place-oopt-contours.json /tmp/oopt-result.json \
+            | tee /tmp/oopt-report.txt
+          {
+            echo '## Места × охраняемые территории OSM'
+            echo '```'
+            cat /tmp/oopt-report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
