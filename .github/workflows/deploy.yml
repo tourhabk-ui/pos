@@ -583,12 +583,22 @@ jobs:
   # Отменённый прогон тревогой не считается: на main идущий прогон не
   # отменяется (ci.yml), отменяется только ждущий, которого заменил свежий.
   #
-  # Джоб красный ВСЕГДА: выкат не состоялся, а зелёный «Deploy» по красному
-  # CI читался бы как выкат. Куда ушла тревога — в строке ошибки.
+  # Тревога — только если решать больше некому. Если за красным прогоном
+  # уже идёт (или прошёл) прогон более свежего пуша в main, выкат решит он:
+  # зелёный — выкатит, красный — поднимет тревогу сам. Без этого тревожил бы
+  # каждый маркер в режиме apply: три сторожа (timeweb-configure, iamkam-site,
+  # images-repack) требуют dry в репозитории, и коммит с apply краснеет
+  # нарочно, на минуты до возврата в dry. Не смогли спросить GitHub о
+  # прогонах — тревожим: «не знаю» не выдаётся за «решит другой» (§4.0).
+  #
+  # Джоб красный ВСЕГДА: выкат этого коммита не состоялся, а зелёный
+  # «Deploy» по красному CI читался бы как выкат. Куда ушла тревога (или кто
+  # решит вместо неё) — в строке ошибки.
   ci-red-alert:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       issues: write
     if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.conclusion != 'skipped' }}
     steps:
@@ -601,8 +611,23 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           SHORT="${SHA:0:7}"
+
+          # Решит ли более свежий прогон CI на main? Самый новый из прогонов
+          # по пушу в main, начатых после нашего; отменённый (его заменил ещё
+          # более свежий) не в счёт.
+          if gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=20" \
+               > /tmp/ci-runs.json 2>/tmp/ci-runs.err \
+             && NEWER=$(jq -r --argjson id "$CI_RUN_ID" '[.workflow_runs[] | select(.id > $id) | select(.status != "completed" or .conclusion != "cancelled")] | max_by(.id) // empty | "\(.head_sha[0:7]) \(.status)/\(.conclusion // "-")"' /tmp/ci-runs.json); then
+            if [ -n "$NEWER" ]; then
+              echo "::error::Выкат $SHORT остановлен: CI на main — $CONCLUSION. Тревогу не поднимаем: следом прогон более свежего пуша ($NEWER) — он и решит выкат, а если не пройдёт, поднимет тревогу сам."
+              exit 1
+            fi
+          else
+            echo "::warning::Не смог спросить GitHub о более свежих прогонах CI ($(head -c 200 /tmp/ci-runs.err 2>/dev/null)) — тревожим: решать, возможно, некому."
+          fi
           TEXT="Выкат остановлен: CI на main не прошёл ($CONCLUSION) на коммите $SHORT. Прод остаётся на последней проверенной сборке; следующий зелёный прогон main выкатится сам. Прогон: $RUN_URL"
           TG=""; ISSUE=""; TG_OK=0; ISSUE_OK=0
 

@@ -62,6 +62,7 @@ function ctx(o: RunOpts = {}): Record<string, unknown> {
       token: 'ghs_test',
       event: {
         workflow_run: o.eventName === 'workflow_dispatch' ? undefined : {
+          id: 1000,
           conclusion: o.conclusion ?? 'success',
           event: o.event ?? 'push',
           head_sha: o.headSha ?? 'a'.repeat(40),
@@ -124,6 +125,7 @@ exit 0
 const GH_STUB = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$FAKE_DIR/gh.log"
 case "$1 $2" in
+  "api "*) if [ -f "$FAKE_DIR/gh-api-fail" ]; then echo "HTTP 403" >&2; exit 1; fi; cat "$FAKE_DIR/runs.json" 2>/dev/null || echo '{"workflow_runs":[]}';;
   "issue list") if [ -f "$FAKE_DIR/gh-list-fail" ]; then echo "HTTP 403" >&2; exit 1; fi; cat "$FAKE_DIR/issues.json" 2>/dev/null || echo '[]';;
   "issue create") [ ! -f "$FAKE_DIR/gh-write-fail" ] || exit 1; echo "https://github.com/${REPO}/issues/77";;
   "issue comment"|"issue close") [ ! -f "$FAKE_DIR/gh-write-fail" ] || exit 1;;
@@ -370,6 +372,45 @@ describe('красный CI на main — владелец узнаёт, что 
     const r = runStep(step, env({}), { 'gh-list-fail': '1' });
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Тревога НЕ ДОСТАВЛЕНА никуда/);
+  });
+
+  const runs = (...rs: Array<{ id: number; status: string; conclusion: string | null }>) =>
+    JSON.stringify({ workflow_runs: rs.map((x) => ({ ...x, head_sha: 'c'.repeat(40) })) });
+  const sent = (r: Run) => r.curl.some((l) => l.includes('api.telegram.org')) || r.gh.some((l) => l.startsWith('issue create'));
+  const tg = { TELEGRAM_BOT_TOKEN: 'bot', TELEGRAM_OWNER_ID: '171' };
+
+  it('следом идёт прогон более свежего пуша — решит он, тревоги нет (маркер в apply)', () => {
+    for (const newer of [
+      { id: 1001, status: 'in_progress', conclusion: null },
+      { id: 1001, status: 'queued', conclusion: null },
+      { id: 1001, status: 'completed', conclusion: 'success' },
+      { id: 1001, status: 'completed', conclusion: 'failure' }, // он сам и поднял тревогу
+    ]) {
+      const r = runStep(step, env(tg), { 'runs.json': runs({ id: 999, status: 'completed', conclusion: 'success' }, newer), 'tg.json': '{"ok":true}' });
+      expect(sent(r), JSON.stringify(newer)).toBe(false);
+      expect(r.code, 'выкат этого коммита всё равно не состоялся').toBe(1);
+      expect(r.out).toMatch(/он и решит выкат/);
+    }
+  });
+
+  it('свежий прогон отменён (его заменил ещё более свежий) — не в счёт, если других нет', () => {
+    const r = runStep(step, env(tg), {
+      'runs.json': runs({ id: 1001, status: 'completed', conclusion: 'cancelled' }), 'tg.json': '{"ok":true}', 'issues.json': '[]',
+    });
+    expect(sent(r)).toBe(true);
+  });
+
+  it('прогоны старше нашего не решают за нас', () => {
+    const r = runStep(step, env(tg), {
+      'runs.json': runs({ id: 998, status: 'in_progress', conclusion: null }), 'tg.json': '{"ok":true}', 'issues.json': '[]',
+    });
+    expect(sent(r)).toBe(true);
+  });
+
+  it('GitHub о прогонах не ответил — тревожим, «не знаю» не равно «решит другой»', () => {
+    const r = runStep(step, env(tg), { 'gh-api-fail': '1', 'tg.json': '{"ok":true}', 'issues.json': '[]' });
+    expect(r.out).toMatch(/::warning::Не смог спросить GitHub о более свежих прогонах/);
+    expect(sent(r)).toBe(true);
   });
 });
 
