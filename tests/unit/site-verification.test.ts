@@ -11,7 +11,7 @@ import { siteVerification, BING_SITE_VERIFICATION } from '@/lib/seo/site-verific
 describe('подтверждение сайта для вебмастеров', () => {
   it('Bing получает свой тег msvalidate.01 — значение, присланное владельцем', () => {
     const v = siteVerification({} as NodeJS.ProcessEnv);
-    expect(v.other?.['msvalidate.01']).toBe('4760A4B34058EAD4A55163A872643739');
+    expect(v.other?.['msvalidate.01']).toBe('AC1C1C2A5C527F87684D3E2571543A82');
     expect(BING_SITE_VERIFICATION).toMatch(/^[0-9A-F]{32}$/);
   });
 
