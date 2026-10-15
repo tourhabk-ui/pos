@@ -113,14 +113,18 @@ export async function GET(req: Request) {
       status: r.recommender_status,
       safety_score: r.safety_score,
       is_dangerous: (r.alert_severity ?? 0) >= 2,
+      // Слова — то, что посчитано (15.10, §0): is_open TRUE стоит у всех мест
+      // по умолчанию, ноль в alert_severity — «в сводках ничего», и ни то ни
+      // другое не проверка маршрута. «Безопасно и свободно» было обещанием, а
+      // NULL в is_open читался как «закрыто».
       reason:
-        !r.is_open
-          ? 'Закрыто'
+        r.is_open === false
+          ? 'Закрыто администратором'
           : (r.alert_severity ?? 0) >= 2
-            ? `Риск: ${(r.active_alerts || []).join(', ')}`
+            ? `Предупреждение: ${(r.active_alerts || []).join(', ')}`
             : r.recommender_status === 'yellow'
-              ? 'Заполняется, незначительный риск'
-              : 'Безопасно и свободно',
+              ? 'Есть предупреждение'
+              : 'Предупреждений в сводках нет — это не проверка маршрута',
     }));
 
     return Response.json({

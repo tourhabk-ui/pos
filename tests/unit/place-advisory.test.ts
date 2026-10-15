@@ -28,8 +28,9 @@ describe('тон по обстановке', () => {
   it('оранжевый → caution', () => {
     expect(buildPlaceAdvisory({ ...base, volcano: { colorCode: 'orange', observedAt: daysAgo(1) } }, NOW).tone).toBe('caution');
   });
-  it('реалтайм-алерт severity≥2 → danger', () => {
-    const a = buildPlaceAdvisory({ ...base, realtime: { isOpen: true, activeAlerts: ['Сход селя'], alertSeverity: 3 } }, NOW);
+  it('красный пересчёт сводок → danger, с заголовком предупреждения', () => {
+    // Уровень дня — placeDayStatus, тот же, что у полосы «Сейчас» (15.10).
+    const a = buildPlaceAdvisory({ ...base, realtime: { level: 'red', stale: false, activeAlerts: ['Сход селя'] } }, NOW);
     expect(a.tone).toBe('danger');
     expect(a.lines.join(' ')).toMatch(/Сход селя/);
   });
@@ -49,9 +50,11 @@ describe('честность (safety-инвариант)', () => {
     expect(a.lines.join(' ')).toMatch(/сверься/);
     expect(a.lines.join(' ')).not.toMatch(/спокойно/);
   });
-  it('закрыто сейчас → caution + строка', () => {
-    const a = buildPlaceAdvisory({ ...base, realtime: { isOpen: false, activeAlerts: null, alertSeverity: null } }, NOW);
-    expect(a.tone).toBe('caution');
+  it('закрыто сейчас → danger «нет» + строка, а не «можно, но с оглядкой» (15.10)', () => {
+    // Прежний caution давал «Можно, но с оглядкой» строкой выше «Сейчас закрыто».
+    const a = buildPlaceAdvisory({ ...base, realtime: { level: 'closed', stale: false, activeAlerts: null } }, NOW);
+    expect(a.tone).toBe('danger');
+    expect(a.headline).not.toMatch(/можно/i);
     expect(a.lines.join(' ')).toMatch(/закрыто/i);
   });
 });

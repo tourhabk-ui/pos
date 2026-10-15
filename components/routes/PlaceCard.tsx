@@ -293,17 +293,19 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           >
             {label}
           </Link>
-          {/* Живой статус точки — только когда данные есть */}
-          {route.isOpen != null && (
+          {/* Только закрытие. TRUE в is_open — значение по умолчанию у всех
+              мест (070/0645): «никто не закрыл», а не «проверили — открыто».
+              Зелёное мигающее «открыто» на каждой карточке выдавало умолчание
+              за живой статус (15.10, §0). Закрывает администратор — это факт. */}
+          {route.isOpen === false && (
             <span
               className="inline-flex items-center gap-1 text-[8px] font-semibold uppercase"
-              style={{ color: route.isOpen ? 'var(--success)' : 'var(--danger)', letterSpacing: '0.12em' }}
+              style={{ color: 'var(--danger)', letterSpacing: '0.12em' }}
             >
               <span
-                className={route.isOpen ? 'pc-live' : ''}
                 style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }}
               />
-              {route.isOpen ? 'открыто' : 'закрыто'}
+              закрыто
             </span>
           )}
         </div>
@@ -388,8 +390,6 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           @keyframes pc-glow { 0% { stroke-dashoffset: 1.16; } 55% { stroke-dashoffset: -1; } 100% { stroke-dashoffset: -1; } }
           .pc-needle { animation: pc-breathe 3.4s ease-in-out infinite alternate; transform-origin: 12px 12px; }
           @keyframes pc-breathe { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
-          .pc-live { animation: pc-pulse 2.4s ease-in-out infinite; }
-          @keyframes pc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
         }
       `}</style>
     </article>

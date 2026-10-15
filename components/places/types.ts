@@ -41,6 +41,10 @@ export interface PlaceRealtime {
   alertMessage: string | null;
   touristsToday: number | null;
   touristsHour: number | null;
+  /** Вердикт пересчёта сводок (safety-ingest): red / yellow / green; читать через placeDayStatus. */
+  status: string | null;
+  /** Вулканы, к которым место привязано поимённо (1029): их шкалы поднимают статус места. */
+  linkedVolcanoes: string | null;
   updatedAt: string | null;
 }
 

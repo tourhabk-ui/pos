@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { AlertTriangle, Phone, Shield, ChevronRight, MapPin, Thermometer, Wind, Activity } from 'lucide-react';
+import { AlertTriangle, Phone, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { UTC_WALL_NOW_SQL, isoUtcSql } from '@/lib/db/timestamp-iso';
+import IncidentsBoard, { type IncidentAlert, type IncidentClosedPlace } from '@/components/safety/IncidentsBoard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -37,23 +38,14 @@ export const metadata: Metadata = {
   },
 };
 
-interface ActiveAlert {
-  place_name: string;
-  alert_message: string;
-  alert_severity: number;
-  active_alerts: string[];
-  ark_id: string;
-}
-
-interface ClosedPlace {
-  place_name: string;
-  closed_reason: string | null;
-  ark_id: string;
-}
-
-async function getActiveAlerts(): Promise<ActiveAlert[]> {
+/**
+ * Три чтения, у каждого три исхода: строки, пусто, «не смог». Отказ базы
+ * возвращает null и пишет имя чтения в лог — до 15.10 он глушился в пустой
+ * список, и сбой печатался «Активных предупреждений нет» зелёным щитом.
+ */
+async function getActiveAlerts(): Promise<IncidentAlert[] | null> {
   try {
-    const { rows } = await pool.query<ActiveAlert>(`
+    const { rows } = await pool.query<IncidentAlert>(`
       SELECT
         p.name AS place_name,
         r.alert_message,
@@ -68,36 +60,50 @@ async function getActiveAlerts(): Promise<ActiveAlert[]> {
       LIMIT 20
     `);
     return rows;
-  } catch {
-    return [];
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    console.error('[safety/incidents] предупреждения не прочитаны:', code ?? (err instanceof Error ? err.message : err));
+    return null;
   }
 }
 
-async function getClosedPlaces(): Promise<ClosedPlace[]> {
+async function getClosedPlaces(): Promise<IncidentClosedPlace[] | null> {
   try {
-    const { rows } = await pool.query<ClosedPlace>(`
+    // От статуса, а не от профиля безопасности: закрытое место без строки
+    // профиля раньше выпадало из списка (INNER JOIN), и закрытие пропадало.
+    const { rows } = await pool.query<IncidentClosedPlace>(`
       SELECT
         p.name AS place_name,
         s.closed_reason,
         p.ark_id::text
-      FROM location_safety_profile s
-      JOIN places p ON s.agent_route_id::text = p.ark_id::text
-      JOIN location_real_time_status r ON r.agent_route_id = s.agent_route_id
+      FROM location_real_time_status r
+      JOIN places p ON p.ark_id = r.agent_route_id
+      LEFT JOIN location_safety_profile s ON s.agent_route_id = r.agent_route_id
       WHERE r.is_open = false
       ORDER BY p.name
       LIMIT 30
     `);
     return rows;
-  } catch {
-    return [];
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    console.error('[safety/incidents] закрытые места не прочитаны:', code ?? (err instanceof Error ? err.message : err));
+    return null;
   }
 }
 
-const SEVERITY_CONFIG: Record<number, { label: string; color: string; bg: string }> = {
-  1: { label: 'Низкий',   color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/10' },
-  2: { label: 'Средний',  color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/15' },
-  3: { label: 'Высокий',  color: 'text-[var(--danger)]',  bg: 'bg-[var(--danger)]/10' },
-};
+/** Последний пересчёт сводок: без него «предупреждений нет» не говорит, про какое время. */
+async function getRecomputedAt(): Promise<string | null> {
+  try {
+    const { rows } = await pool.query<{ at: string | null }>(
+      `SELECT ${isoUtcSql('MAX(updated_at)')} AS at FROM location_real_time_status`,
+    );
+    return rows[0]?.at ?? null;
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    console.error('[safety/incidents] время пересчёта не прочитано:', code ?? (err instanceof Error ? err.message : err));
+    return null;
+  }
+}
 
 // Единый источник номеров (см. lib/safety/emergency-numbers.ts).
 const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map((c) => ({
@@ -106,18 +112,8 @@ const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map((c) => ({
   note: c.hint ?? c.type,
 }));
 
-const HAZARD_ICONS: Record<string, typeof AlertTriangle> = {
-  volcano: Activity,
-  thermal: Thermometer,
-  weather: Wind,
-  default: AlertTriangle,
-};
-
 export default async function IncidentsPage() {
-  const [alerts, closed] = await Promise.all([getActiveAlerts(), getClosedPlaces()]);
-
-  const hasAlerts = alerts.length > 0;
-  const hasClosed = closed.length > 0;
+  const [alerts, closed, recomputedAt] = await Promise.all([getActiveAlerts(), getClosedPlaces(), getRecomputedAt()]);
 
   return (
     <>
@@ -171,109 +167,8 @@ export default async function IncidentsPage() {
           </div>
         </section>
 
-        {/* Active alerts */}
-        <section className="px-6 pb-10">
-          <div className="max-w-4xl mx-auto">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
-              Активные предупреждения
-            </p>
-
-            {hasAlerts ? (
-              <div className="space-y-3">
-                {alerts.map((a) => {
-                  const sev = SEVERITY_CONFIG[a.alert_severity] ?? SEVERITY_CONFIG[1];
-                  return (
-                    <div
-                      key={`${a.ark_id}-${a.alert_severity}`}
-                      className={`ds-card p-4 border-l-4 border-[var(--danger)] ${sev.bg}`}
-                    >
-                      <div className="flex items-start justify-between gap-4 mb-1">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-4 h-4 text-[var(--accent)] shrink-0" />
-                          <span className="font-semibold text-[var(--text-primary)] text-sm">
-                            {a.place_name}
-                          </span>
-                        </div>
-                        <span className={`text-xs font-semibold ${sev.color}`}>
-                          {sev.label}
-                        </span>
-                      </div>
-                      {a.alert_message && (
-                        <p className="text-sm text-[var(--text-secondary)] ml-6 leading-relaxed">
-                          {a.alert_message}
-                        </p>
-                      )}
-                      {a.active_alerts?.length > 0 && (
-                        <div className="mt-2 ml-6 flex flex-wrap gap-1.5">
-                          {a.active_alerts.map((tag) => (
-                            <span
-                              key={tag}
-                              className="text-[10px] bg-[var(--bg-hover)] text-[var(--text-secondary)] px-2 py-0.5 rounded"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="ds-card p-6 text-center">
-                <Shield className="w-8 h-8 text-[var(--success)] mx-auto mb-3" />
-                <p className="font-semibold text-[var(--text-primary)]">
-                  Активных предупреждений нет
-                </p>
-                <p className="text-sm text-[var(--text-secondary)] mt-1">
-                  Данные обновляются каждые 5 минут
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Closed places */}
-        <section className="px-6 pb-10 border-t border-[var(--border)] pt-10">
-          <div className="max-w-4xl mx-auto">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
-              Временно закрытые места
-            </p>
-
-            {hasClosed ? (
-              <div className="space-y-2">
-                {closed.map((c) => (
-                  <div
-                    key={c.ark_id}
-                    className="ds-card p-4 flex items-start gap-3"
-                  >
-                    <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold text-[var(--text-primary)] text-sm">
-                        {c.place_name}
-                      </p>
-                      {c.closed_reason && (
-                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                          {c.closed_reason}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="ds-card p-6 text-center">
-                <Shield className="w-8 h-8 text-[var(--success)] mx-auto mb-3" />
-                <p className="font-semibold text-[var(--text-primary)]">
-                  Закрытых мест нет
-                </p>
-                <p className="text-sm text-[var(--text-secondary)] mt-1">
-                  Все маршруты открыты по данным платформы
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
+        {/* Предупреждения и закрытия — что платформа знает, с исходом «не смог» */}
+        <IncidentsBoard alerts={alerts} closed={closed} recomputedAt={recomputedAt} />
 
         {/* Rules reminder */}
         <section className="px-6 pb-10 border-t border-[var(--border)] pt-10">
@@ -289,11 +184,11 @@ export default async function IncidentsPage() {
                 },
                 {
                   title: 'Скачайте карту офлайн',
-                  body: 'В приложении Ведар карта кэшируется. Нажмите «Скачать для офлайн» на странице маршрута до выхода из зоны связи.',
+                  body: 'Сохраните карту маршрута в телефон кнопкой «Скачать для похода» на странице маршрута — до выхода из зоны связи.',
                 },
                 {
                   title: 'Возьмите спутниковый коммуникатор',
-                  body: 'На маршрутах с sat_communicator_required — спутниковый коммуникатор обязателен. Garmin inReach, Spot или аналог.',
+                  body: 'Вне зоны сотовой связи помощь вызывают через спутник: Garmin inReach, Spot или аналог.',
                 },
               ].map((item) => (
                 <div key={item.title} className="ds-card p-4">

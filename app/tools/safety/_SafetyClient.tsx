@@ -40,7 +40,8 @@ interface SafetyResult {
   satCommunicator: boolean;
   registrationRequired: boolean;
   realtime: Realtime | null;
-  riskScore: number;
+  /** null — оценить не по чему: опасности, сложность и предупреждения не записаны. */
+  riskScore: number | null;
   kuzmichAssessment: string | null;
   recommendations: string[];
   emergencyTip: string | null;
@@ -53,6 +54,8 @@ const RISK_CONFIG = [
   { score: 4, label: 'Высокий риск', color: 'var(--danger)' },
   { score: 5, label: 'Экстремальный риск', color: 'var(--danger)' },
 ];
+
+const RISK_UNKNOWN = { score: 0, label: 'Опасности у нас не записаны', color: 'var(--text-muted)' };
 
 const LOCATION_LABELS: Record<string, string> = {
   volcano: 'Вулкан', lake: 'Озеро', hot_spring: 'Термальный источник',
@@ -158,7 +161,10 @@ export function SafetyClient() {
     );
   };
 
-  const riskCfg = result ? (RISK_CONFIG[result.riskScore - 1] ?? RISK_CONFIG[0]) : null;
+  // Не оценён — не «низкий риск»: незнание не красится спокойным зелёным (15.10).
+  const riskCfg = result
+    ? (result.riskScore != null ? (RISK_CONFIG[result.riskScore - 1] ?? RISK_CONFIG[0]) : RISK_UNKNOWN)
+    : null;
 
   return (
     <div className="bg-[var(--bg-primary)] min-h-screen py-12">
@@ -357,7 +363,7 @@ export function SafetyClient() {
                     className="text-2xl font-bold font-playfair"
                     style={{ color: riskCfg.color }}
                   >
-                    {result.riskScore}/5
+                    {result.riskScore != null ? `${result.riskScore}/5` : 'не оценён'}
                   </div>
                   <div className="text-xs font-bold mt-0.5" style={{ color: riskCfg.color }}>
                     {riskCfg.label}
@@ -369,7 +375,7 @@ export function SafetyClient() {
               {result.realtime?.alertSeverity != null && result.realtime.alertSeverity > 0 && (
                 <div className="mt-4 flex gap-2 text-sm" style={{ color: 'var(--warning)' }}>
                   <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                  <span>{result.realtime.alertMessage ?? 'Повышенная осторожность'}</span>
+                  <span>{result.realtime.alertMessage ?? result.realtime.activeAlerts?.find(Boolean) ?? 'Есть действующее предупреждение — заголовок не записан'}</span>
                 </div>
               )}
             </div>

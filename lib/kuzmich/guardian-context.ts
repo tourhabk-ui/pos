@@ -18,6 +18,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { placeRoutesFor, placeRoutesLines, type PlaceRouteRow } from '@/lib/places/place-routes';
 import { routeFacts } from '@/lib/ai/route-knowledge';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
+import { PLACE_STATUS_FRESH_MS, kamchatkaStamp } from '@/lib/safety/place-day-status';
 
 interface GuardianPlaceRow {
   /** id места — для ссылки на его карточку (только в чате, см. pageLinks). */
@@ -126,15 +127,11 @@ interface KnowledgeRow {
 }
 
 /**
- * Свежесть пересчёта статуса места. Крон safety-ingest пересчитывает все
- * строки каждые 5 минут; три часа тишины — пересчёт встал, и цвет на экране
- * уже не про сегодня (проверка MCP 29.09: цвет печатался без времени).
+ * Свежесть пересчёта статуса места и время по Камчатке — одно правило с
+ * карточкой места (lib/safety/place-day-status.ts, 15.10): карточка и чат
+ * отвечают на один вопрос, и порог у них один.
  */
-const STATUS_FRESH_MS = 3 * 60 * 60 * 1000;
-
-function kamchatkaStamp(iso: string): string {
-  return new Date(iso).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
+const STATUS_FRESH_MS = PLACE_STATUS_FRESH_MS;
 
 const STATUS_LABEL: Record<string, string> = {
   green: 'ЗЕЛЁНЫЙ',

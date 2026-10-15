@@ -18,6 +18,7 @@ import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
+import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
@@ -99,7 +100,20 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          rs.alert_message,
          rs.tourists_today,
          rs.tourists_hour,
-         rs.updated_at AS realtime_updated_at,
+         -- Вердикт пересчёта сводок — тот же, что печатает Кузьмич в чате
+         -- (lib/safety/place-day-status.ts, 15.10).
+         rs.recommender_status,
+         -- Колонка без пояса, NOW() пишет в неё стенное время пояса сессии
+         -- (+03 на проде): без перевода «пересчитано» уезжало на три часа, и
+         -- свежесть судить было бы не по чему.
+         ${isoUtcSql('rs.updated_at')} AS realtime_updated_at,
+         -- Вулкан, к которому место привязано поимённо (1029): его шкалы
+         -- поднимают статус места, и сказать это надо словами — иначе жёлтый
+         -- у водопада читается как сбой (то же у Кузьмича в чате).
+         (SELECT string_agg(v.name, ', ' ORDER BY v.name)
+            FROM place_volcano_links l
+            JOIN places v ON v.id::text = l.volcano_place_id
+           WHERE l.place_id = p.id::text) AS linked_volcanoes,
          vs.aviation_color_code AS volcano_acc,
          vs.ash_height_m         AS volcano_ash_height_m,
          vs.summary              AS volcano_summary,
@@ -452,6 +466,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           alertMessage: r.alert_message as string | null,
           touristsToday: r.tourists_today != null ? Number(r.tourists_today) : null,
           touristsHour: r.tourists_hour != null ? Number(r.tourists_hour) : null,
+          status: (r.recommender_status as string | null) ?? null,
+          linkedVolcanoes: (r.linked_volcanoes as string | null) ?? null,
           updatedAt: r.realtime_updated_at as string | null,
         } : null,
 

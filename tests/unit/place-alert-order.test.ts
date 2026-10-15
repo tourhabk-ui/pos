@@ -33,6 +33,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 
 const SRC = readFileSync(
   join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'),
@@ -62,14 +63,17 @@ describe('порядок предупреждений места', () => {
 });
 
 describe('карточка показывает первый элемент как главное предупреждение', () => {
-  const ADVISORY = readFileSync(
-    join(process.cwd(), 'lib/kuzmich/place-advisory.ts'),
-    'utf-8',
-  );
-
-  it('совет Кузьмича берёт activeAlerts[0]', () => {
+  it('совет Кузьмича называет первое предупреждение — самое опасное', () => {
     // Ради этого читателя и наводится порядок в агрегате: он показывает
-    // ОДИН заголовок и выдаёт его за причину вердикта.
-    expect(ADVISORY).toMatch(/activeAlerts\[0\]/);
+    // ОДИН заголовок и выдаёт его за причину вердикта. Судится вызовом:
+    // первым в массиве лежит самое опасное, его совет и называет.
+    const a = buildPlaceAdvisory({
+      volcano: null,
+      realtime: { level: 'red', stale: false, activeAlerts: ['Паводок', 'Вилючинский перевал: проезд по пропускам'] },
+      hazardTypes: [],
+    });
+    const text = a.lines.join(' ');
+    expect(text).toContain('Паводок');
+    expect(text).not.toContain('Вилючинский');
   });
 });

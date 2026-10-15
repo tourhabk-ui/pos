@@ -9,6 +9,8 @@ import { callAIFast } from '@/lib/ai/providers';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { hazardLabel } from '@/lib/safety/hazard-labels';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
+import { placeRiskScore } from '@/lib/safety/place-risk-score';
+import { routeDifficultyLabel } from '@/lib/places/zone-labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,23 +24,29 @@ const BodySchema = z.union([
 ]);
 
 
-function computeRiskScore(
-  hazards: string[],
-  alertSeverity: number | null,
-  difficultyLevel: number | null,
-): number {
-  let score = 1;
-  if (alertSeverity != null) score = Math.max(score, Math.min(5, alertSeverity + 1));
-  const dangerousHazards = ['volcanic_gas', 'avalanche'];
-  if (hazards.some(h => dangerousHazards.includes(h))) score = Math.max(score, 3);
-  if (hazards.includes('bears')) score = Math.max(score, 2);
-  if (difficultyLevel != null && difficultyLevel >= 4) score = Math.max(score, 3);
-  return score;
-}
-
 // Роут зовет AI и открыт анониму: без потолка бот превращает его в
 // бесплатный шлюз к модели за наш счет.
 const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+
+/**
+ * Уровень предупреждения — шкалой источника 0-3 (1 — предупреждение,
+ * 2 — критично, 3 — чрезвычайно; lib/services/safety/seismic-parser.ts). До
+ * 15.10 модель получала «уровень 2/4» — критичное читалось как умеренное.
+ */
+const ALERT_LEVEL_LINE = (level: number) => `ТЕКУЩЕЕ ПРЕДУПРЕЖДЕНИЕ (уровень ${level} из 3: 1 — предупреждение, 2 — критично, 3 — чрезвычайно)`;
+
+/** Текст предупреждения: записка администратора, иначе самый опасный заголовок сводки. */
+function alertText(message: unknown, alerts: unknown): string {
+  if (typeof message === 'string' && message.trim()) return message.trim();
+  const first = Array.isArray(alerts) ? alerts.find((a): a is string => typeof a === 'string' && a.trim() !== '') : undefined;
+  return first ?? 'заголовок предупреждения не записан';
+}
+
+/**
+ * Опасностей не записано — говорим это модели прямо. Иначе пустота читается
+ * как «опасностей нет», и оценка выходит спокойной на незнании (§4.0).
+ */
+const HAZARDS_UNKNOWN_LINE = 'ОПАСНОСТИ: у платформы не записаны — это не значит, что их нет; не утверждай, что место безопасно';
 
 export async function POST(request: NextRequest) {
   if (!limiter.check(getClientIp(request.headers))) {
@@ -74,7 +82,7 @@ export async function POST(request: NextRequest) {
           `SELECT p.name, sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
                   sp.nearest_medical_km, sp.sat_communicator_required,
                   sp.registration_required,
-                  rs.alert_severity, rs.alert_message
+                  rs.alert_severity, rs.alert_message, rs.active_alerts
            FROM route_waypoints rw
            JOIN places p ON p.id = rw.place_id
            LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
@@ -125,7 +133,11 @@ export async function POST(request: NextRequest) {
         const d = wp.difficultyLevel;
         if (d == null) return m;
         return m == null ? d : Math.max(m, d);
-      }, r.difficulty != null ? Number(r.difficulty) : null);
+      // Сложность маршрута — словом (easy/medium/hard/extreme,
+      // lib/routes/difficulty-scale), а не числом 1-5, как у точки: Number()
+      // давал NaN, и в ответ уходило «СЛОЖНОСТЬ: NaN/5». Тяжёлый и
+      // экстремальный маршрут поднимают риск так же, как сложность точки 4-5.
+      }, r.difficulty === 'hard' || r.difficulty === 'extreme' ? 4 : null);
 
       const maxAltitude = wps.reduce((m: number | null, wp) => {
         const a = wp.altitude_m != null ? Number(wp.altitude_m) : null;
@@ -143,7 +155,7 @@ export async function POST(request: NextRequest) {
       const regRequired = Boolean(r.mchs_registration_required) || wps.some(wp => wp.registration_required);
       const alertWp = wps.find(wp => wp.alert_severity != null && Number(wp.alert_severity) > 0);
 
-      const riskScore = computeRiskScore(hazards, maxAlertSeverity, maxDifficulty);
+      const riskScore = placeRiskScore(hazards, maxAlertSeverity, maxDifficulty);
 
       const contextParts: string[] = [
         `МАРШРУТ: ${r.title as string}`,
@@ -152,14 +164,15 @@ export async function POST(request: NextRequest) {
       if (r.elevation_gain_m) contextParts.push(`НАБОР ВЫСОТЫ: ${r.elevation_gain_m} м`);
       if (r.duration_hours) contextParts.push(`ДЛИТЕЛЬНОСТЬ: ${r.duration_hours} ч`);
       if (maxAltitude) contextParts.push(`МАКСИМАЛЬНАЯ ВЫСОТА: ${maxAltitude} м`);
-      if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}`);
+      contextParts.push(hazards.length ? `ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}` : HAZARDS_UNKNOWN_LINE);
       if (maxDifficulty != null) contextParts.push(`СЛОЖНОСТЬ: ${maxDifficulty}/5`);
+      if (routeDifficultyLabel(r.difficulty as string | null)) contextParts.push(`СЛОЖНОСТЬ МАРШРУТА: ${routeDifficultyLabel(r.difficulty as string | null)}`);
       if (minMedical != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${minMedical} км`);
       if (satRequired) contextParts.push('Спутниковая связь: рекомендуется');
       if (regRequired) contextParts.push('Регистрация в МЧС: обязательна');
       if (r.mchs_phone) contextParts.push(`Телефон МЧС: ${r.mchs_phone}`);
       if (maxAlertSeverity != null && maxAlertSeverity > 0 && alertWp) {
-        contextParts.push(`ТЕКУЩИЙ АЛЕРТ (уровень ${maxAlertSeverity}/4): ${(alertWp.alert_message as string | null) ?? 'повышенная осторожность'}`);
+        contextParts.push(`${ALERT_LEVEL_LINE(maxAlertSeverity)}: ${alertText(alertWp.alert_message, alertWp.active_alerts)}`);
       }
       if (wps.length > 0) contextParts.push(`ТОЧЕК НА МАРШРУТЕ: ${wps.length}`);
 
@@ -207,7 +220,7 @@ export async function POST(request: NextRequest) {
             alertSeverity: maxAlertSeverity,
             alertMessage: (alertWp?.alert_message as string | null) ?? null,
             currentCrowds: null,
-            activeAlerts: null,
+            activeAlerts: (alertWp?.active_alerts as string[] | null) ?? null,
           } : null,
           riskScore,
           kuzmichAssessment: synthesis.assessment ?? null,
@@ -215,7 +228,9 @@ export async function POST(request: NextRequest) {
           emergencyTip:      synthesis.emergencyTip ?? null,
         },
       });
-    } catch {
+    } catch (err) {
+      // Отказ не глушится (§4.0): без строки в логе 500 неотличим от «нет данных».
+      console.error('[tools/safety] разбор маршрута не выполнился:', err instanceof Error ? err.message : err);
       return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
     }
   }
@@ -276,19 +291,19 @@ export async function POST(request: NextRequest) {
     const hazards: string[] = honest.hazardTypes;
     const alertSeverity = r.alert_severity != null ? Number(r.alert_severity) : null;
     const difficultyLevel = honest.difficultyLevel;
-    const riskScore = computeRiskScore(hazards, alertSeverity, difficultyLevel);
+    const riskScore = placeRiskScore(hazards, alertSeverity, difficultyLevel);
 
     const contextParts: string[] = [
       `МЕСТО: ${r.name as string} (тип: ${(r.location_type as string | null) ?? 'неизвестно'})`,
     ];
     if (r.altitude_m) contextParts.push(`ВЫСОТА: ${r.altitude_m} м`);
-    if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}`);
+    contextParts.push(hazards.length ? `ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}` : HAZARDS_UNKNOWN_LINE);
     if (difficultyLevel != null) contextParts.push(`СЛОЖНОСТЬ ДОСТУПА: ${difficultyLevel}/5`);
     if (r.nearest_medical_km != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${r.nearest_medical_km} км`);
     if (r.sat_communicator_required) contextParts.push('Спутниковая связь: рекомендуется');
     if (r.registration_required) contextParts.push('Регистрация в МЧС: обязательна');
     if (alertSeverity != null && alertSeverity > 0) {
-      contextParts.push(`ТЕКУЩИЙ АЛЕРТ (уровень ${alertSeverity}/4): ${(r.alert_message as string | null) ?? 'повышенная осторожность'}`);
+      contextParts.push(`${ALERT_LEVEL_LINE(alertSeverity)}: ${alertText(r.alert_message, r.active_alerts)}`);
     }
 
     const messages = [
@@ -344,7 +359,8 @@ export async function POST(request: NextRequest) {
         emergencyTip:         synthesis.emergencyTip ?? null,
       },
     });
-  } catch {
+  } catch (err) {
+    console.error('[tools/safety] разбор места не выполнился:', err instanceof Error ? err.message : err);
     return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
   }
 }

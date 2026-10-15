@@ -14,6 +14,7 @@ import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 import { HazardPhraseList } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
+import { placeDayStatus } from '@/lib/safety/place-day-status';
 import { distanceToCity } from '@/lib/places/distance-to-city';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { composeAccessText } from '@/lib/places/access-text';
@@ -444,7 +445,13 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
               сегодня. Стоит первым и без него раздела нет вовсе. */}
           {hasNow && (
             <Section title="Сейчас">
-              {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
+              {place.realtime && (
+                <PlaceRealtimeStatus
+                  realtime={place.realtime}
+                  isVolcano={place.locationType === 'volcano'}
+                  volcanoColor={place.volcanoStatus?.colorCode ?? null}
+                />
+              )}
 
               {(place.safety.hazardTypes.length > 0 || place.safety.registrationRequired) && (
                 <HazardPhraseList
@@ -616,8 +623,10 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 volcano: place.volcanoStatus
                   ? { colorCode: place.volcanoStatus.colorCode, observedAt: place.volcanoStatus.observedAt }
                   : null,
+                // Тот же уровень дня, что у полосы «Сейчас» выше: одна оценка
+                // на экране, а не две (lib/safety/place-day-status).
                 realtime: place.realtime
-                  ? { isOpen: place.realtime.isOpen, activeAlerts: place.realtime.activeAlerts, alertSeverity: place.realtime.alertSeverity }
+                  ? { ...placeDayStatus(place.realtime), activeAlerts: place.realtime.activeAlerts }
                   : null,
                 hazardTypes: place.safety.hazardTypes,
               })}

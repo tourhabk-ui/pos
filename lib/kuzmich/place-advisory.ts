@@ -13,6 +13,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import {
   isVolcanoObservationStale, volcanoObservationAgeDays, formatObservationAge,
 } from '@/lib/services/safety/kvert-vona';
+import type { PlaceDay, PlaceDayLevel } from '@/lib/safety/place-day-status';
 
 export type AdvisoryTone = 'ok' | 'caution' | 'danger' | 'unknown';
 
@@ -24,9 +25,21 @@ export interface PlaceAdvisory {
 
 export interface AdvisoryInput {
   volcano: { colorCode: string; observedAt: string | null } | null;
-  realtime: { isOpen: boolean | null; activeAlerts: string[] | null; alertSeverity: number | null } | null;
+  /**
+   * Обстановка дня — тот же `placeDayStatus`, что у полосы «Сейчас» над
+   * советом (15.10). До этого совет считал уровень сам, по `alert_severity` и
+   * `is_open`: значение по умолчанию TRUE давало «Сегодня спокойно» любому
+   * месту, а закрытое место получало «Можно, но с оглядкой» строкой выше
+   * «Сейчас закрыто». Две оценки одного дня на одном экране — человек сверяет
+   * их и перестаёт верить обеим.
+   */
+  realtime: (PlaceDay & { activeAlerts: string[] | null }) | null;
   hazardTypes: string[];
 }
+
+const DAY_TONE: Record<PlaceDayLevel, AdvisoryTone> = {
+  closed: 'danger', red: 'danger', yellow: 'caution', green: 'ok', unknown: 'unknown',
+};
 
 // Опасности — свойство места, не тревога (называем кратко). Ключи совпадают с
 // HazardBadgeStrip; неизвестные молча пропускаем, а не гадаем.
@@ -58,15 +71,25 @@ export function buildPlaceAdvisory(p: AdvisoryInput, now: number = Date.now()): 
     lines.push(line);
   }
 
-  // 2. Реалтайм-обстановка.
+  // 2. Обстановка дня — пересчёт сводок. Первое предупреждение — самое
+  // опасное: агрегат safety-ingest упорядочивает их по убыванию опасности.
+  let dayUnknown = false;
+  const alerts = (p.realtime?.activeAlerts ?? []).map((a) => a.trim()).filter(Boolean);
   if (p.realtime) {
-    if (p.realtime.alertSeverity != null && p.realtime.alertSeverity >= 2) tone = worst(tone, 'danger');
-    else if (p.realtime.alertSeverity === 1) tone = worst(tone, 'caution');
-    if (p.realtime.activeAlerts && p.realtime.activeAlerts.length > 0) {
-      lines.push(`Активное предупреждение: ${p.realtime.activeAlerts[0]}`);
+    const { level, stale } = p.realtime;
+    tone = worst(tone, DAY_TONE[level]);
+    if (level === 'closed') lines.push('Сейчас закрыто для посещения');
+    if (level === 'unknown') {
+      dayUnknown = true;
+      lines.push(stale
+        ? 'Пересчёт обстановки по сводкам давно не обновлялся — сверься перед выходом'
+        : 'Пересчёта обстановки по этому месту у нас нет — сверься перед выходом');
+      if (alerts.length > 0) lines.push(`В последнем пересчёте было: ${alerts[0]}`);
+    } else if (alerts.length > 0) {
+      // Под зелёным предупреждения слабее уровня места: они есть, но не
+      // поднимают его — «активным» его не называем.
+      lines.push(level === 'green' ? `В сводках: ${alerts[0]}` : `Активное предупреждение: ${alerts[0]}`);
     }
-    if (p.realtime.isOpen === false) { tone = worst(tone, 'caution'); lines.push('Сейчас закрыто для посещения'); }
-    else if (p.realtime.isOpen === true && tone === 'unknown') tone = 'ok';
   }
 
   // 3. Опасности места — краткое напоминание (не тревога).
@@ -84,13 +107,23 @@ export function buildPlaceAdvisory(p: AdvisoryInput, now: number = Date.now()): 
     return {
       tone: 'unknown',
       headline: 'Живых данных сейчас нет',
-      lines: ['Свежей обстановки по этому месту сейчас нет — сверься перед выходом и держи связь.'],
+      lines: lines.length > 0 ? lines
+        : ['Свежей обстановки по этому месту сейчас нет — сверься перед выходом и держи связь.'],
     };
   }
-  if (lines.length === 0) lines.push('Обычные меры предосторожности, следи за погодой.');
+  // Спокойный вулкан не делает спокойным место, чьи сводки не пересчитаны:
+  // про МЧС и дороги мы тогда не знаем ничего.
+  if (tone === 'ok' && dayUnknown) {
+    return { tone: 'unknown', headline: 'Свежей сводки по месту нет', lines };
+  }
+  if (tone === 'ok') {
+    lines.push('Это пересчёт по сводкам, а не проверка тропы — погоду и обстановку сверь перед выходом.');
+  }
 
   const headline = tone === 'danger' ? 'Сегодня сюда — нет'
-    : tone === 'caution' ? 'Можно, но с оглядкой'
-    : 'Сегодня спокойно';
+    // Не «можно»: разрешения платформа не даёт, она знает только сводки.
+    : tone === 'caution' ? 'Сегодня — с оглядкой'
+    : alerts.length > 0 ? 'Серьёзных предупреждений нет'
+    : 'По сводкам спокойно';
   return { tone, headline, lines };
 }

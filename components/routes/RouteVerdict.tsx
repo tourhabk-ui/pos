@@ -103,8 +103,10 @@ function factLines(s: RouteSignals): Array<{ label: string; value: string; dim: 
   if (s.closures !== undefined) {
     out.push(s.closures === null
       ? { label: 'Закрытые точки', value: 'не смогли узнать', dim: true }
+      // «Нет» читалось как проверка точек. Закрытие — отметка администратора,
+      // и её отсутствие ничего не проверяет (15.10, §0).
       : s.closures.length === 0
-        ? { label: 'Закрытые точки', value: 'нет', dim: false }
+        ? { label: 'Закрытые точки', value: 'администратор не отмечал', dim: false }
         : {
             label: 'Закрытые точки',
             value: s.closures.map((c) => (c.reason ? `${c.place} — ${c.reason}` : c.place)).join(' · '),

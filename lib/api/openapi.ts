@@ -127,7 +127,7 @@ export function buildOpenApiDocument(base: string): Json {
         volcanoStatus: nullable('string'),
         hasRealImage: { type: 'boolean' },
         hazards: { type: 'array', items: { type: 'string', enum: ['volcano_activity', 'bears_active', 'high_difficulty', 'permit_required', 'weather_risk'] } },
-        isOpen: nullable('boolean'),
+        isOpen: nullable('boolean', { description: 'false — место закрыто администратором. true — значение по умолчанию у всех мест («никто не закрыл»), не проверка, что место открыто' }),
         lineGrade: nullable('string', { enum: ['surveyed', 'sketch', 'unknown', 'points_only', 'none', null], description: 'Только у kind=route: откуда линия' }),
         onRoute: nullable('boolean', { description: 'Только у kind=place' }),
       },
