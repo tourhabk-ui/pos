@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
+import { getTrustedClientIpOrNull } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,12 +19,13 @@ const AcceptAgreementSchema = z.object({
   accepted: z.boolean(),
 });
 
-// Получить User-Agent и IP с запроса
+// Получить User-Agent и IP с запроса.
+// Адрес — доверенным порядком (x-real-ip → cf-connecting-ip → первый элемент
+// XFF), а не X-Forwarded-For первым: его пишет сам клиент, и в запись согласия
+// уходила вся цепочка со слов клиента (P3-02 аудита 15.10). 'unknown' — как
+// и прежде, когда адреса нет вовсе: выдумывать 127.0.0.1 в согласии нельзя.
 function getClientInfo(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for') ||
-             req.headers.get('x-real-ip') ||
-             req.headers.get('cf-connecting-ip') ||
-             'unknown';
+  const ip = getTrustedClientIpOrNull(req.headers) ?? 'unknown';
   const userAgent = req.headers.get('user-agent') || 'unknown';
   return { ip, userAgent };
 }

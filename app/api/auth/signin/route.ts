@@ -19,6 +19,23 @@ export const dynamic = 'force-dynamic';
 // 5 attempts per minute per IP — brute force protection
 const signinRateLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
+// Второй тормоз — по адресу почты, который пытаются открыть (P3-02 аудита
+// 15.10). Ключ лимита выше — getClientIp, первый элемент X-Forwarded-For, а
+// его пишет сам клиент: скрипт, меняющий заголовок с каждым запросом, снимал
+// тормоз перебора целиком. Почту в запросе подделать нельзя — перебор чужого
+// пароля обязан назвать именно её. Окно 10 минут на 10 попыток: человек,
+// забывший пароль, в него укладывается, перебор — нет. Считаются все попытки,
+// не только неудачные: развести их значило бы держать второй счётчик ради
+// десяти удачных входов за десять минут, которых не бывает.
+const SIGNIN_EMAIL_WINDOW_MS = 10 * 60_000;
+const SIGNIN_EMAIL_MAX = 10;
+const signinEmailLimiter = createRateLimiter({ windowMs: SIGNIN_EMAIL_WINDOW_MS, max: SIGNIN_EMAIL_MAX });
+
+/** Ключ лимита по почте — тот же вид, каким почта ищется в users ниже. */
+function signinEmailKey(email: string): string {
+  return email.toLowerCase();
+}
+
 /**
  * POST /api/auth/signin
  * User authentication endpoint
@@ -44,6 +61,16 @@ export async function POST(request: NextRequest) {
       } as ApiResponse<null>, { status: 400 });
     }
     const { email, password } = parsed.data;
+
+    const emailKey = signinEmailKey(email);
+    if (!signinEmailLimiter.check(emailKey)) {
+      const { resetAt } = signinEmailLimiter.getStatus(emailKey, SIGNIN_EMAIL_MAX);
+      const retryAfterSec = Math.max(1, Math.ceil((resetAt - Date.now()) / 1000));
+      return NextResponse.json({
+        success: false,
+        error: 'Слишком много попыток входа с этой почтой. Подождите до 10 минут или восстановите пароль.'
+      } as ApiResponse<null>, { status: 429, headers: { 'Retry-After': String(retryAfterSec) } });
+    }
 
     // Find user by email
     const userResult = await pool.query<UsersRow>(

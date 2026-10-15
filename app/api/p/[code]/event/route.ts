@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getClientIp, getTrustedClientIpOrNull } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,9 +42,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (!selRow.rows[0]) return new NextResponse(null, { status: 204 });
 
   const selectionId = selRow.rows[0].id;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    ?? req.headers.get('x-real-ip')
-    ?? null;
+  // Доверенный порядок, не XFF первым: первый элемент пишет клиент (P3-02
+  // аудита 15.10). null — адреса нет вовсе, как и прежде.
+  const ip = getTrustedClientIpOrNull(req.headers);
   const ua = req.headers.get('user-agent')?.slice(0, 200) ?? null;
 
   // Fire-and-forget insert — never block response
