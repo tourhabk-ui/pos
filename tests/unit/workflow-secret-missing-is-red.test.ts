@@ -31,11 +31,26 @@
  * Исключения — самоустаревающим списком с причиной: исключение без
  * нарушения краснеет (убери запись), а нарушение в исключении обязано быть
  * громким (`::warning::`/`::error::`), а не немым.
+ *
+ * ── Исход по событию (аудит 15.10, W2-1) ──────────────────────────────────
+ *
+ * Workflow, который идёт и на pull_request, и по расписанию, одной веткой не
+ * судится: на PR из форка пустой секрет — норма (GitHub секретов не отдаёт),
+ * на расписании — поломка. Разбор видит в такой ветке и `exit 0`, и `exit 1`
+ * и честно решить не может, поэтому вердикт выносит ИСПОЛНЕНИЕ: шаг идёт в
+ * bash с событием, подменённым так, как его ставит раннер
+ * (`GITHUB_EVENT_NAME`), и заглушкой curl. Каждое событие из `on:` обязано
+ * быть названо — краснеть ему или предупреждать; на «красном» пустой секрет
+ * обязан дать exit ≠ 0 с `::error::`, на «предупреждающем» — exit 0 с
+ * `::warning::`, и ни там ни там вызов без секрета не уходит.
  */
-import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { load } from 'js-yaml';
+import { evalIf, evalTemplate } from '../helpers/workflow-semantics';
 
 const ROOT = process.cwd();
 const WF_DIR = '.github/workflows';
@@ -296,23 +311,213 @@ function analyzeWorkflow(file: string, text: string): { checks: Check[]; unparse
 // Ветка исключения обязана быть громкой (::warning::), а не немой.
 
 const EXCEPTIONS: Record<string, string> = {
-  'volcano-merge-gate.yml':
-    'Срабатывает и на pull_request: на PR из форка GitHub секретов не отдаёт, и ' +
-    'красный исход здесь сделал бы будильник merge-gate обязательной проверкой ' +
-    'мержа. Это решение владельца (дорожная карта аудита 15.10, п. 1.3), не ' +
-    'побочный эффект правки. Пропуск громкий: ::warning:: в аннотациях прогона.',
   'post-merge.yml':
-    'Запускается закрытием PR (pull_request: closed) — тот же довод про форки. ' +
-    'Шаг переписи каталога для README мягкий по замыслу (04.09, шапка шага: ' +
-    '«отказ переписи не роняет job и не подменяет числа»): HTTP-отказ там тоже ' +
-    'не красит прогон, а красный выход остановил бы обновление остальных ' +
-    'счётчиков и коммит. Сделать его красным — решение владельца.',
+    'Запускается закрытием PR (pull_request: closed): на PR из форка GitHub ' +
+    'секретов не отдаёт. Шаг переписи каталога для README мягкий по замыслу ' +
+    '(04.09, шапка шага: «отказ переписи не роняет job и не подменяет числа»): ' +
+    'HTTP-отказ там тоже не красит прогон, а красный выход остановил бы ' +
+    'обновление остальных счётчиков и коммит. Витринные счётчики README ничего ' +
+    'не держат — решение 15.10 по карт-бланшу владельца (W2-1, п. 1.3 дорожной ' +
+    'карты аудита): остаётся громким предупреждением.',
   'dsh-vedar-probe.yml':
     'Шаг 5 ручной пробы (журнал Ведара видит клиента dsh) — справочный: вердикт ' +
     'пробы выносят шаги 1–4, а все отказы шага 5, включая «перепись не ' +
     'прочиталась», по замыслу пробы — ::warning::. Красить прогон только за ' +
     'нехватку секрета при мягких прочих отказах было бы непоследовательно.',
 };
+
+// ── Исход по событию (аудит 15.10, W2-1) ──────────────────────────────────
+//
+// Файл здесь не освобождён от правила, а судится исполнением по событиям:
+// `red` — пустой секрет обязан покрасить прогон, `warn` — громко
+// предупредить. Каждое событие из `on:` названо ровно в одном списке; новое
+// событие без решения краснеет здесь.
+
+interface EventSplit {
+  reason: string;
+  /** пустой секрет — поломка: exit ≠ 0 и ::error:: */
+  red: string[];
+  /** пустой секрет — норма события: exit 0 и ::warning:: */
+  warn: string[];
+}
+
+const BY_EVENT: Record<string, EventSplit> = {
+  'volcano-merge-gate.yml': {
+    reason:
+      'Будильник merge-gate идёт и на pull_request, и по расписанию. На PR из ' +
+      'форка GitHub секретов не отдаёт: красный исход там сделал бы будильник ' +
+      'обязательной проверкой мержа, поэтому громкое предупреждение. Расписанию ' +
+      'и ручному запуску пустой секрет — поломка, и ряд зелёных галочек без ' +
+      'единого вызова был бы «не смог» под видом «хорошо». Решение 15.10 по ' +
+      'карт-бланшу владельца (W2-1, п. 1.3 дорожной карты аудита).',
+    red: ['schedule', 'workflow_dispatch'],
+    warn: ['pull_request'],
+  },
+};
+
+/** Заглушка curl: пишет вызов в журнал, отвечает 200 и ничего не шлёт. */
+const CURL_STUB = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$FAKE_DIR/curl.log"
+wfmt=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -w) wfmt="$2"; shift 2;;
+    *) shift;;
+  esac
+done
+[ -z "$wfmt" ] || printf '200'
+exit 0
+`;
+
+let work = '';
+let bin = '';
+
+beforeAll(() => {
+  work = mkdtempSync(join(tmpdir(), 'wf-secret-'));
+  bin = join(work, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'curl'), CURL_STUB);
+  chmodSync(join(bin, 'curl'), 0o755);
+});
+
+afterAll(() => {
+  if (work) rmSync(work, { recursive: true, force: true });
+});
+
+/** Контекст выражений так, как его соберёт GitHub для события. */
+function eventCtx(event: string, secret: string): Record<string, unknown> {
+  return {
+    github: {
+      event_name: event,
+      repository: 'tourhabk-ui/pos',
+      event: event === 'pull_request' ? { pull_request: { number: 7 } } : {},
+    },
+    secrets: secret ? { CRON_SECRET: secret } : {},
+    vars: {},
+    env: {},
+  };
+}
+
+function envOf(env: unknown, ctx: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!isObj(env)) return out;
+  for (const [k, v] of Object.entries(env)) {
+    const val = typeof v === 'string' || typeof v === 'boolean' ? evalTemplate(v, ctx) : v;
+    out[k] = val === null || val === undefined ? '' : String(val);
+  }
+  return out;
+}
+
+function onEvents(text: string): string[] {
+  const doc = load(text);
+  if (!isObj(doc)) return [];
+  const on = doc['on'] ?? doc['true'];
+  if (typeof on === 'string') return [on];
+  if (Array.isArray(on)) return on.map(String);
+  return isObj(on) ? Object.keys(on) : [];
+}
+
+interface EventRun { step: string; skipped: boolean; code: number; out: string; curls: number }
+
+/**
+ * Исполняет шаги с проверкой секрета так, как их исполнит раннер на событии:
+ * `bash -e`, env workflow → job → step по контексту, GITHUB_EVENT_NAME.
+ */
+function runOnEvent(file: string, text: string, event: string, secret: string): EventRun[] {
+  const doc = load(text);
+  if (!isObj(doc) || !isObj(doc.jobs)) return [];
+  const targets = new Set(analyzeWorkflow(file, text).checks.map((c) => `${c.job}\u0000${c.step}`));
+  const ctx = eventCtx(event, secret);
+  const runs: EventRun[] = [];
+  for (const [jobId, jobRaw] of Object.entries(doc.jobs)) {
+    if (!isObj(jobRaw)) continue;
+    const job = jobRaw as WfJob;
+    const steps = Array.isArray(job.steps) ? (job.steps as unknown[]) : [];
+    steps.forEach((stepRaw, i) => {
+      if (!isObj(stepRaw)) return;
+      const step = stepRaw as WfStep;
+      const label = String(step.id ?? step.name ?? `#${i}`);
+      if (!targets.has(`${jobId}\u0000${label}`) || typeof step.run !== 'string') return;
+      const name = `${jobId} · ${label}`;
+      const cond = (c: unknown) => (typeof c === 'string' ? c : undefined);
+      if (!evalIf(cond(job.if), ctx) || !evalIf(cond(step.if), ctx)) {
+        runs.push({ step: name, skipped: true, code: 0, out: '', curls: 0 });
+        return;
+      }
+      const fake = mkdtempSync(join(work, 'run-'));
+      const env = {
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HOME: fake,
+        NODE_ENV: 'test' as const,
+        FAKE_DIR: fake,
+        GITHUB_EVENT_NAME: event,
+        GITHUB_ENV: join(fake, 'env'),
+        GITHUB_OUTPUT: join(fake, 'output'),
+        GITHUB_STEP_SUMMARY: join(fake, 'summary'),
+        ...envOf(doc.env, ctx),
+        ...envOf(job.env, ctx),
+        ...envOf(step.env, ctx),
+      };
+      let code = 0;
+      let out = '';
+      try {
+        out = execFileSync('bash', ['-e', '-c', step.run], { cwd: fake, env, encoding: 'utf-8', stdio: 'pipe', timeout: 20_000 });
+      } catch (err) {
+        const e = err as { status?: number | null; stdout?: string; stderr?: string };
+        code = e.status ?? 1;
+        out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
+      }
+      const log = join(fake, 'curl.log');
+      const curls = existsSync(log) ? readFileSync(log, 'utf-8').split('\n').filter(Boolean).length : 0;
+      runs.push({ step: name, skipped: false, code, out, curls });
+    });
+  }
+  return runs;
+}
+
+/** Нарушения исхода по событию; пустой список — решение исполнено. */
+function eventFailures(file: string, text: string, split: EventSplit): string[] {
+  const fails: string[] = [];
+  const triggers = onEvents(text);
+  const named = [...split.red, ...split.warn];
+  for (const t of triggers) {
+    if (!named.includes(t)) fails.push(`${file}: событие ${t} не названо — решить, краснеть ему или предупреждать`);
+  }
+  for (const t of named) {
+    if (!triggers.includes(t)) fails.push(`${file}: событие ${t} названо, но workflow на нём не идёт — убери`);
+    if (split.red.includes(t) && split.warn.includes(t)) fails.push(`${file}: событие ${t} названо дважды`);
+  }
+  for (const [list, wantRed] of [[split.red, true], [split.warn, false]] as const) {
+    for (const ev of list) {
+      const runs = runOnEvent(file, text, ev, '');
+      if (runs.length === 0) fails.push(`${file} · ${ev}: шага с проверкой секрета не нашлось`);
+      for (const r of runs) {
+        const at = `${file} · ${r.step} · ${ev}`;
+        if (r.skipped) {
+          fails.push(`${at}: шаг не исполняется — пропуск без следа в аннотациях`);
+          continue;
+        }
+        if (r.curls > 0) fails.push(`${at}: вызов ушёл без секрета`);
+        if (wantRed) {
+          if (r.code === 0) fails.push(`${at}: пустой секрет — зелёный прогон (exit 0), нужен ::error:: и exit 1`);
+          else if (!r.out.includes('::error::')) fails.push(`${at}: красный без ::error:: — причина не видна в аннотациях`);
+        } else {
+          if (r.code !== 0) fails.push(`${at}: пустой секрет здесь норма, а прогон красный (exit ${r.code})`);
+          else if (!r.out.includes('::warning::')) fails.push(`${at}: пропуск без ::warning:: — немой`);
+        }
+      }
+    }
+  }
+  // Контроль обвязки: с секретом шаг доходит до вызова. Иначе exit, на
+  // котором судим пустой секрет, мог бы дать сломанный запуск, а не проверка.
+  for (const ev of named) {
+    const runs = runOnEvent(file, text, ev, 'test-secret');
+    if (!runs.some((r) => r.curls > 0)) {
+      fails.push(`${file} · ${ev}: с секретом шаг не дошёл до вызова — обвязка сторожа не исполняет шаг`);
+    }
+  }
+  return fails;
+}
 
 // ── Прогон по репозиторию ─────────────────────────────────────────────────
 
@@ -336,24 +541,58 @@ describe('нет CRON_SECRET — прогон красный (P2-09, §4.0)', ()
   });
 
   it('вне исключений ветка «секрет пуст» кончается exit <не ноль>', () => {
-    const bad = allChecks.filter((c) => !EXCEPTIONS[c.file] && c.verdict !== 'red' && c.verdict !== 'optional').map(fmt);
+    const bad = allChecks
+      .filter((c) => !EXCEPTIONS[c.file] && !BY_EVENT[c.file] && c.verdict !== 'red' && c.verdict !== 'optional')
+      .map(fmt);
     expect(bad, 'пустой CRON_SECRET даёт зелёный прогон — нужен echo "::error::…" и exit 1').toEqual([]);
   });
 
   it('исключение — с причиной словами и всё ещё нужно (самоустаревает)', () => {
-    for (const [file, reason] of Object.entries(EXCEPTIONS)) {
+    const reasons: Array<[string, string]> = [
+      ...Object.entries(EXCEPTIONS),
+      ...Object.entries(BY_EVENT).map(([f, s]): [string, string] => [f, s.reason]),
+    ];
+    for (const [file, reason] of reasons) {
       expect(files, `${file} из исключений больше нет в ${WF_DIR} — убери запись`).toContain(file);
       expect(reason.length, `${file}: причина обязана быть словами, не пометкой`).toBeGreaterThan(80);
       const nonRed = allChecks.filter((c) => c.file === file && c.verdict !== 'red' && c.verdict !== 'optional');
-      expect(nonRed.length, `${file} больше не зеленеет без секрета — убери его из EXCEPTIONS`).toBeGreaterThan(0);
+      expect(nonRed.length, `${file} больше не зеленеет без секрета — убери его из исключений`).toBeGreaterThan(0);
+    }
+    for (const file of Object.keys(BY_EVENT)) {
+      expect(EXCEPTIONS[file], `${file}: исход по событию и полное исключение сразу — выбери одно`).toBeUndefined();
     }
   });
 
   it('пропуск в исключении громкий, а не немой', () => {
     const mute = allChecks
-      .filter((c) => EXCEPTIONS[c.file] && c.verdict !== 'red' && c.verdict !== 'optional' && !c.loud)
+      .filter((c) => (EXCEPTIONS[c.file] || BY_EVENT[c.file]) && c.verdict !== 'red' && c.verdict !== 'optional' && !c.loud)
       .map(fmt);
     expect(mute, 'исключение не освобождает от аннотации: ::warning:: с именем секрета').toEqual([]);
+  });
+
+  it('исход по событию исполнен: расписание и ручной запуск краснеют, PR предупреждает (W2-1)', () => {
+    expect(Object.keys(BY_EVENT).length).toBeGreaterThan(0);
+    for (const [file, split] of Object.entries(BY_EVENT)) {
+      expect(split.warn.length, `${file}: без событий-предупреждений это не раздел, а обычное правило`).toBeGreaterThan(0);
+      const text = readFileSync(join(ROOT, WF_DIR, file), 'utf-8');
+      expect(eventFailures(file, text, split)).toEqual([]);
+    }
+  });
+
+  it('volcano-merge-gate: исполнение по событиям — коды и аннотации', () => {
+    // Решение 15.10 буквально: schedule и workflow_dispatch → exit 1 с
+    // ::error::, pull_request → exit 0 с ::warning::; вызова без секрета нет.
+    const file = 'volcano-merge-gate.yml';
+    const text = readFileSync(join(ROOT, WF_DIR, file), 'utf-8');
+    for (const ev of ['schedule', 'workflow_dispatch']) {
+      const runs = runOnEvent(file, text, ev, '');
+      expect(runs.map((r) => [r.skipped, r.code, r.curls]), ev).toEqual([[false, 1, 0]]);
+      expect(runs[0].out).toContain('::error::CRON_SECRET');
+    }
+    const pr = runOnEvent(file, text, 'pull_request', '');
+    expect(pr.map((r) => [r.skipped, r.code, r.curls])).toEqual([[false, 0, 0]]);
+    expect(pr[0].out).toContain('::warning::CRON_SECRET');
+    expect(pr[0].out).not.toContain('::error::');
   });
 });
 
@@ -421,5 +660,65 @@ describe('разбор: какие формы что значат', () => {
 
   it('непонятая форма проверки попадает в перепись, а не теряется', () => {
     expect(unparsedOf(wf('[[ "$CRON_SECRET" == "" ]] && exit 0'))).toHaveLength(1);
+  });
+});
+
+// ── Исход по событию на граничных формах (исполнение различает) ───────────
+
+const splitWf = (branch: string, on = "  pull_request:\n  schedule:\n    - cron: '0 * * * *'\n  workflow_dispatch:\n") =>
+  `on:\n${on}jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: s\n        env:\n          CRON_SECRET: \${{ secrets.CRON_SECRET }}\n        run: |\n${[
+    ...branch.split('\n'),
+    'curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" https://example.invalid/api/cron/x',
+  ]
+    .map((l) => `          ${l}`)
+    .join('\n')}\n`;
+const SPLIT: EventSplit = { reason: 'проба', red: ['schedule', 'workflow_dispatch'], warn: ['pull_request'] };
+
+describe('исход по событию: исполнение шага, а не форма строки', () => {
+  const byEvent = [
+    'if [ -z "$CRON_SECRET" ]; then',
+    '  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then',
+    '    echo "::warning::CRON_SECRET не задан"',
+    '    exit 0',
+    '  fi',
+    '  echo "::error::CRON_SECRET не задан"',
+    '  exit 1',
+    'fi',
+  ].join('\n');
+
+  it('раздел по событию — нарушений нет', () => {
+    expect(eventFailures('t.yml', splitWf(byEvent), SPLIT)).toEqual([]);
+  });
+
+  it('прежняя форма (exit 0 на всех событиях) — красная на расписании и ручном запуске', () => {
+    const flat = 'if [ -z "$CRON_SECRET" ]; then\n  echo "::warning::CRON_SECRET не задан"\n  exit 0\nfi';
+    const fails = eventFailures('t.yml', splitWf(flat), SPLIT);
+    expect(fails.some((f) => / · schedule: .*exit 0/.test(f))).toBe(true);
+    expect(fails.some((f) => / · workflow_dispatch: .*exit 0/.test(f))).toBe(true);
+    expect(fails.some((f) => / · pull_request:/.test(f))).toBe(false);
+  });
+
+  it('красный на всех событиях — нарушение для PR из форка', () => {
+    const allRed = 'if [ -z "$CRON_SECRET" ]; then\n  echo "::error::CRON_SECRET не задан"\n  exit 1\nfi';
+    const fails = eventFailures('t.yml', splitWf(allRed), SPLIT);
+    expect(fails).toEqual([expect.stringMatching(/ · pull_request: .*красный \(exit 1\)/)]);
+  });
+
+  it('красный без ::error:: и пропуск без ::warning:: — немые', () => {
+    const mute = 'if [ -z "$CRON_SECRET" ]; then\n  [ "$GITHUB_EVENT_NAME" = "pull_request" ] && exit 0\n  exit 1\nfi';
+    const fails = eventFailures('t.yml', splitWf(mute), SPLIT);
+    expect(fails.filter((f) => /без ::error::/.test(f))).toHaveLength(2);
+    expect(fails.filter((f) => /без ::warning::/.test(f))).toHaveLength(1);
+  });
+
+  it('событие из on: без решения — красное', () => {
+    const fails = eventFailures('t.yml', splitWf(byEvent), { reason: 'проба', red: ['schedule'], warn: ['pull_request'] });
+    expect(fails).toEqual([expect.stringMatching(/событие workflow_dispatch не названо/)]);
+  });
+
+  it('шаг, который до вызова не доходит и с секретом, — обвязка не доверена', () => {
+    const noCall = `${byEvent}\nexit 0`;
+    const fails = eventFailures('t.yml', splitWf(noCall), SPLIT);
+    expect(fails.filter((f) => /с секретом шаг не дошёл до вызова/.test(f))).toHaveLength(3);
   });
 });

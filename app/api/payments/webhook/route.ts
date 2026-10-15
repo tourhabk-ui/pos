@@ -10,6 +10,7 @@ import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment, RELEASE_AFTER_SQL } from '@/lib/payments/hold-tour-payment';
 import { canOfferPayment } from '@/lib/bookings/success-view';
 import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -265,8 +266,13 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
           });
         }
       }
-    } catch {
-      // Не прерываем выполнение при ошибке email
+    } catch (err) {
+      // Не прерываем обработку: оплата уже записана. Здесь ловится отказ базы при
+      // подготовке письма — он называется областью и SQLSTATE, без адреса и
+      // тела (аудит 15.10, W2-3). Отказ SMTP сюда не попадает: sendEmail его
+      // не бросает, а возвращает { success: false } — это долг общего
+      // почтового сервиса, а не приёмника.
+      logSwallowedFailure('payments/webhook', 'письмо об оплате (путь payments)', err);
     }
 }
 
@@ -520,8 +526,13 @@ async function handleFailedPayment(webhook: CloudPaymentsWebhook) {
           });
         }
       }
-    } catch {
-      // Не прерываем выполнение при ошибке email
+    } catch (err) {
+      // Не прерываем обработку: отказ уже записан. Здесь ловится отказ базы при
+      // подготовке письма — он называется областью и SQLSTATE, без адреса и
+      // тела (аудит 15.10, W2-3). Отказ SMTP сюда не попадает: sendEmail его
+      // не бросает, а возвращает { success: false } — это долг общего
+      // почтового сервиса, а не приёмника.
+      logSwallowedFailure('payments/webhook', 'письмо о неудачной оплате', err);
     }
 }
 

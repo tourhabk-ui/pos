@@ -1,0 +1,105 @@
+name: Зоны §7 — прямой пуш в main
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Находка аудита 15.10 ZONES (решение S-2). Проверка зон §7
+# (protected-zones.yml) идёт только на PR, а маркеры, пробы и правки сессий
+# уходят в main прямым пушем — и такой пуш, задевший приём оплаты, SOS или
+# контроль выхода, не судил никто. Здесь каждый коммит пуша судится тем же
+# правилом: правка кода в зоне — только со словом владельца, но раздел
+# «## Слово владельца» ищется в сообщении коммита. Коммит, влитый PR, на
+# голове которого проверка зон прошла, повторно не судится.
+#
+# Нарушение — красный прогон с аннотацией (файл, зона) и одна issue на
+# коммит. Проверка только сообщает: откатывать main она не вправе, и
+# обязательной в защите ветки не стоит (решение S-2).
+#
+# Логика и реестр зон — scripts/protected-zones.mjs (режим --push); сторож —
+# tests/unit/protected-zones-gate.test.ts.
+#
+# ── Что внешнее ──────────────────────────────────────────────────────────
+#
+# Сообщения коммитов и пути файлов — внешнее содержимое. Сюда они не
+# попадают вовсе: скрипт берёт их через API по sha из env. В env — только
+# sha диапазона пуша и адрес прогона, ни одной подстановки `${{ }}`
+# содержимого коммита в run.
+#
+# Судья — скрипт из коммита ДО пуша (github.event.before), а не из пушнутого:
+# прямой пуш, ослабивший саму проверку (снявший зону или режим --push),
+# иначе судился бы уже ослабленной версией (ревью ZONES). Это sha события,
+# не содержимое коммита. Скрипт из пуша берётся только когда судьи до пуша
+# нет или он не знает режима --push (первое включение, before из нулей) —
+# и это говорится аннотацией, а не молча.
+# Пуш с «[skip ci]» в головном коммите GitHub не запускает вовсе — это
+# граница проверки, она названа в §7.
+
+on:
+  push:
+    branches: [main]
+
+# Чтение коммитов, PR и прогонов проверки PR; запись — только issue о нарушении.
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  issues: write
+
+# Повторный прогон того же пуша не идёт параллельно первому: иначе оба не
+# нашли бы issue друг друга и открыли по одной.
+concurrency:
+  group: protected-zones-push-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  zones-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Судья до пуша. before из нулей (ветку создали пушем) или
+      # недоступный коммит — шаг не роняет job: run ниже увидит, что файла
+      # нет, и скажет об этом аннотацией.
+      - name: Скрипт проверки — до пуша (судья)
+        uses: actions/checkout@v7
+        continue-on-error: true
+        with:
+          ref: ${{ github.event.before }}
+          path: judge
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/protected-zones.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Скрипт проверки — из пуша (только запасной)
+        uses: actions/checkout@v7
+        with:
+          path: pushed
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/protected-zones.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # Парсер нужен только для исхода «меняются одни комментарии». Не
+      # поставился — проверка всё равно идёт, а правка комментариев судится как
+      # правка кода, и скрипт говорит это аннотацией.
+      - name: Парсер TypeScript
+        continue-on-error: true
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/ts" typescript@5.9.3
+
+      - name: Коммиты пуша и зоны §7
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          JUDGE=judge/scripts/protected-zones.mjs
+          if [ ! -f "$JUDGE" ] || ! grep -q -- "'--push'" "$JUDGE"; then
+            echo "::warning::Судьи до пуша нет или он не знает режима --push (первое включение проверки или before $BEFORE_SHA недоступен) — сужу скриптом из пуша."
+            JUDGE=pushed/scripts/protected-zones.mjs
+          fi
+          TS_MODULE="$RUNNER_TEMP/ts/node_modules/typescript" node "$JUDGE" --push
