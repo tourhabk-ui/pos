@@ -37,6 +37,7 @@ import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
 import { KUZMICH_SYSTEM, buildTourContext, searchPlaceKnowledge } from '@/lib/kuzmich/core';
+import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import { parseInterestsFromText, findRoutesByInterests, formatRoutesForTelegram } from '@/lib/planner/interests';
 import {
@@ -241,7 +242,21 @@ async function kuzmichReply(userText: string, chatId: string): Promise<string> {
     { role: 'user', content: userText },
   ];
 
+  // Замер ответа (аудит 15.10, A19). Это живой вход Telegram (канонический
+  // вебхук — lib/telegram/operator-availability): цикла инструментов здесь
+  // нет, ход один — вызов модели. Часы — от вызова до готового ответа.
+  const answerStartedAt = Date.now();
   const reply = await callAIWithModelDirect(messages, getModelForAgent('kuzmich'));
+  void recordKuzmichAnswer({
+    surface: 'telegram',
+    elapsedMs: Date.now() - answerStartedAt,
+    turns: 1,
+    toolRounds: 0,
+    path: 'single',
+    // Одиночный вызов имени ответившего провайдера наружу не отдаёт.
+    provider: null,
+    ceilingHit: false,
+  });
   saveHistory(chatId, [...history, { role: 'user', content: userText }, { role: 'assistant', content: reply }]);
   return reply;
 }

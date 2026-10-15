@@ -36,6 +36,11 @@ import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } 
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
+import {
+  KUZMICH_ANSWER_CEILING_MS, composeCeilingAnswer, newLoopTiming,
+  type AgentLoopTiming, type CollectedOutput,
+} from '@/lib/kuzmich/answer-ceiling';
+import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { guardPlaceArgs } from '@/lib/kuzmich/place-arg-guard';
@@ -2252,7 +2257,31 @@ export async function aiChatAgentLoop(
   // провайдера, и без неё «Кузьмич стал отвечать хуже» не разложить на
   // «сменился провайдер» и «поправили промпт». Опциональна, как и журнал выше.
   provenance?: { provider?: string },
+  // Наружная отметка времени и ходов (аудит 15.10, A19): вызывающий пишет её
+  // в замер ответа (lib/kuzmich/answer-timing). Опциональна, как и всё выше.
+  timing?: AgentLoopTiming,
 ): Promise<string | null> {
+  // Потолок ожидания (аудит 15.10, A19): после KUZMICH_ANSWER_CEILING_MS цикл
+  // не начинает новый ход модели или инструмента, а отдаёт собранное с
+  // честной строкой. Идущий вызов провайдера не обрывается (это п. 3.1).
+  // Собранный ответ возвращается и там, где цикл иначе вернул бы null: по null
+  // вызывающие начинают запасной водопад — тот же новый ход модели, только
+  // снаружи цикла, и потолок он обошёл бы.
+  const startedAt = Date.now();
+  const overCeiling = (): boolean => Date.now() - startedAt >= KUZMICH_ANSWER_CEILING_MS;
+  const collected: CollectedOutput[] = [];
+  const finish = (answer: string | null, ceilingHit: boolean): string | null => {
+    if (timing) {
+      timing.elapsedMs = Date.now() - startedAt;
+      timing.ceilingHit = ceilingHit;
+    }
+    if (ceilingHit) {
+      console.warn(`[kuzmich-ceiling] потолок ${KUZMICH_ANSWER_CEILING_MS} мс: ходов модели ${timing?.turns ?? '?'}, ответ собран из ${collected.length} выводов инструментов`);
+    }
+    return answer;
+  };
+  const atCeiling = (): string | null => finish(composeCeilingAnswer(collected), true);
+
   // Граница ПД перед зарубежной моделью (аудит 15.10, W2-5). Через этот цикл
   // идут веб-чат, Telegram, MAX и A2A, поэтому чистка здесь одна на всех:
   // телефон и почта, вписанные человеком, до модели не доходят. Шаги брони и
@@ -2302,19 +2331,37 @@ export async function aiChatAgentLoop(
   };
 
   for (let turn = 0; turn < 4; turn++) {
-    const result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
-    if (!result) return null;
+    if (overCeiling()) return atCeiling();
+    if (timing) timing.turns += 1;
+    let result: Awaited<ReturnType<typeof callToolsWaterfall>>;
+    try {
+      result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
+    } catch (err) {
+      // До потолка — как было: исключение ловит вызывающий и идёт запасным
+      // путём. После потолка запасной путь был бы новым ходом модели.
+      if (!overCeiling()) throw err;
+      logSwallowedFailure('kuzmich-ceiling', 'ход модели после потолка', err);
+      return atCeiling();
+    }
+    if (!result) return overCeiling() ? atCeiling() : finish(null, false);
     if (provenance && result.provider) provenance.provider = result.provider;
 
     if (!result.tool_calls?.length) {
-      return result.content; // final answer
+      // Готовый ответ отдаётся и после потолка: он уже есть, ждать нечего.
+      if (!result.content?.trim() && overCeiling()) return atCeiling();
+      return finish(result.content, false); // final answer
     }
 
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
 
+    // Инструменты хода — тоже новый ход: после потолка не начинаются.
+    if (overCeiling()) return atCeiling();
+    if (timing) timing.toolRounds += 1;
+
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
     const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, execGuarded, validateToolArgs);
     for (const o of outcomes) {
+      if (o.executed && toolOutputHasData(o.content)) collected.push({ name: o.name, content: o.content });
       // Вывод кладётся ОБРЕЗАННЫМ: журнал живёт в памяти запроса и уходит в
       // контекст судьи, а не в диалог. Целиком инструмент может вернуть
       // десятки килобайт (каталог туров), и это вытеснило бы остальное.
@@ -2337,7 +2384,9 @@ export async function aiChatAgentLoop(
     }
   }
 
-  return null; // max turns exceeded
+  // Ходы кончились. После потолка — собранное, а не null: иначе запасной
+  // водопад вызывающего начал бы новый ход модели.
+  return overCeiling() ? atCeiling() : finish(null, false); // max turns exceeded
 }
 
 export async function aiChat(opts: {
@@ -2402,7 +2451,11 @@ export async function aiChat(opts: {
   // Чем произведён ответ: провайдер и путь. Записывается там, где известно, а
   // не выводится потом из текста.
   const provenance: { provider?: string; path?: 'tools' | 'waterfall' } = {};
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns, provenance)
+  // Замер ответа (аудит 15.10, A19): от входа в цикл до готового ответа,
+  // включая запасной путь и сторожей.
+  const answerStartedAt = Date.now();
+  const loopTiming = newLoopTiming();
+  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns, provenance, loopTiming)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
 
@@ -2504,6 +2557,16 @@ export async function aiChat(opts: {
   }
 
   const finalAnswer = withSosBlock(deliveryGuard.text, userContent).text;
+
+  void recordKuzmichAnswer({
+    surface: platform === 'max' ? 'max' : platform === 'tg' ? 'telegram' : 'other',
+    elapsedMs: Date.now() - answerStartedAt,
+    turns: loopTiming.turns,
+    toolRounds: loopTiming.toolRounds,
+    path: provenance.path ?? null,
+    provider: provenance.provider ?? null,
+    ceilingHit: loopTiming.ceilingHit,
+  });
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
   if (!isAIErrorResponse(answer)) {
