@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { charterFootnote, charterOrderPath, formatRub, type CharterCarrier } from '@/lib/transfers/charter-format';
+import {
+  charterFootnote, charterOrderPath, formatRub, rateLabel, rateOnScreen, type CharterCarrier,
+} from '@/lib/transfers/charter-format';
 
 /**
  * Строки прайса перевозчика «под заказ» — одна вёрстка на два экрана: карточку
@@ -13,9 +15,11 @@ import { charterFootnote, charterOrderPath, formatRub, type CharterCarrier } fro
  * С `orderSlug` у каждой строки — «Заказать»: форма заявки с этим
  * направлением (владелец 14.10: «это сложно получается» — из прайса к заказу
  * не вело ничего). Доплата за день — не направление, заказать её нельзя.
+ * Цена за час и за день (1292) — тоже не направление, но это и есть товар:
+ * «Заказать» у неё открывает форму, где направление пишет заказчик.
  */
 export function CharterPriceList({ carrier, orderSlug }: {
-  carrier: Pick<CharterCarrier, 'destinations' | 'extraDay'>;
+  carrier: Pick<CharterCarrier, 'destinations' | 'extraDay' | 'rates'>;
   orderSlug?: string;
 }) {
   const footnote = charterFootnote(carrier);
@@ -46,6 +50,30 @@ export function CharterPriceList({ carrier, orderSlug }: {
                   prefetch={false}
                   className="ds-btn ds-btn-secondary px-3"
                   aria-label={`Заказать машину: ${d.to}`}
+                >
+                  Заказать
+                </Link>
+              )}
+            </dd>
+          </div>
+        ))}
+        {carrier.rates.map((r) => (
+          <div
+            key={r.unit}
+            className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border)]"
+          >
+            <dt className="min-w-0 text-sm text-[var(--text-primary)]">{rateLabel(r.unit)}</dt>
+            <dd className="flex items-center gap-3 shrink-0">
+              <span className="text-right">
+                <span className="block whitespace-nowrap text-sm font-semibold text-[var(--accent)]">{rateOnScreen(r)}</span>
+                {r.note && <span className="block text-xs text-[var(--text-muted)]">{r.note}</span>}
+              </span>
+              {orderSlug && (
+                <Link
+                  href={charterOrderPath(orderSlug)}
+                  prefetch={false}
+                  className="ds-btn ds-btn-secondary px-3"
+                  aria-label={`Заказать машину: ${rateLabel(r.unit).toLowerCase()}`}
                 >
                   Заказать
                 </Link>

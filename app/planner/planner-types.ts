@@ -163,6 +163,13 @@ export interface CharterOfferView {
   fleet: string | null;
   priceFromRub: number | null;
   destinations: number;
+  /**
+   * Цена за час и за полный день (1292); null — такой цены нет. Поля может не
+   * быть вовсе: план, сохранённый офлайн до 1292, пришёл без них — это «нет
+   * такой цены», а не «не число ₽ в час».
+   */
+  hourRub?: number | null;
+  dayRub?: number | null;
 }
 
 export interface TripExtrasData {

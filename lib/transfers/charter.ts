@@ -20,8 +20,9 @@ import { query } from '@/lib/database';
 import { extractGallery, telegramContactHref } from '@/lib/operators/profile-parse';
 import { normalizeContactPhone } from '@/lib/stay/contact-phone';
 import { videoSrc } from '@/lib/media/video-url';
+import { sortRates } from '@/lib/transfers/charter-format';
 import type {
-  CarrierProfile, CharterCarrier, CharterClip, CharterLegal, CharterPhoto, CharterVehicleKind,
+  CarrierLicense, CarrierProfile, CharterCarrier, CharterClip, CharterLegal, CharterPhoto, CharterVehicleKind,
 } from '@/lib/transfers/charter-format';
 
 export * from '@/lib/transfers/charter-format';
@@ -47,7 +48,8 @@ const PARTNER_COLUMNS = `p.id::text AS id, p.slug, p.name, p.short_description, 
 interface PriceRow {
   partner_id: string;
   vehicle_kind: CharterVehicleKind;
-  line_kind: 'destination' | 'extra_day';
+  /** 'per_hour' / 'per_day' — цена за время работы машины без направления (1292). */
+  line_kind: 'destination' | 'extra_day' | 'per_hour' | 'per_day';
   from_text: string | null;
   to_text: string | null;
   price_rub: number;
@@ -64,7 +66,8 @@ interface VehicleRow {
   partner_id: string;
   kind: CharterVehicleKind;
   title: string;
-  seats: number;
+  /** NULL — число мест не записано (1292). */
+  seats: number | null;
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -129,6 +132,44 @@ export function parseLegal(legalInfo: unknown): CharterLegal | null {
   const inn = /^(\d{10}|\d{12})$/.test(rawInn) ? rawInn : null;
   const ogrn = /^(\d{13}|\d{15})$/.test(rawOgrn) ? rawOgrn : null;
   return name || inn || ogrn ? { name, inn, ogrn } : null;
+}
+
+/**
+ * Лицензия из legal_info.license — двумя формами, как их пишут миграции:
+ * объект выписки из реестра (1292: номер, дата, орган, статус на дату выписки)
+ * или слово «есть» без номера (1187). Объект без номера — не лицензия по
+ * выписке, а мусор: такой не показывается. Дата — только YYYY-MM-DD.
+ */
+export function parseLicense(legalInfo: unknown): CarrierLicense | null {
+  const raw = asRecord(legalInfo)?.license;
+  if (typeof raw === 'string') return raw.trim().toLowerCase() === 'есть' ? { kind: 'words' } : null;
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const date = (v: unknown): string | null => {
+    const s = str(v);
+    return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  };
+  const number = str(rec.number);
+  if (!number) return null;
+  return {
+    kind: 'registry',
+    number,
+    issuedOn: date(rec.issuedOn),
+    authority: str(rec.authority),
+    status: str(rec.registryStatus),
+    checkedOn: date(rec.registryCheckedOn),
+  };
+}
+
+/**
+ * Страхование пассажиров из legal_info.passengerInsurance. Записано только
+ * «со слов перевозчика» (1292) — это и узнаётся; полиса с номером платформа
+ * не видела, и другого исхода, кроме «не записано», здесь нет.
+ */
+export function parsePassengerInsurance(legalInfo: unknown): 'words' | null {
+  const raw = asRecord(legalInfo)?.passengerInsurance;
+  return typeof raw === 'string' && raw.trim().toLowerCase() === 'со слов перевозчика' ? 'words' : null;
 }
 
 /**
@@ -205,6 +246,15 @@ function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRo
     extraDay: extra
       ? { priceRub: extra.price_rub, note: extra.price_note, conditions: extra.conditions, validYear: extra.valid_year }
       : null,
+    rates: sortRates(mine.flatMap((r) => (r.line_kind === 'per_hour' || r.line_kind === 'per_day'
+      ? [{
+        unit: r.line_kind === 'per_hour' ? 'hour' as const : 'day' as const,
+        priceRub: r.price_rub,
+        note: r.price_note,
+        conditions: r.conditions,
+        validYear: r.valid_year,
+      }]
+      : []))),
     photos: parsePhotos(photos, p.gallery_credits),
     // В базе — пути /video/...; файлы с 09.10 в хранилище, и страница
     // получает адрес объекта там (lib/media/video-url), а не круг через
@@ -221,7 +271,11 @@ function toCharterCarrier(p: PartnerRow, prices: PriceRow[], vehicles: VehicleRo
   };
 }
 
-/** Перевозчики с живым прайсом; partnerId — только один из них. */
+/**
+ * Перевозчики с живым прайсом; partnerId — только один из них. Порядок — по
+ * алфавиту, тем же правилом, что список компаний (`lower(name)`, затем id для
+ * устойчивости): общая витрина, и правило названо на ней словами (§0).
+ */
 export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Promise<CharterCarrier[]> {
   const partners = await query<PartnerRow>(
     `SELECT ${PARTNER_COLUMNS}
@@ -232,7 +286,7 @@ export async function loadCharterCarriers(opts: { partnerId?: string } = {}): Pr
         AND EXISTS (
           SELECT 1 FROM transfer_charter_prices c WHERE c.partner_id = p.id AND c.is_active
         )
-      ORDER BY p.name`,
+      ORDER BY lower(p.name), p.id`,
     [opts.partnerId ?? null],
   );
   if (partners.rows.length === 0) return [];
@@ -264,5 +318,7 @@ export async function loadCarrierBySlug(slug: string): Promise<CarrierProfile | 
     ...toCharterCarrier(p, prices, vehicles),
     verified: p.is_verified === true,
     description: p.description,
+    license: parseLicense(p.legal_info),
+    passengerInsurance: parsePassengerInsurance(p.legal_info),
   };
 }

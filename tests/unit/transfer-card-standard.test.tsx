@@ -57,7 +57,7 @@ const CARRIER: CarrierProfile = {
     line('Толбачик (Мёртвый лес)', 360000, { id: 'pl-tol', href: '/places/vulkan-tolbachik', name: 'Вулкан Толбачик' }),
     line('Курильское озеро', 450000, null, 'плюс переправы'),
   ],
-  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 },
+  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 }, rates: [],
   photos: [
     { url: '/images/shatun/shatun-01.jpg', credit: null },
     { url: '/images/shatun/shatun-16.jpg', credit: 'Сладченко Виктор Леонидович' },
@@ -102,7 +102,7 @@ describe('страница перевозчика: блоки и порядок'
     expect(strip.textContent).toContain('до 26 в машине');
     expect(strip.textContent).toContain('Петропавловск-Камчатский');
     expect(strip.textContent).toContain('за машину');
-    expect(carrierInstrument({ vehicles: [], destinations: [] })).toEqual([]);
+    expect(carrierInstrument({ vehicles: [], destinations: [], rates: [] })).toEqual([]);
   });
 });
 

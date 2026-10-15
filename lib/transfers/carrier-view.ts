@@ -8,7 +8,7 @@
  * догадку (§4.0).
  */
 
-import { carrierPagePath, fleetCapacity, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { carrierPagePath, fleetCapacity, rateLabel, vehicleKindWord, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 export interface InstrumentCell {
   k: string;
@@ -26,11 +26,28 @@ export function minCharterPrice(c: Pick<CharterCarrier, 'destinations'>): number
 }
 
 /**
+ * Что перевозчик не записал о цене — для блока «Что входит в цену». У прайса
+ * по направлениям — дни, водитель и топливо; у цены за час и за день (1292) —
+ * минимальный заказ, часы в полном дне, топливо и подача машины. Догадки нет.
+ */
+export function includedUnknowns(c: Pick<CharterCarrier, 'destinations' | 'rates'>): string {
+  if (c.destinations.length > 0 || c.rates.length === 0) {
+    return 'сколько дней входит в цену, есть ли водитель на месте и топливо';
+  }
+  const parts: string[] = [];
+  if (c.rates.some((r) => r.unit === 'hour')) parts.push('есть ли минимальный заказ');
+  if (c.rates.some((r) => r.unit === 'day')) parts.push('сколько часов в полном дне');
+  parts.push('входят ли топливо и подача машины');
+  return parts.join(', ');
+}
+
+/**
  * Полоса фактов под заголовком: вид машины, места, сколько машин, откуда, за
  * что цена. Ячейка без данных не рисуется вовсе — пустая ячейка «—» читалась
- * бы как «ноль».
+ * бы как «ноль». Число мест не записано хоть у одной машины — ячейки «Мест»
+ * нет, а «Машин» остаётся: машины записаны, их число известно.
  */
-export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinations'>): InstrumentCell[] {
+export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinations' | 'rates'>): InstrumentCell[] {
   const cells: InstrumentCell[] = [];
   const kinds = [...new Set(c.vehicles.map((v) => v.kind))];
   if (kinds.length === 1) {
@@ -38,14 +55,20 @@ export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinat
     cells.push({ k: 'Машина', v: w.charAt(0).toUpperCase() + w.slice(1) });
   }
   const cap = fleetCapacity(c.vehicles);
-  if (cap) {
-    cells.push({ k: 'Мест', v: cap.count > 1 ? `до ${cap.largest} в машине` : `${cap.largest}` });
-    if (cap.count > 1) cells.push({ k: 'Машин', v: String(cap.count) });
-  }
+  if (cap) cells.push({ k: 'Мест', v: cap.count > 1 ? `до ${cap.largest} в машине` : `${cap.largest}` });
+  if (c.vehicles.length > 1) cells.push({ k: 'Машин', v: String(c.vehicles.length) });
   const origins = carrierOrigins(c);
   if (origins.length > 0) cells.push({ k: 'Откуда', v: origins.join(', ') });
   if (c.destinations.length > 0) cells.push({ k: 'Цена', v: 'за машину' });
+  else if (c.rates.length > 0) cells.push({ k: 'Цена', v: rateCellWords(c.rates) });
   return cells;
+}
+
+/** «за час или за день» — за какое время берёт цену перевозчик без направлений. */
+function rateCellWords(rates: CharterCarrier['rates']): string {
+  const units = new Set(rates.map((r) => r.unit));
+  if (units.has('hour') && units.has('day')) return 'за час или за день';
+  return units.has('hour') ? 'за час' : 'за день';
 }
 
 /**
@@ -55,10 +78,31 @@ export function carrierInstrument(c: Pick<CharterCarrier, 'vehicles' | 'destinat
  * нет: система их не знает (тот же урок, что InStock у тура, снятый 01.10).
  */
 export function carrierJsonLd(
-  c: Pick<CharterCarrier, 'slug' | 'name' | 'shortDescription' | 'destinations' | 'legal'>,
+  c: Pick<CharterCarrier, 'slug' | 'name' | 'shortDescription' | 'destinations' | 'rates' | 'legal'>,
   site: string,
 ): Record<string, unknown> {
   const url = `${site}${carrierPagePath(c.slug)}`;
+  const offers = [
+    ...c.destinations.map((d) => ({
+      '@type': 'Offer',
+      price: d.priceRub,
+      priceCurrency: 'RUB',
+      itemOffered: { '@type': 'Service', name: `Машина целиком: ${d.from} — ${d.to}` },
+    })),
+    // Цена за время работы — с единицей (UN/CEFACT: HUR — час, DAY — сутки),
+    // иначе 4 500 читалось бы как цена поездки.
+    ...c.rates.map((r) => ({
+      '@type': 'Offer',
+      priceCurrency: 'RUB',
+      priceSpecification: {
+        '@type': 'UnitPriceSpecification',
+        price: r.priceRub,
+        priceCurrency: 'RUB',
+        unitCode: r.unit === 'hour' ? 'HUR' : 'DAY',
+      },
+      itemOffered: { '@type': 'Service', name: `Машина целиком: ${rateLabel(r.unit).toLowerCase()}` },
+    })),
+  ];
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
@@ -68,15 +112,6 @@ export function carrierJsonLd(
     ...(c.shortDescription ? { description: c.shortDescription.slice(0, 500) } : {}),
     ...(c.legal?.name ? { legalName: c.legal.name } : {}),
     ...(c.legal?.inn ? { taxID: c.legal.inn } : {}),
-    ...(c.destinations.length > 0
-      ? {
-        makesOffer: c.destinations.map((d) => ({
-          '@type': 'Offer',
-          price: d.priceRub,
-          priceCurrency: 'RUB',
-          itemOffered: { '@type': 'Service', name: `Машина целиком: ${d.from} — ${d.to}` },
-        })),
-      }
-      : {}),
+    ...(offers.length > 0 ? { makesOffer: offers } : {}),
   };
 }

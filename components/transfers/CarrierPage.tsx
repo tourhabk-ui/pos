@@ -34,10 +34,11 @@ import { CarrierReviews } from '@/components/transfers/CarrierReviews';
 import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { formatContactPhone } from '@/lib/stay/contact-phone';
 import {
-  CHARTER_REQUEST_ANCHOR, charterRequisitesLine, describeFleet, formatRub, orderDestinationFromQuery,
+  CHARTER_REQUEST_ANCHOR, INSURANCE_WORDS_LINE, charterRequisitesLine, describeFleet, formatRub, licenseLine,
+  orderDestinationFromQuery, rateOnScreen,
 } from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
-import { carrierInstrument, minCharterPrice } from '@/lib/transfers/carrier-view';
+import { carrierInstrument, includedUnknowns, minCharterPrice } from '@/lib/transfers/carrier-view';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
 
 /** Якорь формы заявки: на него ведут кнопка героя, «Заказать» у строк прайса и ссылки снаружи. */
@@ -122,7 +123,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
               </section>
             )}
 
-            {(c.destinations.length > 0 || c.extraDay) && (
+            {(c.destinations.length > 0 || c.extraDay || c.rates.length > 0) && (
               <section aria-labelledby="carrier-price">
                 <H2 id="carrier-price">Прайс под заказ</H2>
                 <div className="ds-card px-5 py-3">
@@ -135,8 +136,8 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
             <section aria-labelledby="carrier-included">
               <H2 id="carrier-included">Что входит в цену</H2>
               <p className="text-sm text-[var(--text-secondary)]">
-                Перевозчик этого не записал: сколько дней входит в цену, есть ли водитель на месте и топливо — уточняется
-                у перевозчика при заказе. Оплата — напрямую ему: через Ведар машина не оплачивается.
+                Перевозчик этого не записал: {includedUnknowns(c)} — уточняется у перевозчика при заказе. Оплата —
+                напрямую ему: через Ведар машина не оплачивается.
               </p>
             </section>
 
@@ -145,6 +146,10 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
               {safety.state === 'failed' ? (
                 <p className="text-sm text-[var(--text-secondary)]">
                   Не смогли проверить опасности мест — это сбой, а не «опасностей нет». Смотрите карточки мест.
+                </p>
+              ) : c.destinations.length === 0 ? (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Направлений в прайсе нет: куда ехать, задаёте вы, — опасности места смотрите в его карточке на Ведаре.
                 </p>
               ) : linked.length > 0 && (
                 <ul className="space-y-4">
@@ -192,6 +197,15 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                     <p className="text-xs text-[var(--text-muted)] mt-1">
                       Исполнитель: {charterRequisitesLine(c.legal) ?? 'реквизиты перевозчика не записаны на платформе'}
                     </p>
+                    {/* Лицензия и страхование — только записанное и с источником:
+                        номер по выписке — со статусом на дату выписки; «есть» со
+                        слов — так и сказано (владелец 15.10: «только факты»). */}
+                    {c.license && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1">{licenseLine(c.license)}.</p>
+                    )}
+                    {c.passengerInsurance === 'words' && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1">{INSURANCE_WORDS_LINE}.</p>
+                    )}
                     {c.verified && (
                       <p className="text-[13px] text-[var(--success)] flex items-center gap-1.5 mt-1">
                         <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden /> Проверенный перевозчик
@@ -231,7 +245,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                 <MessageSquare className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" aria-hidden />
                 <span className="text-sm text-[var(--text-secondary)]">
                   Как доехать, что взять с собой, какая обстановка на месте. Кузьмич знает прайс перевозчиков и сводку по
-                  краю — спросите, например: «сколько стоит вахтовка на Горелый и что взять».
+                  краю — спросите, например: «сколько стоит машина на Горелый и что взять».
                 </span>
               </Link>
             </section>
@@ -243,9 +257,19 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                   в прайсе не дёргает страницу, когда форма и так на экране. */}
               <section id={CHARTER_REQUEST_ANCHOR} className="ds-card p-5 scroll-mt-24 lg:scroll-mt-20" aria-labelledby="charter-request-title">
                 <h2 id="charter-request-title" className="font-playfair text-xl font-bold text-[var(--text-primary)]">Заявка на машину</h2>
-                {minPrice !== null && (
+                {minPrice !== null ? (
                   <p className="text-sm text-[var(--text-secondary)] mt-1">
                     от <span className="font-semibold text-[var(--accent)]">{formatRub(minPrice)}</span> за машину по прайсу
+                  </p>
+                ) : c.rates.length > 0 && (
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">
+                    {c.rates.map((r, i) => (
+                      <span key={r.unit}>
+                        {i > 0 && ' · '}
+                        <span className="font-semibold text-[var(--accent)] whitespace-nowrap">{rateOnScreen(r)}</span>
+                      </span>
+                    ))}
+                    {' '}за машину; куда ехать — пишете в заявке
                   </p>
                 )}
                 <div className="mt-4">
@@ -256,6 +280,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
                     carrierName={c.name}
                     destinations={destinations}
                     initialDestination={preselected}
+                    rates={c.rates}
                   />
                 </div>
               </section>

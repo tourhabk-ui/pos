@@ -66,6 +66,10 @@ export interface CharterOffer {
   priceFromRub: number | null;
   /** Сколько направлений в прайсе. */
   destinations: number;
+  /** Цена за машину за час работы (1292), ₽; null — такой цены нет. */
+  hourRub: number | null;
+  /** Цена за машину за полный день (1292), ₽; null — такой цены нет. */
+  dayRub: number | null;
 }
 
 function logExtrasFailure(check: string, err: unknown): void {
@@ -187,6 +191,8 @@ export async function findCharterOffers(): Promise<CheckOutcome<CharterOffer>> {
         fleet: describeFleet(c.vehicles),
         priceFromRub: c.destinations.length > 0 ? Math.min(...c.destinations.map((d) => d.priceRub)) : null,
         destinations: c.destinations.length,
+        hourRub: c.rates.find((r) => r.unit === 'hour')?.priceRub ?? null,
+        dayRub: c.rates.find((r) => r.unit === 'day')?.priceRub ?? null,
       })),
     };
   } catch (err) {

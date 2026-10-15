@@ -1,6 +1,8 @@
 /**
- * Заявка на вахтовку целой машиной (MCP `request_charter`, решение владельца
- * 10.10: «трансфер работает не по маршруту, а по заказам»).
+ * Заявка на машину целиком (MCP `request_charter`, решение владельца 10.10:
+ * «трансфер работает не по маршруту, а по заказам»). Машина — вахтовка
+ * «Шатуна» с прайсом по направлениям или микроавтобус «ИП Желтухин» с ценой
+ * за час и за день (1292).
  *
  * Поездка (lib/transfers/service) — это машина, дата и места. У перевозчика
  * «под заказ» (миграция 1185) другое: дат нет, направление и дни задаёт
@@ -25,9 +27,11 @@ import {
   describeFleet,
   fleetCapacity,
   matchDestinations,
+  rateWords,
   vehiclesNeeded,
   type CharterCarrier,
   type CharterPriceLine,
+  type CharterRate,
 } from '@/lib/transfers/charter-format';
 
 /** Чем начинается комментарий лида: по этому префиксу ищется повтор и узнаётся заявка на машину. */
@@ -69,6 +73,12 @@ export function pickCarrier(carriers: CharterCarrier[], query: string | undefine
 export type CharterPlan =
   /** Направление названо и однозначно сопоставилось со строкой прайса. */
   | { kind: 'priced'; line: CharterPriceLine; vehicles: number | null }
+  /**
+   * Направления в прайсе нет, но у перевозчика есть цена за час или за день
+   * (1292): направление задаёт заказчик, а сумма зависит от времени, которого
+   * прайс не знает.
+   */
+  | { kind: 'rated'; rates: CharterRate[]; vehicles: number | null }
   /** Такого направления в прайсе нет: заказ нестандартный, цену называет перевозчик. */
   | { kind: 'custom'; vehicles: number | null }
   /** Под слова запроса подходит несколько строк прайса: уточнить, не выбирать. */
@@ -79,7 +89,9 @@ export type CharterPlan =
 /**
  * Что делать с заявкой, зная прайс и парк. Порядок проверок важен: вместимость
  * — факт парка и отказывает сразу, неоднозначное направление — вопрос агенту,
- * и лишь потом цена по прайсу либо «нестандартный заказ».
+ * и лишь потом цена по прайсу, цена за время работы либо «нестандартный заказ».
+ * Число мест не записано (1292) — вместимость неизвестна, и отказа «мест не
+ * хватит» нет: решает перевозчик.
  */
 export function planCharterRequest(carrier: CharterCarrier, destination: string, passengers: number): CharterPlan {
   const cap = fleetCapacity(carrier.vehicles);
@@ -89,12 +101,13 @@ export function planCharterRequest(carrier: CharterCarrier, destination: string,
   const hits = matchDestinations(carrier.destinations, destination);
   if (hits.length > 1) return { kind: 'ambiguous', options: hits.map((h) => h.to) };
   if (hits.length === 1) return { kind: 'priced', line: hits[0]!, vehicles };
+  if (carrier.rates.length > 0) return { kind: 'rated', rates: carrier.rates, vehicles };
   return { kind: 'custom', vehicles };
 }
 
 export interface CharterRequestFacts {
   carrier: CharterCarrier;
-  plan: Extract<CharterPlan, { kind: 'priced' | 'custom' }>;
+  plan: Extract<CharterPlan, { kind: 'priced' | 'rated' | 'custom' }>;
   destination: string;
   dateFrom: string;
   dateTo: string | null;
@@ -153,6 +166,7 @@ export function charterLeadComment(f: CharterRequestFacts): string {
   tail.push(f.dateTo ? `по ${f.dateTo}` : 'дата возвращения не указана');
   tail.push(`направление «${f.destination}»`, `человек: ${f.passengers}`);
   if (f.plan.kind === 'priced') tail.push(`по прайсу: ${priceWords(f.plan.line)}`);
+  else if (f.plan.kind === 'rated') tail.push(`цена за время работы машины: ${f.plan.rates.map(rateWords).join(', ')} — сколько часов займёт поездка, уточнить у перевозчика`);
   else tail.push('в прайсе такого направления нет — цену назовёт перевозчик');
   if (f.plan.vehicles && f.plan.vehicles > 1) tail.push(`по числу мест нужно не меньше ${f.plan.vehicles} машин (цена в прайсе — за одну)`);
   tail.push(SEASON_UNKNOWN_MANAGER);
@@ -177,6 +191,11 @@ export function charterSourceData(f: CharterRequestFacts, door: CharterDoor = 'm
     passengers: f.passengers,
     price_line_rub: f.plan.kind === 'priced' ? f.plan.line.priceRub : null,
     in_price_list: f.plan.kind === 'priced',
+    // Цена за час и за день (1292) — числами, как строка прайса: менеджер
+    // разбирает заявку, не парся комментарий.
+    rates_rub: f.plan.kind === 'rated'
+      ? Object.fromEntries(f.plan.rates.map((r) => [r.unit, r.priceRub]))
+      : null,
     vehicles_needed: f.plan.vehicles,
   };
 }
@@ -194,7 +213,9 @@ export function charterAcceptedText(f: CharterRequestFacts, phone: string, baseU
     : '';
   const price = f.plan.kind === 'priced'
     ? ` По прайсу: ${priceWords(f.plan.line)}.${extra} Сколько дней входит в цену и что в неё включено, прайс не говорит — это уточняется у перевозчика; итоговой суммы платформа не называет.`
-    : ` Направления «${f.destination}» в прайсе нет — это заказ вне прайса, цену называет перевозчик. Прайс: ${c.destinations.map(priceWords).join('; ')}.${extra}`;
+    : f.plan.kind === 'rated'
+      ? ` Цена у перевозчика — за время работы машины, направление задаёт заказчик: ${f.plan.rates.map(rateWords).join('; ')}. Сколько часов займёт поездка и что входит в цену, прайс не говорит — это уточняется у перевозчика; итоговой суммы платформа не называет.`
+      : ` Направления «${f.destination}» в прайсе нет — это заказ вне прайса, цену называет перевозчик. Прайс: ${c.destinations.map(priceWords).join('; ')}.${extra}`;
   const cars = f.plan.vehicles && f.plan.vehicles > 1
     ? ` По числу мест нужно не меньше ${f.plan.vehicles} машин (в парке ${describeFleet(c.vehicles)}); цена в прайсе — за одну машину.`
     : '';

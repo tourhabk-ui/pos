@@ -372,10 +372,16 @@ async function charterForPrompt(): Promise<string> {
     return 'Перевозчиков с прайсом под заказ на платформе пока нет. Перевозчиков и цен трансфера не выдумывай.';
   }
   return offers.items.map((o) => {
-    const facts = [
-      o.fleet,
-      o.priceFromRub === null ? 'цену машины называет перевозчик' : `от ${o.priceFromRub}₽ за машину`,
-    ].filter(Boolean);
+    // Цена за час и за день (1292) — тоже цена: «называет перевозчик» о ней
+    // было бы неправдой, а сумму за поездку модель не считает — часов прайс не знает.
+    const byTime = [
+      o.hourRub !== null ? `${o.hourRub}₽ в час` : null,
+      o.dayRub !== null ? `${o.dayRub}₽ за полный день` : null,
+    ].filter(Boolean).join(' или ');
+    const price = o.priceFromRub !== null
+      ? `от ${o.priceFromRub}₽ за машину`
+      : byTime ? `${byTime} за машину, направление задаёт заказчик` : 'цену машины называет перевозчик';
+    const facts = [o.fleet, price].filter(Boolean);
     return `- ${o.name} (${facts.join(', ')})`;
   }).join('\n');
 }

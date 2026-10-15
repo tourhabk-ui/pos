@@ -47,7 +47,7 @@ const CARRIER: CharterCarrier = {
     { from: 'Петропавловск-Камчатский', to: 'Вулкан Авачинский', priceRub: 65000, note: null, conditions: 'при расчёте наличными', validYear: 2026 },
     { from: 'Петропавловск-Камчатский', to: 'Курильское озеро', priceRub: 450000, note: 'плюс переправы', conditions: 'при расчёте наличными', validYear: 2026 },
   ],
-  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 },
+  extraDay: { priceRub: 30000, note: 'при эксплуатации транспорта на местности', conditions: 'при расчёте наличными', validYear: 2026 }, rates: [],
   photos: [
     { url: '/images/shatun/shatun-01.jpg', credit: null },
     { url: '/images/shatun/shatun-16.jpg', credit: 'Сладченко Виктор Леонидович' },
@@ -210,11 +210,11 @@ describe('чистое форматирование прайса', () => {
 
   it('нет ни года, ни условий — сноски нет; год «не записан» не превращается в «бессрочно»', () => {
     const bare: CharterCarrier = {
-      ...CARRIER, extraDay: null,
+      ...CARRIER, extraDay: null, rates: [],
       destinations: [{ from: 'Петропавловск-Камчатский', to: 'X', priceRub: 1, note: null, conditions: null, validYear: null }],
     };
     expect(charterFootnote(bare)).toBe('Отправление — Петропавловск-Камчатский.');
-    expect(charterFootnote({ destinations: [], extraDay: null })).toBeNull();
+    expect(charterFootnote({ destinations: [], extraDay: null, rates: [] })).toBeNull();
   });
 });
 

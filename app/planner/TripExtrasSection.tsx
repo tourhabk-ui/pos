@@ -197,6 +197,21 @@ function directionsRu(n: number): string {
   return `${n} направлений`;
 }
 
+/**
+ * Цена перевозчика одной строкой: «от N за машину · M направлений в прайсе»,
+ * у цены за время работы (1292) — «N в час · M за день за машину»; цены нет —
+ * «назовёт перевозчик».
+ */
+export function charterOfferPrice(o: Pick<CharterOfferView, 'priceFromRub' | 'destinations' | 'hourRub' | 'dayRub'>): string {
+  if (o.priceFromRub !== null) return `от ${fmtRub(o.priceFromRub)} за машину · ${directionsRu(o.destinations)} в прайсе`;
+  const byTime = [
+    typeof o.hourRub === 'number' ? `${fmtRub(o.hourRub)} в час` : null,
+    typeof o.dayRub === 'number' ? `${fmtRub(o.dayRub)} за день` : null,
+  ].filter(Boolean);
+  if (byTime.length > 0) return `${byTime.join(' · ')} за машину · направление — ваше`;
+  return 'Цену машины назовёт перевозчик';
+}
+
 /** Перевозчик «под заказ»: машина целиком, цена за машину; строка ведёт на его прайс и заявку. */
 function CharterOfferRow({ o }: { o: CharterOfferView }) {
   return (
@@ -205,11 +220,7 @@ function CharterOfferRow({ o }: { o: CharterOfferView }) {
         {o.name}
       </Link>
       {o.fleet && <p className="text-xs text-[var(--text-secondary)] mt-0.5">{o.fleet}</p>}
-      <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-        {o.priceFromRub === null
-          ? 'Цену машины назовёт перевозчик'
-          : `от ${fmtRub(o.priceFromRub)} за машину · ${directionsRu(o.destinations)} в прайсе`}
-      </p>
+      <p className="text-xs text-[var(--text-secondary)] mt-0.5">{charterOfferPrice(o)}</p>
     </li>
   );
 }
