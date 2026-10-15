@@ -6,15 +6,21 @@
  *
  * Использует:
  *   1. Full-text search на agent_route_knowledge (маршруты, места)
- *   2. findRelevantTours() — активные туры с ценами и операторами
+ *   2. Поиск по смыслу (lib/ai/embeddings, локальная модель) — только при
+ *      включённом флаге SEMANTIC_SEARCH; результаты сливаются с п. 1 через RRF
+ *   3. findRelevantTours() — активные туры с ценами и операторами
  *
- * Без ML-модели: быстро (<50ms), надёжно в продакшне.
+ * Прежняя строка «без ML-модели» была неправдой с тех пор, как сюда пришёл
+ * semanticSearch: первый вопрос Кузьмичу грузил модель в веб-процесс
+ * (аудит 15.10, A21).
  */
 
 import { pool } from '@/lib/db-pool';
 import { detectTourIntent, findRelevantTours } from './booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { semanticSearch } from './embeddings';
+import { noteSemanticSearchOff, semanticSearchEnabled } from './semantic-search-state';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
 import { tourPath } from '@/lib/tours/tour-url';
 
@@ -141,6 +147,30 @@ async function findRoutesByText(
   } catch (err) {
     // Пустой catch превращал отказ БД в «знаний нет» (CLAUDE.md §4.0).
     console.error('[rag-context] поиск по тексту не выполнен:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+// ── Поиск по смыслу: под флагом и с названным отказом ────────────────
+/**
+ * Маршруты по смыслу для RRF. Пустой список — в трёх разных случаях, и все
+ * три теперь различимы в логе (аудит 15.10, A21):
+ *  - флаг SEMANTIC_SEARCH выключен — модель не трогается, строка в лог одна
+ *    на процесс;
+ *  - модель или база отказали — до 15.10 здесь стоял `.catch(() => [])`, и
+ *    отказ был неотличим от «по смыслу ничего не нашлось» (§4.0). Ответ
+ *    прежний — Кузьмич получает маршруты по словам, — но причина в логе;
+ *  - модель ответила, похожего нет — честный ноль.
+ */
+async function findRoutesBySense(message: string, limit: number) {
+  if (!semanticSearchEnabled()) {
+    noteSemanticSearchOff('rag-context');
+    return [];
+  }
+  try {
+    return await semanticSearch(message, limit);
+  } catch (err) {
+    logSwallowedFailure('rag-context', 'поиск по смыслу', err);
     return [];
   }
 }
@@ -282,7 +312,7 @@ export async function buildRAGContext(
   // Hybrid retrieval: fulltext + semantic + RRF fusion
   const [fulltextRoutes, semanticResults, tours] = await Promise.all([
     findRoutesByText(message, 8),
-    semanticSearch(message, 8).catch(() => []),
+    findRoutesBySense(message, 8),
     // При признаках ЧП туры в контекст модели не идут: иначе модель
     // предложит тур тому, кто пишет «заблудился» (разбор 24.09).
     withTours && intent.detected && !detectEmergency(message).detected

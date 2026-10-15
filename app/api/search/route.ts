@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
+import { noteSemanticSearchOff, semanticSearchEnabled } from '@/lib/ai/semantic-search-state';
 import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
 import { findToursForQuery, tourPriceFrom } from '@/lib/search/tour-query-match';
 import { activityLabel } from '@/lib/tours/labels';
@@ -71,13 +72,18 @@ export async function GET(request: NextRequest) {
   // тогда маршруты ищутся ILIKE, и ответ ОБЯЗАН это сказать (§4.0):
   // «нашли ноль по смыслу» и «смысл не искали» — разные ответы туристу.
   let semanticDown: string | null = null;
+  // Флаг SEMANTIC_SEARCH выключен (аудит 15.10, A21) — модель не трогаем,
+  // маршруты ищутся ILIKE, и ответ говорит об этом полем degraded: решение
+  // владельца выглядит для клиента так же, как отказ, но называется иначе.
+  const semanticOn = semanticSearchEnabled();
   const pattern = `%${q}%`;
 
   // Маршруты: сначала семантика (embeddings — «где увидеть медведей» находит
   // релевантное, а не только совпадение букв), при ошибке/пустоте — ILIKE.
   // Порядок сохраняется по убыванию схожести.
   async function findRoutes(): Promise<Array<Record<string, unknown>>> {
-    if (q.length >= 3) {
+    if (q.length >= 3 && !semanticOn) noteSemanticSearchOff('search');
+    if (q.length >= 3 && semanticOn) {
       try {
         const hits = await semanticSearch(q, perType * 3);
         if (hits.length > 0) {
@@ -235,7 +241,13 @@ export async function GET(request: NextRequest) {
       data: results,
       // Третье состояние: маршруты найдены без семантики. Клиент решает сам,
       // показать ли «поиск по смыслу временно недоступен».
-      ...(semanticDown ? { degraded: { semantic: 'unavailable' as const, reason: semanticDown } } : {}),
+      // 'disabled' — не сбой, а флаг SEMANTIC_SEARCH (A21): кэшируется как
+      // обычный ответ, флаг за жизнь процесса не меняется.
+      ...(semanticDown
+        ? { degraded: { semantic: 'unavailable' as const, reason: semanticDown } }
+        : !semanticOn
+          ? { degraded: { semantic: 'disabled' as const, reason: 'поиск по смыслу выключен флагом SEMANTIC_SEARCH — маршруты найдены по совпадению слов' } }
+          : {}),
       // Какой источник не ответил: 'tours' | 'geo'. Клиент обязан сказать
       // это словами, а не показать пустоту как «ничего не найдено».
       ...(unavailable.length > 0 ? { unavailable } : {}),
