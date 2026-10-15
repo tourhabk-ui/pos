@@ -233,9 +233,12 @@ export async function POST(request: NextRequest) {
     // переписывается (аудит 15.10, WID-measure). Подделываемо — только счёт.
     const pageOrigin = widgetOrigin(page?.host, page?.path, partner.widget_domains);
 
+    // Число реплик человека сервер считает сам (+1 за это сообщение), а не
+    // по присланной истории: окно урезает её до 20 реплик, и счёт по ней
+    // занижал разговорную активность в переписи (аудит 15.10, R-chat).
     void query(
       WIDGET_CHAT_SESSION_SQL,
-      [widgetSessionId, JSON.stringify(allMessages.slice(-20)), allMessages.filter(m => m.role === 'user').length, JSON.stringify(pageOrigin)]
+      [widgetSessionId, JSON.stringify(allMessages.slice(-20)), JSON.stringify(pageOrigin)]
     ).catch((err: unknown) => {
       const e = err as { code?: string; message?: string } | null;
       console.error('[widget-chat] разговор не сохранён:', `SQLSTATE=${e?.code ?? 'нет'}`, e?.message ?? String(err));

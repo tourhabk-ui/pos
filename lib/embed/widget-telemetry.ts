@@ -57,17 +57,24 @@ export const WIDGET_OPENED_SQL = `
 
 /**
  * Разговор чата виджета в chat_sessions (POST /api/widget/chat). $1 —
- * `widget_<slug>_<id>`, $2 — реплики, $3 — число реплик человека, $4 —
- * откуда пришёл человек ({host, path, host_check}, lib/embed/widget-origin).
+ * `widget_<slug>_<id>`, $2 — реплики, $3 — откуда пришёл человек
+ * ({host, path, host_check}, lib/embed/widget-origin).
  * Происхождение пишется первым сообщением и дальше не переписывается:
  * разговор пришёл с той страницы, с которой начался.
+ *
+ * Число реплик человека считает СЕРВЕР: первое сообщение — 1, каждое
+ * следующее — +1 к записанному. Прежде его брали из истории, присланной
+ * браузером, а окно присылает её урезанной (не больше 20 реплик и 12 000
+ * знаков, lib/embed/widget-chat-limits): на 15-й реплике в базу ложилось
+ * 11, и перепись widget-census складывала это как замер. Накрутить счёт
+ * выдуманной историей тоже было можно (аудит 15.10, R-chat).
  */
 export const WIDGET_CHAT_SESSION_SQL = `
   INSERT INTO chat_sessions (session_id, role, messages, user_message_count, is_authenticated, widget_origin, updated_at)
-  VALUES ($1, 'tourist', $2::jsonb, $3, false, $4::jsonb, NOW())
+  VALUES ($1, 'tourist', $2::jsonb, 1, false, $3::jsonb, NOW())
   ON CONFLICT (session_id) DO UPDATE
     SET messages = $2::jsonb,
-        user_message_count = $3,
+        user_message_count = COALESCE(chat_sessions.user_message_count, 0) + 1,
         widget_origin = COALESCE(chat_sessions.widget_origin, EXCLUDED.widget_origin),
         updated_at = NOW()`;
 
