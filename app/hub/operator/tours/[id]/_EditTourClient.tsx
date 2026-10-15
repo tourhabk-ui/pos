@@ -9,6 +9,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { readApiResponse } from '@/lib/http/api-response';
+import MainPlacePicker, { type MainPlaceValue, type MainPlaceSource } from '@/components/operator/Tours/MainPlacePicker';
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,10 @@ interface TourData {
   tour_image: string | null;
   /** Закреплён наверху страницы оператора (1267); NULL — нет. */
   pinned_at?: string | null;
+  /** Главное место тура (1286): id места, его имя и откуда связь. */
+  main_place_id?: string | null;
+  main_place_name?: string | null;
+  main_place_source?: string | null;
 }
 
 // ─── Константы ──────────────────────────────────────────────────────────────
@@ -112,6 +117,8 @@ export default function EditTourClient() {
     pickup_type: '',
     pickup_details: '',
   });
+  // Главное место тура — выбор из справочника (аудит 15.10, TOUR-PLACE).
+  const [mainPlace, setMainPlace] = useState<MainPlaceValue | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -189,6 +196,7 @@ export default function EditTourClient() {
         const t: TourData = json.data;
         setTour(t);
         setPhotos(t.photos || []);
+        setMainPlace(t.main_place_id ? { id: t.main_place_id, name: t.main_place_name ?? t.main_place_id } : null);
         setForm({
           title: t.title,
           short_description: t.short_description || '',
@@ -287,6 +295,8 @@ export default function EditTourClient() {
         pickup_type: form.pickup_type || null,
         pickup_details: form.pickup_details.trim() || null,
         photos,
+        // Роут пишет только перемену и проверяет, что место живое.
+        main_place_id: mainPlace?.id ?? null,
       };
 
       // Незаполненный тип не отправляется вовсе: PATCH частичный, и «поле не
@@ -305,6 +315,16 @@ export default function EditTourClient() {
       const { data, error: apiError } = await readApiResponse<{ success?: boolean; error?: string }>(res);
       if (apiError) throw new Error(apiError);
       if (!data?.success) throw new Error(data?.error || 'Ошибка сохранения');
+      // Сохранённая связь теперь — выбор оператора (или снята): подпись
+      // «связано по координатам» больше к ней не относится.
+      setTour(prev => prev && ({
+        ...prev,
+        main_place_id: mainPlace?.id ?? null,
+        main_place_name: mainPlace?.name ?? null,
+        main_place_source: mainPlace
+          ? (mainPlace.id === prev.main_place_id ? prev.main_place_source : 'operator')
+          : null,
+      }));
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e) {
@@ -540,6 +560,12 @@ export default function EditTourClient() {
           <label className={lbl}>Название места</label>
           <input className={inp} value={form.location_name} onChange={e => setF('location_name', e.target.value)} placeholder="Авачинский вулкан" />
         </div>
+        <MainPlacePicker
+          value={mainPlace}
+          savedId={tour.main_place_id ?? null}
+          savedSource={(tour.main_place_source === 'coords_equal' || tour.main_place_source === 'operator') ? tour.main_place_source as MainPlaceSource : null}
+          onChange={setMainPlace}
+        />
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={lbl}><MapPin className="w-3 h-3 inline mr-1" />Широта</label>

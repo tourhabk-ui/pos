@@ -258,9 +258,11 @@ let translationRows: Array<ZhStoredTranslation & { entity_id: string }> = [];
 function routeSql(sql: string): { rows: unknown[] } {
   if (sql.includes('FROM content_translations')) return { rows: translationRows };
   if (sql.includes('ot.short_description')) return { rows: tourRows };
+  // Место — раньше туров: правило мест (zhPlaceRuleSql) само спрашивает
+  // operator_tours — главное место тура, 1286 (аудит 15.10, TOUR-PLACE).
+  if (sql.includes('rw_zh') && sql.includes('FROM places p')) return { rows: [PLACE_ROW] };
   // Список /zh (lib/zh/entry): та же витрина, свои колонки.
   if (sql.includes('FROM operator_tours')) return { rows: tourRows };
-  if (sql.includes('rw_zh') && sql.includes('FROM places p')) return { rows: [PLACE_ROW] };
   return { rows: [] };
 }
 

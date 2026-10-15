@@ -13,14 +13,17 @@ interface Props {
 /**
  * Туры места — двумя списками, тем же правилом, что маршруты (15.10, §0).
  * «К этому месту» вправе сказать только тур, чей маршрут размечен через
- * место точкой пути. Связь рода unknown («не установлено», §4.1) этого не
- * утверждает: тур мог стоять на маршруте, который место лишь задевает, и
- * человек купил бы поездку, которая сюда не заезжает.
+ * место точкой пути, или тур, у которого это место названо главным
+ * (main_place_id, аудит 15.10 TOUR-PLACE). Связь рода unknown («не
+ * установлено», §4.1) этого не утверждает: тур мог стоять на маршруте,
+ * который место лишь задевает, и человек купил бы поездку, которая сюда не
+ * заезжает.
  */
 export default function PlaceTours({ tours }: Props) {
   if (!tours.length) return null;
-  const through = tours.filter(t => t.linkKind === 'waypoint');
-  const unmarked = tours.filter(t => t.linkKind !== 'waypoint');
+  const goesHere = (t: PlaceTour) => t.linkKind === 'waypoint' || t.linkKind === 'main_place';
+  const through = tours.filter(goesHere);
+  const unmarked = tours.filter(t => !goesHere(t));
 
   return (
     <>
