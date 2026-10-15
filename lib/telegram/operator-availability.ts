@@ -283,6 +283,64 @@ export function publicWebhookBase(): string {
   return (picked ?? 'https://vedarai.ru').replace(/\/$/, '');
 }
 
+/**
+ * Единственный адрес, куда бот Telegram шлёт обновления, и единственная дверь,
+ * которая его ставит (аудит 15.10).
+ *
+ * До этого вебхук ставили шесть мест, и пять из них — на `/api/telegram/kuzmich`
+ * без `secret_token`: кнопка «Подключить» в админке, страница и роут
+ * диагностики, два ручных роута. Сторож же ждал `/api/telegram/webhook` и
+ * переставлял обратно. Бот один (оба обработчика отвечают TELEGRAM_BOT_TOKEN),
+ * адрес вебхука у бота тоже один — кто нажал кнопку последним, тот и прав.
+ * После P3-03 обработчик без секрета отвечает 503, и такая кнопка глушила бы
+ * бота до ближайшего прогона сторожа.
+ *
+ * Без TELEGRAM_WEBHOOK_SECRET вебхук не ставится вовсе: адрес, на который
+ * обработчик ответит отказом, — это молчащий бот, а не починка.
+ */
+export const CANONICAL_WEBHOOK_PATH = '/api/telegram/webhook';
+
+export function canonicalWebhookUrl(): string {
+  return `${publicWebhookBase()}${CANONICAL_WEBHOOK_PATH}`;
+}
+
+export type SetWebhookResult =
+  | { ok: true; url: string }
+  | { ok: false; url: string; error: string };
+
+export async function setCanonicalWebhook(
+  token: string,
+  opts: { dropPending?: boolean } = {},
+): Promise<SetWebhookResult> {
+  const url = canonicalWebhookUrl();
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) {
+    return {
+      ok: false,
+      url,
+      error: 'TELEGRAM_WEBHOOK_SECRET не задан: обработчик без секрета отклоняет обновления (503), такой вебхук заглушил бы бота',
+    };
+  }
+  try {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        secret_token: secret,
+        allowed_updates: ['message', 'callback_query'],
+        drop_pending_updates: opts.dropPending ?? false,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const data = await res.json().catch(() => null) as { ok?: boolean; description?: string } | null;
+    if (data?.ok) return { ok: true, url };
+    return { ok: false, url, error: data?.description ?? `setWebhook: HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, url, error: `setWebhook: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
 export async function checkAndRestoreWebhook(
   opts: { previous?: PreviousDeliveryInput; nowMs?: number } = {},
 ): Promise<WebhookCheckResult> {
@@ -291,7 +349,7 @@ export async function checkAndRestoreWebhook(
     return { status: 'failed', current_url: null, expected_url: '', pending_update_count: 0, error: 'TELEGRAM_BOT_TOKEN не задан' };
   }
 
-  const expectedUrl = `${publicWebhookBase()}/api/telegram/webhook`;
+  const expectedUrl = canonicalWebhookUrl();
 
   // Без секрета обработчик отказывает каждому обновлению (503, аудит 15.10,
   // P3-03): адрес может быть верным, а бот — молчать. Ответить здесь «ok» по
@@ -365,21 +423,13 @@ export async function checkAndRestoreWebhook(
     };
   }
 
-  // Попытка восстановить
+  // Попытка восстановить — той же дверью, что и все установщики.
   try {
-    const setRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: expectedUrl,
-        secret_token: secret,
-        allowed_updates: ['message', 'callback_query'],
-        drop_pending_updates: webhookInfo.pending_update_count > PENDING_UPDATES_THRESHOLD,
-      }),
+    const set = await setCanonicalWebhook(token, {
+      dropPending: webhookInfo.pending_update_count > PENDING_UPDATES_THRESHOLD,
     });
-    const setData = await setRes.json() as { ok: boolean; description?: string };
 
-    if (setData.ok) {
+    if (set.ok) {
       return {
         status: 'restored',
         current_url: webhookInfo.url,
@@ -393,7 +443,7 @@ export async function checkAndRestoreWebhook(
 
     // setWebhook не удался — алерт владельцу
     const sent = await notifyOwner(
-      `<b>Вебхук Telegram не восстановлен</b>\n\nТекущий: ${escapeHtml(webhookInfo.url || 'пусто')}\nОжидаемый: ${escapeHtml(expectedUrl)}\nОшибка: ${escapeHtml(setData.description ?? 'неизвестно')}`
+      `<b>Вебхук Telegram не восстановлен</b>\n\nТекущий: ${escapeHtml(webhookInfo.url || 'пусто')}\nОжидаемый: ${escapeHtml(expectedUrl)}\nОшибка: ${escapeHtml(set.error)}`
     );
     return {
       status: 'failed',
@@ -402,7 +452,7 @@ export async function checkAndRestoreWebhook(
       pending_update_count: webhookInfo.pending_update_count,
       ...deliveryFields,
       delivery_alert: sent ? 'sent' : 'not_sent',
-      error: setData.description ?? 'setWebhook вернул ok=false',
+      error: set.error,
     };
   } catch (e) {
     const sent = await notifyOwner(

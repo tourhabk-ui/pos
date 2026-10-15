@@ -7,9 +7,11 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { verifySessionToken } from '@/lib/auth/jwt';
 import { getSetting } from '@/lib/platform-settings';
+import { canonicalWebhookUrl, setCanonicalWebhook } from '@/lib/telegram/operator-availability';
 
-const APP_URL      = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
-const WEBHOOK_PATH = '/api/telegram/kuzmich';
+// Адрес вебхука ставит одна дверь — setCanonicalWebhook (аудит 15.10). Прежде
+// страница ставила /api/telegram/kuzmich без секрета и от NEXT_PUBLIC_APP_URL,
+// а на Timeweb это внутренний *.twc1.net, который Telegram не резолвит.
 
 async function getToken(): Promise<string> {
   return (
@@ -47,7 +49,7 @@ export default async function TelegramWebhookPage() {
   if (!user || user.role !== 'admin') redirect('/auth/login?from=/hub/admin/telegram/webhook');
 
   const token = await getToken();
-  const webhookUrl = `${APP_URL}${WEBHOOK_PATH}`;
+  const webhookUrl = canonicalWebhookUrl();
 
   if (!token) {
     return (
@@ -63,21 +65,14 @@ export default async function TelegramWebhookPage() {
   const me       = await tg(token, 'getMe');
   const before   = await tg(token, 'getWebhookInfo');
   const curUrl   = before?.result?.url ?? '';
-  const needsFix = !curUrl || !curUrl.includes('vedarai.ru');
+  const needsFix = curUrl !== webhookUrl;
 
-  let setResult = null;
-  if (needsFix) {
-    setResult = await tg(token, 'setWebhook', {
-      url: webhookUrl,
-      allowed_updates: ['message', 'callback_query'],
-      drop_pending_updates: true,
-    });
-  }
+  const setResult = needsFix ? await setCanonicalWebhook(token) : null;
 
   const after = needsFix ? await tg(token, 'getWebhookInfo') : before;
 
   const w = after?.result ?? {};
-  const ok = w.url && w.url.includes('vedarai.ru') && !w.last_error_message;
+  const ok = w.url === webhookUrl && !w.last_error_message;
 
   return (
     <div className="ds-page max-w-2xl mx-auto py-8 space-y-4">

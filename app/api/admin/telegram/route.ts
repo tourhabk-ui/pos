@@ -7,15 +7,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getSetting, setSetting } from '@/lib/platform-settings';
 import { z } from 'zod';
-import { getPublicBaseUrl } from '@/lib/config';
+import { canonicalWebhookUrl, setCanonicalWebhook } from '@/lib/telegram/operator-availability';
 
 const TelegramSetupSchema = z.object({
   token: z.string().max(100).optional(),
   reregister: z.boolean().optional(),
 });
 
-const APP_URL      = getPublicBaseUrl();
-const WEBHOOK_PATH = '/api/telegram/kuzmich';
+// Адрес вебхука ставит одна дверь — setCanonicalWebhook (аудит 15.10): прежде
+// эта кнопка переводила бота на /api/telegram/kuzmich без секрета, а сторож
+// возвращал его на /api/telegram/webhook.
 
 async function resolveToken(): Promise<string> {
   return (
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
     if (data.ok) webhook = data.result ?? null;
   } catch { /* сервер не достучался до Telegram */ }
 
-  return NextResponse.json({ configured: true, token_source: source, token_tail: token.slice(-6), webhook });
+  return NextResponse.json({ configured: true, token_source: source, token_tail: token.slice(-6), webhook, expected_url: canonicalWebhookUrl() });
 }
 
 export async function POST(request: NextRequest) {
@@ -84,20 +85,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Сервер не достучался до Telegram: ${err instanceof Error ? err.message : String(err)}` }, { status: 502 });
   }
 
-  // Регистрируем webhook
-  const webhookUrl = `${APP_URL}${WEBHOOK_PATH}`;
-  try {
-    const whData = await tgCall(token, 'setWebhook', {
-      url: webhookUrl,
-      allowed_updates: ['message', 'callback_query'],
-      drop_pending_updates: true,
-    });
-    if (!whData.ok) {
-      return NextResponse.json({ success: false, error: `Webhook не зарегистрирован: ${whData.description}` }, { status: 400 });
-    }
-  } catch (err) {
-    return NextResponse.json({ success: false, error: `Ошибка регистрации webhook: ${err instanceof Error ? err.message : String(err)}` }, { status: 502 });
+  // Регистрируем webhook — главный адрес с секретом; без секрета не ставим.
+  const set = await setCanonicalWebhook(token);
+  if (!set.ok) {
+    return NextResponse.json({ success: false, error: `Webhook не зарегистрирован: ${set.error}` }, { status: 400 });
   }
+  const webhookUrl = set.url;
 
   // Сохраняем токен в БД если передан явно (не из env)
   if (body.token?.trim()) {

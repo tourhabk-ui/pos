@@ -139,9 +139,10 @@ describe('открытый прокси к Bot API удалён', () => {
     // webhook живёт в register-kuzmich (CRON_SECRET), диагностика — в check
     // (requireAdmin). Если эти исчезнут, тест напомнит, что мы остались без
     // замены, а не молча потеряли функцию.
-    const reg = readFileSync(join(process.cwd(), 'app/api/telegram/register-kuzmich/route.ts'), 'utf-8');
-    expect(reg).toMatch(/setWebhook/);
-    expect(reg).toMatch(/CRON_SECRET/);
+    // Что register-kuzmich ставит вебхук (через единую дверь, с секретом) и
+    // без CRON_SECRET отказывает — проверяется вызовом в
+    // telegram-webhook-one-door.test.ts; здесь — только что замена на месте.
+    expect(existsSync(join(process.cwd(), 'app/api/telegram/register-kuzmich/route.ts'))).toBe(true);
     const check = readFileSync(join(process.cwd(), 'app/api/telegram/check/route.ts'), 'utf-8');
     expect(check).toMatch(/requireAdmin/);
   });
