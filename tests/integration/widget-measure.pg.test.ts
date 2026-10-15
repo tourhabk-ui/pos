@@ -10,7 +10,10 @@
  *  - выключенному виджету счёт не заводится;
  *  - происхождение разговора пишется первым сообщением и не переписывается;
  *  - перепись читает и ничего не меняет, slug «fish» не собирает разговоры
- *    «fish_x» (самый длинный подходящий slug).
+ *    «fish_x» (самый длинный подходящий slug);
+ *  - заявка формы достаётся ОДНОМУ партнёру: адресату, а по slug — только
+ *    без адресата (аудит 15.10, W3-measure: прежнее `operator_id OR slug`
+ *    считало заявку с адресатом одного партнёра и slug другого дважды).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
@@ -118,6 +121,14 @@ withPg('виджеты на настоящем PostgreSQL', () => {
          ('Widget: fish', '', 'new', NULL, '{"type":"widget","partner_id":"wmt-fish"}'::jsonb, NOW() - INTERVAL '40 days')`,
       [mest],
     );
+    // Адресат — fish, а slug в source_data — mest: заявка только у fish.
+    // Адресата нет, slug — mest: заявка у mest (старая форма слала только slug).
+    await pool.query(
+      `INSERT INTO leads (name, phone, status, operator_id, source_data, created_at) VALUES
+         ('Анна', '+79000000003', 'new', $1, '{"source":"partner_widget","partner_slug":"wmt-mest"}'::jsonb, NOW() - INTERVAL '2 days'),
+         ('Олег', '+79000000004', 'new', NULL, '{"source":"partner_widget","partner_slug":"wmt-mest"}'::jsonb, NOW() - INTERVAL '10 days')`,
+      [fish],
+    );
     const before = (await pool.query(`SELECT (SELECT COUNT(*) FROM widget_daily) + (SELECT COUNT(*) FROM chat_sessions) + (SELECT COUNT(*) FROM leads) AS n`)).rows[0].n;
 
     const r = await censusWidgets(pool);
@@ -138,7 +149,15 @@ withPg('виджеты на настоящем PostgreSQL', () => {
     expect(by('wmt-fish').chat_sessions).toMatchObject({ sessions_30d: 1, sessions_90d: 1, listed_90d: 1 });
     expect(by('wmt-fish_x').chat_sessions).toMatchObject({ sessions_30d: 1, not_sent_90d: 1 });
 
-    expect(by('wmt-mest').form_leads).toMatchObject({ leads_30d: 1, leads_90d: 2, listed_90d: 1, origin_not_recorded_90d: 1 });
+    // mest: своя (3 дня, listed), своя (60 дней), без адресата по slug (10 дней).
+    // Заявка «Анна» с адресатом fish сюда не входит.
+    expect(by('wmt-mest').form_leads).toMatchObject({ leads_30d: 2, leads_90d: 3, listed_90d: 1, origin_not_recorded_90d: 2 });
+    expect(by('wmt-fish').form_leads).toMatchObject({ leads_30d: 1, leads_90d: 1, listed_90d: 0, origin_not_recorded_90d: 1 });
+    // Каждая заявка формы посчитана ровно один раз.
+    const formTotal = r.partners!
+      .filter((p) => p.slug?.startsWith('wmt-'))
+      .reduce((n, p) => n + (p.form_leads?.leads_90d ?? 0), 0);
+    expect(formTotal).toBe(4);
     expect(by('wmt-fish').chat_pseudo_leads).toEqual({ pseudo_30d: 1, pseudo_90d: 2, handed_to_other_operators_90d: 1 });
     expect(by('wmt-mest').chat_pseudo_leads).toEqual({ pseudo_30d: 0, pseudo_90d: 0, handed_to_other_operators_90d: 0 });
     // Выключенный виджет в перепись не входит.

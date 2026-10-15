@@ -21,7 +21,8 @@
  *     сколько из них крон добивки отдал ДРУГИМ операторам
  *     (`source_data ? 'notified_operators'`);
  *   - с `probe_sites` — есть ли наш скрипт на главной каждого домена:
- *     found / not_found / could_not_check.
+ *     found / not_found / could_not_check. Переадресации проба идёт вручную
+ *     и каждую судит тем же правилом, что и домен из списка (probeSite).
  *
  * ── Третье состояние (§4.0) ───────────────────────────────────────────────
  *
@@ -46,6 +47,11 @@ export const TELEMETRY_DAYS = 30;
 export const SITE_PROBE_TIMEOUT_MS = 10_000;
 /** Больше доменов за прогон не спрашиваем: перепись — не обходчик. */
 export const SITE_PROBE_MAX = 20;
+/**
+ * Больше переадресаций не идём: главная за тремя переходами — уже не
+ * «главная домена», а цепочка, конец которой выбирает чужой сервер.
+ */
+export const SITE_PROBE_MAX_REDIRECTS = 3;
 
 interface Exec {
   query: <R = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: R[] }>;
@@ -108,8 +114,13 @@ export const CHAT_SESSIONS_SQL = String.raw`
 
 /**
  * Заявки формы виджета: source 'partner_widget' (так шлёт /widget/lead-form)
- * или канал widget, кроме чатового псевдолида (type 'widget'). Партнёр — по
- * адресату или по slug в source_data (старая форма слала только его).
+ * или канал widget, кроме чатового псевдолида (type 'widget').
+ *
+ * Партнёр у заявки ОДИН: адресат (`operator_id`), а slug из source_data —
+ * только когда адресата нет (старая форма слала только его). Прежнее условие
+ * `operator_id = p.id OR partner_slug = p.slug` (аудит 15.10, W3-measure)
+ * считало заявку дважды, если адресат и slug в ней — разные партнёры: она
+ * попадала и к адресату, и к партнёру со slug.
  */
 export const FORM_LEADS_SQL = `
   SELECT p.id::text AS partner_id,
@@ -123,7 +134,8 @@ export const FORM_LEADS_SQL = `
          MAX(l.created_at)::text AS last_at
     FROM partners p
     JOIN leads l
-      ON (l.operator_id = p.id OR l.source_data->>'partner_slug' = p.slug)
+      ON (l.operator_id = p.id
+          OR (l.operator_id IS NULL AND l.source_data->>'partner_slug' = p.slug))
      AND l.created_at >= NOW() - INTERVAL '90 days'
      AND (
        l.source_data->>'source' = 'partner_widget'
@@ -266,14 +278,41 @@ function telemetryFor(rows: TelemetryRow[], domains: string[]): PartnerTelemetry
 
 // ── Проба сайтов ─────────────────────────────────────────────────────────
 
-/** Домен из записи списка — только похожий на публичный хост (не IP, не localhost). */
-export function probeableDomain(raw: string): string | null {
-  const cleaned = raw.trim().replace(/^https?:\/\//i, '').replace(/[/:].*$/, '');
-  const host = normalizeWidgetHost(cleaned);
+/**
+ * Имена частного пользования: в публичном DNS их нет, за ними — чья-то
+ * внутренняя сеть (RFC 6761 `localhost`, RFC 6762 `.local`, RFC 8375
+ * `.home.arpa`, зарезервированный ICANN `.internal`).
+ */
+const PRIVATE_NAME_RE = /(?:^|\.)(?:localhost|local|internal|home\.arpa)$/;
+
+/**
+ * Адрес, который проба вправе запросить. Одно правило — для домена из списка
+ * и для КАЖДОЙ переадресации (аудит 15.10, W3-measure): только http/https и
+ * публичное имя — не IP (любой: петля 127.x, частные 10.x и 192.168.x,
+ * метаданные облака 169.254.169.254, IPv6), не localhost и не имя частной
+ * сети. Судится РАЗОБРАННЫЙ адрес: разбор URL приводит «127.1», «0x7f.0.0.1»
+ * и «2130706433» к 127.0.0.1, то есть проверка видит то, куда пойдёт fetch,
+ * а не строку, как её написали. `base` — адрес, относительно которого
+ * разбирается относительный Location.
+ */
+export function probeableUrl(raw: string, base?: string): URL | null {
+  if (!URL.canParse(raw, base)) return null;
+  const url = new URL(raw, base);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  // IPv6 в скобках и имя не в ASCII нормализацию хоста не проходят.
+  const host = normalizeWidgetHost(url.hostname);
   if (!host || !host.includes('.')) return null;
   if (/^\d+(\.\d+){3}$/.test(host)) return null;
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return null;
-  return host;
+  if (PRIVATE_NAME_RE.test(host)) return null;
+  return url;
+}
+
+/** Домен из записи списка — только похожий на публичный хост (правило probeableUrl). */
+export function probeableDomain(raw: string): string | null {
+  const cleaned = raw.trim().replace(/^https?:\/\//i, '').replace(/[/:].*$/, '');
+  if (!normalizeWidgetHost(cleaned)) return null;
+  const url = probeableUrl(`https://${cleaned}/`);
+  return url ? normalizeWidgetHost(url.hostname) : null;
 }
 
 function escapeRe(s: string): string {
@@ -290,6 +329,29 @@ export function detectWidgetScripts(html: string, slug: string): WidgetKind[] {
   return out;
 }
 
+/** Коды, по которым проба идёт дальше по Location. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** Тело переадресации не нужно, но соединение освобождаем; отказ закрытия — в лог, не в исход. */
+function discardBody(res: Response): void {
+  res.body?.cancel().catch((err: unknown) => {
+    console.warn(`[widget-census] тело переадресации не закрыто: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
+
+/**
+ * Есть ли наш скрипт на главной домена.
+ *
+ * Переадресации — ВРУЧНУЮ (аудит 15.10, W3-measure). С `redirect: 'follow'`
+ * правило probeableUrl судило только исходный домен, а сайт вправе ответить
+ * `302 Location: http://127.0.0.1/` или на 169.254.169.254, и fetch пошёл бы
+ * туда с прода. Теперь каждый Location судится тем же правилом, переходов не
+ * больше SITE_PROBE_MAX_REDIRECTS, а нарушение — could_not_check с причиной;
+ * адрес за ним не запрашивается. Срок один на всю цепочку.
+ *
+ * Правило судит ФОРМУ адреса. Публичное имя, которое DNS разрешает в частный
+ * адрес, оно не ловит: сверки DNS, как в lib/security/site-probe.ts, здесь нет.
+ */
 export async function probeSite(
   domain: string,
   slug: string,
@@ -301,28 +363,49 @@ export async function probeSite(
     return { domain, url: null, outcome: 'could_not_check', scripts: [], http_status: null, reason: 'запись списка не похожа на публичный домен' };
   }
   const url = `https://${host}/`;
+  const couldNotCheck = (http_status: number | null, reason: string): SiteProbe => (
+    { domain, url, outcome: 'could_not_check', scripts: [], http_status, reason }
+  );
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
-    const res = await fetchImpl(url, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: { 'user-agent': 'VedarWidgetCensus/1 (+https://vedarai.ru)', accept: 'text/html' },
-    });
-    if (!res.ok) {
-      return { domain, url, outcome: 'could_not_check', scripts: [], http_status: res.status, reason: `главная ответила HTTP ${res.status}` };
+    let target = url;
+    for (let hop = 0; ; hop += 1) {
+      const res = await fetchImpl(target, {
+        redirect: 'manual',
+        signal,
+        headers: { 'user-agent': 'VedarWidgetCensus/1 (+https://vedarai.ru)', accept: 'text/html' },
+      });
+      if (!REDIRECT_STATUSES.has(res.status)) {
+        if (!res.ok) return couldNotCheck(res.status, `главная ответила HTTP ${res.status}`);
+        const html = await res.text();
+        const scripts = detectWidgetScripts(html, slug);
+        return {
+          domain, url,
+          outcome: scripts.length > 0 ? 'found' : 'not_found',
+          scripts, http_status: res.status, reason: null,
+        };
+      }
+      discardBody(res);
+      if (hop >= SITE_PROBE_MAX_REDIRECTS) {
+        return couldNotCheck(res.status, `больше ${SITE_PROBE_MAX_REDIRECTS} переадресаций — дальше не шли`);
+      }
+      const location = res.headers.get('location');
+      if (!location) return couldNotCheck(res.status, `переадресация HTTP ${res.status} без адреса`);
+      const next = probeableUrl(location, target);
+      if (!next) {
+        return couldNotCheck(
+          res.status,
+          `переадресация на адрес вне правила пробы (не http/https, IP, localhost или частная сеть) — не запрашивался: ${location.slice(0, 120)}`,
+        );
+      }
+      target = next.href;
     }
-    const html = await res.text();
-    const scripts = detectWidgetScripts(html, slug);
-    return {
-      domain, url,
-      outcome: scripts.length > 0 ? 'found' : 'not_found',
-      scripts, http_status: res.status, reason: null,
-    };
   } catch (err) {
     const name = (err as { name?: string } | null)?.name;
     const reason = name === 'TimeoutError' || name === 'AbortError'
       ? `нет ответа за ${Math.round(timeoutMs / 1000)} с`
       : `сеть: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200);
-    return { domain, url, outcome: 'could_not_check', scripts: [], http_status: null, reason };
+    return couldNotCheck(null, reason);
   }
 }
 
