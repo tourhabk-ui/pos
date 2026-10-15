@@ -247,6 +247,37 @@ export function elevatedVolcanoes(input: VolcanoInput, nowMs: number = Date.now(
   return { sources: src.text, complete: src.complete, items: sortElevated(mergeVolcanoes(input, nowMs)) };
 }
 
+/** Сколько вулканов называет краевая обстановка; остальные — get_volcano_status. */
+export const SAFETY_STATUS_VOLCANO_LIMIT = 5;
+
+/**
+ * Вулканы для краевой обстановки — MCP `safety_status` (#2495, 15.10).
+ *
+ * Обстановка по краю читала одну таблицу тревог, а вулкан попадал туда только
+ * текстом (КБГС, МЧС). Оранжевый код KVERT Шивелуча красил место в красный
+ * (`get_guardian_context`), а краевая лента его не знала: общий статус
+ * недооценивал обстановку. Отбор, порядок и строка вулкана — те же, что у
+ * `get_volcano_status` без имени, иначе два инструмента разойдутся. Шкала
+ * отдельная и в число предупреждений не входит — так и сказано.
+ */
+export function volcanoLinesForSafetyStatus(input: VolcanoInput, nowMs: number = Date.now()): string[] {
+  const src = sourcesLine(input, nowMs);
+  const fresh = input.kfegs !== null && input.kfegsDate !== null && kfegsIsFresh(input.kfegsDate, nowMs);
+  const elevated = sortElevated(mergeVolcanoes(input, nowMs));
+  if (elevated.length === 0) {
+    return [src.complete
+      ? 'Вулканы (KVERT, КФ ЕГС): повышенной активности нет.'
+      : 'Вулканы (KVERT, КФ ЕГС): по доступным данным повышенных нет, но не все источники проверены — это не «все вулканы спокойны».'];
+  }
+  const shown = elevated.slice(0, SAFETY_STATUS_VOLCANO_LIMIT);
+  return [
+    `Вулканы с повышенной активностью (KVERT, КФ ЕГС) — ${elevated.length}; отдельная шкала, в число предупреждений выше не входит:`,
+    ...shown.map((m) => `- ${volcanoLine(m, nowMs, fresh)}`),
+    ...(elevated.length > shown.length ? [`…и ещё ${elevated.length - shown.length} — get_volcano_status.`] : []),
+    ...(src.complete ? [] : ['Не все источники по вулканам проверены — список может быть неполным.']),
+  ];
+}
+
 /** Ответ инструмента: без имени — повышенные по любой шкале, с именем — этот вулкан по обеим. */
 export function composeVolcanoReport(input: VolcanoInput, query: string | undefined, nowMs: number = Date.now()): string {
   const src = sourcesLine(input, nowMs);

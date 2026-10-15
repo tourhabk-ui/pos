@@ -22,3 +22,23 @@
 export function isoUtcSql(expr: string): string {
   return `to_char((${expr}) AT TIME ZONE current_setting('TimeZone') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
+
+/**
+ * Метка из колонки `timestamp`, в которую писали стенное время UTC, — в ISO с
+ * «Z» (#2495, 15.10).
+ *
+ * Не всякая колонка без пояса заполнена через NOW(). `external_alerts.created_at`
+ * и `expires_at` пишет ингест датой JS с сервера в UTC, а у `timestamp`
+ * PostgreSQL смещение входной строки отбрасывает — в колонке остаётся стенное
+ * время UTC (так их и читают: `seismic-feed`, `seismic-latency-census` —
+ * «created_at без пояса, в UTC; NOW() — в поясе сессии, +03 на проде»).
+ * `isoUtcSql` для них неверен: он считает стенное время поясом сессии и на
+ * проде сдвигает момент на три часа назад — поймано pg-тестом `safety_status`
+ * (`tests/integration/safety-status-feed.pg.test.ts`).
+ *
+ * Какое из двух правил брать, решает ПИСАТЕЛЬ строки, а не колонка: ручные
+ * записи той же таблицы ставят `created_at` через NOW() — им `isoUtcSql`.
+ */
+export function utcWallIsoSql(expr: string): string {
+  return `to_char((${expr}), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+}

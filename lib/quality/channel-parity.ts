@@ -213,13 +213,16 @@ export function parseSafetyText(text: string): SafetyFacts | null {
   const upd = /^Данные обновлены:\s*(.*?)\.\s*$/m.exec(text);
   const feed = /^Из них меняют решение туриста сегодня[^:]*:\s*(\d+)\.\s*$/m.exec(text);
   // Список — строки «- заголовок» после «Лента предупреждений»; кончается на
-  // первой строке, не начинающейся с «- » (в т.ч. «…и ещё N.»).
+  // первой строке, не начинающейся с «- » (в т.ч. «…и ещё N.»). Строки с
+  // отступом — подробности пункта (дата, основание; #2495), а не конец
+  // списка: прежде первое же основание обрывало список на первом пункте.
   let titles: string[] | null = null;
   const lines = text.split('\n');
   const at = lines.findIndex((l) => l.startsWith('Лента предупреждений'));
   if (at >= 0) {
     titles = [];
     for (const l of lines.slice(at + 1)) {
+      if (l.startsWith('  ')) continue;
       if (!l.startsWith('- ')) break;
       titles.push(l.slice(2).trim());
     }
