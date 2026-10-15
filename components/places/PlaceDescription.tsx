@@ -13,10 +13,12 @@ interface Props {
   descriptionWithdrawn?: boolean;
   /** Описание написала модель (журнал происхождения, lib/places/description-by-model). */
   byModel?: boolean;
+  /** Описание написано голосом впечатления, и источника у него нет (lib/places/description-voice). */
+  impression?: boolean;
   placeId: string;
 }
 
-export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, byModel, placeId }: Props) {
+export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, byModel, impression, placeId }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const paragraphs = description?.split('\n').filter(p => p.trim()) ?? [];
@@ -91,6 +93,15 @@ export default function PlaceDescription({ essence, description, descriptionSour
           {byModel && (
             <p className="text-xs text-[var(--text-muted)] pt-1" style={{ maxWidth: '68ch' }}>
               Описание написала модель по данным платформы — на месте сверяйтесь.
+            </p>
+          )}
+
+          {/* Впечатление без источника (15.10, §0): «тишина», «запах», «плеск»
+              читались как наблюдение о месте, а наблюдения не было. Кузьмич и
+              MCP помечают такой текст с 26.09 — карточка говорит то же. */}
+          {impression && (
+            <p className="text-xs text-[var(--text-muted)] pt-1" style={{ maxWidth: '68ch' }}>
+              Описание написано как впечатление, а не по наблюдению: его подробности не сверены с источниками.
             </p>
           )}
 

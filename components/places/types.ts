@@ -171,6 +171,12 @@ export interface PlaceData {
   coordSource?: CoordSource;
   /** Описание последним записала модель, и текст с тех пор не менялся (журнал 911). */
   descriptionByModel?: boolean;
+  /**
+   * Описание написано голосом впечатления («тишина», «запах», «чувствуешь» —
+   * lib/places/description-voice) и источника у него не записано. Кузьмич и
+   * MCP отдают такой текст с пометкой с 26.09; карточка — тоже (15.10).
+   */
+  descriptionImpression?: boolean;
   zone: string | null;
   district: string | null;
   photoUrl: string | null;
