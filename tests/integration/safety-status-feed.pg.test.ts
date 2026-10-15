@@ -13,11 +13,14 @@
  *
  * Пояс сессии базы — московский, как на проде (+03), а не UTC контейнера CI:
  * при UTC любое прочтение стенного времени совпадает, и сторож был бы слеп.
- * `created_at`/`expires_at` — `timestamp` без пояса со стенным временем UTC
- * (ингест пишет датой JS с сервера в UTC). Первая редакция читала их
- * `isoUtcSql` — по поясу сессии — и этот файл поймал сдвиг на три часа назад
- * на каждой строке ленты. Строки вставляются стенным временем UTC явно, а не
- * датой JS: результат не зависит от пояса машины, на которой идёт тест.
+ * `created_at`/`expires_at` — `timestamp` без пояса, и стенное время в них
+ * пишут двумя способами: ингест — датой JS с сервера в UTC, ручные записи
+ * (миграции 718/729, админка) — `created_at` через NOW(), в поясе сессии.
+ * Первая редакция читала всё по поясу сессии, и этот файл поймал сдвиг на
+ * три часа назад на каждой строке ингеста; прочтение «всё в UTC» сдвинуло
+ * бы ручные (Вилючинский перевал, 13:23 МСК 7 июля, стал бы «8 июля»).
+ * Строки вставляются так, как их пишет каждый писатель, но без даты JS:
+ * результат не зависит от пояса машины, на которой идёт тест.
  *
  * Запуск ТРЕБУЕТ базы: KERNEL_PG_TEST_URL=postgresql://user:pass@host/db.
  * Без неё файл честно пропускается — «не прогнано», а не «прошло».
@@ -118,10 +121,16 @@ withPg('safety_status на настоящем PostgreSQL: даты пункто�
     await pool.query('TRUNCATE external_alerts, location_real_time_status');
     await pool.query('INSERT INTO location_real_time_status (updated_at) VALUES (NOW())');
     for (const r of ROWS) {
+      // Ручная запись: created_at — как от NOW(), стенное время пояса сессии.
+      // Ингест: стенное время UTC. Срок у обоих — стенное время UTC.
+      const createdSql = r.external_id.startsWith('manual-')
+        ? `($6::timestamptz AT TIME ZONE current_setting('TimeZone'))`
+        : '$6::timestamp';
       await pool.query(
         `INSERT INTO external_alerts (alert_type, severity, title, external_id, source_url, created_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6::timestamp, $7::timestamp)`,
-        [r.alert_type, r.severity, r.title, r.external_id, r.source_url, utcWall(r.created), utcWall(r.expires)],
+         VALUES ($1, $2, $3, $4, $5, ${createdSql}, $7::timestamp)`,
+        [r.alert_type, r.severity, r.title, r.external_id, r.source_url,
+          r.external_id.startsWith('manual-') ? r.created.toISOString() : utcWall(r.created), utcWall(r.expires)],
       );
     }
     cs = await import('@/lib/safety/current-status');

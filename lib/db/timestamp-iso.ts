@@ -35,6 +35,9 @@ export function isoUtcSql(expr: string): string {
  * `isoUtcSql` для них неверен: он считает стенное время поясом сессии и на
  * проде сдвигает момент на три часа назад — поймано pg-тестом `safety_status`
  * (`tests/integration/safety-status-feed.pg.test.ts`).
+ *
+ * Какое из двух правил брать, решает ПИСАТЕЛЬ строки, а не колонка: ручные
+ * записи той же таблицы ставят `created_at` через NOW() — им `isoUtcSql`.
  */
 export function utcWallIsoSql(expr: string): string {
   return `to_char((${expr}), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;

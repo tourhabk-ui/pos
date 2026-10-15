@@ -153,10 +153,12 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
     try {
       const feed = await query<{
         title: string; basis_title: string | null; basis_url: string | null; basis_origin: string | null;
-        created_iso: string | null; expires_iso: string | null; external_id: string | null; source_url: string | null;
+        created_utc_iso: string | null; created_session_iso: string | null; expires_iso: string | null;
+        external_id: string | null; source_url: string | null;
       }>(`
         SELECT title, basis_title, basis_url, basis_origin, external_id, source_url,
-               ${utcWallIsoSql('created_at')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
+               ${utcWallIsoSql('created_at')} AS created_utc_iso, ${isoUtcSql('created_at')} AS created_session_iso,
+               ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
           SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at, expires_at,
                  external_id, source_url,
                  basis_title, basis_url, basis_origin
@@ -170,11 +172,20 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       feedCount = feed.rows.length;
       feedTitles = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => r.title);
       feedBasis = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => basisOf(r));
-      feedWhen = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => ({
-        createdAt: r.created_iso,
-        expiresAt: r.expires_iso,
-        manual: alertOrigin(r.external_id, r.source_url)?.key === 'manual',
-      }));
+      feedWhen = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => {
+        const manual = alertOrigin(r.external_id, r.source_url)?.key === 'manual';
+        // Стенное время в колонке пишут по-разному: ингест — датой JS с
+        // сервера в UTC, ручные записи (миграции 718/729, админка) — через
+        // NOW(), то есть в поясе сессии (+03 на проде). Прочесть их одним
+        // правилом — сдвинуть одну из двух групп на три часа: Вилючинский
+        // перевал (13:23 МСК 7 июля) стал бы «внесено 8 июля». Срок у обеих
+        // групп — стенное время UTC (дата JS или литерал без пояса).
+        return {
+          createdAt: manual ? r.created_session_iso : r.created_utc_iso,
+          expiresAt: r.expires_iso,
+          manual,
+        };
+      });
     } catch (err) {
       console.error('[current-status] лента предупреждений не прочитана:', err instanceof Error ? err.message : err);
     }

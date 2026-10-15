@@ -71,6 +71,15 @@ describe('новость об участии службы — не предуп�
     expect(isServiceDuties('Спасатели принимали участие в учебных сборах на Авачинском перевале')).toBe(true);
   });
 
+  it('вторая копия с прода (prod-check 130): заголовок склеен с телом и начинается с «На Камчатке»', () => {
+    // Запись 441994 лежала типом flood: полный текст поста говорил о
+    // старом остроге, и слово паводка в нём нашёл классификатор воды.
+    const title = 'На Камчатке сотрудники МЧС России приняли участие в исследовательской экспедиции Члены Молодежного совета Главного управления МЧС России по Камчатскому краю совместно с представителями общественной…';
+    const body = 'На Камчатке сотрудники МЧС России приняли участие в исследовательской экспедиции \n \nЧлены Молодежного совета Главного управления МЧС России по Камчатскому краю совместно с представителями общественной организации Камчатско-Курильских экспедиций и волонтерами-военнослужащими провели экспедицию на предполагаемом месте нахождения старого Большерецкого острога.';
+    expect(rejectedGenre(title, body, new Date(NOW - 5 * 3600_000))).toBe('service_duties');
+    expect(classifyMchsItem('t', title, body, PUB_S, 'https://x')).toBeNull();
+  });
+
   it('взгляд вперёд вердикт отменяет: настоящая тревога остаётся тревогой', () => {
     const t = 'Сотрудники МЧС России приняли участие в облёте вулкана Шивелуч';
     const body = `${t}. Ожидается выброс пепла до 10 км, восхождения на вулкан не рекомендуются.`;
@@ -234,13 +243,20 @@ describe('ответ safety_status целиком', () => {
 
 describe('статус из базы: даты пунктов и остаток вне ленты', () => {
   // Строки так, как их вернул бы PostgreSQL на запросы getCurrentSafetyStatus.
+  // У created_at два прочтения: стенное время UTC (так пишет ингест) и пояса
+  // сессии, +03 (так пишет NOW() у ручных записей). Верное — одно, другое
+  // сдвинуто на три часа; выбрать обязан код, по писателю строки.
+  const H3 = 3 * 3600_000;
+  const shift = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+  const ingest = (iso: string) => ({ created_utc_iso: iso, created_session_iso: shift(iso, -H3) });
+  const manual = (iso: string) => ({ created_utc_iso: shift(iso, H3), created_session_iso: iso });
   const FEED_ROWS = [
-    { title: TITLES[0], external_id: 'mchs/101', source_url: null, created_iso: '2026-10-14T20:00:00.000Z', expires_iso: '2026-10-15T20:00:00.000Z' },
+    { title: TITLES[0], external_id: 'mchs/101', source_url: null, ...ingest('2026-10-14T20:00:00.000Z'), expires_iso: '2026-10-15T20:00:00.000Z' },
     // Миграция 718: внесено руками, expires_at — заглушка 2027.
-    { title: TITLES[1], external_id: 'manual-vilyuchinsky-pass-2026-07', source_url: 'https://www.ustoym.ru', created_iso: '2026-07-03T02:00:00.000Z', expires_iso: '2027-01-01T00:00:00.000Z' },
-    { title: TITLES[2], external_id: 'manual-khalaktyrsky-road-2026-07', source_url: null, created_iso: '2026-07-09T02:00:00.000Z', expires_iso: '2027-07-01T00:00:00.000Z' },
-    { title: TITLES[3], external_id: 'mchs/102', source_url: null, created_iso: '2026-10-13T22:00:00.000Z', expires_iso: '2026-10-16T22:00:00.000Z' },
-    { title: TITLES[4], external_id: 'kbgs/7', source_url: null, created_iso: '2026-10-14T00:00:00.000Z', expires_iso: '2026-10-21T00:00:00.000Z' },
+    { title: TITLES[1], external_id: 'manual-vilyuchinsky-pass-2026-07', source_url: 'https://www.ustoym.ru', ...manual('2026-07-03T02:00:00.000Z'), expires_iso: '2027-01-01T00:00:00.000Z' },
+    { title: TITLES[2], external_id: 'manual-khalaktyrsky-road-2026-07', source_url: null, ...manual('2026-07-09T02:00:00.000Z'), expires_iso: '2027-07-01T00:00:00.000Z' },
+    { title: TITLES[3], external_id: 'mchs/102', source_url: null, ...ingest('2026-10-13T22:00:00.000Z'), expires_iso: '2026-10-16T22:00:00.000Z' },
+    { title: TITLES[4], external_id: 'kbgs/7', source_url: null, ...ingest('2026-10-14T00:00:00.000Z'), expires_iso: '2026-10-21T00:00:00.000Z' },
   ].map((r) => ({ ...r, basis_title: null, basis_url: null, basis_origin: null }));
   // Семь активных: шесть ленточного типа (одна тема дважды — Халактырский из
   // двух лент) и одно землетрясение.
@@ -271,7 +287,7 @@ describe('статус из базы: даты пунктов и остаток 
     fx.query = route(false);
     const status = await realStatus();
     expect(status?.feedWhen?.[1]).toEqual({ createdAt: '2026-07-03T02:00:00.000Z', expiresAt: '2027-01-01T00:00:00.000Z', manual: true });
-    expect(status?.feedWhen?.[0]?.manual).toBe(false);
+    expect(status?.feedWhen?.[0]).toEqual({ createdAt: '2026-10-14T20:00:00.000Z', expiresAt: '2026-10-15T20:00:00.000Z', manual: false });
     expect(status?.outsideFeed).toEqual({ byType: [{ type: 'earthquake', count: 1 }], repeats: 1 });
 
     const lines = formatSafetyStatusForAgent(status, undefined, NOW).split('\n');
