@@ -15,7 +15,8 @@
  * (S-3) — тем же проходом: правка выключателя оплаты без слова красная.
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -780,6 +781,40 @@ describe('прямой пуш в main: каждый коммит судится 
     expect(res.out.join('\n')).toContain('влит PR #2601, проверка зон на нём прошла');
   });
 
+  // Ревью ZONES: засчитывается только ВЛИТЫЙ PR в main. Открытый PR с
+  // зелёной проверкой зон или PR в другую ветку слова владельца не дают.
+  it.each([
+    ['открытый PR (не влит), проверка зон на нём зелёная', { ...mergedPr(2603, sha('f')), merged_at: null }],
+    ['влитый PR, но в другую ветку', { ...mergedPr(2603, sha('f')), base: { ref: 'release' } }],
+  ])('%s — коммит судится как прямой', async (_name, pr) => {
+    const gh = fakePushGitHub({
+      commits: { [A]: { message: 'Правка ветки без номера в заголовке', files: [{ filename: ACCEPTING, status: 'modified' }] } },
+      commitPulls: { [A]: [pr] },
+      runs: { head2603: [run('success', '09:30')] },
+      contents: codeChange(A, ACCEPTING),
+    });
+    const res = await runPushCheck({ env: PUSH_ENV, fetchImpl: gh.fetchImpl, ts });
+    expect(res.exitCode).toBe(1);
+    expect(res.out.join('\n')).toContain('(коммит не пришёл влитием PR)');
+    expect(gh.created).toHaveLength(1);
+  });
+
+  it.each([
+    ['не влит', { ...mergedPr(2604, A), merged_at: null }],
+    ['влит в другую ветку', { ...mergedPr(2604, A), base: { ref: 'release' } }],
+  ])('номер PR в заголовке, но PR %s — не засчитывается', async (_name, pr) => {
+    const gh = fakePushGitHub({
+      commits: { [A]: { message: 'Правка оплаты (#2604)', files: [{ filename: ACCEPTING, status: 'modified' }] } },
+      pulls: { 2604: pr },
+      commitPulls: { [A]: [] },
+      runs: { head2604: [run('success', '09:30')] },
+      contents: codeChange(A, ACCEPTING),
+    });
+    const res = await runPushCheck({ env: PUSH_ENV, fetchImpl: gh.fetchImpl, ts });
+    expect(res.exitCode).toBe(1);
+    expect(res.out.join('\n')).toContain('(коммит не пришёл влитием PR)');
+  });
+
   it('коммит вне зон — зелёный, и про PR не спрашивается', async () => {
     const gh = fakePushGitHub({
       commits: { [A]: { message: 'Проба 965', files: [{ filename: 'lib/places/aliases.ts', status: 'modified' }] } },
@@ -958,6 +993,7 @@ describe('новые пути реестра (S-3) судятся как зон�
   const NEW: Record<string, string> = {
     'lib/safety/registration-mark.ts': 'trip-watch',
     'lib/safety/registration-gate.ts': 'trip-watch',
+    'lib/safety/registration-read.ts': 'trip-watch',
     'lib/payments/accepting.ts': 'payments',
     'lib/max/webhook-url.ts': 'messenger-login',
     'lib/notifications/pd-alert.ts': 'pd-route',
@@ -1050,15 +1086,68 @@ describe('workflow прямого пуша: только main, узкие пра
     expect(runStep?.['continue-on-error']).toBeUndefined();
   });
 
-  it('checkout без ref и без сохранённого токена', () => {
+  // Ревью ZONES: судья — скрипт из коммита ДО пуша. Прямой пуш, ослабивший
+  // саму проверку, иначе судился бы уже ослабленной версией.
+  it('два checkout без сохранённого токена: судья — по sha до пуша, запасной — из пуша', () => {
     const co = steps.filter((s) => s.uses?.startsWith('actions/checkout'));
-    expect(co.length).toBe(1);
-    expect(co[0].with?.ref).toBeUndefined();
-    expect(co[0].with?.['persist-credentials']).toBe(false);
+    expect(co.length).toBe(2);
+    for (const c of co) expect(c.with?.['persist-credentials']).toBe(false);
+    const judge = co.find((c) => c.with?.path === 'judge');
+    const pushed = co.find((c) => c.with?.path === 'pushed');
+    expect(judge?.with?.ref).toBe('${{ github.event.before }}');
+    expect(pushed?.with?.ref).toBeUndefined();
+  });
+
+  // Шаг исполняется настоящим bash: в рабочей папке лежат подложенные судья и
+  // запасной скрипт, а `node` в PATH — заглушка, печатающая, что ей дали.
+  describe('шаг выбирает судью исполнением', () => {
+    const runBash = (judge: string | null, pushed: string) => {
+      const dir = mkdtempSync(join(tmpdir(), 'zones-push-'));
+      try {
+        if (judge !== null) {
+          mkdirSync(join(dir, 'judge/scripts'), { recursive: true });
+          writeFileSync(join(dir, 'judge/scripts/protected-zones.mjs'), judge);
+        }
+        mkdirSync(join(dir, 'pushed/scripts'), { recursive: true });
+        writeFileSync(join(dir, 'pushed/scripts/protected-zones.mjs'), pushed);
+        mkdirSync(join(dir, 'bin'));
+        writeFileSync(join(dir, 'bin/node'), '#!/bin/sh\necho "NODE $*"\n');
+        chmodSync(join(dir, 'bin/node'), 0o755);
+        const r = spawnSync('bash', ['-e', '-c', runStep?.run ?? 'exit 99'], {
+          cwd: dir,
+          encoding: 'utf-8',
+          env: { PATH: `${join(dir, 'bin')}:${process.env.PATH}`, RUNNER_TEMP: dir, BEFORE_SHA: 'b'.repeat(40) },
+        });
+        return { status: r.status, out: `${r.stdout}${r.stderr}` };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const WITH_PUSH = "const CLI_MODE = process.argv.includes('--push') ? 'push' : null;";
+    const OLD = "if (process.argv.includes('--run')) {}";
+
+    it('судья до пуша знает --push — вызван он, без предупреждения', () => {
+      const r = runBash(WITH_PUSH, WITH_PUSH);
+      expect(r.status).toBe(0);
+      expect(r.out).toContain('NODE judge/scripts/protected-zones.mjs --push');
+      expect(r.out).not.toContain('::warning::');
+    });
+
+    it('судья до пуша не знает --push (первое включение) — скрипт из пуша и громкое предупреждение', () => {
+      const r = runBash(OLD, WITH_PUSH);
+      expect(r.out).toContain('NODE pushed/scripts/protected-zones.mjs --push');
+      expect(r.out).toMatch(/::warning::Судьи до пуша нет или он не знает режима --push/);
+    });
+
+    it('судьи до пуша нет вовсе (before из нулей, коммит недоступен) — то же, не молча', () => {
+      const r = runBash(null, WITH_PUSH);
+      expect(r.out).toContain('NODE pushed/scripts/protected-zones.mjs --push');
+      expect(r.out).toMatch(/::warning::/);
+    });
   });
 
   it('скрипт в режиме --push; в env только sha диапазона, токен и адрес прогона', () => {
-    expect(runStep?.run).toContain('node scripts/protected-zones.mjs --push');
+    expect(runStep?.run).toContain('node "$JUDGE" --push');
     expect(runStep?.env?.BEFORE_SHA).toBe('${{ github.event.before }}');
     expect(runStep?.env?.AFTER_SHA).toBe('${{ github.event.after }}');
     for (const s of steps) expect(s.run ?? '', `подстановка в run шага ${s.name ?? s.uses}`).not.toContain('${{');

@@ -24,7 +24,12 @@ name: Зоны §7 — прямой пуш в main
 # sha диапазона пуша и адрес прогона, ни одной подстановки `${{ }}`
 # содержимого коммита в run.
 #
-# Скрипт берётся из пушнутого коммита: пуш уже в main, другого main нет.
+# Судья — скрипт из коммита ДО пуша (github.event.before), а не из пушнутого:
+# прямой пуш, ослабивший саму проверку (снявший зону или режим --push),
+# иначе судился бы уже ослабленной версией (ревью ZONES). Это sha события,
+# не содержимое коммита. Скрипт из пуша берётся только когда судьи до пуша
+# нет или он не знает режима --push (первое включение, before из нулей) —
+# и это говорится аннотацией, а не молча.
 # Пуш с «[skip ci]» в головном коммите GitHub не запускает вовсе — это
 # граница проверки, она названа в §7.
 
@@ -50,9 +55,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Скрипт проверки
+      # Судья до пуша. before из нулей (ветку создали пушем) или
+      # недоступный коммит — шаг не роняет job: run ниже увидит, что файла
+      # нет, и скажет об этом аннотацией.
+      - name: Скрипт проверки — до пуша (судья)
+        uses: actions/checkout@v7
+        continue-on-error: true
+        with:
+          ref: ${{ github.event.before }}
+          path: judge
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/protected-zones.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Скрипт проверки — из пуша (только запасной)
         uses: actions/checkout@v7
         with:
+          path: pushed
           persist-credentials: false
           sparse-checkout: |
             scripts/protected-zones.mjs
@@ -76,4 +96,10 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.event.after }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: TS_MODULE="$RUNNER_TEMP/ts/node_modules/typescript" node scripts/protected-zones.mjs --push
+        run: |
+          JUDGE=judge/scripts/protected-zones.mjs
+          if [ ! -f "$JUDGE" ] || ! grep -q -- "'--push'" "$JUDGE"; then
+            echo "::warning::Судьи до пуша нет или он не знает режима --push (первое включение проверки или before $BEFORE_SHA недоступен) — сужу скриптом из пуша."
+            JUDGE=pushed/scripts/protected-zones.mjs
+          fi
+          TS_MODULE="$RUNNER_TEMP/ts/node_modules/typescript" node "$JUDGE" --push

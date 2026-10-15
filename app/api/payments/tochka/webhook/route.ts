@@ -170,7 +170,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
 
-  } catch {
+  } catch (err: unknown) {
+    // Главный путь отказа приёмника: 503, и Точка повторит вебхук. Ответ
+    // прежний, но причина называется (аудит 15.10, W2-3, ревью): без неё
+    // «банк повторяет вебхук по кругу» разбирать не по чему.
+    logSwallowedFailure(LOG_SCOPE, 'обработка оплаты (ответ 503, Точка повторит)', err);
     return retryLater('processing_failed');
   }
 }

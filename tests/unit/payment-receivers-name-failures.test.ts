@@ -195,6 +195,25 @@ describe('СБП Точки: отказ побочной работы назва
   });
 });
 
+describe('СБП Точки: главный путь отказа называет причину, ответ прежний — 503 с повтором', () => {
+  it('подтверждение упало в базе — 503 processing_failed, в логе область и SQLSTATE, ПД нет', async () => {
+    dbMock.mockImplementation((sql: unknown) => {
+      const q = String(sql);
+      if (q.includes('WHERE tochka_qr_id')) return Promise.resolve({ rows: [BOOKING] });
+      if (q.includes("SET booking_status = 'confirmed'")) return Promise.reject(pgError('57014', 'canceling statement due to statement timeout'));
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    statusMock.mockResolvedValue({ qrId: 'qr-1', status: 'paid', amount: 12000, paidAt: new Date() });
+
+    const res = await tochkaPOST(tochkaRequest(TOCHKA_BODY));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ ok: false, retry: true, reason: 'processing_failed' });
+    expect(namedFailures(TOCHKA)).toEqual(['57014']);
+    expect(everythingLogged()).toContain('обработка оплаты (ответ 503, Точка повторит) не выполнен');
+    expectNoPD();
+  });
+});
+
 // ── CloudPayments ──────────────────────────────────────────────────────────
 
 const CP = 'payments/webhook';
