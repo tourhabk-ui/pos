@@ -240,6 +240,21 @@ describe('/api/leads: исход сверки хоста ставит серве
     expect(a.operator_id).toBe('op-mestechko');
   });
 
+  it('телефон с разделителями в пути — в source_data метка, а не номер (аудит 15.10, R-path)', async () => {
+    const a = await post({ source: 'partner_widget', partner_slug: 'mestechko', widget_origin: { host: 'mestechkokam.ru', path: '/spasibo/8-914-123-45-67' } });
+    expect(a.source_data.widget_origin).toEqual({ host: 'mestechkokam.ru', path: '/spasibo/{digits}', host_check: 'listed' });
+    expect(JSON.stringify(a.source_data)).not.toMatch(/914/);
+  });
+
+  it('путь-портянка из одних «+» (ревью R-path, ReDoS) — заявка принята быстро, путь не записан, хост записан', async () => {
+    await import('@/app/api/leads/route'); // загрузка модуля — не в счёт времени разбора
+    const t0 = performance.now();
+    const a = await post({ source: 'partner_widget', partner_slug: 'mestechko', widget_origin: { host: 'mestechkokam.ru', path: '/' + '+'.repeat(100_000) } });
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(a.source_data.widget_origin).toEqual({ host: 'mestechkokam.ru', path: null, host_check: 'listed' });
+    expect(a.operator_id).toBe('op-mestechko');
+  });
+
   it('чужой хост — unlisted, а заявка всё равно принята и адресована партнёру (сигнал, не замок)', async () => {
     const a = await post({ source: 'partner_widget', partner_slug: 'mestechko', widget_origin: { host: 'mestechkokam.ru.evil.example', path: '/' } });
     expect(a.source_data.widget_origin).toMatchObject({ host: 'mestechkokam.ru.evil.example', host_check: 'unlisted' });

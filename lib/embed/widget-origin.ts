@@ -13,7 +13,9 @@
  * Теперь скрипты на сайте партнёра (public/widget/embed.js и выдача
  * /api/widget/lead.js) кладут в адрес iframe `host` и `path` страницы —
  * `location.hostname` и `location.pathname`, БЕЗ query и hash: там бывают
- * телефон, почта, ключи. Окно чата, открывая форму заявки во вложенном окне,
+ * телефон, почта, ключи. Путь до вставки в адрес чистится от телефонов и
+ * почты тем же правилом, что и здесь (lib/embed/widget-path-scrub.ts, аудит
+ * 15.10, R-path). Окно чата, открывая форму заявки во вложенном окне,
  * передаёт их дальше в адрес формы (`leadFormPath` в app/widget/[partnerId]).
  * Сервер сверяет хост со списком партнёра и пишет один из трёх исходов:
  *
@@ -32,6 +34,8 @@
  * Модуль без серверных зависимостей: им пользуются и страницы виджета в
  * браузере, и роуты.
  */
+
+import { scrubWidgetPath, WIDGET_PATH_SCRUB_MAX } from '@/lib/embed/widget-path-scrub';
 
 /** Род виджета: форма заявки (lead.js) или окно чата (embed.js). */
 export type WidgetKind = 'form' | 'chat';
@@ -69,21 +73,26 @@ export function normalizeWidgetHost(raw: unknown): string | null {
 }
 
 /**
- * Путь страницы без query и hash. Длинные ряды цифр (7 и больше — телефон,
- * номер документа) и сегменты с `@` (почта) заменяются: путь страницы
+ * Путь страницы без query и hash. Телефоны и номера документов (7 и больше
+ * цифр, в том числе с разделителями и под %-кодированием) и сегменты с `@`
+ * (почта) заменяются метками — правило `scrubWidgetPath`: путь страницы
  * партнёра не должен приносить нам чужие ПД, даже если сайт кладёт их в адрес.
+ * До 15.10 ловились только цифры подряд, и `/spasibo/8-914-123-45-67`
+ * ложился в базу как есть (аудит 15.10, R-path). Длина режется ПОСЛЕ чистки:
+ * обрезка раньше могла рассечь номер на куски короче семи цифр.
+ *
+ * Сырой ввод длиннее `WIDGET_PATH_SCRUB_MAX` — null ДО любого разбора (ревью
+ * R-path): путь присылает аноним в теле POST /api/leads без предела длины, и
+ * чистка не должна получать портянку. Обрезать вместо отказа нельзя — срез
+ * мог бы рассечь номер на краю, и кусок прошёл бы мимо метки.
  */
 export function normalizeWidgetPath(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
+  if (typeof raw !== 'string' || raw.length > WIDGET_PATH_SCRUB_MAX) return null;
   let p = raw.split(/[?#]/, 1)[0] ?? '';
   p = p.trim();
   if (!p.startsWith('/')) return null;
   if (/[\s\u0000-\u001f\u007f]/.test(p)) return null;
-  p = p
-    .split('/')
-    .map((seg) => (seg.includes('@') || /%40/i.test(seg) ? '{email}' : seg))
-    .join('/')
-    .replace(/\d{7,}/g, '{digits}');
+  p = scrubWidgetPath(p);
   if (p.length > WIDGET_PATH_MAX) p = p.slice(0, WIDGET_PATH_MAX);
   return p;
 }

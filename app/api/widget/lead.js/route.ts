@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { widgetStyle } from '@/lib/embed/widget-style';
 import { hostFromReferer } from '@/lib/embed/widget-origin';
+import { WIDGET_PATH_SCRUB_JS, WIDGET_PATH_SCRUB_MAX } from '@/lib/embed/widget-path-scrub';
 import { recordWidgetServed } from '@/lib/embed/widget-telemetry';
 
 export const dynamic = 'force-dynamic';
@@ -170,9 +171,17 @@ export async function GET(request: NextRequest) {
   /* Откуда пришёл человек (аудит 15.10, WID-measure): хост и путь страницы
      партнёра — без query и hash, там бывают телефон и ключи. Сервер сверит
      хост со списком доменов партнёра; хост подделывается — это сигнал для
-     счёта, а не замок. */
+     счёта, а не замок.
+     Путь чистится от телефонов и почты ЗДЕСЬ, до адреса окна (аудит 15.10,
+     R-path): сырой путь оседал в access-логах vedarai.ru и в Referer запросов
+     окна. Правило — scrubWidgetPath (lib/embed/widget-path-scrub.ts), сюда
+     вставлено его ES5-копией; обрезка — после чистки. Путь длиннее
+     WIDGET_PATH_SCRUB_MAX не разбирается и не отправляется (ревью R-path):
+     портянка из ссылки на страницу партнёра не должна вешать вкладку. */
+  ${WIDGET_PATH_SCRUB_JS}
   var FROM_HOST = String(location.hostname || '');
-  var FROM_PATH = String(location.pathname || '').slice(0, 200);
+  var RAW_PATH = String(location.pathname || '');
+  var FROM_PATH = RAW_PATH.length > ${WIDGET_PATH_SCRUB_MAX} ? '' : scrubPath(RAW_PATH).slice(0, 200);
   var iframe = document.createElement('iframe');
   iframe.src = BASE + '/widget/lead-form/' + encodeURIComponent(SLUG)
     + '?host=' + encodeURIComponent(FROM_HOST) + '&path=' + encodeURIComponent(FROM_PATH);

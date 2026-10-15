@@ -74,6 +74,11 @@ describe('chat_sessions.widget_origin — три исхода', () => {
     await vi.waitFor(() => expect(savedOrigin()).toEqual({ host: 'mestechkokam.ru', path: '/tury/', host_check: 'listed' }));
   });
 
+  it('телефон с разделителями в пути (старое окно без чистки) — в chat_sessions метка (аудит 15.10, R-path)', async () => {
+    await ask({ host: 'mestechkokam.ru', path: '/zakaz/+7%20914%20123%2045%2067' });
+    await vi.waitFor(() => expect(savedOrigin()).toEqual({ host: 'mestechkokam.ru', path: '/zakaz/{digits}', host_check: 'listed' }));
+  });
+
   it('чужой хост — unlisted, а ответ чата тот же (сигнал, не замок)', async () => {
     const res = await ask({ host: 'evil.example', path: '/' });
     expect(res.status).toBe(200);
