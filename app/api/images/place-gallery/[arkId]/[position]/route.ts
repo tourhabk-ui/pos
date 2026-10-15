@@ -45,7 +45,7 @@ export async function GET(_req: NextRequest, { params }: Props) {
     const { rows } = await pool.query<{
       image_data: Buffer | null; mime_type: string; s3_url: string | null; s3_key: string | null;
     }>(
-      // Спрятанный кадр (hidden_reason, 1260) не отдаётся и по прямому адресу:
+      // Спрятанный кадр (hidden_reason, 1263) не отдаётся и по прямому адресу:
       // у снимка партнёра без согласия показа нет нигде, а не только в списке.
       `SELECT image_data, mime_type, s3_url, s3_key
          FROM place_gallery_photos

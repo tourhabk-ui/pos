@@ -122,7 +122,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
                    ORDER BY g.position
                  ), '[]'::json)
             FROM place_gallery_photos g
-           -- Спрятанный кадр (hidden_reason, 1260) не показывается: например,
+           -- Спрятанный кадр (hidden_reason, 1263) не показывается: например,
            -- снимок партнёра без согласия на карточки мест.
            WHERE g.ark_id = p.ark_id AND g.hidden_reason IS NULL) AS gallery_urls,
          -- Автор каждого кадра галереи, тем же порядком, что gallery_urls:
@@ -318,7 +318,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           // Без этой строки при ОДНОМ кадре галереи PlaceHero брал адрес героя
           // по photoCount (тот считает и галерею), получал 404 и рисовал
           // заглушку: так стало бы у мест, где спрятан снимок партнёра без
-          // согласия (1260), а свой кадр в галерее остался.
+          // согласия (1263), а свой кадр в галерее остался.
           const firstGallery = ((r.gallery_urls as unknown[] | null) ?? []).find((u): u is string => typeof u === 'string');
           if (firstGallery) return firstGallery;
           if (isOwnImageUrl(r.photo_url)) return r.photo_url;
@@ -509,7 +509,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
  *
  * Герой не показывается (photo_count = 0: род не из показываемых) — подписи
  * нет тоже. Строка героя читается без фильтра рода, и до 15.10 это было
- * безвредно: у скрытых родов автор пуст. Снимок партнёра без согласия (1260)
+ * безвредно: у скрытых родов автор пуст. Снимок партнёра без согласия (1263)
  * спрятан С автором — без этой проверки под заглушкой или под чужим кадром
  * стояло бы «Фото: Местечко Камчатка», имя автора снимка, которого на экране нет.
  */

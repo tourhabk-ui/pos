@@ -54,7 +54,7 @@ export async function GET(req: NextRequest, { params }: Props) {
     // попадалась первой — та и уходила, включая случаи, когда постер канала
     // выбирал этот URL ради wikimedia-фото, а эндпоинт отдавал другой блоб.
     const { rows } = await pool.query(
-      // Снимок партнёра без согласия (1260) не отдаётся и по прямому адресу.
+      // Снимок партнёра без согласия (1263) не отдаётся и по прямому адресу.
       `SELECT image_data, mime_type, s3_url, s3_key, thumb_url FROM ai_route_images
        WHERE route_id = $1 AND model IS DISTINCT FROM $2
        ORDER BY CASE WHEN ${shownPhotoSql('model')} THEN 0 ELSE 1 END,
