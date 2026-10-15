@@ -12,15 +12,32 @@
  *   - счётчик пишет /zh, /zh/* и /sitemap.xml в agent_entry_hits по
  *     семейству и не пишет человека;
  *   - перепись A2A выполняется на схеме прода: окно отсекает старое, регион и
- *     род размечены, ничего не пишется.
+ *     род размечены, ничего не пишется;
+ *   - китайские конспекты (CN-pages, миграция 1283): таблица переводов держит
+ *     «пустой строки как перевода нет» и один перевод на поле; крон перевода
+ *     берёт только живые туры и места по правилу (маршрут живого тура, связь
+ *     не «рядом», место видимо); перевод с подменённой моделью пишется, страница,
+ *     sitemap и hreflang видят его свежим, а после правки исходника — устаревшим;
+ *     китайское имя места — только из источника OSM name:zh.
  *
  * Своя база `china_quick_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createTestDatabase } from '../helpers/pg-schema';
+
+// Модель подменена: перевод — детерминированный и сохраняет числа и латиницу,
+// чтобы сверка (lib/zh/translate) его принимала. Остальной модуль — настоящий.
+vi.mock('@/lib/ai/providers', async (orig) => {
+  const real = await orig<typeof import('@/lib/ai/providers')>();
+  const fake = async (messages: Array<{ content: string }>) => {
+    const { segments } = JSON.parse(messages[1].content) as { segments: string[] };
+    return JSON.stringify({ segments: segments.map((x) => `译文 ${(x.match(/[0-9]+|[A-Za-z][A-Za-z0-9]+/g) ?? []).join(' ')}`.trim()) });
+  };
+  return { ...real, callAIQualityOrNull: vi.fn(fake), callAIFastOrNull: vi.fn(fake) };
+});
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -36,6 +53,11 @@ const OPS = {
 const LIVE_PER_OPERATOR = 21; // 42 живых — больше прежнего среза в 40
 
 const BAIDU = 'Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)';
+const ZH = {
+  routeLive: '', routeDead: '',
+  placeOn: 'zh-test-place-on', placeNearby: 'zh-test-place-nearby',
+  placeDead: 'zh-test-place-dead', placeHidden: 'zh-test-place-hidden',
+};
 const HUMAN = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 
 withPg('китайский контур на схеме прода (CN-quick)', () => {
@@ -94,6 +116,43 @@ withPg('китайский контур на схеме прода (CN-quick)', 
         );
       }
     }
+
+    // Китайские конспекты: маршрут живого тура и маршрут снятого тура, четыре
+    // места с разной связью и видимостью, имена места из двух источников.
+    const r = await pool.query<{ id: string }>(
+      `INSERT INTO kamchatka_routes (category, title) VALUES ('hiking', 'ZH маршрут живого тура'), ('hiking', 'ZH маршрут снятого тура') RETURNING id`,
+    );
+    [ZH.routeLive, ZH.routeDead] = r.rows.map((x) => x.id);
+    await pool.query(`UPDATE operator_tours SET route_id = $1 WHERE slug = 'test-zh-tour-1'`, [ZH.routeLive]);
+    await pool.query(`UPDATE operator_tours SET route_id = $1 WHERE slug = 'test-zh-inactive'`, [ZH.routeDead]);
+    for (const [id, slug, visible] of [
+      [ZH.placeOn, 'test-zh-place-on', true],
+      [ZH.placeNearby, 'test-zh-place-nearby', true],
+      [ZH.placeDead, 'test-zh-place-dead', true],
+      [ZH.placeHidden, 'test-zh-place-hidden', false],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, description, slug, is_visible, ark_id, location_type)
+         VALUES ($1, $2, 54.5, 158.5, 'Место у тропы, 2 км от стоянки.', $3, $4, gen_random_uuid(), 'lake')`,
+        [id, `ZH место ${slug}`, slug, visible],
+      );
+    }
+    for (const [route, place, kind] of [
+      [ZH.routeLive, ZH.placeOn, 'waypoint'],
+      [ZH.routeLive, ZH.placeNearby, 'nearby'],
+      [ZH.routeDead, ZH.placeDead, 'waypoint'],
+      [ZH.routeLive, ZH.placeHidden, 'waypoint'],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1, $2, 0, $3)`,
+        [route, place, kind],
+      );
+    }
+    await pool.query(
+      `INSERT INTO place_aliases (place_id, alias, source_name)
+       VALUES ($1, '测试别名', 'Википедия'), ($1, '测试地点', 'OpenStreetMap name:zh')`,
+      [ZH.placeOn],
+    );
   }, 600_000);
 
   afterAll(async () => {
@@ -161,5 +220,77 @@ withPg('китайский контур на схеме прода (CN-quick)', 
     expect(body.by_kind.registry.requests).toBe(4);
     const after = (await pool.query(`SELECT COUNT(*)::int AS n FROM a2a_requests`)).rows[0].n;
     expect(after).toBe(before);
+  });
+
+  it('миграция 1283: пустого перевода и чужого языка нет, один перевод на поле', async () => {
+    const hash = 'a'.repeat(64);
+    const ins = (text: string, lang = 'zh-CN') => pool.query(
+      `INSERT INTO content_translations (entity_type, entity_id, field, lang, source_hash, text, model)
+       VALUES ('tour', 'mig-check', 'title', $1, $2, $3, 'ai-quality')`,
+      [lang, hash, text],
+    );
+    await expect(ins('   ')).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('标题', 'en')).rejects.toMatchObject({ code: '23514' });
+    await ins('标题');
+    await expect(ins('标题二')).rejects.toMatchObject({ code: '23505' });
+    await pool.query(`DELETE FROM content_translations WHERE entity_id = 'mig-check'`);
+  });
+
+  it('отбор: только живые туры; места — на маршруте живого тура, связь не «рядом», место видимо', async () => {
+    const { loadZhTourSources, loadZhPlaceSources } = await import('@/lib/zh/content');
+    const tours = await loadZhTourSources();
+    const slugs = tours.map((t) => t.slug);
+    expect(slugs.filter((x) => x?.startsWith('test-zh-tour-'))).toHaveLength(LIVE_PER_OPERATOR * 2);
+    expect(slugs).not.toContain('test-zh-deleted');
+    expect(slugs).not.toContain('test-zh-inactive');
+    const places = (await loadZhPlaceSources()).map((p) => p.id);
+    expect(places).toContain(ZH.placeOn);
+    expect(places).not.toContain(ZH.placeNearby);
+    expect(places).not.toContain(ZH.placeDead);
+    expect(places).not.toContain(ZH.placeHidden);
+  });
+
+  it('крон: перевод пишется; страница, sitemap и hreflang видят его свежим, а после правки исходника — устаревшим', async () => {
+    const { GET } = await import('@/app/api/cron/zh-translate/route');
+    const call = (qs: string) => GET(new NextRequest(`http://localhost/api/cron/zh-translate${qs}`, { headers: { authorization: 'Bearer test-secret' } }));
+
+    const dry = await (await call('?kind=place')).json() as { mode: string; entities: { places: number }; pending: number };
+    expect(dry.mode).toBe('dry');
+    expect(dry.entities.places).toBe(1);
+    expect(dry.pending).toBe(1);
+    expect((await pool.query(`SELECT COUNT(*)::int AS n FROM content_translations`)).rows[0].n).toBe(0);
+
+    const placeRun = await call('?kind=place&apply=1');
+    expect(placeRun.status).toBe(200);
+    expect((await placeRun.json()).translated).toEqual([{ entity_type: 'place', entity_id: ZH.placeOn, field: 'description' }]);
+    const tourRun = await call('?kind=tour&apply=1&limit=2');
+    expect(tourRun.status).toBe(200);
+    expect((await tourRun.json()).translated).toHaveLength(2);
+
+    const stored = (await pool.query(
+      `SELECT text, back_translation, model, reviewed_at FROM content_translations WHERE entity_type = 'place' AND entity_id = $1`, [ZH.placeOn],
+    )).rows[0];
+    expect(stored).toMatchObject({ text: '译文 2', model: 'ai-quality', reviewed_at: null });
+    expect(stored.back_translation).toBeTruthy();
+
+    const { loadZhPlacePage, zhPlaceAlternatePath, loadZhDetailEntries } = await import('@/lib/zh/content');
+    const page = await loadZhPlacePage('test-zh-place-on');
+    expect(page?.zhName).toEqual({ name: '测试地点', source: 'OpenStreetMap name:zh' });
+    expect(page?.translations?.get('description')?.text).toBe('译文 2');
+    // Страница места вне правила не открывается.
+    expect(await loadZhPlacePage('test-zh-place-nearby')).toBeNull();
+
+    const placeRow = { id: ZH.placeOn, slug: 'test-zh-place-on', description: 'Место у тропы, 2 км от стоянки.' };
+    expect(await zhPlaceAlternatePath(placeRow)).toBe('/zh/places/test-zh-place-on');
+    const detail = (await loadZhDetailEntries()).map((d) => d.path);
+    expect(detail).toContain('/zh/places/test-zh-place-on');
+    expect(detail.filter((x) => x.startsWith('/zh/tours/'))).toHaveLength(2);
+
+    // Исходник правят — перевод устарел: пары и sitemap нет, крон видит stale.
+    await pool.query(`UPDATE places SET description = 'Новое описание.' WHERE id = $1`, [ZH.placeOn]);
+    expect(await zhPlaceAlternatePath({ ...placeRow, description: 'Новое описание.' })).toBeNull();
+    expect((await loadZhDetailEntries()).map((d) => d.path)).not.toContain('/zh/places/test-zh-place-on');
+    const stale = await (await call('?kind=place')).json() as { pending_stale: number };
+    expect(stale.pending_stale).toBe(1);
   });
 });

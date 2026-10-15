@@ -21,6 +21,7 @@ import { FISH_SPECIES } from '@/lib/fish-species';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
 import { zhPageUrls } from '@/lib/zh/pages';
+import { loadZhDetailEntries } from '@/lib/zh/content';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -398,6 +399,27 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('парки', e);
   }
 
+  // Китайские конспекты туров и мест (аудит 15.10, CN-pages): только с
+  // переводом, сделанным с нынешнего текста (lib/zh/content). Страница без
+  // перевода открывается, но в sitemap не идёт: китайский поиск получил бы
+  // русский текст под китайским адресом. Адреса собирает тот же zhPageUrls,
+  // что у пинга IndexNow; lastmod — дата перевода.
+  let zhDetailPages: MetadataRoute.Sitemap = [];
+  try {
+    const detail = await loadZhDetailEntries();
+    const lastmod = new Map(detail.map((d) => [`${BASE}${d.path}`, d.lastModified]));
+    zhDetailPages = zhPageUrls(BASE, detail.map((d) => d.path))
+      .filter((url) => lastmod.has(url))
+      .map((url) => ({
+        url,
+        lastModified: lastmod.get(url) ?? undefined,
+        changeFrequency: 'weekly' as const,
+        priority: 0.6,
+      }));
+  } catch (e) {
+    fail('китайские страницы', e);
+  }
+
   // Пустой раздел жилья — тонкая страница с обещанием «реальных цен»: пока нет
   // ни одного опубликованного объекта, в sitemap её не предлагаем (Н9).
   const staticLive = staticPages
@@ -435,6 +457,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     ...operatorPages,
     ...carrierPages,
     ...parkPages,
+    ...zhDetailPages,
   ];
   return { entries, degraded };
 }
