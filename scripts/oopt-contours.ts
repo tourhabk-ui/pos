@@ -32,6 +32,18 @@ interface AreaInfo {
 
 interface MarkerPlace { id: string; name: string; lat: number | null; lng: number | null; zone?: string | null }
 
+/**
+ * Номер объекта OSM по номеру площади osmium: у площадей из линии номер —
+ * удвоенный номер линии, из отношения — удвоенный плюс один. «a5600379» —
+ * отношение 2800189; так его и ищут на openstreetmap.org.
+ */
+function osmIdOfArea(id: string): string {
+  const m = /^a(\d+)$/.exec(id);
+  if (!m) return id;
+  const n = Number(m[1]);
+  return n % 2 === 1 ? `relation ${(n - 1) / 2}` : `way ${n / 2}`;
+}
+
 function main(): number {
   const [input, markerPath, out] = process.argv.slice(2);
   if (!input || !markerPath) {
@@ -58,7 +70,7 @@ function main(): number {
       areas.push({
         geometry: g,
         info: {
-          osm: String(f.id ?? '?'),
+          osm: osmIdOfArea(String(f.id ?? '?')),
           name: str('name'),
           title: str('protection_title'),
           protectClass: str('protect_class'),

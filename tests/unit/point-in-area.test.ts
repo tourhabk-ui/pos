@@ -98,8 +98,9 @@ describe('скрипт сверки на выгрузке', () => {
 
   it('называет контуры каждой точки; чужие теги не считаются', () => {
     const r = run([
-      feature('r1', { boundary: 'protected_area', name: 'Парк', protect_class: '2' }, PARK),
-      feature('w2', { boundary: 'protected_area', name: 'Памятник', protection_title: 'Памятник природы' }, MONUMENT),
+      // osmium нумерует площади сам: из отношения 2800189 — a5600379, из линии 409368786 — a818737572.
+      feature('a5600379', { boundary: 'protected_area', name: 'Парк', protect_class: '2' }, PARK),
+      feature('a818737572', { boundary: 'protected_area', name: 'Памятник', protection_title: 'Памятник природы' }, MONUMENT),
       feature('r3', { boundary: 'administrative', name: 'Район' }, PARK),
     ], [
       { id: 'p-monument', name: 'У памятника', lat: 53.3, lng: 158.3, zone: 'none' },
@@ -109,7 +110,7 @@ describe('скрипт сверки на выгрузке', () => {
     expect(r.code).toBe(0);
     const by = Object.fromEntries(r.result!.places.map((p) => [p.id, p.areas]));
     expect(by['p-monument']!.map((a) => a.name)).toEqual(['Памятник', 'Парк']);
-    expect(by['p-monument']!.map((a) => a.osm)).toEqual(['w2', 'r1']);
+    expect(by['p-monument']!.map((a) => a.osm)).toEqual(['way 409368786', 'relation 2800189']);
     expect(by['p-outside']).toEqual([]);
     expect(by['p-nopoint']).toBeNull();
     expect(r.stdout).toMatch(/контуров охраняемых территорий 2, мест в маркере 3/);
