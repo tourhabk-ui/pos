@@ -12,7 +12,7 @@
  * Каждая выборка в своём try/catch: сбой одного блока не роняет страницу.
  */
 
-import { isoUtcSql } from '@/lib/db/timestamp-iso';
+import { isoUtcSql, utcWallIsoSql } from '@/lib/db/timestamp-iso';
 import { query } from '@/lib/database';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import {
@@ -37,6 +37,7 @@ import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-sear
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { basisOf, type AlertBasis } from '@/lib/safety/alert-basis';
+import { alertOrigin } from '@/lib/safety/alert-origin';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
 import { varietyByType } from '@/lib/home/explore-variety';
@@ -49,6 +50,11 @@ export interface SafetyAlert {
   at: string | null;
   /** До какой даты ограничение в силе (expires_at). Для дорожных важнее возраста новости. */
   until: string | null;
+  /**
+   * Запись внесена руками (`manual-…`, админка или миграция): её срок — окно
+   * ленты, которое ставит человек, а не объявленное окончание (#2495).
+   */
+  manual: boolean;
   /**
    * Основание — документ, по которому ограничение введено (10.10): приказ
    * с датой и номером, ссылка, где его видно, и вписан ли он человеком или
@@ -237,7 +243,7 @@ const ACC_RANK: Record<string, number> = { red: 3, orange: 2, yellow: 1 };
 async function fetchSafety(): Promise<SafetySnapshot> {
   try {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
-      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string; expires_at: string | null; basis_title: string | null; basis_url: string | null; basis_origin: string | null }>(
+      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string; expires_at: string | null; external_id: string | null; source_url: string | null; basis_title: string | null; basis_url: string | null; basis_origin: string | null }>(
         // Лента безопасности = только actionable-типы, меняющие решение
         // туриста сегодня (закрытия, вулканы, погода, стихии). Сам список —
         // lib/services/safety/feed-types: по нему же судит перепись
@@ -248,12 +254,15 @@ async function fetchSafety(): Promise<SafetySnapshot> {
         // description несёт важную деталь (объезд, окна проезда по пропускам).
         // expires_at — до какой даты ограничение в силе. Для дорожного закрытия
         // это и есть ответ туристу: не «новости 18 дней», а «действует до».
-        `SELECT title, description, alert_type, severity, created_at::text, expires_at::text,
-                basis_title, basis_url, basis_origin
+        // Время — ISO с «Z» (стенное время UTC, lib/db/timestamp-iso): строку
+        // без пояса сервер (UTC) и телефон на Камчатке разбирали по-разному.
+        `SELECT title, description, alert_type, severity,
+                ${utcWallIsoSql('created_at')} AS created_at, ${utcWallIsoSql('expires_at')} AS expires_at,
+                external_id, source_url, basis_title, basis_url, basis_origin
            FROM (
              SELECT DISTINCT ON (lower(title))
                     title, description, alert_type, severity::int AS severity, created_at, expires_at,
-                    basis_title, basis_url, basis_origin
+                    external_id, source_url, basis_title, basis_url, basis_origin
                FROM external_alerts
               WHERE expires_at > NOW()
                 AND alert_type = ANY($1::text[])
@@ -283,6 +292,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
       severity: r.severity ?? 0,
       at: r.created_at,
       until: r.expires_at,
+      manual: alertOrigin(r.external_id, r.source_url)?.key === 'manual',
       basis: basisOf(r),
     }));
     const volcanoes = volcRes.rows

@@ -25,6 +25,10 @@ import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
 import { clip } from '@/lib/safety/alert-clip';
+import { alertTerm, isTechnicalExpiry } from '@/lib/safety/alert-dates';
+
+/** Правило срока — общее с MCP и «Что меняет план»: lib/safety/alert-dates. */
+export { isTechnicalExpiry };
 
 export function fmtAgo(iso: string | null): string {
   if (!iso) return '';
@@ -68,27 +72,6 @@ function fmtTime(iso: string | null): string {
 }
 
 /**
- * Наши технические TTL из ingest (lib/services/safety/seismic-parser.ts):
- * дорожные ограничения живут неделю, прочее — сутки или двое. Это срок жизни
- * ЗАПИСИ, а не срок действия ограничения: МЧС таких дат не сообщает.
- */
-const TECHNICAL_TTL_HOURS = [24, 48, 24 * 7];
-
-/**
- * Отличить срок из источника от нашего TTL. Совпал с техническим с точностью до
- * получаса — значит дату придумали мы, и подписывать её «действует до» нельзя:
- * это обещание знания, которого у нас нет.
- */
-export function isTechnicalExpiry(at: string | null, until: string | null): boolean {
-  if (!at || !until) return false;
-  const from = new Date(at).getTime();
-  const to = new Date(until).getTime();
-  if (Number.isNaN(from) || Number.isNaN(to)) return false;
-  const hours = (to - from) / 3_600_000;
-  return TECHNICAL_TTL_HOURS.some((ttl) => Math.abs(hours - ttl) < 0.5);
-}
-
-/**
  * Подпись строки ленты. Для ограничения (дорога перекрыта, пропускной режим)
  * возраст новости не значит ничего: туристу важно, действует ли оно СЕЙЧАС и до
  * какого числа. Подпись «18 дн назад» под работающим перекрытием читается как
@@ -98,12 +81,20 @@ export function isTechnicalExpiry(at: string | null, until: string | null): bool
  */
 const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide', 'park_closure', 'warning_test']);
 
-export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
+export function alertStamp(a: { type: string | null; at: string | null; until: string | null; manual?: boolean }): string {
+  // Ручная запись (#2495): срок ставит человек, а когда окончание не объявлено —
+  // заглушкой на годы вперёд. «Действует до 1 янв.» у пропусков на Вилючинский
+  // перевал обещало знание, которого нет; честно — когда внесли и до какого
+  // числа запись стоит в ленте. Тем же словом говорит MCP.
+  if (alertTerm(a) === 'feed_window' || (a.manual && !a.until)) {
+    const since = a.at ? `внесено вручную ${fmtDate(a.at)}` : 'внесено вручную';
+    return a.until ? `${since} · в ленте до ${fmtDate(a.until)}` : since;
+  }
   if (a.type && IN_FORCE_TYPES.has(a.type)) {
     // Срок, выставленный нашим ingest'ом, за срок действия не выдаём: источник
     // его не сообщал. Тогда честнее показать дату самого сообщения — турист
     // видит, насколько оно свежее, и не думает, что мы знаем дату открытия.
-    if (isTechnicalExpiry(a.at, a.until)) {
+    if (alertTerm(a) === 'technical') {
       return a.at ? `сообщение от ${fmtDate(a.at)}` : 'действует';
     }
     const until = fmtDate(a.until);
