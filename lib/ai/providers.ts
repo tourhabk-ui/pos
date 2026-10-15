@@ -1936,21 +1936,13 @@ export function getQwenConfig(): { apiKey: string | null; base: string; model: s
 
 export async function callQwen(
   messages: ChatMessage[],
-  opts: { maxTokens?: number; enableSearch?: boolean } = {},
+  opts: { maxTokens?: number } = {},
 ): Promise<string | null> {
   const { apiKey, base } = getQwenConfig();
   if (!apiKey) { recordAiLegFailure('qwen', 'no_key'); return null; }
   // 800 по умолчанию — чат Кузьмича; структурные ответы (JSON-массив
   // предложений эволюции) просят больше явно, иначе рвутся на полуслове.
   const maxTokens = opts.maxTokens ?? 800;
-  // enableSearch — встроенный веб-поиск DashScope (`enable_search: true` в
-  // OpenAI-совместимом режиме; документация Model Studio, сверено 13.10).
-  // Платная функция без бесплатной квоты: в режиме «только бесплатная
-  // квота» провайдер может отказать — тогда это честный отказ в следе, а не
-  // «не нашла». Нужен одной пробе знания (model-knowledge-probe); живой путь
-  // Кузьмича его не включает — у него свои источники фактов.
-  const enableSearch = opts.enableSearch === true;
-  const legLabel = enableSearch ? 'qwen+search' : 'qwen';
 
   // Сильнейшая доступная, а не прибитый средний тир (CLAUDE.md §8). Кончилась
   // бесплатная квота у сильнейшей — резолвер её пропускает, и тот же вызов
@@ -1971,13 +1963,12 @@ export async function callQwen(
           temperature: 0.4,
           max_tokens: maxTokens,
           messages: payload,
-          ...(enableSearch ? { enable_search: true } : {}),
         }),
-      }, { timeoutMs: enableSearch ? 60_000 : 25_000, label: `${legLabel}:${model}` });
+      }, { timeoutMs: 25_000, label: `qwen:${model}` });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         if (isFreeQuotaExhausted(res.status, body)) { markFreeQuotaExhausted(model); continue; }
-        recordAiLegFailure(legLabel, httpFailureReason(res.status, body));
+        recordAiLegFailure('qwen', httpFailureReason(res.status, body));
         return null;
       }
       const data = await res.json() as {
@@ -1986,15 +1977,179 @@ export async function callQwen(
       };
       const text: string | undefined = data?.choices?.[0]?.message?.content;
       if (text?.trim()) {
-        logLLMUsage(`${legLabel}:${answeredModel(model, data)}`, data.usage);
+        logLLMUsage(`qwen:${answeredModel(model, data)}`, data.usage);
         return text;
       }
-      recordAiLegFailure(legLabel, 'empty');
+      recordAiLegFailure('qwen', 'empty');
       return null;
-    } catch (e) { recordAiLegFailure(legLabel, errorFailureReason(e)); return null; }
+    } catch (e) { recordAiLegFailure('qwen', errorFailureReason(e)); return null; }
   }
-  recordAiLegFailure(legLabel, `free_quota_exhausted: ${exhaustedModels().join(', ')}`);
+  recordAiLegFailure('qwen', `free_quota_exhausted: ${exhaustedModels().join(', ')}`);
   return null;
+}
+
+// ── Qwen со встроенным поиском DashScope (проба знания) ───────
+//
+// Аудит 15.10, находка CN-probe (qwen-search-validity). До этого дня поиск
+// включался одним `enable_search: true` в OpenAI-совместимом режиме, и проба
+// не могла сказать, что произошло: модель сама решала, искать ли, а
+// источников совместимый режим не возвращает. «Не знает» смешивало «не
+// искала» и «искала, нас нет» — третий исход выдавался за второй (§4.0).
+//
+// Параметры — по документации Model Studio, прочитано 15.10.2026:
+//   https://www.alibabacloud.com/help/en/model-studio/web-search
+//     (обновлено 15.10.2026): «The OpenAI-compatible protocol does not support
+//     returning search sources in the response»; «The DashScope protocol
+//     supports setting enable_source to true to include search sources».
+//   https://help.aliyun.com/zh/model-studio/web-search: forced_search —
+//     «默认情况下，模型自行判断是否需要联网搜索……可设置 forced_search 参数为
+//     true，强制执行联网搜索»; «enable_source、enable_citation、citation_format
+//     参数仅支持 DashScope 调用方式»; ответ — output.search_info.search_results
+//     (index, title, url, site_name, icon) и usage.plugins.search.count.
+//   https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-dashscope
+//     (обновлено 13.10.2026): max_tokens, temperature и result_format при
+//     HTTP-вызове лежат в объекте parameters; старый домен dashscope-intl
+//     «remains fully functional».
+//
+// Поэтому поиск идёт НАТИВНЫМ протоколом DashScope (тот же хост, что у
+// QWEN_BASE_URL, без /compatible-mode/v1 — так уже ходят обложки и голос), а
+// не совместимым: только он отдаёт источники. Принудительный поиск —
+// forced_search; источники — enable_source.
+//
+// Счётчик plugins.search.count документация называет отметкой этапа
+// распознавания намерения, а не доказательством выполненного поиска, поэтому
+// вызов отдаёт оба следа как есть, а вывод «искала / не искала» делает
+// вызывающий. Нет ни источников, ни счётчика — следа поиска нет.
+//
+// Отказ по квоте (403 FreeTierOnly) модель НЕ помечает исчерпанной, в
+// отличие от callQwen: поиск платный и без бесплатной квоты, и отказ мог
+// касаться поиска, а не токенов модели. Пометка увела бы живой путь Кузьмича
+// с работающей модели на сутки из-за пробы раз в месяц. Отказ возвращается
+// причиной, а не null: две поисковые ноги пробы идут параллельно, и общий
+// след отказов перепутал бы их причины.
+
+export interface QwenSearchSource {
+  url: string;
+  title: string | null;
+  site_name: string | null;
+}
+
+export type QwenSearchResult =
+  | {
+    ok: true;
+    text: string;
+    model: string;
+    /** usage.plugins.search.count; null — шлюз счётчика не прислал. */
+    search_count: number | null;
+    /** output.search_info.search_results по порядку выдачи. */
+    sources: QwenSearchSource[];
+  }
+  | { ok: false; reason: string; model: string | null };
+
+const QWEN_SEARCH_LABEL = 'qwen+search';
+
+function nonEmptyString(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+/** Текст ответа нативного протокола: строка или массив частей {text}. */
+function nativeMessageText(content: unknown): string | null {
+  if (typeof content === 'string') return content.trim() ? content : null;
+  if (Array.isArray(content)) {
+    const joined = content
+      .map((part) => (part && typeof part === 'object' ? nonEmptyString((part as { text?: unknown }).text) : null))
+      .filter((t): t is string => t !== null)
+      .join('\n');
+    return joined.trim() ? joined : null;
+  }
+  return null;
+}
+
+export async function callQwenSearch(
+  messages: ChatMessage[],
+  opts: { maxTokens?: number } = {},
+): Promise<QwenSearchResult> {
+  const { apiKey, base } = getQwenConfig();
+  if (!apiKey) {
+    recordAiLegFailure(QWEN_SEARCH_LABEL, 'no_key');
+    return { ok: false, reason: 'no_key: DASHSCOPE_API_KEY не задан', model: null };
+  }
+  let model: string;
+  try {
+    model = await resolveChatModel('qwen');
+  } catch (e) {
+    const reason = `model_unresolved: ${errorFailureReason(e)}`;
+    recordAiLegFailure(QWEN_SEARCH_LABEL, reason);
+    return { ok: false, reason, model: null };
+  }
+  if (isMarkedExhausted(model)) {
+    const reason = `free_quota_exhausted: ${exhaustedModels().join(', ')}`;
+    recordAiLegFailure(QWEN_SEARCH_LABEL, reason);
+    return { ok: false, reason, model };
+  }
+  const nativeBase = base.replace(/\/compatible-mode\/v1$/, '');
+  try {
+    const res = await fetchWithRetry(`${nativeBase}/api/v1/services/aigc/text-generation/generation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        input: { messages: messages.map(({ role, content }) => ({ role, content })) },
+        parameters: {
+          result_format: 'message',
+          temperature: 0.4,
+          max_tokens: opts.maxTokens ?? 800,
+          enable_search: true,
+          search_options: { forced_search: true, enable_source: true },
+        },
+      }),
+    }, { timeoutMs: 60_000, label: `${QWEN_SEARCH_LABEL}:${model}` });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const reason = isFreeQuotaExhausted(res.status, body)
+        ? `free_tier_only (http_${res.status}): режим «только бесплатная квота» — платный поиск или квота модели ${model}; модель для живого пути не помечена`
+        : httpFailureReason(res.status, body);
+      recordAiLegFailure(QWEN_SEARCH_LABEL, reason);
+      return { ok: false, reason, model };
+    }
+    const data = await res.json() as {
+      output?: {
+        choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>;
+        search_info?: { search_results?: unknown };
+      };
+      usage?: { input_tokens?: number; output_tokens?: number; plugins?: { search?: { count?: unknown } } };
+    };
+    const text = nativeMessageText(data?.output?.choices?.[0]?.message?.content);
+    if (!text) {
+      const reason = `empty: ${describeEmptyCompletion(data?.output)}`;
+      recordAiLegFailure(QWEN_SEARCH_LABEL, reason);
+      return { ok: false, reason, model };
+    }
+    const rawCount = data?.usage?.plugins?.search?.count;
+    const rawSources = data?.output?.search_info?.search_results;
+    const sources: QwenSearchSource[] = (Array.isArray(rawSources) ? rawSources : [])
+      .map((r: unknown) => {
+        const o = (r && typeof r === 'object' ? r : {}) as { url?: unknown; title?: unknown; site_name?: unknown };
+        const url = nonEmptyString(o.url);
+        return url ? { url, title: nonEmptyString(o.title), site_name: nonEmptyString(o.site_name) } : null;
+      })
+      .filter((s): s is QwenSearchSource => s !== null);
+    logLLMUsage(`${QWEN_SEARCH_LABEL}:${model}`, {
+      prompt_tokens: data?.usage?.input_tokens,
+      completion_tokens: data?.usage?.output_tokens,
+    });
+    return {
+      ok: true,
+      text,
+      model,
+      search_count: typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : null,
+      sources,
+    };
+  } catch (e) {
+    const reason = errorFailureReason(e);
+    recordAiLegFailure(QWEN_SEARCH_LABEL, reason);
+    return { ok: false, reason, model };
+  }
 }
 
 // ── Решатель агентов эволюции ─────────────────────────────────

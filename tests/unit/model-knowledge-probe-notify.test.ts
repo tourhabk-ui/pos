@@ -77,7 +77,7 @@ beforeEach(() => {
   vi.stubEnv('TELEGRAM_BOT_TOKEN', 'tg-test');
   vi.stubEnv('TELEGRAM_CHAT_ID', '-100500');
   vi.stubEnv('TELEGRAM_API_BASE', '');
-  // Из шести ног живая только YandexGPT: остальные «спросить нечем», в сеть не ходят.
+  // Из семи ног живая только YandexGPT: остальные «спросить нечем», в сеть не ходят.
   vi.stubEnv('DEEPSEEK_API_KEY', '');
   vi.stubEnv('DASHSCOPE_API_KEY', '');
   vi.stubEnv('MOONSHOT_API_KEY', '');
@@ -127,7 +127,8 @@ describe('итог пробы уходит в Telegram только по ?notify
     const sent = stubNet({ yandex: null });
     const body = await (await probe('?notify=1')).json() as ProbeBody;
     expect(body.ok).toBe(false);
-    expect(body.summary.could_not_ask).toHaveLength(6);
+    // Семь ног (с 15.10 — тематическая поисковая qwen-search-topic, аудит CN-probe).
+    expect(body.summary.could_not_ask).toHaveLength(7);
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toContain('Знают: никто');
     expect(sent[0].text).toContain('Спросить не удалось:');
@@ -157,7 +158,7 @@ describe('пульс в agent_run_history', () => {
 describe('текст итога', () => {
   const leg = (over: Partial<LegResult>): LegResult => ({
     provider: 'deepseek', model: null, outcome: 'does_not_know', signal: 'сказала, что не знает',
-    old_brand: false, reason: null, latency_ms: 1, answer_excerpt: '不知道。', ...over,
+    old_brand: false, reason: null, latency_ms: 1, answer_excerpt: '不知道。', search: null, ...over,
   });
 
   it('чужой текст экранируется: разметку ответа модели Telegram не примет за свою', () => {
