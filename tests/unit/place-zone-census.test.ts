@@ -19,9 +19,10 @@ import { summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/place
 const sent: Array<{ sql: string; params: unknown[] }> = [];
 let fail: { code: string } | null = null;
 const ROWS: ZoneCensusRow[] = [
-  { id: 'a', name: 'Арка (тест)', lat: 54.94, lng: 166.2, zone: 'commander', location_type: 'rock', has_status: true, reached_by: ['krai_wide', 'meteo_south'] },
-  { id: 'm', name: 'Плато (тест)', lat: 52.45, lng: 158.2, zone: 'mutnovsky', location_type: 'plateau', has_status: true, reached_by: [] },
-  { id: 'n', name: 'Без реалтайма (тест)', lat: 53.05, lng: 158.6, zone: 'avachinsky', location_type: null, has_status: false, reached_by: [] },
+  { target: 'place', id: 'a', name: 'Арка (тест)', lat: 54.94, lng: 166.2, zone: 'commander', location_type: 'rock', has_status: true, reached_by: ['krai_wide', 'meteo_south'] },
+  { target: 'place', id: 'm', name: 'Плато (тест)', lat: 52.45, lng: 158.2, zone: 'mutnovsky', location_type: 'plateau', has_status: true, reached_by: [] },
+  { target: 'place', id: 'n', name: 'Без реалтайма (тест)', lat: 53.05, lng: 158.6, zone: 'avachinsky', location_type: null, has_status: false, reached_by: [] },
+  { target: 'route', id: 'r', name: 'Маршрут (тест)', lat: 52.5, lng: 158.2, zone: 'mutnovsky', location_type: null, has_status: null, reached_by: [] },
 ];
 
 vi.mock('@/lib/db-pool', () => ({
@@ -58,17 +59,20 @@ describe('перепись охвата мест тревогами', () => {
     expect(probes.find((p) => p.kind === 'meteo_north')?.zones).toEqual([...METEOALERT_REGIONS['95'].zones]);
     expect(sent[0].sql).toContain(ALERT_MATCH_SQL);
     expect(sent[0].sql).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/i);
-    expect(body.places).toBe(3);
+    expect((body.places as { count: number }).count).toBe(3);
+    expect((body.routes as { count: number }).count).toBe(1);
   });
 
-  it('свод: недосягаемое место названо поимённо, место без реалтайма — отдельно, район вне проб — не тревожный', () => {
+  it('свод: недосягаемое названо поимённо, место без реалтайма — отдельно, маршруты — своим разделом', () => {
     const census = summarizeZoneCensus(ROWS, zoneProbes());
-    expect(census.unreached.krai_wide.map((p) => p.id)).toEqual(['m']);
-    expect(census.unreached.meteo_north.map((p) => p.id)).toEqual(['a', 'm']);
-    expect(census.no_status.map((p) => p.id)).toEqual(['n']);
-    expect(census.commander_box.map((p) => p.id)).toEqual(['a']);
-    expect(census.by_zone.find((z) => z.zone === 'commander')).toMatchObject({ alert_zone: false, reached: { krai_wide: 1, meteo_south: 1, meteo_north: 0 } });
-    expect(census.by_zone.find((z) => z.zone === 'avachinsky')).toMatchObject({ alert_zone: true });
+    expect(census.places.unreached.krai_wide.map((p) => p.id)).toEqual(['m']);
+    expect(census.places.unreached.meteo_north.map((p) => p.id)).toEqual(['a', 'm']);
+    expect(census.places.no_status.map((p) => p.id)).toEqual(['n']);
+    expect(census.places.commander_box.map((p) => p.id)).toEqual(['a']);
+    expect(census.places.by_zone.find((z) => z.zone === 'commander')).toMatchObject({ alert_zone: false, reached: { krai_wide: 1, meteo_south: 1, meteo_north: 0 } });
+    expect(census.places.by_zone.find((z) => z.zone === 'avachinsky')).toMatchObject({ alert_zone: true });
+    expect(census.routes.unreached.krai_wide.map((p) => p.id)).toEqual(['r']);
+    expect(census.routes.by_zone).toEqual([{ zone: 'mutnovsky', alert_zone: false, count: 1, reached: { krai_wide: 0, meteo_south: 0, meteo_north: 0 } }]);
   });
 
   it('отказ базы — 500 с SQLSTATE, а не пустая перепись', async () => {
