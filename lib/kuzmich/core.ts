@@ -1221,8 +1221,9 @@ export async function getHistory(chatId: number, mode: string): Promise<ChatMess
 /**
  * Как getHistory, но вместо молчаливого отбрасывания хвоста по токен-бюджету
  * суммирует отброшенное (Roitman §18, Eq 18.4) — см. history-compaction.ts.
- * Используется только в aiChat (tourist-facing чат); operator-chat.ts и сырой
- * telegram webhook продолжают использовать getHistory() как раньше.
+ * Используется только в aiChat (tourist-facing чат); operator-chat.ts, шаг
+ * брони и эвристика лида вебхука Telegram (интересы по истории) читают
+ * getHistory() как раньше.
  */
 async function getHistoryWithCompactionSummary(
   chatId: number, mode: string,
@@ -2397,7 +2398,12 @@ export async function aiChat(opts: {
   userId?: number | null;
   userName?: string | null;
   visionDescription?: string;
-  pending: Map<number, PendingBooking>;
+  /**
+   * Не читается: бронь в чате ведёт processMessage, до aiChat. Необязательна,
+   * чтобы вход без брони в чате (вебхук Telegram, аудит 15.10, TG-BRAIN) не
+   * заводил пустую карту ради типа.
+   */
+  pending?: Map<number, PendingBooking>;
   platform?: 'tg' | 'max';
   afterReply?: (chatId: number, answer?: string) => Promise<void>;
 }): Promise<void> {

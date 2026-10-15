@@ -2,11 +2,11 @@
  * Замер ответа Кузьмича в Telegram и MAX — вызовом вебхуков (аудит 15.10, A19).
  *
  * Живой вход Telegram — канонический вебхук /api/telegram/webhook
- * (lib/telegram/operator-availability, CANONICAL_WEBHOOK_PATH): он отвечает
- * туристу одиночным вызовом модели, мимо цикла. Замер в одном лишь цикле
- * (aiChat) оставил бы Telegram без строк, и «Telegram отвечает мгновенно»
- * читалось бы из пустоты. MAX идёт через processMessage → aiChat → цикл
- * инструментов, и его роут здесь вызывается с настоящим мозгом Кузьмича:
+ * (lib/telegram/operator-availability, CANONICAL_WEBHOOK_PATH). До правки
+ * TG-BRAIN (15.10) он отвечал туристу одиночным вызовом модели мимо цикла и
+ * писал замер сам; теперь идёт в aiChat — цикл инструментов, — и строку пишет
+ * aiChat, ровно одну. MAX идёт через processMessage → aiChat → цикл
+ * инструментов. Оба роута здесь вызываются с настоящим мозгом Кузьмича:
  * подменены модель, база и транспорт.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -106,21 +106,28 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
-describe('Telegram, живой вебхук /api/telegram/webhook', () => {
-  it('ответ туристу — строка замера: telegram, один ход, elapsed_ms вызова модели', async () => {
-    m.direct.mockImplementation(async () => { m.clock.now += 9_000; return 'Лучше всего — в июле и августе.'; });
+describe('Telegram, живой вебхук /api/telegram/webhook → цикл инструментов', () => {
+  it('ответ туристу — одна строка замера: telegram, ход цикла, провайдер, elapsed_ms от входа в цикл', async () => {
+    m.tools.mockImplementationOnce(async () => {
+      m.clock.now += 9_000;
+      return { content: 'Лучше всего — в июле и августе.', provider: 'deepseek' };
+    });
     const res = await telegram.POST(new NextRequest('http://localhost/api/telegram/webhook', {
       method: 'POST',
       body: JSON.stringify({ update_id: 7001, message: { message_id: 1, from: { id: 4242, first_name: 'Анна' }, chat: { id: 4242, type: 'private' }, text: ASK } }),
     }));
     expect(await res.json()).toEqual({ ok: true });
-    expect(m.direct).toHaveBeenCalledTimes(1);
-    expect(m.tgSend).toHaveBeenCalledWith(expect.objectContaining({ chatId: '4242' }));
+    expect(m.tools).toHaveBeenCalledTimes(1);
+    // Одиночного вызова мимо цикла больше нет (TG-BRAIN).
+    expect(m.direct).not.toHaveBeenCalled();
+    expect(m.tgSend).toHaveBeenCalledWith(expect.objectContaining({ chatId: '4242', text: expect.stringContaining('в июле и августе') }));
 
+    // Строка одна: замер пишет aiChat, вебхук своей второй не добавляет.
     const rows = records();
     expect(rows).toHaveLength(1);
+    expect(rows[0]!.provider).toBe('deepseek');
     expect(rows[0]!.meta).toMatchObject({
-      surface: 'telegram', elapsed_ms: 9_000, turns: 1, tool_rounds: 0, path: 'single', ceiling_hit: false,
+      surface: 'telegram', elapsed_ms: 9_000, turns: 1, tool_rounds: 0, path: 'tools', ceiling_hit: false,
     });
   });
 });
