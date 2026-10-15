@@ -41,7 +41,6 @@ import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { mcpCallerHash, safeToolName } from '@/lib/mcp/call-log';
 import { uaFamily } from '@/lib/mcp/client-id';
-import { PROBE_NAME_PATTERN } from '@/lib/mcp/probe-clients';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { A2AOperation } from '@/lib/a2a/wire';
@@ -52,7 +51,7 @@ export type A2aJournalOp = A2AOperation | 'card' | 'notification' | 'invalid';
 export type A2aInput = 'text' | 'tool';
 export type A2aTaskState = 'completed' | 'rejected' | 'failed';
 /** Кто это: внешний агент, проверка реестра A2A, иная проверка (curl, пробы) или свой клиент. */
-export type A2aAgentKind = 'external' | 'registry' | 'probe' | 'self';
+export type { A2aAgentKind } from '@/lib/a2a/agent-kind';
 
 export interface A2aJournalEntry {
   binding: A2aBinding;
@@ -114,21 +113,9 @@ export function agentLabel(userAgent: string | null | undefined): string {
   return word ? word.slice(0, AGENT_LABEL_MAX) : 'не разобран';
 }
 
-const REGISTRY_RE = /^A2A-Registry-/i;
-const PROBE_RE = new RegExp(PROBE_NAME_PATTERN, 'i');
-
-/**
- * Кто это — по самоназванию и метке, не по адресу. Реестр A2A раз в сутки
- * шлёт настоящий message/send (`A2A-Registry-TaskProbe/1.0`, при регистрации
- * `A2A-Registry-Smoke/1.0`) — это не турист и не чужой агент; прочие пробы —
- * по образцу ремесла из lib/mcp/probe-clients и по curl.
- */
-export function a2aAgentKind(agent: string, family: string, isSelf: boolean): A2aAgentKind {
-  if (isSelf) return 'self';
-  if (REGISTRY_RE.test(agent)) return 'registry';
-  if (PROBE_RE.test(agent) || family === 'curl') return 'probe';
-  return 'external';
-}
+// Род агента — правило без базы, в lib/a2a/agent-kind (аудит 15.10, CN-quick):
+// перепись a2a-census читает его, не подтягивая INSERT этого модуля.
+export { a2aAgentKind } from '@/lib/a2a/agent-kind';
 
 /** Диалог считается, а не читается: 32 знака sha256 от contextId. */
 export function contextKey(contextId: string | null | undefined): string | null {

@@ -40,6 +40,19 @@ MCP_URL = os.environ.get("MCP_URL", "https://vedarai.ru/api/mcp")
 TIMEOUT = int(os.environ.get("HTTP_TIMEOUT", "90"))
 MAX_TURNS = int(os.environ.get("MAX_TURNS", "8"))
 
+# Имя клиента, которое видит журнал Ведара (/hub/admin/mcp, mcp-census).
+# По умолчанию «vedar-mcp-bridge» — так приходят люди, скачавшие мост, и это
+# спрос. Свои пробы (china-bridge-probe.yml) ставят MCP_CLIENT_NAME=
+# vedar-mcp-bridge-probe: слово «probe» журнал относит к проверкам
+# (lib/mcp/probe-clients, PROBE_NAME_PATTERN), и прогоны с раннера больше не
+# раздувают спрос КНР (аудит 15.10, CN-quick).
+DEFAULT_CLIENT_NAME = "vedar-mcp-bridge"
+
+
+def client_name(provider=None):
+    base = (os.environ.get("MCP_CLIENT_NAME") or "").strip() or DEFAULT_CLIENT_NAME
+    return f"{base}/{provider}" if provider else base
+
 PROVIDERS = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
@@ -144,11 +157,11 @@ def _post(url, payload, headers, timeout=TIMEOUT):
 # ---------------------------------------------------------------- MCP
 
 class VedarMCP:
-    def __init__(self, url=MCP_URL, client_name="vedar-mcp-bridge"):
+    def __init__(self, url=MCP_URL, name=None):
         self.url = url
         # Имя клиента видит журнал Ведара (/hub/admin/mcp): с провайдером в
         # имени видно, какая модель стоит за мостом, иначе все мосты — одно.
-        self.client_name = client_name
+        self.client_name = name or client_name()
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
@@ -247,7 +260,7 @@ def llm_chat(cfg, messages, tools):
 class Agent:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.mcp = VedarMCP(client_name=f"vedar-mcp-bridge/{cfg['provider']}")
+        self.mcp = VedarMCP(name=client_name(cfg["provider"]))
         info = self.mcp.initialize().get("serverInfo", {})
         self.tools = to_openai_tools(self.mcp.list_tools())
         self.title = info.get("title") or info.get("name")

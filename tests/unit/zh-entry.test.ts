@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ZH_PAGE, OPENAPI_DESCRIPTION_ZH } from '@/lib/mcp/zh-layer';
 import { priceZh, durationZh, PRICE_UNIT_ZH } from '@/lib/zh/entry';
+import { ZH_PAGE_PATHS } from '@/lib/zh/pages';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const PAGE = read('app/zh/page.tsx');
@@ -70,7 +71,10 @@ describe('метаданные и обнаружение', () => {
 
   it('главная объявляет китайскую версию, sitemap её называет', () => {
     expect(read('app/page.tsx')).toMatch(/languages: \{ ru: '\/', 'zh-CN': '\/zh', 'x-default': '\/' \}/);
-    expect(read('lib/seo/sitemap-entries.ts')).toContain('`${BASE}/zh`');
+    // С 15.10 (CN-quick) sitemap берёт /zh из lib/zh/pages — того же списка,
+    // что пинг IndexNow; что адрес в карте сайта есть, проверяет вызов в
+    // china-quick.test.ts.
+    expect(ZH_PAGE_PATHS).toContain('/zh');
   });
 
   it('OpenAPI несёт китайский абзац из того же источника', () => {
@@ -95,11 +99,8 @@ describe('живой каталог под гейтом витрины', () => {
     expect(ENTRY).toMatch(/return null;/);
   });
 
-  it('отказ и пустота названы на странице разными словами', () => {
-    expect(PAGE).toContain('{ZH_PAGE.catalogUnavailable}');
-    expect(PAGE).toContain('{ZH_PAGE.catalogEmpty}');
-    expect(ZH_PAGE.catalogUnavailable).not.toBe(ZH_PAGE.catalogEmpty);
-  });
+  // «Отказ и пустота названы разными словами» — с 15.10 рендером списка
+  // (components/zh/ZhTourList) в zh-quick.test.tsx.
 
   it('цена и длительность: единицы те же три, что у расчёта брони; нет цены — null, а не «0 卢布»', () => {
     expect(Object.keys(PRICE_UNIT_ZH).sort()).toEqual(['per_day_per_person', 'per_person', 'per_tour']);

@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
+import { ZH_PAGE_PATHS } from '@/lib/zh/pages';
 
 vi.mock('@/lib/seo/indexnow', () => ({
   pingIndexNow: vi.fn(async (urls: string[]) => ({ ok: true, submitted: urls.length, status: 200 })),
@@ -51,7 +52,7 @@ describe('роут', () => {
     expect(pingIndexNow).not.toHaveBeenCalled();
   });
 
-  it('с секретом — пингует ровно адреса планов и отдаёт три поля исхода', async () => {
+  it('с секретом — пингует ровно адреса планов и китайских страниц и отдаёт три поля исхода', async () => {
     process.env.CRON_SECRET = 'test-secret';
     const res = await GET(new NextRequest('http://localhost/api/cron/indexnow-plans', {
       headers: { authorization: 'Bearer test-secret' },
@@ -59,11 +60,13 @@ describe('роут', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.submitted).toBe(PLAN_PRESETS.length + 1);
-    expect(body.urls.length).toBe(PLAN_PRESETS.length + 1);
+    // Аудит 15.10 (CN-quick): планы плюс китайские страницы из lib/zh/pages.
+    const total = PLAN_PRESETS.length + 1 + ZH_PAGE_PATHS.length;
+    expect(body.submitted).toBe(total);
+    expect(body.urls.length).toBe(total);
     expect(body).toHaveProperty('status');
     expect(body).toHaveProperty('error');
-    expect(vi.mocked(pingIndexNow).mock.calls[0][0].length).toBe(PLAN_PRESETS.length + 1);
+    expect(vi.mocked(pingIndexNow).mock.calls[0][0].length).toBe(total);
   });
 });
 

@@ -27,6 +27,19 @@ const ENDPOINT = 'https://yandex.com/indexnow';
 /** До 10 000 адресов за один POST по спецификации; режем с запасом. */
 const MAX_URLS_PER_PING = 5000;
 
+/**
+ * Сколько адресов пинга ложится в журнал поимённо (аудит 15.10, CN-quick).
+ * До этого в ai_actions_log писалось только число, и на вопрос «пинговался
+ * ли /zh» журнал ответить не мог. Узкие пинги (тур, место, планы, /zh)
+ * помещаются целиком; у bulk-подачи — голова списка и число остальных.
+ */
+export const LOGGED_URLS_MAX = 20;
+
+export interface IndexNowOptions {
+  /** Кто пингует — пишется в журнал рядом с адресами (например, 'indexnow-plans'). */
+  source?: string;
+}
+
 export interface IndexNowResult {
   ok: boolean;
   submitted: number;
@@ -38,7 +51,7 @@ export interface IndexNowResult {
  * Пингует IndexNow списком изменённых страниц. Принимает абсолютные URL или
  * пути от корня. Пустой список — не ошибка, просто нечего сообщать.
  */
-export async function pingIndexNow(urls: string[]): Promise<IndexNowResult> {
+export async function pingIndexNow(urls: string[], opts: IndexNowOptions = {}): Promise<IndexNowResult> {
   const list = urls
     .filter(Boolean)
     .map((u) => (u.startsWith('http') ? u : `${SITE_URL}${u.startsWith('/') ? u : `/${u}`}`))
@@ -47,6 +60,12 @@ export async function pingIndexNow(urls: string[]): Promise<IndexNowResult> {
   if (list.length === 0) return { ok: true, submitted: 0 };
 
   const host = new URL(SITE_URL).host;
+  // Что именно пинговали — в журнал рядом с исходом (см. LOGGED_URLS_MAX).
+  const trail = {
+    ...(opts.source ? { source: opts.source } : {}),
+    urls: list.slice(0, LOGGED_URLS_MAX),
+    ...(list.length > LOGGED_URLS_MAX ? { urls_more: list.length - LOGGED_URLS_MAX } : {}),
+  };
 
   try {
     const res = await fetch(ENDPOINT, {
@@ -62,17 +81,17 @@ export async function pingIndexNow(urls: string[]): Promise<IndexNowResult> {
 
     // 200 и 202 — принято; остальное — отказ с телом, которое стоит сохранить.
     if (res.status === 200 || res.status === 202) {
-      await log('indexnow_ping', { submitted: list.length, status: res.status });
+      await log('indexnow_ping', { submitted: list.length, status: res.status, ...trail });
       return { ok: true, submitted: list.length, status: res.status };
     }
 
     const raw = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
     const error = `HTTP ${res.status}: ${raw || 'пустой ответ'}`;
-    await log('indexnow_failed', { submitted: list.length, error });
+    await log('indexnow_failed', { submitted: list.length, error, ...trail });
     return { ok: false, submitted: list.length, status: res.status, error };
   } catch (e) {
     const error = e instanceof Error ? e.message : 'сетевой сбой';
-    await log('indexnow_failed', { submitted: list.length, error });
+    await log('indexnow_failed', { submitted: list.length, error, ...trail });
     return { ok: false, submitted: list.length, error };
   }
 }

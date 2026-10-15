@@ -33,11 +33,15 @@ export const dynamic = 'force-dynamic';
 // но в группе КНР его не было бы вовсе, и «Kimi не приходит» не читалось бы ниоткуда.
 export const CHINESE_FAMILIES = ['baidu', 'bytedance', 'huawei', 'alibaba', 'tencent', '360', 'deepseek', 'kimi'] as const;
 
-/** Чего счётчик не видит — вслух, чтобы ноль не читался как «не ходят». */
+/**
+ * Чего счётчик не видит — вслух, чтобы ноль не читался как «не ходят».
+ * С аудита 15.10 (CN-quick) /sitemap.xml и китайский вход /zh считаются, и из
+ * списка ушли; на /zh не считаются люди — их визиты пишет page_views.
+ */
 export const NOT_COUNTED = [
-  'HTML-страницы: счётчик page_views пишется браузерным скриптом, обходчик его не исполняет',
-  '/sitemap.xml',
-  '/api/mcp и /api/a2a: вызовы инструментов считает mcp-census (mcp_clients.ua_family)',
+  'HTML-страницы, кроме /zh: счётчик page_views пишется браузерным скриптом, обходчик его не исполняет',
+  'люди на /zh: браузер человека здесь не считается — это перепись обходчиков, людей считает page_views',
+  '/api/mcp и /api/a2a: вызовы инструментов считает mcp-census (mcp_clients.ua_family), агентов A2A — a2a-census',
 ] as const;
 
 const DEFAULT_DAYS = 30;

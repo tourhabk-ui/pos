@@ -11,6 +11,7 @@
 
 import { NextResponse } from 'next/server';
 import { collectSitemapEntriesWithStatus } from '@/lib/seo/sitemap-entries';
+import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,12 @@ function isoDate(d: string | Date | undefined): string | null {
   return Number.isNaN(t.getTime()) ? null : t.toISOString();
 }
 
-export async function GET() {
+export async function GET(request?: Request) {
+  // Перепись краулеров по семействам (аудит 15.10, CN-quick): карта сайта —
+  // то, с чего обходчик поисковика узнаёт о /zh; до этого дня, берёт ли её
+  // Baiduspider или YisouSpider, не считал никто. Запись не ждётся и ответ не
+  // роняет.
+  recordAgentEntryHit('/sitemap.xml', request?.headers.get('user-agent') ?? null);
   const { entries, degraded } = await collectSitemapEntriesWithStatus();
 
   const urls = entries.map((e) => {

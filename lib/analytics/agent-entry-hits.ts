@@ -21,12 +21,16 @@ import { pool } from '@/lib/db-pool';
 import { botFamily } from '@/lib/analytics/bot-detect';
 import { logText } from '@/lib/log/log-text';
 
-import type { AgentEntryPath } from '@/lib/analytics/agent-entry-paths';
+import { AGENT_ENTRY_HTML_PATHS, zhEntryPath, type AgentEntryPath } from '@/lib/analytics/agent-entry-paths';
 
-export { AGENT_ENTRY_PATHS, type AgentEntryPath } from '@/lib/analytics/agent-entry-paths';
+export { AGENT_ENTRY_PATHS, AGENT_ENTRY_HTML_PATHS, zhEntryPath, type AgentEntryPath } from '@/lib/analytics/agent-entry-paths';
 
 export function recordAgentEntryHit(path: AgentEntryPath, userAgent: string | null | undefined): void {
   const family = botFamily(userAgent);
+  // HTML-страница (/zh, аудит 15.10, CN-quick): браузер человека — не
+  // обходчик, его визит считает page_views. Без этой отсечки перепись
+  // краулеров стала бы вторым счётчиком посещаемости.
+  if (family === 'browser' && AGENT_ENTRY_HTML_PATHS.has(path)) return;
   void pool
     .query(
       `INSERT INTO agent_entry_hits (day, path, family, hits)
@@ -42,4 +46,19 @@ export function recordAgentEntryHit(path: AgentEntryPath, userAgent: string | nu
         logText(err instanceof Error ? err.message : err, 200),
       );
     });
+}
+
+/**
+ * Счётчик китайского раздела (аудит 15.10, CN-quick): адрес страницы → метка
+ * входа (/zh своей строкой, всё под ним — одной меткой /zh/*). Зовёт /zh; та
+ * же функция будет у будущих /zh/<…>, и путь на каждую карточку не заведётся.
+ * Не китайский адрес — ошибка вызывающего: в лог, без записи чужой меткой.
+ */
+export function recordZhEntryHit(pathname: string, userAgent: string | null | undefined): void {
+  const path = zhEntryPath(pathname);
+  if (!path) {
+    console.error('[agent-entry-hits] адрес не из раздела /zh — не записан:', logText(pathname, 80));
+    return;
+  }
+  recordAgentEntryHit(path, userAgent);
 }
