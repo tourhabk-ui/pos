@@ -6,6 +6,9 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Search, ShieldCheck, ChevronRight, MapPin } from 'lucide-react';
 import { OperatorRating } from '@/components/operator/OperatorRating';
+import { activityLabel } from '@/lib/tours/labels';
+import { tourFactsLine, type ActivityCount, type OperatorTourFacts } from '@/lib/operators/tour-facts';
+import { OPERATORS_ORDER_NOTE } from '@/lib/operators/order-note';
 
 export interface Operator {
   id: string;
@@ -17,6 +20,8 @@ export interface Operator {
   rating: number;
   reviewCount: number;
   isVerified: boolean;
+  /** Живые туры компании; `null` — сервер посчитать не смог, строки нет. */
+  tourFacts: OperatorTourFacts | null;
 }
 
 export interface ApiMeta {
@@ -26,14 +31,13 @@ export interface ApiMeta {
   pages: number;
 }
 
-const CATEGORIES = [
-  { value: '', label: 'Все' },
-  { value: 'adventure', label: 'Активный отдых' },
-  { value: 'fishing', label: 'Рыбалка' },
-  { value: 'helicopter', label: 'Вертолётные туры' },
-  { value: 'whale_watching', label: 'Морские экскурсии' },
-  { value: 'trekking', label: 'Треккинг' },
-];
+// Кнопки фильтра — виды ЖИВЫХ туров с числом компаний, из данных сервера
+// (`activities`), а не захардкоженный список. Прежние «Рыбалка», «Вертолётные
+// туры», «Треккинг» фильтровали partners.category, где таких значений быть не
+// может, и всегда давали пустую выдачу (находка PAVEL-operators, 15.10).
+const CHIP_BASE = 'min-h-[44px] inline-flex items-center px-3 rounded-lg text-sm font-medium transition-colors border';
+const CHIP_ON = 'bg-[var(--accent)] text-[var(--on-accent)] border-[var(--accent)]';
+const CHIP_OFF = 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)]';
 
 interface OperatorsPageClientProps {
   /** Первый рендер с сервера (SEO): данные, снятые RSC-страницей /operators. */
@@ -41,12 +45,15 @@ interface OperatorsPageClientProps {
   initialMeta?: ApiMeta | null;
   /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
   initialKey?: string | null;
+  /** Виды живых туров → сколько компаний их водят. `null` — неизвестно, кнопок нет. */
+  initialActivities?: ActivityCount[] | null;
 }
 
 export default function OperatorsPageClient({
   initialItems,
   initialMeta = null,
   initialKey = null,
+  initialActivities = null,
 }: OperatorsPageClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -58,15 +65,23 @@ export default function OperatorsPageClient({
   const [operators, setOperators] = useState<Operator[]>(initialItems ?? []);
   const [meta, setMeta] = useState<ApiMeta | null>(initialMeta);
   const [loading, setLoading] = useState(initialKey === null);
+  /** Список не загрузился (сеть или база): это не «не найдено» (§4.0). */
+  const [failed, setFailed] = useState(false);
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
+  const [activity, setActivity] = useState('');
+  const [activities, setActivities] = useState<ActivityCount[] | null>(initialActivities);
   const [page, setPage] = useState(1);
 
-  // Deep-link: ?search=&category=&page= применяются один раз при входе.
+  // Deep-link: ?search=&activity=&page= применяются один раз при входе.
+  // Вид берётся, только если он есть среди видов живых туров: незнакомое
+  // значение — без фильтра, а не пустая выдача. Прежний `?category=` (старые
+  // ссылки на мёртвые кнопки) не читается вовсе — список без фильтра.
+  const knownAtEntryRef = useRef<ActivityCount[] | null>(initialActivities);
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     setSearch(sp.get('search') ?? '');
-    setCategory(sp.get('category') ?? '');
+    const a = sp.get('activity') ?? '';
+    setActivity(knownAtEntryRef.current?.some(x => x.activity_type === a) ? a : '');
     const p = parseInt(sp.get('page') ?? '1', 10);
     setPage(Number.isFinite(p) && p >= 1 ? p : 1);
   }, []);
@@ -80,38 +95,45 @@ export default function OperatorsPageClient({
     try {
       const params = new URLSearchParams({ page: String(page), limit: '12' });
       if (search) params.set('search', search);
-      if (category) params.set('category', category);
+      if (activity) params.set('activity', activity);
       const res = await fetch(`/api/operators?${params}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.degraded) {
+        // База не ответила: прежний список не стираем и не выдаём за «не найдено».
+        setFailed(true);
+      } else if (data.success) {
+        setFailed(false);
         setOperators(data.data);
         setMeta(data.meta);
+        // Сбой подсчёта видов (null) не стирает кнопки, уже полученные раньше.
+        if (Array.isArray(data.activities)) setActivities(data.activities);
       }
-    } catch {
-      // silent
+    } catch (err) {
+      setFailed(true);
+      console.error('[operators] список не обновился:', err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [search, category, page]);
+  }, [search, activity, page]);
 
   useEffect(() => {
     if (initialKeyRef.current !== null) {
       // Тот же формат ключа, что собирает RSC-страница.
-      const currentKey = JSON.stringify({ search, category, page });
+      const currentKey = JSON.stringify({ search, activity, page });
       const matched = initialKeyRef.current === currentKey;
       initialKeyRef.current = null;
       if (matched) return;
     }
     const timer = setTimeout(() => void fetchOperators(), search ? 400 : 0);
     return () => clearTimeout(timer);
-  }, [fetchOperators, search, category, page]);
+  }, [fetchOperators, search, activity, page]);
 
   // Href с фильтрами — реальные ссылки нужны ботам (Google не кликает JS);
   // клик человека перехватываем и остаёмся в SPA-режиме.
-  const filterHref = useCallback((s: string, cat: string, pg: number) => {
+  const filterHref = useCallback((s: string, act: string, pg: number) => {
     const p = new URLSearchParams();
     if (s) p.set('search', s);
-    if (cat) p.set('category', cat);
+    if (act) p.set('activity', act);
     if (pg > 1) p.set('page', String(pg));
     return `${pathname}${p.size ? '?' + p : ''}`;
   }, [pathname]);
@@ -122,8 +144,8 @@ export default function OperatorsPageClient({
   const urlSyncArmedRef = useRef(false);
   useEffect(() => {
     if (!urlSyncArmedRef.current) { urlSyncArmedRef.current = true; return; }
-    router.replace(filterHref(search, category, page), { scroll: false });
-  }, [search, category, page, filterHref, router]);
+    router.replace(filterHref(search, activity, page), { scroll: false });
+  }, [search, activity, page, filterHref, router]);
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
@@ -141,6 +163,7 @@ export default function OperatorsPageClient({
           <p className="text-[var(--text-secondary)] text-lg">
             {meta ? `Операторов на платформе: ${meta.total}` : 'Туристические операторы Камчатки'}
           </p>
+          <p className="text-[var(--text-muted)] text-sm mt-1">{OPERATORS_ORDER_NOTE}</p>
         </div>
       </div>
 
@@ -157,23 +180,39 @@ export default function OperatorsPageClient({
               className="ds-input w-full pl-10"
             />
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {CATEGORIES.map(cat => (
+          {activities && activities.length > 0 && (
+            <nav className="flex gap-2 flex-wrap" aria-label="Виды туров">
               <Link
-                key={cat.value}
-                href={filterHref(search, cat.value, 1)}
-                onClick={e => { e.preventDefault(); setCategory(cat.value); setPage(1); }}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                  category === cat.value
-                    ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                    : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
-                }`}
+                href={filterHref(search, '', 1)}
+                aria-current={activity === '' ? 'true' : undefined}
+                onClick={e => { e.preventDefault(); setActivity(''); setPage(1); }}
+                className={`${CHIP_BASE} ${activity === '' ? CHIP_ON : CHIP_OFF}`}
               >
-                {cat.label}
+                Все
               </Link>
-            ))}
-          </div>
+              {activities.map(a => {
+                const on = activity === a.activity_type;
+                return (
+                  <Link
+                    key={a.activity_type}
+                    href={filterHref(search, on ? '' : a.activity_type, 1)}
+                    aria-current={on ? 'true' : undefined}
+                    onClick={e => { e.preventDefault(); setActivity(on ? '' : a.activity_type); setPage(1); }}
+                    className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+                  >
+                    {activityLabel(a.activity_type, true)} · {a.count}
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
         </div>
+
+        {failed && (
+          <p role="status" className="text-sm text-[var(--warning)] mb-4">
+            Список сейчас не загрузился. Обновите страницу чуть позже.
+          </p>
+        )}
 
         {/* Grid */}
         {loading ? (
@@ -182,7 +221,7 @@ export default function OperatorsPageClient({
               <div key={i} className="ds-card ds-skeleton h-64 rounded-xl" />
             ))}
           </div>
-        ) : operators.length === 0 ? (
+        ) : operators.length === 0 && !failed ? (
           <div className="text-center py-20">
             <MapPin className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
             <p className="text-[var(--text-secondary)] text-lg">Операторы не найдены</p>
@@ -190,7 +229,9 @@ export default function OperatorsPageClient({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {operators.map(op => (
+            {operators.map(op => {
+              const facts = tourFactsLine(op.tourFacts);
+              return (
               <Link
                 key={op.id}
                 href={`/operators/${op.slug}`}
@@ -229,6 +270,14 @@ export default function OperatorsPageClient({
                       {op.shortDescription}
                     </p>
                   )}
+                  {/* Чем компания занимается — по её живым турам (находка
+                      PAVEL-operators, 15.10). Туров нет или посчитать не
+                      удалось — строки нет, а не «0 туров». */}
+                  {facts && (
+                    <p className="text-sm text-[var(--text-secondary)] mb-3" data-testid="operator-tour-facts">
+                      {facts}
+                    </p>
+                  )}
                   <OperatorRating
                     rating={op.rating}
                     reviewCount={op.reviewCount}
@@ -236,7 +285,8 @@ export default function OperatorsPageClient({
                   />
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -246,7 +296,7 @@ export default function OperatorsPageClient({
             {Array.from({ length: meta.pages }, (_, i) => i + 1).map(p => (
               <Link
                 key={p}
-                href={filterHref(search, category, p)}
+                href={filterHref(search, activity, p)}
                 onClick={e => { e.preventDefault(); setPage(p); }}
                 className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors flex items-center justify-center ${
                   p === page
