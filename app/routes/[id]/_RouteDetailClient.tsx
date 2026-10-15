@@ -44,6 +44,7 @@ import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import RouteVerdict, { useRouteVerdict } from '@/components/routes/RouteVerdict';
+import RouteDescriptionNotice from '@/components/routes/RouteDescriptionNotice';
 import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentation';
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
@@ -197,6 +198,8 @@ interface DerivedStages {
 export interface RouteDetail {
   id: string; category: string; locationType: string | null; activityType: string | null;
   title: string; description: string;
+  /** Описание снято до переписи по источникам (миграция 1261) и не переписано. */
+  descriptionWithdrawn?: boolean;
   lat: number | null; lng: number | null;
   sourceUrl: string | null; sourceName: string | null;
   priceFrom: number | null; season: string | null; difficulty: string | null;
@@ -1107,6 +1110,12 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
                 )}
               </section>
             )}
+
+            {/* Описание снято до переписи по источникам (1261) — сказано словами. */}
+            <RouteDescriptionNotice
+              withdrawn={route.descriptionWithdrawn === true}
+              hasDescription={descParagraphs.length > 0}
+            />
 
             {/* Описание */}
             {descParagraphs.length > 0 && (

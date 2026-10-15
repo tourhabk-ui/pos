@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       distance_km: string | null; duration_hours: string | null;
       elevation_gain_m: number | null; has_line: boolean;
       enriched_by: string | null; park_name: string | null; hazards: string | null;
+      withdrawn: boolean;
     }>(
       `SELECT r.id::text AS id, r.title, r.description,
               r.lat::text AS lat, r.lng::text AS lng,
@@ -60,7 +61,8 @@ export async function GET(request: NextRequest) {
               (r.geometry IS NOT NULL) AS has_line,
               r.metadata->>'enriched_by' AS enriched_by,
               r.park_name,
-              array_to_string(r.hazards, '; ') AS hazards
+              array_to_string(r.hazards, '; ') AS hazards,
+              (r.description_withdrawn IS NOT NULL) AS withdrawn
        FROM kamchatka_routes r
        WHERE r.is_visible = true AND r.merged_into_id IS NULL
        ORDER BY r.title`,
@@ -85,8 +87,17 @@ export async function GET(request: NextRequest) {
       description_head: string | null;
     }> = [];
 
+    // Снятые до переписи по источникам (1261): без этого счёта «написано
+    // агентом: 0» читалось бы как «таких текстов не было», а не «сняты».
+    let withdrawnTotal = 0;
+    let withdrawnRewritten = 0;
+
     for (const r of rows) {
       const desc = r.description?.trim() ?? '';
+      if (r.withdrawn) {
+        withdrawnTotal++;
+        if (desc.length > 0) withdrawnRewritten++;
+      }
       if (desc.length === 0) continue;
       withDescription++;
 
@@ -170,10 +181,13 @@ export async function GET(request: NextRequest) {
       // с фактическим враньём поправлены точечно.
       // v6 (14.10) — описания агента enrich-routes (metadata.enriched_by =
       // 'admin_api') сверяются с записью: имя, число или опасность сверх неё.
-      probe: 'route_desc_census_v6',
+      // v7 (15.10) — снятые до переписи по источникам (1261) считаются
+      // отдельно: сколько снято и сколько из них уже переписано.
+      probe: 'route_desc_census_v7',
       live_total: rows.length,
       with_description: withDescription,
       writer_written: { total: writerWritten, beyond_data: writerBeyondData },
+      withdrawn: { total: withdrawnTotal, rewritten: withdrawnRewritten },
       offenders_total: offenders.length,
       by_kind: byKind,
       window: { offset, limit },

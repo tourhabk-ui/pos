@@ -161,11 +161,20 @@ export async function POST(req: NextRequest) {
  * дыра, которую заполняет модель по названию: заполненная дыра выглядела бы
  * сделанной работой и ушла бы из очереди переписи. Строка места в VIEW
  * несёт id = places.ark_id.
+ *
+ * Маршрут — так же (миграция 1261, «5 скрой»): снят ровно текст этого
+ * агента, написанный по одному названию, и новый текст по тому же названию
+ * был бы той же догадкой. Строка маршрута в VIEW несёт COALESCE(ark_id, id).
  */
 const NOT_WITHDRAWN = `NOT EXISTS (
       SELECT 1 FROM places w
        WHERE w.ark_id = agent_route_knowledge.id
          AND w.description_withdrawn IS NOT NULL
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM kamchatka_routes wr
+       WHERE COALESCE(wr.ark_id, wr.id) = agent_route_knowledge.id
+         AND wr.description_withdrawn IS NOT NULL
     )`;
 
 export async function enrichDescriptions(batchSize: number, force: boolean, dryRun: boolean) {

@@ -97,6 +97,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        kr.route_version,
        kr.passport_verified_at,
        kr.updated_at AS kr_updated_at,
+       -- Описание снято до переписи по источникам (1261): карточка говорит
+       -- это словами, а не молчит пустым местом.
+       (kr.description_withdrawn IS NOT NULL) AS description_withdrawn,
        pk.slug AS park_slug,
        COALESCE(kr.geometry, krs.geometry) AS geometry
      FROM agent_route_knowledge ark
@@ -456,6 +459,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       title:        r.title as string,
       // Заглушка в начале скачанного описания не показывается (lib/text/filler-lead).
       description: stripFillerLead(r.description as string | null),
+      // Снято (1261) и не переписано: переписанное ложится в description, и
+      // тогда объяснять нечего.
+      descriptionWithdrawn: r.description_withdrawn === true && !stripFillerLead(r.description as string | null).trim(),
       lat:         r.lat != null ? parseFloat(r.lat as string) : null,
       lng:         r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl:   (r.source_url as string | null) ?? null,
