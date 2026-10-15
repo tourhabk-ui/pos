@@ -108,6 +108,12 @@ export interface PlaceTour {
   operatorSlug: string | null;
   /** partners.is_public — открыта ли страница оператора; null — не прочитано (13.10). */
   operatorPublic: boolean | null;
+  /**
+   * Род связи маршрута тура с местом (§4.1): `waypoint` — место размечено
+   * точкой пути; `unknown` — связь есть, но проходит ли маршрут через само
+   * место, не установлено. «Рядом» сюда не попадает вовсе.
+   */
+  linkKind: 'waypoint' | 'unknown';
 }
 
 export interface PlaceEco {

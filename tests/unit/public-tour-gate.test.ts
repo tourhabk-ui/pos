@@ -345,7 +345,6 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'lib/notifications/telegram-channel.ts': { n: 2, why: `${FULL_COPY} (пост в канал)` },
   'lib/notifications/tour-channel-post.ts': { n: 1, why: `${PARTIAL}: пост тура по id без is_published — снятый тур публикуется в канал` },
   'lib/octo/service.ts': { n: 5, why: `${PARTIAL}: OCTO для площадок без is_active — выключенный тур продаётся каналом` },
-  'lib/places/place-detail.ts': { n: 2, why: `${PARTIAL}: «Туры сюда» на карточке места без deleted_at — удалённый тур в списке` },
   'lib/safety/safety-selfcheck.ts': { n: 1, why: `${NOT_SHOWCASE}: самопроверка «есть покупаемый тур», диагностика` },
   'lib/seat-requests/service.ts': { n: 2, why: `${FULL_COPY} (запрос мест из планера)` },
   'lib/services/analytics.service.ts': { n: 1, why: `${NOT_SHOWCASE}: аналитика, счёт` },
@@ -368,6 +367,7 @@ const MOVED_TO_GATE = [
   'lib/agents/sdk/tourist-tools.ts',
   'app/_home/data.ts',
   'lib/operators/list-query.ts',
+  'lib/places/place-detail.ts',
 ];
 
 describe('перепись детектора ручной копии (сторож на сторожа)', () => {
