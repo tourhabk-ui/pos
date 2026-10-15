@@ -1,30 +1,16 @@
 {
   "timeout": 60,
-  "run": 965,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. После выката 1288 (памятники, партия 3) и 1289 (режим по контурам OSM): карточки Узона (сенсор — режим заповедника), Паланского озера, Паланских порогов (новая точка), скрытого кордона, Арки Стеллера, Ходуткинских, Бакенинга, Аквариума, Сейсмостанции у Авачинского перевала, Бакланьих камней; перепись режима мест. Конфиг записан целиком.",
+  "run": 966,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись памятников природы края: есть ли в Википедии перечень (категория даёт 26 из 116, названных статьёй «Камчатский край») — поиск по четырём запросам. Конфиг записан целиком.",
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://vedarai.ru/api/places/5694d055-9713-44af-8bcb-670ff63bb3e9",
-    "https://vedarai.ru/api/places/22066f59-ff7f-4061-b408-3d876147ce05",
-    "https://vedarai.ru/api/places/8ed1e7c5-df06-4bae-9c48-3be6c2890aa0",
-    "https://vedarai.ru/api/places/c23dd150-e8ec-4721-a82f-2c81c0c82d32",
-    "https://vedarai.ru/api/places/d64e3e6a-72a5-4c14-adc0-588c3824f6ae",
-    "https://vedarai.ru/api/places/24ee4667-c6e0-4aa0-b3f8-27073e00822f",
-    "https://vedarai.ru/api/places/073a9803-9a0f-4dee-b448-713cc759b637",
-    "https://vedarai.ru/api/places/fe3e16a9-bf51-4df9-aed1-27e6b15bf4cf",
-    "https://vedarai.ru/api/places/1d50cbce-c87f-4733-82a2-779ad1ce5718",
-    "https://vedarai.ru/api/places/ac0321fc-eae0-4919-9c7c-256bbc927a1a",
-    "https://vedarai.ru/api/cron/place-eco-census"
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=%D1%81%D0%BF%D0%B8%D1%81%D0%BE%D0%BA%20%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D1%8B%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE%20%D0%BA%D1%80%D0%B0%D1%8F",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=%D0%BE%D1%81%D0%BE%D0%B1%D0%BE%20%D0%BE%D1%85%D1%80%D0%B0%D0%BD%D1%8F%D0%B5%D0%BC%D1%8B%D0%B5%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B5%20%D1%82%D0%B5%D1%80%D1%80%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%B8%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE%20%D0%BA%D1%80%D0%B0%D1%8F",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D0%BD%D0%B8%D0%BA%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D1%8B%20%D1%80%D0%B5%D0%B3%D0%B8%D0%BE%D0%BD%D0%B0%D0%BB%D1%8C%D0%BD%D0%BE%D0%B3%D0%BE%20%D0%B7%D0%BD%D0%B0%D1%87%D0%B5%D0%BD%D0%B8%D1%8F%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BA%D1%80%D0%B0%D0%B9",
+    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=intitle%3A%D0%A1%D0%BF%D0%B8%D1%81%D0%BE%D0%BA%20intitle%3A%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE"
   ],
-  "until": "\"federal_reserve\"",
-  "retries": 70,
-  "retryDelay": 45,
-  "grep": [
-    "\"federal_reserve\"",
-    "Пилялян",
-    "\"commander\"",
-    "88 °C",
-    "Тимоновского",
-    "по табличке"
-  ],
+  "retries": 2,
+  "retryDelay": 20,
+  "allowStale": true,
   "bytes": 6000
 }
