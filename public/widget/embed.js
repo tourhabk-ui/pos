@@ -52,6 +52,9 @@
   // правило ему неоткуда. Та же копия — в выдаче /api/widget/lead.js
   // (WIDGET_PATH_SCRUB_JS). Правишь одну — правь все три; расхождение ловит
   // tests/unit/widget-path-pd.test.ts, гоняя один набор путей через все три.
+  // Ведущих `+` и `(` в ряду не больше трёх: `[+(]*` давал квадратичный разбор,
+  // и ссылка на страницу партнёра с путём из одних `+` вешала вкладку
+  // посетителя (ревью R-path, 15.10).
   function scrubPath(path) {
     return String(path).split('/').map(function (seg) {
       var plain = seg;
@@ -62,7 +65,7 @@
         plain = next;
       }
       if (plain.indexOf('@') !== -1) return '{email}';
-      var parts = plain.split(/([+(]*\d(?:[\s().+_\u2010-\u2015-]{0,3}\d)*)/);
+      var parts = plain.split(/([+(]{0,3}\d(?:[\s().+_\u2010-\u2015-]{0,3}\d)*)/);
       var changed = false;
       for (var j = 0; j < parts.length; j++) {
         if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
@@ -124,10 +127,17 @@
   // номер в путь («/spasibo/8-914-123-45-67»), и сырой путь оседал в
   // access-логах vedarai.ru и в Referer запросов окна. Обрезка — после
   // чистки: раньше она могла рассечь номер на куски короче семи цифр.
+  // Путь длиннее 2000 знаков не разбирается и не отправляется — пустая
+  // строка, сервер прочтёт её как «пути нет» (WIDGET_PATH_SCRUB_MAX,
+  // ревью R-path): такой адрес — не страница, а портянка из ссылки.
+  function pagePath() {
+    var raw = String(location.pathname || '');
+    return raw.length > 2000 ? '' : scrubPath(raw).slice(0, 200);
+  }
   function frameSrc() {
     return baseUrl + '/widget/' + encodeURIComponent(partnerId) + '?theme=' + encodeURIComponent(theme)
       + '&host=' + encodeURIComponent(String(location.hostname || ''))
-      + '&path=' + encodeURIComponent(scrubPath(String(location.pathname || '')).slice(0, 200));
+      + '&path=' + encodeURIComponent(pagePath());
   }
   iframe.title = 'Чат с помощником';
 

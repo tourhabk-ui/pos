@@ -15,12 +15,21 @@
  * копия в public/widget/embed.js (статический файл без сборки) и копия в
  * выдаче /api/widget/lead.js. Чтобы они не разошлись, ОДИН набор путей ниже
  * идёт через все три, и ответ у всех трёх обязан совпасть.
+ *
+ * Ревью R-path (15.10): первая редакция правила разбирала путь из одних `+`
+ * КВАДРАТИЧНО (`[+(]*` перед цифрой) — 100 тысяч `+` в теле POST /api/leads
+ * держали событийный цикл Node 13 с, а ссылка на страницу партнёра с таким
+ * путём вешала вкладку посетителя. Здесь же держится и это: регэксп, которым
+ * каждое из трёх мест режет сегмент, ловится при настоящем вызове и гоняется
+ * на враждебном входе по времени; путь длиннее предела не разбирается ни в
+ * одном из трёх мест.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { normalizeWidgetPath, widgetOrigin, readWidgetOriginParams } from '@/lib/embed/widget-origin';
+import { WIDGET_PATH_SCRUB_MAX } from '@/lib/embed/widget-path-scrub';
 
 const { poolQuery } = vi.hoisted(() => ({ poolQuery: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
@@ -76,6 +85,61 @@ function expectNoNumber(s: string, digits: string | null) {
   }
 }
 
+/** Путь, сегмент которого правило обязано разобрать регэкспом. */
+const PROBE_PATH = '/a/8-914-123-45-67';
+const PROBE_SEG = '8-914-123-45-67';
+
+/**
+ * Регэкспы, которыми `run` режет сегмент PROBE_SEG, — пойманные при настоящем
+ * вызове, а не найденные в тексте: так судится и embed.js, чья копия правила
+ * заперта в замыкании скрипта и снаружи не вызывается.
+ */
+function segmentSplitters(run: () => unknown): RegExp[] {
+  const seen: RegExp[] = [];
+  const split = String.prototype.split;
+  String.prototype.split = function (this: string, sep: unknown, limit?: number) {
+    if (sep instanceof RegExp && String(this) === PROBE_SEG) seen.push(sep);
+    return split.call(this, sep as string, limit);
+  } as typeof split;
+  try {
+    run();
+  } finally {
+    String.prototype.split = split;
+  }
+  return seen;
+}
+
+/**
+ * Враждебный сегмент: одни `+`, одни `(`, вперемешку — без единой цифры.
+ * Квадратичный разбор на 50 тысячах знаков — около 3 с, линейный — меньше
+ * миллисекунды; порог в 250 мс не путает одно с другим и на медленной машине.
+ */
+const HOSTILE = ['+', '(', '(+'].map((c) => c.repeat(50_000 / c.length));
+
+function expectLinear(splitters: RegExp[]) {
+  expect(splitters.length).toBeGreaterThan(0);
+  for (const re of splitters) {
+    for (const s of HOSTILE) {
+      const t0 = performance.now();
+      s.split(re);
+      expect(performance.now() - t0).toBeLessThan(250);
+    }
+  }
+}
+
+/** Портянка из одних `+` — то, что прислал бы атакующий. */
+const FLOOD = '/' + '+'.repeat(100_000);
+/** Длина ровно на пределе — ещё путь; на знак длиннее — уже нет. */
+const AT_LIMIT = '/' + 'a'.repeat(WIDGET_PATH_SCRUB_MAX - 1);
+const OVER_LIMIT = '/' + 'a'.repeat(WIDGET_PATH_SCRUB_MAX);
+
+/** Время вызова в мс. */
+function timed<T>(run: () => T): [T, number] {
+  const t0 = performance.now();
+  const out = run();
+  return [out, performance.now() - t0];
+}
+
 describe('правило на сервере — normalizeWidgetPath и запись', () => {
   it.each(CASES)('%s', (_name, pathname, expected, digits) => {
     expect(normalizeWidgetPath(pathname)).toBe(expected);
@@ -100,6 +164,25 @@ describe('правило на сервере — normalizeWidgetPath и запи
     const p = normalizeWidgetPath(pathname)!;
     expect(p.length).toBeLessThanOrEqual(200);
     expect(p.replace(/\D/g, '')).not.toContain('8914');
+  });
+
+  it('разбор линейный: регэксп, которым правило режет сегмент, не квадратичен на враждебном входе', () => {
+    expectLinear(segmentSplitters(() => normalizeWidgetPath(PROBE_PATH)));
+  });
+
+  it('путь длиннее предела не разбирается — null, и быстро; хост при этом записывается', () => {
+    const [p, ms] = timed(() => normalizeWidgetPath(FLOOD));
+    expect(p).toBeNull();
+    expect(ms).toBeLessThan(250);
+    expect(widgetOrigin('mestechkokam.ru', FLOOD, ['mestechkokam.ru'])).toEqual({
+      host: 'mestechkokam.ru', path: null, host_check: 'listed',
+    });
+    expect(normalizeWidgetPath(AT_LIMIT)).toBe(AT_LIMIT.slice(0, 200));
+    expect(normalizeWidgetPath(OVER_LIMIT)).toBeNull();
+  });
+
+  it('пустой путь от скрипта (портянка не отправлена) — в записи «пути нет»', () => {
+    expect(readWidgetOriginParams('?host=mestechkokam.ru&path=')).toEqual({ host: 'mestechkokam.ru', path: null });
   });
 });
 
@@ -147,6 +230,18 @@ describe('embed.js (чат): путь в адресе окна уже чисты
     expect(src.searchParams.get('path')!.length).toBeLessThanOrEqual(200);
     expect(src.searchParams.get('path')!.replace(/\D/g, '')).not.toContain('8914');
   });
+
+  it('разбор линейный: регэксп копии правила не квадратичен на враждебном входе', () => {
+    expectLinear(segmentSplitters(() => frameSrc(PROBE_PATH)));
+  });
+
+  it('путь длиннее предела не разбирается и в адрес окна не идёт — вкладка не виснет', () => {
+    const [src, ms] = timed(() => frameSrc(FLOOD));
+    expect(src.searchParams.get('path')).toBe('');
+    expect(ms).toBeLessThan(2000);
+    expect(frameSrc(AT_LIMIT).searchParams.get('path')).toBe(AT_LIMIT.slice(0, 200));
+    expect(frameSrc(OVER_LIMIT).searchParams.get('path')).toBe('');
+  });
 });
 
 describe('выдача lead.js (форма): путь в адресе окна уже чистый', () => {
@@ -186,5 +281,17 @@ describe('выдача lead.js (форма): путь в адресе окна �
     const src = frameSrc('/' + 'a'.repeat(190) + '/8-914-123-45-67');
     expect(src.searchParams.get('path')!.length).toBeLessThanOrEqual(200);
     expect(src.searchParams.get('path')!.replace(/\D/g, '')).not.toContain('8914');
+  });
+
+  it('разбор линейный: регэксп копии правила не квадратичен на враждебном входе', () => {
+    expectLinear(segmentSplitters(() => frameSrc(PROBE_PATH)));
+  });
+
+  it('путь длиннее предела не разбирается и в адрес окна не идёт — вкладка не виснет', () => {
+    const [src, ms] = timed(() => frameSrc(FLOOD));
+    expect(src.searchParams.get('path')).toBe('');
+    expect(ms).toBeLessThan(2000);
+    expect(frameSrc(AT_LIMIT).searchParams.get('path')).toBe(AT_LIMIT.slice(0, 200));
+    expect(frameSrc(OVER_LIMIT).searchParams.get('path')).toBe('');
   });
 });

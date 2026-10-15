@@ -35,7 +35,7 @@
  * браузере, и роуты.
  */
 
-import { scrubWidgetPath } from '@/lib/embed/widget-path-scrub';
+import { scrubWidgetPath, WIDGET_PATH_SCRUB_MAX } from '@/lib/embed/widget-path-scrub';
 
 /** Род виджета: форма заявки (lead.js) или окно чата (embed.js). */
 export type WidgetKind = 'form' | 'chat';
@@ -80,9 +80,14 @@ export function normalizeWidgetHost(raw: unknown): string | null {
  * До 15.10 ловились только цифры подряд, и `/spasibo/8-914-123-45-67`
  * ложился в базу как есть (аудит 15.10, R-path). Длина режется ПОСЛЕ чистки:
  * обрезка раньше могла рассечь номер на куски короче семи цифр.
+ *
+ * Сырой ввод длиннее `WIDGET_PATH_SCRUB_MAX` — null ДО любого разбора (ревью
+ * R-path): путь присылает аноним в теле POST /api/leads без предела длины, и
+ * чистка не должна получать портянку. Обрезать вместо отказа нельзя — срез
+ * мог бы рассечь номер на краю, и кусок прошёл бы мимо метки.
  */
 export function normalizeWidgetPath(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
+  if (typeof raw !== 'string' || raw.length > WIDGET_PATH_SCRUB_MAX) return null;
   let p = raw.split(/[?#]/, 1)[0] ?? '';
   p = p.trim();
   if (!p.startsWith('/')) return null;
