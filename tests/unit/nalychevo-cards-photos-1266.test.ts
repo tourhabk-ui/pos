@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { jpegSize } from '../helpers/jpeg-size';
 
 const ROOT = process.cwd();
 const SQL = readFileSync(join(ROOT, 'migrations/1266_nalychevo_cards_photos_after_partner_hidden.sql'), 'utf-8');
@@ -51,21 +52,6 @@ const ORIGINAL: Record<string, [number, number]> = {
   'Nalychevo.jpg': [2000, 1500],
 };
 const titleOf = (source: string) => decodeURIComponent(source.replace(/^.*\/File:/, '')).replace(/_/g, ' ');
-
-/** Ширина и высота JPEG из маркера SOF — без зависимостей. */
-function jpegSize(buf: Buffer): { width: number; height: number } {
-  let i = 2;
-  while (i < buf.length) {
-    if (buf[i] !== 0xff) { i += 1; continue; }
-    const marker = buf[i + 1];
-    const len = buf.readUInt16BE(i + 2);
-    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
-      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-    }
-    i += 2 + len;
-  }
-  throw new Error('нет маркера SOF');
-}
 
 describe('миграция 1266: снимки карточкам без снимков', () => {
   it('пять строк: двум карточкам — по два кадра Commons, перевалу — снимок владельца', () => {
