@@ -5,7 +5,7 @@
  */
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { verifyToken } from '@/lib/auth/jwt';
+import { verifySessionToken } from '@/lib/auth/jwt';
 import { getSetting } from '@/lib/platform-settings';
 
 const APP_URL      = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
@@ -37,7 +37,13 @@ async function tg(token: string, method: string, body?: unknown) {
 export default async function TelegramWebhookPage() {
   const cookieStore = await cookies();
   const authToken = cookieStore.get('auth_token')?.value;
-  const user = authToken ? await verifyToken(authToken) : null;
+  // Подпись И живая строка сессии (аудит 15.10, P3-01). Страница при рендере
+  // сама зовёт setWebhook с drop_pending_updates — по одной подписи это мог
+  // сделать токен вышедшего админа ещё до 7 дней. Edge-middleware базы не
+  // видит, так что отзыв проверяется только здесь. Не смогли сверить — не
+  // пускаем (§4.0: для своей страницы «не знаю» блокирует), причина в логе.
+  const session = authToken ? await verifySessionToken(authToken) : null;
+  const user = session?.status === 'valid' ? session.payload : null;
   if (!user || user.role !== 'admin') redirect('/auth/login?from=/hub/admin/telegram/webhook');
 
   const token = await getToken();
