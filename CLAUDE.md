@@ -905,6 +905,11 @@ sha, запись и её отказы — исполнением), `tests/unit/
 и дата ДД.ММ; правка одних комментариев — предупреждение. Реестр зон с причинами (он сам тоже зона) —
 `scripts/protected-zones.mjs`, проверка — `.github/workflows/protected-zones.yml`, сторож —
 `tests/unit/protected-zones-gate.test.ts`.
+Прямой пуш в main судится тем же правилом по сообщению каждого коммита (аудит 15.10, ZONES):
+`.github/workflows/protected-zones-push.yml` — красный прогон и одна issue на коммит, влитый PR с
+прошедшей проверкой зон повторно не судится, в защите ветки проверка не обязательна, пуш с `[skip ci]`
+GitHub не запускает; в реестре с того же дня выключатель оплаты, правило отметок контроля выхода и две
+новые зоны — `lib/max/webhook-url.ts` (вход через мессенджеры) и `lib/notifications/pd-alert.ts` (маршрут ПД).
 
 - `middleware.ts` — Edge JWT + rate-limit. Исключение по слову владельца 01.09
   («PR 2 да»): гейт `/api/admin/*` — admin-JWT либо `CRON_SECRET` в заголовке
