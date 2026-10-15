@@ -21,7 +21,10 @@
  *    в панели содержит наш коммит (замечание ревью 15.10: старший коммит,
  *    заказанный следом, иначе записался бы как наш);
  *  - шаг записи ИСПОЛНЯЕТСЯ с заглушкой gh: тело запроса, статус success,
- *    отказ записи не роняет джоб, пустой sha — записи нет, но вслух.
+ *    отказ записи не роняет джоб, пустой sha — записи нет, но вслух;
+ *  - выкат, чей контейнер назвал в /api/health migrations.state = failed
+ *    (схема отстаёт от кода, аудит 15.10, A08), не признаётся: шаг красный,
+ *    записи нет; «не узнали» — предупреждение, запись пишется.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -64,6 +67,7 @@ done
 printf '%s\\t%s\\n' "$method" "$url" >> "$FAKE_DIR/curl.log"
 case "$url" in
   */version.json) key=served;;
+  */api/health) key=health;;
   */deploys\\?*) key=deploys;;
   */deploy) key=deploy;;
   */apps/198048) key=app;;
@@ -362,6 +366,76 @@ describe('сверка отдаёт в выход то, что доказала,
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/::error::/);
     expect(r.outputs.deployed_sha).toBeUndefined();
+  });
+});
+
+// Аудит 15.10, A08: start.js отказ наката миграций не роняет, но называет
+// его в /api/health. Выкат, у которого схема отстаёт от кода, «доехавшим» не
+// признаётся: записи нет, шаг красный. «Не узнали» — не провал.
+describe('сверка не признаёт выкат со схемой, отстающей от кода', { timeout: 60_000 }, () => {
+  const verify = stepByName(job, VERIFY);
+  const env = () => stepEnv(verify, ctx({ ask: { ordered_at: String(NEED + 900) } }));
+  // Функция, а не объект: C1 и NEED заполняет beforeAll, после сбора describe.
+  const confirmed = () => ({ 'app.json': app(C1), 'served.json': served(C1, NEED + 1000) });
+  const health = (migrations: unknown) => JSON.stringify({ status: 'ok', next: { state: 'running' }, migrations });
+  const healthCalls = (r: Run) => r.curl.filter((l) => l === 'GET\thttps://vedarai.ru/api/health');
+
+  it('migrations failed — красный, выхода для записи нет, причина словами с файлом и SQLSTATE', () => {
+    const r = runStep(verify, env(), {
+      ...confirmed(),
+      'health.json': health({ state: 'failed', reason: 'file_failed', file: '1300_tour_access.sql', sqlstate: '42703', failed_count: 1, at: '2026-10-15T03:00:00.000Z' }),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(new RegExp(`::error::Выкат ${C1.slice(0, 7)} не признан: при старте контейнера накат миграций не завершён \\(reason=file_failed, файл 1300_tour_access\\.sql, SQLSTATE 42703\\)`));
+    expect(r.outputs.deployed_sha).toBe('');
+    expect(r.outputs.confirmed_by).toBe('migrations_failed');
+    expect(healthCalls(r)).toHaveLength(1);
+    // И шаг записи с этими выходами ничего не пишет.
+    const rec = stepByName(job, RECORD);
+    const w = runStep(rec, stepEnv(rec, ctx({ [verify.id!]: r.outputs })), {});
+    expect(w.gh).toEqual([]);
+  });
+
+  it('failed без файла (раннер упал без отчёта) — тоже красный, файл «неизвестно»', () => {
+    const r = runStep(verify, env(), {
+      ...confirmed(),
+      'health.json': health({ state: 'failed', reason: 'exit_1', file: null, sqlstate: null }),
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/reason=exit_1, файл неизвестно, SQLSTATE -/);
+    expect(r.outputs.deployed_sha).toBe('');
+  });
+
+  it('migrations ok — запись проходит', () => {
+    const r = runStep(verify, env(), { ...confirmed(), 'health.json': health({ state: 'ok', reason: 'applied' }) });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/migrations\.state=ok/);
+    expect(r.outputs.deployed_sha).toBe(C1);
+  });
+
+  it('unknown — предупреждение, коммит на проде доказан: запись пишется', () => {
+    const r = runStep(verify, env(), { ...confirmed(), 'health.json': health({ state: 'unknown', reason: 'no_report' }) });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/::warning::Исход наката миграций на проде неизвестен \(migrations\.state=unknown, reason=no_report\)/);
+    expect(r.outputs.deployed_sha).toBe(C1);
+  });
+
+  it('health не назвал migrations (образ до 15.10, отказ) — «не узнали», три попытки, запись пишется', () => {
+    const r = runStep(verify, env(), { ...confirmed(), 'health.code': '503', 'health.json': '<html>' });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/::warning::НЕ СМОГЛИ УЗНАТЬ исход наката миграций/);
+    expect(healthCalls(r)).toHaveLength(3);
+    expect(r.outputs.deployed_sha).toBe(C1);
+  });
+
+  it('выкат не подтверждён — health не спрашивается: чей образ ответил бы, неизвестно', () => {
+    const r = runStep(verify, stepEnv(verify, ctx()), {
+      'app.json': app(C1), 'served.json': served('unknown', NEED + 1500),
+      'health.json': health({ state: 'failed', reason: 'exit_1' }),
+    });
+    expect(r.code).toBe(0);
+    expect(r.outputs.deployed_sha).toBe('');
+    expect(healthCalls(r)).toEqual([]);
   });
 });
 

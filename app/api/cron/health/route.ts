@@ -25,6 +25,7 @@ import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { parseStartupMigrationsState, startupMigrationsIssue } from '@/lib/agents/migration-startup-state';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -664,6 +665,14 @@ export async function GET(request: NextRequest) {
   const botIssue = botUsernameIssue(await resolveTelegramBotUsername());
   if (botIssue) issues.push(botIssue);
 
+  // Накат миграций при старте этого контейнера (аудит 15.10, A08). start.js
+  // отказ наката не роняет — SOS и поле важнее новой фичи, — и сказать о нём
+  // владельцу может только сторож. failed — CRIT (схема отстаёт от кода),
+  // unknown — WARN: «не знаю» не выдаётся за «ok» (§4.0).
+  const startupMigrations = parseStartupMigrationsState(process.env.MIGRATIONS_STARTUP_STATE);
+  const migrationsIssue = startupMigrationsIssue(startupMigrations);
+  if (migrationsIssue) issues.push(migrationsIssue);
+
   // Инвариант реестра эко: сумма по всем счетам обязана быть нулём. Не сошлась —
   // значит эко родились из воздуха или исчезли, и обещание «не врать цифрами»
   // нарушено прямо сейчас. Это crit, а не предупреждение.
@@ -769,6 +778,7 @@ export async function GET(request: NextRequest) {
     anthropic_key_diag: anthropicKeyDiag,
     timeweb_agent_diag: timewebDiag,
     safety_ingest_age_min: seismic.ageMin,
+    migrations: startupMigrations,
     eco_ledger: eco,
     issues,
   });
