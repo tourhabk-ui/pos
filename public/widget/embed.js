@@ -44,6 +44,34 @@
   // прежнем #D44A0C давал 4,39:1, ниже AA (аудит 15.10, WID-config).
   var accent = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(colorAttr) ? colorAttr : '#C2410A';
 
+  // Чистка пути страницы от ПД (аудит 15.10, R-path): сегменты с почтой —
+  // {email}, ряды цифр с разделителями номера, где цифр 7 и больше, —
+  // {digits}, сегмент, который не раскрывается из %-кодирования, —
+  // {undecodable}. КОПИЯ правила scrubWidgetPath из
+  // lib/embed/widget-path-scrub.ts: файл статический, без сборки, и взять
+  // правило ему неоткуда. Та же копия — в выдаче /api/widget/lead.js
+  // (WIDGET_PATH_SCRUB_JS). Правишь одну — правь все три; расхождение ловит
+  // tests/unit/widget-path-pd.test.ts, гоняя один набор путей через все три.
+  function scrubPath(path) {
+    return String(path).split('/').map(function (seg) {
+      var plain = seg;
+      for (var i = 0; i < 3 && plain.indexOf('%') !== -1; i++) {
+        var next;
+        try { next = decodeURIComponent(plain); } catch (e) { if (i === 0) return '{undecodable}'; break; }
+        if (next === plain) break;
+        plain = next;
+      }
+      if (plain.indexOf('@') !== -1) return '{email}';
+      var parts = plain.split(/([+(]*\d(?:[\s().+_\u2010-\u2015-]{0,3}\d)*)/);
+      var changed = false;
+      for (var j = 0; j < parts.length; j++) {
+        if (j % 2 === 1 && parts[j].replace(/\D/g, '').length >= 7) { parts[j] = '{digits}'; changed = true; }
+        else parts[j] = encodeURIComponent(parts[j]);
+      }
+      return changed ? parts.join('') : seg;
+    }).join('/');
+  }
+
   function mount() {
   // Prevent double-init
   if (document.getElementById('tourhub-widget-root')) return;
@@ -92,10 +120,14 @@
   // ключи). Берутся в момент открытия: на сайте-приложении путь к этому
   // времени мог смениться. Хост подделывается — это сигнал для счёта, а не
   // замок.
+  // Путь чистится ЗДЕСЬ, до адреса окна (аудит 15.10, R-path): сайты кладут
+  // номер в путь («/spasibo/8-914-123-45-67»), и сырой путь оседал в
+  // access-логах vedarai.ru и в Referer запросов окна. Обрезка — после
+  // чистки: раньше она могла рассечь номер на куски короче семи цифр.
   function frameSrc() {
     return baseUrl + '/widget/' + encodeURIComponent(partnerId) + '?theme=' + encodeURIComponent(theme)
       + '&host=' + encodeURIComponent(String(location.hostname || ''))
-      + '&path=' + encodeURIComponent(String(location.pathname || '').slice(0, 200));
+      + '&path=' + encodeURIComponent(scrubPath(String(location.pathname || '')).slice(0, 200));
   }
   iframe.title = 'Чат с помощником';
 
