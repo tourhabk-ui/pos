@@ -36,6 +36,7 @@ import { ACTIVE_ZONE_ALERTS_SQL, UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety
 import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { MARINE_ALERT_SQL, isMarineAlert } from '@/lib/safety/marine-alert';
 import { mchs_zones } from '@/lib/services/safety/seismic-parser';
+import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
 import { readFileSync } from 'node:fs';
 import { createTestDatabase } from '../helpers/pg-schema';
 
@@ -394,6 +395,30 @@ withPg('кого накрывает предупреждение', () => {
   it('Командоры — только острова, не материк и не северная зона', async () => {
     const id = await insertAlert({ type: 'weather', title: 'Сильный ветер в Алеутском округе (тест)', zones: [KRAI_COMMANDER_ZONE] });
     expect(await coveredBy(id)).toEqual([COMMANDER.id]);
+  });
+
+  // 15.10: район места не решает, дойдёт ли тревога до острова. У Арки
+  // Стеллера с районом «commander» после 1288 — ни одной тревоги, у Бакланьих
+  // камней в 15 км с районом «avachinsky» — ветер и волнение (проба 968).
+  // Зоны — из настоящего разбора, не переписанной копией.
+  it('«юг края» Росгидромета доходит до Командор по координате, без района места', async () => {
+    const [e] = meteoalertEvents(
+      [{ regionId: '96', key: '21', level: 2, phenomenon: 'Ветер', text: 'местами 15-20 м/с', startUnix: Math.floor(Date.now() / 1000) - 60, minutes: 600 }],
+      Date.now(),
+    );
+    const id = await insertAlert({ type: 'weather', title: `${e.title} (тест юга)`, zones: [...e.affected_zones] });
+    const covered = await coveredBy(id);
+    expect(covered).toContain(COMMANDER.id);
+    expect(covered).toContain(CITY.id);
+  });
+
+  it('«по всему краю» МЧС доходит до Командор и до Корякского округа', async () => {
+    const id = await insertAlert({
+      type: 'weather', title: 'Штормовое предупреждение по всему краю (тест)',
+      zones: mchs_zones('Штормовое предупреждение по всему краю: ветер до 30 м/с'),
+    });
+    const covered = await coveredBy(id);
+    for (const p of [COMMANDER, FAR_NORTH, CITY, SHIVELUCH]) expect(covered, p.id).toContain(p.id);
   });
 
   it('гидро-тревога 7–12.10 с разбором приёма: юг и Корякский округ, Ключевская группа — нет', async () => {

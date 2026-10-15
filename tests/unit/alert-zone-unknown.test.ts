@@ -13,15 +13,17 @@
  * Правило одно на три места, и держится оно здесь: mchs_zones возвращает []
  * когда не знает; оба SQL-предиката (safety-ingest, collect-signals) пустоту
  * НЕ считают совпадением; журнал пишет geo_unmatched. Явное «по краю» в
- * тексте — данные, не дефолт, и даёт все четыре зоны.
+ * тексте — данные, не дефолт, и даёт весь край: четыре зоны и метки дальних
+ * округов (15.10 — без них «по всему краю» не доходило до Командор).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { mchs_zones } from '@/lib/services/safety/seismic-parser';
+import { KRAI_FAR_ZONES } from '@/lib/safety/krai-far';
 
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
-const ALL = new Set(['avachinsky', 'eastern', 'western', 'northern']);
+const ALL = new Set(['avachinsky', 'eastern', 'western', 'northern', ...KRAI_FAR_ZONES]);
 
 describe('mchs_zones — три исхода', () => {
   it('округ из списка → его зона (Усть-Большерецкий — западная)', () => {
@@ -47,7 +49,7 @@ describe('mchs_zones — три исхода', () => {
     expect(mchs_zones('в районе Шивелуча')).toEqual(['northern']);
   });
 
-  it('«по Камчатскому краю» / «по всему краю» / «на территории края» → все четыре зоны', () => {
+  it('«по Камчатскому краю» / «по всему краю» / «на территории края» → весь край, с дальними округами', () => {
     expect(new Set(mchs_zones('По Камчатскому краю ожидается усиление ветра до 25 м/с'))).toEqual(ALL);
     expect(new Set(mchs_zones('штормовое предупреждение по всему краю'))).toEqual(ALL);
     expect(new Set(mchs_zones('на территории края сохраняется высокая пожарная опасность'))).toEqual(ALL);

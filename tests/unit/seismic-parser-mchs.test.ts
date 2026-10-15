@@ -345,9 +345,9 @@ describe('mchs_zones', () => {
     expect(mchs_zones('паводок в Усть-Камчатском районе')).toEqual(['northern']);
   });
 
-  it('a text that says «по краю» itself covers all four zones — by the source\'s word, not by default', () => {
+  it('a text that says «по краю» itself covers the whole krai — four zones and the far districts, by the source\'s word', () => {
     expect(new Set(mchs_zones('погодное предупреждение по краю')))
-      .toEqual(new Set(['avachinsky', 'eastern', 'western', 'northern']));
+      .toEqual(new Set(['avachinsky', 'eastern', 'western', 'northern', 'krai_koryak', 'krai_commander']));
   });
 
   it('neither volcano, nor district, nor «по краю» → [] (17.09), never a silent avachinsky', () => {

@@ -76,14 +76,23 @@ describe('предупреждение → тревога', () => {
     expect(e.title).toBe('Росгидромет: ветер — жёлтый уровень (север и юг края)');
     expect(e.description).toContain('в прибрежных районах местами 15-20 м/с.');
     expect(e.description).toContain('жёлтый — потенциально опасно');
-    expect([...e.affected_zones].sort()).toEqual(['avachinsky', 'eastern', 'northern', 'western']);
+    expect([...e.affected_zones].sort()).toEqual(['avachinsky', 'eastern', 'krai_commander', 'krai_koryak', 'northern', 'western']);
     expect(e.expires_hours).toBe(82);
     expect(e.source_id.startsWith(`${METEOALERT_PREFIX}/95+96/21/${NOW}/t`)).toBe(true);
   });
 
-  it('только север — только северная зона', () => {
+  it('только север — северная зона и Корякский округ по координатам, без Командор', () => {
     const w = parseMeteoalert(SAMPLE)!.warnings.filter((x) => x.regionId === '95');
-    expect(meteoalertEvents(w, NOW * 1000)[0].affected_zones).toEqual(['northern']);
+    expect(meteoalertEvents(w, NOW * 1000)[0].affected_zones).toEqual(['northern', 'krai_koryak']);
+  });
+
+  it('только юг — четыре зоны и Командоры по координатам: Алеутский округ не входит в бывший Корякский', () => {
+    // 15.10: у Арки Стеллера с районом «commander» после 1288 ни одной тревоги
+    // (проба 968), у Бакланьих камней в 15 км с районом «avachinsky» — ветер и
+    // волнение. Район места не должен решать, дойдёт ли тревога до острова.
+    const w = parseMeteoalert(SAMPLE)!.warnings.filter((x) => x.regionId === '96');
+    expect([...meteoalertEvents(w, NOW * 1000)[0].affected_zones].sort())
+      .toEqual(['avachinsky', 'eastern', 'krai_commander', 'northern', 'western']);
   });
 
   it('оранжевый — «опасно» (2, порог пуша), красный — 3', () => {
