@@ -22,6 +22,7 @@ import { tourDurationDays } from '@/lib/bookings/duration';
 import { tourGroupCost } from '@/lib/planner/estimate';
 import { planTourPrice } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 
 
@@ -155,6 +156,11 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
   // четырёх 784 000 ₽ и выпадал из бюджета, тур «за день» стоил как
   // однодневный, а ступени цены по размеру группы не учитывались вовсе
   // (#2304, шаг 1в). Туров на витрине десятки — отбор делается здесь.
+  //
+  // «Тур на витрине» — шлюз publicTourSql, а не своя копия флагов (находка
+  // аудита 15.10 P1-04): копия держала is_published и is_active, но не
+  // deleted_at, и УДАЛЁННЫЙ оператором тур вставал в план поездки с ценой и
+  // ссылкой на карточку, которая отвечает 404.
   const sql = `
     SELECT t.id, t.slug, t.title, t.activity_type,
            t.base_price, t.price_unit, t.max_participants,
@@ -163,8 +169,7 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
            t.location_name AS location, t.difficulty, t.tour_image
     FROM operator_tours t
     JOIN partners p ON p.id = t.operator_id
-    WHERE t.is_published = true
-      AND t.is_active = true
+    WHERE ${publicTourSql('t')}
       AND t.activity_type IN (${placeholders})
       ${difficultyClause}
     ORDER BY t.activity_type, t.base_price ASC

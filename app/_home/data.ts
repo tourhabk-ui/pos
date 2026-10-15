@@ -33,7 +33,8 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
-import { hasAvailabilitySql, LIVE_TOUR_CONDITIONS } from '@/lib/search/tour-search';
+import { hasAvailabilitySql } from '@/lib/search/tour-search';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
 import { basisOf, type AlertBasis } from '@/lib/safety/alert-basis';
@@ -350,7 +351,7 @@ export async function fetchPlates(): Promise<Plate[]> {
   // должен занимать место открытого.
   //
   // «Живой тур» и «даты есть» — не свои копии, а фрагменты каталога
-  // (lib/search/tour-search: LIVE_TOUR_CONDITIONS, hasAvailabilitySql): та же
+  // (шлюз витрины publicTourSql и lib/search/tour-search hasAvailabilitySql): та же
   // витрина, тот же ответ для того же тура. JOIN partners — как в каталоге и
   // его сводке: тур без оператора каталог не показывает, и главная не должна.
   try {
@@ -377,7 +378,7 @@ export async function fetchPlates(): Promise<Plate[]> {
              ${hasAvailabilitySql()} AS has_availability
         FROM operator_tours ot
         JOIN partners p ON ot.operator_id = p.id
-       WHERE ${LIVE_TOUR_CONDITIONS.join(' AND ')}
+       WHERE ${publicTourSql('ot')}
        ORDER BY (ot.tour_image IS NOT NULL
                  OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
                 ot.created_at DESC

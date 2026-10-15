@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,11 @@ export async function GET(request: NextRequest) {
   const operatorSlug = searchParams.get('operator');
   const format = searchParams.get('format') || 'json';
 
-  const conditions = ['t.is_active = true', 'p.is_public = true', 'p.slug IS NOT NULL'];
+  // Чужой площадке уходит ровно витрина: шлюз publicTourSql, а не своя копия
+  // флагов (находка аудита 15.10 P1-04). Копия держала is_active и deleted_at,
+  // но не is_published — снятый с витрины тур (черновик, несезонное окно,
+  // демо) уезжал в фид как продаваемый, хотя у нас его не купить.
+  const conditions = [publicTourSql('t'), 'p.is_public = true', 'p.slug IS NOT NULL'];
   const params: unknown[] = [];
 
   if (operatorSlug) {
@@ -63,7 +68,7 @@ export async function GET(request: NextRequest) {
        p.contacts->>'email' as op_email
      FROM operator_tours t
      JOIN partners p ON t.operator_id = p.id
-     WHERE ${conditions.join(' AND ')} AND t.deleted_at IS NULL
+     WHERE ${conditions.join(' AND ')}
      ORDER BY p.name, t.title`,
     params
   );

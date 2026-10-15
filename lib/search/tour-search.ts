@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { pool } from '@/lib/db-pool';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const MarketplaceToursQuerySchema = z.object({
   search:        z.string().max(200).optional(),
@@ -74,17 +75,6 @@ export interface MarketplaceToursResult {
 }
 
 /**
- * Что считается живым туром витрины — одно условие на листинг и на сводку
- * (`queryCatalogSummary`). Две копии условия дали бы герою «8 туров», а сетке
- * другое число, как уже было с константой «13 туров» (#1780).
- */
-export const LIVE_TOUR_CONDITIONS = [
-  'ot.deleted_at IS NULL',
-  'ot.is_active = true',
-  'ot.is_published = true',
-] as const;
-
-/**
  * «У тура есть свободные даты» — одно условие для каталога и главной.
  *
  * Главная (app/_home/data.ts, fetchPlates) решает по нему «даты есть / по
@@ -93,7 +83,7 @@ export const LIVE_TOUR_CONDITIONS = [
  * здесь развела бы витрины для одного и того же тура, как с «13 турами»
  * (#1780). Сторож: tests/unit/home-plates-tours.test.ts.
  *
- * Алиас тура — `ot` (как в LIVE_TOUR_CONDITIONS); брони внутри — `ob2`,
+ * Алиас тура — `ot` (как у листинга каталога); брони внутри — `ob2`,
  * чтобы не спорить с внешним `ob` листинга.
  */
 export function hasAvailabilitySql(): string {
@@ -150,7 +140,13 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
     JOIN partners p ON ot.operator_id = p.id
     LEFT JOIN operator_bookings ob ON ob.operator_tour_id = ot.id`;
 
-  const conditions: string[] = [...LIVE_TOUR_CONDITIONS];
+  // Живой тур витрины — шлюз publicTourSql: одно условие на листинг, сводку
+  // (queryCatalogSummary), главную и витрину компаний. Две копии условия дали
+  // бы герою «8 туров», а сетке другое число, как уже было с константой
+  // «13 туров» (#1780). До 15.10 здесь жил второй канон того же правила —
+  // LIVE_TOUR_CONDITIONS с теми же тремя флагами; два канона расходятся при
+  // первой правке одного из них, поэтому он снят (находка аудита 15.10 P1-04).
+  const conditions: string[] = [publicTourSql('ot')];
   const params: unknown[] = [];
   let idx = 1;
 
@@ -255,7 +251,7 @@ export async function queryCatalogSummary(): Promise<CatalogSummary> {
     `SELECT ot.activity_type, COUNT(*)::INT AS n, MIN(ot.base_price) AS min_price
        FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
-      WHERE ${LIVE_TOUR_CONDITIONS.join(' AND ')}
+      WHERE ${publicTourSql('ot')}
       GROUP BY ot.activity_type
       ORDER BY n DESC, ot.activity_type ASC`,
   );
