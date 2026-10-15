@@ -2131,8 +2131,20 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     if (name === 'safety_status') {
       const { getCurrentSafetyStatus, formatSafetyStatusForAgent } = await import('@/lib/safety/current-status');
-      // Недоступность источника проговаривается словами: «данных нет» ≠ «тихо».
-      return formatSafetyStatusForAgent(await getCurrentSafetyStatus());
+      const { loadVolcanoInput, volcanoLinesForSafetyStatus } = await import('@/lib/kuzmich/volcano-tool');
+      // Вулканы — своим путём (#2495): отказ сводок не гасит обстановку по
+      // тревогам и наоборот. Недоступность проговаривается словами:
+      // «данных нет» ≠ «тихо».
+      const [status, volcanoes] = await Promise.all([
+        getCurrentSafetyStatus(),
+        loadVolcanoInput()
+          .then((input) => volcanoLinesForSafetyStatus(input))
+          .catch((err: unknown) => {
+            console.error('[safety_status] вулканы не прочитаны:', err instanceof Error ? err.message : err);
+            return null;
+          }),
+      ]);
+      return formatSafetyStatusForAgent(status, volcanoes);
     }
     if (name === 'search_accommodations') {
       const { searchAccommodationsForKuzmich } = await import('@/lib/kuzmich/accommodation-search');
