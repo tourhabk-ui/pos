@@ -124,9 +124,9 @@ describe('гейт занятости в reserveBooking', () => {
       .not.toMatch(/booking_status IN \('new', 'confirmed'\)/);
   });
 
-  it('записывается тот же интервал, что проверен', () => {
-    expect(RESERVE).toMatch(/booking_date, end_date, duration_days/);
-  });
+  // «Записывается тот же интервал, что проверен» — вызовом ниже («многодневная
+  // бронь») и в booking-single-writer: с 15.10 (аудит, P2-01) end_date и
+  // duration_days выводит общая insertBookingRow, список колонок строится.
 });
 
 /* ─── 4. Живое поведение ───────────────────────────────────────────────────── */

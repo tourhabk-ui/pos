@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
+import { requirePageRole } from '@/lib/auth/server-page';
 import { ChannelsDashboardClient } from './_ChannelsDashboardClient';
 
 export const metadata: Metadata = { title: 'Каналы продаж' };
@@ -36,6 +37,10 @@ async function getChannelStats() {
 }
 
 export default async function ChannelsPage() {
+  // Роль — на сервере и до запроса (аудит 15.10, P3-22): Edge на /hub роль не
+  // сверяет, а клиентский HubLayout перенаправлял уже после того, как сервер
+  // выполнил SQL и отдал агрегаты в RSC-пейлоаде любому вошедшему.
+  await requirePageRole(['admin'], '/hub/admin/channels');
   const { orders, tours } = await getChannelStats();
   return <ChannelsDashboardClient orders={orders} tours={tours} />;
 }

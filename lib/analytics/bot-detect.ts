@@ -49,6 +49,13 @@ export const BOT_FAMILIES: readonly BotFamily[] = [
   { family: 'tencent',     vendor: 'Tencent (Sogou), КНР',    markers: ['sogou web spider'] },
   { family: '360',         vendor: '360 Search, КНР',         markers: ['360spider'] },
   { family: 'deepseek',    vendor: 'DeepSeek, КНР',           markers: ['deepseekbot'] },
+  // Аудит 15.10, CN-detect: семейства не было, и визиты Kimi в переписи входов
+  // уходили в «other-bot». Три обходчика — по первоисточнику
+  // kimi.com/policies/kimi-crawlers (15.10): KimiBot (обучение), Kimi-SearchBot
+  // (поисковый индекс Kimi), Kimi-User (запрос человека). Токены «Kimi»,
+  // «Qwenbot», «Doubao» из чужих блок-листов и «chatglm-spider» не берутся:
+  // у них нет первоисточника, и перепись называла бы то, чего не знает.
+  { family: 'kimi',        vendor: 'Moonshot (Kimi), КНР',    markers: ['kimibot', 'kimi-searchbot', 'kimi-user'] },
   { family: 'apple',       vendor: 'Apple',                   markers: ['applebot'] },
   { family: 'meta',        vendor: 'Meta',                    markers: ['meta-externalagent', 'facebookexternalhit'] },
   { family: 'amazon',      vendor: 'Amazon',                  markers: ['amazonbot'] },

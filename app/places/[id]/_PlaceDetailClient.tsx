@@ -18,6 +18,7 @@ import { distanceToCity } from '@/lib/places/distance-to-city';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { composeAccessText } from '@/lib/places/access-text';
 import { PLACE_PHOTO_UPLOAD_ANCHOR } from '@/components/places/AddPhotoLink';
+import PhotoCredit, { creditFor } from '@/components/places/PhotoCredit';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -334,41 +335,17 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
           Не знаем автора — не называем его (§4.0). */}
       {/* Кадр галереи — подпись его автора и только его (04.10, владелец:
           «если фото Ильи — то и подпись его, если моя — владелец платформы»).
-          Автора кадра не знаем — подписи нет, имя героя ему не приписываем. */}
-      {currentPhoto && currentPhoto in place.photoCredits && !isHeroPhoto(currentPhoto) ? (
-        place.photoCredits[currentPhoto] ? (
-          <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
-            Фото: <span>{place.photoCredits[currentPhoto]}</span>
+          Автора кадра не знаем — имени нет, имя героя ему не приписываем.
+          С 15.10 у кадра галереи и его лицензия со страницей файла: снимку
+          Commons одного имени мало (components/places/PhotoCredit). */}
+      {(() => {
+        const credit = creditFor(currentPhoto, place.photoCredits, place.photoRights, place.photoAttribution, isHeroPhoto);
+        return credit ? (
+          <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6">
+            <PhotoCredit {...credit} />
           </div>
-        ) : null
-      ) : place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license) && (
-        <div className="mx-auto w-full max-w-3xl px-4 lg:max-w-6xl lg:px-6 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
-          Фото:{' '}
-          {place.photoAttribution.author && (
-            place.photoAttribution.sourceUrl ? (
-              <a href={place.photoAttribution.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
-                {place.photoAttribution.author}
-              </a>
-            ) : (
-              <span>{place.photoAttribution.author}</span>
-            )
-          )}
-          {place.photoAttribution.license && (
-            <>
-              {place.photoAttribution.author ? ' · ' : ''}
-              {place.photoAttribution.licenseUrl ? (
-                <a href={place.photoAttribution.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
-                  {place.photoAttribution.license}
-                </a>
-              ) : (
-                <span>{place.photoAttribution.license}</span>
-              )}
-            </>
-          )}
-          {/* Источник без автора и лицензии подписью не является, но ссылка
-              на него полезна — она есть в блоке выше, когда автор известен. */}
-        </div>
-      )}
+        ) : null;
+      })()}
 
       {/* Action bar: navigate, bookmark, share, weather.
           Полноширинный липкий бар — намеренно вне сетки ниже: он относится ко

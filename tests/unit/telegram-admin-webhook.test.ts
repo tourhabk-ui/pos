@@ -76,13 +76,10 @@ describe('POST админ-бота: ответ уходит владельцу, 
     expect(POST_BODY).toMatch(/verdict === 'forbidden'\) return new NextResponse\(null, \{ status: 401 \}\)/);
   });
 
-  it('незаданный секрет не роняет бота, но и не молчит', () => {
-    // Fail-closed здесь превратил бы защиту данных в отказ сервиса: бот
-    // владельца замолчал бы до правки окружения. Поэтому — работаем и говорим.
-    expect(POST_BODY).toMatch(/verdict === 'not_configured'/);
-    expect(POST_BODY).toMatch(/console\.error\('\[telegram\/admin\]/);
-    expect(POST_BODY).not.toMatch(/not_configured'\)\s*return new NextResponse\(null, \{ status: 5/);
-  });
+  // Незаданный секрет: прежде здесь стоял сторож «не роняет бота» — работа без
+  // проверки при not_configured (#1168). Аудит 15.10 (P3-03) снял это решение
+  // замером с прода: без секрета роут отказывает 503 и не начинает обработку.
+  // Держится вызовом обработчиков, а не текстом: tests/unit/telegram-webhook-fail-closed.test.ts.
 });
 
 describe('вторая дверь: тот же дефект в Кузьмиче', () => {
@@ -142,9 +139,10 @@ describe('открытый прокси к Bot API удалён', () => {
     // webhook живёт в register-kuzmich (CRON_SECRET), диагностика — в check
     // (requireAdmin). Если эти исчезнут, тест напомнит, что мы остались без
     // замены, а не молча потеряли функцию.
-    const reg = readFileSync(join(process.cwd(), 'app/api/telegram/register-kuzmich/route.ts'), 'utf-8');
-    expect(reg).toMatch(/setWebhook/);
-    expect(reg).toMatch(/CRON_SECRET/);
+    // Что register-kuzmich ставит вебхук (через единую дверь, с секретом) и
+    // без CRON_SECRET отказывает — проверяется вызовом в
+    // telegram-webhook-one-door.test.ts; здесь — только что замена на месте.
+    expect(existsSync(join(process.cwd(), 'app/api/telegram/register-kuzmich/route.ts'))).toBe(true);
     const check = readFileSync(join(process.cwd(), 'app/api/telegram/check/route.ts'), 'utf-8');
     expect(check).toMatch(/requireAdmin/);
   });

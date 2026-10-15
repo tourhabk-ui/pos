@@ -158,6 +158,10 @@ describe('связка: никто не сортирует имена мигра
     'lib/agents/evo/schema-model.ts',
     'scripts/gen-db-schema.ts',
     'tests/unit/db-schema-doc.test.ts',
+    // Порядок неприменённых для сторожа (watchdog) и экрана админки. До 15.10
+    // здесь был голый `.sort()`: список читался `1000_` раньше `999_` — не в
+    // том порядке, в каком их покатит деплой (аудит 15.10, P4-04).
+    'lib/agents/migration-status.ts',
   ];
 
   it('каждый читатель каталога миграций берёт порядок из одного модуля', () => {
@@ -183,11 +187,11 @@ describe('связка: никто не сортирует имена мигра
     expect(src).not.toMatch(/Number\(f\.slice\(0,\s*3\)\)/);
   });
 
-  it('ручной накат принимает номер длиннее трёх цифр', () => {
-    const src = readFileSync(join(ROOT, 'app/api/admin/migrations/apply/route.ts'), 'utf-8');
-    expect(src).toMatch(/\\d\{3,\}/);
-    expect(src).not.toMatch(/regex\(\/\^\\d\{3\}\$\/\)/);
-  });
+  // Проверка «ручной накат принимает номер длиннее трёх цифр» снята 15.10
+  // вместе с самим ручным накатом (аудит, P4-04): `/api/admin/migrations/apply`
+  // и `/run-pending` отвечают 410 и миграций не читают вовсе. Что ни одна
+  // дверь под `/api/admin/migrations` не трогает базу на запись — держит
+  // вызовом `tests/unit/migrations-deploy-only.test.ts`.
 
   it('пороги baseline в pg-тестах сравниваются числом', () => {
     for (const rel of ['tests/integration/tourist-cabinet.pg.test.ts',

@@ -90,56 +90,9 @@ describe('Tours API', () => {
     });
   });
 
-  describe('POST /api/tours/[id]/book', () => {
-    
-    it('должен создавать бронирование тура', async () => {
-      // Arrange
-      const bookingData = {
-        tourId: 'tour-1',
-        date: '2025-11-10',
-        adults: 2,
-        children: 1,
-        totalPrice: 12500
-      };
-      
-      // Act
-      const response = {
-        success: true,
-        data: {
-          id: 'booking-1',
-          status: 'pending',
-          ...bookingData
-        }
-      };
-      
-      // Assert
-      expect(response.success).toBe(true);
-      expect(response.data.id).toBe('booking-1');
-      expect(response.data.status).toBe('pending');
-    });
-
-    it('должен проверять достаточное количество мест', async () => {
-      // Arrange
-      const availableSpots = 3;
-      const requestedGuests = 5;
-      
-      // Assert
-      expect(requestedGuests > availableSpots).toBe(true);
-    });
-
-    it('должен требовать все необходимые данные', async () => {
-      // Assert
-      const requiredFields = ['tourId', 'date', 'adults', 'totalPrice'];
-      const bookingData = { tourId: 'tour-1', date: '2025-11-10' };
-      
-      const missingFields = requiredFields.filter(
-        field => !(field in bookingData)
-      );
-      
-      expect(missingFields).toContain('adults');
-      expect(missingFields).toContain('totalPrice');
-    });
-  });
+  // POST /api/tours/[id]/book удалён 15.10 (аудит, P2-01): роут не звал
+  // никто, а бронь он писал мимо общего гейта. Бронь тура — reserveBooking
+  // (tests/unit/booking-single-writer.test.ts, booking-doors-one-writer).
 
   describe('Обработка ошибок', () => {
     

@@ -1,51 +1,34 @@
 {
   "timeout": 90,
-  "run": 940,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката разбора по карт-бланшу владельца: 1265 (кадры «Края Вулканов» сняты с карточек мест до согласия), 1266 (снимки карточкам Налычева без фото — Commons с автором и лицензией, Верблюд владельца — перевалу), главный кадр статьи «Южно-Камчатский заказник» — снимок владельца (media-to-s3, прогон 14), экоблок без шаблона, блог без двух статей без источника. Ждёт выката по новому кадру статьи; байты кадра сверяются хэшем. Конфиг записан целиком.",
+  "run": 943,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Проверка выката 1271: карточки «Остров Старичков» и «Парк «Ключевской»», оставшиеся без снимков после 1263 и 1265, получили по три кадра Commons — у каждого автор, лицензия и страница файла (photoRights). Ждёт выката по автору первого кадра Старичкова. Конфиг записан целиком.",
   "urls": [
-    "https://vedarai.ru/letopis/yuzhno-kamchatskij-zakaznik",
-    "https://vedarai.ru/api/images/s3/photos/yuzhno-kamchatskij-zakaznik/vladelec-kurilskoe-ozero.jpg",
-    "https://vedarai.ru/api/places/c7c9f572-5e78-4d4f-a9ee-d0182eb313d6",
-    "https://vedarai.ru/api/places/4732f58e-63e5-4ec1-902e-f0f531391193",
-    "https://vedarai.ru/api/places/3dd2ceaf-1351-4625-9171-711eb8b1a455",
-    "https://vedarai.ru/api/places/a79c9a19-e5c6-4d99-9134-cae496430dca",
-    "https://vedarai.ru/api/places/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0",
-    "https://vedarai.ru/places/630819da-48d1-4bb8-99c9-3b190d6ae26c",
-    "https://vedarai.ru/blog",
-    "https://vedarai.ru/blog/sos-offline-guide"
+    "https://vedarai.ru/api/places/4dd86a74-d010-4ff4-81ad-23af3ba966a5",
+    "https://vedarai.ru/api/places/1c93607e-9a9e-4abc-a7dc-0a1b774c21d0"
   ],
-  "until": "vladelec-kurilskoe-ozero",
+  "until": "Кулик Мария Владимировна",
   "retries": 40,
   "retryDelay": 45,
   "grep": [
-    "Бурый медведь с медвежонком на берегу Курильского озера",
-    "kraj-vulkanov",
-    "Край Вулканов",
+    "Кулик Мария Владимировна",
+    "Aysa t",
+    "DoctisDM",
+    "Tamten",
+    "Giorgio Galeotti",
+    "Zhuravell",
+    "CC BY-SA 3.0",
+    "Общественное достояние",
     "Местечко Камчатка",
-    "Rost.galis",
-    "Jeskela",
-    "Gistereziz",
-    "Экструзия Верблюд на Авачинском перевале",
-    "Экологический календарь",
-    "Правила посещения",
-    "пока не записаны",
-    "Как работает SOS-кнопка без интернета",
-    "Сезон 2026 на Камчатке",
-    "Верифицированные операторы",
-    "Скачать для похода",
-    "30 км"
+    "Край Вулканов"
   ],
   "count": [
-    "/api/images/place-gallery/",
-    "/api/images/route/"
+    "/api/images/place-gallery/"
   ],
   "around": [
     "\"photoUrl\"",
-    "\"photoCount\"",
-    "\"photoCredits\""
+    "\"photoCount\""
   ],
   "aroundLines": 2,
-  "aroundHits": 3,
-  "bytes": 160,
-  "hash": true
+  "aroundHits": 1,
+  "bytes": 120
 }

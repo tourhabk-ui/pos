@@ -144,7 +144,6 @@ describe('поиск профиля по человеку — с категор�
   const KNOWN_WITHOUT_CATEGORY: Readonly<Record<string, string>> = {
     'app/api/carrier-trips/bookings/[id]/qr/route.ts': 'перевозчик; категория transfer на проде не сверена',
     'app/api/carrier-trips/bookings/route.ts': 'перевозчик; категория transfer на проде не сверена',
-    'app/api/operator-agreements/content-consent/route.ts': 'согласие оператора на контент; категория не сверена',
     'lib/agents/agencies/guide-agency.ts': 'агентство гида; категория guide на проде не сверена',
   };
 

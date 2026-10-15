@@ -4,8 +4,9 @@
  *
  * Держится связка происхождения, а не текст подписи:
  *   ключ хранилища → файл, залитый media-to-s3 (те же байты, тот же размер,
- *   что записан в галерее) → файл Commons, скачанный кандидатом 14.10
- *   (маркер operator-photos), → автор и свободная лицензия у строки;
+ *   что записан в галерее) → файл Commons с той же пропорцией оригинала
+ *   (размеры — imageinfo Commons, пробы 853 и 859) → автор и свободная
+ *   лицензия у строки;
  *   снимок владельца — его собственный, из 958, с той же подписью, что в
  *   галерее парка (1248);
  *   кадров партнёров без согласия среди них нет.
@@ -13,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { jpegSize } from '../helpers/jpeg-size';
 
 const ROOT = process.cwd();
 const SQL = readFileSync(join(ROOT, 'migrations/1266_nalychevo_cards_photos_after_partner_hidden.sql'), 'utf-8');
@@ -37,20 +39,19 @@ const ROWS: Row[] = [...BODY.matchAll(
   license: q(m[6]), licenseUrl: q(m[7]), source: q(m[8]), key: m[9],
 }));
 
-/** Ширина и высота JPEG из маркера SOF — без зависимостей. */
-function jpegSize(buf: Buffer): { width: number; height: number } {
-  let i = 2;
-  while (i < buf.length) {
-    if (buf[i] !== 0xff) { i += 1; continue; }
-    const marker = buf[i + 1];
-    const len = buf.readUInt16BE(i + 2);
-    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
-      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-    }
-    i += 2 + len;
-  }
-  throw new Error('нет маркера SOF');
-}
+/**
+ * Размеры оригиналов Commons — imageinfo (пробы 853 и 859). Пережатие сводит
+ * длинную сторону к 1600 и сохраняет пропорции: файл чужой страницы с другой
+ * пропорцией здесь не пройдёт. Список кандидатов 14.10 (маркер
+ * operator-photos, прогон 7) маркер не хранит — его сменяет следующая закачка.
+ */
+const ORIGINAL: Record<string, [number, number]> = {
+  'Налычевские термальные источники.jpg': [3859, 2830],
+  'Налычевские термальные источники 1.jpg': [4000, 3000],
+  'Третья "лужа".JPG': [1632, 1224],
+  'Nalychevo.jpg': [2000, 1500],
+};
+const titleOf = (source: string) => decodeURIComponent(source.replace(/^.*\/File:/, '')).replace(/_/g, ' ');
 
 describe('миграция 1266: снимки карточкам без снимков', () => {
   it('пять строк: двум карточкам — по два кадра Commons, перевалу — снимок владельца', () => {
@@ -77,16 +78,12 @@ describe('миграция 1266: снимки карточкам без сним
     }
   });
 
-  it('Commons: автор, свободная лицензия и страница файла — того самого, что скачан кандидатом 14.10', () => {
-    const candidates = (JSON.parse(readFileSync(join(ROOT, '.github/triggers/operator-photos.json'), 'utf-8')) as {
-      items: Array<{ url: string }>;
-    }).items.map((i) => decodeURIComponent(i.url.replace(/^.*Special:FilePath\//, '').replace(/\?.*$/, '')));
+  it('Commons: автор, свободная лицензия и страница файла — одного из сверенных оригиналов', () => {
     const commons = ROWS.filter((r) => r.author !== 'владелец платформы');
     expect(commons).toHaveLength(4);
     for (const r of commons) {
       expect(r.source, r.key).toMatch(/^https:\/\/commons\.wikimedia\.org\/wiki\/File:/);
-      const title = decodeURIComponent(r.source!.replace(/^.*\/File:/, '')).replace(/_/g, ' ');
-      expect(candidates, r.key).toContain(title);
+      expect(Object.keys(ORIGINAL), r.key).toContain(titleOf(r.source!));
       if (r.license === 'Общественное достояние') {
         expect(r.licenseUrl, r.key).toBeNull();
       } else {
@@ -97,17 +94,8 @@ describe('миграция 1266: снимки карточкам без сним
   });
 
   it('файл хранилища — пережатый оригинал именно той страницы Commons, что названа в строке', () => {
-    // Размеры оригиналов — imageinfo Commons (пробы 853 и 859). Пережатие
-    // сводит длинную сторону к 1600 и сохраняет пропорции: файл чужой
-    // страницы с другой пропорцией здесь не пройдёт.
-    const ORIGINAL: Record<string, [number, number]> = {
-      'Налычевские термальные источники.jpg': [3859, 2830],
-      'Налычевские термальные источники 1.jpg': [4000, 3000],
-      'Третья "лужа".JPG': [1632, 1224],
-      'Nalychevo.jpg': [2000, 1500],
-    };
     for (const r of ROWS.filter((x) => x.source)) {
-      const title = decodeURIComponent(r.source!.replace(/^.*\/File:/, '')).replace(/_/g, ' ');
+      const title = titleOf(r.source!);
       const orig = ORIGINAL[title];
       expect(orig, `${r.key}: ${title}`).toBeDefined();
       expect(Math.max(r.width, r.height), r.key).toBe(Math.min(1600, Math.max(...orig)));

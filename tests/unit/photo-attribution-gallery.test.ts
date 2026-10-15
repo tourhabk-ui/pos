@@ -54,7 +54,8 @@ describe('место: автор у каждого кадра свой', () => {
   it('карточка берёт подпись по кадру на экране, а не списком', () => {
     const page = read('app/places/[id]/_PlaceDetailClient.tsx');
     expect(page).toContain('onCurrentChange={setCurrentPhoto}');
-    expect(page).toContain('place.photoCredits[currentPhoto]');
+    // Подпись по кадру на экране — creditFor (поведение — place-photo-credit-rights).
+    expect(page).toMatch(/creditFor\(currentPhoto, place\.photoCredits,/);
     expect(page).not.toContain('otherAuthors');
     expect(read('components/places/PlaceHero.tsx')).toContain('onCurrentChange?.(currentSrc)');
   });

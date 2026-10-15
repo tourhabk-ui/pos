@@ -18,6 +18,10 @@
  *    читает и называет, чего не считает.
  * 5. Проба «знает ли модель о нас»: три исхода, вопрос без слова «Камчатка»,
  *    обёртки провайдеров без прямого `await callX`, workflow ждёт свою сборку.
+ * 6. Kimi и пауки картинок и видео 360 (аудит 15.10, CN-detect) — по
+ *    первоисточникам и поведением: botFamily на строках UA из политики Kimi,
+ *    счётчик robots.txt, перепись и админ-срез получают семейство, robots()
+ *    отдаёт группы 360Spider-Image и 360Spider-Video с общими правилами.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
@@ -32,10 +36,18 @@ import { AGENT_ENTRY_PATHS, recordAgentEntryHit } from '@/lib/analytics/agent-en
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 import { CRON_CAPABILITIES } from '@/lib/agents/cron-capability-registry';
 import { classifyAnswer, summarize, KNOWLEDGE_QUESTION } from '@/app/api/cron/model-knowledge-probe/route';
-import { readDays, NOT_COUNTED, CHINESE_FAMILIES } from '@/app/api/cron/agent-entry-census/route';
+import { readDays, NOT_COUNTED, CHINESE_FAMILIES, GET as censusGET } from '@/app/api/cron/agent-entry-census/route';
+import { readEntries } from '@/app/api/admin/analytics/a2a/route';
+import { agentLabel } from '@/lib/a2a/journal';
+import robots from '@/app/robots';
+import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 import { pool } from '@/lib/db-pool';
+
+// robots() читает User-Agent через headers() — подменяется строкой теста.
+const reqHeaders = vi.hoisted(() => ({ ua: '' }));
+vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'user-agent': reqHeaders.ua }) }));
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -190,6 +202,88 @@ describe('семейства ботов — один реестр', () => {
   });
 });
 
+// Строки User-Agent — дословно из kimi.com/policies/kimi-crawlers (снято 15.10).
+const KIMI_UA = {
+  KimiBot: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; KimiBot/1.0; +https://www.kimi.com/policies/kimi-crawlers',
+  'Kimi-User': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Kimi-User/1.0; +https://www.kimi.com/policies/kimi-crawlers',
+  'Kimi-SearchBot': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Kimi-SearchBot/1.0; +https://www.kimi.com/policies/kimi-crawlers',
+} as const;
+
+type RobotsRule = { userAgent: string | string[]; allow?: string | string[]; disallow?: string | string[] };
+const rulesOf = async (): Promise<RobotsRule[]> => {
+  const r = (await robots()).rules;
+  return (Array.isArray(r) ? r : [r]) as RobotsRule[];
+};
+const groupFor = (rules: RobotsRule[], ua: string) =>
+  rules.find((g) => (Array.isArray(g.userAgent) ? g.userAgent : [g.userAgent]).includes(ua));
+
+describe('Kimi и пауки 360 — по первоисточникам (аудит 15.10, CN-detect)', () => {
+  it('три обходчика Kimi опознаются семейством kimi, а не «other-bot»', () => {
+    for (const [name, ua] of Object.entries(KIMI_UA)) {
+      expect(botFamily(ua), name).toBe('kimi');
+      expect(isBotUserAgent(ua), name).toBe(true);
+      // В админ-срезе A2A агент называется так, как сам себя пишет.
+      expect(agentLabel(ua), name).toBe(name);
+    }
+    expect(BOT_FAMILIES.find((f) => f.family === 'kimi')?.vendor).toBe('Moonshot (Kimi), КНР');
+    // Токены чужих блок-листов без первоисточника — не маркеры.
+    const markers = BOT_FAMILIES.flatMap((f) => f.markers);
+    for (const m of ['kimi', 'qwenbot', 'doubao', 'chatglm-spider']) expect(markers, m).not.toContain(m);
+  });
+
+  it('визит Kimi к robots.txt пишется в счётчик семейством kimi', async () => {
+    reqHeaders.ua = KIMI_UA['Kimi-SearchBot'];
+    await robots();
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toMatch(/INSERT INTO agent_entry_hits/);
+    expect(params).toEqual(['/robots.txt', 'kimi']);
+  });
+
+  it('перепись и админ-срез называют Kimi среди семейств КНР с вендором', async () => {
+    query.mockImplementation((async (sql: string) => {
+      if (/GROUP BY path, family/.test(sql)) return { rows: [] };
+      if (/GROUP BY day/.test(sql)) return { rows: [] };
+      if (/AS since/.test(sql)) return { rows: [{ since: '2026-10-12', total: 4 }] };
+      if (/MIN\(day\)/.test(sql)) return { rows: [{ first_day: '2026-10-12', last_day: '2026-10-15', total: 4 }] };
+      if (/COUNT\(DISTINCT path\)/.test(sql)) return { rows: [{ family: 'kimi', hits: 3, paths: 1, last_day: '2026-10-15' }] };
+      if (/GROUP BY family/.test(sql)) return { rows: [{ family: 'kimi', hits: 3 }, { family: 'baidu', hits: 1 }] };
+      return { rows: [] };
+    }) as never);
+
+    vi.stubEnv('CRON_SECRET', 'test-secret');
+    const res = await censusGET(new NextRequest('https://vedarai.ru/api/cron/agent-entry-census', { headers: { authorization: 'Bearer test-secret' } }));
+    vi.unstubAllEnvs();
+    expect(res.status).toBe(200);
+    const body = await res.json() as { chinese_families: Array<{ family: string; vendor: string | null; hits: number }> };
+    expect(body.chinese_families).toContainEqual({ family: 'kimi', vendor: 'Moonshot (Kimi), КНР', hits: 3 });
+
+    const entries = await readEntries(30);
+    expect(entries.by_family).toEqual([{ family: 'kimi', vendor: 'Moonshot (Kimi), КНР', hits: 3, paths: 1, last_day: '2026-10-15' }]);
+  });
+
+  it('robots(): у 360Spider-Image и 360Spider-Video те же правила, что у 360Spider', async () => {
+    reqHeaders.ua = 'Mozilla/5.0 (compatible; 360Spider)';
+    const rules = await rulesOf();
+    const main = groupFor(rules, '360Spider');
+    expect(main).toBeDefined();
+    for (const ua of ['360Spider-Image', '360Spider-Video']) {
+      const g = groupFor(rules, ua);
+      expect(g, ua).toBeDefined();
+      expect(g?.allow, ua).toEqual(main?.allow);
+      expect(g?.disallow, ua).toEqual(main?.disallow);
+      expect(g?.allow, ua).toEqual(expect.arrayContaining(['/', '/api/mcp', '/llms.txt', '/.well-known/agent-card.json']));
+      expect(g?.disallow, ua).toEqual(expect.arrayContaining(['/hub/', '/api/', '/auth/']));
+    }
+    // Токены из чужих блок-листов без первоисточника групп не получают;
+    // обходчиков Kimi пускает общее правило «*».
+    for (const ua of ['Kimi', 'Qwenbot', 'Doubao']) {
+      expect(groupFor(rules, ua), ua).toBeUndefined();
+    }
+    expect(groupFor(rules, '*')?.allow).toContain('/');
+  });
+});
+
 describe('перепись входов для агентов', () => {
   it('девять входов; счётчик пишет сутки × путь × семейство без UA и IP, отказ — в лог, не наружу', async () => {
     expect([...AGENT_ENTRY_PATHS]).toEqual([
@@ -254,7 +348,7 @@ describe('перепись входов для агентов', () => {
     expect(CRON_CAPABILITIES['agent-entry-census']).toEqual(['db_read']);
     expect(NOT_COUNTED.length).toBeGreaterThanOrEqual(3);
     expect(NOT_COUNTED.join(' ')).toMatch(/sitemap/);
-    expect([...CHINESE_FAMILIES]).toEqual(['baidu', 'bytedance', 'huawei', 'alibaba', 'tencent', '360', 'deepseek']);
+    expect([...CHINESE_FAMILIES]).toEqual(['baidu', 'bytedance', 'huawei', 'alibaba', 'tencent', '360', 'deepseek', 'kimi']);
     for (const f of CHINESE_FAMILIES) expect(BOT_FAMILIES.map((b) => b.family), f).toContain(f);
     expect(readDays(null)).toBe(30);
     expect(readDays('7')).toBe(7);

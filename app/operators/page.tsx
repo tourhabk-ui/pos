@@ -44,7 +44,7 @@ export const metadata: Metadata = {
  */
 export default async function OperatorsPage() {
   const search = '';
-  const category = '';
+  const activity = '';
   const page = 1;
   const filters: OperatorsFilters = { page, limit: LIMIT };
 
@@ -55,7 +55,7 @@ export default async function OperatorsPage() {
     initial = null;
   }
 
-  const initialKey = initial === null ? null : JSON.stringify({ search, category, page });
+  const initialKey = initial === null ? null : JSON.stringify({ search, activity, page });
 
   const itemListJsonLd = initial && initial.items.length > 0
     ? {
@@ -84,6 +84,7 @@ export default async function OperatorsPage() {
           initialItems={initial?.items ?? []}
           initialMeta={initial?.meta ?? null}
           initialKey={initialKey}
+          initialActivities={initial?.activities ?? null}
         />
       </main>
       <Footer />

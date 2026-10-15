@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
-import { verifyToken, extractToken } from '@/lib/auth/jwt';
+import { verifySessionToken, extractToken } from '@/lib/auth/jwt';
 import { ApiResponse } from '@/types';
 import { ownedRoles } from '@/lib/auth/role-switch';
 
@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  * GET /api/auth/me
  * Get current user info
  */
-// JWT validation required — implemented in handler via verifyToken; returns 401 if missing/invalid.
+// JWT validation required — implemented in handler via verifySessionToken
+// (подпись И живая строка user_sessions); returns 401 if missing/invalid/revoked.
 export async function GET(request: NextRequest) {
   try {
     // Get token from cookie or header
@@ -25,14 +26,24 @@ export async function GET(request: NextRequest) {
       } as ApiResponse<null>, { status: 401 });
     }
 
-    // Verify token
-    const payload = await verifyToken(token);
-    if (!payload) {
+    // Подпись И строка сессии. Аудит 15.10, P3-01: здесь сверялась только
+    // подпись, и после выхода токен ещё до 7 дней отдавал email и имя —
+    // отзыв сессии (P1, 28.08) сюда не доходил. Не смогли сверить сессию —
+    // 500, а не 401 и не данные: «не знаю» не равно ни «вошёл», ни «гость».
+    const session = await verifySessionToken(token);
+    if (session.status === 'unchecked') {
+      return NextResponse.json({
+        success: false,
+        error: 'Не удалось проверить сессию'
+      } as ApiResponse<null>, { status: 500 });
+    }
+    if (session.status === 'invalid') {
       return NextResponse.json({
         success: false,
         error: 'Неверный или истекший токен'
       } as ApiResponse<null>, { status: 401 });
     }
+    const payload = session.payload;
 
     // Get user data
     const userResult = await query(

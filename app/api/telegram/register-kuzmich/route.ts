@@ -2,24 +2,21 @@
  * GET  /api/telegram/register-kuzmich?secret=CRON_SECRET
  * POST /api/telegram/register-kuzmich
  *
- * Регистрирует webhook Kuzmich-бота на /api/telegram/kuzmich.
- * Использует TELEGRAM_KUZMICH_BOT_TOKEN, fallback → TELEGRAM_BOT_TOKEN.
+ * Ставит вебхук бота (главный адрес с секретом — setCanonicalWebhook, аудит
+ * 15.10) и команды меню. Прежде ставил /api/telegram/kuzmich без секрета.
+ * Токен — TELEGRAM_BOT_TOKEN: им отвечают оба обработчика, и вебхук другого
+ * бота на нашем адресе получал бы ответы не тем ботом.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { getPublicBaseUrl } from '@/lib/config';
+import { setCanonicalWebhook } from '@/lib/telegram/operator-availability';
 export const dynamic = 'force-dynamic';
 
-async function registerWebhook(token: string, appUrl: string) {
-  const webhookUrl = `${appUrl}/api/telegram/kuzmich`;
-
-  const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: webhookUrl, drop_pending_updates: true, allowed_updates: ['message'] }),
-  });
-  const data = await res.json() as { ok: boolean; description?: string };
+async function registerWebhook(token: string) {
+  const set = await setCanonicalWebhook(token, { dropPending: true });
+  const webhookUrl = set.url;
+  const data = { ok: set.ok, description: set.ok ? undefined : set.error };
 
   if (data.ok) {
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setMyCommands`, {
@@ -44,13 +41,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const token = process.env.TELEGRAM_KUZMICH_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не задан на Timeweb' }, { status: 500 });
   }
 
-  const appUrl = getPublicBaseUrl();
-  const result = await registerWebhook(token, appUrl);
+  const result = await registerWebhook(token);
   return NextResponse.json(result);
 }
 
@@ -61,15 +57,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  let body: { token?: string } = {};
-  try { body = await request.clone().json(); } catch { /* нет тела */ }
-
-  const token = process.env.TELEGRAM_KUZMICH_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN ?? body.token;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не задан', hint: 'Задай на Timeweb' }, { status: 500 });
   }
 
-  const appUrl = getPublicBaseUrl();
-  const result = await registerWebhook(token, appUrl);
+  const result = await registerWebhook(token);
   return NextResponse.json(result);
 }

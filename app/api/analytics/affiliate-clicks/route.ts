@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getClientIp, getTrustedClientIpOrNull } from '@/lib/rate-limit';
 
 const ClickSchema = z.object({
   partner: z.string().max(50),      // 'aviasales', 'hotellook', 'tripster', etc
@@ -30,7 +30,11 @@ export async function POST(request: NextRequest) {
     }
 
     const { partner, source, subId, referrer } = parsed.data;
-    const ipAddr = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+    // Один адрес доверенным порядком, а не вся строка X-Forwarded-For
+    // (P3-02 аудита 15.10): цепочку «клиент, прокси» пишет со слов клиента,
+    // и в ip_addr varchar(45) длинная цепочка не влезала — INSERT падал 500.
+    // Срез до 45 — та же граница колонки для заголовка, набитого мусором.
+    const ipAddr = (getTrustedClientIpOrNull(request.headers) ?? 'unknown').slice(0, 45);
 
     // Log click
     await pool.query(

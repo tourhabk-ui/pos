@@ -3,11 +3,7 @@
  * Functions related to booking CRUD, payment confirmation, cancellation, and availability.
  */
 
-import {
-  pool,
-  toStringOrNull,
-  toNumberOrNull,
-} from '../_helpers';
+import { pool } from '../_helpers';
 
 export const bookingService = {
   normalize(row: Record<string, unknown> | null) {
@@ -61,37 +57,12 @@ export const bookingService = {
     );
     return this.normalize(result.rows[0] ?? null);
   },
-  async create(data: Record<string, unknown>) {
-    const tourId = toStringOrNull(data.tourId) ?? toStringOrNull(data.tour_id);
-    const userId = toStringOrNull(data.userId) ?? toStringOrNull(data.user_id);
-    const totalPrice = toNumberOrNull(data.totalPrice) ?? toNumberOrNull(data.finalPrice) ?? toNumberOrNull(data.total_price);
-    const startDate = toStringOrNull(data.startDate) ?? toStringOrNull(data.date) ?? new Date().toISOString().slice(0, 10);
-    const participants = toNumberOrNull(data.participants) ?? toNumberOrNull(data.guestsCount) ?? toNumberOrNull(data.guests_count) ?? 1;
-    const specialRequests = toStringOrNull(data.specialRequests) ?? toStringOrNull(data.special_requests);
-
-    if (!tourId || !userId || totalPrice === null) {
-      throw new Error('Required fields: tourId, userId, totalPrice');
-    }
-
-    const result = await pool.query(
-      `INSERT INTO operator_bookings (
-         user_id,
-         operator_tour_id,
-         booking_date,
-         participants,
-         base_total_price,
-         booking_status,
-         payment_status,
-         special_requests,
-         created_at,
-         updated_at
-       )
-       VALUES ($1, $2, $3, $4, $5, 'pending', 'pending', $6, NOW(), NOW())
-       RETURNING *`,
-      [userId, tourId, startDate, participants, totalPrice, specialRequests]
-    );
-    return this.normalize(result.rows[0] ?? null);
-  },
+  // create() удалён 15.10 (аудит, находка P2-01) — ещё одна дверь брони мимо
+  // lib/bookings/reserve.ts без единого вызывающего: писала статус 'pending',
+  // которого не знают ни занятость, ни кабинет оператора, и не писала ни
+  // end_date, ни duration_days. Бронь тура заводит reserveBooking; строку
+  // operator_bookings пишет только insertBookingRow (перепись писателей —
+  // tests/unit/booking-single-writer.test.ts).
   async update(id: string, data: Record<string, unknown>) {
     const specialRequests = typeof data.specialRequests === 'string'
       ? data.specialRequests

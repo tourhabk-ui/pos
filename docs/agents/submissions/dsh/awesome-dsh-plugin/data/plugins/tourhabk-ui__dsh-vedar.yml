@@ -1,0 +1,5 @@
+url: https://github.com/tourhabk-ui/dsh-vedar
+name: tourhabk-ui/dsh-vedar
+category: tools
+description:
+  en: 'Connects DeepSeek Harness to the Vedar remote MCP server (vedarai.ru): Kamchatka tours with live availability, safety status of places, stays, transfers, weather and trip plans; booking requests are confirmed by a human.'

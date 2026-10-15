@@ -1,0 +1,12 @@
+{
+  "$schema": "../schema/plugin.schema.json",
+  "id": "tourhabk-ui/dsh-vedar",
+  "name": "dsh-vedar",
+  "repository": "https://github.com/tourhabk-ui/dsh-vedar",
+  "category": "tools",
+  "description": {
+    "en": "Connects DeepSeek Harness to the Vedar remote MCP server (vedarai.ru): Kamchatka tours with live availability, safety status of places, stays, transfers, weather and trip plans; booking requests are confirmed by a human.",
+    "zh": "将 DeepSeek Harness 接入 Vedar（vedarai.ru）远程 MCP 服务器：堪察加旅游项目与实时余位、地点安全状况、住宿、包车接送、天气和行程规划；预订申请由人工确认。"
+  },
+  "added": "2026-10-15"
+}

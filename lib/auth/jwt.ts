@@ -154,16 +154,57 @@ function getCookieValue(request: RequestLike, name: string): string | null {
  * это путь авторизации, отвечать «доступ есть» на «не смог проверить» нельзя (§4.0).
  */
 export async function isSessionActive(token: string): Promise<boolean> {
+  return (await checkSession(token)) === 'active';
+}
+
+/**
+ * Та же проверка строки user_sessions, но с тремя исходами (§4.0):
+ * 'active' — сессия жива, 'inactive' — отозвана или истекла,
+ * 'unchecked' — запрос к БД не выполнился (причина уже в логе).
+ *
+ * isSessionActive схлопывает третий исход в «нет» — для гейта доступа это
+ * верно. Но /api/auth/state обещает отличать «гость» от «не смог проверить»,
+ * и до аудита 15.10 (P3-01) эта ветка была номинальной: роут сверял только
+ * подпись, а verifyToken не бросает. Здесь у неё появился производитель.
+ */
+export type SessionCheck = 'active' | 'inactive' | 'unchecked';
+
+export async function checkSession(token: string): Promise<SessionCheck> {
   try {
     const { rows } = await query<{ id: string }>(
       'SELECT id FROM user_sessions WHERE token = $1 AND expires_at > now() LIMIT 1',
       [token],
     );
-    return rows.length > 0;
+    return rows.length > 0 ? 'active' : 'inactive';
   } catch (err) {
     console.error('[auth/jwt] проверка сессии упала:', err instanceof Error ? err.message : err);
-    return false;
+    return 'unchecked';
   }
+}
+
+export type SessionTokenCheck =
+  | { status: 'valid'; payload: JWTPayload }
+  | { status: 'invalid' }
+  | { status: 'unchecked' };
+
+/**
+ * Подпись И строка сессии — для тех, у кого на руках сам токен, а не запрос:
+ * серверные страницы читают cookie через cookies(), а /api/auth/me и
+ * /api/auth/state берут токен в своём порядке — cookie раньше заголовка, как
+ * /api/auth/signout, который строку сессии удаляет.
+ *
+ * Аудит 15.10, P3-01: /api/auth/me, /api/auth/state и три серверные
+ * страницы звали голый verifyToken — после выхода подпись оставалась годной
+ * ещё до 7 дней, вышедший оставался «вошедшим» для шапки, а утёкший токен
+ * продолжал отдавать email и имя. Голый verifyToken вне lib/auth теперь
+ * запрещён сторожем tests/unit/session-revocation-reaches-me.test.ts.
+ */
+export async function verifySessionToken(token: string): Promise<SessionTokenCheck> {
+  const payload = await verifyToken(token);
+  if (!payload) return { status: 'invalid' };
+  const session = await checkSession(token);
+  if (session === 'active') return { status: 'valid', payload };
+  return session === 'unchecked' ? { status: 'unchecked' } : { status: 'invalid' };
 }
 
 export async function getUserFromRequest(request: RequestLike): Promise<JWTPayload | null> {

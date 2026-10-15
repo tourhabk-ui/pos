@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { requireOperator } from '@/lib/auth/middleware';
-import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
-import { requireTeamPermission } from '@/lib/operators/team-access';
 import { TotalRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
@@ -270,131 +266,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/tours — Создание нового тура (protected: operator only)
-const CreateTourSchema = z.object({
-  name: z.string().min(1, 'Название обязательно'),
-  description: z.string().min(1, 'Описание обязательно'),
-  shortDescription: z.string().optional(),
-  category: z.string().optional(),
-  difficulty: z.string().min(1, 'Сложность обязательна'),
-  duration: z.coerce.number().positive('Длительность должна быть положительной'),
-  price: z.coerce.number().positive('Цена должна быть положительной'),
-  currency: z.string().default('RUB'),
-  season: z.array(z.string()).optional(),
-  coordinates: z.array(z.unknown()).optional(),
-  requirements: z.array(z.string()).optional(),
-  included: z.array(z.string()).optional(),
-  notIncluded: z.array(z.string()).optional(),
-  maxGroupSize: z.coerce.number().int().positive().optional(),
-  minGroupSize: z.coerce.number().int().positive().optional(),
-  operatorId: z.string().optional(),
-  guideId: z.string().optional(),
-  routeId: z.string().optional(),
-});
-
-export async function POST(request: NextRequest) {
-  const authResult = await requireOperator(request);
-  if (authResult instanceof NextResponse) {
-    return authResult;
-  }
-
-  try {
-    const body = await request.json();
-    const parsed = CreateTourSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' } as ApiResponse<null>,
-        { status: 400 }
-      );
-    }
-    const {
-      name,
-      description,
-      shortDescription,
-      category,
-      difficulty,
-      duration,
-      price,
-      currency,
-      season,
-      coordinates,
-      requirements,
-      included,
-      notIncluded,
-      maxGroupSize,
-      minGroupSize,
-      operatorId,
-      guideId,
-      routeId,
-    } = parsed.data;
-
-    let effectiveOperatorId = operatorId;
-    if (authResult.role !== 'admin') {
-      const resolvedOperatorId = await getOperatorPartnerId(authResult.userId);
-      if (!resolvedOperatorId) {
-        return NextResponse.json({
-          success: false,
-          error: 'Профиль оператора не найден',
-        } as ApiResponse<null>, { status: 404 });
-      }
-      effectiveOperatorId = resolvedOperatorId;
-      // Новый тур — это и цена: менеджеру команды только с правом владельца (CRM 2г).
-      const denied = await requireTeamPermission(authResult.userId, 'can_edit_prices');
-      if (denied) return denied;
-    }
-
-    if (!effectiveOperatorId) {
-      return NextResponse.json({
-        success: false,
-        error: 'operatorId обязателен для администратора',
-      } as ApiResponse<null>, { status: 400 });
-    }
-
-    const insertQuery = `
-      INSERT INTO tours (
-        title, description, short_description, category, difficulty,
-        duration, price, currency, season, coordinates,
-        requirements, included, not_included,
-        max_participants, min_participants, operator_id, guide_id, route_id,
-        is_active, created_at, updated_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, true, NOW(), NOW()
-      ) RETURNING id
-    `;
-
-    const result = await query(insertQuery, [
-      name,
-      description,
-      shortDescription || description.substring(0, 150) + '...',
-      category || 'adventure',
-      difficulty,
-      duration,
-      price,
-      currency || 'RUB',
-      JSON.stringify(season || []),
-      JSON.stringify(coordinates || []),
-      JSON.stringify(requirements || []),
-      JSON.stringify(included || []),
-      JSON.stringify(notIncluded || []),
-      maxGroupSize || 20,
-      minGroupSize || 1,
-      effectiveOperatorId,
-      guideId || null,
-      routeId || null,
-    ]);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        id: result.rows[0].id,
-        message: 'Тур создан успешно',
-      },
-    } as ApiResponse<{ id: string; message: string }>);
-
-  } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Не удалось создать тур',
-    } as ApiResponse<null>, { status: 500 });
-  }
-}
+// POST здесь снят (аудит 15.10, P2-02). Он писал в `tours` — запрещённую
+// таблицу (CLAUDE.md §4), да ещё колонками, которых у неё нет (`title`,
+// `max_participants`, `min_participants`): 42703 на разборе, то есть запрос
+// не выполнялся ни разу. Вызывающих не было (греп по app, components, lib,
+// hooks, .github). Тур оператор заводит в кабинете — `POST /api/hub/operator/tours`
+// (`createTour`, lib/api/operator-tours.ts), запись в `operator_tours`. Без
+// экспорта POST Next отвечает 405.

@@ -29,7 +29,9 @@ import { logText } from '@/lib/log/log-text';
 export const dynamic = 'force-dynamic';
 
 /** Семейства КНР — ради них перепись и заведена; отдельной строкой в ответе. */
-export const CHINESE_FAMILIES = ['baidu', 'bytedance', 'huawei', 'alibaba', 'tencent', '360', 'deepseek'] as const;
+// kimi — с аудита 15.10 (CN-detect): без строки здесь семейство считалось бы,
+// но в группе КНР его не было бы вовсе, и «Kimi не приходит» не читалось бы ниоткуда.
+export const CHINESE_FAMILIES = ['baidu', 'bytedance', 'huawei', 'alibaba', 'tencent', '360', 'deepseek', 'kimi'] as const;
 
 /** Чего счётчик не видит — вслух, чтобы ноль не читался как «не ходят». */
 export const NOT_COUNTED = [

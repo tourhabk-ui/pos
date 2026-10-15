@@ -19,7 +19,7 @@ import { findPartnerByChat, partnerGreeting, processPartnerMessage, PARTNER_EMAI
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
-import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
+import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { getSetting } from '@/lib/platform-settings';
 import { stripTags } from '@/lib/html/text';
 import { handlePartnerStart } from '@/lib/partners/bind-channel';
@@ -454,16 +454,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // пишет тот, кто стучится. Свой секрет на бота, не общий: один секрет на два
   // бота означает, что компрометация одного открывает второго.
   //
-  // Не задан — работаем и говорим об этом. Fail-closed остановил бы Кузьмича
-  // для всех туристов до правки окружения, а он в том числе отвечает про
-  // безопасность на маршруте.
+  // Не задан — отказ 503 (аудит 15.10, P3-03). Прежнее «работаем, иначе
+  // Кузьмич замолчит для туристов» (#1168) снято замером с прода: туристам
+  // отвечает /api/telegram/webhook (его секрет задан), а этот роут вебхуком не
+  // зарегистрирован — без секрета он был открытой дверью и ничьим ботом.
   const verdict = verifyWebhookSecret(
     request.headers.get('x-telegram-bot-api-secret-token'),
     process.env.TELEGRAM_KUZMICH_WEBHOOK_SECRET,
   );
   if (verdict === 'forbidden') return new NextResponse(null, { status: 401 });
   if (verdict === 'not_configured') {
-    console.error('[telegram/kuzmich] TELEGRAM_KUZMICH_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
+    return refuseUnconfiguredWebhook('telegram/kuzmich', 'TELEGRAM_KUZMICH_WEBHOOK_SECRET');
   }
 
   try {

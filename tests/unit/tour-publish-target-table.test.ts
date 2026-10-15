@@ -35,7 +35,7 @@ describe('деактивация/публикация тура оператор�
   });
 });
 
-describe('tourService.publish/unpublish (lib/services/tours/tour.service.ts) — живой путь чинится, сирота — нет', () => {
+describe('tourService.publish/unpublish (lib/services/tours/tour.service.ts) — живой путь пишет operator_tours', () => {
   const SRC = read('lib/services/tours/tour.service.ts');
 
   it('publish() и unpublish() пишут operator_tours — их реально зовёт /api/discovery/tours/[id]/publish', () => {
@@ -45,11 +45,10 @@ describe('tourService.publish/unpublish (lib/services/tours/tour.service.ts) —
     expect(unpublishBody).toMatch(/UPDATE\s+operator_tours\s+SET\s+is_active\s*=\s*FALSE/);
   });
 
-  it('update() остаётся объявленным долгом (сирота, колонки не сверены) — не тронут вслепую', () => {
-    const updateBody = SRC.slice(SRC.indexOf('async update('), SRC.indexOf('async publish('));
-    expect(updateBody, 'если update() починили — заодно проверить сопоставление колонок и убрать из compat-view-writes KNOWN_DEBT')
-      .toMatch(/UPDATE\s+tours/);
-  });
+  // Сирота `update()` (писал `UPDATE tours`) снят аудитом 15.10 (P2-02);
+  // что его нет и что запись в tours не появится снова, держат вызовом
+  // tests/unit/legacy-tables-no-writers.test.ts и запретом
+  // tests/unit/compat-view-writes.test.ts.
 
   it('живой вызывающий publish/unpublish существует — иначе фикс адресован не туда', () => {
     const route = read('app/api/discovery/tours/[id]/publish/route.ts');
