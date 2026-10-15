@@ -1,16 +1,22 @@
 {
   "timeout": 60,
-  "run": 966,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись памятников природы края: есть ли в Википедии перечень (категория даёт 26 из 116, названных статьёй «Камчатский край») — поиск по четырём запросам. Конфиг записан целиком.",
-  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
+  "run": 967,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Почему проба 965 не видит режим заповедника у Узона после выката 1288–1290: итог наката миграций при старте (/api/health → migrations), какие файлы образа не применились (schema-audit), карточка Узона сейчас. Без ожидания. Конфиг записан целиком.",
   "urls": [
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=%D1%81%D0%BF%D0%B8%D1%81%D0%BE%D0%BA%20%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D1%8B%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE%20%D0%BA%D1%80%D0%B0%D1%8F",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=%D0%BE%D1%81%D0%BE%D0%B1%D0%BE%20%D0%BE%D1%85%D1%80%D0%B0%D0%BD%D1%8F%D0%B5%D0%BC%D1%8B%D0%B5%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B5%20%D1%82%D0%B5%D1%80%D1%80%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%B8%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE%20%D0%BA%D1%80%D0%B0%D1%8F",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D0%BD%D0%B8%D0%BA%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D1%8B%20%D1%80%D0%B5%D0%B3%D0%B8%D0%BE%D0%BD%D0%B0%D0%BB%D1%8C%D0%BD%D0%BE%D0%B3%D0%BE%20%D0%B7%D0%BD%D0%B0%D1%87%D0%B5%D0%BD%D0%B8%D1%8F%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BA%D1%80%D0%B0%D0%B9",
-    "https://ru.wikipedia.org/w/api.php?action=query&format=json&formatversion=2&utf8=1&list=search&srlimit=12&srsearch=intitle%3A%D0%A1%D0%BF%D0%B8%D1%81%D0%BE%D0%BA%20intitle%3A%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%BE%D0%B3%D0%BE"
+    "https://vedarai.ru/api/health",
+    "https://vedarai.ru/api/cron/schema-audit",
+    "https://vedarai.ru/api/places/5694d055-9713-44af-8bcb-670ff63bb3e9"
   ],
   "retries": 2,
   "retryDelay": 20,
   "allowStale": true,
-  "bytes": 6000
+  "grep": [
+    "1288",
+    "1289",
+    "1290",
+    "\"federal_reserve\"",
+    "failed",
+    "unapplied"
+  ],
+  "bytes": 9000
 }
