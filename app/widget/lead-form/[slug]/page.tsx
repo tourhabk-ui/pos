@@ -1,10 +1,27 @@
 'use client';
 
+/**
+ * Форма заявки партнёру в виджете (iframe из lead.js на сайте партнёра или из
+ * окна чата `/widget/<slug>`).
+ *
+ * Аудит 15.10, WID-lang: строки формы — на языке браузера посетителя (ru, en,
+ * zh) из словаря lib/embed/widget-i18n. Вступление партнёра (`formIntro`) не
+ * переводится. Согласие на ПД — юридический текст со своей версией: оно
+ * остаётся русским (тот же PdConsentCheckbox и та же версия), а на en/zh под
+ * ним пометка на языке посетителя, что согласие на русском, и ссылка на
+ * политику. Машинный перевод согласия был бы вторым текстом без версии.
+ *
+ * Сторожа: tests/unit/widget-lang.test.tsx, tests/unit/mestechko-widget.test.ts
+ * (рендер).
+ */
+
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
-import { LEAD_FORM_INTRO_DEFAULT } from '@/lib/embed/widget-style';
+import { PD_CONSENT_POLICY_URL } from '@/lib/legal/pd-consent';
 import { readWidgetOriginParams } from '@/lib/embed/widget-origin';
+import { widgetFormIntro, widgetTexts } from '@/lib/embed/widget-i18n';
+import { useWidgetLang } from '@/hooks/use-widget-lang';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface PartnerConfig {
@@ -18,6 +35,8 @@ interface PartnerConfig {
 export default function LeadFormPage() {
   const params = useParams();
   const slug = params.slug as string;
+  const lang = useWidgetLang();
+  const t = widgetTexts(lang);
 
   const [config, setConfig] = useState<PartnerConfig | null>(null);
   const [name, setName]       = useState('');
@@ -77,7 +96,7 @@ export default function LeadFormPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
-    if (!pdConsent) { setError('Необходимо согласие на обработку персональных данных'); return; }
+    if (!pdConsent) { setError(t.consentRequired); return; }
     setError('');
     setSubmitting(true);
     try {
@@ -114,10 +133,13 @@ export default function LeadFormPage() {
           window.parent.postMessage('th:success', '*');
         }
       } else {
-        setError((data as { error?: string }).error ?? 'Ошибка. Попробуйте ещё раз.');
+        // Ответ /api/leads — по-русски: на русском окне он и показывается, на
+        // en/zh — отказ на языке посетителя (русская строка ему ничего не скажет).
+        const serverError = (data as { error?: string }).error;
+        setError(lang === 'ru' && serverError ? serverError : t.submitFailed);
       }
     } catch {
-      setError('Ошибка соединения. Попробуйте ещё раз.');
+      setError(t.networkFailed);
     } finally {
       setSubmitting(false);
     }
@@ -127,7 +149,7 @@ export default function LeadFormPage() {
 
   if (success) {
     return (
-      <div ref={rootRef} style={{
+      <div ref={rootRef} lang={lang} style={{
         minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
@@ -152,10 +174,10 @@ export default function LeadFormPage() {
           ✓
         </div>
         <p style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)', marginBottom: 8 }}>
-          Заявка принята!
+          {t.successTitle}
         </p>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Менеджер свяжется с вами в ближайшее время.
+          {t.successText}
         </p>
         <button
           onClick={() => window.parent.postMessage('th:close', '*')}
@@ -172,14 +194,14 @@ export default function LeadFormPage() {
             fontFamily: 'inherit',
           }}
         >
-          Закрыть
+          {t.close}
         </button>
       </div>
     );
   }
 
   return (
-    <div ref={rootRef} style={{
+    <div ref={rootRef} lang={lang} style={{
       display: 'flex',
       flexDirection: 'column',
       fontFamily: "'Outfit', system-ui, sans-serif",
@@ -203,10 +225,10 @@ export default function LeadFormPage() {
         )}
         <div>
           <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-            {config?.name ?? 'Заявка на тур'}
+            {config?.name ?? t.formTitleFallback}
           </p>
           <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Ведар AI
+            {t.brand}
           </p>
         </div>
       </div>
@@ -217,17 +239,17 @@ export default function LeadFormPage() {
             config.greeting, и над полями имени и телефона у «Местечка» было
             «Я Кузьмич… спрашивайте» (находка аудита 15.10 WID-config). */}
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-          {config?.formIntro || LEAD_FORM_INTRO_DEFAULT}
+          {widgetFormIntro(lang, config?.formIntro)}
         </p>
 
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>
-          Ваше имя *
+          {t.nameLabel}
         </label>
         <input
           type="text"
           value={name}
           onChange={e => setName(e.target.value)}
-          placeholder="Иван Иванов"
+          placeholder={t.namePlaceholder}
           required
           minLength={2}
           maxLength={120}
@@ -235,13 +257,13 @@ export default function LeadFormPage() {
         />
 
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, marginTop: 14, display: 'block' }}>
-          Телефон *
+          {t.phoneLabel}
         </label>
         <input
           type="tel"
           value={phone}
           onChange={e => setPhone(e.target.value)}
-          placeholder="+7 900 000-00-00"
+          placeholder={t.phonePlaceholder}
           required
           minLength={7}
           maxLength={30}
@@ -249,12 +271,12 @@ export default function LeadFormPage() {
         />
 
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, marginTop: 14, display: 'block' }}>
-          Что интересует? (необязательно)
+          {t.commentLabel}
         </label>
         <textarea
           value={comment}
           onChange={e => setComment(e.target.value)}
-          placeholder="Маршрут, даты, количество человек..."
+          placeholder={t.commentPlaceholder}
           maxLength={500}
           rows={3}
           style={{ ...inputStyle, resize: 'none' }}
@@ -264,9 +286,26 @@ export default function LeadFormPage() {
           <p style={{ fontSize: 12, color: 'var(--danger)', marginTop: 10 }}>{error}</p>
         )}
 
-        <div style={{ marginTop: 12 }}>
+        {/* Согласие — русский текст с его версией при любом языке окна:
+            записывается версия, под которой человек согласился, и перевод
+            без своей версии её бы не покрыл. lang="ru" — чтобы экранный
+            диктор читал его по-русски и в китайском окне. */}
+        <div lang="ru" style={{ marginTop: 12 }}>
           <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-widget" />
         </div>
+        {t.consentNote && (
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
+            {t.consentNote}{' '}
+            <a
+              href={PD_CONSENT_POLICY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--ocean)' }}
+            >
+              {t.policyLink}
+            </a>
+          </p>
+        )}
 
         <button
           type="submit"
@@ -285,7 +324,7 @@ export default function LeadFormPage() {
             transition: 'background 0.15s',
           }}
         >
-          {submitting ? 'Отправляем...' : 'Отправить заявку'}
+          {submitting ? t.submitting : t.submit}
         </button>
       </form>
     </div>

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { detectEmergency, buildSosBlock, withSosBlock } from '@/lib/safety/sos-detector';
+import { detectEmergency, buildSosBlock, withSosBlock, type EmergencyCategory } from '@/lib/safety/sos-detector';
 
 describe('detectEmergency — позитивные случаи (по категориям)', () => {
   const cases: Array<[string, string]> = [
@@ -85,6 +85,38 @@ describe('buildSosBlock', () => {
     expect(block).toContain('кровотечение');
     expect(block).toContain('Оставайтесь на месте');
     expect(block).not.toContain('укрытие от ветра');
+  });
+});
+
+describe('buildSosBlock — язык блока (аудит 15.10, WID-lang)', () => {
+  const ALL: EmergencyCategory[] = ['lost', 'injury', 'bear', 'ice', 'avalanche', 'group_missing', 'freezing', 'distress'];
+
+  it('без языка — русский блок, слово в слово как с явным ru (прежние вызывающие не меняются)', () => {
+    for (const c of ALL) expect(buildSosBlock([c])).toBe(buildSosBlock([c], 'ru'));
+    expect(withSosBlock('ответ', 'я заблудился')).toEqual(withSosBlock('ответ', 'я заблудился', 'ru'));
+  });
+
+  it('en и zh: 112, ссылка на SOS, совет по каждой категории — без русских слов и без региональных номеров', () => {
+    for (const lang of ['en', 'zh'] as const) {
+      for (const c of ALL) {
+        const block = buildSosBlock([c], lang);
+        expect(block).toMatch(/(?<!\d)112(?!\d)/);
+        expect(block).toContain('vedarai.ru/sos');
+        expect(block).not.toMatch(/[а-яё]/i);
+        expect(block).not.toMatch(/4152/);
+        // Совет категории на месте: строк столько же, сколько у русского блока.
+        expect(block.split('\n')).toHaveLength(buildSosBlock([c]).split('\n').length);
+      }
+    }
+    expect(buildSosBlock(['bear'], 'zh')).toMatch(/[\u4e00-\u9fff]/);
+    expect(buildSosBlock(['bear'], 'en')).toContain('Do not run');
+  });
+
+  it('withSosBlock с языком: блок на нём, ответ модели не тронут', () => {
+    const { text, emergency } = withSosBlock('请留在原地。', 'SOS', 'zh');
+    expect(emergency).toBe(true);
+    expect(text.startsWith(buildSosBlock(['distress'], 'zh'))).toBe(true);
+    expect(text.endsWith('请留在原地。')).toBe(true);
   });
 });
 

@@ -18,10 +18,16 @@
  *    Своей SOS-кнопки и своего набора 112 здесь нет и быть не должно (§11,
  *    #887: SOS — только EmergencyAction, и в /widget он не монтируется);
  *    блок 112 при признаках ЧП ставит сервер в ответ.
- *  - Ошибки по-русски и с тремя исходами: чат не найден или выключен (404) —
- *    не то же, что «не загрузился» (сеть, сбой).
+ *  - Ошибки с тремя исходами: чат не найден или выключен (404) — не то же,
+ *    что «не загрузился» (сеть, сбой).
  *
- * Сторож: tests/unit/widget-chat-page.test.tsx (рендер).
+ * Аудит 15.10, WID-lang: строки окна — на языке браузера посетителя (ru, en,
+ * zh) из одного словаря lib/embed/widget-i18n; язык уходит и в запрос чата,
+ * чтобы отказы и блок 112 сервер отдал на нём же. Приветствие партнёра не
+ * переводится — переводится только наша заготовка на месте незаданного.
+ *
+ * Сторожа: tests/unit/widget-chat-page.test.tsx, tests/unit/widget-lang.test.tsx
+ * (рендер).
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -29,6 +35,8 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, Send } from 'lucide-react';
 import { trimWidgetHistory, type WidgetTurn } from '@/lib/embed/widget-chat-limits';
 import { readWidgetOriginParams, type WidgetOriginInput } from '@/lib/embed/widget-origin';
+import { widgetGreeting, widgetTexts, type WidgetLang, type WidgetTexts } from '@/lib/embed/widget-i18n';
+import { useWidgetLang } from '@/hooks/use-widget-lang';
 
 interface PartnerConfig {
   name: string;
@@ -46,10 +54,6 @@ type LoadState =
 const API_BASE = typeof window !== 'undefined'
   ? `${window.location.protocol}//${window.location.host}`
   : '';
-
-const NOT_FOUND_TEXT = 'Чат этого партнёра не найден или выключен.';
-const LOAD_FAILED_TEXT = 'Чат не загрузился — проверьте связь и обновите страницу. Экстренно — 112.';
-const SEND_FAILED_TEXT = 'Не получилось получить ответ — попробуйте ещё раз. Экстренно — 112.';
 
 /**
  * Адрес формы заявки партнёра — та же форма, что у кнопки lead.js.
@@ -72,6 +76,8 @@ function leadFormPath(slug: string, origin: WidgetOriginInput): string {
 export default function WidgetPage() {
   const params = useParams();
   const partnerId = params.partnerId as string;
+  const lang = useWidgetLang();
+  const t = widgetTexts(lang);
 
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
   const [messages, setMessages] = useState<WidgetTurn[]>([]);
@@ -147,14 +153,17 @@ export default function WidgetPage() {
           // Исход сверки со списком доменов ставит сервер; хост подделывается —
           // сигнал, а не замок (аудит 15.10, WID-measure).
           origin: readWidgetOriginParams(window.location.search),
+          // Язык окна: на нём сервер отдаёт свои тексты — отказ модели,
+          // ошибки 400 и блок 112 (аудит 15.10, WID-lang).
+          lang,
         }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string; data?: { answer?: string } };
       const answer = data.success ? data.data?.answer : undefined;
-      const fallback = res.status === 400 && data.error ? `${data.error}.` : SEND_FAILED_TEXT;
+      const fallback = res.status === 400 && data.error ? `${data.error}.` : t.sendFailed;
       setMessages(prev => [...prev, { role: 'assistant', content: answer ?? fallback }]);
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: SEND_FAILED_TEXT }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: t.sendFailed }]);
     } finally {
       setSending(false);
     }
@@ -166,10 +175,10 @@ export default function WidgetPage() {
     // партнёр выключил виджет, а скрипт на его сайте остался, или сеть на
     // Камчатке медленная — экран без 112 здесь быть не должен.
     const text = load.kind === 'loading'
-      ? 'Загрузка...'
-      : load.kind === 'not_found' ? NOT_FOUND_TEXT : LOAD_FAILED_TEXT;
+      ? t.loading
+      : load.kind === 'not_found' ? t.notFound : t.loadFailed;
     return (
-      <WindowShell accent="var(--accent)">
+      <WindowShell accent="var(--accent)" lang={lang} t={t}>
         <div
           role={load.kind === 'loading' ? undefined : 'alert'}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, textAlign: 'center', color: 'var(--text-secondary)' }}
@@ -202,14 +211,14 @@ export default function WidgetPage() {
         flexShrink: 0,
       }}
     >
-      Оставить заявку
+      {t.leadButton}
     </button>
   );
 
   // Литеральный #FFFFFF — только текст на партнёрском акценте (accentColor
   // задаёт партнёр произвольным цветом, токены его не покрывают).
   return (
-    <WindowShell accent={accent}>
+    <WindowShell accent={accent} lang={lang} t={t}>
 
       {/* Header */}
       <div style={{
@@ -233,7 +242,7 @@ export default function WidgetPage() {
             {config.name}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            Помощник Ведар AI
+            {t.assistantLabel}
           </div>
         </div>
         {!leadOpen && leadButton}
@@ -260,12 +269,12 @@ export default function WidgetPage() {
             }}
           >
             <ArrowLeft size={14} aria-hidden="true" />
-            Вернуться в чат
+            {t.backToChat}
           </button>
           <iframe
             ref={leadFrame}
             src={leadFormPath(partnerId, readWidgetOriginParams(window.location.search))}
-            title={`Заявка партнёру ${config.name}`}
+            title={t.leadFrameTitle(config.name)}
             style={{ flex: 1, width: '100%', border: 'none', background: 'var(--bg-primary)' }}
           />
         </div>
@@ -300,7 +309,9 @@ export default function WidgetPage() {
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                 }}>
-                  {msg.content}
+                  {/* Первая реплика — приветствие: слова партнёра как есть,
+                      наша заготовка — на языке посетителя. */}
+                  {i === 0 ? widgetGreeting(lang, msg.content, config.name) : msg.content}
                 </div>
               </div>
             ))}
@@ -315,7 +326,7 @@ export default function WidgetPage() {
                   color: 'var(--text-muted)',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
-                  Печатает...
+                  {t.typing}
                 </div>
               </div>
             )}
@@ -323,7 +334,7 @@ export default function WidgetPage() {
             {answered && !sending && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Хотите, чтобы партнёр подобрал поездку и позвонил?
+                  {t.leadPrompt}
                 </span>
                 {leadButton}
               </div>
@@ -347,8 +358,8 @@ export default function WidgetPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder="Напишите сообщение..."
-              aria-label="Сообщение помощнику"
+              placeholder={t.inputPlaceholder}
+              aria-label={t.inputLabel}
               maxLength={2000}
               disabled={sending}
               style={{
@@ -366,7 +377,7 @@ export default function WidgetPage() {
               type="button"
               onClick={sendMessage}
               disabled={sending || !input.trim()}
-              aria-label="Отправить"
+              aria-label={t.send}
               style={{
                 width: 38,
                 height: 38,
@@ -399,9 +410,15 @@ export default function WidgetPage() {
  * data-theme="light" пинит светлую тему: виджет живёт на партнёрских сайтах
  * и не должен темнеть от сохранённой темы посетителя на vedarai.ru.
  */
-function WindowShell({ accent, children }: { accent: string; children: ReactNode }) {
+function WindowShell({ accent, lang, t, children }: {
+  accent: string;
+  lang: WidgetLang;
+  t: WidgetTexts;
+  children: ReactNode;
+}) {
+  // lang — чтобы чтение с экрана и перенос строк шли по языку окна.
   return (
-    <div data-theme="light" style={{
+    <div data-theme="light" lang={lang} style={{
       display: 'flex',
       flexDirection: 'column',
       height: '100vh',
@@ -430,10 +447,10 @@ function WindowShell({ accent, children }: { accent: string; children: ReactNode
         flexShrink: 0,
       }}>
         <strong style={{ color: 'var(--danger)', fontWeight: 600 }}>
-          Экстренно — 112
+          {t.emergency}
         </strong>
         <span>
-          Работает на <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>Ведар AI</a>
+          {t.poweredByBefore}<a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>{t.brand}</a>{t.poweredByAfter}
         </span>
       </div>
     </div>

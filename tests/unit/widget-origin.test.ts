@@ -283,6 +283,12 @@ describe('/api/leads: исход сверки хоста ставит серве
 });
 
 describe('форма заявки шлёт хост и путь из адреса своего окна', () => {
+  // Форма говорит на языке браузера посетителя (аудит 15.10, WID-lang), а у
+  // jsdom он английский; подписи ниже — русские, значит и браузер русский.
+  let language: { mockRestore: () => void };
+  beforeEach(() => { language = vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ru-RU'); });
+  afterEach(() => { language.mockRestore(); });
+
   async function submitForm() {
     const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
