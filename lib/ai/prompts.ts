@@ -3,6 +3,8 @@
 // Роло-ориентированные промпты с защитой от галлюцинаций
 // =============================================
 
+import { redactUserTurns } from '@/lib/security/pii-redact';
+
 export type ChatRole = 'tourist' | 'operator' | 'guide' | 'admin' | 'agent' | 'transfer';
 
 export interface ChatMessage {
@@ -88,6 +90,12 @@ export function getSystemPrompt(role: ChatRole): string {
   }
 }
 
+/**
+ * Сообщения для одиночного вызова модели (запасной путь веб-чата и стрима).
+ * Реплики человека — через ту же границу ПД, что у цикла Кузьмича (аудит
+ * 15.10, W2-5): этот путь идёт в те же зарубежные модели, и телефон, который
+ * турист вписал в чат, обошёл бы чистку цикла, как только цикл не ответил.
+ */
 export function buildMessageHistory(
   systemPrompt: string,
   history: { role: string; content: string; timestamp?: number }[],
@@ -96,8 +104,8 @@ export function buildMessageHistory(
   const recent = history.slice(-limit);
   return [
     { role: 'system', content: systemPrompt },
-    ...recent
+    ...redactUserTurns(recent
       .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))),
   ];
 }

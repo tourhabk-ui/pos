@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getGearPartnerId } from '@/lib/auth/gear-helpers';
 import { calcRentalDays, calcGearPrice } from '@/lib/gear/pricing';
+import { publicGearSql } from '@/lib/gear/moderation';
+import {
+  gearPeakSql, OPEN_GEAR_REQUESTS_SQL,
+  GEAR_PENDING_HOLD_HOURS, MAX_OPEN_GEAR_REQUESTS_PER_USER,
+} from '@/lib/gear/availability';
+import { buildConsentRecord } from '@/lib/legal/pd-consent';
+import { getTrustedClientIp } from '@/lib/rate-limit';
+import { isRealDate, kamchatkaToday } from '@/lib/seat-requests/core';
 import { notifyNewGearRental } from '@/lib/notifications/gear-rental';
 import { linkContactQuietly } from '@/lib/crm/contacts';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,52 +35,84 @@ const CreateGearRentalSchema = z.object({
     insurance: z.boolean().optional(),
   }),
   comments: z.string().max(2000).optional(),
+  // Имя, телефон и почта уходят прокату — согласие обязано назвать его
+  // (вариант 'gear' в lib/legal/pd-consent). Без галочки заявки нет.
+  pd_consent: z.literal(true, { message: 'Нужно согласие на обработку персональных данных и их передачу прокату' }),
 });
 
+const fail = (status: number, error: string) =>
+  NextResponse.json({ success: false, error } as ApiResponse<null>, { status });
+
+type RentalOutcome =
+  | { code: 'too_many_open' }
+  | { code: 'conflict'; free: number }
+  | { code: 'created'; rentalId: string };
+
 /**
- * POST /api/gear/rentals - Создание заявки на аренду снаряжения.
+ * POST /api/gear/rentals — заявка на аренду снаряжения. ПОД ВХОДОМ.
  *
- * ПУБЛИЧНЫЙ вход (как лиды): витрина /gear открыта всем, форма собирает
- * контакты — требовать логин на последнем шаге значило молча рвать воронку
- * 401-м (что и происходило). Спам сдерживают Edge rate-limit + Zod.
+ * Дверь (аудит 15.10, находка A13, вариант «а» по карт-бланшу владельца).
+ * Прежняя шапка называла роут публичным «как лиды», но Edge пускает к
+ * /api/gear анонима только с GET (реестр публичных API — зона §7, не
+ * трогается): гость получал голый 401, вошедший проходил, и его имя,
+ * телефон и почта уходили прокату без согласия, называющего получателя.
+ * Теперь честно: заявку отправляет вошедший (requireAuth здесь, а не только
+ * на Edge — по нему заявка знает человека), форма показывает гостю ссылку на
+ * вход, как форма брони жилья, а согласие — вариант «прокату снаряжения».
  *
  * Цена — ТОЛЬКО сервером, единым модулем lib/gear/pricing (им же считает
  * форма, поэтому показанное и записанное совпадают). Страховка — из
  * insurance_cost_per_day позиции; нет тарифа — заявка со страховкой
  * отклоняется честной ошибкой, а не молчаливым нулём.
  *
- * Доступность — по ДАТАМ: пик пересекающихся невозвращённых аренд
- * (pending/confirmed/active/overdue) в запрошенном окне не должен
- * превышать общее количество единиц. Раньше проверялся только мгновенный
- * сток — две брони на одни даты проходили обе.
+ * Доступность — по ДАТАМ, одной формулой lib/gear/availability: пик
+ * одновременно занятых единиц в окне плюс запрошенное не больше стока.
+ * Единицу держат подтверждённая, выданная и просроченная аренда, а заявка —
+ * только GEAR_PENDING_HOLD_HOURS часов; открытых заявок у человека — не
+ * больше MAX_OPEN_GEAR_REQUESTS_PER_USER. Счёт и вставка идут в ОДНОЙ
+ * транзакции под advisory-блокировками человека и позиции: раньше пик и
+ * INSERT шли отдельными запросами, и две заявки на последнюю единицу
+ * проходили обе.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.userId;
+
   try {
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return fail(400, 'Неверный формат запроса');
+    }
     const parsed = CreateGearRentalSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' } as ApiResponse<null>,
-        { status: 400 }
-      );
+      return fail(400, parsed.error.issues[0]?.message || 'Некорректные данные');
     }
 
     const { gearId, customer, rental, comments } = parsed.data;
 
-    const rentalDays = calcRentalDays(rental.startDate, rental.endDate);
-    if (rentalDays === null) {
-      return NextResponse.json(
-        { success: false, error: 'Дата окончания должна быть позже даты начала' } as ApiResponse<null>,
-        { status: 400 }
-      );
+    if (!isRealDate(rental.startDate) || !isRealDate(rental.endDate)) {
+      return fail(400, 'Такой даты нет в календаре');
     }
-    if (rentalDays > 365) {
-      return NextResponse.json(
-        { success: false, error: 'Максимальный срок аренды — год. Свяжитесь с прокатом напрямую.' } as ApiResponse<null>,
-        { status: 400 }
-      );
+    // «Сегодня» — по Камчатке: сервер живёт в UTC, и с полуночи до полудня
+    // по местному времени его «сегодня» — вчерашний день туриста.
+    if (rental.startDate < kamchatkaToday()) {
+      return fail(400, 'Дата начала уже прошла — выберите сегодняшнюю или более позднюю');
     }
 
+    const rentalDays = calcRentalDays(rental.startDate, rental.endDate);
+    if (rentalDays === null) {
+      return fail(400, 'Дата окончания должна быть позже даты начала');
+    }
+    if (rentalDays > 365) {
+      return fail(400, 'Максимальный срок аренды — год. Свяжитесь с прокатом напрямую.');
+    }
+
+    // Позиция — тем же шлюзом витрины, что каталог: неодобренную или снятую
+    // партнёром не арендуют (иначе отказ триггера модерации 1030 становился
+    // немым 500, Д2-3).
     const gearResult = await query<{
       name: string;
       quantity: number;
@@ -81,55 +122,20 @@ export async function POST(request: NextRequest) {
       insurance_cost_per_day: string | null;
       partner_id: string | null;
     }>(`
-      SELECT name, quantity, price_per_day, price_per_week, price_per_month,
-             insurance_cost_per_day, partner_id
-      FROM gear_items
-      WHERE id = $1 AND is_active = TRUE
+      SELECT gi.name, gi.quantity, gi.price_per_day, gi.price_per_week, gi.price_per_month,
+             gi.insurance_cost_per_day, gi.partner_id
+      FROM gear_items gi
+      WHERE gi.id = $1 AND ${publicGearSql('gi')}
     `, [gearId]);
 
     if (gearResult.rows.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Снаряжение не найдено' } as ApiResponse<null>,
-        { status: 404 }
-      );
+      return fail(404, 'Снаряжение не найдено');
     }
     const gear = gearResult.rows[0];
 
     const pricePerDay = Number(gear.price_per_day);
     if (!Number.isFinite(pricePerDay) || pricePerDay < 0) {
-      return NextResponse.json(
-        { success: false, error: 'Ошибка конфигурации цен снаряжения' } as ApiResponse<null>,
-        { status: 500 }
-      );
-    }
-
-    // Честная занятость: пик одновременно занятых единиц по дням окна.
-    const overlapResult = await query<{ peak_rented: string }>(`
-      SELECT COALESCE(MAX(day_rented), 0)::text AS peak_rented
-      FROM (
-        SELECT SUM(gr.quantity) AS day_rented
-        FROM generate_series($2::date, $3::date - 1, '1 day') AS d(day)
-        LEFT JOIN gear_rentals gr
-          ON gr.gear_id = $1
-         AND gr.status IN ('pending', 'confirmed', 'active', 'overdue')
-         AND gr.start_date <= d.day
-         AND gr.end_date > d.day
-        GROUP BY d.day
-      ) t
-    `, [gearId, rental.startDate, rental.endDate]);
-
-    const peakRented = parseInt(overlapResult.rows[0]?.peak_rented ?? '0', 10);
-    if (peakRented + rental.quantity > gear.quantity) {
-      const free = Math.max(0, gear.quantity - peakRented);
-      return NextResponse.json(
-        {
-          success: false,
-          error: free > 0
-            ? `На выбранные даты свободно только ${free} шт.`
-            : 'На выбранные даты снаряжение уже занято',
-        } as ApiResponse<null>,
-        { status: 409 }
-      );
+      return fail(500, 'Ошибка конфигурации цен снаряжения');
     }
 
     const price = calcGearPrice({
@@ -143,61 +149,114 @@ export async function POST(request: NextRequest) {
     });
 
     if (price.insuranceUnavailable) {
-      return NextResponse.json(
-        { success: false, error: 'Для этой позиции страховка недоступна — уберите галку страховки' } as ApiResponse<null>,
-        { status: 400 }
+      return fail(400, 'Для этой позиции страховка недоступна — уберите галку страховки');
+    }
+
+    const consent = buildConsentRecord(true, getTrustedClientIp(request.headers), 'gear-page', 'gear');
+
+    const outcome: RentalOutcome = await transaction(async (client) => {
+      // Порядок ключей один: сначала человек, потом позиция. Подтверждение
+      // заявки (PATCH) берёт только ключ позиции — цикла ожиданий нет.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1::text))`, [`gear-user:${userId}`]);
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1::text))`, [gearId]);
+
+      const openResult = await client.query<{ open_requests: number }>(OPEN_GEAR_REQUESTS_SQL, [userId]);
+      if (Number(openResult.rows[0]?.open_requests ?? 0) >= MAX_OPEN_GEAR_REQUESTS_PER_USER) {
+        return { code: 'too_many_open' };
+      }
+
+      const peakResult = await client.query<{ peak_rented: string }>(
+        gearPeakSql({ gear: '$1', start: '$2::date', endExclusive: '$3::date' }),
+        [gearId, rental.startDate, rental.endDate]
+      );
+      const peakRented = parseInt(peakResult.rows[0]?.peak_rented ?? '0', 10);
+      if (peakRented + rental.quantity > gear.quantity) {
+        return { code: 'conflict', free: Math.max(0, gear.quantity - peakRented) };
+      }
+
+      const inserted = await client.query<{ id: string }>(`
+        INSERT INTO gear_rentals (
+          id, gear_id, user_id, customer_name, customer_email, customer_phone,
+          start_date, end_date, quantity, days_count, insurance,
+          base_price, insurance_cost, total_price, comments, status, created_at,
+          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version
+        ) VALUES (
+          gen_random_uuid(),
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', NOW(),
+          $15, $16, $17, $18
+        ) RETURNING id
+      `, [
+        gearId,
+        userId,
+        customer.name,
+        customer.email,
+        customer.phone,
+        rental.startDate,
+        rental.endDate,
+        rental.quantity,
+        rentalDays,
+        Boolean(rental.insurance) && price.insuranceCost > 0,
+        price.basePrice,
+        price.insuranceCost,
+        price.totalPrice,
+        comments || null,
+        consent?.at ?? null,
+        consent?.ip ?? null,
+        consent?.source ?? null,
+        consent?.version ?? null,
+      ]);
+      return { code: 'created', rentalId: inserted.rows[0].id };
+    });
+
+    if (outcome.code === 'too_many_open') {
+      return fail(
+        429,
+        `У вас уже ${MAX_OPEN_GEAR_REQUESTS_PER_USER} заявки на прокат ждут ответа. Новую можно отправить, `
+        + `когда прокат ответит на одну из них, — или через ${GEAR_PENDING_HOLD_HOURS} часов, `
+        + 'когда заявка без ответа перестанет держать снаряжение.'
       );
     }
 
-    const result = await query<{ id: string }>(`
-      INSERT INTO gear_rentals (
-        id, gear_id, customer_name, customer_email, customer_phone,
-        start_date, end_date, quantity, days_count, insurance,
-        base_price, insurance_cost, total_price, comments, status, created_at
-      ) VALUES (
-        gen_random_uuid(),
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', NOW()
-      ) RETURNING id
-    `, [
-      gearId,
-      customer.name,
-      customer.email,
-      customer.phone,
-      rental.startDate,
-      rental.endDate,
-      rental.quantity,
-      rentalDays,
-      Boolean(rental.insurance) && price.insuranceCost > 0,
-      price.basePrice,
-      price.insuranceCost,
-      price.totalPrice,
-      comments || null,
-    ]);
+    if (outcome.code === 'conflict') {
+      return fail(
+        409,
+        outcome.free > 0
+          ? `На выбранные даты свободно только ${outcome.free} шт.`
+          : 'На выбранные даты снаряжение уже занято'
+      );
+    }
 
-    const rentalId = result.rows[0].id;
+    const rentalId = outcome.rentalId;
 
-    // Клиент проката в CRM (#2325); молча для заказа.
+    // Клиент проката в CRM (#2325); молча для заказа, отказ пишет сам хук.
     await linkContactQuietly('gear_rental', rentalId);
 
-    // Партнёр и админ узнают о заявке сразу, а не когда сами зайдут в кабинет.
+    // Админ узнаёт о заявке всегда, прокат — когда позиция за ним записана.
+    // Сбой уведомления заявку не отменяет, но называется в логе (§4.0).
+    let partnerChat: { telegram_chat_id: string | null; max_chat_id: string | null } | null = null;
     if (gear.partner_id) {
-      const chat = await query<{ telegram_chat_id: string | null; max_chat_id: string | null }>(
+      partnerChat = await query<{ telegram_chat_id: string | null; max_chat_id: string | null }>(
         `SELECT telegram_chat_id, max_chat_id::text AS max_chat_id FROM partners WHERE id = $1`,
         [gear.partner_id]
-      ).catch(() => null);
-      notifyNewGearRental({
-        rentalId,
-        gearName: gear.name,
-        quantity: rental.quantity,
-        startDate: rental.startDate,
-        endDate: rental.endDate,
-        totalPrice: price.totalPrice,
-        customerName: customer.name,
-        customerPhone: customer.phone,
-        partnerChatId: chat?.rows[0]?.telegram_chat_id ?? null,
-        partnerMaxChatId: chat?.rows[0]?.max_chat_id ?? null,
-      }).catch(() => {});
+      )
+        .then((r) => r.rows[0] ?? null)
+        .catch((err: unknown) => {
+          logSwallowedFailure('gear-rentals', 'чтение адреса проката для уведомления', err);
+          return null;
+        });
     }
+    notifyNewGearRental({
+      rentalId,
+      gearName: gear.name,
+      quantity: rental.quantity,
+      startDate: rental.startDate,
+      endDate: rental.endDate,
+      totalPrice: price.totalPrice,
+      customerName: customer.name,
+      customerPhone: customer.phone,
+      partnerChatId: partnerChat?.telegram_chat_id ?? null,
+      partnerMaxChatId: partnerChat?.max_chat_id ?? null,
+    }).catch((err: unknown) => logSwallowedFailure('gear-rentals', 'уведомление о заявке', err));
 
     return NextResponse.json({
       success: true,
@@ -209,10 +268,8 @@ export async function POST(request: NextRequest) {
     } as ApiResponse<{ rentalId: string; totalPrice: number; message: string }>);
 
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Ошибка создания заявки на аренду' } as ApiResponse<null>,
-      { status: 500 }
-    );
+    logSwallowedFailure('gear-rentals', 'создание заявки на аренду', error);
+    return fail(500, 'Ошибка создания заявки на аренду');
   }
 }
 
@@ -313,6 +370,7 @@ export async function GET(request: NextRequest) {
     } as ApiResponse<unknown>);
 
   } catch (error) {
+    logSwallowedFailure('gear-rentals', 'список заявок на аренду', error);
     return NextResponse.json(
       { success: false, error: 'Ошибка получения заявок на аренду' } as ApiResponse<null>,
       { status: 500 }

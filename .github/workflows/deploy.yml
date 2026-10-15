@@ -254,6 +254,13 @@ jobs:
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           # Время нашего заказа сборки (epoch); пусто — сборку не заказывали.
           ORDERED_AT: ${{ steps.ask.outputs.ordered_at }}
+          # Гейт схемы (аудит 15.10, A08): warn — отказ наката называется
+          # ::error, но запись выката пишется; block — выкат не признаётся.
+          # Включается двумя шагами: пока прод ни разу не назвал
+          # migrations.state, постоянно падающая старая миграция заперла бы
+          # КАЖДЫЙ выкат и все ожидания по записи разом. block — после того,
+          # как prod-check увидит на проде migrations.state = ok.
+          MIGRATIONS_GATE: warn
         run: |
           # 29.07: 175477 отдавал 404. Настоящий id получен из GET /api/v1/apps
           # (name=Tourhab). Проверка статуса деплоя была мертва из-за константы.
@@ -580,6 +587,54 @@ jobs:
             commit) DEPLOYED_SHA=$(git rev-parse --verify --quiet "${SERVED}^{commit}" 2>/dev/null || true) ;;
             ordered|built_at) DEPLOYED_SHA=$(git rev-parse --verify --quiet "${EXPECTED_SHA}^{commit}" 2>/dev/null || true) ;;
           esac
+
+          # ── Схема не отстаёт от кода (аудит 15.10, A08) ────────────────
+          #
+          # start.js при отказе наката миграций сервер НЕ роняет: в цикле
+          # перезапусков легли бы SOS-мост и полевой контур, а они важнее
+          # новой фичи. Зато отказ назван в /api/health прокси:
+          # migrations.state = failed, файл и SQLSTATE. Такой выкат
+          # «доехавшим» не признаётся: код на проде, а схемы под него нет, и
+          # ожидания по записи сочли бы готовым то, что падает на первой
+          # новой колонке. Записи нет, шаг красный, причина — словами.
+          #
+          # «Не узнали» (образ до 15.10 без поля, health не ответил, unknown)
+          # — предупреждение, а не провал: запись говорит, какой коммит на
+          # проде, и это по-прежнему доказано сверкой выше. Провал — только
+          # названный отказ. Поля разделены табуляцией и пустых не бывает
+          # («-»): пустые поля read с IFS-табуляцией склеил бы.
+          if [ -n "$DEPLOYED_SHA" ]; then
+            MIG=""
+            for i in 1 2 3; do
+              curl -s --max-time 15 "https://vedarai.ru/api/health" -o /tmp/health.json || true
+              MIG=$(python3 -c "import json;m=json.load(open('/tmp/health.json')).get('migrations');print('\t'.join(str(m.get(k) or '-') for k in ('state','reason','file','sqlstate')) if isinstance(m,dict) and m.get('state') else '')" 2>/dev/null || echo "")
+              [ -z "$MIG" ] || break
+              sleep 5
+            done
+            IFS=$'\t' read -r MIG_STATE MIG_REASON MIG_FILE MIG_SQLSTATE <<< "${MIG:--}"
+            [ "${MIG_FILE:--}" != "-" ] || MIG_FILE="неизвестно"
+            case "$MIG_STATE" in
+              ok)
+                echo "Миграции этого образа при старте применены (migrations.state=ok)."
+                ;;
+              failed)
+                if [ "${MIGRATIONS_GATE:-warn}" = "block" ]; then
+                  echo "deployed_sha=" >> "$GITHUB_OUTPUT"
+                  echo "confirmed_by=migrations_failed" >> "$GITHUB_OUTPUT"
+                  echo "::error::Выкат ${DEPLOYED_SHA:0:7} не признан: при старте контейнера накат миграций не завершён (reason=$MIG_REASON, файл $MIG_FILE, SQLSTATE $MIG_SQLSTATE). Сервер работает на прежней схеме — код этого коммита ждёт колонок, которых нет. Запись выката не пишется. Текст ошибки — в логе сборки Timeweb и в _migration_failures (/hub/admin/migrations); починка — миграцией вперёд и новым выкатом."
+                  exit 1
+                fi
+                echo "::error::Схема отстаёт от кода на выкате ${DEPLOYED_SHA:0:7}: при старте контейнера накат миграций не завершён (reason=$MIG_REASON, файл $MIG_FILE, SQLSTATE $MIG_SQLSTATE). Запись выката пишется: гейт в режиме warn до первого замера migrations.state на проде (MIGRATIONS_GATE: block — запрет). Текст ошибки — в логе сборки Timeweb и в _migration_failures (/hub/admin/migrations)."
+                ;;
+              unknown)
+                echo "::warning::Исход наката миграций на проде неизвестен (migrations.state=unknown, reason=$MIG_REASON): отстаёт ли схема, start.js не узнал. Запись выката пишется — коммит на проде доказан сверкой; схему проверит health-крон."
+                ;;
+              *)
+                echo "::warning::НЕ СМОГЛИ УЗНАТЬ исход наката миграций: /api/health не назвал migrations.state (образ до 15.10 или health не ответил). Это «не знаю», а не «ok»; запись выката пишется — коммит на проде доказан сверкой."
+                ;;
+            esac
+          fi
+
           echo "deployed_sha=$DEPLOYED_SHA" >> "$GITHUB_OUTPUT"
           echo "confirmed_by=${SERVED_OK:-none}" >> "$GITHUB_OUTPUT"
 

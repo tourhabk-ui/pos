@@ -65,6 +65,10 @@ const CONSENT_HOMES: Record<string, { fields: string[]; note: string }> = {
     fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
     note: 'миграция 1206, седьмая копия — типы как у 911. Заявка хозяину жилья без своей брони (форма карточки, 10.10): телефон гостя уходит хозяину в MAX, согласие — вариант «владельцу жилья» (PD_CONSENT_STAY_VERSION), в той же вставке, NOT NULL',
   },
+  gear_rentals: {
+    fields: ['pd_consent_at', 'pd_consent_ip', 'pd_consent_source', 'pd_consent_version'],
+    note: 'миграция 1284, восьмая копия — типы как у 911. Заявка на аренду снаряжения (аудит 15.10, A13): имя, телефон и почта уходят прокату, согласие — вариант «прокату снаряжения» (PD_CONSENT_GEAR_VERSION), в той же вставке. Колонки NULLABLE: у заявок до 15.10 согласия не спрашивали, и «не записано» ≠ «отказано»',
+  },
 };
 
 describe('где живёт согласие', () => {
@@ -136,6 +140,8 @@ const CONSENT_FORMS = [
   'app/request-status/_RequestStatusClient.tsx',
   // Заявка на машину со страницы перевозчика (13.10): шлёт СОСТОЯНИЕ галочки.
   'components/transfers/CharterRequestForm.tsx',
+  // Заявка на аренду снаряжения (15.10, A13): шлёт СОСТОЯНИЕ галочки «прокату».
+  'components/gear/GearBookingForm.tsx',
 ];
 
 /**
@@ -209,6 +215,7 @@ const CONSENT_ENDPOINTS = [
   'app/api/accommodations/[id]/request/route.ts',
   'app/api/requests/consent/route.ts',
   'app/api/charter-requests/route.ts',
+  'app/api/gear/rentals/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

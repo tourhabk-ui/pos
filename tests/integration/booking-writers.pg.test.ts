@@ -14,6 +14,12 @@
  * на троих 03.08 (третий день холда) гейт обязан отклонить, а на двоих —
  * пропустить. До 15.10 холд писался однодневным, и 02–03.08 были «свободны».
  *
+ * Вторая дверь в этом файле — заявка на аренду снаряжения (аудит 15.10,
+ * находка A13): пик занятости и вставка под одной блокировкой, заявка без
+ * ответа держит единицу 48 часов, не больше трёх открытых заявок у человека,
+ * согласие «прокату» в той же строке. Мок судит порядок вызовов, а 48 часов,
+ * приведения типов и настоящую гонку двух соединений — только сервер.
+ *
  * Своя база `booking_writers_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -23,6 +29,22 @@ import { createTestDatabase } from '../helpers/pg-schema';
 
 // Уведомления реселлеров по вебхукам — наружу; здесь проверяется запись.
 vi.mock('@/lib/octo/webhooks', () => ({ notifyOctoWebhooks: vi.fn(async () => undefined) }));
+// Уведомление о заявке на аренду — тоже наружу (MAX/Telegram).
+vi.mock('@/lib/notifications/gear-rental', () => ({ notifyNewGearRental: vi.fn(async () => undefined) }));
+// Кто вошёл — заголовок теста: дверь проката под входом, и подпись JWT здесь не
+// предмет проверки. Остальной модуль — настоящий.
+vi.mock('@/lib/auth/middleware', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/auth/middleware')>();
+  const { NextResponse } = await import('next/server');
+  return {
+    ...real,
+    requireAuth: async (req: Request) => {
+      const user = req.headers.get('x-test-user');
+      if (!user) return NextResponse.json({ success: false, error: 'Требуется аутентификация' }, { status: 401 });
+      return { userId: user, email: `${user}@test.local`, role: req.headers.get('x-test-role') ?? 'tourist' };
+    },
+  };
+});
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -252,5 +274,154 @@ withPg('общая вставка и гейт брони на настоящем
          FROM operator_bookings b WHERE b.availability_id = 'avail-2026-08-04'`,
     );
     expect(back.rows).toEqual([{ end_date: '2026-08-06', duration_days: 3, logs: '1' }]);
+  });
+
+  describe('дверь проката (аудит 15.10, A13)', () => {
+    const users: Record<string, string> = {};
+    let partnerUser = '';
+    let gearPartner = '';
+
+    async function addUser(key: string, role = 'tourist'): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role)
+         VALUES ($1, $2, 'x', $3) RETURNING id::text AS id`,
+        [`${key}@gear.test`, key, role],
+      );
+      return r.rows[0]!.id;
+    }
+
+    async function addGear(name: string, quantity: number): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO gear_items (partner_id, name, category, price_per_day, quantity, available_quantity,
+                                 is_active, moderation_status)
+         VALUES ($1, $2, 'tent', 500, $3, $3, TRUE, 'approved') RETURNING id::text AS id`,
+        [gearPartner, name, quantity],
+      );
+      return r.rows[0]!.id;
+    }
+
+    /** Заявка, записанная прямо в базу: чужая или старая — с нужным возрастом. */
+    async function seedRental(gearId: string, userId: string | null, ageHours: number,
+                              start = '2099-08-01', end = '2099-08-04', status = 'pending'): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO gear_rentals (gear_id, user_id, customer_name, customer_email, customer_phone,
+                                   start_date, end_date, quantity, days_count, base_price, total_price,
+                                   status, created_at)
+         VALUES ($1, $2, 'Сосед', 's@x.ru', '+79990000000', $3, $4, 1, 3, 1500, 1500, $5,
+                 NOW() - make_interval(hours => $6::int))
+         RETURNING id::text AS id`,
+        [gearId, userId, start, end, status, ageHours],
+      );
+      return r.rows[0]!.id;
+    }
+
+    async function rent(user: string, gearId: string, start = '2099-08-01', end = '2099-08-04') {
+      const { POST } = await import('@/app/api/gear/rentals/route');
+      return POST(new Request('http://l/api/gear/rentals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-test-user': user },
+        body: JSON.stringify({
+          gearId,
+          customer: { name: 'Иван Петров', email: 'ivan@x.ru', phone: '+79990001122' },
+          rental: { startDate: start, endDate: end, quantity: 1 },
+          pd_consent: true,
+        }),
+      }) as unknown as import('next/server').NextRequest);
+    }
+
+    beforeAll(async () => {
+      for (const k of ['ana', 'boris', 'vera', 'gleb', 'dina']) users[k] = await addUser(`gear-${k}`);
+      partnerUser = await addUser('gear-owner', 'gear');
+      const p = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+         VALUES ('Прокат', 'gear', '{}', TRUE, TRUE, 'gear-writers', $1) RETURNING id::text AS id`,
+        [partnerUser],
+      );
+      gearPartner = p.rows[0]!.id;
+    });
+
+    it('две одновременные заявки на последнюю единицу: одна проходит, вторая — 409', async () => {
+      const gearId = await addGear('Последняя палатка', 1);
+      const [a, b] = await Promise.all([rent(users.ana!, gearId), rent(users.boris!, gearId)]);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      const rows = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM gear_rentals WHERE gear_id = $1`, [gearId],
+      );
+      expect(rows.rows[0]!.n).toBe(1);
+    });
+
+    it('строка знает человека и согласие «прокату» — одной вставкой', async () => {
+      const gearId = await addGear('Горелка', 2);
+      const res = await rent(users.vera!, gearId);
+      expect(res.status).toBe(200);
+      const id = (await res.json()).data.rentalId as string;
+      const row = await pool.query(
+        `SELECT user_id::text AS user_id, pd_consent_at IS NOT NULL AS has_at, pd_consent_ip,
+                pd_consent_source, pd_consent_version
+           FROM gear_rentals WHERE id = $1`, [id],
+      );
+      expect(row.rows[0]).toMatchObject({
+        user_id: users.vera, has_at: true, pd_consent_source: 'gear-page', pd_consent_version: '2026-10-15-gear',
+      });
+      expect(String(row.rows[0]!.pd_consent_ip).length).toBeGreaterThan(0);
+    });
+
+    it('заявка без ответа держит единицу 48 часов: моложе — занято, старше — свободно', async () => {
+      const fresh = await addGear('Спальник (свежая заявка)', 1);
+      await seedRental(fresh, null, 47);
+      expect((await rent(users.gleb!, fresh)).status).toBe(409);
+
+      const stale = await addGear('Спальник (заявка старше срока)', 1);
+      await seedRental(stale, null, 49);
+      expect((await rent(users.gleb!, stale)).status).toBe(200);
+
+      // Подтверждённая держит всегда, сколько бы ей ни было.
+      const kept = await addGear('Спальник (подтверждён давно)', 1);
+      await seedRental(kept, null, 500, '2099-08-01', '2099-08-04', 'confirmed');
+      expect((await rent(users.gleb!, kept)).status).toBe(409);
+    });
+
+    it('каталог по датам судит той же формулой: старше срока — позиция видна, свежая заявка и подтверждённая — нет', async () => {
+      const free = await addGear('Коврик (заявка старше срока)', 1);
+      await seedRental(free, null, 49);
+      const { findAvailableGear } = await import('@/lib/auth/gear-helpers');
+      const listed = await findAvailableGear(undefined, '2099-08-01', '2099-08-04');
+      const names = listed.map((g) => String(g.name));
+      // Положительная улика первой: каталог глотает отказ базы в [] — без неё
+      // «не видно» прошло бы и на упавшем запросе.
+      expect(names).toContain('Коврик (заявка старше срока)');
+      expect(names).not.toContain('Спальник (свежая заявка)');
+      expect(names).not.toContain('Спальник (подтверждён давно)');
+    });
+
+    it('потолок: три открытые заявки — 429; заявка старше 48 часов не считается', async () => {
+      const big = await addGear('Палатки оптом', 20);
+      await seedRental(big, users.dina!, 1, '2099-09-01', '2099-09-02');
+      await seedRental(big, users.dina!, 2, '2099-09-03', '2099-09-04');
+      await seedRental(big, users.dina!, 49, '2099-09-05', '2099-09-06');
+      expect((await rent(users.dina!, big)).status).toBe(200);
+      const fourth = await rent(users.dina!, big, '2099-10-01', '2099-10-02');
+      expect(fourth.status).toBe(429);
+      const n = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM gear_rentals WHERE user_id = $1`, [users.dina],
+      );
+      expect(n.rows[0]!.n).toBe(4);
+    });
+
+    it('подтверждение заявки старше срока при занятой единице — 409, статус прежний', async () => {
+      const gearId = await addGear('Котелок', 1);
+      const old = await seedRental(gearId, null, 60);
+      // За 60 часов единицу взяли и подтвердили.
+      await seedRental(gearId, null, 1, '2099-08-02', '2099-08-05', 'confirmed');
+      const { PATCH } = await import('@/app/api/gear/rentals/[id]/route');
+      const res = await PATCH(new Request(`http://l/api/gear/rentals/${old}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-test-user': partnerUser, 'x-test-role': 'gear' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      }) as unknown as import('next/server').NextRequest, { params: Promise.resolve({ id: old }) });
+      expect(res.status).toBe(409);
+      const st = await pool.query<{ status: string }>(`SELECT status FROM gear_rentals WHERE id = $1`, [old]);
+      expect(st.rows[0]!.status).toBe('pending');
+    });
   });
 });

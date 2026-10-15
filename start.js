@@ -120,7 +120,9 @@ function createNextSupervisor({ spawnChild, setTimer, clearTimer, now, log, onSt
 // </nextSupervisor>
 
 const nextSupervisor = createNextSupervisor({
-  spawnChild: () => spawn('node', ['server.js'], { env: { ...process.env, PORT: '3001', HOSTNAME: '127.0.0.1' }, stdio: 'inherit', cwd: __dirname }),
+  // MIGRATIONS_STARTUP_STATE — исход наката для /api/cron/health (A08): Next
+  // запускается после наката, и перезапуски несут то же состояние.
+  spawnChild: () => spawn('node', ['server.js'], { env: { ...process.env, PORT: '3001', HOSTNAME: '127.0.0.1', MIGRATIONS_STARTUP_STATE: JSON.stringify(migrationsState) }, stdio: 'inherit', cwd: __dirname }),
   setTimer: setTimeout,
   clearTimer: clearTimeout,
   now: Date.now,
@@ -139,9 +141,10 @@ const proxy = http.createServer((req, res) => {
   if (['/api/health','/api/ready','/health','/ready'].includes(req.url)) {
     // Отвечает прокси, а не Next: пока Next запускается, тот молчит. Но ответ
     // называет состояние Next, а uptime_s — время с запуска контейнера.
+    // migrations — исход наката при старте (A08); на код ответа не влияет.
     const h = nextSupervisor.health();
     res.writeHead(h.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ ...h.body, uptime_s: Math.round(process.uptime()) }));
+    res.end(JSON.stringify({ ...h.body, uptime_s: Math.round(process.uptime()), migrations: migrationsState }));
     return;
   }
   // Next.js 15.5.16 DNS-rebinding check compares incoming Host header against HOSTNAME.
@@ -174,31 +177,154 @@ const proxy = http.createServer((req, res) => {
 });
 proxy.listen(PORT, '0.0.0.0', () => console.log('[proxy] listening'));
 
-// Run DB migrations before starting Next.js (non-blocking on failure)
-const { execFileSync } = require('child_process');
-try {
-  execFileSync('node', ['scripts/migrate-standalone.js'], {
-    env: process.env, stdio: 'inherit', cwd: __dirname, timeout: 60000,
-  });
-} catch (e) {
-  // ДОЛГ, записанный 08.09 при разборе #1717 — не чинится здесь намеренно.
-  //
-  // Порядок «миграция до server.js» соблюдён, но защёлки нет: упавшая
-  // миграция НЕ останавливает старт, и контейнер поднимается с новым кодом
-  // на старой схеме. Раньше это стоило молчащей фичи. С миграцией 943 цена
-  // выросла: без колонки operator_bookings.access_token ломается СОЗДАНИЕ
-  // брони (`RETURNING access_token`), то есть путь до денег.
-  //
-  // Три выхода, решает владелец: падать при отказе migrate; отвечать 503 на
-  // readiness, пока схема отстаёт; либо оставить как есть и ловить пробой
-  // после выката (сейчас так — .github/triggers/probe-url.json различает
-  // 404 «ключ не подошёл» и 503 «проверка не смогла выполниться»).
-  //
-  // Пока выхода нет, «миграция до старта» даёт ЛОЖНОЕ чувство защёлки, и
-  // эта строка существует, чтобы следующий читатель не принял её за неё.
-  console.error('[migrate] error during startup migration (continuing):', e.message);
+// ── Накат миграций до старта Next (аудит 15.10, A08 — ответ на вопрос 8) ──
+//
+// Долг 08.09 (#1717): упавшая миграция старт не останавливала, контейнер
+// поднимался с новым кодом на старой схеме, а catch писал «(continuing)» в лог
+// выката, который никто не читает. Цена росла: с 943 без колонки
+// operator_bookings.access_token ломается СОЗДАНИЕ брони.
+//
+// Выходов было три: падать, отвечать 503 на readiness, работать громко.
+// Выбран третий. Упади процесс или проверка готовности — в цикле перезапусков
+// лягут SOS-мост, сейсмо-ингест и офлайн-пакеты поля (SAFETY_JOBS ниже), а
+// они важнее новой фичи, которой нужна колонка. Поэтому сервер стартует, но
+// отказ называется везде, где его прочтут:
+//  - /api/health этого прокси отдаёт migrations: ok | failed | unknown, имя
+//    файла и SQLSTATE — без текста ошибки: сообщение PostgreSQL умеет
+//    цитировать значения, а значением бывает телефон туриста. Код ответа
+//    по-прежнему судит только Next (иначе Timeweb снял бы контейнер);
+//  - Next получает то же состояние в env MIGRATIONS_STARTUP_STATE, и крон
+//    /api/cron/health будит владельца CRIT-ом, пока контейнер так живёт;
+//  - сверка deploy.yml не пишет запись выката образу с failed.
+// Раннер ничего о себе не сообщил — «неизвестно», а не «ok» (§4.0).
+// Сторож — tests/unit/start-migrations-state.test.ts: правило на граничных
+// данных и настоящий start.js с подставным раннером.
+// <migrationsState>
+const MIGRATE_TIMEOUT_DEFAULT_MS = 60000;
+// Пределы — не вкус. execFileSync держит цикл событий, и прокси на время
+// наката не отвечает даже на /api/health, а проверка здоровья Timeweb ждёт
+// выката не дольше трёх минут (Dockerfile). Накат дольше 150 с сам уронил бы
+// выкат; меньше секунды — опечатка, а не намерение.
+const MIGRATE_TIMEOUT_MIN_MS = 1000;
+const MIGRATE_TIMEOUT_MAX_MS = 150000;
+
+/** Таймаут наката из env: пусто — умолчание; мусор — умолчание и строка в лог. */
+function migrateTimeoutMs(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return { ms: MIGRATE_TIMEOUT_DEFAULT_MS, warning: null };
+  const text = String(raw).trim();
+  const n = Number(text);
+  if (/^\d+$/.test(text) && n >= MIGRATE_TIMEOUT_MIN_MS && n <= MIGRATE_TIMEOUT_MAX_MS) return { ms: n, warning: null };
+  return {
+    ms: MIGRATE_TIMEOUT_DEFAULT_MS,
+    warning: `MIGRATE_TIMEOUT_MS «${text.slice(0, 40)}» — не целое число миллисекунд от ${MIGRATE_TIMEOUT_MIN_MS} до ${MIGRATE_TIMEOUT_MAX_MS}; беру ${MIGRATE_TIMEOUT_DEFAULT_MS}`,
+  };
 }
 
+// Отчёт раннера уходит в открытый /api/health — каждое поле проходит форму:
+// имя файла миграции и SQLSTATE, ничего больше.
+const MIGRATION_FILE_RE = /^[A-Za-z0-9_.-]{1,200}\.sql$/;
+const SQLSTATE_RE = /^(?:[0-9][0-9A-Z]|XX|P0|HV|F0)[0-9A-Z]{3}$/;
+const cleanFile = (v) => (typeof v === 'string' && MIGRATION_FILE_RE.test(v) ? v : null);
+const cleanSqlstate = (v) => (typeof v === 'string' && SQLSTATE_RE.test(v) ? v : null);
+
+/**
+ * Исход наката. exec — как кончился раннер: null — кодом 0, иначе
+ * { timedOut, status, signal }; report — что раннер записал о себе
+ * (scripts/migrate-standalone.js, MIGRATE_STATE_FILE) или null.
+ */
+function migrationsOutcome(exec, report, at) {
+  const r = report && typeof report === 'object' && !Array.isArray(report) ? report : null;
+  const phase = r ? r.phase : null;
+  const failed = r && Array.isArray(r.failed) ? r.failed.filter((f) => f && typeof f === 'object') : [];
+  const first = failed[0] || null;
+  const out = { state: 'unknown', reason: 'no_report', file: null, sqlstate: null, failed_count: null, at };
+  if (exec) {
+    // Раннер оборван или упал сам. Файл — тот, на котором он стоял, иначе
+    // первый упавший; не известен — null, и это «неизвестно какой», а не «никакой».
+    const signal = typeof exec.signal === 'string' && /^[A-Z0-9]+$/.test(exec.signal) ? exec.signal : null;
+    const reason = exec.timedOut ? 'timeout'
+      : Number.isInteger(exec.status) ? `exit_${exec.status}`
+      : signal ? `signal_${signal}` : 'spawn_failed';
+    return {
+      ...out,
+      state: 'failed',
+      reason,
+      file: phase === 'running' ? cleanFile(r.file) : first ? cleanFile(first.file) : null,
+      sqlstate: phase === 'fatal' ? cleanSqlstate(r.sqlstate) : first ? cleanSqlstate(first.sqlstate) : null,
+      failed_count: failed.length > 0 ? failed.length : null,
+    };
+  }
+  if (phase === 'done') {
+    if (!Number.isInteger(r.errors) || r.errors < 0) return { ...out, reason: 'report_malformed' };
+    if (r.errors === 0) return { ...out, state: 'ok', reason: 'applied', failed_count: 0 };
+    return { ...out, state: 'failed', reason: 'file_failed', file: first ? cleanFile(first.file) : null, sqlstate: first ? cleanSqlstate(first.sqlstate) : null, failed_count: r.errors };
+  }
+  // Раннер не дошёл до базы — до файлов не дошло, и отстаёт ли схема, не
+  // известно: неприменённых миграций могло не быть вовсе. Это «не знаю», а не
+  // «схема отстаёт» (§4.0; ревью A08): иначе выкат без единой новой миграции
+  // назывался бы отстающим, а тревога — ложной.
+  if (phase === 'fatal') return { ...out, state: 'unknown', reason: 'fatal', sqlstate: cleanSqlstate(r.sqlstate) };
+  // Вышел кодом 0, а последнее слово — «начинаю файл»: до итога не дошёл.
+  if (phase === 'running') return { ...out, state: 'failed', reason: 'interrupted', file: cleanFile(r.file) };
+  if (phase === 'skipped') return { ...out, reason: r.reason === 'no_database_url' ? 'no_database_url' : 'skipped' };
+  return out;
+}
+// </migrationsState>
+
+// Пока накат не кончился, состояние не известно (ответить в это время прокси
+// всё равно не может — см. пределы таймаута выше).
+let migrationsState = { state: 'unknown', reason: 'not_finished', file: null, sqlstate: null, failed_count: null, at: null };
+
+function runStartupMigrations() {
+  const { execFileSync } = require('child_process');
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const timeout = migrateTimeoutMs(process.env.MIGRATE_TIMEOUT_MS);
+  if (timeout.warning) console.error(`[migrate] ${timeout.warning}`);
+  const stateFile = path.join(os.tmpdir(), `vedar-migrate-state-${process.pid}.json`);
+  // Чужой отчёт прошлого процесса с тем же pid за свой не сходит.
+  const removeStateFile = () => {
+    try {
+      fs.rmSync(stateFile, { force: true });
+    } catch (e) {
+      console.error(`[migrate] файл отчёта раннера не удалён (${e.code || e.name})`);
+    }
+  };
+  removeStateFile();
+  let exec = null;
+  try {
+    execFileSync('node', ['scripts/migrate-standalone.js'], {
+      env: { ...process.env, MIGRATE_STATE_FILE: stateFile }, stdio: 'inherit', cwd: __dirname, timeout: timeout.ms,
+    });
+  } catch (e) {
+    exec = { timedOut: e.code === 'ETIMEDOUT', status: typeof e.status === 'number' ? e.status : null, signal: e.signal || null };
+  }
+  let report = null;
+  try {
+    report = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  } catch (e) {
+    // Нет файла — раннер о себе не сообщил (исход «неизвестно» скажет сам).
+    // Есть, но не читается — назвать, иначе «неизвестно» без причины.
+    if (e.code !== 'ENOENT') console.error(`[migrate] отчёт раннера не прочитан (${e.code || e.name})`);
+  }
+  removeStateFile();
+  const s = migrationsOutcome(exec, report, new Date().toISOString());
+  if (s.state === 'failed') {
+    console.error(`[migrate] НАКАТ НЕ ЗАВЕРШЁН (${s.reason}${exec && exec.timedOut ? `, таймаут ${timeout.ms} мс` : ''}): файл ${s.file || 'неизвестно'}${s.sqlstate ? `, SQLSTATE ${s.sqlstate}` : ''}. Сервер стартует на прежней схеме; /api/health отдаёт migrations.state=failed.`);
+  } else if (s.state === 'unknown') {
+    console.error(`[migrate] исход наката неизвестен (${s.reason}); /api/health отдаёт migrations.state=unknown.`);
+  }
+  return s;
+}
+
+try {
+  migrationsState = runStartupMigrations();
+} catch (e) {
+  // Сломался учёт, а не накат: старт Next он задержать не вправе.
+  migrationsState = { ...migrationsState, reason: 'state_error', at: new Date().toISOString() };
+  console.error(`[migrate] исход наката не установлен — сбой учёта в start.js (${e && e.name})`);
+}
 nextSupervisor.start();
 
 // ── Остановка контейнера ─────────────────────────────────────────────────
