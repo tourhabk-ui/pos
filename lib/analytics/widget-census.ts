@@ -47,10 +47,21 @@
 import { lookup } from 'node:dns/promises';
 import {
   classifyWidgetHost, normalizeWidgetHost,
-  type WidgetHostCheck, type WidgetKind,
+  type WidgetKind,
 } from '@/lib/embed/widget-origin';
 import { isPrivateAddress } from '@/lib/security/site-audit';
 import { decodeHtmlEntities } from '@/lib/html/entities';
+import type {
+  FailedMeasure, PartnerTelemetry, PartnerWidgetReport, SiteProbe,
+  WidgetChatPseudoLeads, WidgetChatSessions, WidgetFormLeads,
+} from '@/lib/analytics/widget-census-types';
+
+// Типы отчёта живут в модуле без серверных зависимостей: их читают экраны в
+// браузере, а этот модуль тянет node:dns/promises (аудит 15.10, WID-screens).
+export type {
+  FailedMeasure, PartnerTelemetry, PartnerWidgetReport, SiteProbe, SiteProbeOutcome, TelemetryByHost,
+  WidgetChatPseudoLeads, WidgetChatSessions, WidgetFormLeads,
+} from '@/lib/analytics/widget-census-types';
 
 export const TELEMETRY_DAYS = 30;
 /** Таймаут пробы одного сайта. */
@@ -193,59 +204,20 @@ export const CHAT_PSEUDO_LEADS_SQL = `
 
 interface PartnerRow { id: string; slug: string | null; name: string; widget_domains: string[] }
 interface TelemetryRow { partner_id: string; host: string | null; widget: WidgetKind; served: number | null; opened: number; last_day: string }
-interface ChatRow {
-  partner_id: string; sessions_30d: number; sessions_90d: number;
-  user_messages_30d: number; user_messages_90d: number;
-  listed_90d: number; unlisted_90d: number; not_sent_90d: number; origin_not_recorded_90d: number;
-  last_at: string | null;
-}
-interface FormRow {
-  partner_id: string; leads_30d: number; leads_90d: number; self_90d: number;
-  listed_90d: number; unlisted_90d: number; not_sent_90d: number; origin_not_recorded_90d: number;
-  last_at: string | null;
-}
-interface PseudoRow { partner_id: string; pseudo_30d: number; pseudo_90d: number; handed_to_other_operators_90d: number }
-
-export interface TelemetryByHost {
-  host: string | null;
-  host_check: WidgetHostCheck;
-  widget: WidgetKind;
-  /** У чата null: embed.js — статика, выдачу сервер не видит. */
-  served: number | null;
-  opened: number;
-  last_day: string;
-}
-
-export interface PartnerTelemetry {
-  form: { served: number; opened: number };
-  chat: { served: null; opened: number };
-  by_host: TelemetryByHost[];
-}
-
-export type SiteProbeOutcome = 'found' | 'not_found' | 'could_not_check';
-
-export interface SiteProbe {
-  domain: string;
-  url: string | null;
-  outcome: SiteProbeOutcome;
-  /** Какие наши скрипты найдены на главной. */
-  scripts: WidgetKind[];
-  http_status: number | null;
-  reason: string | null;
-}
+interface ChatRow extends WidgetChatSessions { partner_id: string }
+interface FormRow extends WidgetFormLeads { partner_id: string }
+interface PseudoRow extends WidgetChatPseudoLeads { partner_id: string }
 
 export interface PartnerCensus {
   slug: string | null;
   name: string;
   widget_domains: string[];
   telemetry_30d: PartnerTelemetry | null;
-  chat_sessions: Omit<ChatRow, 'partner_id'> | null;
-  form_leads: Omit<FormRow, 'partner_id'> | null;
-  chat_pseudo_leads: Omit<PseudoRow, 'partner_id'> | null;
+  chat_sessions: WidgetChatSessions | null;
+  form_leads: WidgetFormLeads | null;
+  chat_pseudo_leads: WidgetChatPseudoLeads | null;
   site_probe?: SiteProbe[];
 }
-
-export interface FailedMeasure { measure: string; sqlstate: string }
 
 export interface WidgetCensusReport {
   window: { telemetry_days: number; activity_days: [number, number] };
@@ -702,28 +674,6 @@ export const PARTNER_WIDGET_SQL = `
    WHERE id = $1::uuid`;
 
 interface PartnerWidgetRow extends PartnerRow { widget_enabled: boolean }
-
-/**
- * Отчёт одного партнёра (аудит 15.10, WID-screens, W7): те же четыре части,
- * что у переписи, теми же запросами. Только агрегаты — ни имён, ни телефонов
- * посетителей, ни текста разговоров.
- */
-export interface PartnerWidgetReport {
-  window: { telemetry_days: number; activity_days: [number, number] };
-  partner: { slug: string | null; name: string; widget_enabled: boolean; widget_domains: string[] };
-  telemetry_30d: PartnerTelemetry | null;
-  chat_sessions: Omit<ChatRow, 'partner_id'> | null;
-  form_leads: Omit<FormRow, 'partner_id'> | null;
-  chat_pseudo_leads: Omit<PseudoRow, 'partner_id'> | null;
-  /**
-   * Есть ли скрипт на главных. null — этим запросом сайт не опрашивался:
-   * «не проверено», а не «нет» (§4.0). Итог пробы в базе не хранится, так
-   * что свежий он только у того, кто пробу заказал.
-   */
-  site_probe: SiteProbe[] | null;
-  failed_measures: FailedMeasure[];
-  notes: string[];
-}
 
 export type PartnerWidgetOutcome =
   | { kind: 'ok'; report: PartnerWidgetReport }

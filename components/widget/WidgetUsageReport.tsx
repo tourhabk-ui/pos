@@ -12,7 +12,7 @@
  * Только агрегаты: ни имён, ни телефонов посетителей в отчёте нет.
  */
 import { AlertTriangle, Globe, Search, Loader2 } from 'lucide-react';
-import type { PartnerWidgetReport } from '@/lib/analytics/widget-census';
+import type { PartnerWidgetReport } from '@/lib/analytics/widget-census-types';
 import {
   NOT_LOADED, NOT_CHECKED, widgetReportLines, widgetHostLines, widgetSitePresence,
 } from '@/lib/embed/widget-report-view';

@@ -28,7 +28,7 @@ import { WidgetEmbedCodes } from '@/components/widget/WidgetEmbedCodes';
 import { WidgetUsageReport } from '@/components/widget/WidgetUsageReport';
 import { parsePartnerWidgetReport } from '@/lib/embed/widget-report-view';
 import { SUPPORT } from '@/lib/help/content';
-import type { PartnerWidgetReport } from '@/lib/analytics/widget-census';
+import type { PartnerWidgetReport } from '@/lib/analytics/widget-census-types';
 
 type State =
   | { kind: 'loading' }

@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { BarChart3, Loader2 } from 'lucide-react';
 import { WidgetUsageReport } from '@/components/widget/WidgetUsageReport';
 import { parsePartnerWidgetReport } from '@/lib/embed/widget-report-view';
-import type { PartnerWidgetReport } from '@/lib/analytics/widget-census';
+import type { PartnerWidgetReport } from '@/lib/analytics/widget-census-types';
 
 type State =
   | { kind: 'idle' }

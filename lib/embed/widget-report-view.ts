@@ -19,10 +19,12 @@
  * Только агрегаты: ни имён, ни телефонов посетителей здесь нет и быть не
  * может — их нет в отчёте.
  *
- * Модуль без серверных зависимостей: им пользуются экраны в браузере
- * (из переписи — только типы).
+ * Модуль без серверных зависимостей: им пользуются экраны в браузере.
+ * Типы — из lib/analytics/widget-census-types, а не из самой переписи: та
+ * тянет node:dns/promises, и сторож client-no-node-builtins судит цепочку
+ * импортов, не отличая `import type` от обычного.
  */
-import type { PartnerWidgetReport, SiteProbe, TelemetryByHost } from '@/lib/analytics/widget-census';
+import type { PartnerWidgetReport, SiteProbe, TelemetryByHost } from '@/lib/analytics/widget-census-types';
 
 // ── Разбор ответа ─────────────────────────────────────────────────────────
 
