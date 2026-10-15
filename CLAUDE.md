@@ -39,6 +39,14 @@
 `tests/unit/operators-storefront.test.tsx`, `tests/unit/operators-list-query.test.ts`,
 `tests/integration/operators-list.pg.test.ts`.
 
+**Виджет на сайте партнёра — его витрина** (аудит 15.10, WID-safety): чат
+виджета показывает только живые туры этого партнёра, чужих там нет. Заявку чат
+сам не создаёт: оставить её можно только формой, с телефоном и согласием на ПД.
+Обстановку и 112 чат отвечает теми же проверками, что Кузьмич. Список доменов
+партнёра ничего не запирает, по нему видно лишь, откуда пришёл посетитель
+(listed / unlisted / not_sent, WID-measure). Сторожа:
+`tests/unit/widget-chat-route.test.ts`, `tests/unit/widget-chat-page.test.tsx`.
+
 ## 1. СТЕК
 
 | Слой | Технология |
