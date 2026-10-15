@@ -51,6 +51,7 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { alertContextLine } from '@/lib/kuzmich/alert-lines';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { programSteps } from '@/lib/tours/describe';
 import { pickupForCard } from '@/lib/tours/pickup';
@@ -992,14 +993,7 @@ async function loadExternalAlerts(): Promise<string> {
        LIMIT 5`,
     );
     if (!rows.length) return '';
-    const LEVEL = ['', 'INFO', 'ВНИМАНИЕ', 'ОПАСНОСТЬ'];
-    const lines = rows.map(r => {
-      const level = LEVEL[Math.min(r.severity, 3)] ?? 'ПРЕДУПРЕЖДЕНИЕ';
-      const zones = r.affected_zones?.length ? ` (${r.affected_zones.join(', ')})` : '';
-      const desc = r.description ? `: ${r.description.slice(0, 150)}` : '';
-      return `[${level}] ${r.title}${zones}${desc}`;
-    });
-    return lines.join('\n');
+    return rows.map(alertContextLine).join('\n');
   } catch (err) {
     logSwallowed('внешние тревоги', err);
     // Худший ответ для тревог — тишина: её читают как «предупреждений нет».

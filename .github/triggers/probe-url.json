@@ -1,22 +1,14 @@
 {
   "timeout": 60,
-  "run": 970,
-  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. После выката 4855e56f (тревоги «юг края» и «по всему краю» — метками дальних округов по координатам): датчик — тревога Росгидромета на карточке Арки Стеллера (район «commander», до правки — ни одной), контроль — Бакланьи камни в 15 км (район «avachinsky»): если у них тревоги есть, а у Арки нет — правка не сработала; нет у обеих — тревоги истекли, проверка не вышла. Конфиг записан целиком.",
+  "run": 972,
+  "note": "15.10. ТОЛЬКО ЧТЕНИЕ. Перепись ООПТ (#60): что за два контура Командор в OpenStreetMap — r5576397 и r1962840 (оба с тегом национального парка); постройки Никольского и лежбища лежат только во втором. Теги отношений, два зеркала Overpass. Конфиг записан целиком.",
+  "ua": "KamchatourHub-OSM-Crosscheck/1.0 (+https://vedarai.ru)",
   "urls": [
-    "https://vedarai.ru/api/places/d64e3e6a-72a5-4c14-adc0-588c3824f6ae",
-    "https://vedarai.ru/api/places/ac0321fc-eae0-4919-9c7c-256bbc927a1a",
-    "https://vedarai.ru/api/places/8ed1e7c5-df06-4bae-9c48-3be6c2890aa0"
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28rel%281962840%29%3Brel%285576397%29%3B%29%3Bout%20tags%3B",
+    "https://overpass.kumi.systems/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3B%28rel%281962840%29%3Brel%285576397%29%3B%29%3Bout%20tags%3B"
   ],
-  "until": "Росгидромет",
-  "retries": 60,
-  "retryDelay": 60,
-  "grep": [
-    "Росгидромет",
-    "(юг края)",
-    "(север края)",
-    "\"activeAlerts\":[]"
-  ],
-  "around": ["activeAlerts"],
-  "aroundLines": 3,
-  "bytes": 400
+  "retries": 2,
+  "retryDelay": 20,
+  "allowStale": true,
+  "bytes": 6000
 }

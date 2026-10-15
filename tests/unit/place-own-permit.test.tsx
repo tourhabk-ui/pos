@@ -24,7 +24,7 @@ afterEach(cleanup);
 const SAFETY: SafetyData = {
   source: 'manual',
   difficultyLevel: null, altitudeM: null, altitudeDiffM: null, distanceKm: null,
-  terrainType: null, roadType: null, roadAccessibility: null, nearestMedicalKm: null,
+  terrainType: null, nearestMedicalKm: null,
   emergencyAccess: null, phoneRangerMches: null, satCommunicatorRequired: null,
   rulesRequired: null, weatherThreshold: null, hazardTypes: ['bears', 'thermal'],
   capacityPerDay: null, optimalGroupSize: null, openFromDate: null, openToDate: null,

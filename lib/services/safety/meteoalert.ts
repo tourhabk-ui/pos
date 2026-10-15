@@ -31,7 +31,7 @@
 import { query } from '@/lib/database';
 import { saveEvent, titleFingerprint, type ParseResult, type SeismicEvent } from '@/lib/services/safety/seismic-parser';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
-import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
+import { METEOALERT_REGIONS } from '@/lib/safety/alert-zones';
 
 /** Прямоугольник, которым спрашивает сам информер kammeteo.ru (весь край с запасом). */
 export const METEOALERT_URL =
@@ -44,32 +44,11 @@ export const METEOALERT_PAGE = 'https://meteoinfo.ru/warnings';
 export const METEOALERT_PREFIX = 'meteoalert';
 
 /**
- * Регионы Камчатки в ответе и наши зоны тревог.
- *
- * Границы «севера» и «юга» источник не называет. «Север» — северная зона
- * целиком. «Юг» накрывает все четыре: наша северная зона начинается с 55,5°
- * с. ш. (Ключи, Эссо, Усть-Камчатск), а где проходит граница УГМС, из ответа
- * не видно. Ошибиться в сторону лишнего жёлтого дешевле, чем потерять
- * штормовое у Ключевской группы (то же правило, что у зон МЧС: сужать молча
- * нельзя).
- *
- * Дальние округа — метками охвата по координатам места (lib/safety/krai-far.ts,
- * 15.10), как у МЧС с 09.10. Четыре зоны их не выражают, и район места решал,
- * дойдёт ли тревога:
- *   - Командоры — в «юге»: Алеутский округ не входит в бывший Корякский. Место
- *     с районом «commander» не попадало ни в одну зону, и когда 1288 вернула
- *     Арке Стеллера её район, ветер и волнение «юг края» до неё перестали
- *     доходить (проба 968) — раньше они шли через ошибочный «Авачинский»;
- *   - Корякский округ — в «севере»: места севернее KRAI_KORYAK_MIN_LAT — север
- *     при любой границе УГМС, а районы у них записаны вразнобой: Паланские
- *     пороги — «western», Паланское озеро в 4 км — «northern», и «дождь (север
- *     края)» доходил до одного из двух.
- * Ни одна зона при этом не убрана: метка только добавляет места по координате.
+ * Регионы Камчатки в ответе и наши зоны тревог — в lib/safety/alert-zones.ts
+ * (15.10): там же «весь край» МЧС. Чистый модуль без приёма и сети, чтобы
+ * читатели правила (перепись охвата) не тянули за ним этот приёмник.
  */
-export const METEOALERT_REGIONS: Readonly<Record<string, { label: string; zones: readonly string[] }>> = {
-  '95': { label: 'север края', zones: ['northern', KRAI_KORYAK_ZONE] },
-  '96': { label: 'юг края', zones: ['avachinsky', 'eastern', 'western', 'northern', KRAI_COMMANDER_ZONE] },
-};
+export { METEOALERT_REGIONS };
 
 const LEVEL: Readonly<Record<number, { word: string; meaning: string; severity: 1 | 2 | 3 }>> = {
   2: { word: 'жёлтый', meaning: 'потенциально опасно', severity: 1 },
