@@ -44,6 +44,8 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { redactPII } from '@/lib/security/pii-redact';
+import { newLoopTiming } from '@/lib/kuzmich/answer-ceiling';
+import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 
 export const dynamic = 'force-dynamic';
 
@@ -274,6 +276,10 @@ export async function POST(request: NextRequest) {
     const systemPrompt = basePrompt + geoContext + ragContext + memContext + agentInsights;
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
 
+    // Замер ответа Кузьмича туристу (аудит 15.10, A19): от начала ответа до
+    // готового текста — через агента брони, цикл или запасной вызов.
+    const answerStartedAt = Date.now();
+
     // PlatformAgent intercept: admin/operator с распознанным интентом
     let answer: string | null = null;
     if (isAuthenticated && user && (safeRole === 'admin' || safeRole === 'operator')) {
@@ -377,11 +383,12 @@ export async function POST(request: NextRequest) {
     // Журнал инструментов хода — для сверки утверждений о безопасности (#2300).
     const webToolRuns: ToolRun[] = [];
     const webProvenance: { provider?: string } = {};
+    const webTiming = newLoopTiming();
     let loopAnswered = false;
     if (!answer && safeRole === 'tourist') {
       try {
         const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
-        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance);
+        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance, webTiming);
         loopAnswered = Boolean(answer?.trim());
       } catch (err) {
         logSwallowedFailure('ai-chat', 'цикл инструментов Кузьмича', err);
@@ -442,6 +449,19 @@ export async function POST(request: NextRequest) {
     // AI-конвейер лежит и answer — фолбэк-ошибка.
     const sos = withSosBlock(answer, rawMessage);
     answer = sos.text;
+
+    if (safeRole === 'tourist') {
+      // Агент брони ходов не считает — null («не записано»), а не ноль.
+      void recordKuzmichAnswer({
+        surface: 'web',
+        elapsedMs: Date.now() - answerStartedAt,
+        turns: touristSdkAnswered ? null : webTiming.turns,
+        toolRounds: touristSdkAnswered ? null : webTiming.toolRounds,
+        path: loopAnswered ? 'tools' : touristSdkAnswered ? 'sdk' : 'single',
+        provider: loopAnswered ? (webProvenance.provider ?? null) : null,
+        ceilingHit: webTiming.ceilingHit,
+      });
+    }
 
     // Исход ответа туристу на сайте — грейдеру (аудит 15.10, P4-06, A20 (б)):
     // до этого веб-ответы не оценивались вовсе, и «Кузьмич на сайте» был

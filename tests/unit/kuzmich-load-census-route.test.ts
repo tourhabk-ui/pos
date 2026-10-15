@@ -24,6 +24,7 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
 import { GET } from '@/app/api/cron/kuzmich-load-census/route';
+import { KUZMICH_ANSWER_ACTION } from '@/lib/kuzmich/answer-ceiling';
 
 const ROUTE = readFileSync(join(process.cwd(), 'app/api/cron/kuzmich-load-census/route.ts'), 'utf-8');
 
@@ -43,7 +44,7 @@ const req = (qs = '', auth = true) => new NextRequest(
 );
 
 /** Ответы БД по признаку в SQL — порядок Promise.all не важен. */
-function mockDb(overrides: Partial<Record<'tg' | 'tgDaily' | 'web' | 'llm' | 'llmModels', unknown[] | Error>> = {}) {
+function mockDb(overrides: Partial<Record<'tg' | 'tgDaily' | 'web' | 'llm' | 'llmModels' | 'answerTime', unknown[] | Error>> = {}) {
   const pick = (key: keyof typeof overrides, def: unknown[]) => {
     const v = overrides[key];
     if (v instanceof Error) return Promise.reject(v);
@@ -55,6 +56,7 @@ function mockDb(overrides: Partial<Record<'tg' | 'tgDaily' | 'web' | 'llm' | 'll
     if (sql.includes('FROM chat_sessions')) return pick('web', []);
     if (sql.includes('FROM llm_usage_log') && sql.includes('GROUP BY route')) return pick('llmModels', []);
     if (sql.includes('FROM llm_usage_log')) return pick('llm', []);
+    if (sql.includes('FROM ai_actions_log')) return pick('answerTime', []);
     return Promise.reject(new Error(`непредусмотренный запрос: ${sql.slice(0, 60)}`));
   });
 }
@@ -172,6 +174,31 @@ describe('три исхода, а не два', () => {
     mockDb();
     expect((await (await GET(req('?days=9999'))).json()).window_days).toBe(365);
     expect((await (await GET(req('?days=abc'))).json()).window_days).toBe(30);
+  });
+});
+
+describe('время ответа Кузьмича (аудит 15.10, A19)', () => {
+  it('p50/p95 по поверхностям из замера kuzmich_answer; NULL поверхности и пути — словами', async () => {
+    mockDb({
+      answerTime: [
+        { surface: 'web', path: 'tools', answers: 40, p50_ms: 8000, p95_ms: 41000, max_ms: 61000, avg_turns: 2.1, ceiling_hits: 1 },
+        { surface: null, path: null, answers: 2, p50_ms: 3000, p95_ms: 3000, max_ms: 3000, avg_turns: null, ceiling_hits: 0 },
+      ],
+    });
+    const res = await GET(req('?days=7'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.answer_time.data[0]).toMatchObject({ surface: 'web', path: 'tools', p95_ms: 41000, ceiling_hits: 1 });
+    expect(body.answer_time.data[1]).toMatchObject({ surface: '(поверхность не записана)', path: '(путь не записан)' });
+    const call = query.mock.calls.find((c) => String(c[0]).includes('FROM ai_actions_log'));
+    expect(call![1]).toEqual([7, KUZMICH_ANSWER_ACTION]);
+  });
+
+  it('замер не прочитался — 502 и имя раздела, а не «ответы мгновенные»', async () => {
+    mockDb({ answerTime: new Error('canceling statement due to statement timeout') });
+    const res = await GET(req());
+    expect(res.status).toBe(502);
+    expect((await res.json()).refused_sections).toEqual(['answer_time']);
   });
 });
 
