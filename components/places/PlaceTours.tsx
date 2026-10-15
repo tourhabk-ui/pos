@@ -10,17 +10,42 @@ interface Props {
   tours: PlaceTour[];
 }
 
+/**
+ * Туры места — двумя списками, тем же правилом, что маршруты (15.10, §0).
+ * «К этому месту» вправе сказать только тур, чей маршрут размечен через
+ * место точкой пути. Связь рода unknown («не установлено», §4.1) этого не
+ * утверждает: тур мог стоять на маршруте, который место лишь задевает, и
+ * человек купил бы поездку, которая сюда не заезжает.
+ */
 export default function PlaceTours({ tours }: Props) {
   if (!tours.length) return null;
+  const through = tours.filter(t => t.linkKind === 'waypoint');
+  const unmarked = tours.filter(t => t.linkKind !== 'waypoint');
 
+  return (
+    <>
+      {through.length > 0 && <TourList title="Туры к этому месту" tours={through} />}
+      {unmarked.length > 0 && (
+        <TourList
+          title={through.length > 0 ? 'Ещё туры по маршрутам, связанным с местом' : 'Туры по маршрутам, связанным с местом'}
+          note="Проходит ли маршрут тура через само место, у нас не размечено — уточните у оператора."
+          tours={unmarked}
+        />
+      )}
+    </>
+  );
+}
+
+function TourList({ title, note, tours }: { title: string; note?: string; tours: PlaceTour[] }) {
   return (
     <section className="space-y-3">
       <h2
         className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2"
         style={{ fontFamily: 'var(--font-playfair)' }}
       >
-        <Compass className="w-5 h-5 text-[var(--accent)]" /> Туры к этому месту
+        <Compass className="w-5 h-5 text-[var(--accent)]" /> {title}
       </h2>
+      {note && <p className="text-xs text-[var(--text-muted)]">{note}</p>}
       <div className="space-y-2">
         {tours.map(t => (
           <div

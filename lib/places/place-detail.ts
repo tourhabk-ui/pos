@@ -22,6 +22,7 @@ import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { asCoordSource } from '@/lib/places/coord-source';
 import { descriptionWrittenByModel, type LastDescriptionWrite } from '@/lib/places/description-by-model';
 import { publicReviewerName } from '@/lib/reviews/public-name';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import type { PlacePhotoAttribution, PlacePhotoRights } from '@/components/places/types';
 
 export interface PlaceDetailResult {
@@ -281,7 +282,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     const toursResult = await query(
       `SELECT DISTINCT ON (ot.id)
          ot.id, ot.slug, ot.title, ot.base_price, ot.multi_day_count AS duration_days,
-         p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
+         p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
+         COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') AS link_kind
        FROM route_waypoints rw
        JOIN kamchatka_routes kr ON kr.id = rw.route_id
        JOIN operator_tours ot ON ot.route_id = kr.id
@@ -292,8 +294,13 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
          -- месту в 15 км от центра своего маршрута.
          AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-         AND ot.is_active = true AND ot.is_published = true
-       ORDER BY ot.id, ot.base_price ASC
+         -- Шлюз витрины, а не копия флагов (15.10): копия не смотрела
+         -- deleted_at, и удалённый тур оставался в списке.
+         AND ${publicTourSql('ot')}
+       -- Род связи — до экрана (15.10, §0): «к этому месту» вправе сказать
+       -- только размеченная точка пути; если тур связан с местом двумя
+       -- строками, побеждает она.
+       ORDER BY ot.id, (COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') = 'waypoint') DESC
        LIMIT 5`,
       [r.place_pk]
     );
@@ -532,6 +539,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           operatorName: t.operator_name as string,
           operatorSlug: t.operator_slug as string | null,
           operatorPublic: (t.operator_public as boolean | null) ?? null,
+          linkKind: t.link_kind === 'waypoint' ? 'waypoint' : 'unknown',
         })),
 
         reviewsSummary: {
