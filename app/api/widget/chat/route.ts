@@ -1,40 +1,88 @@
 /**
- * POST /api/widget/chat
- * AI chat endpoint for partner-embedded widget.
- * No auth required — validated by partner slug + domain whitelist.
+ * POST /api/widget/chat — чат виджета на сайте партнёра (окно `/widget/<slug>`).
+ * Без входа: партнёр узнаётся по slug и включённому виджету.
+ *
+ * ── Аудит 15.10, WID-safety (карт-бланш владельца 15.10) ──────────────────
+ *
+ * 1. Лид чат больше не создаёт. До 15.10 первое же сообщение становилось
+ *    «лидом» без телефона, без согласия на ПД и без адресата, и через 2 часа
+ *    крон добивки отдавал его другому оператору — вопрос с сайта партнёра
+ *    уходил конкуренту. Заявка теперь — только формой `/widget/lead-form/<slug>`
+ *    (телефон, согласие, operator_id партнёра), её открывает кнопка
+ *    «Оставить заявку» в окне чата. Записанные до 15.10 псевдолиды исключены
+ *    из добивки и счёта сторожа — lib/leads/widget-chat-pseudo.
+ * 2. Безопасность — та же дверь, что у веб-Кузьмича и A2A: ответ модели
+ *    сверяется со сводкой платформы (`guardSafetyClaims`), слова о доставке —
+ *    с тем, что отправлять было нечем (`guardDeliveryClaims`), а при признаках
+ *    ЧП в вопросе сервер ставит блок 112 (`withSosBlock`) — в том числе к
+ *    отказу модели.
+ * 3. Туры — только туры этого партнёра (lib/embed/widget-chat): виджет стоит
+ *    на его сайте, это его витрина (§0).
+ * 4. Модель — водопадом (`callAIWaterfallOrNull`, CLAUDE.md §4). Прежде первой
+ *    шла отдельная ступень OpenRouter с ожиданием 15 с — с прода она
+ *    гео-блокируется (§8), и человек ждал её отказа ни за что.
+ * 5. Пределы входа — lib/embed/widget-chat-limits; прежние реплики из браузера
+ *    идут в промпт цитатой, а не ролью помощника.
+ *
+ * Сторож: tests/unit/widget-chat-route.test.ts (вызов роута с моками пула и
+ * модели).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
-import { getModelForAgent } from '@/lib/ai/agent-models';
+import { callAIWaterfallOrNull } from '@/lib/ai/providers';
+import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { buildRAGContext } from '@/lib/ai/rag-context';
-import { createLead } from '@/lib/leads/create';
+import { getCurrentSafetyStatus, formatSafetyStatusForAgent } from '@/lib/safety/current-status';
+import { guardSafetyClaims } from '@/lib/kuzmich/safety-claim-guard';
+import { guardDeliveryClaims } from '@/lib/kuzmich/delivery-claim-guard';
+import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
+import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
+import { getPublicBaseUrl } from '@/lib/config';
+import { logText } from '@/lib/log/log-text';
+import type { ToolRun } from '@/lib/agents/eval/grounding';
+import {
+  buildWidgetSystemPrompt,
+  loadPartnerTours,
+  partnerToursBlock,
+  safetyBlock,
+  widgetUserContent,
+  WIDGET_CHAT_FAILED_TEXT,
+  type WidgetPartner,
+} from '@/lib/embed/widget-chat';
+import {
+  WIDGET_HISTORY_MAX_ITEMS,
+  WIDGET_HISTORY_TOTAL_MAX_CHARS,
+  WIDGET_MESSAGE_MAX_CHARS,
+} from '@/lib/embed/widget-chat-limits';
 
 export const dynamic = 'force-dynamic';
 
 const widgetRateLimiter = createRateLimiter({ windowMs: 60_000, max: 15 });
 
 const WidgetChatSchema = z.object({
-  partnerId: z.string().min(1, 'partnerId is required'),
-  sessionId: z.string().min(1, 'sessionId is required'),
-  message: z.string().min(1, 'message is required').max(2000),
+  partnerId: z.string().min(1, 'Не указан партнёр').max(100, 'Некорректный партнёр'),
+  sessionId: z.string().min(1, 'Не указан разговор').max(100, 'Некорректный разговор'),
+  message: z.string().trim()
+    .min(1, 'Сообщение пустое')
+    .max(WIDGET_MESSAGE_MAX_CHARS, `Сообщение длиннее ${WIDGET_MESSAGE_MAX_CHARS} знаков`),
   history: z.array(z.object({
     role: z.enum(['user', 'assistant']),
-    content: z.string(),
-  })).max(20).optional(),
+    content: z.string().max(WIDGET_MESSAGE_MAX_CHARS, `Реплика в истории длиннее ${WIDGET_MESSAGE_MAX_CHARS} знаков`),
+  }))
+    .max(WIDGET_HISTORY_MAX_ITEMS, `В истории больше ${WIDGET_HISTORY_MAX_ITEMS} реплик`)
+    .refine(
+      (h) => h.reduce((sum, t) => sum + t.content.length, 0) <= WIDGET_HISTORY_TOTAL_MAX_CHARS,
+      `История разговора длиннее ${WIDGET_HISTORY_TOTAL_MAX_CHARS} знаков`,
+    )
+    .optional(),
 });
 
-interface PartnerRow {
-  id: string;
-  name: string;
-  category: string;
-  description: string | null;
-  widget_config: Record<string, unknown>;
-  widget_domains: string[];
+interface PartnerRow extends WidgetPartner {
+  widget_domains: string[] | null;
 }
 
 function getCorsHeaders(origin: string | null, allowedDomains: string[]): Record<string, string> {
@@ -62,26 +110,6 @@ function getCorsHeaders(origin: string | null, allowedDomains: string[]): Record
   return headers;
 }
 
-function buildWidgetSystemPrompt(partner: PartnerRow): string {
-  const greeting = (partner.widget_config as Record<string, string>)?.greeting || '';
-  return `Ты - AI-помощник туристической платформы Ведар AI (Камчатка), встроенный на сайт партнёра "${partner.name}".
-Партнёр: ${partner.name} (${partner.category})${partner.description ? `. ${partner.description}` : ''}.
-${greeting ? `Приветствие: ${greeting}` : ''}
-
-Твои задачи:
-- Помогать посетителям сайта партнёра узнать о турах и маршрутах на Камчатке
-- Отвечать на вопросы о турах, ценах, сезонах, погоде
-- Предлагать подходящие маршруты и активности
-- Если посетитель заинтересован — предлагать оставить заявку
-
-Правила:
-- Отвечай на русском языке
-- Будь дружелюбным, кратким и полезным
-- Не выдумывай цены и даты — если не знаешь, предложи оставить заявку
-- Максимум 3-4 предложения в ответе
-- Упоминай партнёра "${partner.name}" уместно, но не навязчиво`;
-}
-
 export async function OPTIONS(request: NextRequest) {
   const origin = request.headers.get('origin');
   // For OPTIONS preflight, allow all widget origins
@@ -100,7 +128,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json();
+    const body: unknown = await request.json().catch(() => null);
     const parsed = WidgetChatSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -111,9 +139,8 @@ export async function POST(request: NextRequest) {
 
     const { partnerId, sessionId, message, history = [] } = parsed.data;
 
-    // Find partner by slug
     const partnerResult = await query<PartnerRow>(
-      `SELECT id, name, category, description, widget_config, widget_domains
+      `SELECT id::text AS id, name, category, description, widget_domains
        FROM partners
        WHERE slug = $1 AND widget_enabled = true
        LIMIT 1`,
@@ -123,35 +150,75 @@ export async function POST(request: NextRequest) {
     const partner = partnerResult.rows[0];
     if (!partner) {
       return NextResponse.json(
-        { success: false, error: 'Partner not found or widget not enabled' },
+        { success: false, error: 'Чат этого партнёра не найден или выключен' },
         { status: 404 }
       );
     }
 
-    // Validate origin against allowed domains
     const origin = request.headers.get('origin');
-    const corsHeaders = getCorsHeaders(origin, partner.widget_domains);
+    const corsHeaders = getCorsHeaders(origin, partner.widget_domains ?? []);
 
-    // Build AI messages
-    const systemPrompt = buildWidgetSystemPrompt(partner);
-    const ragContext = await buildRAGContext(message, 'tourist');
+    const emergency = detectEmergency(message).detected;
 
-    const messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [
-      { role: 'system' as const, content: systemPrompt + ragContext },
-      ...history.slice(-10).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      { role: 'user' as const, content: message },
+    // Три источника данных порознь: отказ одного не отменяет ответ, но
+    // называется — в логе и в промпте («не загрузился», а не «нет»).
+    const [routesCtx, tours, safetyStatus] = await Promise.all([
+      buildRAGContext(message, 'tourist', undefined, { tours: false }).catch((err: unknown) => {
+        console.error('[widget-chat] контекст маршрутов не собран:', logText(err instanceof Error ? err.message : err, 200));
+        return '';
+      }),
+      emergency ? Promise.resolve(null) : loadPartnerTours(partner.id),
+      getCurrentSafetyStatus(),
+    ]);
+    const safetyText = formatSafetyStatusForAgent(safetyStatus);
+    const toolRuns: ToolRun[] = [
+      { name: 'safety_status', producedData: safetyStatus !== null, output: safetyText },
     ];
 
-    const answer = await callAIWithModelDirect(messages, getModelForAgent('kuzmich'));
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: buildWidgetSystemPrompt(partner)
+          + partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
+          + safetyBlock(safetyText)
+          + routesCtx,
+      },
+      { role: 'user', content: widgetUserContent(history, message) },
+    ];
 
-    // Save to chat_sessions (fire-and-forget)
+    const modelAnswer = await callAIWaterfallOrNull(messages);
+    const modelFailed = modelAnswer === null || !modelAnswer.trim();
+    let answer: string;
+    if (modelFailed) {
+      console.error('[widget-chat] ни одна модель не ответила', { partner: partnerId });
+      answer = WIDGET_CHAT_FAILED_TEXT;
+    } else {
+      const guard = guardSafetyClaims(modelAnswer, toolRuns);
+      if (guard.flagged.length > 0) {
+        console.error('[kuzmich-safety-claim-guard] widget: утверждение о безопасности без опоры', {
+          verdict: guard.verdict, flagged: guard.flagged.map((c) => c.phrase),
+        });
+      }
+      void recordSafetyReview('other', guard, toolRuns);
+      const delivery = guardDeliveryClaims(guard.text, toolRuns);
+      if (delivery.verdict === 'unbacked') {
+        console.error('[kuzmich-delivery-claim-guard] widget: отчёт о доставке без инструмента заявки', {
+          phrases: delivery.phrases,
+        });
+      }
+      answer = delivery.text;
+    }
+    // Блок 112 — и к ответу, и к отказу модели: человеку в беде он нужнее
+    // всего именно тогда, когда помощник не ответил.
+    const sos = withSosBlock(answer, message);
+
+    // Разговор — в chat_sessions (без ожидания ответа базы, но не молча).
     const widgetSessionId = `widget_${partnerId}_${sessionId}`;
     const allMessages = [
       ...history,
       { role: 'user', content: message },
-      { role: 'assistant', content: answer },
+      { role: 'assistant', content: sos.text },
     ];
-
     void query(
       `INSERT INTO chat_sessions (session_id, role, messages, user_message_count, is_authenticated, updated_at)
        VALUES ($1, 'tourist', $2::jsonb, $3, false, NOW())
@@ -160,25 +227,18 @@ export async function POST(request: NextRequest) {
              user_message_count = $3,
              updated_at = NOW()`,
       [widgetSessionId, JSON.stringify(allMessages.slice(-20)), allMessages.filter(m => m.role === 'user').length]
-    );
-
-    // Create lead on first message (fire-and-forget)
-    if (history.length === 0) {
-      void createLead({
-        name: `Widget: ${partnerId}`,
-        comment: message.slice(0, 500),
-        source_url: origin || partnerId,
-        source_data: { type: 'widget', partner_id: partnerId, partner_name: partner.name, domain: origin },
-        status: 'new',
-      }).catch((err) => console.error('[widget] createLead failed:', err));
-    }
+    ).catch((err: unknown) => {
+      const e = err as { code?: string; message?: string };
+      console.error('[widget-chat] разговор не сохранён:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    });
 
     return NextResponse.json(
-      { success: true, data: { answer } },
+      { success: true, data: { answer: sos.text, emergency: sos.emergency, modelFailed } },
       { headers: corsHeaders }
     );
   } catch (error: unknown) {
     const msg = safeMsg(error);
+    console.error('[widget-chat] запрос не обработан:', logText(msg, 300));
     return NextResponse.json(
       { success: false, error: 'Ошибка обработки запроса', details: msg },
       { status: 500 }

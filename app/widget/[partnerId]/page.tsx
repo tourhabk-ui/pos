@@ -1,13 +1,29 @@
 'use client';
 
+/**
+ * Окно чата виджета партнёра (iframe из public/widget/embed.js на сайте
+ * партнёра).
+ *
+ * Аудит 15.10, WID-safety:
+ *  - Заявка — только формой. Чат больше не превращает первое сообщение в
+ *    «лид» без телефона и согласия; вместо этого кнопка «Оставить заявку» (в
+ *    шапке всегда и под ответом помощника) открывает в этом же окне ту же
+ *    форму `/widget/lead-form/<slug>` — с телефоном, согласием на ПД и
+ *    адресатом-партнёром. Разговор при этом не теряется: форма живёт во
+ *    вложенном окне вместо ленты, «Закрыть» и Esc формы возвращают в чат.
+ *  - Постоянная строка «Экстренно — 112». Своей SOS-кнопки здесь нет и быть
+ *    не должно (§11: SOS — только EmergencyAction, и в /widget он не
+ *    монтируется); блок 112 при признаках ЧП ставит сервер в ответ.
+ *  - Ошибки по-русски и с тремя исходами: чат не найден или выключен (404) —
+ *    не то же, что «не загрузился» (сеть, сбой).
+ *
+ * Сторож: tests/unit/widget-chat-page.test.tsx (рендер).
+ */
+
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Send } from 'lucide-react';
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-}
+import { ArrowLeft, Send } from 'lucide-react';
+import { trimWidgetHistory, type WidgetTurn } from '@/lib/embed/widget-chat-limits';
 
 interface PartnerConfig {
   name: string;
@@ -16,86 +32,107 @@ interface PartnerConfig {
   logo: string | null;
 }
 
+type LoadState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; config: PartnerConfig }
+  | { kind: 'not_found' }
+  | { kind: 'failed' };
+
 const API_BASE = typeof window !== 'undefined'
   ? `${window.location.protocol}//${window.location.host}`
   : '';
+
+const NOT_FOUND_TEXT = 'Чат этого партнёра не найден или выключен.';
+const LOAD_FAILED_TEXT = 'Чат не загрузился — проверьте связь и обновите страницу. Экстренно — 112.';
+const SEND_FAILED_TEXT = 'Не получилось получить ответ — попробуйте ещё раз. Экстренно — 112.';
+
+/** Адрес формы заявки партнёра — та же форма, что у кнопки lead.js. */
+function leadFormPath(slug: string): string {
+  return `/widget/lead-form/${encodeURIComponent(slug)}`;
+}
 
 export default function WidgetPage() {
   const params = useParams();
   const partnerId = params.partnerId as string;
 
-  const [config, setConfig] = useState<PartnerConfig | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
+  const [messages, setMessages] = useState<WidgetTurn[]>([]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [leadOpen, setLeadOpen] = useState(false);
   const [sessionId] = useState(() => `w_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const leadFrame = useRef<HTMLIFrameElement>(null);
 
-  // Load partner config
   useEffect(() => {
     if (!partnerId) return;
-    fetch(`${API_BASE}/api/widget/partner/${partnerId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.success && data.data) {
-          setConfig(data.data);
-          setMessages([{ role: 'assistant', content: data.data.greeting }]);
+    fetch(`${API_BASE}/api/widget/partner/${encodeURIComponent(partnerId)}`)
+      .then(async (r) => {
+        if (r.status === 404) { setLoad({ kind: 'not_found' }); return; }
+        const data: unknown = await r.json();
+        const d = data as { success?: boolean; data?: PartnerConfig };
+        if (r.ok && d.success && d.data) {
+          setLoad({ kind: 'ready', config: d.data });
+          setMessages([{ role: 'assistant', content: d.data.greeting }]);
         } else {
-          setError('Partner not found');
+          setLoad({ kind: 'failed' });
         }
       })
-      .catch(() => setError('Failed to load widget'));
+      .catch(() => setLoad({ kind: 'failed' }));
   }, [partnerId]);
 
-  // Auto-scroll
   useEffect(() => {
-    messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEnd.current?.scrollIntoView?.({ behavior: 'smooth' });
   }, [messages]);
+
+  // Форма заявки сообщает о себе родителю: «Закрыть» и Esc — 'th:close'.
+  // Родитель здесь — это окно чата, а не сайт партнёра: вернуть в разговор.
+  useEffect(() => {
+    if (!leadOpen) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== leadFrame.current?.contentWindow) return;
+      if (e.data === 'th:close') setLeadOpen(false);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [leadOpen]);
 
   async function sendMessage() {
     const text = input.trim();
-    if (!text || loading || !config) return;
+    if (!text || sending || load.kind !== 'ready') return;
 
-    const userMsg: Message = { role: 'user', content: text };
-    setMessages(prev => [...prev, userMsg]);
+    // Приветствие — текст партнёра, не реплика разговора: в историю не идёт.
+    const history = trimWidgetHistory(messages.slice(1));
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
     setInput('');
-    setLoading(true);
+    setSending(true);
 
     try {
       const res = await fetch(`${API_BASE}/api/widget/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          partnerId,
-          sessionId,
-          message: text,
-          history: messages.filter(m => m.role !== 'assistant' || messages.indexOf(m) > 0),
-        }),
+        body: JSON.stringify({ partnerId, sessionId, message: text, history }),
       });
-
-      const data = await res.json();
-      if (data.success && data.data?.answer) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.data.answer }]);
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'Извините, попробуйте ещё раз.' }]);
-      }
+      const data = (await res.json()) as { success?: boolean; error?: string; data?: { answer?: string } };
+      const answer = data.success ? data.data?.answer : undefined;
+      const fallback = res.status === 400 && data.error ? `${data.error}.` : SEND_FAILED_TEXT;
+      setMessages(prev => [...prev, { role: 'assistant', content: answer ?? fallback }]);
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка соединения. Попробуйте позже.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: SEND_FAILED_TEXT }]);
     } finally {
-      setLoading(false);
+      setSending(false);
     }
   }
 
-  if (error) {
+  if (load.kind === 'not_found' || load.kind === 'failed') {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
-        {error}
+      <div role="alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: 16, textAlign: 'center', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
+        {load.kind === 'not_found' ? NOT_FOUND_TEXT : LOAD_FAILED_TEXT}
       </div>
     );
   }
 
-  if (!config) {
+  if (load.kind === 'loading') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
         Загрузка...
@@ -103,7 +140,31 @@ export default function WidgetPage() {
     );
   }
 
+  const config = load.config;
   const accent = config.accentColor || 'var(--accent)';
+  // Ответ помощника на вопрос (не приветствие) — повод предложить заявку.
+  const answered = messages.slice(1).some(m => m.role === 'assistant');
+
+  const leadButton = (
+    <button
+      type="button"
+      onClick={() => setLeadOpen(true)}
+      style={{
+        padding: '7px 12px',
+        border: 'none',
+        borderRadius: 16,
+        background: accent,
+        color: '#FFFFFF', // белый — на партнёрском акценте
+        fontSize: 12,
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      Оставить заявку
+    </button>
+  );
 
   // Цвета — DS-токены (globals.css резолвится внутри iframe с нашего домена).
   // data-theme="light" пинит светлую тему: виджет живёт на партнёрских сайтах
@@ -137,7 +198,7 @@ export default function WidgetPage() {
             style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }}
           />
         )}
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.2 }}>
             {config.name}
           </div>
@@ -145,121 +206,177 @@ export default function WidgetPage() {
             Помощник Ведар AI
           </div>
         </div>
+        {!leadOpen && leadButton}
       </div>
 
-      {/* Messages */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-      }}>
-        {messages.map((msg, i) => (
-          <div
-            key={i}
+      {leadOpen ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <button
+            type="button"
+            onClick={() => setLeadOpen(false)}
             style={{
               display: 'flex',
-              justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 16px',
+              border: 'none',
+              borderBottom: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--text-secondary)',
+              fontSize: 13,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              textAlign: 'left',
             }}
           >
-            <div style={{
-              maxWidth: '80%',
-              padding: '10px 14px',
-              borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-              background: msg.role === 'user' ? accent : 'var(--bg-card)',
-              color: msg.role === 'user' ? '#FFFFFF' : 'var(--text-primary)', // белый — на партнёрском акценте
-              fontSize: 14,
-              lineHeight: 1.5,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}>
-              {msg.content}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-            <div style={{
-              padding: '10px 14px',
-              borderRadius: '16px 16px 16px 4px',
-              background: 'var(--bg-card)',
-              fontSize: 14,
-              color: 'var(--text-muted)',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-            }}>
-              Печатает...
-            </div>
-          </div>
-        )}
-
-        <div ref={messagesEnd} />
-      </div>
-
-      {/* Input */}
-      <div style={{
-        padding: '12px 16px',
-        borderTop: '1px solid var(--border)',
-        background: 'var(--bg-card)',
-        display: 'flex',
-        gap: '8px',
-        alignItems: 'center',
-        flexShrink: 0,
-      }}>
-        <input
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-          placeholder="Напишите сообщение..."
-          disabled={loading}
-          style={{
+            <ArrowLeft size={14} aria-hidden="true" />
+            Вернуться в чат
+          </button>
+          <iframe
+            ref={leadFrame}
+            src={leadFormPath(partnerId)}
+            title={`Заявка партнёру ${config.name}`}
+            style={{ flex: 1, width: '100%', border: 'none', background: 'var(--bg-primary)' }}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Messages */}
+          <div style={{
             flex: 1,
-            padding: '10px 14px',
-            border: '1px solid var(--border)',
-            borderRadius: 20,
-            outline: 'none',
-            fontSize: 14,
-            fontFamily: 'inherit',
-            background: 'var(--bg-primary)',
-          }}
-        />
-        <button
-          type="button"
-          onClick={sendMessage}
-          disabled={loading || !input.trim()}
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: '50%',
-            border: 'none',
-            background: input.trim() ? accent : 'var(--bg-secondary)',
-            color: '#FFFFFF',
-            cursor: input.trim() ? 'pointer' : 'default',
+            overflowY: 'auto',
+            padding: '16px',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            transition: 'background 0.2s',
-          }}
-        >
-          <Send size={16} />
-        </button>
-      </div>
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <div style={{
+                  maxWidth: '80%',
+                  padding: '10px 14px',
+                  borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                  background: msg.role === 'user' ? accent : 'var(--bg-card)',
+                  color: msg.role === 'user' ? '#FFFFFF' : 'var(--text-primary)', // белый — на партнёрском акценте
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
 
-      {/* Powered by */}
+            {sending && (
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '16px 16px 16px 4px',
+                  background: 'var(--bg-card)',
+                  fontSize: 14,
+                  color: 'var(--text-muted)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                }}>
+                  Печатает...
+                </div>
+              </div>
+            )}
+
+            {answered && !sending && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Хотите, чтобы партнёр подобрал поездку и позвонил?
+                </span>
+                {leadButton}
+              </div>
+            )}
+
+            <div ref={messagesEnd} />
+          </div>
+
+          {/* Input */}
+          <div style={{
+            padding: '12px 16px',
+            borderTop: '1px solid var(--border)',
+            background: 'var(--bg-card)',
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <input
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              placeholder="Напишите сообщение..."
+              aria-label="Сообщение помощнику"
+              maxLength={2000}
+              disabled={sending}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                border: '1px solid var(--border)',
+                borderRadius: 20,
+                outline: 'none',
+                fontSize: 14,
+                fontFamily: 'inherit',
+                background: 'var(--bg-primary)',
+              }}
+            />
+            <button
+              type="button"
+              onClick={sendMessage}
+              disabled={sending || !input.trim()}
+              aria-label="Отправить"
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                border: 'none',
+                background: input.trim() ? accent : 'var(--bg-secondary)',
+                color: '#FFFFFF',
+                cursor: input.trim() ? 'pointer' : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                transition: 'background 0.2s',
+              }}
+            >
+              <Send size={16} />
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Подвал: 112 — всегда, при любом экране окна. */}
       <div style={{
-        textAlign: 'center',
-        padding: '6px',
-        fontSize: 10,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 16px',
+        fontSize: 11,
         color: 'var(--text-muted)',
         background: 'var(--bg-card)',
-        borderTop: '1px solid rgba(0,0,0,0.04)',
+        borderTop: '1px solid var(--border)',
+        flexShrink: 0,
       }}>
-        Работает на <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>Ведар AI</a>
+        <a href="tel:112" style={{ color: 'var(--danger)', fontWeight: 600, textDecoration: 'none' }}>
+          Экстренно — 112
+        </a>
+        <span>
+          Работает на <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>Ведар AI</a>
+        </span>
       </div>
     </div>
   );

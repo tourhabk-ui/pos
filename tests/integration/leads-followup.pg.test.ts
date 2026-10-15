@@ -21,7 +21,10 @@
  *   L3 — тур B, 3 часа, интерес «hiking»          → остаётся у B;
  *   L4 — без адресата, 30 минут                   → ещё рано;
  *   L5 — машина удалённого D, 3 часа              → не уходит никому (род
- *     заявки и согласие «перевозчику» — второй замок отбора).
+ *     заявки и согласие «перевозчику» — второй замок отбора);
+ *   L6 — псевдолид чата виджета (до 15.10): `Widget: mestechko`, телефона
+ *     нет, `source_data.type = 'widget'`, без адресата, 3 часа → не заявка:
+ *     ни добивке, ни счёту сторожа «лиды >2ч» (аудит 15.10, WID-safety).
  *
  * Своя база `leads_followup_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
@@ -47,7 +50,7 @@ const A_MAX_CHAT = '7000001';
 
 withPg('крон добивки лидов на настоящем PostgreSQL', () => {
   let pool: import('pg').Pool;
-  const ids = { l1: '', l2: '', l3: '', l4: '', l5: '' };
+  const ids = { l1: '', l2: '', l3: '', l4: '', l5: '', l6: '' };
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
@@ -95,6 +98,14 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     ids.l4 = await lead('Свежая без адресата', null, '30 minutes', {});
     ids.l5 = await lead('Машина удалённого', d, '3 hours', { kind: 'charter' }, PD_CONSENT_CARRIER_VERSION);
     await pool.query(`DELETE FROM partners WHERE id = $1`, [d]);
+    // Так его писал чат виджета до 15.10: createLead без телефона и согласия.
+    const pseudo = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, source_channel, created_at)
+       VALUES ('Widget: mestechko', '', 'Какие туры на вертолёте?', 'new', NULL,
+               '{"type":"widget","partner_id":"mestechko","partner_name":"Местечко Камчатка"}'::jsonb,
+               'widget', NOW() - INTERVAL '3 hours') RETURNING id::text AS id`,
+    );
+    ids.l6 = pseudo.rows[0].id;
   }, 300_000);
 
   afterAll(async () => {
@@ -139,19 +150,66 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     expect(params.text).not.toContain('Заказчик машины');
     expect(params.text).not.toContain('Заявка на тур Б');
     expect(params.text).not.toContain('Машина удалённого');
+    expect(params.text).not.toContain('Widget: mestechko');
 
     const state = await pool.query<{ id: string; status: string; notified: unknown; last_followup: string | null }>(
       `SELECT id::text AS id, status, source_data->'notified_operators' AS notified,
               source_data->>'last_followup' AS last_followup
          FROM leads WHERE id = ANY($1::uuid[]) ORDER BY name`,
-      [[ids.l1, ids.l2, ids.l3, ids.l5]],
+      [[ids.l1, ids.l2, ids.l3, ids.l5, ids.l6]],
     );
     const byId = new Map(state.rows.map((r) => [r.id, r]));
     expect(byId.get(ids.l1)?.notified).toEqual(['op-a']);
-    for (const addressed of [ids.l2, ids.l3, ids.l5]) {
+    for (const addressed of [ids.l2, ids.l3, ids.l5, ids.l6]) {
       expect(byId.get(addressed)?.status).toBe('new');
       expect(byId.get(addressed)?.notified).toBeNull();
       expect(byId.get(addressed)?.last_followup).toBeNull();
     }
   });
+
+  it('предикат псевдолида узкий: NULL в полях и настоящие заявки виджета не задевает', async () => {
+    // Отбор выполняется настоящим PostgreSQL на литеральных строках: NULL в
+    // source_data, phone или name под NOT дал бы NULL — строка выпала бы из
+    // отбора добивки и счёта сторожа молча.
+    const { WIDGET_CHAT_PSEUDO_LEAD_SQL } = await import('@/lib/leads/widget-chat-pseudo');
+    const { rows } = await pool.query<{ label: string; excluded: boolean }>(
+      `SELECT label, ${WIDGET_CHAT_PSEUDO_LEAD_SQL} AS excluded
+         FROM (VALUES
+           ('псевдолид чата',          '{"type":"widget"}'::jsonb,           ''::text,           'Widget: mestechko'::text),
+           ('псевдолид, телефон NULL', '{"type":"widget"}'::jsonb,           NULL,               'Widget: fishingkam'),
+           ('все поля NULL',           NULL::jsonb,                          NULL,               NULL),
+           ('форма виджета',           '{"source":"partner_widget"}'::jsonb, '+79990001122',     'Анна'),
+           ('тип widget с телефоном',  '{"type":"widget"}'::jsonb,           '+79990001122',     'Widget: mestechko'),
+           ('тип widget, своё имя',    '{"type":"widget"}'::jsonb,           '',                 'Анна')
+         ) AS leads(label, source_data, phone, name)`,
+    );
+    const byLabel = Object.fromEntries(rows.map((r) => [r.label, r.excluded]));
+    expect(byLabel).toEqual({
+      'псевдолид чата': true,
+      'псевдолид, телефон NULL': true,
+      'все поля NULL': false,
+      'форма виджета': false,
+      'тип widget с телефоном': false,
+      'тип widget, своё имя': false,
+    });
+  });
+
+  it('сторож «лиды >2ч» не считает псевдолид чата виджета', async () => {
+    const { UNATTENDED_LEAD_STATUSES } = await import('@/lib/types/statuses');
+    const all = await pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM leads
+        WHERE status = ANY($1::text[]) AND created_at < NOW() - INTERVAL '2 hours'`,
+      [[...UNATTENDED_LEAD_STATUSES]],
+    );
+    // Предпосылка: псевдолид в сцене есть и сам по себе попал бы в счёт.
+    const pseudo = await pool.query<{ status: string }>(`SELECT status FROM leads WHERE id = $1`, [ids.l6]);
+    expect(UNATTENDED_LEAD_STATUSES).toContain(pseudo.rows[0]?.status);
+
+    const { runWatchdog } = await import('@/lib/agents/watchdog');
+    const result = await runWatchdog();
+    const alert = result.alerts.find((a) => a.type === 'unprocessed_lead');
+    expect(alert?.count).toBe(all.rows[0].n - 1);
+    // Проверка выполнилась, а не упала: «не смог» здесь — не «хорошо».
+    expect(result.checks.failed.map((f) => f.check)).not.toContain('checkUnprocessedLeads');
+  }, 120_000);
 });
