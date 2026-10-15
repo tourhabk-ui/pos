@@ -23,8 +23,8 @@ export async function GET(request: NextRequest) {
   const { page, limit } = parsed.data;
 
   try {
-    const { items, meta } = await queryOperators(parsed.data);
-    return NextResponse.json({ success: true, data: items, meta });
+    const { items, meta, activities } = await queryOperators(parsed.data);
+    return NextResponse.json({ success: true, data: items, meta, activities });
   } catch {
     // Исторический контракт: при недоступной БД листинг деградирует в пустой
     // список (200 + degraded), а не в 5xx — клиент показывает «не найдено».
@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
         success: true,
         data: [],
         meta: { total: 0, page, limit, pages: 0 },
+        activities: null,
         degraded: true,
       },
       { status: 200 }
